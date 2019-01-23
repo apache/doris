@@ -681,7 +681,7 @@ int64_t SegmentGroup::get_tablet_id() {
     return _tablet_id;
 }
 
-bool SegmentGroup::create_hard_links(std::vector<std::string>* success_links) {
+bool SegmentGroup::create_files_with_new_name(std::vector<std::string>* success_links) {
     for (int segment_id = 0; segment_id < _num_segments; segment_id++) {
         std::string new_data_file_name = construct_data_file_path(segment_id);
         if (!check_dir_existed(new_data_file_name)) {

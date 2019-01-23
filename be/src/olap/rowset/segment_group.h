@@ -247,7 +247,7 @@ public:
 
     int64_t get_tablet_id();
 
-    bool create_hard_links(std::vector<std::string>* success_links);
+    bool create_files_with_new_name(std::vector<std::string>* success_links);
 
     bool remove_old_files(std::vector<std::string>* removed_links);
 

@@ -127,7 +127,7 @@ RowsetSharedPtr AlphaRowsetWriter::build() {
     }
     Rowset* rowset = new AlphaRowset(_rowset_writer_context.tablet_schema,
                                      _rowset_writer_context.rowset_path_prefix,
-                                     _current_rowset_meta);
+                                     _rowset_writer_context.data_dir, _current_rowset_meta);
     rowset->init();
     return std::shared_ptr<Rowset>(rowset);
 }

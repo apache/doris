@@ -23,6 +23,7 @@
 #include "olap/rowset/alpha_rowset_reader.h"
 #include "olap/rowset/alpha_rowset_writer.h"
 #include "olap/rowset/rowset_meta.h"
+#include "olap/data_dir.h"
 
 #include <vector>
 #include <memory>
@@ -32,7 +33,7 @@ namespace doris {
 class AlphaRowset : public Rowset {
 public:
     AlphaRowset(const TabletSchema* schema, const std::string rowset_path,
-                RowsetMetaSharedPtr rowset_meta);
+                DataDir* data_dir, RowsetMetaSharedPtr rowset_meta);
 
     virtual OLAPStatus init();
 
@@ -48,7 +49,7 @@ public:
 
     virtual void set_version(Version version);
 
-    bool create_hard_links(std::vector<std::string>* success_links);
+    bool create_files_with_new_name(std::vector<std::string>* success_links);
 
     bool remove_old_files(std::vector<std::string>* removed_links);
 
@@ -91,11 +92,13 @@ private:
     const TabletSchema* _schema;
     std::string _rowset_path;
     RowsetMetaSharedPtr _rowset_meta;
+    DataDir* _data_dir;
     std::vector<std::shared_ptr<SegmentGroup>> _segment_groups;
     int _segment_group_size;
     bool _is_cumulative_rowset;
     bool _is_pending_rowset;
     atomic_t _ref_count;
+    bool _removed;
 };
 
 } // namespace doris

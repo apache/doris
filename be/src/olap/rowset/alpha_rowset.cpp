@@ -17,18 +17,22 @@
 
 #include "olap/rowset/alpha_rowset.h"
 #include "olap/rowset/alpha_rowset_meta.h"
+#include "olap/rowset/rowset_meta_manager.h"
 
 namespace doris {
 
 AlphaRowset::AlphaRowset(const TabletSchema* schema,
                          const std::string rowset_path,
+                         DataDir* data_dir,
                          RowsetMetaSharedPtr rowset_meta)
       : _schema(schema),
         _rowset_path(rowset_path),
+        _data_dir(data_dir),
         _rowset_meta(rowset_meta),
         _segment_group_size(0),
         _is_cumulative_rowset(false),
-        _is_pending_rowset(false) {
+        _is_pending_rowset(false),
+        _removed(false) {
     if (!_rowset_meta->has_version()) {
         _is_pending_rowset = true;
     }
@@ -49,6 +53,10 @@ OLAPStatus AlphaRowset::init() {
 }
 
 std::unique_ptr<RowsetReader> AlphaRowset::create_reader() {
+    if (_removed) {
+        LOG(WARNING) << "create reader failed because the rowset has been removed.";
+        return nullptr;
+    }
     return std::unique_ptr<RowsetReader>(new AlphaRowsetReader(
             _schema->num_key_columns(), _schema->num_short_key_columns(),
             _schema->num_rows_per_row_block(), _rowset_path,
@@ -60,9 +68,15 @@ OLAPStatus AlphaRowset::copy(RowsetWriter* dest_rowset_writer) {
 }
 
 OLAPStatus AlphaRowset::remove() {
-    // TODO(hkp) : add delete code
-    // delete rowset from meta
-    // delete segment groups 
+    OlapMeta* meta = _data_dir->get_meta();
+    OLAPStatus status = RowsetMetaManager::remove(meta, rowset_id());
+    if (status != OLAP_SUCCESS) {
+        LOG(WARNING) << "failed to remove meta of rowset_id:" << rowset_id();
+        return status;
+    }
+    for (auto segment_group : _segment_groups) {
+        segment_group->delete_all_files();
+    }
     return OLAP_SUCCESS;
 }
 
@@ -75,6 +89,10 @@ RowsetMetaSharedPtr AlphaRowset::rowset_meta() const {
 }
 
 void AlphaRowset::set_version(Version version) {
+    if (_removed) {
+        LOG(WARNING) << "set version failed because the rowset has been removed.";
+        return;
+    }
     _rowset_meta->set_version(version);
     // set the rowset state to VISIBLE
     _rowset_meta->set_rowset_state(VISIBLE);
@@ -117,9 +135,13 @@ int64_t AlphaRowset::start_version() const {
     return _rowset_meta->version().first;
 }
 
-bool AlphaRowset::create_hard_links(std::vector<std::string>* success_links) {
+bool AlphaRowset::create_files_with_new_name(std::vector<std::string>* success_links) {
+    if (_removed) {
+        LOG(WARNING) << "create files failed because the rowset has been removed.";
+        return false;
+    }
     for (auto segment_group : _segment_groups) {
-        bool  ret = segment_group->create_hard_links(success_links);
+        bool  ret = segment_group->create_files_with_new_name(success_links);
         if (!ret) {
             LOG(WARNING) << "create hard links failed for segment group:"
                 << segment_group->segment_group_id();
@@ -130,6 +152,10 @@ bool AlphaRowset::create_hard_links(std::vector<std::string>* success_links) {
 }
 
 bool AlphaRowset::remove_old_files(std::vector<std::string>* removed_links) {
+    if (_removed) {
+        LOG(WARNING) << "remove old files failed because the rowset has been removed.";
+        return false;
+    }
     for (auto segment_group : _segment_groups) {
         bool  ret = segment_group->remove_old_files(removed_links);
         if (!ret) {

@@ -309,17 +309,19 @@ OLAPStatus BaseCompaction::_do_base_compaction(VersionHash new_base_version_hash
     // 1. 生成新base文件对应的olap index
     RowsetId rowset_id = 0;
     RowsetIdGenerator::instance()->get_next_id(_tablet->data_dir(), &rowset_id);
-
     RowsetWriterContextBuilder context_builder;
     context_builder.set_rowset_id(rowset_id)
-                   .set_tablet_id(_tablet->tablet_id())
-                   .set_partition_id(_tablet->partition_id())
-                   .set_tablet_schema_hash(_tablet->schema_hash())
-                   .set_rowset_type(ALPHA_ROWSET)
-                   .set_rowset_path_prefix(_tablet->tablet_path())
-                   .set_tablet_schema(&(_tablet->tablet_schema()));
+            .set_tablet_id(_tablet->tablet_id())
+            .set_partition_id(_tablet->partition_id())
+            .set_tablet_schema_hash(_tablet->schema_hash())
+            .set_rowset_type(ALPHA_ROWSET)
+            .set_rowset_path_prefix(_tablet->tablet_path())
+            .set_tablet_schema(_tablet->tablet_schema())
+            .set_data_dir(_tablet->data_dir())
+            .set_rowset_state(VISIBLE)
+            .set_version(Version(_new_base_version.first, _new_base_version.second))
+            .set_version_hash(new_base_version_hash);
     RowsetWriterContext context = context_builder.build();
-
     RowsetWriterSharedPtr rs_writer(new AlphaRowsetWriter());
     if (rs_writer == nullptr) {
         LOG(WARNING) << "fail to new rowset.";
