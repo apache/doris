@@ -40,7 +40,7 @@ public class Frontend implements Writable {
 
     private long replayedJournalId;
     private long lastUpdateTime;
-    private String msg = "";
+    private String heartbeatErrMsg = "";
 
     private boolean isAlive = false;
 
@@ -101,8 +101,8 @@ public class Frontend implements Writable {
         return replayedJournalId;
     }
 
-    public String getMsg() {
-        return msg;
+    public String getHeartbeatErrMsg() {
+        return heartbeatErrMsg;
     }
 
     public long getLastUpdateTime() {
@@ -123,14 +123,14 @@ public class Frontend implements Writable {
             rpcPort = hbResponse.getRpcPort();
             replayedJournalId = hbResponse.getReplayedJournalId();
             lastUpdateTime = hbResponse.getHbTime();
-            msg = "";
+            heartbeatErrMsg = "";
             isChanged = true;
         } else {
             if (isAlive) {
                 isAlive = false;
                 isChanged = true;
             }
-            msg = hbResponse.getMsg();
+            heartbeatErrMsg = hbResponse.getMsg() == null ? "Unknown error" : hbResponse.getMsg();
         }
         return isChanged;
     }
