@@ -8,9 +8,6 @@ Doris FE Web or `SHOW PROC` mysql command.
 
 The following API need Admin privilege. 
 
-The following API need request to FE master.
-
-
 ### List all colocate meta
 
 `Get /api/colocate`

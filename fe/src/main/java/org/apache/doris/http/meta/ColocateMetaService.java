@@ -75,8 +75,30 @@ public class ColocateMetaService {
         return dbId;
     }
 
+    public static class ColocateMetaBaseAction extends RestBaseAction {
+        ColocateMetaBaseAction(ActionController controller) {
+            super(controller);
+        }
+
+        @Override
+        public void executeWithoutPassword(AuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
+                throws DdlException {
+            if (redirectToMaster(request, response)) {
+                return;
+            }
+            checkGlobalAuth(authInfo, PrivPredicate.ADMIN);
+            executeInMasterWithAdmin(authInfo, request, response);
+        }
+
+        protected void executeInMasterWithAdmin(AuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
+                throws DdlException {
+            throw new DdlException("Not implemented");
+        }
+    }
+
+
     // get all colocate meta
-    public static class ColocateMetaAction extends RestBaseAction {
+    public static class ColocateMetaAction extends ColocateMetaBaseAction {
         ColocateMetaAction(ActionController controller) {
             super(controller);
         }
@@ -87,10 +109,8 @@ public class ColocateMetaService {
         }
 
         @Override
-        public void executeWithoutPassword(AuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
+        public void executeInMasterWithAdmin(AuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
                 throws DdlException {
-            checkGlobalAuth(authInfo, PrivPredicate.ADMIN);
-
             RestResult result = new RestResult();
             result.addResultEntry("colocate_meta", Catalog.getCurrentColocateIndex());
             sendResult(request, response, result);
@@ -98,7 +118,7 @@ public class ColocateMetaService {
     }
 
     // add a table to a colocate group
-    public static class TableGroupAction extends RestBaseAction {
+    public static class TableGroupAction extends ColocateMetaBaseAction {
         TableGroupAction(ActionController controller) {
             super(controller);
         }
@@ -109,10 +129,8 @@ public class ColocateMetaService {
         }
 
         @Override
-        public void executeWithoutPassword(AuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
+        public void executeInMasterWithAdmin(AuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
                 throws DdlException {
-            checkGlobalAuth(authInfo, PrivPredicate.ADMIN);
-
             long groupId = checkAndGetGroupId(request);
             long tableId = getTableId(request);
             long dbId = getDbId(request);
@@ -139,7 +157,7 @@ public class ColocateMetaService {
     }
 
     // remove a table from a colocate group
-    public static class TableAction extends RestBaseAction {
+    public static class TableAction extends ColocateMetaBaseAction {
         TableAction(ActionController controller) {
             super(controller);
         }
@@ -150,9 +168,8 @@ public class ColocateMetaService {
         }
 
         @Override
-        public void executeWithoutPassword(AuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
+        public void executeInMasterWithAdmin(AuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
                 throws DdlException {
-            checkGlobalAuth(authInfo, PrivPredicate.ADMIN);
             long tableId = getTableId(request);
 
             LOG.info("will delete table {} from colocate meta", tableId);
@@ -166,7 +183,7 @@ public class ColocateMetaService {
     }
 
     // mark a colocate group to balancing or stable
-    public static class BalancingGroupAction extends RestBaseAction {
+    public static class BalancingGroupAction extends ColocateMetaBaseAction {
         BalancingGroupAction(ActionController controller) {
             super(controller);
         }
@@ -178,10 +195,8 @@ public class ColocateMetaService {
         }
 
         @Override
-        public void executeWithoutPassword(AuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
+        public void executeInMasterWithAdmin(AuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
                 throws DdlException {
-            checkGlobalAuth(authInfo, PrivPredicate.ADMIN);
-
             long groupId = checkAndGetGroupId(request);
 
             HttpMethod method = request.getRequest().method();
@@ -205,7 +220,7 @@ public class ColocateMetaService {
     }
 
     // update a backendsPerBucketSeq meta for a colocate group
-    public static class BucketSeqAction extends RestBaseAction {
+    public static class BucketSeqAction extends ColocateMetaBaseAction {
         private static final Logger LOG = LogManager.getLogger(BucketSeqAction.class);
 
         BucketSeqAction(ActionController controller) {
@@ -218,10 +233,8 @@ public class ColocateMetaService {
         }
 
         @Override
-        public void executeWithoutPassword(AuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
+        public void executeInMasterWithAdmin(AuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
                 throws DdlException {
-            checkGlobalAuth(authInfo, PrivPredicate.ADMIN);
-
             final String clusterName = authInfo.cluster;
             if (Strings.isNullOrEmpty(clusterName)) {
                 throw new DdlException("No cluster selected.");
