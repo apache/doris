@@ -51,7 +51,7 @@ inline uint32_t DataStreamMgr::get_hash_value(
 shared_ptr<DataStreamRecvr> DataStreamMgr::create_recvr(RuntimeState* state,
         const RowDescriptor& row_desc, const TUniqueId& fragment_instance_id,
         PlanNodeId dest_node_id, int num_senders, int buffer_size, RuntimeProfile* profile,
-        bool is_merging, QueryStatisticsRecvr* sub_plan_query_statistics_recvr) {
+        bool is_merging, std::shared_ptr<QueryStatisticsRecvr> sub_plan_query_statistics_recvr) {
     DCHECK(profile != NULL);
     VLOG_FILE << "creating receiver for fragment="
             << fragment_instance_id << ", node=" << dest_node_id;
