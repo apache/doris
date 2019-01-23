@@ -148,11 +148,11 @@ public:
         _rowset_meta_pb.set_end_version(end_version);
     }
     
-    virtual int64_t version_hash() {
+    virtual VersionHash version_hash() {
         return _rowset_meta_pb.version_hash();
     }
 
-    virtual void set_version_hash(int64_t version_hash) {
+    virtual void set_version_hash(VersionHash version_hash) {
         _rowset_meta_pb.set_version_hash(version_hash);
     }
 

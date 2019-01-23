@@ -123,6 +123,10 @@ size_t AlphaRowset::num_rows() const {
     return _rowset_meta->num_rows();
 }
 
+void AlphaRowset::set_version_hash(VersionHash version_hash) {
+    _rowset_meta->set_version_hash(version_hash);
+}
+
 OLAPStatus AlphaRowset::_init_segment_groups() {
     std::vector<SegmentGroupPB> segment_group_metas;
     AlphaRowsetMeta* _alpha_rowset_meta = (AlphaRowsetMeta*)_rowset_meta.get();
