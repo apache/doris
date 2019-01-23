@@ -349,7 +349,7 @@ public class Replica implements Writable {
     
     @Override
     public String toString() {
-        StringBuffer strBuffer = new StringBuffer("replicaId=");
+        StringBuffer strBuffer = new StringBuffer("[replicaId=");
         strBuffer.append(id);
         strBuffer.append(", BackendId=");
         strBuffer.append(backendId);
@@ -373,6 +373,7 @@ public class Replica implements Writable {
         strBuffer.append(lastFailedTimestamp);
         strBuffer.append(", schemaHash");
         strBuffer.append(schemaHash);
+        strBuffer.append("]");
         return strBuffer.toString();
     }
 

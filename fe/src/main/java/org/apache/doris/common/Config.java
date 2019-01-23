@@ -743,6 +743,6 @@ public class Config extends ConfigBase {
      * if set to true, TabletScheduler will not do balance.
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static boolean disable_balance = false; // 10%
+    public static boolean disable_balance = false;
 }
 

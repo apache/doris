@@ -324,7 +324,7 @@ public class BrokerMgr {
                         row.add(String.valueOf(broker.isAlive));
                         row.add(TimeUtils.longToTimeString(broker.lastStartTime));
                         row.add(TimeUtils.longToTimeString(broker.lastUpdateTime));
-                        row.add(broker.msg);
+                        row.add(broker.heartbeatErrMsg);
                         result.addRow(row);
                     }
                 }
