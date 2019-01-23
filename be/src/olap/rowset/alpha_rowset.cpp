@@ -77,6 +77,7 @@ OLAPStatus AlphaRowset::remove() {
     for (auto segment_group : _segment_groups) {
         segment_group->delete_all_files();
     }
+    _removed = true;
     return OLAP_SUCCESS;
 }
 
@@ -168,22 +169,42 @@ bool AlphaRowset::remove_old_files(std::vector<std::string>* removed_links) {
 }
 
 int AlphaRowset::data_disk_size() const {
+    if (_removed) {
+        LOG(WARNING) << "data_disk_size failed because the rowset has been removed.";
+        return -1;
+    }
     return _rowset_meta->total_disk_size();
 }
 
 int AlphaRowset::index_disk_size() const {
+    if (_removed) {
+        LOG(WARNING) << "index_disk_size failed because the rowset has been removed.";
+        return -1;
+    }
     return _rowset_meta->index_disk_size();
 }
 
 bool AlphaRowset::empty() const {
+    if (_removed) {
+        LOG(WARNING) << "empty failed because the rowset has been removed.";
+        return false;
+    }
     return _rowset_meta->empty();
 }
 
 bool AlphaRowset::zero_num_rows() const {
+    if (_removed) {
+        LOG(WARNING) << "zero_num_rows failed because the rowset has been removed.";
+        return false;
+    }
     return _rowset_meta->num_rows() == 0;
 }
 
 size_t AlphaRowset::num_rows() const {
+    if (_removed) {
+        LOG(WARNING) << "num_rows failed because the rowset has been removed.";
+        return -1;
+    }
     return _rowset_meta->num_rows();
 }
 
