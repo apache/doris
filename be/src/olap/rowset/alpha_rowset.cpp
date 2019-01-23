@@ -74,6 +74,8 @@ RowsetMetaSharedPtr AlphaRowset::rowset_meta() const {
 
 void AlphaRowset::set_version(Version version) {
     _rowset_meta->set_version(version);
+    // set the rowset state to VISIBLE
+    _rowset_meta->set_rowset_state(VISIBLE);
     _is_pending_rowset = false;
 }
 
@@ -119,6 +121,10 @@ bool AlphaRowset::zero_num_rows() const {
 
 size_t AlphaRowset::num_rows() const {
     return _rowset_meta->num_rows();
+}
+
+void AlphaRowset::set_version_hash(VersionHash version_hash) {
+    _rowset_meta->set_version_hash(version_hash);
 }
 
 OLAPStatus AlphaRowset::_init_segment_groups() {
