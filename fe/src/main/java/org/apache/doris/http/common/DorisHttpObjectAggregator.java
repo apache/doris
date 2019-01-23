@@ -29,8 +29,8 @@ import io.netty.handler.codec.http.HttpUtil;
  * don't handle 100-continue and chunked transfer-encoding http header
  */
 public class DorisHttpObjectAggregator extends HttpObjectAggregator {
-    //the flag for aggregator whether has started
-    //in order not to handle chunked transfer-encoding header in {@link isContentMessage} method
+    // the flag for aggregator whether has started
+    // in order not to handle chunked transfer-encoding header in {@link isContentMessage} method
     private boolean startAggregated = false;
 
     public DorisHttpObjectAggregator(int maxContentLength) {
@@ -54,7 +54,7 @@ public class DorisHttpObjectAggregator extends HttpObjectAggregator {
         return msg instanceof HttpContent && startAggregated;
     }
 
-    //Doris FE needn't handle 100-continue header
+    // Doris FE needn't handle 100-continue header
     @Override
     protected Object newContinueResponse(HttpMessage start, int maxContentLength, ChannelPipeline pipeline) {
         return null;
