@@ -74,6 +74,8 @@ RowsetMetaSharedPtr AlphaRowset::rowset_meta() const {
 
 void AlphaRowset::set_version(Version version) {
     _rowset_meta->set_version(version);
+    // set the rowset state to VISIBLE
+    _rowset_meta->set_rowset_state(VISIBLE);
     _is_pending_rowset = false;
 }
 

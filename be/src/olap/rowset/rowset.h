@@ -68,6 +68,8 @@ public:
     virtual RowsetId rowset_id() const = 0;
 
     virtual bool delete_files() const = 0;
+
+    virtual void set_version(Version version) = 0;
 };
 
 } // namespace doris
