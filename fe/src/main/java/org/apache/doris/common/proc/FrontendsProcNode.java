@@ -108,7 +108,7 @@ public class FrontendsProcNode implements ProcNodeInterface {
             
             info.add(String.valueOf(isHelperNode(helperNodes, fe)));
 
-            info.add(fe.getMsg());
+            info.add(fe.getHeartbeatErrMsg());
 
             infos.add(info);
         }

@@ -566,7 +566,7 @@ public class Backend implements Writable {
                 LOG.info("{} is dead,", this.toString());
             }
 
-            heartbeatErrMsg = hbResponse.getMsg();
+            heartbeatErrMsg = hbResponse.getMsg() == null ? "Unknown error" : hbResponse.getMsg();
         }
 
         return isChanged;
