@@ -28,7 +28,7 @@ import org.apache.doris.http.action.SessionAction;
 import org.apache.doris.http.action.StaticResourceAction;
 import org.apache.doris.http.action.SystemAction;
 import org.apache.doris.http.action.VariableAction;
-import org.apache.doris.http.common.DorisHttpObjectAggregator;
+import org.apache.doris.http.common.DorisHttpPostObjectAggregator;
 import org.apache.doris.http.meta.ColocateMetaService;
 import org.apache.doris.http.meta.MetaService.CheckAction;
 import org.apache.doris.http.meta.MetaService.DumpAction;
@@ -171,7 +171,7 @@ public class HttpServer {
         @Override
         protected void initChannel(SocketChannel ch) throws Exception {
             ch.pipeline().addLast(new HttpServerCodec());
-            ch.pipeline().addLast(new DorisHttpObjectAggregator(100 * 65536));
+            ch.pipeline().addLast(new DorisHttpPostObjectAggregator(100 * 65536));
             ch.pipeline().addLast(new ChunkedWriteHandler());
             ch.pipeline().addLast(new HttpServerHandler(controller, qeService));
         }

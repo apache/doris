@@ -20,20 +20,21 @@ package org.apache.doris.http.common;
 import io.netty.channel.ChannelPipeline;
 import io.netty.handler.codec.http.HttpContent;
 import io.netty.handler.codec.http.HttpMessage;
+import io.netty.handler.codec.http.HttpMethod;
 import io.netty.handler.codec.http.HttpObject;
 import io.netty.handler.codec.http.HttpObjectAggregator;
 import io.netty.handler.codec.http.HttpRequest;
 import io.netty.handler.codec.http.HttpUtil;
 
 /*
- * don't handle 100-continue and chunked transfer-encoding http header
+ * only handle post request, don't handle 100-continue and chunked transfer-encoding http header
  */
-public class DorisHttpObjectAggregator extends HttpObjectAggregator {
+public class DorisHttpPostObjectAggregator extends HttpObjectAggregator {
     // the flag for aggregator whether has started
     // in order not to handle chunked transfer-encoding header in {@link isContentMessage} method
     private boolean startAggregated = false;
 
-    public DorisHttpObjectAggregator(int maxContentLength) {
+    public DorisHttpPostObjectAggregator(int maxContentLength) {
         super(maxContentLength, false);
     }
 
@@ -41,7 +42,8 @@ public class DorisHttpObjectAggregator extends HttpObjectAggregator {
     protected boolean isStartMessage(HttpObject msg) throws Exception {
         if (msg instanceof HttpMessage) {
             // Doris FE don't handle chunked transfer-encoding header
-            if (!HttpUtil.isTransferEncodingChunked((HttpRequest) msg)) {
+            HttpRequest request = (HttpRequest) msg;
+            if (request.method().equals(HttpMethod.POST) && !HttpUtil.isTransferEncodingChunked(request)) {
                 startAggregated = true;
                 return true;
             }
