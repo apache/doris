@@ -792,7 +792,8 @@ OLAPStatus TabletManager::report_all_tablets_info(std::map<TTabletId, TTablet>* 
 
             // report expire transaction
             vector<int64_t> transaction_ids;
-            tablet_ptr->get_expire_pending_data(&transaction_ids);
+            // TODO(ygl): tablet manager and txn manager may be dead lock
+            TxnManager::instance()->get_expire_txns(tablet_ptr->tablet_id(), &transaction_ids);
             tablet_info.__set_transaction_ids(transaction_ids);
 
             if (_available_storage_medium_type_count > 1) {
