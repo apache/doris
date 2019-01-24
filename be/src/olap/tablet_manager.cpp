@@ -610,7 +610,7 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(CompactionType com
     return best_tablet;
 }
 
-OLAPStatus TabletManager::load_tablet_from_header(DataDir* data_dir, TTabletId tablet_id,
+OLAPStatus TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_id,
         TSchemaHash schema_hash, const std::string& meta_binary) {
     std::unique_ptr<TabletMeta> tablet_meta(new TabletMeta());
     bool parsed = tablet_meta->deserialize(meta_binary);
@@ -659,19 +659,15 @@ OLAPStatus TabletManager::load_tablet_from_header(DataDir* data_dir, TTabletId t
     res = tablet->register_tablet_into_dir();
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to register tablet into root path. root_path=" << tablet->storage_root_path_name();
-
         if (drop_tablet(tablet_id, schema_hash, false) != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to drop tablet when create tablet failed. "
                 <<"tablet=" << tablet_id << " schema_hash=" << schema_hash;
         }
-
         return res;
     }
-    // load pending data (for realtime push), will add transaction relationship into engine
-    tablet->load_pending_data();
 
     return OLAP_SUCCESS;
-} // load_tablet_from_header
+} // load_tablet_from_meta
 
 OLAPStatus TabletManager::load_one_tablet(
         DataDir* store, TTabletId tablet_id, SchemaHash schema_hash,
@@ -729,9 +725,6 @@ OLAPStatus TabletManager::load_one_tablet(
 
         return OLAP_ERR_ENGINE_LOAD_INDEX_TABLE_ERROR;
     }
-
-    // load pending data (for realtime push), will add transaction relationship into engine
-    tablet->load_pending_data();
 
     VLOG(3) << "succeed to add tablet. tablet=" << tablet->full_name()
             << ", path=" << schema_hash_path;
