@@ -171,12 +171,12 @@ private:
 
     OLAPStatus _init_conditions_param(const ReaderParams& read_params);
 
-    ColumnPredicate* _new_eq_pred(FieldInfo& type, int index, const std::string& cond);
-    ColumnPredicate* _new_ne_pred(FieldInfo& type, int index, const std::string& cond);
-    ColumnPredicate* _new_lt_pred(FieldInfo& type, int index, const std::string& cond);
-    ColumnPredicate* _new_le_pred(FieldInfo& type, int index, const std::string& cond);
-    ColumnPredicate* _new_gt_pred(FieldInfo& type, int index, const std::string& cond);
-    ColumnPredicate* _new_ge_pred(FieldInfo& type, int index, const std::string& cond);
+    ColumnPredicate* _new_eq_pred(const TabletColumn& column, int index, const std::string& cond);
+    ColumnPredicate* _new_ne_pred(const TabletColumn& column, int index, const std::string& cond);
+    ColumnPredicate* _new_lt_pred(const TabletColumn& column, int index, const std::string& cond);
+    ColumnPredicate* _new_le_pred(const TabletColumn& column, int index, const std::string& cond);
+    ColumnPredicate* _new_gt_pred(const TabletColumn& column, int index, const std::string& cond);
+    ColumnPredicate* _new_ge_pred(const TabletColumn& column, int index, const std::string& cond);
 
     ColumnPredicate* _parse_to_predicate(const TCondition& condition);
 

@@ -29,7 +29,7 @@ namespace doris {
 
 class AlphaRowsetReader : public RowsetReader {
 public:
-    AlphaRowsetReader(int num_key_fields, int num_short_key_fields,
+    AlphaRowsetReader(int num_key_columns, int num_short_key_columns,
         int num_rows_per_row_block, const std::string rowset_path,
         RowsetMeta* rowset_meta, std::vector<std::shared_ptr<SegmentGroup>> segment_groups);
 
@@ -67,8 +67,8 @@ private:
     OLAPStatus _refresh_next_block(size_t pos, RowBlock** row_block);
 
 private:
-    int _num_key_fields;
-    int _num_short_key_fields;
+    int _num_key_columns;
+    int _num_short_key_columns;
     int _num_rows_per_row_block;
     std::string _rowset_path;
     AlphaRowsetMeta* _alpha_rowset_meta;

@@ -60,7 +60,7 @@ class RowBlock {
     friend class RowBlockChanger;
     friend class VectorizedRowBatch;
 public:
-    RowBlock(const std::vector<FieldInfo>& tablet_schema);
+    RowBlock(const TabletSchema* schema);
 
     // 注意回收内部buffer
     ~RowBlock();
@@ -105,7 +105,7 @@ public:
 
     const uint32_t row_num() const { return _info.row_num; }
     const RowBlockInfo& row_block_info() const { return _info; }
-    const std::vector<FieldInfo>& tablet_schema() const { return _tablet_schema; }
+    const TabletSchema& tablet_schema() const { return *_schema; }
     size_t buf_len() const { return _storage_buf_bytes; }
 
     size_t capacity() const { return _capacity; }
@@ -186,7 +186,7 @@ private:
 
     uint32_t _capacity;
     RowBlockInfo _info;
-    const std::vector<FieldInfo>& _tablet_schema;     // 内部保存的schema句柄
+    const TabletSchema* _schema;     // 内部保存的schema句柄
 
     bool _null_supported;
     DataFileType _data_file_type;

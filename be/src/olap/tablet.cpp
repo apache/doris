@@ -353,14 +353,14 @@ OLAPStatus Tablet::split_range(
     RowBlockPosition step_pos;
 
     // 此helper用于辅助查找，注意它的内容不能拿来使用，是不可预知的，仅作为辅助使用
-    if (helper_cursor.init(tablet_schema(), num_short_key_fields()) != OLAP_SUCCESS) {
+    if (helper_cursor.init(_schema, num_short_key_columns()) != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("fail to parse strings to key with RowCursor type.");
         return OLAP_ERR_INVALID_SCHEMA;
     }
 
     // 如果有startkey，用startkey初始化；反之则用minkey初始化
     if (start_key_strings.size() > 0) {
-        if (start_key.init_scan_key(tablet_schema(), start_key_strings.values()) != OLAP_SUCCESS) {
+        if (start_key.init_scan_key(_schema, start_key_strings.values()) != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to initial key strings with RowCursor type.");
             return OLAP_ERR_INIT_FAILED;
         }
@@ -370,18 +370,18 @@ OLAPStatus Tablet::split_range(
             return OLAP_ERR_INVALID_SCHEMA;
         }
     } else {
-        if (start_key.init(tablet_schema(), num_short_key_fields()) != OLAP_SUCCESS) {
+        if (start_key.init(_schema, num_short_key_columns()) != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to initial key strings with RowCursor type.");
             return OLAP_ERR_INIT_FAILED;
         }
 
-        start_key.allocate_memory_for_string_type(tablet_schema());
+        start_key.allocate_memory_for_string_type(_schema);
         start_key.build_min_key();
     }
 
     // 和startkey一样处理，没有则用maxkey初始化
     if (end_key_strings.size() > 0) {
-        if (OLAP_SUCCESS != end_key.init_scan_key(tablet_schema(), end_key_strings.values())) {
+        if (OLAP_SUCCESS != end_key.init_scan_key(_schema, end_key_strings.values())) {
             OLAP_LOG_WARNING("fail to parse strings to key with RowCursor type.");
             return OLAP_ERR_INVALID_SCHEMA;
         }
@@ -391,12 +391,12 @@ OLAPStatus Tablet::split_range(
             return OLAP_ERR_INVALID_SCHEMA;
         }
     } else {
-        if (end_key.init(tablet_schema(), num_short_key_fields()) != OLAP_SUCCESS) {
+        if (end_key.init(_schema, num_short_key_columns()) != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to initial key strings with RowCursor type.");
             return OLAP_ERR_INIT_FAILED;
         }
 
-        end_key.allocate_memory_for_string_type(tablet_schema());
+        end_key.allocate_memory_for_string_type(_schema);
         end_key.build_max_key();
     }
 
@@ -446,8 +446,8 @@ OLAPStatus Tablet::split_range(
     RowCursor cur_start_key;
     RowCursor last_start_key;
 
-    if (cur_start_key.init(tablet_schema(), num_short_key_fields()) != OLAP_SUCCESS
-            || last_start_key.init(tablet_schema(), num_short_key_fields()) != OLAP_SUCCESS) {
+    if (cur_start_key.init(_schema, num_short_key_columns()) != OLAP_SUCCESS
+            || last_start_key.init(_schema, num_short_key_columns()) != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("fail to init cursor");
         return OLAP_ERR_INIT_FAILED;
     }
@@ -458,7 +458,7 @@ OLAPStatus Tablet::split_range(
     }
 
     cur_start_key.attach(entry.data);
-    last_start_key.allocate_memory_for_string_type(tablet_schema());
+    last_start_key.allocate_memory_for_string_type(_schema);
     last_start_key.copy_without_pool(cur_start_key);
     // start_key是last start_key, 但返回的实际上是查询层给出的key
     ranges->emplace_back(start_key.to_tuple());
@@ -513,12 +513,12 @@ void Tablet::list_entities(vector<VersionEntity>* entities) const {
     }
 }
 
-size_t Tablet::get_field_index(const string& field_name) const {
-    return _schema->get_field_index(field_name);
+size_t Tablet::field_index(const string& field_name) const {
+    return _schema.field_index(field_name);
 }
 
-size_t Tablet::get_row_size() const {
-    return _schema->get_row_size();
+size_t Tablet::row_size() const {
+    return _schema.row_size();
 }
 
 size_t Tablet::get_data_size() {

@@ -300,9 +300,6 @@ OLAPStatus PushHandler::_convert(
 
     do {
         VLOG(3) << "start to convert delta file.";
-        std::vector<FieldInfo> tablet_schema = curr_tablet->tablet_schema();
-
-        tablet_schema = curr_tablet->tablet_schema();
 
         // 1. Init BinaryReader to read raw file if exist,
         //    in case of empty push and delete data, this will be skipped.
@@ -349,13 +346,8 @@ OLAPStatus PushHandler::_convert(
                 .set_tablet_schema_hash(curr_tablet->schema_hash())
                 .set_rowset_type(ALPHA_ROWSET)
                 .set_rowset_path_prefix(curr_tablet->tablet_path())
-                .set_tablet_schema(curr_tablet->tablet_schema())
-                .set_num_key_fields(curr_tablet->num_key_fields())
-                .set_num_short_key_fields(curr_tablet->num_short_key_fields())
-                .set_num_rows_per_row_block(curr_tablet->num_rows_per_row_block())
-                .set_compress_kind(curr_tablet->compress_kind())
-                .set_bloom_filter_fpp(curr_tablet->bloom_filter_fpp())
-                .set_rowset_state(PREPARING)
+                .set_tablet_schema(&(curr_tablet->tablet_schema()))
+                .set_rowset_state(PREPARED)
                 .set_txn_id(_request.transaction_id)
                 .set_load_id(load_id);
             context = context_builder.build();
@@ -367,12 +359,7 @@ OLAPStatus PushHandler::_convert(
                 .set_tablet_schema_hash(curr_tablet->schema_hash())
                 .set_rowset_type(ALPHA_ROWSET)
                 .set_rowset_path_prefix(curr_tablet->tablet_path())
-                .set_tablet_schema(curr_tablet->tablet_schema())
-                .set_num_key_fields(curr_tablet->num_key_fields())
-                .set_num_short_key_fields(curr_tablet->num_short_key_fields())
-                .set_num_rows_per_row_block(curr_tablet->num_rows_per_row_block())
-                .set_compress_kind(curr_tablet->compress_kind())
-                .set_bloom_filter_fpp(curr_tablet->bloom_filter_fpp())
+                .set_tablet_schema(&(curr_tablet->tablet_schema()))
                 .set_rowset_state(VISIBLE)
                 .set_version(Version(_request.version, _request.version))
                 .set_version_hash(_request.version_hash);
@@ -509,7 +496,7 @@ OLAPStatus BinaryReader::init(
     do {
         _file = file;
         _content_len = _file->file_length() - _file->header_size();
-        _row_buf_size = tablet->get_row_size();
+        _row_buf_size = tablet->row_size();
 
         if (NULL == (_row_buf = new(std::nothrow) char[_row_buf_size])) {
             OLAP_LOG_WARNING("fail to malloc one row buf. [size=%zu]", _row_buf_size);
@@ -547,7 +534,7 @@ OLAPStatus BinaryReader::next(RowCursor* row, MemPool* mem_pool) {
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
-    const vector<FieldInfo>& schema = _tablet->tablet_schema();
+    const TabletSchema& schema = _tablet->tablet_schema();
     size_t offset = 0;
     size_t field_size = 0;
     size_t num_null_bytes = (_tablet->num_null_fields() + 7) / 8;
@@ -558,9 +545,9 @@ OLAPStatus BinaryReader::next(RowCursor* row, MemPool* mem_pool) {
     }
 
     size_t p  = 0;
-    for (size_t i = 0; i < schema.size(); ++i) {
+    for (size_t i = 0; i < schema.num_columns(); ++i) {
         row->set_not_null(i);
-        if (schema[i].is_allow_null) {
+        if (schema.column(i).is_nullable()) {
             bool is_null = false;
             is_null = (_row_buf[p/8] >> ((num_null_bytes * 8 - p - 1) % 8)) & 1;
             if (is_null) {
@@ -571,11 +558,12 @@ OLAPStatus BinaryReader::next(RowCursor* row, MemPool* mem_pool) {
     }
     offset += num_null_bytes;
 
-    for (uint32_t i = 0; i < schema.size(); i++) {
+    for (uint32_t i = 0; i < schema.num_columns(); i++) {
+        const TabletColumn& column = schema.column(i);
         if (row->is_null(i)) {
             continue;
         }
-        if (schema[i].type == OLAP_FIELD_TYPE_VARCHAR || schema[i].type == OLAP_FIELD_TYPE_HLL) {
+        if (column.type() == OLAP_FIELD_TYPE_VARCHAR || column.type() == OLAP_FIELD_TYPE_HLL) {
             // Read varchar length buffer first
             if (OLAP_SUCCESS != (res = _file->read(_row_buf + offset,
                         sizeof(StringLengthType)))) {
@@ -586,14 +574,14 @@ OLAPStatus BinaryReader::next(RowCursor* row, MemPool* mem_pool) {
             // Get varchar field size
             field_size = *reinterpret_cast<StringLengthType*>(_row_buf + offset);
             offset += sizeof(StringLengthType);
-            if (field_size > schema[i].length - sizeof(StringLengthType)) {
-                OLAP_LOG_WARNING("invalid data length for VARCHAR! [max_len=%d real_len=%d]",
-                                 schema[i].length - sizeof(StringLengthType),
-                                 field_size);
+            if (field_size > column.length() - sizeof(StringLengthType)) {
+                LOG(WARNING) << "invalid data length for VARCHAR! "
+                             << "max_len=" << column.length() - sizeof(StringLengthType)
+                             << ", real_len=" << field_size;
                 return OLAP_ERR_PUSH_INPUT_DATA_ERROR;
             }
         } else {
-            field_size = schema[i].length;
+            field_size = column.length();
         }
 
         // Read field content according to field size
@@ -602,9 +590,9 @@ OLAPStatus BinaryReader::next(RowCursor* row, MemPool* mem_pool) {
             return res;
         }
 
-        if (schema[i].type == OLAP_FIELD_TYPE_CHAR
-                || schema[i].type == OLAP_FIELD_TYPE_VARCHAR
-                || schema[i].type == OLAP_FIELD_TYPE_HLL) {
+        if (column.type() == OLAP_FIELD_TYPE_CHAR
+                || column.type() == OLAP_FIELD_TYPE_VARCHAR
+                || column.type() == OLAP_FIELD_TYPE_HLL) {
             Slice slice(_row_buf + offset, field_size);
             row->set_field_content(i, reinterpret_cast<char*>(&slice), mem_pool);
         } else {
@@ -686,15 +674,15 @@ OLAPStatus LzoBinaryReader::next(RowCursor* row, MemPool* mem_pool) {
         }
     }
 
-    const vector<FieldInfo>& schema = _tablet->tablet_schema();
+    const TabletSchema& schema = _tablet->tablet_schema();
     size_t offset = 0;
     size_t field_size = 0;
     size_t num_null_bytes = (_tablet->num_null_fields() + 7) / 8;
 
     size_t p = 0;
-    for (size_t i = 0; i < schema.size(); ++i) {
+    for (size_t i = 0; i < schema.num_columns(); ++i) {
         row->set_not_null(i);
-        if (schema[i].is_allow_null) {
+        if (schema.column(i).is_nullable()) {
             bool is_null = false;
             is_null = (_row_buf[_next_row_start + p/8] >> ((num_null_bytes * 8 - p - 1) % 8)) & 1;
             if (is_null) {
@@ -705,29 +693,30 @@ OLAPStatus LzoBinaryReader::next(RowCursor* row, MemPool* mem_pool) {
     }
     offset += num_null_bytes;
 
-    for (uint32_t i = 0; i < schema.size(); i++) {
+    for (uint32_t i = 0; i < schema.num_columns(); i++) {
         if (row->is_null(i)) {
             continue;
         }
 
-        if (schema[i].type == OLAP_FIELD_TYPE_VARCHAR || schema[i].type == OLAP_FIELD_TYPE_HLL) {
+        const TabletColumn& column = schema.column(i);
+        if (column.type() == OLAP_FIELD_TYPE_VARCHAR || column.type() == OLAP_FIELD_TYPE_HLL) {
             // Get varchar field size
             field_size = *reinterpret_cast<StringLengthType*>(_row_buf + _next_row_start + offset);
             offset += sizeof(StringLengthType);
 
-            if (field_size > schema[i].length - sizeof(StringLengthType)) {
-                OLAP_LOG_WARNING("invalid data length for VARCHAR! [max_len=%d real_len=%d]",
-                                 schema[i].length - sizeof(StringLengthType),
-                                 field_size);
+            if (field_size > column.length() - sizeof(StringLengthType)) {
+                LOG(WARNING) << "invalid data length for VARCHAR! "
+                             << "max_len=" << column.length() - sizeof(StringLengthType)
+                             << ", real_len=" << field_size;
                 return OLAP_ERR_PUSH_INPUT_DATA_ERROR;
             }
         } else {
-            field_size = schema[i].length;
+            field_size = column.length();
         }
 
-        if (schema[i].type == OLAP_FIELD_TYPE_CHAR
-                || schema[i].type == OLAP_FIELD_TYPE_VARCHAR
-                || schema[i].type == OLAP_FIELD_TYPE_HLL) {
+        if (column.type() == OLAP_FIELD_TYPE_CHAR
+                || column.type() == OLAP_FIELD_TYPE_VARCHAR
+                || column.type() == OLAP_FIELD_TYPE_HLL) {
             Slice slice(_row_buf + _next_row_start + offset, field_size);
             row->set_field_content(i, reinterpret_cast<char*>(&slice), mem_pool);
         } else {
@@ -766,7 +755,7 @@ OLAPStatus LzoBinaryReader::_next_block() {
         SAFE_DELETE_ARRAY(_row_buf);
 
         _max_row_num = _row_num;
-        _max_row_buf_size = _max_row_num * _tablet->get_row_size();
+        _max_row_buf_size = _max_row_num * _tablet->row_size();
         if (NULL == (_row_buf = new(std::nothrow) char[_max_row_buf_size])) {
             OLAP_LOG_WARNING("fail to malloc rows buf. [size=%zu]", _max_row_buf_size);
             res = OLAP_ERR_MALLOC_ERROR;

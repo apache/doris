@@ -60,25 +60,23 @@ OLAPStatus SegmentWriter::init(uint32_t write_mbytes_per_sec) {
     }
 
     // 创建writer
-    for (uint32_t i = 0; i < _segment_group->get_tablet_schema().size(); i++) {
-        if (_segment_group->get_tablet_schema()[i].is_root_column) {
-            ColumnWriter* writer = ColumnWriter::create(i, _segment_group->get_tablet_schema(),
-                                                        _stream_factory,
-                                                        _segment_group->get_num_rows_per_row_block(),
-                                                        _bloom_filter_fpp);
+    for (uint32_t i = 0; i < _segment_group->get_tablet_schema().num_columns(); i++) {
+        ColumnWriter* writer = ColumnWriter::create(i, _segment_group->get_tablet_schema(),
+                _stream_factory,
+                _segment_group->get_num_rows_per_row_block(),
+                _bloom_filter_fpp);
 
-            if (NULL == writer) {
-                OLAP_LOG_WARNING("fail to create writer");
-                return OLAP_ERR_MALLOC_ERROR;
-            } else {
-                _root_writers.push_back(writer);
-            }
+        if (NULL == writer) {
+            OLAP_LOG_WARNING("fail to create writer");
+            return OLAP_ERR_MALLOC_ERROR;
+        } else {
+            _root_writers.push_back(writer);
+        }
 
-            res = writer->init();
-            if (OLAP_SUCCESS != res) {
-                OLAP_LOG_WARNING("fail to initialize ColumnWriter. [res=%d]", res);
-                return res;
-            }
+        res = writer->init();
+        if (OLAP_SUCCESS != res) {
+            OLAP_LOG_WARNING("fail to initialize ColumnWriter. [res=%d]", res);
+            return res;
         }
     }
 

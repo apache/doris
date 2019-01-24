@@ -224,7 +224,7 @@ private:
     OLAPStatus _reset_readers();
 
     // 获取当前的table级schema。
-    inline const std::vector<FieldInfo>& tablet_schema() {
+    inline const TabletSchema& tablet_schema() {
         return _segment_group->get_tablet_schema();
     }
 
@@ -257,18 +257,18 @@ private:
         VectorizedRowBatch* batch, size_t size);
 
     FieldAggregationMethod _get_aggregation_by_index(uint32_t index) {
-        const RowFields& tablet_schema = _segment_group->get_tablet_schema();
-        if (index < tablet_schema.size()) {
-            return tablet_schema[index].aggregation;
+        const TabletSchema& tablet_schema = _segment_group->get_tablet_schema();
+        if (index < tablet_schema.num_columns()) {
+            return tablet_schema.column(index).aggregation();
         }
 
         return OLAP_FIELD_AGGREGATION_UNKNOWN;
     }
 
     FieldType _get_field_type_by_index(uint32_t index) {
-        const RowFields& tablet_schema = _segment_group->get_tablet_schema();
-        if (index < tablet_schema.size()) {
-            return tablet_schema[index].type;
+        const TabletSchema& tablet_schema = _segment_group->get_tablet_schema();
+        if (index < tablet_schema.num_columns()) {
+            return tablet_schema.column(index).type();
         }
     
         return OLAP_FIELD_TYPE_NONE;

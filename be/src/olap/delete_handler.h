@@ -55,7 +55,7 @@ public:
 
     // 检查cond表示的删除条件是否符合要求；
     // 如果不符合要求，返回OLAP_ERR_DELETE_INVALID_CONDITION；符合要求返回OLAP_SUCCESS
-    OLAPStatus check_condition_valid(const RowFields& tablet_schema, const TCondition& cond);
+    OLAPStatus check_condition_valid(const TabletSchema& tablet_schema, const TCondition& cond);
 
     // construct sub condition from TCondition
     std::string construct_sub_conditions(const TCondition& condition);
@@ -94,9 +94,9 @@ private:
     // 检查指定版本的删除条件是否已经存在。如果存在，返回指定版本删除条件的数组下标；不存在返回-1
     int _check_whether_condition_exist(const DelPredicateArray& delete_conditions, int cond_version);
 
-    int32_t _get_field_index(const RowFields& tablet_schema, const std::string& field_name) const {
-        for (int i = 0; i < tablet_schema.size(); i++) {
-            if (tablet_schema[i].name == field_name) {
+    int32_t _get_field_index(const TabletSchema& schema, const std::string& field_name) const {
+        for (int i = 0; i < schema.num_columns(); i++) {
+            if (schema.column(i).name() == field_name) {
                 return i;
             }
         }
@@ -149,7 +149,7 @@ public:
     //     * OLAP_SUCCESS: 调用成功
     //     * OLAP_ERR_DELETE_INVALID_PARAMETERS: 参数不符合要求
     //     * OLAP_ERR_MALLOC_ERROR: 在填充_del_conds时，分配内存失败
-    OLAPStatus init(const RowFields& tablet_schema,
+    OLAPStatus init(const TabletSchema& schema,
         const DelPredicateArray& delete_conditions, int32_t version);
 
     // 判定一条数据是否符合删除条件
