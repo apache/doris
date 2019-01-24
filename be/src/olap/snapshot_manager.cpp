@@ -268,8 +268,7 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
     TabletMeta* new_tablet_meta = nullptr;
     do {
         // get latest version
-        const PDelta* lastest_version = NULL;
-        lastest_version = ref_tablet->lastest_version();
+        const RowsetSharedPtr lastest_version = ref_tablet->rowset_with_max_version();
         if (lastest_version == NULL) {
             OLAP_LOG_WARNING("tablet has not any version. [path='%s']",
                     ref_tablet->full_name().c_str());
@@ -545,7 +544,7 @@ OLAPStatus SnapshotManager::_append_single_delta(
         return res;
     }
 
-    const PDelta* lastest_version = tablet->lastest_version();
+    const RowsetSharedPtr lastest_version = tablet->rowset_with_max_version();
     if (lastest_version->start_version() != request.version) {
         TPushReq empty_push;
         empty_push.tablet_id = request.tablet_id;
