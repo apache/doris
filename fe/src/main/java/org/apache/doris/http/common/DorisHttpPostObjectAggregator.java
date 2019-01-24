@@ -24,14 +24,12 @@ import io.netty.handler.codec.http.HttpMethod;
 import io.netty.handler.codec.http.HttpObject;
 import io.netty.handler.codec.http.HttpObjectAggregator;
 import io.netty.handler.codec.http.HttpRequest;
-import io.netty.handler.codec.http.HttpUtil;
 
 /*
- * only handle post request, don't handle 100-continue and chunked transfer-encoding http header
+ * only handle post request, avoid conflicting with {@link LoadAction}
+ * don't handle 100-continue header
  */
 public class DorisHttpPostObjectAggregator extends HttpObjectAggregator {
-    // the flag for aggregator whether has started
-    // in order not to handle chunked transfer-encoding header in {@link isContentMessage} method
     private boolean startAggregated = false;
 
     public DorisHttpPostObjectAggregator(int maxContentLength) {
@@ -41,9 +39,8 @@ public class DorisHttpPostObjectAggregator extends HttpObjectAggregator {
     @Override
     protected boolean isStartMessage(HttpObject msg) throws Exception {
         if (msg instanceof HttpMessage) {
-            // Doris FE don't handle chunked transfer-encoding header
             HttpRequest request = (HttpRequest) msg;
-            if (request.method().equals(HttpMethod.POST) && !HttpUtil.isTransferEncodingChunked(request)) {
+            if (request.method().equals(HttpMethod.POST)) {
                 startAggregated = true;
                 return true;
             }
