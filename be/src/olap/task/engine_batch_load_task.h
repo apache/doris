@@ -39,10 +39,10 @@ class StorageEngine;
 
 class EngineBatchLoadTask : public EngineTask{
 public:
-    EngineBatchLoadTask(TPushReq& push_req, std::vector<TTabletInfo>* tablet_infos, 
+    EngineBatchLoadTask(TPushReq& push_req, std::vector<TTabletInfo>* tablet_infos,
                         int64_t signature, AgentStatus* res_status);
     virtual ~EngineBatchLoadTask();
-    
+
     virtual OLAPStatus execute();
 
 private:

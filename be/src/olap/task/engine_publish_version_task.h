@@ -15,30 +15,29 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_TASK_ENGINE_TASK_H
-#define DORIS_BE_SRC_OLAP_TASK_ENGINE_TASK_H
+#ifndef DORIS_BE_SRC_OLAP_TASK_ENGINE_PUBLISH_VERSION_TASK_H
+#define DORIS_BE_SRC_OLAP_TASK_ENGINE_PUBLISH_VERSION_TASK_H
 
-#include "olap/olap_common.h"
+#include "gen_cpp/AgentService_types.h"
 #include "olap/olap_define.h"
-#include "olap/storage_engine.h"
-#include "olap/tablet_manager.h"
-#include "olap/txn_manager.h"
-#include "util/doris_metrics.h"
+#include "olap/task/engine_task.h"
 
 namespace doris {
 
 // base class for storage engine
 // add "Engine" as task prefix to prevent duplicate name with agent task
-class EngineTask {
+class EnginePublishVersionTask : public EngineTask {
 
 public:
-    // use agent_status not olap_status, because the task is very close to engine
-    virtual OLAPStatus prepare() { return OLAP_SUCCESS; }
-    virtual OLAPStatus execute() { return OLAP_SUCCESS; }
-    virtual OLAPStatus finish() { return OLAP_SUCCESS; }
-    virtual OLAPStatus cancel() { return OLAP_SUCCESS; }
-    virtual void get_related_tablets(vector<TabletInfo>* tablet_infos) {}
-}; // EngineTask
+    EnginePublishVersionTask(TPublishVersionRequest& publish_version_req, vector<TTabletId>* error_tablet_ids);
+    ~EnginePublishVersionTask() {}
+
+    virtual OLAPStatus finish();
+
+private:
+    const TPublishVersionRequest& _publish_version_req;
+    vector<TTabletId>* _error_tablet_ids;
+}; // EnginePublishVersionTask
 
 } // doris
-#endif //DORIS_BE_SRC_OLAP_TASK_ENGINE_TASK_H
+#endif //DORIS_BE_SRC_OLAP_TASK_ENGINE_PUBLISH_VERSION_TASK_H

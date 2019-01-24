@@ -114,96 +114,140 @@ StorageEngine::~StorageEngine() {
     clear();
 }
 
+// TODO(ygl): deal with rowsets and tablets when load failed
 OLAPStatus StorageEngine::_load_data_dir(DataDir* data_dir) {
     std::string data_dir_path = data_dir->path();
     LOG(INFO) <<"start to load tablets from data_dir_path:" << data_dir_path;
-
     bool is_header_converted = false;
-    OLAPStatus res = TabletMetaManager::get_header_converted(data_dir, is_header_converted);
+    OLAPStatus res = TabletMetaManager::get_header_converted(data_dir, &is_header_converted);
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "get convert flag from meta failed";
         return res;
     }
-
-    // load rowset meta from metaenv and create rowset
-    // COMMITTED: add to txn manager
-    // VISIBLE: add to tablet
-    // if one rowset load failed, then the total data dir will not be loaded
-    std::vector<std::shared_ptr<RowsetMeta>> dir_rowset_metas;
-    if (is_header_converted) {
-        LOG(INFO) << "begin loading rowset from meta";
-        bool has_error = false;
-        auto load_rowset_func = [this, data_dir, &has_error, &dir_rowset_metas](RowsetId rowset_id, const std::string& meta_str) -> bool {
-            std::shared_ptr<RowsetMeta> rowset_meta(new RowsetMeta());
-            bool parsed = rowset_meta->init(meta_str);
-            if (!parsed) {
-                LOG(WARNING) << "parse rowset meta string failed for rowset_id:" << rowset_id;
-                has_error = true;
-                // return false will break meta iterator
-                return false;
-            }
-            dir_rowset_metas.push_back(rowset_meta);
-            return true;
-        };
-        OLAPStatus s = RowsetMetaManager::traverse_rowset_metas(data_dir->get_meta(), load_rowset_func);
-        if (has_error) {
-            LOG(WARNING) << "errors when load rowset meta from meta env, skip this data dir:" << data_dir_path;
-            return OLAP_ERR_META_ITERATOR;
-        }
-        LOG(INFO) << "load header from meta finished";
-        if (s != OLAP_SUCCESS) {
-            LOG(WARNING) << "errors when load rowset meta from meta env, skip this data dir:" << data_dir_path;
-            return s;
-        } else {
-            return OLAP_SUCCESS;
-        }
-    }
-    // load tablet
-    // create tablet from tablet meta and add it to tablet mgr
-    if (is_header_converted) {
-        LOG(INFO) << "load header from meta";
-        auto load_tablet_func = [this, data_dir](long tablet_id,
-            long schema_hash, const std::string& value) -> bool {
-            
-            OLAPStatus status = TabletManager::instance()->load_tablet_from_header(data_dir, tablet_id, schema_hash, value);
-            if (status != OLAP_SUCCESS) {
-                LOG(WARNING) << "load tablet from header failed. status:" << status
-                    << "tablet=" << tablet_id << "." << schema_hash;
-            };
-            return true;
-        };
-        OLAPStatus s = TabletMetaManager::traverse_headers(data_dir->get_meta(), load_tablet_func);
-        LOG(INFO) << "load header from meta finished";
-        if (s != OLAP_SUCCESS) {
-            LOG(WARNING) << "there is failure when loading tablet headers, path:" << data_dir_path;
-            return s;
-        } else {
-            return OLAP_SUCCESS;
-        }
-    } else {
+    if (!is_header_converted) {
         // ygl: could not be compatable with old doris data. User has to use previous version to parse
         // header file into meta env first.
-        LOG(WARNING) << "header is not converted to tablet meta yet, could not use this Doris version. " 
+        LOG(WARNING) << "header is not converted to tablet meta yet, could not use this Doris version. "
                     << "[dir path =" << data_dir_path << "]";
         return OLAP_ERR_INIT_FAILED;
     }
 
-    for (auto rowset_meta : dir_rowset_metas) {
-        // TODO(ygl)
-        // 1. build rowset from meta
-        // 2. add committed rowset to txn
-        // 3. add visible rowset to tablet
+    // load rowset meta from meta env and create rowset
+    // COMMITTED: add to txn manager
+    // VISIBLE: add to tablet
+    // if one rowset load failed, then the total data dir will not be loaded
+    std::vector<RowsetMetaSharedPtr> dir_rowset_metas;
+    LOG(INFO) << "begin loading rowset from meta";
+    auto load_rowset_func = [this, data_dir, &dir_rowset_metas](RowsetId rowset_id, const std::string& meta_str) -> bool {
+        RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
+        bool parsed = rowset_meta->init(meta_str);
+        if (!parsed) {
+            LOG(WARNING) << "parse rowset meta string failed for rowset_id:" << rowset_id;
+            // return false will break meta iterator
+            return true;
+        }
+        dir_rowset_metas.push_back(rowset_meta);
+        return true;
+    };
+    OLAPStatus load_rowset_status = RowsetMetaManager::traverse_rowset_metas(data_dir->get_meta(), load_rowset_func);
+
+    if (load_rowset_status != OLAP_SUCCESS) {
+        LOG(WARNING) << "errors when load rowset meta from meta env, skip this data dir:" << data_dir_path;
+    } else {
+        LOG(INFO) << "load rowset from meta finished, data dir: " << data_dir_path;
     }
+
+    // load tablet
+    // create tablet from tablet meta and add it to tablet mgr
+    LOG(INFO) << "begin loading tablet from meta";
+    auto load_tablet_func = [this, data_dir](long tablet_id,
+        long schema_hash, const std::string& value) -> bool {
+        OLAPStatus status = TabletManager::instance()->load_tablet_from_meta(data_dir, tablet_id, schema_hash, value);
+        if (status != OLAP_SUCCESS) {
+            LOG(WARNING) << "load tablet from header failed. status:" << status
+                << "tablet=" << tablet_id << "." << schema_hash;
+        };
+        return true;
+    };
+    OLAPStatus load_tablet_status = TabletMetaManager::traverse_headers(data_dir->get_meta(), load_tablet_func);
+    if (load_tablet_status != OLAP_SUCCESS) {
+        LOG(WARNING) << "there is failure when loading tablet headers, path:" << data_dir_path;
+    } else {
+        LOG(INFO) << "load rowset from meta finished, data dir: " << data_dir_path;
+    }
+
+    // tranverse rowset
+    // 1. add committed rowset to txn map
+    // 2. add visible rowset to tablet
+    // ignore any errors when load tablet or rowset, because fe will repair them after report
+    for (auto rowset_meta : dir_rowset_metas) {
+        TabletSharedPtr tablet = TabletManager::instance()->get_tablet(rowset_meta->tablet_id(), rowset_meta->tablet_schema_hash());
+        // tablet maybe dropped, but not drop related rowset meta
+        if (tablet.get() == NULL) {
+            LOG(WARNING) << "could not find tablet id: " << rowset_meta->tablet_id()
+                         << " schema hash: " << rowset_meta->tablet_schema_hash()
+                         << " for rowset: " << rowset_meta->rowset_id()
+                         << " skip this rowset";
+            continue;
+        }
+        // TODO(ygl): build rowset from rowset meta using tablet info
+        RowsetSharedPtr rowset;
+        if (rowset_meta->rowset_state() == RowsetStatePB::COMMITTED) {
+            // build rowset from meta and create 
+            PUniqueId load_id;
+            load_id.set_hi(0);
+            load_id.set_lo(0);
+            // TODO(ygl): create rowset from rowset meta
+            OLAPStatus prepare_txn_status = TxnManager::instance()->prepare_txn(
+                rowset_meta->partition_id(), rowset_meta->txn_id(), 
+                rowset_meta->tablet_id(), rowset_meta->tablet_schema_hash(), 
+                load_id, NULL);
+            if (prepare_txn_status != OLAP_SUCCESS && prepare_txn_status != OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
+                LOG(WARNING) << "failed to add committed rowset: " << rowset_meta->rowset_id()
+                             << " to tablet: " << rowset_meta->tablet_id() 
+                             << " for txn: " << rowset_meta->txn_id();
+            } else {
+                LOG(INFO) << "successfully to add committed rowset: " << rowset_meta->rowset_id()
+                             << " to tablet: " << rowset_meta->tablet_id() 
+                             << " schema hash: " << rowset_meta->tablet_schema_hash()
+                             << " for txn: " << rowset_meta->txn_id();
+            }
+        } else if (rowset_meta->rowset_state() == RowsetStatePB::VISIBLE) {
+            // add visible rowset to tablet, it maybe use in the future
+            // there should be only preparing rowset in meta env because visible 
+            // rowset is persist with tablet meta currently
+            OLAPStatus publish_status = tablet->add_inc_rowset(*rowset);
+            if (publish_status != OLAP_SUCCESS) {
+                LOG(WARNING) << "add visilbe rowset to tablet failed rowset_id:" << rowset->rowset_id()
+                             << " tablet id: " << rowset_meta->tablet_id()
+                             << " txn id:" << rowset_meta->txn_id()
+                             << " start_version: " << rowset_meta->version().first
+                             << " end_version: " << rowset_meta->version().second;
+            } else {
+                LOG(INFO) << "successfully to add visible rowset: " << rowset_meta->rowset_id()
+                          << " to tablet: " << rowset_meta->tablet_id()
+                          << " txn id:" << rowset_meta->txn_id()
+                          << " start_version: " << rowset_meta->version().first
+                          << " end_version: " << rowset_meta->version().second;
+            }
+        } else {
+            LOG(WARNING) << "find invalid rowset: " << rowset_meta->rowset_id()
+                         << " with tablet id: " << rowset_meta->tablet_id() 
+                         << " schema hash: " << rowset_meta->tablet_schema_hash()
+                         << " txn: " << rowset_meta->txn_id();
+        }
+    }
+    return OLAP_SUCCESS;
 }
 
-void StorageEngine::load_data_dirs(const std::vector<DataDir*>& stores) {
+void StorageEngine::load_data_dirs(const std::vector<DataDir*>& data_dirs) {
     std::vector<std::thread> threads;
-    for (auto store : stores) {
-        threads.emplace_back([this, store] {
-            auto res = _load_data_dir(store);
+    for (auto data_dir : data_dirs) {
+        threads.emplace_back([this, data_dir] {
+            auto res = _load_data_dir(data_dir);
             if (res != OLAP_SUCCESS) {
                 LOG(WARNING) << "io error when init load tables. res=" << res
-                    << ", store=" << store->path();
+                    << ", data dir=" << data_dir->path();
             }
         });
     }
@@ -550,109 +594,19 @@ OLAPStatus StorageEngine::clear() {
     return OLAP_SUCCESS;
 }
 
-void StorageEngine::delete_transaction(
-    TPartitionId partition_id, TTransactionId transaction_id,
-    TTabletId tablet_id, SchemaHash schema_hash, bool delete_from_tablet) {
-
-    // call txn manager to delete txn from memory
-    OLAPStatus res = TxnManager::instance()->delete_txn(partition_id, transaction_id, 
-        tablet_id, schema_hash);
-    // delete transaction from tablet
-    if (res == OLAP_SUCCESS && delete_from_tablet) {
-        TabletSharedPtr tablet = TabletManager::instance()->get_tablet(tablet_id, schema_hash);
-        if (tablet.get() != nullptr) {
-            tablet->delete_pending_data(transaction_id);
-        }
-    }
-}
-
-OLAPStatus StorageEngine::publish_version(const TPublishVersionRequest& publish_version_req,
-                                 vector<TTabletId>* error_tablet_ids) {
-    LOG(INFO) << "begin to process publish version. transaction_id="
-        << publish_version_req.transaction_id;
-
-    int64_t transaction_id = publish_version_req.transaction_id;
-    OLAPStatus res = OLAP_SUCCESS;
-
-    // each partition
-    for (const TPartitionVersionInfo& partitionVersionInfo
-         : publish_version_req.partition_version_infos) {
-
-        int64_t partition_id = partitionVersionInfo.partition_id;
-        vector<TabletInfo> tablet_infos;
-        vector<RowsetSharedPtr> rowsets;
-        TxnManager::instance()->get_txn_related_tablets(transaction_id, partition_id, &tablet_infos, &rowsets);
-
-        Version version(partitionVersionInfo.version, partitionVersionInfo.version);
-        VersionHash version_hash = partitionVersionInfo.version_hash;
-
-        // each tablet
-        for (auto& tablet_info : tablet_infos) {
-            VLOG(3) << "begin to publish version on tablet. "
-                    << "tablet_id=" << tablet_info.tablet_id
-                    << ", schema_hash=" << tablet_info.schema_hash
-                    << ", version=" << version.first
-                    << ", version_hash=" << version_hash
-                    << ", transaction_id=" << transaction_id;
-            TabletSharedPtr tablet = TabletManager::instance()->get_tablet(tablet_info.tablet_id, tablet_info.schema_hash);
-
-            if (tablet.get() == NULL) {
-                OLAP_LOG_WARNING("can't get tablet when publish version. [tablet_id=%ld schema_hash=%d]",
-                                 tablet_info.tablet_id, tablet_info.schema_hash);
-                error_tablet_ids->push_back(tablet_info.tablet_id);
-                res = OLAP_ERR_PUSH_TABLE_NOT_EXIST;
-                continue;
-            }
-
-            // get rowsets from txn manager according to tablet and txn id
-            // TODO(ygl) just add rowset to tablet
-            // publish version
-            OLAPStatus publish_status = tablet->publish_version(
-                transaction_id, version, version_hash);
-
-            // if data existed, delete transaction from engine and tablet
-            if (publish_status == OLAP_ERR_PUSH_VERSION_ALREADY_EXIST) {
-                OLAP_LOG_WARNING("can't publish version on tablet since data existed. "
-                                 "[tablet=%s transaction_id=%ld version=%d]",
-                                 tablet->full_name().c_str(), transaction_id, version.first);
-                delete_transaction(partition_id, transaction_id,
-                                   tablet->tablet_id(), tablet->schema_hash());
-
-            // if publish successfully, delete transaction from engine
-            } else if (publish_status == OLAP_SUCCESS) {
-                LOG(INFO) << "publish version successfully on tablet. tablet=" << tablet->full_name()
-                          << ", transaction_id=" << transaction_id << ", version=" << version.first;
-                TxnManager::instance()->delete_txn(partition_id, transaction_id, 
-                    tablet_info.tablet_id, tablet_info.schema_hash);
-            } else {
-                OLAP_LOG_WARNING("fail to publish version on tablet. "
-                                 "[tablet=%s transaction_id=%ld version=%d res=%d]",
-                                 tablet->full_name().c_str(), transaction_id,
-                                 version.first, publish_status);
-                error_tablet_ids->push_back(tablet->tablet_id());
-                res = publish_status;
-            }
-        }
-    }
-
-    LOG(INFO) << "finish to publish version on transaction."
-              << "transaction_id=" << transaction_id
-              << ", error_tablet_size=" << error_tablet_ids->size();
-    return res;
-}
-
 void StorageEngine::clear_transaction_task(const TTransactionId transaction_id,
                                         const vector<TPartitionId> partition_ids) {
     LOG(INFO) << "begin to clear transaction task. transaction_id=" <<  transaction_id;
 
     for (const TPartitionId& partition_id : partition_ids) {
-        vector<TabletInfo> tablet_infos;
-        TxnManager::instance()->get_txn_related_tablets(transaction_id, partition_id, &tablet_infos, NULL);
+        std::map<TabletInfo, RowsetSharedPtr> tablet_infos;
+        TxnManager::instance()->get_txn_related_tablets(transaction_id, partition_id, &tablet_infos);
 
         // each tablet
         for (auto& tablet_info : tablet_infos) {
-            delete_transaction(partition_id, transaction_id,
-                                tablet_info.tablet_id, tablet_info.schema_hash);
+            TxnManager::instance()->delete_txn(partition_id, transaction_id,
+                                tablet_info.first.tablet_id, tablet_info.first.schema_hash);
+            // TODO(ygl): should also delete related rowset files
         }
     }
     LOG(INFO) << "finish to clear transaction task. transaction_id=" << transaction_id;
@@ -685,6 +639,7 @@ void StorageEngine::start_clean_fd_cache() {
 void StorageEngine::perform_cumulative_compaction(OlapStore* store) {
     TabletSharedPtr best_tablet = _find_best_tablet_to_compaction(CompactionType::CUMULATIVE_COMPACTION, store);
     if (best_tablet == nullptr) { return; }
+
     DorisMetrics::cumulative_compaction_request_total.increment(1);
     CumulativeCompaction cumulative_compaction;
     OLAPStatus res = cumulative_compaction.init(best_tablet);
@@ -1082,6 +1037,72 @@ OLAPStatus StorageEngine::load_header(
 
     LOG(INFO) << "success to process load headers.";
     return res;
+}
+
+
+OLAPStatus StorageEngine::execute_task(EngineTask* task) {
+    // 1. add wlock to related tablets
+    // 2. do prepare work
+    // 3. release wlock
+    {
+        vector<TabletInfo> tablet_infos;
+        task->get_related_tablets(&tablet_infos);
+        sort(tablet_infos.begin(), tablet_infos.end());
+        vector<TabletSharedPtr> related_tablets;
+        for (TabletInfo& tablet_info : tablet_infos) {
+            TabletSharedPtr tablet = TabletManager::instance()->get_tablet(
+                tablet_info.tablet_id, tablet_info.schema_hash, false);
+            if (tablet != NULL) {
+                related_tablets.push_back(tablet);
+                tablet->obtain_header_wrlock();
+            } else {
+                LOG(WARNING) << "could not get tablet before prepare tabletid: " 
+                             << tablet_info.tablet_id;
+            }
+        }
+        // add write lock to all related tablets
+        OLAPStatus prepare_status = task->prepare();
+        for (TabletSharedPtr& tablet : related_tablets) {
+            tablet->release_header_lock();
+        }
+        if (prepare_status != OLAP_SUCCESS) {
+            return prepare_status;
+        }
+    }
+
+    // do execute work without lock
+    OLAPStatus exec_status = task->execute();
+    if (exec_status != OLAP_SUCCESS) {
+        return exec_status;
+    }
+    
+    // 1. add wlock to related tablets
+    // 2. do finish work
+    // 3. release wlock
+    {
+        vector<TabletInfo> tablet_infos;
+        // related tablets may be changed after execute task, so that get them here again
+        task->get_related_tablets(&tablet_infos);
+        sort(tablet_infos.begin(), tablet_infos.end());
+        vector<TabletSharedPtr> related_tablets;
+        for (TabletInfo& tablet_info : tablet_infos) {
+            TabletSharedPtr tablet = TabletManager::instance()->get_tablet(
+                tablet_info.tablet_id, tablet_info.schema_hash, false);
+            if (tablet != NULL) {
+                related_tablets.push_back(tablet);
+                tablet->obtain_header_wrlock();
+            } else {
+                LOG(WARNING) << "could not get tablet before finish tabletid: " 
+                             << tablet_info.tablet_id;
+            }
+        }
+        // add write lock to all related tablets
+        OLAPStatus fin_status = task->finish();
+        for (TabletSharedPtr& tablet : related_tablets) {
+            tablet->release_header_lock();
+        }
+        return fin_status;
+    }
 }
 
 }  // namespace doris

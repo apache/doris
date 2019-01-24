@@ -83,7 +83,7 @@ TxnManager* TxnManager::instance() {
     return _s_instance;
 }
 
-OLAPStatus TxnManager::add_txn(
+OLAPStatus TxnManager::prepare_txn(
     TPartitionId partition_id, TTransactionId transaction_id,
     TTabletId tablet_id, SchemaHash schema_hash, 
     const PUniqueId& load_id, RowsetSharedPtr rowset_ptr) {
@@ -126,9 +126,8 @@ OLAPStatus TxnManager::add_txn(
     return OLAP_SUCCESS;
 }
 
-OLAPStatus TxnManager::delete_txn(
-    TPartitionId partition_id, TTransactionId transaction_id,
-    TTabletId tablet_id, SchemaHash schema_hash) {
+OLAPStatus TxnManager::delete_txn(TPartitionId partition_id, TTransactionId transaction_id,
+                                  TTabletId tablet_id, SchemaHash schema_hash) {
 
     pair<int64_t, int64_t> key(partition_id, transaction_id);
     TabletInfo tablet_info(tablet_id, schema_hash);
@@ -151,7 +150,7 @@ OLAPStatus TxnManager::delete_txn(
 }
 
 void TxnManager::get_tablet_related_txns(TabletSharedPtr tablet, int64_t* partition_id,
-                                            std::set<int64_t>* transaction_ids) {
+                                         std::set<int64_t>* transaction_ids) {
     if (tablet.get() == nullptr || partition_id == nullptr || transaction_ids == nullptr) {
         OLAP_LOG_WARNING("parameter is null when get transactions by tablet");
         return;
@@ -172,9 +171,8 @@ void TxnManager::get_tablet_related_txns(TabletSharedPtr tablet, int64_t* partit
 }
 
 void TxnManager::get_txn_related_tablets(const TTransactionId transaction_id,
-                                        TPartitionId partition_id,
-                                        std::vector<TabletInfo>* tablet_infos,
-                                        std::vector<RowsetSharedPtr>* rowset_infos) {
+                                         TPartitionId partition_id,
+                                         std::map<TabletInfo, RowsetSharedPtr>* tablet_infos) {
     // get tablets in this transaction
     pair<int64_t, int64_t> key(partition_id, transaction_id);
 
@@ -190,17 +188,13 @@ void TxnManager::get_txn_related_tablets(const TTransactionId transaction_id,
     // each tablet
     for (auto& load_info : load_info_map) {
         const TabletInfo& tablet_info = load_info.first;
-        tablet_infos->push_back(tablet_info);
-        if (rowset_infos != NULL) {
-            // TODO(ygl) check rowsetptr is null?
-            rowset_infos->push_back(load_info.second.second);
-        }
+	    tablet_infos->emplace_back(tablet_info,load_info.second.second);
     }
 }
                                 
 
 bool TxnManager::has_txn(TPartitionId partition_id, TTransactionId transaction_id,
-                                 TTabletId tablet_id, SchemaHash schema_hash) {
+                         TTabletId tablet_id, SchemaHash schema_hash) {
     pair<int64_t, int64_t> key(partition_id, transaction_id);
     TabletInfo tablet_info(tablet_id, schema_hash);
 

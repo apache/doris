@@ -30,11 +30,12 @@ const std::string HTTP_REQUEST_FILE_PARAM = "&file=";
 const uint32_t DOWNLOAD_FILE_MAX_RETRY = 3;
 const uint32_t LIST_REMOTE_FILE_TIMEOUT = 15;
 
-EngineCloneTask::EngineCloneTask(const TCloneReq& clone_req, vector<string>* error_msgs, 
-                    vector<TTabletInfo>* tablet_infos, 
-                    AgentStatus* res_status, 
-                    int64_t signature,
-                    const TMasterInfo& master_info) :
+EngineCloneTask::EngineCloneTask(const TCloneReq& clone_req, 
+                    const TMasterInfo& master_info,  
+                    int64_t signature, 
+                    vector<string>* error_msgs, 
+                    vector<TTabletInfo>* tablet_infos,
+                    AgentStatus* res_status) :
     _clone_req(clone_req),
     _error_msgs(error_msgs), 
     _tablet_infos(tablet_infos),
@@ -50,6 +51,7 @@ OLAPStatus EngineCloneTask::execute() {
     TabletSharedPtr tablet =
             TabletManager::instance()->get_tablet(
             _clone_req.tablet_id, _clone_req.schema_hash);
+    // try to repair a tablet with missing version
     if (tablet.get() != NULL) {
         LOG(INFO) << "clone tablet exist yet, begin to incremental clone. "
                     << "signature:" << _signature
@@ -104,7 +106,7 @@ OLAPStatus EngineCloneTask::execute() {
             }
         }
     } else {
-
+        // create a new tablet in this be
         // Get local disk from olap
         string local_shard_root_path;
         DataDir* store = nullptr;
@@ -322,6 +324,8 @@ AgentStatus EngineCloneTask::_clone_copy(
 
 #ifndef BE_TEST
         // Check local path exist, if exist, remove it, then create the dir
+        // local_file_full_path = tabletid/clone， for a specific tablet, there should be only one folder
+        // if this folder exists, then should remove it
         if (status == DORIS_SUCCESS) {
             boost::filesystem::path local_file_full_dir(local_file_full_path);
             if (boost::filesystem::exists(local_file_full_dir)) {
@@ -630,8 +634,7 @@ OLAPStatus EngineCloneTask::_finish_clone(TabletSharedPtr tablet, const string& 
         }
 
         if (is_incremental_clone) {
-            res = _clone_incremental_data(
-                                              tablet, clone_header, committed_version);
+            res = _clone_incremental_data(tablet, clone_header, committed_version);
         } else {
             res = _clone_full_data(tablet, clone_header);
         }
