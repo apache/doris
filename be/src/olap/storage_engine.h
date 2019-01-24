@@ -45,11 +45,13 @@
 #include "olap/options.h"
 #include "olap/tablet_manager.h"
 #include "olap/txn_manager.h"
+#include "olap/task/engine_task.h"
 
 namespace doris {
 
 class Tablet;
 class DataDir;
+class EngineTask;
 
 // StorageEngine singleton to manage all Table pointers.
 // Providing add/drop/get operations.
@@ -79,13 +81,6 @@ public:
     TabletSharedPtr create_tablet(const TCreateTabletReq& request,
                                   const bool is_schema_change_tablet,
                                   const TabletSharedPtr ref_tablet);
-
-    void delete_transaction(TPartitionId partition_id, TTransactionId transaction_id,
-                            TTabletId tablet_id, SchemaHash schema_hash,
-                            bool delete_from_tablet = true);
-
-    OLAPStatus publish_version(const TPublishVersionRequest& publish_version_req,
-                         std::vector<TTabletId>* error_tablet_ids);
 
     void clear_transaction_task(const TTransactionId transaction_id,
                                 const std::vector<TPartitionId> partition_ids);
@@ -197,6 +192,8 @@ public:
                     _is_report_disk_state_already = true;
         }
     }
+
+    OLAPStatus execute_task(EngineTask* task);
 
 private:
     OLAPStatus check_all_root_path_cluster_id();
@@ -329,6 +326,8 @@ private:
     std::condition_variable _report_cv;
     std::atomic_bool _is_report_disk_state_already;
     std::atomic_bool _is_report_tablet_already;
+
+    Mutex _engine_task_mutex;
 };
 
 }  // namespace doris

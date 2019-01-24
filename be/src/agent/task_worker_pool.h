@@ -114,6 +114,7 @@ private:
     static void* _recover_tablet_thread_callback(void* arg_this);
 
     void _alter_tablet(
+            TaskWorkerPool* worker_pool_this,
             const TAlterTabletReq& create_rollup_request,
             int64_t signature,
             const TTaskType::type task_type,
