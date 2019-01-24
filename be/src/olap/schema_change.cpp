@@ -1449,7 +1449,7 @@ OLAPStatus SchemaChangeHandler::_do_alter_tablet(
     VLOG(3) << "begin to remove all data from new tablet to prevent rewrite. "
             << "new_tablet=" << new_tablet->full_name();
     // only remove the version <= base_tablet's latest version
-    const PDelta* lastest_file_version = ref_tablet->lastest_version();
+    const RowsetSharedPtr lastest_file_version = ref_tablet->rowset_with_max_version();
     if (lastest_file_version != NULL) {
         VLOG(3) << "find the latest version of base tablet when remove all data from new. "
                 << "base_tablet=" << ref_tablet->full_name()
@@ -1843,7 +1843,7 @@ OLAPStatus SchemaChangeHandler::_get_versions_to_be_changed(
         TabletSharedPtr ref_tablet,
         vector<Version>& versions_to_be_changed) {
     int32_t request_version = 0;
-    const PDelta* lastest_version = ref_tablet->lastest_version();
+    const RowsetSharedPtr lastest_version = ref_tablet->rowset_with_max_version();
     if (lastest_version != NULL) {
         request_version = lastest_version->end_version() - 1;
     } else {

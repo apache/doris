@@ -61,6 +61,10 @@ public:
 
     virtual Version version() const = 0;
 
+    virtual int64_t end_version() const = 0;
+
+    virtual int64_t start_version() const = 0;
+
     virtual VersionHash version_hash() const = 0;
 
     virtual bool in_use() const = 0;
@@ -72,6 +76,8 @@ public:
     virtual void set_version(Version version) = 0;
 
     virtual void set_version_hash(VersionHash version_hash) = 0;
+
+    virtual int64_t create_time() = 0;
 };
 
 } // namespace doris
