@@ -585,15 +585,7 @@ void TaskWorkerPool::_alter_tablet(
     // Because if delete failed create rollup will failed
     if (status == DORIS_SUCCESS) {
         EngineSchemaChangeTask engine_task(alter_tablet_request, signature, task_type, &error_msgs, process_name);
-<<<<<<< HEAD
-<<<<<<< HEAD
         OLAPStatus sc_status = worker_pool_this->_env->storage_engine()->execute_task(&engine_task);
-=======
-        OLAPStatus sc_status = worker_pool_this->_env->olap_engine()->execute_task(&engine_task);
->>>>>>> Add publish version task
-=======
-        OLAPStatus sc_status = worker_pool_this->_env->storage_engine()->execute_task(&engine_task);
->>>>>>> Rename add txn to begin txn
         if (sc_status != OLAP_SUCCESS) {
             status = DORIS_ERROR;
         } else {
@@ -803,15 +795,7 @@ void* TaskWorkerPool::_publish_version_worker_thread_callback(void* arg_this) {
         while (retry_time < PUBLISH_VERSION_MAX_RETRY) {
             error_tablet_ids.clear();
             EnginePublishVersionTask engine_task(publish_version_req, &error_tablet_ids);
-<<<<<<< HEAD
-<<<<<<< HEAD
             res = worker_pool_this->_env->storage_engine()->execute_task(&engine_task);
-=======
-            res = worker_pool_this->_env->olap_engine()->execute_task(&engine_task);
->>>>>>> Add publish version task
-=======
-            res = worker_pool_this->_env->storage_engine()->execute_task(&engine_task);
->>>>>>> Rename add txn to begin txn
             if (res == OLAP_SUCCESS) {
                 break;
             } else {
@@ -873,15 +857,7 @@ void* TaskWorkerPool::_clear_alter_task_worker_thread_callback(void* arg_this) {
         vector<string> error_msgs;
         TStatus task_status;
         EngineClearAlterTask engine_task(clear_alter_task_req);
-<<<<<<< HEAD
-<<<<<<< HEAD
         OLAPStatus clear_status = worker_pool_this->_env->storage_engine()->execute_task(&engine_task);
-=======
-        OLAPStatus clear_status = worker_pool_this->_env->olap_engine()->execute_task(&engine_task);
->>>>>>> Add publish version task
-=======
-        OLAPStatus clear_status = worker_pool_this->_env->storage_engine()->execute_task(&engine_task);
->>>>>>> Rename add txn to begin txn
         if (clear_status != OLAPStatus::OLAP_SUCCESS) {
             OLAP_LOG_WARNING("clear alter task failed. [signature: %ld status=%d]",
                              agent_task_req.signature, clear_status);
@@ -987,15 +963,7 @@ void* TaskWorkerPool::_clone_worker_thread_callback(void* arg_this) {
                                     agent_task_req.signature,
                                     &error_msgs, &tablet_infos, 
                                     &status);
-<<<<<<< HEAD
-<<<<<<< HEAD
         worker_pool_this->_env->storage_engine()->execute_task(&engine_task);
-=======
-        worker_pool_this->_env->olap_engine()->execute_task(&engine_task);
->>>>>>> Add publish version task
-=======
-        worker_pool_this->_env->storage_engine()->execute_task(&engine_task);
->>>>>>> Rename add txn to begin txn
         // Return result to fe
         TStatus task_status;
         TFinishTaskRequest finish_task_request;
