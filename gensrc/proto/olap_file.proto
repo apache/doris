@@ -71,24 +71,25 @@ enum RowsetStatePB {
 
 message RowsetMetaPB {
     required int64 rowset_id = 1;
-    optional int64 tablet_id = 2;
-    optional int64 txn_id = 3;
-    optional int32 tablet_schema_hash = 4;
-    optional RowsetTypePB rowset_type = 5;
-    optional RowsetStatePB rowset_state = 6;
-    optional int32 start_version = 7;
-    optional int32 end_version = 8;
-    optional int64 version_hash = 9;
-    optional int32 num_rows = 10;
-    optional int64 total_disk_size = 11;
-    optional int64 data_disk_size = 12;
-    optional int64 index_disk_size = 13;
+    optional int64 partition_id = 2;
+    optional int64 tablet_id = 3;
+    optional int64 txn_id = 4;
+    optional int32 tablet_schema_hash = 5;
+    optional RowsetTypePB rowset_type = 6;
+    optional RowsetStatePB rowset_state = 7;
+    optional int32 start_version = 8;
+    optional int32 end_version = 9;
+    optional int64 version_hash = 10;
+    optional int32 num_rows = 11;
+    optional int64 total_disk_size = 12;
+    optional int64 data_disk_size = 13;
+    optional int64 index_disk_size = 14;
     // column min/max/null flag statistic info
-    repeated ColumnPruning column_statistics = 14;
-    optional DeletePredicatePB delete_predicate = 15;
-    optional bool empty = 16;
-    optional string rowset_path = 17;
-    required PUniqueId load_id = 18;
+    repeated ColumnPruning column_statistics = 15;
+    optional DeletePredicatePB delete_predicate = 16;
+    optional bool empty = 17;
+    optional string rowset_path = 18;
+    required PUniqueId load_id = 19;
     // spare field id for future use
     optional bytes extra_properties = 50;
 
