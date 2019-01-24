@@ -198,11 +198,12 @@ OLAPStatus StorageEngine::_load_data_dir(DataDir* data_dir) {
             load_id.set_hi(0);
             load_id.set_lo(0);
             // TODO(ygl): create rowset from rowset meta
-            OLAPStatus prepare_txn_status = TxnManager::instance()->prepare_txn(
+            OLAPStatus commit_txn_status = TxnManager::instance()->commit_txn(
+                tablet->data_dir()->get_meta(),
                 rowset_meta->partition_id(), rowset_meta->txn_id(), 
-                rowset_meta->tablet_id(), rowset_meta->tablet_schema_hash(), 
-                load_id, NULL);
-            if (prepare_txn_status != OLAP_SUCCESS && prepare_txn_status != OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
+                rowset_meta->tablet_id(), rowset_meta->tablet_schema_hash(),
+                load_id, NULL, true);
+            if (commit_txn_status != OLAP_SUCCESS && commit_txn_status != OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
                 LOG(WARNING) << "failed to add committed rowset: " << rowset_meta->rowset_id()
                              << " to tablet: " << rowset_meta->tablet_id() 
                              << " for txn: " << rowset_meta->txn_id();
@@ -604,9 +605,14 @@ void StorageEngine::clear_transaction_task(const TTransactionId transaction_id,
 
         // each tablet
         for (auto& tablet_info : tablet_infos) {
-            TxnManager::instance()->delete_txn(partition_id, transaction_id,
+            TabletSharedPtr tablet = TabletManager::instance()->get_tablet(tablet_info.first.tablet_id, 
+                tablet_info.first.schema_hash, false);
+            OlapMeta* meta = nullptr;
+            if (tablet != NULL) {
+                meta = tablet->data_dir()->get_meta();
+            }
+            TxnManager::instance()->delete_txn(meta, partition_id, transaction_id,
                                 tablet_info.first.tablet_id, tablet_info.first.schema_hash);
-            // TODO(ygl): should also delete related rowset files
         }
     }
     LOG(INFO) << "finish to clear transaction task. transaction_id=" << transaction_id;

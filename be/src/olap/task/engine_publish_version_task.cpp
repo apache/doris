@@ -69,31 +69,19 @@ OLAPStatus EnginePublishVersionTask::finish() {
                 continue;
             }
 
-            // publish version, one tablet only has one rowset for a single txn
-            // if one tablet has more than one rowset for a single txn, 
-            // should consider part of rowset meta persist 
-            // failed, it is very difficault, so that not deal with this case
-            // get rowsets from txn manager according to tablet and txn id
-            // set rowset version 
-            // persist rowset meta
-            rowset->set_version(version);
-            rowset->set_version_hash(version_hash);
-            // TODO(ygl): currently, tablet meta will be persist when add a new rowset,
-            // so that not persist rowset meta here
-            /**
-            publish_status = RowsetMetaManager::save(
-                tablet->data_dir()->get_meta(),
-                rowset->rowset_id(),
-                rowset->rowset_meta());
-            if (publish_status != OLAP_SUCCESS) {
-                LOG(WARNING) << "save pending rowset failed. rowset_id:" << rowset->rowset_id() 
+            publish_status = TxnManager::instance()->publish_txn(tablet->data_dir()->get_meta(), 
+                partition_id, 
+                transaction_id, tablet_info.tablet_id, tablet_info.schema_hash, 
+                version, version_hash);
+            
+            if (publish_status != OLAP_SUCCESS && publish_status != OLAP_ERR_TRANSACTION_NOT_EXIST) {
+                LOG(WARNING) << "failed to publish for rowset_id:" << rowset->rowset_id()
                              << "tablet id: " << tablet_info.tablet_id
                              << "txn id:" << transaction_id;
-                error_tablet_ids->push_back(tablet_info.tablet_id);
-                res = OLAP_ERR_ROWSET_SAVE_FAILED;
+                _error_tablet_ids->push_back(tablet_info.tablet_id);
+                res = publish_status;
                 continue;
             }
-            */
             // add visible rowset to tablet
             publish_status = tablet->add_inc_rowset(*rowset);
             if (publish_status != OLAP_SUCCESS) {
@@ -101,18 +89,15 @@ OLAPStatus EnginePublishVersionTask::finish() {
                              << "tablet id: " << tablet_info.tablet_id
                              << "txn id:" << transaction_id;
                 _error_tablet_ids->push_back(tablet_info.tablet_id);
-                res = OLAP_ERR_ROWSET_SAVE_FAILED;
+                res = publish_status;
                 continue;
             }
-
             if (publish_status == OLAP_SUCCESS) {
                 LOG(INFO) << "publish version successfully on tablet. tablet=" << tablet->full_name()
                           << ", transaction_id=" << transaction_id << ", version=" << version.first;
-                // delete rowset from meta env
+                // delete rowset from meta env, because add inc rowset alreay saved the rowset meta to tablet meta
                 RowsetMetaManager::remove(tablet->data_dir()->get_meta(), rowset->rowset_id());
                 // delete txn info
-                TxnManager::instance()->delete_txn(partition_id, transaction_id, 
-                    tablet_info.tablet_id, tablet_info.schema_hash);
             } else {
                 LOG(WARNING) << "fail to publish version on tablet. tablet=" << tablet->full_name().c_str()
                              << "transaction_id=" << transaction_id

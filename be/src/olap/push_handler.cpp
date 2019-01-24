@@ -88,7 +88,7 @@ OLAPStatus PushHandler::process_streaming_ingestion(
                 continue;
             }
 
-            StorageEngine::instance()->delete_transaction(
+            TxnManager::instance()->rollback_txn(
                 request.partition_id, request.transaction_id,
                 tablet_var.tablet->tablet_id(), tablet_var.tablet->schema_hash());
 
@@ -118,20 +118,12 @@ OLAPStatus PushHandler::_do_streaming_ingestion(
     load_id.set_lo(0);
     res = TxnManager::instance()->prepare_txn(
         request.partition_id, request.transaction_id,
-        tablet->tablet_id(), tablet->schema_hash(), load_id, NULL);
+        tablet->tablet_id(), tablet->schema_hash(), load_id);
 
     // if transaction exists, exit
     if (res == OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
-
         // if push finished, report success to fe
-        // if (tablet->has_pending_data(request.transaction_id)) {
-        if (TxnManager::instance()->has_txn(request.partition_id,
-                request.transaction_id, tablet->tablet_id(), tablet->schema_hash())) {
-            LOG(WARNING) << "pending data exists in tablet, which means push finished,"
-                         << "return success. tablet=" << tablet->full_name()
-                         << ", transaction_id=" << request.transaction_id;
-            res = OLAP_SUCCESS;
-        }
+        res = OLAP_SUCCESS;
         tablet->release_push_lock();
         return res;
     }
@@ -175,7 +167,7 @@ OLAPStatus PushHandler::_do_streaming_ingestion(
                 load_id.set_lo(0);
                 res = TxnManager::instance()->prepare_txn(
                     request.partition_id, request.transaction_id,
-                    related_tablet->tablet_id(), related_tablet->schema_hash(), load_id, NULL);
+                    related_tablet->tablet_id(), related_tablet->schema_hash(), load_id);
 
                 // if related tablet's transaction exists, only push current tablet
                 if (res == OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
@@ -248,8 +240,10 @@ OLAPStatus PushHandler::_do_streaming_ingestion(
         }
 
         for (RowsetSharedPtr rowset : tablet_var.added_rowsets) {
-            RowsetMetaManager::save(tablet_var.tablet->data_dir()->get_meta(),
-                rowset->rowset_id(), rowset->rowset_meta());
+            TxnManager::instance()->commit_txn(tablet_var.tablet->data_dir()->get_meta(),
+                request.partition_id, request.transaction_id,
+                tablet_var.tablet->tablet_id(), tablet_var.tablet->schema_hash(),
+                load_id, rowset, false);
         }
     }
     return OLAP_SUCCESS;
