@@ -129,7 +129,6 @@ public:
     std::string construct_incremental_data_file_path(
         Version version, VersionHash version_hash, int32_t segment_group_id, int32_t segment) const;
     std::string construct_dir_path() const;
-    std::vector<FieldInfo>& tablet_schema();
     int file_delta_size() const;
     const PDelta& delta(int index) const;
     const PDelta* get_delta(int index) const;
@@ -211,18 +210,18 @@ public:
     double bloom_filter_fpp() const;
     bool equal(TTabletId tablet_id, TSchemaHash schema_hash);
 
-    TabletSchema* schema() const;
+    const TabletSchema& tablet_schema();
     const std::string& full_name() const;
     size_t num_fields() const;
     size_t num_null_fields();
-    size_t num_key_fields();
-    size_t num_short_key_fields() const;
+    size_t num_key_columns();
+    size_t num_short_key_columns() const;
     size_t next_unique_id() const;
     size_t num_rows_per_row_block() const;
     CompressKind compress_kind();
 
-    size_t get_field_index(const std::string& field_name) const;
-    size_t get_row_size() const;
+    size_t field_index(const std::string& field_name) const;
+    size_t row_size() const;
     size_t get_index_size() const;
     size_t all_rowsets_size() const;
     size_t get_data_size();
@@ -320,7 +319,7 @@ private:
     RowsetGraph* _rs_graph;
 
     TabletMeta _tablet_meta;
-    TabletSchema* _schema;
+    TabletSchema _schema;
     RWMutex _meta_lock;
     Mutex _ingest_lock;
     Mutex _base_lock;

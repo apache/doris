@@ -327,13 +327,13 @@ void SegmentReader::_set_column_map() {
     _unique_id_to_segment_id_map.clear();
 
     for (ColumnId table_column_id : _used_columns) {
-        ColumnId unique_column_id = tablet_schema()[table_column_id].unique_id;
+        ColumnId unique_column_id = tablet_schema().column(table_column_id).unique_id();
         _tablet_id_to_unique_id_map[table_column_id] = unique_column_id;
         _unique_id_to_tablet_id_map[unique_column_id] = table_column_id;
     }
 
     for (ColumnId table_column_id : _load_bf_columns) {
-        ColumnId unique_column_id = tablet_schema()[table_column_id].unique_id;
+        ColumnId unique_column_id = tablet_schema().column(table_column_id).unique_id();
         _tablet_id_to_unique_id_map[table_column_id] = unique_column_id;
         _unique_id_to_tablet_id_map[unique_column_id] = table_column_id;
     }
@@ -797,8 +797,8 @@ OLAPStatus SegmentReader::_read_all_data_streams(size_t* buffer_size) {
 }
 
 OLAPStatus SegmentReader::_create_reader(size_t* buffer_size) {
-    _column_readers.resize(_segment_group->get_tablet_schema().size(), nullptr);
-    _column_indices.resize(_segment_group->get_tablet_schema().size(), nullptr);
+    _column_readers.resize(_segment_group->get_tablet_schema().num_columns(), nullptr);
+    _column_indices.resize(_segment_group->get_tablet_schema().num_columns(), nullptr);
     for (auto table_column_id : _used_columns) {
         ColumnId unique_column_id = _tablet_id_to_unique_id_map[table_column_id];
         // 当前是不会出现table和segment的schema不一致的情况的

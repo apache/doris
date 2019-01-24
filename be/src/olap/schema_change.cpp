@@ -1137,8 +1137,8 @@ bool SchemaChangeWithSorting::_internal_sorting(const vector<RowBlock*>& row_blo
         new(nothrow) SegmentGroup(_tablet->tablet_id(),
                                   0,
                                   _tablet->tablet_schema(),
-                                  _tablet->num_key_fields(),
-                                  _tablet->num_short_key_fields(),
+                                  _tablet->num_key_columns(),
+                                  _tablet->num_short_key_columns(),
                                   _tablet->num_rows_per_row_block(),
                                   _tablet->rowset_path_prefix(),
                                   temp_delta_versions,
@@ -1784,8 +1784,8 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
             new_segment_group = new SegmentGroup(dest_tablet->tablet_id(),
                                                  0,
                                                  dest_tablet->tablet_schema(),
-                                                 dest_tablet->num_key_fields(),
-                                                 dest_tablet->num_short_key_fields(),
+                                                 dest_tablet->num_key_columns(),
+                                                 dest_tablet->num_short_key_columns(),
                                                  dest_tablet->num_rows_per_row_block(),
                                                  dest_tablet->rowset_path_prefix(),
                                                  olap_data->version(),
@@ -1796,8 +1796,8 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
             new_segment_group = new SegmentGroup(dest_tablet->tablet_id(),
                                                  0,
                                                  dest_tablet->tablet_schema(),
-                                                 dest_tablet->num_key_fields(),
-                                                 dest_tablet->num_short_key_fields(),
+                                                 dest_tablet->num_key_columns(),
+                                                 dest_tablet->num_short_key_columns(),
                                                  dest_tablet->num_rows_per_row_block(),
                                                  dest_tablet->rowset_path_prefix(),
                                                  olap_data->delete_flag(),
@@ -2021,8 +2021,8 @@ OLAPStatus SchemaChangeHandler::_alter_tablet(SchemaChangeParams* sc_params) {
                                             sc_params->new_tablet->tablet_id(),
                                             0,
                                             sc_params->new_tablet->tablet_schema(),
-                                            sc_params->new_tablet->num_key_fields(),
-                                            sc_params->new_tablet->num_short_key_fields(),
+                                            sc_params->new_tablet->num_key_columns(),
+                                            sc_params->new_tablet->num_short_key_columns(),
                                             sc_params->new_tablet->num_rows_per_row_block(),
                                             sc_params->new_tablet->rowset_path_prefix(),
                                             (*it)->version(),
@@ -2240,7 +2240,7 @@ OLAPStatus SchemaChangeHandler::_parse_request(TabletSharedPtr ref_tablet,
         {
             column_mapping->ref_column = -1;
 
-            if (i < ref_tablet->num_short_key_fields()) {
+            if (i < ref_tablet->num_short_key_columns()) {
                 *sc_directly = true;
             }
 
@@ -2278,7 +2278,7 @@ OLAPStatus SchemaChangeHandler::_parse_request(TabletSharedPtr ref_tablet,
     // 若Key列的引用序列出现乱序，则需要重排序
     int num_default_value = 0;
 
-    for (int i = 0, new_schema_size = new_tablet->num_key_fields();
+    for (int i = 0, new_schema_size = new_tablet->num_key_columns();
             i < new_schema_size; ++i) {
         ColumnMapping* column_mapping = rb_changer->get_mutable_column_mapping(i);
 
@@ -2293,7 +2293,7 @@ OLAPStatus SchemaChangeHandler::_parse_request(TabletSharedPtr ref_tablet,
         }
     }
 
-    if (ref_tablet->num_short_key_fields() != new_tablet->num_short_key_fields()) {
+    if (ref_tablet->num_short_key_columns() != new_tablet->num_short_key_columns()) {
         // the number of short_keys changed, can't do linked schema change
         *sc_directly = true;
         return OLAP_SUCCESS;

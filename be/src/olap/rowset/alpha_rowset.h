@@ -31,10 +31,8 @@ namespace doris {
 
 class AlphaRowset : public Rowset {
 public:
-    AlphaRowset(const RowFields& tablet_schema,
-        int num_key_fields, int num_short_key_fields,
-        int num_rows_per_row_block, const std::string rowset_path,
-        RowsetMetaSharedPtr rowset_meta);
+    AlphaRowset(const TabletSchema* schema, const std::string rowset_path,
+                RowsetMetaSharedPtr rowset_meta);
 
     virtual OLAPStatus init();
 
@@ -77,10 +75,7 @@ private:
     OLAPStatus _init_segment_groups();
 
 private:
-    RowFields _tablet_schema;
-    int _num_key_fields;
-    int _num_short_key_fields;
-    int _num_rows_per_row_block;
+    const TabletSchema* _schema;
     std::string _rowset_path;
     RowsetMetaSharedPtr _rowset_meta;
     std::vector<std::shared_ptr<SegmentGroup>> _segment_groups;

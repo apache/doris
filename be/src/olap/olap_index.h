@@ -173,7 +173,7 @@ public:
 
     // 初始化MemIndex, 传入short_key的总长度和对应的Field数组
     OLAPStatus init(size_t short_key_len, size_t new_short_key_len,
-                    size_t short_key_num, RowFields* fields);
+                    size_t short_key_num, std::vector<TabletColumn>* short_key_columns);
 
     // 加载一个segment到内存
     OLAPStatus load_segment(const char* file, size_t *current_num_rows_per_row_block);
@@ -273,8 +273,8 @@ public:
     }
 
     // Return short key FieldInfo array
-    const RowFields& short_key_fields() const {
-        return *_fields;
+    const std::vector<TabletColumn>& short_key_columns() const {
+        return *_short_key_columns;
     }
 
     // Return the number of indices in MemIndex
@@ -328,7 +328,7 @@ private:
     size_t _index_size;
     size_t _data_size;
     size_t _num_rows;
-    RowFields*  _fields;
+    std::vector<TabletColumn>* _short_key_columns;
 
     std::unique_ptr<MemTracker> _tracker;
     std::unique_ptr<MemPool> _mem_pool;

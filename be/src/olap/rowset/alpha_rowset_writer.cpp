@@ -38,7 +38,7 @@ OLAPStatus AlphaRowsetWriter::init(const RowsetWriterContext& rowset_writer_cont
     _current_rowset_meta->set_rowset_state(rowset_writer_context.rowset_state);
     _current_rowset_meta->set_rowset_path(_rowset_writer_context.rowset_path_prefix);
     RowsetStatePB rowset_state = _rowset_writer_context.rowset_state;
-    if (rowset_state == PREPARING
+    if (rowset_state == PREPARED
             || rowset_state == COMMITTED) {
         is_pending_rowset = true;
     }
@@ -125,10 +125,9 @@ RowsetSharedPtr AlphaRowsetWriter::build() {
             alpha_rowset_meta->add_segment_group(segment_group_pb);
         }
     }
-    Rowset* rowset = new(std::nothrow) AlphaRowset(_rowset_writer_context.tablet_schema,
-            _rowset_writer_context.num_key_fields, _rowset_writer_context.num_short_key_fields,
-            _rowset_writer_context.num_rows_per_row_block, _rowset_writer_context.rowset_path_prefix,
-            _current_rowset_meta);
+    Rowset* rowset = new AlphaRowset(_rowset_writer_context.tablet_schema,
+                                     _rowset_writer_context.rowset_path_prefix,
+                                     _current_rowset_meta);
     rowset->init();
     return std::shared_ptr<Rowset>(rowset);
 }
@@ -148,9 +147,6 @@ void AlphaRowsetWriter::_init() {
                 _rowset_writer_context.tablet_id,
                 _rowset_writer_context.rowset_id,
                 _rowset_writer_context.tablet_schema,
-                _rowset_writer_context.num_key_fields,
-                _rowset_writer_context.num_short_key_fields,
-                _rowset_writer_context.num_rows_per_row_block,
                 _rowset_writer_context.rowset_path_prefix,
                 false, _segment_group_id, 0, true,
                 _rowset_writer_context.partition_id, _rowset_writer_context.txn_id);
@@ -159,9 +155,6 @@ void AlphaRowsetWriter::_init() {
                 _rowset_writer_context.tablet_id,
                 _rowset_writer_context.rowset_id,
                 _rowset_writer_context.tablet_schema,
-                _rowset_writer_context.num_key_fields,
-                _rowset_writer_context.num_short_key_fields,
-                _rowset_writer_context.num_rows_per_row_block,
                 _rowset_writer_context.rowset_path_prefix,
                 _rowset_writer_context.version,
                 _rowset_writer_context.version_hash,
@@ -172,8 +165,9 @@ void AlphaRowsetWriter::_init() {
     //_cur_segment_group->set_load_id(_rowset_writer_context.load_id);
     _segment_groups.push_back(_cur_segment_group);
 
-    _column_data_writer = ColumnDataWriter::create(_cur_segment_group, true,
-            _rowset_writer_context.compress_kind, _rowset_writer_context.bloom_filter_fpp);
+    _column_data_writer= ColumnDataWriter::create(_cur_segment_group, true,
+                                                  _rowset_writer_context.tablet_schema->compress_kind(),
+                                                  _rowset_writer_context.tablet_schema->bloom_filter_fpp());
     DCHECK(_column_data_writer != nullptr) << "memory error occur when creating writer";
 }
 

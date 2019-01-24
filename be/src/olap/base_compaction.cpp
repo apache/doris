@@ -310,13 +310,18 @@ OLAPStatus BaseCompaction::_do_base_compaction(VersionHash new_base_version_hash
     // 1. 生成新base文件对应的olap index
     RowsetId rowset_id = 0;
     RowsetIdGenerator::instance()->get_next_id(_tablet->data_dir(), &rowset_id);
-    RowsetWriterContext context = {_tablet->partition_id(), _tablet->tablet_id(),
-                                   _tablet->schema_hash(), rowset_id,
-                                   RowsetTypePB::ALPHA_ROWSET, _tablet->rowset_path_prefix(),
-                                   _tablet->tablet_schema(), _tablet->num_key_fields(),
-                                   _tablet->num_short_key_fields(), _tablet->num_rows_per_row_block(),
-                                   _tablet->compress_kind(), _tablet->bloom_filter_fpp()};
-    RowsetWriterSharedPtr rs_writer(new AlphaRowsetWriter());
+
+    RowsetWriterContextBuilder context_builder;
+    context_builder.set_rowset_id(rowset_id)
+                   .set_tablet_id(_tablet->tablet_id())
+                   .set_partition_id(_tablet->partition_id())
+                   .set_tablet_schema_hash(_tablet->schema_hash())
+                   .set_rowset_type(ALPHA_ROWSET)
+                   .set_rowset_path_prefix(_tablet->tablet_path())
+                   .set_tablet_schema(&(_tablet->tablet_schema()));
+    RowsetWriterContext context = context_builder.build();
+
+    RowsetWriterSharedPtr rs_writer(new (std::nothrow)AlphaRowsetWriter());
     if (rs_writer == nullptr) {
         LOG(WARNING) << "fail to new rowset.";
         return OLAP_ERR_MALLOC_ERROR;

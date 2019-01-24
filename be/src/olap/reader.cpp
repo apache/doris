@@ -635,16 +635,16 @@ OLAPStatus Reader::_init_return_columns(const ReaderParams& read_params) {
             }
         }
         for (auto id : read_params.return_columns) {
-            if (_tablet->tablet_schema()[id].is_key) {
+            if (_tablet->tablet_schema().column(id).is_key()) {
                 _key_cids.push_back(id);
             } else {
                 _value_cids.push_back(id);
             }
         }
     } else if (read_params.return_columns.size() == 0) {
-        for (size_t i = 0; i < _tablet->tablet_schema().size(); ++i) {
+        for (size_t i = 0; i < _tablet->tablet_schema().num_columns(); ++i) {
             _return_columns.push_back(i);
-            if (_tablet->tablet_schema()[i].is_key) {
+            if (_tablet->tablet_schema().column(i).is_key()) {
                 _key_cids.push_back(i);
             } else {
                 _value_cids.push_back(i);
@@ -654,7 +654,7 @@ OLAPStatus Reader::_init_return_columns(const ReaderParams& read_params) {
     } else if (read_params.reader_type == READER_CHECKSUM) {
         _return_columns = read_params.return_columns;
         for (auto id : read_params.return_columns) {
-            if (_tablet->tablet_schema()[id].is_key) {
+            if (_tablet->tablet_schema().column(id).is_key()) {
                 _key_cids.push_back(id);
             } else {
                 _value_cids.push_back(id);
@@ -735,7 +735,7 @@ OLAPStatus Reader::_init_keys_param(const ReaderParams& read_params) {
 OLAPStatus Reader::_init_conditions_param(const ReaderParams& read_params) {
     OLAPStatus res = OLAP_SUCCESS;
 
-    _conditions.set_tablet_schema(_tablet->tablet_schema());
+    _conditions.set_tablet_schema(&_tablet->tablet_schema());
     for (int i = 0; i < read_params.conditions.size(); ++i) {
         _conditions.append_condition(read_params.conditions[i]);
         ColumnPredicate* predicate = _parse_to_predicate(read_params.conditions[i]);
@@ -748,9 +748,9 @@ OLAPStatus Reader::_init_conditions_param(const ReaderParams& read_params) {
 }
 
 #define COMPARISON_PREDICATE_CONDITION_VALUE(NAME, PREDICATE) \
-ColumnPredicate* Reader::_new_##NAME##_pred(FieldInfo& fi, int index, const std::string& cond) { \
+ColumnPredicate* Reader::_new_##NAME##_pred(const TabletColumn& column, int index, const std::string& cond) { \
     ColumnPredicate* predicate = NULL; \
-    switch (fi.type) { \
+    switch (column.type()) { \
         case OLAP_FIELD_TYPE_TINYINT: { \
             std::stringstream ss(cond); \
             int32_t value = 0; \
@@ -794,7 +794,7 @@ ColumnPredicate* Reader::_new_##NAME##_pred(FieldInfo& fi, int index, const std:
         } \
         case OLAP_FIELD_TYPE_CHAR: {\
             StringValue value; \
-            size_t length = std::max(static_cast<size_t>(fi.length), cond.length());\
+            size_t length = std::max(static_cast<size_t>(column.length()), cond.length());\
             char* buffer = reinterpret_cast<char*>(_predicate_mem_pool->allocate(length)); \
             memset(buffer, 0, length); \
             memory_copy(buffer, cond.c_str(), cond.length()); \
@@ -838,26 +838,26 @@ COMPARISON_PREDICATE_CONDITION_VALUE(ge, GreaterEqualPredicate)
 
 ColumnPredicate* Reader::_parse_to_predicate(const TCondition& condition) {
     // TODO: not equal and not in predicate is not pushed down
-    int index = _tablet->get_field_index(condition.column_name);
-    FieldInfo fi = _tablet->tablet_schema()[index];
-    if (fi.aggregation != FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE) {
+    int index = _tablet->field_index(condition.column_name);
+    const TabletColumn& column = _tablet->tablet_schema().column(index);
+    if (column.aggregation() != FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE) {
         return nullptr;
     }
     ColumnPredicate* predicate = NULL;
     if (condition.condition_op == "*="
             && condition.condition_values.size() == 1) {
-        predicate = _new_eq_pred(fi, index, condition.condition_values[0]);
+        predicate = _new_eq_pred(column, index, condition.condition_values[0]);
     } else if (condition.condition_op == "<<") {
-        predicate = _new_lt_pred(fi, index, condition.condition_values[0]);
+        predicate = _new_lt_pred(column, index, condition.condition_values[0]);
     } else if (condition.condition_op == "<=") {
-        predicate = _new_le_pred(fi, index, condition.condition_values[0]);
+        predicate = _new_le_pred(column, index, condition.condition_values[0]);
     } else if (condition.condition_op == ">>") {
-        predicate = _new_gt_pred(fi, index, condition.condition_values[0]);
+        predicate = _new_gt_pred(column, index, condition.condition_values[0]);
     } else if (condition.condition_op == ">=") {
-        predicate = _new_ge_pred(fi, index, condition.condition_values[0]);
+        predicate = _new_ge_pred(column, index, condition.condition_values[0]);
     } else if (condition.condition_op == "*="
             && condition.condition_values.size() > 1) {
-        switch (fi.type) {
+        switch (column.type()) {
             case OLAP_FIELD_TYPE_TINYINT: {
                 std::set<int8_t> values;
                 for (auto& cond_val : condition.condition_values) {
@@ -927,7 +927,7 @@ ColumnPredicate* Reader::_parse_to_predicate(const TCondition& condition) {
                 std::set<StringValue> values;
                 for (auto& cond_val : condition.condition_values) {
                     StringValue value;
-                    size_t length = std::max(static_cast<size_t>(fi.length), cond_val.length());
+                    size_t length = std::max(static_cast<size_t>(column.length()), cond_val.length());
                     char* buffer = reinterpret_cast<char*>(_predicate_mem_pool->allocate(length));
                     memset(buffer, 0, length);
                     memory_copy(buffer, cond_val.c_str(), cond_val.length());
@@ -998,14 +998,14 @@ OLAPStatus Reader::_init_load_bf_columns(const ReaderParams& read_params) {
     }
 
     // remove columns which have no bf stream
-    for (int i = 0; i < _tablet->tablet_schema().size(); ++i) {
-        if (!_tablet->tablet_schema()[i].is_bf_column) {
+    for (int i = 0; i < _tablet->tablet_schema().num_columns(); ++i) {
+        if (!_tablet->tablet_schema().column(i).is_bf_column()) {
             _load_bf_columns.erase(i);
         }
     }
 
     // remove columns which have same value between start_key and end_key
-    int min_scan_key_len = _tablet->tablet_schema().size();
+    int min_scan_key_len = _tablet->tablet_schema().num_columns();
     for (int i = 0; i < read_params.start_key.size(); ++i) {
         if (read_params.start_key[i].size() < min_scan_key_len) {
             min_scan_key_len = read_params.start_key[i].size();
@@ -1040,7 +1040,7 @@ OLAPStatus Reader::_init_load_bf_columns(const ReaderParams& read_params) {
     // or longer than number of short key fields
     FieldType type = _tablet->get_field_type_by_index(max_equal_index);
     if ((type != OLAP_FIELD_TYPE_VARCHAR && type != OLAP_FIELD_TYPE_HLL)
-            || max_equal_index + 1 > _tablet->num_short_key_fields()) {
+            || max_equal_index + 1 > _tablet->num_short_key_columns()) {
         _load_bf_columns.erase(max_equal_index);
     }
 

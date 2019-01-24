@@ -21,7 +21,6 @@
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/segment_group.h"
 #include "olap/rowset/column_data_writer.h"
-#include "olap/field_info.h"
 
 #include <vector>
 

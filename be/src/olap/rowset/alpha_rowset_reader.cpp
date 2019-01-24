@@ -19,10 +19,10 @@
 
 namespace doris {
 
-AlphaRowsetReader::AlphaRowsetReader(int num_key_fields, int num_short_key_fields,
+AlphaRowsetReader::AlphaRowsetReader(int num_key_columns, int num_short_key_columns,
         int num_rows_per_row_block, const std::string rowset_path, RowsetMeta* rowset_meta,
-        std::vector<std::shared_ptr<SegmentGroup>> segment_groups) : _num_key_fields(num_key_fields),
-            _num_short_key_fields(num_short_key_fields),
+        std::vector<std::shared_ptr<SegmentGroup>> segment_groups) : _num_key_columns(num_key_columns),
+            _num_short_key_columns(num_short_key_columns),
             _num_rows_per_row_block(num_rows_per_row_block),
             _rowset_path(rowset_path),
             _alpha_rowset_meta(nullptr),
