@@ -24,6 +24,7 @@ import org.apache.doris.load.TxnStateChangeListener;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.task.PublishVersionTask;
 
+import com.google.common.base.Joiner;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
@@ -102,6 +103,7 @@ public class TransactionState implements Writable {
     private long commitTime;
     private long finishTime;
     private String reason;
+    // error replica ids
     private Set<Long> errorReplicas;
     private CountDownLatch latch;
     
@@ -397,6 +399,7 @@ public class TransactionState implements Writable {
         sb.append(", coordinator: ").append(coordinator);
         sb.append(", transaction status: ").append(transactionStatus);
         sb.append(", error replicas num: ").append(errorReplicas.size());
+        sb.append(", replica ids: ").append(Joiner.on(",").join(errorReplicas.stream().limit(5).toArray()));
         sb.append(", prepare time: ").append(prepareTime);
         sb.append(", commit time: ").append(commitTime);
         sb.append(", finish time: ").append(finishTime);
