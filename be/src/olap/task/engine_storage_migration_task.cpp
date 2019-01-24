@@ -75,7 +75,7 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
     do {
         // get all versions to be migrate
         tablet->obtain_header_rdlock();
-        const PDelta* lastest_version = tablet->lastest_version();
+        const RowsetSharedPtr lastest_version = tablet->rowset_with_max_version();
         if (lastest_version == NULL) {
             tablet->release_header_lock();
             res = OLAP_ERR_VERSION_NOT_EXIST;

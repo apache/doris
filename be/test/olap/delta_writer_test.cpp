@@ -399,8 +399,8 @@ TEST_F(TestDeltaWriter, write) {
     publish_req.transaction_id = write_req.transaction_id;
     TPartitionVersionInfo info;
     info.partition_id = write_req.partition_id;
-    info.version = tablet->lastest_version()->end_version() + 1;
-    info.version_hash = tablet->lastest_version()->version_hash() + 1;
+    info.version = tablet->rowset_with_max_version()->end_version() + 1;
+    info.version_hash = tablet->rowset_with_max_version()->version_hash() + 1;
     std::vector<TPartitionVersionInfo> partition_version_infos;
     partition_version_infos.push_back(info);
     publish_req.partition_version_infos = partition_version_infos;
@@ -590,8 +590,8 @@ TEST_F(TestSchemaChange, schema_change) {
     publish_req.transaction_id = write_req.transaction_id;
     TPartitionVersionInfo info;
     info.partition_id = write_req.partition_id;
-    info.version = tablet->lastest_version()->end_version() + 1;
-    info.version_hash = tablet->lastest_version()->version_hash() + 1;
+    info.version = tablet->rowset_with_max_version()->end_version() + 1;
+    info.version_hash = tablet->rowset_with_max_version()->version_hash() + 1;
     std::vector<TPartitionVersionInfo> partition_version_infos;
     partition_version_infos.push_back(info);
     publish_req.partition_version_infos = partition_version_infos;

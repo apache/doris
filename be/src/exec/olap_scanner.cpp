@@ -90,19 +90,19 @@ Status OlapScanner::_prepare(
         }
         {
             ReadLock rdlock(_tablet->get_header_lock_ptr());
-            const PDelta* delta = _tablet->lastest_version();
-            if (delta == NULL) {
+            const RowsetSharedPtr rowset = _tablet->rowset_with_max_version();
+            if (rowset == NULL) {
                 std::stringstream ss;
                 ss << "fail to get latest version of tablet: " << tablet_id;
                 OLAP_LOG_WARNING(ss.str().c_str());
                 return Status(ss.str());
             }
 
-            if (delta->end_version() == _version
-                && delta->version_hash() != version_hash) {
+            if (rowset->end_version() == _version
+                && rowset->version_hash() != version_hash) {
                 OLAP_LOG_WARNING("fail to check latest version hash. "
                                  "[tablet_id=%ld version_hash=%ld request_version_hash=%ld]",
-                                 tablet_id, delta->version_hash(), version_hash);
+                                 tablet_id, rowset->version_hash(), version_hash);
 
                 std::stringstream ss;
                 ss << "fail to check version hash of tablet: " << tablet_id;

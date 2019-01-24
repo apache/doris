@@ -128,10 +128,10 @@ OLAPStatus TabletManager::add_tablet(TTabletId tablet_id, SchemaHash schema_hash
     }
 
     table_item->obtain_header_rdlock();
-    int64_t old_time = table_item->lastest_version()->creation_time();
-    int64_t new_time = tablet->lastest_version()->creation_time();
-    int32_t old_version = table_item->lastest_version()->end_version();
-    int32_t new_version = tablet->lastest_version()->end_version();
+    int64_t old_time = table_item->rowset_with_max_version()->create_time();
+    int64_t new_time = tablet->rowset_with_max_version()->create_time();
+    int32_t old_version = table_item->rowset_with_max_version()->end_version();
+    int32_t new_version = tablet->rowset_with_max_version()->end_version();
     table_item->release_header_lock();
 
     /*
@@ -638,7 +638,7 @@ OLAPStatus TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tab
         return OLAP_ERR_TABLE_CREATE_FROM_HEADER_ERROR;
     }
 
-    if (tablet->lastest_version() == nullptr && !tablet->is_schema_changing()) {
+    if (tablet->rowset_with_max_version() == nullptr && !tablet->is_schema_changing()) {
         LOG(WARNING) << "tablet not in schema change state without delta is invalid."
                      << "tablet=" << tablet->full_name();
         // tablet state is invalid, drop tablet
@@ -691,7 +691,7 @@ OLAPStatus TabletManager::load_one_tablet(
         return OLAP_ERR_ENGINE_LOAD_INDEX_TABLE_ERROR;
     }
 
-    if (tablet->lastest_version() == NULL && !tablet->is_schema_changing()) {
+    if (tablet->rowset_with_max_version() == NULL && !tablet->is_schema_changing()) {
         OLAP_LOG_WARNING("tablet not in schema change state without delta is invalid. "
                          "[header_path=%s]",
                          header_path.c_str());

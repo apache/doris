@@ -77,6 +77,19 @@ void AlphaRowset::set_version(Version version) {
     _is_pending_rowset = false;
 }
 
+Version AlphaRowset::version() const {
+    return _rowset_meta->version();
+}
+
+int64_t AlphaRowset::end_version() const {
+    _rowset_meta->version().second;
+}
+
+int64_t AlphaRowset::start_version() const {
+    _rowset_meta->version().first;
+}
+
+
 bool AlphaRowset::create_hard_links(std::vector<std::string>* success_links) {
     for (auto segment_group : _segment_groups) {
         bool  ret = segment_group->create_hard_links(success_links);
