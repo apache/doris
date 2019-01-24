@@ -79,6 +79,9 @@ public class BackendProcNode implements ProcNodeInterface {
             }
             info.add(String.format("%.2f", used) + " %");
 
+            info.add(entry.getValue().getState().name());
+            info.add(String.valueOf(entry.getValue().getPathHash()));
+
             result.addRow(info);
         }
 

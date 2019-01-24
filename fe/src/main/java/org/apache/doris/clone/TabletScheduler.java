@@ -429,10 +429,7 @@ public class TabletScheduler extends Daemon {
                 throw new SchedException(Status.UNRECOVERABLE, "tbl does not exist");
             }
 
-            // we may add a tablet of a NOT NORMAL table during balance, which should be blocked
-            if (tbl.getState() != OlapTableState.NORMAL) {
-                throw new SchedException(Status.UNRECOVERABLE, "tbl's state is not normal: " + tbl.getState());
-            }
+            OlapTableState tableState = tbl.getState();
 
             Partition partition = tbl.getPartition(tabletInfo.getPartitionId());
             if (partition == null) {
@@ -452,6 +449,18 @@ public class TabletScheduler extends Daemon {
                     partition.getVisibleVersion(),
                     partition.getVisibleVersionHash(),
                     tbl.getPartitionInfo().getReplicationNum(partition.getId()));
+
+            if (statusPair.first != TabletStatus.VERSION_INCOMPLETE && tableState != OlapTableState.NORMAL) {
+                // If table is under ALTER process, do not allow to add or delete replica.
+                // VERSION_INCOMPLETE will repair the replica in place, which is allowed.
+                throw new SchedException(Status.UNRECOVERABLE,
+                        "table's state is not NORMAL but tablet status is " + statusPair.first.name());
+            }
+
+            if (tabletInfo.getType() == TabletSchedCtx.Type.BALANCE && tableState != OlapTableState.NORMAL) {
+                // If table is under ALTER process, do not allow to do balance.
+                throw new SchedException(Status.UNRECOVERABLE, "table's state is not NORMAL");
+            }
 
             tabletInfo.setTabletStatus(statusPair.first);
             if (statusPair.first == TabletStatus.HEALTHY && tabletInfo.getType() == TabletSchedCtx.Type.REPAIR) {
@@ -685,11 +694,6 @@ public class TabletScheduler extends Daemon {
         // delete this replica from catalog.
         // it will also delete replica from tablet inverted index.
         tabletInfo.deleteReplica(replica);
-
-        // TODO(cmy): this should be removed after I finish modifying alter job logic
-        // Catalog.getInstance().handleJobsWhenDeleteReplica(tabletInfo.getTblId(), tabletInfo.getPartitionId(),
-        //                                                   tabletInfo.getIndexId(), tabletInfo.getTabletId(),
-        //                                                   replica.getId(), replica.getBackendId());
 
         // write edit log
         ReplicaPersistInfo info = ReplicaPersistInfo.createForDelete(tabletInfo.getDbId(),

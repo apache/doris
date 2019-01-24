@@ -468,14 +468,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TMasterOpResult forward(TMasterOpRequest params) throws TException {
-        ThriftServerContext connectionContext = ThriftServerEventProcessor.getConnectionContext();
-        // For NonBlockingServer, we can not get client ip.
-        if (connectionContext != null) {
-            TNetworkAddress clientAddress = connectionContext.getClient();
-
-            Frontend fe = Catalog.getInstance().getFeByHost(clientAddress.getHostname());
+        TNetworkAddress clientAddr = getClientAddr();
+        if (clientAddr != null) {
+            Frontend fe = Catalog.getInstance().getFeByHost(clientAddr.getHostname());
             if (fe == null) {
-                LOG.warn("reject request from invalid host. client: {}", clientAddress);
+                LOG.warn("reject request from invalid host. client: {}", clientAddr);
                 throw new TException("request from invalid host was rejected.");
             }
         }
@@ -538,9 +535,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TLoadTxnBeginResult loadTxnBegin(TLoadTxnBeginRequest request) throws TException {
-        LOG.info("receive loadTxnBegin request, db: {}, tbl: {}, label: {}",
-                request.getDb(), request.getTbl(), request.getLabel());
+        TNetworkAddress clientAddr = getClientAddr();
+
+        LOG.info("receive loadTxnBegin request, db: {}, tbl: {}, label: {}, backend: {}",
+                request.getDb(), request.getTbl(), request.getLabel(),
+                clientAddr == null ? "unknown" : clientAddr.getHostname());
         LOG.debug("txn begin request: {}", request);
+
         TLoadTxnBeginResult result = new TLoadTxnBeginResult();
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
@@ -740,6 +741,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return new TStatus(TStatusCode.OK);
         }
         return new TStatus(TStatusCode.CANCELLED);
+    }
+
+    private TNetworkAddress getClientAddr() {
+        ThriftServerContext connectionContext = ThriftServerEventProcessor.getConnectionContext();
+        // For NonBlockingServer, we can not get client ip.
+        if (connectionContext != null) {
+            return connectionContext.getClient();
+        }
+        return null;
     }
 }
 
