@@ -53,24 +53,33 @@ class TxnManager {
 public:
     ~TxnManager() {
         _txn_tablet_map.clear();
+        _txn_locks.clear();
     }
     // add a txn to manager
     // partition id is useful in publish version stage because version is associated with partition
     OLAPStatus prepare_txn(TPartitionId partition_id, TTransactionId transaction_id,
                            TTabletId tablet_id, SchemaHash schema_hash,
-                           const PUniqueId& load_id, RowsetSharedPtr rowset_ptr);
+                           const PUniqueId& load_id);
     
-    OLAPStatus commit_txn(TPartitionId partition_id, TTransactionId transaction_id,
+    OLAPStatus commit_txn(OlapMeta* meta, TPartitionId partition_id, TTransactionId transaction_id,
                           TTabletId tablet_id, SchemaHash schema_hash,
-                          const PUniqueId& load_id, RowsetSharedPtr rowset_ptr);
+                          const PUniqueId& load_id, RowsetSharedPtr rowset_ptr, 
+                          bool is_recovery);
     
     // remove a txn from txn manager
-    OLAPStatus publish_txn(TPartitionId partition_id, TTransactionId transaction_id,
-                           TTabletId tablet_id, SchemaHash schema_hash);
+    // not persist rowset meta because 
+    OLAPStatus publish_txn(OlapMeta* meta, TPartitionId partition_id, TTransactionId transaction_id,
+                           TTabletId tablet_id, SchemaHash schema_hash, 
+                           Version& version, VersionHash& version_hash);
+
+    // delete the txn from manager if it is not committed(not have a valid rowset)
+    OLAPStatus rollback_txn(TPartitionId partition_id, TTransactionId transaction_id,
+                            TTabletId tablet_id, SchemaHash schema_hash);
 
     // remove the txn from txn manager
     // delete the related rowset if it is not null
-    OLAPStatus delete_txn(TPartitionId partition_id, TTransactionId transaction_id,
+    // delete rowset related data if it is not null
+    OLAPStatus delete_txn(OlapMeta* meta, TPartitionId partition_id, TTransactionId transaction_id,
                           TTabletId tablet_id, SchemaHash schema_hash);
 
     void get_tablet_related_txns(TabletSharedPtr tablet, int64_t* partition_id,
@@ -88,15 +97,24 @@ public:
     bool has_committed_txn(TPartitionId partition_id, TTransactionId transaction_id,
                            TTabletId tablet_id, SchemaHash schema_hash);
 
+    bool get_expire_txns(TTabletId tablet_id, std::vector<int64_t>* transaction_ids);
+    
     static TxnManager* instance();
 
 private:
-    TxnManager() {}
+    TxnManager();
+
+    RWMutex* _get_txn_lock(TTransactionId txn_id) {
+        return _txn_locks[txn_id % _txn_lock_num].get();
+    }
 
 private:
     RWMutex _txn_map_lock;
     using TxnKey = std::pair<int64_t, int64_t>; // partition_id, transaction_id;
     std::map<TxnKey, std::map<TabletInfo, std::pair<PUniqueId, RowsetSharedPtr>>> _txn_tablet_map;
+
+    const int32_t _txn_lock_num = 100;
+    std::map<int32_t, std::shared_ptr<RWMutex>> _txn_locks;
 
     // singleton
     static TxnManager* _s_instance;

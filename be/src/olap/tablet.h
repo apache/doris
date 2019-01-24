@@ -74,8 +74,6 @@ public:
     OLAPStatus load_indices();
     OLAPStatus save_tablet_meta();
 
-    bool has_pending_data(int64_t transaction_id);
-    void get_expire_pending_data(std::vector<int64_t>* transaction_ids);
     void delete_expire_incremental_data();
     OLAPStatus publish_version(int64_t transaction_id, Version version, VersionHash version_hash);
     const PDelta* get_incremental_delta(Version version) const;
