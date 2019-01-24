@@ -46,10 +46,10 @@ DeltaWriter::~DeltaWriter() {
 }
 
 void DeltaWriter::_garbage_collection() {
-    TxnManager::instance()->delete_txn(_req.partition_id, _req.txn_id,_req.tablet_id, _req.schema_hash);
+    TxnManager::instance()->rollback_txn(_req.partition_id, _req.txn_id,_req.tablet_id, _req.schema_hash);
     StorageEngine::instance()->add_unused_rowset(_cur_rowset);
     if (_related_tablet != nullptr) {
-        TxnManager::instance()->delete_txn(_req.partition_id, _req.txn_id,
+        TxnManager::instance()->rollback_txn(_req.partition_id, _req.txn_id,
             _related_tablet->tablet_id(), _related_tablet->schema_hash());
         StorageEngine::instance()->add_unused_rowset(_related_rowset);
     }
@@ -67,7 +67,7 @@ OLAPStatus DeltaWriter::init() {
         MutexLock push_lock(_tablet->get_push_lock());
         RETURN_NOT_OK(TxnManager::instance()->prepare_txn(
                             _req.partition_id, _req.txn_id,
-                            _req.tablet_id, _req.schema_hash, _req.load_id, NULL));
+                            _req.tablet_id, _req.schema_hash, _req.load_id));
         if (_req.need_gen_rollup) {
             TTabletId new_tablet_id;
             TSchemaHash new_schema_hash;
@@ -85,7 +85,7 @@ OLAPStatus DeltaWriter::init() {
                 _related_tablet = TabletManager::instance()->get_tablet(new_tablet_id, new_schema_hash);
                 TxnManager::instance()->prepare_txn(
                                     _req.partition_id, _req.txn_id,
-                                    new_tablet_id, new_schema_hash, _req.load_id, NULL);
+                                    new_tablet_id, new_schema_hash, _req.load_id);
             }
         }
 
