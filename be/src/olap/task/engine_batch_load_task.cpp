@@ -45,7 +45,7 @@ namespace doris {
 
     
 EngineBatchLoadTask::EngineBatchLoadTask(TPushReq& push_req, 
-    std::vector<TTabletInfo>* tablet_infos, 
+    std::vector<TTabletInfo>* tablet_infos,
     int64_t signature, 
     AgentStatus* res_status) :
         _push_req(push_req),

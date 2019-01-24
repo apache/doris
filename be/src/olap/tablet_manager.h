@@ -114,7 +114,7 @@ public:
     void get_tablet_stat(TTabletStatResult& result);
 
     // parse tablet header msg to generate tablet object
-    OLAPStatus load_tablet_from_header(DataDir* data_dir, TTabletId tablet_id,
+    OLAPStatus load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_id,
                 TSchemaHash schema_hash, const std::string& header);
 
     OLAPStatus load_one_tablet(DataDir* data_dir,
