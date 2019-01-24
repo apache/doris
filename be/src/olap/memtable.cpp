@@ -25,11 +25,11 @@
 
 namespace doris {
 
-MemTable::MemTable(Schema* schema, std::vector<FieldInfo>* field_infos,
+MemTable::MemTable(Schema* schema, const TabletSchema* tablet_schema,
                    std::vector<uint32_t>* col_ids, TupleDescriptor* tuple_desc,
                    KeysType keys_type)
     : _schema(schema),
-      _field_infos(field_infos),
+      _tablet_schema(tablet_schema),
       _tuple_desc(tuple_desc),
       _col_ids(col_ids),
       _keys_type(keys_type),
@@ -72,7 +72,7 @@ void MemTable::insert(Tuple* tuple) {
             case TYPE_CHAR: {
                 const StringValue* src = tuple->get_string_slot(slot->tuple_offset());
                 Slice* dest = (Slice*)(_tuple_buf + offset);
-                dest->size = (*_field_infos)[i].length;
+                dest->size = _tablet_schema->column(i).length();
                 dest->data = _arena.Allocate(dest->size);
                 memcpy(dest->data, src->ptr, src->len);
                 memset(dest->data + src->len, 0, dest->size - src->len);

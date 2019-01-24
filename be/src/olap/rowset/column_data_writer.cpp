@@ -40,7 +40,7 @@ ColumnDataWriter::ColumnDataWriter(SegmentGroup* segment_group,
       _is_push_write(is_push_write),
       _compress_kind(compress_kind),
       _bloom_filter_fpp(bloom_filter_fpp),
-      _column_statistics(segment_group->get_num_key_fields(),
+      _column_statistics(segment_group->get_num_key_columns(),
                          std::pair<WrapperField*, WrapperField*>(NULL, NULL)),
       _row_index(0),
       _row_block(NULL),
@@ -68,11 +68,11 @@ OLAPStatus ColumnDataWriter::init() {
     OLAPStatus res = OLAP_SUCCESS;
 
     for (size_t i = 0; i < _column_statistics.size(); ++i) {
-        _column_statistics[i].first = WrapperField::create(_segment_group->get_tablet_schema()[i]);
+        _column_statistics[i].first = WrapperField::create(_segment_group->get_tablet_schema().column(i));
         DCHECK(_column_statistics[i].first != nullptr) << "fail to create column statistics field.";
         _column_statistics[i].first->set_to_max();
 
-        _column_statistics[i].second = WrapperField::create(_segment_group->get_tablet_schema()[i]);
+        _column_statistics[i].second = WrapperField::create(_segment_group->get_tablet_schema().column(i));
         DCHECK(_column_statistics[i].second != nullptr) << "fail to create column statistics field.";
         _column_statistics[i].second->set_null();
         _column_statistics[i].second->set_to_min();
@@ -82,7 +82,7 @@ OLAPStatus ColumnDataWriter::init() {
     size *= OLAP_COLUMN_FILE_SEGMENT_SIZE_SCALE;
     _max_segment_size = static_cast<uint32_t>(lround(size));
 
-    _row_block = new(std::nothrow) RowBlock(_segment_group->get_tablet_schema());
+    _row_block = new(std::nothrow) RowBlock(&(_segment_group->get_tablet_schema()));
 
     if (NULL == _row_block) {
         LOG(WARNING) << "fail to new RowBlock.";
@@ -152,7 +152,7 @@ OLAPStatus ColumnDataWriter::write(const char* row) {
 
 
 void ColumnDataWriter::next(const RowCursor& row_cursor) {
-    for (size_t i = 0; i < _segment_group->get_num_key_fields(); ++i) {
+    for (size_t i = 0; i < _segment_group->get_num_key_columns(); ++i) {
         char* right = row_cursor.get_field_by_index(i)->get_field_ptr(row_cursor.get_buf());
         if (_column_statistics[i].first->cmp(right) > 0) {
             _column_statistics[i].first->copy(right);
@@ -167,7 +167,7 @@ void ColumnDataWriter::next(const RowCursor& row_cursor) {
 }
 
 void ColumnDataWriter::next(const char* row, const Schema* schema) {
-    for (size_t i = 0; i < _segment_group->get_num_key_fields(); ++i) {
+    for (size_t i = 0; i < _segment_group->get_num_key_columns(); ++i) {
         char* right = const_cast<char*>(row + schema->get_col_offset(i));
         if (_column_statistics[i].first->cmp(right) > 0) {
             _column_statistics[i].first->copy(right);

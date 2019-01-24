@@ -64,7 +64,7 @@ enum RowsetTypePB {
 }
 
 enum RowsetStatePB {
-    PREPARING = 0; // 表示正在写入Rowset
+    PREPARED = 0; // 表示正在写入Rowset
     COMMITTED = 1; // 表示rowset 写入完成，但是用户还不可见；这个状态下的rowset，BE不能自行判断是否删除，必须由FE的指令
     VISIBLE = 2; // 表示rowset 已经对用户可见
 }
@@ -225,26 +225,26 @@ message ColumnPB {
     required int32 unique_id = 1;
     optional string name = 2;
     required string type = 3;
-    optional int32 precision = 4;
-    optional int32 frac = 5;
-    optional int32 length = 6;
-    optional int32 index_length = 7;
-    optional bool is_key = 8;
-    optional string aggregation = 9;
-    optional bool is_nullable = 10;
-    optional bytes default_value = 11;
-    optional int32 referenced_column_id = 12;
-    optional bool is_bf_column = 13;
+    optional bool is_key = 4;
+    optional string aggregation = 5;
+    optional bool is_nullable = 6;
+    optional bytes default_value = 7;
+    optional int32 precision = 8;
+    optional int32 frac = 9;
+    optional int32 length = 10;
+    optional int32 index_length = 11;
+    optional bool is_bf_column = 12;
+    optional int32 referenced_column_id = 13;
 }
 
 message TabletSchemaPB {
-    optional int32 num_short_key_fields = 1;
-    optional int32 num_rows_per_data_block = 2;
-    optional KeysType keys_type = 3;
-    optional CompressKind compress_kind = 4;
-    repeated ColumnPB column = 5;
-    optional uint32 next_column_unique_id = 6;
-    optional double bf_fpp = 7;
+    repeated ColumnPB column = 1;
+    optional int32 num_short_key_columns = 2;
+    optional int32 num_rows_per_row_block = 3;
+    optional KeysType keys_type = 4;
+    optional CompressKind compress_kind = 5;
+    optional double bf_fpp = 6;
+    optional uint32 next_column_unique_id = 7;
 }
 
 enum TabletStatePB {

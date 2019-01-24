@@ -31,7 +31,7 @@ class RowCursor;
 
 class MemTable {
 public:
-    MemTable(Schema* schema, std::vector<FieldInfo>* field_infos,
+    MemTable(Schema* schema, const TabletSchema* tablet_schema,
              std::vector<uint32_t>* col_ids, TupleDescriptor* tuple_desc,
              KeysType keys_type);
     ~MemTable();
@@ -41,7 +41,7 @@ public:
     OLAPStatus close(RowsetWriterSharedPtr rowset_writer);
 private:
     Schema* _schema;
-    std::vector<FieldInfo>* _field_infos;
+    const TabletSchema* _tablet_schema;
     TupleDescriptor* _tuple_desc;
     std::vector<uint32_t>* _col_ids;
     KeysType _keys_type;

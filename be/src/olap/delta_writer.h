@@ -74,7 +74,7 @@ private:
     RowsetWriterSharedPtr _rowset_writer;
     MemTable* _mem_table;
     Schema* _schema;
-    std::vector<FieldInfo>* _field_infos;
+    const TabletSchema* _tablet_schema;
     std::vector<uint32_t> _col_ids;
     bool _delta_written_success;
 };

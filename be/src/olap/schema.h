@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "olap/aggregate_func.h"
+#include "olap/tablet_schema.h"
 #include "olap/types.h"
 #include "runtime/descriptors.h"
 
@@ -90,18 +91,18 @@ private:
 
 class Schema {
 public:
-    Schema(const std::vector<FieldInfo>& field_infos) {
+    Schema(const TabletSchema& schema) {
         int offset = 0;
         _num_key_columns = 0;
-        for (int i = 0; i < field_infos.size(); ++i) {
-            FieldInfo field_info = field_infos[i];
-            ColumnSchema col_schema(field_info.aggregation, field_info.type);
+        for (int i = 0; i < schema.num_columns(); ++i) {
+            const TabletColumn& column = schema.column(i);
+            ColumnSchema col_schema(column.aggregation(), column.type());
             col_schema.set_col_offset(offset);
             offset += col_schema.size() + 1; // 1 for null byte
-            if (field_info.is_key) {
+            if (column.is_key()) {
                 _num_key_columns++;
             }
-            if (field_info.type == OLAP_FIELD_TYPE_HLL) {
+            if (column.type() == OLAP_FIELD_TYPE_HLL) {
                 _hll_col_ids.push_back(i);
             }
             _cols.push_back(col_schema);

@@ -46,8 +46,8 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id,
     _tablet_meta_pb.set_schema_hash(schema_hash);
     _tablet_meta_pb.set_shard_id(shard_id);
     TabletSchemaPB* schema = _tablet_meta_pb.mutable_schema();
-    schema->set_num_short_key_fields(tablet_schema.short_key_column_count);
-    schema->set_num_rows_per_data_block(config::default_num_rows_per_column_file_block);
+    schema->set_num_short_key_columns(tablet_schema.short_key_column_count);
+    schema->set_num_rows_per_row_block(config::default_num_rows_per_column_file_block);
     switch(tablet_schema.keys_type) {
         case TKeysType::DUP_KEYS:
             schema->set_keys_type(KeysType::DUP_KEYS);

@@ -282,97 +282,6 @@ StringColumnDictionaryReader::~StringColumnDictionaryReader() {
     SAFE_DELETE_ARRAY(_read_buffer);
 }
 
-/*
-
-// TODO.改为先解析成字典，不过看起来也不会太快，因为这里会全部解析完，而放在后边解析可能能省点资源
-// 后边再测，先保留代码
-
-OLAPStatus StringColumnDictionaryReader::init(std::map<StreamName, ReadOnlyFileStream *> *streams,
-                                          UniqueIdEncodingMap* encodings,
-                                          RuntimeProfile* profile) {
-    ReadOnlyFileStream* dictionary_data_stream = extract_stream(_column_unique_id,
-                                                      StreamInfoMessage::DICTIONARY_DATA,
-                                                      streams);
-    if (NULL == dictionary_data_stream) {
-        OLAP_LOG_WARNING("dictionary data stream not found. [unique id = %u]",
-                _column_unique_id);
-        return OLAP_ERR_COLUMN_STREAM_NOT_EXIST;
-    }
-    if (dictionary_data_stream->stream_length() > 0) {
-        _dictionary_data_buffer = StorageByteBuffer::create(
-                dictionary_data_stream->estimate_uncompressed_length());
-        size_t offset = 0;
-        size_t length = 0;
-        // TODO. stream 还需要修改，使之真正能够方便的读取
-        while (0 != (length = dictionary_data_stream->available())) {
-            dictionary_data_stream->read(_dictionary_data_buffer->array() + offset, &length);
-            offset += length;
-        }
-    } else {
-        _dictionary_data_buffer = NULL;
-    }
-
-    UniqueIdEncodingMap::iterator it = encodings->find(_column_unique_id);
-    if (it == encodings->end()) {
-        OLAP_LOG_WARNING("encoding not found. [unique id = %u]", _column_unique_id);
-        return OLAP_ERR_COLUMN_STREAM_NOT_EXIST;
-    }
-    uint64_t dictionary_size = (*it).second.dictionary_size();
-    // 建立字典偏移列表
-    ReadOnlyFileStream* dictionary_length_stream = extract_stream(_column_unique_id,
-                                                        StreamInfoMessage::LENGTH,
-                                                        streams);
-    if (NULL == dictionary_length_stream) {
-        OLAP_LOG_WARNING("dictionary length stream not found. [unique id = %u]",
-                         _column_unique_id);
-        return OLAP_ERR_COLUMN_STREAM_NOT_EXIST;
-    }
-    RunLengthIntegerReader* dictionary_length_reader =
-            new (std::nothrow) RunLengthIntegerReader(dictionary_length_stream, true);
-    uint64_t offset = 0;
-    // 如果上次分配的空间足够多，这次可以不分配
-    if (dictionary_size + 1 > _dictionary_size || NULL == _offset_dictionary) {
-        SAFE_DELETE_ARRAY(_offset_dictionary);
-        _dictionary_size = dictionary_size + 1;
-        _offset_dictionary = new (std::nothrow) uint64_t[_dictionary_size];
-        if (NULL == _offset_dictionary) {
-            OLAP_LOG_WARNING("fail to allocate dictionary buffer");
-            return OLAP_ERR_MALLOC_ERROR;
-        }
-    }
-    // 应该只有dictionary_size 项，最后一个单位保存一个“不存在的”位置，
-    // 也就是最后一个字符串的终止位置，这样做是为了支持偏移计算的算法不用处理边界
-    int64_t value = 0;
-    OLAPStatus res = OLAP_SUCCESS;
-    size_t dictionary_entry = 0;
-    for (; dictionary_entry < dictionary_size; ++dictionary_entry) {
-        _offset_dictionary[dictionary_entry] = offset;
-        res = dictionary_length_reader->next(&value);
-        // 理论上应该足够读，读出eof也是不对的。
-        if (OLAP_SUCCESS != res && OLAP_ERR_DATA_EOF != res) {
-            OLAP_LOG_WARNING("build offset dictionary failed. [res = %d]", res);
-            return res;
-        }
-        offset += value;
-    }
-    _offset_dictionary[dictionary_entry] = offset;
-    // 建立数据流读取器
-    ReadOnlyFileStream* data_stream = extract_stream(_column_unique_id,
-                                           StreamInfoMessage::DATA,
-                                           streams);
-    if (NULL == data_stream) {
-        OLAP_LOG_WARNING("data stream not found. [unique id = %u]", _column_unique_id);
-        return OLAP_ERR_COLUMN_STREAM_NOT_EXIST;
-    }
-    _data_reader = new (std::nothrow) RunLengthIntegerReader(data_stream, true);
-    if (NULL == _data_reader) {
-        OLAP_LOG_WARNING("fail to malloc data reader");
-        return OLAP_ERR_MALLOC_ERROR;
-    }
-    return OLAP_SUCCESS;
-}
-*/
-
 OLAPStatus StringColumnDictionaryReader::init(
         std::map<StreamName, ReadOnlyFileStream*>* streams,
         int size, MemPool* mem_pool) {
@@ -399,43 +308,6 @@ OLAPStatus StringColumnDictionaryReader::init(
     RunLengthIntegerReader* dictionary_length_reader =
         new(std::nothrow) RunLengthIntegerReader(dictionary_length_stream, false);
     OLAPStatus res = OLAP_SUCCESS;
-
-    /*
-    uint64_t offset = 0;
-    int64_t value = 0;
-    size_t length_remain = 0;
-    size_t length_to_read = 0;
-    size_t read_buffer_size = 1024;
-    StorageByteBuffer* read_buffer = StorageByteBuffer::create(read_buffer_size);
-    if (NULL == read_buffer) {
-        OLAP_LOG_WARNING("fail to malloc StorageByteBuffer");
-        return OLAP_ERR_MALLOC_ERROR;
-    }
-
-    for (size_t dictionary_entry = 0; dictionary_entry < dictionary_size; ++dictionary_entry) {
-        res = dictionary_length_reader->next(&value);
-        // 理论上应该足够读，读出eof也是不对的。
-        if (OLAP_SUCCESS != res && OLAP_ERR_DATA_EOF != res) {
-            OLAP_LOG_WARNING("build offset dictionary failed. [res = %d]", res);
-            return res;
-        }
-        // 其实为offset，长度为value的string
-        length_remain = value;
-        std::string dictionary_item;
-        while (length_remain != 0) {
-            length_to_read = std::min(length_remain, read_buffer_size);
-            res = dictionary_data_stream->read(read_buffer->array(), &length_to_read);
-            if (OLAP_SUCCESS != res) {
-                OLAP_LOG_WARNING("read dictionary content failed");
-                return res;
-            }
-            dictionary_item.append(read_buffer->array(), length_to_read);
-            length_remain -= length_to_read;
-        }
-        _dictionary.push_back(dictionary_item);
-        offset += value;
-    }
-    */
 
     _values = reinterpret_cast<Slice*>(mem_pool->allocate(size * sizeof(Slice)));
     int64_t read_buffer_size = 1024;
@@ -614,34 +486,35 @@ ColumnReader::ColumnReader(uint32_t column_id, uint32_t column_unique_id) :
 }
 
 ColumnReader* ColumnReader::create(uint32_t column_id,
-        const std::vector<FieldInfo>& columns,
+        const TabletSchema& schema,
         const UniqueIdToColumnIdMap& included,
         UniqueIdToColumnIdMap& segment_included,
         const UniqueIdEncodingMap& encodings) {
-    if (column_id >= columns.size()) {
-        OLAP_LOG_WARNING("invalid column_id, column_id=%u, columns_size=%lu",
-                column_id, columns.size());
+    if (column_id >= schema.num_columns()) {
+        LOG(WARNING) << "invalid column_id, column_id=" << column_id
+                     << ", columns_size=" << schema.num_columns();
         return NULL;
     }
 
-    const FieldInfo& field_info = columns[column_id];
+    const TabletColumn& column = schema.column(column_id);
     ColumnReader* reader = NULL;
-    uint32_t column_unique_id = field_info.unique_id;
+    int32_t column_unique_id = column.unique_id();
 
     if (0 == included.count(column_unique_id)) {
         return NULL;
     }
 
     if (0 == segment_included.count(column_unique_id)) {
-        if (field_info.has_default_value) {
-            if (0 == strcasecmp("NULL", field_info.default_value.c_str())
-                    && field_info.is_allow_null) {
+        if (column.has_default_value()) {
+            if (0 == strcasecmp("NULL", column.default_value().c_str())
+                    && column.is_nullable()) {
                 return new(std::nothrow) NullValueReader(column_id, column_unique_id);
             } else {
                 return new(std::nothrow) DefaultValueReader(column_id, column_unique_id,
-                        field_info.default_value, field_info.type, field_info.length);
+                        column.default_value(), column.type(), column.length());
             }
-        } else if (field_info.is_allow_null) {
+        } else if (column.is_nullable()) {
+            LOG(WARNING) << "create NullValueReader: " << column.name();
             return new(std::nothrow) NullValueReader(column_id, column_unique_id);
         } else {
             OLAP_LOG_WARNING("not null field has no default value");
@@ -658,7 +531,7 @@ ColumnReader* ColumnReader::create(uint32_t column_id,
         dictionary_size = (*it).second.dictionary_size();
     }
 
-    switch (field_info.type) {
+    switch (column.type()) {
     case OLAP_FIELD_TYPE_TINYINT:
     case OLAP_FIELD_TYPE_UNSIGNED_TINYINT: {
         reader = new(std::nothrow) TinyColumnReader(column_id, column_unique_id);
@@ -719,10 +592,10 @@ ColumnReader* ColumnReader::create(uint32_t column_id,
     case OLAP_FIELD_TYPE_CHAR: {
         if (ColumnEncodingMessage::DIRECT == encode_kind) {
             reader = new(std::nothrow) FixLengthStringColumnReader<StringColumnDirectReader>(
-                    column_id, column_unique_id, field_info.length, dictionary_size);
+                    column_id, column_unique_id, column.length(), dictionary_size);
         } else if (ColumnEncodingMessage::DICTIONARY == encode_kind) {
             reader = new(std::nothrow) FixLengthStringColumnReader<StringColumnDictionaryReader>(
-                    column_id, column_unique_id, field_info.length, dictionary_size);
+                    column_id, column_unique_id, column.length(), dictionary_size);
         } else {
             OLAP_LOG_WARNING("known encoding format. data may be generated by higher version,"
                     "try updating olap/ngine binary to solve this problem");
@@ -758,13 +631,13 @@ ColumnReader* ColumnReader::create(uint32_t column_id,
     case OLAP_FIELD_TYPE_HLL: {
         if (ColumnEncodingMessage::DIRECT == encode_kind) {
             reader = new(std::nothrow) VarStringColumnReader<StringColumnDirectReader>(
-                    column_id, column_unique_id, field_info.length, dictionary_size);
+                    column_id, column_unique_id, column.length(), dictionary_size);
         } else if (ColumnEncodingMessage::DICTIONARY == encode_kind) {
             reader = new(std::nothrow) VarStringColumnReader<StringColumnDictionaryReader>(
-                    column_id, column_unique_id, field_info.length, dictionary_size);
+                    column_id, column_unique_id, column.length(), dictionary_size);
         } else {
-            OLAP_LOG_WARNING("known encoding format. data may be generated by higher version, "
-                    "try updating olap/ngine binary to solve this problem");
+            LOG(WARNING) << "known encoding format. data may be generated by higher version, "
+                         << "try updating olap/ngine binary to solve this problem";
             // TODO. define a new return code
             return NULL;
         }
@@ -776,27 +649,10 @@ ColumnReader* ColumnReader::create(uint32_t column_id,
     case OLAP_FIELD_TYPE_LIST:
     case OLAP_FIELD_TYPE_MAP:
     default: {
-        LOG(WARNING) << "unspported filed type. [field=" << field_info.name
-                     << " type=" << field_info.type << "]";
+        LOG(WARNING) << "unspported filed type. field=" << column.name()
+                     << ", type=" << column.type();
         break;
     }
-    }
-
-    if (NULL != reader) {
-        std::vector<uint32_t>::const_iterator it;
-
-        for (it = field_info.sub_columns.begin(); it != field_info.sub_columns.end(); ++it) {
-            ColumnReader* sub_reader = create((*it), columns, included, 
-                                              segment_included, encodings);
-
-            if (NULL == sub_reader) {
-                OLAP_LOG_WARNING("fail to create sub column reader.");
-                SAFE_DELETE(reader);
-                return NULL;
-            }
-
-            reader->_sub_readers.push_back(sub_reader);
-        }
     }
 
     return reader;
