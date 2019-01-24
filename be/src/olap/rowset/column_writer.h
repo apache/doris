@@ -53,7 +53,7 @@ public:
     //    stream_factory: 用于创建输出流的工厂对象, 该对象的生命期由调用者所有
     static ColumnWriter* create(
             uint32_t column_id,
-            const std::vector<FieldInfo>& columns,
+            const TabletSchema& schema,
             OutStreamFactory* stream_factory,
             size_t num_rows_per_row_block,
             double bf_fpp);
@@ -81,7 +81,7 @@ public:
     }
 
     uint32_t unique_column_id() const {
-        return _field_info.unique_id;
+        return _column.unique_id();
     }
 
     virtual void get_bloom_filter_info(bool* has_bf_column,
@@ -98,7 +98,7 @@ public:
 protected:
     ColumnWriter(uint32_t column_id,
             OutStreamFactory* stream_factory,
-            const FieldInfo& field_info,
+            const TabletColumn& column,
             size_t num_rows_per_row_block,
             double bf_fpp);
 
@@ -122,11 +122,11 @@ private:
     void _remove_is_present_positions();
 
     bool is_bf_column() {
-        return _field_info.is_bf_column;
+        return _column.is_bf_column();
     }
 
     uint32_t _column_id;
-    const FieldInfo& _field_info;
+    const TabletColumn& _column;
     OutStreamFactory* _stream_factory; // 该对象由外部调用者所有
     std::vector<ColumnWriter*> _sub_writers;   // 保存子列的writer
     PositionEntryWriter _index_entry;
@@ -147,7 +147,7 @@ private:
 class ByteColumnWriter : public ColumnWriter {
 public:
     ByteColumnWriter(uint32_t column_id, OutStreamFactory* stream_factory,
-                     const FieldInfo& field_info, size_t num_rows_per_row_block,
+                     const TabletColumn& column, size_t num_rows_per_row_block,
                      double bf_fpp);
     virtual ~ByteColumnWriter();
     virtual OLAPStatus init();
@@ -228,11 +228,11 @@ public:
     IntegerColumnWriterWrapper(
             uint32_t column_id,
             OutStreamFactory* stream_factory,
-            const FieldInfo& field_info,
+            const TabletColumn& column,
             size_t num_rows_per_row_block,
             double bf_fpp) : 
-            ColumnWriter(column_id, stream_factory, field_info, num_rows_per_row_block, bf_fpp),
-            _writer(column_id, field_info.unique_id, stream_factory, is_singed) {}
+            ColumnWriter(column_id, stream_factory, column, num_rows_per_row_block, bf_fpp),
+            _writer(column_id, column.unique_id(), stream_factory, is_singed) {}
 
     virtual ~IntegerColumnWriterWrapper() {}
 
@@ -325,10 +325,10 @@ public:
     DoubleColumnWriterBase(
             uint32_t column_id, 
             OutStreamFactory* stream_factory,
-            const FieldInfo& field_info,
+            const TabletColumn& column,
             size_t num_rows_per_row_block,
             double bf_fpp) : 
-            ColumnWriter(column_id, stream_factory, field_info, num_rows_per_row_block, bf_fpp),
+            ColumnWriter(column_id, stream_factory, column, num_rows_per_row_block, bf_fpp),
             _stream(NULL) {}
 
     virtual ~DoubleColumnWriterBase() {}
@@ -421,7 +421,7 @@ typedef IntegerColumnWriterWrapper<int64_t, true> DiscreteDoubleColumnWriter;
 class VarStringColumnWriter : public ColumnWriter {
 public:
     VarStringColumnWriter(uint32_t column_id, OutStreamFactory* stream_factory,
-                          const FieldInfo& field_info, size_t num_rows_per_row_block, 
+                          const TabletColumn& column, size_t num_rows_per_row_block, 
                           double bf_fpp);
     virtual ~VarStringColumnWriter();
     virtual OLAPStatus init();
@@ -500,7 +500,7 @@ class FixLengthStringColumnWriter : public VarStringColumnWriter {
 public:
     FixLengthStringColumnWriter(uint32_t column_id,
             OutStreamFactory* stream_factory,
-            const FieldInfo& field_info,
+            const TabletColumn& column,
             size_t num_rows_per_row_block,
             double bf_fpp);
     virtual ~FixLengthStringColumnWriter();
@@ -550,7 +550,7 @@ typedef IntegerColumnWriterWrapper<uint64_t, false> DateTimeColumnWriter;
 class DecimalColumnWriter : public ColumnWriter {
 public:
     DecimalColumnWriter(uint32_t column_id, OutStreamFactory* stream_factory,
-                        const FieldInfo& field_info, size_t num_rows_per_row_block,
+                        const TabletColumn& column, size_t num_rows_per_row_block,
                         double bf_fpp);
     virtual ~DecimalColumnWriter();
     virtual OLAPStatus init();
@@ -600,7 +600,7 @@ private:
 class LargeIntColumnWriter : public ColumnWriter {
 public:
     LargeIntColumnWriter(uint32_t column_id, OutStreamFactory* stream_factory,
-                         const FieldInfo& field_info, size_t num_rows_per_row_block,
+                         const TabletColumn& column, size_t num_rows_per_row_block,
                          double bf_fpp);
     virtual ~LargeIntColumnWriter();
     virtual OLAPStatus init();

@@ -30,7 +30,7 @@
 namespace doris {
 
 struct RowsetReaderContext {
-	RowFields* tablet_schema;
+	const TabletSchema* tablet_schema;
     // projection columns
     const std::vector<uint32_t>* return_columns;
     // columns to load bloom filter index
@@ -70,7 +70,7 @@ struct RowsetReaderContext {
 
 class RowsetReaderContextBuilder {
 public:
-    RowsetReaderContextBuilder& set_tablet_schema(RowFields* tablet_schema) {
+    RowsetReaderContextBuilder& set_tablet_schema(const TabletSchema* tablet_schema) {
         _reader_context.tablet_schema = tablet_schema;
         return *this;
     }

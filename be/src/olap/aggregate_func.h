@@ -18,7 +18,6 @@
 #ifndef DORIS_BE_SRC_OLAP_AGGREGATE_FUNC_H
 #define DORIS_BE_SRC_OLAP_AGGREGATE_FUNC_H
 
-#include "olap/field_info.h"
 #include "olap/hll.h"
 #include "olap/types.h"
 #include "util/arena.h"

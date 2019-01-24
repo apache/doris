@@ -29,7 +29,6 @@
 #include "olap/bloom_filter.hpp"
 #include "olap/stream_index_common.h"
 #include "olap/field.h"
-#include "olap/field_info.h"
 #include "olap/row_cursor.h"
 
 namespace doris {
@@ -68,7 +67,7 @@ public:
     Cond();
     ~Cond();
 
-    OLAPStatus init(const TCondition& tcond, const FieldInfo& fi);
+    OLAPStatus init(const TCondition& tcond, const TabletColumn& column);
     
     // 用一行数据的指定列同条件进行比较，如果符合过滤条件，
     // 即按照此条件，行应被过滤掉，则返回true，否则返回false
@@ -90,16 +89,16 @@ public:
 // 所有归属于同一列上的条件二元组，聚合在一个CondColumn上
 class CondColumn {
 public:
-    CondColumn(const RowFields& tablet_schema, int32_t index) : _col_index(index) {
+    CondColumn(const TabletSchema& tablet_schema, int32_t index) : _col_index(index) {
         _conds.clear();
-        _is_key = tablet_schema[_col_index].is_key;
+        _is_key = tablet_schema.column(_col_index).is_key();
     }
     ~CondColumn();
 
     // Convert condition's operand from string to Field*, and append this condition to _conds
     // return true if success, otherwise return false
     bool add_condition(Cond* condition);
-    OLAPStatus add_cond(const TCondition& tcond, const FieldInfo& fi);
+    OLAPStatus add_cond(const TCondition& tcond, const TabletColumn& column);
 
     // 对一行数据中的指定列，用所有过滤条件进行比较，如果所有条件都满足，则过滤此行
     bool eval(const RowCursor& row) const;
@@ -139,8 +138,8 @@ public:
         _columns.clear();
     }
 
-    void set_tablet_schema(const RowFields& tablet_schema) {
-        _tablet_schema = tablet_schema;
+    void set_tablet_schema(const TabletSchema* schema) {
+        _schema = schema;
     }
 
     // 如果成功，则_columns中增加一项，如果失败则无视此condition，同时输出日志
@@ -162,8 +161,8 @@ public:
 
 private:
     int32_t _get_field_index(const std::string& field_name) const {
-        for (int i = 0; i < _tablet_schema.size(); i++) {
-            if (_tablet_schema[i].name == field_name) {
+        for (int i = 0; i < _schema->num_columns(); i++) {
+            if (_schema->column(i).name() == field_name) {
                 return i;
             }
         }
@@ -172,7 +171,7 @@ private:
     }
 
 private:
-    RowFields _tablet_schema;
+    const TabletSchema* _schema;
     CondColumns _columns;   // list of condition column
 };
 

@@ -47,13 +47,11 @@ namespace doris {
 class SegmentGroup {
     friend class MemIndex;
 public:
-    SegmentGroup(int64_t tablet_id, int64_t rowset_id, const RowFields& tablet_schema,
-            int num_key_fields, int num_short_key_fields, size_t num_rows_per_row_block,
+    SegmentGroup(int64_t tablet_id, int64_t rowset_id, const TabletSchema* tablet_schema,
             const std::string& rowset_path_prefix, Version version,
             VersionHash version_hash, bool delete_flag, int segment_group_id, int32_t num_segments);
 
-    SegmentGroup(int64_t tablet_id, int64_t rowset_id, const RowFields& tablet_schema,
-            int num_key_fields, int num_short_key_fields, size_t num_rows_per_row_block,
+    SegmentGroup(int64_t tablet_id, int64_t rowset_id, const TabletSchema* tablet_schema,
             const std::string& rowset_path_prefix, bool delete_flag,
             int32_t segment_group_id, int32_t num_segments, bool is_pending,
             TPartitionId partition_id, TTransactionId transaction_id);
@@ -194,8 +192,8 @@ public:
         return _new_short_key_length;
     }
 
-    const RowFields& short_key_fields() const {
-        return _short_key_info_list;
+    const std::vector<TabletColumn>& short_key_columns() const {
+        return _short_key_columns;
     }
 
     bool empty() const {
@@ -238,11 +236,11 @@ public:
     size_t current_num_rows_per_row_block() const;
     void publish_version(Version version, VersionHash version_hash);
 
-    const RowFields& get_tablet_schema();
+    const TabletSchema& get_tablet_schema();
 
-    int get_num_key_fields();
+    int get_num_key_columns();
 
-    int get_num_short_key_fields();
+    int get_num_short_key_columns();
 
     size_t get_num_rows_per_row_block();
 
@@ -266,10 +264,7 @@ private:
 private:
     int64_t _tablet_id;
     int64_t _rowset_id;
-    const RowFields& _tablet_schema;    // tablet schema
-    int _num_key_fields;    // number of tablet keys
-    int _num_short_key_fields;  // number of tablet short keys
-    size_t _num_rows_per_row_block;    // row number of a row block
+    const TabletSchema* _schema;
     std::string _rowset_path_prefix;    // path of rowset
     Version _version;                  // version of associated data file
     VersionHash _version_hash;         // version hash for this segmentgroup
@@ -284,8 +279,8 @@ private:
     TPartitionId _partition_id;
     TTransactionId _txn_id;
 
-    // short key对应的field_info数组
-    RowFields _short_key_info_list;
+    // short key对应的column information
+    std::vector<TabletColumn> _short_key_columns;
     // short key对应的总长度
     size_t _short_key_length;
     size_t _new_short_key_length;
@@ -308,6 +303,7 @@ private:
 
     // Lock held while loading the index.
     mutable boost::mutex _index_load_lock;
+    size_t _current_num_rows_per_row_block;
 
     std::vector<std::pair<WrapperField*, WrapperField*>> _column_statistics;
     std::unordered_map<uint32_t, FileHeader<ColumnDataHeaderMessage> > _seg_pb_map;

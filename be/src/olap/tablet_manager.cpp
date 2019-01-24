@@ -251,12 +251,15 @@ OLAPStatus TabletManager::create_inital_rowset(TTabletId tablet_id, SchemaHash s
         }
         RowsetId rowset_id = 0;
         RowsetIdGenerator::instance()->get_next_id(tablet->data_dir(), &rowset_id);
-        RowsetWriterContext context = {tablet->partition_id(), tablet->tablet_id(),
-                                       tablet->schema_hash(), rowset_id, 
-                                       RowsetTypePB::ALPHA_ROWSET, tablet->rowset_path_prefix(),
-                                       tablet->tablet_schema(), tablet->num_key_fields(),
-                                       tablet->num_short_key_fields(), tablet->num_rows_per_row_block(),
-                                       tablet->compress_kind(), tablet->bloom_filter_fpp()};
+        RowsetWriterContextBuilder context_builder;
+        context_builder.set_rowset_id(rowset_id)
+                       .set_tablet_id(tablet->tablet_id())
+                       .set_partition_id(tablet->partition_id())
+                       .set_tablet_schema_hash(tablet->schema_hash())
+                       .set_rowset_type(ALPHA_ROWSET)
+                       .set_rowset_path_prefix(tablet->tablet_path())
+                       .set_tablet_schema(&(tablet->tablet_schema()));
+        RowsetWriterContext context = context_builder.build();
         RowsetWriter* builder = new AlphaRowsetWriter(); 
         if (builder == nullptr) {
             LOG(WARNING) << "fail to new rowset.";
@@ -1020,8 +1023,8 @@ OLAPStatus TabletManager::_create_tablet_meta(
             */
             size_t num_fields = ref_tablet->num_fields();
             for (size_t field = 0 ; field < num_fields; ++field) {
-                if (ref_tablet->tablet_schema()[field].name == column.column_name) {
-                    uint32_t unique_id = ref_tablet->tablet_schema()[field].unique_id;
+                if (ref_tablet->tablet_schema().column(field).name() == column.column_name) {
+                    uint32_t unique_id = ref_tablet->tablet_schema().column(field).unique_id();
                     col_ordinal_to_unique_id[col_ordinal] = unique_id;
                     break;
                 }

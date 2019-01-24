@@ -123,7 +123,7 @@ Cond::~Cond() {
     }
 }
 
-OLAPStatus Cond::init(const TCondition& tcond, const FieldInfo& fi) {
+OLAPStatus Cond::init(const TCondition& tcond, const TabletColumn& column) {
     // Parse op type
     op = parse_op_type(tcond.condition_op);
     if (op == OP_NULL || (op != OP_IN && tcond.condition_values.size() != 1)) {
@@ -134,7 +134,7 @@ OLAPStatus Cond::init(const TCondition& tcond, const FieldInfo& fi) {
     if (op == OP_IS) {
         // 'is null' or 'is not null'
         auto operand = tcond.condition_values.begin();
-        std::unique_ptr<WrapperField> f(WrapperField::create(fi, operand->length()));
+        std::unique_ptr<WrapperField> f(WrapperField::create(column, operand->length()));
         if (f == nullptr) {
             OLAP_LOG_WARNING("Create field failed. [name=%s, operand=%s, op_type=%d]",
                              tcond.column_name.c_str(), operand->c_str(), op);
@@ -148,7 +148,7 @@ OLAPStatus Cond::init(const TCondition& tcond, const FieldInfo& fi) {
         operand_field = f.release();
     } else if (op != OP_IN) {
         auto operand = tcond.condition_values.begin();
-        std::unique_ptr<WrapperField> f(WrapperField::create(fi, operand->length()));
+        std::unique_ptr<WrapperField> f(WrapperField::create(column, operand->length()));
         if (f == nullptr) {
             OLAP_LOG_WARNING("Create field failed. [name=%s, operand=%s, op_type=%d]",
                              tcond.column_name.c_str(), operand->c_str(), op);
@@ -163,7 +163,7 @@ OLAPStatus Cond::init(const TCondition& tcond, const FieldInfo& fi) {
         operand_field = f.release();
     } else {
         for (auto& operand : tcond.condition_values) {
-            std::unique_ptr<WrapperField> f(WrapperField::create(fi, operand.length()));
+            std::unique_ptr<WrapperField> f(WrapperField::create(column, operand.length()));
             if (f == NULL) {
                 OLAP_LOG_WARNING("Create field failed. [name=%s, operand=%s, op_type=%d]",
                                  tcond.column_name.c_str(), operand.c_str(), op);
@@ -472,9 +472,9 @@ CondColumn::~CondColumn() {
 }
 
 // PRECONDITION 1. index is valid; 2. at least has one operand
-OLAPStatus CondColumn::add_cond(const TCondition& tcond, const FieldInfo& fi) {
+OLAPStatus CondColumn::add_cond(const TCondition& tcond, const TabletColumn& column) {
     std::unique_ptr<Cond> cond(new Cond());
-    auto res = cond->init(tcond, fi);
+    auto res = cond->init(tcond, column);
     if (res != OLAP_SUCCESS) {
         return res;
     }
@@ -564,21 +564,22 @@ OLAPStatus Conditions::append_condition(const TCondition& tcond) {
     }
 
     // Skip column which is non-key, or whose type is string or float
-    const FieldInfo& fi = _tablet_schema[index];
-    if (fi.type == OLAP_FIELD_TYPE_DOUBLE || fi.type == OLAP_FIELD_TYPE_FLOAT) {
+    const TabletColumn& column = _schema->column(index);
+    if (column.type() == OLAP_FIELD_TYPE_DOUBLE
+            || column.type() == OLAP_FIELD_TYPE_FLOAT) {
         return OLAP_SUCCESS;
     }
 
     CondColumn* cond_col = nullptr;
     auto it = _columns.find(index);
     if (it == _columns.end()) {
-        cond_col = new CondColumn(_tablet_schema, index);
+        cond_col = new CondColumn(*_schema, index);
         _columns[index] = cond_col;
     } else {
         cond_col = it->second;
     }
 
-    return cond_col->add_cond(tcond, fi);
+    return cond_col->add_cond(tcond, column);
 }
 
 bool Conditions::delete_conditions_eval(const RowCursor& row) const {

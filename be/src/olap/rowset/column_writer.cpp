@@ -23,126 +23,107 @@
 namespace doris {
 
 ColumnWriter* ColumnWriter::create(uint32_t column_id,
-        const std::vector<FieldInfo>& columns,
+        const TabletSchema& schema,
         OutStreamFactory* stream_factory,
         size_t num_rows_per_row_block,
         double bf_fpp) {
     ColumnWriter* column_writer = NULL;
-    const FieldInfo& field_info = columns[column_id];
+    const TabletColumn& column = schema.column(column_id);
 
-    switch (columns[column_id].type) {
+    switch (column.type()) {
     case OLAP_FIELD_TYPE_TINYINT:
     case OLAP_FIELD_TYPE_UNSIGNED_TINYINT: {
         column_writer = new(std::nothrow) ByteColumnWriter(column_id,
                 stream_factory,
-                field_info,
+                column,
                 num_rows_per_row_block,
                 bf_fpp);
         break;
     }
     case OLAP_FIELD_TYPE_SMALLINT: {
         column_writer = new(std::nothrow) IntegerColumnWriterWrapper<int16_t, true>(
-                column_id, stream_factory, field_info, num_rows_per_row_block, bf_fpp);
+                column_id, stream_factory, column, num_rows_per_row_block, bf_fpp);
         break;
     }
     case OLAP_FIELD_TYPE_UNSIGNED_SMALLINT: {
         column_writer = new(std::nothrow) IntegerColumnWriterWrapper<uint16_t, false>(
-                column_id, stream_factory, field_info, num_rows_per_row_block, bf_fpp);
+                column_id, stream_factory, column, num_rows_per_row_block, bf_fpp);
         break;
     }
     case OLAP_FIELD_TYPE_INT: {
         column_writer = new(std::nothrow) IntegerColumnWriterWrapper<int32_t, true>(
-                column_id, stream_factory, field_info, num_rows_per_row_block, bf_fpp);
+                column_id, stream_factory, column, num_rows_per_row_block, bf_fpp);
         break;
     }
     case OLAP_FIELD_TYPE_UNSIGNED_INT: {
         column_writer = new(std::nothrow) IntegerColumnWriterWrapper<uint32_t, false>(
-                column_id, stream_factory, field_info, num_rows_per_row_block, bf_fpp);
+                column_id, stream_factory, column, num_rows_per_row_block, bf_fpp);
         break;
     }
     case OLAP_FIELD_TYPE_BIGINT: {
         column_writer = new(std::nothrow) IntegerColumnWriterWrapper<int64_t, true>(
-                column_id, stream_factory, field_info, num_rows_per_row_block, bf_fpp);
+                column_id, stream_factory, column, num_rows_per_row_block, bf_fpp);
         break;
     }
     case OLAP_FIELD_TYPE_UNSIGNED_BIGINT: {
         column_writer = new(std::nothrow) IntegerColumnWriterWrapper<uint64_t, false>(
-                column_id, stream_factory, field_info, num_rows_per_row_block, bf_fpp);
+                column_id, stream_factory, column, num_rows_per_row_block, bf_fpp);
         break;
     }
     case OLAP_FIELD_TYPE_FLOAT: {
         column_writer = new(std::nothrow) FloatColumnWriter(column_id,
-                stream_factory, field_info, num_rows_per_row_block, bf_fpp);
+                stream_factory, column, num_rows_per_row_block, bf_fpp);
         break;
     }
     case OLAP_FIELD_TYPE_DOUBLE: {
         column_writer = new(std::nothrow) DoubleColumnWriter(column_id,
-                stream_factory, field_info, num_rows_per_row_block, bf_fpp);
+                stream_factory, column, num_rows_per_row_block, bf_fpp);
         break;
     }
     case OLAP_FIELD_TYPE_DISCRETE_DOUBLE: {
         column_writer = new(std::nothrow) DiscreteDoubleColumnWriter(
-                column_id, stream_factory, field_info, num_rows_per_row_block, bf_fpp);
+                column_id, stream_factory, column, num_rows_per_row_block, bf_fpp);
         break;
     }
-    case OLAP_FIELD_TYPE_CHAR: {
+        case OLAP_FIELD_TYPE_CHAR: {
         column_writer = new(std::nothrow) FixLengthStringColumnWriter(
-                column_id, stream_factory, field_info, num_rows_per_row_block, bf_fpp);
+                column_id, stream_factory, column, num_rows_per_row_block, bf_fpp);
         break;
     }
     case OLAP_FIELD_TYPE_DATETIME: {
         column_writer = new(std::nothrow) DateTimeColumnWriter(
-                column_id, stream_factory, field_info, num_rows_per_row_block, bf_fpp);
+                column_id, stream_factory, column, num_rows_per_row_block, bf_fpp);
         break;
     }
     case OLAP_FIELD_TYPE_DATE: {
         column_writer = new(std::nothrow) DateColumnWriter(column_id,
-                stream_factory, field_info, num_rows_per_row_block, bf_fpp);
+                stream_factory, column, num_rows_per_row_block, bf_fpp);
         break;
     }
     case OLAP_FIELD_TYPE_DECIMAL: {
         column_writer = new(std::nothrow) DecimalColumnWriter(column_id,
-                stream_factory, field_info, num_rows_per_row_block, bf_fpp);
+                stream_factory, column, num_rows_per_row_block, bf_fpp);
         break;
     }
     case OLAP_FIELD_TYPE_LARGEINT: {
         column_writer = new(std::nothrow) LargeIntColumnWriter(column_id,
-                stream_factory, field_info, num_rows_per_row_block, bf_fpp);
+                stream_factory, column, num_rows_per_row_block, bf_fpp);
         break;
     }
     case OLAP_FIELD_TYPE_VARCHAR:
     case OLAP_FIELD_TYPE_HLL: {
         column_writer = new(std::nothrow) VarStringColumnWriter(column_id,
-                stream_factory, field_info, num_rows_per_row_block, bf_fpp);
+                stream_factory, column, num_rows_per_row_block, bf_fpp);
         break;
     }
     case OLAP_FIELD_TYPE_STRUCT:
     case OLAP_FIELD_TYPE_LIST:
     case OLAP_FIELD_TYPE_MAP:
     default: {
-        OLAP_LOG_WARNING("Unspported filed type. [field=%s type=%d]",
-                columns[column_id].name.c_str(),
-                columns[column_id].type);
+        LOG(WARNING) << "Unspported filed type. field=" << column.name()
+                     << ", type=" << column.type();
         break;
     }
-    }
-
-    if (NULL != column_writer) {
-        std::vector<uint32_t>::const_iterator it;
-
-        for (it = columns[column_id].sub_columns.begin();
-                it != columns[column_id].sub_columns.end(); ++it) {
-            ColumnWriter* sub_writer = create(*it, columns, stream_factory,
-                                              num_rows_per_row_block, bf_fpp);
-
-            if (NULL == sub_writer) {
-                OLAP_LOG_WARNING("fail to create sub column writer.");
-                SAFE_DELETE(column_writer);
-                return NULL;
-            }
-
-            column_writer->_sub_writers.push_back(sub_writer);
-        }
     }
 
     return column_writer;
@@ -151,13 +132,13 @@ ColumnWriter* ColumnWriter::create(uint32_t column_id,
 ColumnWriter::ColumnWriter(
         uint32_t column_id, 
         OutStreamFactory* stream_factory, 
-        const FieldInfo& field_info, 
+        const TabletColumn& column,
         size_t num_rows_per_row_block,
         double bf_fpp) : 
         _column_id(column_id),
-        _field_info(field_info),
+        _column(column),
         _stream_factory(stream_factory),
-        _index(field_info.type),
+        _index(column.type()),
         _is_present(NULL),
         _is_present_stream(NULL),
         _index_stream(NULL),
@@ -177,7 +158,7 @@ ColumnWriter::~ColumnWriter() {
 }
 
 OLAPStatus ColumnWriter::init() {
-    if (_field_info.is_allow_null) {
+    if (_column.is_nullable()) {
         _is_present_stream = _stream_factory->create_stream(
                 unique_column_id(), StreamInfoMessage::PRESENT);
 
@@ -199,14 +180,14 @@ OLAPStatus ColumnWriter::init() {
         }
     }
 
-    OLAPStatus res = _block_statistics.init(_field_info.type, true);
+    OLAPStatus res = _block_statistics.init(_column.type(), true);
 
     if (OLAP_SUCCESS != res) {
         OLAP_LOG_WARNING("init block statistic failed");
         return res;
     }
 
-    res = _segment_statistics.init(_field_info.type, true);
+    res = _segment_statistics.init(_column.type(), true);
 
     if (OLAP_SUCCESS != res) {
         OLAP_LOG_WARNING("init segment statistic failed");
@@ -262,9 +243,9 @@ OLAPStatus ColumnWriter::write(RowCursor* row_cursor) {
 
     if (is_bf_column()) {
         if (!is_null) {
-            if (_field_info.type == OLAP_FIELD_TYPE_CHAR ||
-                _field_info.type == OLAP_FIELD_TYPE_VARCHAR ||
-                _field_info.type == OLAP_FIELD_TYPE_HLL)
+            if (_column.type() == OLAP_FIELD_TYPE_CHAR ||
+                _column.type() == OLAP_FIELD_TYPE_VARCHAR ||
+                _column.type() == OLAP_FIELD_TYPE_HLL)
             {
                 Slice* slice = reinterpret_cast<Slice*>(buf);
                 _bf->add_bytes(slice->data, slice->size);
@@ -406,15 +387,15 @@ OLAPStatus ColumnWriter::finalize(ColumnDataHeaderMessage* header) {
     // 在Segment头中记录一份Schema信息
     // 这样使得修改表的Schema后不影响对已存在的Segment中的数据读取
     column = header->add_column();
-    column->set_name(_field_info.name);
-    column->set_type(FieldInfo::get_string_by_field_type(_field_info.type));
+    column->set_name(_column.name());
+    column->set_type(FieldInfo::get_string_by_field_type(_column.type()));
     column->set_aggregation(FieldInfo::get_string_by_aggregation_type(
-            _field_info.aggregation));
-    column->set_length(_field_info.length);
-    column->set_is_key(_field_info.is_key);
-    column->set_precision(_field_info.precision);
-    column->set_frac(_field_info.frac);
-    column->set_unique_id(_field_info.unique_id);
+            _column.aggregation()));
+    column->set_length(_column.length());
+    column->set_is_key(_column.is_key());
+    column->set_precision(_column.precision());
+    column->set_frac(_column.frac());
+    column->set_unique_id(_column.unique_id());
     column->set_is_bf_column(is_bf_column());
 
     save_encoding(header->add_column_encoding());
@@ -458,10 +439,10 @@ void ColumnWriter::get_bloom_filter_info(bool* has_bf_column,
 ////////////////////////////////////////////////////////////////////////////////
 ByteColumnWriter::ByteColumnWriter(uint32_t column_id,
         OutStreamFactory* stream_factory,
-        const FieldInfo& field_info,
+        const TabletColumn& column,
         size_t num_rows_per_row_block,
         double bf_fpp)
-    : ColumnWriter(column_id, stream_factory, field_info, num_rows_per_row_block, bf_fpp),
+    : ColumnWriter(column_id, stream_factory, column, num_rows_per_row_block, bf_fpp),
       _writer(NULL) {}
 
 ByteColumnWriter::~ByteColumnWriter() {
@@ -557,10 +538,10 @@ OLAPStatus IntegerColumnWriter::init() {
 VarStringColumnWriter::VarStringColumnWriter(
         uint32_t column_id,
         OutStreamFactory* stream_factory,
-        const FieldInfo& field_info,
+        const TabletColumn& column,
         size_t num_rows_per_row_block,
         double bf_fpp) : 
-        ColumnWriter(column_id, stream_factory, field_info, num_rows_per_row_block, bf_fpp),
+        ColumnWriter(column_id, stream_factory, column, num_rows_per_row_block, bf_fpp),
         _use_dictionary_encoding(false),
         _dict_total_size(0),
         _dict_stream(NULL),
@@ -620,22 +601,6 @@ OLAPStatus VarStringColumnWriter::write(const char* str, uint32_t len) {
         return res;
     }
 
-#if 0
-    std::string key(str, len);
-    StringDict::iterator it;
-    it = _string_dict.find(DictKey(key));
-
-    if (it == _string_dict.end()) {
-        uint32_t key_id = _string_keys.size();
-        _string_keys.push_back(key);
-        _string_dict[DictKey(_string_keys.back())] = key_id;
-        _string_id.push_back(key_id);
-        _dict_total_size += key.length();
-    } else {
-        _string_id.push_back(it->second);
-    }
-
-#endif
     return OLAP_SUCCESS;
 }
 
@@ -802,11 +767,11 @@ void VarStringColumnWriter::record_position() {
 FixLengthStringColumnWriter::FixLengthStringColumnWriter(
         uint32_t column_id,
         OutStreamFactory* stream_factory,
-        const FieldInfo& field_info,
+        const TabletColumn& column,
         size_t num_rows_per_row_block,
         double bf_fpp)
-    : VarStringColumnWriter(column_id, stream_factory, field_info, num_rows_per_row_block, bf_fpp),
-      _length(field_info.length) {}
+    : VarStringColumnWriter(column_id, stream_factory, column, num_rows_per_row_block, bf_fpp),
+      _length(column.length()) {}
 
 FixLengthStringColumnWriter::~FixLengthStringColumnWriter() {}
 
@@ -814,10 +779,10 @@ FixLengthStringColumnWriter::~FixLengthStringColumnWriter() {}
 
 DecimalColumnWriter::DecimalColumnWriter(uint32_t column_id,
         OutStreamFactory* stream_factory,
-        const FieldInfo& field_info,
+        const TabletColumn& column,
         size_t num_rows_per_row_block,
         double bf_fpp)
-    : ColumnWriter(column_id, stream_factory, field_info, num_rows_per_row_block, bf_fpp),
+    : ColumnWriter(column_id, stream_factory, column, num_rows_per_row_block, bf_fpp),
       _int_writer(NULL),
       _frac_writer(NULL) {}
 
@@ -890,10 +855,10 @@ void DecimalColumnWriter::record_position() {
 
 LargeIntColumnWriter::LargeIntColumnWriter(uint32_t column_id,
         OutStreamFactory* stream_factory,
-        const FieldInfo& field_info,
+        const TabletColumn& column,
         size_t num_rows_per_row_block,
         double bf_fpp)
-    : ColumnWriter(column_id, stream_factory, field_info, num_rows_per_row_block, bf_fpp),
+    : ColumnWriter(column_id, stream_factory, column, num_rows_per_row_block, bf_fpp),
       _high_writer(NULL),
       _low_writer(NULL) {}
 

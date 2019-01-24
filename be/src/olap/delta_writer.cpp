@@ -34,7 +34,7 @@ DeltaWriter::DeltaWriter(WriteRequest* req)
     : _req(*req), _tablet(nullptr),
       _cur_rowset(nullptr), _related_rowset(nullptr), _related_tablet(nullptr),
       _rowset_writer(nullptr), _mem_table(nullptr),
-      _schema(nullptr), _field_infos(nullptr),
+      _schema(nullptr), _tablet_schema(nullptr),
       _delta_written_success(false) {}
 
 DeltaWriter::~DeltaWriter() {
@@ -110,13 +110,8 @@ OLAPStatus DeltaWriter::init() {
             .set_tablet_schema_hash(_req.schema_hash)
             .set_rowset_type(ALPHA_ROWSET)
             .set_rowset_path_prefix(_tablet->tablet_path())
-            .set_tablet_schema(_tablet->tablet_schema())
-            .set_num_key_fields(_tablet->num_key_fields())
-            .set_num_short_key_fields(_tablet->num_short_key_fields())
-            .set_num_rows_per_row_block(_tablet->num_rows_per_row_block())
-            .set_compress_kind(_tablet->compress_kind())
-            .set_bloom_filter_fpp(_tablet->bloom_filter_fpp())
-            .set_rowset_state(PREPARING)
+            .set_tablet_schema(&(_tablet->tablet_schema()))
+            .set_rowset_state(PREPARED)
             .set_txn_id(_req.txn_id)
             .set_load_id(_req.load_id);
     RowsetWriterContext writer_context = context_builder.build();
@@ -129,16 +124,18 @@ OLAPStatus DeltaWriter::init() {
     }
 
     const std::vector<SlotDescriptor*>& slots = _req.tuple_desc->slots();
-    for (auto& field_info : _tablet->tablet_schema()) {
+    const TabletSchema& schema = _tablet->tablet_schema();
+    for (size_t col_id = 0; col_id < schema.num_columns(); ++col_id) {
+        const TabletColumn& column = schema.column(col_id);
         for (size_t i = 0; i < slots.size(); ++i) {
-            if (slots[i]->col_name() == field_info.name) {
+            if (slots[i]->col_name() == column.name()) {
                 _col_ids.push_back(i);
             }
         }
     }
-    _field_infos = &(_tablet->tablet_schema());
-    _schema = new Schema(*_field_infos),
-    _mem_table = new MemTable(_schema, _field_infos, &_col_ids,
+    _tablet_schema = &(_tablet->tablet_schema());
+    _schema = new Schema(*_tablet_schema);
+    _mem_table = new MemTable(_schema, _tablet_schema, &_col_ids,
                               _req.tuple_desc, _tablet->keys_type());
     _is_init = true;
     return OLAP_SUCCESS;
@@ -157,7 +154,7 @@ OLAPStatus DeltaWriter::write(Tuple* tuple) {
         RETURN_NOT_OK(_mem_table->flush(_rowset_writer));
 
         SAFE_DELETE(_mem_table);
-        _mem_table = new MemTable(_schema, _field_infos, &_col_ids,
+        _mem_table = new MemTable(_schema, _tablet_schema, &_col_ids,
                                   _req.tuple_desc, _tablet->keys_type());
     }
     return OLAP_SUCCESS;
