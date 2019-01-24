@@ -62,6 +62,10 @@ public:
 
     virtual Version version() const;
 
+    virtual int64_t end_version() const;
+
+    virtual int64_t start_version() const;
+
     virtual VersionHash version_hash() const;
 
     virtual bool in_use() const;
@@ -71,6 +75,8 @@ public:
     virtual bool delete_files() const;
 
     virtual void set_version_hash(VersionHash version_hash);
+
+    virtual int64_t create_time();
 private:
     OLAPStatus _init_segment_groups();
 

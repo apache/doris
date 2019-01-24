@@ -127,8 +127,6 @@ public:
     int file_delta_size() const;
     const PDelta& delta(int index) const;
     const PDelta* get_delta(int index) const;
-    const PDelta* lastest_delta() const;
-    const PDelta* lastest_version() const;
     const PDelta* base_version() const;
     const uint32_t get_cumulative_compaction_score() const;
     const uint32_t get_base_compaction_score() const;
@@ -201,7 +199,7 @@ public:
     const int64_t tablet_id() const;
     const int64_t schema_hash() const;
     const int16_t shard_id();
-    DataDir* data_dir() const;
+    DataDir* data_dir() const { return _data_dir; }
     double bloom_filter_fpp() const;
     bool equal(TTabletId tablet_id, TSchemaHash schema_hash);
 
@@ -229,6 +227,7 @@ public:
 
     const RowsetSharedPtr get_rowset(int index) const;
     const RowsetSharedPtr rowset_with_max_version() const;
+    const RowsetMetaSharedPtr rowset_meta_with_max_version() const;
     RowsetSharedPtr rowset_with_largest_size();
     SegmentGroup* get_largest_index();
     OLAPStatus all_rowsets(vector<RowsetSharedPtr> rowsets);

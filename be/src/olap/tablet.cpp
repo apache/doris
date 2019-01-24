@@ -82,7 +82,7 @@ bool Tablet::can_do_compaction() {
     // 如果选路成功，则转换完成，可以进行BE
     // 如果选路失败，则转换未完成，不能进行BE
     ReadLock rdlock(&_meta_lock);
-    const PDelta* lastest_delta = lastest_version();
+    const RowsetSharedPtr lastest_delta = rowset_with_max_version();
     if (lastest_delta == NULL) {
         return false;
     }

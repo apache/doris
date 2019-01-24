@@ -58,7 +58,7 @@ OLAPStatus EngineChecksumTask::_compute_checksum() {
 
     {
         ReadLock rdlock(tablet->get_header_lock_ptr());
-        const PDelta* message = tablet->lastest_version();
+        const RowsetSharedPtr message = tablet->rowset_with_max_version();
         if (message == NULL) {
             LOG(FATAL) << "fail to get latest version. tablet_id=" << _tablet_id;
             return OLAP_ERR_VERSION_NOT_EXIST;
