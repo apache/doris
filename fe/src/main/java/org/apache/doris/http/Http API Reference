@@ -1,0 +1,113 @@
+# Http API Reference
+This page documents all of the API endpoints for Doris FE
+
+
+## Colocate Meta
+You can get the ids for table, group, db, backend by `List all colocate meta` or
+Doris FE Web or `SHOW PROC` mysql command.
+
+The following API need Admin privilege. 
+
+### List all colocate meta
+
+`Get /api/colocate`
+
+**Response Sample**
+
+```
+{
+    "colocate_meta": {
+        "group2Tables": {
+            "372686": 372686,
+            "372686": 372700
+        },
+        "table2Groups": {
+            "372686": 372686,
+            "372700": 372686
+        },
+        "group2DBs": {
+            "372686": 10004
+        },
+        "group2BackendsPerBucketSeq": {
+            "372686": [
+                [
+                    10001,
+                    10002,
+                    10003
+                ],
+                [
+                    10001,
+                    10002,
+                    10003
+                ],
+                [
+                    10001,
+                    10002,
+                    10003
+                ]
+            ]
+        },
+        "balancingGroups": []
+    },
+    "status": "OK"
+}
+```
+
+### Add table to colocate group
+`POST /api/colocate/table_group`
+
+**Request Parameters**
+
+- table_id: the id for table
+- group_id: the id for group (it's the same as colocate parent table id)
+- db_id: the id for DB
+
+### Remove table from colocate group
+`DELETE /api/colocate/table`
+
+**Request Parameters**
+
+- table_id: the id for table
+
+### Mark colocate group balancing
+`POST /api/colocate/balancing_group`
+
+**Request Parameters**
+- group_id: the id for group (it's the same as colocate parent table id)
+
+### Mark colocate group stable
+`DELETE /api/colocate/balancing_group`
+
+**Request Parameters**
+- group_id: the id for group (it's the same as colocate parent table id)
+
+### Update backendsPerBucketSeq meta
+`POST /api/colocate/bucketseq`
+
+**Request Parameters**
+- group_id: the id for group (it's the same as colocate parent table id)
+
+**Request Body**
+
+the json format content for backendsPerBucketSeq meta. the following is an example:
+
+```
+[
+    [
+        10001,
+        10002,
+        10003
+    ],
+    [
+        10001,
+        10002,
+        10003
+    ],
+    [
+        10001,
+        10002,
+        10003
+    ]
+]
+```
+

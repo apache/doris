@@ -41,7 +41,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * maintain the colocate table related indexes and meta
  */
 public class ColocateTableIndex implements Writable {
-    private ReentrantReadWriteLock lock;
+    private transient ReentrantReadWriteLock lock;
 
     // group_id -> table_ids
     private Multimap<Long, Long> group2Tables;
@@ -174,6 +174,19 @@ public class ColocateTableIndex implements Writable {
         }
     }
 
+    public boolean isGroupExist(long groupId) {
+        readLock();
+        try {
+            return group2DB.containsKey(groupId);
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public Set<Long> getBalancingGroupIds() {
+        return balancingGroups;
+    }
+
     public long getGroup(long tableId) {
         readLock();
         try {
@@ -182,10 +195,6 @@ public class ColocateTableIndex implements Writable {
         } finally {
             readUnlock();
         }
-    }
-
-    public Set<Long> getBalancingGroupIds() {
-        return balancingGroups;
     }
 
     public Set<Long> getAllGroupIds() {
