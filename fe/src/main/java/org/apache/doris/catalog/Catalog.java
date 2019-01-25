@@ -4227,7 +4227,29 @@ public class Catalog {
         tablet.addReplica(replica);
     }
 
+    public void unprotectUpdateReplica(ReplicaPersistInfo info) {
+        LOG.debug("replay update a replica {}", info);
+        Database db = getDb(info.getDbId());
+        OlapTable olapTable = (OlapTable) db.getTable(info.getTableId());
+        Partition partition = olapTable.getPartition(info.getPartitionId());
+        MaterializedIndex materializedIndex = partition.getIndex(info.getIndexId());
+        Tablet tablet = materializedIndex.getTablet(info.getTabletId());
+        Replica replica = tablet.getReplicaByBackendId(info.getBackendId());
+        Preconditions.checkNotNull(replica, info);
+        replica.updateVersionInfo(info.getVersion(), info.getVersionHash(), info.getDataSize(), info.getRowCount());
+    }
+
     public void replayAddReplica(ReplicaPersistInfo info) {
+        Database db = getDb(info.getDbId());
+        db.writeLock();
+        try {
+            unprotectAddReplica(info);
+        } finally {
+            db.writeUnlock();
+        }
+    }
+
+    public void replayUpdateReplica(ReplicaPersistInfo info) {
         Database db = getDb(info.getDbId());
         db.writeLock();
         try {

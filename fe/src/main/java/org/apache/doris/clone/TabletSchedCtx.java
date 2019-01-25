@@ -753,8 +753,6 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                                 + replica.getLastFailedVersionHash() + " vs. " + reportedTablet.getVersion_hash());
             }
             
-            // validate the replica
-            replica.setState(ReplicaState.NORMAL);
             replica.updateVersionInfo(reportedTablet.getVersion(), reportedTablet.getVersion_hash(),
                     reportedTablet.getData_size(), reportedTablet.getRow_count());
             
@@ -771,7 +769,16 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                     replica.getLastFailedVersionHash(),
                     replica.getLastSuccessVersion(),
                     replica.getLastSuccessVersionHash());
-            Catalog.getInstance().getEditLog().logAddReplica(info);
+
+            if (replica.getState() == ReplicaState.CLONE) {
+                replica.setState(ReplicaState.NORMAL);
+                Catalog.getInstance().getEditLog().logAddReplica(info);
+            } else {
+                // if in VERSION_INCOMPLETE, replica is not newly created, thus the state is not CLONE
+                // so we keep it state unchanged, and log update replica
+                Catalog.getInstance().getEditLog().logUpdateReplica(info);
+            }
+
             LOG.info("clone finished: {}", this);
         } catch (SchedException e) {
             // if failed to too many times, remove this task
