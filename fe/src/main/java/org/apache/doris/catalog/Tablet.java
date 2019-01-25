@@ -365,7 +365,7 @@ public class Tablet extends MetaObject implements Writable {
         for (Replica replica : replicas) {
             long backendId = replica.getBackendId();
             Backend backend = systemInfoService.getBackend(backendId);
-            if (backend == null || !backend.isAvailable() || replica.getState() != ReplicaState.NORMAL) {
+            if (backend == null || !backend.isAvailable() || replica.getState() == ReplicaState.CLONE) {
                 // replica missing
                 continue;
             }

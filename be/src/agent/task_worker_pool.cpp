@@ -246,7 +246,7 @@ bool TaskWorkerPool::_record_task_info(
     EnumToString(TTaskType, task_type, task_name);
     if (signature_set.count(signature) > 0) {
         LOG(INFO) << "type: " << task_name
-                  << ", signature: " << signature << ", has been inserted."
+                  << ", signature: " << signature << ", already exist."
                   << ", queue size: " << signature_set.size();
         ret = false;
     } else {
