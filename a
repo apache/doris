@@ -1,0 +1,354 @@
+Python 2.7.3
+../olap/libOlap.a(tablet.cpp.o): In function `doris::Tablet::set_schema_change_request(long, long, std::vector<std::pair<long, long>, std::allocator<std::pair<long, long> > > const&, doris::AlterTabletType)':
+/home/lichaoyong/install/doris/core/be/src/olap/rowset/rowset_meta.h:37: undefined reference to `vtable for doris::RowsetMeta'
+../olap/libOlap.a(tablet.cpp.o): In function `doris::Tablet::can_do_compaction()':
+/home/lichaoyong/install/doris/core/be/src/olap/tablet.cpp:85: undefined reference to `doris::Tablet::rowset_with_max_version() const'
+../olap/libOlap.a(tablet.cpp.o): In function `doris::Tablet::split_range(doris::OlapTuple const&, doris::OlapTuple const&, unsigned long, std::vector<doris::OlapTuple, std::allocator<doris::OlapTuple> >*)':
+/home/lichaoyong/install/doris/core/be/src/olap/tablet.cpp:404: undefined reference to `doris::Tablet::get_largest_index()'
+/home/lichaoyong/install/doris/core/be/src/olap/tablet.cpp:416: undefined reference to `doris::SegmentGroup::current_num_rows_per_row_block() const'
+../olap/libOlap.a(tablet.cpp.o): In function `doris::Tablet::init_once()':
+/home/lichaoyong/install/doris/core/be/src/olap/tablet.cpp:72: undefined reference to `doris::Rowset::create()'
+../olap/libOlap.a(tablet.cpp.o): In function `doris::Tablet::Tablet(doris::TabletMeta*, doris::DataDir*)':
+/home/lichaoyong/install/doris/core/be/src/olap/tablet.cpp:57: undefined reference to `doris::TabletMeta::TabletMeta()'
+../olap/libOlap.a(tablet.cpp.o): In function `doris::Tablet::field_index(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) const':
+/home/lichaoyong/install/doris/core/be/src/olap/tablet.cpp:517: undefined reference to `doris::TabletSchema::field_index(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) const'
+../olap/libOlap.a(tablet_meta.cpp.o): In function `doris::TabletMeta::add_alter_task(doris::AlterTabletTask const&)':
+/home/lichaoyong/install/doris/core/be/src/olap/tablet_meta.cpp:355: undefined reference to `doris::AlterTabletTask::to_alter_pb(doris::AlterTabletPB*)'
+../olap/libOlap.a(tablet_meta.cpp.o): In function `doris::TabletMeta::to_tablet_pb_unlock(doris::TabletMetaPB*)':
+/home/lichaoyong/install/doris/core/be/src/olap/tablet_meta.cpp:218: undefined reference to `doris::RowsetMeta::to_rowset_pb(doris::RowsetMetaPB*)'
+/home/lichaoyong/install/doris/core/be/src/olap/tablet_meta.cpp:221: undefined reference to `doris::RowsetMeta::to_rowset_pb(doris::RowsetMetaPB*)'
+../olap/libOlap.a(tablet_meta.cpp.o): In function `doris::TabletMeta::add_inc_rs_meta(std::shared_ptr<doris::RowsetMeta> const&)':
+/home/lichaoyong/install/doris/core/be/src/olap/tablet_meta.cpp:243: undefined reference to `doris::RowsetMeta::to_rowset_pb(doris::RowsetMetaPB*)'
+../olap/libOlap.a(tablet_meta.cpp.o): In function `doris::TabletMeta::deserialize_unlock(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&)':
+/home/lichaoyong/install/doris/core/be/src/olap/rowset/rowset_meta.h:37: undefined reference to `vtable for doris::RowsetMeta'
+/home/lichaoyong/install/doris/core/be/src/olap/rowset/rowset_meta.h:37: undefined reference to `vtable for doris::RowsetMeta'
+../olap/libOlap.a(tablet_meta.cpp.o): In function `doris::TabletMeta::deserialize_unlock(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&)':
+/home/lichaoyong/install/doris/core/be/src/olap/tablet_meta.cpp:184: undefined reference to `doris::AlterTabletTask::init_from_pb(doris::AlterTabletPB const&)'
+../olap/rowset/libRowset.a(column_data.cpp.o): In function `doris::ColumnData::init()':
+/home/lichaoyong/install/doris/core/be/src/olap/rowset/column_data.cpp:52: undefined reference to `doris::RowCursor::init(std::vector<doris::TabletColumn, std::allocator<doris::TabletColumn> > const&)'
+../olap/rowset/libRowset.a(column_data.cpp.o): In function `doris::ColumnData::_seek_to_row(doris::RowCursor const&, bool, bool)':
+/home/lichaoyong/install/doris/core/be/src/olap/rowset/column_data.cpp:275: undefined reference to `doris::TabletSchema::column(unsigned long) const'
+../agent/libAgent.a(task_worker_pool.cpp.o): In function `doris::TaskWorkerPool::_move_dir(long, int, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, long, bool, std::vector<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, std::allocator<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > > >*)':
+/home/lichaoyong/install/doris/core/be/src/agent/task_worker_pool.cpp:1630: undefined reference to `_ZNK5doris6Tablet18construct_dir_pathB5cxx11Ev'
+/home/lichaoyong/install/doris/core/be/src/agent/task_worker_pool.cpp:1630: undefined reference to `_ZNK5doris6Tablet18construct_dir_pathB5cxx11Ev'
+../olap/libOlap.a(storage_engine.cpp.o): In function `operator()':
+/home/lichaoyong/install/doris/core/be/src/olap/rowset/rowset_meta.h:37: undefined reference to `vtable for doris::RowsetMeta'
+../olap/libOlap.a(storage_engine.cpp.o): In function `doris::RowsetMeta::~RowsetMeta()':
+/home/lichaoyong/install/doris/core/be/src/olap/rowset/rowset_meta.h:39: undefined reference to `vtable for doris::RowsetMeta'
+../olap/libOlap.a(storage_engine.cpp.o): In function `_ZN5doris10RowsetMetaD4Ev':
+/home/lichaoyong/install/doris/core/be/src/olap/rowset/rowset_meta.h:39: undefined reference to `vtable for doris::RowsetMeta'
+/home/lichaoyong/install/doris/core/be/src/olap/rowset/rowset_meta.h:39: undefined reference to `vtable for doris::RowsetMeta'
+../olap/libOlap.a(tablet_manager.cpp.o): In function `doris::_sort_tablet_by_create_time(std::shared_ptr<doris::Tablet> const&, std::shared_ptr<doris::Tablet> const&)':
+/home/lichaoyong/install/doris/core/be/src/olap/tablet_manager.cpp:87: undefined reference to `doris::Tablet::creation_time() const'
+/home/lichaoyong/install/doris/core/be/src/olap/tablet_manager.cpp:87: undefined reference to `doris::Tablet::creation_time() const'
+../olap/libOlap.a(tablet_manager.cpp.o): In function `doris::TabletManager::update_root_path_info(std::map<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, doris::DataDirInfo, std::less<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > >, std::allocator<std::pair<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const, doris::DataDirInfo> > >*, int*)':
+/home/lichaoyong/install/doris/core/be/src/olap/tablet_manager.cpp:879: undefined reference to `_ZN5doris6Tablet22storage_root_path_nameB5cxx11Ev'
+../olap/libOlap.a(tablet_manager.cpp.o): In function `doris::TabletManager::find_best_tablet_to_compaction(doris::CompactionType)':
+/home/lichaoyong/install/doris/core/be/src/olap/tablet_manager.cpp:593: undefined reference to `doris::Tablet::is_loaded()'
+/home/lichaoyong/install/doris/core/be/src/olap/tablet_manager.cpp:600: undefined reference to `doris::Tablet::get_base_compaction_score() const'
+/home/lichaoyong/install/doris/core/be/src/olap/tablet_manager.cpp:602: undefined reference to `doris::Tablet::get_cumulative_compaction_score() const'
+../olap/libOlap.a(tablet_manager.cpp.o): In function `doris::TabletManager::start_trash_sweep()':
+/home/lichaoyong/install/doris/core/be/src/olap/tablet_manager.cpp:847: undefined reference to `doris::Tablet::delete_expire_incremental_data()'
+../olap/libOlap.a(tablet_manager.cpp.o): In function `doris::TabletManager::get_tablet(long, int, bool)':
+/home/lichaoyong/install/doris/core/be/src/olap/tablet_manager.cpp:557: undefined reference to `doris::Tablet::is_loaded()'
+/home/lichaoyong/install/doris/core/be/src/olap/tablet_manager.cpp:558: undefined reference to `doris::Tablet::load()'
+../olap/libOlap.a(tablet_manager.cpp.o): In function `doris::TabletManager::cancel_unfinished_schema_change()':
+/home/lichaoyong/install/doris/core/be/src/olap/tablet_manager.cpp:201: undefined reference to `doris::Tablet::set_schema_change_status(doris::AlterTableStatus, int, int)'
+/home/lichaoyong/install/doris/core/be/src/olap/tablet_manager.cpp:203: undefined reference to `doris::Tablet::set_schema_change_status(doris::AlterTableStatus, int, int)'
+../olap/libOlap.a(tablet_manager.cpp.o): In function `doris::TabletManager::show_alter_tablet_status(long, int)':
+/home/lichaoyong/install/doris/core/be/src/olap/tablet_manager.cpp:834: undefined reference to `doris::Tablet::schema_change_status()'
+../olap/libOlap.a(tablet_manager.cpp.o): In function `doris::TabletManager::_drop_tablet_directly_unlocked(long, int, bool)':
+/home/lichaoyong/install/doris/core/be/src/olap/tablet_manager.cpp:1066: undefined reference to `doris::Tablet::mark_dropped()'
+../olap/libOlap.a(tablet_manager.cpp.o): In function `doris::TabletManager::drop_tablet(long, int, bool)':
+/home/lichaoyong/install/doris/core/be/src/olap/tablet_manager.cpp:477: undefined reference to `doris::Tablet::creation_time() const'
+/home/lichaoyong/install/doris/core/be/src/olap/tablet_manager.cpp:477: undefined reference to `doris::Tablet::creation_time() const'
+/home/lichaoyong/install/doris/core/be/src/olap/tablet_manager.cpp:491: undefined reference to `doris::Tablet::save_tablet_meta()'
+../olap/libOlap.a(tablet_manager.cpp.o): In function `doris::TabletManager::report_all_tablets_info(std::map<long, doris::TTablet, std::less<long>, std::allocator<std::pair<long const, doris::TTablet> > >*)':
+/home/lichaoyong/install/doris/core/be/src/olap/tablet_manager.cpp:803: undefined reference to `doris::Tablet::file_delta_size() const'
+../olap/libOlap.a(tablet_manager.cpp.o): In function `doris::TabletManager::add_tablet(long, int, std::shared_ptr<doris::Tablet> const&, bool)':
+/home/lichaoyong/install/doris/core/be/src/olap/tablet_manager.cpp:103: undefined reference to `doris::Tablet::set_id(long)'
+/home/lichaoyong/install/doris/core/be/src/olap/tablet_manager.cpp:123: undefined reference to `_ZN5doris6Tablet11tablet_pathB5cxx11Ev'
+/home/lichaoyong/install/doris/core/be/src/olap/tablet_manager.cpp:123: undefined reference to `_ZN5doris6Tablet11tablet_pathB5cxx11Ev'
+/home/lichaoyong/install/doris/core/be/src/olap/tablet_manager.cpp:131: undefined reference to `doris::Tablet::rowset_with_max_version() const'
+/home/lichaoyong/install/doris/core/be/src/olap/tablet_manager.cpp:132: undefined reference to `doris::Tablet::rowset_with_max_version() const'
+/home/lichaoyong/install/doris/core/be/src/olap/tablet_manager.cpp:133: undefined reference to `doris::Tablet::rowset_with_max_version() const'
+/home/lichaoyong/install/doris/core/be/src/olap/tablet_manager.cpp:134: undefined reference to `doris::Tablet::rowset_with_max_version() const'
+/home/lichaoyong/install/doris/core/be/src/olap/tablet_manager.cpp:162: undefined reference to `_ZN5doris6Tablet11tablet_pathB5cxx11Ev'
+/home/lichaoyong/install/doris/core/be/src/olap/tablet_manager.cpp:163: undefined reference to `_ZN5doris6Tablet11tablet_pathB5cxx11Ev'
+/home/lichaoyong/install/doris/core/be/src/olap/tablet_manager.cpp:155: undefined reference to `doris::Tablet::mark_dropped()'
+../olap/libOlap.a(tablet_manager.cpp.o): In function `doris::TabletManager::load_one_tablet(doris::DataDir*, long, int, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, bool)':
+/home/lichaoyong/install/doris/core/be/src/olap/tablet_manager.cpp:687: undefined reference to `doris::Tablet::create_from_tablet_meta_file(long, long, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, doris::DataDir*)'
+/home/lichaoyong/install/doris/core/be/src/olap/tablet_manager.cpp:694: undefined reference to `doris::Tablet::rowset_with_max_version() const'
+../olap/libOlap.a(tablet_manager.cpp.o): In function `doris::TabletManager::load_tablet_from_meta(doris::DataDir*, long, int, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&)':
+/home/lichaoyong/install/doris/core/be/src/olap/tablet_manager.cpp:615: undefined reference to `doris::TabletMeta::TabletMeta()'
+/home/lichaoyong/install/doris/core/be/src/olap/tablet_manager.cpp:623: undefined reference to `doris::TabletMeta::init()'
+/home/lichaoyong/install/doris/core/be/src/olap/tablet_manager.cpp:635: undefined reference to `doris::Tablet::create_from_tablet_meta(doris::TabletMeta*, doris::DataDir*)'
+/home/lichaoyong/install/doris/core/be/src/olap/tablet_manager.cpp:641: undefined reference to `doris::Tablet::rowset_with_max_version() const'
+/home/lichaoyong/install/doris/core/be/src/olap/tablet_manager.cpp:645: undefined reference to `doris::Tablet::mark_dropped()'
+/home/lichaoyong/install/doris/core/be/src/olap/tablet_manager.cpp:661: undefined reference to `_ZN5doris6Tablet22storage_root_path_nameB5cxx11Ev'
+../olap/libOlap.a(tablet_manager.cpp.o): In function `doris::TabletManager::_create_tablet_meta(doris::TCreateTabletReq const&, doris::DataDir*, bool, std::shared_ptr<doris::Tablet>, doris::TabletMeta**)':
+/home/lichaoyong/install/doris/core/be/src/olap/tablet_manager.cpp:1020: undefined reference to `doris::TabletSchema::column(unsigned long) const'
+/home/lichaoyong/install/doris/core/be/src/olap/tablet_manager.cpp:1021: undefined reference to `doris::TabletSchema::column(unsigned long) const'
+../olap/libOlap.a(tablet_manager.cpp.o): In function `doris::TabletManager::create_tablet(doris::TCreateTabletReq const&, bool, std::shared_ptr<doris::Tablet>, std::vector<doris::DataDir*, std::allocator<doris::DataDir*> >)':
+/home/lichaoyong/install/doris/core/be/src/olap/tablet_manager.cpp:400: undefined reference to `doris::Tablet::create_from_tablet_meta(doris::TabletMeta*, doris::DataDir*)'
+../olap/libOlap.a(tablet_manager.cpp.o): In function `doris::TabletManager::create_inital_rowset(long, int, std::pair<long, long>, long)':
+/home/lichaoyong/install/doris/core/be/src/olap/tablet_manager.cpp:253: undefined reference to `doris::RowsetIdGenerator::instance()'
+/home/lichaoyong/install/doris/core/be/src/olap/tablet_manager.cpp:253: undefined reference to `doris::RowsetIdGenerator::get_next_id(doris::DataDir*, long*)'
+/home/lichaoyong/install/doris/core/be/src/olap/tablet_manager.cpp:260: undefined reference to `_ZN5doris6Tablet11tablet_pathB5cxx11Ev'
+../olap/libOlap.a(tablet_manager.cpp.o): In function `doris::TabletManager::_create_inital_rowset(std::shared_ptr<doris::Tablet>, doris::TCreateTabletReq const&)':
+/home/lichaoyong/install/doris/core/be/src/olap/tablet_manager.cpp:958: undefined reference to `doris::Tablet::set_cumulative_layer_point(int)'
+/home/lichaoyong/install/doris/core/be/src/olap/tablet_manager.cpp:959: undefined reference to `doris::Tablet::save_tablet_meta()'
+../olap/libOlap.a(tablet_manager.cpp.o): In function `doris::TabletManager::create_tablet(doris::TCreateTabletReq const&, std::vector<doris::DataDir*, std::allocator<doris::DataDir*> >)':
+/home/lichaoyong/install/doris/core/be/src/olap/tablet_manager.cpp:378: undefined reference to `doris::Tablet::delete_all_files()'
+/home/lichaoyong/install/doris/core/be/src/olap/tablet_manager.cpp:353: undefined reference to `_ZN5doris6Tablet22storage_root_path_nameB5cxx11Ev'
+../olap/libOlap.a(tablet_meta_manager.cpp.o): In function `doris::TabletMetaManager::get_header(doris::DataDir*, long, int, doris::TabletMeta*)':
+/home/lichaoyong/install/doris/core/be/src/olap/tablet_meta_manager.cpp:66: undefined reference to `doris::TabletMeta::init()'
+../olap/libOlap.a(tablet_meta_manager.cpp.o): In function `doris::TabletMetaManager::dump_header(doris::DataDir*, long, int, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&)':
+/home/lichaoyong/install/doris/core/be/src/olap/tablet_meta_manager.cpp:182: undefined reference to `doris::TabletMeta::TabletMeta()'
+/home/lichaoyong/install/doris/core/be/src/olap/tablet_meta_manager.cpp:187: undefined reference to `doris::TabletMeta::save(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&)'
+../olap/libOlap.a(tablet_meta_manager.cpp.o): In function `doris::TabletMetaManager::get_json_header(doris::DataDir*, long, int, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >*)':
+/home/lichaoyong/install/doris/core/be/src/olap/tablet_meta_manager.cpp:71: undefined reference to `doris::TabletMeta::TabletMeta()'
+../olap/libOlap.a(tablet_meta_manager.cpp.o): In function `doris::TabletMetaManager::load_json_header(doris::DataDir*, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&)':
+/home/lichaoyong/install/doris/core/be/src/olap/tablet_meta_manager.cpp:172: undefined reference to `doris::TabletMeta::TabletMeta()'
+/home/lichaoyong/install/doris/core/be/src/olap/tablet_meta_manager.cpp:173: undefined reference to `doris::TabletMeta::init_from_pb(doris::TabletMetaPB const&)'
+../olap/libOlap.a(base_compaction.cpp.o): In function `doris::BaseCompaction::_validate_delete_file_action()':
+/home/lichaoyong/install/doris/core/be/src/olap/base_compaction.cpp:527: undefined reference to `doris::Tablet::rowset_with_max_version() const'
+../olap/libOlap.a(base_compaction.cpp.o): In function `doris::BaseCompaction::_update_header(unsigned long, std::vector<std::shared_ptr<doris::Rowset>, std::allocator<std::shared_ptr<doris::Rowset> > >*)':
+/home/lichaoyong/install/doris/core/be/src/olap/base_compaction.cpp:450: undefined reference to `doris::Tablet::save_tablet_meta()'
+../olap/libOlap.a(base_compaction.cpp.o): In function `doris::BaseCompaction::_check_whether_satisfy_policy(bool, std::vector<std::pair<long, long>, std::allocator<std::pair<long, long> > >*)':
+/home/lichaoyong/install/doris/core/be/src/olap/base_compaction.cpp:177: undefined reference to `doris::Tablet::cumulative_layer_point() const'
+/home/lichaoyong/install/doris/core/be/src/olap/base_compaction.cpp:204: undefined reference to `doris::Tablet::get_delta(int) const'
+../olap/libOlap.a(base_compaction.cpp.o): In function `doris::BaseCompaction::init(std::shared_ptr<doris::Tablet>, bool)':
+/home/lichaoyong/install/doris/core/be/src/olap/base_compaction.cpp:46: undefined reference to `doris::Tablet::is_loaded()'
+../olap/libOlap.a(base_compaction.cpp.o): In function `doris::BaseCompaction::_do_base_compaction(long, std::vector<std::shared_ptr<doris::Rowset>, std::allocator<std::shared_ptr<doris::Rowset> > > const&, unsigned long*)':
+/home/lichaoyong/install/doris/core/be/src/olap/base_compaction.cpp:311: undefined reference to `doris::RowsetIdGenerator::instance()'
+/home/lichaoyong/install/doris/core/be/src/olap/base_compaction.cpp:311: undefined reference to `doris::RowsetIdGenerator::get_next_id(doris::DataDir*, long*)'
+/home/lichaoyong/install/doris/core/be/src/olap/base_compaction.cpp:319: undefined reference to `_ZN5doris6Tablet11tablet_pathB5cxx11Ev'
+/home/lichaoyong/install/doris/core/be/src/olap/base_compaction.cpp:351: undefined reference to `doris::Tablet::data_file_type() const'
+/home/lichaoyong/install/doris/core/be/src/olap/base_compaction.cpp:362: undefined reference to `doris::Tablet::data_file_type() const'
+../olap/libOlap.a(cumulative_compaction.cpp.o): In function `doris::CumulativeCompaction::_find_previous_version(std::pair<long, long>, std::pair<long, long>*)':
+/home/lichaoyong/install/doris/core/be/src/olap/cumulative_compaction.cpp:356: undefined reference to `doris::Tablet::is_delete_data_version(std::pair<long, long>)'
+/home/lichaoyong/install/doris/core/be/src/olap/cumulative_compaction.cpp:357: undefined reference to `doris::Tablet::is_load_delete_version(std::pair<long, long>)'
+../olap/libOlap.a(cumulative_compaction.cpp.o): In function `doris::CumulativeCompaction::_roll_back(std::vector<std::shared_ptr<doris::Rowset>, std::allocator<std::shared_ptr<doris::Rowset> > >&)':
+/home/lichaoyong/install/doris/core/be/src/olap/cumulative_compaction.cpp:546: undefined reference to `doris::Tablet::save_tablet_meta()'
+../olap/libOlap.a(cumulative_compaction.cpp.o): In function `doris::CumulativeCompaction::_update_header(std::vector<std::shared_ptr<doris::Rowset>, std::allocator<std::shared_ptr<doris::Rowset> > >*)':
+/home/lichaoyong/install/doris/core/be/src/olap/cumulative_compaction.cpp:478: undefined reference to `doris::Tablet::save_tablet_meta()'
+../olap/libOlap.a(cumulative_compaction.cpp.o): In function `doris::CumulativeCompaction::_do_cumulative_compaction()':
+/home/lichaoyong/install/doris/core/be/src/olap/cumulative_compaction.cpp:453: undefined reference to `doris::Tablet::set_cumulative_layer_point(int)'
+/home/lichaoyong/install/doris/core/be/src/olap/cumulative_compaction.cpp:454: undefined reference to `doris::Tablet::save_tablet_meta()'
+../olap/libOlap.a(cumulative_compaction.cpp.o): In function `doris::CumulativeCompaction::_calculate_need_merged_versions()':
+/home/lichaoyong/install/doris/core/be/src/olap/cumulative_compaction.cpp:217: undefined reference to `doris::Tablet::is_delete_data_version(std::pair<long, long>)'
+/home/lichaoyong/install/doris/core/be/src/olap/cumulative_compaction.cpp:218: undefined reference to `doris::Tablet::is_load_delete_version(std::pair<long, long>)'
+/home/lichaoyong/install/doris/core/be/src/olap/cumulative_compaction.cpp:284: undefined reference to `doris::Tablet::set_cumulative_layer_point(int)'
+/home/lichaoyong/install/doris/core/be/src/olap/cumulative_compaction.cpp:285: undefined reference to `doris::Tablet::save_tablet_meta()'
+../olap/libOlap.a(cumulative_compaction.cpp.o): In function `doris::CumulativeCompaction::init(std::shared_ptr<doris::Tablet>)':
+/home/lichaoyong/install/doris/core/be/src/olap/cumulative_compaction.cpp:44: undefined reference to `doris::Tablet::is_loaded()'
+/home/lichaoyong/install/doris/core/be/src/olap/cumulative_compaction.cpp:58: undefined reference to `doris::Tablet::cumulative_layer_point() const'
+../olap/libOlap.a(cumulative_compaction.cpp.o): In function `doris::CumulativeCompaction::run()':
+/home/lichaoyong/install/doris/core/be/src/olap/cumulative_compaction.cpp:138: undefined reference to `doris::RowsetIdGenerator::instance()'
+/home/lichaoyong/install/doris/core/be/src/olap/cumulative_compaction.cpp:138: undefined reference to `doris::RowsetIdGenerator::get_next_id(doris::DataDir*, long*)'
+/home/lichaoyong/install/doris/core/be/src/olap/cumulative_compaction.cpp:145: undefined reference to `_ZN5doris6Tablet11tablet_pathB5cxx11Ev'
+../olap/libOlap.a(delete_handler.cpp.o): In function `doris::DeleteConditionHandler::_get_field_index(doris::TabletSchema const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) const':
+/home/lichaoyong/install/doris/core/be/src/olap/delete_handler.h:99: undefined reference to `doris::TabletSchema::column(unsigned long) const'
+../olap/libOlap.a(delete_handler.cpp.o): In function `doris::DeleteConditionHandler::check_condition_valid(doris::TabletSchema const&, doris::TCondition const&)':
+/home/lichaoyong/install/doris/core/be/src/olap/delete_handler.cpp:144: undefined reference to `doris::TabletSchema::column(unsigned long) const'
+../olap/libOlap.a(olap_cond.cpp.o): In function `doris::Conditions::_get_field_index(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) const':
+/home/lichaoyong/install/doris/core/be/src/olap/olap_cond.h:165: undefined reference to `doris::TabletSchema::column(unsigned long) const'
+../olap/libOlap.a(olap_cond.cpp.o): In function `doris::Conditions::append_condition(doris::TCondition const&)':
+/home/lichaoyong/install/doris/core/be/src/olap/olap_cond.cpp:567: undefined reference to `doris::TabletSchema::column(unsigned long) const'
+../olap/libOlap.a(olap_cond.cpp.o): In function `_ZN5doris10CondColumnC4ERKNS_12TabletSchemaEi':
+/home/lichaoyong/install/doris/core/be/src/olap/olap_cond.h:94: undefined reference to `doris::TabletSchema::column(unsigned long) const'
+../olap/libOlap.a(reader.cpp.o): In function `doris::CollectIterator::init(doris::Reader*)':
+/home/lichaoyong/install/doris/core/be/src/olap/reader.cpp:197: undefined reference to `doris::Tablet::keys_type() const'
+../olap/libOlap.a(reader.cpp.o): In function `doris::Reader::_parse_to_predicate(doris::TCondition const&)':
+/home/lichaoyong/install/doris/core/be/src/olap/reader.cpp:842: undefined reference to `doris::TabletSchema::column(unsigned long) const'
+../olap/libOlap.a(reader.cpp.o): In function `doris::Reader::_init_load_bf_columns(doris::ReaderParams const&)':
+/home/lichaoyong/install/doris/core/be/src/olap/reader.cpp:1002: undefined reference to `doris::TabletSchema::column(unsigned long) const'
+/home/lichaoyong/install/doris/core/be/src/olap/reader.cpp:1041: undefined reference to `doris::Tablet::get_field_type_by_index(unsigned int)'
+../olap/libOlap.a(reader.cpp.o): In function `doris::Reader::_unique_key_next_row(doris::RowCursor*, bool*)':
+/home/lichaoyong/install/doris/core/be/src/olap/reader.cpp:421: undefined reference to `doris::Tablet::keys_type() const'
+/home/lichaoyong/install/doris/core/be/src/olap/reader.cpp:421: undefined reference to `doris::Tablet::keys_type() const'
+../olap/libOlap.a(reader.cpp.o): In function `doris::Reader::_init_return_columns(doris::ReaderParams const&)':
+/home/lichaoyong/install/doris/core/be/src/olap/reader.cpp:657: undefined reference to `doris::TabletSchema::column(unsigned long) const'
+/home/lichaoyong/install/doris/core/be/src/olap/reader.cpp:647: undefined reference to `doris::TabletSchema::column(unsigned long) const'
+/home/lichaoyong/install/doris/core/be/src/olap/reader.cpp:638: undefined reference to `doris::TabletSchema::column(unsigned long) const'
+../olap/libOlap.a(reader.cpp.o): In function `doris::CollectIterator::init(doris::Reader*)':
+/home/lichaoyong/install/doris/core/be/src/olap/reader.cpp:197: undefined reference to `doris::Tablet::keys_type() const'
+../olap/libOlap.a(reader.cpp.o): In function `doris::Reader::init(doris::ReaderParams const&)':
+/home/lichaoyong/install/doris/core/be/src/olap/reader.cpp:330: undefined reference to `doris::Tablet::keys_type() const'
+../olap/libOlap.a(row_cursor.cpp.o): In function `doris::RowCursor::_init(doris::TabletSchema const&, std::vector<unsigned int, std::allocator<unsigned int> > const&)':
+/home/lichaoyong/install/doris/core/be/src/olap/row_cursor.cpp:59: undefined reference to `doris::TabletSchema::column(unsigned long) const'
+/home/lichaoyong/install/doris/core/be/src/olap/row_cursor.cpp:72: undefined reference to `doris::TabletSchema::column(unsigned long) const'
+/home/lichaoyong/install/doris/core/be/src/olap/row_cursor.cpp:82: undefined reference to `doris::TabletSchema::column(unsigned long) const'
+../olap/libOlap.a(row_cursor.cpp.o): In function `doris::RowCursor::init_scan_key(doris::TabletSchema const&, std::vector<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, std::allocator<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > > > const&)':
+/home/lichaoyong/install/doris/core/be/src/olap/row_cursor.cpp:166: undefined reference to `doris::TabletSchema::column(unsigned long) const'
+/home/lichaoyong/install/doris/core/be/src/olap/row_cursor.cpp:186: undefined reference to `doris::TabletSchema::column(unsigned long) const'
+../olap/libOlap.a(row_cursor.cpp.o):/home/lichaoyong/install/doris/core/be/src/olap/row_cursor.cpp:230: more undefined references to `doris::TabletSchema::column(unsigned long) const' follow
+../olap/rowset/libRowset.a(rowset_meta_manager.cpp.o): In function `_ZN5doris10RowsetMetaC4Ev':
+/home/lichaoyong/install/doris/core/be/src/olap/rowset/rowset_meta.h:37: undefined reference to `vtable for doris::RowsetMeta'
+../olap/rowset/libRowset.a(rowset_meta_manager.cpp.o): In function `_ZN5doris10RowsetMetaD4Ev':
+/home/lichaoyong/install/doris/core/be/src/olap/rowset/rowset_meta.h:39: undefined reference to `vtable for doris::RowsetMeta'
+/home/lichaoyong/install/doris/core/be/src/olap/rowset/rowset_meta.h:39: undefined reference to `vtable for doris::RowsetMeta'
+../olap/rowset/libRowset.a(rowset_meta_manager.cpp.o): In function `_ZN5doris10RowsetMetaC4Ev':
+/home/lichaoyong/install/doris/core/be/src/olap/rowset/rowset_meta.h:37: undefined reference to `vtable for doris::RowsetMeta'
+../olap/rowset/libRowset.a(rowset_meta_manager.cpp.o): In function `_ZN5doris10RowsetMetaD4Ev':
+/home/lichaoyong/install/doris/core/be/src/olap/rowset/rowset_meta.h:39: undefined reference to `vtable for doris::RowsetMeta'
+../olap/rowset/libRowset.a(rowset_meta_manager.cpp.o):/home/lichaoyong/install/doris/core/be/src/olap/rowset/rowset_meta.h:39: more undefined references to `vtable for doris::RowsetMeta' follow
+../olap/rowset/libRowset.a(alpha_rowset_meta.cpp.o):(.rodata._ZTIN5doris15AlphaRowsetMetaE[_ZTIN5doris15AlphaRowsetMetaE]+0x10): undefined reference to `typeinfo for doris::RowsetMeta'
+../olap/rowset/libRowset.a(alpha_rowset_meta.cpp.o):(.rodata._ZTVN5doris15AlphaRowsetMetaE[_ZTVN5doris15AlphaRowsetMetaE]+0x1b0): undefined reference to `doris::RowsetMeta::creation_time() const'
+../olap/rowset/libRowset.a(column_data_writer.cpp.o): In function `doris::ColumnDataWriter::init()':
+/home/lichaoyong/install/doris/core/be/src/olap/rowset/column_data_writer.cpp:71: undefined reference to `doris::TabletSchema::column(unsigned long) const'
+/home/lichaoyong/install/doris/core/be/src/olap/rowset/column_data_writer.cpp:75: undefined reference to `doris::TabletSchema::column(unsigned long) const'
+../olap/rowset/libRowset.a(alpha_rowset.cpp.o):(.rodata._ZTIN5doris11AlphaRowsetE[_ZTIN5doris11AlphaRowsetE]+0x10): undefined reference to `typeinfo for doris::Rowset'
+../olap/rowset/libRowset.a(alpha_rowset.cpp.o):(.rodata._ZTVN5doris11AlphaRowsetE[_ZTVN5doris11AlphaRowsetE]+0x40): undefined reference to `doris::Rowset::to_rowset_pb(doris::RowsetMetaPB const&)'
+../olap/rowset/libRowset.a(alpha_rowset.cpp.o):(.rodata._ZTVN5doris11AlphaRowsetE[_ZTVN5doris11AlphaRowsetE]+0x90): undefined reference to `doris::AlphaRowset::version_hash() const'
+../olap/rowset/libRowset.a(alpha_rowset.cpp.o):(.rodata._ZTVN5doris11AlphaRowsetE[_ZTVN5doris11AlphaRowsetE]+0x98): undefined reference to `doris::AlphaRowset::in_use() const'
+../olap/rowset/libRowset.a(alpha_rowset.cpp.o):(.rodata._ZTVN5doris11AlphaRowsetE[_ZTVN5doris11AlphaRowsetE]+0xa0): undefined reference to `doris::AlphaRowset::rowset_id() const'
+../olap/rowset/libRowset.a(alpha_rowset.cpp.o):(.rodata._ZTVN5doris11AlphaRowsetE[_ZTVN5doris11AlphaRowsetE]+0xa8): undefined reference to `doris::AlphaRowset::delete_files() const'
+../olap/rowset/libRowset.a(alpha_rowset.cpp.o):(.rodata._ZTVN5doris11AlphaRowsetE[_ZTVN5doris11AlphaRowsetE]+0xc0): undefined reference to `doris::AlphaRowset::create_time()'
+../olap/rowset/libRowset.a(alpha_rowset_reader.cpp.o):(.rodata._ZTVN5doris17AlphaRowsetReaderE[_ZTVN5doris17AlphaRowsetReaderE]+0x40): undefined reference to `doris::AlphaRowsetReader::delete_flag()'
+../olap/rowset/libRowset.a(alpha_rowset_reader.cpp.o):(.rodata._ZTVN5doris17AlphaRowsetReaderE[_ZTVN5doris17AlphaRowsetReaderE]+0x48): undefined reference to `doris::AlphaRowsetReader::version()'
+../olap/rowset/libRowset.a(column_writer.cpp.o): In function `doris::ColumnWriter::create(unsigned int, doris::TabletSchema const&, doris::OutStreamFactory*, unsigned long, double)':
+/home/lichaoyong/install/doris/core/be/src/olap/rowset/column_writer.cpp:31: undefined reference to `doris::TabletSchema::column(unsigned long) const'
+../olap/rowset/libRowset.a(segment_reader.cpp.o): In function `doris::SegmentReader::_get_aggregation_by_index(unsigned int)':
+/home/lichaoyong/install/doris/core/be/src/olap/rowset/segment_reader.h:262: undefined reference to `doris::TabletSchema::column(unsigned long) const'
+/home/lichaoyong/install/doris/core/be/src/olap/rowset/segment_reader.h:262: undefined reference to `doris::TabletSchema::column(unsigned long) const'
+../olap/rowset/libRowset.a(segment_reader.cpp.o): In function `doris::SegmentReader::_get_field_type_by_index(unsigned int)':
+/home/lichaoyong/install/doris/core/be/src/olap/rowset/segment_reader.h:271: undefined reference to `doris::TabletSchema::column(unsigned long) const'
+../olap/rowset/libRowset.a(segment_reader.cpp.o): In function `doris::SegmentReader::_set_column_map()':
+/home/lichaoyong/install/doris/core/be/src/olap/rowset/segment_reader.cpp:337: undefined reference to `doris::TabletSchema::column(unsigned long) const'
+../olap/rowset/libRowset.a(segment_reader.cpp.o):/home/lichaoyong/install/doris/core/be/src/olap/rowset/segment_reader.cpp:343: more undefined references to `doris::TabletSchema::column(unsigned long) const' follow
+../runtime/libRuntime.a(snapshot_loader.cpp.o): In function `doris::SnapshotLoader::move(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, long, bool)':
+/home/lichaoyong/install/doris/core/be/src/runtime/snapshot_loader.cpp:570: undefined reference to `doris::Tablet::base_version() const'
+/home/lichaoyong/install/doris/core/be/src/runtime/snapshot_loader.cpp:586: undefined reference to `doris::TabletMeta::TabletMeta(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&)'
+/home/lichaoyong/install/doris/core/be/src/runtime/snapshot_loader.cpp:587: undefined reference to `doris::TabletMeta::load_and_init()'
+/home/lichaoyong/install/doris/core/be/src/runtime/snapshot_loader.cpp:615: undefined reference to `doris::TabletMeta::file_version_size()'
+/home/lichaoyong/install/doris/core/be/src/runtime/snapshot_loader.cpp:617: undefined reference to `doris::TabletMeta::file_version(int)'
+/home/lichaoyong/install/doris/core/be/src/runtime/snapshot_loader.cpp:652: undefined reference to `doris::Tablet::merge_tablet_meta(doris::TabletMeta const&, int)'
+../http/libWebserver.a(restore_tablet_action.cpp.o): In function `doris::RestoreTabletAction::_restore(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, long, int)':
+/home/lichaoyong/install/doris/core/be/src/http/action/restore_tablet_action.cpp:166: undefined reference to `doris::TabletMeta::TabletMeta(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&)'
+/home/lichaoyong/install/doris/core/be/src/http/action/restore_tablet_action.cpp:167: undefined reference to `doris::TabletMeta::load_and_init()'
+../exec/libExec.a(olap_scanner.cpp.o): In function `doris::OlapScanner::_init_return_columns()':
+/home/lichaoyong/install/doris/core/be/src/exec/olap_scanner.cpp:218: undefined reference to `doris::TabletSchema::column(unsigned long) const'
+../exec/libExec.a(olap_scanner.cpp.o): In function `doris::OlapScanner::_init_params(std::vector<doris::OlapScanRange, std::allocator<doris::OlapScanRange> > const&, std::vector<doris::TCondition, std::allocator<doris::TCondition> > const&, std::vector<doris::TCondition, std::allocator<doris::TCondition> > const&)':
+/home/lichaoyong/install/doris/core/be/src/exec/olap_scanner.cpp:183: undefined reference to `doris::TabletSchema::column(unsigned long) const'
+../exec/libExec.a(olap_scanner.cpp.o): In function `doris::OlapScanner::_prepare(doris::DorisScanRange*, std::vector<doris::OlapScanRange, std::allocator<doris::OlapScanRange> > const&, std::vector<doris::TCondition, std::allocator<doris::TCondition> > const&, std::vector<doris::TCondition, std::allocator<doris::TCondition> > const&)':
+/home/lichaoyong/install/doris/core/be/src/exec/olap_scanner.cpp:93: undefined reference to `doris::Tablet::rowset_with_max_version() const'
+../olap/libOlap.a(delta_writer.cpp.o): In function `doris::DeltaWriter::init()':
+/home/lichaoyong/install/doris/core/be/src/olap/delta_writer.cpp:93: undefined reference to `_ZNK5doris6Tablet31construct_pending_data_dir_pathB5cxx11Ev'
+/home/lichaoyong/install/doris/core/be/src/olap/delta_writer.cpp:100: undefined reference to `doris::RowsetIdGenerator::instance()'
+/home/lichaoyong/install/doris/core/be/src/olap/delta_writer.cpp:100: undefined reference to `doris::RowsetIdGenerator::get_next_id(doris::DataDir*, long*)'
+/home/lichaoyong/install/doris/core/be/src/olap/delta_writer.cpp:111: undefined reference to `_ZN5doris6Tablet11tablet_pathB5cxx11Ev'
+/home/lichaoyong/install/doris/core/be/src/olap/delta_writer.cpp:128: undefined reference to `doris::TabletSchema::column(unsigned long) const'
+../olap/libOlap.a(delta_writer.cpp.o): In function `_ZN5doris6SchemaC4ERKNS_12TabletSchemaE':
+/home/lichaoyong/install/doris/core/be/src/olap/schema.h:98: undefined reference to `doris::TabletSchema::column(unsigned long) const'
+../olap/libOlap.a(delta_writer.cpp.o): In function `doris::DeltaWriter::init()':
+/home/lichaoyong/install/doris/core/be/src/olap/delta_writer.cpp:138: undefined reference to `doris::Tablet::keys_type() const'
+../olap/libOlap.a(delta_writer.cpp.o): In function `doris::DeltaWriter::write(doris::Tuple*)':
+/home/lichaoyong/install/doris/core/be/src/olap/delta_writer.cpp:157: undefined reference to `doris::Tablet::keys_type() const'
+../olap/libOlap.a(delta_writer.cpp.o): In function `doris::DeltaWriter::close(google::protobuf::RepeatedPtrField<doris::PTabletInfo>*)':
+/home/lichaoyong/install/doris/core/be/src/olap/delta_writer.cpp:188: undefined reference to `_ZNK5doris6Tablet31construct_pending_data_dir_pathB5cxx11Ev'
+../olap/libOlap.a(memtable.cpp.o): In function `doris::MemTable::insert(doris::Tuple*)':
+/home/lichaoyong/install/doris/core/be/src/olap/memtable.cpp:75: undefined reference to `doris::TabletSchema::column(unsigned long) const'
+../olap/libOlap.a(row_block.cpp.o): In function `doris::RowBlock::_convert_storage_to_memory()':
+/home/lichaoyong/install/doris/core/be/src/olap/row_block.cpp:118: undefined reference to `doris::TabletSchema::column(unsigned long) const'
+../olap/libOlap.a(row_block.cpp.o): In function `doris::RowBlock::_convert_memory_to_storage(unsigned int)':
+/home/lichaoyong/install/doris/core/be/src/olap/row_block.cpp:196: undefined reference to `doris::TabletSchema::column(unsigned long) const'
+../olap/libOlap.a(row_block.cpp.o): In function `doris::RowBlock::_compute_layout()':
+/home/lichaoyong/install/doris/core/be/src/olap/row_block.cpp:323: undefined reference to `doris::TabletSchema::column(unsigned long) const'
+../olap/libOlap.a(snapshot_manager.cpp.o): In function `doris::SnapshotManager::update_header_file_info(std::vector<doris::VersionEntity, std::allocator<doris::VersionEntity> > const&, doris::TabletMeta*)':
+/home/lichaoyong/install/doris/core/be/src/olap/snapshot_manager.cpp:167: undefined reference to `doris::TabletMeta::clear_schema_change_status()'
+/home/lichaoyong/install/doris/core/be/src/olap/snapshot_manager.cpp:169: undefined reference to `doris::TabletMeta::delete_all_versions()'
+/home/lichaoyong/install/doris/core/be/src/olap/snapshot_manager.cpp:180: undefined reference to `doris::TabletMeta::add_version(std::pair<long, long>, long, int, int, long, long, long, bool, std::vector<std::pair<doris::WrapperField*, doris::WrapperField*>, std::allocator<std::pair<doris::WrapperField*, doris::WrapperField*> > > const*)'
+../olap/libOlap.a(snapshot_manager.cpp.o): In function `doris::SnapshotManager::construct_index_file_path(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::pair<long, long> const&, long, int, int) const':
+/home/lichaoyong/install/doris/core/be/src/olap/snapshot_manager.cpp:576: undefined reference to `doris::Tablet::construct_file_path(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::pair<long, long> const&, long, int, int, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&)'
+../olap/libOlap.a(snapshot_manager.cpp.o): In function `doris::SnapshotManager::construct_data_file_path(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::pair<long, long> const&, long, int, int) const':
+/home/lichaoyong/install/doris/core/be/src/olap/snapshot_manager.cpp:584: undefined reference to `doris::Tablet::construct_file_path(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::pair<long, long> const&, long, int, int, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&)'
+../olap/libOlap.a(snapshot_manager.cpp.o): In function `doris::SnapshotManager::_calc_snapshot_id_path(std::shared_ptr<doris::Tablet> const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >*)':
+/home/lichaoyong/install/doris/core/be/src/olap/snapshot_manager.cpp:137: undefined reference to `_ZN5doris6Tablet22storage_root_path_nameB5cxx11Ev'
+../olap/libOlap.a(snapshot_manager.cpp.o): In function `doris::SnapshotManager::construct_index_file_path(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::pair<long, long> const&, long, int, int) const':
+/home/lichaoyong/install/doris/core/be/src/olap/snapshot_manager.cpp:576: undefined reference to `doris::Tablet::construct_file_path(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::pair<long, long> const&, long, int, int, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&)'
+../olap/libOlap.a(snapshot_manager.cpp.o): In function `doris::SnapshotManager::_link_index_and_data_files(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::shared_ptr<doris::Tablet> const&, std::vector<doris::VersionEntity, std::allocator<doris::VersionEntity> > const&)':
+/home/lichaoyong/install/doris/core/be/src/olap/snapshot_manager.cpp:205: undefined reference to `_ZNK5doris6Tablet25construct_index_file_pathB5cxx11ERKSt4pairIllElii'
+../olap/libOlap.a(snapshot_manager.cpp.o): In function `doris::SnapshotManager::construct_data_file_path(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::pair<long, long> const&, long, int, int) const':
+/home/lichaoyong/install/doris/core/be/src/olap/snapshot_manager.cpp:584: undefined reference to `doris::Tablet::construct_file_path(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::pair<long, long> const&, long, int, int, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&)'
+../olap/libOlap.a(snapshot_manager.cpp.o): In function `doris::SnapshotManager::_link_index_and_data_files(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::shared_ptr<doris::Tablet> const&, std::vector<doris::VersionEntity, std::allocator<doris::VersionEntity> > const&)':
+/home/lichaoyong/install/doris/core/be/src/olap/snapshot_manager.cpp:218: undefined reference to `_ZNK5doris6Tablet24construct_data_file_pathB5cxx11ERKSt4pairIllElii'
+../olap/libOlap.a(snapshot_manager.cpp.o): In function `doris::SnapshotManager::_append_single_delta(doris::TSnapshotRequest const&, doris::DataDir*)':
+/home/lichaoyong/install/doris/core/be/src/olap/snapshot_manager.cpp:534: undefined reference to `doris::Tablet::create_from_tablet_meta(doris::TabletMeta*, doris::DataDir*)'
+/home/lichaoyong/install/doris/core/be/src/olap/snapshot_manager.cpp:541: undefined reference to `doris::Tablet::load()'
+/home/lichaoyong/install/doris/core/be/src/olap/snapshot_manager.cpp:547: undefined reference to `doris::Tablet::rowset_with_max_version() const'
+../olap/libOlap.a(snapshot_manager.cpp.o): In function `doris::SnapshotManager::_create_snapshot_files(std::shared_ptr<doris::Tablet> const&, doris::TSnapshotRequest const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >*)':
+/home/lichaoyong/install/doris/core/be/src/olap/snapshot_manager.cpp:246: undefined reference to `_ZN5doris6Tablet22storage_root_path_nameB5cxx11Ev'
+/home/lichaoyong/install/doris/core/be/src/olap/snapshot_manager.cpp:271: undefined reference to `doris::Tablet::rowset_with_max_version() const'
+/home/lichaoyong/install/doris/core/be/src/olap/snapshot_manager.cpp:340: undefined reference to `doris::TabletMeta::save(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&)'
+../olap/libOlap.a(snapshot_manager.cpp.o): In function `doris::SnapshotManager::_create_incremental_snapshot_files(std::shared_ptr<doris::Tablet> const&, doris::TSnapshotRequest const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >*)':
+/home/lichaoyong/install/doris/core/be/src/olap/snapshot_manager.cpp:421: undefined reference to `_ZN5doris6Tablet22storage_root_path_nameB5cxx11Ev'
+/home/lichaoyong/install/doris/core/be/src/olap/snapshot_manager.cpp:440: undefined reference to `doris::TabletMeta::TabletMeta()'
+/home/lichaoyong/install/doris/core/be/src/olap/snapshot_manager.cpp:449: undefined reference to `doris::TabletMeta::save(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&)'
+/home/lichaoyong/install/doris/core/be/src/olap/snapshot_manager.cpp:460: undefined reference to `doris::Tablet::get_incremental_delta(std::pair<long, long>) const'
+/home/lichaoyong/install/doris/core/be/src/olap/snapshot_manager.cpp:477: undefined reference to `_ZNK5doris6Tablet36construct_incremental_data_file_pathB5cxx11ESt4pairIllElii'
+/home/lichaoyong/install/doris/core/be/src/olap/snapshot_manager.cpp:471: undefined reference to `_ZNK5doris6Tablet37construct_incremental_index_file_pathB5cxx11ESt4pairIllElii'
+../olap/libOlap.a(engine_batch_load_task.cpp.o): In function `doris::EngineBatchLoadTask::_init()':
+/home/lichaoyong/install/doris/core/be/src/olap/task/engine_batch_load_task.cpp:134: undefined reference to `_ZN5doris6Tablet22storage_root_path_nameB5cxx11Ev'
+../olap/libOlap.a(engine_checksum_task.cpp.o): In function `doris::EngineChecksumTask::_compute_checksum()':
+/home/lichaoyong/install/doris/core/be/src/olap/task/engine_checksum_task.cpp:61: undefined reference to `doris::Tablet::rowset_with_max_version() const'
+/home/lichaoyong/install/doris/core/be/src/olap/task/engine_checksum_task.cpp:84: undefined reference to `doris::Tablet::get_field_type_by_index(unsigned int)'
+../olap/libOlap.a(engine_clear_alter_task.cpp.o): In function `doris::EngineClearAlterTask::_clear_alter_task(long, int)':
+/home/lichaoyong/install/doris/core/be/src/olap/task/engine_clear_alter_task.cpp:65: undefined reference to `doris::Tablet::save_tablet_meta()'
+/home/lichaoyong/install/doris/core/be/src/olap/task/engine_clear_alter_task.cpp:83: undefined reference to `doris::Tablet::save_tablet_meta()'
+../olap/libOlap.a(engine_clone_task.cpp.o): In function `_ZN5doris15EngineCloneTask34_get_info_before_incremental_cloneB5cxx11ESt10shared_ptrINS_6TabletEElPSt6vectorISt4pairIllESaIS6_EE':
+/home/lichaoyong/install/doris/core/be/src/olap/task/engine_clone_task.cpp:240: undefined reference to `_ZN5doris6Tablet11tablet_pathB5cxx11Ev'
+../olap/libOlap.a(engine_clone_task.cpp.o): In function `doris::EngineCloneTask::_clone_incremental_data(std::shared_ptr<doris::Tablet>, doris::TabletMeta const&, long)':
+/home/lichaoyong/install/doris/core/be/src/olap/task/engine_clone_task.cpp:698: undefined reference to `doris::Tablet::clone_data(doris::TabletMeta const&, std::vector<std::shared_ptr<doris::RowsetMeta>, std::allocator<std::shared_ptr<doris::RowsetMeta> > > const&, std::vector<std::pair<long, long>, std::allocator<std::pair<long, long> > > const&)'
+../olap/libOlap.a(engine_clone_task.cpp.o): In function `doris::EngineCloneTask::_clone_full_data(std::shared_ptr<doris::Tablet>, doris::TabletMeta const&)':
+/home/lichaoyong/install/doris/core/be/src/olap/task/engine_clone_task.cpp:711: undefined reference to `doris::Tablet::file_delta_size() const'
+/home/lichaoyong/install/doris/core/be/src/olap/task/engine_clone_task.cpp:713: undefined reference to `doris::Tablet::get_delta(int) const'
+/home/lichaoyong/install/doris/core/be/src/olap/task/engine_clone_task.cpp:712: undefined reference to `doris::Tablet::get_delta(int) const'
+/home/lichaoyong/install/doris/core/be/src/olap/task/engine_clone_task.cpp:714: undefined reference to `doris::Tablet::get_delta(int) const'
+/home/lichaoyong/install/doris/core/be/src/olap/task/engine_clone_task.cpp:743: undefined reference to `doris::TabletMeta::delete_version(std::pair<long, long>) const'
+/home/lichaoyong/install/doris/core/be/src/olap/task/engine_clone_task.cpp:776: undefined reference to `doris::Tablet::clone_data(doris::TabletMeta const&, std::vector<std::shared_ptr<doris::RowsetMeta>, std::allocator<std::shared_ptr<doris::RowsetMeta> > > const&, std::vector<std::pair<long, long>, std::allocator<std::pair<long, long> > > const&)'
+../olap/libOlap.a(engine_clone_task.cpp.o): In function `doris::EngineCloneTask::_finish_clone(std::shared_ptr<doris::Tablet>, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, long, bool)':
+/home/lichaoyong/install/doris/core/be/src/olap/task/engine_clone_task.cpp:590: undefined reference to `doris::TabletMeta::TabletMeta(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&)'
+/home/lichaoyong/install/doris/core/be/src/olap/task/engine_clone_task.cpp:591: undefined reference to `doris::TabletMeta::load_and_init()'
+/home/lichaoyong/install/doris/core/be/src/olap/task/engine_clone_task.cpp:605: undefined reference to `_ZN5doris6Tablet11tablet_pathB5cxx11Ev'
+/home/lichaoyong/install/doris/core/be/src/olap/task/engine_clone_task.cpp:644: undefined reference to `doris::TabletMeta::cumulative_layer_point()'
+/home/lichaoyong/install/doris/core/be/src/olap/task/engine_clone_task.cpp:644: undefined reference to `doris::Tablet::set_cumulative_layer_point(int)'
+../olap/libOlap.a(engine_schema_change_task.cpp.o): In function `doris::EngineSchemaChangeTask::_create_rollup_tablet(doris::TAlterTabletReq const&)':
+/home/lichaoyong/install/doris/core/be/src/olap/task/engine_schema_change_task.cpp:105: undefined reference to `doris::SchemaChangeHandler::process_alter_tablet(doris::AlterTabletType, doris::TAlterTabletReq const&)'
+../olap/libOlap.a(engine_schema_change_task.cpp.o): In function `doris::EngineSchemaChangeTask::_schema_change(doris::TAlterTabletReq const&)':
+/home/lichaoyong/install/doris/core/be/src/olap/task/engine_schema_change_task.cpp:130: undefined reference to `doris::SchemaChangeHandler::process_alter_tablet(doris::AlterTabletType, doris::TAlterTabletReq const&)'
+../olap/libOlap.a(engine_storage_migration_task.cpp.o): In function `doris::EngineStorageMigrationTask::_generate_new_header(doris::DataDir*, unsigned long, std::shared_ptr<doris::Tablet> const&, std::vector<doris::VersionEntity, std::allocator<doris::VersionEntity> > const&, doris::TabletMeta*)':
+/home/lichaoyong/install/doris/core/be/src/olap/task/engine_storage_migration_task.cpp:196: undefined reference to `_ZN5doris6Tablet22storage_root_path_nameB5cxx11Ev'
+/home/lichaoyong/install/doris/core/be/src/olap/task/engine_storage_migration_task.cpp:199: undefined reference to `doris::TabletMeta::set_shard(int)'
+../olap/libOlap.a(engine_storage_migration_task.cpp.o): In function `doris::EngineStorageMigrationTask::_copy_index_and_data_files(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::shared_ptr<doris::Tablet> const&, std::vector<doris::VersionEntity, std::allocator<doris::VersionEntity> >&)':
+/home/lichaoyong/install/doris/core/be/src/olap/task/engine_storage_migration_task.cpp:232: undefined reference to `_ZNK5doris6Tablet25construct_index_file_pathB5cxx11ERKSt4pairIllElii'
+/home/lichaoyong/install/doris/core/be/src/olap/task/engine_storage_migration_task.cpp:244: undefined reference to `_ZNK5doris6Tablet24construct_data_file_pathB5cxx11ERKSt4pairIllElii'
+../olap/libOlap.a(engine_storage_migration_task.cpp.o): In function `doris::EngineStorageMigrationTask::_storage_medium_migrate(long, int, doris::TStorageMedium::type)':
+/home/lichaoyong/install/doris/core/be/src/olap/task/engine_storage_migration_task.cpp:78: undefined reference to `doris::Tablet::rowset_with_max_version() const'
+/home/lichaoyong/install/doris/core/be/src/olap/task/engine_storage_migration_task.cpp:97: undefined reference to `doris::Tablet::list_version_entities(std::vector<doris::VersionEntity, std::allocator<doris::VersionEntity> >*) const'
+/home/lichaoyong/install/doris/core/be/src/olap/task/engine_storage_migration_task.cpp:133: undefined reference to `doris::TabletMeta::TabletMeta()'
+/home/lichaoyong/install/doris/core/be/src/olap/task/engine_storage_migration_task.cpp:145: undefined reference to `doris::Tablet::create_from_tablet_meta(doris::TabletMeta*, doris::DataDir*)'
+/home/lichaoyong/install/doris/core/be/src/olap/task/engine_storage_migration_task.cpp:165: undefined reference to `doris::Tablet::schema_change_status()'
+/home/lichaoyong/install/doris/core/be/src/olap/task/engine_storage_migration_task.cpp:166: undefined reference to `doris::Tablet::schema_change_status()'
+/home/lichaoyong/install/doris/core/be/src/olap/task/engine_storage_migration_task.cpp:171: undefined reference to `doris::Tablet::set_schema_change_status(doris::AlterTableStatus, int, int)'
+/home/lichaoyong/install/doris/core/be/src/olap/task/engine_storage_migration_task.cpp:167: undefined reference to `doris::Tablet::set_schema_change_status(doris::AlterTableStatus, int, int)'
+../olap/libOlap.a(push_handler.cpp.o): In function `doris::BinaryReader::next(doris::RowCursor*, doris::MemPool*)':
+/home/lichaoyong/install/doris/core/be/src/olap/push_handler.cpp:544: undefined reference to `doris::TabletSchema::column(unsigned long) const'
+/home/lichaoyong/install/doris/core/be/src/olap/push_handler.cpp:556: undefined reference to `doris::TabletSchema::column(unsigned long) const'
+../olap/libOlap.a(push_handler.cpp.o): In function `doris::LzoBinaryReader::next(doris::RowCursor*, doris::MemPool*)':
+/home/lichaoyong/install/doris/core/be/src/olap/push_handler.cpp:679: undefined reference to `doris::TabletSchema::column(unsigned long) const'
+/home/lichaoyong/install/doris/core/be/src/olap/push_handler.cpp:695: undefined reference to `doris::TabletSchema::column(unsigned long) const'
+../olap/libOlap.a(push_handler.cpp.o): In function `doris::PushHandler::_convert(std::shared_ptr<doris::Tablet>, std::shared_ptr<doris::Tablet>, std::vector<std::shared_ptr<doris::Rowset>, std::allocator<std::shared_ptr<doris::Rowset> > >*, std::vector<std::shared_ptr<doris::Rowset>, std::allocator<std::shared_ptr<doris::Rowset> > >*, doris::AlterTabletType)':
+/home/lichaoyong/install/doris/core/be/src/olap/push_handler.cpp:286: undefined reference to `doris::RowsetIdGenerator::instance()'
+/home/lichaoyong/install/doris/core/be/src/olap/push_handler.cpp:286: undefined reference to `doris::RowsetIdGenerator::get_next_id(doris::DataDir*, long*)'
+/home/lichaoyong/install/doris/core/be/src/olap/push_handler.cpp:355: undefined reference to `_ZN5doris6Tablet11tablet_pathB5cxx11Ev'
+/home/lichaoyong/install/doris/core/be/src/olap/push_handler.cpp:342: undefined reference to `_ZN5doris6Tablet11tablet_pathB5cxx11Ev'
+/home/lichaoyong/install/doris/core/be/src/olap/push_handler.cpp:420: undefined reference to `_ZNK5doris6Tablet31construct_pending_data_dir_pathB5cxx11Ev'
+../olap/libOlap.a(push_handler.cpp.o): In function `doris::PushHandler::_do_streaming_ingestion(std::shared_ptr<doris::Tablet>, doris::TPushReq const&, doris::PushType, std::vector<doris::TabletVars, std::allocator<doris::TabletVars> >*, std::vector<doris::TTabletInfo, std::allocator<doris::TTabletInfo> >*)':
+/home/lichaoyong/install/doris/core/be/src/olap/push_handler.cpp:160: undefined reference to `doris::Tablet::creation_time() const'
+/home/lichaoyong/install/doris/core/be/src/olap/push_handler.cpp:160: undefined reference to `doris::Tablet::creation_time() const'
+collect2: error: ld returned 1 exit status
+make[2]: *** [src/service/CMakeFiles/palo_be.dir/build.make:159: src/service/palo_be] Error 1
+make[1]: *** [CMakeFiles/Makefile2:686: src/service/CMakeFiles/palo_be.dir/all] Error 2
+make: *** [Makefile:117: all] Error 2
