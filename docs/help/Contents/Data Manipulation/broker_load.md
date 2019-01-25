@@ -362,22 +362,22 @@
          PARTITION p2 VALUES LESS THAN ("2014-06-01")
        )
 
-      导入语句可以写成：
+       导入语句可以写成：
 
-      LOAD LABEL my_db.mylabel
-      (
-        DATA INFILE("hdfs://hdfs_host:hdfs_port/user/palo/data/input/file")
-        INTO TABLE `my_table`
-        PARTITION (p1, p2)
-        COLUMNS TERMINATED BY ","
-        (k1, v1)
-        SET (
-          sumv1 = v1,
-          maxv1 = v1,
-          minv1 = v1
-        )
-      )
-      WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password");
+       LOAD LABEL my_db.mylabel
+       (
+         DATA INFILE("hdfs://hdfs_host:hdfs_port/user/palo/data/input/file")
+         INTO TABLE `my_table`
+         PARTITION (p1, p2)
+         COLUMNS TERMINATED BY ","
+         (k1, v1)
+         SET (
+           sumv1 = v1,
+           maxv1 = v1,
+           minv1 = v1
+         )
+       )
+       WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password");
  
 ## keyword
     BROKER LOAD
