@@ -4558,7 +4558,7 @@ public class Catalog {
     }
 
     public Pair<String, Integer> getHelperNode() {
-        Preconditions.checkState(helperNodes.size() == 1);
+        Preconditions.checkState(helperNodes.size() >= 1);
         return this.helperNodes.get(0);
     }
 
