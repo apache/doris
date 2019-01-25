@@ -601,16 +601,30 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                 visibleVersion, visibleVersionHash);
         cloneTask.setPathHash(srcPathHash, destPathHash);
         
-        Replica cloneReplica = new Replica(
-                Catalog.getCurrentCatalog().getNextId(), destBackendId,
-                -1 /* version */, 0 /* version hash */, schemaHash,
-                -1 /* data size */, -1 /* row count */,
-                ReplicaState.CLONE,
-                committedVersion, committedVersionHash, /* use committed version as last failed version */
-                -1 /* last success version */, 0 /* last success version hash */);
-        
-        // addReplica() method will add this replica to tablet inverted index too.
-        tablet.addReplica(cloneReplica);
+        if (tabletStatus == TabletStatus.REPLICA_MISSING || tabletStatus == TabletStatus.REPLICA_MISSING_IN_CLUSTER) {
+            // only these 2 status need to create a new replica.
+            Replica cloneReplica = new Replica(
+                    Catalog.getCurrentCatalog().getNextId(), destBackendId,
+                    -1 /* version */, 0 /* version hash */, schemaHash,
+                    -1 /* data size */, -1 /* row count */,
+                    ReplicaState.CLONE,
+                    committedVersion, committedVersionHash, /* use committed version as last failed version */
+                    -1 /* last success version */, 0 /* last success version hash */);
+
+            // addReplica() method will add this replica to tablet inverted index too.
+            tablet.addReplica(cloneReplica);
+        } else if (tabletStatus == TabletStatus.VERSION_INCOMPLETE) {
+            // double check
+            Replica replica = tablet.getReplicaByBackendId(destBackendId);
+            if (replica == null) {
+                throw new SchedException(Status.SCHEDULE_FAILED, "dest replica does not exist on BE " + destBackendId);
+            }
+
+            if (replica.getPathHash() != destPathHash) {
+                throw new SchedException(Status.SCHEDULE_FAILED, "dest replica's path hash is changed. "
+                        + "current: " + replica.getPathHash() + ", scheduled: " + destPathHash);
+            }
+        }
         
         taskTimeoutMs = getApproximateTimeoutMs();
         

@@ -432,7 +432,7 @@ public class SchemaChangeJob extends AlterJob {
                                     // but in case some edge cases are not took into consideration, we cancel
                                     // the schema change job here.
                                     cancelMsg = String.format(
-                                            "replica %d of tablet %d in backend %d state is invalid: %s",
+                                            "replica %d of tablet %d in backend %d state is invalid: %s [send]",
                                             replica.getId(), tablet.getId(), replica.getBackendId(),
                                             replica.getState().name());
                                     LOG.warn(cancelMsg);
@@ -688,7 +688,7 @@ public class SchemaChangeJob extends AlterJob {
                                 if (replica.getState() != ReplicaState.SCHEMA_CHANGE) {
                                     // all replicas should be in state SCHEMA_CHANGE
                                     cancelMsg = String.format(
-                                            "replica %d of tablet %d in backend %d state is invalid: %s",
+                                            "replica %d of tablet %d in backend %d state is invalid: %s [try finish]",
                                             replica.getId(), tablet.getId(), replica.getBackendId(),
                                             replica.getState().name());
                                     LOG.warn(cancelMsg);
@@ -793,7 +793,7 @@ public class SchemaChangeJob extends AlterJob {
                                 if (replica.getState() != ReplicaState.SCHEMA_CHANGE) {
                                     // all replicas should be in state SCHEMA_CHANGE
                                     cancelMsg = String.format(
-                                            "replica %d of tablet %d in backend %d state is invalid: %s",
+                                            "replica %d of tablet %d in backend %d state is invalid: %s [finish]",
                                             replica.getId(), tablet.getId(), replica.getBackendId(),
                                             replica.getState().name());
                                     LOG.warn(cancelMsg);
