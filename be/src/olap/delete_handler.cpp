@@ -45,7 +45,7 @@ using google::protobuf::RepeatedPtrField;
 
 namespace doris {
 
-string DeleteConditionHandler::construct_sub_conditions(const TCondition& condition) {
+string DeleteConditionHandler::construct_sub_predicates(const TCondition& condition) {
     string op = condition.condition_op;
     if (op == "<") {
         op += "<";
@@ -87,10 +87,10 @@ OLAPStatus DeleteConditionHandler::delete_cond(DelPredicateArray* delete_conditi
                 (temp.version() < version && delete_smaller_version_conditions)) {
             // 将要移除的删除条件记录到log中
             string del_cond_str;
-            const RepeatedPtrField<string>& sub_conditions = temp.sub_conditions();
+            const RepeatedPtrField<string>& sub_predicates = temp.sub_predicates();
 
-            for (int i = 0; i != sub_conditions.size(); ++i) {
-                del_cond_str += sub_conditions.Get(i) + ";";
+            for (int i = 0; i != sub_predicates.size(); ++i) {
+                del_cond_str += sub_predicates.Get(i) + ";";
             }
 
             LOG(INFO) << "delete one condition. version=" << temp.version()
@@ -116,11 +116,11 @@ OLAPStatus DeleteConditionHandler::log_conds(std::string tablet_full_name,
     for (int index = 0; index != delete_conditions.size(); ++index) {
         DeletePredicatePB temp = delete_conditions.Get(index);
         string del_cond_str;
-        const RepeatedPtrField<string>& sub_conditions = temp.sub_conditions();
+        const RepeatedPtrField<string>& sub_predicates = temp.sub_predicates();
 
         // 将属于一条删除条件的子条件重新拼接成一条删除条件；子条件之间用分号隔开
-        for (int i = 0; i != sub_conditions.size(); ++i) {
-            del_cond_str += sub_conditions.Get(i) + ";";
+        for (int i = 0; i != sub_predicates.size(); ++i) {
+            del_cond_str += sub_predicates.Get(i) + ";";
         }
 
         LOG(INFO) << "condition item: version=" << temp.version()
@@ -312,11 +312,11 @@ OLAPStatus DeleteHandler::init(const TabletSchema& schema,
 
         temp.del_cond->set_tablet_schema(&schema);
 
-        for (int i = 0; i != it->sub_conditions_size(); ++i) {
+        for (int i = 0; i != it->sub_predicates_size(); ++i) {
             TCondition condition;
-            if (!_parse_condition(it->sub_conditions(i), &condition)) {
+            if (!_parse_condition(it->sub_predicates(i), &condition)) {
                 OLAP_LOG_WARNING("fail to parse condition. [condition=%s]",
-                                 it->sub_conditions(i).c_str());
+                                 it->sub_predicates(i).c_str());
                 return OLAP_ERR_DELETE_INVALID_PARAMETERS;
             }
 
