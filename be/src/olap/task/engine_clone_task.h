@@ -57,10 +57,10 @@ private:
     
 
 
-    OLAPStatus _clone_incremental_data(TabletSharedPtr tablet, TabletMeta& clone_header,
+    OLAPStatus _clone_incremental_data(TabletSharedPtr tablet, const TabletMeta& cloned_tablet_meta,
                                      int64_t committed_version);
 
-    OLAPStatus _clone_full_data(TabletSharedPtr tablet, TabletMeta& clone_header);
+    OLAPStatus _clone_full_data(TabletSharedPtr tablet, const TabletMeta& cloned_tablet_meta);
 
     AgentStatus _clone_copy(
         const TCloneReq& clone_req,

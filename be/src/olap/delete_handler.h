@@ -58,7 +58,7 @@ public:
     OLAPStatus check_condition_valid(const TabletSchema& tablet_schema, const TCondition& cond);
 
     // construct sub condition from TCondition
-    std::string construct_sub_conditions(const TCondition& condition);
+    std::string construct_sub_predicates(const TCondition& condition);
 
     // 从Header文件中移除特定版本号的删除条件。在调用之前需要对Header文件加写锁
     //
