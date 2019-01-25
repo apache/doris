@@ -589,8 +589,8 @@ OLAPStatus EngineCloneTask::_finish_clone(TabletSharedPtr tablet, const string& 
         string cloned_tablet_meta_file = clone_dir + "/" + std::to_string(tablet->tablet_id()) + ".hdr";
         TabletMeta cloned_tablet_meta(cloned_tablet_meta_file);
         if ((res = cloned_tablet_meta.load_and_init()) != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("fail to load src header when clone. [cloned_tablet_meta_file=%s]",
-                             cloned_tablet_meta_file.c_str());
+            LOG(WARNING) << "fail to load src header when clone. "
+                         << ", cloned_tablet_meta_file=" << cloned_tablet_meta_file;
             break;
         }
 
@@ -666,7 +666,7 @@ OLAPStatus EngineCloneTask::_finish_clone(TabletSharedPtr tablet, const string& 
 }
 
 
-OLAPStatus EngineCloneTask::_clone_incremental_data(TabletSharedPtr tablet, TabletMeta& cloned_tablet_meta,
+OLAPStatus EngineCloneTask::_clone_incremental_data(TabletSharedPtr tablet, const TabletMeta& cloned_tablet_meta,
                                               int64_t committed_version) {
     LOG(INFO) << "begin to incremental clone. tablet=" << tablet->full_name()
               << ", committed_version=" << committed_version;
@@ -700,7 +700,7 @@ OLAPStatus EngineCloneTask::_clone_incremental_data(TabletSharedPtr tablet, Tabl
     return clone_res;
 }
 
-OLAPStatus EngineCloneTask::_clone_full_data(TabletSharedPtr tablet, TabletMeta& cloned_tablet_meta) {
+OLAPStatus EngineCloneTask::_clone_full_data(TabletSharedPtr tablet, const TabletMeta& cloned_tablet_meta) {
     Version cloned_max_version = cloned_tablet_meta.max_version();
     LOG(INFO) << "begin to full clone. tablet=" << tablet->full_name()
               << ", cloned_max_version=" << cloned_max_version.first
@@ -762,9 +762,9 @@ OLAPStatus EngineCloneTask::_clone_full_data(TabletSharedPtr tablet, TabletMeta&
             }
         }
     }
-    vector<RowsetMetaSharedPtr> clone_deltas;
+    vector<RowsetMetaSharedPtr> rowsets_to_clone;
     for (auto& rs_meta : cloned_tablet_meta.all_rs_metas()) {
-        clone_deltas.push_back(rs_meta);
+        rowsets_to_clone.push_back(rs_meta);
         LOG(INFO) << "Delta to clone."
                   << "tablet=" << tablet->full_name() << ","
                   << ", version=" << rs_meta->version().first << "-"
@@ -773,7 +773,7 @@ OLAPStatus EngineCloneTask::_clone_full_data(TabletSharedPtr tablet, TabletMeta&
     }
 
     // clone_data to tablet
-    OLAPStatus clone_res = tablet->clone_data(cloned_tablet_meta, clone_deltas, versions_to_delete);
+    OLAPStatus clone_res = tablet->clone_data(cloned_tablet_meta, rowsets_to_clone, versions_to_delete);
     LOG(INFO) << "finish to full clone. tablet=" << tablet->full_name() << ", res=" << clone_res;
     return clone_res;
 }

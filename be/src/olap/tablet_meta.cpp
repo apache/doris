@@ -277,7 +277,7 @@ RowsetMetaSharedPtr TabletMeta::acquire_inc_rs_meta(const Version& version) cons
     return rs_meta;
 }
 
-Version TabletMeta::max_version() {
+Version TabletMeta::max_version() const {
     std::lock_guard<std::mutex> lock(_mutex);
     Version max_version = { -1, 0 };
     for (auto& rs_meta : _rs_metas) {

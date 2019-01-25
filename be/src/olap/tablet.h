@@ -77,7 +77,7 @@ public:
     void delete_expire_incremental_data();
     const PDelta* get_incremental_delta(Version version) const;
     OLAPStatus clone_data(const TabletMeta& tablet_meta,
-                          const std::vector<RowsetMetaSharedPtr>& clone_deltas,
+                          const std::vector<RowsetMetaSharedPtr>& rowsets_to_clone,
                           const std::vector<Version>& versions_to_delete);
     OLAPStatus compute_all_versions_hash(const std::vector<Version>& versions,
                                          VersionHash* version_hash) const;
@@ -113,11 +113,6 @@ public:
                                            int32_t segment_group_id, int32_t segment,
                                            const std::string& suffix);
     std::string construct_pending_data_dir_path() const;
-    std::string construct_pending_index_file_path(
-        TTransactionId transaction_id, int32_t segment_group_id, int32_t segment) const;
-    std::string construct_pending_data_file_path(
-        TTransactionId transaction_id, int32_t segment_group_id, int32_t segment) const;
-    std::string construct_incremental_delta_dir_path() const;
     std::string construct_incremental_index_file_path(
         Version version, VersionHash version_hash, int32_t segment_group_id, int32_t segment) const;
     std::string construct_incremental_data_file_path(
@@ -129,10 +124,8 @@ public:
     const PDelta* base_version() const;
     const uint32_t get_cumulative_compaction_score() const;
     const uint32_t get_base_compaction_score() const;
-    const OLAPStatus delete_version(const Version& version);
     DataFileType data_file_type() const;
     int delete_data_conditions_size() const;
-    DeletePredicatePB* add_delete_data_conditions();
     const google::protobuf::RepeatedPtrField<DeletePredicatePB>& delete_data_conditions();
     KeysType keys_type() const;
     bool is_delete_data_version(Version version);

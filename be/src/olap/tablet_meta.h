@@ -87,7 +87,7 @@ public:
     OLAPStatus save(const std::string& file_path);
     OLAPStatus clear_schema_change_status();
     OLAPStatus delete_all_versions();
-    OLAPStatus delete_version(Version version);
+    OLAPStatus delete_version(Version version) const;
     OLAPStatus add_version(Version version, VersionHash version_hash,
                            int32_t segment_group_id, int32_t num_segments,
                            int64_t index_size, int64_t data_size, int64_t num_rows,
@@ -132,7 +132,7 @@ public:
     OLAPStatus delete_inc_rs_meta_by_version(const Version& version);
     RowsetMetaSharedPtr acquire_inc_rs_meta(const Version& version) const;
 
-    Version max_version();
+    Version max_version() const;
 
     OLAPStatus add_delete_predicate(const DeletePredicatePB& delete_predicate, int64_t version);
     DelPredicateArray delete_predicates();
