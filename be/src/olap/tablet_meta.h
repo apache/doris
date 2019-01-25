@@ -83,7 +83,6 @@ public:
     OLAPStatus init();
     OLAPStatus load_and_init();
     int file_delta_size();
-    Version get_latest_version();
     OLAPStatus set_shard(int32_t shard_id);
     OLAPStatus save(const std::string& file_path);
     OLAPStatus clear_schema_change_status();
@@ -92,8 +91,7 @@ public:
     OLAPStatus add_version(Version version, VersionHash version_hash,
                            int32_t segment_group_id, int32_t num_segments,
                            int64_t index_size, int64_t data_size, int64_t num_rows,
-                           bool empty, const std::vector<KeyRange>* column_statistics);
-    const PDelta* get_incremental_version(Version version) const;
+                           bool empty, const vector<KeyRange>* column_statistics);
     const PDelta* get_delta(int index) const;
     const uint32_t get_cumulative_compaction_score() const;
     const uint32_t get_base_compaction_score() const;
@@ -132,34 +130,34 @@ public:
 
     OLAPStatus add_inc_rs_meta(const RowsetMetaSharedPtr& rs_meta);
     OLAPStatus delete_inc_rs_meta_by_version(const Version& version);
-    const RowsetMetaSharedPtr get_inc_rowset(const Version& version) const;
-    const RowsetMetaSharedPtr get_inc_rs_meta(const Version& version) const;
-    DeletePredicatePB* add_delete_predicates();
-    std::vector<DeletePredicatePB>& delete_predicates();
+    RowsetMetaSharedPtr acquire_inc_rs_meta(const Version& version) const;
 
-    const std::vector<RowsetMetaSharedPtr>& all_inc_rs_metas() const;
-    const std::vector<RowsetMetaSharedPtr>& all_rs_metas() const;
+    Version max_version();
+
+    OLAPStatus add_delete_predicate(const DeletePredicatePB& delete_predicate, int64_t version);
+    DelPredicateArray delete_predicates();
+
+    inline const vector<RowsetMetaSharedPtr>& all_inc_rs_metas() const;
+    inline const vector<RowsetMetaSharedPtr>& all_rs_metas() const;
 
     OLAPStatus modify_rowsets(const vector<RowsetMetaSharedPtr>& to_add,
                               const vector<RowsetMetaSharedPtr>& to_delete);
 
     inline const int64_t table_id() const;
-    inline const string table_name() const;
     inline const int64_t partition_id() const;
     inline const int64_t tablet_id() const;
     inline const int64_t schema_hash() const;
-    inline const int16_t shard_id();
-    inline const size_t num_rows();
-    inline const size_t data_size();
+    inline const int16_t shard_id() const;
+    inline const size_t num_rows() const;
+    inline const size_t data_size() const;
 
+    inline const TabletState& tablet_state() const;
     inline const AlterTabletTask& alter_task() const;
     inline const AlterTabletState& alter_state() const;
     OLAPStatus add_alter_task(const AlterTabletTask& alter_task);
     OLAPStatus delete_alter_task();
 
-    inline const TabletState& tablet_state() const;
 private:
-
     int64_t _table_id;
     int64_t _partition_id;
     int64_t _tablet_id;
@@ -169,6 +167,7 @@ private:
     TabletSchema _schema;
     vector<RowsetMetaSharedPtr> _rs_metas;
     vector<RowsetMetaSharedPtr> _inc_rs_metas;
+    DelPredicateArray _del_pred_array;
 
     TabletState _tablet_state;
     AlterTabletTask _alter_task;
@@ -178,6 +177,14 @@ private:
 
     mutable std::mutex _mutex;
 };
+
+inline const vector<RowsetMetaSharedPtr>& TabletMeta::all_inc_rs_metas() const {
+    return _inc_rs_metas;
+}
+
+inline const vector<RowsetMetaSharedPtr>& TabletMeta::all_rs_metas() const {
+    return _rs_metas;
+}
 
 inline const int64_t TabletMeta::table_id() const {
     return _tablet_id;
@@ -195,23 +202,11 @@ inline const int64_t TabletMeta::schema_hash() const {
     return _schema_hash;
 }
 
-inline const int16_t TabletMeta::shard_id() {
+inline const int16_t TabletMeta::shard_id() const {
     return _shard_id;
 }
 
-inline const AlterTabletTask& TabletMeta::alter_task() const {
-    return _alter_task;
-}
-
-inline const AlterTabletState& TabletMeta::alter_state() const {
-    return _alter_task.alter_state();
-}
-
-inline const TabletState& TabletMeta::tablet_state() const {
-    return _tablet_state;
-}
-
-inline const size_t TabletMeta::num_rows() {
+inline const size_t TabletMeta::num_rows() const {
     size_t num_rows = 0;
     for (auto& rs : _rs_metas) {
         num_rows += rs->num_rows();
@@ -220,12 +215,24 @@ inline const size_t TabletMeta::num_rows() {
 
 }
 
-inline const size_t TabletMeta::data_size() {
+inline const size_t TabletMeta::data_size() const {
     size_t total_size = 0;
     for (auto& rs : _rs_metas) {
         total_size += rs->data_disk_size();
     }
     return total_size;
+}
+
+inline const TabletState& TabletMeta::tablet_state() const {
+    return _tablet_state;
+}
+
+inline const AlterTabletTask& TabletMeta::alter_task() const {
+    return _alter_task;
+}
+
+inline const AlterTabletState& TabletMeta::alter_state() const {
+    return _alter_task.alter_state();
 }
 
 }  // namespace doris

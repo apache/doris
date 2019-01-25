@@ -264,7 +264,7 @@ OLAPStatus TabletMeta::delete_inc_rs_meta_by_version(const Version& version) {
     return OLAP_SUCCESS;
 }
 
-const RowsetMetaSharedPtr TabletMeta::get_inc_rowset(const Version& version) const {
+RowsetMetaSharedPtr TabletMeta::acquire_inc_rs_meta(const Version& version) const {
     std::lock_guard<std::mutex> lock(_mutex);
     RowsetMetaSharedPtr rs_meta = nullptr;
     for (int i = 0; i < _inc_rs_metas.size(); ++i) {
@@ -275,6 +275,53 @@ const RowsetMetaSharedPtr TabletMeta::get_inc_rowset(const Version& version) con
         }
     }
     return rs_meta;
+}
+
+Version TabletMeta::max_version() {
+    std::lock_guard<std::mutex> lock(_mutex);
+    Version max_version = { -1, 0 };
+    for (auto& rs_meta : _rs_metas) {
+        if (rs_meta->end_version() > max_version.second)  {
+            max_version = rs_meta->version();
+        } else if (rs_meta->end_version() == max_version.second
+                && rs_meta->start_version() == max_version.first) {
+            max_version = rs_meta->version();
+        }
+    }
+    return max_version;
+}
+
+OLAPStatus TabletMeta::add_delete_predicate(
+            const DeletePredicatePB& delete_predicate, int64_t version) {
+    std::lock_guard<std::mutex> lock(_mutex);
+    int ordinal = 0;
+    for (auto& del_pred : _del_pred_array) {
+        if (del_pred.version() == version) {
+            break;
+        }
+        ordinal++;
+    } 
+    
+    if (ordinal < _del_pred_array.size()) {
+        // clear existed predicate 
+        DeletePredicatePB* del_pred = &(_del_pred_array[ordinal]);
+        del_pred->clear_sub_predicates();
+        for (const string& predicate : delete_predicate.sub_predicates()) {
+            del_pred->add_sub_predicates(predicate);
+        }
+    } else {
+        DeletePredicatePB* del_pred = _del_pred_array.Add();
+        del_pred->set_version(version);
+        for (const string& predicate : delete_predicate.sub_predicates()) {
+            del_pred->add_sub_predicates(predicate);
+        }
+    }
+    return OLAP_SUCCESS;
+}
+
+DelPredicateArray TabletMeta::delete_predicates() {
+    std::lock_guard<std::mutex> lock(_mutex);
+    return _del_pred_array;
 }
 
 OLAPStatus TabletMeta::modify_rowsets(const vector<RowsetMetaSharedPtr>& to_add,

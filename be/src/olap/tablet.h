@@ -75,10 +75,9 @@ public:
     OLAPStatus save_tablet_meta();
 
     void delete_expire_incremental_data();
-    OLAPStatus publish_version(int64_t transaction_id, Version version, VersionHash version_hash);
     const PDelta* get_incremental_delta(Version version) const;
-    OLAPStatus clone_data(const TabletMeta& clone_header,
-                          const std::vector<const PDelta*>& clone_deltas,
+    OLAPStatus clone_data(const TabletMeta& tablet_meta,
+                          const std::vector<RowsetMetaSharedPtr>& clone_deltas,
                           const std::vector<Version>& versions_to_delete);
     OLAPStatus compute_all_versions_hash(const std::vector<Version>& versions,
                                          VersionHash* version_hash) const;
@@ -255,12 +254,14 @@ public:
     size_t deletion_rowset_size();
     bool can_do_compaction();
 
-    DeletePredicatePB* add_delete_predicates() {
-        return _tablet_meta.add_delete_predicates();
+    OLAPStatus add_delete_predicates(const DeletePredicatePB& delete_predicate, int64_t version) {
+        return _tablet_meta.add_delete_predicate(delete_predicate, version);
     }
 
-    const google::protobuf::RepeatedPtrField<DeletePredicatePB>&
-    delete_predicates();
+    google::protobuf::RepeatedPtrField<DeletePredicatePB>
+    delete_predicates() {
+        return _tablet_meta.delete_predicates();
+    }
 
     google::protobuf::RepeatedPtrField<DeletePredicatePB>*
     mutable_delete_predicate();

@@ -234,7 +234,6 @@ public:
     std::string construct_old_data_file_path(int32_t segment_id) const;
 
     size_t current_num_rows_per_row_block() const;
-    void publish_version(Version version, VersionHash version_hash);
 
     const TabletSchema& get_tablet_schema();
 

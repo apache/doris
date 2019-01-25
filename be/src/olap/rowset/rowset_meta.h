@@ -124,10 +124,8 @@ public:
     }
 
     virtual Version version() {
-        Version version;
-        version.first = _rowset_meta_pb.start_version();
-        version.second = _rowset_meta_pb.end_version();
-        return version;
+        return { _rowset_meta_pb.start_version(),
+                 _rowset_meta_pb.end_version() };  
     }
 
     virtual void set_version(Version version) {
