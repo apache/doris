@@ -42,6 +42,8 @@ public:
 
     virtual OLAPStatus remove();
 
+    virtual void to_rowset_pb(RowsetMetaPB* rs_meta);
+
     virtual RowsetMetaSharedPtr rowset_meta() const;
 
     virtual void set_version(Version version);
@@ -70,13 +72,18 @@ public:
 
     virtual bool in_use() const;
 
-    virtual RowsetId rowset_id() const;
+    virtual void acquire();
 
-    virtual bool delete_files() const;
+    virtual void release();
+    
+    virtual int64_t ref_count() const;
+
+    virtual RowsetId rowset_id() const;
 
     virtual void set_version_hash(VersionHash version_hash);
 
     virtual int64_t create_time();
+
 private:
     OLAPStatus _init_segment_groups();
 
@@ -88,6 +95,7 @@ private:
     int _segment_group_size;
     bool _is_cumulative_rowset;
     bool _is_pending_rowset;
+    atomic_t _ref_count;
 };
 
 } // namespace doris
