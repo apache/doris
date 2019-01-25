@@ -137,7 +137,7 @@ public class CloneChecker extends Daemon {
                 return false;
             }
 
-            if (olapTable.getColocateTable() != null) {
+            if (Catalog.getCurrentColocateIndex().isColocateTable(olapTable.getId())) {
                 LOG.debug("{} is colocate table, ColocateTableBalancer will handle. Skip", olapTable.getName());
                 return false;
             }
@@ -431,7 +431,7 @@ public class CloneChecker extends Daemon {
 
                     OlapTable olapTable = (OlapTable) table;
 
-                    if (olapTable.getColocateTable() != null) {
+                    if (Catalog.getCurrentColocateIndex().isColocateTable(olapTable.getId())) {
                         LOG.debug("{} is colocate table, ColocateTableBalancer will handle. Skip", olapTable.getName());
                         continue;
                     }
@@ -957,7 +957,7 @@ public class CloneChecker extends Daemon {
                 return;
             }
 
-            if (olapTable.getColocateTable() != null) {
+            if (Catalog.getCurrentColocateIndex().isColocateTable(olapTable.getId())) {
                 LOG.debug("{} is colocate table, ColocateTableBalancer will handle. Skip", olapTable.getName());
                 return ;
             }
