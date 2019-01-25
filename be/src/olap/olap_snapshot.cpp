@@ -668,7 +668,7 @@ OLAPStatus OLAPEngine::storage_medium_migrate(
         tablet->obtain_header_rdlock();
         if (tablet->has_pending_data()) {
             tablet->release_header_lock();
-            res = OLAP_ERR_HEADER_HAS_PENDING_DATA
+            res = OLAP_ERR_HEADER_HAS_PENDING_DATA;
             OLAP_LOG_WARNING("could not migration because has pending data [tablet='%s' ]",
                     tablet->full_name().c_str());
             break;
