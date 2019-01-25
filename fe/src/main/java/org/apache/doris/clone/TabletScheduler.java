@@ -450,16 +450,16 @@ public class TabletScheduler extends Daemon {
                     partition.getVisibleVersionHash(),
                     tbl.getPartitionInfo().getReplicationNum(partition.getId()));
 
+            if (tabletInfo.getType() == TabletSchedCtx.Type.BALANCE && tableState != OlapTableState.NORMAL) {
+                // If table is under ALTER process, do not allow to do balance.
+                throw new SchedException(Status.UNRECOVERABLE, "table's state is not NORMAL");
+            }
+
             if (statusPair.first != TabletStatus.VERSION_INCOMPLETE && tableState != OlapTableState.NORMAL) {
                 // If table is under ALTER process, do not allow to add or delete replica.
                 // VERSION_INCOMPLETE will repair the replica in place, which is allowed.
                 throw new SchedException(Status.UNRECOVERABLE,
                         "table's state is not NORMAL but tablet status is " + statusPair.first.name());
-            }
-
-            if (tabletInfo.getType() == TabletSchedCtx.Type.BALANCE && tableState != OlapTableState.NORMAL) {
-                // If table is under ALTER process, do not allow to do balance.
-                throw new SchedException(Status.UNRECOVERABLE, "table's state is not NORMAL");
             }
 
             tabletInfo.setTabletStatus(statusPair.first);

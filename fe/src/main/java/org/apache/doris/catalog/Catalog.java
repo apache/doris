@@ -1386,7 +1386,7 @@ public class Catalog {
         long newChecksum = checksum ^ size;
         for (int i = 0; i < size; i++) {
             Frontend fe = Frontend.read(dis);
-            addFrontendWithCheck(fe);
+            replayAddFrontend(fe);
         }
 
         size = dis.readInt();
@@ -2259,7 +2259,7 @@ public class Catalog {
                 throw new DdlException("frontend already exists " + fe);
             }
 
-            String nodeName = genFeNodeName(host, editLogPort, false /* new style */);
+            String nodeName = genFeNodeName(host, editLogPort, false /* new name style */);
 
             if (removedFrontends.contains(nodeName)) {
                 throw new DdlException("frontend name already exists " + nodeName + ". Try again");
@@ -2269,6 +2269,7 @@ public class Catalog {
             frontends.put(nodeName, fe);
             if (role == FrontendNodeType.FOLLOWER || role == FrontendNodeType.REPLICA) {
                 ((BDBHA) getHaProtocol()).addHelperSocket(host, editLogPort);
+                helperNodes.add(Pair.create(host, editLogPort));
             }
             editLog.logAddFrontend(fe);
         } finally {
@@ -2296,6 +2297,7 @@ public class Catalog {
 
             if (fe.getRole() == FrontendNodeType.FOLLOWER || fe.getRole() == FrontendNodeType.REPLICA) {
                 haProtocol.removeElectableNode(fe.getNodeName());
+                helperNodes.remove(Pair.create(host, port));
             }
             editLog.logRemoveFrontend(fe);
         } finally {
@@ -4254,7 +4256,7 @@ public class Catalog {
         }
     }
 
-    public void addFrontendWithCheck(Frontend fe) {
+    public void replayAddFrontend(Frontend fe) {
         tryLock(true);
         try {
             Frontend existFe = checkFeExist(fe.getHost(), fe.getEditLogPort());
@@ -4279,6 +4281,8 @@ public class Catalog {
             if (fe.getRole() == FrontendNodeType.FOLLOWER || fe.getRole() == FrontendNodeType.REPLICA) {
                 // DO NOT add helper sockets here, cause BDBHA is not instantiated yet.
                 // helper sockets will be added after start BDBHA
+                // But add to helperNodes, just for show
+                helperNodes.add(Pair.create(fe.getHost(), fe.getEditLogPort()));
             }
         } finally {
             unlock();
@@ -4293,6 +4297,11 @@ public class Catalog {
                 LOG.error(frontend.toString() + " does not exist.");
                 return;
             }
+            if (removedFe.getRole() == FrontendNodeType.FOLLOWER
+                    || removedFe.getRole() == FrontendNodeType.REPLICA) {
+                helperNodes.remove(Pair.create(removedFe.getHost(), removedFe.getEditLogPort()));
+            }
+
             removedFrontends.add(removedFe.getNodeName());
         } finally {
             unlock();
