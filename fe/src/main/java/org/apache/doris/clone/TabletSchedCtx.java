@@ -341,8 +341,8 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         this.committedVersionHash = committedVersionHash;
     }
     
-    public void setDestination(Long destBe, long destPathHash) {
-        this.destBackendId = destBe;
+    public void setDest(Long destBeId, long destPathHash) {
+        this.destBackendId = destBeId;
         this.destPathHash = destPathHash;
     }
     
@@ -447,8 +447,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             
             long srcPathHash = slot.takeSlot(srcReplica.getPathHash());
             if (srcPathHash != -1) {
-                this.srcReplica = srcReplica;
-                this.srcPathHash = srcPathHash;
+                setSrc(srcReplica);
                 return;
             }
         }
@@ -515,8 +514,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             throw new SchedException(Status.SCHEDULE_FAILED, "unable to take slot of dest path");
         }
         
-        this.destBackendId = chosenReplica.getBackendId();
-        this.destPathHash = chosenReplica.getPathHash();
+        setDest(chosenReplica.getBackendId(), chosenReplica.getPathHash());
     }
     
     /*
@@ -639,7 +637,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
      */
     public void finishCloneTask(CloneTask cloneTask, TFinishTaskRequest request)
             throws SchedException {
-        Preconditions.checkState(state == State.RUNNING);
+        Preconditions.checkState(state == State.RUNNING, state);
         Preconditions.checkArgument(cloneTask.getTaskVersion() == CloneTask.VERSION_2);
         setLastVisitedTime(System.currentTimeMillis());
 
@@ -854,7 +852,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             return false;
         }
         
-        Preconditions.checkState(lastSchedTime != 0 && taskTimeoutMs != 0);
+        Preconditions.checkState(lastSchedTime != 0 && taskTimeoutMs != 0, lastSchedTime + "-" + taskTimeoutMs);
         return System.currentTimeMillis() - lastSchedTime > taskTimeoutMs;
     }
     

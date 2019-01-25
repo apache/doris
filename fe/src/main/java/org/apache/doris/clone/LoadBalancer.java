@@ -175,9 +175,9 @@ public class LoadBalancer {
      * 2. Select a low load backend as destination. And tablet should not has replica on this backend.
      * 3. Create a clone task.
      */
-    public void createBalanceTask(TabletSchedCtx tabletInfo, Map<Long, PathSlot> backendsWorkingSlots,
+    public void createBalanceTask(TabletSchedCtx tabletCtx, Map<Long, PathSlot> backendsWorkingSlots,
             AgentBatchTask batchTask) throws SchedException {
-        ClusterLoadStatistic clusterStat = statisticMap.get(tabletInfo.getCluster());
+        ClusterLoadStatistic clusterStat = statisticMap.get(tabletCtx.getCluster());
         if (clusterStat == null) {
             throw new SchedException(Status.UNRECOVERABLE, "cluster does not exist");
         }
@@ -197,7 +197,7 @@ public class LoadBalancer {
             throw new SchedException(Status.UNRECOVERABLE, "all low load backends is unavailable");
         }
 
-        List<Replica> replicas = tabletInfo.getReplicas();
+        List<Replica> replicas = tabletCtx.getReplicas();
 
         // Check if this tablet has replica on high load backend.
         boolean hasHighReplica = false;
@@ -222,7 +222,7 @@ public class LoadBalancer {
             if (pathHash == -1) {
                 continue;
             } else {
-                tabletInfo.setSrc(replica);
+                tabletCtx.setSrc(replica);
                 setSource = true;
                 break;
             }
@@ -238,13 +238,13 @@ public class LoadBalancer {
                 // no replica on this low load backend
                 // 1. check if this clone task can make the cluster more balance.
                 List<RootPathLoadStatistic> availPaths = Lists.newArrayList();
-                if (beStat.isFit(tabletInfo.getTabletSize(), availPaths,
+                if (beStat.isFit(tabletCtx.getTabletSize(), availPaths,
                         false /* not supplement */) != BalanceStatus.OK) {
                     continue;
                 }
 
-                if (!clusterStat.isMoreBalanced(tabletInfo.getSrcBackendId(), beStat.getBeId(),
-                        tabletInfo.getTabletId(), tabletInfo.getTabletSize())) {
+                if (!clusterStat.isMoreBalanced(tabletCtx.getSrcBackendId(), beStat.getBeId(),
+                        tabletCtx.getTabletId(), tabletCtx.getTabletSize())) {
                     continue;
                 }
 
@@ -265,7 +265,7 @@ public class LoadBalancer {
                 if (pathHash == -1) {
                     continue;
                 } else {
-                    tabletInfo.setDestination(beStat.getBeId(), pathHash);
+                    tabletCtx.setDest(beStat.getBeId(), pathHash);
                     setDest = true;
                     break;
                 }
@@ -277,6 +277,6 @@ public class LoadBalancer {
         }
 
         // create clone task
-        batchTask.addTask(tabletInfo.createCloneReplicaAndTask());
+        batchTask.addTask(tabletCtx.createCloneReplicaAndTask());
     }
 }
