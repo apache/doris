@@ -179,11 +179,6 @@ std::string SegmentGroup::construct_data_file_path(int32_t segment_id) const {
     }
 }
 
-void SegmentGroup::publish_version(Version version, VersionHash version_hash) {
-    _version = version;
-    _version_hash = version_hash;
-}
-
 void SegmentGroup::acquire() {
     atomic_inc(&_ref_count);
 }

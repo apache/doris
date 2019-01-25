@@ -841,7 +841,7 @@ OLAPStatus TabletManager::start_trash_sweep() {
     _tablet_map_lock.rdlock();
     for (const auto& item : _tablet_map) {
         for (TabletSharedPtr tablet : item.second.table_arr) {
-            if (tablet.get() == NULL) {
+            if (tablet == nullptr) {
                 continue;
             }
             tablet->delete_expire_incremental_data();

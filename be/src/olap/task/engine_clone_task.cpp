@@ -586,11 +586,11 @@ OLAPStatus EngineCloneTask::_finish_clone(TabletSharedPtr tablet, const string& 
         }
 
         // load src header
-        string clone_header_file = clone_dir + "/" + std::to_string(tablet->tablet_id()) + ".hdr";
-        TabletMeta clone_header(clone_header_file);
-        if ((res = clone_header.load_and_init()) != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("fail to load src header when clone. [clone_header_file=%s]",
-                             clone_header_file.c_str());
+        string cloned_tablet_meta_file = clone_dir + "/" + std::to_string(tablet->tablet_id()) + ".hdr";
+        TabletMeta cloned_tablet_meta(cloned_tablet_meta_file);
+        if ((res = cloned_tablet_meta.load_and_init()) != OLAP_SUCCESS) {
+            LOG(WARNING) << "fail to load src header when clone. "
+                         << ", cloned_tablet_meta_file=" << cloned_tablet_meta_file;
             break;
         }
 
@@ -634,14 +634,14 @@ OLAPStatus EngineCloneTask::_finish_clone(TabletSharedPtr tablet, const string& 
         }
 
         if (is_incremental_clone) {
-            res = _clone_incremental_data(tablet, clone_header, committed_version);
+            res = _clone_incremental_data(tablet, cloned_tablet_meta, committed_version);
         } else {
-            res = _clone_full_data(tablet, clone_header);
+            res = _clone_full_data(tablet, cloned_tablet_meta);
         }
 
         // if full clone success, need to update cumulative layer point
         if (!is_incremental_clone && res == OLAP_SUCCESS) {
-            tablet->set_cumulative_layer_point(clone_header.cumulative_layer_point());
+            tablet->set_cumulative_layer_point(cloned_tablet_meta.cumulative_layer_point());
         }
 
     } while (0);
@@ -666,7 +666,7 @@ OLAPStatus EngineCloneTask::_finish_clone(TabletSharedPtr tablet, const string& 
 }
 
 
-OLAPStatus EngineCloneTask::_clone_incremental_data(TabletSharedPtr tablet, TabletMeta& clone_header,
+OLAPStatus EngineCloneTask::_clone_incremental_data(TabletSharedPtr tablet, const TabletMeta& cloned_tablet_meta,
                                               int64_t committed_version) {
     LOG(INFO) << "begin to incremental clone. tablet=" << tablet->full_name()
               << ", committed_version=" << committed_version;
@@ -675,7 +675,7 @@ OLAPStatus EngineCloneTask::_clone_incremental_data(TabletSharedPtr tablet, Tabl
     tablet->calc_missed_versions(committed_version, &missed_versions);
     
     vector<Version> versions_to_delete;
-    vector<const PDelta*> versions_to_clone;
+    vector<RowsetMetaSharedPtr> rowsets_to_clone;
 
     VLOG(3) << "get missed versions again when incremental clone. "
             << "tablet=" << tablet->full_name() 
@@ -684,26 +684,27 @@ OLAPStatus EngineCloneTask::_clone_incremental_data(TabletSharedPtr tablet, Tabl
 
     // check missing versions exist in clone src
     for (Version version : missed_versions) {
-        const PDelta* clone_src_version = clone_header.get_incremental_version(version);
-        if (clone_src_version == NULL) {
-           LOG(WARNING) << "missing version not found in clone src."
-                        << ", missing_version=" << version.first << "-" << version.second;
+        RowsetMetaSharedPtr inc_rs_meta = cloned_tablet_meta.acquire_inc_rs_meta(version);
+        if (inc_rs_meta == nullptr) {
+            LOG(WARNING) << "missed version is not found in cloned tablet meta."
+                         << ", missed_version=" << version.first << "-" << version.second;
             return OLAP_ERR_VERSION_NOT_EXIST;
         }
 
-        versions_to_clone.push_back(clone_src_version);
+        rowsets_to_clone.push_back(inc_rs_meta);
     }
 
     // clone_data to tablet
-    OLAPStatus clone_res = tablet->clone_data(clone_header, versions_to_clone, versions_to_delete);
+    OLAPStatus clone_res = tablet->clone_data(cloned_tablet_meta, rowsets_to_clone, versions_to_delete);
     LOG(INFO) << "finish to incremental clone. [tablet=" << tablet->full_name() << " res=" << clone_res << "]";
     return clone_res;
 }
 
-OLAPStatus EngineCloneTask::_clone_full_data(TabletSharedPtr tablet, TabletMeta& clone_header) {
-    Version clone_latest_version = clone_header.get_latest_version();
-    LOG(INFO) << "begin to full clone. tablet=" << tablet->full_name() << ","
-        << "clone_latest_version=" << clone_latest_version.first << "-" << clone_latest_version.second;
+OLAPStatus EngineCloneTask::_clone_full_data(TabletSharedPtr tablet, const TabletMeta& cloned_tablet_meta) {
+    Version cloned_max_version = cloned_tablet_meta.max_version();
+    LOG(INFO) << "begin to full clone. tablet=" << tablet->full_name()
+              << ", cloned_max_version=" << cloned_max_version.first
+              << "-" << cloned_max_version.second;
     vector<Version> versions_to_delete;
 
     // check local versions
@@ -716,30 +717,30 @@ OLAPStatus EngineCloneTask::_clone_full_data(TabletSharedPtr tablet, TabletMeta&
             << ", local_version=" << local_version.first << "-" << local_version.second;
 
         // if local version cross src latest, clone failed
-        if (local_version.first <= clone_latest_version.second
-            && local_version.second > clone_latest_version.second) {
+        if (local_version.first <= cloned_max_version.second
+            && local_version.second > cloned_max_version.second) {
             LOG(WARNING) << "stop to full clone, version cross src latest."
                     << "tablet=" << tablet->full_name()
                     << ", local_version=" << local_version.first << "-" << local_version.second;
             return OLAP_ERR_TABLE_VERSION_DUPLICATE_ERROR;
 
-        } else if (local_version.second <= clone_latest_version.second) {
+        } else if (local_version.second <= cloned_max_version.second) {
             // if local version smaller than src, check if existed in src, will not clone it
             bool existed_in_src = false;
 
             // if delta labeled with local_version is same with the specified version in clone header,
             // there is no necessity to clone it.
-            for (int j = 0; j < clone_header.file_delta_size(); ++j) {
-                if (clone_header.get_delta(j)->start_version() == local_version.first
-                    && clone_header.get_delta(j)->end_version() == local_version.second
-                    && clone_header.get_delta(j)->version_hash() == local_version_hash) {
+            for (auto& rs_meta : cloned_tablet_meta.all_rs_metas()) {
+                if (rs_meta->version().first == local_version.first
+                    && rs_meta->version().second == local_version.second
+                    && rs_meta->version_hash() == local_version_hash) {
                     existed_in_src = true;
                     LOG(INFO) << "Delta has already existed in local header, no need to clone."
                         << "tablet=" << tablet->full_name()
                         << ", version='" << local_version.first<< "-" << local_version.second
                         << ", version_hash=" << local_version_hash;
 
-                    OLAPStatus delete_res = clone_header.delete_version(local_version);
+                    OLAPStatus delete_res = cloned_tablet_meta.delete_version(local_version);
                     if (delete_res != OLAP_SUCCESS) {
                         LOG(WARNING) << "failed to delete existed version from clone src when full clone. "
                                      << ", version=" << local_version.first << "-" << local_version.second;
@@ -761,19 +762,19 @@ OLAPStatus EngineCloneTask::_clone_full_data(TabletSharedPtr tablet, TabletMeta&
             }
         }
     }
-    vector<const PDelta*> clone_deltas;
-    for (int i = 0; i < clone_header.file_delta_size(); ++i) {
-        clone_deltas.push_back(clone_header.get_delta(i));
+    vector<RowsetMetaSharedPtr> rowsets_to_clone;
+    for (auto& rs_meta : cloned_tablet_meta.all_rs_metas()) {
+        rowsets_to_clone.push_back(rs_meta);
         LOG(INFO) << "Delta to clone."
-            << "tablet=" << tablet->full_name() << ","
-            << ", version=" << clone_header.get_delta(i)->start_version() << "-"
-                << clone_header.get_delta(i)->end_version()
-            << ", version_hash=" << clone_header.get_delta(i)->version_hash();
+                  << "tablet=" << tablet->full_name() << ","
+                  << ", version=" << rs_meta->version().first << "-"
+                  << rs_meta->version().second
+                  << ", version_hash=" << rs_meta->version_hash();
     }
 
     // clone_data to tablet
-    OLAPStatus clone_res = tablet->clone_data(clone_header, clone_deltas, versions_to_delete);
-    LOG(INFO) << "finish to full clone. [tablet=" << tablet->full_name() << ", res=" << clone_res << "]";
+    OLAPStatus clone_res = tablet->clone_data(cloned_tablet_meta, rowsets_to_clone, versions_to_delete);
+    LOG(INFO) << "finish to full clone. tablet=" << tablet->full_name() << ", res=" << clone_res;
     return clone_res;
 }
 
