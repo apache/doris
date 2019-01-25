@@ -20,6 +20,7 @@
 
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
+#include "olap/rowset/rowset_meta.h"
 
 namespace doris {
 

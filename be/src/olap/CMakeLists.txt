@@ -55,6 +55,7 @@ add_library(Olap STATIC
     reader.cpp
     row_block.cpp
     row_cursor.cpp
+    rowset_graph.cpp
     #schema_change.cpp
     serialize.cpp
     storage_engine.cpp
