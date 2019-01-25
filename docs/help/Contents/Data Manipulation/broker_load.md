@@ -341,6 +341,43 @@
         )
         )
         WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password");
+
+    8. 导入的数据同一列做sum max然后生成两列指标
+
+       假设导入文件 file 有两列, 我们称为 k1 和 v1， my_table 表有 4 列，分别是 k1, sumv1, maxv1, minv1，建表语句如下：
+
+       CREATE TABLE my_db.my_table
+       (
+         k1 INT,
+         sumv1 INT SUM,
+         maxv1 INT MAX,
+         minv1 INT MIN
+       )
+         ENGINE=olap
+         AGGREGATE KEY(k1)
+         DISTRIBUTED BY HASH (k1) BUCKETS 32
+         PARTITION BY RANGE (k1)
+         (
+         PARTITION p1 VALUES LESS THAN ("2014-01-01"),
+         PARTITION p2 VALUES LESS THAN ("2014-06-01")
+       )
+
+       导入语句可以写成：
+
+       LOAD LABEL my_db.mylabel
+       (
+         DATA INFILE("hdfs://hdfs_host:hdfs_port/user/palo/data/input/file")
+         INTO TABLE `my_table`
+         PARTITION (p1, p2)
+         COLUMNS TERMINATED BY ","
+         (k1, v1)
+         SET (
+           sumv1 = v1,
+           maxv1 = v1,
+           minv1 = v1
+         )
+       )
+       WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password");
  
 ## keyword
     BROKER LOAD
