@@ -1044,7 +1044,7 @@ public class SchemaChangeHandler extends AlterHandler {
                             // just skip it (replica cloned from old schema will be deleted)
                             continue;
                         }
-                        Preconditions.checkState(replica.getState() == ReplicaState.NORMAL);
+                        Preconditions.checkState(replica.getState() == ReplicaState.NORMAL, replica.getState());
                         replica.setState(ReplicaState.SCHEMA_CHANGE);
                     } // end for replicas
                 } // end for tablets

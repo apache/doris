@@ -601,8 +601,10 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                 visibleVersion, visibleVersionHash);
         cloneTask.setPathHash(srcPathHash, destPathHash);
         
-        if (tabletStatus == TabletStatus.REPLICA_MISSING || tabletStatus == TabletStatus.REPLICA_MISSING_IN_CLUSTER) {
-            // only these 2 status need to create a new replica.
+        // if this is a balance task, or this is a repair task with REPLICA_MISSING or REPLICA_MISSING_IN_CLUSTER,
+        // we create a new replica with state CLONE
+        if (tabletStatus == TabletStatus.REPLICA_MISSING || tabletStatus == TabletStatus.REPLICA_MISSING_IN_CLUSTER
+                || type == Type.BALANCE) {
             Replica cloneReplica = new Replica(
                     Catalog.getCurrentCatalog().getNextId(), destBackendId,
                     -1 /* version */, 0 /* version hash */, schemaHash,
@@ -614,6 +616,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             // addReplica() method will add this replica to tablet inverted index too.
             tablet.addReplica(cloneReplica);
         } else if (tabletStatus == TabletStatus.VERSION_INCOMPLETE) {
+            Preconditions.checkState(type == Type.REPAIR, type);
             // double check
             Replica replica = tablet.getReplicaByBackendId(destBackendId);
             if (replica == null) {
