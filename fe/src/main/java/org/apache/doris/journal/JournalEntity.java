@@ -248,6 +248,7 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_ADD_REPLICA:
+            case OperationType.OP_UPDATE_REPLICA:
             case OperationType.OP_DELETE_REPLICA: {
                 data = new ReplicaPersistInfo();
                 break;
