@@ -126,7 +126,8 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         RUNNING, // tablet is being scheduled
         FINISHED, // task is finished
         CANCELLED, // task is failed
-        TIMEOUT // task is timeout
+        TIMEOUT, // task is timeout
+        UNEXPECTED // other unexpected errors
     }
     
     private Type type;

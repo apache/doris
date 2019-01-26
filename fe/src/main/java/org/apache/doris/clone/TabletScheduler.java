@@ -370,6 +370,11 @@ public class TabletScheduler extends Daemon {
                     removeTabletCtx(tabletCtx, TabletSchedCtx.State.CANCELLED, e.getMessage());
                 }
                 continue;
+            } catch (Exception e) {
+                LOG.warn("got unexpected exception, discard this schedule. tablet: {}",
+                        tabletCtx.getTabletId(), e);
+                stat.counterTabletScheduledFailed.incrementAndGet();
+                removeTabletCtx(tabletCtx, TabletSchedCtx.State.UNEXPECTED, e.getMessage());
             }
 
             Preconditions.checkState(tabletCtx.getState() == TabletSchedCtx.State.RUNNING);
@@ -894,6 +899,12 @@ public class TabletScheduler extends Daemon {
                 removeTabletCtx(tabletCtx, TabletSchedCtx.State.CANCELLED, e.getMessage());
                 return true;
             }
+        } catch (Exception e) {
+            LOG.warn("got unexpected exception when finish clone task. tablet: {}",
+                    tabletCtx.getTabletId(), e);
+            stat.counterTabletScheduledDiscard.incrementAndGet();
+            removeTabletCtx(tabletCtx, TabletSchedCtx.State.UNEXPECTED, e.getMessage());
+            return true;
         }
 
         Preconditions.checkState(tabletCtx.getState() == TabletSchedCtx.State.FINISHED);
@@ -1068,8 +1079,14 @@ public class TabletScheduler extends Daemon {
         /*
          * If the specified 'pathHash' has available slot, decrease the slot number and return this path hash
          */
-        public synchronized long takeSlot(long pathHash) {
-            Preconditions.checkArgument(pathHash != -1);
+        public synchronized long takeSlot(long pathHash) throws SchedException {
+            if (pathHash == -1) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("path hash is not set.", new Exception());
+                }
+                throw new SchedException(Status.SCHEDULE_FAILED, "path hash is not set");
+            }
+
             Slot slot = pathSlots.get(pathHash);
             if (slot == null) {
                 return -1;
