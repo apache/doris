@@ -371,8 +371,10 @@ public class Replica implements Writable {
         strBuffer.append(lastSuccessVersionHash);
         strBuffer.append(", lastFailedTimestamp=");
         strBuffer.append(lastFailedTimestamp);
-        strBuffer.append(", schemaHash");
+        strBuffer.append(", schemaHash=");
         strBuffer.append(schemaHash);
+        strBuffer.append(", state=");
+        strBuffer.append(state.name());
         strBuffer.append("]");
         return strBuffer.toString();
     }
@@ -391,7 +393,6 @@ public class Replica implements Writable {
         out.writeLong(lastFailedVersionHash);
         out.writeLong(lastSuccessVersion);
         out.writeLong(lastSuccessVersionHash);
-        
     }
      
     @Override

@@ -4203,7 +4203,7 @@ public class Catalog {
         AgentTaskQueue.removeReplicaRelatedTasks(backendId, tabletId);
     }
 
-    public void unprotectAddReplica(ReplicaPersistInfo info) {
+    private void unprotectAddReplica(ReplicaPersistInfo info) {
         LOG.debug("replay add a replica {}", info);
         Database db = getDb(info.getDbId());
         OlapTable olapTable = (OlapTable) db.getTable(info.getTableId());
@@ -4227,7 +4227,7 @@ public class Catalog {
         tablet.addReplica(replica);
     }
 
-    public void unprotectUpdateReplica(ReplicaPersistInfo info) {
+    private void unprotectUpdateReplica(ReplicaPersistInfo info) {
         LOG.debug("replay update a replica {}", info);
         Database db = getDb(info.getDbId());
         OlapTable olapTable = (OlapTable) db.getTable(info.getTableId());
@@ -4253,7 +4253,7 @@ public class Catalog {
         Database db = getDb(info.getDbId());
         db.writeLock();
         try {
-            unprotectAddReplica(info);
+            unprotectUpdateReplica(info);
         } finally {
             db.writeUnlock();
         }
