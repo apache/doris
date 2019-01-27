@@ -179,8 +179,6 @@ public class MasterImpl {
                     finishRollup(task, finishTabletInfos);
                     break;
                 case CLONE:
-                    checkHasTabletInfo(request);
-                    finishTabletInfos = request.getFinish_tablet_infos();
                     finishClone(task, request);
                     break;
                 case CHECK_CONSISTENCY:
