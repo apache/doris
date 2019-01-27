@@ -1287,9 +1287,9 @@ OLAPStatus OLAPEngine::clone_full_data(OLAPTablePtr tablet, OLAPHeader& clone_he
     for (int i = 0; i < clone_header.file_delta_size(); ++i) {
         clone_deltas.push_back(clone_header.get_delta(i));
         LOG(INFO) << "Delta to clone."
-            << "table=" << tablet->full_name() << ","
+            << "table=" << tablet->full_name()
             << ", version=" << clone_header.get_delta(i)->start_version() << "-"
-                << clone_header.get_delta(i)->end_version()
+            << clone_header.get_delta(i)->end_version()
             << ", version_hash=" << clone_header.get_delta(i)->version_hash();
     }
 
