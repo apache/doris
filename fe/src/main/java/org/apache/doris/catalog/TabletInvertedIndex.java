@@ -142,13 +142,15 @@ public class TabletInvertedIndex {
                                     replica.setPathHash(backendTabletInfo.getPath_hash());
                                 }
 
-                                if (checkNeedRecover(replica, backendTabletInfo.getVersion(),
+                                if (checkNeedRecover(replica, tabletMeta.getOldSchemaHash(),
+                                        backendTabletInfo.getSchema_hash(), backendTabletInfo.getVersion(),
                                         backendTabletInfo.getVersion_hash())) {
                                     LOG.warn("replica {} of tablet {} on backend {} need recovery. "
-                                            + "replica in FE: {}, report version {}-{}",
+                                            + "replica in FE: {}, report version {}-{}, report schema hash: {}",
                                             replica.getId(), tabletId, backendId, replica,
                                             backendTabletInfo.getVersion(),
-                                            backendTabletInfo.getVersion_hash());
+                                            backendTabletInfo.getVersion_hash(),
+                                            backendTabletInfo.getSchema_hash());
                                     tabletRecoveryMap.put(tabletMeta.getDbId(), tabletId);
                                 }
 
@@ -323,7 +325,13 @@ public class TabletInvertedIndex {
      * if be's report version < fe's meta version, it means some version is missing in BE
      * because of some unrecoverable failure.
      */
-    private boolean checkNeedRecover(Replica replicaInFe, long backendVersion, long backendVersionHash) {
+    private boolean checkNeedRecover(Replica replicaInFe, int schemaHashInFe, int schemaHashInBe,
+            long backendVersion, long backendVersionHash) {
+        if (schemaHashInFe != schemaHashInBe || backendVersion == -1 && backendVersionHash == 0) {
+            // no data file exist on BE, maybe this is a newly created schema change tablet. no need to recovery
+            return false;
+        }
+
         if (replicaInFe.getVersionHash() == 0 && backendVersion == replicaInFe.getVersion() - 1) {
             /*
              * This is very tricky:
