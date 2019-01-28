@@ -746,6 +746,12 @@ Status EsScanNode::materialize_row(MemPool* tuple_pool, Tuple* tuple,
         }
         *reinterpret_cast<int64_t*>(slot) = col.long_vals[val_idx];
         break;
+      case TYPE_LARGEINT:
+        if (val_idx >= col.long_vals.size()) {
+          return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "LARGEINT"));
+        }
+        *reinterpret_cast<int128_t*>(slot) = col.long_vals[val_idx];
+        break;
       case TYPE_DOUBLE:
         if (val_idx >= col.double_vals.size()) {
           return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "DOUBLE"));
