@@ -268,6 +268,10 @@ public:
 
     void add_unused_index(SegmentGroup* olap_index);
 
+    // check whether files are in gc's unused files
+    // revoke them from the unused files if they exists
+    void revoke_files_from_gc(const std::vector<std::string>& files_to_check);
+
     // ######################### ALTER TABLE BEGIN #########################
     // The following interfaces are all about alter tablet operation, 
     // the main logical is that generating a new tablet with different
