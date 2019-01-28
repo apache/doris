@@ -2258,6 +2258,29 @@ void OLAPEngine::add_unused_index(SegmentGroup* segment_group) {
     _gc_mutex.unlock();
 }
 
+void OLAPEngine::revoke_files_from_gc(const std::vector<std::string>& files_to_check) {
+    LOG(INFO) << "start to revoke files from gc. files to check size:" << files_to_check.size();
+    _gc_mutex.lock();
+    int64_t duration_ns = 0;
+    {
+        SCOPED_RAW_TIMER(&duration_ns);
+        for (auto& file : files_to_check) {
+            for (auto& rowset_gc_files : _gc_files) {
+                auto file_iter =
+                        std::find(rowset_gc_files.second.begin(), rowset_gc_files.second.end(), file);
+                if (file_iter != rowset_gc_files.second.end()) {
+                    LOG(INFO) << "file:" << file << " exist in unused files to gc. revoke it";
+                    rowset_gc_files.second.erase(file_iter);
+                    break;
+                }
+            }
+        }
+    }
+    _gc_mutex.unlock();
+    LOG(INFO) << "revoke files from gc. time duration:" << duration_ns << " ns";
+}
+
+
 OLAPStatus OLAPEngine::_create_init_version(
         OLAPTablePtr olap_table, const TCreateTabletReq& request) {
     OLAPStatus res = OLAP_SUCCESS;
@@ -2738,6 +2761,21 @@ OLAPStatus OLAPEngine::finish_clone(OLAPTablePtr tablet, const string& clone_dir
             break;
         }
 
+        std::vector<std::string> files_to_check;
+        for (auto& clone_file : clone_files) {
+            if (local_files.find(clone_file) != local_files.end()) {
+                files_to_check.push_back(clone_file);
+            }
+        }
+        revoke_files_from_gc(files_to_check);
+        // get the local files again
+        // because the original local files maybe be deleted by gc before check is done
+        local_files.clear();
+        if ((res = dir_walk(tablet_dir, NULL, &local_files)) != OLAP_SUCCESS) {
+            LOG(WARNING) << "failed to dir walk when clone. [tablet_dir=" << tablet_dir << "]";
+            break;
+        }
+
         // link files from clone dir, if file exists, skip it
         for (const string& clone_file : clone_files) {
             if (local_files.find(clone_file) != local_files.end()) {
@@ -2751,8 +2789,9 @@ OLAPStatus OLAPEngine::finish_clone(OLAPTablePtr tablet, const string& clone_dir
             string to = tablet_dir + "/" + clone_file;
             LOG(INFO) << "src file:" << from << "dest file:" << to;
             if (link(from.c_str(), to.c_str()) != 0) {
-                OLAP_LOG_WARNING("fail to create hard link when clone. [from=%s to=%s]",
-                                 from.c_str(), to.c_str());
+                LOG(WARNING) << "fail to create hard link when clone."
+                             << "[from=" << from
+                             << " to=" << to << "]";
                 res = OLAP_ERR_OS_ERROR;
                 break;
             }
