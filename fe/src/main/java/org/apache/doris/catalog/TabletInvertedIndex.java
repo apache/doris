@@ -108,7 +108,6 @@ public class TabletInvertedIndex {
                              ListMultimap<Long, TPartitionVersionInfo> transactionsToPublish, 
                              ListMultimap<Long, Long> transactionsToClear, 
                              ListMultimap<Long, Long> tabletRecoveryMap) {
-
         long start = 0L;
         readLock();
         try {
@@ -129,7 +128,7 @@ public class TabletInvertedIndex {
                             if (tabletMeta.containsSchemaHash(backendTabletInfo.getSchema_hash())) {
                                 foundTabletsWithValidSchema.add(tabletId);
                                 // 1. (intersection)
-                                if (checkSync(replica, backendTabletInfo.getVersion(),
+                                if (needSync(replica, backendTabletInfo.getVersion(),
                                               backendTabletInfo.getVersion_hash())) {
                                     // need sync
                                     tabletSyncMap.put(tabletMeta.getDbId(), tabletId);
@@ -142,7 +141,7 @@ public class TabletInvertedIndex {
                                     replica.setPathHash(backendTabletInfo.getPath_hash());
                                 }
 
-                                if (checkNeedRecover(replica, tabletMeta.getOldSchemaHash(),
+                                if (needRecover(replica, tabletMeta.getOldSchemaHash(),
                                         backendTabletInfo.getSchema_hash(), backendTabletInfo.getVersion(),
                                         backendTabletInfo.getVersion_hash())) {
                                     LOG.warn("replica {} of tablet {} on backend {} need recovery. "
@@ -312,10 +311,10 @@ public class TabletInvertedIndex {
         return backendIdToReplica.keySet();
     }
 
-    private boolean checkSync(Replica replicaMeta, long backendVersion, long backendVersionHash) {
-        long metaVersion = replicaMeta.getVersion();
-        long metaVersionHash = replicaMeta.getVersionHash();
-        if (metaVersion < backendVersion || (metaVersion == backendVersion && metaVersionHash != backendVersionHash)) {
+    private boolean needSync(Replica replicaInFe, long backendVersion, long backendVersionHash) {
+        long versionInFe = replicaInFe.getVersion();
+        long versionHashInFe = replicaInFe.getVersionHash();
+        if (backendVersion > versionInFe || (versionInFe == backendVersion && versionHashInFe != backendVersionHash)) {
             return true;
         }
         return false;
@@ -325,7 +324,7 @@ public class TabletInvertedIndex {
      * if be's report version < fe's meta version, it means some version is missing in BE
      * because of some unrecoverable failure.
      */
-    private boolean checkNeedRecover(Replica replicaInFe, int schemaHashInFe, int schemaHashInBe,
+    private boolean needRecover(Replica replicaInFe, int schemaHashInFe, int schemaHashInBe,
             long backendVersion, long backendVersionHash) {
         if (schemaHashInFe != schemaHashInBe || backendVersion == -1 && backendVersionHash == 0) {
             // no data file exist on BE, maybe this is a newly created schema change tablet. no need to recovery

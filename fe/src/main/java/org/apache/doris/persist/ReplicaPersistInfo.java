@@ -193,6 +193,9 @@ public class ReplicaPersistInfo implements Writable {
                 dbId, tableId, partitionId, indexId, -1L, -1L, -1L, -1L, -1L, -1, -1L, -1L, -1L, 0L, -1L, 0L);
     }
 
+    private ReplicaPersistInfo() {
+    }
+
     private ReplicaPersistInfo(ReplicaOperationType opType, long dbId, long tableId, long partitionId,
             long indexId, long tabletId, long backendId, long replicaId, long version, long versionHash,
             int schemaHash, long dataSize, long rowCount, long lastFailedVersion, long lastFailedVersionHash,

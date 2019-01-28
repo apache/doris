@@ -405,13 +405,17 @@ public class ReportHandler extends Daemon {
                             // 2. repair for VERSION_INCOMPLETE finished in BE, but failed or not yet report to FE
                             replica.updateVersionInfo(backendVersion, backendVersionHash, dataSize, rowCount);
                             
-                            ReplicaPersistInfo info = ReplicaPersistInfo.createForClone(dbId, tableId,
-                                    partitionId, indexId, tabletId, backendId, replica.getId(),
-                                    replica.getVersion(), replica.getVersionHash(), schemaHash,
-                                    dataSize, rowCount,
-                                    replica.getLastFailedVersion(), replica.getLastFailedVersionHash(),
-                                    replica.getLastSuccessVersion(), replica.getLastSuccessVersionHash());
-                            Catalog.getInstance().getEditLog().logUpdateReplica(info);
+                            if (replica.getLastFailedVersion() < 0) {
+                                // last failed version < 0 means this replica becomes health after sync,
+                                // so we write an edit log to sync this operation
+                                ReplicaPersistInfo info = ReplicaPersistInfo.createForClone(dbId, tableId,
+                                        partitionId, indexId, tabletId, backendId, replica.getId(),
+                                        replica.getVersion(), replica.getVersionHash(), schemaHash,
+                                        dataSize, rowCount,
+                                        replica.getLastFailedVersion(), replica.getLastFailedVersionHash(),
+                                        replica.getLastSuccessVersion(), replica.getLastSuccessVersionHash());
+                                Catalog.getInstance().getEditLog().logUpdateReplica(info);
+                            }
 
                             ++syncCounter;
                             LOG.debug("sync replica {} of tablet {} in backend {} in db {}.",
