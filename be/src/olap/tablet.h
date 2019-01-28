@@ -149,7 +149,6 @@ public:
     void set_schema_change_status(AlterTableStatus status,
                                   SchemaHash schema_hash,
                                   int32_t version);
-    bool equal(int64_t tablet_id, int64_t schema_hash);
     bool is_used();
     std::string storage_root_path_name();
     std::string tablet_path();
@@ -185,27 +184,27 @@ public:
                               vector<RowsetSharedPtr>* to_delete);
     OLAPStatus add_rowset(RowsetSharedPtr rowset);
 
-    const int64_t table_id() const;
-    const std::string table_name() const;
-    const int64_t partition_id() const;
-    const int64_t tablet_id() const;
-    const int64_t schema_hash() const;
-    const int16_t shard_id();
-    DataDir* data_dir() const { return _data_dir; }
-    double bloom_filter_fpp() const;
-    bool equal(TTabletId tablet_id, TSchemaHash schema_hash);
+    inline int64_t table_id() const;
+    inline std::string table_name() const;
+    inline int64_t partition_id() const;
+    inline int64_t tablet_id() const;
+    inline int64_t schema_hash() const;
+    inline int16_t shard_id();
+    inline DataDir* data_dir() const;
+    inline bool equal(int64_t tablet_id, int64_t schema_hash);
 
-    const TabletSchema& tablet_schema();
-    const std::string& full_name() const;
-    size_t num_fields() const;
-    size_t num_null_fields();
-    size_t num_key_columns();
-    size_t num_short_key_columns() const;
-    size_t next_unique_id() const;
-    size_t num_rows_per_row_block() const;
-    CompressKind compress_kind();
+    inline const TabletSchema& tablet_schema() const;
+    inline const std::string full_name() const;
+    inline size_t num_columns() const;
+    inline size_t num_null_columns() const;
+    inline size_t num_key_columns() const ;
+    inline size_t num_short_key_columns() const;
+    inline size_t next_unique_id() const;
+    inline size_t num_rows_per_row_block() const;
+    inline CompressKind compress_kind() const;
+    inline double bloom_filter_fpp() const;
 
-    size_t field_index(const std::string& field_name) const;
+    size_t field_index(const string& field_name) const;
     size_t row_size() const;
     size_t get_index_size() const;
     size_t all_rowsets_size() const;
@@ -317,6 +316,78 @@ private:
 
     DISALLOW_COPY_AND_ASSIGN(Tablet);
 };
+
+inline int64_t Tablet::table_id() const {
+    return _tablet_meta.table_id();
+}
+
+inline int64_t Tablet::partition_id() const {
+    return _tablet_meta.partition_id();
+}
+
+inline int64_t Tablet::tablet_id() const {
+    return _tablet_meta.tablet_id();
+}
+
+inline int64_t Tablet::schema_hash() const {
+    return _tablet_meta.schema_hash();
+}
+
+inline int16_t Tablet::shard_id() {
+    return _tablet_meta.shard_id();
+}
+
+inline DataDir* Tablet::data_dir() const {
+    return _data_dir;
+}
+
+inline bool Tablet::equal(int64_t tablet_id, int64_t schema_hash) {
+    return (_tablet_meta.table_id() == tablet_id) && (_tablet_meta.schema_hash() == schema_hash);
+}
+
+inline const TabletSchema& Tablet::tablet_schema() const {
+    return _schema;
+}
+
+inline const std::string Tablet::full_name() const {
+    std::string tablet_name = std::to_string(_tablet_meta.tablet_id())
+                              + "." +
+                              std::to_string(_tablet_meta.schema_hash());
+    return tablet_name;
+}
+
+inline size_t Tablet::num_columns() const { 
+    return _schema.num_columns();
+}
+
+inline size_t Tablet::num_null_columns() const {
+    return _schema.num_null_columns();
+}
+
+inline size_t Tablet::num_key_columns() const {
+    return _schema.num_key_columns();
+} 
+
+inline size_t Tablet::num_short_key_columns() const {
+    return _schema.num_short_key_columns();
+}
+
+inline size_t Tablet::next_unique_id() const {
+    return _schema.next_column_unique_id();
+}
+
+inline size_t Tablet::num_rows_per_row_block() const {
+    return _schema.num_rows_per_row_block();
+}
+
+inline CompressKind Tablet::compress_kind() const {
+    return _schema.compress_kind();
+}
+
+inline double Tablet::bloom_filter_fpp() const {
+    return _schema.bloom_filter_fpp();
+}
+
 
 }  // namespace doris
 

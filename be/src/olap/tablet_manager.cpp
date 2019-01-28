@@ -1015,14 +1015,14 @@ OLAPStatus TabletManager::_create_tablet_meta(
              * to the new column
              *
             */
-            size_t num_fields = ref_tablet->num_fields();
-            for (size_t field = 0 ; field < num_fields; ++field) {
+            size_t num_columns = ref_tablet->num_columns();
+            for (size_t field = 0 ; field < num_columns; ++field) {
                 if (ref_tablet->tablet_schema().column(field).name() == column.column_name) {
                     uint32_t unique_id = ref_tablet->tablet_schema().column(field).unique_id();
                     col_ordinal_to_unique_id[col_ordinal] = unique_id;
                     break;
                 }
-                if (field == num_fields) {
+                if (field == num_columns) {
                     col_ordinal_to_unique_id[col_ordinal] = next_unique_id;
                     next_unique_id++;
                 }

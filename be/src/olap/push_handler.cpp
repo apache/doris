@@ -531,7 +531,7 @@ OLAPStatus BinaryReader::next(RowCursor* row, MemPool* mem_pool) {
     const TabletSchema& schema = _tablet->tablet_schema();
     size_t offset = 0;
     size_t field_size = 0;
-    size_t num_null_bytes = (_tablet->num_null_fields() + 7) / 8;
+    size_t num_null_bytes = (_tablet->num_null_columns() + 7) / 8;
 
     if (OLAP_SUCCESS != (res = _file->read(_row_buf + offset, num_null_bytes))) {
         OLAP_LOG_WARNING("read file for one row fail. [res=%d]", res);
@@ -671,7 +671,7 @@ OLAPStatus LzoBinaryReader::next(RowCursor* row, MemPool* mem_pool) {
     const TabletSchema& schema = _tablet->tablet_schema();
     size_t offset = 0;
     size_t field_size = 0;
-    size_t num_null_bytes = (_tablet->num_null_fields() + 7) / 8;
+    size_t num_null_bytes = (_tablet->num_null_columns() + 7) / 8;
 
     size_t p = 0;
     for (size_t i = 0; i < schema.num_columns(); ++i) {
