@@ -15,9 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "olap/rowset/alpha_rowset.h"
+
 #include "olap/rowset/alpha_rowset_writer.h"
 #include "olap/rowset/alpha_rowset_meta.h"
-#include "olap/rowset/alpha_rowset.h"
 
 namespace doris {
 
@@ -160,9 +161,9 @@ RowsetSharedPtr AlphaRowsetWriter::build() {
             alpha_rowset_meta->add_segment_group(segment_group_pb);
         }
     }
-    Rowset* rowset = new AlphaRowset(_rowset_writer_context.tablet_schema,
-                                     _rowset_writer_context.rowset_path_prefix,
-                                     _rowset_writer_context.data_dir, _current_rowset_meta);
+    RowsetSharedPtr rowset(new AlphaRowset(_rowset_writer_context.tablet_schema,
+                                    _rowset_writer_context.rowset_path_prefix,
+                                    _rowset_writer_context.data_dir, _current_rowset_meta));
     rowset->init();
     return std::shared_ptr<Rowset>(rowset);
 }

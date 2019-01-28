@@ -524,6 +524,7 @@ Status SnapshotLoader::move(
         }
 
     } else {
+        /*
         // This is not a overwrite move
         // The files in tablet dir should be like this:
         //
@@ -581,13 +582,13 @@ Status SnapshotLoader::move(
         // load snapshot tablet
         std::stringstream hdr;
         hdr << snapshot_path << "/" << tablet_id << ".hdr";
-        std::string snapshot_header_file = hdr.str();
+        std::string snapshot_tablet_meta_file = hdr.str();
     
-        TabletMeta snapshot_header(snapshot_header_file);
-        OLAPStatus ost = snapshot_header.load_and_init();
+        TabletMeta snapshot_tablet_meta;
+        OLAPStatus ost = snapshot_tablet_meta.create_from_file(snapshot_tablet_meta_file);
         if (ost != OLAP_SUCCESS) {
-            LOG(WARNING) << "failed to load snapshot header: " << snapshot_header_file;
-            return Status("failed to load snapshot header: " + snapshot_header_file);
+            LOG(WARNING) << "failed to load snapshot header: " << snapshot_tablet_meta_file;
+            return Status("failed to load snapshot header: " + snapshot_tablet_meta_file);
         }
 
         LOG(INFO) << "begin to move snapshot files from version 0 to "
@@ -612,9 +613,9 @@ Status SnapshotLoader::move(
             boost::filesystem::remove(place_holder_dat);
 
             // copy files
-            int version_size = snapshot_header.file_version_size();
+            int version_size = snapshot_tablet_meta.file_version_size();
             for (int i = 0; i < version_size; ++i) {
-                const FileVersionMessage& version = snapshot_header.file_version(i);
+                const FileVersionMessage& version = snapshot_tablet_meta.file_version(i);
                 if (version.start_version() > end_version) {
                     continue;
                 }
@@ -649,13 +650,14 @@ Status SnapshotLoader::move(
         }
 
         // merge 2 headers
-        ost = tablet->merge_tablet_meta(snapshot_header, end_version);
+        ost = tablet->merge_tablet_meta(snapshot_tablet_meta, end_version);
         if (ost != OLAP_SUCCESS) {
             std::stringstream ss;
             ss << "failed to move tablet path: " << tablet_path;
             LOG(WARNING) << ss.str();
             return Status(ss.str());
         }
+        */
     }
 
     // fixme: there is no header now and can not call load_one_tablet here

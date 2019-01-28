@@ -66,8 +66,7 @@ private:
             TabletSharedPtr curr_tablet,
             TabletSharedPtr new_tablet_vec,
             std::vector<RowsetSharedPtr>* cur_rowsets,
-            std::vector<RowsetSharedPtr>* related_rowsets,
-            AlterTabletType alter_tablet_type);
+            std::vector<RowsetSharedPtr>* related_rowsets);
 
     // Only for debug
     std::string _debug_version_list(const Versions& versions) const;

@@ -61,11 +61,12 @@ public:
     
     // 根据传入schema的创建RowCursor
     OLAPStatus init(const TabletSchema& schema);
-    OLAPStatus init(const std::vector<TabletColumn>& columns);
+    OLAPStatus init(const std::vector<TabletColumn>& schema);
 
     // 根据传入schema的前n列创建RowCursor
-    OLAPStatus init(const TabletSchema& schema,
+    OLAPStatus init(const std::vector<TabletColumn>& schema,
                     size_t column_count);
+    OLAPStatus init(const TabletSchema& schema, size_t column_count);
 
     // 根据传入schema和column id list创建RowCursor，
     // 用于计算过程只使用部分非前缀连续列的场景
@@ -180,7 +181,7 @@ public:
     inline uint32_t hash_code(uint32_t seed) const;
 private:
     // common init function
-    OLAPStatus _init(const TabletSchema& schema,
+    OLAPStatus _init(const std::vector<TabletColumn>& schema,
                      const std::vector<uint32_t>& columns);
 
     std::vector<Field*> _field_array;    // store point array of field

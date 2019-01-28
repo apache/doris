@@ -42,26 +42,23 @@ OLAPStatus EngineClearAlterTask::_clear_alter_task(const TTabletId tablet_id,
     }
 
     // get schema change info
-    AlterTabletType type;
-    TTabletId related_tablet_id;
-    TSchemaHash related_schema_hash;
-    vector<Version> schema_change_versions;
     tablet->obtain_header_rdlock();
-    bool ret = tablet->get_schema_change_request(
-            &related_tablet_id, &related_schema_hash, &schema_change_versions, &type);
+    const AlterTabletTask& alter_task = tablet->alter_task();
+    AlterTabletState alter_state = alter_task.alter_state();
+    TTabletId related_tablet_id = alter_task.related_tablet_id();
+    TSchemaHash related_schema_hash = alter_task.related_schema_hash();;
     tablet->release_header_lock();
-    if (!ret) {
+    if (alter_state == AlterTabletState::ALTER_NONE) {
         return OLAP_SUCCESS;
-    } else if (!schema_change_versions.empty()) {
-        OLAP_LOG_WARNING("find alter task unfinished when process clear alter task. ",
-                         "[tablet=%s versions_to_change_size=%d]",
-                         tablet->full_name().c_str(), schema_change_versions.size());
+    } else {
+        LOG(WARNING) << "find alter task unfinished when process clear alter task. "
+                     << "tablet=" << tablet->full_name();
         return OLAP_ERR_PREVIOUS_SCHEMA_CHANGE_NOT_FINISHED;
     }
 
     // clear schema change info
     tablet->obtain_header_wrlock();
-    tablet->clear_schema_change_request();
+    tablet->delete_alter_task();
     OLAPStatus res = tablet->save_tablet_meta();
     if (res != OLAP_SUCCESS) {
         LOG(FATAL) << "fail to save header. [res=" << res << " tablet='" << tablet->full_name() << "']";
@@ -79,7 +76,7 @@ OLAPStatus EngineClearAlterTask::_clear_alter_task(const TTabletId tablet_id,
                          tablet_id, schema_hash, related_tablet_id, related_schema_hash);
     } else {
         related_tablet->obtain_header_wrlock();
-        related_tablet->clear_schema_change_request();
+        related_tablet->delete_alter_task();
         res = related_tablet->save_tablet_meta();
         if (res != OLAP_SUCCESS) {
             LOG(FATAL) << "fail to save header. [res=" << res << " tablet='"

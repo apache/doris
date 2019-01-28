@@ -21,6 +21,8 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/olap")
 # where to put generated binaries
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/olap")
   
+add_subdirectory(rowset)
+
 add_library(Olap STATIC
     aggregate_func.cpp
     base_compaction.cpp
@@ -82,5 +84,3 @@ add_library(Olap STATIC
     task/engine_storage_migration_task.cpp
     task/engine_publish_version_task.cpp
 )
-
-add_subdirectory(rowset)

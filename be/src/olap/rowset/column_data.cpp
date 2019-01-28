@@ -29,8 +29,7 @@ ColumnData* ColumnData::create(SegmentGroup* segment_group) {
 }
 
 ColumnData::ColumnData(SegmentGroup* segment_group)
-      : _data_file_type(COLUMN_ORIENTED_FILE),
-        _segment_group(segment_group),
+      : _segment_group(segment_group),
         _eof(false),
         _conditions(NULL),
         _col_predicates(NULL),
