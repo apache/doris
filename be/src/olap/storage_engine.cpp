@@ -821,7 +821,7 @@ void StorageEngine::start_delete_unused_rowset() {
         if (it->second->in_use()) {
             ++it;
         } else {
-            it->second->delete_files();
+            it->second->remove();
             _unused_rowsets.erase(it);
         }
     }

@@ -247,6 +247,22 @@ public:
         new_load_id->set_lo(load_id.lo());
     }
 
+    virtual bool delete_flag() {
+        return _rowset_meta_pb.delete_flag();
+    }
+
+    virtual void set_delete_flag(bool delete_flag) {
+        _rowset_meta_pb.set_delete_flag(delete_flag);
+    }
+
+    virtual int64_t create_time() const {
+        return _rowset_meta_pb.create_time();
+    }
+
+    virtual void set_create_time(int64_t create_time) {
+        return _rowset_meta_pb.set_create_time(create_time);
+    }
+
     virtual std::string extra_properties() {
         return _rowset_meta_pb.extra_properties();
     }
@@ -255,8 +271,10 @@ public:
         _rowset_meta_pb.set_extra_properties(extra_properties);
     }
 
-    OLAPStatus to_rowset_pb(RowsetMetaPB* rs_meta_pb);
-    virtual int64_t creation_time() const;
+    void to_rowset_pb(RowsetMetaPB* rs_meta_pb) {
+        *rs_meta_pb = _rowset_meta_pb;
+    }
+
 private:
     bool _deserialize_from_pb(const std::string& value) {
         return _rowset_meta_pb.ParseFromString(value); 

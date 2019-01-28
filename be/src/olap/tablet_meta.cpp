@@ -240,7 +240,7 @@ OLAPStatus TabletMeta::add_inc_rs_meta(const RowsetMetaSharedPtr& rs_meta) {
 
     _inc_rs_metas.push_back(std::move(rs_meta));
     RowsetMetaPB* rs_meta_pb = _tablet_meta_pb.add_inc_rs_metas();
-    RETURN_NOT_OK(rs_meta->to_rowset_pb(rs_meta_pb));
+    rs_meta->to_rowset_pb(rs_meta_pb);
     RETURN_NOT_OK(save_meta_unlock());
 
     return OLAP_SUCCESS;
