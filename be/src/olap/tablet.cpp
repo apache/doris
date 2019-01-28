@@ -69,7 +69,7 @@ OLAPStatus Tablet::init_once() {
     ReadLock rdlock(&_meta_lock);
     for (auto& it : _tablet_meta.all_rs_metas()) {
         Version version = it->version();
-        RowsetSharedPtr rowset(Rowset::create());
+        RowsetSharedPtr rowset(nullptr);
         rowset->init();
         _rs_version_map[version] = rowset;
         rowset->init();
@@ -207,7 +207,7 @@ OLAPStatus Tablet::delete_expired_inc_rowset() {
     vector<Version> expired_versions;
     WriteLock wrlock(&_meta_lock);
     for (auto& it : _tablet_meta.all_inc_rs_metas()) {
-        double diff = difftime(now, it->creation_time());
+        double diff = difftime(now, it->create_time());
         if (diff >= config::inc_rowset_expired_sec) {
             expired_versions.push_back(it->version());
         }

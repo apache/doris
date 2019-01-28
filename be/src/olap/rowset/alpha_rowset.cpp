@@ -40,7 +40,7 @@ AlphaRowset::AlphaRowset(const TabletSchema* schema,
             _is_cumulative_rowset = true;
         }
     }
-
+    _ref_count = 0;
 }
 
 OLAPStatus AlphaRowset::init() {
@@ -66,6 +66,10 @@ OLAPStatus AlphaRowset::remove() {
     return OLAP_SUCCESS;
 }
 
+void AlphaRowset::to_rowset_pb(RowsetMetaPB* rs_meta) {
+    return _rowset_meta->to_rowset_pb(rs_meta);
+}
+
 RowsetMetaSharedPtr AlphaRowset::rowset_meta() const {
     return _rowset_meta;
 }
@@ -81,14 +85,37 @@ Version AlphaRowset::version() const {
     return _rowset_meta->version();
 }
 
+VersionHash AlphaRowset::version_hash() const {
+    return _rowset_meta->version_hash();
+}
+
+bool AlphaRowset::in_use() const {
+    return _ref_count > 0;
+}
+
+void AlphaRowset::acquire() {
+    atomic_inc(&_ref_count);
+}
+
+void AlphaRowset::release() {
+    atomic_dec(&_ref_count);
+}
+    
+int64_t AlphaRowset::ref_count() const {
+    return _ref_count;
+}
+
+RowsetId AlphaRowset::rowset_id() const {
+    return _rowset_meta->rowset_id();
+}
+
 int64_t AlphaRowset::end_version() const {
-    _rowset_meta->version().second;
+    return _rowset_meta->version().second;
 }
 
 int64_t AlphaRowset::start_version() const {
-    _rowset_meta->version().first;
+    return _rowset_meta->version().first;
 }
-
 
 bool AlphaRowset::create_hard_links(std::vector<std::string>* success_links) {
     for (auto segment_group : _segment_groups) {
@@ -136,6 +163,10 @@ size_t AlphaRowset::num_rows() const {
 
 void AlphaRowset::set_version_hash(VersionHash version_hash) {
     _rowset_meta->set_version_hash(version_hash);
+}
+
+int64_t AlphaRowset::create_time() {
+    return _rowset_meta->create_time();
 }
 
 OLAPStatus AlphaRowset::_init_segment_groups() {
