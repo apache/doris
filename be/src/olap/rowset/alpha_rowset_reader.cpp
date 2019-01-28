@@ -80,6 +80,14 @@ OLAPStatus AlphaRowsetReader::next_block(RowBlock** block) {
     return OLAP_SUCCESS;
 }
 
+bool AlphaRowsetReader::delete_flag() {
+    return _alpha_rowset_meta->delete_flag();
+}
+
+Version AlphaRowsetReader::version() {
+    return _alpha_rowset_meta->version();
+}
+
 void AlphaRowsetReader::close() {
     _column_datas.clear();
 }

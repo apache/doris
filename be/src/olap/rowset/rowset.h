@@ -34,7 +34,6 @@ class RowsetWriter;
 
 class Rowset {
 public:
-    static Rowset* create();
     virtual ~Rowset() { }
 
     virtual OLAPStatus init() = 0;
@@ -45,7 +44,7 @@ public:
 
     virtual OLAPStatus remove() = 0;
 
-    virtual OLAPStatus to_rowset_pb(const RowsetMetaPB& rs_meta);
+    virtual void to_rowset_pb(RowsetMetaPB* rs_meta) = 0;
 
     virtual RowsetMetaSharedPtr rowset_meta() const = 0;
 
@@ -69,9 +68,13 @@ public:
 
     virtual bool in_use() const = 0;
 
-    virtual RowsetId rowset_id() const = 0;
+    virtual void acquire() = 0;
 
-    virtual bool delete_files() const = 0;
+    virtual void release() = 0;
+    
+    virtual int64_t ref_count() const = 0;
+
+    virtual RowsetId rowset_id() const = 0;
 
     virtual void set_version(Version version) = 0;
 
