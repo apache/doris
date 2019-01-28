@@ -352,7 +352,7 @@ public class ReportHandler extends Daemon {
                     if (index == null) {
                         continue;
                     }
-                    long schemaHash = olapTable.getSchemaHashByIndexId(indexId);
+                    int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
 
                     Tablet tablet = index.getTablet(tabletId);
                     if (tablet == null) {
@@ -400,9 +400,19 @@ public class ReportHandler extends Daemon {
                                 continue;
                             }
 
-                            // happens when PUSH finished in BE but failed or not yet report to FE
+                            // happens when
+                            // 1. PUSH finished in BE but failed or not yet report to FE
+                            // 2. repair for VERSION_INCOMPLETE finished in BE, but failed or not yet report to FE
                             replica.updateVersionInfo(backendVersion, backendVersionHash, dataSize, rowCount);
                             
+                            ReplicaPersistInfo info = ReplicaPersistInfo.createForClone(dbId, tableId,
+                                    partitionId, indexId, tabletId, backendId, replica.getId(),
+                                    replica.getVersion(), replica.getVersionHash(), schemaHash,
+                                    dataSize, rowCount,
+                                    replica.getLastFailedVersion(), replica.getLastFailedVersionHash(),
+                                    replica.getLastSuccessVersion(), replica.getLastSuccessVersionHash());
+                            Catalog.getInstance().getEditLog().logUpdateReplica(info);
+
                             ++syncCounter;
                             LOG.debug("sync replica {} of tablet {} in backend {} in db {}.",
                                     replica.getId(), tabletId, backendId, dbId);

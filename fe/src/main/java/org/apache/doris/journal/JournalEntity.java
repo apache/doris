@@ -180,10 +180,6 @@ public class JournalEntity implements Writable {
                 needRead = false;
                 break;
             }
-            case OperationType.OP_CLEAR_ROLLUP_INFO: {
-                data = new ReplicaPersistInfo();
-                break;
-            }
             case OperationType.OP_DROP_ROLLUP: {
                 data = new DropInfo();
                 break;
@@ -249,8 +245,10 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_ADD_REPLICA:
             case OperationType.OP_UPDATE_REPLICA:
-            case OperationType.OP_DELETE_REPLICA: {
-                data = new ReplicaPersistInfo();
+            case OperationType.OP_DELETE_REPLICA:
+            case OperationType.OP_CLEAR_ROLLUP_INFO: {
+                data = ReplicaPersistInfo.read(in);
+                needRead = false;
                 break;
             }
             case OperationType.OP_ADD_BACKEND:

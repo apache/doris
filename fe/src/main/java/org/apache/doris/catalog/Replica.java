@@ -266,7 +266,7 @@ public class Replica implements Writable {
         
         // TODO: this case is unknown, add log to observe
         if (this.version > lastFailedVersion && lastFailedVersion > 0) {
-            LOG.info("current version {} is larger than last failed version {} , " 
+            LOG.debug("current version {} is larger than last failed version {}, "
                         + "last failed version hash {}, maybe a fatal error or be report version, print a stack here ", 
                     this.version, lastFailedVersion, lastFailedVersionHash, new Exception());
         }
