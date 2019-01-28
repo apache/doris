@@ -2301,7 +2301,7 @@ OLAPStatus SchemaChangeHandler::_parse_request(TabletSharedPtr ref_tablet,
 
     const RowFields& ref_tablet_schema = ref_tablet->tablet_schema();
     const RowFields& new_tablet_schema = new_tablet->tablet_schema();
-    for (size_t i = 0; i < new_tablet->num_fields(); ++i) {
+    for (size_t i = 0; i < new_tablet->num_columns(); ++i) {
         ColumnMapping* column_mapping = rb_changer->get_mutable_column_mapping(i);
         if (column_mapping->ref_column < 0) {
             continue;
