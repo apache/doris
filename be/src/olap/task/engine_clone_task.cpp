@@ -61,17 +61,19 @@ OLAPStatus EngineCloneTask::execute() {
 
         // try to incremental clone
         vector<Version> missed_versions;
-        string local_data_path = _get_info_before_incremental_clone(tablet, _clone_req.committed_version, &missed_versions);
+        tablet->calc_missed_versions(_clone_req.committed_version, &missed_versions);
+        LOG(INFO) << "finish to calculate missed versions when clone. "
+                  << "tablet=" << tablet->full_name()
+                  << ", committed_version=" << committed_version
+                  << ", missed_versions_size=" << missed_versions.size();
+        // get download path
+        string local_data_path = tablet->tablet_path() + CLONE_PREFIX;
 
         bool allow_incremental_clone = false;
-        status = _clone_copy(_clone_req,
-                                                _signature,
-                                                local_data_path,
-                                                &src_host,
-                                                &src_file_path,
-                                                _error_msgs,
-                                                &missed_versions,
-                                                &allow_incremental_clone);
+        status = _clone_copy(_clone_req, _signature, local_data_path,
+                            &src_host, &src_file_path, _error_msgs,
+                            &missed_versions,
+                            &allow_incremental_clone);
         if (status == DORIS_SUCCESS) {
             OLAPStatus olap_status = _finish_clone(tablet, local_data_path, _clone_req.committed_version, allow_incremental_clone);
             if (olap_status != OLAP_SUCCESS) {
@@ -83,13 +85,9 @@ OLAPStatus EngineCloneTask::execute() {
         } else {
             // begin to full clone if incremental failed
             LOG(INFO) << "begin to full clone. [table=" << tablet->full_name();
-            status = _clone_copy(_clone_req,
-                                                    _signature,
-                                                    local_data_path,
-                                                    &src_host,
-                                                    &src_file_path,
-                                                    _error_msgs,
-                                                    NULL, NULL);
+            status = _clone_copy(_clone_req, _signature, local_data_path,
+                                &src_host, &src_file_path,  _error_msgs,
+                                NULL, NULL);
             if (status == DORIS_SUCCESS) {
                 LOG(INFO) << "download successfully when full clone. [table=" << tablet->full_name()
                             << " src_host=" << src_host.host << " src_file_path=" << src_file_path
@@ -184,10 +182,10 @@ OLAPStatus EngineCloneTask::execute() {
         tablet_info.__set_schema_hash(_clone_req.schema_hash);
         OLAPStatus get_tablet_info_status = TabletManager::instance()->report_tablet_info(&tablet_info);
         if (get_tablet_info_status != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("clone success, but get tablet info failed."
-                                "tablet id: %ld, schema hash: %ld, signature: %ld",
-                                _clone_req.tablet_id, _clone_req.schema_hash,
-                                _signature);
+            LOG(WARNING) << "clone success, but get tablet info failed."
+                         << " tablet id: " <<  _clone_req.tablet_id
+                         << " schema hash: " << _clone_req.schema_hash
+                         << " signature: " << _signature;
             _error_msgs->push_back("clone success, but get tablet info failed.");
             status = DORIS_ERROR;
         } else if (
@@ -207,13 +205,12 @@ OLAPStatus EngineCloneTask::execute() {
                         << ", version_hash:" << tablet_info.version_hash
                         << ", expected_version: " << _clone_req.committed_version
                         << ", version_hash:" << _clone_req.committed_version_hash;
+            // TODO(ygl): if it is incremental clone, should not drop the tablet?
             OLAPStatus drop_status = TabletManager::instance()->drop_tablet(_clone_req.tablet_id, _clone_req.schema_hash);
             if (drop_status != OLAP_SUCCESS && drop_status != OLAP_ERR_TABLE_NOT_FOUND) {
                 // just log
-                OLAP_LOG_WARNING(
-                    "drop stale cloned table failed! tabelt id: %ld", _clone_req.tablet_id);
+                LOG(WARNING) << "drop stale cloned table failed! tabelt id: " << _clone_req.tablet_id;
             }
-
             status = DORIS_ERROR;
         } else {
             LOG(INFO) << "clone get tablet info success. tablet_id:" << _clone_req.tablet_id
@@ -226,18 +223,6 @@ OLAPStatus EngineCloneTask::execute() {
     }
     *_res_status = status;
     return OLAP_SUCCESS;
-}
-
-string EngineCloneTask::_get_info_before_incremental_clone(TabletSharedPtr tablet,
-    int64_t committed_version, vector<Version>* missed_versions) {
-    tablet->calc_missed_versions(committed_version, missed_versions);
-    LOG(INFO) << "finish to calculate missed versions when clone. "
-              << "tablet=" << tablet->full_name()
-              << ", committed_version=" << committed_version
-              << ", missed_versions_size=" << missed_versions->size();
-
-    // get download path
-    return tablet->tablet_path() + CLONE_PREFIX;
 }
 
 AgentStatus EngineCloneTask::_clone_copy(
@@ -594,6 +579,7 @@ OLAPStatus EngineCloneTask::_finish_clone(TabletSharedPtr tablet, const string& 
             break;
         }
 
+        // TODO(ygl): convert old format file into rowset
         // check all files in /clone and /tablet
         set<string> clone_files;
         if ((res = dir_walk(clone_dir, NULL, &clone_files)) != OLAP_SUCCESS) {
@@ -677,7 +663,7 @@ OLAPStatus EngineCloneTask::_clone_incremental_data(TabletSharedPtr tablet, cons
     vector<Version> versions_to_delete;
     vector<RowsetMetaSharedPtr> rowsets_to_clone;
 
-    VLOG(3) << "get missed versions again when incremental clone. "
+    VLOG(3) << "get missed versions again when finish incremental clone. "
             << "tablet=" << tablet->full_name() 
             << ", committed_version=" << committed_version
             << ", missed_versions_size=" << missed_versions.size();
