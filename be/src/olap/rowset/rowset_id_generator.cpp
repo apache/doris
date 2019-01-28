@@ -24,7 +24,7 @@ namespace doris {
 RowsetIdGenerator* RowsetIdGenerator::_s_instance = nullptr;
 std::mutex RowsetIdGenerator::_mlock;
 
-RowsetIdGenerator RowsetIdGenerator::instance() {
+RowsetIdGenerator* RowsetIdGenerator::instance() {
     if (_s_instance == nullptr) {
         std::lock_guard<std::mutex> lock(_mlock);
         if (_s_instance == nullptr) {
@@ -38,16 +38,15 @@ OLAPStatus RowsetIdGenerator::get_next_id(DataDir* dir, RowsetId* gen_rowset_id)
     WriteLock wrlock(&_ids_lock);
     // if could not find the dir in map, then load the start id from meta
     RowsetId batch_end_id = 10000;
-    OLAPStatus s = OK;
+    std::string key = END_ROWSET_ID;
+    OLAPStatus s = OLAP_SUCCESS;
     if (_dir_ids.find(dir) == _dir_ids.end()) {
         // could not find dir in map, it means this dir is not loaded
         std::string value;
-        std::string key = END_ROWSET_ID;
-        OlapMeta* meta = dir->get_meta();
-        OLAPStatus s = meta->get(DEFAULT_COLUMN_FAMILY_INDEX, key, value);
+        OLAPStatus s = dir->get_meta()->get(DEFAULT_COLUMN_FAMILY_INDEX, key, value);
         if (s != OLAP_SUCCESS) {
             if (s == OLAP_ERR_META_KEY_NOT_FOUND) {
-                s = meta->put(DEFAULT_COLUMN_FAMILY_INDEX, key, std::to_string(batch_end_id));
+                s = dir->get_meta()->put(DEFAULT_COLUMN_FAMILY_INDEX, key, std::to_string(batch_end_id));
                 if (s != OLAP_SUCCESS) {
                     return s;
                 }
@@ -57,14 +56,14 @@ OLAPStatus RowsetIdGenerator::get_next_id(DataDir* dir, RowsetId* gen_rowset_id)
             }
         } else {
             batch_end_id = std::stol(value);
-            _dir_end_ids[dir] = std::pair<RowsetId, RowsetId>(batch_end_id, batch_end_id);
+            _dir_ids[dir] = std::pair<RowsetId, RowsetId>(batch_end_id, batch_end_id);
         }
     }
 
     std::pair<RowsetId, RowsetId>& start_end_id = _dir_ids[dir];
     if (start_end_id.first + 1 >= start_end_id.second) {
         start_end_id.second = start_end_id.second + _batch_interval;
-        s = meta->put(DEFAULT_COLUMN_FAMILY_INDEX, key, std::to_string(start_end_id.second));
+        s = dir->get_meta()->put(DEFAULT_COLUMN_FAMILY_INDEX, key, std::to_string(start_end_id.second));
         if (s != OLAP_SUCCESS) {
             return s;
         }
