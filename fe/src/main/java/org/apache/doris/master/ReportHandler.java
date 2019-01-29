@@ -284,7 +284,7 @@ public class ReportHandler extends Daemon {
 
         AgentBatchTask batchTask = new AgentBatchTask();
         for (AgentTask task : diffTasks) {
-            // these tasks donot need to do diff
+            // these tasks no need to do diff
             // 1. CREATE
             // 2. SYNC DELETE
             // 3. CHECK_CONSISTENCY

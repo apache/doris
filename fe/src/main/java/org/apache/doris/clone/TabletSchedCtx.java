@@ -664,7 +664,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             throw new SchedException(Status.RUNNING_FAILED, request.getTask_status().getError_msgs().get(0));
         }
 
-        if (!request.isSetFinish_tablet_infos() || !request.getFinish_tablet_infos().isEmpty()) {
+        if (!request.isSetFinish_tablet_infos() || request.getFinish_tablet_infos().isEmpty()) {
             throw new SchedException(Status.RUNNING_FAILED, "tablet info is not set in task report request");
         }
 

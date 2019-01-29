@@ -26,13 +26,10 @@ import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.system.Backend;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
-import java.net.InetAddress;
-import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -43,7 +40,7 @@ import java.util.List;
  */
 public class TabletsProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("TabletId").add("ReplicaId").add("BackendId").add("HostName").add("Version")
+            .add("TabletId").add("ReplicaId").add("BackendId").add("Version")
             .add("VersionHash").add("LstSuccessVersion").add("LstSuccessVersionHash")
             .add("LstFailedVersion").add("LstFailedVersionHash").add("LstFailedTime")
             .add("DataSize").add("RowCount").add("State")
@@ -101,19 +98,6 @@ public class TabletsProcDir implements ProcDirInterface {
                         tabletInfo.add(replica.getId());
                         long backendId = replica.getBackendId();
                         tabletInfo.add(replica.getBackendId());
-                        Backend backend = Catalog.getCurrentSystemInfo().getBackend(backendId);
-						// backend may be dropped concurrently, ignore it.
-						if (backend == null) {
-							continue;
-						}
-                        String hostName = null;
-                        try {
-                            InetAddress address = InetAddress.getByName(backend.getHost());
-                            hostName = address.getHostName();
-                        } catch (UnknownHostException e) {
-                            continue;
-                        }
-                        tabletInfo.add(hostName);
                         tabletInfo.add(replica.getVersion());
                         tabletInfo.add(replica.getVersionHash());
                         tabletInfo.add(replica.getLastSuccessVersion());
