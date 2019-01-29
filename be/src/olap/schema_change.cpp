@@ -852,11 +852,10 @@ bool SchemaChangeWithSorting::process(
     RowBlock* ref_row_block = NULL;
     bool need_create_empty_version = false;
     OLAPStatus res = OLAP_SUCCESS;
-    if (rowset_reader->has_next()) {
-        res = rowset_reader->next_block(&ref_row_block);
-        if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "failed to get first row block.";
-            return false;
+    RowsetSharedPtr rowset = rowset_reader->rowset();
+    if (!rowset->empty()) {
+        if (!rowset_reader->has_next()) {
+            need_create_empty_version = true;
         }
     } else {
         need_create_empty_version = true;
