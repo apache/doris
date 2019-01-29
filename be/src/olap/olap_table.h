@@ -565,6 +565,7 @@ public:
 
     // 在使用之前对header加锁
     void set_cumulative_layer_point(const int32_t new_point) {
+        LOG(INFO) << "cumulative_layer_point: " << new_point;
         _header->set_cumulative_layer_point(new_point);
     }
 

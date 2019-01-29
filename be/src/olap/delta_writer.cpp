@@ -190,7 +190,7 @@ OLAPStatus DeltaWriter::close(google::protobuf::RepeatedPtrField<PTabletInfo>* t
         RETURN_NOT_OK(segment_group->load());
     }
     if (_new_table != nullptr) {
-        LOG(INFO) << "convert version for schema change";
+        LOG(INFO) << "convert version for schema change. txn id: " << _req.transaction_id;
         {
             MutexLock push_lock(_new_table->get_push_lock());
             // create pending data dir

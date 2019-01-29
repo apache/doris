@@ -175,6 +175,8 @@ public class TabletChecker extends Daemon {
         long totalTabletNum = 0;
         long unhealthyTabletNum = 0;
         long addToSchedulerTabletNum = 0;
+        long tabletInScheduler = 0;
+        long tabletNotReady = 0;
 
         List<Long> dbIds = catalog.getDbIds();
         OUT: for (Long dbId : dbIds) {
@@ -203,6 +205,7 @@ public class TabletChecker extends Daemon {
                                 totalTabletNum++;
                                 
                                 if (tabletScheduler.containsTablet(tablet.getId())) {
+                                    tabletInScheduler++;
                                     continue;
                                 }
                                 
@@ -225,6 +228,7 @@ public class TabletChecker extends Daemon {
                                 unhealthyTabletNum++;
 
                                 if (!tablet.readyToBeRepaired(statusWithPrio.second)) {
+                                    tabletNotReady++;
                                     continue;
                                 }
 
@@ -268,8 +272,8 @@ public class TabletChecker extends Daemon {
         stat.counterUnhealthyTabletNum.addAndGet(unhealthyTabletNum);
         stat.counterTabletAddToBeScheduled.addAndGet(addToSchedulerTabletNum);
 
-        LOG.info("finished to check tablets. unhealth/total/added: {}/{}/{}, cost: {} ms",
-                 unhealthyTabletNum, totalTabletNum, addToSchedulerTabletNum, cost);
+        LOG.info("finished to check tablets. unhealth/total/added/in_sched/not_ready: {}/{}/{}/{}/{}, cost: {} ms",
+                unhealthyTabletNum, totalTabletNum, addToSchedulerTabletNum, tabletInScheduler, tabletNotReady, cost);
     }
 
     private boolean isInPrios(long dbId, long tblId, long partId) {

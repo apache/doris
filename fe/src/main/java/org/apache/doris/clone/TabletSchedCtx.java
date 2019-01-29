@@ -126,7 +126,8 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         RUNNING, // tablet is being scheduled
         FINISHED, // task is finished
         CANCELLED, // task is failed
-        TIMEOUT // task is timeout
+        TIMEOUT, // task is timeout
+        UNEXPECTED // other unexpected errors
     }
     
     private Type type;
@@ -601,8 +602,10 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                 visibleVersion, visibleVersionHash);
         cloneTask.setPathHash(srcPathHash, destPathHash);
         
-        if (tabletStatus == TabletStatus.REPLICA_MISSING || tabletStatus == TabletStatus.REPLICA_MISSING_IN_CLUSTER) {
-            // only these 2 status need to create a new replica.
+        // if this is a balance task, or this is a repair task with REPLICA_MISSING or REPLICA_MISSING_IN_CLUSTER,
+        // we create a new replica with state CLONE
+        if (tabletStatus == TabletStatus.REPLICA_MISSING || tabletStatus == TabletStatus.REPLICA_MISSING_IN_CLUSTER
+                || type == Type.BALANCE) {
             Replica cloneReplica = new Replica(
                     Catalog.getCurrentCatalog().getNextId(), destBackendId,
                     -1 /* version */, 0 /* version hash */, schemaHash,
@@ -614,6 +617,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             // addReplica() method will add this replica to tablet inverted index too.
             tablet.addReplica(cloneReplica);
         } else if (tabletStatus == TabletStatus.VERSION_INCOMPLETE) {
+            Preconditions.checkState(type == Type.REPAIR, type);
             // double check
             Replica replica = tablet.getReplicaByBackendId(destBackendId);
             if (replica == null) {
@@ -658,6 +662,10 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         // check if clone task success
         if (request.getTask_status().getStatus_code() != TStatusCode.OK) {
             throw new SchedException(Status.RUNNING_FAILED, request.getTask_status().getError_msgs().get(0));
+        }
+
+        if (!request.isSetFinish_tablet_infos() || request.getFinish_tablet_infos().isEmpty()) {
+            throw new SchedException(Status.RUNNING_FAILED, "tablet info is not set in task report request");
         }
 
         // check task report
@@ -753,8 +761,6 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                                 + replica.getLastFailedVersionHash() + " vs. " + reportedTablet.getVersion_hash());
             }
             
-            // validate the replica
-            replica.setState(ReplicaState.NORMAL);
             replica.updateVersionInfo(reportedTablet.getVersion(), reportedTablet.getVersion_hash(),
                     reportedTablet.getData_size(), reportedTablet.getRow_count());
             
@@ -771,7 +777,16 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                     replica.getLastFailedVersionHash(),
                     replica.getLastSuccessVersion(),
                     replica.getLastSuccessVersionHash());
-            Catalog.getInstance().getEditLog().logAddReplica(info);
+
+            if (replica.getState() == ReplicaState.CLONE) {
+                replica.setState(ReplicaState.NORMAL);
+                Catalog.getInstance().getEditLog().logAddReplica(info);
+            } else {
+                // if in VERSION_INCOMPLETE, replica is not newly created, thus the state is not CLONE
+                // so we keep it state unchanged, and log update replica
+                Catalog.getInstance().getEditLog().logUpdateReplica(info);
+            }
+
             LOG.info("clone finished: {}", this);
         } catch (SchedException e) {
             // if failed to too many times, remove this task
