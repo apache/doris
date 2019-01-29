@@ -99,6 +99,7 @@ private:
     OLAPStatus _init_non_pending_segment_groups();
 
 private:
+    friend class AlphaRowsetWriter;
     const TabletSchema* _schema;
     std::string _rowset_path;
     DataDir* _data_dir;

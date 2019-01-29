@@ -25,7 +25,7 @@
 #include "gen_cpp/AgentService_types.h"
 #include "olap/delete_handler.h"
 #include "olap/rowset/rowset.h"
-#include "olap/rowset/rowset_builder.h"
+#include "olap/rowset/rowset_writer.h"
 #include "olap/tablet.h"
 
 namespace doris {
@@ -54,11 +54,11 @@ class RowBlockChanger {
 public:
     typedef std::vector<ColumnMapping> SchemaMapping;
 
-    RowBlockChanger(const std::vector<FieldInfo>& tablet_schema,
+    RowBlockChanger(const TabletSchema& tablet_schema,
                     const TabletSharedPtr& ref_tablet,
                     const DeleteHandler& delete_handler);
 
-    RowBlockChanger(const std::vector<FieldInfo>& tablet_schema,
+    RowBlockChanger(const TabletSchema& tablet_schema,
                     const TabletSharedPtr& ref_tablet);
     
     virtual ~RowBlockChanger();
@@ -105,7 +105,7 @@ private:
 
 class RowBlockAllocator {
 public:
-    RowBlockAllocator(const std::vector<FieldInfo>& tablet_schema, size_t memory_limitation);
+    RowBlockAllocator(const TabletSchema& tablet_schema, size_t memory_limitation);
     virtual ~RowBlockAllocator();
 
     OLAPStatus allocate(RowBlock** row_block, size_t num_rows, 
@@ -113,7 +113,7 @@ public:
     void release(RowBlock* row_block);
 
 private:
-    const std::vector<FieldInfo>& _tablet_schema;
+    const TabletSchema& _tablet_schema;
     size_t _memory_allocated;
     size_t _row_len;
     size_t _memory_limitation;
@@ -126,7 +126,7 @@ public:
 
     bool merge(
             const std::vector<RowBlock*>& row_block_arr,
-            RowsetBuilderSharedPtr rowset_builder,
+            RowsetWriterSharedPtr rowset_writer,
             uint64_t* merged_rows);
 
 private:
@@ -153,7 +153,7 @@ public:
     virtual ~SchemaChange() {}
 
     virtual bool process(RowsetReaderSharedPtr rowset_reader,
-                         RowsetBuilderSharedPtr new_rowset_builder,
+                         RowsetWriterSharedPtr new_rowset_builder,
                          TabletSharedPtr tablet) = 0;
 
     void add_filted_rows(uint64_t filted_rows) {
@@ -185,7 +185,7 @@ public:
             TSchemaHash schema_hash,
             Version version,
             VersionHash version_hash,
-            RowsetBuilderSharedPtr rowset_builder);
+            RowsetWriterSharedPtr rowset_builder);
 
 private:
     uint64_t _filted_rows;
@@ -229,7 +229,7 @@ private:
     RowCursor* _src_cursor;
     RowCursor* _dst_cursor;
 
-    bool _write_row_block(RowsetBuilderSharedPtr rowset_builder, RowBlock* row_block);
+    bool _write_row_block(RowsetWriterSharedPtr rowset_builder, RowBlock* row_block);
 
     DISALLOW_COPY_AND_ASSIGN(SchemaChangeDirectly);
 };
@@ -244,7 +244,7 @@ public:
     virtual ~SchemaChangeWithSorting();
 
     virtual bool process(RowsetReaderSharedPtr rowset_reader,
-                         RowsetBuilderSharedPtr new_rowset_builder,
+                         RowsetWriterSharedPtr new_rowset_builder,
                          TabletSharedPtr tablet);
 
 private:
@@ -256,7 +256,7 @@ private:
 
     bool _external_sorting(
             std::vector<RowsetSharedPtr>& src_rowsets,
-            RowsetSharedPtr rowset,
+            RowsetWriterSharedPtr rowset_writer,
             TabletSharedPtr tablet);
 
     TabletSharedPtr _tablet;
@@ -278,7 +278,7 @@ public:
 
     OLAPStatus schema_version_convert(TabletSharedPtr ref_tablet,
                                       TabletSharedPtr new_tablet,
-                                      std::vector<RowsetSharedPtr>* ref_rowsets,
+                                      std::vector<RowsetSharedPtr>* old_rowsets,
                                       std::vector<RowsetSharedPtr>* new_rowsets);
 
 

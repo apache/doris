@@ -733,7 +733,7 @@ bool SegmentGroup::remove_old_files(std::vector<std::string>* removed_links) {
 }
 
 bool SegmentGroup::copy_segments_to_path(const std::string& dest_path) {
-    if (dest_path == "" || dest_path == _rowset_path_prefix) {
+    if (dest_path.empty() || dest_path == _rowset_path_prefix) {
         return true;
     }
     for (int segment_id = 0; segment_id < _num_segments; segment_id++) {

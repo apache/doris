@@ -23,7 +23,7 @@
 
 #include "olap/storage_engine.h"
 #include "util/doris_metrics.h"
-#include "olap/rowset/alpha_rowset_builder.h"
+#include "olap/rowset/alpha_rowset_writer.h"
 
 using std::list;
 using std::nothrow;
@@ -85,7 +85,7 @@ OLAPStatus CumulativeCompaction::init(TabletSharedPtr tablet) {
     _is_init = true;
     _cumulative_version = Version(_need_merged_versions.begin()->first,
                                   _need_merged_versions.rbegin()->first);
-    _builder.reset(new AlphaRowsetBuilder());
+    _rs_writer.reset(new AlphaRowsetWriter());
     return OLAP_SUCCESS;
 }
 

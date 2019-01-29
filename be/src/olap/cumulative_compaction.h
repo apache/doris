@@ -42,7 +42,7 @@ public:
             _new_cumulative_layer_point(0),
             _max_delta_file_size(0),
             _rowset(nullptr),
-            _builder(nullptr) {}
+            _rs_writer(nullptr) {}
 
     ~CumulativeCompaction() {}
     

@@ -75,14 +75,6 @@ public:
         _rowset_meta_pb.set_rowset_id(rowset_id);
     }
 
-    virtual int64_t partition_id() {
-        return _rowset_meta_pb.partition_id();
-    }
-
-    virtual void set_partition_id(int64_t partition_id) {
-        _rowset_meta_pb.set_partition_id(partition_id);
-    }
-
     virtual int64_t tablet_id() {
         return _rowset_meta_pb.tablet_id();
     }

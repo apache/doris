@@ -30,7 +30,7 @@
 #include "olap/row_cursor.h"
 #include "olap/wrapper_field.h"
 #include "olap/rowset/rowset_id_generator.h"
-#include "olap/rowset/alpha_rowset_builder.h"
+#include "olap/rowset/alpha_rowset_writer.h"
 #include "common/resource_tls.h"
 #include "agent/cgroups_mgr.h"
 
@@ -53,12 +53,12 @@ bool version_entity_sorter(const VersionEntity& a, const VersionEntity& b) {
     }
 }
 
-RowBlockChanger::RowBlockChanger(const std::vector<FieldInfo> &tablet_schema,
+RowBlockChanger::RowBlockChanger(const TabletSchema& tablet_schema,
                                  const TabletSharedPtr &ref_tablet) {
-    _schema_mapping.resize(tablet_schema.size());
+    _schema_mapping.resize(tablet_schema.num_columns());
 }
 
-RowBlockChanger::RowBlockChanger(const vector<FieldInfo>& tablet_schema,
+RowBlockChanger::RowBlockChanger(const TabletSchema& tablet_schema,
                                  const TabletSharedPtr& ref_tablet,
                                  const DeleteHandler& delete_handler) {
     _schema_mapping.resize(tablet_schema.size());
@@ -114,7 +114,7 @@ ColumnMapping* RowBlockChanger::get_mutable_column_mapping(size_t column_index) 
 
 #define CONVERT_FROM_TYPE(from_type) \
 { \
-    switch (mutable_block->_tablet_schema[i].type) {\
+    switch (mutable_block->tablet_schema().column(i).type()) {\
     case OLAP_FIELD_TYPE_TINYINT: \
         TYPE_REINTERPRET_CAST(from_type, int8_t); \
     case OLAP_FIELD_TYPE_UNSIGNED_TINYINT: \
@@ -138,8 +138,8 @@ ColumnMapping* RowBlockChanger::get_mutable_column_mapping(size_t column_index) 
     default: \
         OLAP_LOG_WARNING("the column type which was altered to was" \
                          " unsupported. [origin_type=%d alter_type=%d]", \
-                         ref_block._tablet_schema[ref_column].type, \
-                         mutable_block->_tablet_schema[i].type); \
+                         ref_block.tablet_schema().column(ref_column).type(), \
+                         mutable_block->tablet_schema().column(i).type()); \
         return false; \
     } \
     break; \
@@ -163,10 +163,10 @@ bool RowBlockChanger::change_row_block(
     if (mutable_block == NULL) {
         LOG(FATAL) << "mutable block is uninitialized.";
         return false;
-    } else if (mutable_block->_tablet_schema.size() != _schema_mapping.size()) {
+    } else if (mutable_block->tablet_schema().num_columns() != _schema_mapping.size()) {
         OLAP_LOG_WARNING("mutable block does not match with schema mapping rules. "
                          "[block_schema_size=%ld, mapping_schema_size=%ld]",
-                         mutable_block->_tablet_schema.size(),
+                         mutable_block->tablet_schema().num_columns(),
                          _schema_mapping.size());
         return false;
     }
@@ -182,13 +182,13 @@ bool RowBlockChanger::change_row_block(
     mutable_block->clear();
 
     RowCursor write_helper;
-    if (write_helper.init(mutable_block->_tablet_schema) != OLAP_SUCCESS) {
+    if (write_helper.init(mutable_block->tablet_schema()) != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("fail to init rowcursor.");
         return false;
     }
 
     RowCursor read_helper;
-    if (read_helper.init(ref_block._tablet_schema) != OLAP_SUCCESS) {
+    if (read_helper.init(ref_block.tablet_schema()) != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("fail to init rowcursor.");
         return false;
     }
@@ -225,14 +225,14 @@ bool RowBlockChanger::change_row_block(
 
     MemPool* mem_pool = mutable_block->mem_pool();
     // b. 根据前面的过滤信息，只对还标记为1的处理
-    for (size_t i = 0, len = mutable_block->tablet_schema().size(); !filter_all && i < len; ++i) {
+    for (size_t i = 0, len = mutable_block->tablet_schema().num_columns(); !filter_all && i < len; ++i) {
         int32_t ref_column = _schema_mapping[i].ref_column;
 
         if (_schema_mapping[i].ref_column >= 0) {
             // new column will be assigned as referenced column
             // check if the type of new column is equal to the older's.
-            if (mutable_block->tablet_schema()[i].type 
-                    == ref_block.tablet_schema()[ref_column].type) {
+            if (mutable_block->tablet_schema().column(i).type()
+                    == ref_block.tablet_schema().column(ref_column).type()) {
                 // 效率低下，也可以直接计算变长域拷贝，但仍然会破坏封装
                 for (size_t row_index = 0, new_row_index = 0; 
                         row_index < ref_block.row_block_info().row_num; ++row_index) {
@@ -261,8 +261,8 @@ bool RowBlockChanger::change_row_block(
                 }
 
                 // 从ref_column 写入 i列。
-            } else if (mutable_block->tablet_schema()[i].type == OLAP_FIELD_TYPE_VARCHAR
-                       && ref_block.tablet_schema()[ref_column].type == OLAP_FIELD_TYPE_CHAR) {
+            } else if (mutable_block->tablet_schema().column(i).type() == OLAP_FIELD_TYPE_VARCHAR
+                       && ref_block.tablet_schema().column(ref_column).type() == OLAP_FIELD_TYPE_CHAR) {
                 // 效率低下，也可以直接计算变长域拷贝，但仍然会破坏封装
                 for (size_t row_index = 0, new_row_index = 0;
                         row_index < ref_block.row_block_info().row_num; ++row_index) {
@@ -287,7 +287,7 @@ bool RowBlockChanger::change_row_block(
                         }
 
                         write_helper.set_not_null(i);
-                        int p = ref_block.tablet_schema()[ref_column].length - 1;
+                        int p = ref_block.tablet_schema().column(ref_column).length() - 1;
                         Slice* slice = reinterpret_cast<Slice*>(field_to_read->get_ptr(read_helper.get_buf()));
                         char* buf = slice->data;
                         while (p >= 0 && buf[p] == '\0') {
@@ -302,7 +302,7 @@ bool RowBlockChanger::change_row_block(
             } else {
                 // copy and alter the field
                 // 此处可以暂时不动，新类型暂时不涉及类型转换
-                switch (ref_block._tablet_schema[ref_column].type) {
+                switch (ref_block.tablet_schema().column(ref_column).type()) {
                 case OLAP_FIELD_TYPE_TINYINT:
                     CONVERT_FROM_TYPE(int8_t);
                 case OLAP_FIELD_TYPE_UNSIGNED_TINYINT:
@@ -322,16 +322,16 @@ bool RowBlockChanger::change_row_block(
                 default:
                     OLAP_LOG_WARNING("the column type which was altered from was"
                                      " unsupported. [from_type=%d]",
-                                     ref_block._tablet_schema[ref_column].type);
+                                     ref_block.tablet_schema().column(ref_column).type());
                     return false;
                 }
 
-                if (mutable_block->tablet_schema()[i].type <
-                        ref_block.tablet_schema()[ref_column].type) {
+                if (mutable_block->tablet_schema().column(i).type() <
+                        ref_block.tablet_schema().column(ref_column).type()) {
                     VLOG(3) << "type degraded while altering column. "
-                            << "column=" << mutable_block->tablet_schema()[i].name
-                            << ", origin_type=" << ref_block._tablet_schema[ref_column].type
-                            << ", alter_type=" << mutable_block->_tablet_schema[i].type;
+                            << "column=" << mutable_block->tablet_schema().column(i).name()
+                            << ", origin_type=" << ref_block.tablet_schema().column(ref_column).type()
+                            << ", alter_type=" << mutable_block->tablet_schema().column(i).type();
                 }
             }
         } else {
@@ -455,17 +455,13 @@ SORT_ERR_EXIT:
     return false;
 }
 
-RowBlockAllocator::RowBlockAllocator(const vector<FieldInfo>& tablet_schema,
+RowBlockAllocator::RowBlockAllocator(const TabletSchema& tablet_schema,
                                      size_t memory_limitation) :
         _tablet_schema(tablet_schema),
         _memory_allocated(0),
         _memory_limitation(memory_limitation) {
     _row_len = 0;
-    _row_len += tablet_schema.size();
-    for (vector<FieldInfo>::const_iterator it = tablet_schema.begin();
-            it != tablet_schema.end(); ++it) {
-        _row_len += (*it).length;
-    }
+    _row_len = tablet_schema.row_size();
 
     VLOG(3) << "RowBlockAllocator(). row_len=" << _row_len;
 }
@@ -491,10 +487,10 @@ OLAPStatus RowBlockAllocator::allocate(RowBlock** row_block,
     }
 
     // TODO(lijiao) : 为什么舍弃原有的m_row_block_buffer
-    *row_block = new(nothrow) RowBlock(_tablet_schema);
+    *row_block = new(nothrow) RowBlock(&_tablet_schema);
 
     if (*row_block == NULL) {
-        OLAP_LOG_WARNING("failed to malloc RowBlock. [size=%ld]", sizeof(RowBlock));
+        LOG(WARNING) << "failed to malloc RowBlock. size=" << sizeof(RowBlock);
         return OLAP_ERR_MALLOC_ERROR;
     }
 
@@ -538,7 +534,7 @@ RowBlockMerger::~RowBlockMerger() {}
 
 bool RowBlockMerger::merge(
         const vector<RowBlock*>& row_block_arr,
-        RowsetBuilder* rowset_writer,
+        RowsetWriterSharedPtr rowset_writer,
         uint64_t* merged_rows) {
     uint64_t tmp_merged_rows = 0;
     RowCursor row_cursor;
@@ -647,7 +643,7 @@ bool LinkedSchemaChange::process(
         RowsetReaderSharedPtr rowset_reader,
         RowsetWriterSharedPtr new_rowset_writer,
         TabletSharedPtr tablet) {
-    OLAPStatus status = new_rowset_writer.add_rowset(rowset_reader->rowset());
+    OLAPStatus status = new_rowset_writer->add_rowset(rowset_reader->rowset());
     if (status != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to reload index. "
                      << "[tablet='"<< _new_tablet->full_name() << "'"
@@ -665,20 +661,19 @@ SchemaChangeDirectly::SchemaChangeDirectly(
         _tablet(tablet),
         _row_block_changer(row_block_changer),
         _row_block_allocator(NULL),
-        _src_cursor(NULL),
-        _dst_cursor(NULL) {}
+        _src_cursor(NULL) {}
 
 SchemaChangeDirectly::~SchemaChangeDirectly() {
     VLOG(3) << "~SchemaChangeDirectly()";
     SAFE_DELETE(_row_block_allocator);
     SAFE_DELETE(_src_cursor);
-    SAFE_DELETE(_dst_cursor);
 }
 
 bool SchemaChangeDirectly::_write_row_block(RowsetWriterSharedPtr rowset_writer, RowBlock* row_block) {
     for (uint32_t i = 0; i < row_block->row_block_info().row_num; i++) {
-        if (OLAP_SUCCESS != rowset_writer->add_row(_dst_cursor)) {
-            LOG(WARNING << "fail to attach writer";
+        row_block->get_row(i, _src_cursor);
+        if (OLAP_SUCCESS != rowset_writer->add_row(_src_cursor)) {
+            LOG(WARNING) << "fail to attach writer";
             return false;
         }
     }
@@ -712,31 +707,14 @@ bool SchemaChangeDirectly::process(RowsetReaderSharedPtr rowset_reader, RowsetWr
         }
     }
 
-    if (NULL == _dst_cursor) {
-        _dst_cursor = new(nothrow) RowCursor();
-        if (NULL == _dst_cursor) {
-            OLAP_LOG_WARNING("fail to allocate row cursor.");
-            return false;
-        }
-
-        if (OLAP_SUCCESS != _dst_cursor->init(_tablet->tablet_schema())) {
-            OLAP_LOG_WARNING("fail to init row cursor.");
-            return false;
-        }
-    }
-
     RowBlock* ref_row_block = NULL;
     bool need_create_empty_version = false;
     OLAPStatus res = OLAP_SUCCESS;
-    if (!rowset_reader->has_next()) {
-        res = rowset_reader->next_block(&ref_row_block);
-        if (res != OLAP_SUCCESS) {
-            if (rowset_reader->has_next()) {
-                need_create_empty_version = true;
-            } else {
-                LOG(WARNING) << "failed to get first row block.";
-                return false;
-            }
+    if (!rowset_reader->rowset()->empty()) {
+        int num_rows = rowset_reader->rowset()->num_rows();
+        if (num_rows == 0) {
+            // actually, the rowset is empty
+            need_create_empty_version = true;
         }
     } else {
         need_create_empty_version = true;
@@ -885,7 +863,7 @@ bool SchemaChangeWithSorting::process(
     }
 
     if (need_create_empty_version) {
-        res = new_rowset_writer.flush();
+        res = new_rowset_writer->flush();
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "create empty version for schema change failed."
                 << "version=" << new_rowset_writer->version().first
@@ -1016,7 +994,7 @@ bool SchemaChangeWithSorting::process(
     }
 
     // TODO(zyh): 如果_temp_delta_versions只有一个，不需要再外排
-    if (!_external_sorting(src_rowsets, rowset_writer, tablet)) {
+    if (!_external_sorting(src_rowsets, new_rowset_writer, tablet)) {
         OLAP_LOG_WARNING("failed to sorting externally.");
         result = false;
         goto SORTING_PROCESS_ERR;
@@ -1027,19 +1005,19 @@ bool SchemaChangeWithSorting::process(
     // Check row num changes
     if (config::row_nums_check) {
         if (rowset_reader->num_rows()
-            != rowset_writer->num_rows() + merged_rows() + filted_rows()) {
+            != new_rowset_writer->num_rows() + merged_rows() + filted_rows()) {
             LOG(WARNING) << "fail to check row num! "
                          << "[source_rows=" << rowset_reader->num_rows()
                          << " merged_rows=" << merged_rows()
                          << " filted_rows=" << filted_rows()
-                         << " new_index_rows=" << rowset_writer->num_rows() << "]";
+                         << " new_index_rows=" << new_rowset_writer->num_rows() << "]";
             result = false;
         }
     } else {
         LOG(INFO) << "all row nums. source_rows=" << rowset_reader->num_rows()
                   << ", merged_rows=" << merged_rows()
                   << ", filted_rows=" << filted_rows()
-                  << ", new_index_rows=" << rowset_writer->num_rows();
+                  << ", new_index_rows=" << new_rowset_writer->num_rows();
     }
 
 SORTING_PROCESS_ERR:
@@ -1077,12 +1055,12 @@ bool SchemaChangeWithSorting::_internal_sorting(const vector<RowBlock*>& row_blo
                    .set_tablet_schema_hash(_tablet->schema_hash())
                    .set_rowset_type(ALPHA_ROWSET)
                    .set_rowset_path_prefix(_tablet->tablet_path())
-                   .set_tablet_schema(_tablet->tablet_schema())
+                   .set_tablet_schema(&(_tablet->tablet_schema()))
                    .set_rowset_state(VISIBLE)
                    .set_version(version)
                    .set_version_hash(version_hash);
     
-    RowsetWriterContext context = context_builder.build();
+    RowsetWriterContext context = context_builder->build();
     RowsetWriterSharedPtr rowset_writer(new AlphaRowsetWriter());
     if (rowset_writer == nullptr) {
         LOG(WARNING) << "new rowset builder failed";
@@ -1098,7 +1076,7 @@ bool SchemaChangeWithSorting::_internal_sorting(const vector<RowBlock*>& row_blo
     }
     add_merged_rows(merged_rows);
 
-    *rowset = rowset_writer.build();
+    *rowset = rowset_writer->build();
 
     if (OLAP_SUCCESS != (*rowset)->init()) {
         LOG(WARNING) << "failed to reload olap index.";
@@ -1578,7 +1556,7 @@ OLAPStatus SchemaChangeHandler::_create_new_tablet(
 OLAPStatus SchemaChangeHandler::schema_version_convert(
         TabletSharedPtr src_tablet,
         TabletSharedPtr dest_tablet,
-        std::vector<RowsetSharedPtr>* ref_rowsets,
+        std::vector<RowsetSharedPtr>* old_rowsets,
         std::vector<RowsetSharedPtr>* new_rowsets) {
     if (NULL == new_rowsets) {
         OLAP_LOG_WARNING("new rowsets vector is NULL.");
@@ -1633,8 +1611,8 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
     }
 
     // c. 转换数据
-    for (vector<RowsetSharedPtr>::iterator it = ref_rowsets->begin();
-            it != ref_rowsets->end(); ++it) {
+    for (vector<RowsetSharedPtr>::iterator it = old_rowsets->begin();
+            it != old_rowsets->end(); ++it) {
         RowsetReaderSharedPtr rowset_reader = (*it)->create_reader();
         rowset_reader->init(nullptr);
 
@@ -1651,8 +1629,8 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
                            .set_tablet_schema_hash(dest_tablet->schema_hash())
                            .set_rowset_type(ALPHA_ROWSET)
                            .set_rowset_path_prefix(dest_tablet->tablet_path())
-                           .set_tablet_schema(dest_tablet->tablet_schema())
-                           .set_rowset_state(PREPARING)
+                           .set_tablet_schema(*(dest_tablet->tablet_schema()))
+                           .set_rowset_state(PREPARED)
                            .set_txn_id((*it)->txn_id())
                            .set_load_id(load_id);
         } else {
@@ -1662,13 +1640,13 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
                            .set_tablet_schema_hash(dest_tablet->schema_hash())
                            .set_rowset_type(ALPHA_ROWSET)
                            .set_rowset_path_prefix(dest_tablet->tablet_path())
-                           .set_tablet_schema(dest_tablet->tablet_schema())
+                           .set_tablet_schema(*(dest_tablet->tablet_schema()))
                            .set_rowset_state(VISIBLE)
                            .set_version((*it)->version())
                            .set_version_hash((*it)->version_hash());
         }
         RowsetWriterContext context = context_builder.build();
-        RowsetSharedPtr rowset_writer(new AlphaRowsetWriter());
+        RowsetWriterSharedPtr rowset_writer(new AlphaRowsetWriter());
         rowset_writer->init(context);
 
         if (!sc_procedure->process(*it, rowset_writer, dest_tablet)) {
@@ -1717,8 +1695,7 @@ OLAPStatus SchemaChangeHandler::_get_versions_to_be_changed(
     if (rowset != NULL) {
         request_version = rowset->version().second - 1;
     } else {
-        OLAP_LOG_WARNING("Table has no version. [path='%s']",
-                         ref_tablet->full_name().c_str());
+        LOG(WARNING) << "Table has no version. path=" << ref_tablet->full_name();
         return OLAP_ERR_ALTER_DELTA_DOES_NOT_EXISTS;
     }
 
@@ -1732,8 +1709,7 @@ OLAPStatus SchemaChangeHandler::_get_versions_to_be_changed(
         vector<VersionEntity> all_versions;
         ref_tablet->list_version_entities(&all_versions);
         if (0 == all_versions.size()) {
-            OLAP_LOG_WARNING("there'is no any version in the tablet. [tablet='%s']",
-                             ref_tablet->full_name().c_str());
+            LOG(WARNING) << "there'is no any version in the tablet. tablet=" << ref_tablet->full_name();
             return OLAP_ERR_VERSION_NOT_EXIST;
         }
 
@@ -2021,7 +1997,7 @@ PROCESS_ALTER_EXIT:
                 << "status=" << sc_params->ref_tablet->schema_change_status().status;
     }
 
-    for (auto rs_reader : sc_params->ref_rowset_readers) {
+    for (auto& rs_reader : sc_params->ref_rowset_readers) {
         rs_reader->close();
     }
     SAFE_DELETE(sc_procedure);
@@ -2134,24 +2110,24 @@ OLAPStatus SchemaChangeHandler::_parse_request(TabletSharedPtr ref_tablet,
         return OLAP_SUCCESS;
     }
 
-    const RowFields& ref_tablet_schema = ref_tablet->tablet_schema();
-    const RowFields& new_tablet_schema = new_tablet->tablet_schema();
+    const TabletSchema& ref_tablet_schema = ref_tablet->tablet_schema();
+    const TabletSchema& new_tablet_schema = new_tablet->tablet_schema();
     for (size_t i = 0; i < new_tablet->num_columns(); ++i) {
         ColumnMapping* column_mapping = rb_changer->get_mutable_column_mapping(i);
         if (column_mapping->ref_column < 0) {
             continue;
         } else {
-            if (new_tablet_schema[i].type != ref_tablet_schema[column_mapping->ref_column].type) {
+            if (new_tablet_schema.column(i).type() != ref_tablet_schema.column(column_mapping->ref_column).type()) {
                 *sc_directly = true;
                 return OLAP_SUCCESS;
             } else if (
-                (new_tablet_schema[i].type == ref_tablet_schema[column_mapping->ref_column].type)
+                (new_tablet_schema.column(i).type() == ref_tablet_schema.column(column_mapping->ref_column).type())
                     && (new_tablet_schema[i].length 
                         != ref_tablet_schema[column_mapping->ref_column].length)) {
                 *sc_directly = true;
                 return OLAP_SUCCESS;
 
-            } else if (new_tablet_schema[i].is_bf_column != ref_tablet_schema[i].is_bf_column) {
+            } else if (new_tablet_schema.column(i).is_bf_column() != ref_tablet_schema.column(i).is_bf_column()) {
                 *sc_directly = true;
                 return OLAP_SUCCESS;
             }
@@ -2203,7 +2179,7 @@ OLAPStatus SchemaChange::create_initial_rowset(
     do {
         if (version.first > version.second) {
             LOG(WARNING) << "begin should not larger than end. "
-                         << " [begin=" << version.first
+                         << " begin=" << version.first
                          << " end=" << version.second;
             res = OLAP_ERR_INPUT_PARAMETER_ERROR;
             break;

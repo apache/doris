@@ -51,8 +51,8 @@ OLAPStatus AlphaRowset::init() {
     return OLAP_SUCCESS;
 }
 
-std::unique_ptr<RowsetReader> AlphaRowset::create_reader() {
-    return std::unique_ptr<RowsetReader>(new AlphaRowsetReader(
+std::shared_ptr<RowsetReader> AlphaRowset::create_reader() {
+    return std::shared_ptr<RowsetReader>(new AlphaRowsetReader(
             _schema->num_key_columns(), _schema->num_short_key_columns(),
             _schema->num_rows_per_row_block(), _rowset_path,
             _rowset_meta.get(), _segment_groups, RowsetSharedPtr(this)));
@@ -202,7 +202,7 @@ OLAPStatus AlphaRowset::_init_non_pending_segment_groups() {
         std::shared_ptr<SegmentGroup> segment_group(new SegmentGroup(_rowset_meta->tablet_id(),
                 _rowset_meta->rowset_id(), _schema, _rowset_path, version, version_hash,
                 false, segment_group_meta.segment_group_id(), segment_group_meta.num_segments()));
-        if (segment_group.get() == nullptr) {
+        if (segment_group == nullptr) {
             LOG(WARNING) << "fail to create olap segment_group. [version='" << version.first
                 << "-" << version.second << "' rowset_id='" << _rowset_meta->rowset_id() << "']";
             return OLAP_ERR_CREATE_FILE_ERROR;
@@ -275,10 +275,9 @@ OLAPStatus AlphaRowset::_init_pending_segment_groups() {
         int64_t txn_id = _rowset_meta->txn_id();
         int64_t partition_id = _rowset_meta->partition_id();
         std::shared_ptr<SegmentGroup> segment_group(new SegmentGroup(_rowset_meta->tablet_id(),
-                _rowset_meta->rowset_id(), _tablet_schema, _num_key_fields, _num_short_key_fields,
-                _num_rows_per_row_block, _rowset_path, false, pending_segment_group_meta.pending_segment_group_id(),
+                _rowset_meta->rowset_id(), _schema, _rowset_path, false, pending_segment_group_meta.pending_segment_group_id(),
                 pending_segment_group_meta.num_segments(), true, partition_id, txn_id));
-        if (segment_group.get() == nullptr) {
+        if (segment_group == nullptr) {
             LOG(WARNING) << "fail to create olap segment_group. [version='" << version.first
                 << "-" << version.second << "' rowset_id='" << _rowset_meta->rowset_id() << "']";
             return OLAP_ERR_CREATE_FILE_ERROR;
