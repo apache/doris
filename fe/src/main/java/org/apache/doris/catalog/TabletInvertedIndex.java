@@ -344,7 +344,7 @@ public class TabletInvertedIndex {
         }
 
         if (backendTabletInfo.getVersion() < replicaInFe.getVersion()
-                && backendTabletInfo.isSetVersion_miss() && backendTabletInfo.getVersion_miss()) {
+                && backendTabletInfo.isSetVersion_miss() && backendTabletInfo.isVersion_miss()) {
             // even if backend version is less than fe's version, is version_miss is false,
             // which means this may be a stale report.
             // so we only return true if version_miss is true.
