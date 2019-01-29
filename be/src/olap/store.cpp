@@ -481,27 +481,24 @@ void OlapStore::_deal_with_header_error(TTabletId tablet_id, TSchemaHash schema_
     std::string schema_hash_path = path() + "/" + std::to_string(shard)
             + "/" + std::to_string(tablet_id) + "/" + std::to_string(schema_hash);
     std::string header_path = schema_hash_path + "/" + std::to_string(tablet_id) + ".hdr";
-    LOG(INFO) << "start to dump header.";
     OLAPStatus res = OlapHeaderManager::dump_header(this, tablet_id, schema_hash, header_path);
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "dump header failed. tablet_id:" << tablet_id
                      << "schema_hash:" << schema_hash
                      << "store path:" << path();
     } else {
-        LOG(INFO) << "dump header successfull to path:" << header_path;
-        LOG(INFO) << "move path:" << schema_hash_path << " to trash.";
+        LOG(INFO) << "dump header successfully. move path:" << schema_hash_path << " to trash.";
         if (move_to_trash(schema_hash_path, schema_hash_path) != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to delete table. [table_path=" << schema_hash_path << "]";
         }
     }
-    LOG(INFO) << "start to remove tablet header:" << tablet_id << "_" << schema_hash;
     res = OlapHeaderManager::remove(this, tablet_id, schema_hash);
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "remove header failed. tablet_id:" << tablet_id
                      << "schema_hash:" << schema_hash
                      << "store path:" << path();
     } else {
-        LOG(INFO) << "remove tablet header successfully";
+        LOG(INFO) << "remove tablet header successfully. tablet:" << tablet_id << "_" << schema_hash;
     }
 }
 
@@ -516,14 +513,13 @@ OLAPStatus OlapStore::_load_table_from_header(OLAPEngine* engine, TTabletId tabl
         // the related tablet path should be removed by gc 
         LOG(WARNING) << "parse header string failed for tablet_id:" << tablet_id
                      << " schema_hash:" << schema_hash;
-        LOG(INFO) << "start to remove tablet header:" << tablet_id << "_" << schema_hash;
         res = OlapHeaderManager::remove(this, tablet_id, schema_hash);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "remove header failed. tablet_id:" << tablet_id
-                << "schema_hash:" << schema_hash
-                << "store path:" << path();
+                << " schema_hash:" << schema_hash
+                << " store path:" << path();
         } else {
-            LOG(INFO) << "remove tablet header successfully";
+            LOG(INFO) << "remove tablet header successfully. tablet:" << tablet_id << "_" << schema_hash;
         }
         return OLAP_ERR_HEADER_PB_PARSE_FAILED;
     }
