@@ -72,7 +72,7 @@ public:
     OLAPStatus deregister_tablet(Tablet* tablet);
     void clear_tablets(std::vector<TabletInfo>* tablet_infos);
 
-    std::string get_absolute_tablet_path(TabletMeta* header, bool with_schema_hash);
+    std::string get_absolute_tablet_path(TabletMeta* tablet_meta, bool with_schema_hash);
 
     std::string get_absolute_shard_path(const std::string& shard_string);
 
