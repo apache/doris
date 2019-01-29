@@ -102,6 +102,8 @@ private:
     OLAPStatus _load_table_from_header(OLAPEngine* engine, TTabletId tablet_id,
                 TSchemaHash schema_hash, const std::string& header);
 
+    void _deal_with_header_error(TTabletId tablet_id, TSchemaHash schema_hash, int shard);
+
 private:
     friend class OLAPRootPath;
     friend class OLAPEngine;
