@@ -141,9 +141,7 @@ public class TabletInvertedIndex {
                                     replica.setPathHash(backendTabletInfo.getPath_hash());
                                 }
 
-                                if (needRecover(replica, tabletMeta.getOldSchemaHash(),
-                                        backendTabletInfo.getSchema_hash(), backendTabletInfo.getVersion(),
-                                        backendTabletInfo.getVersion_hash())) {
+                                if (needRecover(replica, tabletMeta.getOldSchemaHash(), backendTabletInfo)) {
                                     LOG.warn("replica {} of tablet {} on backend {} need recovery. "
                                             + "replica in FE: {}, report version {}-{}, report schema hash: {}",
                                             replica.getId(), tabletId, backendId, replica,
@@ -324,14 +322,14 @@ public class TabletInvertedIndex {
      * if be's report version < fe's meta version, it means some version is missing in BE
      * because of some unrecoverable failure.
      */
-    private boolean needRecover(Replica replicaInFe, int schemaHashInFe, int schemaHashInBe,
-            long backendVersion, long backendVersionHash) {
-        if (schemaHashInFe != schemaHashInBe || backendVersion == -1 && backendVersionHash == 0) {
+    private boolean needRecover(Replica replicaInFe, int schemaHashInFe, TTabletInfo backendTabletInfo) {
+        if (schemaHashInFe != backendTabletInfo.getSchema_hash()
+                || backendTabletInfo.getVersion() == -1 && backendTabletInfo.getVersion_hash() == 0) {
             // no data file exist on BE, maybe this is a newly created schema change tablet. no need to recovery
             return false;
         }
 
-        if (replicaInFe.getVersionHash() == 0 && backendVersion == replicaInFe.getVersion() - 1) {
+        if (replicaInFe.getVersionHash() == 0 && backendTabletInfo.getVersion() == replicaInFe.getVersion() - 1) {
             /*
              * This is very tricky:
              * 1. Assume that we want to create a replica with version (X, Y), the init version of replica in FE
@@ -345,7 +343,11 @@ public class TabletInvertedIndex {
             return false;
         }
 
-        if (backendVersion < replicaInFe.getVersion()) {
+        if (backendTabletInfo.getVersion() < replicaInFe.getVersion()
+                && backendTabletInfo.isSetVersion_miss() && backendTabletInfo.isVersion_miss()) {
+            // even if backend version is less than fe's version, but if version_miss is false,
+            // which means this may be a stale report.
+            // so we only return true if version_miss is true.
             return true;
         }
         return false;
