@@ -146,7 +146,7 @@ SegmentGroup::~SegmentGroup() {
     _seg_pb_map.clear();
 }
 
-std::string SegmentGroup::_construct_pending_file_path(int32_t segment_id, const std::string& suffix) const {
+std::string SegmentGroup::_construct_pending_file_name(int32_t segment_id, const std::string& suffix) const {
     std::string pending_dir_path = _rowset_path_prefix + PENDING_DELTA_PREFIX;
     std::stringstream file_path;
     file_path << pending_dir_path << "/"
@@ -155,28 +155,31 @@ std::string SegmentGroup::_construct_pending_file_path(int32_t segment_id, const
     return file_path.str();
 }
 
-std::string SegmentGroup::_construct_file_path(int32_t segment_id, const string& suffix) const {
-    std::stringstream prefix_stream;
-    prefix_stream << _rowset_path_prefix << "/" << _tablet_id;
-    std::string file_path = _rowset_path_prefix + "/" + std::to_string(_rowset_id)
-            + "_" + std::to_string(segment_id) + suffix;
-    return file_path;
+std::string SegmentGroup::_construct_file_name(int32_t segment_id, const string& suffix) const {
+    std::string file_name = std::to_string(_rowset_id) + "_" + std::to_string(segment_id) + suffix;
+    return file_name;
 }
 
 std::string SegmentGroup::construct_index_file_path(int32_t segment_id) const {
+    std::stringstream file_path;
+    file_path << _rowset_path_prefix << "/" << _tablet_id;
     if (_is_pending) {
-        return _construct_pending_file_path(segment_id, ".idx");
+        file_path << "/" << _construct_pending_file_name(segment_id, ".idx");
     } else {
-        return _construct_file_path(segment_id, ".idx");
+        file_path << "/" << _construct_file_name(segment_id, ".idx");
     }
+    return file_path.str();
 }
 
 std::string SegmentGroup::construct_data_file_path(int32_t segment_id) const {
+    std::stringstream file_path;
+    file_path << _rowset_path_prefix << "/" << _tablet_id;
     if (_is_pending) {
-        return _construct_pending_file_path(segment_id, ".dat");
+        file_path << "/" << _construct_pending_file_name(segment_id, ".dat");
     } else {
-        return _construct_file_path(segment_id, ".dat");
+       file_path << "/" << _construct_file_name(segment_id, ".dat");
     }
+    return file_path.str();
 }
 
 void SegmentGroup::acquire() {
@@ -727,6 +730,35 @@ bool SegmentGroup::remove_old_files(std::vector<std::string>* removed_links) {
             return false;
         }
         removed_links->push_back(old_index_file_name);
+    }
+    return true;
+}
+
+bool SegmentGroup::copy_segments_to_path(const std::string& dest_path) {
+    if (dest_path.empty() || dest_path == _rowset_path_prefix) {
+        return true;
+    }
+    for (int segment_id = 0; segment_id < _num_segments; segment_id++) {
+        std::string data_file_name = _construct_file_name(segment_id, ".dat");
+        std::string new_data_file_path = dest_path + "/" + data_file_name;
+        if (!check_dir_existed(new_data_file_path)) {
+            std::string origin_data_file_path = construct_data_file_path(segment_id);
+            if (link(new_data_file_path.c_str(), origin_data_file_path.c_str()) != 0) {
+                LOG(WARNING) << "fail to create hard link. from=" << origin_data_file_path << ", "
+                    << "to=" << new_data_file_path << ", " << "errno=" << Errno::no();
+                return false;
+            }
+        }
+        std::string index_file_name = _construct_file_name(segment_id, ".idx");
+        std::string new_index_file_path = dest_path + "/" + index_file_name;
+        if (!check_dir_existed(new_index_file_path)) {
+            std::string origin_idx_file_path = construct_data_file_path(segment_id);
+            if (link(new_index_file_path.c_str(), origin_idx_file_path.c_str()) != 0) {
+                LOG(WARNING) << "fail to create hard link. from=" << origin_idx_file_path << ", "
+                    << "to=" << new_index_file_path << ", " << "errno=" << Errno::no();
+                return false;
+            }
+        }
     }
     return true;
 }

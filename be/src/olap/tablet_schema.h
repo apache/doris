@@ -41,6 +41,9 @@ public:
     inline bool is_bf_column() const { return _is_bf_column; }
     bool has_default_value() const { return _has_default_value; }
     std::string default_value() const { return _default_value; }
+    bool has_reference_column() const { return _has_referenced_column; }
+    int32_t referenced_column_id() const { return _referenced_column_id; }
+    std::string referenced_column() const { return _referenced_column; }
     size_t length() const { return _length; }
     size_t index_length() const { return _index_length; }
     FieldAggregationMethod aggregation() const { return _aggregation; }
@@ -68,6 +71,7 @@ private:
 
     bool _has_referenced_column;
     int32_t _referenced_column_id;
+    std::string _referenced_column;
 
     // used to creating decimal data type
 

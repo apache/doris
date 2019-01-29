@@ -20,8 +20,12 @@
 
 #include "gen_cpp/olap_file.pb.h"
 #include "olap/data_dir.h"
+#include "olap/tablet_schema.h"
 
 namespace doris {
+
+class RowsetWriterContextBuilder;
+using RowsetWriterContextBuilderSharedPtr = std::shared_ptr<RowsetWriterContextBuilder>;
 
 struct RowsetWriterContext {
     int64_t rowset_id;
