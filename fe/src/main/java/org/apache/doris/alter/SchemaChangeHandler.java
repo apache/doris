@@ -1037,14 +1037,13 @@ public class SchemaChangeHandler extends AlterHandler {
                 // set replica state
                 for (Tablet tablet : alterIndex.getTablets()) {
                     for (Replica replica : tablet.getReplicas()) {
-                        // has to check last failed version here
-                        // if the replica has version 1,2,3,5,6 not has 4
-                        // then fe will send schema change job to it and it will finish with missing 4
                         if (replica.getState() == ReplicaState.CLONE || replica.getLastFailedVersion() > 0) {
-                            // just skip it (replica cloned from old schema will be deleted)
+                            // this should not happen, cause we only allow schema change when table is stable.
+                            LOG.error("replica {} of tablet {} on backend {} is not NORMAL: {}",
+                                    replica.getId(), tablet.getId(), replica.getBackendId(), replica);
                             continue;
                         }
-                        Preconditions.checkState(replica.getState() == ReplicaState.NORMAL);
+                        Preconditions.checkState(replica.getState() == ReplicaState.NORMAL, replica.getState());
                         replica.setState(ReplicaState.SCHEMA_CHANGE);
                     } // end for replicas
                 } // end for tablets

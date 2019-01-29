@@ -396,6 +396,11 @@ public class EditLog {
                     catalog.replayAddReplica(info);
                     break;
                 }
+                case OperationType.OP_UPDATE_REPLICA: {
+                    ReplicaPersistInfo info = (ReplicaPersistInfo) journal.getData();
+                    catalog.replayUpdateReplica(info);
+                    break;
+                }
                 case OperationType.OP_DELETE_REPLICA: {
                     ReplicaPersistInfo info = (ReplicaPersistInfo) journal.getData();
                     catalog.replayDeleteReplica(info);
@@ -911,6 +916,10 @@ public class EditLog {
 
     public void logAddReplica(ReplicaPersistInfo info) {
         logEdit(OperationType.OP_ADD_REPLICA, info);
+    }
+
+    public void logUpdateReplica(ReplicaPersistInfo info) {
+        logEdit(OperationType.OP_UPDATE_REPLICA, info);
     }
 
     public void logDeleteReplica(ReplicaPersistInfo info) {

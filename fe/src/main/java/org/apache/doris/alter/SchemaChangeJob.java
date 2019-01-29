@@ -31,6 +31,7 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
@@ -703,9 +704,11 @@ public class SchemaChangeJob extends AlterJob {
                                     continue;
                                 }
 
-                                if (replica.getLastFailedVersion() > 0) {
-                                    LOG.warn("replica {} of tablet {} last failed version > 0, set it as bad",
-                                            replica, tablet.getId());
+                                if (replica.getLastFailedVersion() > 0 && System.currentTimeMillis()
+                                        - replica.getLastFailedTimestamp() > Config.max_backend_down_time_second
+                                                * 1000) {
+                                    LOG.warn("replica {} of tablet {} last failed version > 0, "
+                                            + "and last for an hour, set it as bad", replica, tablet.getId());
                                     --healthNum;
                                     continue;
                                 }
