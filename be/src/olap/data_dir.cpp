@@ -448,14 +448,14 @@ std::string DataDir::get_absolute_shard_path(const std::string& shard_string) {
     return _path + DATA_PREFIX + "/" + shard_string;
 }
 
-std::string DataDir::get_absolute_tablet_path(TabletMeta* header, bool with_schema_hash) {
+std::string DataDir::get_absolute_tablet_path(TabletMeta* tablet_meta, bool with_schema_hash) {
     if (with_schema_hash) {
-        return _path + DATA_PREFIX + "/" + std::to_string(header->shard_id())
-            + "/" + std::to_string(header->tablet_id()) + "/" + std::to_string(header->schema_hash());
+        return _path + DATA_PREFIX + "/" + std::to_string(tablet_meta->shard_id())
+            + "/" + std::to_string(tablet_meta->tablet_id()) + "/" + std::to_string(tablet_meta->schema_hash());
 
     } else {
-        return _path + DATA_PREFIX + "/" + std::to_string(header->shard_id())
-            + "/" + std::to_string(header->tablet_id());
+        return _path + DATA_PREFIX + "/" + std::to_string(tablet_meta->shard_id())
+            + "/" + std::to_string(tablet_meta->tablet_id());
     }
 }
 

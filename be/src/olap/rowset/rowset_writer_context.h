@@ -19,6 +19,7 @@
 #define DORIS_BE_SRC_OLAP_ROWSET_ROWSET_WRITER_CONTEXT_H
 
 #include "gen_cpp/olap_file.pb.h"
+#include "olap/data_dir.h"
 
 namespace doris {
 
@@ -33,6 +34,7 @@ struct RowsetWriterContext {
     // PREPARED/COMMITTED for pending rowset
     // VISIBLE for non-pending rowset
     RowsetStatePB rowset_state;
+    DataDir* data_dir;
     // properties for non-pending rowset
     Version version;
     VersionHash version_hash;
@@ -81,6 +83,11 @@ public:
 
     RowsetWriterContextBuilder& set_rowset_state(RowsetStatePB rowset_state) {
         _rowset_writer_context.rowset_state = rowset_state;
+        return *this;
+    }
+
+    RowsetWriterContextBuilder& set_data_dir(DataDir* data_dir) {
+        _rowset_writer_context.data_dir = data_dir;
         return *this;
     }
 
