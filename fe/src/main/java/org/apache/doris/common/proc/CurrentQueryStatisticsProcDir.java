@@ -17,27 +17,28 @@
 
 package org.apache.doris.common.proc;
 
-import com.google.common.base.Strings;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.QueryStatisticsFormatter;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QueryStatisticsItem;
 
-import java.util.Comparator;
-import java.util.List;
-import java.util.Map;
+import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
 /*
  * show proc "/current_queries"
  */
 public class CurrentQueryStatisticsProcDir implements ProcDirInterface {
     private static final Logger LOG = LogManager.getLogger(CurrentQueryStatisticsProcDir.class);
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("ConnectionId").add("QueryId").add("Database").add("User")
+            .add("QueryId").add("ConnectionId").add("Database").add("User")
             .add("ScanBytes").add("ProcessRows").add("ExecTime").build();
 
     private static final int EXEC_TIME_INDEX = 6;
@@ -73,8 +74,8 @@ public class CurrentQueryStatisticsProcDir implements ProcDirInterface {
                 = provider.getQueryStatistics(statistic.values());
         for (QueryStatisticsItem item : statistic.values()) {
             final List<String> values = Lists.newArrayList();
-            values.add(item.getConnId());
             values.add(item.getQueryId());
+            values.add(item.getConnId());
             values.add(item.getDb());
             values.add(item.getUser());
             final CurrentQueryInfoProvider.QueryStatistics statistics 
