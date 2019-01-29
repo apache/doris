@@ -141,9 +141,7 @@ public class TabletInvertedIndex {
                                     replica.setPathHash(backendTabletInfo.getPath_hash());
                                 }
 
-                                if (needRecover(replica, tabletMeta.getOldSchemaHash(),
-                                        backendTabletInfo.getSchema_hash(), backendTabletInfo.getVersion(),
-                                        backendTabletInfo.getVersion_hash())) {
+                                if (needRecover(replica, tabletMeta.getOldSchemaHash(), backendTabletInfo)) {
                                     LOG.warn("replica {} of tablet {} on backend {} need recovery. "
                                             + "replica in FE: {}, report version {}-{}, report schema hash: {}",
                                             replica.getId(), tabletId, backendId, replica,
