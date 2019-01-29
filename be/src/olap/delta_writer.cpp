@@ -111,6 +111,7 @@ OLAPStatus DeltaWriter::init() {
             .set_rowset_path_prefix(_tablet->tablet_path())
             .set_tablet_schema(&(_tablet->tablet_schema()))
             .set_rowset_state(PREPARED)
+            .set_data_dir(_tablet->data_dir())
             .set_txn_id(_req.txn_id)
             .set_load_id(_req.load_id);
     RowsetWriterContext writer_context = context_builder.build();

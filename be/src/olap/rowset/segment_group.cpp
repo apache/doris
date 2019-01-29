@@ -196,8 +196,9 @@ bool SegmentGroup::is_in_use() {
 }
 
 // you can not use SegmentGroup after delete_all_files(), or else unknown behavior occurs.
-void SegmentGroup::delete_all_files() {
-    if (!_file_created) { return; }
+bool SegmentGroup::delete_all_files() {
+    bool success = true;
+    if (!_file_created) { return success; }
     for (uint32_t seg_id = 0; seg_id < _num_segments; ++seg_id) {
         // get full path for one segment
         string index_path = construct_index_file_path(seg_id);
@@ -207,14 +208,17 @@ void SegmentGroup::delete_all_files() {
             char errmsg[64];
             LOG(WARNING) << "fail to delete index file. [err='" << strerror_r(errno, errmsg, 64)
                          << "' path='" << index_path << "']";
+            success = false;
         }
 
         if (remove(data_path.c_str()) != 0) {
             char errmsg[64];
             LOG(WARNING) << "fail to delete data file. [err='" << strerror_r(errno, errmsg, 64)
                          << "' path='" << data_path << "']";
+            success = false;
         }
     }
+    return success;
 }
 
 OLAPStatus SegmentGroup::add_column_statistics_for_linked_schema_change(
@@ -681,7 +685,7 @@ int64_t SegmentGroup::get_tablet_id() {
     return _tablet_id;
 }
 
-bool SegmentGroup::create_hard_links(std::vector<std::string>* success_links) {
+bool SegmentGroup::make_snapshot(std::vector<std::string>* success_links) {
     for (int segment_id = 0; segment_id < _num_segments; segment_id++) {
         std::string new_data_file_name = construct_data_file_path(segment_id);
         if (!check_dir_existed(new_data_file_name)) {

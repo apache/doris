@@ -342,11 +342,10 @@ OLAPStatus PushHandler::_convert(
                 .set_rowset_path_prefix(curr_tablet->tablet_path())
                 .set_tablet_schema(&(curr_tablet->tablet_schema()))
                 .set_rowset_state(PREPARED)
+                .set_data_dir(curr_tablet->data_dir())
                 .set_txn_id(_request.transaction_id)
                 .set_load_id(load_id);
-            context = context_builder.build();
         } else {
-            
             context_builder.set_rowset_id(rowset_id)
                 .set_tablet_id(curr_tablet->tablet_id())
                 .set_partition_id(_request.partition_id)
@@ -354,11 +353,12 @@ OLAPStatus PushHandler::_convert(
                 .set_rowset_type(ALPHA_ROWSET)
                 .set_rowset_path_prefix(curr_tablet->tablet_path())
                 .set_tablet_schema(&(curr_tablet->tablet_schema()))
+                .set_data_dir(curr_tablet->data_dir())
                 .set_rowset_state(VISIBLE)
                 .set_version(Version(_request.version, _request.version))
                 .set_version_hash(_request.version_hash);
-            context = context_builder.build();
         }
+        context = context_builder.build();
         rowset_writer->init(context);
 
         // 3. New RowsetBuilder to write data into rowset
