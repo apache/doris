@@ -356,7 +356,7 @@ OLAPStatus BaseCompaction::_do_base_compaction(VersionHash new_base_version_hash
         _tablet->release_header_lock();
 
         Merger merger(_tablet, rs_writer, READER_BASE_COMPACTION);
-        res = merger.merge(rs_readers, _new_base_version, &merged_rows, &filted_rows);
+        res = merger.merge(rs_readers, &merged_rows, &filted_rows);
         if (res == OLAP_SUCCESS) {
             *row_count = merger.row_count();
         }

@@ -31,7 +31,8 @@ class AlphaRowsetReader : public RowsetReader {
 public:
     AlphaRowsetReader(int num_key_columns, int num_short_key_columns,
         int num_rows_per_row_block, const std::string rowset_path,
-        RowsetMeta* rowset_meta, std::vector<std::shared_ptr<SegmentGroup>> segment_groups);
+        RowsetMeta* rowset_meta, std::vector<std::shared_ptr<SegmentGroup>> segment_groups,
+        RowsetSharedPtr rowset);
 
     // reader init
     virtual OLAPStatus init(RowsetReaderContext* read_context);
@@ -46,11 +47,20 @@ public:
     virtual OLAPStatus next_block(RowBlock** block);
 
     virtual bool delete_flag();
-    
+
     virtual Version version();
+
+    virtual VersionHash version_hash();
 
     // close reader
     virtual void close();
+
+    // TODO(hkp)
+    virtual int32_t get_filtered_rows();
+
+    virtual RowsetSharedPtr rowset();
+
+    virtual int32_t num_rows();
 
 private:
 
@@ -75,7 +85,9 @@ private:
     std::vector<std::shared_ptr<SegmentGroup>> _segment_groups;
     std::vector<std::unique_ptr<ColumnData>> _column_datas;
     std::vector<RowBlock*> _row_blocks;
+    RowsetSharedPtr _rowset;
     int _key_range_size;
+    int _num_rows_read;
     std::vector<int> _key_range_indexes;
     bool _is_cumulative_rowset;
     RowsetReaderContext* _current_read_context;

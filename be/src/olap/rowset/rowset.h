@@ -20,7 +20,6 @@
 
 #include "gen_cpp/olap_file.pb.h"
 #include "olap/new_status.h"
-#include "olap/rowset/rowset_reader.h"
 #include "olap/rowset/rowset_meta.h"
 
 #include <memory>
@@ -31,6 +30,7 @@ class Rowset;
 using RowsetSharedPtr = std::shared_ptr<Rowset>;
 
 class RowsetWriter;
+class RowsetReader;
 
 class Rowset {
 public:
@@ -38,7 +38,7 @@ public:
 
     virtual OLAPStatus init() = 0;
 
-    virtual std::unique_ptr<RowsetReader> create_reader() = 0;
+    virtual std::shared_ptr<RowsetReader> create_reader() = 0;
 
     virtual OLAPStatus copy(RowsetWriter* dest_rowset_writer) = 0;
 
@@ -81,6 +81,12 @@ public:
     virtual void set_version_hash(VersionHash version_hash) = 0;
 
     virtual int64_t create_time() = 0;
+
+    virtual bool delete_files() const = 0;
+
+    virtual bool is_pending() const = 0;
+
+    virtual int64_t txn_id() const = 0;
 };
 
 } // namespace doris

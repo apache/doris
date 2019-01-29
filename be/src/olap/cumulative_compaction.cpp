@@ -23,6 +23,7 @@
 
 #include "olap/storage_engine.h"
 #include "util/doris_metrics.h"
+#include "olap/rowset/alpha_rowset_writer.h"
 
 using std::list;
 using std::nothrow;
@@ -84,7 +85,7 @@ OLAPStatus CumulativeCompaction::init(TabletSharedPtr tablet) {
     _is_init = true;
     _cumulative_version = Version(_need_merged_versions.begin()->first,
                                   _need_merged_versions.rbegin()->first);
-
+    _rs_writer.reset(new AlphaRowsetWriter());
     return OLAP_SUCCESS;
 }
 
@@ -378,7 +379,7 @@ OLAPStatus CumulativeCompaction::_do_cumulative_compaction() {
     // 1. merge delta files into new cumulative file
     uint64_t merged_rows = 0;
     uint64_t filted_rows = 0;
-    res = merger.merge(_rs_readers, _cumulative_version, &merged_rows, &filted_rows);
+    res = merger.merge(_rs_readers, &merged_rows, &filted_rows);
     if (res != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("failed to do cumulative merge. [tablet=%s; cumulative_version=%d-%d]",
                          _tablet->full_name().c_str(),
