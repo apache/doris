@@ -75,14 +75,6 @@ public:
         _rowset_meta_pb.set_rowset_id(rowset_id);
     }
 
-    virtual int64_t partition_id() {
-        return _rowset_meta_pb.partition_id();
-    }
-
-    virtual void set_partition_id(int64_t partition_id) {
-        _rowset_meta_pb.set_partition_id(partition_id);
-    }
-
     virtual int64_t tablet_id() {
         return _rowset_meta_pb.tablet_id();
     }
@@ -263,6 +255,14 @@ public:
         return _rowset_meta_pb.set_create_time(create_time);
     }
 
+    virtual int64_t partition_id() {
+        return _rowset_meta_pb.partition_id();
+    }
+
+    virtual void set_partition_id(int64_t partition_id) {
+        return _rowset_meta_pb.set_partition_id(partition_id);
+    }
+
     virtual std::string extra_properties() {
         return _rowset_meta_pb.extra_properties();
     }
@@ -277,7 +277,7 @@ public:
 
 private:
     bool _deserialize_from_pb(const std::string& value) {
-        return _rowset_meta_pb.ParseFromString(value); 
+        return _rowset_meta_pb.ParseFromString(value);
     }
 
     bool _serialize_to_pb(std::string* value) {

@@ -41,7 +41,8 @@ public:
             _old_cumulative_layer_point(0),
             _new_cumulative_layer_point(0),
             _max_delta_file_size(0),
-            _rowset(nullptr) {}
+            _rowset(nullptr),
+            _rs_writer(nullptr) {}
 
     ~CumulativeCompaction() {}
     

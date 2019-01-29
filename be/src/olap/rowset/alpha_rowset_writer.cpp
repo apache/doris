@@ -26,7 +26,8 @@ AlphaRowsetWriter::AlphaRowsetWriter() :
     _cur_segment_group(nullptr),
     _column_data_writer(nullptr),
     _current_rowset_meta(nullptr),
-    is_pending_rowset(false) {
+    _is_pending_rowset(false),
+    _num_rows_written(0) {
 }
 
 OLAPStatus AlphaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) {
@@ -40,9 +41,9 @@ OLAPStatus AlphaRowsetWriter::init(const RowsetWriterContext& rowset_writer_cont
     RowsetStatePB rowset_state = _rowset_writer_context.rowset_state;
     if (rowset_state == PREPARED
             || rowset_state == COMMITTED) {
-        is_pending_rowset = true;
+        _is_pending_rowset = true;
     }
-    if (is_pending_rowset) {
+    if (_is_pending_rowset) {
         _current_rowset_meta->set_txn_id(_rowset_writer_context.txn_id);
         _current_rowset_meta->set_load_id(_rowset_writer_context.load_id);
     } else {
@@ -62,6 +63,7 @@ OLAPStatus AlphaRowsetWriter::add_row(RowCursor* row) {
         return status;
     }
     _column_data_writer->next(*row);
+    _num_rows_written++;
     return OLAP_SUCCESS;
 }
 
@@ -73,19 +75,52 @@ OLAPStatus AlphaRowsetWriter::add_row(const char* row, Schema* schema) {
         return status;
     }
     _column_data_writer->next(row, schema);
+    _num_rows_written++;
+    return OLAP_SUCCESS;
+}
+
+OLAPStatus AlphaRowsetWriter::add_row_block(RowBlock* row_block) {
+    size_t pos = 0;
+    row_block->set_pos(pos);
+    RowCursor row_cursor;
+    row_cursor.init(*(_rowset_writer_context.tablet_schema));
+    while (pos < row_block->limit()) {
+        row_block->get_row(pos, &row_cursor);
+        add_row(&row_cursor);
+        row_block->pos_inc();
+        pos = row_block->pos();
+        _num_rows_written++;
+    }
+    return OLAP_SUCCESS;
+}
+
+OLAPStatus AlphaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
+    // this api is for LinkedSchemaChange
+    // use create hard link to copy rowset for performance
+    // this is feasible because LinkedSchemaChange is done on the same disk
+    AlphaRowset* alpha_rowset = reinterpret_cast<AlphaRowset*>(rowset.get());
+    for (auto& segment_group : alpha_rowset->_segment_groups) {
+        _init();
+        segment_group->copy_segments_to_path(_rowset_writer_context.rowset_path_prefix);
+        _cur_segment_group->set_empty(segment_group->empty());
+        _cur_segment_group->set_num_segments(segment_group->num_segments());
+        _cur_segment_group->add_column_statistics_for_linked_schema_change(segment_group->get_column_statistics());
+        _num_rows_written += alpha_rowset->num_rows();
+    }
     return OLAP_SUCCESS;
 }
 
 OLAPStatus AlphaRowsetWriter::flush() {
-    _column_data_writer->finalize();
+    OLAPStatus status = _column_data_writer->finalize();
     SAFE_DELETE(_column_data_writer);
+    _cur_segment_group->load();
     _init();
-    return OLAP_SUCCESS;
+    return status;
 }
 
 RowsetSharedPtr AlphaRowsetWriter::build() {
     for (auto& segment_group : _segment_groups) {
-        if (is_pending_rowset) {
+        if (_is_pending_rowset) {
             PendingSegmentGroupPB pending_segment_group_pb;
             pending_segment_group_pb.set_pending_segment_group_id(segment_group->segment_group_id());
             pending_segment_group_pb.set_num_segments(segment_group->num_segments());
@@ -132,6 +167,15 @@ RowsetSharedPtr AlphaRowsetWriter::build() {
     return std::shared_ptr<Rowset>(rowset);
 }
 
+OLAPStatus AlphaRowsetWriter::release() {
+    OLAPStatus status = _column_data_writer->finalize();
+    SAFE_DELETE(_column_data_writer);
+    for (auto segment_group : _segment_groups) {
+        segment_group->delete_all_files();
+    }
+    return status;
+}
+
 MemPool* AlphaRowsetWriter::mem_pool() {
     if (_column_data_writer != nullptr) {
         return _column_data_writer->mem_pool();
@@ -140,9 +184,17 @@ MemPool* AlphaRowsetWriter::mem_pool() {
     }
 }
 
+Version AlphaRowsetWriter::version() {
+    return _rowset_writer_context.version;
+}
+
+int32_t AlphaRowsetWriter::num_rows() {
+    return _num_rows_written;
+}
+
 void AlphaRowsetWriter::_init() {
     _segment_group_id++;
-    if (is_pending_rowset) {
+    if (_is_pending_rowset) {
         _cur_segment_group = new SegmentGroup(
                 _rowset_writer_context.tablet_id,
                 _rowset_writer_context.rowset_id,

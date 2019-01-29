@@ -29,6 +29,7 @@
 #include "olap/tablet_schema.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
+#include "olap/delete_handler.h"
 
 using std::string;
 using std::vector;
