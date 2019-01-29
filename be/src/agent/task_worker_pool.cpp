@@ -284,7 +284,7 @@ void TaskWorkerPool::_remove_task_info(
     std::string task_name;
     EnumToString(TTaskType, task_type, task_name);
     LOG(INFO) << "type: " << task_name
-              << ", signature: " << signature << ", has been erased."
+              << ", signature: " << signature << ", has been erased"
               << ", queue size: " << signature_set.size();
 }
 

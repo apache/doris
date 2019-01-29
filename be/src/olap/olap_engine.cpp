@@ -2470,8 +2470,8 @@ AlterTableStatus OLAPEngine::show_alter_table_status(
         TTabletId tablet_id,
         TSchemaHash schema_hash) {
     LOG(INFO) << "begin to process show alter table status."
-              << "tablet_id" << tablet_id
-              << ", schema_hash" << schema_hash;
+              << "tablet_id=" << tablet_id
+              << ", schema_hash=" << schema_hash;
 
     AlterTableStatus status = ALTER_TABLE_FINISHED;
 
