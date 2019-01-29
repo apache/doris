@@ -228,7 +228,7 @@ public class LoadBalancer {
             }
         }
         if (!setSource) {
-            throw new SchedException(Status.UNRECOVERABLE, "no replica in high load backend");
+            throw new SchedException(Status.UNRECOVERABLE, "unable to take src slot");
         }
 
         // Select a low load backend as destination.

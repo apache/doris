@@ -179,8 +179,6 @@ public class MasterImpl {
                     finishRollup(task, finishTabletInfos);
                     break;
                 case CLONE:
-                    checkHasTabletInfo(request);
-                    finishTabletInfos = request.getFinish_tablet_infos();
                     finishClone(task, request);
                     break;
                 case CHECK_CONSISTENCY:
@@ -341,10 +339,14 @@ public class MasterImpl {
         int schemaHash = tTabletInfo.getSchema_hash();
         // during finishing stage, index's schema hash switched, when old schema hash finished
         // current index hash != old schema hash and alter job's new schema hash != old schema hash
-        // the check replcia will failed
+        // the check replica will failed
         // should use tabletid not pushTabletid because in rollup state, the push tabletid != tabletid
-        // and tabletmeta will not contain rollupindex's schema hash
+        // and tablet meta will not contain rollupindex's schema hash
         TabletMeta tabletMeta = Catalog.getCurrentInvertedIndex().getTabletMeta(tabletId);
+        if (tabletMeta == null) {
+            // rollup may be dropped
+            throw new MetaNotFoundException("tablet " + tabletId + " does not exist");
+        }
         if (!tabletMeta.containsSchemaHash(schemaHash)) {
             throw new MetaNotFoundException("tablet[" + tabletId
                     + "] schemaHash is not equal to index's switchSchemaHash. "

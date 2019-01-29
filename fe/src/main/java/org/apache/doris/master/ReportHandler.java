@@ -284,7 +284,7 @@ public class ReportHandler extends Daemon {
 
         AgentBatchTask batchTask = new AgentBatchTask();
         for (AgentTask task : diffTasks) {
-            // these tasks donot need to do diff
+            // these tasks no need to do diff
             // 1. CREATE
             // 2. SYNC DELETE
             // 3. CHECK_CONSISTENCY
@@ -352,7 +352,7 @@ public class ReportHandler extends Daemon {
                     if (index == null) {
                         continue;
                     }
-                    long schemaHash = olapTable.getSchemaHashByIndexId(indexId);
+                    int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
 
                     Tablet tablet = index.getTablet(tabletId);
                     if (tablet == null) {
@@ -400,9 +400,23 @@ public class ReportHandler extends Daemon {
                                 continue;
                             }
 
-                            // happens when PUSH finished in BE but failed or not yet report to FE
+                            // happens when
+                            // 1. PUSH finished in BE but failed or not yet report to FE
+                            // 2. repair for VERSION_INCOMPLETE finished in BE, but failed or not yet report to FE
                             replica.updateVersionInfo(backendVersion, backendVersionHash, dataSize, rowCount);
                             
+                            if (replica.getLastFailedVersion() < 0) {
+                                // last failed version < 0 means this replica becomes health after sync,
+                                // so we write an edit log to sync this operation
+                                ReplicaPersistInfo info = ReplicaPersistInfo.createForClone(dbId, tableId,
+                                        partitionId, indexId, tabletId, backendId, replica.getId(),
+                                        replica.getVersion(), replica.getVersionHash(), schemaHash,
+                                        dataSize, rowCount,
+                                        replica.getLastFailedVersion(), replica.getLastFailedVersionHash(),
+                                        replica.getLastSuccessVersion(), replica.getLastSuccessVersionHash());
+                                Catalog.getInstance().getEditLog().logUpdateReplica(info);
+                            }
+
                             ++syncCounter;
                             LOG.debug("sync replica {} of tablet {} in backend {} in db {}.",
                                     replica.getId(), tabletId, backendId, dbId);

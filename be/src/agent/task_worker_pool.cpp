@@ -246,14 +246,14 @@ bool TaskWorkerPool::_record_task_info(
     EnumToString(TTaskType, task_type, task_name);
     if (signature_set.count(signature) > 0) {
         LOG(INFO) << "type: " << task_name
-                  << ", signature: " << signature << ", already exist."
-                  << ", queue size: " << signature_set.size();
+                  << ", signature: " << signature << ", already exist"
+                  << ". queue size: " << signature_set.size();
         ret = false;
     } else {
         signature_set.insert(signature);
         LOG(INFO) << "type: " << task_name
-                  << ", signature: " << signature << ", has been inserted."
-                  << ", queue size: " << signature_set.size();
+                  << ", signature: " << signature << ", has been inserted"
+                  << ". queue size: " << signature_set.size();
         if (task_type == TTaskType::PUSH) {
             _s_total_task_user_count[task_type][user] += 1;
             _s_total_task_count[task_type] += 1;
@@ -284,7 +284,7 @@ void TaskWorkerPool::_remove_task_info(
     std::string task_name;
     EnumToString(TTaskType, task_type, task_name);
     LOG(INFO) << "type: " << task_name
-              << ", signature: " << signature << ", has been erased."
+              << ", signature: " << signature << ", has been erased"
               << ", queue size: " << signature_set.size();
 }
 
