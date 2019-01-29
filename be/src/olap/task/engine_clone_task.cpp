@@ -64,7 +64,7 @@ OLAPStatus EngineCloneTask::execute() {
         tablet->calc_missed_versions(_clone_req.committed_version, &missed_versions);
         LOG(INFO) << "finish to calculate missed versions when clone. "
                   << "tablet=" << tablet->full_name()
-                  << ", committed_version=" << committed_version
+                  << ", committed_version=" << _clone_req.committed_version
                   << ", missed_versions_size=" << missed_versions.size();
         // get download path
         string local_data_path = tablet->tablet_path() + CLONE_PREFIX;

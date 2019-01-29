@@ -151,7 +151,7 @@ public:
     int64_t ref_count();
 
     // delete all files (*.idx; *.dat)
-    void delete_all_files();
+    bool delete_all_files();
 
     inline Version version() const { return _version; }
     inline VersionHash version_hash() const { return _version_hash; }
@@ -248,7 +248,7 @@ public:
 
     int64_t get_tablet_id();
 
-    bool create_hard_links(std::vector<std::string>* success_links);
+    bool make_snapshot(std::vector<std::string>* success_links);
 
     bool remove_old_files(std::vector<std::string>* removed_links);
 

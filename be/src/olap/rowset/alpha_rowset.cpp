@@ -17,14 +17,17 @@
 
 #include "olap/rowset/alpha_rowset.h"
 #include "olap/rowset/alpha_rowset_meta.h"
+#include "olap/rowset/rowset_meta_manager.h"
 
 namespace doris {
 
 AlphaRowset::AlphaRowset(const TabletSchema* schema,
                          const std::string rowset_path,
+                         DataDir* data_dir,
                          RowsetMetaSharedPtr rowset_meta)
       : _schema(schema),
         _rowset_path(rowset_path),
+        _data_dir(data_dir),
         _rowset_meta(rowset_meta),
         _segment_group_size(0),
         _is_cumulative_rowset(false),
@@ -60,9 +63,21 @@ OLAPStatus AlphaRowset::copy(RowsetWriter* dest_rowset_writer) {
 }
 
 OLAPStatus AlphaRowset::remove() {
-    // TODO(hkp) : add delete code
-    // delete rowset from meta
-    // delete segment groups 
+    OlapMeta* meta = _data_dir->get_meta();
+    OLAPStatus status = RowsetMetaManager::remove(meta, rowset_id());
+    if (status != OLAP_SUCCESS) {
+        LOG(FATAL) << "failed to remove meta of rowset_id:" << rowset_id();
+        return status;
+    }
+    for (auto segment_group : _segment_groups) {
+        bool ret = segment_group->delete_all_files();
+        if (!ret) {
+            LOG(FATAL) << "delete segment group files failed."
+                       << " tablet id:" << segment_group->get_tablet_id()
+                       << " rowset path:" << segment_group->get_rowset_path_prefix();
+            return OLAP_ERR_ROWSET_DELETE_SEGMENT_GROUP_FILE_FAILED;
+        }
+    }
     return OLAP_SUCCESS;
 }
 
@@ -117,9 +132,9 @@ int64_t AlphaRowset::start_version() const {
     return _rowset_meta->version().first;
 }
 
-bool AlphaRowset::create_hard_links(std::vector<std::string>* success_links) {
+bool AlphaRowset::make_snapshot(std::vector<std::string>* success_links) {
     for (auto segment_group : _segment_groups) {
-        bool  ret = segment_group->create_hard_links(success_links);
+        bool  ret = segment_group->make_snapshot(success_links);
         if (!ret) {
             LOG(WARNING) << "create hard links failed for segment group:"
                 << segment_group->segment_group_id();
