@@ -771,10 +771,16 @@ Status EsScanNode::materialize_row(MemPool* tuple_pool, Tuple* tuple,
         *reinterpret_cast<int8_t*>(slot) = col.bool_vals[val_idx];
         break;
       case TYPE_DATE:
+        if (val_idx >= col.long_vals.size() ||
+            !reinterpret_cast<DateTimeValue*>(slot)->from_unixtime(col.long_vals[val_idx])) {
+          return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "TYPE_DATE"));
+        }
+        reinterpret_cast<DateTimeValue*>(slot)->cast_to_date();
+        break;
       case TYPE_DATETIME: {
         if (val_idx >= col.long_vals.size() ||
             !reinterpret_cast<DateTimeValue*>(slot)->from_unixtime(col.long_vals[val_idx])) {
-          return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "TYPE_DATE|TYPE_DATETIME"));
+          return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "TYPE_DATETIME"));
         }
         break;
       }
