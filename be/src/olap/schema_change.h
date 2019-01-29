@@ -24,23 +24,20 @@
 
 #include "gen_cpp/AgentService_types.h"
 #include "olap/delete_handler.h"
-#include "olap/rowset/column_data.h"
+#include "olap/rowset/rowset.h"
+#include "olap/rowset/rowset_writer.h"
 #include "olap/tablet.h"
 
 namespace doris {
 // defined in 'field.h'
 class Field;
 class FieldInfo;
-// defined in 'olap_data.h'
-class ColumnData;
 // defined in 'tablet.h'
 class Tablet;
 // defined in 'row_block.h'
 class RowBlock;
 // defined in 'row_cursor.h'
 class RowCursor;
-// defined in 'writer.h'
-class ColumnDataWriter;
 
 struct ColumnMapping {
     ColumnMapping() : ref_column(-1), default_value(NULL) {}
@@ -57,16 +54,20 @@ class RowBlockChanger {
 public:
     typedef std::vector<ColumnMapping> SchemaMapping;
 
-    RowBlockChanger(const std::vector<FieldInfo>& tablet_schema,
+    RowBlockChanger(const TabletSchema& tablet_schema,
                     const TabletSharedPtr& ref_tablet,
                     const DeleteHandler& delete_handler);
 
-    RowBlockChanger(const std::vector<FieldInfo>& tablet_schema,
+    RowBlockChanger(const TabletSchema& tablet_schema,
                     const TabletSharedPtr& ref_tablet);
     
     virtual ~RowBlockChanger();
 
     ColumnMapping* get_mutable_column_mapping(size_t column_index);
+
+    SchemaMapping get_schema_mapping() const {
+        return _schema_mapping;
+    }
     
     bool change_row_block(
             const DataFileType df_type,
@@ -104,7 +105,7 @@ private:
 
 class RowBlockAllocator {
 public:
-    RowBlockAllocator(const std::vector<FieldInfo>& tablet_schema, size_t memory_limitation);
+    RowBlockAllocator(const TabletSchema& tablet_schema, size_t memory_limitation);
     virtual ~RowBlockAllocator();
 
     OLAPStatus allocate(RowBlock** row_block, size_t num_rows, 
@@ -112,7 +113,7 @@ public:
     void release(RowBlock* row_block);
 
 private:
-    const std::vector<FieldInfo>& _tablet_schema;
+    const TabletSchema& _tablet_schema;
     size_t _memory_allocated;
     size_t _row_len;
     size_t _memory_limitation;
@@ -125,7 +126,7 @@ public:
 
     bool merge(
             const std::vector<RowBlock*>& row_block_arr,
-            ColumnDataWriter* writer,
+            RowsetWriterSharedPtr rowset_writer,
             uint64_t* merged_rows);
 
 private:
@@ -151,8 +152,8 @@ public:
     SchemaChange() : _filted_rows(0), _merged_rows(0) {}
     virtual ~SchemaChange() {}
 
-    virtual bool process(ColumnData* olap_data,
-                         SegmentGroup* new_segment_group,
+    virtual bool process(RowsetReaderSharedPtr rowset_reader,
+                         RowsetWriterSharedPtr new_rowset_builder,
                          TabletSharedPtr tablet) = 0;
 
     void add_filted_rows(uint64_t filted_rows) {
@@ -184,7 +185,7 @@ public:
             TSchemaHash schema_hash,
             Version version,
             VersionHash version_hash,
-            SegmentGroup* segment_group);
+            RowsetWriterSharedPtr rowset_builder);
 
 private:
     uint64_t _filted_rows;
@@ -198,7 +199,8 @@ public:
                 TabletSharedPtr new_tablet);
     ~LinkedSchemaChange() {}
 
-    bool process(ColumnData* olap_data, SegmentGroup* new_segment_group,
+    bool process(RowsetReaderSharedPtr rowset_reader,
+                 RowsetWriterSharedPtr new_rowset_writer,
                  TabletSharedPtr tablet);
 private:
     TabletSharedPtr _base_tablet;
@@ -216,7 +218,8 @@ public:
             const RowBlockChanger& row_block_changer);
     virtual ~SchemaChangeDirectly();
 
-    virtual bool process(ColumnData* olap_data, SegmentGroup* new_segment_group,
+    virtual bool process(RowsetReaderSharedPtr rowset_reader,
+                         RowsetWriterSharedPtr new_rowset_writer,
                          TabletSharedPtr tablet);
 
 private:
@@ -226,7 +229,7 @@ private:
     RowCursor* _src_cursor;
     RowCursor* _dst_cursor;
 
-    bool _write_row_block(ColumnDataWriter* writer, RowBlock* row_block);
+    bool _write_row_block(RowsetWriterSharedPtr rowset_builder, RowBlock* row_block);
 
     DISALLOW_COPY_AND_ASSIGN(SchemaChangeDirectly);
 };
@@ -240,18 +243,20 @@ public:
             size_t memory_limitation);
     virtual ~SchemaChangeWithSorting();
 
-    virtual bool process(ColumnData* olap_data, SegmentGroup* new_segment_group,
+    virtual bool process(RowsetReaderSharedPtr rowset_reader,
+                         RowsetWriterSharedPtr new_rowset_builder,
                          TabletSharedPtr tablet);
 
 private:
     bool _internal_sorting(
             const std::vector<RowBlock*>& row_block_arr,
             const Version& temp_delta_versions,
-            SegmentGroup** temp_segment_group);
+            const VersionHash version_hash,
+            RowsetSharedPtr* rowset);
 
     bool _external_sorting(
-            std::vector<SegmentGroup*>& src_segment_group_arr,
-            SegmentGroup* segment_group,
+            std::vector<RowsetSharedPtr>& src_rowsets,
+            RowsetWriterSharedPtr rowset_writer,
             TabletSharedPtr tablet);
 
     TabletSharedPtr _tablet;
@@ -273,8 +278,8 @@ public:
 
     OLAPStatus schema_version_convert(TabletSharedPtr ref_tablet,
                                       TabletSharedPtr new_tablet,
-                                      std::vector<SegmentGroup*>* ref_segment_groups,
-                                      std::vector<SegmentGroup*>* new_segment_groups);
+                                      std::vector<RowsetSharedPtr>* old_rowsets,
+                                      std::vector<RowsetSharedPtr>* new_rowsets);
 
 
 private:
@@ -298,7 +303,7 @@ private:
         AlterTabletType alter_tablet_type;
         TabletSharedPtr ref_tablet;
         TabletSharedPtr new_tablet;
-        std::vector<RowsetReaderSharedPtr> ref_olap_data_arr;
+        std::vector<RowsetReaderSharedPtr> ref_rowset_readers;
         std::string debug_message;
         DeleteHandler delete_handler;
         // TODO(zc): fuck me please, I don't add mutable here, but no where
@@ -330,7 +335,7 @@ private:
 
     // 需要新建default_value时的初始化设置
     static OLAPStatus _init_column_mapping(ColumnMapping* column_mapping,
-                                           const FieldInfo& column_schema,
+                                           const TabletColumn& column_schema,
                                            const std::string& value);
 
     DISALLOW_COPY_AND_ASSIGN(SchemaChangeHandler);

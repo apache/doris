@@ -37,12 +37,24 @@ public:
 
     virtual OLAPStatus add_row(const char* row, Schema* schema);
 
+    virtual OLAPStatus add_row_block(RowBlock* row_block);
+
+    // add rowset by create hard link
+    virtual OLAPStatus add_rowset(RowsetSharedPtr rowset);
+
     virtual OLAPStatus flush();
 
     // get a rowset
     virtual RowsetSharedPtr build();
 
+    // release a rowset
+    virtual OLAPStatus release();
+
     virtual MemPool* mem_pool();
+
+    virtual Version version();
+
+    virtual int32_t num_rows();
 
 private:
     void _init();
@@ -52,7 +64,8 @@ private:
     SegmentGroup* _cur_segment_group;
     ColumnDataWriter* _column_data_writer;
     std::shared_ptr<RowsetMeta> _current_rowset_meta;
-    bool is_pending_rowset;
+    bool _is_pending_rowset;
+    int _num_rows_written;
     RowsetWriterContext _rowset_writer_context;
     std::vector<SegmentGroup*> _segment_groups;
 };
