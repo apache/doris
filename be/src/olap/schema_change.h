@@ -335,7 +335,7 @@ private:
 
     // 需要新建default_value时的初始化设置
     static OLAPStatus _init_column_mapping(ColumnMapping* column_mapping,
-                                           const FieldInfo& column_schema,
+                                           const TabletColumn& column_schema,
                                            const std::string& value);
 
     DISALLOW_COPY_AND_ASSIGN(SchemaChangeHandler);

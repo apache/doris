@@ -340,7 +340,11 @@ enum OLAPStatus {
     OLAP_ERR_ROWSET_WRITER_INIT = -3100,
     OLAP_ERR_ROWSET_SAVE_FAILED = -3101,
     OLAP_ERR_ROWSET_GENERATE_ID_FAILED = -3102,
+<<<<<<< HEAD
     OLAP_ERR_ROWSET_DELETE_SEGMENT_GROUP_FILE_FAILED = -3103,
+=======
+    OLAP_ERR_ROWSET_BUILDER_INIT = -3103,
+>>>>>>> fix compile problems
 };
 
 enum ColumnFamilyIndex {

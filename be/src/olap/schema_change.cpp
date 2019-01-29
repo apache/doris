@@ -61,7 +61,7 @@ RowBlockChanger::RowBlockChanger(const TabletSchema& tablet_schema,
 RowBlockChanger::RowBlockChanger(const TabletSchema& tablet_schema,
                                  const TabletSharedPtr& ref_tablet,
                                  const DeleteHandler& delete_handler) {
-    _schema_mapping.resize(tablet_schema.size());
+    _schema_mapping.resize(tablet_schema.num_columns());
     _delete_handler = delete_handler;
 }
 
@@ -1629,7 +1629,7 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
                            .set_tablet_schema_hash(dest_tablet->schema_hash())
                            .set_rowset_type(ALPHA_ROWSET)
                            .set_rowset_path_prefix(dest_tablet->tablet_path())
-                           .set_tablet_schema(*(dest_tablet->tablet_schema()))
+                           .set_tablet_schema(&(dest_tablet->tablet_schema()))
                            .set_rowset_state(PREPARED)
                            .set_txn_id((*it)->txn_id())
                            .set_load_id(load_id);
@@ -1640,7 +1640,7 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
                            .set_tablet_schema_hash(dest_tablet->schema_hash())
                            .set_rowset_type(ALPHA_ROWSET)
                            .set_rowset_path_prefix(dest_tablet->tablet_path())
-                           .set_tablet_schema(*(dest_tablet->tablet_schema()))
+                           .set_tablet_schema(&(dest_tablet->tablet_schema()))
                            .set_rowset_state(VISIBLE)
                            .set_version((*it)->version())
                            .set_version_hash((*it)->version_hash());
@@ -1649,7 +1649,7 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
         RowsetWriterSharedPtr rowset_writer(new AlphaRowsetWriter());
         rowset_writer->init(context);
 
-        if (!sc_procedure->process(*it, rowset_writer, dest_tablet)) {
+        if (!sc_procedure->process(rowset_reader, rowset_writer, dest_tablet)) {
             if ((*it)->is_pending()) {
                 LOG(WARNING) << "failed to process the transaction when schema change. "
                              << "[tablet='" << dest_tablet->full_name() << "'"
@@ -1663,7 +1663,7 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
             res = OLAP_ERR_INPUT_PARAMETER_ERROR;
             goto SCHEMA_VERSION_CONVERT_ERR;
         }
-        RowsetSharedPtr new_rowset = rowset_writer.build();
+        RowsetSharedPtr new_rowset = rowset_writer->build();
         if (new_rowset == nullptr) {
             LOG(WARNING) << "build rowset failed.";
             res = OLAP_ERR_MALLOC_ERROR;
@@ -1865,7 +1865,7 @@ OLAPStatus SchemaChangeHandler::_alter_tablet(SchemaChangeParams* sc_params) {
                        .set_partition_id(new_tablet->partition_id())
                        .set_rowset_type(ALPHA_ROWSET)
                        .set_rowset_path_prefix(new_tablet->tablet_path())
-                       .set_tablet_schema(new_tablet->tablet_schema())
+                       .set_tablet_schema(&(new_tablet->tablet_schema()))
                        .set_rowset_state(VISIBLE)
                        .set_version((*it)->version())
                        .set_version_hash((*it)->version_hash());
@@ -1896,7 +1896,7 @@ OLAPStatus SchemaChangeHandler::_alter_tablet(SchemaChangeParams* sc_params) {
 
         if (!sc_params->new_tablet->has_version((*it)->version())) {
             // register version
-            RowsetSharedPtr new_rowset = rowset_writer.build();
+            RowsetSharedPtr new_rowset = rowset_writer->build();
             res = sc_params->new_tablet->add_rowset(new_rowset);
             if (OLAP_SUCCESS != res) {
                 LOG(WARNING) << "failed to register new version. "
@@ -1915,9 +1915,9 @@ OLAPStatus SchemaChangeHandler::_alter_tablet(SchemaChangeParams* sc_params) {
                     << ", version=" << (*it)->version().first << "-" << (*it)->version().second;
         } else {
             LOG(WARNING) << "version already exist, version revert occured. "
-                             "[tablet=" << sc_params->new_tablet->full_name()
-                             " version='" << (*it)->version().first
-                             "-" << (*it)->version().second << "']",
+                         << "[tablet=" << sc_params->new_tablet->full_name()
+                         << " version='" << (*it)->version().first
+                         << "-" << (*it)->version().second << "']";
             rowset_writer->release();
         }
 
@@ -2016,31 +2016,29 @@ OLAPStatus SchemaChangeHandler::_parse_request(TabletSharedPtr ref_tablet,
     OLAPStatus res = OLAP_SUCCESS;
 
     // set column mapping
-    for (int i = 0, new_schema_size = new_tablet->tablet_schema().size();
+    for (int i = 0, new_schema_size = new_tablet->tablet_schema().num_columns();
             i < new_schema_size; ++i) {
-        const FieldInfo& new_column_schema = new_tablet->tablet_schema()[i];
-        const string& column_name = new_column_schema.name;
+        const TabletColumn& new_column = new_tablet->tablet_schema().column(i);
+        const string& column_name = new_column.name();
         ColumnMapping* column_mapping = rb_changer->get_mutable_column_mapping(i);
 
-        if (new_column_schema.has_referenced_column) {
-            int32_t column_index = ref_tablet->get_field_index(
-                                       new_column_schema.referenced_column);
+        if (new_column.has_reference_column()) {
+            int32_t column_index = ref_tablet->field_index(new_column.referenced_column());
 
             if (column_index < 0) {
-                OLAP_LOG_WARNING("referenced column was missing. "
-                                 "[column='%s' referenced_column='%s']",
-                                 column_name.c_str(),
-                                 new_column_schema.referenced_column.c_str());
+                LOG(WARNING) << "referenced column was missing. "
+                             << "[column=" << column_name
+                             << " referenced_column=" << column_index << "]";
                 return OLAP_ERR_CE_CMD_PARAMS_ERROR;
             }
 
             column_mapping->ref_column = column_index;
             VLOG(3) << "A column refered to existed column will be added after schema changing."
-                    << "column=" << column_name << ", ref_column=" << new_column_schema.referenced_column;
+                    << "column=" << column_name << ", ref_column=" << column_index;
             continue;
         }
 
-        int32_t column_index = ref_tablet->get_field_index(column_name);
+        int32_t column_index = ref_tablet->field_index(column_name);
         if (column_index >= 0) {
             column_mapping->ref_column = column_index;
             continue;
@@ -2057,14 +2055,14 @@ OLAPStatus SchemaChangeHandler::_parse_request(TabletSharedPtr ref_tablet,
 
             if (OLAP_SUCCESS != (res = _init_column_mapping(
                                          column_mapping,
-                                         new_column_schema,
-                                         new_column_schema.default_value))) {
+                                         new_column,
+                                         new_column.default_value()))) {
                 return res;
             }
 
             VLOG(10) << "A column with default value will be added after schema chaning. "
                      << "column=" << column_name
-                     << ", default_value=" << new_column_schema.default_value;
+                     << ", default_value=" << new_column.default_value();
             continue;
         }
 
@@ -2074,7 +2072,7 @@ OLAPStatus SchemaChangeHandler::_parse_request(TabletSharedPtr ref_tablet,
 
         if (OLAP_SUCCESS != (res = _init_column_mapping(
                                        column_mapping,
-                                       new_column_schema,
+                                       new_column,
                                        ""))) {
             return res;
         }
@@ -2122,8 +2120,8 @@ OLAPStatus SchemaChangeHandler::_parse_request(TabletSharedPtr ref_tablet,
                 return OLAP_SUCCESS;
             } else if (
                 (new_tablet_schema.column(i).type() == ref_tablet_schema.column(column_mapping->ref_column).type())
-                    && (new_tablet_schema[i].length 
-                        != ref_tablet_schema[column_mapping->ref_column].length)) {
+                    && (new_tablet_schema.column(i).length()
+                        != ref_tablet_schema.column(column_mapping->ref_column).length())) {
                 *sc_directly = true;
                 return OLAP_SUCCESS;
 
@@ -2148,7 +2146,7 @@ OLAPStatus SchemaChangeHandler::_parse_request(TabletSharedPtr ref_tablet,
 }
 
 OLAPStatus SchemaChangeHandler::_init_column_mapping(ColumnMapping* column_mapping,
-                                                     const FieldInfo& column_schema,
+                                                     const TabletColumn& column_schema,
                                                      const std::string& value) {
     column_mapping->default_value = WrapperField::create(column_schema);
 
@@ -2156,40 +2154,13 @@ OLAPStatus SchemaChangeHandler::_init_column_mapping(ColumnMapping* column_mappi
         return OLAP_ERR_MALLOC_ERROR;
     }
 
-    if (true == column_schema.is_allow_null && value.length() == 0) {
+    if (true == column_schema.is_nullable() && value.length() == 0) {
         column_mapping->default_value->set_null();
     } else {
         column_mapping->default_value->from_string(value);
     }
 
     return OLAP_SUCCESS;
-}
-
-OLAPStatus SchemaChange::create_initial_rowset(
-        TTabletId tablet_id,
-        SchemaHash schema_hash,
-        Version version,
-        VersionHash version_hash,
-        RowsetWriterSharedPtr rowset_writer) {
-    VLOG(3) << "begin to create init version. "
-            << "begin=" << version.first << ", end=" << version.second;
-
-    OLAPStatus res = OLAP_SUCCESS;
-
-    do {
-        if (version.first > version.second) {
-            LOG(WARNING) << "begin should not larger than end. "
-                         << " begin=" << version.first
-                         << " end=" << version.second;
-            res = OLAP_ERR_INPUT_PARAMETER_ERROR;
-            break;
-        }
-
-        res = rowset_writer->flush();
-    } while (0);
-
-    VLOG(3) << "create init version end. res=" << res;
-    return res;
 }
 
 }  // namespace doris
