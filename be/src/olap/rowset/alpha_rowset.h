@@ -49,7 +49,7 @@ public:
 
     virtual void set_version(Version version);
 
-    bool create_files_with_new_name(std::vector<std::string>* success_links);
+    bool make_snapshot(std::vector<std::string>* success_links);
 
     bool remove_old_files(std::vector<std::string>* removed_links);
 
@@ -91,14 +91,13 @@ private:
 private:
     const TabletSchema* _schema;
     std::string _rowset_path;
-    RowsetMetaSharedPtr _rowset_meta;
     DataDir* _data_dir;
+    RowsetMetaSharedPtr _rowset_meta;
     std::vector<std::shared_ptr<SegmentGroup>> _segment_groups;
     int _segment_group_size;
     bool _is_cumulative_rowset;
     bool _is_pending_rowset;
     atomic_t _ref_count;
-    bool _removed;
 };
 
 } // namespace doris

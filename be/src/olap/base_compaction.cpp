@@ -316,7 +316,7 @@ OLAPStatus BaseCompaction::_do_base_compaction(VersionHash new_base_version_hash
             .set_tablet_schema_hash(_tablet->schema_hash())
             .set_rowset_type(ALPHA_ROWSET)
             .set_rowset_path_prefix(_tablet->tablet_path())
-            .set_tablet_schema(_tablet->tablet_schema())
+            .set_tablet_schema(&(_tablet->tablet_schema()))
             .set_data_dir(_tablet->data_dir())
             .set_rowset_state(VISIBLE)
             .set_version(Version(_new_base_version.first, _new_base_version.second))

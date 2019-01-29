@@ -31,8 +31,7 @@ AlphaRowset::AlphaRowset(const TabletSchema* schema,
         _rowset_meta(rowset_meta),
         _segment_group_size(0),
         _is_cumulative_rowset(false),
-        _is_pending_rowset(false),
-        _removed(false) {
+        _is_pending_rowset(false) {
     if (!_rowset_meta->has_version()) {
         _is_pending_rowset = true;
     }
@@ -53,10 +52,6 @@ OLAPStatus AlphaRowset::init() {
 }
 
 std::unique_ptr<RowsetReader> AlphaRowset::create_reader() {
-    if (_removed) {
-        LOG(WARNING) << "create reader failed because the rowset has been removed.";
-        return nullptr;
-    }
     return std::unique_ptr<RowsetReader>(new AlphaRowsetReader(
             _schema->num_key_columns(), _schema->num_short_key_columns(),
             _schema->num_rows_per_row_block(), _rowset_path,
@@ -71,13 +66,18 @@ OLAPStatus AlphaRowset::remove() {
     OlapMeta* meta = _data_dir->get_meta();
     OLAPStatus status = RowsetMetaManager::remove(meta, rowset_id());
     if (status != OLAP_SUCCESS) {
-        LOG(WARNING) << "failed to remove meta of rowset_id:" << rowset_id();
+        LOG(FATAL) << "failed to remove meta of rowset_id:" << rowset_id();
         return status;
     }
     for (auto segment_group : _segment_groups) {
-        segment_group->delete_all_files();
+        bool ret = segment_group->delete_all_files();
+        if (!ret) {
+            LOG(FATAL) << "delete segment group files failed."
+                       << " tablet id:" << segment_group->get_tablet_id()
+                       << " rowset path:" << segment_group->get_rowset_path_prefix();
+            return OLAP_ERR_ROWSET_DELETE_SEGMENT_GROUP_FILE_FAILED;
+        }
     }
-    _removed = true;
     return OLAP_SUCCESS;
 }
 
@@ -90,10 +90,6 @@ RowsetMetaSharedPtr AlphaRowset::rowset_meta() const {
 }
 
 void AlphaRowset::set_version(Version version) {
-    if (_removed) {
-        LOG(WARNING) << "set version failed because the rowset has been removed.";
-        return;
-    }
     _rowset_meta->set_version(version);
     // set the rowset state to VISIBLE
     _rowset_meta->set_rowset_state(VISIBLE);
@@ -136,13 +132,9 @@ int64_t AlphaRowset::start_version() const {
     return _rowset_meta->version().first;
 }
 
-bool AlphaRowset::create_files_with_new_name(std::vector<std::string>* success_links) {
-    if (_removed) {
-        LOG(WARNING) << "create files failed because the rowset has been removed.";
-        return false;
-    }
+bool AlphaRowset::make_snapshot(std::vector<std::string>* success_links) {
     for (auto segment_group : _segment_groups) {
-        bool  ret = segment_group->create_files_with_new_name(success_links);
+        bool  ret = segment_group->make_snapshot(success_links);
         if (!ret) {
             LOG(WARNING) << "create hard links failed for segment group:"
                 << segment_group->segment_group_id();
@@ -153,10 +145,6 @@ bool AlphaRowset::create_files_with_new_name(std::vector<std::string>* success_l
 }
 
 bool AlphaRowset::remove_old_files(std::vector<std::string>* removed_links) {
-    if (_removed) {
-        LOG(WARNING) << "remove old files failed because the rowset has been removed.";
-        return false;
-    }
     for (auto segment_group : _segment_groups) {
         bool  ret = segment_group->remove_old_files(removed_links);
         if (!ret) {
@@ -169,42 +157,22 @@ bool AlphaRowset::remove_old_files(std::vector<std::string>* removed_links) {
 }
 
 int AlphaRowset::data_disk_size() const {
-    if (_removed) {
-        LOG(WARNING) << "data_disk_size failed because the rowset has been removed.";
-        return -1;
-    }
     return _rowset_meta->total_disk_size();
 }
 
 int AlphaRowset::index_disk_size() const {
-    if (_removed) {
-        LOG(WARNING) << "index_disk_size failed because the rowset has been removed.";
-        return -1;
-    }
     return _rowset_meta->index_disk_size();
 }
 
 bool AlphaRowset::empty() const {
-    if (_removed) {
-        LOG(WARNING) << "empty failed because the rowset has been removed.";
-        return false;
-    }
     return _rowset_meta->empty();
 }
 
 bool AlphaRowset::zero_num_rows() const {
-    if (_removed) {
-        LOG(WARNING) << "zero_num_rows failed because the rowset has been removed.";
-        return false;
-    }
     return _rowset_meta->num_rows() == 0;
 }
 
 size_t AlphaRowset::num_rows() const {
-    if (_removed) {
-        LOG(WARNING) << "num_rows failed because the rowset has been removed.";
-        return -1;
-    }
     return _rowset_meta->num_rows();
 }
 
