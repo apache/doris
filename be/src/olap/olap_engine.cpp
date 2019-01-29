@@ -1651,6 +1651,11 @@ void OLAPEngine::_build_tablet_info(OLAPTablePtr olap_table, TTabletInfo* tablet
         vector<Version> missing_versions;
         olap_table->get_missing_versions_with_header_locked(
                 last_file_version->end_version(), &missing_versions);
+
+        if (!missing_versions.empty()) {
+            tablet_info->__set_version_miss(true);
+        }
+
         const PDelta* least_complete_version =
             olap_table->least_complete_version(missing_versions);
         if (least_complete_version == NULL) {
