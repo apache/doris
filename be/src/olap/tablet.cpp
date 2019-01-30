@@ -469,38 +469,27 @@ OLAPStatus Tablet::split_range(
         uint64_t request_block_row_count,
         vector<OlapTuple>* ranges) {
     if (ranges == NULL) {
-        OLAP_LOG_WARNING("parameter end_row is null.");
+        LOG(WARNING) << "parameter end_row is null.";
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
-    EntrySlice entry;
     RowCursor start_key;
     RowCursor end_key;
-    RowCursor helper_cursor;
-    RowBlockPosition start_pos;
-    RowBlockPosition end_pos;
-    RowBlockPosition step_pos;
-
-    // 此helper用于辅助查找，注意它的内容不能拿来使用，是不可预知的，仅作为辅助使用
-    if (helper_cursor.init(_schema, num_short_key_columns()) != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to parse strings to key with RowCursor type.");
-        return OLAP_ERR_INVALID_SCHEMA;
-    }
 
     // 如果有startkey，用startkey初始化；反之则用minkey初始化
     if (start_key_strings.size() > 0) {
         if (start_key.init_scan_key(_schema, start_key_strings.values()) != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("fail to initial key strings with RowCursor type.");
+            LOG(WARNING) << "fail to initial key strings with RowCursor type.";
             return OLAP_ERR_INIT_FAILED;
         }
 
         if (start_key.from_tuple(start_key_strings) != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("init end key failed");
+            LOG(WARNING) << "init end key failed";
             return OLAP_ERR_INVALID_SCHEMA;
         }
     } else {
         if (start_key.init(_schema, num_short_key_columns()) != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("fail to initial key strings with RowCursor type.");
+            LOG(WARNING) << "fail to initial key strings with RowCursor type.";
             return OLAP_ERR_INIT_FAILED;
         }
 
@@ -511,17 +500,17 @@ OLAPStatus Tablet::split_range(
     // 和startkey一样处理，没有则用maxkey初始化
     if (end_key_strings.size() > 0) {
         if (OLAP_SUCCESS != end_key.init_scan_key(_schema, end_key_strings.values())) {
-            OLAP_LOG_WARNING("fail to parse strings to key with RowCursor type.");
+            LOG(WARNING) << "fail to parse strings to key with RowCursor type.";
             return OLAP_ERR_INVALID_SCHEMA;
         }
 
         if (end_key.from_tuple(end_key_strings) != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("init end key failed");
+            LOG(WARNING) << "init end key failed";
             return OLAP_ERR_INVALID_SCHEMA;
         }
     } else {
         if (end_key.init(_schema, num_short_key_columns()) != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("fail to initial key strings with RowCursor type.");
+            LOG(WARNING) << "fail to initial key strings with RowCursor type.";
             return OLAP_ERR_INIT_FAILED;
         }
 
@@ -530,94 +519,19 @@ OLAPStatus Tablet::split_range(
     }
 
     ReadLock rdlock(get_header_lock_ptr());
-    //SegmentGroup* base_index = get_largest_index();
-    SegmentGroup* base_index = nullptr;
+    RowsetSharedPtr rowset = rowset_with_largest_size();
 
-    // 如果找不到合适的segment_group，就直接返回startkey，endkey
-    if (base_index == NULL) {
+    // 如果找不到合适的rowset，就直接返回startkey，endkey
+    if (rowset == nullptr) {
         VLOG(3) << "there is no base file now, may be tablet is empty.";
         // it may be right if the tablet is empty, so we return success.
         ranges->emplace_back(start_key.to_tuple());
         ranges->emplace_back(end_key.to_tuple());
         return OLAP_SUCCESS;
     }
-
-    uint64_t expected_rows = request_block_row_count
-            / base_index->current_num_rows_per_row_block();
-    if (expected_rows == 0) {
-        OLAP_LOG_WARNING("expected_rows less than 1. [request_block_row_count = '%d']",
-                         request_block_row_count);
-        return OLAP_ERR_TABLE_NOT_FOUND;
-    }
-
-    // 找到startkey对应的起始位置
-    if (base_index->find_short_key(start_key, &helper_cursor, false, &start_pos) != OLAP_SUCCESS) {
-        if (base_index->find_first_row_block(&start_pos) != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("fail to get first block pos");
-            return OLAP_ERR_TABLE_INDEX_FIND_ERROR;
-        }
-    }
-
-    step_pos = start_pos;
-    VLOG(3) << "start_pos=" << start_pos.segment << ", " << start_pos.index_offset;
-
-    //find last row_block is end_key is given, or using last_row_block
-    if (base_index->find_short_key(end_key, &helper_cursor, false, &end_pos) != OLAP_SUCCESS) {
-        if (base_index->find_last_row_block(&end_pos) != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("fail find last row block.");
-            return OLAP_ERR_TABLE_INDEX_FIND_ERROR;
-        }
-    }
-
-    VLOG(3) << "end_pos=" << end_pos.segment << ", " << end_pos.index_offset;
-
-    //get rows between first and last
-    OLAPStatus res = OLAP_SUCCESS;
-    RowCursor cur_start_key;
-    RowCursor last_start_key;
-
-    if (cur_start_key.init(_schema, num_short_key_columns()) != OLAP_SUCCESS
-            || last_start_key.init(_schema, num_short_key_columns()) != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to init cursor");
-        return OLAP_ERR_INIT_FAILED;
-    }
-
-    if (base_index->get_row_block_entry(start_pos, &entry) != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("get block entry failed.");
-        return OLAP_ERR_ROWBLOCK_FIND_ROW_EXCEPTION;
-    }
-
-    cur_start_key.attach(entry.data);
-    last_start_key.allocate_memory_for_string_type(_schema);
-    last_start_key.copy_without_pool(cur_start_key);
-    // start_key是last start_key, 但返回的实际上是查询层给出的key
-    ranges->emplace_back(start_key.to_tuple());
-
-    while (end_pos > step_pos) {
-        res = base_index->advance_row_block(expected_rows, &step_pos);
-        if (res == OLAP_ERR_INDEX_EOF || !(end_pos > step_pos)) {
-            break;
-        } else if (res != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("advance_row_block failed.");
-            return OLAP_ERR_ROWBLOCK_FIND_ROW_EXCEPTION;
-        }
-
-        if (base_index->get_row_block_entry(step_pos, &entry) != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("get block entry failed.");
-            return OLAP_ERR_ROWBLOCK_FIND_ROW_EXCEPTION;
-        }
-        cur_start_key.attach(entry.data);
-
-        if (cur_start_key.cmp(last_start_key) != 0) {
-            ranges->emplace_back(cur_start_key.to_tuple()); // end of last section
-            ranges->emplace_back(cur_start_key.to_tuple()); // start a new section
-            last_start_key.copy_without_pool(cur_start_key);
-        }
-    }
-
-    ranges->emplace_back(end_key.to_tuple());
-
-    return OLAP_SUCCESS;
+    AlphaRowset* alpha_rowset = reinterpret_cast<AlphaRowset*>(rowset.get());
+    OLAPStatus status = alpha_rowset->split_range(start_key, end_key, request_block_row_count, ranges);
+    return status;
 }
 
 bool Tablet::has_version(const Version& version) const {
