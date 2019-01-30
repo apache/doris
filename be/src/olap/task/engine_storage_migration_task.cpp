@@ -162,15 +162,11 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
                              tablet_id, schema_hash);
             return OLAP_ERR_TABLE_NOT_FOUND;
         }
-        SchemaChangeStatus tablet_status = tablet->schema_change_status();
-        if (tablet->schema_change_status().status == AlterTableStatus::ALTER_TABLE_FINISHED) {
-            new_tablet->set_schema_change_status(tablet_status.status,
-                                                 tablet_status.schema_hash,
-                                                 tablet_status.version);
+        AlterTabletState alter_state = tablet->alter_state();
+        if (alter_state == ALTER_FINISHED) {
+            new_tablet->set_alter_state(ALTER_FINISHED);
         } else {
-            new_tablet->set_schema_change_status(AlterTableStatus::ALTER_TABLE_FAILED,
-                                                 tablet_status.schema_hash,
-                                                 tablet_status.version);
+            new_tablet->set_alter_state(ALTER_NONE);
         }
     } while (0);
 
@@ -196,7 +192,7 @@ OLAPStatus EngineStorageMigrationTask::_generate_new_header(
             StorageEngine::instance()->get_store(tablet->storage_root_path_name());
     TabletMetaManager::get_header(ref_store, tablet->tablet_id(), tablet->schema_hash(), new_tablet_meta);
     SnapshotManager::instance()->update_header_file_info(version_entity_vec, new_tablet_meta);
-    new_tablet_meta->set_shard(new_shard);
+    new_tablet_meta->set_shard_id(new_shard);
 
     res = TabletMetaManager::save(store, tablet->tablet_id(), tablet->schema_hash(), new_tablet_meta);
     if (res != OLAP_SUCCESS) {
@@ -217,42 +213,13 @@ OLAPStatus EngineStorageMigrationTask::_copy_index_and_data_files(
         const string& schema_hash_path,
         const TabletSharedPtr& ref_tablet,
         vector<VersionEntity>& version_entity_vec) {
-    std::stringstream prefix_stream;
-    prefix_stream << schema_hash_path << "/" << ref_tablet->tablet_id();
-    std::string tablet_path_prefix = prefix_stream.str();
-    for (VersionEntity& entity : version_entity_vec) {
+    // TODO(lcy). copy function should be implemented
+    for (auto& entity : version_entity_vec) {
         Version version = entity.version;
-        VersionHash v_hash = entity.version_hash;
-        for (SegmentGroupEntity segment_group_entity : entity.segment_group_vec) {
-            int32_t segment_group_id = segment_group_entity.segment_group_id;
-            for (int seg_id = 0; seg_id < segment_group_entity.num_segments; ++seg_id) {
-                string index_path =
-                    SnapshotManager::instance()->construct_index_file_path(tablet_path_prefix, version, v_hash, segment_group_id, seg_id);
-                string ref_tablet_index_path = ref_tablet->construct_index_file_path(
-                        version, v_hash, segment_group_id, seg_id);
-                Status res = FileUtils::copy_file(ref_tablet_index_path, index_path);
-                if (!res.ok()) {
-                    LOG(WARNING) << "fail to copy index file."
-                                 << "dest=" << index_path
-                                 << ", src=" << ref_tablet_index_path;
-                    return OLAP_ERR_COPY_FILE_ERROR;
-                }
-
-                string data_path =
-                    SnapshotManager::instance()->construct_data_file_path(tablet_path_prefix, version, v_hash, segment_group_id, seg_id);
-                string ref_tablet_data_path = ref_tablet->construct_data_file_path(
-                    version, v_hash, segment_group_id, seg_id);
-                res = FileUtils::copy_file(ref_tablet_data_path, data_path);
-                if (!res.ok()) {
-                    LOG(WARNING) << "fail to copy data file."
-                                 << "dest=" << index_path
-                                 << ", src=" << ref_tablet_index_path;
-                    return OLAP_ERR_COPY_FILE_ERROR;
-                }
-            }
-        }
+        const RowsetSharedPtr rowset = ref_tablet->get_rowset_by_version(version);
+        std::vector<std::string> success_files;
+        RETURN_NOT_OK(rowset->make_snapshot(&success_files));
     }
-
     return OLAP_SUCCESS;
 }
 

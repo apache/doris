@@ -70,7 +70,6 @@ public:
     }
     
     bool change_row_block(
-            const DataFileType df_type,
             const RowBlock& origin_block,
             int32_t data_version,
             RowBlock* mutable_block,
@@ -109,7 +108,7 @@ public:
     virtual ~RowBlockAllocator();
 
     OLAPStatus allocate(RowBlock** row_block, size_t num_rows, 
-                        DataFileType data_file_type, bool null_supported);
+                        bool null_supported);
     void release(RowBlock* row_block);
 
 private:

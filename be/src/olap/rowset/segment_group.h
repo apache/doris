@@ -247,9 +247,9 @@ public:
 
     int64_t get_tablet_id();
 
-    bool make_snapshot(std::vector<std::string>* success_links);
+    OLAPStatus make_snapshot(std::vector<std::string>* success_links);
 
-    bool remove_old_files(std::vector<std::string>* removed_links);
+    OLAPStatus remove_old_files(std::vector<std::string>* linkes_to_remove);
 
     bool copy_segments_to_path(const std::string& dest_path);
 

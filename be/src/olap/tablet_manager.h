@@ -94,7 +94,7 @@ public:
     // 
     // @param [in] tablet_id & schema_hash specify a tablet
     // @return alter tablet status
-    AlterTableStatus show_alter_tablet_status(TTabletId tablet_id, TSchemaHash schema_hash);
+    AlterTabletState show_alter_tablet_state(TTabletId tablet_id, TSchemaHash schema_hash);
 
     // Drop a tablet by description
     // If set keep_files == true, files will NOT be deleted when deconstruction.

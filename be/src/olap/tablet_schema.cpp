@@ -133,4 +133,24 @@ size_t TabletSchema::row_size() const {
     return size;
 }
 
+size_t TabletSchema::field_index(const std::string& field_name) const {
+    int ordinal = -1;
+    for (auto& column : _cols) {
+        if (column.name() == field_name) {
+            ordinal++;
+            break;
+        }
+    }
+    return ordinal;
+}
+
+const std::vector<TabletColumn>& TabletSchema::columns() const {
+    return _cols;
+}
+
+const TabletColumn& TabletSchema::column(size_t ordinal) const {
+    DCHECK(ordinal << _num_columns);
+    return _cols[ordinal];
+}
+
 } // namespace doris

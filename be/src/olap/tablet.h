@@ -48,19 +48,9 @@ class SegmentGroup;
 
 using TabletSharedPtr = std::shared_ptr<Tablet>;
 
-struct SchemaChangeStatus {
-    SchemaChangeStatus() : status(ALTER_TABLE_WAITING), schema_hash(0), version(-1) {}
-
-    AlterTableStatus status;
-    SchemaHash schema_hash;
-    int32_t version;
-};
-
 class Tablet : public std::enable_shared_from_this<Tablet> {
 public:
     static TabletSharedPtr create_from_tablet_meta_file(
-            int64_t tablet_id,
-            int64_t schema_hash,
             const std::string& header_file,
             DataDir* data_dir = nullptr);
     static TabletSharedPtr create_from_tablet_meta(
@@ -71,23 +61,23 @@ public:
     ~Tablet();
 
     OLAPStatus load();
-    bool is_loaded();
-    OLAPStatus load_indices();
+    OLAPStatus load_rowsets();
+    inline bool is_loaded();
     OLAPStatus save_tablet_meta();
 
-    void delete_expire_incremental_data();
-    const PDelta* get_incremental_delta(Version version) const;
-    OLAPStatus clone_data(const TabletMeta& tablet_meta,
-                          const std::vector<RowsetMetaSharedPtr>& rowsets_to_clone,
-                          const std::vector<Version>& versions_to_delete);
+    bool has_expired_incremental_rowset();
+    void delete_expired_incremental_rowset();
+    OLAPStatus revise_tablet_meta(const TabletMeta& tablet_meta,
+                                  const std::vector<RowsetMetaSharedPtr>& rowsets_to_clone,
+                                  const std::vector<Version>& versions_to_delete);
     OLAPStatus compute_all_versions_hash(const std::vector<Version>& versions,
                                          VersionHash* version_hash) const;
     OLAPStatus merge_tablet_meta(const TabletMeta& hdr, int to_version);
     bool has_version(const Version& version) const;
     void list_versions(std::vector<Version>* versions) const;
     void list_version_entities(std::vector<VersionEntity>* version_entities) const;
-    void mark_dropped();
-    bool is_dropped();
+    void mark_dropped() { _is_dropped = true; }
+    bool is_dropped() { return _is_dropped; }
     void delete_all_files();
     void obtain_header_rdlock() { _meta_lock.rdlock(); }
     void obtain_header_wrlock() { _meta_lock.wrlock(); }
@@ -102,66 +92,37 @@ public:
     bool try_cumulative_lock() { return (OLAP_SUCCESS == _cumulative_lock.trylock()); }
     void obtain_cumulative_lock() { _cumulative_lock.lock(); }
     void release_cumulative_lock() { _cumulative_lock.unlock(); }
-    std::string construct_index_file_path(const Version& version,
-                                          VersionHash version_hash,
-                                          int32_t segment_group_id, int32_t segment) const;
-    std::string construct_data_file_path(const Version& version,
-                                         VersionHash version_hash,
-                                         int32_t segment_group_id, int32_t segment) const;
-    static std::string construct_file_path(const std::string& tablet_path,
-                                           const Version& version,
-                                           VersionHash version_hash,
-                                           int32_t segment_group_id, int32_t segment,
-                                           const std::string& suffix);
     std::string construct_pending_data_dir_path() const;
-    std::string construct_incremental_index_file_path(
-        Version version, VersionHash version_hash, int32_t segment_group_id, int32_t segment) const;
-    std::string construct_incremental_data_file_path(
-        Version version, VersionHash version_hash, int32_t segment_group_id, int32_t segment) const;
     std::string construct_dir_path() const;
-    int file_delta_size() const;
-    const PDelta& delta(int index) const;
-    const PDelta* get_delta(int index) const;
-    const PDelta* base_version() const;
-    const uint32_t get_cumulative_compaction_score() const;
-    const uint32_t get_base_compaction_score() const;
-    DataFileType data_file_type() const;
-    int delete_data_conditions_size() const;
-    const google::protobuf::RepeatedPtrField<DeletePredicatePB>& delete_data_conditions();
-    KeysType keys_type() const;
-    bool is_delete_data_version(Version version);
-    bool is_load_delete_version(Version version);
-    const int64_t creation_time() const;
-    void set_creation_time(int64_t time_seconds);
-    const int32_t cumulative_layer_point() const;
-    void set_cumulative_layer_point(const int32_t new_point);
+    int version_count() const;
+    const uint32_t calc_cumulative_compaction_score() const;
+    const uint32_t calc_base_compaction_score() const;
+    inline KeysType keys_type() const;
+    bool version_for_delete_predicate(const Version& version);
+    bool version_for_load_deletion(const Version& version);
+    inline const int64_t creation_time() const;
+    void set_creation_time(int64_t creation_time);
+    inline const int32_t cumulative_layer_point() const;
+    inline void set_cumulative_layer_point(const int32_t new_point);
+    AlterTabletState alter_state();
+    OLAPStatus set_alter_state(AlterTabletState state);
     bool is_schema_changing();
-    bool get_schema_change_request(TTabletId* tablet_id,
-                                   TSchemaHash* schema_hash,
-                                   std::vector<Version>* versions_to_changed,
-                                   AlterTabletType* alter_table_type) const;
-    void set_schema_change_request(int64_t tablet_id,
-                                   int64_t schema_hash,
-                                   const std::vector<Version>& versions_to_changed,
-                                   const AlterTabletType alter_type);
-    bool remove_last_schema_change_version(TabletSharedPtr new_olap_table);
-    void clear_schema_change_request();
-    SchemaChangeStatus schema_change_status();
-    void set_schema_change_status(AlterTableStatus status,
-                                  SchemaHash schema_hash,
-                                  int32_t version);
+    OLAPStatus delete_alter_task();
+    void add_alter_task(int64_t tablet_id, int64_t schema_hash,
+                        const vector<Version>& versions_to_alter,
+                        const AlterTabletType alter_type);
+    const AlterTabletTask& alter_task();
     bool is_used();
-    std::string storage_root_path_name();
-    std::string tablet_path();
-    FieldType get_field_type_by_index(uint32_t index);
-    FieldAggregationMethod get_aggregation_by_index(uint32_t index);
+    std::string storage_root_path_name() const;
+    std::string tablet_path() const;
     OLAPStatus test_version(const Version& version);
     VersionEntity get_version_entity_by_version(const Version& version);
     size_t get_version_data_size(const Version& version);
     OLAPStatus recover_tablet_until_specfic_version(const int64_t& spec_version,
                                                     const int64_t& version_hash);
     const std::string& rowset_path_prefix();
-    void set_id(int64_t id);
+    const size_t id() { return _id; }
+    void set_id(size_t id) { _id = id; }
     OLAPStatus register_tablet_into_dir();
     void list_entities(vector<VersionEntity>* entities) const;
 
@@ -185,6 +146,7 @@ public:
                               vector<RowsetSharedPtr>* to_delete);
     OLAPStatus add_rowset(RowsetSharedPtr rowset);
 
+    inline const TabletMeta& tablet_meta();
     inline int64_t table_id() const;
     inline std::string table_name() const;
     inline int64_t partition_id() const;
@@ -214,12 +176,10 @@ public:
     size_t get_rowset_size(const Version& version);
     OLAPStatus get_tablet_info(TTabletInfo* tablet_info);
 
-    AlterTabletState alter_tablet_state();
     TabletState tablet_state() const;
 
-    const RowsetSharedPtr get_rowset(int index) const;
+    const RowsetSharedPtr get_rowset_by_version(const Version& version) const;
     const RowsetSharedPtr rowset_with_max_version() const;
-    const RowsetMetaSharedPtr rowset_meta_with_max_version() const;
     RowsetSharedPtr rowset_with_largest_size();
     SegmentGroup* get_largest_index();
     OLAPStatus all_rowsets(vector<RowsetSharedPtr> rowsets);
@@ -248,12 +208,12 @@ public:
     bool can_do_compaction();
 
     OLAPStatus add_delete_predicates(const DeletePredicatePB& delete_predicate, int64_t version) {
-        return _tablet_meta.add_delete_predicate(delete_predicate, version);
+        return _tablet_meta->add_delete_predicate(delete_predicate, version);
     }
 
     google::protobuf::RepeatedPtrField<DeletePredicatePB>
     delete_predicates() {
-        return _tablet_meta.delete_predicates();
+        return _tablet_meta->delete_predicates();
     }
 
     google::protobuf::RepeatedPtrField<DeletePredicatePB>*
@@ -270,35 +230,23 @@ public:
     uint32_t segment_size() const;
     void set_io_error();
 
-    // 清空一个table下的schema_change信息：包括split_talbe以及其他schema_change信息
-    //  这里只清理自身的out链，不考虑related的tablet
-    // NOTE 需要外部lock header
-    // Params:
-    //   alter_tablet_type
-    //     为NULL时，同时检查table_split和其他普通schema_change
-    //               否则只检查指定type的信息
-    //   only_one:
-    //     为true时：如果其out链只有一个，且可删除，才可能进行clear
-    //     为false时：如果发现有大于1个out链，不管是否可删除，都不进行删除
-    //   check_only:
-    //     检查通过也不删除schema
-    // Returns:
-    //  成功：有的都可以清理（没有就直接跳过）
-    //  失败：如果有信息但不能清理（有version没完成）,或不符合only_one条件
-    OLAPStatus clear_schema_change_info(AlterTabletType* alter_tablet_type,
-                                                bool only_one,
-                                                bool check_only);
 private:
+    void _delete_incremental_rowset(const Version& version,
+                                    const VersionHash& version_hash,
+                                    vector<string>* files_to_remove);
 
-    OLAPStatus _unprotect_clear_schema_change_info(AlterTabletType* alter_tablet_type,
-                                                bool only_one,
-                                                bool check_only);
+    TabletMeta* _tablet_meta;
+    TabletSchema _schema;
     DataDir* _data_dir;
+    std::string _tablet_path;
+
     TabletState _state;
     RowsetGraph* _rs_graph;
 
-    TabletMeta _tablet_meta;
-    TabletSchema _schema;
+    std::atomic<bool> _is_loaded;
+    bool _is_dropped;
+    size_t _id;
+    Mutex _load_lock;
     RWMutex _meta_lock;
     Mutex _ingest_lock;
     Mutex _base_lock;
@@ -318,24 +266,32 @@ private:
     DISALLOW_COPY_AND_ASSIGN(Tablet);
 };
 
+inline bool Tablet::is_loaded() {
+    return _is_loaded;
+}
+
+inline const TabletMeta& Tablet::tablet_meta() {
+    return *_tablet_meta;
+}
+
 inline int64_t Tablet::table_id() const {
-    return _tablet_meta.table_id();
+    return _tablet_meta->table_id();
 }
 
 inline int64_t Tablet::partition_id() const {
-    return _tablet_meta.partition_id();
+    return _tablet_meta->partition_id();
 }
 
 inline int64_t Tablet::tablet_id() const {
-    return _tablet_meta.tablet_id();
+    return _tablet_meta->tablet_id();
 }
 
 inline int64_t Tablet::schema_hash() const {
-    return _tablet_meta.schema_hash();
+    return _tablet_meta->schema_hash();
 }
 
 inline int16_t Tablet::shard_id() {
-    return _tablet_meta.shard_id();
+    return _tablet_meta->shard_id();
 }
 
 inline DataDir* Tablet::data_dir() const {
@@ -343,7 +299,7 @@ inline DataDir* Tablet::data_dir() const {
 }
 
 inline bool Tablet::equal(int64_t tablet_id, int64_t schema_hash) {
-    return (_tablet_meta.table_id() == tablet_id) && (_tablet_meta.schema_hash() == schema_hash);
+    return (_tablet_meta->table_id() == tablet_id) && (_tablet_meta->schema_hash() == schema_hash);
 }
 
 inline const TabletSchema& Tablet::tablet_schema() const {
@@ -351,13 +307,13 @@ inline const TabletSchema& Tablet::tablet_schema() const {
 }
 
 inline const std::string Tablet::full_name() const {
-    std::string tablet_name = std::to_string(_tablet_meta.tablet_id())
+    std::string tablet_name = std::to_string(_tablet_meta->tablet_id())
                               + "." +
-                              std::to_string(_tablet_meta.schema_hash());
+                              std::to_string(_tablet_meta->schema_hash());
     return tablet_name;
 }
 
-inline size_t Tablet::num_columns() const { 
+inline size_t Tablet::num_columns() const {
     return _schema.num_columns();
 }
 
@@ -367,7 +323,7 @@ inline size_t Tablet::num_null_columns() const {
 
 inline size_t Tablet::num_key_columns() const {
     return _schema.num_key_columns();
-} 
+}
 
 inline size_t Tablet::num_short_key_columns() const {
     return _schema.num_short_key_columns();
@@ -389,7 +345,30 @@ inline double Tablet::bloom_filter_fpp() const {
     return _schema.bloom_filter_fpp();
 }
 
+inline KeysType Tablet::keys_type() const {
+    return _schema.keys_type();
+}
 
+inline const int64_t Tablet::creation_time() const {
+    return _tablet_meta->creation_time();
 }  // namespace doris
+
+inline void Tablet::set_creation_time(int64_t creation_time) {
+    _tablet_meta->set_creation_time(creation_time);
+}
+
+inline int Tablet::version_count() const {
+    return _tablet_meta->version_count();
+}
+
+inline const int32_t Tablet::cumulative_layer_point() const {
+    return _tablet_meta->cumulative_layer_point();
+}
+
+void inline Tablet::set_cumulative_layer_point(const int32_t new_point) {
+    return _tablet_meta->set_cumulative_layer_point(new_point);
+}
+
+}
 
 #endif // DORIS_BE_SRC_OLAP_TABLET_H

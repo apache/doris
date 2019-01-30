@@ -43,14 +43,12 @@ OLAPStatus EngineSchemaChangeTask::execute() {
     // Do not need to adjust delete success or not
     // Because if delete failed create rollup will failed
     // Check lastest schema change status
-    AlterTableStatus alter_tablet_status = TabletManager::instance()->show_alter_tablet_status(
-            base_tablet_id,
-            base_schema_hash);
-    LOG(INFO) << "get alter table status:" << alter_tablet_status
-                << ", signature:" << _signature;
+    AlterTabletState alter_tablet_state
+        = TabletManager::instance()->show_alter_tablet_state(base_tablet_id, base_schema_hash);
+    LOG(INFO) << "get alter table state:" << alter_tablet_state << ", signature:" << _signature;
 
     // Delete failed alter table tablet file
-    if (alter_tablet_status == ALTER_TABLE_FAILED) {
+    if (alter_tablet_state == ALTER_FAILED) {
         // !!! could not drop failed tablet
         // schema change job is in finishing state in fe, be restarts, then the tablet is in ALTER_TABLE_FAILED state
         // if drop the old tablet, then data is lost
@@ -68,9 +66,9 @@ OLAPStatus EngineSchemaChangeTask::execute() {
 
     if (status == OLAP_SUCCESS) {
         // if there is one running alter task, then not start current task
-        if (alter_tablet_status == ALTER_TABLE_FINISHED
-                || alter_tablet_status == ALTER_TABLE_FAILED
-                || alter_tablet_status == ALTER_TABLE_WAITING) {
+        if (alter_tablet_state == ALTER_FINISHED 
+                || alter_tablet_state == ALTER_FAILED 
+                || alter_tablet_state == ALTER_NONE) {
             // Create rollup table
             switch (_task_type) {
             case TTaskType::ROLLUP:
@@ -102,7 +100,7 @@ OLAPStatus EngineSchemaChangeTask::_create_rollup_tablet(const TAlterTabletReq& 
     OLAPStatus res = OLAP_SUCCESS;
 
     SchemaChangeHandler handler;
-    res = handler.process_alter_tablet(ALTER_TABLET_CREATE_ROLLUP_TABLE, request);
+    res = handler.process_alter_tablet(ROLLUP, request);
 
     if (res != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("failed to do rollup. "
@@ -127,7 +125,7 @@ OLAPStatus EngineSchemaChangeTask::_schema_change(const TAlterTabletReq& request
     OLAPStatus res = OLAP_SUCCESS;
 
     SchemaChangeHandler handler;
-    res = handler.process_alter_tablet(ALTER_TABLET_SCHEMA_CHANGE, request);
+    res = handler.process_alter_tablet(SCHEMA_CHANGE, request);
 
     if (res != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("failed to do schema change. "
