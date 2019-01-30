@@ -34,62 +34,63 @@ class AlphaRowset : public Rowset {
 public:
     AlphaRowset(const TabletSchema* schema, const std::string rowset_path,
                 DataDir* data_dir, RowsetMetaSharedPtr rowset_meta);
+    virtual ~AlphaRowset() {}
 
-    virtual OLAPStatus init();
+    OLAPStatus init() override;
 
-    virtual std::shared_ptr<RowsetReader> create_reader();
+    std::shared_ptr<RowsetReader> create_reader() override;
 
-    virtual OLAPStatus copy(RowsetWriter* dest_rowset_writer);
+    OLAPStatus copy(RowsetWriter* dest_rowset_writer) override;
 
-    virtual OLAPStatus remove();
+    OLAPStatus remove() override;
 
-    virtual void to_rowset_pb(RowsetMetaPB* rs_meta);
+    void to_rowset_pb(RowsetMetaPB* rs_meta) override;
 
-    virtual RowsetMetaSharedPtr rowset_meta() const;
+    RowsetMetaSharedPtr rowset_meta() const override;
 
-    virtual void set_version(Version version);
+    int data_disk_size() const override;
 
-    bool make_snapshot(std::vector<std::string>* success_links);
+    int index_disk_size() const override;
 
-    bool remove_old_files(std::vector<std::string>* removed_links);
+    bool empty() const override;
 
-    virtual int data_disk_size() const;
+    bool zero_num_rows() const override;
 
-    virtual int index_disk_size() const;
+    size_t num_rows() const override;
 
-    virtual bool empty() const;
+    Version version() const override;
 
-    virtual bool zero_num_rows() const;
+    void set_version(Version version) override;
 
-    virtual size_t num_rows() const;
+    int64_t end_version() const override;
 
-    virtual Version version() const;
+    int64_t start_version() const override;
 
-    virtual int64_t end_version() const;
+    VersionHash version_hash() const override;
 
-    virtual int64_t start_version() const;
+    void set_version_hash(VersionHash version_hash) override;
 
-    virtual VersionHash version_hash() const;
+    bool in_use() const override;
 
-    virtual bool in_use() const;
+    void acquire() override;
 
-    virtual void acquire();
-
-    virtual void release();
+    void release() override;
     
-    virtual int64_t ref_count() const;
+    int64_t ref_count() const override;
 
-    virtual RowsetId rowset_id() const;
+    OLAPStatus make_snapshot(std::vector<std::string>* success_files) override;
 
-    virtual void set_version_hash(VersionHash version_hash);
+    OLAPStatus remove_old_files(std::vector<std::string>* files_to_remove) override;
 
-    virtual int64_t create_time();
+    RowsetId rowset_id() const override;
 
-    virtual bool delete_files() const;
+    int64_t creation_time() override;
 
-    virtual bool is_pending() const;
+    bool is_pending() const override;
 
-    virtual int64_t txn_id() const;
+    int64_t txn_id() const override;
+
+    bool delete_flag() override;
 
 private:
     OLAPStatus _init_segment_groups();

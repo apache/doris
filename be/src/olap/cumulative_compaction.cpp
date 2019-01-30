@@ -215,8 +215,8 @@ OLAPStatus CumulativeCompaction::_calculate_need_merged_versions() {
             size_t delta_size = _tablet->get_version_data_size(delta);
             // 如果遇到大的delta文件，或delete版本文件，则：
             if (delta_size >= _max_delta_file_size
-                    || _tablet->is_delete_data_version(delta)
-                    || _tablet->is_load_delete_version(delta)) {
+                    || _tablet->version_for_delete_predicate(delta)
+                    || _tablet->version_for_load_deletion(delta)) {
                 // 1) 如果need_merged_versions为空，表示这2类文件在区间的开头，直接跳过
                 if (need_merged_versions.empty()) {
                     continue;
@@ -354,8 +354,8 @@ bool CumulativeCompaction::_find_previous_version(const Version current_version,
         }
 
         if (version->second == current_version.first - 1) {
-            if (_tablet->is_delete_data_version(*version)
-                    || _tablet->is_load_delete_version(*version)) {
+            if (_tablet->version_for_delete_predicate(*version)
+                    || _tablet->version_for_load_deletion(*version)) {
                 return false;
             }
 

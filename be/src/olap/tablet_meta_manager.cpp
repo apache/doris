@@ -47,7 +47,7 @@ namespace doris {
 const std::string HEADER_PREFIX = "hdr_";
 
 OLAPStatus TabletMetaManager::get_header(DataDir* store,
-        TTabletId tablet_id, TSchemaHash schema_hash, TabletMeta* header) {
+        TTabletId tablet_id, TSchemaHash schema_hash, TabletMeta* tablet_meta) {
     OlapMeta* meta = store->get_meta();
     std::stringstream key_stream;
     key_stream << HEADER_PREFIX << tablet_id << "_" << schema_hash;
@@ -61,20 +61,18 @@ OLAPStatus TabletMetaManager::get_header(DataDir* store,
         LOG(WARNING) << "load tablet_id:" << tablet_id << ", schema_hash:" << schema_hash << " failed.";
         return s;
     }
-    //header->ParseFromString(value);
-    header->deserialize(value);
-    return header->init();
+    return tablet_meta->deserialize(value);
 }
 
 OLAPStatus TabletMetaManager::get_json_header(DataDir* store,
         TTabletId tablet_id, TSchemaHash schema_hash, std::string* json_header) {
-    TabletMeta header;
-    OLAPStatus s = get_header(store, tablet_id, schema_hash, &header);
+    TabletMeta tablet_meta;
+    OLAPStatus s = get_header(store, tablet_id, schema_hash, &tablet_meta);
     if (s != OLAP_SUCCESS) {
         return s;
     }
     TabletMetaPB tablet_meta_pb;
-    header.to_tablet_pb(&tablet_meta_pb);
+    tablet_meta.to_tablet_pb(&tablet_meta_pb);
     json2pb::Pb2JsonOptions json_options;
     json_options.pretty_json = true;
     json2pb::ProtoMessageToJson(tablet_meta_pb, json_header, json_options);
@@ -82,12 +80,12 @@ OLAPStatus TabletMetaManager::get_json_header(DataDir* store,
 }
 
 OLAPStatus TabletMetaManager::save(DataDir* store,
-        TTabletId tablet_id, TSchemaHash schema_hash, const TabletMeta* header) {
+        TTabletId tablet_id, TSchemaHash schema_hash, const TabletMeta* tablet_meta) {
     std::stringstream key_stream;
     key_stream << HEADER_PREFIX << tablet_id << "_" << schema_hash;
     std::string key = key_stream.str();
     std::string value;
-    header->serialize(&value);
+    tablet_meta->serialize(&value);
     OlapMeta* meta = store->get_meta();
     OLAPStatus s = meta->put(META_COLUMN_FAMILY_INDEX, key, value);
     return s;
@@ -108,9 +106,9 @@ OLAPStatus TabletMetaManager::remove(DataDir* store, TTabletId tablet_id, TSchem
     key_stream << HEADER_PREFIX << tablet_id << "_" << schema_hash;
     std::string key = key_stream.str();
     OlapMeta* meta = store->get_meta();
-    LOG(INFO) << "start to remove header, key:" << key;
+    LOG(INFO) << "start to remove tablet_meta, key:" << key;
     OLAPStatus res = meta->remove(META_COLUMN_FAMILY_INDEX, key);
-    LOG(INFO) << "remove header, key:" << key << ", res:" << res;
+    LOG(INFO) << "remove tablet_meta, key:" << key << ", res:" << res;
     return res;
 }
 
@@ -144,7 +142,7 @@ OLAPStatus TabletMetaManager::traverse_headers(OlapMeta* meta,
         // key format: "hdr_" + tablet_id + "_" + schema_hash
         split_string<char>(key, '_', &parts);
         if (parts.size() != 3) {
-            LOG(WARNING) << "invalid header key:" << key << ", splitted size:" << parts.size();
+            LOG(WARNING) << "invalid tablet_meta key:" << key << ", splitted size:" << parts.size();
             return true;
         }
         TTabletId tablet_id = std::stol(parts[1].c_str(), NULL, 10);
@@ -169,22 +167,22 @@ OLAPStatus TabletMetaManager::load_json_header(DataDir* store, const std::string
     if (!ret) {
         return OLAP_ERR_HEADER_LOAD_JSON_HEADER;
     }
-    TabletMeta header;
-    header.init_from_pb(tablet_meta_pb);
-    TTabletId tablet_id = header.tablet_id();
-    TSchemaHash schema_hash = header.schema_hash();
-    OLAPStatus s = save(store, tablet_id, schema_hash, &header);
+    std::string meta_binary;
+    tablet_meta_pb.SerializeToString(&meta_binary);
+    TTabletId tablet_id = tablet_meta_pb.tablet_id();
+    TSchemaHash schema_hash = tablet_meta_pb.schema_hash();
+    OLAPStatus s = save(store, tablet_id, schema_hash, meta_binary);
     return s;
 }
 
 OLAPStatus TabletMetaManager::dump_header(DataDir* store, TTabletId tablet_id,
         TSchemaHash schema_hash, const std::string& dump_path) {
-    TabletMeta header;
-    OLAPStatus res = TabletMetaManager::get_header(store, tablet_id, schema_hash, &header);
+    TabletMeta tablet_meta;
+    OLAPStatus res = TabletMetaManager::get_header(store, tablet_id, schema_hash, &tablet_meta);
     if (res != OLAP_SUCCESS) {
         return res;
     }
-    res = header.save(dump_path);
+    res = tablet_meta.save(dump_path);
     return res;
 }
 

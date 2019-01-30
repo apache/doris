@@ -85,6 +85,7 @@ public:
     size_t row_size() const;
     size_t field_index(const std::string& field_name) const;
     const TabletColumn& column(size_t ordinal) const;
+    const std::vector<TabletColumn>& columns() const;
     inline size_t num_columns() const { return _num_columns; }
     inline size_t num_key_columns() const { return _num_key_columns; }
     inline size_t num_null_columns() const { return _num_null_columns; }

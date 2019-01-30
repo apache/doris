@@ -49,14 +49,14 @@ RowCursor::~RowCursor() {
     }
 }
 
-OLAPStatus RowCursor::_init(const TabletSchema& schema,
+OLAPStatus RowCursor::_init(const std::vector<TabletColumn>& schema,
                             const std::vector<uint32_t>& columns) {
-    _field_array.resize(schema.num_columns(), nullptr);
+    _field_array.resize(schema.size(), nullptr);
     _columns = columns;
 
     std::vector<size_t> field_buf_lens;
-    for (size_t i = 0; i < schema.num_columns(); ++i) {
-        const TabletColumn& column = schema.column(i);
+    for (size_t i = 0; i < schema.size(); ++i) {
+        const TabletColumn& column = schema[i];
         FieldType type = column.type();
         if (type == OLAP_FIELD_TYPE_CHAR ||
             type == OLAP_FIELD_TYPE_VARCHAR ||
@@ -67,9 +67,9 @@ OLAPStatus RowCursor::_init(const TabletSchema& schema,
         }
     }
 
-    _key_column_num = schema.num_columns();
-    for (size_t i = schema.num_columns() - 1; i >= 0; --i) {
-        const TabletColumn& column = schema.column(i);
+    _key_column_num = schema.size();
+    for (size_t i = schema.size() - 1; i >= 0; --i) {
+        const TabletColumn& column = schema[i];
         if (column.is_key()) {
             _key_column_num = i + 1;
             break;
@@ -79,7 +79,7 @@ OLAPStatus RowCursor::_init(const TabletSchema& schema,
     _fixed_len = 0;
     _variable_len = 0;
     for (auto cid : _columns) {
-        const TabletColumn& column = schema.column(cid);
+        const TabletColumn& column = schema[cid];
         _field_array[cid] = Field::create(column);
         if (_field_array[cid] == NULL) {
             OLAP_LOG_WARNING("Fail to create field.");
@@ -105,7 +105,7 @@ OLAPStatus RowCursor::_init(const TabletSchema& schema,
     _owned_fixed_buf = _fixed_buf;
     memset(_fixed_buf, 0, _fixed_len);
 
-    _field_offsets.resize(schema.num_columns(), -1);
+    _field_offsets.resize(schema.size(), -1);
     size_t offset = 0;
     for (auto cid : _columns) {
         _field_offsets[cid] = offset;
@@ -117,7 +117,11 @@ OLAPStatus RowCursor::_init(const TabletSchema& schema,
 }
 
 OLAPStatus RowCursor::init(const TabletSchema& schema) {
-    return init(schema, schema.num_columns());
+    return init(schema.columns(), schema.num_columns());
+}
+
+OLAPStatus RowCursor::init(const std::vector<TabletColumn>& schema) {
+    return init(schema, schema.size());
 }
 
 OLAPStatus RowCursor::init(const TabletSchema& schema, size_t column_count) {
@@ -132,13 +136,29 @@ OLAPStatus RowCursor::init(const TabletSchema& schema, size_t column_count) {
     for (size_t i = 0; i < column_count; ++i) {
         columns.push_back(i);
     }
+    RETURN_NOT_OK(_init(schema.columns(), columns));
+    return OLAP_SUCCESS;
+}
+
+OLAPStatus RowCursor::init(const std::vector<TabletColumn>& schema, size_t column_count) {
+    if (column_count > schema.size()) {
+        LOG(WARNING) << "Input param are invalid. Column count is bigger than num_columns of schema. "
+                     << "column_count=" << column_count
+                     << ", schema.num_columns=" << schema.size();
+        return OLAP_ERR_INPUT_PARAMETER_ERROR;
+    }
+
+    std::vector<uint32_t> columns;
+    for (size_t i = 0; i < column_count; ++i) {
+        columns.push_back(i);
+    }
     RETURN_NOT_OK(_init(schema, columns));
     return OLAP_SUCCESS;
 }
 
 OLAPStatus RowCursor::init(const TabletSchema& schema,
                            const vector<uint32_t>& columns) {
-    RETURN_NOT_OK(_init(schema, columns));
+    RETURN_NOT_OK(_init(schema.columns(), columns));
     return OLAP_SUCCESS;
 }
 
@@ -157,7 +177,7 @@ OLAPStatus RowCursor::init_scan_key(const TabletSchema& schema,
         columns.push_back(i);
     }
 
-    RETURN_NOT_OK(_init(schema, columns));
+    RETURN_NOT_OK(_init(schema.columns(), columns));
 
     // NOTE: cid equal with column index
     // Hyperloglog cannot be key, no need to handle it

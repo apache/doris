@@ -93,6 +93,10 @@ Version AlphaRowsetReader::version() {
     return _alpha_rowset_meta->version();
 }
 
+VersionHash AlphaRowsetReader::version_hash() {
+    return _alpha_rowset_meta->version_hash();
+}
+
 void AlphaRowsetReader::close() {
     _column_datas.clear();
 }

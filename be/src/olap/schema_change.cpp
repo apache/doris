@@ -155,7 +155,6 @@ ColumnMapping* RowBlockChanger::get_mutable_column_mapping(size_t column_index) 
     }
 
 bool RowBlockChanger::change_row_block(
-        const DataFileType df_type,
         const RowBlock& ref_block,
         int32_t data_version,
         RowBlock* mutable_block,
@@ -380,7 +379,6 @@ RowBlockSorter::~RowBlockSorter() {
 
 bool RowBlockSorter::sort(RowBlock** row_block) {
     uint32_t row_num = (*row_block)->row_block_info().row_num;
-    DataFileType data_file_type = (*row_block)->row_block_info().data_file_type;
     bool null_supported = (*row_block)->row_block_info().null_supported;
 
     if (_swap_row_block == NULL || _swap_row_block->capacity() < row_num) {
@@ -389,8 +387,7 @@ bool RowBlockSorter::sort(RowBlock** row_block) {
             _swap_row_block = NULL;
         }
 
-        if (_row_block_allocator->allocate(&_swap_row_block, row_num, 
-                                    data_file_type, null_supported) != OLAP_SUCCESS
+        if (_row_block_allocator->allocate(&_swap_row_block, row_num, null_supported) != OLAP_SUCCESS
                 || _swap_row_block == NULL) {
             OLAP_LOG_WARNING("fail to allocate memory.");
             return false;
@@ -474,7 +471,6 @@ RowBlockAllocator::~RowBlockAllocator() {
 
 OLAPStatus RowBlockAllocator::allocate(RowBlock** row_block,
                                        size_t num_rows,
-                                       DataFileType data_file_type,
                                        bool null_supported) {
     size_t row_block_size = _row_len * num_rows;
 
@@ -495,7 +491,6 @@ OLAPStatus RowBlockAllocator::allocate(RowBlock** row_block,
     }
 
     RowBlockInfo row_block_info(0U, num_rows, 0);
-    row_block_info.data_file_type = data_file_type;
     row_block_info.null_supported = null_supported;
     OLAPStatus res = OLAP_SUCCESS;
 
@@ -683,7 +678,6 @@ bool SchemaChangeDirectly::_write_row_block(RowsetWriterSharedPtr rowset_writer,
 
 bool SchemaChangeDirectly::process(RowsetReaderSharedPtr rowset_reader, RowsetWriterSharedPtr rowset_writer,
                                    TabletSharedPtr tablet) {
-    DataFileType data_file_type = tablet->data_file_type();
     bool null_supported = true;
 
     if (NULL == _row_block_allocator) {
@@ -751,7 +745,7 @@ bool SchemaChangeDirectly::process(RowsetReaderSharedPtr rowset_reader, RowsetWr
             if (OLAP_SUCCESS != _row_block_allocator->allocate(
                                         &new_row_block,
                                         ref_row_block->row_block_info().row_num,
-                                        data_file_type, null_supported)) {
+                                        null_supported)) {
                 OLAP_LOG_WARNING("failed to allocate RowBlock.");
                 result = false;
                 goto DIRECTLY_PROCESS_ERR;
@@ -762,8 +756,7 @@ bool SchemaChangeDirectly::process(RowsetReaderSharedPtr rowset_reader, RowsetWr
 
         // 将ref改为new。这一步按道理来说确实需要等大的块，但理论上和writer无关。
         uint64_t filted_rows = 0;
-        if (!_row_block_changer.change_row_block(data_file_type,
-                                                 *ref_row_block,
+        if (!_row_block_changer.change_row_block(*ref_row_block,
                                                  rowset_reader->version().second,
                                                  new_row_block,
                                                  &filted_rows)) {
@@ -846,7 +839,6 @@ bool SchemaChangeWithSorting::process(
         }
     }
 
-    DataFileType data_file_type = tablet->data_file_type();
     bool null_supported = true;
 
     RowBlock* ref_row_block = NULL;
@@ -891,8 +883,7 @@ bool SchemaChangeWithSorting::process(
 
     while (NULL != ref_row_block) {
         if (OLAP_SUCCESS != _row_block_allocator->allocate(
-                    &new_row_block, ref_row_block->row_block_info().row_num, 
-                    data_file_type, null_supported)) {
+                    &new_row_block, ref_row_block->row_block_info().row_num, null_supported)) {
             OLAP_LOG_WARNING("failed to allocate RowBlock.");
             result = false;
             goto SORTING_PROCESS_ERR;
@@ -934,7 +925,6 @@ bool SchemaChangeWithSorting::process(
 
         uint64_t filted_rows = 0;
         if (!_row_block_changer.change_row_block(
-                data_file_type,
                 *ref_row_block,
                 rowset_reader->version().second,
                 new_row_block,
@@ -1145,23 +1135,21 @@ OLAPStatus SchemaChangeHandler::_check_and_clear_schema_change_info(
     // so, there is no relation between A & B any more
     // including: alter_tablet, split_tablet, rollup_tablet
     OLAPStatus res = OLAP_SUCCESS;
-    TTabletId tablet_id;
-    TSchemaHash schema_hash;
-    vector<Version> versions_to_be_changed;
-    AlterTabletType type;
 
     // checkes schema change & rollup
     tablet->obtain_header_rdlock();
-    bool ret = tablet->get_schema_change_request(
-            &tablet_id, &schema_hash, &versions_to_be_changed, &type);
+    const AlterTabletTask& alter_task = tablet->alter_task();
+    AlterTabletState alter_state = alter_task.alter_state();
+    TTabletId tablet_id = alter_task.related_tablet_id();
+    TSchemaHash schema_hash = alter_task.related_schema_hash();;
     tablet->release_header_lock();
-    if (!ret) {
+    if (alter_state == AlterTabletState::ALTER_NONE) {
         return res;
     }
 
-    if (versions_to_be_changed.size() != 0) {
-        OLAP_LOG_WARNING("schema change is not allowed now, "
-                         "until previous schema change is done");
+    if (alter_state == AlterTabletState::ALTER_ALTERING) {
+        LOG(WARNING) << "schema change is not allowed now, "
+                     << "until previous schema change is done";
         return OLAP_ERR_PREVIOUS_SCHEMA_CHANGE_NOT_FINISHED;
     }
 
@@ -1175,10 +1163,10 @@ OLAPStatus SchemaChangeHandler::_check_and_clear_schema_change_info(
     // clear schema change info of current tablet
     {
         WriteLock wrlock(tablet->get_header_lock_ptr());
-        res = tablet->clear_schema_change_info(&type, true, false);
+        res = tablet->delete_alter_task();
         if (res != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("fail to clear schema change info. [res=%d full_name='%s']",
-                             res, tablet->full_name().c_str());
+            LOG(WARNING) << "fail to delete alter task from table. res=" << res
+                         << ", full_name=" << tablet->full_name();
             return res;
         }
 
@@ -1201,10 +1189,10 @@ OLAPStatus SchemaChangeHandler::_check_and_clear_schema_change_info(
 
     {
         WriteLock wrlock(related_tablet->get_header_lock_ptr());
-        res = related_tablet->clear_schema_change_info(&type, true, false);
+        res = related_tablet->delete_alter_task();
         if (res != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("fail to clear schema change info. [res=%d full_name='%s']",
-                             res, related_tablet->full_name().c_str());
+            LOG(WARNING) << "fail to delete alter task from table. res=" << res
+                         << ", full_name=" << related_tablet->full_name();
             return res;
         }
 
@@ -1219,9 +1207,8 @@ OLAPStatus SchemaChangeHandler::_check_and_clear_schema_change_info(
     return res;
 }
 
-OLAPStatus SchemaChangeHandler::process_alter_tablet(
-        AlterTabletType type,
-        const TAlterTabletReq& request) {
+OLAPStatus SchemaChangeHandler::process_alter_tablet(AlterTabletType type,
+                                                     const TAlterTabletReq& request) {
     OLAPStatus res = OLAP_SUCCESS;
     LOG(INFO) << "begin to validate alter tablet request.";
 
@@ -1421,12 +1408,8 @@ OLAPStatus SchemaChangeHandler::_do_alter_tablet(
 
 
         // 4. Update schema change status of ref_tablet and new_tablets
-        new_tablet->set_schema_change_status(ALTER_TABLE_RUNNING,
-                                                 ref_tablet->schema_hash(),
-                                                 versions_to_be_changed.back().second);
-        ref_tablet->set_schema_change_status(ALTER_TABLE_RUNNING,
-                                                 new_tablet->schema_hash(),
-                                                 versions_to_be_changed.back().second);
+        new_tablet->set_alter_state(AlterTabletState::ALTER_ALTERING);
+        ref_tablet->set_alter_state(AlterTabletState::ALTER_ALTERING);
 
         // add tid to cgroup
         CgroupsMgr::apply_system_cgroup();
@@ -1741,15 +1724,15 @@ OLAPStatus SchemaChangeHandler::_save_schema_change_info(
     OLAPStatus res = OLAP_SUCCESS;
 
     // 1. 在新表和旧表中添加schema change标志
-    ref_tablet->clear_schema_change_request();
-    ref_tablet->set_schema_change_request(new_tablet->tablet_id(),
-                                              new_tablet->schema_hash(),
-                                              versions_to_be_changed,
-                                              alter_tablet_type);
-    new_tablet->set_schema_change_request(ref_tablet->tablet_id(),
-                                              ref_tablet->schema_hash(),
-                                              vector<Version>(),  // empty versions
-                                              alter_tablet_type);
+    ref_tablet->delete_alter_task();
+    ref_tablet->add_alter_task(new_tablet->tablet_id(),
+                               new_tablet->schema_hash(),
+                               versions_to_be_changed,
+                               alter_tablet_type);
+    new_tablet->add_alter_task(ref_tablet->tablet_id(),
+                               ref_tablet->schema_hash(),
+                               vector<Version>(),  // empty versions
+                               alter_tablet_type);
 
     // save new tablet header :只有一个父ref tablet
     res = new_tablet->save_tablet_meta();
@@ -1840,14 +1823,8 @@ OLAPStatus SchemaChangeHandler::_alter_tablet(SchemaChangeParams* sc_params) {
         // set status for monitor
         // 只要有一个new_table为running，ref table就设置为running
         // NOTE 如果第一个sub_table先fail，这里会继续按正常走
-        sc_params->ref_tablet->set_schema_change_status(
-                ALTER_TABLE_RUNNING,
-                sc_params->new_tablet->schema_hash(),
-                -1);
-        sc_params->new_tablet->set_schema_change_status(
-                ALTER_TABLE_RUNNING,
-                sc_params->ref_tablet->schema_hash(),
-                (*it)->version().second);
+        sc_params->ref_tablet->set_alter_state(AlterTabletState::ALTER_ALTERING);
+        sc_params->new_tablet->set_alter_state(AlterTabletState::ALTER_ALTERING);
 
         RowsetId rowset_id = 0;
         TabletSharedPtr new_tablet = sc_params->new_tablet;
@@ -1926,19 +1903,6 @@ OLAPStatus SchemaChangeHandler::_alter_tablet(SchemaChangeParams* sc_params) {
                        << ", tablet=" << sc_params->new_tablet->full_name();
         }
 
-        // XXX: 此处需要验证ref_rowset_readers中最后一个版本是否与new_tablet的header中记录的最
-        //      后一个版本相同。然后还要注意一致性问题。
-        if (!sc_params->ref_tablet->remove_last_schema_change_version(
-                    sc_params->new_tablet)) {
-            LOG(WARNING) << "failed to remove the last version did schema change.";
-
-            sc_params->new_tablet->release_header_lock();
-            sc_params->ref_tablet->release_header_lock();
-
-            res = OLAP_ERR_INPUT_PARAMETER_ERROR;
-            goto PROCESS_ALTER_EXIT;
-        }
-
         // 保存header
         if (OLAP_SUCCESS != sc_params->ref_tablet->save_tablet_meta()) {
             LOG(FATAL) << "failed to save header. tablet=" << sc_params->new_tablet->full_name();
@@ -1964,36 +1928,15 @@ PROCESS_ALTER_EXIT:
     }
 
     if (res == OLAP_SUCCESS) {
-        // ref的状态只有2个new table都完成后，才能设置为done
-        res = sc_params->ref_tablet->clear_schema_change_info(NULL, false, true);
-
-        if (OLAP_SUCCESS == res) {
-            sc_params->ref_tablet->set_schema_change_status(
-                    ALTER_TABLE_FINISHED,
-                    sc_params->new_tablet->schema_hash(),
-                    -1);
-        } else {
-            res = OLAP_SUCCESS;
-        }
-
-        sc_params->new_tablet->set_schema_change_status(
-                ALTER_TABLE_FINISHED,
-                sc_params->ref_tablet->schema_hash(),
-                -1);
+        sc_params->ref_tablet->set_alter_state(AlterTabletState::ALTER_FINISHED);
+        sc_params->new_tablet->set_alter_state(AlterTabletState::ALTER_FINISHED);
         VLOG(3) << "set alter tablet job status. "
-                << "status=" << sc_params->ref_tablet->schema_change_status().status;
+                << "state=" << sc_params->ref_tablet->alter_state();
     } else {
-        sc_params->ref_tablet->set_schema_change_status(
-                ALTER_TABLE_FAILED,
-                sc_params->new_tablet->schema_hash(),
-                -1);
-
-        sc_params->new_tablet->set_schema_change_status(
-                ALTER_TABLE_FAILED,
-                sc_params->ref_tablet->schema_hash(),
-                -1);
+        sc_params->ref_tablet->set_alter_state(AlterTabletState::ALTER_FAILED);
+        sc_params->new_tablet->set_alter_state(AlterTabletState::ALTER_FAILED);
         VLOG(3) << "set alter tablet job status. "
-                << "status=" << sc_params->ref_tablet->schema_change_status().status;
+                << "state=" << sc_params->ref_tablet->alter_state();
     }
 
     for (auto& rs_reader : sc_params->ref_rowset_readers) {
@@ -2131,13 +2074,8 @@ OLAPStatus SchemaChangeHandler::_parse_request(TabletSharedPtr ref_tablet,
         }
     }
 
-    if (ref_tablet->delete_data_conditions_size() != 0){
+    if (ref_tablet->delete_predicates().size() != 0){
         //there exists delete condtion in header, can't do linked schema change
-        *sc_directly = true;
-    }
-
-    if (ref_tablet->data_file_type() != new_tablet->data_file_type()) {
-        //if change the tablet from row-oriented to column-oriented, or versus 
         *sc_directly = true;
     }
 

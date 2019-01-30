@@ -29,12 +29,12 @@ namespace doris {
 // Helper Class for managing tablet headers of one root path.
 class TabletMetaManager {
 public:
-    static OLAPStatus get_header(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash, TabletMeta* header);
+    static OLAPStatus get_header(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash, TabletMeta* tablet_meta);
 
     static OLAPStatus get_json_header(DataDir* store, TTabletId tablet_id,
             TSchemaHash schema_hash, std::string* json_header);
 
-    static OLAPStatus save(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash, const TabletMeta* header);
+    static OLAPStatus save(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash, const TabletMeta* tablet_meta);
     static OLAPStatus save(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash, const std::string& meta_binary);
 
     static OLAPStatus remove(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash);

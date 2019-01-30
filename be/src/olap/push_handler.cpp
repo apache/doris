@@ -41,7 +41,7 @@ namespace doris {
 //    a. related tablets not exist:
 //        current table isn't in schemachange state, only push for current tablet
 //    b. related tablets exist
-//       I.  current tablet is old table (cur.create_time < related.create_time):
+//       I.  current tablet is old table (cur.creation_time < related.creation_time):
 //           push for current table and than convert data for related tables
 //       II. current table is new table:
 //           this usually means schema change is over,
@@ -108,17 +108,15 @@ OLAPStatus PushHandler::_do_streaming_ingestion(
         PushType push_type,
         vector<TabletVars>* tablet_vars,
         std::vector<TTabletInfo>* tablet_info_vec) {
-    OLAPStatus res = OLAP_SUCCESS;
-    AlterTabletType alter_tablet_type;
     // add transaction in engine, then check sc status
     // lock, prevent sc handler checking transaction concurrently
     tablet->obtain_push_lock();
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);
-    res = TxnManager::instance()->prepare_txn(
-        request.partition_id, request.transaction_id,
-        tablet->tablet_id(), tablet->schema_hash(), load_id);
+    OLAPStatus res = TxnManager::instance()->prepare_txn(
+            request.partition_id, request.transaction_id,
+            tablet->tablet_id(), tablet->schema_hash(), load_id);
 
     // if transaction exists, exit
     if (res == OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
@@ -133,15 +131,15 @@ OLAPStatus PushHandler::_do_streaming_ingestion(
         VLOG(3) << "push req specify schema changing is true. "
                 << "tablet=" << tablet->full_name()
                 << ", transaction_id=" << request.transaction_id;
-        TTabletId related_tablet_id;
-        TSchemaHash related_schema_hash;
 
         tablet->obtain_header_rdlock();
-        bool is_schema_changing = tablet->get_schema_change_request(
-            &related_tablet_id, &related_schema_hash, NULL, &alter_tablet_type);
+        const AlterTabletTask& alter_task = tablet->alter_task();
+        AlterTabletState alter_state = alter_task.alter_state();
+        TTabletId related_tablet_id = alter_task.related_tablet_id();
+        TSchemaHash related_schema_hash = alter_task.related_schema_hash();;
         tablet->release_header_lock();
 
-        if (is_schema_changing) {
+        if (alter_state == AlterTabletState::ALTER_ALTERING) {
             LOG(INFO) << "find schema_change status when realtime push. "
                       << "tablet=" << tablet->full_name()
                       << ", related_tablet_id=" << related_tablet_id
@@ -226,8 +224,7 @@ OLAPStatus PushHandler::_do_streaming_ingestion(
 
     // write
     res = _convert(tablet_vars->at(0).tablet, tablet_vars->at(1).tablet,
-                   &(tablet_vars->at(0).added_rowsets), &(tablet_vars->at(1).added_rowsets),
-                   alter_tablet_type);
+                   &(tablet_vars->at(0).added_rowsets), &(tablet_vars->at(1).added_rowsets));
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to convert tmp file when realtime push. res=" << res;
         return res;
@@ -269,8 +266,7 @@ OLAPStatus PushHandler::_convert(
         TabletSharedPtr curr_tablet,
         TabletSharedPtr new_tablet,
         std::vector<RowsetSharedPtr>* cur_rowsets,
-        std::vector<RowsetSharedPtr>* related_rowsets,
-        AlterTabletType alter_tablet_type) {
+        std::vector<RowsetSharedPtr>* related_rowsets) {
     OLAPStatus res = OLAP_SUCCESS;
     RowCursor row;
     BinaryFile raw_file;

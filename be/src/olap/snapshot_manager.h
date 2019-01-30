@@ -60,24 +60,6 @@ public:
             const std::vector<VersionEntity>& shortest_version_entity,
             TabletMeta* header);
 
-    // TODO(ygl) move it to a utility class
-    // TODO: hkp
-    // rewrite this function
-    std::string construct_index_file_path(
-            const std::string& tablet_path_prefix,
-            const Version& version,
-            VersionHash version_hash,
-            int32_t segment_group_id, int32_t segment) const;
-            
-    // TODO(ygl) move it to a utility class
-    // TODO: hkp
-    // rewrite this function
-    std::string construct_data_file_path(
-            const std::string& tablet_path_prefix,
-            const Version& version,
-            VersionHash version_hash,
-            int32_t segment_group_id, int32_t segment) const;
-
     std::string get_schema_hash_full_path(
             const TabletSharedPtr& ref_tablet,
             const std::string& location) const;
@@ -100,8 +82,6 @@ private:
             const TabletSharedPtr& ref_tablet,
             const std::string& schema_hash_path) const;
 
-    // TODO: hkp
-    // rewrite this function
     OLAPStatus _link_index_and_data_files(
             const std::string& header_path,
             const TabletSharedPtr& ref_tablet,
@@ -123,8 +103,6 @@ private:
     OLAPStatus _append_single_delta(
             const TSnapshotRequest& request,
             DataDir* store);
-
-    OLAPStatus _create_hard_link(const std::string& from_path, const std::string& to_path);
 
 private:
     static SnapshotManager* _s_instance;

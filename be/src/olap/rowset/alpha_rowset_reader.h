@@ -56,7 +56,7 @@ public:
     virtual void close();
 
     // TODO(hkp)
-    virtual int32_t get_filtered_rows();
+    virtual int32_t get_filtered_rows() { return 0; }
 
     virtual RowsetSharedPtr rowset();
 
