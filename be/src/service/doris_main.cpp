@@ -30,6 +30,8 @@
 #include <sanitizer/lsan_interface.h>
 #endif
 
+#include <curl/curl.h>
+
 #include "common/logging.h"
 #include "common/daemon.h"
 #include "common/config.h"
@@ -125,6 +127,14 @@ int main(int argc, char** argv) {
     }
 
     doris::LlvmCodeGen::initialize_llvm();
+
+    // initilize libcurl here to avoid concurrent initialization
+    auto curl_ret = curl_global_init(CURL_GLOBAL_ALL);
+    if (curl_ret != 0) {
+        LOG(FATAL) << "fail to initialize libcurl, curl_ret=" << curl_ret;
+        exit(-1);
+    }
+
     doris::init_daemon(argc, argv, paths);
 
     doris::ResourceTls::init();
