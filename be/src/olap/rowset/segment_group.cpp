@@ -160,9 +160,9 @@ std::string SegmentGroup::_construct_file_name(int32_t segment_id, const string&
     return file_name;
 }
 
-std::string SegmentGroup::construct_index_file_path(int32_t segment_id) const {
+std::string SegmentGroup::construct_index_file_path(const std::string& snapshot_path, int32_t segment_id) const {
     std::stringstream file_path;
-    file_path << _rowset_path_prefix << "/" << _tablet_id;
+    file_path << snapshot_path << "/" << _tablet_id;
     if (_is_pending) {
         file_path << "/" << _construct_pending_file_name(segment_id, ".idx");
     } else {
@@ -171,15 +171,23 @@ std::string SegmentGroup::construct_index_file_path(int32_t segment_id) const {
     return file_path.str();
 }
 
-std::string SegmentGroup::construct_data_file_path(int32_t segment_id) const {
+std::string SegmentGroup::construct_index_file_path(int32_t segment_id) const {
+    return construct_index_file_path(_rowset_path_prefix, segment_id);
+}
+
+std::string SegmentGroup::construct_data_file_path(const std::string& snapshot_path, int32_t segment_id) const {
     std::stringstream file_path;
-    file_path << _rowset_path_prefix << "/" << _tablet_id;
+    file_path << snapshot_path << "/" << _tablet_id;
     if (_is_pending) {
         file_path << "/" << _construct_pending_file_name(segment_id, ".dat");
     } else {
        file_path << "/" << _construct_file_name(segment_id, ".dat");
     }
     return file_path.str();
+}
+
+std::string SegmentGroup::construct_data_file_path(int32_t segment_id) const {
+    return construct_data_file_path(_rowset_path_prefix, segment_id);
 }
 
 void SegmentGroup::acquire() {
@@ -684,7 +692,7 @@ size_t SegmentGroup::get_num_rows_per_row_block() {
     return _schema->num_rows_per_row_block();
 }
 
-std::string SegmentGroup::get_rowset_path_prefix() {
+std::string SegmentGroup::rowset_path_prefix() {
     return _rowset_path_prefix;
 }
 
@@ -692,9 +700,10 @@ int64_t SegmentGroup::get_tablet_id() {
     return _tablet_id;
 }
 
-OLAPStatus SegmentGroup::make_snapshot(std::vector<std::string>* success_links) {
+OLAPStatus SegmentGroup::make_snapshot(const std::string& snapshot_path,
+                                       std::vector<std::string>* success_links) {
     for (int segment_id = 0; segment_id < _num_segments; segment_id++) {
-        std::string new_data_file_name = construct_data_file_path(segment_id);
+        std::string new_data_file_name = construct_data_file_path(snapshot_path, segment_id);
         if (!check_dir_existed(new_data_file_name)) {
             std::string old_data_file_name = construct_old_data_file_path(segment_id);
             if (link(new_data_file_name.c_str(), old_data_file_name.c_str()) != 0) {
@@ -704,7 +713,7 @@ OLAPStatus SegmentGroup::make_snapshot(std::vector<std::string>* success_links) 
             }
         }
         success_links->push_back(new_data_file_name);
-        std::string new_index_file_name = construct_index_file_path(segment_id);
+        std::string new_index_file_name = construct_index_file_path(snapshot_path, segment_id);
         if (!check_dir_existed(new_index_file_name)) {
             std::string old_index_file_name = construct_old_index_file_path(segment_id);
             if (link(new_index_file_name.c_str(), old_index_file_name.c_str()) != 0) {
@@ -738,7 +747,7 @@ bool SegmentGroup::copy_segments_to_path(const std::string& dest_path) {
         std::string data_file_name = _construct_file_name(segment_id, ".dat");
         std::string new_data_file_path = dest_path + "/" + data_file_name;
         if (!check_dir_existed(new_data_file_path)) {
-            std::string origin_data_file_path = construct_data_file_path(segment_id);
+            std::string origin_data_file_path = construct_data_file_path(_rowset_path_prefix, segment_id);
             if (link(new_data_file_path.c_str(), origin_data_file_path.c_str()) != 0) {
                 LOG(WARNING) << "fail to create hard link. from=" << origin_data_file_path << ", "
                     << "to=" << new_data_file_path << ", " << "errno=" << Errno::no();
@@ -748,7 +757,7 @@ bool SegmentGroup::copy_segments_to_path(const std::string& dest_path) {
         std::string index_file_name = _construct_file_name(segment_id, ".idx");
         std::string new_index_file_path = dest_path + "/" + index_file_name;
         if (!check_dir_existed(new_index_file_path)) {
-            std::string origin_idx_file_path = construct_data_file_path(segment_id);
+            std::string origin_idx_file_path = construct_data_file_path(_rowset_path_prefix, segment_id);
             if (link(new_index_file_path.c_str(), origin_idx_file_path.c_str()) != 0) {
                 LOG(WARNING) << "fail to create hard link. from=" << origin_idx_file_path << ", "
                     << "to=" << new_index_file_path << ", " << "errno=" << Errno::no();

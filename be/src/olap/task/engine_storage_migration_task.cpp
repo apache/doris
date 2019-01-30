@@ -69,7 +69,6 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
         return OLAP_SUCCESS;
     }
 
-    vector<RowsetReaderSharedPtr> rs_readers;
     tablet->obtain_push_lock();
 
     do {
@@ -84,17 +83,15 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
         }
 
         int32_t end_version = lastest_version->end_version();
-        tablet->capture_rs_readers(Version(0, end_version), &rs_readers);
-        if (rs_readers.empty()) {
+        vector<RowsetSharedPtr> consistent_rowsets;
+        res = tablet->capture_consistent_rowsets(Version(0, end_version), &consistent_rowsets);
+        if (consistent_rowsets.empty()) {
             tablet->release_header_lock();
             res = OLAP_ERR_VERSION_NOT_EXIST;
-            OLAP_LOG_WARNING("fail to acquire data souces. [tablet='%s' version=%d]",
-                    tablet->full_name().c_str(), end_version);
+            LOG(WARNING) << "fail to capture consistent rowsets. tablet=" << tablet->full_name()
+                         << ", version=" << end_version;
             break;
         }
-
-        vector<VersionEntity> version_entity_vec;
-        tablet->list_version_entities(&version_entity_vec);
         tablet->release_header_lock();
 
         // generate schema hash path where files will be migrated
@@ -123,7 +120,7 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
         create_dirs(schema_hash_path);
 
         // migrate all index and data files but header file
-        res = _copy_index_and_data_files(schema_hash_path, tablet, version_entity_vec);
+        res = _copy_index_and_data_files(schema_hash_path, tablet, consistent_rowsets);
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to copy index and data files when migrate. [res=%d]", res);
             break;
@@ -135,7 +132,7 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
             OLAP_LOG_WARNING("new olap header failed");
             return OLAP_ERR_BUFFER_OVERFLOW;
         }
-        res = _generate_new_header(stores[0], shard, tablet, version_entity_vec, new_tablet_meta);
+        res = _generate_new_header(stores[0], shard, tablet, consistent_rowsets, new_tablet_meta);
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to generate new header file from the old. [res=%d]", res);
             break;
@@ -171,7 +168,6 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
     } while (0);
 
     tablet->release_push_lock();
-    tablet->release_rs_readers(&rs_readers);
 
     return res;
 }
@@ -181,7 +177,7 @@ OLAPStatus EngineStorageMigrationTask::_generate_new_header(
         DataDir* store,
         const uint64_t new_shard,
         const TabletSharedPtr& tablet,
-        const vector<VersionEntity>& version_entity_vec, TabletMeta* new_tablet_meta) {
+        const std::vector<RowsetSharedPtr>& consistent_rowsets, TabletMeta* new_tablet_meta) {
     if (store == nullptr) {
         LOG(WARNING) << "fail to generate new header for store is null";
         return OLAP_ERR_HEADER_INIT_FAILED;
@@ -191,7 +187,7 @@ OLAPStatus EngineStorageMigrationTask::_generate_new_header(
     DataDir* ref_store =
             StorageEngine::instance()->get_store(tablet->storage_root_path_name());
     TabletMetaManager::get_header(ref_store, tablet->tablet_id(), tablet->schema_hash(), new_tablet_meta);
-    SnapshotManager::instance()->update_header_file_info(version_entity_vec, new_tablet_meta);
+    SnapshotManager::instance()->update_header_file_info(consistent_rowsets, new_tablet_meta);
     new_tablet_meta->set_shard_id(new_shard);
 
     res = TabletMetaManager::save(store, tablet->tablet_id(), tablet->schema_hash(), new_tablet_meta);
@@ -212,13 +208,11 @@ OLAPStatus EngineStorageMigrationTask::_generate_new_header(
 OLAPStatus EngineStorageMigrationTask::_copy_index_and_data_files(
         const string& schema_hash_path,
         const TabletSharedPtr& ref_tablet,
-        vector<VersionEntity>& version_entity_vec) {
+        std::vector<RowsetSharedPtr>& consistent_rowsets) {
     // TODO(lcy). copy function should be implemented
-    for (auto& entity : version_entity_vec) {
-        Version version = entity.version;
-        const RowsetSharedPtr rowset = ref_tablet->get_rowset_by_version(version);
+    for (auto& rs : consistent_rowsets) {
         std::vector<std::string> success_files;
-        RETURN_NOT_OK(rowset->make_snapshot(&success_files));
+        RETURN_NOT_OK(rs->make_snapshot(schema_hash_path, &success_files));
     }
     return OLAP_SUCCESS;
 }

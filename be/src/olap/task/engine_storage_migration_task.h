@@ -44,14 +44,14 @@ private:
             DataDir* store,
             const uint64_t new_shard,
             const TabletSharedPtr& tablet,
-            const std::vector<VersionEntity>& version_entity_vec, TabletMeta* new_tablet_meta);
+            const std::vector<RowsetSharedPtr>& consistent_rowsets, TabletMeta* new_tablet_meta);
     
     // TODO: hkp
     // rewrite this function
     OLAPStatus _copy_index_and_data_files(
             const std::string& header_path,
             const TabletSharedPtr& ref_tablet,
-            std::vector<VersionEntity>& version_entity_vec);
+            std::vector<RowsetSharedPtr>& consistent_rowsets);
 
 private:
     const TStorageMediumMigrateReq& _storage_medium_migrate_req;
