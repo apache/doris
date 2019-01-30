@@ -206,7 +206,7 @@ OLAPStatus AlphaRowset::split_range(
     RowBlockPosition end_pos;
     RowBlockPosition step_pos;
 
-    std::shared_ptr<SegmentGroup> largest_segment_group = _get_largest_segment_group();
+    std::shared_ptr<SegmentGroup> largest_segment_group = _segment_group_with_largest_size();
     if (largest_segment_group == nullptr) {
         ranges->emplace_back(start_key.to_tuple());
         ranges->emplace_back(end_key.to_tuple());
@@ -415,7 +415,7 @@ OLAPStatus AlphaRowset::_init_segment_groups() {
     }
 }
 
-std::shared_ptr<SegmentGroup> AlphaRowset::_get_largest_segment_group() {
+std::shared_ptr<SegmentGroup> AlphaRowset::_segment_group_with_largest_size() {
     std::shared_ptr<SegmentGroup> largest_segment_group = nullptr;
     size_t largest_segment_group_sizes = 0;
 
