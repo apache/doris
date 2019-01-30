@@ -375,6 +375,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             ConnectContext.remove();
         }
 
+        LOG.debug("mini load result: {}", request);
         return result;
     }
 
