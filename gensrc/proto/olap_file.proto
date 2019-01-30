@@ -91,7 +91,7 @@ message RowsetMetaPB {
     optional string rowset_path = 18;
     optional PUniqueId load_id = 19;
     optional bool delete_flag =20;
-    optional int64 create_time = 21;
+    optional int64 creation_time = 21;
     // spare field id for future use
     optional bytes extra_properties = 50;
 
@@ -189,23 +189,24 @@ message OLAPHeaderMessage {
     repeated RowsetMetaPB incremental_rowsets = 25;
 }
 
-enum AlterTabletStatePB {
-    PB_ALTERING = 0;
-    PB_FINISHED = 1;
-    PB_FAILED = 2;
+enum AlterTabletState {
+    ALTER_NONE = 0;
+    ALTER_ALTERING = 1;
+    ALTER_FINISHED = 2;
+    ALTER_FAILED = 3;
 }
 
-enum AlterTabletTypePB {
+enum AlterTabletType {
     SCHEMA_CHANGE = 0;
     ROLLUP = 1;
 }
 
 message AlterTabletPB {
-    required int64 related_tablet_id = 1;
-    optional int64 related_schema_hash = 2;
-    repeated RowsetMetaPB rowsets_to_alter = 3;
-    optional AlterTabletStatePB alter_state = 4;
-    optional AlterTabletTypePB alter_type = 5;
+    optional AlterTabletState alter_state = 1;
+    required int64 related_tablet_id = 2;
+    optional int64 related_schema_hash = 3;
+    optional AlterTabletType alter_type = 4;
+    repeated RowsetMetaPB rowsets_to_alter = 5;
 }
 
 enum ColumnType {
@@ -264,14 +265,14 @@ message TabletMetaPB {
     optional int64 tablet_id = 3;
     optional int64 schema_hash = 4;
     optional int32 shard_id = 5;
+    optional int64 creation_time = 6;
+    optional int32 cumulative_layer_point = 7;
 
-    optional TabletSchemaPB schema = 6;
-    repeated RowsetMetaPB rs_metas = 7;
-    repeated RowsetMetaPB inc_rs_metas = 8;
-    optional TabletStatePB tablet_state = 9;
-    optional AlterTabletPB alter_tablet_task = 10;
-    required int64 creation_time = 11;
-    required int32 cumulative_layer_point = 12;
+    optional TabletSchemaPB schema = 8;
+    repeated RowsetMetaPB rs_metas = 9;
+    repeated RowsetMetaPB inc_rs_metas = 10;
+    optional TabletStatePB tablet_state = 11;
+    optional AlterTabletPB alter_tablet_task = 12;
 }
 
 message OLAPIndexHeaderMessage {

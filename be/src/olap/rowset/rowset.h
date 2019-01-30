@@ -60,11 +60,15 @@ public:
 
     virtual Version version() const = 0;
 
+    virtual void set_version(Version version) = 0;
+
     virtual int64_t end_version() const = 0;
 
     virtual int64_t start_version() const = 0;
 
     virtual VersionHash version_hash() const = 0;
+
+    virtual void set_version_hash(VersionHash version_hash) = 0;
 
     virtual bool in_use() const = 0;
 
@@ -74,19 +78,19 @@ public:
     
     virtual int64_t ref_count() const = 0;
 
+    virtual OLAPStatus make_snapshot(std::vector<std::string>* success_files) = 0;
+
+    virtual OLAPStatus remove_old_files(std::vector<std::string>* files_to_remove) = 0;
+
     virtual RowsetId rowset_id() const = 0;
 
-    virtual void set_version(Version version) = 0;
-
-    virtual void set_version_hash(VersionHash version_hash) = 0;
-
-    virtual int64_t create_time() = 0;
-
-    virtual bool delete_files() const = 0;
+    virtual int64_t creation_time() = 0;
 
     virtual bool is_pending() const = 0;
 
     virtual int64_t txn_id() const = 0;
+    
+    virtual bool delete_flag() = 0;
 };
 
 } // namespace doris

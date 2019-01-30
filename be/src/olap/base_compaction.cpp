@@ -201,7 +201,7 @@ bool BaseCompaction::_check_whether_satisfy_policy(bool is_manual_trigger,
         if (temp.first == 0) {
             _old_base_version = temp;
             base_size = _tablet->get_version_data_size(temp);
-            base_creation_time = _tablet->get_delta(index)->creation_time();
+            base_creation_time = _tablet->get_rowset_by_version(temp)->creation_time();
             continue;
         }
 
@@ -351,22 +351,13 @@ OLAPStatus BaseCompaction::_do_base_compaction(VersionHash new_base_version_hash
     uint64_t merged_rows = 0;
     uint64_t filted_rows = 0;
     OLAPStatus res = OLAP_SUCCESS;
-    RowsetSharedPtr new_base = nullptr;
-    if (_tablet->data_file_type() == COLUMN_ORIENTED_FILE) {
-        _tablet->obtain_header_rdlock();
-        _tablet->release_header_lock();
 
-        Merger merger(_tablet, rs_writer, READER_BASE_COMPACTION);
-        res = merger.merge(rs_readers, &merged_rows, &filted_rows);
-        if (res == OLAP_SUCCESS) {
-            *row_count = merger.row_count();
-        }
-        new_base = rs_writer->build();
-    } else {
-        OLAP_LOG_WARNING("unknown data file type. [type=%s]",
-                         DataFileType_Name(_tablet->data_file_type()).c_str());
-        res = OLAP_ERR_DATA_FILE_TYPE_ERROR;
+    Merger merger(_tablet, rs_writer, READER_BASE_COMPACTION);
+    res = merger.merge(rs_readers, &merged_rows, &filted_rows);
+    if (res == OLAP_SUCCESS) {
+        *row_count = merger.row_count();
     }
+    RowsetSharedPtr new_base = rs_writer->build();
 
     // 3. 如果merge失败，执行清理工作，返回错误码退出
     if (res != OLAP_SUCCESS) {

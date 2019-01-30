@@ -89,73 +89,6 @@ RowsetMetaSharedPtr AlphaRowset::rowset_meta() const {
     return _rowset_meta;
 }
 
-void AlphaRowset::set_version(Version version) {
-    _rowset_meta->set_version(version);
-    // set the rowset state to VISIBLE
-    _rowset_meta->set_rowset_state(VISIBLE);
-    _is_pending_rowset = false;
-}
-
-Version AlphaRowset::version() const {
-    return _rowset_meta->version();
-}
-
-VersionHash AlphaRowset::version_hash() const {
-    return _rowset_meta->version_hash();
-}
-
-bool AlphaRowset::in_use() const {
-    return _ref_count > 0;
-}
-
-void AlphaRowset::acquire() {
-    atomic_inc(&_ref_count);
-}
-
-void AlphaRowset::release() {
-    atomic_dec(&_ref_count);
-}
-    
-int64_t AlphaRowset::ref_count() const {
-    return _ref_count;
-}
-
-RowsetId AlphaRowset::rowset_id() const {
-    return _rowset_meta->rowset_id();
-}
-
-int64_t AlphaRowset::end_version() const {
-    return _rowset_meta->version().second;
-}
-
-int64_t AlphaRowset::start_version() const {
-    return _rowset_meta->version().first;
-}
-
-bool AlphaRowset::make_snapshot(std::vector<std::string>* success_links) {
-    for (auto segment_group : _segment_groups) {
-        bool  ret = segment_group->make_snapshot(success_links);
-        if (!ret) {
-            LOG(WARNING) << "create hard links failed for segment group:"
-                << segment_group->segment_group_id();
-            return false;
-        }
-    }
-    return true;
-}
-
-bool AlphaRowset::remove_old_files(std::vector<std::string>* removed_links) {
-    for (auto segment_group : _segment_groups) {
-        bool  ret = segment_group->remove_old_files(removed_links);
-        if (!ret) {
-            LOG(WARNING) << "remove old files failed for segment group:"
-                << segment_group->segment_group_id();
-            return false;
-        }
-    }
-    return true;
-}
-
 int AlphaRowset::data_disk_size() const {
     return _rowset_meta->total_disk_size();
 }
@@ -176,12 +109,79 @@ size_t AlphaRowset::num_rows() const {
     return _rowset_meta->num_rows();
 }
 
+Version AlphaRowset::version() const {
+    return _rowset_meta->version();
+}
+
+void AlphaRowset::set_version(Version version) {
+    _rowset_meta->set_version(version);
+    // set the rowset state to VISIBLE
+    _rowset_meta->set_rowset_state(VISIBLE);
+    _is_pending_rowset = false;
+}
+
+int64_t AlphaRowset::start_version() const {
+    return _rowset_meta->version().first;
+}
+
+int64_t AlphaRowset::end_version() const {
+    return _rowset_meta->version().second;
+}
+
+VersionHash AlphaRowset::version_hash() const {
+    return _rowset_meta->version_hash();
+}
+
 void AlphaRowset::set_version_hash(VersionHash version_hash) {
     _rowset_meta->set_version_hash(version_hash);
 }
 
-int64_t AlphaRowset::create_time() {
-    return _rowset_meta->create_time();
+bool AlphaRowset::in_use() const {
+    return _ref_count > 0;
+}
+
+void AlphaRowset::acquire() {
+    atomic_inc(&_ref_count);
+}
+
+void AlphaRowset::release() {
+    atomic_dec(&_ref_count);
+}
+    
+int64_t AlphaRowset::ref_count() const {
+    return _ref_count;
+}
+
+OLAPStatus AlphaRowset::make_snapshot(std::vector<std::string>* success_files) {
+    for (auto segment_group : _segment_groups) {
+        OLAPStatus status = segment_group->make_snapshot(success_files);
+        if (status != OLAP_SUCCESS) {
+            LOG(WARNING) << "create hard links failed for segment group:"
+                         << segment_group->segment_group_id();
+            return status;
+        }
+    }
+    return OLAP_SUCCESS;
+}
+
+OLAPStatus AlphaRowset::remove_old_files(std::vector<std::string>* files_to_remove) {
+    for (auto segment_group : _segment_groups) {
+        OLAPStatus status = segment_group->remove_old_files(files_to_remove);
+        if (status != OLAP_SUCCESS) {
+            LOG(WARNING) << "remove old files failed for segment group:"
+                         << segment_group->segment_group_id();
+            return status;
+        }
+    }
+    return OLAP_SUCCESS;
+}
+
+RowsetId AlphaRowset::rowset_id() const {
+    return _rowset_meta->rowset_id();
+}
+
+int64_t AlphaRowset::creation_time() {
+    return _rowset_meta->creation_time();
 }
 
 bool AlphaRowset::is_pending() const {
@@ -190,6 +190,10 @@ bool AlphaRowset::is_pending() const {
 
 int64_t AlphaRowset::txn_id() const {
     return _rowset_meta->txn_id();
+}
+
+bool AlphaRowset::delete_flag() {
+    return _rowset_meta->delete_flag();
 }
 
 OLAPStatus AlphaRowset::_init_non_pending_segment_groups() {
