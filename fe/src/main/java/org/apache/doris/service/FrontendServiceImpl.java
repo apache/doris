@@ -375,9 +375,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             ConnectContext.remove();
         }
 
-        List tmpList = Lists.newArrayList(1.2);
-        result.setTmplist(tmpList);
-
+        LOG.debug("mini load result: {}", request);
         return result;
     }
 
