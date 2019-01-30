@@ -162,11 +162,12 @@ string SnapshotManager::_get_header_full_path(
 
 void SnapshotManager::update_header_file_info(
         const vector<VersionEntity>& shortest_versions,
-        TabletMeta* header) {
-    // clear schema_change_status
-    header->clear_schema_change_status();
+        TabletMeta* tablet_meta) {
+    /*
+    // delete alter task
+    tablet_meta->delete_alter_task();
     // remove all old version and add new version
-    header->delete_all_versions();
+    tablet_meta->delete_all_versions();
 
     for (const VersionEntity& entity : shortest_versions) {
         Version version = entity.version;
@@ -177,11 +178,12 @@ void SnapshotManager::update_header_file_info(
             if (!segment_group_entity.key_ranges.empty()) {
                 column_statistics = &(segment_group_entity.key_ranges);
             }
-            header->add_version(version, v_hash, segment_group_id, segment_group_entity.num_segments,
-                    segment_group_entity.index_size, segment_group_entity.data_size,
-                    segment_group_entity.num_rows, segment_group_entity.empty, column_statistics);
+            tablet_meta->add_version(version, v_hash, segment_group_id, segment_group_entity.num_segments,
+                                     segment_group_entity.index_size, segment_group_entity.data_size,
+                                     segment_group_entity.num_rows, segment_group_entity.empty, column_statistics);
         }
     }
+    */
 }
 
 OLAPStatus SnapshotManager::_link_index_and_data_files(
@@ -190,41 +192,11 @@ OLAPStatus SnapshotManager::_link_index_and_data_files(
         const vector<VersionEntity>& version_entity_vec) {
     OLAPStatus res = OLAP_SUCCESS;
 
-    std::stringstream prefix_stream;
-    prefix_stream << schema_hash_path << "/" << ref_tablet->tablet_id();
-    std::string tablet_path_prefix = prefix_stream.str();
-    for (const VersionEntity& entity : version_entity_vec) {
+    for (auto& entity : version_entity_vec) {
         Version version = entity.version;
-        VersionHash v_hash = entity.version_hash;
-        for (SegmentGroupEntity segment_group_entity : entity.segment_group_vec) {
-            int32_t segment_group_id = segment_group_entity.segment_group_id;
-            for (int seg_id = 0; seg_id < segment_group_entity.num_segments; ++seg_id) {
-                std::string index_path =
-                    construct_index_file_path(tablet_path_prefix, version, v_hash, segment_group_id, seg_id);
-                std::string ref_tablet_index_path =
-                    ref_tablet->construct_index_file_path(version, v_hash, segment_group_id, seg_id);
-                res = _create_hard_link(ref_tablet_index_path, index_path);
-                if (res != OLAP_SUCCESS) {
-                    LOG(WARNING) << "fail to create hard link. "
-                        << " schema_hash_path=" << schema_hash_path
-                        << " from_path=" << ref_tablet_index_path
-                        << " to_path=" << index_path;
-                    return res;
-                }
-
-                std:: string data_path =
-                    construct_data_file_path(tablet_path_prefix, version, v_hash, segment_group_id, seg_id);
-                std::string ref_tablet_data_path =
-                    ref_tablet->construct_data_file_path(version, v_hash, segment_group_id, seg_id);
-                res = _create_hard_link(ref_tablet_data_path, data_path);
-                if (res != OLAP_SUCCESS) {
-                    LOG(WARNING) << "fail to create hard link."
-                        << "tablet_path_prefix=" << tablet_path_prefix
-                        << ", from_path=" << ref_tablet_data_path << ", to_path=" << data_path;
-                    return res;
-                }
-            }
-        }
+        const RowsetSharedPtr rowset = ref_tablet->get_rowset_by_version(version);
+        std::vector<std::string> success_files;
+        RETURN_NOT_OK(rowset->make_snapshot(&success_files));
     }
 
     return res;
@@ -453,46 +425,25 @@ OLAPStatus SnapshotManager::_create_incremental_snapshot_files(
             break;
         }
 
-        for (int64_t missing_version : request.missing_version) {
-
-            // find missing version
-            const PDelta* incremental_delta =
-                ref_tablet->get_incremental_delta(Version(missing_version, missing_version));
-            if (incremental_delta != nullptr) {
-                VLOG(3) << "success to find missing version when snapshot, "
+        for (int64_t missed_version : request.missing_version) {
+            Version version = { missed_version, missed_version };
+            const RowsetSharedPtr rowset = ref_tablet->get_rowset_by_version(version);
+            if (rowset != nullptr) {
+                VLOG(3) << "success to find miss version when snapshot, "
                         << "begin to link files. tablet_id=" << request.tablet_id
                         << ", schema_hash=" << request.schema_hash
-                        << ", version=" << missing_version;
-                // link files
-                for (uint32_t i = 0; i < incremental_delta->segment_group(0).num_segments(); i++) {
-                    int32_t segment_group_id = incremental_delta->segment_group(0).segment_group_id();
-                    string from = ref_tablet->construct_incremental_index_file_path(
-                                Version(missing_version, missing_version),
-                                incremental_delta->version_hash(), segment_group_id, i);
-                    string to = schema_full_path + '/' + basename(from.c_str());
-                    if ((res = _create_hard_link(from, to)) != OLAP_SUCCESS) {
-                        break;
-                    }
-
-                    from = ref_tablet->construct_incremental_data_file_path(
-                                Version(missing_version, missing_version),
-                                incremental_delta->version_hash(), segment_group_id, i);
-                    to = schema_full_path + '/' + basename(from.c_str());
-                    if ((res = _create_hard_link(from, to)) != OLAP_SUCCESS) {
-                        break;
-                    }
-                }
-
-                if (res != OLAP_SUCCESS) {
-                    break;
-                }
-
+                        << ", version=" << version.first << "-" << version.second;
+                std::vector<std::string> success_files;
+                res = rowset->make_snapshot(&success_files);
+                if (res != OLAP_SUCCESS) { break; }
             } else {
-                OLAP_LOG_WARNING("failed to find missing version when snapshot. "
-                                 "[tablet=%ld schema_hash=%d version=%ld]",
-                                 request.tablet_id, request.schema_hash, missing_version);
+                LOG(WARNING) << "failed to find missed version when snapshot. "
+                             << "tablet=" << request.tablet_id
+                             << ", schema_hash=" << request.schema_hash
+                             << ", version=" << version.first << "-" << version.second;
                 res = OLAP_ERR_VERSION_NOT_EXIST;
                 break;
+
             }
         }
 
@@ -501,8 +452,8 @@ OLAPStatus SnapshotManager::_create_incremental_snapshot_files(
     ref_tablet->release_header_lock();
 
     if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("failed to make incremental snapshot, try to delete the snapshot path. "
-                         "[path=%s]", snapshot_id_path.c_str());
+        LOG(WARNING) << "failed to make incremental snapshot, try to delete the snapshot path. "
+                     << "path=" << snapshot_id_path;
 
         if (check_dir_existed(snapshot_id_path)) {
             VLOG(3) << "remove snapshot path. [path=" << snapshot_id_path << "]";
@@ -566,34 +517,6 @@ OLAPStatus SnapshotManager::_append_single_delta(
     }
 
     return res;
-}
-
-string SnapshotManager::construct_index_file_path(
-        const string& tablet_path_prefix,
-        const Version& version,
-        VersionHash version_hash,
-        int32_t segment_group_id, int32_t segment) const {
-    return Tablet::construct_file_path(tablet_path_prefix, version, version_hash, segment_group_id, segment, "idx");
-}
-
-string SnapshotManager::construct_data_file_path(
-        const string& tablet_path_prefix,
-        const Version& version,
-        VersionHash version_hash,
-        int32_t segment_group_id, int32_t segment) const {
-    return Tablet::construct_file_path(tablet_path_prefix, version, version_hash, segment_group_id, segment, "dat");
-}
-
-OLAPStatus SnapshotManager::_create_hard_link(const string& from_path, const string& to_path) {
-    if (link(from_path.c_str(), to_path.c_str()) == 0) {
-        VLOG(10) << "success to create hard link from_path=" << from_path
-                 << ", to_path=" << to_path;
-        return OLAP_SUCCESS;
-    } else {
-        OLAP_LOG_WARNING("failed to create hard link from path=%s to path=%s errno=%d",
-                from_path.c_str(), to_path.c_str(), errno);
-        return OLAP_ERR_OTHER_ERROR;
-    }
 }
 
 }  // namespace doris

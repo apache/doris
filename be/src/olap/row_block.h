@@ -43,7 +43,6 @@ struct RowBlockInfo {
     uint32_t checksum;
     uint32_t row_num;       // block最大数据行数
     uint32_t unpacked_len;
-    DataFileType data_file_type;
     bool null_supported;
 };
 
@@ -170,7 +169,7 @@ private:
     };
 
     bool has_nullbyte() {
-        return _data_file_type == COLUMN_ORIENTED_FILE || _null_supported;
+        return _null_supported;
     }
 
     // Compute layout for storage buffer and  memory buffer
@@ -189,7 +188,6 @@ private:
     const TabletSchema* _schema;     // 内部保存的schema句柄
 
     bool _null_supported;
-    DataFileType _data_file_type;
 
     size_t _field_count = 0;
     bool _need_checksum = true;

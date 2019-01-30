@@ -130,7 +130,7 @@ public:
             &&  _rowset_meta_pb.has_end_version();
     }
 
-    virtual int start_version() {
+    virtual int start_version() const {
         return _rowset_meta_pb.start_version();
     }
 
@@ -138,7 +138,7 @@ public:
         _rowset_meta_pb.set_start_version(start_version);
     }
     
-    virtual int end_version() {
+    virtual int end_version() const {
         return _rowset_meta_pb.end_version();
     }
 
@@ -247,12 +247,12 @@ public:
         _rowset_meta_pb.set_delete_flag(delete_flag);
     }
 
-    virtual int64_t create_time() const {
-        return _rowset_meta_pb.create_time();
+    virtual int64_t creation_time() const {
+        return _rowset_meta_pb.creation_time();
     }
 
-    virtual void set_create_time(int64_t create_time) {
-        return _rowset_meta_pb.set_create_time(create_time);
+    virtual void set_creation_time(int64_t creation_time) {
+        return _rowset_meta_pb.set_creation_time(creation_time);
     }
 
     virtual int64_t partition_id() {

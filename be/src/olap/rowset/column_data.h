@@ -59,11 +59,6 @@ public:
         return _segment_group->num_segments();
     }
 
-    // 查询数据文件类型
-    DataFileType data_file_type() {
-        return _data_file_type;
-    }
-
     OLAPStatus init();
 
     OLAPStatus prepare_block_read(
@@ -163,7 +158,6 @@ private:
         return &_cursor;
     }
 private:
-    DataFileType _data_file_type;
     SegmentGroup* _segment_group;
     // 当到达文件末尾或者到达end key时设置此标志
     bool _eof;

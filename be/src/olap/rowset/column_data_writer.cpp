@@ -98,7 +98,6 @@ OLAPStatus ColumnDataWriter::init() {
     VLOG(3) << "init ColumnData writer. [segment group id='" << _segment_group->segment_group_id()
             << "' block_row_size=" << _segment_group->get_num_rows_per_row_block() << "]";
     RowBlockInfo block_info(0U, _segment_group->get_num_rows_per_row_block(), 0);
-    block_info.data_file_type = DataFileType::COLUMN_ORIENTED_FILE;
     block_info.null_supported = true;
 
     res = _row_block->init(block_info);

@@ -158,18 +158,6 @@ enum HllDataType {
     HLL_DATA_NONE
 };
 
-enum AlterTabletType {
-    ALTER_TABLET_SCHEMA_CHANGE = 1,           // add/drop/alter column
-    ALTER_TABLET_CREATE_ROLLUP_TABLE= 2,           // split one tablet to several sub tables
-};
-
-enum AlterTableStatus {
-    ALTER_TABLE_WAITING = 0,
-    ALTER_TABLE_RUNNING = 1,
-    ALTER_TABLE_FINISHED = 2,
-    ALTER_TABLE_FAILED = 3,
-};
-
 enum PushType {
     PUSH_NORMAL = 1,
     PUSH_FOR_DELETE = 2,

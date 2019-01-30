@@ -81,7 +81,7 @@ OLAPStatus EngineChecksumTask::_compute_checksum() {
 
     // ignore float and double type considering to precision lose
     for (size_t i = 0; i < tablet->tablet_schema().num_columns(); ++i) {
-        FieldType type = tablet->get_field_type_by_index(i);
+        FieldType type = tablet->tablet_schema().column(i).type();
         if (type == OLAP_FIELD_TYPE_FLOAT || type == OLAP_FIELD_TYPE_DOUBLE) {
             continue;
         }

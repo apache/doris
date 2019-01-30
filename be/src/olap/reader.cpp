@@ -1038,7 +1038,7 @@ OLAPStatus Reader::_init_load_bf_columns(const ReaderParams& read_params) {
 
     // remove the max_equal_index column when it's not varchar
     // or longer than number of short key fields
-    FieldType type = _tablet->get_field_type_by_index(max_equal_index);
+    FieldType type = _tablet->tablet_schema().column(max_equal_index).type();
     if ((type != OLAP_FIELD_TYPE_VARCHAR && type != OLAP_FIELD_TYPE_HLL)
             || max_equal_index + 1 > _tablet->num_short_key_columns()) {
         _load_bf_columns.erase(max_equal_index);

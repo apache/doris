@@ -163,11 +163,11 @@ Status RestoreTabletAction::_restore(const std::string& key, int64_t tablet_id, 
     }
     LOG(INFO) << "tablet path in trash:" << latest_tablet_path;
     std::string original_header_path = latest_tablet_path + "/" + std::to_string(tablet_id) +".hdr";
-    TabletMeta header(original_header_path);
-    OLAPStatus load_status = header.load_and_init();
+    TabletMeta tablet_meta;
+    OLAPStatus load_status = tablet_meta.create_from_file(original_header_path);
     if (load_status != OLAP_SUCCESS) {
-        LOG(WARNING) << "header load and init error, header path:" << original_header_path;
-        return Status("load header failed");
+        LOG(WARNING) << "failed to create tablet_meta from file, file path:" << original_header_path;
+        return Status("load tablet_meta failed");
     }
     // latest_tablet_path: /root_path/trash/time_label/tablet_id/schema_hash
     {
@@ -178,7 +178,7 @@ Status RestoreTabletAction::_restore(const std::string& key, int64_t tablet_id, 
 
     std::string root_path = DataDir::get_root_path_from_schema_hash_path_in_trash(latest_tablet_path);
     DataDir* store = StorageEngine::instance()->get_store(root_path);
-    std::string restore_schema_hash_path = store->get_absolute_tablet_path(&header, true);
+    std::string restore_schema_hash_path = store->get_absolute_tablet_path(&tablet_meta, true);
     Status s = FileUtils::create_dir(restore_schema_hash_path);
     if (!s.ok()) {
         LOG(WARNING) << "create tablet path failed:" << restore_schema_hash_path;
@@ -198,7 +198,7 @@ Status RestoreTabletAction::_restore(const std::string& key, int64_t tablet_id, 
         if (link_ret != 0) {
             LOG(WARNING) << "link from:" << from
                     << " to:" << to  << " failed, link ret:" << link_ret;
-            std::string restore_tablet_path = store->get_absolute_tablet_path(&header, false);
+            std::string restore_tablet_path = store->get_absolute_tablet_path(&tablet_meta, false);
             LOG(WARNING) << "remove tablet_path:" << restore_tablet_path;
             Status s = FileUtils::remove_all(restore_tablet_path);
             if (!s.ok()) {
@@ -207,7 +207,7 @@ Status RestoreTabletAction::_restore(const std::string& key, int64_t tablet_id, 
             return Status("create link path failed");
         }
     }
-    std::string restore_shard_path = store->get_absolute_shard_path(std::to_string(header.shard_id()));
+    std::string restore_shard_path = store->get_absolute_shard_path(std::to_string(tablet_meta.shard_id()));
     Status status = _reload_tablet(key, restore_shard_path, tablet_id, schema_hash);
     return status;
 }

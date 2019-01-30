@@ -174,7 +174,7 @@ Status SchemaTablesScanner::fill_one_row(Tuple *tuple, MemPool *pool) {
     {
         tuple->set_null(_tuple_desc->slots()[13]->null_indicator_offset());
     }
-    // create_time
+    // creation_time
     {
         tuple->set_null(_tuple_desc->slots()[14]->null_indicator_offset());
     }
