@@ -181,7 +181,7 @@ public:
     const RowsetSharedPtr get_rowset_by_version(const Version& version) const;
     const RowsetSharedPtr rowset_with_max_version() const;
     RowsetSharedPtr rowset_with_largest_size();
-    SegmentGroup* get_largest_index();
+    RowsetSharedPtr get_largest_rowset();
     OLAPStatus all_rowsets(vector<RowsetSharedPtr> rowsets);
 
     OLAPStatus add_inc_rowset(const Rowset& rowset);

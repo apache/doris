@@ -24,6 +24,7 @@
 #include "olap/rowset/alpha_rowset_writer.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/data_dir.h"
+#include "olap/tuple.h"
 
 #include <vector>
 #include <memory>
@@ -92,12 +93,20 @@ public:
 
     bool delete_flag() override;
 
+    OLAPStatus split_range(
+            const RowCursor& start_key,
+            const RowCursor& end_key,
+            uint64_t request_block_row_count,
+            vector<OlapTuple>* ranges);
+
 private:
     OLAPStatus _init_segment_groups();
 
     OLAPStatus _init_pending_segment_groups();
 
     OLAPStatus _init_non_pending_segment_groups();
+
+    std::shared_ptr<SegmentGroup> _get_largest_segment_group();
 
 private:
     friend class AlphaRowsetWriter;
