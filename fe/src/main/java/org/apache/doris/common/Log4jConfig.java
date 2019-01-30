@@ -81,8 +81,14 @@ public class Log4jConfig extends XmlConfiguration {
             "<Logger name='audit' level='ERROR' additivity='false'>" + 
                 "<AppenderRef ref='Auditfile'/>" + 
             "</Logger>" + 
-            "<Logger name='org.apache.thrift.transport' level='DEBUG'>\n" +
-            "    <AppenderRef ref='Sys'/>\n" +
+            "<Logger name='org.apache.thrift' level='DEBUG'>" +
+            "    <AppenderRef ref='Sys'/>" +
+            "</Logger>" +
+            "<Logger name='org.apache.thrift.transport' level='DEBUG'>" +
+            "    <AppenderRef ref='Sys'/>" +
+            "</Logger>" +
+            "<Logger name='org.apache.doris.thrift' level='DEBUG'>" +
+            "    <AppenderRef ref='Sys'/>" +
             "</Logger>" +
             "<!--REPLACED BY AUDIT AND VERBOSE MODULE NAMES-->" + 
         "</Loggers>" + 

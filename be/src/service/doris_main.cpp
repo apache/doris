@@ -31,6 +31,7 @@
 #endif
 
 #include <curl/curl.h>
+#include <thrift/TOutput.h>
 
 #include "common/logging.h"
 #include "common/daemon.h"
@@ -64,6 +65,11 @@ extern "C" { void __lsan_do_leak_check(); }
 
 namespace doris {
 extern bool k_doris_exit;
+
+static void thrift_output(const char* x) {
+    LOG(WARNING) << "thrift internal message: " << x;
+}
+
 }
 
 int main(int argc, char** argv) {
@@ -134,6 +140,8 @@ int main(int argc, char** argv) {
         LOG(FATAL) << "fail to initialize libcurl, curl_ret=" << curl_ret;
         exit(-1);
     }
+    // add logger for thrift internal
+    apache::thrift::GlobalOutput.setOutputFunction(doris::thrift_output);
 
     doris::init_daemon(argc, argv, paths);
 
