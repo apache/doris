@@ -165,7 +165,7 @@ RowsetSharedPtr AlphaRowsetWriter::build() {
                                     _rowset_writer_context.rowset_path_prefix,
                                     _rowset_writer_context.data_dir, _current_rowset_meta));
     rowset->init();
-    return std::shared_ptr<Rowset>(rowset);
+    return rowset;
 }
 
 OLAPStatus AlphaRowsetWriter::release() {

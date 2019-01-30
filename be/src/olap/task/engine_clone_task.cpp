@@ -681,7 +681,7 @@ OLAPStatus EngineCloneTask::_clone_incremental_data(TabletSharedPtr tablet, cons
     }
 
     // clone_data to tablet
-    OLAPStatus clone_res = tablet->clone_data(cloned_tablet_meta, rowsets_to_clone, versions_to_delete);
+    OLAPStatus clone_res = tablet->revise_tablet_meta(cloned_tablet_meta, rowsets_to_clone, versions_to_delete);
     LOG(INFO) << "finish to incremental clone. [tablet=" << tablet->full_name() << " res=" << clone_res << "]";
     return clone_res;
 }
@@ -758,7 +758,7 @@ OLAPStatus EngineCloneTask::_clone_full_data(TabletSharedPtr tablet, TabletMeta*
     }
 
     // clone_data to tablet
-    OLAPStatus clone_res = tablet->clone_data(*cloned_tablet_meta, rowsets_to_clone, versions_to_delete);
+    OLAPStatus clone_res = tablet->revise_tablet_meta(*cloned_tablet_meta, rowsets_to_clone, versions_to_delete);
     LOG(INFO) << "finish to full clone. tablet=" << tablet->full_name() << ", res=" << clone_res;
     return clone_res;
 }

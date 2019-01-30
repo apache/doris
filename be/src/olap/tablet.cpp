@@ -83,7 +83,7 @@ TabletSharedPtr Tablet::create_from_tablet_meta_file(
     OLAPStatus res = TabletMetaManager::save(data_dir, tablet_meta->tablet_id(),
                                              tablet_meta->schema_hash(), tablet_meta);
     if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to save tablet_meta to db. [file_path=%s]", file_path.c_str());
+        LOG(WARNING) << "fail to save tablet_meta to db. file_path=" << file_path;
         delete tablet_meta;
         return nullptr;
     }
@@ -129,7 +129,7 @@ OLAPStatus Tablet::load() {
         return OLAP_SUCCESS;
     }
 
-    res = load_indices();
+    res = load_rowsets();
 
     if (res != OLAP_SUCCESS) {
         LOG(FATAL) << "fail to load indices. res=" << res
@@ -142,7 +142,7 @@ OLAPStatus Tablet::load() {
     return res;
 }
 
-OLAPStatus Tablet::load_indices() {
+OLAPStatus Tablet::load_rowsets() {
     OLAPStatus res = OLAP_SUCCESS;
     ReadLock rdlock(&_meta_lock);
     TabletMeta* tablet_meta = _tablet_meta;
@@ -852,7 +852,7 @@ void Tablet::delete_expired_incremental_rowset() {
     remove_files(files_to_remove);
 }
 
-OLAPStatus Tablet::clone_data(const TabletMeta& tablet_meta,
+OLAPStatus Tablet::revise_tablet_meta(const TabletMeta& tablet_meta,
                               const std::vector<RowsetMetaSharedPtr>& rowsets_to_clone,
                               const std::vector<Version>& versions_to_delete) {
     LOG(INFO) << "begin to clone data to tablet. tablet=" << full_name()
@@ -906,7 +906,7 @@ OLAPStatus Tablet::clone_data(const TabletMeta& tablet_meta,
             break;
         }
 
-       VLOG(3) << "load indices successfully when clone. tablet=" << full_name()
+       VLOG(3) << "load rowsets successfully when clone. tablet=" << full_name()
                 << ", added rowset size=" << rowsets_to_clone.size();
         // save and reload tablet_meta
         res = TabletMetaManager::save(_data_dir, tablet_id(), schema_hash(), &new_tablet_meta);

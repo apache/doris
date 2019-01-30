@@ -61,15 +61,15 @@ public:
     ~Tablet();
 
     OLAPStatus load();
-    OLAPStatus load_indices();
+    OLAPStatus load_rowsets();
     inline bool is_loaded();
     OLAPStatus save_tablet_meta();
 
     bool has_expired_incremental_rowset();
     void delete_expired_incremental_rowset();
-    OLAPStatus clone_data(const TabletMeta& tablet_meta,
-                          const std::vector<RowsetMetaSharedPtr>& rowsets_to_clone,
-                          const std::vector<Version>& versions_to_delete);
+    OLAPStatus revise_tablet_meta(const TabletMeta& tablet_meta,
+                                  const std::vector<RowsetMetaSharedPtr>& rowsets_to_clone,
+                                  const std::vector<Version>& versions_to_delete);
     OLAPStatus compute_all_versions_hash(const std::vector<Version>& versions,
                                          VersionHash* version_hash) const;
     OLAPStatus merge_tablet_meta(const TabletMeta& hdr, int to_version);
