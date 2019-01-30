@@ -196,6 +196,105 @@ bool AlphaRowset::delete_flag() {
     return _rowset_meta->delete_flag();
 }
 
+OLAPStatus AlphaRowset::split_range(
+            const RowCursor& start_key,
+            const RowCursor& end_key,
+            uint64_t request_block_row_count,
+            vector<OlapTuple>* ranges) {
+    EntrySlice entry;
+    RowBlockPosition start_pos;
+    RowBlockPosition end_pos;
+    RowBlockPosition step_pos;
+
+    std::shared_ptr<SegmentGroup> largest_segment_group = _segment_group_with_largest_size();
+    if (largest_segment_group == nullptr) {
+        ranges->emplace_back(start_key.to_tuple());
+        ranges->emplace_back(end_key.to_tuple());
+        return OLAP_SUCCESS;
+    }
+    uint64_t expected_rows = request_block_row_count
+            / largest_segment_group->current_num_rows_per_row_block();
+    if (expected_rows == 0) {
+        LOG(WARNING) << "expected_rows less than 1. [request_block_row_count = "
+                     << request_block_row_count << "]";
+        return OLAP_ERR_TABLE_NOT_FOUND;
+    }
+
+    // 找到startkey对应的起始位置
+    RowCursor helper_cursor;
+    if (helper_cursor.init(*_schema, _schema->num_short_key_columns()) != OLAP_SUCCESS) {
+        LOG(WARNING) << "fail to parse strings to key with RowCursor type.";
+        return OLAP_ERR_INVALID_SCHEMA;
+    }
+    if (largest_segment_group->find_short_key(start_key, &helper_cursor, false, &start_pos) != OLAP_SUCCESS) {
+        if (largest_segment_group->find_first_row_block(&start_pos) != OLAP_SUCCESS) {
+            LOG(WARNING) << "fail to get first block pos";
+            return OLAP_ERR_TABLE_INDEX_FIND_ERROR;
+        }
+    }
+
+    step_pos = start_pos;
+    VLOG(3) << "start_pos=" << start_pos.segment << ", " << start_pos.index_offset;
+
+    //find last row_block is end_key is given, or using last_row_block
+    if (largest_segment_group->find_short_key(end_key, &helper_cursor, false, &end_pos) != OLAP_SUCCESS) {
+        if (largest_segment_group->find_last_row_block(&end_pos) != OLAP_SUCCESS) {
+            LOG(WARNING) << "fail find last row block.";
+            return OLAP_ERR_TABLE_INDEX_FIND_ERROR;
+        }
+    }
+
+    VLOG(3) << "end_pos=" << end_pos.segment << ", " << end_pos.index_offset;
+
+    //get rows between first and last
+    OLAPStatus res = OLAP_SUCCESS;
+    RowCursor cur_start_key;
+    RowCursor last_start_key;
+
+    if (cur_start_key.init(*_schema, _schema->num_short_key_columns()) != OLAP_SUCCESS
+            || last_start_key.init(*_schema, _schema->num_short_key_columns()) != OLAP_SUCCESS) {
+        LOG(WARNING) << "fail to init cursor";
+        return OLAP_ERR_INIT_FAILED;
+    }
+
+    if (largest_segment_group->get_row_block_entry(start_pos, &entry) != OLAP_SUCCESS) {
+        LOG(WARNING) << "get block entry failed.";
+        return OLAP_ERR_ROWBLOCK_FIND_ROW_EXCEPTION;
+    }
+
+    cur_start_key.attach(entry.data);
+    last_start_key.allocate_memory_for_string_type(*_schema);
+    last_start_key.copy_without_pool(cur_start_key);
+    // start_key是last start_key, 但返回的实际上是查询层给出的key
+    ranges->emplace_back(start_key.to_tuple());
+
+    while (end_pos > step_pos) {
+        res = largest_segment_group->advance_row_block(expected_rows, &step_pos);
+        if (res == OLAP_ERR_INDEX_EOF || !(end_pos > step_pos)) {
+            break;
+        } else if (res != OLAP_SUCCESS) {
+            LOG(WARNING) << "advance_row_block failed.";
+            return OLAP_ERR_ROWBLOCK_FIND_ROW_EXCEPTION;
+        }
+
+        if (largest_segment_group->get_row_block_entry(step_pos, &entry) != OLAP_SUCCESS) {
+            LOG(WARNING) << "get block entry failed.";
+            return OLAP_ERR_ROWBLOCK_FIND_ROW_EXCEPTION;
+        }
+        cur_start_key.attach(entry.data);
+
+        if (cur_start_key.cmp(last_start_key) != 0) {
+            ranges->emplace_back(cur_start_key.to_tuple()); // end of last section
+            ranges->emplace_back(cur_start_key.to_tuple()); // start a new section
+            last_start_key.copy_without_pool(cur_start_key);
+        }
+    }
+
+    ranges->emplace_back(end_key.to_tuple());
+
+    return OLAP_SUCCESS;
+}
+
 OLAPStatus AlphaRowset::_init_non_pending_segment_groups() {
     std::vector<SegmentGroupPB> segment_group_metas;
     AlphaRowsetMeta* _alpha_rowset_meta = (AlphaRowsetMeta*)_rowset_meta.get();
@@ -314,6 +413,22 @@ OLAPStatus AlphaRowset::_init_segment_groups() {
     } else {
         return _init_non_pending_segment_groups();
     }
+}
+
+std::shared_ptr<SegmentGroup> AlphaRowset::_segment_group_with_largest_size() {
+    std::shared_ptr<SegmentGroup> largest_segment_group = nullptr;
+    size_t largest_segment_group_sizes = 0;
+
+    for (auto segment_group : _segment_groups) {
+        if (segment_group->empty() || segment_group->zero_num_rows()) {
+            continue;
+        }
+        if (segment_group->index_size() > largest_segment_group_sizes) {
+            largest_segment_group = segment_group;
+            largest_segment_group_sizes = segment_group->index_size();
+        }
+    }
+    return largest_segment_group;
 }
 
 }  // namespace doris
