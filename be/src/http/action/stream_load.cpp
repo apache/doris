@@ -300,7 +300,7 @@ Status StreamLoadAction::_handle(StreamLoadContext* ctx) {
         master_addr.hostname, master_addr.port,
         [&request, &result] (FrontendServiceConnection& client) {
             client->loadTxnCommit(result, request);
-        }));
+        }, config::txn_commit_rpc_timeout_ms));
 #else
     result = k_stream_load_commit_result;
 #endif
