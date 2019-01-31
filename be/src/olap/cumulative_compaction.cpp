@@ -423,7 +423,7 @@ OLAPStatus CumulativeCompaction::_do_cumulative_compaction() {
     // 3. add new cumulative file into tablet
     vector<RowsetSharedPtr> unused_rowsets;
     _obtain_header_wrlock();
-    res = _update_header(&unused_rowsets);
+    res = _update_header(unused_rowsets);
     if (res != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("failed to update header for new cumulative."
                          "[tablet=%s; cumulative_version=%d-%d]",
@@ -464,12 +464,12 @@ OLAPStatus CumulativeCompaction::_do_cumulative_compaction() {
     return res;
 }
 
-OLAPStatus CumulativeCompaction::_update_header(vector<RowsetSharedPtr>* unused_rowsets) {
+OLAPStatus CumulativeCompaction::_update_header(const vector<RowsetSharedPtr>& unused_rowsets) {
     vector<RowsetSharedPtr> new_rowsets;
     new_rowsets.push_back(_rowset);
 
     OLAPStatus res = OLAP_SUCCESS;
-    res = _tablet->modify_rowsets(&_need_merged_versions, &new_rowsets, unused_rowsets);
+    res = _tablet->modify_rowsets(&_need_merged_versions, new_rowsets, unused_rowsets);
     if (res != OLAP_SUCCESS) {
         LOG(FATAL) << "failed to replace data sources. res=" << res
                    << ", tablet=" << _tablet->full_name();
@@ -538,7 +538,7 @@ OLAPStatus CumulativeCompaction::_roll_back(vector<RowsetSharedPtr>& old_olap_in
     vector<RowsetSharedPtr> unused_rowsets;
 
     OLAPStatus res = OLAP_SUCCESS;
-    res = _tablet->modify_rowsets(&need_remove_version, &old_olap_indices, &unused_rowsets);
+    res = _tablet->modify_rowsets(&need_remove_version, old_olap_indices, unused_rowsets);
     if (res != OLAP_SUCCESS) {
         LOG(FATAL) << "failed to replace data sources. [tablet=" << _tablet->full_name() << "]";
         return res;

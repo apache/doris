@@ -102,7 +102,7 @@ private:
     // - 如果执行成功，则返回OLAP_SUCCESS；
     // - 其它情况下，返回相应的错误码
     OLAPStatus _update_header(uint64_t row_count,
-                              std::vector<RowsetSharedPtr>* unused_rowsets);
+                              const std::vector<RowsetSharedPtr>& unused_rowsets);
 
     // 删除不再使用的Rowset
     // 

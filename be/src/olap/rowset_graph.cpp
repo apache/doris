@@ -72,6 +72,12 @@ OLAPStatus RowsetGraph::construct_rowset_graph(const std::vector<RowsetMetaShare
     return OLAP_SUCCESS;
 }
 
+OLAPStatus RowsetGraph::reconstruct_rowset_graph(const std::vector<RowsetMetaSharedPtr>& rs_metas) {
+    _version_graph.clear();
+    _vertex_index_map.clear();
+    return construct_rowset_graph(rs_metas);
+}
+
 OLAPStatus RowsetGraph::add_version_to_graph(const Version& version) {
     // Add version.first as new vertex of version graph if not exist.
     int start_vertex_value = version.first;
