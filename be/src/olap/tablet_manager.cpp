@@ -978,7 +978,7 @@ OLAPStatus TabletManager::_create_tablet_meta(
         return res;
     }
 
-    uint32_t next_unique_id = ref_tablet->next_unique_id();
+    uint32_t next_unique_id = 0;
     uint32_t col_ordinal = 0; 
     std::unordered_map<uint32_t, uint32_t> col_ordinal_to_unique_id;
     if (!is_schema_change_tablet) {

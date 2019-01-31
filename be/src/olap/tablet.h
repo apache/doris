@@ -235,7 +235,7 @@ private:
     std::string _tablet_path;
 
     TabletState _state;
-    RowsetGraph* _rs_graph;
+    RowsetGraph _rs_graph;
 
     std::atomic<bool> _is_loaded;
     bool _is_dropped;
@@ -293,7 +293,7 @@ inline DataDir* Tablet::data_dir() const {
 }
 
 inline bool Tablet::equal(int64_t tablet_id, int64_t schema_hash) {
-    return (_tablet_meta->table_id() == tablet_id) && (_tablet_meta->schema_hash() == schema_hash);
+    return (_tablet_meta->tablet_id() == tablet_id) && (_tablet_meta->schema_hash() == schema_hash);
 }
 
 inline const TabletSchema& Tablet::tablet_schema() const {
