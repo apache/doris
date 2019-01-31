@@ -115,7 +115,7 @@ void EtlJobMgr::report_to_master(PlanFragmentExecutor* executor) {
     }
     const TNetworkAddress& master_address = _exec_env->master_info()->network_address;
     FrontendServiceConnection client(
-            _exec_env->frontend_client_cache(), master_address, 500, &status);
+            _exec_env->frontend_client_cache(), master_address, config::thrift_rpc_timeout_ms, &status);
     if (!status.ok()) {
         std::stringstream ss;
         ss << "Connect master failed, with address("
@@ -131,7 +131,7 @@ void EtlJobMgr::report_to_master(PlanFragmentExecutor* executor) {
             LOG(WARNING) << "Retrying report etl jobs status to master("
                     << master_address.hostname << ":" << master_address.port
                     << ") because: " << e.what();
-            status = client.reopen(500);
+            status = client.reopen(config::thrift_rpc_timeout_ms);
             if (!status.ok()) {
                 LOG(WARNING) << "Client repoen failed. with address("
                     << master_address.hostname << ":" << master_address.port << ")";
@@ -141,6 +141,8 @@ void EtlJobMgr::report_to_master(PlanFragmentExecutor* executor) {
         }
     } catch (apache::thrift::TException& e) {
         // failed when retry.
+        // reopen to disable this connection
+        client.reopen(config::thrift_rpc_timeout_ms);
         std::stringstream ss;
         ss << "Report etl task to master("
             << master_address.hostname << ":" << master_address.port

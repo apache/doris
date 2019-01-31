@@ -213,6 +213,8 @@ Status MiniLoadAction::_load(
         }
     } catch (apache::thrift::TException& e) {
         // failed when retry.
+        // reopen to disable this connection
+        client.reopen(config::thrift_rpc_timeout_ms);
         std::stringstream ss;
         ss << "Request miniload from master("
             << master_address.hostname << ":" << master_address.port
@@ -291,6 +293,8 @@ Status MiniLoadAction::check_auth(
         }
     } catch (apache::thrift::TException& e) {
         // failed when retry.
+        // reopen to disable this connection
+        client.reopen(config::thrift_rpc_timeout_ms);
         std::stringstream ss;
         ss << "Request miniload from master("
             << master_address.hostname << ":" << master_address.port
