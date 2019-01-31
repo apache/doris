@@ -115,15 +115,15 @@ Status FrontendHelper::rpc(
         std::function<void (FrontendServiceConnection&)> callback,
         int timeout_ms) {
     TNetworkAddress address = make_network_address(ip, port);
-    try {
-        Status status;
-        FrontendServiceConnection client(
+    Status status;
+    FrontendServiceConnection client(
             _s_exec_env->frontend_client_cache(), address, timeout_ms, &status);
-        if (!status.ok()) {
-            LOG(WARNING) << "Connect frontent failed, address=" << address
-                << ", status=" << status.get_error_msg();
-            return status;
-        }
+    if (!status.ok()) {
+        LOG(WARNING) << "Connect frontent failed, address=" << address
+            << ", status=" << status.get_error_msg();
+        return status;
+    }
+    try {
         try {
             callback(client);
         } catch (apache::thrift::transport::TTransportException& e) {
@@ -138,6 +138,8 @@ Status FrontendHelper::rpc(
             callback(client);
         }
     } catch (apache::thrift::TException& e) {
+        // just reopen to disable this connection
+        client.reopen(timeout_ms);
         LOG(WARNING) << "call frontend service failed, address=" << address
             << ", reason=" << e.what();
         return Status(TStatusCode::THRIFT_RPC_ERROR,

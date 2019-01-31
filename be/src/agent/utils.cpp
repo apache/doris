@@ -156,6 +156,7 @@ AgentStatus MasterServerClient::finish_task(
             client->finishTask(*result, request);
         }
     } catch (TException& e) {
+        client.reopen(config::thrift_rpc_timeout_ms);
         OLAP_LOG_WARNING("master client, finishTask execute failed."
                          "host: %s, port: %d, error: %s",
                          _master_info.network_address.hostname.c_str(),
@@ -212,6 +213,7 @@ AgentStatus MasterServerClient::report(const TReportRequest request, TMasterResu
             }   
         }   
     } catch (TException& e) {
+        client.reopen(config::thrift_rpc_timeout_ms);
         LOG(WARNING) << "master client. finish report failed. host: " << _master_info.network_address.hostname
                     << ". port: " << _master_info.network_address.port << ". code: " << client_status.code();
         return DORIS_ERROR;
