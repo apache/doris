@@ -175,13 +175,18 @@ OLAPStatus DeltaWriter::close(google::protobuf::RepeatedPtrField<PTabletInfo>* t
     OLAPStatus res = OLAP_SUCCESS;
     // use rowset meta manager to save meta
     _cur_rowset = _rowset_writer->build();
-    res = RowsetMetaManager::save(
-            _tablet->data_dir()->get_meta(),
-            _cur_rowset->rowset_id(),
-            _cur_rowset->rowset_meta());
-    if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "save pending rowset failed. rowset_id:" << _cur_rowset->rowset_id();
-        return OLAP_ERR_ROWSET_SAVE_FAILED;
+    if (_cur_rowset == nullptr) {
+        LOG(WARNING) << "fail to build rowset";
+        return OLAP_ERR_MALLOC_ERROR;
+    }
+    res = TxnManager::instance()->commit_txn(_tablet->data_dir()->get_meta(),
+        _req.partition_id, _req.txn_id,_req.tablet_id, _req.schema_hash,
+        _req.load_id, _cur_rowset, false);
+    if (res != OLAP_SUCCESS && res != OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
+        LOG(WARNING) << "commit txn: " << _req.txn_id
+                     << " for rowset: " << _cur_rowset->rowset_id()
+                     << " failed.";
+        return res;
     }
 
     if (_related_tablet != nullptr) {
@@ -200,17 +205,24 @@ OLAPStatus DeltaWriter::close(google::protobuf::RepeatedPtrField<PTabletInfo>* t
         //            _tablet, _related_tablet, _cur_rowset, _related_rowset);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "failed to convert delta for new tablet in schema change."
-                << "res: " << res << ", " << "new_tablet: " << _related_tablet->full_name();
+                         << "res: " << res << ", " 
+                         << "new_tablet: " << _related_tablet->full_name();
                 return res;
         }
 
-        res = RowsetMetaManager::save(
-            _related_tablet->data_dir()->get_meta(),
-            _related_rowset->rowset_id(),
-            _related_rowset->rowset_meta());
-        if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "save pending rowset failed. rowset_id:" << _related_rowset->rowset_id();
-            return OLAP_ERR_ROWSET_SAVE_FAILED;
+        if (_related_rowset == nullptr) {
+            LOG(WARNING) << "fail to build rowset";
+            return OLAP_ERR_MALLOC_ERROR;
+        }
+        res = TxnManager::instance()->commit_txn(_related_tablet->data_dir()->get_meta(),
+            _req.partition_id, _req.txn_id, _related_tablet->tablet_id(),
+            _related_tablet->schema_hash(), 
+            _req.load_id, _related_rowset, false);
+
+        if (res != OLAP_SUCCESS && res != OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
+            LOG(WARNING) << "save pending rowset failed. rowset_id:" 
+                         << _related_rowset->rowset_id();
+            return res;
         }
     }
 
