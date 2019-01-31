@@ -18,12 +18,11 @@
 package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
-
-import com.google.common.collect.Lists;
 
 import org.easymock.EasyMock;
 import org.junit.After;
@@ -44,7 +43,9 @@ public class BackendsProcDirTest {
     private static Backend b1;
     private static Backend b2;
 
-    private SystemInfoService systemInfoService;
+    private static SystemInfoService systemInfoService;
+    private static TabletInvertedIndex tabletInvertedIndex;
+
     private static Catalog catalog;
     private static EditLog editLog;
 
@@ -67,24 +68,36 @@ public class BackendsProcDirTest {
         EasyMock.expectLastCall().anyTimes();
         EasyMock.replay(catalog);
 
-        PowerMock.mockStatic(Catalog.class);
-        EasyMock.expect(Catalog.getInstance()).andReturn(catalog).anyTimes();
-        PowerMock.replay(Catalog.class);
-
         b1 = new Backend(1000, "host1", 10000);
         b1.updateOnce(10001, 10003, 10005);
         b2 = new Backend(1001, "host2", 20000);
         b2.updateOnce(20001, 20003, 20005);
+
+        systemInfoService = EasyMock.createNiceMock(SystemInfoService.class);
+        EasyMock.expect(systemInfoService.getBackend(1000)).andReturn(b1).anyTimes();
+        EasyMock.expect(systemInfoService.getBackend(1001)).andReturn(b2).anyTimes();
+        EasyMock.expect(systemInfoService.getBackend(1002)).andReturn(null).anyTimes();
+        EasyMock.replay(systemInfoService);
+
+        tabletInvertedIndex = EasyMock.createNiceMock(TabletInvertedIndex.class);
+        EasyMock.expect(tabletInvertedIndex.getTabletNumByBackendId(EasyMock.anyLong())).andReturn(2).anyTimes();
+        EasyMock.replay(tabletInvertedIndex);
+
+        PowerMock.mockStatic(Catalog.class);
+        EasyMock.expect(Catalog.getInstance()).andReturn(catalog).anyTimes();
+        EasyMock.expect(Catalog.getCurrentSystemInfo()).andReturn(systemInfoService).anyTimes();
+        EasyMock.expect(Catalog.getCurrentInvertedIndex()).andReturn(tabletInvertedIndex).anyTimes();
+        PowerMock.replay(Catalog.class);
     }
 
     @Before
     public void setUp() {
-        systemInfoService = EasyMock.createNiceMock(SystemInfoService.class);
+        // systemInfoService = EasyMock.createNiceMock(SystemInfoService.class);
     }
 
     @After
     public void tearDown() {
-        systemInfoService = null;
+        // systemInfoService = null;
     }
 
     @Test
@@ -97,11 +110,6 @@ public class BackendsProcDirTest {
 
     @Test(expected = AnalysisException.class)
     public void testLookupNormal() throws AnalysisException {
-        EasyMock.expect(systemInfoService.getBackend(1000)).andReturn(b1);
-        EasyMock.expect(systemInfoService.getBackend(1001)).andReturn(b2);
-        EasyMock.expect(systemInfoService.getBackend(1002)).andReturn(null);
-        EasyMock.replay(systemInfoService);
-
         BackendsProcDir dir;
         ProcNodeInterface node;
 
@@ -111,6 +119,7 @@ public class BackendsProcDirTest {
             Assert.assertNotNull(node);
             Assert.assertTrue(node instanceof BackendProcNode);
         } catch (AnalysisException e) {
+            e.printStackTrace();
             Assert.fail();
         }
 
@@ -149,11 +158,6 @@ public class BackendsProcDirTest {
 
     @Test
     public void testFetchResultNormal() throws AnalysisException {
-        EasyMock.expect(systemInfoService.getBackendIds(false)).andReturn(Lists.newArrayList(1000L, 1001L));
-        EasyMock.expect(systemInfoService.getBackend(1000)).andReturn(b1);
-        EasyMock.expect(systemInfoService.getBackend(1001)).andReturn(b2);
-        EasyMock.replay(systemInfoService);
-
         BackendsProcDir dir;
         ProcResult result;
 
