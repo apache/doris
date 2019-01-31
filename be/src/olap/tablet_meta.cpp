@@ -164,6 +164,7 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id,
 
     _tablet_meta_pb.set_creation_time(time(NULL));
     _tablet_meta_pb.set_cumulative_layer_point(-1);
+    init_from_pb(_tablet_meta_pb);
 }
 
 OLAPStatus TabletMeta::save(const string& file_path) {
