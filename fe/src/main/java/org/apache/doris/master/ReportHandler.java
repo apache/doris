@@ -809,7 +809,7 @@ public class ReportHandler extends Daemon {
             }
 
             // colocate table will delete Replica in meta when balance
-            if (olapTable.getColocateTable() != null) {
+            if (Catalog.getCurrentColocateIndex().isColocateTable(olapTable.getId())) {
                 return;
             }
 

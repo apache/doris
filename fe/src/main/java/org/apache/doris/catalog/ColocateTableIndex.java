@@ -129,6 +129,10 @@ public class ColocateTableIndex implements Writable {
         try {
             if (groupId == tableId) {
                 //for parent table
+                for(Long id: group2Tables.get(groupId)) {
+                    table2Group.remove(id);
+                }
+
                 group2Tables.removeAll(groupId);
                 group2BackendsPerBucketSeq.remove(groupId);
                 group2DB.remove(groupId);
@@ -136,17 +140,9 @@ public class ColocateTableIndex implements Writable {
             } else {
                 //for child table
                 group2Tables.remove(groupId, tableId);
+                table2Group.remove(tableId);
             }
-            table2Group.remove(tableId);
-        } finally {
-            writeUnlock();
-        }
-    }
 
-    public void removeBackendsPerBucketSeq(long groupId) {
-        writeLock();
-        try {
-            group2BackendsPerBucketSeq.remove(groupId);
         } finally {
             writeUnlock();
         }
@@ -166,6 +162,16 @@ public class ColocateTableIndex implements Writable {
 
     }
 
+    public boolean isColocateChildTable(long tableId) {
+        readLock();
+        try {
+            return table2Group.containsKey(tableId) && !group2Tables.containsKey(tableId);
+        } finally {
+            readUnlock();
+        }
+
+    }
+
     public boolean isColocateTable(long tableId) {
         readLock();
         try {
@@ -179,6 +185,54 @@ public class ColocateTableIndex implements Writable {
         readLock();
         try {
             return group2DB.containsKey(groupId);
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public boolean isSameGroup(long table1, long table2) {
+        readLock();
+        try {
+            if (table2Group.containsKey(table1) && table2Group.containsKey(table2)) {
+                return table2Group.get(table1).equals(table2Group.get(table2));
+            }
+            return false;
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public Multimap<Long, Long> getGroup2Tables() {
+        readLock();
+        try {
+            return group2Tables;
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public Map<Long, Long> getTable2Group() {
+        readLock();
+        try {
+            return table2Group;
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public Map<Long, Long> getGroup2DB() {
+        readLock();
+        try {
+            return group2DB;
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public Map<Long, List<List<Long>>> getGroup2BackendsPerBucketSeq() {
+        readLock();
+        try {
+            return group2BackendsPerBucketSeq;
         } finally {
             readUnlock();
         }
@@ -276,6 +330,20 @@ public class ColocateTableIndex implements Writable {
 
     public void replayRemoveTable(ColocatePersistInfo info) {
         removeTable(info.getTableId());
+    }
+
+    // only for test
+    public void clear() {
+        writeLock();
+        try {
+            group2Tables.clear();
+            table2Group.clear();
+            group2DB.clear();
+            group2BackendsPerBucketSeq.clear();
+            balancingGroups.clear();
+        } finally {
+            writeUnlock();
+        }
     }
 
     @Override
