@@ -39,7 +39,7 @@ public class MetricsAction extends RestBaseAction {
     @Override
     public void execute(BaseRequest request, BaseResponse response) {
         response.setContentType("text/plain");
-        response.getContent().append(MetricRepo.getMetric(new PrometheusMetricVisitor("palo_fe")));
+        response.getContent().append(MetricRepo.getMetric(new PrometheusMetricVisitor("doris_fe")));
         sendResult(request, response);
     }
 }
