@@ -161,42 +161,24 @@ string SnapshotManager::_get_header_full_path(
 }
 
 void SnapshotManager::update_header_file_info(
-        const vector<VersionEntity>& shortest_versions,
+        const vector<RowsetSharedPtr>& consistent_rowsets,
         TabletMeta* tablet_meta) {
-    /*
-    // delete alter task
-    tablet_meta->delete_alter_task();
-    // remove all old version and add new version
-    tablet_meta->delete_all_versions();
-
-    for (const VersionEntity& entity : shortest_versions) {
-        Version version = entity.version;
-        VersionHash v_hash = entity.version_hash;
-        for (SegmentGroupEntity segment_group_entity : entity.segment_group_vec) {
-            int32_t segment_group_id = segment_group_entity.segment_group_id;
-            const std::vector<KeyRange>* column_statistics = nullptr;
-            if (!segment_group_entity.key_ranges.empty()) {
-                column_statistics = &(segment_group_entity.key_ranges);
-            }
-            tablet_meta->add_version(version, v_hash, segment_group_id, segment_group_entity.num_segments,
-                                     segment_group_entity.index_size, segment_group_entity.data_size,
-                                     segment_group_entity.num_rows, segment_group_entity.empty, column_statistics);
-        }
+    vector<RowsetMetaSharedPtr> rs_metas;
+    for (auto& rs : consistent_rowsets) {
+        rs_metas.push_back(rs->rowset_meta());
     }
-    */
+    tablet_meta->revise_rs_metas(rs_metas);
 }
 
 OLAPStatus SnapshotManager::_link_index_and_data_files(
         const string& schema_hash_path,
         const TabletSharedPtr& ref_tablet,
-        const vector<VersionEntity>& version_entity_vec) {
+        const std::vector<RowsetSharedPtr>& consistent_rowsets) {
     OLAPStatus res = OLAP_SUCCESS;
 
-    for (auto& entity : version_entity_vec) {
-        Version version = entity.version;
-        const RowsetSharedPtr rowset = ref_tablet->get_rowset_by_version(version);
+    for (auto& rs : consistent_rowsets) {
         std::vector<std::string> success_files;
-        RETURN_NOT_OK(rowset->make_snapshot(&success_files));
+        RETURN_NOT_OK(rs->make_snapshot(schema_hash_path, &success_files));
     }
 
     return res;
@@ -236,7 +218,6 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
     ref_tablet->obtain_header_rdlock();
     header_locked = true;
 
-    vector<RowsetReaderSharedPtr> rs_readers;
     TabletMeta* new_tablet_meta = nullptr;
     do {
         // get latest version
@@ -267,37 +248,22 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
         }
 
         // get shortest version path
-        vector<Version> shortest_path;
-        vector<VersionEntity> shortest_versions;
-        res = ref_tablet->capture_consistent_versions(Version(0, version), &shortest_path);
+        vector<RowsetSharedPtr> consistent_rowsets;
+        res = ref_tablet->capture_consistent_rowsets(Version(0, version), &consistent_rowsets);
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to select versions to span. [res=%d]", res);
             break;
         }
 
-        for (const Version& version : shortest_path) {
-            shortest_versions.push_back(ref_tablet->get_version_entity_by_version(version));
-        }
-
-        // get data source and add reference count for prevent to delete data files
-        ref_tablet->capture_rs_readers(shortest_path, &rs_readers);
-        if (rs_readers.empty()) {
-            OLAP_LOG_WARNING("failed to acquire data sources. [tablet='%s', version=%d]",
-                    ref_tablet->full_name().c_str(), version);
-            res = OLAP_ERR_OTHER_ERROR;
-            break;
-        }
-
-        // load tablet header, in order to remove versions that not in shortest version path
-        DataDir* store = ref_tablet->data_dir();
-        new_tablet_meta = new(nothrow) TabletMeta(store);
+        DataDir* data_dir = ref_tablet->data_dir();
+        new_tablet_meta = new(nothrow) TabletMeta(data_dir);
         if (new_tablet_meta == NULL) {
             OLAP_LOG_WARNING("fail to malloc TabletMeta.");
             res = OLAP_ERR_MALLOC_ERROR;
             break;
         }
 
-        res = TabletMetaManager::get_header(store, ref_tablet->tablet_id(), ref_tablet->schema_hash(), new_tablet_meta);
+        res = TabletMetaManager::get_header(data_dir, ref_tablet->tablet_id(), ref_tablet->schema_hash(), new_tablet_meta);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to load header. res=" << res
                     << "tablet_id=" << ref_tablet->tablet_id() << ", schema_hash=" << ref_tablet->schema_hash();
@@ -306,7 +272,7 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
 
         ref_tablet->release_header_lock();
         header_locked = false;
-        update_header_file_info(shortest_versions, new_tablet_meta);
+        update_header_file_info(consistent_rowsets, new_tablet_meta);
 
         // save new header to snapshot header path
         res = new_tablet_meta->save(header_path);
@@ -316,7 +282,7 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
             break;
         }
 
-        res = _link_index_and_data_files(schema_full_path, ref_tablet, shortest_versions);
+        res = _link_index_and_data_files(schema_full_path, ref_tablet, consistent_rowsets);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to create hard link. [path=" << snapshot_id_path << "]";
             break;
@@ -324,9 +290,9 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
 
         // append a single delta if request.version is end_version of cumulative delta
         if (request.__isset.version) {
-            for (const VersionEntity& entity : shortest_versions) {
-                if (entity.version.second == request.version) {
-                    if (entity.version.first != request.version) {
+            for (auto& rs : consistent_rowsets) {
+                if (rs->end_version() == request.version) {
+                    if (rs->start_version() != request.version) {
                         // visible version in fe is 900
                         // A need to clone 900 from B, but B's last version is 901, and 901 is not a visible version
                         // and 901 will be reverted
@@ -335,7 +301,7 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
                         // many codes in be assumes that the last version is a single delta
                         // both clone and backup restore depend on this logic
                         // TODO (yiguolei) fix it in the future
-                        res = _append_single_delta(request, store);
+                        res = _append_single_delta(request, data_dir);
                         if (res != OLAP_SUCCESS) {
                             OLAP_LOG_WARNING("fail to append single delta. [res=%d]", res);
                         }
@@ -351,11 +317,6 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
     if (header_locked) {
         VLOG(10) << "release header lock.";
         ref_tablet->release_header_lock();
-    }
-
-    if (ref_tablet.get() != NULL) {
-        VLOG(10) << "release data sources.";
-        ref_tablet->release_rs_readers(&rs_readers);
     }
 
     if (res != OLAP_SUCCESS) {
@@ -434,7 +395,7 @@ OLAPStatus SnapshotManager::_create_incremental_snapshot_files(
                         << ", schema_hash=" << request.schema_hash
                         << ", version=" << version.first << "-" << version.second;
                 std::vector<std::string> success_files;
-                res = rowset->make_snapshot(&success_files);
+                res = rowset->make_snapshot(schema_full_path, &success_files);
                 if (res != OLAP_SUCCESS) { break; }
             } else {
                 LOG(WARNING) << "failed to find missed version when snapshot. "

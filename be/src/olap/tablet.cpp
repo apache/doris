@@ -112,7 +112,7 @@ Tablet::Tablet(TabletMeta* tablet_meta, DataDir* data_dir)
     tablet_path_stream << _data_dir->path() << DATA_PREFIX << "/" << _tablet_meta->shard_id();
     tablet_path_stream << "/" << _tablet_meta->tablet_id() << "/" << _tablet_meta->schema_hash();
     _tablet_path = tablet_path_stream.str();
-    _rs_graph->construct_rowset_graph(tablet_meta->all_rs_metas());
+    _rs_graph->construct_rowset_graph(_tablet_meta->all_rs_metas());
 }
 
 Tablet::~Tablet() {
@@ -437,16 +437,39 @@ OLAPStatus Tablet::get_tablet_info(TTabletInfo* tablet_info) {
 }
 
 OLAPStatus Tablet::modify_rowsets(std::vector<Version>* old_version,
-                                  vector<RowsetSharedPtr>* to_add,
-                                  vector<RowsetSharedPtr>* to_delete) {
+                                  const vector<RowsetSharedPtr>& to_add,
+                                  const vector<RowsetSharedPtr>& to_delete) {
+    WriteLock wrlock(&_meta_lock);
+    vector<RowsetMetaSharedPtr> rs_metas_to_add;
+    for (auto& rs : to_add) {
+        rs_metas_to_add.push_back(rs->rowset_meta());
+    }
+
+    vector<RowsetMetaSharedPtr> rs_metas_to_delete;
+    for (auto& rs : to_delete) {
+        rs_metas_to_delete.push_back(rs->rowset_meta());
+    }
+
+    _tablet_meta->modify_rs_metas(rs_metas_to_add, rs_metas_to_delete);
+    for (auto& rs : to_delete) {
+        auto it = _rs_version_map.find(rs->version());
+        _rs_version_map.erase(it);
+    }
+    _rs_graph->reconstruct_rowset_graph(_tablet_meta->all_rs_metas());
+
     return OLAP_SUCCESS;
 }
 
 OLAPStatus Tablet::add_rowset(RowsetSharedPtr rowset) {
+    WriteLock wrlock(&_meta_lock);
+    _tablet_meta->add_rs_meta(rowset->rowset_meta());
+    _rs_version_map[rowset->version()] = rowset;
+    _rs_graph->add_version_to_graph(rowset->version());
     return OLAP_SUCCESS;
 }
 
 RowsetSharedPtr Tablet::rowset_with_largest_size() {
+    ReadLock rdlock(&_meta_lock);
     RowsetSharedPtr largest_rowset = nullptr;
     for (auto& it : _rs_version_map) {
         // use segment_group of base file as target segment_group when base is not empty,
@@ -547,21 +570,6 @@ void Tablet::list_versions(vector<Version>* versions) const {
     }
 }
 
-void Tablet::list_version_entities(vector<VersionEntity>* version_entities) const {
-    DCHECK(version_entities != nullptr && version_entities->empty());
-    return;
-}
-
-void Tablet::list_entities(vector<VersionEntity>* entities) const {
-    DCHECK(entities != nullptr && entities->empty());
-
-    for (auto& it : _rs_version_map) {
-        RowsetSharedPtr rowset = it.second;
-        VersionEntity entity(it.first, 0);
-        entities->push_back(entity);
-    }
-}
-
 size_t Tablet::field_index(const string& field_name) const {
     return _schema.field_index(field_name);
 }
@@ -628,12 +636,6 @@ void Tablet::set_io_error() {
 
 bool Tablet::is_used() {
     return !_is_bad && _data_dir->is_used();
-}
-
-VersionEntity Tablet::get_version_entity_by_version(const Version& version) {
-    RowsetSharedPtr rowset = _rs_version_map[version];
-    VersionEntity entity(version, 0);
-    return entity;
 }
 
 size_t Tablet::get_version_data_size(const Version& version) {
@@ -780,7 +782,7 @@ OLAPStatus Tablet::revise_tablet_meta(const TabletMeta& tablet_meta,
 
         // delete versions from new local tablet_meta
         for (const Version& version : versions_to_delete) {
-            res = new_tablet_meta.delete_rowset_by_version(version);
+            res = new_tablet_meta.delete_rs_meta_by_version(version);
             if (res != OLAP_SUCCESS) {
                 LOG(WARNING) << "failed to delete version from new local tablet meta. tablet=" << full_name()
                              << ", version=" << version.first << "-" << version.second;

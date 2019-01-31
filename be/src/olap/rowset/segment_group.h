@@ -226,7 +226,11 @@ public:
         return _index.get_null_supported(seg_id);
     }
 
+    std::string construct_index_file_path(const std::string& snapshot_path,
+                                          int32_t segment_id) const;
     std::string construct_index_file_path(int32_t segment_id) const;
+    std::string construct_data_file_path(const std::string& snapshot_path,
+                                         int32_t segment_id) const;
     std::string construct_data_file_path(int32_t segment_id) const;
 
     // these two functions are for compatible, and will be deleted later
@@ -244,11 +248,12 @@ public:
 
     size_t get_num_rows_per_row_block();
 
-    std::string get_rowset_path_prefix();
+    std::string rowset_path_prefix();
 
     int64_t get_tablet_id();
 
-    OLAPStatus make_snapshot(std::vector<std::string>* success_links);
+    OLAPStatus make_snapshot(const std::string& snapshot_path,
+                             std::vector<std::string>* success_links);
 
     OLAPStatus remove_old_files(std::vector<std::string>* linkes_to_remove);
 

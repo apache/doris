@@ -44,14 +44,6 @@ using std::vector;
 
 namespace doris {
 
-bool version_entity_sorter(const VersionEntity& a, const VersionEntity& b) {
-    if (a.version.first != b.version.first) {
-        return a.version.first < b.version.first;
-    } else {
-        return a.version.second < b.version.second;
-    }
-}
-
 RowBlockChanger::RowBlockChanger(const TabletSchema& tablet_schema,
                                  const TabletSharedPtr &ref_tablet) {
     _schema_mapping.resize(tablet_schema.num_columns());
@@ -1700,8 +1692,8 @@ OLAPStatus SchemaChangeHandler::_get_versions_to_be_changed(
         ref_tablet->capture_consistent_versions(Version(0, request_version), &span_versions);
 
         // get all version list
-        vector<VersionEntity> all_versions;
-        ref_tablet->list_version_entities(&all_versions);
+        vector<Version> all_versions;
+        ref_tablet->list_versions(&all_versions);
         if (0 == all_versions.size()) {
             LOG(WARNING) << "there'is no any version in the tablet. tablet=" << ref_tablet->full_name();
             return OLAP_ERR_VERSION_NOT_EXIST;
@@ -1741,6 +1733,7 @@ OLAPStatus SchemaChangeHandler::_save_schema_change_info(
                                new_tablet->schema_hash(),
                                versions_to_be_changed,
                                alter_tablet_type);
+
     new_tablet->add_alter_task(ref_tablet->tablet_id(),
                                ref_tablet->schema_hash(),
                                vector<Version>(),  // empty versions

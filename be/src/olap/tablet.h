@@ -75,7 +75,6 @@ public:
     OLAPStatus merge_tablet_meta(const TabletMeta& hdr, int to_version);
     bool has_version(const Version& version) const;
     void list_versions(std::vector<Version>* versions) const;
-    void list_version_entities(std::vector<VersionEntity>* version_entities) const;
     void mark_dropped() { _is_dropped = true; }
     bool is_dropped() { return _is_dropped; }
     void delete_all_files();
@@ -116,7 +115,6 @@ public:
     std::string storage_root_path_name() const;
     std::string tablet_path() const;
     OLAPStatus test_version(const Version& version);
-    VersionEntity get_version_entity_by_version(const Version& version);
     size_t get_version_data_size(const Version& version);
     OLAPStatus recover_tablet_until_specfic_version(const int64_t& spec_version,
                                                     const int64_t& version_hash);
@@ -124,7 +122,6 @@ public:
     const size_t id() { return _id; }
     void set_id(size_t id) { _id = id; }
     OLAPStatus register_tablet_into_dir();
-    void list_entities(vector<VersionEntity>* entities) const;
 
 
 
@@ -142,8 +139,8 @@ public:
     OLAPStatus release_rs_readers(vector<RowsetReaderSharedPtr>* rs_readers) const;
     OLAPStatus capture_consistent_versions(const Version& version, vector<Version>* span_versions) const;
     OLAPStatus modify_rowsets(std::vector<Version>* old_version,
-                              vector<RowsetSharedPtr>* to_add,
-                              vector<RowsetSharedPtr>* to_delete);
+                              const vector<RowsetSharedPtr>& to_add,
+                              const vector<RowsetSharedPtr>& to_delete);
     OLAPStatus add_rowset(RowsetSharedPtr rowset);
 
     inline const TabletMeta& tablet_meta();
