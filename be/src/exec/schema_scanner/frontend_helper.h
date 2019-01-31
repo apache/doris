@@ -65,7 +65,7 @@ public:
         const int32_t port,
         std::function<void (ClientConnection<FrontendServiceClient>&)> callback) {
 
-        rpc(ip, port, callback, config::thrift_rpc_timeout_ms);
+        return rpc(ip, port, callback, config::thrift_rpc_timeout_ms);
     }
 
     static Status rpc(
