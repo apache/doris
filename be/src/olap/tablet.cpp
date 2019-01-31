@@ -108,11 +108,12 @@ Tablet::Tablet(TabletMeta* tablet_meta, DataDir* data_dir)
     _data_dir(data_dir) {
     _is_loaded = false;
     _is_dropped = false;
+    _tablet_meta->set_data_dir(_data_dir);
     std::stringstream tablet_path_stream;
     tablet_path_stream << _data_dir->path() << DATA_PREFIX << "/" << _tablet_meta->shard_id();
     tablet_path_stream << "/" << _tablet_meta->tablet_id() << "/" << _tablet_meta->schema_hash();
     _tablet_path = tablet_path_stream.str();
-    _rs_graph->construct_rowset_graph(_tablet_meta->all_rs_metas());
+    _rs_graph.construct_rowset_graph(_tablet_meta->all_rs_metas());
 }
 
 Tablet::~Tablet() {
@@ -200,7 +201,7 @@ bool Tablet::can_do_compaction() {
 
     Version test_version = Version(0, lastest_delta->end_version());
     vector<Version> path_versions;
-    if (OLAP_SUCCESS != _rs_graph->capture_consistent_versions(test_version, &path_versions)) {
+    if (OLAP_SUCCESS != _rs_graph.capture_consistent_versions(test_version, &path_versions)) {
         LOG(WARNING) << "tablet has missed version. tablet=" << full_name();
         return false;
     }
@@ -208,7 +209,7 @@ bool Tablet::can_do_compaction() {
     if (this->is_schema_changing()) {
         Version test_version = Version(0, lastest_delta->end_version());
         vector<Version> path_versions;
-        if (OLAP_SUCCESS != _rs_graph->capture_consistent_versions(test_version, &path_versions)) {
+        if (OLAP_SUCCESS != _rs_graph.capture_consistent_versions(test_version, &path_versions)) {
             return false;
         }
     }
@@ -255,7 +256,7 @@ string Tablet::construct_dir_path() const {
 OLAPStatus Tablet::capture_consistent_rowsets(const Version& spec_version,
                                               vector<RowsetSharedPtr>* rowsets) const {
     vector<Version> version_path;
-    _rs_graph->capture_consistent_versions(spec_version, &version_path);
+    _rs_graph.capture_consistent_versions(spec_version, &version_path);
 
     capture_consistent_rowsets(version_path, rowsets);
     return OLAP_SUCCESS;
@@ -287,7 +288,7 @@ OLAPStatus Tablet::release_rowsets(vector<RowsetSharedPtr>* rowsets) const {
 OLAPStatus Tablet::capture_rs_readers(const Version& spec_version,
                                       vector<RowsetReaderSharedPtr>* rs_readers) const {
     vector<Version> version_path;
-    _rs_graph->capture_consistent_versions(spec_version, &version_path);
+    _rs_graph.capture_consistent_versions(spec_version, &version_path);
 
     capture_rs_readers(version_path, rs_readers);
     return OLAP_SUCCESS;
@@ -319,7 +320,7 @@ OLAPStatus Tablet::release_rs_readers(vector<RowsetReaderSharedPtr>* rs_readers)
 
 OLAPStatus Tablet::capture_consistent_versions(
                         const Version& version, vector<Version>* span_versions) const {
-    OLAPStatus status = _rs_graph->capture_consistent_versions(version, span_versions);
+    OLAPStatus status = _rs_graph.capture_consistent_versions(version, span_versions);
     if (status != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to generate shortest version path. tablet=" << full_name()
                      << ", version='" << version.first << "-" << version.second;
@@ -331,7 +332,7 @@ OLAPStatus Tablet::add_inc_rowset(const RowsetSharedPtr& rowset) {
     WriteLock wrlock(&_meta_lock);
     _tablet_meta->add_rs_meta(rowset->rowset_meta());
     _rs_version_map[rowset->version()] = rowset;
-    _rs_graph->add_version_to_graph(rowset->version());
+    _rs_graph.add_version_to_graph(rowset->version());
     _tablet_meta->add_inc_rs_meta(rowset->rowset_meta());
     return OLAP_SUCCESS;
 }
@@ -460,7 +461,7 @@ OLAPStatus Tablet::modify_rowsets(std::vector<Version>* old_version,
         auto it = _rs_version_map.find(rs->version());
         _rs_version_map.erase(it);
     }
-    _rs_graph->reconstruct_rowset_graph(_tablet_meta->all_rs_metas());
+    _rs_graph.reconstruct_rowset_graph(_tablet_meta->all_rs_metas());
 
     return OLAP_SUCCESS;
 }
@@ -468,8 +469,8 @@ OLAPStatus Tablet::modify_rowsets(std::vector<Version>* old_version,
 OLAPStatus Tablet::add_rowset(RowsetSharedPtr rowset) {
     WriteLock wrlock(&_meta_lock);
     _tablet_meta->add_rs_meta(rowset->rowset_meta());
-    _rs_version_map[rowset->version()] = rowset; 
-    _rs_graph->add_version_to_graph(rowset->version());
+    _rs_version_map[rowset->version()] = rowset;
+    _rs_graph.add_version_to_graph(rowset->version());
     return OLAP_SUCCESS;
 }
 
@@ -656,7 +657,7 @@ OLAPStatus Tablet::recover_tablet_until_specfic_version(const int64_t& spec_vers
 OLAPStatus Tablet::test_version(const Version& version) {
     vector<Version> span_versions;
     ReadLock rdlock(&_meta_lock);
-    OLAPStatus res = _rs_graph->capture_consistent_versions(version, &span_versions);
+    OLAPStatus res = _rs_graph.capture_consistent_versions(version, &span_versions);
 
     return res;
 }

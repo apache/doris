@@ -73,7 +73,7 @@ OLAPStatus RowsetGraph::construct_rowset_graph(const std::vector<RowsetMetaShare
 }
 
 OLAPStatus RowsetGraph::reconstruct_rowset_graph(const std::vector<RowsetMetaSharedPtr>& rs_metas) {
-    _version_graph.clear(); 
+    _version_graph.clear();
     _vertex_index_map.clear();
     return construct_rowset_graph(rs_metas);
 }
@@ -108,7 +108,7 @@ OLAPStatus RowsetGraph::add_version_to_graph(const Version& version) {
     std::list<int>* r_edges = _version_graph[end_vertex_index].edges;
     r_edges->insert(r_edges->begin(), start_vertex_index);
 
-    return OLAP_SUCCESS; 
+    return OLAP_SUCCESS;
 }
 
 OLAPStatus RowsetGraph::delete_version_from_graph(const Version& version) {
@@ -139,7 +139,7 @@ OLAPStatus RowsetGraph::delete_version_from_graph(const Version& version) {
         }
     }
 
-    return OLAP_SUCCESS; 
+    return OLAP_SUCCESS;
 }
 
 OLAPStatus RowsetGraph::_add_vertex_to_graph(int vertex_value) {
@@ -151,7 +151,7 @@ OLAPStatus RowsetGraph::_add_vertex_to_graph(int vertex_value) {
 
     std::list<int>* edges = new std::list<int>();
     if (edges == NULL) {
-        return OLAP_ERR_OTHER_ERROR; 
+        return OLAP_ERR_OTHER_ERROR;
     }
 
     Vertex vertex = {vertex_value, edges};
@@ -160,8 +160,10 @@ OLAPStatus RowsetGraph::_add_vertex_to_graph(int vertex_value) {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus RowsetGraph::capture_consistent_versions(const Version& spec_version,
-                                               std::vector<Version>* version_path) {
+OLAPStatus
+RowsetGraph::capture_consistent_versions(
+                    const Version& spec_version,
+                    std::vector<Version>* version_path) const {
     if (spec_version.first > spec_version.second) {
         LOG(WARNING) << "invalid specfied version. "
                      << "spec_version=" << spec_version.first << "-" << spec_version.second;

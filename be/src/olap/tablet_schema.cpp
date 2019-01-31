@@ -149,7 +149,7 @@ const std::vector<TabletColumn>& TabletSchema::columns() const {
 }
 
 const TabletColumn& TabletSchema::column(size_t ordinal) const {
-    DCHECK(ordinal << _num_columns);
+    DCHECK(ordinal < _num_columns);
     return _cols[ordinal];
 }
 
