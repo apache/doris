@@ -2849,7 +2849,7 @@ public class Catalog {
                 distributionInfo = defaultDistributionInfo;
             }
 
-            if (olapTable.getColocateTable() != null) {
+            if (Catalog.getCurrentColocateIndex().isColocateTable(olapTable.getId())) {
                 ColocateTableUtils.checkReplicationNum(rangePartitionInfo, singlePartitionDesc.getReplicationNum());
                 ColocateTableUtils.checkBucketNum(olapTable.getDefaultDistributionInfo(), distributionInfo );
             }
@@ -3122,7 +3122,7 @@ public class Catalog {
 
         if (newReplicationNum == oldReplicationNum) {
             newReplicationNum = (short) -1;
-        } else if (olapTable.getColocateTable() != null) {
+        } else if (Catalog.getCurrentColocateIndex().isColocateTable(olapTable.getId())) {
             ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_MUST_SAME_REPLICAT_NUM, oldReplicationNum);
         }
 
@@ -3395,7 +3395,9 @@ public class Catalog {
 
                     ColocateTableUtils.checkDistributionColumnSizeAndType((OlapTable) parentTable, distributionInfo);
 
-                    getColocateTableIndex().addTableToGroup(db.getId(), tableId, parentTable.getId());
+                    //for C -> B, B -> A. we need get table A id
+                    long groupId = getColocateTableIndex().getGroup(parentTable.getId());
+                    getColocateTableIndex().addTableToGroup(db.getId(), tableId, groupId);
                 } else {
                     getColocateTableIndex().addTableToGroup(db.getId(), tableId, tableId);
                 }
@@ -3455,7 +3457,7 @@ public class Catalog {
                 short replicationNum = FeConstants.default_replication_num;
                 try {
                     replicationNum = PropertyAnalyzer.analyzeReplicationNum(properties, replicationNum);
-                    if (olapTable.getColocateTable() != null && !olapTable.getColocateTable().equalsIgnoreCase(tableName)) {
+                    if (getColocateTableIndex().isColocateChildTable(olapTable.getId())) {
                         Table parentTable = ColocateTableUtils.getColocateTable(db, olapTable.getColocateTable());
                         ColocateTableUtils.checkReplicationNum(((OlapTable)parentTable).getPartitionInfo(), replicationNum);
                     }
@@ -3485,7 +3487,7 @@ public class Catalog {
                     // and then check if there still has unknown properties
                     PropertyAnalyzer.analyzeDataProperty(stmt.getProperties(), DataProperty.DEFAULT_HDD_DATA_PROPERTY);
                     PropertyAnalyzer.analyzeReplicationNum(properties, FeConstants.default_replication_num);
-                    if (olapTable.getColocateTable() != null && !olapTable.getColocateTable().equalsIgnoreCase(tableName)) {
+                    if (getColocateTableIndex().isColocateChildTable(olapTable.getId())) {
                         Table parentTable = ColocateTableUtils.getColocateTable(db, olapTable.getColocateTable());
                         ColocateTableUtils.checkReplicationNum((OlapTable)parentTable, partitionInfo);
                     }
@@ -3532,8 +3534,9 @@ public class Catalog {
                 }
 
                 //we have added these index to memory, only need to persist here
-                if (olapTable.getColocateTable() != null) {
-                    Long groupId = ColocateTableUtils.getColocateTable(db, olapTable.getColocateTable()).getId();
+                if (getColocateTableIndex().isColocateTable(tableId)) {
+                    long colocateTableId = ColocateTableUtils.getColocateTable(db, olapTable.getColocateTable()).getId();
+                    long groupId = getColocateTableIndex().getGroup(colocateTableId);
                     ColocatePersistInfo info;
                     if (getColocateTableIndex().isColocateParentTable(tableId)) {
                         List<List<Long>> backendsPerBucketSeq = getColocateTableIndex().getBackendsPerBucketSeq(groupId);
@@ -3541,7 +3544,7 @@ public class Catalog {
                     } else {
                         info = ColocatePersistInfo.CreateForAddTable(tableId, groupId, db.getId(), new ArrayList<>());
                     }
-                    editLog.logColocateAddTable(info);
+                    Catalog.getInstance().getEditLog().logColocateAddTable(info);
                 }
 
                 LOG.info("successfully create table[{};{}]", tableName, tableId);
@@ -3552,12 +3555,8 @@ public class Catalog {
             }
 
             //only remove from memory, because we have not persist it
-            if (olapTable.getColocateTable() != null) {
+            if (getColocateTableIndex().isColocateTable(tableId)) {
                 getColocateTableIndex().removeTable(tableId);
-
-                if (getColocateTableIndex().isColocateParentTable(tableId)) {
-                    getColocateTableIndex().removeBackendsPerBucketSeq(tableId);
-                }
             }
 
             throw e;
@@ -4091,8 +4090,8 @@ public class Catalog {
         String tableName = stmt.getTableName();
 
         // check database
-        Database db = this.fullNameToDb.get(dbName);
-        if (fullNameToDb.get(dbName) == null) {
+        Database db = getDb(dbName);
+        if (db == null) {
             ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
         }
 
@@ -4123,11 +4122,11 @@ public class Catalog {
             unprotectDropTable(db, table.getId());
 
             DropInfo info = new DropInfo(db.getId(), table.getId(), -1L);
-            editLog.logDropTable(info);
-
+            Catalog.getInstance().getEditLog().logDropTable(info);
+            
             if (Catalog.getCurrentColocateIndex().removeTable(table.getId())) {
                 ColocatePersistInfo colocateInfo = ColocatePersistInfo.CreateForRemoveTable(table.getId());
-                editLog.logColocateRemoveTable(colocateInfo);
+                Catalog.getInstance().getEditLog().logColocateRemoveTable(colocateInfo);
             }
         } finally {
             db.writeUnlock();
