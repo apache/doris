@@ -424,7 +424,7 @@ public class Load {
                 if (tbl != null && tbl.getType() == TableType.OLAP
                         && ((OlapTable) tbl).getState() == OlapTableState.RESTORE) {
                     throw new DdlException("Table " + tbl.getName() + " is in restore process. "
-                                                   + "Can not load into it");
+                            + "Can not load into it");
                 }
             }
         } finally {
@@ -1644,11 +1644,10 @@ public class Load {
                 } // end for tablet
 
             } finally {
-                db.readUnlock();
+                readUnlock();
             }
-
         } finally {
-            readUnlock();
+            db.readUnlock();
         }
 
         // sort by version, backendId
