@@ -127,7 +127,7 @@ AgentStatus MasterServerClient::finish_task(
     FrontendServiceConnection client(
             _client_cache,
             _master_info.network_address,
-            MASTER_CLIENT_TIMEOUT,
+            config::thrift_rpc_timeout_ms,
             &client_status);
 
     if (!client_status.ok()) {
@@ -142,7 +142,7 @@ AgentStatus MasterServerClient::finish_task(
             client->finishTask(*result, request);
         } catch (TTransportException& e) {
             OLAP_LOG_WARNING("master client, retry finishTask: %s", e.what());
-            client_status = client.reopen(MASTER_CLIENT_TIMEOUT);
+            client_status = client.reopen(config::thrift_rpc_timeout_ms);
 
             if (!client_status.ok()) {
                 OLAP_LOG_WARNING("master client, get client from cache failed."
@@ -172,7 +172,7 @@ AgentStatus MasterServerClient::report(const TReportRequest request, TMasterResu
     FrontendServiceConnection client(
             _client_cache,
             _master_info.network_address,
-            MASTER_CLIENT_TIMEOUT,
+            config::thrift_rpc_timeout_ms,
             &client_status);
 
     if (!client_status.ok()) {
@@ -193,7 +193,7 @@ AgentStatus MasterServerClient::report(const TReportRequest request, TMasterResu
                 // if not TIMED_OUT, retry
                 OLAP_LOG_WARNING("master client, retry report: %s", e.what());
 
-                client_status = client.reopen(MASTER_CLIENT_TIMEOUT);
+                client_status = client.reopen(config::thrift_rpc_timeout_ms);
                 if (!client_status.ok()) {
                     OLAP_LOG_WARNING("master client, get client from cache failed."
                                      "host: %s, port: %d, code: %d",

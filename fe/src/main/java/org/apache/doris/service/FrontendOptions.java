@@ -100,6 +100,18 @@ public class FrontendOptions {
         return localAddr.getHostName();
     }
 
+    public static String getHostnameByIp(String ip) {
+        String hostName = "N/A";
+        try {
+            InetAddress address = InetAddress.getByName(ip);
+            hostName = address.getHostName();
+        } catch (UnknownHostException e) {
+            LOG.info("unknow host for {}", ip, e);
+            hostName = "unknown";
+        }
+        return hostName;
+    }
+
     private static void analyzePriorityCidrs() {
         String prior_cidrs = Config.priority_networks;
         if (Strings.isNullOrEmpty(prior_cidrs)) {
@@ -122,5 +134,6 @@ public class FrontendOptions {
         }
         return false;
     }
+
 }
 
