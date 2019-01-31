@@ -217,7 +217,7 @@ OLAPStatus StorageEngine::_load_data_dir(DataDir* data_dir) {
             // add visible rowset to tablet, it maybe use in the future
             // there should be only preparing rowset in meta env because visible 
             // rowset is persist with tablet meta currently
-            OLAPStatus publish_status = tablet->add_inc_rowset(*rowset);
+            OLAPStatus publish_status = tablet->add_inc_rowset(rowset);
             if (publish_status != OLAP_SUCCESS) {
                 LOG(WARNING) << "add visilbe rowset to tablet failed rowset_id:" << rowset->rowset_id()
                              << " tablet id: " << rowset_meta->tablet_id()

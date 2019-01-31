@@ -209,15 +209,6 @@ public class AgentBatchTask implements Runnable {
                 tAgentTaskRequest.setResource_info(schemaChangeTask.getResourceInfo());
                 return tAgentTaskRequest;
             }
-            case CANCEL_DELETE: {
-                CancelDeleteTask cancelDeleteTask = (CancelDeleteTask) task;
-                TCancelDeleteDataReq request = cancelDeleteTask.toThrift();
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug(request.toString());
-                }
-                tAgentTaskRequest.setCancel_delete_data_req(request);
-                return tAgentTaskRequest;
-            }
             case STORAGE_MEDIUM_MIGRATE: {
                 StorageMediaMigrationTask migrationTask = (StorageMediaMigrationTask) task;
                 TStorageMediumMigrateReq request = migrationTask.toThrift();

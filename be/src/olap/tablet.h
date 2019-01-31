@@ -180,13 +180,11 @@ public:
     RowsetSharedPtr rowset_with_largest_size();
     OLAPStatus all_rowsets(vector<RowsetSharedPtr> rowsets);
 
-    OLAPStatus add_inc_rowset(const Rowset& rowset);
+    OLAPStatus add_inc_rowset(const RowsetSharedPtr& rowset);
     RowsetSharedPtr get_inc_rowset(const Version& version) const;
     OLAPStatus delete_inc_rowset_by_version(const Version& version);
     OLAPStatus delete_expired_inc_rowset();
     bool is_deletion_rowset(const Version& version);
-
-    OLAPStatus create_snapshot();
 
     RWMutex* meta_lock();
     Mutex* ingest_lock();
