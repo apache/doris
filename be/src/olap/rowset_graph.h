@@ -31,7 +31,7 @@ public:
     OLAPStatus add_version_to_graph(const Version& version);
     OLAPStatus delete_version_from_graph(const Version& version);
     OLAPStatus capture_consistent_versions(const Version& spec_version,
-                                           std::vector<Version>* version_path);
+                                           std::vector<Version>* version_path) const;
 private:
     OLAPStatus _add_vertex_to_graph(int vertex_value);
 

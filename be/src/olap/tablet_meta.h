@@ -146,6 +146,7 @@ public:
     void set_cumulative_layer_point(int32_t new_point);
     inline const TabletSchema& tablet_schema() const;
 
+    inline void set_data_dir(DataDir* data_dir);
 private:
     int64_t _table_id;
     int64_t _partition_id;
@@ -241,6 +242,10 @@ inline int32_t TabletMeta::cumulative_layer_point() const {
 
 inline const TabletSchema& TabletMeta::tablet_schema() const {
     return _schema;
+}
+
+inline void TabletMeta::set_data_dir(DataDir* data_dir) {
+    _data_dir = data_dir;
 }
 
 }  // namespace doris
