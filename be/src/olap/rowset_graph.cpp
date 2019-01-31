@@ -160,10 +160,9 @@ OLAPStatus RowsetGraph::_add_vertex_to_graph(int vertex_value) {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus
-RowsetGraph::capture_consistent_versions(
-                    const Version& spec_version,
-                    std::vector<Version>* version_path) const {
+OLAPStatus RowsetGraph::capture_consistent_versions(
+                            const Version& spec_version,
+                            std::vector<Version>* version_path) const {
     if (spec_version.first > spec_version.second) {
         LOG(WARNING) << "invalid specfied version. "
                      << "spec_version=" << spec_version.first << "-" << spec_version.second;

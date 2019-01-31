@@ -333,11 +333,10 @@ OLAPStatus TabletMeta::add_rs_meta(const RowsetMetaSharedPtr& rs_meta) {
 
     // check RowsetMeta is valid
     for (auto& rs : _rs_metas) {
-        if (rs->rowset_id() == rs_meta->rowset_id()
-            && rs->start_version() == rs_meta->start_version()
+        if (rs->start_version() == rs_meta->start_version()
             && rs->end_version() == rs_meta->end_version()) {
             LOG(WARNING) << "rowset already exist. rowset_id=" << rs->rowset_id();
-            return OLAP_SUCCESS;
+            return OLAP_ERR_ROWSET_ALREADY_EXIST;
         }
     }
 
@@ -401,11 +400,10 @@ OLAPStatus TabletMeta::add_inc_rs_meta(const RowsetMetaSharedPtr& rs_meta) {
 
     // check RowsetMeta is valid
     for (auto rs : _inc_rs_metas) {
-        if (rs->rowset_id() == rs_meta->rowset_id()
-            && rs->start_version() == rs_meta->start_version()
+        if (rs->start_version() == rs_meta->start_version()
             && rs->end_version() == rs_meta->end_version()) {
             LOG(WARNING) << "rowset already exist. rowset_id=" << rs->rowset_id();
-            return OLAP_SUCCESS;
+            return OLAP_ERR_ROWSET_ALREADY_EXIST;
         }
     }
 
