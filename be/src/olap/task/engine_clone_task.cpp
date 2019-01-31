@@ -725,7 +725,7 @@ OLAPStatus EngineCloneTask::_clone_full_data(TabletSharedPtr tablet, TabletMeta*
                         << ", version='" << local_version.first<< "-" << local_version.second
                         << ", version_hash=" << local_version_hash;
 
-                    OLAPStatus delete_res = cloned_tablet_meta->delete_rowset_by_version(local_version);
+                    OLAPStatus delete_res = cloned_tablet_meta->delete_rs_meta_by_version(local_version);
                     if (delete_res != OLAP_SUCCESS) {
                         LOG(WARNING) << "failed to delete existed version from clone src when full clone. "
                                      << ", version=" << local_version.first << "-" << local_version.second;

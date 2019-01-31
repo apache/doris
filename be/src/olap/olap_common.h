@@ -186,38 +186,6 @@ struct Vertex {
 class Field;
 class WrapperField;
 using KeyRange = std::pair<WrapperField*, WrapperField*>;
-struct SegmentGroupEntity {
-    SegmentGroupEntity(int32_t segment_group_id, int32_t num_segments,
-                int64_t num_rows, size_t data_size, size_t index_size,
-                bool empty, const std::vector<KeyRange>* column_statistics)
-        : segment_group_id(segment_group_id), num_segments(num_segments), num_rows(num_rows),
-          data_size(data_size), index_size(index_size), empty(empty)
-    {
-        if (column_statistics != nullptr) {
-            key_ranges = *column_statistics;
-        }
-    }
-
-    int32_t segment_group_id;
-    int32_t num_segments;
-    int64_t num_rows;
-    size_t data_size;
-    size_t index_size;
-    bool empty;
-    std::vector<KeyRange> key_ranges;
-};
-
-struct VersionEntity {
-    VersionEntity(Version v, VersionHash version_hash)
-        : version(v), version_hash(version_hash) { }
-    void add_segment_group_entity(const SegmentGroupEntity& segment_group_entity) {
-        segment_group_vec.push_back(segment_group_entity);
-    }
-
-    Version version;
-    VersionHash version_hash;
-    std::vector<SegmentGroupEntity> segment_group_vec;
-};
 
 // ReaderStatistics used to collect statistics when scan data from storage
 struct OlapReaderStatistics {
