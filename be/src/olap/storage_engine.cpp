@@ -42,6 +42,7 @@
 #include "olap/push_handler.h"
 #include "olap/reader.h"
 #include "olap/rowset/rowset_meta_manager.h"
+#include "olap/rowset_factory.h"
 #include "olap/schema_change.h"
 #include "olap/data_dir.h"
 #include "olap/utils.h"
@@ -191,19 +192,24 @@ OLAPStatus StorageEngine::_load_data_dir(DataDir* data_dir) {
                          << " skip this rowset";
             continue;
         }
-        // TODO(ygl): build rowset from rowset meta using tablet info
         RowsetSharedPtr rowset;
+        OLAPStatus create_status = RowsetFactory::load_rowset(tablet->tablet_schema(), 
+                                                             rowset_meta->rowset_path(), 
+                                                             tablet->data_dir(), 
+                                                             rowset_meta, &rowset);
+        if (create_status != OLAP_SUCCESS) {
+            LOG(WARNING) << "could not create rowset from rowsetmeta: "
+                         << " rowset_id: " << rowset_meta->rowset_id()
+                         << " rowset_type: " << rowset_meta->rowset_type()
+                         << " rowset_state: " << rowset_meta->rowset_state();
+            continue;
+        }
         if (rowset_meta->rowset_state() == RowsetStatePB::COMMITTED) {
-            // build rowset from meta and create 
-            PUniqueId load_id;
-            load_id.set_hi(0);
-            load_id.set_lo(0);
-            // TODO(ygl): create rowset from rowset meta
             OLAPStatus commit_txn_status = TxnManager::instance()->commit_txn(
                 tablet->data_dir()->get_meta(),  
                 rowset_meta->partition_id(), rowset_meta->txn_id(), 
                 rowset_meta->tablet_id(), rowset_meta->tablet_schema_hash(), 
-                load_id, NULL, true);
+                rowset_meta->load_id(), rowset, true);
             if (commit_txn_status != OLAP_SUCCESS && commit_txn_status != OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
                 LOG(WARNING) << "failed to add committed rowset: " << rowset_meta->rowset_id()
                              << " to tablet: " << rowset_meta->tablet_id() 
@@ -218,7 +224,7 @@ OLAPStatus StorageEngine::_load_data_dir(DataDir* data_dir) {
             // add visible rowset to tablet, it maybe use in the future
             // there should be only preparing rowset in meta env because visible 
             // rowset is persist with tablet meta currently
-            OLAPStatus publish_status = tablet->add_inc_rowset(rowset);
+            OLAPStatus publish_status = tablet->add_inc_rowset(*rowset);
             if (publish_status != OLAP_SUCCESS) {
                 LOG(WARNING) << "add visilbe rowset to tablet failed rowset_id:" << rowset->rowset_id()
                              << " tablet id: " << rowset_meta->tablet_id()
