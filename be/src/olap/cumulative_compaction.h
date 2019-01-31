@@ -112,7 +112,7 @@ private:
     // 返回值：
     // - 如果成功，返回OLAP_SUCCESS
     // - 如果不成功，返回相应错误码
-    OLAPStatus _update_header(std::vector<RowsetSharedPtr>* unused_rowsets);
+    OLAPStatus _update_header(const std::vector<RowsetSharedPtr>& unused_rowsets);
 
     // 删除不再使用的delta文件
     //

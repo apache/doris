@@ -153,7 +153,7 @@ OLAPStatus BaseCompaction::run() {
     //    If success, remove files belong to old versions;
     //    If fail, gc files belong to new versions.
     vector<RowsetSharedPtr> unused_rowsets;
-    res = _update_header(row_count, &unused_rowsets);
+    res = _update_header(row_count, unused_rowsets);
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to update header. tablet=" << _tablet->full_name()
                      << ", version=" << _new_base_version.first << "-" << _new_base_version.second;
@@ -414,7 +414,7 @@ OLAPStatus BaseCompaction::_do_base_compaction(VersionHash new_base_version_hash
     return OLAP_SUCCESS;
 }
 
-OLAPStatus BaseCompaction::_update_header(uint64_t row_count, vector<RowsetSharedPtr>* unused_rowsets) {
+OLAPStatus BaseCompaction::_update_header(uint64_t row_count, const vector<RowsetSharedPtr>& unused_rowsets) {
     WriteLock wrlock(_tablet->get_header_lock_ptr());
     vector<Version> unused_versions;
     _get_unused_versions(&unused_versions);
@@ -422,7 +422,7 @@ OLAPStatus BaseCompaction::_update_header(uint64_t row_count, vector<RowsetShare
     OLAPStatus res = OLAP_SUCCESS;
     // 由于在modify_rowsets中可能会发生很小概率的非事务性失败, 因此这里定位FATAL错误
     res = _tablet->modify_rowsets(&unused_versions,
-                                  &_new_rowsets,
+                                  _new_rowsets,
                                   unused_rowsets);
     if (res != OLAP_SUCCESS) {
         LOG(FATAL) << "fail to replace data sources. res" << res

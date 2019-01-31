@@ -108,11 +108,12 @@ public:
 
     inline const vector<RowsetMetaSharedPtr>& all_inc_rs_metas() const;
     inline const vector<RowsetMetaSharedPtr>& all_rs_metas() const;
-    OLAPStatus modify_rowsets(const vector<RowsetMetaSharedPtr>& to_add,
-                              const vector<RowsetMetaSharedPtr>& to_delete);
     OLAPStatus add_rs_meta(const RowsetMetaSharedPtr& rs_meta);
+    OLAPStatus modify_rs_metas(const vector<RowsetMetaSharedPtr>& to_add,
+                               const vector<RowsetMetaSharedPtr>& to_delete);
+    OLAPStatus revise_rs_metas(const std::vector<RowsetMetaSharedPtr>& rs_metas);
 
-    OLAPStatus delete_rowset_by_version(const Version& version);
+    OLAPStatus delete_rs_meta_by_version(const Version& version);
     OLAPStatus add_inc_rs_meta(const RowsetMetaSharedPtr& rs_meta);
     OLAPStatus delete_inc_rs_meta_by_version(const Version& version);
     RowsetMetaSharedPtr acquire_inc_rs_meta(const Version& version) const;

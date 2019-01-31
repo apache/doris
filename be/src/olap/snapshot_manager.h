@@ -57,7 +57,7 @@ public:
 
     // TODO(ygl) move it to a utility class
     void update_header_file_info(
-            const std::vector<VersionEntity>& shortest_version_entity,
+            const std::vector<RowsetSharedPtr>& consistent_rowsets,
             TabletMeta* header);
 
     std::string get_schema_hash_full_path(
@@ -85,7 +85,7 @@ private:
     OLAPStatus _link_index_and_data_files(
             const std::string& header_path,
             const TabletSharedPtr& ref_tablet,
-            const std::vector<VersionEntity>& version_entity_vec);
+            const std::vector<RowsetSharedPtr>& consistent_rowsets);
 
     OLAPStatus _create_snapshot_files(
             const TabletSharedPtr& ref_tablet,
