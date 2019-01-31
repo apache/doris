@@ -165,11 +165,11 @@ public class ColocateMetaService {
             long tableId = getTableId(request);
 
             LOG.info("will delete table {} from colocate meta", tableId);
-            Catalog.getCurrentColocateIndex().removeTable(tableId);
-            ColocatePersistInfo colocateInfo = ColocatePersistInfo.CreateForRemoveTable(tableId);
-            Catalog.getInstance().getEditLog().logColocateRemoveTable(colocateInfo);
-            LOG.info("table {}  has deleted from colocate meta", tableId);
-
+            if (Catalog.getCurrentColocateIndex().removeTable(tableId)) {
+                ColocatePersistInfo colocateInfo = ColocatePersistInfo.CreateForRemoveTable(tableId);
+                Catalog.getInstance().getEditLog().logColocateRemoveTable(colocateInfo);
+                LOG.info("table {}  has deleted from colocate meta", tableId);
+            }
             sendResult(request, response);
         }
     }

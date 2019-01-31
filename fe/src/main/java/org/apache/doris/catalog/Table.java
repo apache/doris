@@ -278,7 +278,7 @@ public class Table extends MetaObject implements Writable {
 
         OlapTable olapTable = (OlapTable) this;
         
-        if (!Strings.isNullOrEmpty(olapTable.getColocateTable())) {
+        if (Catalog.getCurrentColocateIndex().isColocateTable(olapTable.getId())) {
             LOG.info("table {} is a colocate table, skip tablet scheduler.", name);
             return false;
         }
