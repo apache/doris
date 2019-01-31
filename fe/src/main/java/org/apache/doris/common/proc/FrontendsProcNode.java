@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.Frontend;
 
 import com.google.common.collect.ImmutableList;
@@ -30,9 +31,7 @@ import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.net.InetAddress;
 import java.net.InetSocketAddress;
-import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -90,16 +89,7 @@ public class FrontendsProcNode implements ProcNodeInterface {
             info.add(fe.getNodeName());
             info.add(fe.getHost());
 
-            String hostName = "N/A";
-            try {
-                InetAddress address = InetAddress.getByName(fe.getHost());
-                hostName = address.getHostName();
-            } catch (UnknownHostException e) {
-                LOG.warn("unknow host for {}", fe.getHost(), e);
-                hostName = "unknown";
-            }
-
-            info.add(hostName);
+            info.add(FrontendOptions.getHostnameByIp(fe.getHost()));
             info.add(Integer.toString(fe.getEditLogPort()));
             info.add(Integer.toString(Config.http_port));
 
