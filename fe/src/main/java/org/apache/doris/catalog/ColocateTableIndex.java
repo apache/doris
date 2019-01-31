@@ -108,12 +108,12 @@ public class ColocateTableIndex implements Writable {
         balancingGroups.remove(groupId);
     }
 
-    public void removeTable(long tableId) {
+    public boolean removeTable(long tableId) {
         long groupId;
         readLock();
         try {
             if (!table2Group.containsKey(tableId)) {
-                return;
+                return false;
             }
             groupId = table2Group.get(tableId);
         } finally {
@@ -121,6 +121,7 @@ public class ColocateTableIndex implements Writable {
         }
 
         removeTableFromGroup(tableId, groupId);
+        return true;
     }
 
     private void removeTableFromGroup(long tableId, long groupId) {

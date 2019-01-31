@@ -25,6 +25,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
@@ -37,8 +38,6 @@ import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.net.InetAddress;
-import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedList;
@@ -114,14 +113,6 @@ public class BackendsProcDir implements ProcDirInterface {
                 continue;
             }
 
-            String hostName = "N/A";
-            try {
-                InetAddress address = InetAddress.getByName(backend.getHost());
-                hostName = address.getHostName();
-            } catch (UnknownHostException e) {
-                continue;
-            }
-
             watch.start();
             Integer tabletNum = Catalog.getCurrentInvertedIndex().getTabletNumByBackendId(backendId);
             watch.stop();
@@ -130,7 +121,7 @@ public class BackendsProcDir implements ProcDirInterface {
             backendInfo.add(backend.getOwnerClusterName());
             backendInfo.add(backend.getHost());
             if (Strings.isNullOrEmpty(clusterName)) {
-                backendInfo.add(hostName);
+                backendInfo.add(FrontendOptions.getHostnameByIp(backend.getHost()));
                 backendInfo.add(String.valueOf(backend.getHeartbeatPort()));
                 backendInfo.add(String.valueOf(backend.getBePort()));
                 backendInfo.add(String.valueOf(backend.getHttpPort()));
