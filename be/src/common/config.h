@@ -386,6 +386,9 @@ namespace config {
 
     // sync tablet_meta when modifing meta
     CONF_Bool(sync_tablet_meta, "false");
+
+    // default thrift rpc timeout ms
+    CONF_Int32(thrift_rpc_timeout_ms, "5000");
 } // namespace config
 
 } // namespace doris

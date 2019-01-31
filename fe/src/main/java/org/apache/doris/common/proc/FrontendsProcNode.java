@@ -27,7 +27,12 @@ import org.apache.doris.system.Frontend;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -36,12 +41,16 @@ import java.util.List;
  * SHOW PROC /frontends/
  */
 public class FrontendsProcNode implements ProcNodeInterface {
+    private static final Logger LOG = LogManager.getLogger(FrontendsProcNode.class);
+
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("Name").add("Host").add("EditLogPort").add("HttpPort").add("QueryPort").add("RpcPort")
+            .add("Name").add("IP").add("HostName").add("EditLogPort").add("HttpPort").add("QueryPort").add("RpcPort")
             .add("Role").add("IsMaster").add("ClusterId").add("Join").add("Alive")
             .add("ReplayedJournalId").add("LastHeartbeat").add("IsHelper").add("ErrMsg")
             .build();
     
+    public static final int HOSTNAME_INDEX = 2;
+
     private Catalog catalog;
     
     public FrontendsProcNode(Catalog catalog) {
@@ -80,6 +89,17 @@ public class FrontendsProcNode implements ProcNodeInterface {
             List<String> info = new ArrayList<String>();
             info.add(fe.getNodeName());
             info.add(fe.getHost());
+
+            String hostName = "N/A";
+            try {
+                InetAddress address = InetAddress.getByName(fe.getHost());
+                hostName = address.getHostName();
+            } catch (UnknownHostException e) {
+                LOG.warn("unknow host for {}", fe.getHost(), e);
+                hostName = "unknown";
+            }
+
+            info.add(hostName);
             info.add(Integer.toString(fe.getEditLogPort()));
             info.add(Integer.toString(Config.http_port));
 

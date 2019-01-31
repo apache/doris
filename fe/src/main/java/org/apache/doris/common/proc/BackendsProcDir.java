@@ -119,7 +119,8 @@ public class BackendsProcDir implements ProcDirInterface {
                 InetAddress address = InetAddress.getByName(backend.getHost());
                 hostName = address.getHostName();
             } catch (UnknownHostException e) {
-                continue;
+                LOG.warn("unknow host for {}", backend.getHost(), e);
+                hostName = "unknown";
             }
 
             watch.start();
