@@ -67,7 +67,7 @@ void UserResourceListener::update_users_resource(int64_t new_version) {
     // using 500ms as default timeout value    
     FrontendServiceConnection client(_exec_env->frontend_client_cache(),
                                    _master_info.network_address,
-                                   500, 
+                                   config::thrift_rpc_timeout_ms, 
                                    &master_status);
     TFetchResourceResult new_fetched_resource;
     if (!master_status.ok()) { 
@@ -81,10 +81,10 @@ void UserResourceListener::update_users_resource(int64_t new_version) {
             client->fetchResource(new_fetched_resource);
         } catch (TTransportException& e) {
             // reopen the client and set timeout to 500ms
-            master_status = client.reopen(500);
+            master_status = client.reopen(config::thrift_rpc_timeout_ms);
 
             if (!master_status.ok()) { 
-                LOG(ERROR) << "Reopen to get frontend client failed, with address:" 
+                LOG(WARNING) << "Reopen to get frontend client failed, with address:" 
                     << _master_info.network_address.hostname << ":" 
                     << _master_info.network_address.port;
                 return;
@@ -94,7 +94,8 @@ void UserResourceListener::update_users_resource(int64_t new_version) {
         }
     } catch (TException& e) { 
         // Already try twice, log here
-        LOG(ERROR) << "retry to fetchResource from  " 
+        client.reopen(config::thrift_rpc_timeout_ms);
+        LOG(WARNING) << "retry to fetchResource from  " 
             << _master_info.network_address.hostname << ":" 
             << _master_info.network_address.port << " failed:\n" 
             << e.what();
