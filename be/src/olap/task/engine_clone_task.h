@@ -46,16 +46,9 @@ public:
 
 private:
     
-    // before doing incremental clone,
-    // need to calculate tablet's download dir and tablet's missing versions
-    //virtual std::string _get_info_before_incremental_clone(TabletSharedPtr tablet,
-    //    int64_t committed_version, std::vector<Version>* missing_versions);
-    
     virtual OLAPStatus _finish_clone(TabletSharedPtr tablet, const std::string& clone_dir,
                                     int64_t committed_version, bool is_incremental_clone);
     
-
-
     OLAPStatus _clone_incremental_data(TabletSharedPtr tablet, const TabletMeta& cloned_tablet_meta,
                                      int64_t committed_version);
 

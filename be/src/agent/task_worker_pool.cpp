@@ -713,8 +713,8 @@ void* TaskWorkerPool::_push_worker_thread_callback(void* arg_this) {
                   << " user: " << user << " priority: " << priority;
         vector<TTabletInfo> tablet_infos;
         
-        EngineBatchLoadTask task(push_req, &tablet_infos, agent_task_req.signature, &status);
-        task.execute();
+        EngineBatchLoadTask engine_task(push_req, &tablet_infos, agent_task_req.signature, &status);
+        worker_pool_this->_env->storage_engine()->execute_task(&engine_task);
 
 #ifndef BE_TEST
         if (status == DORIS_PUSH_HAD_LOADED) {
@@ -1028,8 +1028,8 @@ void* TaskWorkerPool::_storage_medium_migrate_worker_thread_callback(void* arg_t
         TStatusCode::type status_code = TStatusCode::OK;
         vector<string> error_msgs;
         TStatus task_status;
-        EngineStorageMigrationTask task(storage_medium_migrate_req);
-        OLAPStatus res = task.execute();
+        EngineStorageMigrationTask engine_task(storage_medium_migrate_req);
+        OLAPStatus res = worker_pool_this->_env->storage_engine()->execute_task(&engine_task);
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("storage media migrate failed. status: %d, signature: %ld",
                              res, agent_task_req.signature);
