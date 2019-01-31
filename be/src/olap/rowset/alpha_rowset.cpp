@@ -47,8 +47,7 @@ AlphaRowset::AlphaRowset(const TabletSchema* schema,
 }
 
 OLAPStatus AlphaRowset::init() {
-    _init_segment_groups();
-    return OLAP_SUCCESS;
+    return _init_segment_groups();
 }
 
 std::shared_ptr<RowsetReader> AlphaRowset::create_reader() {
