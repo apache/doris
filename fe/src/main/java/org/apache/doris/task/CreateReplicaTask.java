@@ -133,6 +133,8 @@ public class CreateReplicaTask extends AgentTask {
         if (inRestoreMode) {
             createTabletReq.setIn_restore_mode(true);
         }
+        createTabletReq.setTable_id(tableId);
+        createTabletReq.setPartition_id(partitionId);
 
         return createTabletReq;
     }

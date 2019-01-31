@@ -116,7 +116,7 @@ public class MasterImpl {
         AgentTask task = AgentTaskQueue.getTask(backendId, taskType, signature);
         if (task == null) {
             if (taskType != TTaskType.DROP && taskType != TTaskType.STORAGE_MEDIUM_MIGRATE
-                    && taskType != TTaskType.CANCEL_DELETE && taskType != TTaskType.RELEASE_SNAPSHOT) {
+                    && taskType != TTaskType.RELEASE_SNAPSHOT) {
                 String errMsg = "cannot find task. type: " + taskType + ", backendId: " + backendId
                         + ", signature: " + signature;
                 LOG.warn(errMsg);
