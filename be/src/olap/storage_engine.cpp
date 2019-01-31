@@ -192,19 +192,18 @@ OLAPStatus StorageEngine::_load_data_dir(DataDir* data_dir) {
                          << " skip this rowset";
             continue;
         }
-        Rowset* tmp_rowset;
-        OLAPStatus creat_status = RowsetFactory::load_rowset(tablet->tablet_schema(), 
+        RowsetSharedPtr rowset;
+        OLAPStatus create_status = RowsetFactory::load_rowset(tablet->tablet_schema(), 
                                                              rowset_meta->rowset_path(), 
                                                              tablet->data_dir(), 
-                                                             rowset_meta, &tmp_rowset);
-        if (creat_status != OLAP_SUCCESS) {
+                                                             rowset_meta, &rowset);
+        if (create_status != OLAP_SUCCESS) {
             LOG(WARNING) << "could not create rowset from rowsetmeta: "
                          << " rowset_id: " << rowset_meta->rowset_id()
                          << " rowset_type: " << rowset_meta->rowset_type()
                          << " rowset_state: " << rowset_meta->rowset_state();
             continue;
         }
-        RowsetSharedPtr rowset(tmp_rowset);
         if (rowset_meta->rowset_state() == RowsetStatePB::COMMITTED) {
             OLAPStatus commit_txn_status = TxnManager::instance()->commit_txn(
                 tablet->data_dir()->get_meta(),  

@@ -30,7 +30,7 @@ public:
                                     const std::string rowset_path,
                                     DataDir* data_dir,
                                     RowsetMetaSharedPtr rowset_meta, 
-                                    Rowset** rowset);
+                                    RowsetSharedPtr* rowset);
 };
 
 } // namespace doris

@@ -25,10 +25,10 @@ OLAPStatus RowsetFactory::load_rowset(const TabletSchema& schema,
                                       const std::string rowset_path,
                                       DataDir* data_dir,
                                       RowsetMetaSharedPtr rowset_meta, 
-                                      Rowset** rowset) {
+                                      RowsetSharedPtr* rowset) {
 
     if (rowset_meta->rowset_type() == RowsetTypePB::ALPHA_ROWSET) {
-        *rowset = new AlphaRowset(&schema, rowset_path, data_dir, rowset_meta);
+        rowset->reset(new AlphaRowset(&schema, rowset_path, data_dir, rowset_meta));
         return (*rowset)->init();
     } else {
         return OLAP_ERR_ROWSET_TYPE_NOT_FOUND;
