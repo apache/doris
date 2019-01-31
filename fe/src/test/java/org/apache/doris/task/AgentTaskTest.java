@@ -138,11 +138,6 @@ public class AgentTaskTest {
                 new SchemaChangeTask(null, backendId1, dbId, tableId, partitionId, indexId1, 
                                      tabletId1, replicaId1, columns, schemaHash2, schemaHash1, 
                                      shortKeyNum, storageType, null, 0, TKeysType.AGG_KEYS);
-
-        // cancel delete
-        cancelDeleteTask =
-                new CancelDeleteTask(backendId1, dbId, tableId, partitionId, indexId1, tabletId1,
-                                                schemaHash1, version, versionHash);
     }
 
     @Test
@@ -214,12 +209,6 @@ public class AgentTaskTest {
         Assert.assertEquals(TTaskType.SCHEMA_CHANGE, request6.getTask_type());
         Assert.assertEquals(schemaChangeTask.getSignature(), request6.getSignature());
         Assert.assertNotNull(request6.getAlter_tablet_req());
-
-        // cancel delete
-        TAgentTaskRequest request9 = (TAgentTaskRequest) toAgentTaskRequest.invoke(agentBatchTask, cancelDeleteTask);
-        Assert.assertEquals(TTaskType.CANCEL_DELETE, request9.getTask_type());
-        Assert.assertEquals(cancelDeleteTask.getSignature(), request9.getSignature());
-        Assert.assertNotNull(request9.getCancel_delete_data_req());
     }
 
     @Test
