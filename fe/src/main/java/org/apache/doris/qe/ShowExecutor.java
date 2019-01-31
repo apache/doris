@@ -1076,6 +1076,11 @@ public class ShowExecutor {
         final ShowFrontendsStmt showStmt = (ShowFrontendsStmt) stmt;
         List<List<String>> infos = Lists.newArrayList();
         FrontendsProcNode.getFrontendsInfo(Catalog.getCurrentCatalog(), infos);
+
+        for (List<String> row : infos) {
+            row.remove(FrontendsProcNode.HOSTNAME_INDEX);
+        }
+
         resultSet = new ShowResultSet(showStmt.getMetaData(), infos);
     }
 

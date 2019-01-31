@@ -34,8 +34,6 @@
 
 namespace doris {
 
-const uint32_t MASTER_CLIENT_TIMEOUT = 3000;
-
 // client cache
 // All service client should be defined in client_cache.h
 //class MasterServiceClient;

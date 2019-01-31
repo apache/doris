@@ -94,7 +94,6 @@ const std::string LABEL_KEY = "label";
 const std::string SUB_LABEL_KEY = "sub_label";
 const std::string FILE_PATH_KEY = "file_path";
 const char* k_100_continue = "100-continue";
-const int64_t THRIFT_RPC_TIMEOUT_MS = 3000; // 3 sec
 
 MiniLoadAction::MiniLoadAction(ExecEnv* exec_env) :
         _exec_env(exec_env) {
@@ -156,7 +155,7 @@ Status MiniLoadAction::_load(
     const TNetworkAddress& master_address = _exec_env->master_info()->network_address;
     Status status;
     FrontendServiceConnection client(
-            _exec_env->frontend_client_cache(), master_address, THRIFT_RPC_TIMEOUT_MS, &status);
+            _exec_env->frontend_client_cache(), master_address, config::thrift_rpc_timeout_ms, &status);
     if (!status.ok()) {
         std::stringstream ss;
         ss << "Connect master failed, with address("
@@ -192,7 +191,7 @@ Status MiniLoadAction::_load(
             LOG(WARNING) << "Retrying mini load from master("
                     << master_address.hostname << ":" << master_address.port
                     << ") because: " << e.what();
-            status = client.reopen(THRIFT_RPC_TIMEOUT_MS);
+            status = client.reopen(config::thrift_rpc_timeout_ms);
             if (!status.ok()) {
                 LOG(WARNING) << "Client repoen failed. with address("
                     << master_address.hostname << ":" << master_address.port << ")";
@@ -204,7 +203,7 @@ Status MiniLoadAction::_load(
                     << master_address.hostname << ":" << master_address.port
                     << ") got unknown result: " << e.what();
 
-            status = client.reopen(THRIFT_RPC_TIMEOUT_MS);
+            status = client.reopen(config::thrift_rpc_timeout_ms);
             if (!status.ok()) {
                 LOG(WARNING) << "Client repoen failed. with address("
                     << master_address.hostname << ":" << master_address.port << ")";
@@ -253,7 +252,7 @@ Status MiniLoadAction::check_auth(
     const TNetworkAddress& master_address = _exec_env->master_info()->network_address;
     Status status;
     FrontendServiceConnection client(
-            _exec_env->frontend_client_cache(), master_address, THRIFT_RPC_TIMEOUT_MS, &status);
+            _exec_env->frontend_client_cache(), master_address, config::thrift_rpc_timeout_ms, &status);
     if (!status.ok()) {
         std::stringstream ss;
         ss << "Connect master failed, with address("
@@ -270,7 +269,7 @@ Status MiniLoadAction::check_auth(
             LOG(WARNING) << "Retrying mini load from master("
                     << master_address.hostname << ":" << master_address.port
                     << ") because: " << e.what();
-            status = client.reopen(THRIFT_RPC_TIMEOUT_MS);
+            status = client.reopen(config::thrift_rpc_timeout_ms);
             if (!status.ok()) {
                 LOG(WARNING) << "Client repoen failed. with address("
                     << master_address.hostname << ":" << master_address.port << ")";
@@ -282,7 +281,7 @@ Status MiniLoadAction::check_auth(
                     << master_address.hostname << ":" << master_address.port
                     << ") got unknown result: " << e.what();
 
-            status = client.reopen(THRIFT_RPC_TIMEOUT_MS);
+            status = client.reopen(config::thrift_rpc_timeout_ms);
             if (!status.ok()) {
                 LOG(WARNING) << "Client repoen failed. with address("
                     << master_address.hostname << ":" << master_address.port << ")";

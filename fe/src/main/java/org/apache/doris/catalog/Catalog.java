@@ -4125,9 +4125,10 @@ public class Catalog {
             DropInfo info = new DropInfo(db.getId(), table.getId(), -1L);
             editLog.logDropTable(info);
 
-            Catalog.getCurrentColocateIndex().removeTable(table.getId());
-            ColocatePersistInfo colocateInfo = ColocatePersistInfo.CreateForRemoveTable(table.getId());
-            editLog.logColocateRemoveTable(colocateInfo);
+            if (Catalog.getCurrentColocateIndex().removeTable(table.getId())) {
+                ColocatePersistInfo colocateInfo = ColocatePersistInfo.CreateForRemoveTable(table.getId());
+                editLog.logColocateRemoveTable(colocateInfo);
+            }
         } finally {
             db.writeUnlock();
         }
