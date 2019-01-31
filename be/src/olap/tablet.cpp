@@ -327,8 +327,13 @@ OLAPStatus Tablet::capture_consistent_versions(
     return status;
 }
 
-OLAPStatus Tablet::add_inc_rowset(const Rowset& rowset) {
-    return _tablet_meta->add_inc_rs_meta(rowset.rowset_meta());
+OLAPStatus Tablet::add_inc_rowset(const RowsetSharedPtr& rowset) {
+    WriteLock wrlock(&_meta_lock);
+    _tablet_meta->add_rs_meta(rowset->rowset_meta());
+    _rs_version_map[rowset->version()] = rowset;
+    _rs_graph->add_version_to_graph(rowset->version());
+    _tablet_meta->add_inc_rs_meta(rowset->rowset_meta());
+    return OLAP_SUCCESS;
 }
 
 OLAPStatus Tablet::delete_expired_inc_rowset() {
