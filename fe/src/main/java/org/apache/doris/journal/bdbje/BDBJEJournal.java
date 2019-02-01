@@ -24,6 +24,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.journal.Journal;
 import org.apache.doris.journal.JournalCursor;
 import org.apache.doris.journal.JournalEntity;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.persist.OperationType;
 
 import com.sleepycat.bind.tuple.TupleBinding;
@@ -147,6 +148,9 @@ public class BDBJEJournal implements Journal {
             e.printStackTrace();
         }
         DatabaseEntry theData = new DatabaseEntry(buffer.getData());
+        if (MetricRepo.isInit.get()) {
+            MetricRepo.COUNTER_EDIT_LOG_SIZE_BYTES.increase((long) theData.getSize());
+        }
         LOG.debug("opCode = {}, journal size = {}", op, theData.getSize()); 
         // Write the key value pair to bdb.
         boolean writeSuccessed = false;
