@@ -361,7 +361,7 @@ public class SchemaChangeJob extends AlterJob {
             db.readUnlock();
         }
 
-        LOG.info("successfully sending clear schemachange job [{}]", tableId);
+        LOG.info("successfully sending clear schema change job [{}]", tableId);
         return 0;
     }
 
@@ -863,7 +863,6 @@ public class SchemaChangeJob extends AlterJob {
             db.writeUnlock();
         }
 
-        // log schema change done operation
         Catalog.getInstance().getEditLog().logFinishingSchemaChange(this);
         LOG.info("schema change job is finishing. finishing txn id: {} table {}", transactionId, tableId);
         return 1;

@@ -236,7 +236,8 @@ public class MasterImpl {
         Catalog.getCurrentSystemInfo().updateBackendReportVersion(task.getBackendId(), reportVersion, task.getDbId());
 
         createReplicaTask.countDownLatch(task.getBackendId(), task.getSignature());
-        LOG.debug("finish create replica. tablet id: {}", tabletId);
+        LOG.debug("finish create replica. tablet id: {}, be: {}, report version: {}",
+                tabletId, task.getBackendId(), reportVersion);
         AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.CREATE, task.getSignature());
     }
     
