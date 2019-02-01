@@ -168,13 +168,6 @@ public:
         _merged_rows = 0;
     }
 
-    OLAPStatus create_init_version(
-            TTabletId tablet_id,
-            TSchemaHash schema_hash,
-            Version version,
-            VersionHash version_hash,
-            RowsetWriterSharedPtr rowset_builder);
-
 private:
     uint64_t _filted_rows;
     uint64_t _merged_rows;

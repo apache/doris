@@ -119,20 +119,6 @@ StorageEngine::~StorageEngine() {
 OLAPStatus StorageEngine::_load_data_dir(DataDir* data_dir) {
     std::string data_dir_path = data_dir->path();
     LOG(INFO) <<"start to load tablets from data_dir_path:" << data_dir_path;
-    bool is_header_converted = false;
-    OLAPStatus res = TabletMetaManager::get_header_converted(data_dir, &is_header_converted);
-    if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "get convert flag from meta failed";
-        return res;
-    }
-    if (!is_header_converted) {
-        // ygl: could not be compatable with old doris data. User has to use previous version to parse
-        // header file into meta env first.
-        LOG(WARNING) << "header is not converted to tablet meta yet, could not use this Doris version. "
-                    << "[dir path =" << data_dir_path << "]";
-        return OLAP_ERR_INIT_FAILED;
-    }
-
     // load rowset meta from meta env and create rowset
     // COMMITTED: add to txn manager
     // VISIBLE: add to tablet

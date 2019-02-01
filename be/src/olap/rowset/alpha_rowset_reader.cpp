@@ -218,9 +218,9 @@ OLAPStatus AlphaRowsetReader::_init_column_datas(RowsetReaderContext* read_conte
         }
         _key_range_size = read_context->lower_bound_keys->size();
     }
-    
+
     for (auto& segment_group : _segment_groups) {
-        std::unique_ptr<ColumnData> new_column_data(ColumnData::create(segment_group.get()));
+        std::shared_ptr<ColumnData> new_column_data(ColumnData::create(segment_group.get()));
         OLAPStatus status = new_column_data->init();
         if (status != OLAP_SUCCESS) {
             return OLAP_ERR_READER_READING_ERROR;
@@ -264,7 +264,7 @@ OLAPStatus AlphaRowsetReader::_init_column_datas(RowsetReaderContext* read_conte
                     << new_column_data->version().first << ", " << new_column_data->version().second;
                 new_column_data->set_delete_status(DEL_NOT_SATISFIED);
             }
-            _column_datas.emplace_back(std::move(new_column_data));
+            _column_datas.emplace_back(new_column_data);
             if (read_context->lower_bound_keys == nullptr) {
                 if (read_context->is_lower_keys_included != nullptr
                         || read_context->upper_bound_keys != nullptr
@@ -284,7 +284,7 @@ OLAPStatus AlphaRowsetReader::_init_column_datas(RowsetReaderContext* read_conte
                 _key_range_size = read_context->lower_bound_keys->size();
             }
         }
-        
+
         RowBlock* row_block = nullptr;
         if (_key_range_size > 0) {
             _key_range_indexes.push_back(0);
