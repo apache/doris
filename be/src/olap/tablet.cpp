@@ -330,10 +330,10 @@ OLAPStatus Tablet::capture_consistent_versions(
 
 OLAPStatus Tablet::add_inc_rowset(const RowsetSharedPtr& rowset) {
     WriteLock wrlock(&_meta_lock);
-    _tablet_meta->add_rs_meta(rowset->rowset_meta());
+    RETURN_NOT_OK(_tablet_meta->add_rs_meta(rowset->rowset_meta()));
     _rs_version_map[rowset->version()] = rowset;
-    _rs_graph.add_version_to_graph(rowset->version());
-    _tablet_meta->add_inc_rs_meta(rowset->rowset_meta());
+    RETURN_NOT_OK(_rs_graph.add_version_to_graph(rowset->version()));
+    RETURN_NOT_OK(_tablet_meta->add_inc_rs_meta(rowset->rowset_meta()));
     return OLAP_SUCCESS;
 }
 
@@ -468,9 +468,9 @@ OLAPStatus Tablet::modify_rowsets(std::vector<Version>* old_version,
 
 OLAPStatus Tablet::add_rowset(RowsetSharedPtr rowset) {
     WriteLock wrlock(&_meta_lock);
-    _tablet_meta->add_rs_meta(rowset->rowset_meta());
+    RETURN_NOT_OK(_tablet_meta->add_rs_meta(rowset->rowset_meta()));
     _rs_version_map[rowset->version()] = rowset;
-    _rs_graph.add_version_to_graph(rowset->version());
+    RETURN_NOT_OK(_rs_graph.add_version_to_graph(rowset->version()));
     return OLAP_SUCCESS;
 }
 
