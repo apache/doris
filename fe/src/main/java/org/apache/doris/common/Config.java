@@ -729,7 +729,7 @@ public class Config extends ConfigBase {
      * if set to true, 'disable_colocate_join' must be set to true.
      * Because the new TabeltScheduler can not handle tablet repair for colocate tables.
      */
-    @ConfField public static boolean use_new_tablet_scheduler = false;
+    @ConfField public static boolean use_new_tablet_scheduler = true;
 
     /*
      * the threshold of cluster balance score, if a backend's load score is 10% lower than average score,
