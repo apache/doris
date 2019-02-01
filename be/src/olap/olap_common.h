@@ -78,8 +78,7 @@ struct TabletInfo {
 
     std::string to_string() const {
         std::stringstream ss;
-        ss << "." << tablet_id
-           << "." << schema_hash;
+        ss << tablet_id << "." << schema_hash;
         return ss.str();
     }
 

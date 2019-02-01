@@ -117,6 +117,9 @@ void AlphaRowset::set_version(Version version) {
     // set the rowset state to VISIBLE
     _rowset_meta->set_rowset_state(VISIBLE);
     _is_pending_rowset = false;
+    for (auto segment_group : _segment_groups) {
+        segment_group->set_version(version);
+    }
 }
 
 int64_t AlphaRowset::start_version() const {
@@ -133,6 +136,9 @@ VersionHash AlphaRowset::version_hash() const {
 
 void AlphaRowset::set_version_hash(VersionHash version_hash) {
     _rowset_meta->set_version_hash(version_hash);
+    for (auto segment_group : _segment_groups) {
+        segment_group->set_version_hash(version_hash);
+    }
 }
 
 bool AlphaRowset::in_use() const {
