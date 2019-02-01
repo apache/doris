@@ -74,6 +74,9 @@ OLAPStatus RowsetGraph::construct_rowset_graph(const std::vector<RowsetMetaShare
 
 OLAPStatus RowsetGraph::reconstruct_rowset_graph(const std::vector<RowsetMetaSharedPtr>& rs_metas) {
     _version_graph.clear();
+    for (auto& vertex : _version_graph) {
+        SAFE_DELETE(vertex.edges);
+    }
     _vertex_index_map.clear();
     return construct_rowset_graph(rs_metas);
 }
@@ -128,17 +131,6 @@ OLAPStatus RowsetGraph::delete_version_from_graph(const Version& version) {
     _version_graph[start_vertex_index].edges->remove(end_vertex_index);
     _version_graph[end_vertex_index].edges->remove(start_vertex_index);
 
-    // We should reconstruct version graph if the ratio of isolated vertexes
-    // reaches RATIO_OF_ISOLATED_VERTEX = 30%. The last version may be treated
-    // as isolated vertex(if no reverse edge), but it doesn't matter.
-    int num_isolated_vertex = 0;
-    for (auto it = _version_graph.begin();
-            it != _version_graph.end(); ++it) {
-        if (it->edges->size() == 0) {
-            ++num_isolated_vertex;
-        }
-    }
-
     return OLAP_SUCCESS;
 }
 
@@ -151,6 +143,7 @@ OLAPStatus RowsetGraph::_add_vertex_to_graph(int vertex_value) {
 
     std::list<int>* edges = new std::list<int>();
     if (edges == NULL) {
+        LOG(WARNING) << "fail to malloc edge list.";
         return OLAP_ERR_OTHER_ERROR;
     }
 

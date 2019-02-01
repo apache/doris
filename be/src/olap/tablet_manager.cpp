@@ -115,7 +115,6 @@ OLAPStatus TabletManager::add_tablet(TTabletId tablet_id, SchemaHash schema_hash
         _tablet_map[tablet_id].table_arr.push_back(tablet);
         _tablet_map[tablet_id].table_arr.sort(_sort_tablet_by_creation_time);
         _tablet_map_lock.unlock();
-
         return res;
     }
     _tablet_map_lock.unlock();
@@ -258,7 +257,11 @@ OLAPStatus TabletManager::create_inital_rowset(TTabletId tablet_id, SchemaHash s
                        .set_tablet_schema_hash(tablet->schema_hash())
                        .set_rowset_type(ALPHA_ROWSET)
                        .set_rowset_path_prefix(tablet->tablet_path())
-                       .set_tablet_schema(&(tablet->tablet_schema()));
+                       .set_tablet_schema(&(tablet->tablet_schema()))
+                       .set_data_dir(tablet->data_dir())
+                       .set_rowset_state(VISIBLE)
+                       .set_version(version)
+                       .set_version_hash(version_hash);
         RowsetWriterContext context = context_builder.build();
         RowsetWriter* builder = new (std::nothrow)AlphaRowsetWriter(); 
         if (builder == nullptr) {
@@ -924,16 +927,6 @@ OLAPStatus TabletManager::_create_inital_rowset(
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to create init base version. [res=%d version=%ld]",
                     res, request.version);
-            return res;
-        }
-
-        Version init_delta_version(request.version + 1, request.version + 1);
-        res = create_inital_rowset(
-                request.tablet_id, request.tablet_schema.schema_hash,
-                init_delta_version, 0);
-        if (res != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("fail to create init delta version. [res=%d version=%ld]",
-                    res, request.version + 1);
             return res;
         }
     }
