@@ -110,21 +110,27 @@ public class ReportHandler extends Daemon {
         Map<Long, TTablet> tablets = null;
         boolean forceRecovery = false;
         long reportVersion = -1;
+
+        String reportType = "";
         if (request.isSetTasks()) {
             tasks = request.getTasks();
+            reportType += " task";
         }
         
         if (request.isSetDisks()) {
             disks = request.getDisks();
+            reportType += " disk";
         }
         
         if (request.isSetTablets()) {
             tablets = request.getTablets();
             reportVersion = request.getReport_version();
+            reportType += " tablet";
         } else if (request.isSetTablet_list()) {
             // the 'tablets' member will be deprecated in future.
             tablets = buildTabletMap(request.getTablet_list());
             reportVersion = request.getReport_version();
+            reportType += " tablet";
         }
         
         if (request.isSetForce_recovery()) {
@@ -143,7 +149,8 @@ public class ReportHandler extends Daemon {
             return result;
         }
         
-        LOG.info("receive report from be {}. current queue size: {}", backend.getId(), reportQueue.size());
+        LOG.info("receive report from be {}. type: {}, current queue size: {}",
+                backend.getId(), reportType, reportQueue.size());
         return result;
     }
 
@@ -394,6 +401,14 @@ public class ReportHandler extends Daemon {
 
                         if (metaVersion < backendVersion
                                 || (metaVersion == backendVersion && metaVersionHash != backendVersionHash)) {
+                            
+                            // This is just a optimization for the old compatibility
+                            // The init version in FE is (1-0), in BE is (2-0)
+                            // If the BE report version is (2-0), we just update the replica's version in Master FE,
+                            // and no need to write edit log, to save some time.
+                            // TODO(cmy): This will be removed later.
+                            boolean isInitVersion = metaVersion == 1 && metaVersionHash == 0
+                                    && backendVersion == 2 && backendVersionHash == 0;
 
                             if (backendReportVersion < Catalog.getCurrentSystemInfo()
                                     .getBackendReportVersion(backendId)) {
@@ -405,7 +420,7 @@ public class ReportHandler extends Daemon {
                             // 2. repair for VERSION_INCOMPLETE finished in BE, but failed or not yet report to FE
                             replica.updateVersionInfo(backendVersion, backendVersionHash, dataSize, rowCount);
                             
-                            if (replica.getLastFailedVersion() < 0) {
+                            if (replica.getLastFailedVersion() < 0 && !isInitVersion) {
                                 // last failed version < 0 means this replica becomes health after sync,
                                 // so we write an edit log to sync this operation
                                 ReplicaPersistInfo info = ReplicaPersistInfo.createForClone(dbId, tableId,

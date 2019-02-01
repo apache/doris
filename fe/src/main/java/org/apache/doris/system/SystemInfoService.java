@@ -886,6 +886,7 @@ public class SystemInfoService {
                 db.readLock();
                 try {
                     atomicLong.set(newReportVersion);
+                    LOG.debug("update backend {} report version: {}， db: {}", backendId, newReportVersion, dbId);
                 } finally {
                     db.readUnlock();
                 }
