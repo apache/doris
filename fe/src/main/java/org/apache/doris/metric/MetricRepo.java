@@ -56,6 +56,7 @@ public final class MetricRepo {
     public static LongCounterMetric COUNTER_LOAD_FINISHED;
     public static LongCounterMetric COUNTER_EDIT_LOG_WRITE;
     public static LongCounterMetric COUNTER_EDIT_LOG_READ;
+    public static LongCounterMetric COUNTER_EDIT_LOG_SIZE_BYTES;
     public static LongCounterMetric COUNTER_IMAGE_WRITE;
     public static LongCounterMetric COUNTER_IMAGE_PUSH;
     public static LongCounterMetric COUNTER_TXN_FAILED;
@@ -159,6 +160,8 @@ public final class MetricRepo {
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_EDIT_LOG_WRITE);
         COUNTER_EDIT_LOG_READ = new LongCounterMetric("edit_log_read", "counter of edit log read from bdbje");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_EDIT_LOG_READ);
+        COUNTER_EDIT_LOG_SIZE_BYTES = new LongCounterMetric("edit_log_size_bytes", "size of edit log");
+        PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_EDIT_LOG_SIZE_BYTES);
         COUNTER_IMAGE_WRITE = new LongCounterMetric("image_write", "counter of image generated");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_IMAGE_WRITE);
         COUNTER_IMAGE_PUSH = new LongCounterMetric("image_push",

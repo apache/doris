@@ -754,7 +754,6 @@ public class RollupJob extends AlterJob {
             db.writeUnlock();
         }
 
-        // log rollup done operation
         Catalog.getInstance().getEditLog().logFinishingRollup(this);
         LOG.info("rollup job[{}] is finishing.", this.getTableId());
 
