@@ -621,7 +621,7 @@ public class RestoreJob extends AbstractJob {
                         Catalog.getCurrentInvertedIndex().addTablet(restoreTablet.getId(), tabletMeta);
                         for (Replica restoreReplica : restoreTablet.getReplicas()) {
                             Catalog.getCurrentInvertedIndex().addReplica(restoreTablet.getId(), restoreReplica);
-                            CreateReplicaTask task = new CreateReplicaTask(restoreReplica.getBackendId(), schemaHash,
+                            CreateReplicaTask task = new CreateReplicaTask(restoreReplica.getBackendId(), dbId,
                                     localTbl.getId(), restorePart.getId(), restoredIdx.getId(),
                                     restoreTablet.getId(), shortKeyColumnCount,
                                     schemaHash, restoreReplica.getVersion(), restoreReplica.getVersionHash(),
@@ -656,7 +656,7 @@ public class RestoreJob extends AbstractJob {
                             Catalog.getCurrentInvertedIndex().addTablet(tablet.getId(), tabletMeta);
                             for (Replica replica : tablet.getReplicas()) {
                                 Catalog.getCurrentInvertedIndex().addReplica(tablet.getId(), replica);
-                                CreateReplicaTask task = new CreateReplicaTask(replica.getBackendId(), schemaHash,
+                                CreateReplicaTask task = new CreateReplicaTask(replica.getBackendId(), dbId,
                                         restoreTbl.getId(), restorePart.getId(), index.getId(), tablet.getId(),
                                         shortKeyColumnCount, schemaHash, replica.getVersion(), replica.getVersionHash(),
                                         keysType, TStorageType.COLUMN, storageMedium, columns,
