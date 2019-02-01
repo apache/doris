@@ -83,7 +83,7 @@ private:
     std::string _rowset_path;
     AlphaRowsetMeta* _alpha_rowset_meta;
     std::vector<std::shared_ptr<SegmentGroup>> _segment_groups;
-    std::vector<std::unique_ptr<ColumnData>> _column_datas;
+    std::vector<std::shared_ptr<ColumnData>> _column_datas;
     std::vector<RowBlock*> _row_blocks;
     RowsetSharedPtr _rowset;
     int _key_range_size;

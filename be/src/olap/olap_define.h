@@ -359,7 +359,6 @@ static const char* const HINIS_KEY_GROUP_SEPARATOR = "&";
 static const std::string DEFAULT_COLUMN_FAMILY = "default";
 static const std::string DORIS_COLUMN_FAMILY = "doris";
 static const std::string META_COLUMN_FAMILY = "meta";
-static const std::string IS_HEADER_CONVERTED = "is_header_converted";
 static const std::string END_ROWSET_ID = "end_rowset_id";
 static const std::string CONVERTED_FLAG = "true";
 const std::string TABLET_ID_KEY = "tablet_id";

@@ -153,7 +153,9 @@ public:
     bool delete_all_files();
 
     inline Version version() const { return _version; }
+    inline void set_version(Version version) { _version = version; }
     inline VersionHash version_hash() const { return _version_hash; }
+    inline void set_version_hash(VersionHash version_hash) { _version_hash = version_hash; }
 
     inline bool is_pending() const { return _is_pending; }
     inline void set_pending_finished() { _is_pending = false; }
