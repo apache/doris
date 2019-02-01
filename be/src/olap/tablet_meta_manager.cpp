@@ -112,29 +112,6 @@ OLAPStatus TabletMetaManager::remove(DataDir* store, TTabletId tablet_id, TSchem
     return res;
 }
 
-OLAPStatus TabletMetaManager::get_header_converted(DataDir* store, bool* flag) {
-    // get is_header_converted flag
-    std::string value;
-    std::string key = IS_HEADER_CONVERTED;
-    OlapMeta* meta = store->get_meta();
-    OLAPStatus s = meta->get(DEFAULT_COLUMN_FAMILY_INDEX, key, value);
-    if (s == OLAP_ERR_META_KEY_NOT_FOUND || value == "false") {
-        *flag = false;
-    } else if (value == "true") {
-        *flag = true;
-    } else {
-        LOG(WARNING) << "invalid _is_header_converted. _is_header_converted=" << value;
-        return OLAP_ERR_HEADER_INVALID_FLAG;
-    }
-    return OLAP_SUCCESS;
-}
-
-OLAPStatus TabletMetaManager::set_converted_flag(DataDir* store) {
-    OlapMeta* meta = store->get_meta();
-    OLAPStatus s = meta->put(DEFAULT_COLUMN_FAMILY_INDEX, IS_HEADER_CONVERTED, CONVERTED_FLAG);
-    return s;
-}
-
 OLAPStatus TabletMetaManager::traverse_headers(OlapMeta* meta,
         std::function<bool(long, long, const std::string&)> const& func) {
     auto traverse_header_func = [&func](const std::string& key, const std::string& value) -> bool {

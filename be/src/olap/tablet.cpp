@@ -480,7 +480,7 @@ RowsetSharedPtr Tablet::rowset_with_largest_size() {
     for (auto& it : _rs_version_map) {
         // use segment_group of base file as target segment_group when base is not empty,
         // or try to find the biggest segment_group.
-        if (largest_rowset->empty() || largest_rowset->zero_num_rows()) {
+        if (it.second->empty() || it.second->zero_num_rows()) {
             continue;
         }
         if (it.second->rowset_meta()->index_disk_size()

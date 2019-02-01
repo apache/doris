@@ -147,10 +147,10 @@ SegmentGroup::~SegmentGroup() {
 }
 
 std::string SegmentGroup::_construct_pending_file_name(int32_t segment_id, const std::string& suffix) const {
-    std::string pending_dir_path = _rowset_path_prefix + PENDING_DELTA_PREFIX;
+    std::string pending_dir_path = PENDING_DELTA_PREFIX;
     std::stringstream file_path;
     file_path << pending_dir_path << "/"
-                          << std::to_string(_rowset_id) << "_" +  _txn_id
+                          << _txn_id + "_" +  std::to_string(_rowset_id) << "_"
                           << _segment_group_id << "_" << segment_id << suffix;
     return file_path.str();
 }
@@ -162,7 +162,7 @@ std::string SegmentGroup::_construct_file_name(int32_t segment_id, const string&
 
 std::string SegmentGroup::construct_index_file_path(const std::string& snapshot_path, int32_t segment_id) const {
     std::stringstream file_path;
-    file_path << snapshot_path << "/" << _tablet_id;
+    file_path << snapshot_path;
     if (_is_pending) {
         file_path << "/" << _construct_pending_file_name(segment_id, ".idx");
     } else {
@@ -177,7 +177,7 @@ std::string SegmentGroup::construct_index_file_path(int32_t segment_id) const {
 
 std::string SegmentGroup::construct_data_file_path(const std::string& snapshot_path, int32_t segment_id) const {
     std::stringstream file_path;
-    file_path << snapshot_path << "/" << _tablet_id;
+    file_path << snapshot_path;
     if (_is_pending) {
         file_path << "/" << _construct_pending_file_name(segment_id, ".dat");
     } else {
