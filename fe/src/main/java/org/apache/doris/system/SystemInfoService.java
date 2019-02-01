@@ -886,11 +886,16 @@ public class SystemInfoService {
                 db.readLock();
                 try {
                     atomicLong.set(newReportVersion);
-                    LOG.debug("update backend {} report version: {}， db: {}", backendId, newReportVersion, dbId);
+                    LOG.debug("update backend {} report version: {}, db: {}", backendId, newReportVersion, dbId);
+                    return;
                 } finally {
                     db.readUnlock();
                 }
+            } else {
+                LOG.warn("failed to update backend report version, db {} does not exist", dbId);
             }
+        } else {
+            LOG.warn("failed to update backend report version, backend {} does not exist", backendId);
         }
     }
 
