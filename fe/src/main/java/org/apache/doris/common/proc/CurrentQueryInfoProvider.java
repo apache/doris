@@ -45,7 +45,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 /**
- * Provide running query's PlanNode informations, IO consumption and CPU consumption.
+ * Provide running query's statistics.
  */
 public class CurrentQueryInfoProvider {
     private static final Logger LOG = LogManager.getLogger(CurrentQueryInfoProvider.class);
@@ -55,57 +55,57 @@ public class CurrentQueryInfoProvider {
 
     /**
      * Firstly send request to trigger profile to report for specified query and wait a while,
-     * Secondly get Counters from Coordinator's RuntimeProfile and return query's consumption.
+     * Secondly get Counters from Coordinator's RuntimeProfile and return query's statistics.
      *
      * @param item
      * @return
      * @throws AnalysisException
      */
-    public Consumption getQueryConsumption(QueryStatisticsItem item) throws AnalysisException {
+    public QueryStatistics getQueryStatistics(QueryStatisticsItem item) throws AnalysisException {
         triggerReportAndWait(item, getWaitingTimeForSingleQuery(), false);
-        return new Consumption(item.getQueryProfile());
+        return new QueryStatistics(item.getQueryProfile());
     }
 
     /**
-     * Same as getQueryConsumption, but this will cause BE to report all queries profile.
+     * Same as above, but this will cause BE to report all queries profile.
      *
      * @param items
      * @return
      * @throws AnalysisException
      */
-    public Map<String, Consumption> getQueryConsumption(Collection<QueryStatisticsItem> items)
+    public Map<String, QueryStatistics> getQueryStatistics(Collection<QueryStatisticsItem> items)
             throws AnalysisException {
         triggerReportAndWait(items, getWaitingTime(items.size()), true);
-        final Map<String, Consumption> queryConsumptions = Maps.newHashMap();
+        final Map<String, QueryStatistics> queryStatisticsMap = Maps.newHashMap();
         for (QueryStatisticsItem item : items) {
-            queryConsumptions.put(item.getQueryId(), new Consumption(item.getQueryProfile()));
+            queryStatisticsMap.put(item.getQueryId(), new QueryStatistics(item.getQueryProfile()));
         }
-        return queryConsumptions;
+        return queryStatisticsMap;
     }
 
     /**
-     * Return query's instances consumption.
+     * Return query's instances statistics.
      *
      * @param item
      * @return
      * @throws AnalysisException
      */
-    public Collection<InstanceConsumption> getQueryInstanceConsumption(QueryStatisticsItem item) throws AnalysisException {
+    public Collection<InstanceStatistics> getInstanceStatistics(QueryStatisticsItem item) throws AnalysisException {
         triggerReportAndWait(item, getWaitingTimeForSingleQuery(), false);
         final Map<String, RuntimeProfile> instanceProfiles = collectInstanceProfile(item.getQueryProfile());
-        final List<InstanceConsumption> instanceConsumptions = Lists.newArrayList();
+        final List<InstanceStatistics> instanceStatisticsList = Lists.newArrayList();
         for (QueryStatisticsItem.FragmentInstanceInfo instanceInfo : item.getFragmentInstanceInfos()) {
             final RuntimeProfile instanceProfile = instanceProfiles.get(DebugUtil.printId(instanceInfo.getInstanceId()));
             Preconditions.checkNotNull(instanceProfile);
-            final InstanceConsumption consumption =
-                    new InstanceConsumption(
+            final InstanceStatistics Statistics =
+                    new InstanceStatistics(
                             instanceInfo.getFragmentId(),
                             instanceInfo.getInstanceId(),
                             instanceInfo.getAddress(),
                             instanceProfile);
-            instanceConsumptions.add(consumption);
+            instanceStatisticsList.add(Statistics);
         }
-        return instanceConsumptions;
+        return instanceStatisticsList;
     }
 
     /**
@@ -237,7 +237,7 @@ public class CurrentQueryInfoProvider {
                         errMsg = result.status.msgs.get(0);
                     }
                     throw new AnalysisException(reasonPrefix + " backend:" + pair.first.getAddress()
-                    + " reason:" + errMsg);
+                            + " reason:" + errMsg);
                 }
             } catch (InterruptedException | ExecutionException | TimeoutException e) {
                 LOG.warn(reasonPrefix + " reason:" + e.getCause());
@@ -265,122 +265,56 @@ public class CurrentQueryInfoProvider {
     }
 
 
-    public static class Consumption {
-        private final static String OLAP_SCAN_NODE = "OLAP_SCAN_NODE";
-        private final static String HASH_JOIN_NODE = "HASH_JOIN_NODE";
-        private final static String HASH_AGGREGATION_NODE = "AGGREGATION_NODE";
-        private final static String SORT_NODE = "SORT_NODE";
-        private final static String ANALYTIC_EVAL_NODE = "ANALYTIC_EVAL_NODE";
-        private final static String UNION_NODE = "UNION_NODE";
-        private final static String EXCHANGE_NODE = "EXCHANGE_NODE";
+    public static class QueryStatistics {
+        final List<Map<String, Counter>> counterMaps;
 
-        protected final List<ConsumptionCalculator> calculators;
-
-        public Consumption(RuntimeProfile profile) {
-            this.calculators = Lists.newArrayList();
-            init(profile);
+        public QueryStatistics(RuntimeProfile profile) {
+            counterMaps = Lists.newArrayList();
+            collectCounters(profile, counterMaps);
         }
 
-        private void init(RuntimeProfile profile) {
-            final List<Map<String, Counter>> olapScanCounters = Lists.newArrayList();
-            collectNodeProfileCounters(profile, olapScanCounters, OLAP_SCAN_NODE);
-            calculators.add(new OlapScanNodeConsumptionCalculator(olapScanCounters));
-
-            final List<Map<String, Counter>> hashJoinCounters = Lists.newArrayList();
-            collectNodeProfileCounters(profile, hashJoinCounters, HASH_JOIN_NODE);
-            calculators.add(new HashJoinConsumptionCalculator(hashJoinCounters));
-
-            final List<Map<String, Counter>> hashAggCounters = Lists.newArrayList();
-            collectNodeProfileCounters(profile, hashAggCounters, HASH_AGGREGATION_NODE);
-            calculators.add(new HashAggConsumptionCalculator(hashAggCounters));
-
-            final List<Map<String, Counter>> sortCounters = Lists.newArrayList();
-            collectNodeProfileCounters(profile, sortCounters, SORT_NODE);
-            calculators.add(new SortConsumptionCalculator(sortCounters));
-
-            final List<Map<String, Counter>> windowsCounters = Lists.newArrayList();
-            collectNodeProfileCounters(profile, windowsCounters, ANALYTIC_EVAL_NODE);
-            calculators.add(new WindowsConsumptionCalculator(windowsCounters));
-
-            final List<Map<String, Counter>> unionCounters = Lists.newArrayList();
-            collectNodeProfileCounters(profile, unionCounters, UNION_NODE);
-            calculators.add(new UnionConsumptionCalculator(unionCounters));
-
-            final List<Map<String, Counter>> exchangeCounters = Lists.newArrayList();
-            collectNodeProfileCounters(profile, exchangeCounters, EXCHANGE_NODE);
-            calculators.add(new ExchangeConsumptionCalculator(exchangeCounters));
-        }
-
-        private void collectNodeProfileCounters(RuntimeProfile profile,
-                                                List<Map<String, Counter>> counterMaps, String name) {
+        private void collectCounters(RuntimeProfile profile,
+                                                List<Map<String, Counter>> counterMaps) {
             for (Map.Entry<String, RuntimeProfile> entry : profile.getChildMap().entrySet()) {
-                if (name.equals(parsePossibleExecNodeName(entry.getKey()))) {
-                    counterMaps.add(entry.getValue().getCounterMap());
-                }
-                collectNodeProfileCounters(entry.getValue(), counterMaps, name);
+                counterMaps.add(entry.getValue().getCounterMap());
+                collectCounters(entry.getValue(), counterMaps);
             }
         }
 
-        /**
-         * ExecNode's RuntimeProfile name is "$node_type_name (id=?)"
-         * @param str
-         * @return
-         */
-        private String parsePossibleExecNodeName(String str) {
-            final String[] elements = str.split(" ");
-            if (elements.length == 2) {
-                return elements[0];
-            } else {
-                return "";
+        public long getScanBytes() {
+            long scanBytes = 0;
+            for (Map<String, Counter> counters : counterMaps) {
+                final Counter counter = counters.get("CompressedBytesRead");
+                scanBytes += counter == null ? 0 : counter.getValue();
             }
+            return scanBytes;
         }
 
-        private long getTotalCpuConsumption() {
-            long cpu = 0;
-            for (ConsumptionCalculator consumption : calculators) {
-                cpu += consumption.getProcessRows();
+        public long getRowsReturned() {
+            long rowsReturned = 0;
+            for (Map<String, Counter> counters : counterMaps) {
+                final Counter counter = counters.get("RowsReturned");
+                rowsReturned += counter == null ? 0 : counter.getValue();
             }
-            return cpu;
-        }
-
-        private long getTotalIoConsumption() {
-            long io = 0;
-            for (ConsumptionCalculator consumption : calculators) {
-                io += consumption.getScanBytes();
-            }
-            return io;
-        }
-
-        public String getFormattingProcessRows() {
-            final StringBuilder builder = new StringBuilder();
-            builder.append(getTotalCpuConsumption()).append(" Rows");
-            return builder.toString();
-        }
-
-        public String getFormattingScanBytes() {
-            final Pair<Double, String> pair = DebugUtil.getByteUint(getTotalIoConsumption());
-            final Formatter fmt = new Formatter();
-            final StringBuilder builder = new StringBuilder();
-            builder.append(fmt.format("%.2f", pair.first)).append(" ").append(pair.second);
-            return builder.toString();
+            return rowsReturned;
         }
     }
 
-    public static class InstanceConsumption extends Consumption {
+    public static class InstanceStatistics {
         private final String fragmentId;
         private final TUniqueId instanceId;
         private final TNetworkAddress address;
+        private final QueryStatistics statistics;
 
-        public InstanceConsumption(
+        public InstanceStatistics(
                 String fragmentId,
                 TUniqueId instanceId,
                 TNetworkAddress address,
                 RuntimeProfile profile) {
-            super(profile);
             this.fragmentId = fragmentId;
             this.instanceId = instanceId;
             this.address = address;
-
+            this.statistics = new QueryStatistics(profile);
         }
 
         public String getFragmentId() {
@@ -394,125 +328,13 @@ public class CurrentQueryInfoProvider {
         public TNetworkAddress getAddress() {
             return address;
         }
-    }
 
-    private static abstract class ConsumptionCalculator {
-        protected final List<Map<String, Counter>> counterMaps;
-
-        public ConsumptionCalculator(List<Map<String, Counter>> counterMaps) {
-            this.counterMaps = counterMaps;
-        }
-
-        public long getProcessRows() {
-            long cpu = 0;
-            for (Map<String, Counter> counters : counterMaps) {
-                cpu += getProcessRows(counters);
-            }
-            return cpu;
+        public long getRowsReturned() {
+            return statistics.getRowsReturned();
         }
 
         public long getScanBytes() {
-            long io = 0;
-            for (Map<String, Counter> counters : counterMaps) {
-                io += getScanBytes(counters);
-            }
-            return io;
-        }
-
-        protected long getProcessRows(Map<String, Counter> counters) {
-            return 0;
-        }
-
-        protected long getScanBytes(Map<String, Counter> counters) {
-            return 0;
-        }
-    }
-
-    private static class OlapScanNodeConsumptionCalculator extends ConsumptionCalculator {
-        public OlapScanNodeConsumptionCalculator(List<Map<String, Counter>> counterMaps) {
-            super(counterMaps);
-        }
-
-        @Override
-        protected long getScanBytes(Map<String, Counter> counters) {
-            final Counter counter = counters.get("CompressedBytesRead");
-            return counter == null ? 0 : counter.getValue();
-        }
-    }
-
-    private static class HashJoinConsumptionCalculator extends ConsumptionCalculator {
-        public HashJoinConsumptionCalculator(List<Map<String, Counter>> counterMaps) {
-            super(counterMaps);
-        }
-
-        @Override
-        protected long getProcessRows(Map<String, Counter> counters) {
-            final Counter probeCounter = counters.get("ProbeRows");
-            final Counter buildCounter = counters.get("BuildRows");
-            return probeCounter == null || buildCounter == null ?
-                    0 : probeCounter.getValue() + buildCounter.getValue();
-        }
-    }
-
-    private static class HashAggConsumptionCalculator extends ConsumptionCalculator {
-        public HashAggConsumptionCalculator(List<Map<String, Counter>> counterMaps) {
-            super(counterMaps);
-        }
-
-        @Override
-        protected long getProcessRows(Map<String, Counter> counters) {
-            final Counter buildCounter = counters.get("BuildRows");
-            return buildCounter == null ? 0 : buildCounter.getValue();
-        }
-    }
-
-    private static class SortConsumptionCalculator extends ConsumptionCalculator {
-        public SortConsumptionCalculator(List<Map<String, Counter>> counterMaps) {
-            super(counterMaps);
-        }
-
-        @Override
-        protected long getProcessRows(Map<String, Counter> counters) {
-            final Counter sortRowsCounter = counters.get("SortRows");
-            return sortRowsCounter == null ? 0 : sortRowsCounter.getValue();
-        }
-    }
-
-    private static class WindowsConsumptionCalculator extends ConsumptionCalculator {
-        public WindowsConsumptionCalculator(List<Map<String, Counter>> counterMaps) {
-            super(counterMaps);
-        }
-
-        @Override
-        protected long getProcessRows(Map<String, Counter> counters) {
-            final Counter processRowsCounter = counters.get("ProcessRows");
-            return processRowsCounter == null ? 0 : processRowsCounter.getValue();
-
-        }
-    }
-
-    private static class UnionConsumptionCalculator extends ConsumptionCalculator {
-        public UnionConsumptionCalculator(List<Map<String, Counter>> counterMaps) {
-            super(counterMaps);
-        }
-
-        @Override
-        protected long getProcessRows(Map<String, Counter> counters) {
-            final Counter materializeRowsCounter = counters.get("MaterializeRows");
-            return materializeRowsCounter == null ? 0 : materializeRowsCounter.getValue();
-        }
-    }
-
-    private static class ExchangeConsumptionCalculator extends ConsumptionCalculator {
-
-        public ExchangeConsumptionCalculator(List<Map<String, Counter>> counterMaps) {
-            super(counterMaps);
-        }
-
-        @Override
-        protected long getProcessRows(Map<String, Counter> counters) {
-            final Counter mergeRowsCounter = counters.get("MergeRows");
-            return mergeRowsCounter == null ? 0 : mergeRowsCounter.getValue();
+            return statistics.getScanBytes();
         }
     }
 

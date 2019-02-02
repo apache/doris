@@ -97,32 +97,18 @@ public class ConnectProcessor {
         ctx.getState().setOk();
     }
 
-    private String getFormattingScanRows(PQueryStatistics statistics) {
-        final StringBuilder builder = new StringBuilder();
-        builder.append(statistics.scanRows).append(" Rows");
-        return builder.toString();
-    }
-
-    private String getFormattingScanBytes(PQueryStatistics statistics) {
-        final Pair<Double, String> pair = DebugUtil.getByteUint(statistics.scanBytes);
-        final Formatter fmt = new Formatter();
-        final StringBuilder builder = new StringBuilder();
-        builder.append(fmt.format("%.2f", pair.first)).append(" ").append(pair.second);
-        return builder.toString();
-    }
-
     private void auditAfterExec(String origStmt, StatementBase parsedStmt,
                 PQueryStatistics statistics) {
         // slow query
         long elapseMs = System.currentTimeMillis() - ctx.getStartTime();
         // query state log
-        ctx.getAuditBuilder().put("state", ctx.getState());
-        ctx.getAuditBuilder().put("time", elapseMs);
+        ctx.getAuditBuilder().put("State", ctx.getState());
+        ctx.getAuditBuilder().put("Time", elapseMs);
         Preconditions.checkNotNull(statistics); 
-        ctx.getAuditBuilder().put("ScanRows", getFormattingScanRows(statistics));
-        ctx.getAuditBuilder().put("ScanRawData", getFormattingScanBytes(statistics));
-        ctx.getAuditBuilder().put("returnRows", ctx.getReturnRows());
-        ctx.getAuditBuilder().put("stmt_id", ctx.getStmtId());
+        ctx.getAuditBuilder().put("ScanBytes", statistics.scanBytes);
+        ctx.getAuditBuilder().put("ScanRows", statistics.scanRows);
+        ctx.getAuditBuilder().put("ReturnRows", ctx.getReturnRows());
+        ctx.getAuditBuilder().put("StmtId", ctx.getStmtId());
 
         if (ctx.getState().isQuery()) {
             MetricRepo.COUNTER_QUERY_ALL.increase(1L);
@@ -134,15 +120,15 @@ public class ConnectProcessor {
                 // ok query
                 MetricRepo.HISTO_QUERY_LATENCY.update(elapseMs);
             }
-            ctx.getAuditBuilder().put("is_query", 1);
+            ctx.getAuditBuilder().put("IsQuery", 1);
         } else {
-            ctx.getAuditBuilder().put("is_query", 0);
+            ctx.getAuditBuilder().put("IsQuery", 0);
         }
         // We put origin query stmt at the end of audit log, for parsing the log more convenient.
         if (!ctx.getState().isQuery() && (parsedStmt != null && parsedStmt.needAuditEncryption())) {
-            ctx.getAuditBuilder().put("stmt", parsedStmt.toSql());
+            ctx.getAuditBuilder().put("Stmt", parsedStmt.toSql());
         } else {
-            ctx.getAuditBuilder().put("stmt", origStmt);
+            ctx.getAuditBuilder().put("Stmt", origStmt);
         }
 
         AuditLog.getQueryAudit().log(ctx.getAuditBuilder().toString());
@@ -173,9 +159,9 @@ public class ConnectProcessor {
             return;
         }
         ctx.getAuditBuilder().reset();
-        ctx.getAuditBuilder().put("client", ctx.getMysqlChannel().getRemoteHostPortString());
-        ctx.getAuditBuilder().put("user", ctx.getQualifiedUser());
-        ctx.getAuditBuilder().put("db", ctx.getDatabase());
+        ctx.getAuditBuilder().put("Client", ctx.getMysqlChannel().getRemoteHostPortString());
+        ctx.getAuditBuilder().put("User", ctx.getQualifiedUser());
+        ctx.getAuditBuilder().put("Db", ctx.getDatabase());
 
         // execute this query.
         try {

@@ -200,7 +200,6 @@ Status NewPartitionedAggregationNode::prepare(RuntimeState* state) {
       ADD_COUNTER(runtime_profile(), "PartitionsCreated", TUnit::UNIT);
   largest_partition_percent_ =
       runtime_profile()->AddHighWaterMarkCounter("LargestPartitionPercent", TUnit::UNIT);
-  _build_rows_counter = ADD_COUNTER(runtime_profile(), "BuildRows", TUnit::UNIT);
   if (is_streaming_preagg_) {
     runtime_profile()->append_exec_option("Streaming Preaggregation");
     streaming_timer_ = ADD_TIMER(runtime_profile(), "StreamingTime");
@@ -308,7 +307,6 @@ Status NewPartitionedAggregationNode::open(RuntimeState* state) {
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(QueryMaintenance(state));
     RETURN_IF_ERROR(_children[0]->get_next(state, &batch, &eos));
-    COUNTER_UPDATE(_build_rows_counter, batch.num_rows());
     if (UNLIKELY(VLOG_ROW_IS_ON)) {
       for (int i = 0; i < batch.num_rows(); ++i) {
         TupleRow* row = batch.get_row(i);

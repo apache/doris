@@ -183,7 +183,8 @@ public:
     // check the pending data that still not publish version
     void get_expire_pending_data(std::vector<int64_t>* transaction_ids);
 
-    void delete_expire_incremental_data();
+    bool has_expired_incremental_data();
+    void delete_expired_incremental_data();
 
     // don't need header lock, because it occurs before loading tablet
     void load_pending_data();
@@ -564,6 +565,7 @@ public:
 
     // 在使用之前对header加锁
     void set_cumulative_layer_point(const int32_t new_point) {
+        LOG(INFO) << "cumulative_layer_point: " << new_point;
         _header->set_cumulative_layer_point(new_point);
     }
 
@@ -704,7 +706,8 @@ private:
     OLAPStatus _add_incremental_data(std::vector<SegmentGroup*>& index_vec, int64_t transaction_id,
                                      const Version& version, const VersionHash& version_hash);
 
-    void _delete_incremental_data(const Version& version, const VersionHash& version_hash);
+    void _delete_incremental_data(const Version& version, const VersionHash& version_hash,
+                                  std::vector<std::string>* files_to_remove);
 
     OLAPStatus _create_hard_link(const std::string& from, const std::string& to,
                                  std::vector<std::string>* linked_success_files);

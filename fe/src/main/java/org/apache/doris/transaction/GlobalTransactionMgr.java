@@ -1053,8 +1053,8 @@ public class GlobalTransactionMgr {
                 long versionHash = partitionCommitInfo.getVersionHash();
                 partition.updateVisibleVersionAndVersionHash(version, versionHash);
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("transaction state {} set partition's version to [{}] and version hash to [{}]",
-                              transactionState, version, versionHash);
+                    LOG.debug("transaction state {} set partition {}'s version to [{}] and version hash to [{}]",
+                            transactionState, partition.getId(), version, versionHash);
                 }
             }
         }

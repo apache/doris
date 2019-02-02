@@ -424,7 +424,7 @@ public class Load {
                 if (tbl != null && tbl.getType() == TableType.OLAP
                         && ((OlapTable) tbl).getState() == OlapTableState.RESTORE) {
                     throw new DdlException("Table " + tbl.getName() + " is in restore process. "
-                                                   + "Can not load into it");
+                            + "Can not load into it");
                 }
             }
         } finally {
@@ -1015,20 +1015,6 @@ public class Load {
         }
     }
 
-    public boolean isLabelUsed(String fullDbName, String label, long timestamp) throws DdlException {
-        Database db = Catalog.getInstance().getDb(fullDbName);
-        if (db == null) {
-            throw new DdlException("Db does not exist. name: " + fullDbName);
-        }
-
-        readLock();
-        try {
-            return isLabelUsed(db.getId(), label, timestamp, true);
-        } finally {
-            readUnlock();
-        }
-    }
-
     /*
      * 1. if label is already used, and this is not a retry request,
      *    throw exception ("Label already used")
@@ -1552,8 +1538,8 @@ public class Load {
     public long getLatestJobIdByLabel(long dbId, String labelValue) {
         LoadJob job = null;
         long jobId = 0;
+        readLock();
         try {
-            readLock();
             List<LoadJob> loadJobs = this.dbToLoadJobs.get(dbId);
             if (loadJobs == null) {
                 return 0;
@@ -1585,21 +1571,22 @@ public class Load {
     public List<List<Comparable>> getLoadJobUnfinishedInfo(long jobId) {
         LinkedList<List<Comparable>> infos = new LinkedList<List<Comparable>>();
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
-        readLock();
+
+        LoadJob loadJob = getLoadJob(jobId);
+        if (loadJob == null
+                || (loadJob.getState() != JobState.LOADING && loadJob.getState() != JobState.QUORUM_FINISHED)) {
+            return infos;
+        }
+
+        long dbId = loadJob.getDbId();
+        Database db = Catalog.getInstance().getDb(dbId);
+        if (db == null) {
+            return infos;
+        }
+
+        db.readLock();
         try {
-            LoadJob loadJob = getLoadJob(jobId);
-            if (loadJob == null
-                    || (loadJob.getState() != JobState.LOADING && loadJob.getState() != JobState.QUORUM_FINISHED)) {
-                return infos;
-            }
-
-            long dbId = loadJob.getDbId();
-            Database db = Catalog.getInstance().getDb(dbId);
-            if (db == null) {
-                return infos;
-            }
-
-            db.readLock();
+            readLock();
             try {
                 Map<Long, TabletLoadInfo> tabletMap = loadJob.getIdToTabletLoadInfo();
                 for (long tabletId : tabletMap.keySet()) {
@@ -1657,11 +1644,10 @@ public class Load {
                 } // end for tablet
 
             } finally {
-                db.readUnlock();
+                readUnlock();
             }
-
         } finally {
-            readUnlock();
+            db.readUnlock();
         }
 
         // sort by version, backendId

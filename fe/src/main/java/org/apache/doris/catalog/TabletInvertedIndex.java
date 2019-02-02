@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.task.RecoverTabletTask;
 import org.apache.doris.thrift.TPartitionVersionInfo;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TTablet;
@@ -108,8 +107,7 @@ public class TabletInvertedIndex {
                              ListMultimap<TStorageMedium, Long> tabletMigrationMap, 
                              ListMultimap<Long, TPartitionVersionInfo> transactionsToPublish, 
                              ListMultimap<Long, Long> transactionsToClear, 
-                             List<RecoverTabletTask> tabletNeedRecover) {
-
+                             ListMultimap<Long, Long> tabletRecoveryMap) {
         long start = 0L;
         readLock();
         try {
@@ -130,7 +128,7 @@ public class TabletInvertedIndex {
                             if (tabletMeta.containsSchemaHash(backendTabletInfo.getSchema_hash())) {
                                 foundTabletsWithValidSchema.add(tabletId);
                                 // 1. (intersection)
-                                if (checkSync(replica, backendTabletInfo.getVersion(),
+                                if (needSync(replica, backendTabletInfo.getVersion(),
                                               backendTabletInfo.getVersion_hash())) {
                                     // need sync
                                     tabletSyncMap.put(tabletMeta.getDbId(), tabletId);
@@ -143,12 +141,14 @@ public class TabletInvertedIndex {
                                     replica.setPathHash(backendTabletInfo.getPath_hash());
                                 }
 
-                                if (checkNeedRecover(replica, backendTabletInfo.getVersion(),
-                                        backendTabletInfo.getVersion_hash())) {
-                                    RecoverTabletTask recoverTabletTask = new RecoverTabletTask(backendId, 
-                                            tabletId, replica.getVersion(), replica.getVersionHash(), 
+                                if (needRecover(replica, tabletMeta.getOldSchemaHash(), backendTabletInfo)) {
+                                    LOG.warn("replica {} of tablet {} on backend {} need recovery. "
+                                            + "replica in FE: {}, report version {}-{}, report schema hash: {}",
+                                            replica.getId(), tabletId, backendId, replica,
+                                            backendTabletInfo.getVersion(),
+                                            backendTabletInfo.getVersion_hash(),
                                             backendTabletInfo.getSchema_hash());
-                                    tabletNeedRecover.add(recoverTabletTask);
+                                    tabletRecoveryMap.put(tabletMeta.getDbId(), tabletId);
                                 }
 
                                 // check if need migration
@@ -309,26 +309,45 @@ public class TabletInvertedIndex {
         return backendIdToReplica.keySet();
     }
 
-    private boolean checkSync(Replica replicaMeta, long backendVersion, long backendVersionHash) {
-        long metaVersion = replicaMeta.getVersion();
-        long metaVersionHash = replicaMeta.getVersionHash();
-        if (metaVersion < backendVersion || (metaVersion == backendVersion && metaVersionHash != backendVersionHash)) {
+    private boolean needSync(Replica replicaInFe, long backendVersion, long backendVersionHash) {
+        long versionInFe = replicaInFe.getVersion();
+        long versionHashInFe = replicaInFe.getVersionHash();
+        if (backendVersion > versionInFe || (versionInFe == backendVersion && versionHashInFe != backendVersionHash)) {
             return true;
         }
         return false;
     }
     
     /**
-     * if be's report version < fe's meta version, it means there exists one or more holes in be
-     * the be needs recovery
-     * @param replicaMeta
-     * @param backendVersion
-     * @param backendVersionHash
-     * @return
+     * if be's report version < fe's meta version, it means some version is missing in BE
+     * because of some unrecoverable failure.
      */
-    private boolean checkNeedRecover(Replica replicaMeta, long backendVersion, long backendVersionHash) {
-        long metaVersion = replicaMeta.getVersion();
-        if (metaVersion > backendVersion) {
+    private boolean needRecover(Replica replicaInFe, int schemaHashInFe, TTabletInfo backendTabletInfo) {
+        if (schemaHashInFe != backendTabletInfo.getSchema_hash()
+                || backendTabletInfo.getVersion() == -1 && backendTabletInfo.getVersion_hash() == 0) {
+            // no data file exist on BE, maybe this is a newly created schema change tablet. no need to recovery
+            return false;
+        }
+
+        if (replicaInFe.getVersionHash() == 0 && backendTabletInfo.getVersion() == replicaInFe.getVersion() - 1) {
+            /*
+             * This is very tricky:
+             * 1. Assume that we want to create a replica with version (X, Y), the init version of replica in FE
+             *      is (X, Y), and BE will create a replica with version (X+1, 0).
+             * 2. BE will report version (X+1, 0), and FE will sync with this version, change to (X+1, 0), too.
+             * 3. When restore, BE will restore the replica with version (X, Y) (which is the visible version of partition)
+             * 4. BE report the version (X-Y), and than we fall into here
+             * 
+             * Actually, the version (X+1, 0) is a 'virtual' version, so here we ignore this kind of report
+             */
+            return false;
+        }
+
+        if (backendTabletInfo.getVersion() < replicaInFe.getVersion()
+                && backendTabletInfo.isSetVersion_miss() && backendTabletInfo.isVersion_miss()) {
+            // even if backend version is less than fe's version, but if version_miss is false,
+            // which means this may be a stale report.
+            // so we only return true if version_miss is true.
             return true;
         }
         return false;

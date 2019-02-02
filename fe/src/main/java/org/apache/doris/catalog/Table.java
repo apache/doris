@@ -18,7 +18,6 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -269,7 +268,8 @@ public class Table extends MetaObject implements Writable {
     /*
      * 1. Only schedule OLAP table.
      * 2. If table is colocate with other table, not schedule it.
-     * 3. if table's state is not NORMAL, not schedule it.
+     * 3. if table's state is not NORMAL, we will schedule it, but will only repair VERSION_IMCOMPLETE status,
+     *      this will be checked in TabletScheduler.
      */
     public boolean needSchedule() {
         if (type != TableType.OLAP) {
@@ -278,17 +278,11 @@ public class Table extends MetaObject implements Writable {
 
         OlapTable olapTable = (OlapTable) this;
         
-        if (!Strings.isNullOrEmpty(olapTable.getColocateTable())) {
+        if (Catalog.getCurrentColocateIndex().isColocateTable(olapTable.getId())) {
             LOG.info("table {} is a colocate table, skip tablet scheduler.", name);
             return false;
         }
 
-        if (olapTable.getState() != OlapTableState.NORMAL) {
-            LOG.info("table {}'s state is not NORMAL: {}, skip tablet scheduler.",
-                    name, olapTable.getState().name());
-            return false;
-        }
-        
         return true;
     }
 }

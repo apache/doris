@@ -38,11 +38,11 @@ public class RuntimeProfileTest {
     
     @Test
     public void testSortChildren() {
-        RuntimeProfile profile = new RuntimeProfile();
+        RuntimeProfile profile = new RuntimeProfile("profile");
         // init profile
-        RuntimeProfile profile1 = new RuntimeProfile();
-        RuntimeProfile profile2 = new RuntimeProfile();
-        RuntimeProfile profile3 = new RuntimeProfile();
+        RuntimeProfile profile1 = new RuntimeProfile("profile1");
+        RuntimeProfile profile2 = new RuntimeProfile("profile2");
+        RuntimeProfile profile3 = new RuntimeProfile("profile3");
         profile1.getCounterTotalTime().setValue(1);
         profile2.getCounterTotalTime().setValue(3);
         profile3.getCounterTotalTime().setValue(2);

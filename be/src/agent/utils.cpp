@@ -127,7 +127,7 @@ AgentStatus MasterServerClient::finish_task(
     FrontendServiceConnection client(
             _client_cache,
             _master_info.network_address,
-            MASTER_CLIENT_TIMEOUT,
+            config::thrift_rpc_timeout_ms,
             &client_status);
 
     if (!client_status.ok()) {
@@ -142,7 +142,7 @@ AgentStatus MasterServerClient::finish_task(
             client->finishTask(*result, request);
         } catch (TTransportException& e) {
             OLAP_LOG_WARNING("master client, retry finishTask: %s", e.what());
-            client_status = client.reopen(MASTER_CLIENT_TIMEOUT);
+            client_status = client.reopen(config::thrift_rpc_timeout_ms);
 
             if (!client_status.ok()) {
                 OLAP_LOG_WARNING("master client, get client from cache failed."
@@ -156,6 +156,7 @@ AgentStatus MasterServerClient::finish_task(
             client->finishTask(*result, request);
         }
     } catch (TException& e) {
+        client.reopen(config::thrift_rpc_timeout_ms);
         OLAP_LOG_WARNING("master client, finishTask execute failed."
                          "host: %s, port: %d, error: %s",
                          _master_info.network_address.hostname.c_str(),
@@ -172,7 +173,7 @@ AgentStatus MasterServerClient::report(const TReportRequest request, TMasterResu
     FrontendServiceConnection client(
             _client_cache,
             _master_info.network_address,
-            MASTER_CLIENT_TIMEOUT,
+            config::thrift_rpc_timeout_ms,
             &client_status);
 
     if (!client_status.ok()) {
@@ -193,7 +194,7 @@ AgentStatus MasterServerClient::report(const TReportRequest request, TMasterResu
                 // if not TIMED_OUT, retry
                 OLAP_LOG_WARNING("master client, retry report: %s", e.what());
 
-                client_status = client.reopen(MASTER_CLIENT_TIMEOUT);
+                client_status = client.reopen(config::thrift_rpc_timeout_ms);
                 if (!client_status.ok()) {
                     OLAP_LOG_WARNING("master client, get client from cache failed."
                                      "host: %s, port: %d, code: %d",
@@ -212,6 +213,7 @@ AgentStatus MasterServerClient::report(const TReportRequest request, TMasterResu
             }   
         }   
     } catch (TException& e) {
+        client.reopen(config::thrift_rpc_timeout_ms);
         LOG(WARNING) << "master client. finish report failed. host: " << _master_info.network_address.hostname
                     << ". port: " << _master_info.network_address.port << ". code: " << client_status.code();
         return DORIS_ERROR;

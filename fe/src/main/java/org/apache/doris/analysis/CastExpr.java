@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSet;
@@ -196,7 +197,17 @@ public class CastExpr extends Expr {
     @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         Preconditions.checkState(!isImplicit);
-        targetTypeDef.analyze(analyzer);
+        // When cast target type is string and it's length is default -1, the result length
+        // of cast is decided by child.
+        if (targetTypeDef.getType().isScalarType()) {
+            final ScalarType targetType = (ScalarType) targetTypeDef.getType();
+            if (!(targetType.getPrimitiveType().isStringType() 
+                    && !targetType.isAssignedStrLenInColDefinition())) {
+                targetTypeDef.analyze(analyzer);
+            }
+        } else {
+            targetTypeDef.analyze(analyzer);
+        }
         type = targetTypeDef.getType();
         analyze();
     }

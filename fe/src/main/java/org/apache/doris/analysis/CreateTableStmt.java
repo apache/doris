@@ -266,7 +266,7 @@ public class CreateTableStmt extends DdlStmt {
             rowLengthBytes += columnDef.getType().getStorageLayoutBytes();
         }
 
-        if (rowLengthBytes > Config.max_layout_length_per_row) {
+        if (rowLengthBytes > Config.max_layout_length_per_row && engineName.equals("olap")) {
             throw new AnalysisException("The size of a row (" + rowLengthBytes + ") exceed the maximal row size: "
                     + Config.max_layout_length_per_row);
         }
@@ -308,7 +308,7 @@ public class CreateTableStmt extends DdlStmt {
 
         for (ColumnDef columnDef : columnDefs) {
             Column col = columnDef.toColumn();
-            if (keysDesc.getKeysType() == KeysType.UNIQUE_KEYS) {
+            if (keysDesc != null && keysDesc.getKeysType() == KeysType.UNIQUE_KEYS) {
                 if (!col.isKey()) {
                     col.setAggregationTypeImplicit(true);
                 }

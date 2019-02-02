@@ -25,6 +25,7 @@ import org.apache.doris.qe.QueryStatisticsItem;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.common.util.QueryStatisticsFormatter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -39,7 +40,7 @@ public class CurrentQueryFragmentProcNode implements ProcNodeInterface {
     private static final Logger LOG = LogManager.getLogger(CurrentQueryFragmentProcNode.class);
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("FragmentId").add("InstanceId").add("Host")
-            .add("ScanRawData").add("ProcessRows").build();
+            .add("ScanBytes").add("ProcessRows").build();
     private QueryStatisticsItem item;
 
     public CurrentQueryFragmentProcNode(QueryStatisticsItem item) {
@@ -70,17 +71,19 @@ public class CurrentQueryFragmentProcNode implements ProcNodeInterface {
 
     private ProcResult requestFragmentExecInfos() throws AnalysisException {
         final CurrentQueryInfoProvider provider = new CurrentQueryInfoProvider();
-        final Collection<CurrentQueryInfoProvider.InstanceConsumption> instanceConsumptions
-                = provider.getQueryInstanceConsumption(item);
+        final Collection<CurrentQueryInfoProvider.InstanceStatistics> instanceStatisticsCollection
+                = provider.getInstanceStatistics(item);
         final List<List<String>> sortedRowDatas = Lists.newArrayList();
-        for (CurrentQueryInfoProvider.InstanceConsumption instanceConsumption :
-                instanceConsumptions) {
+        for (CurrentQueryInfoProvider.InstanceStatistics instanceStatistics :
+                instanceStatisticsCollection) {
             final List<String> rowData = Lists.newArrayList();
-            rowData.add(instanceConsumption.getFragmentId());
-            rowData.add(instanceConsumption.getInstanceId().toString());
-            rowData.add(instanceConsumption.getAddress().toString());
-            rowData.add(instanceConsumption.getFormattingScanBytes());
-            rowData.add(instanceConsumption.getFormattingProcessRows());
+            rowData.add(instanceStatistics.getFragmentId());
+            rowData.add(instanceStatistics.getInstanceId().toString());
+            rowData.add(instanceStatistics.getAddress().toString());
+            rowData.add(QueryStatisticsFormatter.getScanBytes(
+                    instanceStatistics.getScanBytes()));
+            rowData.add(QueryStatisticsFormatter.getRowsReturned(
+                    instanceStatistics.getRowsReturned()));
             sortedRowDatas.add(rowData);
         }
 

@@ -17,357 +17,327 @@
 
 package org.apache.doris.catalog;
 
+import com.google.common.collect.Lists;
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mock;
+import mockit.MockUp;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.KeysDesc;
-import org.apache.doris.analysis.RandomDistributionDesc;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TypeDef;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeMetaVersion;
-import org.apache.doris.system.Backend;
+import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.persist.EditLog;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
-
-import com.google.common.collect.Lists;
-
-import org.easymock.EasyMock;
-import org.easymock.IAnswer;
-import org.easymock.IMockBuilder;
+import org.apache.doris.task.AgentBatchTask;
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.powermock.api.easymock.PowerMock;
-import org.powermock.core.classloader.annotations.PowerMockIgnore;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
+import org.junit.rules.ExpectedException;
 
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
-@RunWith(PowerMockRunner.class)
-@PowerMockIgnore({ "org.apache.log4j.*", "javax.management.*" })
-@PrepareForTest({ Catalog.class, SystemInfoService.class })
 public class CreateTableTest {
 
-    private Catalog catalog;
-    private SystemInfoService systemInfoService;
-    IMockBuilder<Catalog> mockBuilder;
-
-    private String dbName = "testDb";
-    private String tableName = "testTbl";
-
     private TableName dbTableName;
-    private List<ColumnDef> columnDefs;
-    private List<String> colsName;
+    private String dbName = "testDb";
+    private String tableName = "testTable";
+    private String clusterName = "default";
+    private List<Long> beIds = Lists.newArrayList();
+    private List<String> columnNames = Lists.newArrayList();
+    private List<ColumnDef> columnDefs = Lists.newArrayList();
 
+    private Catalog catalog = Catalog.getInstance();
+    private Database db = new Database();
     private Analyzer analyzer;
-    private AtomicLong nextId = new AtomicLong(0L);
 
-    private Backend backend;
+    @Injectable
+    ConnectContext connectContext;
 
-    private RandomDistributionInfo distributionInfo;
+    @Rule
+    public ExpectedException expectedEx = ExpectedException.none();
 
     @Before
-    public void setUp() {
-        mockBuilder = EasyMock.createMockBuilder(Catalog.class);
-        // analyzer
-        analyzer = EasyMock.createMock(Analyzer.class);
-        EasyMock.expect(analyzer.getDefaultDb()).andReturn(dbName);
-        EasyMock.replay(analyzer);
-        // table name
+    public void setUp() throws AnalysisException {
         dbTableName = new TableName(dbName, tableName);
-        // col
-        columnDefs = Lists.newArrayList();
-        columnDefs.add(new ColumnDef("col1", new TypeDef(ScalarType.createType(PrimitiveType.INT))));
-        columnDefs.add(new ColumnDef("col2", new TypeDef(ScalarType.createVarchar(10))));
-        colsName = Lists.newArrayList();
-        colsName.add("col1");
-        colsName.add("col2");
 
-        backend = EasyMock.createMock(Backend.class);
-        EasyMock.expect(backend.isAlive()).andReturn(true).anyTimes();
-        EasyMock.replay(backend);
+        beIds.add(1L);
+        beIds.add(2L);
+        beIds.add(3L);
 
-        distributionInfo = new RandomDistributionInfo(10);
+        columnNames.add("key1");
+        columnNames.add("key2");
 
-        Catalog.getCurrentInvertedIndex().clear();
+        columnDefs.add(new ColumnDef("key1", new TypeDef(ScalarType.createType(PrimitiveType.INT))));
+        columnDefs.add(new ColumnDef("key2", new TypeDef(ScalarType.createVarchar(10))));
+
+        analyzer = new Analyzer(catalog, connectContext);
+
+        new Expectations(analyzer) {
+            {
+                analyzer.getClusterName();
+                result = clusterName;
+            }
+        };
+
+        dbTableName.analyze(analyzer);
     }
 
-    @Test(expected = DdlException.class)
-    public void createTableTest_invalidColumn() throws Exception {
-        catalog = Catalog.getInstance();
+    @Test
+    public void testNormalOlap(@Injectable SystemInfoService systemInfoService, @Injectable PaloAuth paloAuth,
+            @Injectable EditLog editLog) throws Exception {
+        new Expectations(catalog) {
+            {
+                catalog.getDb(dbTableName.getDb());
+                result = db;
 
-        // 1. error order
-        List<ColumnDef> invalidCols1 = Lists.newArrayList();
-        invalidCols1.add(new ColumnDef(
-                "v1", new TypeDef(ScalarType.createType(PrimitiveType.INT)), false,
-                AggregateType.SUM, false, "1",
-                ""));
-        invalidCols1.add(new ColumnDef("k1", new TypeDef(ScalarType.createVarchar(10))));
-        invalidCols1.get(1).setIsKey(true);
-        CreateTableStmt stmt1 = new CreateTableStmt(false, false, dbTableName, invalidCols1, "olap",
-                                                    new KeysDesc(), null,
-                new RandomDistributionDesc(10), null, null);
-        try {
-            catalog.createTable(stmt1);
-        } catch (DdlException e) {
-            System.err.println(e.getMessage());
-        }
+                Catalog.getCurrentSystemInfo();
+                result = systemInfoService;
 
-        // 2. no key column
-        List<ColumnDef> invalidCols2 = Lists.newArrayList();
-        invalidCols2.add(new ColumnDef(
-                "v1", new TypeDef(ScalarType.createType(PrimitiveType.INT)), false, AggregateType.SUM,
-                false, "1", ""));
-        invalidCols2.add(new ColumnDef("v2", new TypeDef(ScalarType.createVarchar(10)), false,
-                AggregateType.REPLACE, false, "abc", ""));
-        CreateTableStmt stmt2 = new CreateTableStmt(false, false, dbTableName, invalidCols2, "olap",
-                                                    new KeysDesc(), null,
-                new RandomDistributionDesc(10), null, null);
+                systemInfoService.checkClusterCapacity(anyString);
+                systemInfoService.seqChooseBackendIds(anyInt, true, true, anyString);
+                result = beIds;
 
-        try {
-            catalog.createTable(stmt2);
-        } catch (DdlException e) {
-            System.err.println(e.getMessage());
-            throw e;
-        }
-    }
+                catalog.getAuth();
+                result = paloAuth;
+                paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.CREATE);
+                result = true;
 
-    @Test(expected = DdlException.class)
-    public void olapDbNotFoundTest() throws Exception {
-        catalog = mockBuilder.addMockedMethod("getDb", String.class).createMock();
-        catalog.getDb(dbName);
-        EasyMock.expectLastCall().andReturn(null);
-        EasyMock.replay(catalog);
+                catalog.getEditLog();
+                result = editLog;
+            }
+        };
+
+        new MockUp<AgentBatchTask>() {
+            @Mock
+            void run() {
+                return;
+            }
+        };
+
+        new MockUp<CountDownLatch>() {
+            @Mock
+            boolean await(long timeout, TimeUnit unit) {
+                return true;
+            }
+        };
 
         CreateTableStmt stmt = new CreateTableStmt(false, false, dbTableName, columnDefs, "olap",
-                                                   new KeysDesc(KeysType.AGG_KEYS, colsName), null,
-                new RandomDistributionDesc(10), null, null);
-        try {
-            catalog.createTable(stmt);
-        } catch (DdlException e) {
-            System.err.println(e.getMessage());
-            throw e;
-        }
+                new KeysDesc(KeysType.AGG_KEYS, columnNames), null,
+                new HashDistributionDesc(1, Lists.newArrayList("key1")), null, null);
+        stmt.analyze(analyzer);
+
+        catalog.createTable(stmt);
     }
 
-    @Test(expected = DdlException.class)
-    public void olapTableExistsTest() throws Exception {
-        Database db = new Database();
-        List<Column> baseSchema = Lists.newArrayList();
-        db.createTable(new OlapTable(1000L, tableName, baseSchema,
-                                     KeysType.AGG_KEYS, new SinglePartitionInfo(), distributionInfo));
-
-        catalog = mockBuilder.addMockedMethod("getDb", String.class).createMock();
-        catalog.getDb(dbName);
-        EasyMock.expectLastCall().andReturn(db);
-        EasyMock.replay(catalog);
+    @Test
+    public void testUnknownDatabase(@Injectable PaloAuth paloAuth) throws Exception {
+        new Expectations(catalog) {
+            {
+                catalog.getAuth();
+                result = paloAuth;
+                paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.CREATE);
+                result = true;
+            }
+        };
 
         CreateTableStmt stmt = new CreateTableStmt(false, false, dbTableName, columnDefs, "olap",
-                                                   new KeysDesc(KeysType.AGG_KEYS, colsName), null,
-                new RandomDistributionDesc(10), null, null);
+                new KeysDesc(KeysType.AGG_KEYS, columnNames), null,
+                new HashDistributionDesc(1, Lists.newArrayList("key1")), null, null);
 
-        try {
-            catalog.createTable(stmt);
-        } catch (DdlException e) {
-            System.err.println(e.getMessage());
-            throw e;
-        }
+        stmt.analyze(analyzer);
+
+        expectedEx.expect(DdlException.class);
+        expectedEx.expectMessage("Unknown database 'default:testDb'");
+
+        catalog.createTable(stmt);
     }
 
-    @Test(expected = DdlException.class)
-    public void olapNotEnoughBackendTest() throws Exception {
-        Database db = new Database();
+    @Test
+    public void testShortKeyTooLarge(@Injectable SystemInfoService systemInfoService, @Injectable PaloAuth paloAuth)
+            throws Exception {
+        new Expectations(catalog) {
+            {
+                catalog.getDb(dbTableName.getDb());
+                result = db;
 
-        catalog = mockBuilder.addMockedMethod("getDb", String.class).addMockedMethod("getNextId").createMock();
-        catalog.getDb(dbName);
-        EasyMock.expectLastCall().andReturn(db);
-        EasyMock.expect(catalog.getNextId()).andReturn(nextId.incrementAndGet()).anyTimes();
-        EasyMock.replay(catalog);
+                Catalog.getCurrentSystemInfo();
+                result = systemInfoService;
 
-        // SystemInfoService
-        systemInfoService = EasyMock.createMock(SystemInfoService.class);
-        systemInfoService.seqChooseBackendIds(EasyMock.anyInt(), EasyMock.anyBoolean(), EasyMock.anyBoolean(),
-                EasyMock.anyString());
-        EasyMock.expectLastCall().andAnswer(new IAnswer<List<Long>>() {
-            @Override
-            public List<Long> answer() throws Throwable {
-                List<Long> ids = Lists.newArrayList();
-                ids.add(1L);
-                ids.add(2L);
-                ids.add(3L);
-                return ids;
+                systemInfoService.checkClusterCapacity(anyString);
+
+                catalog.getAuth();
+                result = paloAuth;
+                paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.CREATE);
+                result = true;
             }
-        }).anyTimes();
-        systemInfoService.getBackend(EasyMock.anyLong());
-        EasyMock.expectLastCall().andReturn(backend).anyTimes();
-        systemInfoService.checkClusterCapacity(EasyMock.anyString());
-        EasyMock.expectLastCall().anyTimes();
-        EasyMock.replay(systemInfoService);
-
-        TabletInvertedIndex invertedIndex = new TabletInvertedIndex();
-
-        PowerMock.mockStatic(Catalog.class);
-        EasyMock.expect(Catalog.getInstance()).andReturn(catalog).anyTimes();
-        EasyMock.expect(Catalog.getCurrentSystemInfo()).andReturn(systemInfoService).anyTimes();
-        EasyMock.expect(Catalog.getCurrentInvertedIndex()).andReturn(invertedIndex).anyTimes();
-        EasyMock.expect(Catalog.isCheckpointThread()).andReturn(false).anyTimes();
-        EasyMock.expect(Catalog.calcShortKeyColumnCount(EasyMock.anyObject(List.class), EasyMock.anyObject(Map.class)))
-                .andReturn((short) 2).anyTimes();
-        PowerMock.replay(Catalog.class);
-
-        CreateTableStmt stmt1 = new CreateTableStmt(false, false, dbTableName, columnDefs, "olap",
-                                                    new KeysDesc(KeysType.AGG_KEYS, colsName), null,
-                new RandomDistributionDesc(1), null, null);
-        try {
-            catalog.createTable(stmt1);
-        } catch (DdlException e) {
-            System.err.println(e.getMessage());
-            throw e;
-        }
-    }
-
-    @Test(expected = DdlException.class)
-    public void olapShortKeyTest() throws Exception {
-        Database db = new Database();
-        catalog = mockBuilder.addMockedMethod("getDb", String.class).addMockedMethod("getNextId").createMock();
-        catalog.getDb(dbName);
-        EasyMock.expectLastCall().andReturn(db).anyTimes();
-        EasyMock.expect(catalog.getNextId()).andReturn(nextId.incrementAndGet()).anyTimes();
-        EasyMock.replay(catalog);
-
-        // SystemInfoService
-        systemInfoService = EasyMock.createMock(SystemInfoService.class);
-        systemInfoService.seqChooseBackendIds(EasyMock.anyInt(), EasyMock.anyBoolean(), EasyMock.anyBoolean(),
-                EasyMock.anyString());
-        EasyMock.expectLastCall().andAnswer(new IAnswer<List<Long>>() {
-            @Override
-            public List<Long> answer() throws Throwable {
-                List<Long> ids = Lists.newArrayList();
-                ids.add(1L);
-                ids.add(2L);
-                ids.add(3L);
-                return ids;
-            }
-        }).anyTimes();
-        systemInfoService.getBackend(EasyMock.anyLong());
-        EasyMock.expectLastCall().andReturn(backend).anyTimes();
-        systemInfoService.checkClusterCapacity(EasyMock.anyString());
-        EasyMock.expectLastCall().anyTimes();
-        EasyMock.replay(systemInfoService);
-
-        TabletInvertedIndex invertedIndex = new TabletInvertedIndex();
-
-        PowerMock.mockStatic(Catalog.class);
-        EasyMock.expect(Catalog.getInstance()).andReturn(catalog).anyTimes();
-        EasyMock.expect(Catalog.getCurrentSystemInfo()).andReturn(systemInfoService).anyTimes();
-        EasyMock.expect(Catalog.getCurrentInvertedIndex()).andReturn(invertedIndex).anyTimes();
-        EasyMock.expect(Catalog.getCurrentCatalogJournalVersion()).andReturn(FeMetaVersion.VERSION_45).anyTimes();
-        EasyMock.expect(Catalog.isCheckpointThread()).andReturn(false).anyTimes();
-        EasyMock.expect(Catalog.calcShortKeyColumnCount(EasyMock.anyObject(List.class), EasyMock.anyObject(Map.class)))
-                .andReturn((short) 2).anyTimes();
-        PowerMock.replay(Catalog.class);
-
-        List<ColumnDef> cols2 = Lists.newArrayList();
-        // invalid property
-        cols2.add(new ColumnDef("k1_int", new TypeDef(ScalarType.createType(PrimitiveType.INT))));
-        cols2.add(new ColumnDef("k2_varchar", new TypeDef(ScalarType.createType(PrimitiveType.VARCHAR))));
-        cols2.add(new ColumnDef("v1", new TypeDef(ScalarType.createType(PrimitiveType.INT)),
-                             true, AggregateType.MAX, false, "0", ""));
-        cols2.get(0).setIsKey(true);
-        cols2.get(1).setIsKey(true);
-
-        List<String> cols2Name = Lists.newArrayList();
-        cols2Name.add("k1_int");
-        cols2Name.add("k2_varchar");
-        cols2Name.add("v1");
+        };
 
         Map<String, String> properties = new HashMap<String, String>();
+        //larger then indexColumns size
+        properties.put(PropertyAnalyzer.PROPERTIES_SHORT_KEY, "3");
 
-        // 1. larger then indexColumns size
-        properties.put("short_key_num", "3");
-        CreateTableStmt stmt1 = new CreateTableStmt(false, false, dbTableName, cols2, "olap",
-                                                    new KeysDesc(KeysType.AGG_KEYS, cols2Name), null,
-                new RandomDistributionDesc(1), null, null);
-        try {
-            catalog.createTable(stmt1);
-        } catch (DdlException e) {
-            System.out.print(e.getMessage());
-        }
+        CreateTableStmt stmt = new CreateTableStmt(false, false, dbTableName, columnDefs, "olap",
+                new KeysDesc(KeysType.AGG_KEYS, columnNames), null,
+                new HashDistributionDesc(1, Lists.newArrayList("key1")), properties, null);
+        stmt.analyze(analyzer);
 
-        // 2. first is varchar
-        properties.clear();
-        cols2.clear();
-        cols2.add(new ColumnDef("k1_varchar", new TypeDef(ScalarType.createType(PrimitiveType.VARCHAR))));
-        cols2.add(new ColumnDef("k2_varchar", new TypeDef(ScalarType.createType(PrimitiveType.VARCHAR))));
-        cols2.add(new ColumnDef("v1", new TypeDef(ScalarType.createType(PrimitiveType.INT)),
-                             true, AggregateType.MAX, false, "0", ""));
-        stmt1 = new CreateTableStmt(false, false, dbTableName, cols2, "olap",
-                                    new KeysDesc(KeysType.AGG_KEYS, cols2Name), null,
-                new RandomDistributionDesc(1), null, null);
+        expectedEx.expect(DdlException.class);
+        expectedEx.expectMessage("Short key is too large. should less than: 2");
 
-        try {
-            catalog.createTable(stmt1);
-        } catch (DdlException e) {
-            System.out.print(e.getMessage());
-            throw e;
-        }
+        catalog.createTable(stmt);
     }
 
-    @Test(expected = DdlException.class)
-    public void olapNormalTest() throws Exception {
-        Database db = new Database();
-        catalog = mockBuilder.addMockedMethod("getDb", String.class).addMockedMethod("getNextId").createMock();
-        catalog.getDb(dbName);
-        EasyMock.expectLastCall().andReturn(db).anyTimes();
-        EasyMock.expect(catalog.getNextId()).andReturn(nextId.incrementAndGet()).anyTimes();
-        EasyMock.replay(catalog);
+    @Test
+    public void testShortKeyVarcharMiddle(@Injectable SystemInfoService systemInfoService,
+            @Injectable PaloAuth paloAuth) throws Exception {
+        columnDefs.clear();
+        columnDefs.add(new ColumnDef("key1", new TypeDef(ScalarType.createVarchar(10))));
+        columnDefs.add(new ColumnDef("key2", new TypeDef(ScalarType.createType(PrimitiveType.INT))));
 
-        // SystemInfoService
-        systemInfoService = EasyMock.createMock(SystemInfoService.class);
-        systemInfoService.seqChooseBackendIds(EasyMock.anyInt(), EasyMock.anyBoolean(), EasyMock.anyBoolean(),
-                EasyMock.anyString());
-        EasyMock.expectLastCall().andAnswer(new IAnswer<List<Long>>() {
-            @Override
-            public List<Long> answer() throws Throwable {
-                List<Long> ids = Lists.newArrayList();
-                ids.add(1L);
-                ids.add(2L);
-                ids.add(3L);
-                return ids;
+        new Expectations(catalog) {
+            {
+                catalog.getDb(dbTableName.getDb());
+                result = db;
+
+                Catalog.getCurrentSystemInfo();
+                result = systemInfoService;
+
+                systemInfoService.checkClusterCapacity(anyString);
+
+                catalog.getAuth();
+                result = paloAuth;
+                paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.CREATE);
+                result = true;
             }
-        }).anyTimes();
-        systemInfoService.getBackend(EasyMock.anyLong());
-        EasyMock.expectLastCall().andReturn(backend).anyTimes();
-        systemInfoService.checkClusterCapacity(EasyMock.anyString());
-        EasyMock.expectLastCall().anyTimes();
-        EasyMock.replay(systemInfoService);
+        };
 
-        TabletInvertedIndex invertedIndex = new TabletInvertedIndex();
+        Map<String, String> properties = new HashMap<String, String>();
+        properties.put(PropertyAnalyzer.PROPERTIES_SHORT_KEY, "2");
 
-        PowerMock.mockStatic(Catalog.class);
-        EasyMock.expect(Catalog.getInstance()).andReturn(catalog).anyTimes();
-        EasyMock.expect(Catalog.getCurrentSystemInfo()).andReturn(systemInfoService).anyTimes();
-        EasyMock.expect(Catalog.getCurrentInvertedIndex()).andReturn(invertedIndex).anyTimes();
-        EasyMock.expect(Catalog.isCheckpointThread()).andReturn(false).anyTimes();
-        EasyMock.expect(Catalog.calcShortKeyColumnCount(EasyMock.anyObject(List.class), EasyMock.anyObject(Map.class)))
-                .andReturn((short) 2).anyTimes();
-        PowerMock.replay(Catalog.class);
+        CreateTableStmt stmt = new CreateTableStmt(false, false, dbTableName, columnDefs, "olap",
+                new KeysDesc(KeysType.AGG_KEYS, columnNames), null,
+                new HashDistributionDesc(1, Lists.newArrayList("key1")), properties, null);
+        stmt.analyze(analyzer);
 
-        CreateTableStmt stmt1 = new CreateTableStmt(false, false, dbTableName, columnDefs, "olap",
-                                                    new KeysDesc(KeysType.AGG_KEYS, colsName), null,
-                new RandomDistributionDesc(1), null, null);
+        expectedEx.expect(DdlException.class);
+        expectedEx.expectMessage("Varchar should not in the middle of short keys.");
 
-        try {
-            catalog.createTable(stmt1);
-        } catch (DdlException e) {
-            System.out.print(e.getMessage());
-            throw e;
-        }
+        catalog.createTable(stmt);
     }
 
+    @Test
+    public void testNotEnoughBackend(@Injectable SystemInfoService systemInfoService, @Injectable PaloAuth paloAuth)
+            throws Exception {
+        new Expectations(catalog) {
+            {
+                catalog.getDb(dbTableName.getDb());
+                result = db;
+
+                Catalog.getCurrentSystemInfo();
+                result = systemInfoService;
+
+                systemInfoService.checkClusterCapacity(anyString);
+                systemInfoService.seqChooseBackendIds(anyInt, true, true, anyString);
+                result = null;
+
+                catalog.getAuth();
+                result = paloAuth;
+                paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.CREATE);
+                result = true;
+            }
+        };
+
+        CreateTableStmt stmt = new CreateTableStmt(false, false, dbTableName, columnDefs, "olap",
+                new KeysDesc(KeysType.AGG_KEYS, columnNames), null,
+                new HashDistributionDesc(1, Lists.newArrayList("key1")), null, null);
+        stmt.analyze(analyzer);
+
+        expectedEx.expect(DdlException.class);
+        expectedEx.expectMessage("Failed to find enough host in all backends. need: 3");
+
+        catalog.createTable(stmt);
+    }
+
+    @Test
+    public void testOlapTableExists(@Injectable SystemInfoService systemInfoService, @Injectable PaloAuth paloAuth)
+            throws Exception {
+        Table olapTable = new OlapTable();
+        new Expectations(db) {
+            {
+                db.getTable(tableName);
+                result = olapTable;
+            }
+        };
+
+        new Expectations(catalog) {
+            {
+
+                catalog.getDb(dbTableName.getDb());
+                result = db;
+                Catalog.getCurrentSystemInfo();
+                result = systemInfoService;
+                systemInfoService.checkClusterCapacity(anyString);
+                catalog.getAuth();
+                result = paloAuth;
+                paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.CREATE);
+                result = true;
+            }
+        };
+
+        CreateTableStmt stmt = new CreateTableStmt(false, false, dbTableName, columnDefs, "olap",
+                new KeysDesc(KeysType.AGG_KEYS, columnNames), null,
+                new HashDistributionDesc(1, Lists.newArrayList("key1")), null, null);
+        stmt.analyze(analyzer);
+
+        expectedEx.expect(DdlException.class);
+        expectedEx.expectMessage("Table 'testTable' already exists");
+
+        catalog.createTable(stmt);
+    }
+
+    @Test
+    public void testOlapTimeOut(@Injectable SystemInfoService systemInfoService, @Injectable PaloAuth paloAuth)
+            throws Exception {
+        new Expectations(catalog) {
+            {
+                catalog.getDb(dbTableName.getDb());
+                result = db;
+
+                Catalog.getCurrentSystemInfo();
+                result = systemInfoService;
+
+                systemInfoService.checkClusterCapacity(anyString);
+                systemInfoService.seqChooseBackendIds(anyInt, true, true, anyString);
+                result = beIds;
+
+                catalog.getAuth();
+                result = paloAuth;
+                paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.CREATE);
+                result = true;
+            }
+        };
+
+        CreateTableStmt stmt = new CreateTableStmt(false, false, dbTableName, columnDefs, "olap",
+                new KeysDesc(KeysType.AGG_KEYS, columnNames), null,
+                new HashDistributionDesc(1, Lists.newArrayList("key1")), null, null);
+        stmt.analyze(analyzer);
+
+        expectedEx.expect(DdlException.class);
+        expectedEx.expectMessage("Failed to create partition[testTable]. Timeout");
+
+        catalog.createTable(stmt);
+    }
 }

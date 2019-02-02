@@ -65,7 +65,6 @@ RuntimeState::RuntimeState(
             _normal_row_number(0),
             _error_row_number(0),
             _error_log_file(nullptr),
-            _is_running(true),
             _instance_buffer_reservation(new ReservationTracker) {
     Status status = init(fragment_instance_id, query_options, now, exec_env);
     DCHECK(status.ok());
