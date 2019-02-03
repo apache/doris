@@ -94,15 +94,11 @@ ENV MAVEN_HOME /usr/share/maven
 # build environment
 WORKDIR ${DEFAULT_DIR}
 
-# download third party, you should download latest third party if you build the latest code  
-ARG DORIS_THRIDPARTY_URL=http://doris-opensource.bj.bcebos.com/doris-thirdparty-20181102.tar.gz?authorization=bce-auth-v1/069fc2786e464e63a5f1183824ddb522/2018-11-02T09:27:57Z/-1/host/b30621ca2be77596cec9477f6cfb3608b681206d73084338d1b2f1204a3e3848
+# there is a repo which is included all of thirdparty
+ENV REPOSITORY_URL=https://doris-incubating-repo.bj.bcebos.com/thirdparty
 
-# clone source code and build third party
+# clone lastest source code, download and build third party
 RUN git clone https://github.com/apache/incubator-doris.git \
-    && mkdir -p ${DEFAULT_DIR}/incubator-doris/thirdparty/src ${DEFAULT_DIR}/doris-thirdparty \
-    && curl -fsSL -o ${DEFAULT_DIR}/doris-thirdparty.tar.gz ${DORIS_THRIDPARTY_URL} \
-    && tar -zxf ${DEFAULT_DIR}/doris-thirdparty.tar.gz -C ${DEFAULT_DIR}/doris-thirdparty --strip-components=1 \
-    && mv ${DEFAULT_DIR}/doris-thirdparty/*  ${DEFAULT_DIR}/incubator-doris/thirdparty/src/ \
     && cd ${DEFAULT_DIR}/incubator-doris && /bin/bash thirdparty/build-thirdparty.sh \
     && rm -rf ${DEFAULT_DIR}/incubator-doris/thirdparty/src \
     && rm -rf ${DEFAULT_DIR}/doris-thirdparty.tar.gz \
