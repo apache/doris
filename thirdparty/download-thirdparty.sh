@@ -252,7 +252,8 @@ echo "Finished patching $LIBEVENT_SOURCE"
 # cd -
 # echo "Finished patching $THRIFT_SOURCE"
 
-if test "x$REPOSITORY_URL" != x; then
+# this patch is only used inside Baidu
+if test "x$PATCH_COMPILER_RT" == "xtrue"; then
     cd $TP_SOURCE_DIR/$COMPILER_RT_SOURCE
     if [ ! -f $PATCHED_MARK ]; then
         patch -p0 < $TP_PATCH_DIR/compiler-rt.patch
