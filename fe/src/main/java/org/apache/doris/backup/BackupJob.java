@@ -418,7 +418,7 @@ public class BackupJob extends AbstractJob {
             for (TableRef tableRef : tableRefs) {
                 String tblName = tableRef.getName().getTbl();
                 OlapTable tbl = (OlapTable) db.getTable(tblName);
-                OlapTable copiedTbl = tbl.selectiveCopy(tableRef.getPartitions());
+                OlapTable copiedTbl = tbl.selectiveCopy(tableRef.getPartitions(), true);
                 if (copiedTbl == null) {
                     status = new Status(ErrCode.COMMON_ERROR, "faild to copy table: " + tblName);
                     return;

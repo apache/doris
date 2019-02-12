@@ -196,6 +196,25 @@ public class Replica implements Writable {
                 lastSuccessVersion, lastSuccessVersionHash, dataSize, rowCount);
     }
     
+    public void updateVersionInfoForRecovery(
+            long newVersion, long newVersionHash,
+            long lastFailedVersion, long lastFailedVersionHash,
+            long lastSuccessVersion, long lastSuccessVersionHash) {
+
+        LOG.warn("update replica {} on backend {}'s version for recovery. version: {}-{}:{}-{}."
+                + " last failed version: {}-{}:{}-{}, last success version: {}-{}:{}-{}",
+                this.id, this.backendId, this.version, this.versionHash, newVersion, newVersionHash,
+                this.lastFailedVersion, this.lastFailedVersionHash, lastFailedVersion, lastFailedVersionHash,
+                this.lastSuccessVersion, this.lastSuccessVersionHash, lastSuccessVersion, lastSuccessVersionHash);
+
+        this.version = newVersion;
+        this.versionHash = newVersionHash;
+        this.lastFailedVersion = lastFailedVersion;
+        this.lastFailedVersionHash = lastFailedVersionHash;
+        this.lastSuccessVersion = lastSuccessVersion;
+        this.lastSuccessVersionHash = lastSuccessVersionHash;
+    }
+
     /* last failed version:  LFV
      * last success version: LSV
      * version:              V
@@ -223,14 +242,16 @@ public class Replica implements Writable {
         LOG.debug("before update: {}", this.toString());
 
         if (newVersion < this.version) {
-            LOG.warn("replica[" + id + "] new version is lower than meta version. " + newVersion + " vs " + version);
             // yiguolei: could not find any reason why new version less than this.version should run???
-            return;
+            LOG.warn("replica {} on backend {}'s new version {} is lower than meta version {}",
+                    id, backendId, newVersion, this.version);
         }
+
         this.version = newVersion;
         this.versionHash = newVersionHash;
         this.dataSize = newDataSize;
         this.rowCount = newRowCount;
+
         // just check it
         if (lastSuccessVersion <= this.version) {
             lastSuccessVersion = this.version;
@@ -245,7 +266,7 @@ public class Replica implements Writable {
         
         // TODO: this case is unknown, add log to observe
         if (this.version > lastFailedVersion && lastFailedVersion > 0) {
-            LOG.info("current version {} is larger than last failed version {} , " 
+            LOG.debug("current version {} is larger than last failed version {}, "
                         + "last failed version hash {}, maybe a fatal error or be report version, print a stack here ", 
                     this.version, lastFailedVersion, lastFailedVersionHash, new Exception());
         }
@@ -294,17 +315,17 @@ public class Replica implements Writable {
                 this.lastSuccessVersion, this.lastSuccessVersionHash, dataSize, rowCount);
     }
 
-    public boolean checkVersionCatchUp(long committedVersion, long committedVersionHash) {
-        if (committedVersion == Partition.PARTITION_INIT_VERSION
-                && committedVersionHash == Partition.PARTITION_INIT_VERSION_HASH) {
+    public boolean checkVersionCatchUp(long expectedVersion, long expectedVersionHash) {
+        if (expectedVersion == Partition.PARTITION_INIT_VERSION
+                && expectedVersionHash == Partition.PARTITION_INIT_VERSION_HASH) {
             // no data is loaded into this replica, just return true
             return true;
         }
 
-        if (this.version < committedVersion
-                || (this.version == committedVersion && this.versionHash != committedVersionHash)) {
+        if (this.version < expectedVersion
+                || (this.version == expectedVersion && this.versionHash != expectedVersionHash)) {
             LOG.debug("replica version does not catch up with version: {}-{}. replica: {}",
-                      committedVersion, committedVersionHash, this);
+                      expectedVersion, expectedVersionHash, this);
             return false;
         }
         return true;
@@ -328,7 +349,7 @@ public class Replica implements Writable {
     
     @Override
     public String toString() {
-        StringBuffer strBuffer = new StringBuffer("replicaId=");
+        StringBuffer strBuffer = new StringBuffer("[replicaId=");
         strBuffer.append(id);
         strBuffer.append(", BackendId=");
         strBuffer.append(backendId);
@@ -350,6 +371,11 @@ public class Replica implements Writable {
         strBuffer.append(lastSuccessVersionHash);
         strBuffer.append(", lastFailedTimestamp=");
         strBuffer.append(lastFailedTimestamp);
+        strBuffer.append(", schemaHash=");
+        strBuffer.append(schemaHash);
+        strBuffer.append(", state=");
+        strBuffer.append(state.name());
+        strBuffer.append("]");
         return strBuffer.toString();
     }
 
@@ -367,7 +393,6 @@ public class Replica implements Writable {
         out.writeLong(lastFailedVersionHash);
         out.writeLong(lastSuccessVersion);
         out.writeLong(lastSuccessVersionHash);
-        
     }
      
     @Override

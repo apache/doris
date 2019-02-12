@@ -21,8 +21,8 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectScheduler;
 
-import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -123,11 +123,11 @@ public class MysqlServer {
                        // Do nothing
                     }
                     continue;
-                } catch (RuntimeException e) {
+                } catch (Throwable e) {
                     // NotYetBoundException
                     // SecurityException
                     LOG.warn("Query server failed when calling accept.", e);
-                    return;
+                    continue;
                 }
             }
         }

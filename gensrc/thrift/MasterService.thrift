@@ -34,6 +34,7 @@ struct TTabletInfo {
     8: optional list<Types.TTransactionId> transaction_ids
     9: optional i64 version_count
     10: optional i64 path_hash
+    11: optional bool version_miss
 }
 
 struct TFinishTaskRequest {

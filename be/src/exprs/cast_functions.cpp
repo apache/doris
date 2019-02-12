@@ -209,7 +209,10 @@ StringVal CastFunctions::cast_to_string_val(FunctionContext* ctx, const StringVa
   StringVal sv;
   sv.ptr = val.ptr;
   sv.len = val.len;
-  AnyValUtil::TruncateIfNecessary(ctx->get_return_type(), &sv);
+  const FunctionContext::TypeDesc& result_type = ctx->get_return_type();
+  if (result_type.len > 0) {
+      AnyValUtil::TruncateIfNecessary(result_type, &sv);
+  }
   return sv;
 }
 

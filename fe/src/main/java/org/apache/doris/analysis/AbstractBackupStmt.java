@@ -66,9 +66,12 @@ public class AbstractBackupStmt extends DdlStmt {
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         labelName.analyze(analyzer);
         
-        // check auth
-        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
+        // user need database level priv(not table level), because when doing restore operation,
+        // the restore table may be newly created, so we can not judge its privs.
+        if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(),
+                labelName.getDbName(), PrivPredicate.LOAD)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED,
+                    ConnectContext.get().getQualifiedUser(), labelName.getDbName());
         }
 
         checkAndNormalizeBackupObjs();

@@ -754,7 +754,6 @@ public class RollupJob extends AlterJob {
             db.writeUnlock();
         }
 
-        // log rollup done operation
         Catalog.getInstance().getEditLog().logFinishingRollup(this);
         LOG.info("rollup job[{}] is finishing.", this.getTableId());
 
@@ -992,9 +991,7 @@ public class RollupJob extends AlterJob {
         jobInfo.add(cancelMsg);
 
         // progress
-        if (state == JobState.PENDING) {
-            jobInfo.add("0%");
-        } else if (state == JobState.RUNNING) {
+        if (state == JobState.RUNNING) {
             int unfinishedReplicaNum = getUnfinishedReplicaNum();
             int totalReplicaNum = getTotalReplicaNum();
             Preconditions.checkState(unfinishedReplicaNum <= totalReplicaNum);

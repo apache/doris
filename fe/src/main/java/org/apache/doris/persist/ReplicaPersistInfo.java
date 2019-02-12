@@ -190,14 +190,12 @@ public class ReplicaPersistInfo implements Writable {
     
     public static ReplicaPersistInfo createForClearRollupInfo(long dbId, long tableId, long partitionId, long indexId) {
         return new ReplicaPersistInfo(ReplicaOperationType.CLEAR_ROLLUPINFO,
-                                     dbId, tableId, partitionId, indexId, 
-                -1L, -1L, -1L, -1L, -1L, -1,
-                                     -1L, -1L, -1L, 0L, -1L, 0L);
+                dbId, tableId, partitionId, indexId, -1L, -1L, -1L, -1L, -1L, -1, -1L, -1L, -1L, 0L, -1L, 0L);
     }
 
-    public ReplicaPersistInfo() {
+    private ReplicaPersistInfo() {
     }
-    
+
     private ReplicaPersistInfo(ReplicaOperationType opType, long dbId, long tableId, long partitionId,
             long indexId, long tabletId, long backendId, long replicaId, long version, long versionHash,
             int schemaHash, long dataSize, long rowCount, long lastFailedVersion, long lastFailedVersionHash,

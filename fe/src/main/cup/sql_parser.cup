@@ -3113,7 +3113,10 @@ type ::=
   | KW_DECIMAL
   {: RESULT = ScalarType.createDecimalType(); :}
   | KW_HLL
-  {: RESULT = Type.HLL; :}
+  {: ScalarType type = ScalarType.createHllType(); 
+     type.setAssignedStrLenInColDefinition();
+     RESULT = type;      
+  :}
   ;
 
 opt_field_length ::=

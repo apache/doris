@@ -218,7 +218,7 @@ namespace config {
     // incremental delta policy
     CONF_Int32(incremental_delta_expire_time_sec, "1800");
     // garbage sweep policy
-    CONF_Int32(max_garbage_sweep_interval, "86400");
+    CONF_Int32(max_garbage_sweep_interval, "43200");
     CONF_Int32(min_garbage_sweep_interval, "200");
     CONF_Int32(snapshot_expire_time_sec, "172800");
     // 仅仅是建议值，当磁盘空间不足时，trash下的文件保存期可不遵守这个参数
@@ -260,7 +260,7 @@ namespace config {
     CONF_Int32(periodic_counter_update_period_ms, "500");
 
     // Used for mini Load
-    CONF_Int64(load_data_reserve_hours, "24");
+    CONF_Int64(load_data_reserve_hours, "4");
     CONF_Int64(mini_load_max_mb, "2048");
     CONF_Int32(number_tablet_writer_threads, "16");
 
@@ -383,6 +383,15 @@ namespace config {
 
     // the increased frequency of priority for remaining tasks in BlockingPriorityQueue
     CONF_Int32(priority_queue_remaining_tasks_increased_frequency, "512");
+
+    // sync tablet_meta when modifing meta
+    CONF_Bool(sync_tablet_meta, "false");
+
+    // default thrift rpc timeout ms
+    CONF_Int32(thrift_rpc_timeout_ms, "5000");
+
+    // txn commit rpc timeout
+    CONF_Int32(txn_commit_rpc_timeout_ms, "10000");
 } // namespace config
 
 } // namespace doris

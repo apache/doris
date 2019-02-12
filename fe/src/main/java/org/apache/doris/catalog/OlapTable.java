@@ -30,6 +30,8 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.backup.Status;
 import org.apache.doris.backup.Status.ErrCode;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
+import org.apache.doris.catalog.MaterializedIndex.IndexState;
+import org.apache.doris.catalog.Partition.PartitionState;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.clone.TabletSchedCtx;
@@ -893,13 +895,28 @@ public class OlapTable extends Table {
         return true;
     }
 
-    public OlapTable selectiveCopy(Collection<String> reservedPartNames) {
+    public OlapTable selectiveCopy(Collection<String> reservedPartNames, boolean resetState) {
         OlapTable copied = new OlapTable();
         if (!DeepCopy.copy(this, copied)) {
             LOG.warn("failed to copy olap table: " + getName());
             return null;
         }
         
+        if (resetState) {
+            copied.setState(OlapTableState.NORMAL);
+            for (Partition partition : copied.getPartitions()) {
+                partition.setState(PartitionState.NORMAL);
+                for (MaterializedIndex idx : partition.getMaterializedIndices()) {
+                    idx.setState(IndexState.NORMAL);
+                    for (Tablet tablet : idx.getTablets()) {
+                        for (Replica replica : tablet.getReplicas()) {
+                            replica.setState(ReplicaState.NORMAL);
+                        }
+                    }
+                }
+            }
+        }
+
         if (reservedPartNames == null || reservedPartNames.isEmpty()) {
             // reserve all
             return copied;

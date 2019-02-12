@@ -78,7 +78,7 @@ public:
             RuntimeState* state, const RowDescriptor& row_desc,
             const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id,
             int num_senders, int buffer_size, RuntimeProfile* profile,
-            bool is_merging, QueryStatisticsRecvr* sub_plan_query_statistics_recvr);
+            bool is_merging, std::shared_ptr<QueryStatisticsRecvr> sub_plan_query_statistics_recvr);
 
     Status transmit_data(const PTransmitDataParams* request, ::google::protobuf::Closure** done);
 

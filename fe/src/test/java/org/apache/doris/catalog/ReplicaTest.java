@@ -140,7 +140,6 @@ public class ReplicaTest {
         // 3. Check equal
         for (int i = 0; i < 11; i++) {
             Assert.assertTrue(list1.get(i).equals(list2.get(i)));
-            Assert.assertTrue(list1.get(i).toString().equals(list2.get(i).toString()));
         }
         
         Assert.assertTrue(list1.get(1).equals(list1.get(1)));

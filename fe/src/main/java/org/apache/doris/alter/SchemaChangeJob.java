@@ -31,6 +31,7 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
@@ -360,7 +361,7 @@ public class SchemaChangeJob extends AlterJob {
             db.readUnlock();
         }
 
-        LOG.info("successfully sending clear schemachange job [{}]", tableId);
+        LOG.info("successfully sending clear schema change job [{}]", tableId);
         return 0;
     }
 
@@ -432,7 +433,7 @@ public class SchemaChangeJob extends AlterJob {
                                     // but in case some edge cases are not took into consideration, we cancel
                                     // the schema change job here.
                                     cancelMsg = String.format(
-                                            "replica %d of tablet %d in backend %d state is invalid: %s",
+                                            "replica %d of tablet %d in backend %d state is invalid: %s [send]",
                                             replica.getId(), tablet.getId(), replica.getBackendId(),
                                             replica.getState().name());
                                     LOG.warn(cancelMsg);
@@ -688,7 +689,7 @@ public class SchemaChangeJob extends AlterJob {
                                 if (replica.getState() != ReplicaState.SCHEMA_CHANGE) {
                                     // all replicas should be in state SCHEMA_CHANGE
                                     cancelMsg = String.format(
-                                            "replica %d of tablet %d in backend %d state is invalid: %s",
+                                            "replica %d of tablet %d in backend %d state is invalid: %s [try finish]",
                                             replica.getId(), tablet.getId(), replica.getBackendId(),
                                             replica.getState().name());
                                     LOG.warn(cancelMsg);
@@ -703,8 +704,12 @@ public class SchemaChangeJob extends AlterJob {
                                     continue;
                                 }
 
-                                if (replica.getLastFailedVersion() > 0) {
-                                    -- healthNum;
+                                if (replica.getLastFailedVersion() > 0 && System.currentTimeMillis()
+                                        - replica.getLastFailedTimestamp() > Config.max_backend_down_time_second
+                                                * 1000) {
+                                    LOG.warn("replica {} of tablet {} last failed version > 0, "
+                                            + "and last for an hour, set it as bad", replica, tablet.getId());
+                                    --healthNum;
                                     continue;
                                 }
                             }
@@ -791,7 +796,7 @@ public class SchemaChangeJob extends AlterJob {
                                 if (replica.getState() != ReplicaState.SCHEMA_CHANGE) {
                                     // all replicas should be in state SCHEMA_CHANGE
                                     cancelMsg = String.format(
-                                            "replica %d of tablet %d in backend %d state is invalid: %s",
+                                            "replica %d of tablet %d in backend %d state is invalid: %s [finish]",
                                             replica.getId(), tablet.getId(), replica.getBackendId(),
                                             replica.getState().name());
                                     LOG.warn(cancelMsg);
@@ -858,7 +863,6 @@ public class SchemaChangeJob extends AlterJob {
             db.writeUnlock();
         }
 
-        // log schema change done operation
         Catalog.getInstance().getEditLog().logFinishingSchemaChange(this);
         LOG.info("schema change job is finishing. finishing txn id: {} table {}", transactionId, tableId);
         return 1;
@@ -1086,20 +1090,22 @@ public class SchemaChangeJob extends AlterJob {
 
     @Override
     public void getJobInfo(List<List<Comparable>> jobInfos, OlapTable tbl) {
-        if (changedIndexIdToSchema == null) {
+        if (changedIndexIdToSchemaVersion == null) {
             // for compatibility
             if (state == JobState.FINISHED || state == JobState.CANCELLED) {
                 List<Comparable> jobInfo = new ArrayList<Comparable>();
-                jobInfo.add(tableId);
-                jobInfo.add(tbl.getName());
-                jobInfo.add(transactionId);
+                jobInfo.add(tableId); // job id
+                jobInfo.add(tbl.getName()); // table name
                 jobInfo.add(TimeUtils.longToTimeString(createTime));
                 jobInfo.add(TimeUtils.longToTimeString(finishedTime));
-                jobInfo.add("N/A");
-                jobInfo.add("N/A");
-                jobInfo.add(state.name());
+                jobInfo.add("N/A"); // index name
+                jobInfo.add("N/A"); // index id
+                jobInfo.add("N/A"); // schema version
+                jobInfo.add("N/A"); // index state
+                jobInfo.add(-1); // transaction id
+                jobInfo.add(state.name()); // job state
+                jobInfo.add("N/A"); // progress
                 jobInfo.add(cancelMsg);
-                jobInfo.add("N/A");
 
                 jobInfos.add(jobInfo);
                 return;
@@ -1163,6 +1169,8 @@ public class SchemaChangeJob extends AlterJob {
 
             if (state == JobState.RUNNING) {
                 jobInfo.add(indexProgress.get(indexId) == null ? "N/A" : indexProgress.get(indexId)); // progress
+            } else {
+                jobInfo.add("N/A");
             }
 
             jobInfo.add(cancelMsg);

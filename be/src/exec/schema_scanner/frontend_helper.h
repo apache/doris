@@ -59,11 +59,21 @@ public:
 
     static std::string extract_db_name(const std::string& full_name);
 
+    // for default timeout
+    static Status rpc(
+        const std::string& ip,
+        const int32_t port,
+        std::function<void (ClientConnection<FrontendServiceClient>&)> callback) {
+
+        return rpc(ip, port, callback, config::thrift_rpc_timeout_ms);
+    }
+
     static Status rpc(
         const std::string& ip,
         const int32_t port,
         std::function<void (ClientConnection<FrontendServiceClient>&)> callback,
-        int timeout_ms = 5000);
+        int timeout_ms);
+
 private:
     static ExecEnv* _s_exec_env;
 };

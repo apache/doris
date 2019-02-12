@@ -30,6 +30,9 @@
 #include <sanitizer/lsan_interface.h>
 #endif
 
+#include <curl/curl.h>
+#include <thrift/TOutput.h>
+
 #include "common/logging.h"
 #include "common/daemon.h"
 #include "common/config.h"
@@ -62,6 +65,11 @@ extern "C" { void __lsan_do_leak_check(); }
 
 namespace doris {
 extern bool k_doris_exit;
+
+static void thrift_output(const char* x) {
+    LOG(WARNING) << "thrift internal message: " << x;
+}
+
 }
 
 int main(int argc, char** argv) {
@@ -125,6 +133,16 @@ int main(int argc, char** argv) {
     }
 
     doris::LlvmCodeGen::initialize_llvm();
+
+    // initilize libcurl here to avoid concurrent initialization
+    auto curl_ret = curl_global_init(CURL_GLOBAL_ALL);
+    if (curl_ret != 0) {
+        LOG(FATAL) << "fail to initialize libcurl, curl_ret=" << curl_ret;
+        exit(-1);
+    }
+    // add logger for thrift internal
+    apache::thrift::GlobalOutput.setOutputFunction(doris::thrift_output);
+
     doris::init_daemon(argc, argv, paths);
 
     doris::ResourceTls::init();

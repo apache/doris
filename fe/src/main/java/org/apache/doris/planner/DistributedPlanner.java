@@ -455,17 +455,17 @@ public class DistributedPlanner {
         OlapTable leftTable = ((OlapScanNode) leftRoot).getOlapTable();
         OlapTable rightTable = ((OlapScanNode) rightRoot).getOlapTable();
 
+        ColocateTableIndex colocateIndex = Catalog.getCurrentColocateIndex();
+
         //1 the table must be colocate
-        if (leftTable.getColocateTable() == null
-                || !leftTable.getColocateTable().equalsIgnoreCase(rightTable.getColocateTable())) {
+        if (!colocateIndex.isSameGroup(leftTable.getId(), rightTable.getId())) {
             return false;
         }
 
         //2 the colocate group must be stable
-        ColocateTableIndex colocateIndex = Catalog.getCurrentColocateIndex();
         long groupId = colocateIndex.getGroup(leftTable.getId());
         if (colocateIndex.isGroupBalancing(groupId)) {
-            LOG.warn("colocate group {} is balancing", leftTable.getColocateTable());
+            LOG.info("colocate group {} is balancing", leftTable.getColocateTable());
             return false;
         }
 

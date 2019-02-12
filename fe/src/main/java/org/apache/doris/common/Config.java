@@ -722,14 +722,14 @@ public class Config extends ConfigBase {
      * the default slot number per path in tablet scheduler
      * TODO(cmy): remove this config and dynamically adjust it by clone task statistic
      */
-    @ConfField public static int schedule_slot_num_per_path = 1;
+    @ConfField public static int schedule_slot_num_per_path = 2;
     
     /*
      * set to true to use the TabletScheduler instead of the old CloneChecker.
      * if set to true, 'disable_colocate_join' must be set to true.
      * Because the new TabeltScheduler can not handle tablet repair for colocate tables.
      */
-    @ConfField public static boolean use_new_tablet_scheduler = false;
+    @ConfField public static boolean use_new_tablet_scheduler = true;
 
     /*
      * the threshold of cluster balance score, if a backend's load score is 10% lower than average score,
@@ -743,6 +743,6 @@ public class Config extends ConfigBase {
      * if set to true, TabletScheduler will not do balance.
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static boolean disable_balance = false; // 10%
+    public static boolean disable_balance = false;
 }
 
