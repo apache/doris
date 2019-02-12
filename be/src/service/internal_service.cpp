@@ -24,46 +24,38 @@
 #include "runtime/data_stream_mgr.h"
 #include "runtime/fragment_mgr.h"
 #include "service/brpc.h"
+#include "util/uid_util.h"
 #include "util/thrift_util.h"
 #include "runtime/buffer_control_block.h"
 #include "runtime/result_buffer_mgr.h"
 
 namespace doris {
 
-PInternalServiceImpl::PInternalServiceImpl(ExecEnv* exec_env)
+template<typename T>
+PInternalServiceImpl<T>::PInternalServiceImpl(ExecEnv* exec_env)
         : _exec_env(exec_env),
         _tablet_worker_pool(config::number_tablet_writer_threads, 10240) {
 }
 
-PInternalServiceImpl::~PInternalServiceImpl() {
+template<typename T>
+PInternalServiceImpl<T>::~PInternalServiceImpl() {
 }
 
-void PInternalServiceImpl::transmit_data(google::protobuf::RpcController* cntl_base,
+template<typename T>
+void PInternalServiceImpl<T>::transmit_data(google::protobuf::RpcController* cntl_base,
                                          const PTransmitDataParams* request,
                                          PTransmitDataResult* response,
                                          google::protobuf::Closure* done) {
-    bool eos = request->eos();
-    if (request->has_row_batch()) {
-        _exec_env->stream_mgr()->add_data(
-            request->finst_id(), request->node_id(),
-            request->row_batch(), request->sender_id(),
-            request->be_number(), request->packet_seq(),
-            eos ? nullptr : &done);
-    }
-    if (eos) {
-        TUniqueId finst_id;
-        finst_id.__set_hi(request->finst_id().hi());
-        finst_id.__set_lo(request->finst_id().lo());
-        _exec_env->stream_mgr()->close_sender(
-            finst_id, request->node_id(),
-            request->sender_id(), request->be_number());
-    }
+    VLOG_ROW << "transmit data: fragment_instance_id=" << print_id(request->finst_id())
+            << " node=" << request->node_id();
+    _exec_env->stream_mgr()->transmit_data(request, &done);
     if (done != nullptr) {
         done->Run();
     }
 }
 
-void PInternalServiceImpl::tablet_writer_open(google::protobuf::RpcController* controller,
+template<typename T>
+void PInternalServiceImpl<T>::tablet_writer_open(google::protobuf::RpcController* controller,
                                               const PTabletWriterOpenRequest* request,
                                               PTabletWriterOpenResult* response,
                                               google::protobuf::Closure* done) {
@@ -80,7 +72,8 @@ void PInternalServiceImpl::tablet_writer_open(google::protobuf::RpcController* c
     st.to_protobuf(response->mutable_status());
 }
 
-void PInternalServiceImpl::exec_plan_fragment(
+template<typename T>
+void PInternalServiceImpl<T>::exec_plan_fragment(
         google::protobuf::RpcController* cntl_base,
         const PExecPlanFragmentRequest* request,
         PExecPlanFragmentResult* response,
@@ -94,7 +87,8 @@ void PInternalServiceImpl::exec_plan_fragment(
     st.to_protobuf(response->mutable_status());
 }
 
-void PInternalServiceImpl::tablet_writer_add_batch(google::protobuf::RpcController* controller,
+template<typename T>
+void PInternalServiceImpl<T>::tablet_writer_add_batch(google::protobuf::RpcController* controller,
                                                    const PTabletWriterAddBatchRequest* request,
                                                    PTabletWriterAddBatchResult* response,
                                                    google::protobuf::Closure* done) {
@@ -118,7 +112,8 @@ void PInternalServiceImpl::tablet_writer_add_batch(google::protobuf::RpcControll
         });
 }
 
-void PInternalServiceImpl::tablet_writer_cancel(google::protobuf::RpcController* controller,
+template<typename T>
+void PInternalServiceImpl<T>::tablet_writer_cancel(google::protobuf::RpcController* controller,
                                                 const PTabletWriterCancelRequest* request,
                                                 PTabletWriterCancelResult* response,
                                                 google::protobuf::Closure* done) {
@@ -134,7 +129,8 @@ void PInternalServiceImpl::tablet_writer_cancel(google::protobuf::RpcController*
     }
 }
 
-Status PInternalServiceImpl::_exec_plan_fragment(brpc::Controller* cntl) {
+template<typename T>
+Status PInternalServiceImpl<T>::_exec_plan_fragment(brpc::Controller* cntl) {
     auto ser_request = cntl->request_attachment().to_string();
     TExecPlanFragmentParams t_request;
     {
@@ -142,12 +138,13 @@ Status PInternalServiceImpl::_exec_plan_fragment(brpc::Controller* cntl) {
         uint32_t len = ser_request.size();
         RETURN_IF_ERROR(deserialize_thrift_msg(buf, &len, false, &t_request));
     }
-    LOG(INFO) << "exec plan fragment, finst_id=" << t_request.params.fragment_instance_id
+    LOG(INFO) << "exec plan fragment, fragment_instance_id=" << print_id(t_request.params.fragment_instance_id)
         << ", coord=" << t_request.coord << ", backend=" << t_request.backend_num;
     return _exec_env->fragment_mgr()->exec_plan_fragment(t_request);
 }
 
-void PInternalServiceImpl::cancel_plan_fragment(
+template<typename T>
+void PInternalServiceImpl<T>::cancel_plan_fragment(
         google::protobuf::RpcController* cntl_base,
         const PCancelPlanFragmentRequest* request,
         PCancelPlanFragmentResult* result,
@@ -156,7 +153,7 @@ void PInternalServiceImpl::cancel_plan_fragment(
     TUniqueId tid;
     tid.__set_hi(request->finst_id().hi());
     tid.__set_lo(request->finst_id().lo());
-    LOG(INFO) << "cancel framgent, finst_id=" << tid;
+    LOG(INFO) << "cancel framgent, fragment_instance_id=" << print_id(tid);
     auto st = _exec_env->fragment_mgr()->cancel(tid);
     if (!st.ok()) {
         LOG(WARNING) << "cancel plan fragment failed, errmsg=" << st.get_error_msg();
@@ -164,7 +161,8 @@ void PInternalServiceImpl::cancel_plan_fragment(
     st.to_protobuf(result->mutable_status());
 }
 
-void PInternalServiceImpl::fetch_data(
+template<typename T>
+void PInternalServiceImpl<T>::fetch_data(
         google::protobuf::RpcController* cntl_base,
         const PFetchDataRequest* request,
         PFetchDataResult* result,
@@ -174,17 +172,18 @@ void PInternalServiceImpl::fetch_data(
     _exec_env->result_mgr()->fetch_data(request->finst_id(), ctx);
 }
 
-void PInternalServiceImpl::fetch_fragment_exec_infos(
+template<typename T>
+void PInternalServiceImpl<T>::trigger_profile_report(
         google::protobuf::RpcController* controller,
-        const PFetchFragmentExecInfoRequest* request,
-        PFetchFragmentExecInfosResult* result,
+        const PTriggerProfileReportRequest* request,
+        PTriggerProfileReportResult* result,
         google::protobuf::Closure* done) {
     brpc::ClosureGuard closure_guard(done);
-    auto status = _exec_env->fragment_mgr()->fetch_fragment_exec_infos(result, request);
-    if (!status.ok()) {
-        LOG(WARNING) << "fetch fragment exec status failed:" << status.get_error_msg();
-    }
-    status.to_protobuf(result->mutable_status());
+    auto st = _exec_env->fragment_mgr()->trigger_profile_report(request);
+    st.to_protobuf(result->mutable_status());
 }
+
+template class PInternalServiceImpl<PBackendService>;
+template class PInternalServiceImpl<palo::PInternalService>;
 
 }

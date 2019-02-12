@@ -24,7 +24,6 @@
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "runtime/row_batch.h"
-#include "util/debug_util.h"
 #include "util/runtime_profile.h"
 #include "gen_cpp/PlanNodes_types.h"
 
@@ -64,14 +63,14 @@ Status ExchangeNode::init(const TPlanNode& tnode, RuntimeState* state) {
 Status ExchangeNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
     _convert_row_batch_timer = ADD_TIMER(runtime_profile(), "ConvertRowBatchTime");
-
     // TODO: figure out appropriate buffer size
     DCHECK_GT(_num_senders, 0);
+    _sub_plan_query_statistics_recvr.reset(new QueryStatisticsRecvr());
     _stream_recvr = state->exec_env()->stream_mgr()->create_recvr(
             state, _input_row_desc,
             state->fragment_instance_id(), _id,
             _num_senders, config::exchg_node_buffer_size_bytes,
-            state->runtime_profile(), _is_merging);
+            state->runtime_profile(), _is_merging, _sub_plan_query_statistics_recvr);
     if (_is_merging) {
         RETURN_IF_ERROR(_sort_exec_exprs.prepare(
                     state, _row_descriptor, _row_descriptor, expr_mem_tracker()));
@@ -95,6 +94,12 @@ Status ExchangeNode::open(RuntimeState* state) {
     return Status::OK;
 }
 
+Status ExchangeNode::collect_query_statistics(QueryStatistics* statistics) {
+    RETURN_IF_ERROR(ExecNode::collect_query_statistics(statistics));
+    statistics->merge(_sub_plan_query_statistics_recvr.get());
+    return Status::OK;
+}
+
 Status ExchangeNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK;
@@ -113,10 +118,8 @@ Status ExchangeNode::fill_input_row_batch(RuntimeState* state) {
     DCHECK(!_is_merging);
     Status ret_status;
     {
-        state->set_query_state_for_wait();
         // SCOPED_TIMER(state->total_network_receive_timer());
         ret_status = _stream_recvr->get_batch(&_input_batch);
-        state->set_query_state_for_running();
     }
     VLOG_FILE << "exch: has batch=" << (_input_batch == NULL ? "false" : "true")
         << " #rows=" << (_input_batch != NULL ? _input_batch->num_rows() : 0)
@@ -172,7 +175,7 @@ Status ExchangeNode::get_next(RuntimeState* state, RowBatch* output_batch, bool*
             }
 
             if (VLOG_ROW_IS_ON) {
-                VLOG_ROW << "ExchangeNode output batch: " << print_batch(output_batch);
+                VLOG_ROW << "ExchangeNode output batch: " << output_batch->to_string();
             }
 
             COUNTER_SET(_rows_returned_counter, _num_rows_returned);
@@ -211,10 +214,7 @@ Status ExchangeNode::get_next_merging(RuntimeState* state, RowBatch* output_batc
     // RETURN_IF_ERROR(QueryMaintenance(state));
     RETURN_IF_ERROR(state->check_query_state());
 
-    state->set_query_state_for_wait();
     RETURN_IF_ERROR(_stream_recvr->get_next(output_batch, eos));
-    state->set_query_state_for_running();
-
     while ((_num_rows_skipped < _offset)) {
         _num_rows_skipped += output_batch->num_rows();
         // Throw away rows in the output batch until the offset is skipped.

@@ -21,19 +21,13 @@ import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.common.publish.FixedTimePublisher;
-import org.apache.doris.common.publish.Listener;
-import org.apache.doris.common.publish.TopicUpdate;
 import org.apache.doris.load.DppConfig;
 import org.apache.doris.thrift.TAgentServiceVersion;
 import org.apache.doris.thrift.TFetchResourceResult;
-import org.apache.doris.thrift.TTopicItem;
-import org.apache.doris.thrift.TTopicType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
@@ -58,25 +52,6 @@ public class UserPropertyMgr implements Writable {
     private AtomicLong resourceVersion = new AtomicLong(0);
 
     public UserPropertyMgr() {
-    }
-
-    // Register callback to FixedTimePublisher
-    public void setUp() {
-        FixedTimePublisher.getInstance().register(new FixedTimePublisher.Callback() {
-            @Override
-            public TopicUpdate getTopicUpdate() {
-                TopicUpdate update = new TopicUpdate(TTopicType.RESOURCE);
-                TTopicItem tTopicItem = new TTopicItem("version");
-                tTopicItem.setInt_value(resourceVersion.get());
-                update.addUpdates(tTopicItem);
-                return update;
-            }
-
-            @Override
-            public Listener getListener() {
-                return null;
-            }
-        }, Config.meta_resource_publish_interval_ms);
     }
 
     public void addUserResource(String qualifiedUser, boolean isSystemUser) {

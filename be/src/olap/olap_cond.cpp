@@ -31,7 +31,7 @@ using std::pair;
 using std::string;
 using std::vector;
 
-using doris::column_file::ColumnStatistics;
+using doris::ColumnStatistics;
 
 //此文件主要用于对用户发送的查询条件和删除条件进行处理，逻辑上二者都可以分为三层
 //Condtiion->Condcolumn->Cond
@@ -425,13 +425,13 @@ int Cond::del_eval(const std::pair<WrapperField*, WrapperField*>& stat) const {
     return ret;
 }
 
-bool Cond::eval(const column_file::BloomFilter& bf) const {
+bool Cond::eval(const BloomFilter& bf) const {
     //通过单列上BloomFilter对block进行过滤。
     switch (op) {
     case OP_EQ: {
         bool existed = false;
         if (operand_field->is_string_type()) {
-            StringSlice* slice = (StringSlice*)(operand_field->ptr());
+            Slice* slice = (Slice*)(operand_field->ptr());
             existed = bf.test_bytes(slice->data, slice->size);
         } else {
             existed = bf.test_bytes(operand_field->ptr(), operand_field->size());
@@ -443,7 +443,7 @@ bool Cond::eval(const column_file::BloomFilter& bf) const {
         for (; it != operand_set.end(); ++it) {
             bool existed = false;
             if ((*it)->is_string_type()) {
-                StringSlice* slice = (StringSlice*)((*it)->ptr());
+                Slice* slice = (Slice*)((*it)->ptr());
                 existed = bf.test_bytes(slice->data, slice->size);
             } else {
                 existed = bf.test_bytes((*it)->ptr(), (*it)->size());
@@ -543,7 +543,7 @@ int CondColumn::del_eval(const std::pair<WrapperField*, WrapperField*>& statisti
     return ret;
 }
 
-bool CondColumn::eval(const column_file::BloomFilter& bf) const {
+bool CondColumn::eval(const BloomFilter& bf) const {
     //通过一列上的所有BloomFilter索引信息对block进行过滤
     for (auto& each_cond : _conds) {
         if (!each_cond->eval(bf)) {
@@ -593,10 +593,9 @@ bool Conditions::delete_conditions_eval(const RowCursor& row) const {
         }
     }
 
-    OLAP_LOG_DEBUG("Row meets the delete conditions. [condition_count=%zu; row=%s]",
-                   _columns.size(),
-                   row.to_string().c_str());
-
+    VLOG(3) << "Row meets the delete conditions. "
+            << "condition_count=" << _columns.size() 
+            << ", row=" << row.to_string();
     return true;
 }
 

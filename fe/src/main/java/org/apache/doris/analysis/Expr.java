@@ -232,6 +232,10 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     // Cached value of IsConstant(), set during analyze() and valid if isAnalyzed_ is true.
     private boolean isConstant_;
 
+    // Flag to indicate whether to wrap this expr's toSql() in parenthesis. Set by parser.
+    // Needed for properly capturing expr precedences in the SQL string.
+    protected boolean printSqlInParens = false;
+
     protected Expr() {
         super();
         type = Type.INVALID;
@@ -252,6 +256,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         opcode = other.opcode;
         isConstant_ = other.isConstant_;
         fn = other.fn;
+        printSqlInParens = other.printSqlInParens;
         children = Expr.cloneList(other.children);
     }
 
@@ -316,6 +321,14 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     public void setIsAuxExpr() { isAuxExpr = true; }
     public Function getFn() {
         return fn;
+    }
+
+    public boolean getPrintSqlInParens() {
+        return printSqlInParens;
+    }
+
+    public void setPrintSqlInParens(boolean b) {
+        printSqlInParens = b;
     }
 
     /**
@@ -394,6 +407,19 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             childTypes[i] = children.get(i).type;
         }
         return childTypes;
+    }
+
+    public List<Expr> getChildrenWithoutCast() {
+        List<Expr> result = new ArrayList<>();
+        for (int i = 0; i < children.size(); ++i) {
+            if (children.get(i) instanceof CastExpr) {
+                CastExpr castExpr = (CastExpr) children.get(i);
+                result.add(castExpr.getChild(0));
+            } else {
+                result.add(children.get(i));
+            }
+        }
+        return result;
     }
 
     /**
@@ -781,7 +807,15 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
     }
 
-    public abstract String toSql();
+    public String toSql() {
+        return (printSqlInParens) ? "(" + toSqlImpl() + ")" : toSqlImpl();
+    }
+
+    /**
+     * Returns a SQL string representing this expr. Subclasses should override this method
+     * instead of toSql() to ensure that parenthesis are properly added around the toSql().
+     */
+    protected abstract String toSqlImpl();
 
     public String toMySql() {
         return toSql();
@@ -1171,7 +1205,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
      *                           failure to convert a string literal to a date literal
      */
     protected Expr uncheckedCastTo(Type targetType) throws AnalysisException {
-        return new CastExpr(targetType, this, true);
+        return new CastExpr(targetType, this);
     }
 
     /**
@@ -1363,7 +1397,10 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         if (root instanceof CompoundPredicate) {
             Expr left = pushNegationToOperands(root.getChild(0));
             Expr right = pushNegationToOperands(root.getChild(1));
-            return new CompoundPredicate(((CompoundPredicate)root).getOp(), left, right);
+            CompoundPredicate compoundPredicate =
+                    new CompoundPredicate(((CompoundPredicate)root).getOp(), left, right);
+            compoundPredicate.setPrintSqlInParens(root.getPrintSqlInParens());
+            return compoundPredicate;
         }
 
         return root;

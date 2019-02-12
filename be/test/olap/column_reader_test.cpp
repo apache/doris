@@ -17,10 +17,10 @@
 
 #include <gtest/gtest.h>
 
-#include "olap/column_file/byte_buffer.h"
-#include "olap/column_file/stream_name.h"
-#include "olap/column_file/column_reader.h"
-#include "olap/column_file/column_writer.h"
+#include "olap/byte_buffer.h"
+#include "olap/stream_name.h"
+#include "olap/column_reader.h"
+#include "olap/column_writer.h"
 #include "olap/field.h"
 #include "olap/olap_define.h"
 #include "olap/olap_common.h"
@@ -33,7 +33,6 @@
 using std::string;
 
 namespace doris {
-namespace column_file {
 
 class TestColumn : public testing::Test {
 public:
@@ -147,7 +146,7 @@ public:
         for (; it != _stream_factory->streams().end(); ++it) {
             StreamName stream_name = it->first;
             OutStream *out_stream = it->second;
-            std::vector<ByteBuffer*> *buffers;
+            std::vector<StorageByteBuffer*> *buffers;
 
             if (out_stream->is_suppressed()) {
                 continue;
@@ -181,7 +180,7 @@ public:
         ASSERT_EQ(OLAP_SUCCESS, helper.open_with_mode("tmp_file", 
                 O_RDONLY, S_IRUSR | S_IWUSR)); 
 
-        _shared_buffer = ByteBuffer::create(
+        _shared_buffer = StorageByteBuffer::create(
                 OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE + sizeof(StreamHead));
         ASSERT_TRUE(_shared_buffer != NULL);
 
@@ -240,17 +239,17 @@ public:
 
     std::vector<size_t> _offsets;
 
-    std::vector<ByteBuffer*> _present_buffers;
+    std::vector<StorageByteBuffer*> _present_buffers;
 
-    std::vector<ByteBuffer*> _data_buffers;
+    std::vector<StorageByteBuffer*> _data_buffers;
 
-    std::vector<ByteBuffer*> _second_buffers;
+    std::vector<StorageByteBuffer*> _second_buffers;
 
-    std::vector<ByteBuffer*> _dictionary_buffers;
+    std::vector<StorageByteBuffer*> _dictionary_buffers;
 
-    std::vector<ByteBuffer*> _length_buffers;
+    std::vector<StorageByteBuffer*> _length_buffers;
 
-    ByteBuffer* _shared_buffer;
+    StorageByteBuffer* _shared_buffer;
 
     std::map<StreamName, ReadOnlyFileStream *> _map_in_streams;
 
@@ -2480,7 +2479,7 @@ TEST_F(TestColumn, VectorizedDirectVarcharColumnWithoutPresent) {
 
     ASSERT_EQ(_column_reader->next_vector(
         _col_vector.get(), 5, _mem_pool.get()), OLAP_SUCCESS);
-    StringSlice* value = reinterpret_cast<StringSlice*>(_col_vector->col_data());
+    Slice* value = reinterpret_cast<Slice*>(_col_vector->col_data());
     ASSERT_TRUE(strncmp(value->data, "YWJjZGU=", value->size) == 0);
     for (uint32_t i = 0; i < 2; i++) {
         value++;
@@ -2549,7 +2548,7 @@ TEST_F(TestColumn, VectorizedDirectVarcharColumnWithPresent) {
     ASSERT_EQ(is_null[0], true);
     ASSERT_EQ(is_null[1], false);
 
-    StringSlice* value = reinterpret_cast<StringSlice*>(_col_vector->col_data());
+    Slice* value = reinterpret_cast<Slice*>(_col_vector->col_data());
     value++;
     ASSERT_TRUE(strncmp(value->data, "YWJjZGU=", value->size) == 0);
 }
@@ -2610,7 +2609,7 @@ TEST_F(TestColumn, SkipDirectVarcharColumnWithPresent) {
     _col_vector.reset(new ColumnVector());
     ASSERT_EQ(_column_reader->next_vector(
         _col_vector.get(), 1, _mem_pool.get()), OLAP_SUCCESS);
-    StringSlice* value = reinterpret_cast<StringSlice*>(_col_vector->col_data());
+    Slice* value = reinterpret_cast<Slice*>(_col_vector->col_data());
     ASSERT_TRUE(strncmp(value->data, "YWFhYWE=", value->size) == 0);
 }
 
@@ -2685,14 +2684,14 @@ TEST_F(TestColumn, SeekDirectVarcharColumnWithoutPresent) {
     _col_vector.reset(new ColumnVector());
     ASSERT_EQ(_column_reader->next_vector(
         _col_vector.get(), 1, _mem_pool.get()), OLAP_SUCCESS);
-    StringSlice* value = reinterpret_cast<StringSlice*>(_col_vector->col_data());
+    Slice* value = reinterpret_cast<Slice*>(_col_vector->col_data());
     ASSERT_TRUE(strncmp(value->data, "YWJjZGU=", value->size) == 0);
 
     ASSERT_EQ(_column_reader->seek(&position1), OLAP_SUCCESS);
     _col_vector.reset(new ColumnVector());
     ASSERT_EQ(_column_reader->next_vector(
         _col_vector.get(), 1, _mem_pool.get()), OLAP_SUCCESS);
-    value = reinterpret_cast<StringSlice*>(_col_vector->col_data());
+    value = reinterpret_cast<Slice*>(_col_vector->col_data());
     ASSERT_TRUE(strncmp(value->data, "YWFhYWE=", value->size) == 0);
 }
 
@@ -2767,14 +2766,14 @@ TEST_F(TestColumn, SeekDirectVarcharColumnWithPresent) {
     _col_vector.reset(new ColumnVector());
     ASSERT_EQ(_column_reader->next_vector(
         _col_vector.get(), 1, _mem_pool.get()), OLAP_SUCCESS);
-    StringSlice* value = reinterpret_cast<StringSlice*>(_col_vector->col_data());
+    Slice* value = reinterpret_cast<Slice*>(_col_vector->col_data());
     ASSERT_TRUE(strncmp(value->data, "YWJjZGU=", value->size) == 0);
 
     ASSERT_EQ(_column_reader->seek(&position1), OLAP_SUCCESS);
     _col_vector.reset(new ColumnVector());
     ASSERT_EQ(_column_reader->next_vector(
         _col_vector.get(), 1, _mem_pool.get()), OLAP_SUCCESS);
-    value = reinterpret_cast<StringSlice*>(_col_vector->col_data());
+    value = reinterpret_cast<Slice*>(_col_vector->col_data());
     ASSERT_TRUE(strncmp(value->data, "YWFhYWE=", value->size) == 0);
 }
 
@@ -2837,7 +2836,7 @@ TEST_F(TestColumn, VectorizedStringColumnWithoutPresent) {
     _col_vector.reset(new ColumnVector());
     ASSERT_EQ(_column_reader->next_vector(
         _col_vector.get(), 5, _mem_pool.get()), OLAP_SUCCESS);
-    StringSlice* value = reinterpret_cast<StringSlice*>(_col_vector->col_data());
+    Slice* value = reinterpret_cast<Slice*>(_col_vector->col_data());
 
     ASSERT_TRUE(strncmp(value->data, "abcde", value->size) == 0);
     for (uint32_t i = 0; i < 2; i++) {
@@ -2905,7 +2904,7 @@ TEST_F(TestColumn, VectorizedStringColumnWithPresent) {
     ASSERT_EQ(is_null[0], true);
     ASSERT_EQ(is_null[1], false);
 
-    StringSlice* value = reinterpret_cast<StringSlice*>(_col_vector->col_data());
+    Slice* value = reinterpret_cast<Slice*>(_col_vector->col_data());
     value++;
     ASSERT_TRUE(strncmp(value->data, "abcde", value->size) == 0);
 }
@@ -2987,7 +2986,7 @@ TEST_F(TestColumn, VectorizedStringColumnWithoutoutPresent2) {
     _col_vector.reset(new ColumnVector());
     ASSERT_EQ(_column_reader->next_vector(
         _col_vector.get(), 5, _mem_pool.get()), OLAP_SUCCESS);
-    StringSlice* value = reinterpret_cast<StringSlice*>(_col_vector->col_data());
+    Slice* value = reinterpret_cast<Slice*>(_col_vector->col_data());
 
     ASSERT_TRUE(strncmp(value->data, "abcde", value->size) == 0);
 
@@ -3059,7 +3058,7 @@ TEST_F(TestColumn, VectorizedDirectVarcharColumnWith65533) {
     _col_vector.reset(new ColumnVector());
     ASSERT_EQ(_column_reader->next_vector(
         _col_vector.get(), 3, _mem_pool.get()), OLAP_SUCCESS);
-    StringSlice* value = reinterpret_cast<StringSlice*>(_col_vector->col_data());
+    Slice* value = reinterpret_cast<Slice*>(_col_vector->col_data());
 
     for (uint32_t i = 0; i < 65533; i++) {
         ASSERT_TRUE(strncmp(value->data + i, "a", 1) == 0);
@@ -3071,7 +3070,6 @@ TEST_F(TestColumn, VectorizedDirectVarcharColumnWith65533) {
     }   
 }
 
-}
 }
 
 int main(int argc, char** argv) {

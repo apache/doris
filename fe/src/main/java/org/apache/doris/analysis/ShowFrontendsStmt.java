@@ -19,7 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ColumnType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -46,7 +46,11 @@ public class ShowFrontendsStmt extends ShowStmt {
     public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
         for (String title : FrontendsProcNode.TITLE_NAMES) {
-            builder.addColumn(new Column(title, ColumnType.createVarchar(30)));
+            // hide hostname for SHOW FRONTENDS stmt
+            if (title.equals("HostName")) {
+                continue;
+            }
+            builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
         }
         return builder.build();
     }

@@ -65,6 +65,7 @@ class RowDescriptor;
 // query and shared across all execution nodes of that query.
 class RuntimeState {
 public:
+    // for ut only
     RuntimeState(const TUniqueId& fragment_instance_id,
                  const TQueryOptions& query_options,
                  const std::string& now, ExecEnv* exec_env);
@@ -406,8 +407,9 @@ public:
         return _error_log_file_path;
     }
 
-    // TODO(lingbin): remove this file error method after mysql error exporter is stable.
-    void append_error_msg_to_file(const std::string& line, const std::string& error_msg);
+    // is_summary is true, means we are going to write the summary line
+    void append_error_msg_to_file(const std::string& line, const std::string& error_msg,
+        bool is_summary = false);
 
     int64_t num_rows_load_success() {
         return _num_rows_load_success.load();
@@ -477,18 +479,6 @@ public:
 
     /// Helper to call QueryState::StartSpilling().
     Status StartSpilling(MemTracker* mem_tracker);
-
-    void set_query_state_for_wait() {
-        _is_running = false;
-    }
-
-    void set_query_state_for_running() {
-        _is_running = true;
-    }
-
-    bool is_running() {
-        return _is_running;
-    }
 
 private:
     // Allow TestEnv to set block_mgr manually for testing.
@@ -612,9 +602,6 @@ private:
     std::ofstream* _error_log_file; // error file path, absolute path
     std::unique_ptr<LoadErrorHub> _error_hub;
     std::vector<TTabletCommitInfo> _tablet_commit_infos;
-
-    // state of execution
-    volatile bool _is_running;
 
     //TODO chenhao , remove this to QueryState 
     /// Pool of buffer reservations used to distribute initial reservations to operators

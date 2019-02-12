@@ -58,12 +58,15 @@
                             LARGEINT（16字节）
                                 范围：0 ~ 2^127 - 1
                             FLOAT（4字节）
+                                支持科学计数法
                             DOUBLE（12字节）
+                                支持科学计数法
                             DECIMAL[(precision, scale)] (40字节)
                                 保证精度的小数类型。默认是 DECIMAL(10, 0)
                                 precision: 1 ~ 27
                                 scale: 0 ~ 9
                                 其中整数部分为 1 ~ 18
+                                不支持科学计数法
                             DATE（3字节）
                                 范围：1900-01-01 ~ 9999-12-31
                             DATETIME（8字节）
@@ -200,6 +203,11 @@
            PROPERTIES (
            "bloom_filter_columns"="k1,k2,k3"
            )
+        4) 如果希望使用Colocate Join 特性，需要在 properties 中指定
+
+           PROPERTIES (
+           "colocate_with"="table1"
+           )
     
 ## example
     1. 创建一个 olap 表，使用 Random 分桶，使用列存，相同key的记录进行聚合
@@ -316,6 +324,28 @@
         AGGREGATE KEY(k1, k2)
         DISTRIBUTED BY RANDOM BUCKETS 32
         PROPERTIES ("storage_type"="column");
+
+    7. 创建两张支持Colocat Join的表t1 和t2
+        CREATE TABLE `t1` (
+        `id` int(11) COMMENT "",
+        `value` varchar(8) COMMENT ""
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`id`)
+        DISTRIBUTED BY HASH(`id`) BUCKETS 10
+        PROPERTIES (
+        "colocate_with" = "t1"
+        );
+
+        CREATE TABLE `t2` (
+        `id` int(11) COMMENT "",
+        `value` varchar(8) COMMENT ""
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`id`)
+        DISTRIBUTED BY HASH(`id`) BUCKETS 10
+        PROPERTIES (
+        "colocate_with" = "t1"
+        );
+
 
 ## keyword
     CREATE,TABLE
@@ -456,7 +486,7 @@
             1) index 中的所有列都要写出来
             2) value 列在 key 列之后
             
-    6. 修改table的属性，目前仅支持修改bloom filter列
+    6. 修改table的属性，目前支持修改bloom filter列和colocate_with 属性
         语法：
             PROPERTIES ("key"="value")
         注意：
@@ -563,6 +593,9 @@
         ALTER TABLE example_db.my_table
         DROP COLUMN col2
         PROPERTIES ("bloom_filter_columns"="k1,k2,k3");
+
+    12. 修改表的Colocate 属性
+        ALTER TABLE example_db.my_table set ("colocate_with"="t1");
         
     [rename]
     1. 将名为 table1 的表修改为 table2
@@ -677,7 +710,7 @@
 ## description
     该语句用于设置指定数据库的属性。（仅管理员使用）
     语法：
-        1) 设置数据库数据量配额，单位为字节
+        1) 设置数据库数据量配额，单位为B/K/KB/M/MB/G/GB/T/TB/P/PB
             ALTER DATABASE db_name SET DATA QUOTA quota;
             
         2) 重命名数据库
@@ -687,9 +720,15 @@
         重命名数据库后，如需要，请使用 REVOKE 和 GRANT 命令修改相应的用户权限。 
 
 ## example
-    1. 设置指定数据库数据量配额为 10 TB
+    1. 设置指定数据库数据量配额
         ALTER DATABASE example_db SET DATA QUOTA 10995116277760;
-        
+        上述单位为字节,等价于
+        ALTER DATABASE example_db SET DATA QUOTA 10T;
+
+        ALTER DATABASE example_db SET DATA QUOTA 100G;
+
+        ALTER DATABASE example_db SET DATA QUOTA 200M;
+
     2. 将数据库额 example_db 重命名为 example_db2
         ALTER DATABASE example_db RENAME example_db2;
 
@@ -713,7 +752,7 @@
 ## example
     1. 创建名为 bos_repo 的仓库，依赖 BOS broker "bos_broker"，数据根目录为：bos://palo_backup
         CREATE REPOSITORY `bos_repo`
-        WITH BROKER `bos_broker `
+        WITH BROKER `bos_broker`
         ON LOCATION "bos://palo_backup"
         PROPERTIES
         (
@@ -724,7 +763,7 @@
      
     2. 创建和示例 1 相同的仓库，但属性为只读：
         CREATE READ ONLY REPOSITORY `bos_repo`
-        WITH BROKER `bos_broker `
+        WITH BROKER `bos_broker`
         ON LOCATION "bos://palo_backup"
         PROPERTIES
         (
@@ -735,7 +774,7 @@
 
     3. 创建名为 hdfs_repo 的仓库，依赖 Baidu hdfs broker "hdfs_broker"，数据根目录为：hdfs://hadoop-name-node:54310/path/to/repo/
         CREATE REPOSITORY `hdfs_repo`
-        WITH BROKER `hdfs_broker `
+        WITH BROKER `hdfs_broker`
         ON LOCATION "hdfs://hadoop-name-node:54310/path/to/repo/"
         PROPERTIES
         (
@@ -824,10 +863,11 @@
                 "backup_timestamp" = "2018-05-04-16-45-08"：指定了恢复对应备份的哪个时间版本，必填。该信息可以通过 `SHOW SNAPSHOT ON repo;` 语句获得。
                 "replication_num" = "3"：指定恢复的表或分区的副本数。默认为3。若恢复已存在的表或分区，则副本数必须和已存在表或分区的副本数相同。同时，必须有足够的 host 容纳多个副本。
                 "timeout" = "3600"：任务超时时间，默认为一天。单位秒。
+                "meta_version" = 40：使用指定的 meta_version 来读取之前备份的元数据。注意，该参数作为临时方案，仅用于恢复老版本 Doris 备份的数据。最新版本的备份数据中已经包含 meta version，无需再指定。
 
 ## example
     1. 从 example_repo 中恢复备份 snapshot_1 中的表 backup_tbl 到数据库 example_db1，时间版本为 "2018-05-04-16-45-08"。恢复为 1 个副本：
-        RESTORE SNAPSHOT example_db1.`snapshot_1 `
+        RESTORE SNAPSHOT example_db1.`snapshot_1`
         FROM `example_repo`
         ON ( `backup_tbl` )
         PROPERTIES
@@ -837,8 +877,8 @@
         );
         
     2. 从 example_repo 中恢复备份 snapshot_2 中的表 backup_tbl 的分区 p1,p2，以及表 backup_tbl2 到数据库 example_db1，并重命名为 new_tbl，时间版本为 "2018-05-04-17-11-01"。默认恢复为 3 个副本：
-        RESTORE SNAPSHOT example_db1.`snapshot_2 `
-        FROM `example_repo `
+        RESTORE SNAPSHOT example_db1.`snapshot_2`
+        FROM `example_repo`
         ON
         (
             `backup_tbl` PARTITION (`p1`, `p2`) AS `backup_tbl2`,
@@ -954,3 +994,143 @@
 ## keyword
     HLL
 
+# TRUNCATE TABLE
+## description
+    该语句用于清空指定表和分区的数据
+    语法：
+
+        TRUNCATE TABLE [db.]tbl[ PARTITION(p1, p2, ...)];
+    
+    说明：
+        1. 该语句清空数据，但保留表或分区。
+        2. 不同于 DELETE，该语句只能整体清空指定的表或分区，不能添加过滤条件。
+        3. 不同于 DELETE，使用该方式清空数据不会对查询性能造成影响。
+        4. 该操作删除的数据不可恢复。
+        5. 使用该命令时，表状态需为 NORMAL，即不允许正在进行 SCHEMA CHANGE 等操作。
+        
+## example
+
+    1. 清空 example_db 下的表 tbl
+
+        TRUNCATE TABLE example_db.tbl;
+
+    2. 清空表 tbl 的 p1 和 p2 分区
+
+        TRUNCATE TABLE tbl PARTITION(p1, p2);
+
+## keyword
+    TRUNCATE,TABLE
+
+# Colocate Join
+## description
+    Colocate/Local Join 就是指多个节点Join时没有数据移动和网络传输，每个节点只在本地进行Join，
+    能够本地进行Join的前提是相同Join Key的数据导入时按照相同规则导入到固定的节点。
+
+    1 How To Use:
+
+        只需要在建表时增加 colocate_with 这个属性即可，colocate_with的值 可以设置成同一组colocate 表中的任意一个，
+        不过需要保证colocate_with属性中的表要先建立。
+
+        假如需要对table t1 和t2 进行Colocate Join，可以按以下语句建表：
+
+            CREATE TABLE `t1` (
+            `id` int(11) COMMENT "",
+            `value` varchar(8) COMMENT ""
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`id`)
+            DISTRIBUTED BY HASH(`id`) BUCKETS 10
+            PROPERTIES (
+            "colocate_with" = "t1"
+            );
+
+            CREATE TABLE `t2` (
+            `id` int(11) COMMENT "",
+            `value` varchar(8) COMMENT ""
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`id`)
+            DISTRIBUTED BY HASH(`id`) BUCKETS 10
+            PROPERTIES (
+            "colocate_with" = "t1"
+            );
+
+    2 Colocate Join 目前的限制:
+
+        1. Colcoate Table 必须是OLAP类型的表
+        2. 相同colocate_with 属性的表的 BUCKET 数必须一样
+        3. 相同colocate_with 属性的表的 副本数必须一样
+        4. 相同colocate_with 属性的表的 DISTRIBUTED Columns的数据类型必须一样
+
+    3 Colocate Join的适用场景:
+        
+        Colocate Join 十分适合几张表按照相同字段分桶，并高频根据相同字段Join的场景。 
+
+    4 FAQ:
+
+        Q: 支持多张表进行Colocate Join 吗? 
+   
+        A: 支持
+
+        Q: 支持Colocate 表和正常表 Join 吗？
+
+        A: 支持
+
+        Q: Colocate 表支持用非分桶的Key进行Join吗？
+
+        A: 支持：不符合Colocate Join条件的Join会使用Shuffle Join或Broadcast Join
+
+        Q: 如何确定Join 是按照Colocate Join 执行的？
+
+        A: explain的结果中Hash Join的孩子节点如果直接是OlapScanNode， 没有Exchange Node，就说明是Colocate Join
+
+        Q: 如何修改colocate_with 属性？
+
+        A: ALTER TABLE example_db.my_table set ("colocate_with"="target_table");
+
+        Q: 如何禁用colcoate join?
+
+        A: set disable_colocate_join = true; 就可以禁用Colocate Join，查询时就会使用Shuffle Join 和Broadcast Join
+
+## keyword
+
+    COLOCATE, JOIN, CREATE TABLE
+
+# CREATE FUNCTION
+## description
+    Used to create a UDF/UDAF/UDTF
+    Syntax:
+        CREATE [AGGREGATE] FUNCTION funcName (argType [, ...])
+        RETURNS retType
+        PROPERTIES (
+            k1=v1 [, k2=v2]
+        )
+    
+    valid PROPERTIES: 
+        "symbol": UDF's symbol, which Doris call this symbol's function to execute. MUST BE SET
+        "object_file": UDF library's URL, Doris use it to download library. MUST BE SET
+        "md5": when this property is set, Doris will check library's md5um against this value. This is a option
+
+## example
+    1. create a function "my_func", receive two int and return one int
+        CREATE FUNCTION my_func (int, int) RETURNS int
+        PROPERTIES ("symbol"="my_func_symbol", "object_file"="http://127.0.0.1/my_func.so")
+    2. create a variadic function "my_func"
+        CREATE FUNCTION my_func (int, ...) RETURNS int
+        PROPERTIES ("symbol"="my_func_symbol", "object_file"="http://127.0.0.1/my_func.so")
+
+## keyword
+    CREATE, FUNCTION
+
+# DROP FUNCTION
+## description
+    Used to drop a UDF/UDAF/UDTF
+    Syntax:
+        DROP FUNCTION funcName (argType [, ...])
+
+## example
+    1. drop a UDF whose name is my_func
+    DROP FUNCTION my_func (int, int)
+    2. drop a variadic function
+    DROP FUNCTION my_func (int, ...)
+
+## keyword
+    DROP, FUNCTION

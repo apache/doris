@@ -17,41 +17,32 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.DateLiteral;
-import org.apache.doris.analysis.DecimalLiteral;
-import org.apache.doris.analysis.FloatLiteral;
-import org.apache.doris.analysis.IntLiteral;
-import org.apache.doris.analysis.LargeIntLiteral;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
-import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TColumnType;
 
-import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-
-
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 /**
  * This class represents the column-related metadata.
  */
 public class Column implements Writable {
     private static final Logger LOG = LogManager.getLogger(Column.class);
-    private static final String HLL_EMPTY_SET = "0";
     private String name;
-    private ColumnType columnType;
+    private Type type;
     private AggregateType aggregationType;
+
+    // if isAggregationTypeImplicit is true, the actual aggregation type will not be shown in show create table
     private boolean isAggregationTypeImplicit;
     private boolean isKey;
     private boolean isAllowNull;
@@ -62,40 +53,39 @@ public class Column implements Writable {
 
     public Column() {
         this.name = "";
-        this.columnType = new ColumnType();
+        this.type = Type.NULL;
         this.isAggregationTypeImplicit = false;
         this.isKey = false;
         this.stats = new ColumnStats();
     }
 
     public Column(String name, PrimitiveType dataType) {
-        this(name, new ColumnType(dataType, -1, -1, -1), false, null, false, null, "");
+        this(name, ScalarType.createType(dataType), false, null, false, null, "");
     }
 
     public Column(String name, PrimitiveType dataType, boolean isAllowNull) {
-        this(name, new ColumnType(dataType, -1, -1, -1),
-                false, null, isAllowNull, null, "");
+        this(name, ScalarType.createType(dataType), false, null, isAllowNull, null, "");
     }
 
-    public Column(String name, ColumnType columnType) {
-        this(name, columnType, false, null, false, null, "");
+    public Column(String name, Type type) {
+        this(name, type, false, null, false, null, "");
     }
 
-    public Column(String name, ColumnType columnType, boolean isKey, AggregateType aggregateType, String defaultValue,
+    public Column(String name, Type type, boolean isKey, AggregateType aggregateType, String defaultValue,
                   String comment) {
-        this(name, columnType, isKey, aggregateType, false, defaultValue, comment);
+        this(name, type, isKey, aggregateType, false, defaultValue, comment);
     }
 
-    public Column(String name, ColumnType columnType, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
+    public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
                   String defaultValue, String comment) {
         this.name = name;
         if (this.name == null) {
             this.name = "";
         }
 
-        this.columnType = columnType;
-        if (this.columnType == null) {
-            this.columnType = new ColumnType();
+        this.type = type;
+        if (this.type == null) {
+            this.type = Type.NULL;
         }
 
         this.aggregationType = aggregateType;
@@ -110,7 +100,7 @@ public class Column implements Writable {
 
     public Column(Column column) {
         this.name = column.getName();
-        this.columnType = column.getColumnType();
+        this.type = column.type;
         this.aggregationType = column.getAggregationType();
         this.isAggregationTypeImplicit = column.isAggregationTypeImplicit();
         this.isKey = column.isKey();
@@ -124,11 +114,6 @@ public class Column implements Writable {
         this.name = newName;
     }
 
-    public void setVarcharLimit(boolean value) {
-        if (this.columnType.getType() == PrimitiveType.VARCHAR) {
-            this.columnType.setVarcharLimit(value);
-        }
-    }
     public String getName() {
         return this.name;
     }
@@ -141,33 +126,15 @@ public class Column implements Writable {
         return this.isKey;
     }
 
-    public ColumnType getColumnType() {
-        return this.columnType;
-    }
+    public PrimitiveType getDataType() { return type.getPrimitiveType(); }
 
-    public PrimitiveType getDataType() {
-        return this.columnType.getType();
-    }
+    public Type getType() { return ScalarType.createType(type.getPrimitiveType()); }
 
-    public Type getType() {
-        return ScalarType.createType(columnType.getType());
-    }
+    public Type getOriginType() { return type; }
 
-    public Type getOriginType() {
-        return columnType.getTypeDesc();
-    }
-
-    public int getStrLen() {
-        return this.columnType.getLen();
-    }
-
-    public int getPrecision() {
-        return this.columnType.getPrecision();
-    }
-
-    public int getScale() {
-        return this.columnType.getScale();
-    }
+    public int getStrLen() { return ((ScalarType) type).getLength(); }
+    public int getPrecision() { return ((ScalarType) type).getScalarPrecision(); }
+    public int getScale() { return ((ScalarType) type).getScalarScale(); }
 
     public AggregateType getAggregationType() {
         return this.aggregationType;
@@ -179,6 +146,10 @@ public class Column implements Writable {
 
     public void setAggregationType(AggregateType aggregationType, boolean isAggregationTypeImplicit) {
         this.aggregationType = aggregationType;
+        this.isAggregationTypeImplicit = isAggregationTypeImplicit;
+    }
+
+    public void setAggregationTypeImplicit(boolean isAggregationTypeImplicit) {
         this.isAggregationTypeImplicit = isAggregationTypeImplicit;
     }
 
@@ -206,90 +177,10 @@ public class Column implements Writable {
         return comment;
     }
 
-    public void analyze(boolean isOlap) throws AnalysisException {
-        if (name == null || columnType == null) {
-            throw new AnalysisException("No column name or column type in column definition.");
-        }
-
-        FeNameFormat.checkColumnName(name);
-
-        columnType.analyze();
-
-        if (aggregationType != null) {
-            // check if aggregate type is valid
-            if (!aggregationType.checkCompatibility(columnType.getType())) {
-                throw new AnalysisException(String.format("Aggregate type %s is not compatible with primitive type %s",
-                                                          toString(), columnType.toSql()));
-            }
-        }
-
-        if (columnType.getType() == PrimitiveType.FLOAT || columnType.getType() == PrimitiveType.DOUBLE) {
-            if (isOlap && isKey) {
-                throw new AnalysisException("Float or double can not used as a key, use decimal instead.");
-            }
-        }
-
-        if (columnType.getType() == PrimitiveType.HLL) {
-            if (defaultValue != null) {
-                throw new AnalysisException("Hll can not set default value");
-            }
-            defaultValue = HLL_EMPTY_SET;
-        }
-
-        if (defaultValue != null) {
-            validateDefaultValue(columnType, defaultValue);
-        }
-    }
-
-    public static void validateDefaultValue(ColumnType columnType, String defaultValue) throws AnalysisException {
-        Preconditions.checkNotNull(defaultValue);
-
-        // check if default value is valid.
-        // if not, some literal constructor will throw AnalysisException
-        PrimitiveType type = columnType.getType();
-        switch (type) {
-            case TINYINT:
-            case SMALLINT:
-            case INT:
-            case BIGINT:
-                IntLiteral intLiteral = new IntLiteral(defaultValue, Type.fromPrimitiveType(type));
-                break;
-            case LARGEINT:
-                LargeIntLiteral largeIntLiteral = new LargeIntLiteral(defaultValue);
-                largeIntLiteral.analyze(null);
-                break;
-            case FLOAT:
-                FloatLiteral floatLiteral = new FloatLiteral(defaultValue);
-                if (floatLiteral.getType() == Type.DOUBLE) {
-                    throw new AnalysisException("Default value will loose precision: " + defaultValue);
-                }
-            case DOUBLE:
-                FloatLiteral doubleLiteral = new FloatLiteral(defaultValue);
-                break;
-            case DECIMAL:
-                DecimalLiteral decimalLiteral = new DecimalLiteral(defaultValue);
-                decimalLiteral.checkPrecisionAndScale(columnType.getPrecision(), columnType.getScale());
-                break;
-            case DATE:
-            case DATETIME:
-                DateLiteral dateLiteral = new DateLiteral(defaultValue, Type.fromPrimitiveType(type));
-                break;
-            case CHAR:
-            case VARCHAR:
-            case HLL:
-                if (defaultValue.length() > columnType.getLen()) {
-                    throw new AnalysisException("Default value is too long: " + defaultValue);
-                }
-                break;
-            default:
-                throw new AnalysisException("Unsupported type: " + columnType);
-        }
-    }
-
     public int getOlapColumnIndexSize() {
         PrimitiveType type = this.getDataType();
         if (type == PrimitiveType.CHAR) {
-            return columnType.getLen();
+            return getStrLen();
         } else {
             return type.getOlapColumnIndexSize();
         }
@@ -322,7 +213,7 @@ public class Column implements Writable {
             throw new DdlException("Dest column name is empty");
         }
 
-        if (!this.columnType.isSchemaChangeAllowed(other.columnType)) {
+        if (!ColumnType.isSchemaChangeAllowed(type, other.type)) {
             throw new DdlException("Cannot change " + getDataType() + " to " + other.getDataType());
         }
 
@@ -364,14 +255,14 @@ public class Column implements Writable {
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("`").append(name).append("` ");
-        sb.append(columnType.toSql()).append(" ");
-        if (aggregationType != null && !isAggregationTypeImplicit) {
+        sb.append(type.toSql()).append(" ");
+        if (aggregationType != null && aggregationType != AggregateType.NONE && !isAggregationTypeImplicit) {
             sb.append(aggregationType.name()).append(" ");
         }
         if (!isAllowNull) {
             sb.append("NOT NULL ");
         }
-        if (defaultValue != null) {
+        if (defaultValue != null && getDataType() != PrimitiveType.HLL) {
             sb.append("DEFAULT \"").append(defaultValue).append("\" ");
         }
         sb.append("COMMENT \"").append(comment).append("\"");
@@ -438,7 +329,7 @@ public class Column implements Writable {
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, name);
-        columnType.write(out);
+        ColumnType.write(out, type);
         if (null == aggregationType) {
             out.writeBoolean(false);
         } else {
@@ -464,8 +355,7 @@ public class Column implements Writable {
     @Override
     public void readFields(DataInput in) throws IOException {
         name = Text.readString(in);
-        columnType = new ColumnType();
-        columnType.readFields(in);
+        type = ColumnType.read(in);
         boolean notNull = in.readBoolean();
         if (notNull) {
             aggregationType = AggregateType.valueOf(Text.readString(in));

@@ -18,16 +18,16 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ColumnType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 // Used to test show executor.
 public class ShowAuthorStmt extends ShowStmt {
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
-                    .addColumn(new Column("Name", ColumnType.createVarchar(30)))
-                    .addColumn(new Column("Location", ColumnType.createVarchar(30)))
-                    .addColumn(new Column("Comment", ColumnType.createVarchar(30)))
+                    .addColumn(new Column("Name", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("Location", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("Comment", ScalarType.createVarchar(30)))
                     .build();
 
     @Override

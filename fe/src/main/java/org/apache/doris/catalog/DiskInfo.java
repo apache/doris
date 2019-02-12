@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.thrift.TStorageMedium;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -39,6 +40,10 @@ public class DiskInfo implements Writable {
     private long diskAvailableCapacityB;
     private DiskState state;
 
+    // path hash and storage medium are reported from Backend and no need to persist
+    private long pathHash = 0;
+    private TStorageMedium storageMedium;
+
     private DiskInfo() {
         // for persist
     }
@@ -49,6 +54,8 @@ public class DiskInfo implements Writable {
         this.dataUsedCapacityB = 0;
         this.diskAvailableCapacityB = DEFAULT_CAPACITY_B;
         this.state = DiskState.ONLINE;
+        this.pathHash = 0;
+        this.storageMedium = TStorageMedium.HDD;
     }
 
     public String getRootPath() {
@@ -79,19 +86,44 @@ public class DiskInfo implements Writable {
         this.diskAvailableCapacityB = availableCapacityB;
     }
 
-
     public DiskState getState() {
         return state;
     }
 
-    public void setState(DiskState state) {
-        this.state = state;
+    // return true if changed
+    public boolean setState(DiskState state) {
+        if (this.state != state) {
+            this.state = state;
+            return true;
+        }
+        return false;
+    }
+
+    public long getPathHash() {
+        return pathHash;
+    }
+
+    public void setPathHash(long pathHash) {
+        this.pathHash = pathHash;
+    }
+
+    public boolean hasPathHash() {
+        return pathHash != 0;
+    }
+
+    public TStorageMedium getStorageMedium() {
+        return storageMedium;
+    }
+
+    public void setStorageMedium(TStorageMedium storageMedium) {
+        this.storageMedium = storageMedium;
     }
 
     @Override
     public String toString() {
-        return "DiskInfo [rootPath=" + rootPath + ", totalCapacityB=" + totalCapacityB + ", dataUsedCapacityB="
-                + dataUsedCapacityB + ", diskAvailableCapacityB=" + diskAvailableCapacityB + ", state=" + state + "]";
+        return "DiskInfo [rootPath=" + rootPath + "(" + pathHash + "), totalCapacityB=" + totalCapacityB
+                + ", dataUsedCapacityB=" + dataUsedCapacityB + ", diskAvailableCapacityB="
+                + diskAvailableCapacityB + ", state=" + state + ", medium: " + storageMedium + "]";
     }
 
     @Override

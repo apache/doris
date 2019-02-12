@@ -32,28 +32,13 @@
 
 namespace doris {
 
-class RowDescriptor;
-class TupleDescriptor;
-class Tuple;
-class TupleRow;
-class RowBatch;
 class PUniqueId;
 
-std::string print_tuple(const Tuple* t, const TupleDescriptor& d);
-std::string print_row(TupleRow* row, const RowDescriptor& d);
-std::string print_batch(RowBatch* batch);
-std::string print_id(const TUniqueId& id);
-std::string print_id(const PUniqueId& id);
 std::string print_plan_node_type(const TPlanNodeType::type& type);
 std::string print_tstmt_type(const TStmtType::type& type);
 std::string print_query_state(const QueryState::type& type);
 std::string PrintTUnit(const TUnit::type& type);
 std::string PrintTMetricKind(const TMetricKind::type& type);
-
-// Parse 's' into a TUniqueId object.  The format of s needs to be the output format
-// from PrintId.  (<hi_part>:<low_part>)
-// Returns true if parse succeeded.
-bool parse_id(const std::string& s, TUniqueId* id);
 
 // Returns a string "<product version number> (build <build hash>)"
 // If compact == false, this string is appended: "\nBuilt on <build time>"
@@ -62,11 +47,6 @@ std::string get_build_version(bool compact);
 
 // Returns "<program short name> version <GetBuildVersion(compact)>"
 std::string get_version_string(bool compact);
-
-// Returns the stack trace as a string from the current location.
-// Note: there is a libc bug that causes this not to work on 64 bit machines
-// for recursive calls.
-std::string get_stack_trace();
 
 std::string hexdump(const char* buf, int len);
 

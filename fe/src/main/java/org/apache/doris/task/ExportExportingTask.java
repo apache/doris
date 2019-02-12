@@ -17,17 +17,18 @@
 
 package org.apache.doris.task;
 
-import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.Status;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.common.Version;
 import org.apache.doris.load.ExportFailMsg;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.qe.Coordinator;
@@ -251,7 +252,7 @@ public class ExportExportingTask extends MasterTask {
 
         summaryProfile.addInfoString(ProfileManager.QUERY_TYPE, "Query");
         summaryProfile.addInfoString(ProfileManager.QUERY_STATE, job.getState().toString());
-        summaryProfile.addInfoString("Palo Version", "Palo version 2.0");
+        summaryProfile.addInfoString("Doris Version", Version.PALO_BUILD_VERSION);
         summaryProfile.addInfoString(ProfileManager.USER, "xxx");
         summaryProfile.addInfoString(ProfileManager.DEFAULT_DB, String.valueOf(job.getDbId()));
         summaryProfile.addInfoString(ProfileManager.SQL_STATEMENT, job.getSql());
@@ -267,16 +268,16 @@ public class ExportExportingTask extends MasterTask {
     }
 
     private Status moveTmpFiles() {
-        BrokerMgr.BrokerAddress brokerAddress = null;
+        FsBroker broker = null;
         try {
             String localIP = FrontendOptions.getLocalHostAddress();
-            brokerAddress = Catalog.getInstance().getBrokerMgr().getBroker(job.getBrokerDesc().getName(), localIP);
+            broker = Catalog.getInstance().getBrokerMgr().getBroker(job.getBrokerDesc().getName(), localIP);
         } catch (AnalysisException e) {
             String failMsg = "get broker failed. msg=" + e.getMessage();
             LOG.warn(failMsg);
             return new Status(TStatusCode.CANCELLED, failMsg);
         }
-        TNetworkAddress address = new TNetworkAddress(brokerAddress.ip, brokerAddress.port);
+        TNetworkAddress address = new TNetworkAddress(broker.ip, broker.port);
         TPaloBrokerService.Client client = null;
         try {
             client = ClientPool.brokerPool.borrowObject(address);

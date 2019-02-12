@@ -26,6 +26,7 @@ import org.apache.doris.persist.EditLog;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TDisk;
+
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -114,10 +115,10 @@ public class CatalogTestUtil {
             if (masterPartition.getId() != slavePartition.getId()) {
                 return false;
             }
-            if (masterPartition.getCommittedVersion() != slavePartition.getCommittedVersion()
-                    || masterPartition.getCommittedVersionHash() != slavePartition.getCommittedVersionHash()
+            if (masterPartition.getVisibleVersion() != slavePartition.getVisibleVersion()
+                    || masterPartition.getVisibleVersionHash() != slavePartition.getVisibleVersionHash()
                     || masterPartition.getNextVersion() != slavePartition.getNextVersion()
-                    || masterPartition.getCurrentVersionHash() != slavePartition.getCurrentVersionHash()) {
+                    || masterPartition.getCommittedVersionHash() != slavePartition.getCommittedVersionHash()) {
                 return false;
             }
             List<MaterializedIndex> allMaterializedIndices = masterPartition.getMaterializedIndices();
@@ -158,11 +159,11 @@ public class CatalogTestUtil {
 
         // replica
         long replicaId = 0;
-        Replica replica1 = new Replica(testReplicaId1, testBackendId1, version, versionHash, 0L, 0L,
+        Replica replica1 = new Replica(testReplicaId1, testBackendId1, version, versionHash, 0, 0L, 0L,
                 ReplicaState.NORMAL, -1, 0, 0, 0);
-        Replica replica2 = new Replica(testReplicaId2, testBackendId2, version, versionHash, 0L, 0L,
+        Replica replica2 = new Replica(testReplicaId2, testBackendId2, version, versionHash, 0, 0L, 0L,
                 ReplicaState.NORMAL, -1, 0, 0, 0);
-        Replica replica3 = new Replica(testReplicaId3, testBackendId3, version, versionHash, 0L, 0L,
+        Replica replica3 = new Replica(testReplicaId3, testBackendId3, version, versionHash, 0, 0L, 0L,
                 ReplicaState.NORMAL, -1, 0, 0, 0);
 
         // tablet
@@ -180,7 +181,7 @@ public class CatalogTestUtil {
         // partition
         RandomDistributionInfo distributionInfo = new RandomDistributionInfo(10);
         Partition partition = new Partition(partitionId, testPartition1, index, distributionInfo);
-        partition.updateCommitVersionAndVersionHash(testStartVersion, testStartVersionHash);
+        partition.updateVisibleVersionAndVersionHash(testStartVersion, testStartVersionHash);
         partition.setNextVersion(testStartVersion + 1);
         partition.setNextVersionHash(testPartitionNextVersionHash, testPartitionCurrentVersionHash);
 
@@ -192,7 +193,7 @@ public class CatalogTestUtil {
         temp = new Column("k2", PrimitiveType.INT);
         temp.setIsKey(true);
         columns.add(temp);
-        columns.add(new Column("v", new ColumnType(PrimitiveType.DOUBLE), false, AggregateType.SUM, "0", ""));
+        columns.add(new Column("v", ScalarType.createType(PrimitiveType.DOUBLE), false, AggregateType.SUM, "0", ""));
 
         List<Column> keysColumn = new ArrayList<Column>();
         temp = new Column("k1", PrimitiveType.INT);
@@ -235,7 +236,7 @@ public class CatalogTestUtil {
         Column k2 = new Column("k2", PrimitiveType.INT);
         k2.setIsKey(true);
         columns.add(k2);
-        columns.add(new Column("v", new ColumnType(PrimitiveType.DOUBLE), false, AggregateType.SUM, "0", ""));
+        columns.add(new Column("v", ScalarType.createType(PrimitiveType.DOUBLE), false, AggregateType.SUM, "0", ""));
 
         // table
         List<Column> partitionColumns = Lists.newArrayList();
@@ -267,7 +268,7 @@ public class CatalogTestUtil {
         Column k2 = new Column("k2", PrimitiveType.INT);
         k2.setIsKey(true);
         columns.add(k2);
-        columns.add(new Column("v", new ColumnType(PrimitiveType.DOUBLE), false, AggregateType.SUM, "0", ""));
+        columns.add(new Column("v", ScalarType.createType(PrimitiveType.DOUBLE), false, AggregateType.SUM, "0", ""));
 
         // table
         List<Column> partitionColumns = Lists.newArrayList();
@@ -279,7 +280,7 @@ public class CatalogTestUtil {
                                                                            .newArrayList("100")),
                                                                    null));
 
-        RangePartitionInfo partitionInfo = new RangePartitionInfo(partitionColumns);
+        SinglePartitionInfo partitionInfo = new SinglePartitionInfo();
         Map<String, String> properties = Maps.newHashMap();
         properties.put(EsTable.HOSTS, "xxx");
         properties.put(EsTable.INDEX, "indexa");

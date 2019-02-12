@@ -18,7 +18,7 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ColumnType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.PrimitiveType;
 
 import org.junit.Assert;
@@ -31,8 +31,8 @@ public class ShowResultSetMetaDataTest {
         Assert.assertEquals(0, metaData.getColumnCount());
 
         metaData = ShowResultSetMetaData.builder()
-                .addColumn(new Column("col1", ColumnType.createType(PrimitiveType.INT)))
-                .addColumn(new Column("col2", ColumnType.createType(PrimitiveType.INT)))
+                .addColumn(new Column("col1", ScalarType.createType(PrimitiveType.INT)))
+                .addColumn(new Column("col2", ScalarType.createType(PrimitiveType.INT)))
                 .build();
 
         Assert.assertEquals(2, metaData.getColumnCount());

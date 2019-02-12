@@ -17,22 +17,44 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.common.AnalysisException;
+import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.FunctionSearchDesc;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext;
 
-/**
- * Created by zhaochun on 14-7-30.
- */
-public class DropFunctionStmt extends StatementBase {
+public class DropFunctionStmt extends DdlStmt {
     private final FunctionName functionName;
+    private final FunctionArgsDef argsDef;
 
-    public DropFunctionStmt(FunctionName functionName) {
+    // set after analyzed
+    private FunctionSearchDesc function;
+
+    public DropFunctionStmt(FunctionName functionName, FunctionArgsDef argsDef) {
         this.functionName = functionName;
+        this.argsDef = argsDef;
     }
 
+    public FunctionName getFunctionName() { return functionName; }
+    public FunctionSearchDesc getFunction() { return function; }
+
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
+    public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
+
+        // analyze function name
+        functionName.analyze(analyzer);
+
+        // check operation privilege
+        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
+        }
+
+        // analyze arguments
+        argsDef.analyze(analyzer);
+        function = new FunctionSearchDesc(functionName, argsDef.getArgTypes(), argsDef.isVariadic());
     }
 
     @Override

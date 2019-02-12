@@ -60,7 +60,8 @@ public class ReplicaTest {
         versionHash = 98765;
         dataSize = 9999;
         rowCount = 1024;
-        replica = new Replica(replicaId, backendId, version, versionHash, dataSize, rowCount, ReplicaState.NORMAL, 0, 0, version, versionHash);
+        replica = new Replica(replicaId, backendId, version, versionHash, 0, dataSize, rowCount, ReplicaState.NORMAL, 0,
+                0, version, versionHash);
     }
     
     @Test
@@ -77,7 +78,7 @@ public class ReplicaTest {
         long newVersionHash = 87654;
         long newDataSize = dataSize + 100;
         long newRowCount = rowCount + 10;
-        replica.updateInfo(newVersion, newVersionHash, newDataSize, newRowCount);
+        replica.updateVersionInfo(newVersion, newVersionHash, newDataSize, newRowCount);
         Assert.assertEquals(newVersion, replica.getVersion());
         Assert.assertEquals(newVersionHash, replica.getVersionHash());
         Assert.assertEquals(newDataSize, replica.getDataSize());
@@ -106,13 +107,13 @@ public class ReplicaTest {
         List<Replica> list1 = new ArrayList<Replica>();
         List<Replica> list2 = new ArrayList<Replica>();
         for (int count = 0; count < 10; ++count) {
-            Replica olapReplica = new Replica(100L * count, 100L * count, 100L * count, 100L * count,
+            Replica olapReplica = new Replica(100L * count, 100L * count, 100L * count, 100L * count, 0,
                                               100L * count, 100 * count, ReplicaState.NORMAL, 0, 0, 100L * count, 100L * count);
             list1.add(olapReplica);
             olapReplica.write(dos);
         }
         
-        Replica replica = new Replica(10L, 20L, null);
+        Replica replica = new Replica(10L, 20L, 0, null);
         list1.add(replica);
         replica.write(dos);
         dos.flush();
@@ -139,7 +140,6 @@ public class ReplicaTest {
         // 3. Check equal
         for (int i = 0; i < 11; i++) {
             Assert.assertTrue(list1.get(i).equals(list2.get(i)));
-            Assert.assertTrue(list1.get(i).toString().equals(list2.get(i).toString()));
         }
         
         Assert.assertTrue(list1.get(1).equals(list1.get(1)));
@@ -151,17 +151,17 @@ public class ReplicaTest {
     
     @Test
     public void testUpdateVersion1() {
-        Replica originalReplica = new Replica(10000, 20000, 3, 1231, 100, 78, ReplicaState.NORMAL, 0, 0, 3, 1231);
+        Replica originalReplica = new Replica(10000, 20000, 3, 1231, 0, 100, 78, ReplicaState.NORMAL, 0, 0, 3, 1231);
         // new version is little than original version, it is invalid the version will not update
-        originalReplica.updateInfo(2, 111, 100, 78);
+        originalReplica.updateVersionInfo(2, 111, 100, 78);
         assertEquals(3, originalReplica.getVersion());
         assertEquals(1231, originalReplica.getVersionHash());
     }
     
     @Test
     public void testUpdateVersion2() {
-        Replica originalReplica = new Replica(10000, 20000, 3, 1231, 100, 78, ReplicaState.NORMAL, 0, 0, 0, 0);
-        originalReplica.updateInfo(3, 111, 100, 78);
+        Replica originalReplica = new Replica(10000, 20000, 3, 1231, 0, 100, 78, ReplicaState.NORMAL, 0, 0, 0, 0);
+        originalReplica.updateVersionInfo(3, 111, 100, 78);
         // if new version >= current version and last success version <= new version, then last success version should be updated
         assertEquals(3, originalReplica.getLastSuccessVersion());
         assertEquals(111, originalReplica.getLastSuccessVersionHash());
@@ -172,7 +172,7 @@ public class ReplicaTest {
     @Test
     public void testUpdateVersion3() {
         // version(3) ---> last failed version (8) ---> last success version(10)
-        Replica originalReplica = new Replica(10000, 20000, 3, 111, 100, 78, ReplicaState.NORMAL, 0, 0, 0, 0);
+        Replica originalReplica = new Replica(10000, 20000, 3, 111, 0, 100, 78, ReplicaState.NORMAL, 0, 0, 0, 0);
         originalReplica.updateLastFailedVersion(8, 100);
         assertEquals(3, originalReplica.getLastSuccessVersion());
         assertEquals(111, originalReplica.getLastSuccessVersionHash());
@@ -194,7 +194,7 @@ public class ReplicaTest {
         assertEquals(100, originalReplica.getLastFailedVersionHash());
         
         // update version to 8, the last success version and version should be 10
-        originalReplica.updateInfo(8, 100, 100, 78);
+        originalReplica.updateVersionInfo(8, 100, 100, 78);
         assertEquals(10, originalReplica.getLastSuccessVersion());
         assertEquals(1210, originalReplica.getLastSuccessVersionHash());
         assertEquals(10, originalReplica.getVersion());
@@ -233,7 +233,7 @@ public class ReplicaTest {
         assertEquals(1218, originalReplica.getLastFailedVersionHash());
         
         // update version to 17 then version and success version is 17
-        originalReplica.updateInfo(17, 1217, 100, 78);
+        originalReplica.updateVersionInfo(17, 1217, 100, 78);
         assertEquals(17, originalReplica.getLastSuccessVersion());
         assertEquals(1217, originalReplica.getLastSuccessVersionHash());
         assertEquals(17, originalReplica.getVersion());
@@ -242,7 +242,7 @@ public class ReplicaTest {
         assertEquals(1218, originalReplica.getLastFailedVersionHash());
         
         // update version to 18, then version and last success version should be 18 and failed version should be -1
-        originalReplica.updateInfo(18, 1218, 100, 78);
+        originalReplica.updateVersionInfo(18, 1218, 100, 78);
         assertEquals(18, originalReplica.getLastSuccessVersion());
         assertEquals(1218, originalReplica.getLastSuccessVersionHash());
         assertEquals(18, originalReplica.getVersion());

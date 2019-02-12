@@ -38,7 +38,7 @@ import java.util.stream.Collectors;
  * # TYPE palo_fe_job_load_broker_cost_ms gauge 
  * palo_fe_job{job="load", type="mini", state="pending"} 0
  */
-public class PrometheusMetricVisitor extends PaloMetricVisitor {
+public class PrometheusMetricVisitor extends MetricVisitor {
     // jvm
     private static final String JVM_HEAP_SIZE_BYTES = "jvm_heap_size_bytes";
     private static final String JVM_NON_HEAP_SIZE_BYTES = "jvm_non_heap_size_bytes";
@@ -131,7 +131,7 @@ public class PrometheusMetricVisitor extends PaloMetricVisitor {
     }
 
     @Override
-    public String visit(@SuppressWarnings("rawtypes") PaloMetric metric) {
+    public String visit(@SuppressWarnings("rawtypes") Metric metric) {
         // title
         final String fullName = prefix + "_" + metric.getName();
         StringBuilder sb = new StringBuilder();
@@ -160,8 +160,7 @@ public class PrometheusMetricVisitor extends PaloMetricVisitor {
         StringBuilder sb = new StringBuilder();
         final String fullName = prefix + "_" + name.replaceAll("\\.", "_");
         sb.append(HELP).append(fullName).append(" ").append("\n");
-        sb.append(TYPE).append(fullName).append(" ").append("\n");
-        sb.append(fullName);
+        sb.append(TYPE).append(fullName).append(" ").append("summary\n");
 
         Snapshot snapshot = histogram.getSnapshot();
         sb.append(fullName).append("{quantile=\"0.75\"} ").append(snapshot.get75thPercentile()).append("\n");
@@ -178,7 +177,7 @@ public class PrometheusMetricVisitor extends PaloMetricVisitor {
     public String getPaloNodeInfo() {
         final String PALO_NODE_INFO = "palo_node_info";
         StringBuilder sb = new StringBuilder();
-        sb.append(Joiner.on(" ").join(TYPE, PALO_NODE_INFO, "gauge", "\n"));
+        sb.append(Joiner.on(" ").join(TYPE, PALO_NODE_INFO, "gauge\n"));
         sb.append(PALO_NODE_INFO).append("{type=\"fe_node_num\", state=\"total\"} ")
                 .append(Catalog.getInstance().getFrontends(null).size()).append("\n");
         sb.append(PALO_NODE_INFO).append("{type=\"be_node_num\", state=\"total\"} ")

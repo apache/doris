@@ -127,24 +127,25 @@ public class ClusterLoadStatisticsTest {
         invertedIndex = new TabletInvertedIndex();
 
         invertedIndex.addTablet(50000, new TabletMeta(1, 2, 3, 4, 5));
-        invertedIndex.addReplica(50000, new Replica(50001, be1.getId(), ReplicaState.NORMAL));
-        invertedIndex.addReplica(50000, new Replica(50002, be2.getId(), ReplicaState.NORMAL));
-        invertedIndex.addReplica(50000, new Replica(50003, be3.getId(), ReplicaState.NORMAL));
+        invertedIndex.addReplica(50000, new Replica(50001, be1.getId(), 0, ReplicaState.NORMAL));
+        invertedIndex.addReplica(50000, new Replica(50002, be2.getId(), 0, ReplicaState.NORMAL));
+        invertedIndex.addReplica(50000, new Replica(50003, be3.getId(), 0, ReplicaState.NORMAL));
 
         invertedIndex.addTablet(60000, new TabletMeta(1, 2, 3, 4, 5));
-        invertedIndex.addReplica(60000, new Replica(60002, be2.getId(), ReplicaState.NORMAL));
-        invertedIndex.addReplica(60000, new Replica(60003, be3.getId(), ReplicaState.NORMAL));
+        invertedIndex.addReplica(60000, new Replica(60002, be2.getId(), 0, ReplicaState.NORMAL));
+        invertedIndex.addReplica(60000, new Replica(60003, be3.getId(), 0, ReplicaState.NORMAL));
 
         invertedIndex.addTablet(70000, new TabletMeta(1, 2, 3, 4, 5));
-        invertedIndex.addReplica(70000, new Replica(70002, be2.getId(), ReplicaState.NORMAL));
-        invertedIndex.addReplica(70000, new Replica(70003, be3.getId(), ReplicaState.NORMAL));
+        invertedIndex.addReplica(70000, new Replica(70002, be2.getId(), 0, ReplicaState.NORMAL));
+        invertedIndex.addReplica(70000, new Replica(70003, be3.getId(), 0, ReplicaState.NORMAL));
     }
 
     @Test
     public void test() {
-        ClusterLoadStatistic loadStatistic = new ClusterLoadStatistic(catalog, systemInfoService, invertedIndex);
-        loadStatistic.init(SystemInfoService.DEFAULT_CLUSTER);
-        List<List<String>> infos = loadStatistic.getCLusterStatistic();
+        ClusterLoadStatistic loadStatistic = new ClusterLoadStatistic(SystemInfoService.DEFAULT_CLUSTER,
+                catalog, systemInfoService, invertedIndex);
+        loadStatistic.init();
+        List<List<String>> infos = loadStatistic.getClusterStatistic();
         System.out.println(infos);
         Assert.assertEquals(3, infos.size());
     }

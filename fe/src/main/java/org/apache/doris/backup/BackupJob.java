@@ -19,9 +19,9 @@ package org.apache.doris.backup;
 
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.backup.Status.ErrCode;
-import org.apache.doris.catalog.BrokerMgr.BrokerAddress;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -161,6 +161,7 @@ public class BackupJob extends AbstractJob {
                 request.getSnapshot_files());
         
         snapshotInfos.put(task.getTabletId(), info);
+        taskProgress.remove(task.getTabletId());
         boolean res = unfinishedTaskIds.remove(task.getTabletId());
         taskErrMsg.remove(task.getTabletId());
         LOG.debug("get finished snapshot info: {}, unfinished tasks num: {}, remove result: {}. {}",
@@ -217,6 +218,7 @@ public class BackupJob extends AbstractJob {
             info.setFiles(tabletFileMap.get(tabletId));
         }
 
+        taskProgress.remove(task.getSignature());
         boolean res = unfinishedTaskIds.remove(task.getSignature());
         taskErrMsg.remove(task.getTabletId());
         LOG.debug("get finished upload snapshot task, unfinished tasks num: {}, remove result: {}. {}",
@@ -295,7 +297,10 @@ public class BackupJob extends AbstractJob {
                 break;
         }
 
-        if (!status.ok()) {
+        // we don't want to cancel the job if we already in state UPLOAD_INFO,
+        // which is the final step of backup job. just retry it.
+        // if it encounters some unrecoverable errors, just retry it until timeout.
+        if (!status.ok() && state != BackupJobState.UPLOAD_INFO) {
             cancelInternal();
         }
     }
@@ -360,6 +365,7 @@ public class BackupJob extends AbstractJob {
             }
 
             unfinishedTaskIds.clear();
+            taskProgress.clear();
             taskErrMsg.clear();
             // create snapshot tasks
             for (TableRef tblRef : tableRefs) {
@@ -377,25 +383,25 @@ public class BackupJob extends AbstractJob {
 
                 // snapshot partitions
                 for (Partition partition : partitions) {
-                    long committedVersion = partition.getCommittedVersion();
-                    long committedVersionHash = partition.getCommittedVersionHash();
+                    long visibleVersion = partition.getVisibleVersion();
+                    long visibleVersionHash = partition.getVisibleVersionHash();
                     List<MaterializedIndex> indexes = partition.getMaterializedIndices();
                     for (MaterializedIndex index : indexes) {
                         int schemaHash = tbl.getSchemaHashByIndexId(index.getId());
                         List<Tablet> tablets = index.getTablets();
                         for (Tablet tablet : tablets) {
-                            Replica replica = chooseReplica(tablet, committedVersion, committedVersionHash);
+                            Replica replica = chooseReplica(tablet, visibleVersion, visibleVersionHash);
                             if (replica == null) {
                                 status = new Status(ErrCode.COMMON_ERROR,
                                         "faild to choose replica to make snapshot for tablet " + tablet.getId()
-                                                + ". committed version: " + committedVersion
-                                                + ", committed version hash: " + committedVersionHash);
+                                                + ". visible version: " + visibleVersion
+                                                + ", visible version hash: " + visibleVersionHash);
                                 return;
                             }
                             SnapshotTask task = new SnapshotTask(null, replica.getBackendId(), tablet.getId(),
                                     jobId, dbId, tbl.getId(), partition.getId(),
                                     index.getId(), tablet.getId(),
-                                    committedVersion, committedVersionHash,
+                                    visibleVersion, visibleVersionHash,
                                     schemaHash, timeoutMs, false /* not restore task */);
                             batchTask.addTask(task);
                             unfinishedTaskIds.add(tablet.getId());
@@ -403,7 +409,7 @@ public class BackupJob extends AbstractJob {
                     }
 
                     LOG.info("snapshot for partition {}, version: {}, version hash: {}",
-                             partition.getId(), committedVersion, committedVersionHash);
+                             partition.getId(), visibleVersion, visibleVersionHash);
                 }
             }
 
@@ -412,7 +418,7 @@ public class BackupJob extends AbstractJob {
             for (TableRef tableRef : tableRefs) {
                 String tblName = tableRef.getName().getTbl();
                 OlapTable tbl = (OlapTable) db.getTable(tblName);
-                OlapTable copiedTbl = tbl.selectiveCopy(tableRef.getPartitions());
+                OlapTable copiedTbl = tbl.selectiveCopy(tableRef.getPartitions(), true);
                 if (copiedTbl == null) {
                     status = new Status(ErrCode.COMMON_ERROR, "faild to copy table: " + tblName);
                     return;
@@ -454,6 +460,7 @@ public class BackupJob extends AbstractJob {
     private void uploadSnapshot() {
         // reuse this set to save all unfinished tablets
         unfinishedTaskIds.clear();
+        taskProgress.clear();
         taskErrMsg.clear();
 
         // We classify the snapshot info by backend
@@ -470,15 +477,15 @@ public class BackupJob extends AbstractJob {
             int batchNum = Math.min(totalNum, 3);
             // each task contains several upload sub tasks
             int taskNumPerBatch = Math.max(totalNum / batchNum, 1);
-            LOG.debug("backend {} has {} batch, total {} tasks, {}", beId, batchNum, totalNum, this);
+            LOG.info("backend {} has {} batch, total {} tasks, {}", beId, batchNum, totalNum, this);
 
-            List<BrokerAddress> brokerAddrs = Lists.newArrayList();
-            Status st = repo.getBrokerAddress(beId, catalog, brokerAddrs);
+            List<FsBroker> brokers = Lists.newArrayList();
+            Status st = repo.getBrokerAddress(beId, catalog, brokers);
             if (!st.ok()) {
                 status = st;
                 return;
             }
-            Preconditions.checkState(brokerAddrs.size() == 1);
+            Preconditions.checkState(brokers.size() == 1);
             
             // allot tasks
             int index = 0;
@@ -493,7 +500,7 @@ public class BackupJob extends AbstractJob {
                 }
                 long signature = catalog.getNextId();
                 UploadTask task = new UploadTask(null, beId, signature, jobId, dbId, srcToDest,
-                        brokerAddrs.get(0), repo.getStorage().getProperties());
+                        brokers.get(0), repo.getStorage().getProperties());
                 batchTask.addTask(task);
                 unfinishedTaskIds.add(signature);
             }
@@ -508,7 +515,7 @@ public class BackupJob extends AbstractJob {
         state = BackupJobState.UPLOADING;
 
         // DO NOT write log here, upload tasks will be resend after FE crashed.
-        LOG.info("finished to send update tasks. {}", this);
+        LOG.info("finished to send upload tasks. {}", this);
     }
 
     private void waitingAllUploadingFinished() {
@@ -628,7 +635,7 @@ public class BackupJob extends AbstractJob {
      * Choose a replica order by replica id.
      * This is to expect to choose the same replica at each backup job.
      */
-    private Replica chooseReplica(Tablet tablet, long committedVersion, long committedVersionHash) {
+    private Replica chooseReplica(Tablet tablet, long visibleVersion, long visibleVersionHash) {
         List<Long> replicaIds = Lists.newArrayList();
         for (Replica replica : tablet.getReplicas()) {
             replicaIds.add(replica.getId());
@@ -637,8 +644,8 @@ public class BackupJob extends AbstractJob {
         Collections.sort(replicaIds);
         for (Long replicaId : replicaIds) {
             Replica replica = tablet.getReplicaById(replicaId);
-            if (replica.getVersion() > committedVersion 
-                    || (replica.getVersion() == committedVersion && replica.getVersionHash()==committedVersionHash)) {
+            if (replica.getLastFailedVersion() < 0 && (replica.getVersion() > visibleVersion
+                    || (replica.getVersion() == visibleVersion && replica.getVersionHash() == visibleVersionHash))) {
                 return replica;
             }
         }
@@ -698,9 +705,11 @@ public class BackupJob extends AbstractJob {
         info.add(TimeUtils.longToTimeString(snapshopUploadFinishedTime));
         info.add(TimeUtils.longToTimeString(finishedTime));
         info.add(Joiner.on(", ").join(unfinishedTaskIds));
-        List<String> msgs = taskErrMsg.entrySet().stream().map(n -> "[" + n.getKey() + ": " + n.getValue()
-                + "]").collect(Collectors.toList());
-        info.add(Joiner.on(", ").join(msgs));
+        info.add(Joiner.on(", ").join(taskProgress.entrySet().stream().map(
+                e -> "[" + e.getKey() + ": " + e.getValue().first + "/" + e.getValue().second + "]").collect(
+                        Collectors.toList())));
+        info.add(Joiner.on(", ").join(taskErrMsg.entrySet().stream().map(n -> "[" + n.getKey() + ": " + n.getValue()
+                + "]").collect(Collectors.toList())));
         info.add(status.toString());
         info.add(String.valueOf(timeoutMs / 1000));
         return info;

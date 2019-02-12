@@ -355,16 +355,19 @@ Status CsvScanNode::close(RuntimeState* state) {
     if (state->get_normal_row_number() == 0) {
         std::stringstream error_msg;
         error_msg << "Read zero normal line file. ";
-        state->append_error_msg_to_file("", error_msg.str());
+        state->append_error_msg_to_file("", error_msg.str(), true);
 
         return Status(error_msg.str());
     }
 
-    // Summary normal line and error line number info
-    std::stringstream summary_msg;
-    summary_msg << "error line: " << _error_row_number
+    // only write summary line if there are error lines
+    if (_error_row_number > 0) {
+        // Summary normal line and error line number info
+        std::stringstream summary_msg;
+        summary_msg << "error line: " << _error_row_number
             << "; normal line: " << _normal_row_number;
-    state->append_error_msg_to_file("", summary_msg.str());
+        state->append_error_msg_to_file("", summary_msg.str(), true);
+    }
 
     return Status::OK;
 }
@@ -478,6 +481,7 @@ bool CsvScanNode::check_and_write_text_slot(
         const char* value, int value_length,
         const SlotDescriptor* slot, RuntimeState* state,
         std::stringstream* error_msg) {
+
     if (value_length == 0 && !slot->type().is_string_type()) {
         (*error_msg) << "the length of input should not be 0. "
                 << "column_name: " << column_name << "; "
@@ -486,9 +490,23 @@ bool CsvScanNode::check_and_write_text_slot(
         return false;
     }
 
-    if (slot->is_nullable() && is_null(value, value_length)) {
-        _tuple->set_null(slot->null_indicator_offset());
-        return true;
+    if (is_null(value, value_length)) {
+        if (slot->is_nullable()) {
+            _tuple->set_null(slot->null_indicator_offset());
+            return true;
+        } else {
+            (*error_msg) << "value cannot be null. column name: " << column_name
+                << "; type: " << slot->type() << "; input_str: ["
+                << std::string(value, value_length) << "].";
+            return false;
+        }
+    }
+
+    if (!slot->is_nullable() && is_null(value, value_length)) {
+        (*error_msg) << "value cannot be null. column name: " << column_name
+                << "; type: " << slot->type() << "; input_str: ["
+                << std::string(value, value_length) << "].";
+        return false;
     }
 
     char* value_to_convert = const_cast<char*>(value);

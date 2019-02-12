@@ -26,6 +26,8 @@ import org.apache.doris.backup.RestoreJob;
 import org.apache.doris.backup.RestoreJob_D;
 import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.FunctionSearchDesc;
 import org.apache.doris.cluster.BaseParam;
 import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.io.Text;
@@ -43,12 +45,14 @@ import org.apache.doris.mysql.privilege.UserPropertyInfo;
 import org.apache.doris.persist.BackendIdsUpdateInfo;
 import org.apache.doris.persist.CloneInfo;
 import org.apache.doris.persist.ClusterInfo;
+import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.persist.ConsistencyCheckInfo;
 import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.DatabaseInfo;
 import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.DropLinkDbAndUpdateDbInfo;
 import org.apache.doris.persist.DropPartitionInfo;
+import org.apache.doris.persist.HbPackage;
 import org.apache.doris.persist.ModifyPartitionInfo;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.PartitionPersistInfo;
@@ -56,6 +60,8 @@ import org.apache.doris.persist.PrivInfo;
 import org.apache.doris.persist.RecoverInfo;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.persist.TableInfo;
+import org.apache.doris.persist.TablePropertyInfo;
+import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
@@ -174,10 +180,6 @@ public class JournalEntity implements Writable {
                 needRead = false;
                 break;
             }
-            case OperationType.OP_CLEAR_ROLLUP_INFO: {
-                data = new ReplicaPersistInfo();
-                break;
-            }
             case OperationType.OP_DROP_ROLLUP: {
                 data = new DropInfo();
                 break;
@@ -242,8 +244,11 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_ADD_REPLICA:
-            case OperationType.OP_DELETE_REPLICA: {
-                data = new ReplicaPersistInfo();
+            case OperationType.OP_UPDATE_REPLICA:
+            case OperationType.OP_DELETE_REPLICA:
+            case OperationType.OP_CLEAR_ROLLUP_INFO: {
+                data = ReplicaPersistInfo.read(in);
+                needRead = false;
                 break;
             }
             case OperationType.OP_ADD_BACKEND:
@@ -258,7 +263,7 @@ public class JournalEntity implements Writable {
                 data = new Frontend();
                 break;
             }
-            case OperationType.OP_SET_LOAD_ERROR_URL: {
+            case OperationType.OP_SET_LOAD_ERROR_HUB: {
                 data = new LoadErrorHub.Param();
                 break;
             }
@@ -364,6 +369,40 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_DROP_REPOSITORY: {
                 data = new Text();
+                break;
+            }
+
+            case OperationType.OP_TRUNCATE_TABLE: {
+                data = TruncateTableInfo.read(in);
+                needRead = false;
+                break;
+            }
+
+            case OperationType.OP_COLOCATE_ADD_TABLE:
+            case OperationType.OP_COLOCATE_REMOVE_TABLE:
+            case OperationType.OP_COLOCATE_BACKENDS_PER_BUCKETSEQ:
+            case OperationType.OP_COLOCATE_MARK_BALANCING:
+            case OperationType.OP_COLOCATE_MARK_STABLE: {
+                data = new ColocatePersistInfo();
+                break;
+            }
+            case OperationType.OP_MODIFY_TABLE_COLOCATE: {
+                data = new TablePropertyInfo();
+                break;
+            }
+            case OperationType.OP_HEARTBEAT: {
+                data = HbPackage.read(in);
+                needRead = false;
+                break;
+            }
+            case OperationType.OP_ADD_FUNCTION: {
+                data = Function.read(in);
+                needRead = false;
+                break;
+            }
+            case OperationType.OP_DROP_FUNCTION: {
+                data = FunctionSearchDesc.read(in);
+                needRead = false;
                 break;
             }
             default: {

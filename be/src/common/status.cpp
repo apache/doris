@@ -20,7 +20,6 @@
 #include <boost/algorithm/string/join.hpp>
 
 #include "common/logging.h"
-#include "util/debug_util.h"
 
 namespace doris {
 

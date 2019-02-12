@@ -20,29 +20,28 @@
 #include <memory>
 #include <vector>
 
-#include "olap/i_data.h"
+#include "olap/column_data.h"
 #include "olap/olap_define.h"
-#include "olap/rowset.h"
+#include "olap/segment_group.h"
 #include "olap/olap_table.h"
 #include "olap/reader.h"
 #include "olap/row_cursor.h"
-#include "olap/writer.h"
+#include "olap/data_writer.h"
 
 using std::list;
 using std::string;
 using std::unique_ptr;
 using std::vector;
 
-
 namespace doris {
 
-Merger::Merger(OLAPTablePtr table, Rowset* index, ReaderType type) : 
+Merger::Merger(OLAPTablePtr table, SegmentGroup* segment_group, ReaderType type) : 
         _table(table),
-        _index(index),
+        _segment_group(segment_group),
         _reader_type(type),
         _row_count(0) {}
 
-OLAPStatus Merger::merge(const vector<IData*>& olap_data_arr,
+OLAPStatus Merger::merge(const vector<ColumnData*>& olap_data_arr,
                          uint64_t* merged_rows, uint64_t* filted_rows) {
     // Create and initiate reader for scanning and multi-merging specified
     // OLAPDatas.
@@ -53,7 +52,7 @@ OLAPStatus Merger::merge(const vector<IData*>& olap_data_arr,
     reader_params.olap_data_arr = olap_data_arr;
 
     if (_reader_type == READER_BASE_COMPACTION) {
-        reader_params.version = _index->version();
+        reader_params.version = _segment_group->version();
     }
 
     if (OLAP_SUCCESS != reader.init(reader_params)) {
@@ -63,7 +62,7 @@ OLAPStatus Merger::merge(const vector<IData*>& olap_data_arr,
     }
 
     // create and initiate writer for generating new index and data files.
-    unique_ptr<IWriter> writer(IWriter::create(_table, _index, false));
+    unique_ptr<ColumnDataWriter> writer(ColumnDataWriter::create(_table, _segment_group, false));
 
     if (NULL == writer) {
         OLAP_LOG_WARNING("fail to allocate writer.");
@@ -94,7 +93,7 @@ OLAPStatus Merger::merge(const vector<IData*>& olap_data_arr,
         // Read one row into row_cursor
         OLAPStatus res = reader.next_row_with_aggregation(&row_cursor, &eof);
         if (OLAP_SUCCESS == res && eof) {
-            OLAP_LOG_DEBUG("reader read to the end.");
+            VLOG(3) << "reader read to the end.";
             break;
         } else if (OLAP_SUCCESS != res) {
             OLAP_LOG_WARNING("reader read failed.");
@@ -105,6 +104,11 @@ OLAPStatus Merger::merge(const vector<IData*>& olap_data_arr,
         // Goto next row position in the row block being written
         writer->next(row_cursor);
         ++_row_count;
+    }
+
+    if (has_error) {
+        LOG(WARNING) << "compaction failed.";
+        return OLAP_ERR_OTHER_ERROR;
     }
 
     if (OLAP_SUCCESS != writer->finalize()) {

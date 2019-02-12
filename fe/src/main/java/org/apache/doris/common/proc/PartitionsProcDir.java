@@ -17,25 +17,27 @@
 
 package org.apache.doris.common.proc;
 
-import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.DataProperty;
-import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.DistributionInfo;
-import org.apache.doris.catalog.HashDistributionInfo;
-import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.PartitionKey;
-import org.apache.doris.catalog.PartitionType;
-import org.apache.doris.catalog.RangePartitionInfo;
-import org.apache.doris.catalog.Partition;
-import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
-import org.apache.doris.catalog.Table.TableType;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.util.TimeUtils;
-
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Range;
+
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DataProperty;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DistributionInfo;
+import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
+import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PartitionKey;
+import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.catalog.RangePartitionInfo;
+import org.apache.doris.catalog.Table.TableType;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.TimeUtils;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -47,10 +49,10 @@ import java.util.Map;
  */
 public class PartitionsProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("PartitionId").add("PartitionName").add("CommittedVersion").add("CommittedVersionHash")
+            .add("PartitionId").add("PartitionName").add("VisibleVersion").add("VisibleVersionHash")
             .add("State").add("PartitionKey").add("Range").add("DistributionKey")
             .add("Buckets").add("ReplicationNum").add("StorageMedium").add("CooldownTime")
-            .add("LastConsistencyCheckTime")
+            .add("LastConsistencyCheckTime").add("DataSize")
             .build();
 
     public static final int PARTITION_NAME_INDEX = 1;
@@ -85,8 +87,8 @@ public class PartitionsProcDir implements ProcDirInterface {
                     String partitionName = partition.getName();
                     partitionInfo.add(partitionId);
                     partitionInfo.add(partitionName);
-                    partitionInfo.add(partition.getCommittedVersion());
-                    partitionInfo.add(partition.getCommittedVersionHash());
+                    partitionInfo.add(partition.getVisibleVersion());
+                    partitionInfo.add(partition.getVisibleVersionHash());
                     partitionInfo.add(partition.getState());
 
                     // partition
@@ -127,6 +129,12 @@ public class PartitionsProcDir implements ProcDirInterface {
 
                     partitionInfo.add(TimeUtils.longToTimeString(partition.getLastCheckTime()));
 
+                    long dataSize = partition.getDataSize();
+                    Pair<Double, String> sizePair = DebugUtil.getByteUint(dataSize);
+                    String readableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(sizePair.first) + " "
+                            + sizePair.second;
+                    partitionInfo.add(readableSize);
+
                     partitionInfos.add(partitionInfo);
                 }
             } else {
@@ -136,8 +144,8 @@ public class PartitionsProcDir implements ProcDirInterface {
                     long partitionId = partition.getId();
                     partitionInfo.add(partitionId);
                     partitionInfo.add(partitionName);
-                    partitionInfo.add(partition.getCommittedVersion());
-                    partitionInfo.add(partition.getCommittedVersionHash());
+                    partitionInfo.add(partition.getVisibleVersion());
+                    partitionInfo.add(partition.getVisibleVersionHash());
                     partitionInfo.add(partition.getState());
 
                     // partition
@@ -171,6 +179,12 @@ public class PartitionsProcDir implements ProcDirInterface {
                     partitionInfo.add(TimeUtils.longToTimeString(dataProperty.getCooldownTimeMs()));
 
                     partitionInfo.add(TimeUtils.longToTimeString(partition.getLastCheckTime()));
+
+                    long dataSize = partition.getDataSize();
+                    Pair<Double, String> sizePair = DebugUtil.getByteUint(dataSize);
+                    String readableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(sizePair.first) + " "
+                            + sizePair.second;
+                    partitionInfo.add(readableSize);
 
                     partitionInfos.add(partitionInfo);
                 }

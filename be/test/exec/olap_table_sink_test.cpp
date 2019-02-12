@@ -19,16 +19,19 @@
 
 #include <gtest/gtest.h>
 
+#include "gen_cpp/HeartbeatService_types.h"
 #include "gen_cpp/internal_service.pb.h"
-#include "runtime/exec_env.h"
-#include "runtime/row_batch.h"
-#include "runtime/tuple_row.h"
-#include "runtime/runtime_state.h"
 #include "runtime/decimal_value.h"
+#include "runtime/exec_env.h"
+#include "runtime/load_stream_mgr.h"
+#include "runtime/row_batch.h"
+#include "runtime/runtime_state.h"
+#include "runtime/thread_resource_mgr.h"
+#include "runtime/tuple_row.h"
 #include "service/brpc.h"
-#include "util/descriptor_helper.h"
+#include "util/brpc_stub_cache.h"
 #include "util/cpu_info.h"
-#include "util/debug_util.h"
+#include "util/descriptor_helper.h"
 
 namespace doris {
 namespace stream_load {
@@ -41,8 +44,24 @@ public:
     virtual ~OlapTableSinkTest() { }
     void SetUp() override {
         k_add_batch_status = Status::OK;
+
+        _env._thread_mgr = new ThreadResourceMgr();
+        _env._master_info = new TMasterInfo();
+        _env._load_stream_mgr = new LoadStreamMgr();
+        _env._brpc_stub_cache = new BrpcStubCache();
+    }
+    void TearDown() override {
+        delete _env._brpc_stub_cache;
+        _env._brpc_stub_cache = nullptr;
+        delete _env._load_stream_mgr;
+        _env._load_stream_mgr = nullptr;
+        delete _env._master_info;
+        _env._master_info = nullptr;
+        delete _env._thread_mgr;
+        _env._thread_mgr = nullptr;
     }
 private:
+    ExecEnv _env;
 };
 
 TDataSink get_data_sink(TDescriptorTable* desc_tbl) {
@@ -243,7 +262,7 @@ TDataSink get_decimal_sink(TDescriptorTable* desc_tbl) {
     return data_sink;
 }
 
-class TestInternalService : public PInternalService {
+class TestInternalService : public palo::PInternalService {
 public:
     TestInternalService() { }
     virtual ~TestInternalService() { }
@@ -281,8 +300,8 @@ public:
                 MemTracker tracker;
                 RowBatch batch(*_row_desc, request->row_batch(), &tracker);
                 for (int i = 0; i < batch.num_rows(); ++i){
-                    LOG(INFO) << print_row(batch.get_row(i), *_row_desc);
-                    _output_set->emplace(print_row(batch.get_row(i), *_row_desc));
+                    LOG(INFO) << batch.get_row(i)->to_string(*_row_desc);
+                    _output_set->emplace(batch.get_row(i)->to_string(*_row_desc));
                 }
             }
         }
@@ -310,11 +329,10 @@ TEST_F(OlapTableSinkTest, normal) {
     brpc::ServerOptions options;
     server->Start(4356, &options);
 
-    ExecEnv env;
     TUniqueId fragment_id;
     TQueryOptions query_options;
     query_options.batch_size = 1;
-    RuntimeState state(fragment_id, query_options, "2018-05-25 12:14:15", &env);
+    RuntimeState state(fragment_id, query_options, "2018-05-25 12:14:15", &_env);
     state._instance_mem_tracker.reset(new MemTracker());
 
     ObjectPool obj_pool;
@@ -417,11 +435,10 @@ TEST_F(OlapTableSinkTest, convert) {
     brpc::ServerOptions options;
     server->Start(4356, &options);
 
-    ExecEnv env;
     TUniqueId fragment_id;
     TQueryOptions query_options;
     query_options.batch_size = 1024;
-    RuntimeState state(fragment_id, query_options, "2018-05-25 12:14:15", &env);
+    RuntimeState state(fragment_id, query_options, "2018-05-25 12:14:15", &_env);
     state._instance_mem_tracker.reset(new MemTracker());
 
     ObjectPool obj_pool;
@@ -545,11 +562,10 @@ TEST_F(OlapTableSinkTest, convert) {
 }
 
 TEST_F(OlapTableSinkTest, init_fail1) {
-    ExecEnv env;
     TUniqueId fragment_id;
     TQueryOptions query_options;
     query_options.batch_size = 1;
-    RuntimeState state(fragment_id, query_options, "2018-05-25 12:14:15", &env);
+    RuntimeState state(fragment_id, query_options, "2018-05-25 12:14:15", &_env);
     state._instance_mem_tracker.reset(new MemTracker());
 
     ObjectPool obj_pool;
@@ -604,11 +620,10 @@ TEST_F(OlapTableSinkTest, init_fail1) {
 }
 
 TEST_F(OlapTableSinkTest, init_fail3) {
-    ExecEnv env;
     TUniqueId fragment_id;
     TQueryOptions query_options;
     query_options.batch_size = 1;
-    RuntimeState state(fragment_id, query_options, "2018-05-25 12:14:15", &env);
+    RuntimeState state(fragment_id, query_options, "2018-05-25 12:14:15", &_env);
     state._instance_mem_tracker.reset(new MemTracker());
 
     ObjectPool obj_pool;
@@ -664,11 +679,10 @@ TEST_F(OlapTableSinkTest, init_fail3) {
 }
 
 TEST_F(OlapTableSinkTest, init_fail4) {
-    ExecEnv env;
     TUniqueId fragment_id;
     TQueryOptions query_options;
     query_options.batch_size = 1;
-    RuntimeState state(fragment_id, query_options, "2018-05-25 12:14:15", &env);
+    RuntimeState state(fragment_id, query_options, "2018-05-25 12:14:15", &_env);
     state._instance_mem_tracker.reset(new MemTracker());
 
     ObjectPool obj_pool;
@@ -732,11 +746,10 @@ TEST_F(OlapTableSinkTest, add_batch_failed) {
     brpc::ServerOptions options;
     server->Start(4356, &options);
 
-    ExecEnv env;
     TUniqueId fragment_id;
     TQueryOptions query_options;
     query_options.batch_size = 1;
-    RuntimeState state(fragment_id, query_options, "2018-05-25 12:14:15", &env);
+    RuntimeState state(fragment_id, query_options, "2018-05-25 12:14:15", &_env);
     state._instance_mem_tracker.reset(new MemTracker());
 
     ObjectPool obj_pool;
@@ -828,11 +841,10 @@ TEST_F(OlapTableSinkTest, decimal) {
     brpc::ServerOptions options;
     server->Start(4356, &options);
 
-    ExecEnv env;
     TUniqueId fragment_id;
     TQueryOptions query_options;
     query_options.batch_size = 1;
-    RuntimeState state(fragment_id, query_options, "2018-05-25 12:14:15", &env);
+    RuntimeState state(fragment_id, query_options, "2018-05-25 12:14:15", &_env);
     state._instance_mem_tracker.reset(new MemTracker());
 
     ObjectPool obj_pool;

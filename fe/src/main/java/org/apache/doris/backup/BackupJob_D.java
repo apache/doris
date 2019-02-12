@@ -38,7 +38,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.common.util.LoadBalancer;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.load.DeleteInfo;
@@ -365,8 +364,8 @@ public class BackupJob_D extends AbstractBackupJob_D {
 
                         // save version info
                         partitionIdToVersionInfo.put(partitionId,
-                                                     new Pair<Long, Long>(partition.getCommittedVersion(),
-                                                                          partition.getCommittedVersionHash()));
+                                                     new Pair<Long, Long>(partition.getVisibleVersion(),
+                                                                          partition.getVisibleVersionHash()));
                     }
                 } else {
                     Preconditions.checkState(partitionIds.size() == 1);
@@ -374,8 +373,8 @@ public class BackupJob_D extends AbstractBackupJob_D {
                         Partition partition = olapTable.getPartition(partitionId);
                         // save version info
                         partitionIdToVersionInfo.put(partitionId,
-                                                     new Pair<Long, Long>(partition.getCommittedVersion(),
-                                                                          partition.getCommittedVersionHash()));
+                                                     new Pair<Long, Long>(partition.getVisibleVersion(),
+                                                                          partition.getVisibleVersionHash()));
                     }
                 }
             } // end for tables
@@ -408,7 +407,8 @@ public class BackupJob_D extends AbstractBackupJob_D {
         String filePath = pathBuilder.createTableStmt(dbName, table.getName());
 
         Preconditions.checkState(!pathToWritables.containsKey(filePath));
-        pathToWritables.put(filePath, stmts);
+        throw new RuntimeException("Don't support CreateTableStmt serialization.");
+        // pathToWritables.put(filePath, stmts);
     }
 
     private void getRollupMeta(String dbName, OlapTable olapTable,
@@ -451,7 +451,6 @@ public class BackupJob_D extends AbstractBackupJob_D {
 
     private void snapshot(Database db) throws DdlException {
         AgentBatchTask batchTask = new AgentBatchTask();
-        LoadBalancer<Long> loadBalancer = new LoadBalancer<Long>(1L);
         long dbId = db.getId();
         db.readLock();
         try {
@@ -501,7 +500,7 @@ public class BackupJob_D extends AbstractBackupJob_D {
                                 throw new DdlException(msg);
                             }
 
-                            long chosenBackendId = loadBalancer.chooseKey(backendIds);
+                            long chosenBackendId = -1;
                             SnapshotTask task = new SnapshotTask(null, chosenBackendId, tabletId, jobId, dbId, tableId,
                                                                  partitionId, indexId, tabletId,
                                                                  versionInfo.first, versionInfo.second,

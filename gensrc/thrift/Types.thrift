@@ -155,7 +155,8 @@ enum TTaskType {
     PUBLISH_VERSION,
     CLEAR_ALTER_TASK,
     CLEAR_TRANSACTION_TASK,
-    RECOVER_TABLET
+    RECOVER_TABLET,
+    STREAM_LOAD
 }
 
 enum TStmtType {
@@ -284,6 +285,7 @@ struct TFunction {
   10: optional TAggregateFunction aggregate_fn
 
   11: optional i64 id
+  12: optional string checksum
 }
 
 enum TLoadJobState {

@@ -18,21 +18,14 @@
 package org.apache.doris.clone;
 
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.MaterializedIndex;
-import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Partition;
-import org.apache.doris.catalog.Replica;
-import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
-import org.apache.doris.catalog.TabletMeta;
-import org.apache.doris.clone.BalanceStatus.ErrCode;
+import org.apache.doris.clone.BackendLoadStatistic.Classification;
+import org.apache.doris.clone.BackendLoadStatistic.LoadScore;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 
@@ -41,18 +34,18 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.Collections;
 import java.util.List;
-import java.util.stream.Collectors;
+import java.util.Optional;
 
 /*
- * save all load statistic of backends.
- * Statistics will be re-calculated at a fix interval.
+ * Load statistics of a cluster
  */
 public class ClusterLoadStatistic {
     private static final Logger LOG = LogManager.getLogger(ClusterLoadStatistic.class);
 
-    private Catalog catalog;
     private SystemInfoService infoService;
     private TabletInvertedIndex invertedIndex;
+
+    private String clusterName;
 
     private long totalCapacityB = 1;
     private long totalUsedCapacityB = 0;
@@ -62,18 +55,23 @@ public class ClusterLoadStatistic {
     private double avgUsedCapacityPercent = 0.0;
     private double avgReplicaNumPercent = 0.0;
 
+    private double avgLoadScore = 0.0;
+
     private List<BackendLoadStatistic> beLoadStatistics = Lists.newArrayList();
 
-    public ClusterLoadStatistic(Catalog catalog, SystemInfoService infoService, TabletInvertedIndex invertedIndex) {
-        this.catalog = catalog;
+    public ClusterLoadStatistic(String clusterName, Catalog catalog, SystemInfoService infoService,
+            TabletInvertedIndex invertedIndex) {
+        this.clusterName = clusterName;
         this.infoService = infoService;
         this.invertedIndex = invertedIndex;
     }
 
-    public synchronized void init(String clusterName) {
+    public void init() {
         ImmutableMap<Long, Backend> backends = infoService.getBackendsInCluster(clusterName);
         for (Backend backend : backends.values()) {
-            BackendLoadStatistic beStatistic = new BackendLoadStatistic(backend.getId(), infoService, invertedIndex);
+            BackendLoadStatistic beStatistic = new BackendLoadStatistic(backend.getId(),
+                    backend.getOwnerClusterName(),
+                    infoService, invertedIndex);
             try {
                 beStatistic.init();
             } catch (LoadBalanceException e) {
@@ -95,29 +93,108 @@ public class ClusterLoadStatistic {
             beStatistic.calcScore(avgUsedCapacityPercent, avgReplicaNumPercent);
         }
 
+        // classify all backends
+        classifyBackendByLoad();
+
         // sort the list
         Collections.sort(beLoadStatistics);
     }
 
-    public synchronized List<List<String>> getCLusterStatistic() {
+    /*
+     * classify backends into 'low', 'mid' and 'high', by load
+     */
+    private void classifyBackendByLoad() {
+        double totalLoadScore = 0.0;
+        for (BackendLoadStatistic beStat : beLoadStatistics) {
+            totalLoadScore += beStat.getLoadScore();
+        }
+        avgLoadScore = totalLoadScore / beLoadStatistics.size();
+
+        int lowCounter = 0;
+        int midCounter = 0;
+        int highCounter = 0;
+        for (BackendLoadStatistic beStat : beLoadStatistics) {
+            if (Math.abs(beStat.getLoadScore() - avgLoadScore) / avgLoadScore > Config.balance_load_score_threshold) {
+                if (beStat.getLoadScore() > avgLoadScore) {
+                    beStat.setClazz(Classification.HIGH);
+                    highCounter++;
+                } else if (beStat.getLoadScore() < avgLoadScore) {
+                    beStat.setClazz(Classification.LOW);
+                    lowCounter++;
+                }
+            } else {
+                beStat.setClazz(Classification.MID);
+                midCounter++;
+            }
+        }
+
+        LOG.info("classify backend by load. avg load score: {}. low/mid/high: {}/{}/{}",
+                avgLoadScore, lowCounter, midCounter, highCounter);
+    }
+
+    /*
+     * Check whether the cluster can be more balance if we migrate a tablet with size 'tabletSize' from
+     * `srcBeId` to 'destBeId'
+     * 1. re calculate the load core of src and dest be after migrate the tablet.
+     * 2. if the summary of the diff between the new score and average score becomes smaller, we consider it
+     *    as more balance.
+     */
+    public boolean isMoreBalanced(long srcBeId, long destBeId, long tabletId, long tabletSize) {
+        double currentSrcBeScore;
+        double currentDestBeScore;
+        
+        BackendLoadStatistic srcBeStat = null;
+        Optional<BackendLoadStatistic> optSrcBeStat = beLoadStatistics.stream().filter(
+                t -> t.getBeId() == srcBeId).findFirst();
+        if (optSrcBeStat.isPresent()) {
+            srcBeStat = optSrcBeStat.get();
+        } else {
+            return false;
+        }
+        
+        BackendLoadStatistic destBeStat = null;
+        Optional<BackendLoadStatistic> optDestBeStat = beLoadStatistics.stream().filter(
+                t -> t.getBeId() == destBeId).findFirst();
+        if (optDestBeStat.isPresent()) {
+            destBeStat = optDestBeStat.get();
+        } else {
+            return false;
+        }
+
+        currentSrcBeScore = srcBeStat.getLoadScore();
+        currentDestBeScore = destBeStat.getLoadScore();
+
+        LoadScore newSrcBeScore = BackendLoadStatistic.calcSore(srcBeStat.getTotalUsedCapacityB() - tabletSize,
+                srcBeStat.getTotalCapacityB(), srcBeStat.getReplicaNum() - 1,
+                avgUsedCapacityPercent, avgReplicaNumPercent);
+
+        LoadScore newDestBeScore = BackendLoadStatistic.calcSore(destBeStat.getTotalUsedCapacityB() + tabletSize,
+                destBeStat.getTotalCapacityB(), destBeStat.getReplicaNum() + 1,
+                avgUsedCapacityPercent, avgReplicaNumPercent);
+
+        double currentDiff = Math.abs(currentSrcBeScore - avgLoadScore) + Math.abs(currentDestBeScore - avgLoadScore);
+        double newDiff = Math.abs(newSrcBeScore.score - avgLoadScore) + Math.abs(newDestBeScore.score - avgLoadScore);
+
+        LOG.debug("after migrate {}(size: {}) from {} to {}, the load score changed."
+                + "src: {} -> {}, dest: {}->{}, average score: {}. current diff: {}, new diff: {}",
+                tabletId, tabletSize, srcBeId, destBeId, currentSrcBeScore, newSrcBeScore.score,
+                currentDestBeScore, newDestBeScore.score, avgLoadScore, currentDiff, newDiff);
+
+        return newDiff < currentDiff;
+    }
+
+    public List<List<String>> getClusterStatistic() {
         List<List<String>> statistics = Lists.newArrayList();
 
         for (BackendLoadStatistic beStatistic : beLoadStatistics) {
-            List<String> beStat = Lists.newArrayList();
-            beStat.add(String.valueOf(beStatistic.getBeId()));
-            beStat.add(String.valueOf(beStatistic.getTotalUsedCapacityB()));
-            beStat.add(String.valueOf(beStatistic.getTotalCapacityB()));
-            beStat.add(String.valueOf(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(beStatistic.getTotalUsedCapacityB() * 100
-                    / (double) beStatistic.getTotalCapacityB())));
-            beStat.add(String.valueOf(beStatistic.getReplicaNum()));
-            beStat.add(String.valueOf(beStatistic.getLoadScore()));
+            List<String> beStat = beStatistic.getInfo();
             statistics.add(beStat);
         }
 
         return statistics;
     }
 
-    public synchronized List<List<String>> getBackendStatistic(long beId) {
+    public List<List<String>> getBackendStatistic(long beId) {
         List<List<String>> statistics = Lists.newArrayList();
 
         for (BackendLoadStatistic beStatistic : beLoadStatistics) {
@@ -128,6 +205,7 @@ public class ClusterLoadStatistic {
             for (RootPathLoadStatistic pathStatistic : beStatistic.getPathStatistics()) {
                 List<String> pathStat = Lists.newArrayList();
                 pathStat.add(pathStatistic.getPath());
+                pathStat.add(String.valueOf(pathStatistic.getPathHash()));
                 pathStat.add(String.valueOf(pathStatistic.getUsedCapacityB()));
                 pathStat.add(String.valueOf(pathStatistic.getCapacityB()));
                 pathStat.add(String.valueOf(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(pathStatistic.getUsedCapacityB() * 100
@@ -139,7 +217,7 @@ public class ClusterLoadStatistic {
         return statistics;
     }
 
-    public synchronized BackendLoadStatistic getBackendLoadStatistic(long beId) {
+    public BackendLoadStatistic getBackendLoadStatistic(long beId) {
         for (BackendLoadStatistic backendLoadStatistic : beLoadStatistics) {
             if (backendLoadStatistic.getBeId() == beId) {
                 return backendLoadStatistic;
@@ -149,82 +227,56 @@ public class ClusterLoadStatistic {
     }
 
     /*
-     * Try to choose 2 backend root paths as source and destination for the specified tablet to recovery.
+     * If cluster is balance, all Backends will be in 'mid', and 'high' and 'low' is empty
+     * If both 'high' and 'low' has Backends, just return
+     * If no 'high' Backends, 'mid' Backends will be treated as 'high'
+     * If no 'low' Backends, 'mid' Backends will be treated as 'low'
      */
-    public BalanceStatus chooseSrcAndDestBackendForTablet(long tabletId,
-            List<RootPathLoadStatistic> resultRootPath) {
+    public void getBackendStatisticByClass(
+            List<BackendLoadStatistic> low,
+            List<BackendLoadStatistic> mid,
+            List<BackendLoadStatistic> high) {
 
-        TabletMeta tabletMeta = invertedIndex.getTabletMeta(tabletId);
-        if (tabletMeta == null) {
-            return new BalanceStatus(ErrCode.COMMON_ERROR, "tablet " + tabletId + " does not exist");
-        }
-        
-        Database db = catalog.getDb(tabletMeta.getDbId());
-        if (db == null) {
-            return new BalanceStatus(ErrCode.COMMON_ERROR, "db " + tabletMeta.getDbId() + " does not exist");
-        }
-        db.writeLock();
-        try {
-            Table tbl = db.getTable(tabletMeta.getTableId());
-            if (tbl == null) {
-                return new BalanceStatus(ErrCode.COMMON_ERROR, "table " + tabletMeta.getTableId() + " does not exist");
+        for (BackendLoadStatistic beStat : beLoadStatistics) {
+            if (beStat.getClazz() == Classification.LOW) {
+                low.add(beStat);
+            } else if (beStat.getClazz() == Classification.HIGH) {
+                high.add(beStat);
+            } else {
+                mid.add(beStat);
             }
-            OlapTable olapTbl = (OlapTable) tbl;
-
-            Partition partition = olapTbl.getPartition(tabletMeta.getPartitionId());
-            if (partition == null) {
-                return new BalanceStatus(ErrCode.COMMON_ERROR,
-                        "part " + tabletMeta.getPartitionId() + " does not exist");
-            }
-
-            short expectedRepNum = olapTbl.getPartitionInfo().getReplicationNum(tabletMeta.getPartitionId());
-            MaterializedIndex idx = partition.getIndex(tabletMeta.getIndexId());
-            if (idx == null) {
-                return new BalanceStatus(ErrCode.COMMON_ERROR, "idx " + tabletMeta.getIndexId() + " does not exist");
-            }
-
-            Tablet tablet = idx.getTablet(tabletId);
-            List<Replica> replicas = tablet.getReplicas();
-
-            // TODO(cmy)
-
-        } finally {
-            db.writeUnlock();
         }
 
-        List<Replica> replicas = invertedIndex.getReplicasByTabletId(tabletId);
-        if (replicas == null) {
-            return new BalanceStatus(ErrCode.COMMON_ERROR, "tablet " + tabletId + " does not exist");
-        }
-        List<Long> excludedBackends = replicas.stream().map(n -> n.getBackendId()).collect(Collectors.toList());
-        
-        // use max replica size as this tablet's size
-        long tabletSize = replicas.stream().max((a, b) -> a.getDataSize() > b.getDataSize() ? 1
-                : 0).get().getDataSize();
-        
-        // try choosing backend from first to end
-        BalanceStatus status = new BalanceStatus(ErrCode.COMMON_ERROR, "");
-        for (int i = 0; i < beLoadStatistics.size(); i++) {
-            BackendLoadStatistic beStatistic = beLoadStatistics.get(i);
-            if (excludedBackends.contains(beStatistic.getBeId())) {
-                continue;
-            }
-
-            resultRootPath.clear();
-            BalanceStatus bStatus = beStatistic.isFit(tabletSize, resultRootPath, true /* is recovery */);
-            if (!bStatus.ok()) {
-                status.addErrMsgs(bStatus.getErrMsgs());
-                continue;
-            }
-
-            break;
+        if (low.isEmpty() && high.isEmpty()) {
+            return;
         }
 
-        if (resultRootPath.isEmpty()) {
-            return status;
+        // If there is no 'low' or 'high' backends, we treat 'mid' as 'low' or 'high'
+        if (low.isEmpty()) {
+            low.addAll(mid);
+            mid.clear();
+        } else if (high.isEmpty()) {
+            high.addAll(mid);
+            mid.clear();
         }
 
-        Preconditions.checkState(resultRootPath.size() == 1);
-        return BalanceStatus.OK;
+        Collections.sort(low);
+        Collections.sort(mid);
+        Collections.sort(high);
+
+        LOG.debug("after adjust, cluster {} backend classification low/mid/high: {}/{}/{}",
+                clusterName, low.size(), mid.size(), high.size());
+    }
+
+    public List<BackendLoadStatistic> getBeLoadStatistics() {
+        return beLoadStatistics;
+    }
+
+    public String getBrief() {
+        StringBuilder sb = new StringBuilder();
+        for (BackendLoadStatistic backendLoadStatistic : beLoadStatistics) {
+            sb.append("    ").append(backendLoadStatistic.getBrief()).append("\n");
+        }
+        return sb.toString();
     }
 }

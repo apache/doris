@@ -57,6 +57,7 @@ import org.apache.doris.thrift.TScanRangeLocations;
 import com.google.common.base.Objects;
 import com.google.common.base.Objects.ToStringHelper;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
@@ -93,8 +94,14 @@ public class OlapScanNode extends ScanNode {
     private long totalTabletsNum = 0;
     private long selectedIndexId = -1;
     private int selectedPartitionNum = 0;
+    private long totalBytes = 0;
 
     boolean isFinalized = false;
+
+    private HashSet<Long> scanBackendIds = new HashSet<>();
+
+    private Map<Long, Integer> tabletId2BucketSeq = Maps.newHashMap();
+    public ArrayListMultimap<Integer, TScanRangeLocations> bucketSeq2locations= ArrayListMultimap.create();
 
     /**
      * Constructs node to scan given data files of table 'tbl'.
@@ -122,6 +129,10 @@ public class OlapScanNode extends ScanNode {
         this.canTurnOnPreAggr = canChangePreAggr;
     }
 
+    public OlapTable getOlapTable() {
+        return olapTable;
+    }
+
     @Override
     protected String debugString() {
         ToStringHelper helper = Objects.toStringHelper(this);
@@ -143,8 +154,21 @@ public class OlapScanNode extends ScanNode {
             throw new UserException(e.getMessage());
         }
 
+        computeStats(analyzer);
         isFinalized = true;
     }
+
+    @Override
+    public void computeStats(Analyzer analyzer) {
+        if (cardinality > 0) {
+            avgRowSize = totalBytes / (float) cardinality;
+            if (hasLimit()) {
+                cardinality = Math.min(cardinality, limit);
+            }
+            numNodes = scanBackendIds.size();
+        }
+    }
+
 
     // private void analyzeVectorizedConjuncts(Analyzer analyzer) throws InternalException {
     //     for (SlotDescriptor slot : desc.getSlots()) {
@@ -394,11 +418,12 @@ public class OlapScanNode extends ScanNode {
             throws UserException, AnalysisException {
 
         int logNum = 0;
-        String schemaHashStr = String.valueOf(olapTable.getSchemaHashByIndexId(index.getId()));
-        long committedVersion = partition.getCommittedVersion();
-        long committedVersionHash = partition.getCommittedVersionHash();
-        String committedVersionStr = String.valueOf(committedVersion);
-        String committedVersionHashStr = String.valueOf(partition.getCommittedVersionHash());
+        int schemaHash = olapTable.getSchemaHashByIndexId(index.getId());
+        String schemaHashStr = String.valueOf(schemaHash);
+        long visibleVersion = partition.getVisibleVersion();
+        long visibleVersionHash = partition.getVisibleVersionHash();
+        String visibleVersionStr = String.valueOf(visibleVersion);
+        String visibleVersionHashStr = String.valueOf(partition.getVisibleVersionHash());
 
         for (Tablet tablet : tablets) {
             long tabletId = tablet.getId();
@@ -408,20 +433,24 @@ public class OlapScanNode extends ScanNode {
             TPaloScanRange paloRange = new TPaloScanRange();
             paloRange.setDb_name("");
             paloRange.setSchema_hash(schemaHashStr);
-            paloRange.setVersion(committedVersionStr);
-            paloRange.setVersion_hash(committedVersionHashStr);
+            paloRange.setVersion(visibleVersionStr);
+            paloRange.setVersion_hash(visibleVersionHashStr);
             paloRange.setTablet_id(tabletId);
 
             // random shuffle List && only collect one copy
             List<Replica> allQueryableReplicas = Lists.newArrayList();
             List<Replica> localReplicas = Lists.newArrayList();
             tablet.getQueryableReplicas(allQueryableReplicas, localReplicas,
-                                        committedVersion, committedVersionHash,
-                                        localBeId);
+                    visibleVersion, visibleVersionHash, localBeId, schemaHash);
             if (allQueryableReplicas.isEmpty()) {
-                LOG.error("no queryable replica found in tablet[{}]. committed version[{}], committed version hash[{}]",
-                         tabletId, committedVersion, committedVersionHash);
-                throw new UserException("Failed to get scan range, no replica!");
+                LOG.error("no queryable replica found in tablet {}. visible version {}-{}",
+                         tabletId, visibleVersion, visibleVersionHash);
+                if (LOG.isDebugEnabled()) {
+                    for (Replica replica : tablet.getReplicas()) {
+                        LOG.debug("tablet {}, replica: {}", tabletId, replica.toString());
+                    }
+                }
+                throw new UserException("Failed to get scan range, no queryable replica found in tablet: " + tabletId);
             }
 
             List<Replica> replicas = null;
@@ -434,6 +463,7 @@ public class OlapScanNode extends ScanNode {
 
             Collections.shuffle(replicas);
             boolean tabletIsNull = true;
+            boolean collectedStat = false;
             for (Replica replica : replicas) {
                 Backend backend = Catalog.getCurrentSystemInfo().getBackend(replica.getBackendId());
                 if (backend == null) {
@@ -447,6 +477,14 @@ public class OlapScanNode extends ScanNode {
                 scanRangeLocations.addToLocations(scanRangeLocation);
                 paloRange.addToHosts(new TNetworkAddress(ip, port));
                 tabletIsNull = false;
+
+                //for CBO
+                if (!collectedStat && replica.getRowCount() != -1) {
+                    cardinality += replica.getRowCount();
+                    totalBytes += replica.getDataSize();
+                    collectedStat = true;
+                }
+                scanBackendIds.add(backend.getId());
             }
             if (tabletIsNull) {
                 throw new UserException(tabletId + "have no alive replicas");
@@ -454,6 +492,9 @@ public class OlapScanNode extends ScanNode {
             TScanRange scanRange = new TScanRange();
             scanRange.setPalo_scan_range(paloRange);
             scanRangeLocations.setScan_range(scanRange);
+
+            bucketSeq2locations.put(tabletId2BucketSeq.get(tabletId), scanRangeLocations);
+
             result.add(scanRangeLocations);
         }
     }
@@ -540,6 +581,8 @@ public class OlapScanNode extends ScanNode {
             List<Tablet> tablets = new ArrayList<Tablet>();
             Collection<Long> tabletIds = distributionPrune(selectedTable, partition.getDistributionInfo());
             LOG.debug("distribution prune tablets: {}", tabletIds);
+
+            List<Long> allTabletIds = selectedTable.getTabletIdsInOrder();
             if (tabletIds != null) {
                 for (Long id : tabletIds) {
                     tablets.add(selectedTable.getTablet(id));
@@ -547,6 +590,11 @@ public class OlapScanNode extends ScanNode {
             } else {
                 tablets.addAll(selectedTable.getTablets());
             }
+
+            for (int i = 0; i < allTabletIds.size(); i++) {
+                tabletId2BucketSeq.put(allTabletIds.get(i), i);
+            }
+
             totalTabletsNum += selectedTable.getTablets().size();
             selectedTabletsNum += tablets.size();
             addScanRangeLocations(partition, selectedTable, tablets, localBeId);
@@ -597,6 +645,18 @@ public class OlapScanNode extends ScanNode {
 
         output.append(prefix).append(String.format(
                     "buckets=%s/%s", selectedTabletsNum, totalTabletsNum));
+        output.append("\n");
+
+        output.append(prefix).append(String.format(
+                "cardinality=%s", cardinality));
+        output.append("\n");
+
+        output.append(prefix).append(String.format(
+                "avgRowSize=%s", avgRowSize));
+        output.append("\n");
+
+        output.append(prefix).append(String.format(
+                "numNodes=%s", numNodes));
         output.append("\n");
 
         return output.toString();

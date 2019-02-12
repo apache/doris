@@ -18,7 +18,6 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.ColumnSeparator;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprSubstitutionMap;
@@ -148,15 +147,18 @@ public class StreamLoadScanNode extends ScanNode {
             }
 
             for (ImportColumnDesc columnDesc : columnsStmt.getColumns()) {
+                // make column name case match with real column name
+                String realColName = dstTable.getColumn(columnDesc.getColumn()) == null ? columnDesc.getColumn()
+                        : dstTable.getColumn(columnDesc.getColumn()).getName();
                 if (columnDesc.getExpr() != null) {
-                    exprsByName.put(columnDesc.getColumn(), columnDesc.getExpr());
+                    exprsByName.put(realColName, columnDesc.getExpr());
                 } else {
                     SlotDescriptor slotDesc = analyzer.getDescTbl().addSlotDescriptor(srcTupleDesc);
                     slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
                     slotDesc.setIsMaterialized(true);
                     slotDesc.setIsNullable(false);
                     params.addToSrc_slot_ids(slotDesc.getId().asInt());
-                    slotDescByName.put(columnDesc.getColumn(), slotDesc);
+                    slotDescByName.put(realColName, slotDesc);
                 }
             }
 
@@ -202,7 +204,7 @@ public class StreamLoadScanNode extends ScanNode {
 
         // analyze where statement
         if (request.isSetWhere()) {
-            Map<String, SlotDescriptor> dstDescMap = Maps.newHashMap();
+            Map<String, SlotDescriptor> dstDescMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
             for (SlotDescriptor slotDescriptor : desc.getSlots()) {
                 dstDescMap.put(slotDescriptor.getColumn().getName(), slotDescriptor);
             }
@@ -326,27 +328,6 @@ public class StreamLoadScanNode extends ScanNode {
 
         // Need re compute memory layout after set some slot descriptor to nullable
         srcTupleDesc.computeMemLayout();
-    }
-
-    private Expr castToSlot(SlotDescriptor slotDesc, Expr expr) throws UserException {
-        PrimitiveType dstType = slotDesc.getType().getPrimitiveType();
-        PrimitiveType srcType = expr.getType().getPrimitiveType();
-
-        if (dstType.isStringType()) {
-            if (srcType.isStringType()) {
-                return expr;
-            } else {
-                CastExpr castExpr = new CastExpr(Type.VARCHAR, expr, true);
-                castExpr.analyze(analyzer);
-                return castExpr;
-            }
-        } else if (dstType != srcType) {
-            CastExpr castExpr = new CastExpr(slotDesc.getType(), expr, true);
-            castExpr.analyze(analyzer);
-            return castExpr;
-        }
-
-        return expr;
     }
 
     @Override

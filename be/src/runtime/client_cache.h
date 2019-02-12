@@ -274,6 +274,9 @@ typedef ClientConnection<FrontendServiceClient> FrontendServiceConnection;
 class TPaloBrokerServiceClient;
 typedef ClientCache<TPaloBrokerServiceClient> BrokerServiceClientCache;
 typedef ClientConnection<TPaloBrokerServiceClient> BrokerServiceConnection;
+class TExtDataSourceServiceClient;
+typedef ClientCache<TExtDataSourceServiceClient> ExtDataSourceServiceClientCache;
+typedef ClientConnection<TExtDataSourceServiceClient> ExtDataSourceServiceConnection;
 
 }
 

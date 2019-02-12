@@ -22,7 +22,7 @@
 #include <cmath>
 #include <fstream>
 
-#include "olap/olap_data.h"
+#include "olap/column_data.h"
 #include "olap/olap_table.h"
 #include "olap/row_block.h"
 #include "olap/row_cursor.h"
@@ -168,7 +168,7 @@ OLAPStatus MemIndex::load_segment(const char* file, size_t *current_num_rows_per
     }
 
     /*
-     * convert storage layout to memory layout for olapindex
+     * convert storage layout to memory layout for olap/ndex
      * In this procedure, string type(Varchar/Char) should be
      * converted with caution. Hyperloglog type will not be
      * key, it can not to be handled.
@@ -191,7 +191,7 @@ OLAPStatus MemIndex::load_segment(const char* file, size_t *current_num_rows_per
         storage_field_offset += (*_fields)[i].index_length + null_byte;
         mem_ptr = mem_buf + mem_field_offset;
         if ((*_fields)[i].type == OLAP_FIELD_TYPE_VARCHAR) {
-            mem_field_offset += sizeof(StringSlice) + 1;
+            mem_field_offset += sizeof(Slice) + 1;
             for (size_t j = 0; j < num_entries; ++j) {
                 /*
                  * Varchar is null_byte|length|content in OlapIndex storage
@@ -207,7 +207,7 @@ OLAPStatus MemIndex::load_segment(const char* file, size_t *current_num_rows_per
                 // 2. copy length and content
                 size_t storage_field_bytes =
                     *reinterpret_cast<StringLengthType*>(storage_ptr + null_byte);
-                StringSlice* slice = reinterpret_cast<StringSlice*>(mem_ptr + 1);
+                Slice* slice = reinterpret_cast<Slice*>(mem_ptr + 1);
                 char* data = reinterpret_cast<char*>(_mem_pool->allocate(storage_field_bytes));
                 memory_copy(data, storage_ptr + sizeof(StringLengthType) + null_byte, storage_field_bytes);
                 slice->data = data;
@@ -217,7 +217,7 @@ OLAPStatus MemIndex::load_segment(const char* file, size_t *current_num_rows_per
                 storage_ptr += storage_row_bytes;
             }
         } else if ((*_fields)[i].type == OLAP_FIELD_TYPE_CHAR) {
-            mem_field_offset += sizeof(StringSlice) + 1;
+            mem_field_offset += sizeof(Slice) + 1;
             size_t storage_field_bytes = (*_fields)[i].index_length;
             for (size_t j = 0; j < num_entries; ++j) {
                 /*
@@ -232,7 +232,7 @@ OLAPStatus MemIndex::load_segment(const char* file, size_t *current_num_rows_per
                 memory_copy(mem_ptr, storage_ptr, null_byte);
 
                 // 2. copy length and content
-                StringSlice* slice = reinterpret_cast<StringSlice*>(mem_ptr + 1);
+                Slice* slice = reinterpret_cast<Slice*>(mem_ptr + 1);
                 char* data = reinterpret_cast<char*>(_mem_pool->allocate(storage_field_bytes));
                 memory_copy(data, storage_ptr + null_byte, storage_field_bytes);
                 slice->data = data;
@@ -344,8 +344,8 @@ const OLAPIndexOffset MemIndex::find(const RowCursor& k,
         }
 
         offset.offset = *it;
-        OLAP_LOG_DEBUG("show real offset iterator value. [off=%u]", *it);
-        OLAP_LOG_DEBUG("show result offset. [seg_off=%u off=%u]", offset.segment, offset.offset);
+        VLOG(3) << "show real offset iterator value. off=" << *it;
+        VLOG(3) << "show result offset. seg_off=" << offset.segment << ", off=" << offset.offset;
     } catch (...) {
         OLAP_LOG_WARNING("fail to compare value in memindex. [cursor='%s' find_last=%d]",
                          k.to_string().c_str(),

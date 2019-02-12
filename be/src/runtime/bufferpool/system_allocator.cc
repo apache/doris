@@ -63,7 +63,7 @@ Status SystemAllocator::Allocate(int64_t len, BufferPool::BufferHandle* buffer) 
   DCHECK(BitUtil::IsPowerOf2(len)) << len;
 
   uint8_t* buffer_mem;
-  if (config::FLAGS_mmap_buffers) {
+  if (config::mmap_buffers) {
     RETURN_IF_ERROR(AllocateViaMMap(len, &buffer_mem));
   } else {
     RETURN_IF_ERROR(AllocateViaMalloc(len, &buffer_mem));
@@ -74,7 +74,7 @@ Status SystemAllocator::Allocate(int64_t len, BufferPool::BufferHandle* buffer) 
 
 Status SystemAllocator::AllocateViaMMap(int64_t len, uint8_t** buffer_mem) {
   int64_t map_len = len;
-  bool use_huge_pages = len % HUGE_PAGE_SIZE == 0 && config::FLAGS_madvise_huge_pages;
+  bool use_huge_pages = len % HUGE_PAGE_SIZE == 0 && config::madvise_huge_pages;
   if (use_huge_pages) {
     // Map an extra huge page so we can fix up the alignment if needed.
     map_len += HUGE_PAGE_SIZE;
@@ -116,7 +116,7 @@ Status SystemAllocator::AllocateViaMMap(int64_t len, uint8_t** buffer_mem) {
 }
 
 Status SystemAllocator::AllocateViaMalloc(int64_t len, uint8_t** buffer_mem) {
-  bool use_huge_pages = len % HUGE_PAGE_SIZE == 0 && config::FLAGS_madvise_huge_pages;
+  bool use_huge_pages = len % HUGE_PAGE_SIZE == 0 && config::madvise_huge_pages;
   // Allocate, aligned to the page size that we expect to back the memory range.
   // This ensures that it can be backed by a whole pages, rather than parts of pages.
   size_t alignment = use_huge_pages ? HUGE_PAGE_SIZE : SMALL_PAGE_SIZE;
@@ -144,11 +144,11 @@ Status SystemAllocator::AllocateViaMalloc(int64_t len, uint8_t** buffer_mem) {
 }
 
 void SystemAllocator::Free(BufferPool::BufferHandle&& buffer) {
-  if (config::FLAGS_mmap_buffers) {
+  if (config::mmap_buffers) {
     int rc = munmap(buffer.data(), buffer.len());
     DCHECK_EQ(rc, 0) << "Unexpected munmap() error: " << errno;
   } else {
-    bool use_huge_pages = buffer.len() % HUGE_PAGE_SIZE == 0 && config::FLAGS_madvise_huge_pages;
+    bool use_huge_pages = buffer.len() % HUGE_PAGE_SIZE == 0 && config::madvise_huge_pages;
     if (use_huge_pages) {
       // Undo the madvise so that is isn't a candidate to be newly backed by huge pages.
       // We depend on TCMalloc's "aggressive decommit" mode decommitting the physical

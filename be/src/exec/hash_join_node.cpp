@@ -26,7 +26,6 @@
 #include "exprs/slot_ref.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
-#include "util/debug_util.h"
 #include "util/runtime_profile.h"
 #include "gen_cpp/PlanNodes_types.h"
 
@@ -93,11 +92,11 @@ Status HashJoinNode::prepare(RuntimeState* state) {
         ADD_TIMER(runtime_profile(), "PushDownComputeTime");
     _probe_timer =
         ADD_TIMER(runtime_profile(), "ProbeTime");
-    _build_row_counter =
+    _build_rows_counter =
         ADD_COUNTER(runtime_profile(), "BuildRows", TUnit::UNIT);
     _build_buckets_counter =
         ADD_COUNTER(runtime_profile(), "BuildBuckets", TUnit::UNIT);
-    _probe_row_counter =
+    _probe_rows_counter =
         ADD_COUNTER(runtime_profile(), "ProbeRows", TUnit::UNIT);
     _hash_tbl_load_factor_counter =
         ADD_COUNTER(runtime_profile(), "LoadFactor", TUnit::DOUBLE_VALUE);
@@ -244,7 +243,7 @@ Status HashJoinNode::construct_hash_table(RuntimeState* state) {
 
         VLOG_ROW << _hash_tbl->debug_string(true, &child(1)->row_desc());
 
-        COUNTER_SET(_build_row_counter, _hash_tbl->size());
+        COUNTER_SET(_build_rows_counter, _hash_tbl->size());
         COUNTER_SET(_build_buckets_counter, _hash_tbl->num_buckets());
         COUNTER_SET(_hash_tbl_load_factor_counter, _hash_tbl->load_factor());
         build_batch.reset();
@@ -381,7 +380,7 @@ Status HashJoinNode::open(RuntimeState* state) {
     // seed probe batch and _current_probe_row, etc.
     while (true) {
         RETURN_IF_ERROR(child(0)->get_next(state, _probe_batch.get(), &_probe_eos));
-        COUNTER_UPDATE(_probe_row_counter, _probe_batch->num_rows());
+        COUNTER_UPDATE(_probe_rows_counter, _probe_batch->num_rows());
         _probe_batch_pos = 0;
 
         if (_probe_batch->num_rows() == 0) {
@@ -444,7 +443,7 @@ Status HashJoinNode::get_next(RuntimeState* state, RowBatch* out_batch, bool* eo
         VLOG_ROW << "probe row: " << get_probe_row_output_string(_current_probe_row);
         while (_hash_tbl_iterator.has_next()) {
             TupleRow* matched_build_row = _hash_tbl_iterator.get_row();
-            VLOG_ROW << "matched_build_row: " << print_row(matched_build_row, child(1)->row_desc());
+            VLOG_ROW << "matched_build_row: " << matched_build_row->to_string(child(1)->row_desc());
 
             if ((_join_op == TJoinOp::RIGHT_ANTI_JOIN || _join_op == TJoinOp::RIGHT_SEMI_JOIN)
                 && _hash_tbl_iterator.matched()) {
@@ -508,7 +507,7 @@ Status HashJoinNode::get_next(RuntimeState* state, RowBatch* out_batch, bool* eo
             _hash_tbl_iterator.next<true>();
             if (eval_conjuncts(conjunct_ctxs, num_conjunct_ctxs, out_row)) {
                 out_batch->commit_last_row();
-                VLOG_ROW << "match row: " << print_row(out_row, row_desc());
+                VLOG_ROW << "match row: " << out_row->to_string(row_desc());
                 ++_num_rows_returned;
                 COUNTER_SET(_rows_returned_counter, _num_rows_returned);
 
@@ -528,7 +527,7 @@ Status HashJoinNode::get_next(RuntimeState* state, RowBatch* out_batch, bool* eo
 
             if (eval_conjuncts(conjunct_ctxs, num_conjunct_ctxs, out_row)) {
                 out_batch->commit_last_row();
-                VLOG_ROW << "match row: " << print_row(out_row, row_desc());
+                VLOG_ROW << "match row: " << out_row->to_string(row_desc());
                 ++_num_rows_returned;
                 COUNTER_SET(_rows_returned_counter, _num_rows_returned);
                 _matched_probe = true;
@@ -572,7 +571,7 @@ Status HashJoinNode::get_next(RuntimeState* state, RowBatch* out_batch, bool* eo
 
                         continue;
                     } else {
-                        COUNTER_UPDATE(_probe_row_counter, _probe_batch->num_rows());
+                        COUNTER_UPDATE(_probe_rows_counter, _probe_batch->num_rows());
                         break;
                     }
                 }
@@ -628,7 +627,7 @@ Status HashJoinNode::get_next(RuntimeState* state, RowBatch* out_batch, bool* eo
             create_output_row(out_row, NULL, build_row);
             if (eval_conjuncts(conjunct_ctxs, num_conjunct_ctxs, out_row)) {
                 out_batch->commit_last_row();
-                VLOG_ROW << "match row: " << print_row(out_row, row_desc());
+                VLOG_ROW << "match row: " << out_row->to_string(row_desc());
                 ++_num_rows_returned;
                 COUNTER_SET(_rows_returned_counter, _num_rows_returned);
 
@@ -696,7 +695,7 @@ Status HashJoinNode::left_join_get_next(RuntimeState* state,
                 probe_timer.stop();
                 RETURN_IF_ERROR(child(0)->get_next(state, _probe_batch.get(), &_probe_eos));
                 probe_timer.start();
-                COUNTER_UPDATE(_probe_row_counter, _probe_batch->num_rows());
+                COUNTER_UPDATE(_probe_rows_counter, _probe_batch->num_rows());
             }
         }
     }
@@ -718,9 +717,9 @@ string HashJoinNode::get_probe_row_output_string(TupleRow* probe_row) {
             std::find(_build_tuple_idx_ptr, _build_tuple_idx_ptr + _build_tuple_size, i);
 
         if (is_build_tuple != _build_tuple_idx_ptr + _build_tuple_size) {
-            out << print_tuple(NULL, *row_desc().tuple_descriptors()[i]);
+            out << Tuple::to_string(NULL, *row_desc().tuple_descriptors()[i]);
         } else {
-            out << print_tuple(probe_row->get_tuple(i), *row_desc().tuple_descriptors()[i]);
+            out << Tuple::to_string(probe_row->get_tuple(i), *row_desc().tuple_descriptors()[i]);
         }
     }
 

@@ -17,7 +17,24 @@
 
 #include "runtime/tuple_row.h"
 
+#include <sstream>
+
 namespace doris {
 const char* TupleRow::_s_llvm_class_name = "class.doris::TupleRow";
+
+std::string TupleRow::to_string(const RowDescriptor& d) {
+    std::stringstream out;
+    out << "[";
+    for (int i = 0; i < d.tuple_descriptors().size(); ++i) {
+        if (i != 0) {
+            out << " ";
+        }
+        out << Tuple::to_string(get_tuple(i), *d.tuple_descriptors()[i]);
+    }
+
+    out << "]";
+    return out.str();
+}
+
 }
 

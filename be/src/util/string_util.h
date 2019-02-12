@@ -22,8 +22,11 @@
 #include <string>
 #include <unordered_set>
 #include <unordered_map>
+#include <vector>
 
+#include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string/case_conv.hpp> // to_lower_copy
+#include <boost/functional/hash.hpp>
 
 namespace doris {
 
@@ -56,6 +59,8 @@ public:
         return cmp < 0;
     }
 };
+
+std::size_t hash_of_path(const std::string& identifier, const std::string& path);
 
 using StringCaseSet = std::set<std::string, StringCaseLess>;
 using StringCaseUnorderedSet = std::unordered_set<std::string, StringCaseHasher, StringCaseEqual>;

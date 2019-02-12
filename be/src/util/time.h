@@ -22,7 +22,11 @@
 #include <time.h>
 #include <string>
 
-#include "gutil/walltime.h"
+#define NANOS_PER_SEC  1000000000ll
+#define NANOS_PER_MICRO      1000ll
+#define MICROS_PER_SEC    1000000ll
+#define MICROS_PER_MILLI     1000ll
+#define MILLIS_PER_SEC       1000ll
 
 /// Utilities for collecting timings.
 namespace doris {
@@ -37,6 +41,12 @@ inline int64_t MonotonicNanos() {
   return ts.tv_sec * NANOS_PER_SEC + ts.tv_nsec;
 }
 
+inline int64_t GetMonoTimeMicros() {
+  timespec ts;
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  return ts.tv_sec * MICROS_PER_SEC + ts.tv_nsec / NANOS_PER_MICRO;
+}
+
 inline int64_t MonotonicMicros() {  // 63 bits ~= 5K years uptime
   return GetMonoTimeMicros();
 }
@@ -47,6 +57,13 @@ inline int64_t MonotonicMillis() {
 
 inline int64_t MonotonicSeconds() {
   return GetMonoTimeMicros() / MICROS_PER_SEC;
+}
+
+// Returns the time since the Epoch measured in microseconds.
+inline int64_t GetCurrentTimeMicros() {
+  timespec ts;
+  clock_gettime(CLOCK_REALTIME, &ts);
+  return ts.tv_sec * MICROS_PER_SEC + ts.tv_nsec / NANOS_PER_MICRO;
 }
 
 /// Returns the number of milliseconds that have passed since the Unix epoch. This is

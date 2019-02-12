@@ -92,7 +92,7 @@ public class IsNullPredicate extends Predicate {
     }
 
     @Override
-    public String toSql() {
+    public String toSqlImpl() {
         return getChild(0).toSql() + (isNotNull ? " IS NOT NULL" : " IS NULL");
     }
 

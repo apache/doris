@@ -17,14 +17,6 @@
 
 package org.apache.doris.common.proc;
 
-import org.apache.doris.catalog.Database;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.alter.SchemaChangeHandler;
-
-import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
-
-import java.util.ArrayList;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.common.AnalysisException;
@@ -37,9 +29,9 @@ import java.util.List;
 
 public class SchemaChangeProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("JobId").add("TableName").add("TransactionId").add("CreateTime").add("FinishTime")
-            .add("IndexName").add("IndexState").add("State").add("Msg")
-            .add("Progress")
+            .add("JobId").add("TableName").add("CreateTime").add("FinishTime")
+            .add("IndexName").add("IndexId").add("SchemaVersion").add("IndexState")
+            .add("TransactionId").add("State").add("Progress").add("Msg")
             .build();
 
     private SchemaChangeHandler schemaChangeHandler;

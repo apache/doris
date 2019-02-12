@@ -27,7 +27,7 @@
 
 #include "gen_cpp/Types_types.h"  // for TUniqueId
 #include "gen_cpp/types.pb.h"  // for PUniqueId
-#include "util/debug_util.h"
+// #include "util/debug_util.h"
 #include "util/hash_util.hpp"
 
 namespace doris {
@@ -35,7 +35,7 @@ namespace doris {
 // convert int to a hex format string, buf must enough to hold coverted hex string
 template<typename T>
 inline void to_hex(T val, char* buf) {
-    static const char* digits = "0123456789ABCDEF";
+    static const char* digits = "0123456789abcdef";
     for (int i = 0; i < 2 * sizeof(T); ++i) {
         buf[2 * sizeof(T) - 1 - i] = digits[val & 0x0F];
         val >>= 4;
@@ -110,6 +110,15 @@ inline TUniqueId generate_uuid() {
 }
 
 std::ostream& operator<<(std::ostream& os, const UniqueId& uid);
+
+std::string print_id(const TUniqueId& id);
+std::string print_id(const PUniqueId& id);
+
+// Parse 's' into a TUniqueId object.  The format of s needs to be the output format
+// from PrintId.  (<hi_part>:<low_part>)
+// Returns true if parse succeeded.
+bool parse_id(const std::string& s, TUniqueId* id);
+
 
 } // namespace doris
 

@@ -17,6 +17,9 @@
 
 package org.apache.doris.persist;
 
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.meta.MetaContext;
+
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -29,12 +32,16 @@ import java.io.FileOutputStream;
 public class ReplicaPersistInfoTest {
     @Test
     public void testSerialization() throws Exception {
+        MetaContext metaContext = new MetaContext();
+        metaContext.setMetaVersion(FeConstants.meta_version);
+        metaContext.setThreadLocalInfo();
+
         // 1. Write objects to file
         File file = new File("./replicaInfo");
         file.createNewFile();
         DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
         
-        ReplicaPersistInfo info2 = ReplicaPersistInfo.createForLoad(1, 2, 3, 4, 5, 6, 7, 8, 9);
+        ReplicaPersistInfo info2 = ReplicaPersistInfo.createForLoad(1, 2, 3, 4, 5, 6, 7, 0, 8, 9);
         info2.write(dos);
 
         dos.flush();
@@ -43,8 +50,7 @@ public class ReplicaPersistInfoTest {
         // 2. Read objects from file
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
 
-        ReplicaPersistInfo rInfo2 = new ReplicaPersistInfo();
-        rInfo2.readFields(dis);
+        ReplicaPersistInfo rInfo2 = ReplicaPersistInfo.read(dis);
 
         // 3. delete files
         dis.close();
@@ -53,7 +59,7 @@ public class ReplicaPersistInfoTest {
     
     @Test
     public void testGet() throws Exception {
-        ReplicaPersistInfo info = ReplicaPersistInfo.createForLoad(0, 1, 2, 3, 4, 5, 6, 7, 8);
+        ReplicaPersistInfo info = ReplicaPersistInfo.createForLoad(0, 1, 2, 3, 4, 5, 6, 7, 0, 8);
         Assert.assertEquals(0, info.getTableId());
         Assert.assertEquals(1, info.getPartitionId());
         Assert.assertEquals(2, info.getIndexId());
@@ -61,7 +67,7 @@ public class ReplicaPersistInfoTest {
         Assert.assertEquals(4, info.getReplicaId());
         Assert.assertEquals(5, info.getVersion());
         Assert.assertEquals(6, info.getVersionHash());
-        Assert.assertEquals(7, info.getDataSize());
+        Assert.assertEquals(0, info.getDataSize());
         Assert.assertEquals(8, info.getRowCount());
     }
 }

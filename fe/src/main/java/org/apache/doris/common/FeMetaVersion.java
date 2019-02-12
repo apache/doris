@@ -79,10 +79,10 @@ public final class FeMetaVersion {
 
     // paralle exec param and batch size
     public static final int VERSION_38 = 38;
-    
+
     // schema change support row to column
     public static final int VERSION_39 = 39;
-    
+
     // persistent brpc port in Backend
     public static final int VERSION_40 = 40;
 
@@ -97,4 +97,14 @@ public final class FeMetaVersion {
 
     // streaming load
     public static final int VERSION_45 = 45;
+
+    // colocate join
+    public static final int VERSION_46 = 46;
+
+    // UDF
+    public static final int VERSION_47 = 47;
+    // TODO(ml):VERSION_ROUTINE_LOAD add extra in transaction state for routine load
+
+    // replica schema hash
+    public static final int VERSION_48 = 48;
 }

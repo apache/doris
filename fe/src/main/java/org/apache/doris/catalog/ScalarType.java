@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TScalarType;
 import org.apache.doris.thrift.TTypeDesc;
 import org.apache.doris.thrift.TTypeNode;
@@ -46,7 +47,7 @@ public class ScalarType extends Type {
     public static final int DEFAULT_SCALE = 0; // SQL standard
 
     // Longest supported VARCHAR and CHAR, chosen to match Hive.
-    public static final int MAX_VARCHAR_LENGTH = 65355;
+    public static final int MAX_VARCHAR_LENGTH = 65533;
     public static final int MAX_CHAR_LENGTH = 255;
 
     // HLL DEFAULT LENGTH  2^14(registers) + 1(type)
@@ -63,7 +64,8 @@ public class ScalarType extends Type {
     private final PrimitiveType type;
 
     // Only used for type CHAR.
-    private int len;
+    private int len = -1;
+    private boolean isAssignedStrLenInColDefinition = false;
 
     // Only used if type is DECIMAL. -1 (for both) is used to represent a
     // decimal with any precision and scale.
@@ -75,6 +77,19 @@ public class ScalarType extends Type {
 
     protected ScalarType(PrimitiveType type) {
         this.type = type;
+    }
+
+    public static ScalarType createType(PrimitiveType type, int len, int precision, int scale) {
+        switch (type) {
+            case CHAR:
+                return createCharType(len);
+            case VARCHAR:
+                return createVarcharType(len);
+            case DECIMAL:
+                return createDecimalType(precision, scale);
+            default:
+                return createType(type);
+        }
     }
 
     public static ScalarType createType(PrimitiveType type) {
@@ -118,7 +133,54 @@ public class ScalarType extends Type {
         }
     }
 
+    public static ScalarType createType(String type) {
+        switch (type) {
+            case "INVALID_TYPE":
+                return INVALID;
+            case "NULL_TYPE":
+                return NULL;
+            case "BOOLEAN":
+                return BOOLEAN;
+            case "SMALLINT":
+                return SMALLINT;
+            case "TINYINT":
+                return TINYINT;
+            case "INT":
+                return INT;
+            case "BIGINT":
+                return BIGINT;
+            case "FLOAT":
+                return FLOAT;
+            case "DOUBLE":
+                return DOUBLE;
+            case "CHAR":
+                return CHAR;
+            case "VARCHAR":
+                return createVarcharType();
+            case "HLL":
+                return createHllType();
+            case "DATE":
+                return DATE;
+            case "DATETIME":
+                return DATETIME;
+            case "DECIMAL":
+                return (ScalarType) createDecimalType();
+            case "LARGEINT":
+                return LARGEINT;
+            default:
+                LOG.warn("type={}", type);
+                Preconditions.checkState(false);
+                return NULL;
+        }
+    }
+
     public static ScalarType createCharType(int len) {
+        ScalarType type = new ScalarType(PrimitiveType.CHAR);
+        type.len = len;
+        return type;
+    }
+
+    public static ScalarType createChar(int len) {
         ScalarType type = new ScalarType(PrimitiveType.CHAR);
         type.len = len;
         return type;
@@ -158,6 +220,13 @@ public class ScalarType extends Type {
         return type;
     }
 
+    public static ScalarType createVarchar(int len) {
+        // length checked in analysis
+        ScalarType type = new ScalarType(PrimitiveType.VARCHAR);
+        type.len = len;
+        return type;
+    }
+
     public static ScalarType createVarcharType() {
         return DEFAULT_VARCHAR;
     }
@@ -191,17 +260,41 @@ public class ScalarType extends Type {
 
     @Override
     public String toSql(int depth) {
-        if (depth >= MAX_NESTING_DEPTH) return "...";
-        switch(type) {
-            case BINARY: return type.toString();
-            case VARCHAR:
+        StringBuilder stringBuilder = new StringBuilder();
+        switch (type) {
             case CHAR:
-            case HLL:
-                return type.toString() + "(" + len + ")";
+                stringBuilder.append("char").append("(").append(len).append(")");
+                break;
+            case VARCHAR:
+                stringBuilder.append("varchar").append("(").append(len).append(")");
+                break;
             case DECIMAL:
-                return String.format("%s(%s,%s)", type.toString(), precision, scale);
-            default: return type.toString();
+                stringBuilder.append("decimal").append("(").append(precision).append(", ").append(scale).append(")");
+                break;
+            case BOOLEAN:
+                return "tinyint(1)";
+            case TINYINT:
+                return "tinyint(4)";
+            case SMALLINT:
+                return "smallint(6)";
+            case INT:
+                return "int(11)";
+            case BIGINT:
+                return "bigint(20)";
+            case LARGEINT:
+                return "largeint(40)";
+            case FLOAT:
+            case DOUBLE:
+            case DATE:
+            case DATETIME:
+            case HLL:
+                stringBuilder.append(type.toString().toLowerCase());
+                break;
+            default:
+                stringBuilder.append("unknown");
+                break;
         }
+        return stringBuilder.toString();
     }
 
     @Override
@@ -265,6 +358,13 @@ public class ScalarType extends Type {
     public PrimitiveType getPrimitiveType() { return type; }
     public int ordinal() { return type.ordinal(); }
     public int getLength() { return len; }
+    public void setLength(int len) {this.len = len; }
+    public boolean isAssignedStrLenInColDefinition() { return isAssignedStrLenInColDefinition; }
+    public void setAssignedStrLenInColDefinition() { this.isAssignedStrLenInColDefinition = true; }
+
+    // add scalar infix to override with getPrecision
+    public int getScalarScale() { return scale; }
+    public int getScalarPrecision() { return precision; }
 
     @Override
     public boolean isWildcardDecimal() {
@@ -561,5 +661,54 @@ public class ScalarType extends Type {
 
     public static boolean canCastTo(ScalarType type, ScalarType targetType) {
         return PrimitiveType.isImplicitCast(type.getPrimitiveType(), targetType.getPrimitiveType());
+    }
+
+    @Override
+    public int getStorageLayoutBytes() {
+        switch (type) {
+            case BOOLEAN:
+                return 0;
+            case TINYINT:
+                return 1;
+            case SMALLINT:
+                return 2;
+            case INT:
+                return 4;
+            case BIGINT:
+                return 8;
+            case LARGEINT:
+                return 16;
+            case FLOAT:
+                return 4;
+            case DOUBLE:
+                return 12;
+            case DATE:
+                return 3;
+            case DATETIME:
+                return 8;
+            case DECIMAL:
+                return 40;
+            case CHAR:
+            case VARCHAR:
+                return len;
+            case HLL:
+                return 16385;
+            default:
+                return 0;
+        }
+    }
+
+    @Override
+    public TColumnType toColumnTypeThrift() {
+        TColumnType thrift = new TColumnType();
+        thrift.type = type.toThrift();
+        if (type == PrimitiveType.CHAR || type == PrimitiveType.VARCHAR || type == PrimitiveType.HLL) {
+            thrift.setLen(len);
+        }
+        if (type == PrimitiveType.DECIMAL) {
+            thrift.setPrecision(precision);
+            thrift.setScale(scale);
+        }
+        return thrift;
     }
 }

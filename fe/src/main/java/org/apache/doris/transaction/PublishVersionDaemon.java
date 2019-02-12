@@ -17,17 +17,8 @@
 
 package org.apache.doris.transaction;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Replica;
-import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.Daemon;
@@ -37,15 +28,25 @@ import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.PublishVersionTask;
 import org.apache.doris.thrift.TPartitionVersionInfo;
 import org.apache.doris.thrift.TTaskType;
+
+import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 public class PublishVersionDaemon extends Daemon {
     
     private static final Logger LOG = LogManager.getLogger(PublishVersionDaemon.class);
     
     public PublishVersionDaemon() {
-        super("PUBLISH_VERSION");
-        setInterval(Config.publish_version_interval_millis);
+        super("PUBLISH_VERSION", Config.publish_version_interval_ms);
     }
     
     protected void runOneCycle() {
@@ -64,12 +65,12 @@ public class PublishVersionDaemon extends Daemon {
         }
         // TODO yiguolei: could publish transaction state according to multi-tenant cluster info
         // but should do more work. for example, if a table is migrate from one cluster to another cluster
-        // should pulish to two clusters. 
+        // should publish to two clusters.
         // attention here, we publish transaction state to all backends including dead backend, if not publish to dead backend
         // then transaction manager will treat it as success
         List<Long> allBackends = Catalog.getCurrentSystemInfo().getBackendIds(false);
-        if (allBackends == null || allBackends.size() == 0) {
-            LOG.warn("some transaction state need to publish, but no alive backends!!!");
+        if (allBackends.isEmpty()) {
+            LOG.warn("some transaction state need to publish, but no backend exists");
             return;
         }
         // every backend-transaction identified a single task
@@ -97,13 +98,14 @@ public class PublishVersionDaemon extends Daemon {
                 }
             }
             Set<Long> publishBackends = transactionState.getPublishVersionTasks().keySet();
+            // public version tasks are not persisted in catalog, so publishBackends may be empty.
+            // so we have to try publish to all backends;
             if (publishBackends.isEmpty()) {
                 // could not just add to it, should new a new object, or the back map will destroyed
                 publishBackends = Sets.newHashSet();
-                // this is useful if fe master transfer to another master, because publish version task is not
-                // persistent to edit log, then it should publish to all backends
                 publishBackends.addAll(allBackends);
             }
+
             for (long backendId : publishBackends) {
                 PublishVersionTask task = new PublishVersionTask(backendId, 
                                                                  transactionState.getTransactionId(), 
@@ -122,15 +124,21 @@ public class PublishVersionDaemon extends Daemon {
         
         TabletInvertedIndex tabletInvertedIndex = Catalog.getCurrentInvertedIndex();
         // try to finish the transaction, if failed just retry in next loop
+        long currentTime = System.currentTimeMillis();
         for (TransactionState transactionState : readyTransactionStates) {
+            if (currentTime - transactionState.getPublishVersionTime() < Config.publish_version_interval_ms * 2) {
+                // wait 2 rounds before handling publish result
+                continue;
+            }
             Map<Long, PublishVersionTask> transTasks = transactionState.getPublishVersionTasks();
             Set<Replica> transErrorReplicas = Sets.newHashSet();
+            List<PublishVersionTask> unfinishedTasks = Lists.newArrayList();
             for (PublishVersionTask publishVersionTask : transTasks.values()) {
                 if (publishVersionTask.isFinished()) {
                     // sometimes backend finish publish version task, but it maybe failed to change transactionid to version for some tablets
                     // and it will upload the failed tabletinfo to fe and fe will deal with them
                     List<Long> errorTablets = publishVersionTask.getErrorTablets();
-                    if (errorTablets == null || errorTablets.size() == 0) {
+                    if (errorTablets == null || errorTablets.isEmpty()) {
                         continue;
                     } else {
                         for (long tabletId : errorTablets) {
@@ -140,44 +148,48 @@ public class PublishVersionDaemon extends Daemon {
                         }
                     }
                 } else {
-                    // if task is not finished in time, then set all replica in the backend to error state
-                    List<TPartitionVersionInfo> versionInfos = publishVersionTask.getPartitionVersionInfos();
-                    Set<Long> errorPartitionIds = Sets.newHashSet();
-                    for (TPartitionVersionInfo versionInfo : versionInfos) {
-                        errorPartitionIds.add(versionInfo.getPartition_id());
-                    }
-                    if (errorPartitionIds.isEmpty()) {
-                        continue;
-                    }
-                    List<Long> tabletIds = tabletInvertedIndex.getTabletIdsByBackendId(publishVersionTask.getBackendId());
-                    for (long tabletId : tabletIds) {
-                        long partitionId = tabletInvertedIndex.getPartitionId(tabletId);
-                        if (errorPartitionIds.contains(partitionId)) {
-                            Replica replica = tabletInvertedIndex.getReplica(tabletId, publishVersionTask.getBackendId());
-                            transErrorReplicas.add(replica);
+                    unfinishedTasks.add(publishVersionTask);
+                }
+            }
+
+            boolean shouldFinishTxn = false;
+            if (!unfinishedTasks.isEmpty()) {
+                if (transactionState.isPublishTimeout()) {
+                    // transaction's publish is timeout, but there still has unfinished tasks.
+                    // we need to collect all error replicas, and try to finish this txn.
+                    for (PublishVersionTask unfinishedTask : unfinishedTasks) {
+                        // set all replica in the backend to error state
+                        List<TPartitionVersionInfo> versionInfos = unfinishedTask.getPartitionVersionInfos();
+                        Set<Long> errorPartitionIds = Sets.newHashSet();
+                        for (TPartitionVersionInfo versionInfo : versionInfos) {
+                            errorPartitionIds.add(versionInfo.getPartition_id());
+                        }
+                        if (errorPartitionIds.isEmpty()) {
+                            continue;
+                        }
+
+                        // TODO(cmy): this is inefficient, but just keep it simple. will change it later.
+                        List<Long> tabletIds = tabletInvertedIndex.getTabletIdsByBackendId(unfinishedTask.getBackendId());
+                        for (long tabletId : tabletIds) {
+                            long partitionId = tabletInvertedIndex.getPartitionId(tabletId);
+                            if (errorPartitionIds.contains(partitionId)) {
+                                Replica replica = tabletInvertedIndex.getReplica(tabletId,
+                                                                                 unfinishedTask.getBackendId());
+                                transErrorReplicas.add(replica);
+                            }
                         }
                     }
+
+                    shouldFinishTxn = true;
                 }
+                // transaction's publish is not timeout, waiting next round.
+            } else {
+                // all publish tasks are finished, try to finish this txn.
+                shouldFinishTxn = true;
             }
-            // the timeout value is related with backend num
-            long timeoutMillis = Math.min(Config.publish_version_timeout_second * transTasks.size() * 1000, 10000);
-            // the minimal internal should be 3s
-            timeoutMillis = Math.max(timeoutMillis, 3000);
             
-            // should not wait clone replica or replica's that with last failed version > 0
-            // if wait for them, the publish process will be very slow
-            int normalReplicasNotRespond = 0;
-            Set<Long> allErrorReplicas = Sets.newHashSet();
-            for (Replica replica : transErrorReplicas) {
-                allErrorReplicas.add(replica.getId());
-                if (replica.getState() != ReplicaState.CLONE 
-                        && replica.getLastFailedVersion() < 1) {
-                    ++ normalReplicasNotRespond;
-                }
-            }
-            if (normalReplicasNotRespond == 0 
-                    || System.currentTimeMillis() - transactionState.getPublishVersionTime() > timeoutMillis) {
-                LOG.debug("transTask num {}, error replica id num {}", transTasks.size(), transErrorReplicas.size());
+            if (shouldFinishTxn) {
+                Set<Long> allErrorReplicas = transErrorReplicas.stream().map(v -> v.getId()).collect(Collectors.toSet());
                 globalTransactionMgr.finishTransaction(transactionState.getTransactionId(), allErrorReplicas);
                 if (transactionState.getTransactionStatus() != TransactionStatus.VISIBLE) {
                     // if finish transaction state failed, then update publish version time, should check 
@@ -187,11 +199,12 @@ public class PublishVersionDaemon extends Daemon {
                             transactionState, transErrorReplicas.size());
                 }
             }
+
             if (transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
                 for (PublishVersionTask task : transactionState.getPublishVersionTasks().values()) {
                     AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.PUBLISH_VERSION, task.getSignature());
                 }
             }
-        }
+        } // end for readyTransactionStates
     }
 }

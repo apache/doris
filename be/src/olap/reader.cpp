@@ -17,7 +17,7 @@
 
 #include "olap/reader.h"
 
-#include "olap/olap_data.h"
+#include "olap/column_data.h"
 #include "olap/olap_table.h"
 #include "olap/row_block.h"
 #include "olap/row_cursor.h"
@@ -45,7 +45,7 @@ public:
     // set reverse to true if need read in reverse order.
     OLAPStatus init(Reader* reader);
 
-    OLAPStatus add_child(IData* data, RowBlock* block);
+    OLAPStatus add_child(ColumnData* data, RowBlock* block);
 
     // Get top row of the heap, NULL if reach end.
     const RowCursor* current_row(bool* delete_flag) const {
@@ -65,7 +65,7 @@ public:
 private:
     class ChildCtx {
     public:
-        ChildCtx(IData* data, RowBlock* block, Reader* reader)
+        ChildCtx(ColumnData* data, RowBlock* block, Reader* reader)
                 : _data(data),
                 _is_delete(data->delete_flag()),
                 _reader(reader),
@@ -73,7 +73,7 @@ private:
         }
 
         OLAPStatus init() {
-            auto res = _row_cursor.init(_data->olap_index()->table()->tablet_schema());
+            auto res = _row_cursor.init(_data->segment_group()->table()->tablet_schema());
             if (res != OLAP_SUCCESS) {
                 LOG(WARNING) << "failed to init row cursor, res=" << res;
                 return res;
@@ -134,7 +134,7 @@ private:
             return OLAP_ERR_DATA_EOF;
         }
 
-        IData* _data = nullptr;
+        ColumnData* _data = nullptr;
         const RowCursor* _current_row = nullptr;
         bool _is_delete = false;
         Reader* _reader;
@@ -187,7 +187,7 @@ OLAPStatus CollectIterator::init(Reader* reader) {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus CollectIterator::add_child(IData* data, RowBlock* block) {
+OLAPStatus CollectIterator::add_child(ColumnData* data, RowBlock* block) {
     std::unique_ptr<ChildCtx> child(new ChildCtx(data, block, _reader));
     RETURN_NOT_OK(child->init());
     if (child->current_row() == nullptr) {
@@ -465,7 +465,7 @@ OLAPStatus Reader::_unique_key_next_row(RowCursor* row_cursor, bool* eof) {
 }
 
 void Reader::close() {
-    OLAP_LOG_DEBUG("merged rows:%lu", _merged_rows);
+    VLOG(3) << "merged rows:" << _merged_rows;
     _conditions.finalize();
     _delete_handler.finalize();
     _olap_table->release_data_sources(&_own_data_sources);
@@ -478,7 +478,7 @@ void Reader::close() {
 }
 
 OLAPStatus Reader::_acquire_data_sources(const ReaderParams& read_params) {
-    const std::vector<IData*>* data_sources;
+    const std::vector<ColumnData*>* data_sources;
     if (read_params.reader_type == READER_ALTER_TABLE
             || read_params.reader_type == READER_BASE_COMPACTION
             || read_params.reader_type == READER_CUMULATIVE_COMPACTION) {
@@ -518,24 +518,24 @@ OLAPStatus Reader::_acquire_data_sources(const ReaderParams& read_params) {
                                 is_using_cache,
                                 read_params.runtime_state);
         if (i_data->delta_pruning_filter()) {
-            OLAP_LOG_DEBUG("filter delta in query in condition: %d, %d",
-                           i_data->version().first, i_data->version().second);
+            VLOG(3) << "filter delta in query in condition:"
+                    << i_data->version().first << ", " << i_data->version().second;
             _stats.rows_stats_filtered += i_data->num_rows();
             continue;
         }
         int ret = i_data->delete_pruning_filter();
         if (ret == DEL_SATISFIED) {
-            OLAP_LOG_DEBUG("filter delta in delete predicate: %d, %d",
-                           i_data->version().first, i_data->version().second);
+            VLOG(3) << "filter delta in delete predicate:"
+                    << i_data->version().first << ", " << i_data->version().second;
             _stats.rows_del_filtered += i_data->num_rows();
             continue;
         } else if (ret == DEL_PARTIAL_SATISFIED) {
-            OLAP_LOG_DEBUG("filter delta partially in delete predicate: %d, %d",
-                           i_data->version().first, i_data->version().second);
+            VLOG(3) << "filter delta partially in delete predicate:"
+                    << i_data->version().first << ", " << i_data->version().second;
             i_data->set_delete_status(DEL_PARTIAL_SATISFIED);
         } else {
-            OLAP_LOG_DEBUG("not filter delta in delete predicate: %d, %d",
-                           i_data->version().first, i_data->version().second);
+            VLOG(3) << "not filter delta in delete predicate:"
+                    << i_data->version().first << ", " << i_data->version().second;
             i_data->set_delete_status(DEL_NOT_SATISFIED);
         }
         _data_sources.push_back(i_data);
@@ -618,7 +618,7 @@ OLAPStatus Reader::_init_return_columns(const ReaderParams& read_params) {
                 _value_cids.push_back(i);
             }
         }
-        OLAP_LOG_DEBUG("return column is empty, using full column as defaut.");
+        VLOG(3) << "return column is empty, using full column as defaut.";
     } else if (read_params.reader_type == READER_CHECKSUM) {
         _return_columns = read_params.return_columns;
         for (auto id : read_params.return_columns) {
@@ -653,7 +653,7 @@ OLAPStatus Reader::_attach_data_to_merge_set(bool first, bool *eof) {
         if (_keys_param.start_keys.size() > 0) {
             if (_next_key_index >= _keys_param.start_keys.size()) {
                 *eof = true;
-                OLAP_LOG_DEBUG("can NOT attach while start_key has been used.");
+                VLOG(3) << "can NOT attach while start_key has been used.";
                 return res;
             }
             auto cur_key_index = _next_key_index++;
@@ -677,10 +677,9 @@ OLAPStatus Reader::_attach_data_to_merge_set(bool first, bool *eof) {
             if (0 == _keys_param.range.compare("gt")) {
                 if (NULL != end_key
                         && start_key->cmp(*end_key) >= 0) {
-                    OLAP_LOG_TRACE("return EOF when range(%s) start_key(%s) end_key(%s).",
-                                   _keys_param.range.c_str(),
-                                   start_key->to_string().c_str(),
-                                   end_key->to_string().c_str());
+                    VLOG(10) << "return EOF when range=" << _keys_param.range
+                             << ", start_key=" << start_key->to_string()
+                             << ", end_key=" << end_key->to_string();
                     *eof = true;
                     return res;
                 }
@@ -689,10 +688,9 @@ OLAPStatus Reader::_attach_data_to_merge_set(bool first, bool *eof) {
             } else if (0 == _keys_param.range.compare("ge")) {
                 if (NULL != end_key
                         && start_key->cmp(*end_key) > 0) {
-                    OLAP_LOG_TRACE("return EOF when range(%s) start_key(%s) end_key(%s).",
-                                   _keys_param.range.c_str(),
-                                   start_key->to_string().c_str(),
-                                   end_key->to_string().c_str());
+                    VLOG(10) << "return EOF when range=" << _keys_param.range
+                             << ", start_key=" << start_key->to_string()
+                             << ", end_key=" << end_key->to_string();
                     *eof = true;
                     return res;
                 }

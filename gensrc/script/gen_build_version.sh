@@ -25,7 +25,7 @@
 # contains the build version based on the git hash or svn revision.
 ##############################################################
 
-build_version="3.3-branch"
+build_version="0.9-branch"
 
 unset LANG
 unset LC_CTYPE
@@ -150,7 +150,7 @@ namespace doris {
 #define PALO_BUILD_TIME    "${build_time}"
 #define PALO_BUILD_INFO    "${build_info}"
 
-} // namespace palo
+} // namespace doris
 
 #endif
 EOF

@@ -141,7 +141,7 @@ void RowBlock::_convert_storage_to_memory() {
                 size_t storage_field_bytes =
                     *(StringLengthType*)(value_ptr + null_byte);
                 value_ptr += sizeof(StringLengthType);
-                StringSlice* slice = reinterpret_cast<StringSlice*>(memory_ptr + 1);
+                Slice* slice = reinterpret_cast<Slice*>(memory_ptr + 1);
                 slice->data = value_ptr + null_byte;
                 slice->size = storage_field_bytes;
 
@@ -163,7 +163,7 @@ void RowBlock::_convert_storage_to_memory() {
                 memory_copy(memory_ptr, storage_ptr, null_byte);
 
                 // 2. copy length and content
-                StringSlice* slice = reinterpret_cast<StringSlice*>(memory_ptr + 1);
+                Slice* slice = reinterpret_cast<Slice*>(memory_ptr + 1);
                 slice->data = storage_ptr + null_byte;
                 slice->size = storage_field_bytes;
 
@@ -215,7 +215,7 @@ void RowBlock::_convert_memory_to_storage(uint32_t num_rows) {
                 storage_variable_ptr += null_byte;
 
                 // 3. copy length and content
-                StringSlice* slice = reinterpret_cast<StringSlice*>(memory_ptr + 1);
+                Slice* slice = reinterpret_cast<Slice*>(memory_ptr + 1);
                 *reinterpret_cast<StringLengthType*>(storage_variable_ptr) = slice->size;
                 storage_variable_ptr += sizeof(StringLengthType);
                 memory_copy(storage_variable_ptr, slice->data, slice->size);
@@ -238,7 +238,7 @@ void RowBlock::_convert_memory_to_storage(uint32_t num_rows) {
                 memory_copy(storage_ptr, memory_ptr, null_byte);
 
                 // 2. copy content
-                StringSlice* slice = reinterpret_cast<StringSlice*>(memory_ptr + 1);
+                Slice* slice = reinterpret_cast<Slice*>(memory_ptr + 1);
                 memory_copy(storage_ptr + null_byte, slice->data, slice->size);
                 memory_ptr += _mem_row_bytes;
                 storage_ptr += storage_field_bytes + null_byte;
@@ -300,7 +300,7 @@ OLAPStatus RowBlock::find_row(const RowCursor& key,
             *row_index = *it_result;
         }
     } catch (exception& e) {
-        OLAP_LOG_FATAL("exception happens. [e.what='%s']", e.what());
+        LOG(FATAL) << "exception happens. exception=" << e.what();
         return OLAP_ERR_ROWBLOCK_FIND_ROW_EXCEPTION;
     }
 
@@ -328,14 +328,14 @@ void RowBlock::_compute_layout() {
             if (has_nullbyte()) {
                 storage_variable_bytes += sizeof(char);
             }
-            memory_size += sizeof(StringSlice) + sizeof(char);
+            memory_size += sizeof(Slice) + sizeof(char);
         } else {
             storage_fixed_bytes += field.length;
             if (has_nullbyte()) {
                 storage_fixed_bytes += sizeof(char);
             }
             if (field.type == OLAP_FIELD_TYPE_CHAR) {
-                memory_size += sizeof(StringSlice) + sizeof(char);
+                memory_size += sizeof(Slice) + sizeof(char);
             } else {
                 memory_size += field.length + sizeof(char);
             }

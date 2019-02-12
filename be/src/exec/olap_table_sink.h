@@ -30,6 +30,7 @@
 #include "exec/olap_table_info.h"
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/internal_service.pb.h"
+#include "gen_cpp/palo_internal_service.pb.h"
 #include "util/bitmap.h"
 #include "util/thrift_util.h"
 #include "util/ref_count_closure.h"
@@ -100,7 +101,7 @@ private:
     int64_t _next_packet_seq = 0;
 
     std::unique_ptr<RowBatch> _batch;
-    PInternalService_Stub* _stub = nullptr;
+    palo::PInternalService_Stub* _stub = nullptr;
     RefCountClosure<PTabletWriterOpenResult>* _open_closure = nullptr;
     RefCountClosure<PTabletWriterAddBatchResult>* _add_batch_closure = nullptr;
 

@@ -24,14 +24,14 @@
 
 #include "gen_cpp/AgentService_types.h"
 #include "olap/delete_handler.h"
-#include "olap/i_data.h"
+#include "olap/column_data.h"
 
 namespace doris {
 // defined in 'field.h'
 class Field;
 class FieldInfo;
 // defined in 'olap_data.h'
-class IData;
+class ColumnData;
 // defined in 'olap_table.h'
 class OLAPTable;
 // defined in 'row_block.h'
@@ -39,18 +39,7 @@ class RowBlock;
 // defined in 'row_cursor.h'
 class RowCursor;
 // defined in 'writer.h'
-class IWriter;
-
-struct ColumnMapping {
-    ColumnMapping() : ref_column(-1), default_value(NULL) {}
-    virtual ~ColumnMapping() {}
-
-    // <0: use default value
-    // >=0: use origin column
-    int32_t ref_column;
-    // normally for default value. stores values for filters
-    WrapperField* default_value;
-};
+class ColumnDataWriter;
 
 class RowBlockChanger {
 public:
@@ -66,6 +55,10 @@ public:
     virtual ~RowBlockChanger();
 
     ColumnMapping* get_mutable_column_mapping(size_t column_index);
+
+    SchemaMapping get__schema_mapping() const {
+        return _schema_mapping;
+    }
     
     bool change_row_block(
             const DataFileType df_type,
@@ -124,7 +117,7 @@ public:
 
     bool merge(
             const std::vector<RowBlock*>& row_block_arr,
-            IWriter* writer,
+            ColumnDataWriter* writer,
             uint64_t* merged_rows);
 
 private:
@@ -150,7 +143,7 @@ public:
     SchemaChange() : _filted_rows(0), _merged_rows(0) {}
     virtual ~SchemaChange() {}
 
-    virtual bool process(IData* olap_data, Rowset* new_olap_index) = 0;
+    virtual bool process(ColumnData* olap_data, SegmentGroup* new_segment_group) = 0;
 
     void add_filted_rows(uint64_t filted_rows) {
         _filted_rows += filted_rows;
@@ -181,7 +174,7 @@ public:
             TSchemaHash schema_hash,
             Version version,
             VersionHash version_hash,
-            Rowset* olap_index);
+            SegmentGroup* segment_group);
 
 private:
     uint64_t _filted_rows;
@@ -192,13 +185,15 @@ class LinkedSchemaChange : public SchemaChange {
 public:
     explicit LinkedSchemaChange(
                 OLAPTablePtr base_olap_table, 
-                OLAPTablePtr new_olap_table);
+                OLAPTablePtr new_olap_table,
+                const RowBlockChanger& row_block_changer);
     ~LinkedSchemaChange() {}
 
-    bool process(IData* olap_data, Rowset* new_olap_index);
+    bool process(ColumnData* olap_data, SegmentGroup* new_segment_group);
 private:
     OLAPTablePtr _base_olap_table;
     OLAPTablePtr _new_olap_table;
+    const RowBlockChanger& _row_block_changer;
     DISALLOW_COPY_AND_ASSIGN(LinkedSchemaChange);
 };
 
@@ -212,7 +207,7 @@ public:
             const RowBlockChanger& row_block_changer);
     virtual ~SchemaChangeDirectly();
 
-    virtual bool process(IData* olap_data, Rowset* new_olap_index);
+    virtual bool process(ColumnData* olap_data, SegmentGroup* new_segment_group);
 
 private:
     OLAPTablePtr _olap_table;
@@ -221,7 +216,7 @@ private:
     RowCursor* _src_cursor;
     RowCursor* _dst_cursor;
 
-    bool _write_row_block(IWriter* writer, RowBlock* row_block);
+    bool _write_row_block(ColumnDataWriter* writer, RowBlock* row_block);
 
     DISALLOW_COPY_AND_ASSIGN(SchemaChangeDirectly);
 };
@@ -235,17 +230,17 @@ public:
             size_t memory_limitation);
     virtual ~SchemaChangeWithSorting();
 
-    virtual bool process(IData* olap_data, Rowset* new_olap_index);
+    virtual bool process(ColumnData* olap_data, SegmentGroup* new_segment_group);
 
 private:
     bool _internal_sorting(
             const std::vector<RowBlock*>& row_block_arr,
             const Version& temp_delta_versions,
-            Rowset** temp_olap_index);
+            SegmentGroup** temp_segment_group);
 
     bool _external_sorting(
-            std::vector<Rowset*>& src_olap_index_arr,
-            Rowset* olap_index);
+            std::vector<SegmentGroup*>& src_segment_group_arr,
+            SegmentGroup* segment_group);
 
     OLAPTablePtr _olap_table;
     const RowBlockChanger& _row_block_changer;
@@ -266,8 +261,8 @@ public:
 
     OLAPStatus schema_version_convert(OLAPTablePtr ref_olap_table,
                                       OLAPTablePtr new_olap_table,
-                                      std::vector<Rowset*>* ref_olap_indices,
-                                      std::vector<Rowset*>* new_olap_indices);
+                                      std::vector<SegmentGroup*>* ref_segment_groups,
+                                      std::vector<SegmentGroup*>* new_segment_groups);
 
     // 清空一个table下的schema_change信息：包括split_talbe以及其他schema_change信息
     //  这里只清理自身的out链，不考虑related的table
@@ -317,7 +312,7 @@ private:
         AlterTabletType alter_table_type;
         OLAPTablePtr ref_olap_table;
         OLAPTablePtr new_olap_table;
-        std::vector<IData*> ref_olap_data_arr;
+        std::vector<ColumnData*> ref_olap_data_arr;
         std::string debug_message;
         DeleteHandler delete_handler;
         // TODO(zc): fuck me please, I don't add mutable here, but no where

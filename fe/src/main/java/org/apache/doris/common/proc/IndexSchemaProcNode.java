@@ -31,7 +31,7 @@ import java.util.List;
 import java.util.Set;
 
 /*
- * SHOW PROC /dbs/dbId/tableId/index_schema/"index name"
+ * SHOW PROC /dbs/dbId/tableId/index_schema/indexId"
  * show index schema
  */
 public class IndexSchemaProcNode implements ProcNodeInterface {
@@ -67,7 +67,7 @@ public class IndexSchemaProcNode implements ProcNodeInterface {
             String extraStr = StringUtils.join(extras, ",");
 
             List<String> rowList = Arrays.asList(column.getName(),
-                                                 column.getColumnType().toString(),
+                                                 column.getOriginType().toString(),
                                                  column.isAllowNull() ? "Yes" : "No",
                                                  ((Boolean) column.isKey()).toString(),
                                                  column.getDefaultValue() == null

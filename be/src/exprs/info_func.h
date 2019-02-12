@@ -20,6 +20,7 @@
 
 #include <string>
 #include <iostream>
+#include "common/object_pool.h"
 #include "exprs/expr.h"
 #include "gen_cpp/Exprs_types.h"
 

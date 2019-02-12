@@ -25,10 +25,10 @@
 
 #include "olap/delete_handler.h"
 #include "olap/merger.h"
-#include "olap/olap_data.h"
+#include "olap/column_data.h"
 #include "olap/olap_engine.h"
 #include "olap/olap_header.h"
-#include "olap/rowset.h"
+#include "olap/segment_group.h"
 #include "olap/olap_table.h"
 #include "olap/utils.h"
 #include "util/doris_metrics.h"
@@ -83,10 +83,9 @@ OLAPStatus BaseCompaction::init(OLAPTablePtr table, bool is_manual_trigger) {
 }
 
 OLAPStatus BaseCompaction::run() {
-    OLAP_LOG_INFO("start base compaction. [table=%s; old_base_version=%d; new_base_version=%d]",
-                  _table->full_name().c_str(),
-                  _old_base_version.second,
-                  _new_base_version.second);
+    LOG(INFO) << "start base compaction. tablet=" << _table->full_name()
+              << ", old_base_version=" << _old_base_version.second
+              << ", new_base_version=" << _new_base_version.second;
 
     OLAPStatus res = OLAP_SUCCESS;
     OlapStopWatch stage_watch;
@@ -102,10 +101,10 @@ OLAPStatus BaseCompaction::run() {
         return res;
     }
 
-    OLAP_LOG_TRACE("new_base_version_hash", "%ld", new_base_version_hash);
+    VLOG(10) << "new_base_version_hash" << new_base_version_hash;
 
     // 2. 获取生成新base需要的data sources
-    vector<IData*> base_data_sources;
+    vector<ColumnData*> base_data_sources;
     _table->acquire_data_sources_by_versions(_need_merged_versions, &base_data_sources);
     if (base_data_sources.empty()) {
         OLAP_LOG_WARNING("fail to acquire need data sources. [table=%s; version=%d]",
@@ -118,8 +117,8 @@ OLAPStatus BaseCompaction::run() {
     {
         DorisMetrics::base_compaction_deltas_total.increment(_need_merged_versions.size());
         int64_t merge_bytes = 0;
-        for (IData* i_data : base_data_sources) {
-            merge_bytes += i_data->olap_index()->data_size();
+        for (ColumnData* i_data : base_data_sources) {
+            merge_bytes += i_data->segment_group()->data_size();
         }
         DorisMetrics::base_compaction_bytes_total.increment(merge_bytes);
     }
@@ -133,7 +132,7 @@ OLAPStatus BaseCompaction::run() {
     res = _do_base_compaction(new_base_version_hash,
                              &base_data_sources,
                              &row_count);
-    // 释放不再使用的IData对象
+    // 释放不再使用的ColumnData对象
     _table->release_data_sources(&base_data_sources);
     if (res != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("fail to do base version. [table=%s; version=%d]",
@@ -143,38 +142,27 @@ OLAPStatus BaseCompaction::run() {
         return res;
     }
 
+    if (_validate_delete_file_action() != OLAP_SUCCESS) {
+        LOG(WARNING) << "failed to do base compaction. delete action has error.";
+        _garbage_collection();
+        return OLAP_ERR_BE_ERROR_DELETE_ACTION;
+    }
+
+
     VLOG(3) << "elapsed time of doing base compaction:" << stage_watch.get_elapse_time_us();
 
     // 4. make new versions visable.
     //    If success, remove files belong to old versions;
     //    If fail, gc files belong to new versions.
-    vector<Rowset*> unused_olap_indices;
+    vector<SegmentGroup*> unused_olap_indices;
     res = _update_header(row_count, &unused_olap_indices);
     if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "fail to update header. table=" << _table->full_name() << ", "
-            << "version=" << _new_base_version.first << "-" << _new_base_version.second;
+        LOG(WARNING) << "fail to update header. table=" << _table->full_name()
+                     << ", version=" << _new_base_version.first << "-" << _new_base_version.second;
         _garbage_collection();
         return res;
     }
     _delete_old_files(&unused_olap_indices);
-
-    //  validate that delete action is right
-    //  if error happened, sleep 1 hour. Report a fatal log every 1 minute
-    if (_validate_delete_file_action() != OLAP_SUCCESS) {
-        int sleep_count = 0;
-        while (true) {
-            if (sleep_count >= 60) {
-                break;
-            }
-
-            ++sleep_count;
-            OLAP_LOG_FATAL("base compaction's delete action has error.sleep 1 minute...");
-            sleep(60);
-        }
-
-        _garbage_collection();
-        return OLAP_ERR_BE_ERROR_DELETE_ACTION;
-    }
 
     _release_base_compaction_lock();
 
@@ -230,18 +218,18 @@ bool BaseCompaction::_check_whether_satisfy_policy(bool is_manual_trigger,
     // 只有1个base文件和1个delta文件
     if (base_compaction_layer_point == -1) {
         VLOG(3) << "can't do base compaction: no cumulative files."
-                << "table=" << _table->full_name() << ", "
-                << "base_version=0-" << _old_base_version.second << ", "
-                << "cumulative_layer_point=" << cumulative_layer_point + 1;
+                << "table=" << _table->full_name()
+                << ", base_version=0-" << _old_base_version.second
+                << ", cumulative_layer_point=" << cumulative_layer_point + 1;
         return false;
     }
 
     // 只有1个cumulative文件
     if (base_compaction_layer_point == _old_base_version.second) {
         VLOG(3) << "can't do base compaction: only one cumulative file."
-                << "table=" << _table->full_name() << ", "
-                << "base_version=0-" << _old_base_version.second << ", "
-                << "cumulative_layer_point=" << cumulative_layer_point + 1;
+                << "table=" << _table->full_name()
+                << ", base_version=0-" << _old_base_version.second
+                << ", cumulative_layer_point=" << cumulative_layer_point + 1;
         return false;
     }
 
@@ -249,8 +237,8 @@ bool BaseCompaction::_check_whether_satisfy_policy(bool is_manual_trigger,
     if (OLAP_SUCCESS != _table->select_versions_to_span(_new_base_version,
                                                         candidate_versions)) {
         LOG(WARNING) << "fail to select shortest version path."
-            << "start=" << _new_base_version.first << ", "
-            << "end=" << _new_base_version.second;
+            << "start=" << _new_base_version.first
+            << ", end=" << _new_base_version.second;
         return  false;
     }
 
@@ -283,9 +271,9 @@ bool BaseCompaction::_check_whether_satisfy_policy(bool is_manual_trigger,
         = config::base_compaction_num_cumulative_deltas;
     // candidate_versions中包含base文件，所以这里减1
     if (candidate_versions->size() - 1 >= base_compaction_num_cumulative_deltas) {
-        LOG(INFO) << "satisfy the base compaction policy. table="<< _table->full_name() << ", "
-            << "num_cumulative_deltas=" << candidate_versions->size() - 1 << ", "
-            << "base_compaction_num_cumulative_deltas=" << base_compaction_num_cumulative_deltas;
+        LOG(INFO) << "satisfy the base compaction policy. table="<< _table->full_name()
+            << ", num_cumulative_deltas=" << candidate_versions->size() - 1
+            << ", base_compaction_num_cumulative_deltas=" << base_compaction_num_cumulative_deltas;
         return true;
     }
 
@@ -293,11 +281,11 @@ bool BaseCompaction::_check_whether_satisfy_policy(bool is_manual_trigger,
     const double base_cumulative_delta_ratio = config::base_cumulative_delta_ratio;
     double cumulative_base_ratio = static_cast<double>(cumulative_total_size) / base_size;
     if (cumulative_base_ratio > base_cumulative_delta_ratio) {
-        LOG(INFO) << "satisfy the base compaction policy. table=" << _table->full_name() << ", "
-            << "cumualtive_total_size=" << cumulative_total_size << ", "
-            << "base_size=" << base_size << ", "
-            << "cumulative_base_ratio=" << cumulative_base_ratio << ", "
-            << "policy_ratio=" << base_cumulative_delta_ratio;
+        LOG(INFO) << "satisfy the base compaction policy. table=" << _table->full_name()
+            << ", cumualtive_total_size=" << cumulative_total_size
+            << ", base_size=" << base_size
+            << ", cumulative_base_ratio=" << cumulative_base_ratio
+            << ", policy_ratio=" << base_cumulative_delta_ratio;
         return true;
     }
 
@@ -305,37 +293,35 @@ bool BaseCompaction::_check_whether_satisfy_policy(bool is_manual_trigger,
     const uint32_t interval_since_last_operation = config::base_compaction_interval_seconds_since_last_operation;
     int64_t interval_since_last_be = time(NULL) - base_creation_time;
     if (interval_since_last_be > interval_since_last_operation) {
-        LOG(INFO) << "satisfy the base compaction policy. table=" << _table->full_name() << ", "
-            << "interval_since_last_be=" << interval_since_last_be << ", "
-            << "policy_interval=" << interval_since_last_operation;
+        LOG(INFO) << "satisfy the base compaction policy. table=" << _table->full_name()
+            << ", interval_since_last_be=" << interval_since_last_be
+            << ", policy_interval=" << interval_since_last_operation;
         return true;
     }
 
-    VLOG(3) << "don't satisfy the base compaction policy. table=" << _table->full_name() << ", "
-        << "cumulative_files_number=" << candidate_versions->size() - 1 << ", "
-        << "cumulative_base_ratio=" << cumulative_base_ratio << ", "
-        << "interval_since_last_be=" << interval_since_last_be;
+    VLOG(3) << "don't satisfy the base compaction policy. table=" << _table->full_name()
+        << ", cumulative_files_number=" << candidate_versions->size() - 1
+        << ", cumulative_base_ratio=" << cumulative_base_ratio
+        << ", interval_since_last_be=" << interval_since_last_be;
 
     return false;
 }
 
 OLAPStatus BaseCompaction::_do_base_compaction(VersionHash new_base_version_hash,
-                                               vector<IData*>* base_data_sources,
+                                               vector<ColumnData*>* base_data_sources,
                                                uint64_t* row_count) {
     // 1. 生成新base文件对应的olap index
-    Rowset* new_base = new (std::nothrow) Rowset(_table.get(),
+    SegmentGroup* new_base = new (std::nothrow) SegmentGroup(_table.get(),
                                                        _new_base_version,
                                                        new_base_version_hash,
                                                        false, 0, 0);
     if (new_base == NULL) {
-        OLAP_LOG_WARNING("fail to new Rowset.");
+        OLAP_LOG_WARNING("fail to new SegmentGroup.");
         return OLAP_ERR_MALLOC_ERROR;
     }
 
-    OLAP_LOG_INFO("start merge new base. [table='%s' version=%d]",
-                  _table->full_name().c_str(),
-                  _new_base_version.second);
-
+    LOG(INFO) << "start merge new base. tablet=" << _table->full_name()
+              << ", version=" << _new_base_version.second;
     // 2. 执行base compaction的merge
     // 注意：无论是行列存，还是列存，在执行merge时都使用Merger类，不能使用MassiveMerger。
     // 原因：MassiveMerger中的base文件不是通过Reader读取的，所以会导致删除条件失效,
@@ -348,8 +334,7 @@ OLAPStatus BaseCompaction::_do_base_compaction(VersionHash new_base_version_hash
     uint64_t merged_rows = 0;
     uint64_t filted_rows = 0;
     OLAPStatus res = OLAP_SUCCESS;
-    if (_table->data_file_type() == OLAP_DATA_FILE
-            || _table->data_file_type() == COLUMN_ORIENTED_FILE) {
+    if (_table->data_file_type() == COLUMN_ORIENTED_FILE) {
         _table->obtain_header_rdlock();
         _table->release_header_lock();
 
@@ -381,9 +366,8 @@ OLAPStatus BaseCompaction::_do_base_compaction(VersionHash new_base_version_hash
     // 4. 如果merge成功，则将新base文件对应的olap index载入
     _new_olap_indices.push_back(new_base);
 
-    OLAP_LOG_TRACE("merge new base success, start load index. [table='%s' version=%d]",
-                   _table->full_name().c_str(),
-                   _new_base_version.second);
+    VLOG(10) << "merge new base success, start load index. tablet=" << _table->full_name()
+             << ", version=" << _new_base_version.second;
 
     res = new_base->load();
     if (res != OLAP_SUCCESS) {
@@ -397,33 +381,33 @@ OLAPStatus BaseCompaction::_do_base_compaction(VersionHash new_base_version_hash
 
     // Check row num changes
     uint64_t source_rows = 0;
-    for (IData* i_data : *base_data_sources) {
-        source_rows += i_data->olap_index()->num_rows();
+    for (ColumnData* i_data : *base_data_sources) {
+        source_rows += i_data->segment_group()->num_rows();
     }
     bool row_nums_check = config::row_nums_check;
     if (row_nums_check) {
         if (source_rows != new_base->num_rows() + merged_rows + filted_rows) {
             LOG(WARNING) << "fail to check row num!"
-                << "source_rows=" << source_rows << ", "
-                << "merged_rows=" << merged_rows << ", "
-                << "filted_rows=" << filted_rows << ", "
-                << "new_index_rows=" << new_base->num_rows();
+                << "source_rows=" << source_rows
+                << ", merged_rows=" << merged_rows
+                << ", filted_rows=" << filted_rows
+                << ", new_index_rows=" << new_base->num_rows();
             return OLAP_ERR_CHECK_LINES_ERROR;
         }
     } else {
         LOG(INFO) << "all row nums."
-            << "source_rows=" << source_rows << ", "
-            << "merged_rows=" << merged_rows << ", "
-            << "filted_rows=" << filted_rows << ", "
-            << "new_index_rows=" << new_base->num_rows();
+            << "source_rows=" << source_rows
+            << ", merged_rows=" << merged_rows
+            << ", filted_rows=" << filted_rows
+            << ", new_index_rows=" << new_base->num_rows();
     }
 
-    LOG(INFO) << "succeed to do base compaction. table=" << _table->full_name() << ", "
-              << "base_version=" << _new_base_version.first << "-" << _new_base_version.second;
+    LOG(INFO) << "succeed to do base compaction. table=" << _table->full_name()
+              << ", base_version=" << _new_base_version.first << "-" << _new_base_version.second;
     return OLAP_SUCCESS;
 }
 
-OLAPStatus BaseCompaction::_update_header(uint64_t row_count, vector<Rowset*>* unused_olap_indices) {
+OLAPStatus BaseCompaction::_update_header(uint64_t row_count, vector<SegmentGroup*>* unused_olap_indices) {
     WriteLock wrlock(_table->get_header_lock_ptr());
     vector<Version> unused_versions;
     _get_unused_versions(&unused_versions);
@@ -434,15 +418,14 @@ OLAPStatus BaseCompaction::_update_header(uint64_t row_count, vector<Rowset*>* u
                                        &_new_olap_indices,
                                        unused_olap_indices);
     if (res != OLAP_SUCCESS) {
-        OLAP_LOG_FATAL("fail to replace data sources. "
-                       "[res=%d table=%s; new_base=%d; old_base=%d]",
-                       _table->full_name().c_str(),
-                       _new_base_version.second,
-                       _old_base_version.second);
+        LOG(FATAL) << "fail to replace data sources. res" << res
+                   << ", tablet=" << _table->full_name()
+                   << ", new_base_version=" << _new_base_version.second
+                   << ", old_base_verison=" << _old_base_version.second;
         return res;
     }
 
-    OLAP_LOG_INFO("BE remove delete conditions. [removed_version=%d]", _new_base_version.second);
+    LOG(INFO) << "BE remove delete conditions. removed_version=" << _new_base_version.second;
 
     // Base Compaction完成之后，需要删除header中版本号小于等于新base文件版本号的删除条件
     DeleteConditionHandler cond_handler;
@@ -452,11 +435,10 @@ OLAPStatus BaseCompaction::_update_header(uint64_t row_count, vector<Rowset*>* u
     // 暂时没办法做很好的处理,报FATAL
     res = _table->save_header();
     if (res != OLAP_SUCCESS) {
-        OLAP_LOG_FATAL("fail to save header. "
-                       "[res=%d table=%s; new_base=%d; old_base=%d]",
-                       _table->full_name().c_str(),
-                       _new_base_version.second,
-                       _old_base_version.second);
+        LOG(FATAL) << "fail to save header. res=" << res
+                   << ", tablet=" << _table->full_name()
+                   << ", new_base_version=" << _new_base_version.second
+                   << ", old_base_version=" << _old_base_version.second;
         return OLAP_ERR_BE_SAVE_HEADER_ERROR;
     }
     _new_olap_indices.clear();
@@ -464,11 +446,11 @@ OLAPStatus BaseCompaction::_update_header(uint64_t row_count, vector<Rowset*>* u
     return OLAP_SUCCESS;
 }
 
-void BaseCompaction::_delete_old_files(vector<Rowset*>* unused_indices) {
+void BaseCompaction::_delete_old_files(vector<SegmentGroup*>* unused_indices) {
     if (!unused_indices->empty()) {
         OLAPEngine* unused_index = OLAPEngine::get_instance();
 
-        for (vector<Rowset*>::iterator it = unused_indices->begin();
+        for (vector<SegmentGroup*>::iterator it = unused_indices->begin();
                 it != unused_indices->end(); ++it) {
             unused_index->add_unused_index(*it);
         }
@@ -477,7 +459,7 @@ void BaseCompaction::_delete_old_files(vector<Rowset*>* unused_indices) {
 
 void BaseCompaction::_garbage_collection() {
     // 清理掉已生成的版本文件
-    for (vector<Rowset*>::iterator it = _new_olap_indices.begin();
+    for (vector<SegmentGroup*>::iterator it = _new_olap_indices.begin();
             it != _new_olap_indices.end(); ++it) {
         (*it)->delete_all_files();
         SAFE_DELETE(*it);
@@ -521,7 +503,7 @@ bool BaseCompaction::_validate_need_merged_versions(
         return false;
     }
 
-    OLAP_LOG_TRACE("valid need merged version");
+    VLOG(10) << "valid need merged version";
     return true;
 }
 
@@ -530,7 +512,7 @@ OLAPStatus BaseCompaction::_validate_delete_file_action() {
     ReadLock rdlock(_table->get_header_lock_ptr());
     const PDelta* lastest_version = _table->lastest_version();
     Version test_version = Version(0, lastest_version->end_version());
-    vector<IData*> test_sources;
+    vector<ColumnData*> test_sources;
     _table->acquire_data_sources(test_version, &test_sources);
 
     if (test_sources.size() == 0) {

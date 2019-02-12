@@ -33,9 +33,8 @@
 #include "common/status.h"
 #include "olap/field.h"
 #include "olap/olap_common.h"
-#include "olap/olap_data.h"
+#include "olap/column_data.h"
 #include "olap/olap_define.h"
-#include "olap/rowset.h"
 #include "olap/olap_table.h"
 #include "olap/olap_header_manager.h"
 #include "olap/push_handler.h"
@@ -169,14 +168,15 @@ void OLAPEngine::_update_header_file_info(
     for (const VersionEntity& entity : shortest_versions) {
         Version version = entity.version;
         VersionHash v_hash = entity.version_hash;
-        for (RowSetEntity rowset : entity.rowset_vec) {
-            int32_t rowset_id = rowset.rowset_id;
+        for (SegmentGroupEntity segment_group_entity : entity.segment_group_vec) {
+            int32_t segment_group_id = segment_group_entity.segment_group_id;
             const std::vector<KeyRange>* column_statistics = nullptr;
-            if (!rowset.key_ranges.empty()) {
-                column_statistics = &(rowset.key_ranges);
+            if (!segment_group_entity.key_ranges.empty()) {
+                column_statistics = &(segment_group_entity.key_ranges);
             }
-            header->add_version(version, v_hash, rowset_id, rowset.num_segments, rowset.index_size,
-                                rowset.data_size, rowset.num_rows, rowset.empty, column_statistics);
+            header->add_version(version, v_hash, segment_group_id, segment_group_entity.num_segments,
+                    segment_group_entity.index_size, segment_group_entity.data_size,
+                    segment_group_entity.num_rows, segment_group_entity.empty, column_statistics);
         }
     }
 }
@@ -193,13 +193,13 @@ OLAPStatus OLAPEngine::_link_index_and_data_files(
     for (const VersionEntity& entity : version_entity_vec) {
         Version version = entity.version;
         VersionHash v_hash = entity.version_hash;
-        for (RowSetEntity rowset : entity.rowset_vec) {
-            int32_t rowset_id = rowset.rowset_id;
-            for (int seg_id = 0; seg_id < rowset.num_segments; ++seg_id) {
+        for (SegmentGroupEntity segment_group_entity : entity.segment_group_vec) {
+            int32_t segment_group_id = segment_group_entity.segment_group_id;
+            for (int seg_id = 0; seg_id < segment_group_entity.num_segments; ++seg_id) {
                 std::string index_path =
-                    _construct_index_file_path(tablet_path_prefix, version, v_hash, rowset_id, seg_id);
+                    _construct_index_file_path(tablet_path_prefix, version, v_hash, segment_group_id, seg_id);
                 std::string ref_table_index_path =
-                    ref_olap_table->construct_index_file_path(version, v_hash, rowset_id, seg_id);
+                    ref_olap_table->construct_index_file_path(version, v_hash, segment_group_id, seg_id);
                 res = _create_hard_link(ref_table_index_path, index_path);
                 if (res != OLAP_SUCCESS) {
                     LOG(WARNING) << "fail to create hard link. "
@@ -210,14 +210,14 @@ OLAPStatus OLAPEngine::_link_index_and_data_files(
                 }
 
                 std:: string data_path =
-                    _construct_data_file_path(tablet_path_prefix, version, v_hash, rowset_id, seg_id);
+                    _construct_data_file_path(tablet_path_prefix, version, v_hash, segment_group_id, seg_id);
                 std::string ref_table_data_path =
-                    ref_olap_table->construct_data_file_path(version, v_hash, rowset_id, seg_id);
+                    ref_olap_table->construct_data_file_path(version, v_hash, segment_group_id, seg_id);
                 res = _create_hard_link(ref_table_data_path, data_path);
                 if (res != OLAP_SUCCESS) {
                     LOG(WARNING) << "fail to create hard link."
-                        << "tablet_path_prefix=" << tablet_path_prefix << ", "
-                        << "from_path=" << ref_table_data_path << ", to_path=" << data_path;
+                        << "tablet_path_prefix=" << tablet_path_prefix
+                        << ", from_path=" << ref_table_data_path << ", to_path=" << data_path;
                     return res;
                 }
             }
@@ -237,30 +237,30 @@ OLAPStatus OLAPEngine::_copy_index_and_data_files(
     for (VersionEntity& entity : version_entity_vec) {
         Version version = entity.version;
         VersionHash v_hash = entity.version_hash;
-        for (RowSetEntity rowset : entity.rowset_vec) {
-            int32_t rowset_id = rowset.rowset_id;
-            for (int seg_id = 0; seg_id < rowset.num_segments; ++seg_id) {
+        for (SegmentGroupEntity segment_group_entity : entity.segment_group_vec) {
+            int32_t segment_group_id = segment_group_entity.segment_group_id;
+            for (int seg_id = 0; seg_id < segment_group_entity.num_segments; ++seg_id) {
                 string index_path =
-                    _construct_index_file_path(tablet_path_prefix, version, v_hash, rowset_id, seg_id);
+                    _construct_index_file_path(tablet_path_prefix, version, v_hash, segment_group_id, seg_id);
                 string ref_table_index_path = ref_olap_table->construct_index_file_path(
-                        version, v_hash, rowset_id, seg_id);
+                        version, v_hash, segment_group_id, seg_id);
                 Status res = FileUtils::copy_file(ref_table_index_path, index_path);
                 if (!res.ok()) {
                     LOG(WARNING) << "fail to copy index file."
-                                 << "dest=" << index_path << ", "
-                                 << "src=" << ref_table_index_path;
+                                 << "dest=" << index_path
+                                 << ", src=" << ref_table_index_path;
                     return OLAP_ERR_COPY_FILE_ERROR;
                 }
 
                 string data_path =
-                    _construct_data_file_path(tablet_path_prefix, version, v_hash, rowset_id, seg_id);
+                    _construct_data_file_path(tablet_path_prefix, version, v_hash, segment_group_id, seg_id);
                 string ref_table_data_path = ref_olap_table->construct_data_file_path(
-                    version, v_hash, rowset_id, seg_id);
+                    version, v_hash, segment_group_id, seg_id);
                 res = FileUtils::copy_file(ref_table_data_path, data_path);
                 if (!res.ok()) {
                     LOG(WARNING) << "fail to copy data file."
-                                 << "dest=" << index_path << ", "
-                                 << "src=" << ref_table_index_path;
+                                 << "dest=" << index_path
+                                 << ", src=" << ref_table_index_path;
                     return OLAP_ERR_COPY_FILE_ERROR;
                 }
             }
@@ -292,7 +292,7 @@ OLAPStatus OLAPEngine::_create_snapshot_files(
             ref_olap_table, snapshot_id_path);
     string header_path = _get_header_full_path(ref_olap_table, schema_full_path);
     if (check_dir_existed(schema_full_path)) {
-        OLAP_LOG_TRACE("remove the old schema_full_path.");
+        VLOG(10) << "remove the old schema_full_path.";
         remove_all_dir(schema_full_path);
     }
     create_dirs(schema_full_path);
@@ -304,7 +304,7 @@ OLAPStatus OLAPEngine::_create_snapshot_files(
     ref_olap_table->obtain_header_rdlock();
     header_locked = true;
 
-    vector<IData*> olap_data_sources;
+    vector<ColumnData*> olap_data_sources;
     OLAPHeader* new_olap_header = nullptr;
     do {
         // get latest version
@@ -377,15 +377,6 @@ OLAPStatus OLAPEngine::_create_snapshot_files(
         header_locked = false;
         _update_header_file_info(shortest_versions, new_olap_header);
 
-        // save new header
-        if ((res = OlapHeaderManager::save(store, ref_olap_table->tablet_id(),
-                ref_olap_table->schema_hash(), new_olap_header)) != OLAP_SUCCESS) {
-            LOG(WARNING) << "save header error. [table=" << ref_olap_table->full_name()
-                    << "tablet_id=" << ref_olap_table->full_name()
-                    << ", schema_hash=" << ref_olap_table->schema_hash();
-             break;
-         }
-
         // save new header to snapshot header path
         res = new_olap_header->save(header_path);
         if (res != OLAP_SUCCESS) {
@@ -419,12 +410,12 @@ OLAPStatus OLAPEngine::_create_snapshot_files(
     SAFE_DELETE(new_olap_header);
 
     if (header_locked) {
-        OLAP_LOG_TRACE("release header lock.");
+        VLOG(10) << "release header lock.";
         ref_olap_table->release_header_lock();
     }
 
     if (ref_olap_table.get() != NULL) {
-        OLAP_LOG_TRACE("release data sources.");
+        VLOG(10) << "release data sources.";
         ref_olap_table->release_data_sources(&olap_data_sources);
     }
 
@@ -447,8 +438,9 @@ OLAPStatus OLAPEngine::_create_incremental_snapshot_files(
         const OLAPTablePtr& ref_olap_table,
         const TSnapshotRequest& request,
         string* snapshot_path) {
-    OLAP_LOG_INFO("begin to create incremental snapshot files. [table=%ld schema_hash=%d]",
-                  request.tablet_id, request.schema_hash);
+    LOG(INFO) << "begin to create incremental snapshot files."
+              << "tablet=" << request.tablet_id
+              << ", schema_hash=" << request.schema_hash;
     OLAPStatus res = OLAP_SUCCESS;
 
     if (snapshot_path == nullptr) {
@@ -466,7 +458,7 @@ OLAPStatus OLAPEngine::_create_incremental_snapshot_files(
 
     string schema_full_path = _get_schema_hash_full_path(ref_olap_table, snapshot_id_path);
     if (check_dir_existed(schema_full_path)) {
-        OLAP_LOG_TRACE("remove the old schema_full_path.");
+        VLOG(10) << "remove the old schema_full_path.";
         remove_all_dir(schema_full_path);
     }
     create_dirs(schema_full_path);
@@ -500,15 +492,16 @@ OLAPStatus OLAPEngine::_create_incremental_snapshot_files(
             const PDelta* incremental_delta =
                 ref_olap_table->get_incremental_delta(Version(missing_version, missing_version));
             if (incremental_delta != nullptr) {
-                OLAP_LOG_DEBUG("success to find missing version when snapshot, "
-                               "begin to link files. [table=%ld schema_hash=%d version=%ld]",
-                               request.tablet_id, request.schema_hash, missing_version);
+                VLOG(3) << "success to find missing version when snapshot, "
+                        << "begin to link files. tablet_id=" << request.tablet_id
+                        << ", schema_hash=" << request.schema_hash
+                        << ", version=" << missing_version;
                 // link files
-                for (uint32_t i = 0; i < incremental_delta->rowset(0).num_segments(); i++) {
-                    int32_t rowset_id = incremental_delta->rowset(0).rowset_id();
+                for (uint32_t i = 0; i < incremental_delta->segment_group(0).num_segments(); i++) {
+                    int32_t segment_group_id = incremental_delta->segment_group(0).segment_group_id();
                     string from = ref_olap_table->construct_incremental_index_file_path(
                                 Version(missing_version, missing_version),
-                                incremental_delta->version_hash(), rowset_id, i);
+                                incremental_delta->version_hash(), segment_group_id, i);
                     string to = schema_full_path + '/' + basename(from.c_str());
                     if ((res = _create_hard_link(from, to)) != OLAP_SUCCESS) {
                         break;
@@ -516,7 +509,7 @@ OLAPStatus OLAPEngine::_create_incremental_snapshot_files(
 
                     from = ref_olap_table->construct_incremental_data_file_path(
                                 Version(missing_version, missing_version),
-                                incremental_delta->version_hash(), rowset_id, i);
+                                incremental_delta->version_hash(), segment_group_id, i);
                     to = schema_full_path + '/' + basename(from.c_str());
                     if ((res = _create_hard_link(from, to)) != OLAP_SUCCESS) {
                         break;
@@ -608,22 +601,22 @@ string OLAPEngine::_construct_index_file_path(
         const string& tablet_path_prefix,
         const Version& version,
         VersionHash version_hash,
-        int32_t rowset_id, int32_t segment) const {
-    return OLAPTable::construct_file_path(tablet_path_prefix, version, version_hash, rowset_id, segment, "idx");
+        int32_t segment_group_id, int32_t segment) const {
+    return OLAPTable::construct_file_path(tablet_path_prefix, version, version_hash, segment_group_id, segment, "idx");
 }
 
 string OLAPEngine::_construct_data_file_path(
         const string& tablet_path_prefix,
         const Version& version,
         VersionHash version_hash,
-        int32_t rowset_id, int32_t segment) const {
-    return OLAPTable::construct_file_path(tablet_path_prefix, version, version_hash, rowset_id, segment, "dat");
+        int32_t segment_group_id, int32_t segment) const {
+    return OLAPTable::construct_file_path(tablet_path_prefix, version, version_hash, segment_group_id, segment, "dat");
 }
 
 OLAPStatus OLAPEngine::_create_hard_link(const string& from_path, const string& to_path) {
     if (link(from_path.c_str(), to_path.c_str()) == 0) {
-        OLAP_LOG_TRACE("success to create hard link from path=%s to path=%s]",
-                from_path.c_str(), to_path.c_str());
+        VLOG(10) << "success to create hard link from_path=" << from_path
+                 << ", to_path=" << to_path;
         return OLAP_SUCCESS;
     } else {
         OLAP_LOG_WARNING("failed to create hard link from path=%s to path=%s errno=%d",
@@ -635,9 +628,9 @@ OLAPStatus OLAPEngine::_create_hard_link(const string& from_path, const string& 
 OLAPStatus OLAPEngine::storage_medium_migrate(
         TTabletId tablet_id, TSchemaHash schema_hash,
         TStorageMedium::type storage_medium) {
-    OLAP_LOG_INFO("begin to process storage media migrate. "
-                  "[tablet_id=%ld schema_hash=%d dest_storage_medium=%d]",
-                  tablet_id, schema_hash, storage_medium);
+    LOG(INFO) << "begin to process storage media migrate. "
+              << "tablet_id=" << tablet_id << ", schema_hash=" << schema_hash
+              << ", dest_storage_medium=" << storage_medium;
     DorisMetrics::storage_migrate_requests_total.increment(1);
 
     OLAPStatus res = OLAP_SUCCESS;
@@ -651,24 +644,35 @@ OLAPStatus OLAPEngine::storage_medium_migrate(
     // judge case when no need to migrate
     uint32_t count = available_storage_medium_type_count();
     if (count <= 1) {
-        OLAP_LOG_INFO("available storage medium type count is less than 1, "
-                "no need to migrate. [count=%u]", count);
+        LOG(INFO) << "available storage medium type count is less than 1, "
+                  << "no need to migrate. count=" << count;
         return OLAP_SUCCESS;
     }
 
     TStorageMedium::type src_storage_medium = tablet->store()->storage_medium();
     if (src_storage_medium == storage_medium) {
-        OLAP_LOG_INFO("tablet is already on specified storage medium. "
-                "[storage_medium='%d']", storage_medium);
+        LOG(INFO) << "tablet is already on specified storage medium. "
+                  << "storage_medium=" << storage_medium;
         return OLAP_SUCCESS;
     }
 
-    vector<IData*> olap_data_sources;
+    vector<ColumnData*> olap_data_sources;
+    OLAPStatus lock_status = tablet->try_migration_wrlock();
+    if (lock_status != OLAP_SUCCESS) {
+        return lock_status;
+    }
     tablet->obtain_push_lock();
 
     do {
         // get all versions to be migrate
         tablet->obtain_header_rdlock();
+        if (tablet->has_pending_data()) {
+            tablet->release_header_lock();
+            res = OLAP_ERR_HEADER_HAS_PENDING_DATA;
+            OLAP_LOG_WARNING("could not migration because has pending data [tablet='%s' ]",
+                    tablet->full_name().c_str());
+            break;
+        }
         const PDelta* lastest_version = tablet->lastest_version();
         if (lastest_version == NULL) {
             tablet->release_header_lock();
@@ -710,8 +714,8 @@ OLAPStatus OLAPEngine::storage_medium_migrate(
         root_path_stream << stores[0]->path() << DATA_PREFIX << "/" << shard;
         string schema_hash_path = _get_schema_hash_full_path(tablet, root_path_stream.str());
         if (check_dir_existed(schema_hash_path)) {
-            OLAP_LOG_DEBUG("schema hash path already exist, remove it. [schema_hash_path='%s']",
-                    schema_hash_path.c_str());
+            VLOG(3) << "schema hash path already exist, remove it. "
+                    << "schema_hash_path=" << schema_hash_path;
             remove_all_dir(schema_hash_path);
         }
         create_dirs(schema_hash_path);
@@ -727,7 +731,8 @@ OLAPStatus OLAPEngine::storage_medium_migrate(
         OLAPHeader* new_olap_header = new(std::nothrow) OLAPHeader();
         if (new_olap_header == NULL) {
             OLAP_LOG_WARNING("new olap header failed");
-            return OLAP_ERR_BUFFER_OVERFLOW;
+            res = OLAP_ERR_BUFFER_OVERFLOW;
+            break;
         }
         res = _generate_new_header(stores[0], shard, tablet, version_entity_vec, new_olap_header);
         if (res != OLAP_SUCCESS) {
@@ -754,7 +759,8 @@ OLAPStatus OLAPEngine::storage_medium_migrate(
         if (new_tablet.get() == NULL) {
             OLAP_LOG_WARNING("get null olap table. [tablet_id=%ld schema_hash=%d]",
                              tablet_id, schema_hash);
-            return OLAP_ERR_TABLE_NOT_FOUND;
+            res = OLAP_ERR_TABLE_NOT_FOUND;
+            break;
         }
         SchemaChangeStatus tablet_status = tablet->schema_change_status();
         if (tablet->schema_change_status().status == AlterTableStatus::ALTER_TABLE_FINISHED) {
@@ -770,7 +776,7 @@ OLAPStatus OLAPEngine::storage_medium_migrate(
 
     tablet->release_push_lock();
     tablet->release_data_sources(&olap_data_sources);
-
+    tablet->release_migration_lock();
     return res;
 }
 
@@ -790,8 +796,6 @@ OLAPStatus OLAPEngine::_generate_new_header(
     OlapHeaderManager::get_header(ref_store, tablet->tablet_id(), tablet->schema_hash(), new_olap_header);
     _update_header_file_info(version_entity_vec, new_olap_header);
     new_olap_header->set_shard(new_shard);
-
-    _update_header_file_info(version_entity_vec, new_olap_header);
 
     res = OlapHeaderManager::save(store, tablet->tablet_id(), tablet->schema_hash(), new_olap_header);
     if (res != OLAP_SUCCESS) {

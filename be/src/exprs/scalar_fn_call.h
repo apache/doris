@@ -20,6 +20,7 @@
 
 #include <string>
 
+#include "common/object_pool.h"
 #include "exprs/expr.h"
 #include "udf/udf.h"
 

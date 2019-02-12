@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.AdminShowConfigStmt;
 import org.apache.doris.analysis.AdminShowReplicaDistributionStmt;
 import org.apache.doris.analysis.AdminShowReplicaStatusStmt;
 import org.apache.doris.analysis.DescribeStmt;
@@ -48,6 +49,7 @@ import org.apache.doris.analysis.ShowRepositoriesStmt;
 import org.apache.doris.analysis.ShowRestoreStmt;
 import org.apache.doris.analysis.ShowRolesStmt;
 import org.apache.doris.analysis.ShowRollupStmt;
+import org.apache.doris.analysis.ShowRoutineLoadStmt;
 import org.apache.doris.analysis.ShowSnapshotStmt;
 import org.apache.doris.analysis.ShowStmt;
 import org.apache.doris.analysis.ShowTableStatusStmt;
@@ -74,6 +76,7 @@ import org.apache.doris.cluster.BaseParam;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
+import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -91,7 +94,10 @@ import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.load.LoadErrorHub.HubType;
 import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.LoadJob.JobState;
+import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.system.Backend;
+import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -101,7 +107,11 @@ import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.lang.annotation.AnnotationFormatError;
+import java.io.BufferedReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.net.URL;
+import java.net.URLConnection;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -156,6 +166,8 @@ public class ShowExecutor {
             handleShowLoad();
         } else if (stmt instanceof ShowLoadWarningsStmt) {
             handleShowLoadWarnings();
+        } else if (stmt instanceof ShowRoutineLoadStmt) {
+            handleShowRoutineLoad();
         } else if (stmt instanceof ShowDeleteStmt) {
             handleShowDelete();
         } else if (stmt instanceof ShowAlterStmt) {
@@ -198,6 +210,8 @@ public class ShowExecutor {
             handleAdminShowTabletStatus();
         } else if (stmt instanceof AdminShowReplicaDistributionStmt) {
             handleAdminShowTabletDistribution();
+        } else if (stmt instanceof AdminShowConfigStmt) {
+            handleAdminShowConfig();
         } else {
             handleEmtpy();
         }
@@ -301,7 +315,7 @@ public class ShowExecutor {
         for (BaseParam param : infos) {
             final int percent = (int) (param.getFloatParam(0) * 100f);
             rows.add(Lists.newArrayList(param.getStringParam(0), param.getStringParam(1), param.getStringParam(2),
-                    String.valueOf(percent + "%")));
+                                        String.valueOf(percent + "%")));
         }
 
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
@@ -482,7 +496,7 @@ public class ShowExecutor {
             } else {
                 if (showStmt.isView()) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_OBJECT, showStmt.getDb(),
-                            showStmt.getTable(), "VIEW");
+                                                        showStmt.getTable(), "VIEW");
                 }
                 rows.add(Lists.newArrayList(table.getName(), createTableStmt.get(0)));
                 resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
@@ -519,7 +533,7 @@ public class ShowExecutor {
                             continue;
                         }
                         final String columnName = col.getName();
-                        final String columnType = col.getColumnType().toString();
+                        final String columnType = col.getType().toString();
                         final String isAllowNull = col.isAllowNull() ? "YES" : "NO";
                         final String isKey = col.isKey() ? "YES" : "NO";
                         final String defaultValue = col.getDefaultValue();
@@ -528,22 +542,22 @@ public class ShowExecutor {
                             // Field Type Collation Null Key Default Extra
                             // Privileges Comment
                             rows.add(Lists.newArrayList(columnName,
-                                    columnType,
-                                    "",
-                                    isAllowNull,
-                                    isKey,
-                                    defaultValue,
-                                    aggType,
-                                    "",
-                                    col.getComment()));
+                                                        columnType,
+                                                        "",
+                                                        isAllowNull,
+                                                        isKey,
+                                                        defaultValue,
+                                                        aggType,
+                                                        "",
+                                                        col.getComment()));
                         } else {
                             // Field Type Null Key Default Extra
                             rows.add(Lists.newArrayList(columnName,
-                                    columnType,
-                                    isAllowNull,
-                                    isKey,
-                                    defaultValue,
-                                    aggType));
+                                                        columnType,
+                                                        isAllowNull,
+                                                        isKey,
+                                                        defaultValue,
+                                                        aggType));
                         }
                     }
                 }
@@ -585,7 +599,7 @@ public class ShowExecutor {
             }
         }
         if (topic != null) {
-            resultSet = new ShowResultSet(helpStmt.getMetaData(), Lists.<List<String>> newArrayList(
+            resultSet = new ShowResultSet(helpStmt.getMetaData(), Lists.<List<String>>newArrayList(
                     Lists.newArrayList(topic.getName(), topic.getDescription(), topic.getExample())));
         } else {
             List<String> categories = module.listCategoryByName(mark);
@@ -595,7 +609,7 @@ public class ShowExecutor {
             } else if (categories.size() > 1) {
                 // Send category list
                 resultSet = new ShowResultSet(helpStmt.getCategoryMetaData(),
-                        Lists.<List<String>> newArrayList(categories));
+                                              Lists.<List<String>>newArrayList(categories));
             } else {
                 // Send topic list and sub-category list
                 List<List<String>> rows = Lists.newArrayList();
@@ -656,6 +670,11 @@ public class ShowExecutor {
     private void handleShowLoadWarnings() throws AnalysisException {
         ShowLoadWarningsStmt showWarningsStmt = (ShowLoadWarningsStmt) stmt;
 
+        if (showWarningsStmt.getURL() != null) {
+            handleShowLoadWarningsFromURL(showWarningsStmt, showWarningsStmt.getURL());
+            return;
+        }
+
         Catalog catalog = Catalog.getInstance();
         Database db = catalog.getDb(showWarningsStmt.getDbName());
         if (db == null) {
@@ -692,8 +711,8 @@ public class ShowExecutor {
             if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), db.getFullName(),
                                                                    PrivPredicate.SHOW)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED,
-                                               ConnectContext.get().getQualifiedUser(),
-                                               db.getFullName());
+                                                    ConnectContext.get().getQualifiedUser(),
+                                                    db.getFullName());
             }
         } else {
             for (String tblName : tableNames) {
@@ -712,9 +731,9 @@ public class ShowExecutor {
         if (param == null || param.getType() == HubType.NULL_TYPE) {
             throw new AnalysisException("no load error hub be supplied.");
         }
-        LoadErrorHub importer = LoadErrorHub.createHub(param);
-        ArrayList<LoadErrorHub.ErrorMsg> errors = importer.fetchLoadError(jobId);
-        importer.close();
+        LoadErrorHub errorHub = LoadErrorHub.createHub(param);
+        List<LoadErrorHub.ErrorMsg> errors = errorHub.fetchLoadError(jobId);
+        errorHub.close();
 
         List<List<String>> rows = Lists.newArrayList();
         for (LoadErrorHub.ErrorMsg error : errors) {
@@ -731,6 +750,80 @@ public class ShowExecutor {
         }
 
         resultSet = new ShowResultSet(showWarningsStmt.getMetaData(), rows);
+    }
+
+    private void handleShowLoadWarningsFromURL(ShowLoadWarningsStmt showWarningsStmt, URL url)
+            throws AnalysisException {
+        String host = url.getHost();
+        int port = url.getPort();
+        SystemInfoService infoService = Catalog.getCurrentSystemInfo();
+        Backend be = infoService.getBackendWithHttpPort(host, port);
+        if (be == null) {
+            throw new AnalysisException(host + ":" + port + " is not a valid backend");
+        }
+        if (!be.isAvailable()) {
+            throw new AnalysisException("Backend " + host + ":" + port + " is not available");
+        }
+
+        if (!url.getPath().equals("/api/_load_error_log")) {
+            throw new AnalysisException(
+                    "Invalid error log path: " + url.getPath() + ". path should be: /api/_load_error_log");
+        }
+
+        List<List<String>> rows = Lists.newArrayList();
+        try {
+            URLConnection urlConnection = url.openConnection();
+            InputStream inputStream = urlConnection.getInputStream();
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream))) {
+                int limit = 100;
+                while (reader.ready() && limit > 0) {
+                    String line = reader.readLine();
+                    rows.add(Lists.newArrayList("-1", "N/A", line));
+                    limit--;
+                }
+            }
+        } catch (Exception e) {
+            LOG.warn("failed to get error log from url: " + url, e);
+            throw new AnalysisException(
+                    "failed to get error log from url: " + url + ". reason: " + e.getMessage());
+        }
+
+        resultSet = new ShowResultSet(showWarningsStmt.getMetaData(), rows);
+    }
+
+    private void handleShowRoutineLoad() throws AnalysisException {
+        ShowRoutineLoadStmt showRoutineLoadStmt = (ShowRoutineLoadStmt) stmt;
+        // if job exists
+        RoutineLoadJob routineLoadJob =
+                Catalog.getCurrentCatalog().getRoutineLoadManager().getJobByName(showRoutineLoadStmt.getName());
+        if (routineLoadJob == null) {
+            throw new AnalysisException("There is no routine load job with id " + showRoutineLoadStmt.getName());
+        }
+
+        // check auth
+        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
+                                                                routineLoadJob.getDbFullName(),
+                                                                routineLoadJob.getTableName(),
+                                                                PrivPredicate.LOAD)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
+                                                ConnectContext.get().getQualifiedUser(),
+                                                ConnectContext.get().getRemoteIP(),
+                                                routineLoadJob.getTableName());
+        }
+
+        // get routine load info
+        List<List<String>> rows = Lists.newArrayList();
+        List<String> row = Lists.newArrayList();
+        row.add(routineLoadJob.getId());
+        row.add(routineLoadJob.getName());
+        row.add(String.valueOf(routineLoadJob.getDbId()));
+        row.add(String.valueOf(routineLoadJob.getTableId()));
+        row.add(routineLoadJob.getPartitions());
+        row.add(routineLoadJob.getState().name());
+        row.add(routineLoadJob.getDesiredConcurrentNumber());
+        row.add(routineLoadJob.getProgress().toString());
+
+        resultSet = new ShowResultSet(showRoutineLoadStmt.getMetaData(), rows);
     }
 
     // Show user property statement
@@ -983,6 +1076,11 @@ public class ShowExecutor {
         final ShowFrontendsStmt showStmt = (ShowFrontendsStmt) stmt;
         List<List<String>> infos = Lists.newArrayList();
         FrontendsProcNode.getFrontendsInfo(Catalog.getCurrentCatalog(), infos);
+
+        for (List<String> row : infos) {
+            row.remove(FrontendsProcNode.HOSTNAME_INDEX);
+        }
+
         resultSet = new ShowResultSet(showStmt.getMetaData(), infos);
     }
 
@@ -1056,24 +1154,35 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showStmt.getMetaData(), infos);
     }
 
-    private void handleAdminShowTabletStatus() {
+    private void handleAdminShowTabletStatus() throws AnalysisException {
         AdminShowReplicaStatusStmt showStmt = (AdminShowReplicaStatusStmt) stmt;
         List<List<String>> results;
         try {
             results = MetadataViewer.getTabletStatus(showStmt);
         } catch (DdlException e) {
-            throw new AnnotationFormatError(e.getMessage());
+            throw new AnalysisException(e.getMessage());
         }
         resultSet = new ShowResultSet(showStmt.getMetaData(), results);
     }
 
-    private void handleAdminShowTabletDistribution() {
+    private void handleAdminShowTabletDistribution() throws AnalysisException {
         AdminShowReplicaDistributionStmt showStmt = (AdminShowReplicaDistributionStmt) stmt;
         List<List<String>> results;
         try {
             results = MetadataViewer.getTabletDistribution(showStmt);
         } catch (DdlException e) {
-            throw new AnnotationFormatError(e.getMessage());
+            throw new AnalysisException(e.getMessage());
+        }
+        resultSet = new ShowResultSet(showStmt.getMetaData(), results);
+    }
+
+    private void handleAdminShowConfig() throws AnalysisException {
+        AdminShowConfigStmt showStmt = (AdminShowConfigStmt) stmt;
+        List<List<String>> results;
+        try {
+            results = ConfigBase.getConfigInfo();
+        } catch (DdlException e) {
+            throw new AnalysisException(e.getMessage());
         }
         resultSet = new ShowResultSet(showStmt.getMetaData(), results);
     }

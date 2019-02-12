@@ -115,6 +115,7 @@ public:
     // For C++/IR interop, we need to be able to look up types by name.
     static const char* _s_llvm_class_name;
 
+    std::string to_string(const RowDescriptor& d);
 private:
     Tuple* _tuples[1];
 };

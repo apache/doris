@@ -19,7 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ColumnType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -35,7 +35,7 @@ public class ShowBackupStmt extends ShowStmt {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("JobId").add("SnapshotName").add("DbName").add("State").add("BackupObjs").add("CreateTime")
             .add("SnapshotFinishedTime").add("UploadFinishedTime").add("FinishedTime").add("UnfinishedTasks")
-            .add("TaskErrMsg").add("Status").add("Timeout")
+            .add("Progress").add("TaskErrMsg").add("Status").add("Timeout")
             .build();
 
     private String dbName;
@@ -70,7 +70,7 @@ public class ShowBackupStmt extends ShowStmt {
     public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
         for (String title : TITLE_NAMES) {
-            builder.addColumn(new Column(title, ColumnType.createVarchar(30)));
+            builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
         }
         return builder.build();
     }
@@ -89,5 +89,10 @@ public class ShowBackupStmt extends ShowStmt {
     @Override
     public String toString() {
         return toSql();
+    }
+
+    @Override
+    public RedirectStatus getRedirectStatus() {
+        return RedirectStatus.FORWARD_NO_SYNC;
     }
 }

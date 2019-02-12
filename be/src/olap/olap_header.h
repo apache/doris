@@ -46,6 +46,7 @@ public:
     // In load_and_init(), we will validate olap header file, which mainly include
     // tablet schema, delta version and so on.
     OLAPStatus load_and_init();
+    OLAPStatus load_for_check();
 
     // Saves the header to disk, returning true on success.
     OLAPStatus save();
@@ -61,26 +62,28 @@ public:
     // Adds a new version to the header. Do not use the proto's
     // add_version() directly.
     OLAPStatus add_version(Version version, VersionHash version_hash,
-                           int32_t rowset_id, int32_t num_segments,
+                           int32_t segment_group_id, int32_t num_segments,
                            int64_t index_size, int64_t data_size, int64_t num_rows,
                            bool empty, const std::vector<KeyRange>* column_statistics);
 
     OLAPStatus add_pending_version(int64_t partition_id, int64_t transaction_id,
                                  const std::vector<std::string>* delete_conditions);
-    OLAPStatus add_pending_rowset(int64_t transaction_id, int32_t num_segments,
-                                  int32_t pending_rowset_id, const PUniqueId& load_id,
+    OLAPStatus add_pending_segment_group(int64_t transaction_id, int32_t num_segments,
+                                  int32_t pending_segment_group_id, const PUniqueId& load_id,
                                   bool empty, const std::vector<KeyRange>* column_statistics);
 
-    // add incremental rowset into header like "9-9" "10-10", for incremental cloning
+    // add incremental segment_group into header like "9-9" "10-10", for incremental cloning
     OLAPStatus add_incremental_version(Version version, VersionHash version_hash,
-                                       int32_t rowset_id, int32_t num_segments,
+                                       int32_t segment_group_id, int32_t num_segments,
                                        int64_t index_size, int64_t data_size, int64_t num_rows,
                                        bool empty, const std::vector<KeyRange>* column_statistics);
 
     void add_delete_condition(const DeleteConditionMessage& delete_condition, int64_t version);
+    void delete_cond_by_version(const Version& version);
+    bool is_delete_data_version(Version version);
 
     const PPendingDelta* get_pending_delta(int64_t transaction_id) const;
-    const PPendingRowSet* get_pending_rowset(int64_t transaction_id, int32_t pending_rowset_id) const;
+    const PPendingSegmentGroup* get_pending_segment_group(int64_t transaction_id, int32_t pending_segment_group_id) const;
     const PDelta* get_incremental_version(Version version) const;
 
     // Deletes a version from the header.

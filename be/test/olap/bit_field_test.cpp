@@ -17,15 +17,14 @@
 
 #include <gtest/gtest.h>
 
-#include "olap/column_file/byte_buffer.h"
-#include "olap/column_file/out_stream.h"
-#include "olap/column_file/in_stream.h"
-#include "olap/column_file/bit_field_reader.h"
-#include "olap/column_file/bit_field_writer.h"
+#include "olap/byte_buffer.h"
+#include "olap/out_stream.h"
+#include "olap/in_stream.h"
+#include "olap/bit_field_reader.h"
+#include "olap/bit_field_writer.h"
 #include "util/logging.h"
 
 namespace doris {
-namespace column_file {
 
 class TestBitField : public testing::Test {
 public:
@@ -62,7 +61,7 @@ public:
         ASSERT_EQ(OLAP_SUCCESS, _helper.open_with_mode("tmp_file", 
                 O_RDONLY, S_IRUSR | S_IWUSR)); 
 
-        _shared_buffer = ByteBuffer::create(
+        _shared_buffer = StorageByteBuffer::create(
                 OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE + sizeof(StreamHead));
         ASSERT_TRUE(_shared_buffer != NULL);
 
@@ -85,7 +84,7 @@ public:
     OutStream* _out_stream;
     BitFieldWriter* _writer;
     FileHandler _helper;
-    ByteBuffer* _shared_buffer;
+    StorageByteBuffer* _shared_buffer;
     ReadOnlyFileStream* _stream;
     OlapReaderStatistics _stats;
 };
@@ -182,7 +181,6 @@ TEST_F(TestBitField, Skip) {
     ASSERT_EQ(value, 1);
 }
 
-}
 }
 
 int main(int argc, char** argv) {

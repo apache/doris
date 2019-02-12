@@ -103,6 +103,7 @@ import org.apache.doris.common.util.SqlUtils;
         keywordMap.put("comment", new Integer(SqlParserSymbols.KW_COMMENT));
         keywordMap.put("commit", new Integer(SqlParserSymbols.KW_COMMIT));
         keywordMap.put("committed", new Integer(SqlParserSymbols.KW_COMMITTED));
+        keywordMap.put("config", new Integer(SqlParserSymbols.KW_CONFIG));
         keywordMap.put("connection", new Integer(SqlParserSymbols.KW_CONNECTION));
         keywordMap.put("connection_id", new Integer(SqlParserSymbols.KW_CONNECTION_ID));
         keywordMap.put("consistent", new Integer(SqlParserSymbols.KW_CONSISTENT));
@@ -153,6 +154,7 @@ import org.apache.doris.common.util.SqlUtils;
         keywordMap.put("following", new Integer(SqlParserSymbols.KW_FOLLOWING));
         keywordMap.put("for", new Integer(SqlParserSymbols.KW_FOR));
         keywordMap.put("from", new Integer(SqlParserSymbols.KW_FROM));
+        keywordMap.put("frontend", new Integer(SqlParserSymbols.KW_FRONTEND));
         keywordMap.put("frontends", new Integer(SqlParserSymbols.KW_FRONTENDS));
         keywordMap.put("full", new Integer(SqlParserSymbols.KW_FULL));
         keywordMap.put("function", new Integer(SqlParserSymbols.KW_FUNCTION));
@@ -164,6 +166,7 @@ import org.apache.doris.common.util.SqlUtils;
         keywordMap.put("having", new Integer(SqlParserSymbols.KW_HAVING));
         keywordMap.put("help", new Integer(SqlParserSymbols.KW_HELP));
         keywordMap.put("hll_union", new Integer(SqlParserSymbols.KW_HLL_UNION)); 
+        keywordMap.put("hub", new Integer(SqlParserSymbols.KW_HUB)); 
         keywordMap.put("identified", new Integer(SqlParserSymbols.KW_IDENTIFIED));
         keywordMap.put("if", new Integer(SqlParserSymbols.KW_IF));
         keywordMap.put("in", new Integer(SqlParserSymbols.KW_IN));
@@ -184,12 +187,17 @@ import org.apache.doris.common.util.SqlUtils;
         keywordMap.put("kill", new Integer(SqlParserSymbols.KW_KILL));
         keywordMap.put("label", new Integer(SqlParserSymbols.KW_LABEL));
         keywordMap.put("largeint", new Integer(SqlParserSymbols.KW_LARGEINT));
+        keywordMap.put("last", new Integer(SqlParserSymbols.KW_LAST));
         keywordMap.put("left", new Integer(SqlParserSymbols.KW_LEFT));
         keywordMap.put("less", new Integer(SqlParserSymbols.KW_LESS));
         keywordMap.put("level", new Integer(SqlParserSymbols.KW_LEVEL));
         keywordMap.put("like", new Integer(SqlParserSymbols.KW_LIKE));
         keywordMap.put("limit", new Integer(SqlParserSymbols.KW_LIMIT));
         keywordMap.put("load", new Integer(SqlParserSymbols.KW_LOAD));
+        keywordMap.put("routine", new Integer(SqlParserSymbols.KW_ROUTINE));
+        keywordMap.put("pause", new Integer(SqlParserSymbols.KW_PAUSE));
+        keywordMap.put("resume", new Integer(SqlParserSymbols.KW_RESUME));
+        keywordMap.put("stop", new Integer(SqlParserSymbols.KW_STOP));
         keywordMap.put("local", new Integer(SqlParserSymbols.KW_LOCAL));
         keywordMap.put("location", new Integer(SqlParserSymbols.KW_LOCATION));
         keywordMap.put("max", new Integer(SqlParserSymbols.KW_MAX));
@@ -203,6 +211,7 @@ import org.apache.doris.common.util.SqlUtils;
         keywordMap.put("no", new Integer(SqlParserSymbols.KW_NO));
         keywordMap.put("not", new Integer(SqlParserSymbols.KW_NOT));
         keywordMap.put("null", new Integer(SqlParserSymbols.KW_NULL));
+        keywordMap.put("nulls", new Integer(SqlParserSymbols.KW_NULLS));
         keywordMap.put("observer", new Integer(SqlParserSymbols.KW_OBSERVER));
         keywordMap.put("offset", new Integer(SqlParserSymbols.KW_OFFSET));
         keywordMap.put("on", new Integer(SqlParserSymbols.KW_ON));
@@ -235,6 +244,7 @@ import org.apache.doris.common.util.SqlUtils;
         keywordMap.put("recover", new Integer(SqlParserSymbols.KW_RECOVER));
         keywordMap.put("regexp", new Integer(SqlParserSymbols.KW_REGEXP));
         keywordMap.put("rename", new Integer(SqlParserSymbols.KW_RENAME));
+        keywordMap.put("repair", new Integer(SqlParserSymbols.KW_REPAIR));
         keywordMap.put("repeatable", new Integer(SqlParserSymbols.KW_REPEATABLE));
         keywordMap.put("replace", new Integer(SqlParserSymbols.KW_REPLACE));
         keywordMap.put("replica", new Integer(SqlParserSymbols.KW_REPLICA));
@@ -242,6 +252,7 @@ import org.apache.doris.common.util.SqlUtils;
         keywordMap.put("repositories", new Integer(SqlParserSymbols.KW_REPOSITORIES));
         keywordMap.put("resource", new Integer(SqlParserSymbols.KW_RESOURCE));
         keywordMap.put("restore", new Integer(SqlParserSymbols.KW_RESTORE));
+        keywordMap.put("returns", new Integer(SqlParserSymbols.KW_RETURNS));
         keywordMap.put("revoke", new Integer(SqlParserSymbols.KW_REVOKE));
         keywordMap.put("right", new Integer(SqlParserSymbols.KW_RIGHT));
         keywordMap.put("rlike", new Integer(SqlParserSymbols.KW_REGEXP));
@@ -282,6 +293,7 @@ import org.apache.doris.common.util.SqlUtils;
         keywordMap.put("triggers", new Integer(SqlParserSymbols.KW_TRIGGERS));
         keywordMap.put("trim", new Integer(SqlParserSymbols.KW_TRIM));
         keywordMap.put("true", new Integer(SqlParserSymbols.KW_TRUE));
+        keywordMap.put("truncate", new Integer(SqlParserSymbols.KW_TRUNCATE));
         keywordMap.put("type", new Integer(SqlParserSymbols.KW_TYPE));
         keywordMap.put("types", new Integer(SqlParserSymbols.KW_TYPES));
         keywordMap.put("unbounded", new Integer(SqlParserSymbols.KW_UNBOUNDED));
@@ -342,6 +354,7 @@ import org.apache.doris.common.util.SqlUtils;
     tokenIdMap.put(new Integer(SqlParserSymbols.STAR), "*");
     tokenIdMap.put(new Integer(SqlParserSymbols.AT), "@");
     tokenIdMap.put(new Integer(SqlParserSymbols.BITOR), "|");
+    tokenIdMap.put(new Integer(SqlParserSymbols.DOTDOTDOT), "...");
     tokenIdMap.put(new Integer(SqlParserSymbols.DOT), ".");
     tokenIdMap.put(new Integer(SqlParserSymbols.STRING_LITERAL), "STRING LITERAL");
     tokenIdMap.put(new Integer(SqlParserSymbols.EOF), "EOF");
@@ -437,6 +450,8 @@ TraditionalComment = "/*" [^*] ~"*/" | "/*" "*"+ "/"
 EndOfLineComment = "--" {NonTerminator}* {LineTerminator}?
 
 %%
+
+"..." { return newToken(SqlParserSymbols.DOTDOTDOT, null); }
 
 // single-character tokens
 "," { return newToken(SqlParserSymbols.COMMA, null); }

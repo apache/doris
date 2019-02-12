@@ -23,13 +23,13 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.Pair;
-import org.apache.doris.load.MiniEtlTaskInfo;
+import org.apache.doris.common.UserException;
 import org.apache.doris.load.EtlSubmitResult;
 import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.load.LoadJob;
+import org.apache.doris.load.MiniEtlTaskInfo;
 import org.apache.doris.load.TableLoadInfo;
 import org.apache.doris.planner.CsvScanNode;
 import org.apache.doris.planner.DataPartition;
@@ -42,8 +42,9 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.PaloInternalServiceVersion;
 import org.apache.doris.thrift.TAgentResult;
 import org.apache.doris.thrift.TAgentServiceVersion;
-import org.apache.doris.thrift.TMiniLoadEtlTaskRequest;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
+import org.apache.doris.thrift.TLoadErrorHubInfo;
+import org.apache.doris.thrift.TMiniLoadEtlTaskRequest;
 import org.apache.doris.thrift.TPlanFragmentExecParams;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TQueryType;
@@ -53,6 +54,7 @@ import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -188,7 +190,10 @@ public class MiniLoadPendingTask extends LoadPendingTask {
 
         LoadErrorHub.Param param = load.getLoadErrorHubInfo();
         if (param != null) {
-            params.setLoad_error_hub_info(param.toThrift());
+            TLoadErrorHubInfo info = param.toThrift();
+            if (info != null) {
+                params.setLoad_error_hub_info(info);
+            }
         }
 
         TPlanFragmentExecParams execParams = new TPlanFragmentExecParams();

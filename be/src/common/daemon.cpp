@@ -32,7 +32,7 @@
 #include "runtime/bufferpool/buffer_pool.h"
 #include "runtime/exec_env.h"
 #include "runtime/mem_tracker.h"
-#include "runtime/lib_cache.h"
+#include "runtime/user_function_cache.h"
 #include "exprs/operators.h"
 #include "exprs/is_null_predicate.h"
 #include "exprs/like_predicate.h"
@@ -81,7 +81,7 @@ void* tcmalloc_gc_thread(void* dummy) {
     
 void* memory_maintenance_thread(void* dummy) {
     while (true) {
-        sleep(config::FLAGS_memory_maintenance_sleep_time_s);
+        sleep(config::memory_maintenance_sleep_time_s);
         ExecEnv* env = ExecEnv::GetInstance();
         // ExecEnv may not have been created yet or this may be the catalogd or statestored,
         // which don't have ExecEnvs.
@@ -171,7 +171,7 @@ void init_daemon(int argc, char** argv, const std::vector<StorePath>& paths) {
     CpuInfo::init();
     DiskInfo::init();
     MemInfo::init();
-    LibCache::init();
+    UserFunctionCache::instance()->init(config::user_function_dir);
     Operators::init();
     IsNullPredicate::init();
     LikePredicate::init();

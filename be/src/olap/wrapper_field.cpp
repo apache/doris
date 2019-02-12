@@ -68,7 +68,7 @@ WrapperField::WrapperField(Field* rep, size_t variable_len, bool is_string_type)
     _buf = _field_buf + 1;
 
     if (_is_string_type) {
-        StringSlice* slice = reinterpret_cast<StringSlice*>(_buf);
+        Slice* slice = reinterpret_cast<Slice*>(_buf);
         slice->size = variable_len;
         slice->data = _buf + fixed_len;
     }

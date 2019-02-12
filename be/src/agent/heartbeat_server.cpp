@@ -18,15 +18,17 @@
 #include "agent/heartbeat_server.h"
 #include <ctime>
 #include <fstream>
-#include "boost/filesystem.hpp"
-#include "thrift/TProcessor.h"
-#include "gen_cpp/HeartbeatService.h"
-#include "gen_cpp/Status_types.h"
+
+#include <boost/filesystem.hpp>
+#include <thrift/TProcessor.h>
 
 #include "common/status.h"
+#include "gen_cpp/HeartbeatService.h"
+#include "gen_cpp/Status_types.h"
 #include "olap/olap_engine.h"
 #include "olap/utils.h"
 #include "service/backend_options.h"
+#include "util/thrift_server.h"
 
 using std::fstream;
 using std::nothrow;
@@ -52,13 +54,13 @@ void HeartbeatServer::heartbeat(
 
     //print heartbeat in every minute
     LOG_EVERY_N(INFO, 12) << "get heartbeat from FE."
-        << "host:" << master_info.network_address.hostname << ", "
-        << "port:" << master_info.network_address.port << ", "
-        << "cluster id:" << master_info.cluster_id << ", "
-        << "counter:" << google::COUNTER;
+        << "host:" << master_info.network_address.hostname
+        << ", port:" << master_info.network_address.port
+        << ", cluster id:" << master_info.cluster_id
+        << ", counter:" << google::COUNTER;
 
     // do heartbeat
-    Status st = _heartbeat(master_info); 
+    Status st = _heartbeat(master_info);
     st.to_thrift(&heartbeat_result.status);
 
     if (st.ok()) {
@@ -71,6 +73,8 @@ void HeartbeatServer::heartbeat(
 
 Status HeartbeatServer::_heartbeat(
         const TMasterInfo& master_info) {
+    
+    std::lock_guard<std::mutex> lk(_hb_mtx);
 
     if (master_info.__isset.backend_ip) {
         if (master_info.backend_ip != BackendOptions::get_localhost()) {
@@ -84,7 +88,7 @@ Status HeartbeatServer::_heartbeat(
 
     // Check cluster id
     if (_master_info->cluster_id == -1) {
-        OLAP_LOG_INFO("get first heartbeat. update cluster id");
+        LOG(INFO) << "get first heartbeat. update cluster id";
         // write and update cluster id
         auto st = _olap_engine->set_cluster_id(master_info.cluster_id);
         if (!st.ok()) {
@@ -102,12 +106,14 @@ Status HeartbeatServer::_heartbeat(
         }
     }
 
+    bool need_report = false;
     if (_master_info->network_address.hostname != master_info.network_address.hostname
             || _master_info->network_address.port != master_info.network_address.port) {
         if (master_info.epoch > _epoch) {
             _master_info->network_address.hostname = master_info.network_address.hostname;
             _master_info->network_address.port = master_info.network_address.port;
             _epoch = master_info.epoch;
+            need_report = true;
             LOG(INFO) << "master change. new master host: " << _master_info->network_address.hostname
                       << ". port: " << _master_info->network_address.port << ". epoch: " << _epoch;
         } else {
@@ -116,6 +122,13 @@ Status HeartbeatServer::_heartbeat(
                          << " port: " <<  _master_info->network_address.port
                          << " local epoch: " << _epoch << " received epoch: " << master_info.epoch;
             return Status("epoch is not greater than local. ignore heartbeat.");
+        }
+    } else {
+        // when Master FE restarted, host and port remains the same, but epoch will be increased.
+        if (master_info.epoch > _epoch) {
+            _epoch = master_info.epoch;
+            need_report = true;
+            LOG(INFO) << "master restarted. epoch: " << _epoch;
         }
     }
 
@@ -128,6 +141,11 @@ Status HeartbeatServer::_heartbeat(
                          << ". token:" << master_info.token;
             return Status("invalid token.");
         }
+    }
+
+    if (need_report) {
+        LOG(INFO) << "Master FE is changed or restarted. report tablet and disk info immediately";
+        _olap_engine->report_notify(true);
     }
 
     return Status::OK;

@@ -33,7 +33,6 @@
 #include <rapidjson/document.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
-#include "agent/file_downloader.h"
 #include "olap/base_compaction.h"
 #include "olap/cumulative_compaction.h"
 #include "olap/lru_cache.h"
@@ -44,7 +43,7 @@
 #include "olap/schema_change.h"
 #include "olap/store.h"
 #include "olap/utils.h"
-#include "olap/writer.h"
+#include "olap/data_writer.h"
 #include "util/time.h"
 #include "util/doris_metrics.h"
 #include "util/pretty_printer.h"
@@ -84,7 +83,7 @@ bool _sort_table_by_create_time(const OLAPTablePtr& a, const OLAPTablePtr& b) {
 
 static Status _validate_options(const EngineOptions& options) {
     if (options.store_paths.empty()) {
-        return Status("sotre paths is empty");;
+        return Status("store paths is empty");;
     }
     return Status::OK;
 }
@@ -107,18 +106,17 @@ Status OLAPEngine::open(const EngineOptions& options, OLAPEngine** engine_ptr) {
 }
 
 OLAPEngine::OLAPEngine(const EngineOptions& options)
-        : is_report_disk_state_already(false),
-        is_report_olap_table_already(false),
-        _options(options),
+        : _options(options),
         _available_storage_medium_type_count(0),
         _effective_cluster_id(-1),
         _is_all_cluster_id_exist(true),
         _is_drop_tables(false),
         _global_table_id(0),
-        _file_descriptor_lru_cache(NULL),
         _index_stream_lru_cache(NULL),
         _tablet_stat_cache_update_time_ms(0),
-        _snapshot_base_id(0) {
+        _snapshot_base_id(0),
+        _is_report_disk_state_already(false),
+        _is_report_olap_table_already(false) {
     if (_s_instance == nullptr) {
         _s_instance = this;
     }
@@ -171,7 +169,7 @@ OLAPStatus OLAPEngine::_load_store(OlapStore* store) {
         }
 
         for (const auto& tablet : tablets) {
-            // 遍历table目录寻找此table的所有indexedRollupTable，注意不是Rowset，而是OLAPTable
+            // 遍历table目录寻找此table的所有indexedRollupTable，注意不是SegmentGroup，而是OLAPTable
             set<string> schema_hashes;
             string one_tablet_path = one_shard_path + '/' + tablet;
             if (dir_walk(one_tablet_path, &schema_hashes, NULL) != OLAP_SUCCESS) {
@@ -252,7 +250,7 @@ OLAPStatus OLAPEngine::load_one_tablet(
         if (OLAPEngine::get_instance()->drop_table(tablet_id, schema_hash) != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to drop table when create table failed. "
                              "[tablet=%ld schema_hash=%d]",
-                             tablet_id, schema_hash); 
+                             tablet_id, schema_hash);
         }
 
         return OLAP_ERR_ENGINE_LOAD_INDEX_TABLE_ERROR;
@@ -261,9 +259,118 @@ OLAPStatus OLAPEngine::load_one_tablet(
     // load pending data (for realtime push), will add transaction relationship into engine
     olap_table->load_pending_data();
 
-    OLAP_LOG_DEBUG("succeed to add table. [table=%s, path=%s]",
-                   olap_table->full_name().c_str(),
-                   schema_hash_path.c_str());
+    VLOG(3) << "succeed to add table. tablet=" << olap_table->full_name()
+            << ", path=" << schema_hash_path;
+    return OLAP_SUCCESS;
+}
+
+void OLAPEngine::check_none_row_oriented_table(const std::vector<OlapStore*>& stores) {
+    for (auto store : stores) {
+        auto res = _check_none_row_oriented_table_in_store(store);
+        if (res != OLAP_SUCCESS) {
+            LOG(WARNING) << "io error when init load tables. res=" << res
+                << ", store=" << store->path();
+        }
+    }
+}
+
+OLAPStatus OLAPEngine::_check_none_row_oriented_table_in_store(OlapStore* store) {
+    std::string store_path = store->path();
+    LOG(INFO) <<"start to load tablets from store_path:" << store_path;
+
+    bool is_header_converted = false;
+    OLAPStatus res = OlapHeaderManager::get_header_converted(store, is_header_converted);
+    if (res != OLAP_SUCCESS) {
+        LOG(WARNING) << "get convert flag from meta failed";
+        return res;
+    }
+    if (is_header_converted) {
+        OLAPStatus s = store->check_none_row_oriented_table_in_store(this);
+        if (s != OLAP_SUCCESS) {
+            LOG(WARNING) << "there is failure when loading table headers, path:" << store_path;
+            return s;
+        } else {
+            return OLAP_SUCCESS;
+        }
+    }
+
+    // compatible for old header load method
+    // walk all directory to load header file
+    LOG(INFO) << "check has none row-oriented table from header files";
+
+    // get all shards
+    set<string> shards;
+    if (dir_walk(store_path + DATA_PREFIX, &shards, NULL) != OLAP_SUCCESS) {
+        LOG(WARNING) << "fail to walk dir. [root=" << store_path << "]";
+        return OLAP_ERR_INIT_FAILED;
+    }
+
+    for (const auto& shard : shards) {
+        // get all tablets
+        set<string> tablets;
+        string one_shard_path = store_path + DATA_PREFIX +  '/' + shard;
+        if (dir_walk(one_shard_path, &tablets, NULL) != OLAP_SUCCESS) {
+            LOG(WARNING) << "fail to walk dir. [root=" << one_shard_path << "]";
+            continue;
+        }
+
+        for (const auto& tablet : tablets) {
+            // 遍历table目录寻找此table的所有indexedRollupTable，注意不是SegmentGroup，而是OLAPTable
+            set<string> schema_hashes;
+            string one_tablet_path = one_shard_path + '/' + tablet;
+            if (dir_walk(one_tablet_path, &schema_hashes, NULL) != OLAP_SUCCESS) {
+                LOG(WARNING) << "fail to walk dir. [root=" << one_tablet_path << "]";
+                continue;
+            }
+
+            for (const auto& schema_hash : schema_hashes) {
+                TTabletId tablet_id = strtoul(tablet.c_str(), NULL, 10);
+                TSchemaHash tablet_schema_hash = strtoul(schema_hash.c_str(), NULL, 10);
+
+                // 遍历schema_hash目录寻找此index的所有schema
+                // 加载失败依然加载下一个Table
+                if (check_none_row_oriented_table_in_path(
+                        store,
+                        tablet_id,
+                        tablet_schema_hash,
+                        one_tablet_path + '/' + schema_hash) != OLAP_SUCCESS) {
+                    OLAP_LOG_WARNING("fail to load one table, but continue. [path='%s']",
+                                     (one_tablet_path + '/' + schema_hash).c_str());
+                }
+            }
+        }
+    }
+    return res;
+}
+
+OLAPStatus OLAPEngine::check_none_row_oriented_table_in_path(
+        OlapStore* store, TTabletId tablet_id,
+        SchemaHash schema_hash, const string& schema_hash_path) {
+    stringstream header_name_stream;
+    header_name_stream << schema_hash_path << "/" << tablet_id << ".hdr";
+    string header_path = header_name_stream.str();
+    path boost_schema_hash_path(schema_hash_path);
+
+    if (access(header_path.c_str(), F_OK) != 0) {
+        LOG(WARNING) << "fail to find header file. [header_path=" << header_path << "]";
+        move_to_trash(boost_schema_hash_path, boost_schema_hash_path);
+        return OLAP_ERR_FILE_NOT_EXIST;
+    }
+
+    auto olap_table = OLAPTable::create_from_header_file_for_check(
+            tablet_id, schema_hash, header_path);
+    if (olap_table == NULL) {
+        LOG(WARNING) << "fail to load table. [header_path=" << header_path << "]";
+        move_to_trash(boost_schema_hash_path, boost_schema_hash_path);
+        return OLAP_ERR_ENGINE_LOAD_INDEX_TABLE_ERROR;
+    }
+
+    LOG(INFO) << "data_file_type:" << olap_table->data_file_type();
+    if (olap_table->data_file_type() == OLAP_DATA_FILE) {
+        LOG(FATAL) << "Not support row-oriented table any more. Please convert it to column-oriented table."
+                   << "tablet=" << olap_table->full_name();
+    }
+
     return OLAP_SUCCESS;
 }
 
@@ -303,12 +410,13 @@ OLAPStatus OLAPEngine::open() {
 
     _update_storage_medium_type_count();
 
-    _file_descriptor_lru_cache = new_lru_cache(config::file_descriptor_cache_capacity);
-    if (_file_descriptor_lru_cache == NULL) {
+    auto cache = new_lru_cache(config::file_descriptor_cache_capacity);
+    if (cache == nullptr) {
         OLAP_LOG_WARNING("failed to init file descriptor LRUCache");
         _tablet_map.clear();
         return OLAP_ERR_INIT_FAILED;
     }
+    FileHandler::set_fd_cache(cache);
 
     // 初始化LRUCache
     // cache大小可通过配置文件配置
@@ -327,8 +435,8 @@ OLAPStatus OLAPEngine::open() {
     _max_base_compaction_task_per_disk = (base_compaction_num_threads + file_system_num - 1) / file_system_num;
 
     auto stores = get_stores();
+    check_none_row_oriented_table(stores);
     load_stores(stores);
-
     // 取消未完成的SchemaChange任务
     _cancel_unfinished_schema_change();
 
@@ -419,20 +527,63 @@ OLAPStatus OLAPEngine::get_all_root_path_info(vector<RootPathInfo>* root_paths_i
     OLAPStatus res = OLAP_SUCCESS;
     root_paths_info->clear();
 
-    std::lock_guard<std::mutex> l(_store_lock);
-    for (auto& it : _store_map) {
-        root_paths_info->emplace_back(it.second->to_root_path_info());
-    }
+    MonotonicStopWatch timer;
+    timer.start();
+    int tablet_counter = 0;
 
-    for (auto& info: *root_paths_info) {
-        if (info.is_used) {
-            _get_root_path_capacity(info.path, &info.data_used_capacity, &info.available);
-        } else {
-            info.capacity = 1;
-            info.data_used_capacity = 0;
-            info.available = 0;
+    // get all root path info and construct a path map.
+    // path -> RootPathInfo
+    std::map<std::string, RootPathInfo> path_map;
+    {
+        std::lock_guard<std::mutex> l(_store_lock);
+        for (auto& it : _store_map) {
+            std::string path = it.first;
+            path_map.emplace(path, it.second->to_root_path_info());
+            // if this path is not used, init it's info
+            if (!path_map[path].is_used) {
+                path_map[path].capacity = 1;
+                path_map[path].data_used_capacity = 0;
+                path_map[path].available = 0;
+                path_map[path].storage_medium = TStorageMedium::HDD;
+            } else {
+                path_map[path].storage_medium = it.second->storage_medium();
+            }
         }
     }
+
+    // for each tablet, get it's data size, and accumulate the path 'data_used_capacity'
+    // which the tablet belongs to.
+    _tablet_map_lock.rdlock();
+    for (auto& entry : _tablet_map) {
+        TableInstances& instance = entry.second;
+        for (auto& tablet : instance.table_arr) {
+            ++tablet_counter;
+            int64_t data_size = tablet->get_data_size();
+            auto find = path_map.find(tablet->storage_root_path_name()); 
+            if (find == path_map.end()) {
+                continue;
+            }
+            if (find->second.is_used) {
+                find->second.data_used_capacity += data_size;
+            }
+        } 
+    }
+    _tablet_map_lock.unlock();
+
+    // add path info to root_paths_info
+    for (auto& entry : path_map) {
+        root_paths_info->emplace_back(entry.second);
+    }
+
+    // get available capacity of each path
+    for (auto& info: *root_paths_info) {
+        if (info.is_used) {
+            _get_path_available_capacity(info.path,  &info.available);
+        }
+    }
+    timer.stop();
+    LOG(INFO) << "get root path info cost: " << timer.elapsed_time() / 1000000
+            << " ms. tablet counter: " << tablet_counter;
 
     return res;
 }
@@ -451,14 +602,14 @@ void OLAPEngine::start_disk_stat_monitor() {
     // if drop tables
     // notify disk_state_worker_thread and olap_table_worker_thread until they received
     if (_is_drop_tables) {
-        disk_broken_cv.notify_all();
+        report_notify(true);
 
         bool is_report_disk_state_expected = true;
         bool is_report_olap_table_expected = true;
         bool is_report_disk_state_exchanged = 
-                is_report_disk_state_already.compare_exchange_strong(is_report_disk_state_expected, false);
+                _is_report_disk_state_already.compare_exchange_strong(is_report_disk_state_expected, false);
         bool is_report_olap_table_exchanged =
-                is_report_olap_table_already.compare_exchange_strong(is_report_olap_table_expected, false);
+                _is_report_olap_table_already.compare_exchange_strong(is_report_olap_table_expected, false);
         if (is_report_disk_state_exchanged && is_report_olap_table_exchanged) {
             _is_drop_tables = false;
         }
@@ -542,6 +693,18 @@ OlapStore* OLAPEngine::get_store(const std::string& path) {
     return it->second;
 }
 
+OlapStore* OLAPEngine::get_store(int64_t path_hash) {
+    std::lock_guard<std::mutex> l(_store_lock);
+    for (auto& it : _store_map) {
+        if (it.second->is_used()) {
+            if (it.second->path_hash() == path_hash) {
+                return it.second;
+            }
+        }
+    }
+    return nullptr;
+}
+
 void OLAPEngine::_delete_tables_on_unused_root_path() {
     vector<TabletInfo> tablet_info_vec;
     uint32_t unused_root_path_num = 0;
@@ -561,11 +724,9 @@ void OLAPEngine::_delete_tables_on_unused_root_path() {
     }
 
     if (_used_disk_not_enough(unused_root_path_num, total_root_path_num)) {
-        OLAP_LOG_FATAL("engine stop running, because more than %d disks error."
-                       "[total_disks=%d error_disks=%d]",
-                       _min_percentage_of_error_disk,
-                       total_root_path_num,
-                       unused_root_path_num);
+        LOG(FATAL) << "engine stop running, because more than " << _min_percentage_of_error_disk
+                   << " disks error. total_disks=" << total_root_path_num
+                   << ", error_disks=" << unused_root_path_num;
         exit(0);
     }
 
@@ -576,22 +737,12 @@ void OLAPEngine::_delete_tables_on_unused_root_path() {
     OLAPEngine::get_instance()->drop_tables_on_error_root_path(tablet_info_vec);
 }
 
-OLAPStatus OLAPEngine::_get_root_path_capacity(
+OLAPStatus OLAPEngine::_get_path_available_capacity(
         const string& root_path,
-        int64_t* data_used,
         int64_t* disk_available) {
     OLAPStatus res = OLAP_SUCCESS;
-    int64_t used = 0;
 
     try {
-        path boost_root_path(root_path + DATA_PREFIX);
-        for (recursive_directory_iterator it(boost_root_path);
-                it != recursive_directory_iterator(); ++it) {
-            if (!is_directory(*it)) {
-                used += file_size(*it);
-            }
-        }
-        *data_used = used;
         boost::filesystem::path path_name(root_path);
         boost::filesystem::space_info path_info = boost::filesystem::space(path_name);
         *disk_available = path_info.available;
@@ -605,7 +756,8 @@ OLAPStatus OLAPEngine::_get_root_path_capacity(
 
 OLAPStatus OLAPEngine::clear() {
     // 删除lru中所有内容,其实进程退出这么做本身意义不大,但对单测和更容易发现问题还是有很大意义的
-    SAFE_DELETE(_file_descriptor_lru_cache);
+    delete FileHandler::get_fd_cache();
+    FileHandler::set_fd_cache(nullptr);
     SAFE_DELETE(_index_stream_lru_cache);
 
     _tablet_map.clear();
@@ -616,19 +768,18 @@ OLAPStatus OLAPEngine::clear() {
 }
 
 OLAPTablePtr OLAPEngine::_get_table_with_no_lock(TTabletId tablet_id, SchemaHash schema_hash) {
-    OLAP_LOG_DEBUG("begin to get olap table. [table=%ld]", tablet_id);
-
+    VLOG(3) << "begin to get olap table. tablet_id=" << tablet_id;
     tablet_map_t::iterator it = _tablet_map.find(tablet_id);
     if (it != _tablet_map.end()) {
         for (OLAPTablePtr table : it->second.table_arr) {
             if (table->equal(tablet_id, schema_hash)) {
-                OLAP_LOG_DEBUG("get olap table success. [table=%ld]", tablet_id);
+                VLOG(3) << "get olap table success. tablet_id=" << tablet_id;
                 return table;
             }
         }
     }
 
-    OLAP_LOG_DEBUG("fail to get olap table. [table=%ld]", tablet_id);
+    VLOG(3) << "fail to get olap table. tablet_id=" << tablet_id;
     // Return empty olap_table if fail
     OLAPTablePtr olap_table;
     return olap_table;
@@ -659,7 +810,7 @@ OLAPStatus OLAPEngine::get_tables_by_id(
         TTabletId tablet_id,
         list<OLAPTablePtr>* table_list) {
     OLAPStatus res = OLAP_SUCCESS;
-    OLAP_LOG_DEBUG("begin to get tables by id. [table=%ld]", tablet_id);
+    VLOG(3) << "begin to get tables by id. tablet_id=" << tablet_id;
 
     _tablet_map_lock.rdlock();
     tablet_map_t::iterator it = _tablet_map.find(tablet_id);
@@ -688,7 +839,7 @@ OLAPStatus OLAPEngine::get_tables_by_id(
         ++it;
     }
 
-    OLAP_LOG_DEBUG("success to get tables by id. [table_num=%u]", table_list->size());
+    VLOG(3) << "success to get tables by id. table_num=" << table_list->size();
     return res;
 }
 
@@ -708,8 +859,9 @@ bool OLAPEngine::check_tablet_id_exist(TTabletId tablet_id) {
 OLAPStatus OLAPEngine::add_table(TTabletId tablet_id, SchemaHash schema_hash,
                                  const OLAPTablePtr& table, bool force) {
     OLAPStatus res = OLAP_SUCCESS;
-    OLAP_LOG_DEBUG("begin to add olap table to OLAPEngine. [tablet_id=%ld schema_hash=%d], force: %d",
-                   tablet_id, schema_hash, force);
+    VLOG(3) << "begin to add olap table to OLAPEngine. "
+            << "tablet_id=" << tablet_id << ", schema_hash=" << schema_hash
+            << ", force=" << force;
     _tablet_map_lock.wrlock();
 
     table->set_id(_global_table_id++);
@@ -791,9 +943,9 @@ OLAPStatus OLAPEngine::add_transaction(
             for (PUniqueId& pid : load_info->second) {
                 if (pid.hi() == load_id.hi() && pid.lo() == load_id.lo()) {
                     LOG(WARNING) << "find transaction exists when add to engine."
-                        << "partition_id: " << key.first << ", "
-                        << "transaction_id: " << key.second << ", "
-                        << "table: " << tablet_info.to_string();
+                        << "partition_id: " << key.first
+                        << ", transaction_id: " << key.second
+                        << ", table: " << tablet_info.to_string();
                     return OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST;
                 }
             }
@@ -802,9 +954,9 @@ OLAPStatus OLAPEngine::add_transaction(
 
     _transaction_tablet_map[key][tablet_info].push_back(load_id);
     VLOG(3) << "add transaction to engine successfully."
-        << "partition_id: " << key.first << ", "
-        << "transaction_id: " << key.second << ", "
-        << "table: " << tablet_info.to_string();
+            << "partition_id: " << key.first
+            << ", transaction_id: " << key.second
+            << ", table: " << tablet_info.to_string();
     return OLAP_SUCCESS;
 }
 
@@ -819,9 +971,9 @@ void OLAPEngine::delete_transaction(
     auto it = _transaction_tablet_map.find(key);
     if (it != _transaction_tablet_map.end()) {
         VLOG(3) << "delete transaction to engine successfully."
-            << "partition_id: " << key.first << ", "
-            << "transaction_id: " << key.second << ", "
-            << "table: " << tablet_info.to_string();
+                << ",partition_id: " << key.first
+                << ", transaction_id: " << key.second
+                << ", table: " << tablet_info.to_string();
         it->second.erase(tablet_info);
         if (it->second.empty()) {
             _transaction_tablet_map.erase(it);
@@ -851,9 +1003,9 @@ void OLAPEngine::get_transactions_by_tablet(OLAPTablePtr tablet, int64_t* partit
             *partition_id = it.first.first;
             transaction_ids->insert(it.first.second);
             VLOG(3) << "find transaction on tablet."
-                << "partition_id: " << it.first.first << ", "
-                << "transaction_id: " << it.first.second << ", "
-                << "table: " << tablet_info.to_string();
+                    << "partition_id: " << it.first.first
+                    << ", transaction_id: " << it.first.second
+                    << ", table: " << tablet_info.to_string();
         }
     }
 }
@@ -904,11 +1056,12 @@ OLAPStatus OLAPEngine::publish_version(const TPublishVersionRequest& publish_ver
         // each tablet
         for (auto& load_info : load_info_map) {
             const TabletInfo& tablet_info = load_info.first;
-            OLAP_LOG_DEBUG("begin to publish version on tablet. "
-                "[tablet_id=%ld schema_hash=%d version=%d version_hash=%ld transaction_id=%ld]",
-                tablet_info.tablet_id, tablet_info.schema_hash,
-                version.first, version_hash, transaction_id);
-
+            VLOG(3) << "begin to publish version on tablet. "
+                    << "tablet_id=" << tablet_info.tablet_id
+                    << ", schema_hash=" << tablet_info.schema_hash
+                    << ", version=" << version.first
+                    << ", version_hash=" << version_hash
+                    << ", transaction_id=" << transaction_id;
             OLAPTablePtr tablet = get_table(tablet_info.tablet_id, tablet_info.schema_hash);
 
             if (tablet.get() == NULL) {
@@ -934,12 +1087,12 @@ OLAPStatus OLAPEngine::publish_version(const TPublishVersionRequest& publish_ver
 
             // if publish successfully, delete transaction from engine
             } else if (publish_status == OLAP_SUCCESS) {
-                LOG(INFO) << "publish version successfully on tablet. [table=" << tablet->full_name()
-                          << " transaction_id=" << transaction_id << " version=" << version.first << "]";
+                LOG(INFO) << "publish version successfully on tablet. tablet=" << tablet->full_name()
+                          << ", transaction_id=" << transaction_id << ", version=" << version.first;
                 _transaction_tablet_map_lock.wrlock();
                 auto it2 = _transaction_tablet_map.find(key);
                 if (it2 != _transaction_tablet_map.end()) {
-                    VLOG(3) << "delete transaction from engine. table=" << tablet->full_name() << ", "
+                    VLOG(3) << "delete transaction from engine. table=" << tablet->full_name()
                         << "transaction_id: " << transaction_id;
                     it2->second.erase(tablet_info);
                     if (it2->second.empty()) {
@@ -959,15 +1112,15 @@ OLAPStatus OLAPEngine::publish_version(const TPublishVersionRequest& publish_ver
         }
     }
 
-    OLAP_LOG_INFO("finish to publish version on transaction. "
-                  "[transaction_id=%ld, error_tablet_size=%d]",
-                  transaction_id, error_tablet_ids->size());
+    LOG(INFO) << "finish to publish version on transaction."
+              << "transaction_id=" << transaction_id
+              << ", error_tablet_size=" << error_tablet_ids->size();
     return res;
 }
 
 void OLAPEngine::clear_transaction_task(const TTransactionId transaction_id,
                                         const vector<TPartitionId> partition_ids) {
-    OLAP_LOG_INFO("begin to clear transaction task. [transaction_id=%ld]", transaction_id);
+    LOG(INFO) << "begin to clear transaction task. transaction_id=" <<  transaction_id;
 
     // each partition
     for (const TPartitionId& partition_id : partition_ids) {
@@ -994,13 +1147,13 @@ void OLAPEngine::clear_transaction_task(const TTransactionId transaction_id,
         }
     }
 
-    OLAP_LOG_INFO("finish to clear transaction task. [transaction_id=%ld]", transaction_id);
+    LOG(INFO) << "finish to clear transaction task. transaction_id=" << transaction_id;
 }
 
 OLAPStatus OLAPEngine::clone_incremental_data(OLAPTablePtr tablet, OLAPHeader& clone_header,
                                               int64_t committed_version) {
-    OLAP_LOG_INFO("begin to incremental clone. [table=%s committed_version=%ld]",
-                   tablet->full_name().c_str(), committed_version);
+    LOG(INFO) << "begin to incremental clone. tablet=" << tablet->full_name()
+              << ", committed_version=" << committed_version;
 
     // calculate missing version again
     vector<Version> missing_versions;
@@ -1035,25 +1188,27 @@ OLAPStatus OLAPEngine::clone_incremental_data(OLAPTablePtr tablet, OLAPHeader& c
                 least_complete_version->start_version(),
                 least_complete_version->end_version()));
 
-            OLAP_LOG_DEBUG("least complete version_hash in clone src is different, replace it. "
-                    "[tablet=%s least_complete_version=%d-%d local_hash=%ld clone_hash=%ld]",
-                    tablet->full_name().c_str(),
-                    least_complete_version->start_version(), least_complete_version->end_version(),
-                    least_complete_version->version_hash(), clone_src_version->version_hash());
+            VLOG(3) << "least complete version_hash in clone src is different, replace it. "
+                    << "tablet=" << tablet->full_name()
+                    << ", least_complete_version=" << least_complete_version->start_version()
+                    << "-" << least_complete_version->end_version()
+                    << ", local_hash=" << least_complete_version->version_hash()
+                    << ", clone_hash=" << clone_src_version->version_hash();
         }
     }
 
-    OLAP_LOG_DEBUG("get missing versions again when incremental clone. "
-                   "[table=%s committed_version=%ld missing_versions_size=%d]",
-                   tablet->full_name().c_str(), committed_version, missing_versions.size());
+    VLOG(3) << "get missing versions again when incremental clone. "
+            << "tablet=" << tablet->full_name() 
+            << ", committed_version=" << committed_version
+            << ", missing_versions_size=" << missing_versions.size();
 
     // check missing versions exist in clone src
     for (Version version : missing_versions) {
         const PDelta* clone_src_version = clone_header.get_incremental_version(version);
         if (clone_src_version == NULL) {
            LOG(WARNING) << "missing version not found in clone src."
-                        << "clone_header_file=" << clone_header.file_name() << ", "
-                        << "missing_version=" << version.first << "-" << version.second;
+                        << "clone_header_file=" << clone_header.file_name()
+                        << ", missing_version=" << version.first << "-" << version.second;
             return OLAP_ERR_VERSION_NOT_EXIST;
         }
 
@@ -1078,15 +1233,15 @@ OLAPStatus OLAPEngine::clone_full_data(OLAPTablePtr tablet, OLAPHeader& clone_he
                               tablet->get_delta(i)->end_version());
         VersionHash local_version_hash = tablet->get_delta(i)->version_hash();
         LOG(INFO) << "check local delta when full clone."
-            << "table=" << tablet->full_name() << ", "
-            << "local_version=" << local_version.first << "-" << local_version.second;
+            << "table=" << tablet->full_name()
+            << ", local_version=" << local_version.first << "-" << local_version.second;
 
         // if local version cross src latest, clone failed
         if (local_version.first <= clone_latest_version.second
             && local_version.second > clone_latest_version.second) {
             LOG(WARNING) << "stop to full clone, version cross src latest."
-                    << "table=" << tablet->full_name() << ", "
-                    << "local_version=" << local_version.first << "-" << local_version.second;
+                    << "table=" << tablet->full_name()
+                    << ", local_version=" << local_version.first << "-" << local_version.second;
             return OLAP_ERR_TABLE_VERSION_DUPLICATE_ERROR;
 
         } else if (local_version.second <= clone_latest_version.second) {
@@ -1101,14 +1256,14 @@ OLAPStatus OLAPEngine::clone_full_data(OLAPTablePtr tablet, OLAPHeader& clone_he
                     && clone_header.get_delta(j)->version_hash() == local_version_hash) {
                     existed_in_src = true;
                     LOG(INFO) << "Delta has already existed in local header, no need to clone."
-                        << "table=" << tablet->full_name() << ", "
-                        << "version='" << local_version.first<< "-" << local_version.second << ", "
-                        << "version_hash=" << local_version_hash;
+                        << "table=" << tablet->full_name()
+                        << ", version='" << local_version.first<< "-" << local_version.second
+                        << ", version_hash=" << local_version_hash;
 
                     OLAPStatus delete_res = clone_header.delete_version(local_version);
                     if (delete_res != OLAP_SUCCESS) {
                         LOG(WARNING) << "failed to delete existed version from clone src when full clone. "
-                                  << "clone_header_file=" << clone_header.file_name() << ", "
+                                  << "clone_header_file=" << clone_header.file_name()
                                   << "version=" << local_version.first << "-" << local_version.second;
                         return delete_res;
                     }
@@ -1123,8 +1278,8 @@ OLAPStatus OLAPEngine::clone_full_data(OLAPTablePtr tablet, OLAPHeader& clone_he
                 versions_to_delete.push_back(local_version);
                 LOG(INFO) << "Delete delta not included by the clone header, should delete it from local header."
                           << "table=" << tablet->full_name() << ","
-                          << "version=" << local_version.first<< "-" << local_version.second << ", "
-                          << "version_hash=" << local_version_hash;
+                          << ", version=" << local_version.first<< "-" << local_version.second
+                          << ", version_hash=" << local_version_hash;
             }
         }
     }
@@ -1132,10 +1287,10 @@ OLAPStatus OLAPEngine::clone_full_data(OLAPTablePtr tablet, OLAPHeader& clone_he
     for (int i = 0; i < clone_header.file_delta_size(); ++i) {
         clone_deltas.push_back(clone_header.get_delta(i));
         LOG(INFO) << "Delta to clone."
-            << "table=" << tablet->full_name() << ","
-            << "version=" << clone_header.get_delta(i)->start_version() << "-"
-                << clone_header.get_delta(i)->end_version() << ", "
-            << "version_hash=" << clone_header.get_delta(i)->version_hash();
+            << "table=" << tablet->full_name()
+            << ", version=" << clone_header.get_delta(i)->start_version() << "-"
+            << clone_header.get_delta(i)->end_version()
+            << ", version_hash=" << clone_header.get_delta(i)->version_hash();
     }
 
     // clone_data to tablet
@@ -1219,8 +1374,8 @@ OLAPStatus OLAPEngine::drop_table(
     related_table->clear_schema_change_request();
     res = related_table->save_header();
     if (res != OLAP_SUCCESS) {
-        OLAP_LOG_FATAL("fail to save table header. [res=%d table=%s]",
-                       res, related_table->full_name().c_str());
+        LOG(FATAL) << "fail to save table header. res=" << res
+                   << ", tablet=" << related_table->full_name();
     }
 
     res = _drop_table_directly_unlocked(tablet_id, schema_hash, keep_files);
@@ -1232,7 +1387,7 @@ OLAPStatus OLAPEngine::drop_table(
         return res;
     }
 
-    OLAP_LOG_INFO("finish to drop tablet. [res=%d]", res);
+    LOG(INFO) << "finish to drop tablet. res=" << res;
     return res;
 }
 
@@ -1289,8 +1444,8 @@ OLAPStatus OLAPEngine::drop_tables_on_error_root_path(
     for (const TabletInfo& tablet_info : tablet_info_vec) {
         TTabletId tablet_id = tablet_info.tablet_id;
         TSchemaHash schema_hash = tablet_info.schema_hash;
-        OLAP_LOG_DEBUG("drop_table begin. [table=%ld schema_hash=%d]",
-                       tablet_id, schema_hash);
+        VLOG(3) << "drop_table begin. tablet_id=" << tablet_id
+                << ", schema_hash=" << schema_hash;
         OLAPTablePtr dropped_table = _get_table_with_no_lock(tablet_id, schema_hash);
         if (dropped_table.get() == NULL) {
             OLAP_LOG_WARNING("dropping table not exist. [table=%ld schema_hash=%d]",
@@ -1362,14 +1517,13 @@ OLAPTablePtr OLAPEngine::create_table(
 
 OLAPStatus OLAPEngine::create_init_version(TTabletId tablet_id, SchemaHash schema_hash,
                                            Version version, VersionHash version_hash) {
-    OLAP_LOG_DEBUG("begin to create init version. [begin=%d end=%d]",
-                   version.first, version.second);
-
+    VLOG(3) << "begin to create init version. "
+            << "begin=" << version.first << ", end=" << version.second;
     OLAPTablePtr table;
-    IWriter* writer = NULL;
-    Rowset* new_rowset = NULL;
+    ColumnDataWriter* writer = NULL;
+    SegmentGroup* new_segment_group = NULL;
     OLAPStatus res = OLAP_SUCCESS;
-    std::vector<Rowset*> index_vec;
+    std::vector<SegmentGroup*> index_vec;
 
     do {
         if (version.first > version.second) {
@@ -1387,15 +1541,15 @@ OLAPStatus OLAPEngine::create_init_version(TTabletId tablet_id, SchemaHash schem
             break;
         }
 
-        new_rowset = new(nothrow) Rowset(table.get(), version, version_hash, false, 0, 0);
-        if (new_rowset == NULL) {
+        new_segment_group = new(nothrow) SegmentGroup(table.get(), version, version_hash, false, 0, 0);
+        if (new_segment_group == NULL) {
             LOG(WARNING) << "fail to malloc index. [table=" << table->full_name() << "]";
             res = OLAP_ERR_MALLOC_ERROR;
             break;
         }
 
         // Create writer, which write nothing to table, to generate empty data file
-        writer = IWriter::create(table, new_rowset, false);
+        writer = ColumnDataWriter::create(table, new_segment_group, false);
         if (writer == NULL) {
             LOG(WARNING) << "fail to create writer. [table=" << table->full_name() << "]";
             res = OLAP_ERR_MALLOC_ERROR;
@@ -1409,14 +1563,14 @@ OLAPStatus OLAPEngine::create_init_version(TTabletId tablet_id, SchemaHash schem
         }
 
         // Load new index and add to table
-        res = new_rowset->load();
+        res = new_segment_group->load();
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to load new index. [table=" << table->full_name() << "]";
             break;
         }
 
         WriteLock wrlock(table->get_header_lock_ptr());
-        index_vec.push_back(new_rowset);
+        index_vec.push_back(new_segment_group);
         res = table->register_data_source(index_vec);
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to register index to data sources. [table=%s]",
@@ -1433,25 +1587,25 @@ OLAPStatus OLAPEngine::create_init_version(TTabletId tablet_id, SchemaHash schem
 
     // Unregister index and delete files(index and data) if failed
     if (res != OLAP_SUCCESS && table.get() != NULL) {
-        std::vector<Rowset*> unused_index;
+        std::vector<SegmentGroup*> unused_index;
         table->obtain_header_wrlock();
         table->unregister_data_source(version, &unused_index);
         table->release_header_lock();
 
-        for (Rowset* index : index_vec) {
+        for (SegmentGroup* index : index_vec) {
             index->delete_all_files();
             SAFE_DELETE(index);
         }
     }
 
-    OLAP_LOG_DEBUG("create init version end. [res=%d]", res);
+    VLOG(3) << "create init version end. res=" << res;
     SAFE_DELETE(writer);
     return res;
 }
 
 bool OLAPEngine::try_schema_change_lock(TTabletId tablet_id) {
     bool res = false;
-    OLAP_LOG_DEBUG("try_schema_change_lock begin. [table=%ld]", tablet_id);
+    VLOG(3) << "try_schema_change_lock begin. table_id=" << tablet_id;
     _tablet_map_lock.rdlock();
 
     tablet_map_t::iterator it = _tablet_map.find(tablet_id);
@@ -1462,12 +1616,12 @@ bool OLAPEngine::try_schema_change_lock(TTabletId tablet_id) {
     }
 
     _tablet_map_lock.unlock();
-    OLAP_LOG_DEBUG("try_schema_change_lock end. [table=%ld]", tablet_id);
+    VLOG(3) << "try_schema_change_lock end. table_id=" <<  tablet_id;
     return res;
 }
 
 void OLAPEngine::release_schema_change_lock(TTabletId tablet_id) {
-    OLAP_LOG_DEBUG("release_schema_change_lock begin. [table=%ld]", tablet_id);
+    VLOG(3) << "release_schema_change_lock begin. tablet_id=" << tablet_id;
     _tablet_map_lock.rdlock();
 
     tablet_map_t::iterator it = _tablet_map.find(tablet_id);
@@ -1478,7 +1632,7 @@ void OLAPEngine::release_schema_change_lock(TTabletId tablet_id) {
     }
 
     _tablet_map_lock.unlock();
-    OLAP_LOG_DEBUG("release_schema_change_lock end. [table=%ld]", tablet_id);
+    VLOG(3) << "release_schema_change_lock end. tablet_id=" << tablet_id;
 }
 
 void OLAPEngine::_build_tablet_info(OLAPTablePtr olap_table, TTabletInfo* tablet_info) {
@@ -1497,6 +1651,11 @@ void OLAPEngine::_build_tablet_info(OLAPTablePtr olap_table, TTabletInfo* tablet
         vector<Version> missing_versions;
         olap_table->get_missing_versions_with_header_locked(
                 last_file_version->end_version(), &missing_versions);
+
+        if (!missing_versions.empty()) {
+            tablet_info->__set_version_miss(true);
+        }
+
         const PDelta* least_complete_version =
             olap_table->least_complete_version(missing_versions);
         if (least_complete_version == NULL) {
@@ -1512,9 +1671,9 @@ void OLAPEngine::_build_tablet_info(OLAPTablePtr olap_table, TTabletInfo* tablet
 
 OLAPStatus OLAPEngine::report_tablet_info(TTabletInfo* tablet_info) {
     DorisMetrics::report_tablet_requests_total.increment(1);
-    OLAP_LOG_INFO("begin to process report tablet info. "
-                  "[table=%ld schema_hash=%d]",
-                  tablet_info->tablet_id, tablet_info->schema_hash);
+    LOG(INFO) << "begin to process report tablet info."
+              << "tablet_id=" << tablet_info->tablet_id
+              << ", schema_hash=" << tablet_info->schema_hash;
 
     OLAPStatus res = OLAP_SUCCESS;
 
@@ -1527,12 +1686,12 @@ OLAPStatus OLAPEngine::report_tablet_info(TTabletInfo* tablet_info) {
     }
 
     _build_tablet_info(olap_table, tablet_info);
-    OLAP_LOG_INFO("success to process report tablet info.");
+    LOG(INFO) << "success to process report tablet info.";
     return res;
 }
 
 OLAPStatus OLAPEngine::report_all_tablets_info(std::map<TTabletId, TTablet>* tablets_info) {
-    OLAP_LOG_INFO("begin to process report all tablets info.");
+    LOG(INFO) << "begin to process report all tablets info.";
     DorisMetrics::report_all_tablets_requests_total.increment(1);
 
     if (tablets_info == NULL) {
@@ -1564,6 +1723,8 @@ OLAPStatus OLAPEngine::report_all_tablets_info(std::map<TTabletId, TTablet>* tab
             }
 
             tablet_info.__set_version_count(olap_table->file_delta_size());
+            tablet_info.__set_path_hash(olap_table->store()->path_hash());
+
             tablet.tablet_infos.push_back(tablet_info);
         }
 
@@ -1578,26 +1739,28 @@ OLAPStatus OLAPEngine::report_all_tablets_info(std::map<TTabletId, TTablet>* tab
 }
 
 void OLAPEngine::get_tablet_stat(TTabletStatResult& result) {
-    OLAP_LOG_DEBUG("begin to get all tablet stat.");
+    VLOG(3) << "begin to get all tablet stat.";
 
     // get current time
     int64_t current_time = UnixMillis();
     
-    _tablet_map_lock.wrlock();
-    // update cache if too old
-    if (current_time - _tablet_stat_cache_update_time_ms > 
-        config::tablet_stat_cache_update_interval_second * 1000) {
-        OLAP_LOG_DEBUG("update tablet stat.");
-        _build_tablet_stat();
+    {
+        std::lock_guard<std::mutex> l(_tablet_stat_mutex);
+        // update cache if too old
+        if (current_time - _tablet_stat_cache_update_time_ms > 
+                config::tablet_stat_cache_update_interval_second * 1000) {
+            VLOG(3) << "update tablet stat.";
+            _build_tablet_stat();
+        }
     }
 
     result.__set_tablets_stats(_tablet_stat_cache);
-
-    _tablet_map_lock.unlock();
 }
 
 void OLAPEngine::_build_tablet_stat() {
     _tablet_stat_cache.clear();
+
+    _tablet_map_lock.rdlock();
     for (const auto& item : _tablet_map) {
         if (item.second.table_arr.size() == 0) {
             continue;
@@ -1613,14 +1776,15 @@ void OLAPEngine::_build_tablet_stat() {
             // we only get base tablet's stat
             stat.__set_data_size(olap_table->get_data_size());
             stat.__set_row_num(olap_table->get_num_rows());
-            OLAP_LOG_DEBUG("tablet %d get data size: %d, row num %d",
-                    item.first, olap_table->get_data_size(), 
-                    olap_table->get_num_rows());
+            VLOG(3) << "tablet_id=" << item.first 
+                    << ", data_size=" << olap_table->get_data_size()
+                    << ", row_num:" << olap_table->get_num_rows();
             break;
         }
 
         _tablet_stat_cache.emplace(item.first, stat);
     }
+    _tablet_map_lock.unlock();
 
     _tablet_stat_cache_update_time_ms = UnixMillis();
 }
@@ -1629,10 +1793,16 @@ bool OLAPEngine::_can_do_compaction(OLAPTablePtr table) {
     // 如果table正在做schema change，则通过选路判断数据是否转换完成
     // 如果选路成功，则转换完成，可以进行BE
     // 如果选路失败，则转换未完成，不能进行BE
-    table->obtain_header_rdlock();
+    ReadLock rdlock(table->get_header_lock_ptr());
     const PDelta* lastest_version = table->lastest_version();
     if (lastest_version == NULL) {
-        table->release_header_lock();
+        return false;
+    }
+
+    Version test_version = Version(0, lastest_version->end_version());
+    std::vector<Version> path_versions;
+    if (OLAP_SUCCESS != table->select_versions_to_span(test_version, &path_versions)) {
+        LOG(WARNING) << "tablet has missed version. tablet=" << table->full_name();
         return false;
     }
 
@@ -1640,19 +1810,17 @@ bool OLAPEngine::_can_do_compaction(OLAPTablePtr table) {
         Version test_version = Version(0, lastest_version->end_version());
         vector<Version> path_versions;
         if (OLAP_SUCCESS != table->select_versions_to_span(test_version, &path_versions)) {
-            table->release_header_lock();
             return false;
         }
     }
-    table->release_header_lock();
 
     return true;
 }
 
 void OLAPEngine::start_clean_fd_cache() {
-    OLAP_LOG_TRACE("start clean file descritpor cache");
-    _file_descriptor_lru_cache->prune();
-    OLAP_LOG_TRACE("end clean file descritpor cache");
+    VLOG(10) << "start clean file descritpor cache";
+    FileHandler::get_fd_cache()->prune();
+    VLOG(10) << "end clean file descritpor cache";
 }
 
 void OLAPEngine::perform_cumulative_compaction() {
@@ -1664,12 +1832,14 @@ void OLAPEngine::perform_cumulative_compaction() {
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "failed to init cumulative compaction."
                      << "table=" << best_table->full_name();
+        return;
     }
 
     res = cumulative_compaction.run();
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "failed to do cumulative compaction."
                      << "table=" << best_table->full_name();
+        return;
     }
 }
 
@@ -1689,6 +1859,7 @@ void OLAPEngine::perform_base_compaction() {
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "failed to init base compaction."
                      << "table=" << best_table->full_name();
+        return;
     }
 }
 
@@ -1724,7 +1895,7 @@ void OLAPEngine::get_cache_status(rapidjson::Document* document) const {
 
 OLAPStatus OLAPEngine::start_trash_sweep(double* usage) {
     OLAPStatus res = OLAP_SUCCESS;
-    OLAP_LOG_INFO("start trash and snapshot sweep.");
+    LOG(INFO) << "start trash and snapshot sweep.";
 
     const uint32_t snapshot_expire = config::snapshot_expire_time_sec;
     const uint32_t trash_expire = config::trash_file_expire_time_sec;
@@ -1772,17 +1943,24 @@ OLAPStatus OLAPEngine::start_trash_sweep(double* usage) {
         }
     }
 
-    // clear expire incremental rowset
+    // clear expire incremental segment_group
+    std::vector<OLAPTablePtr> tablets;
     _tablet_map_lock.rdlock();
     for (const auto& item : _tablet_map) {
         for (OLAPTablePtr olap_table : item.second.table_arr) {
-            if (olap_table.get() == NULL) {
+            if (olap_table == nullptr) {
                 continue;
             }
-            olap_table->delete_expire_incremental_data();
+            if (olap_table->has_expired_incremental_data()) {
+                tablets.push_back(olap_table);
+            }
         }
     }
     _tablet_map_lock.unlock();
+
+    for (auto& tablet : tablets) {
+        tablet->delete_expired_incremental_data();
+    }
 
     return res;
 }
@@ -1866,15 +2044,11 @@ OLAPStatus OLAPEngine::_create_new_table_header(
     } else {
         header->set_keys_type(KeysType::AGG_KEYS);
     }
-    if (request.tablet_schema.storage_type == TStorageType::COLUMN) {
-        header->set_data_file_type(COLUMN_ORIENTED_FILE);
-        header->set_segment_size(OLAP_MAX_COLUMN_SEGMENT_FILE_SIZE);
-        header->set_num_rows_per_data_block(config::default_num_rows_per_column_file_block);
-    } else {
-        header->set_data_file_type(OLAP_DATA_FILE);
-        header->set_segment_size(OLAP_MAX_SEGMENT_FILE_SIZE);
-        header->set_num_rows_per_data_block(config::default_num_rows_per_data_block);
-    }
+    DCHECK(request.tablet_schema.storage_type == TStorageType::COLUMN);
+    header->set_data_file_type(COLUMN_ORIENTED_FILE);
+    header->set_segment_size(OLAP_MAX_COLUMN_SEGMENT_FILE_SIZE);
+    header->set_num_rows_per_data_block(config::default_num_rows_per_column_file_block);
+
     // set column information
     uint32_t i = 0;
     uint32_t key_count = 0;
@@ -2010,7 +2184,7 @@ void OLAPEngine::_cancel_unfinished_schema_change() {
     // Schema Change在引擎退出时schemachange信息还保存在在Header里，
     // 引擎重启后，需清除schemachange信息，上层会重做
     uint64_t canceled_num = 0;
-    OLAP_LOG_INFO("begin to cancel unfinished schema change.");
+    LOG(INFO) << "begin to cancel unfinished schema change.";
 
     SchemaChangeHandler schema_change_handler;
     TTabletId tablet_id;
@@ -2044,13 +2218,12 @@ void OLAPEngine::_cancel_unfinished_schema_change() {
                     ALTER_TABLE_FAILED, new_olap_table->schema_hash(), -1);
             olap_table->set_schema_change_status(
                     ALTER_TABLE_FAILED, olap_table->schema_hash(), -1);
-            OLAP_LOG_DEBUG("cancel unfinished schema change. [tablet='%s']",
-                          olap_table->full_name().c_str());
+            VLOG(3) << "cancel unfinished schema change. tablet=" << olap_table->full_name();
             ++canceled_num;
         }
     }
 
-    OLAP_LOG_INFO("finish to cancel unfinished schema change! [canceled_num=%lu]", canceled_num);
+    LOG(INFO) << "finish to cancel unfinished schema change! canceled_num=" << canceled_num;
 }
 
 void OLAPEngine::start_delete_unused_index() {
@@ -2070,25 +2243,48 @@ void OLAPEngine::start_delete_unused_index() {
     _gc_mutex.unlock();
 }
 
-void OLAPEngine::add_unused_index(Rowset* olap_index) {
+void OLAPEngine::add_unused_index(SegmentGroup* segment_group) {
     _gc_mutex.lock();
 
-    auto it = _gc_files.find(olap_index);
+    auto it = _gc_files.find(segment_group);
     if (it == _gc_files.end()) {
         vector<string> files;
-        int32_t rowset_id = olap_index->rowset_id();
-        for (size_t seg_id = 0; seg_id < olap_index->num_segments(); ++seg_id) {
-            string index_file = olap_index->construct_index_file_path(rowset_id, seg_id);
+        int32_t segment_group_id = segment_group->segment_group_id();
+        for (size_t seg_id = 0; seg_id < segment_group->num_segments(); ++seg_id) {
+            string index_file = segment_group->construct_index_file_path(segment_group_id, seg_id);
             files.push_back(index_file);
 
-            string data_file = olap_index->construct_data_file_path(rowset_id, seg_id);
+            string data_file = segment_group->construct_data_file_path(segment_group_id, seg_id);
             files.push_back(data_file);
         }
-        _gc_files[olap_index] = files;
+        _gc_files[segment_group] = files;
     }
 
     _gc_mutex.unlock();
 }
+
+void OLAPEngine::revoke_files_from_gc(const std::vector<std::string>& files_to_check) {
+    LOG(INFO) << "start to revoke files from gc. files to check size:" << files_to_check.size();
+    _gc_mutex.lock();
+    int64_t duration_ns = 0;
+    {
+        SCOPED_RAW_TIMER(&duration_ns);
+        for (auto& file : files_to_check) {
+            for (auto& rowset_gc_files : _gc_files) {
+                auto file_iter =
+                        std::find(rowset_gc_files.second.begin(), rowset_gc_files.second.end(), file);
+                if (file_iter != rowset_gc_files.second.end()) {
+                    LOG(INFO) << "file:" << file << " exist in unused files to gc. revoke it";
+                    rowset_gc_files.second.erase(file_iter);
+                    break;
+                }
+            }
+        }
+    }
+    _gc_mutex.unlock();
+    LOG(INFO) << "revoke files from gc. time duration:" << duration_ns << " ns";
+}
+
 
 OLAPStatus OLAPEngine::_create_init_version(
         OLAPTablePtr olap_table, const TCreateTabletReq& request) {
@@ -2135,8 +2331,8 @@ OLAPStatus OLAPEngine::create_table(const TCreateTabletReq& request) {
     OLAPStatus res = OLAP_SUCCESS;
     bool is_table_added = false;
 
-    OLAP_LOG_INFO("begin to process create table. [tablet=%ld, schema_hash=%d]",
-                  request.tablet_id, request.tablet_schema.schema_hash);
+    LOG(INFO) << "begin to process create table. tablet=" << request.tablet_id
+              << ", schema_hash=" << request.tablet_schema.schema_hash;
 
     DorisMetrics::create_tablet_requests_total.increment(1);
 
@@ -2147,7 +2343,7 @@ OLAPStatus OLAPEngine::create_table(const TCreateTabletReq& request) {
         OLAPTablePtr table = get_table(
                 request.tablet_id, request.tablet_schema.schema_hash);
         if (table.get() != NULL) {
-            OLAP_LOG_INFO("create table success for table already exist.");
+            LOG(INFO) << "create table success for table already exist.";
             return OLAP_SUCCESS;
         } else {
             OLAP_LOG_WARNING("table with different schema hash already exists.");
@@ -2220,13 +2416,13 @@ OLAPStatus OLAPEngine::create_table(const TCreateTabletReq& request) {
         }
     }
 
-    OLAP_LOG_INFO("finish to process create table. [res=%d]", res);
+    LOG(INFO) << "finish to process create table. res=" << res;
     return res;
 }
 
 OLAPStatus OLAPEngine::schema_change(const TAlterTabletReq& request) {
-    OLAP_LOG_INFO("begin to schema change. [base_table=%ld new_table=%ld]",
-                  request.base_tablet_id, request.new_tablet_req.tablet_id);
+    LOG(INFO) << "begin to schema change. old_tablet_id=" << request.base_tablet_id
+              << ", new_tablet_id=" << request.new_tablet_req.tablet_id;
 
     DorisMetrics::schema_change_requests_total.increment(1);
 
@@ -2243,16 +2439,16 @@ OLAPStatus OLAPEngine::schema_change(const TAlterTabletReq& request) {
         return res;
     }
 
-    OLAP_LOG_INFO("success to submit schema change. "
-                  "[base_table=%ld new_table=%ld]",
-                  request.base_tablet_id, request.new_tablet_req.tablet_id);
+    LOG(INFO) << "success to submit schema change."
+              << "old_tablet_id=" << request.base_tablet_id
+              << ", new_tablet_id=" << request.new_tablet_req.tablet_id;
     return res;
 }
 
 OLAPStatus OLAPEngine::create_rollup_table(const TAlterTabletReq& request) {
-    OLAP_LOG_INFO("begin to create rollup table. "
-                  "[base_table=%ld new_table=%ld]",
-                  request.base_tablet_id, request.new_tablet_req.tablet_id);
+    LOG(INFO) << "begin to create rollup table. "
+              << "old_tablet_id=" << request.base_tablet_id
+              << ", new_tablet_id=" << request.new_tablet_req.tablet_id;
 
     DorisMetrics::create_rollup_requests_total.increment(1);
 
@@ -2269,18 +2465,18 @@ OLAPStatus OLAPEngine::create_rollup_table(const TAlterTabletReq& request) {
         return res;
     }
 
-    OLAP_LOG_INFO("success to create rollup table. "
-                  "[base_table=%ld new_table=%ld] [res=%d]",
-                  request.base_tablet_id, request.new_tablet_req.tablet_id, res);
+    LOG(INFO) << "success to create rollup table. res=" << res
+              << ", old_tablet_id=" << request.base_tablet_id 
+              << ", new_tablet_id=" << request.new_tablet_req.tablet_id;
     return res;
 }
 
 AlterTableStatus OLAPEngine::show_alter_table_status(
         TTabletId tablet_id,
         TSchemaHash schema_hash) {
-    OLAP_LOG_INFO("begin to process show alter table status. "
-                  "[table=%ld schema_hash=%d]",
-                  tablet_id, schema_hash);
+    LOG(INFO) << "begin to process show alter table status."
+              << "tablet_id=" << tablet_id
+              << ", schema_hash=" << schema_hash;
 
     AlterTableStatus status = ALTER_TABLE_FINISHED;
 
@@ -2302,9 +2498,10 @@ OLAPStatus OLAPEngine::compute_checksum(
         TVersion version,
         TVersionHash version_hash,
         uint32_t* checksum) {
-    OLAP_LOG_INFO("begin to process compute checksum. "
-                  "[tablet_id=%ld schema_hash=%d version=%ld]",
-                  tablet_id, schema_hash, version);
+    LOG(INFO) << "begin to process compute checksum."
+              << "tablet_id=" << tablet_id
+              << ", schema_hash=" << schema_hash
+              << ", version=" << version;
     OLAPStatus res = OLAP_SUCCESS;
 
     if (checksum == NULL) {
@@ -2323,7 +2520,7 @@ OLAPStatus OLAPEngine::compute_checksum(
         ReadLock rdlock(tablet->get_header_lock_ptr());
         const PDelta* message = tablet->lastest_version();
         if (message == NULL) {
-            OLAP_LOG_FATAL("fail to get latest version. [tablet_id=%ld]", tablet_id);
+            LOG(FATAL) << "fail to get latest version. tablet_id=" << tablet_id;
             return OLAP_ERR_VERSION_NOT_EXIST;
         }
 
@@ -2371,7 +2568,7 @@ OLAPStatus OLAPEngine::compute_checksum(
     while (true) {
         OLAPStatus res = reader.next_row_with_aggregation(&row, &eof);
         if (res == OLAP_SUCCESS && eof) {
-            OLAP_LOG_DEBUG("reader reads to the end.");
+            VLOG(3) << "reader reads to the end.";
             break;
         } else if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to read in reader. [res=%d]", res);
@@ -2381,14 +2578,15 @@ OLAPStatus OLAPEngine::compute_checksum(
         row_checksum = row.hash_code(row_checksum);
     }
 
-    OLAP_LOG_INFO("success to finish compute checksum. [checksum=%u]", row_checksum);
+    LOG(INFO) << "success to finish compute checksum. checksum=" << row_checksum;
     *checksum = row_checksum;
     return OLAP_SUCCESS;
 }
 
 OLAPStatus OLAPEngine::cancel_delete(const TCancelDeleteDataReq& request) {
-    OLAP_LOG_INFO("begin to process cancel delete. [table=%ld version=%ld]",
-                  request.tablet_id, request.version);
+    LOG(INFO) << "begin to process cancel delete."
+              << "tablet=" << request.tablet_id
+              << ", version=" << request.version;
 
     DorisMetrics::cancel_delete_requests_total.increment(1);
 
@@ -2405,10 +2603,17 @@ OLAPStatus OLAPEngine::cancel_delete(const TCancelDeleteDataReq& request) {
     // 2. Remove delete conditions from each tablet.
     DeleteConditionHandler cond_handler;
     for (OLAPTablePtr temp_table : table_list) {
+        OLAPStatus lock_status = temp_table->try_migration_rdlock();
+        if (lock_status != OLAP_SUCCESS) {
+            OLAP_LOG_WARNING("cancel delete failed. could not get migration lock [res=%d table=%s]",
+                             res, temp_table->full_name().c_str());
+            break;
+        }  
         temp_table->obtain_header_wrlock();
         res = cond_handler.delete_cond(temp_table, request.version, false);
         if (res != OLAP_SUCCESS) {
             temp_table->release_header_lock();
+            temp_table->release_migration_lock();
             OLAP_LOG_WARNING("cancel delete failed. [res=%d table=%s]",
                              res, temp_table->full_name().c_str());
             break;
@@ -2417,11 +2622,13 @@ OLAPStatus OLAPEngine::cancel_delete(const TCancelDeleteDataReq& request) {
         res = temp_table->save_header();
         if (res != OLAP_SUCCESS) {
             temp_table->release_header_lock();
+            temp_table->release_migration_lock();
             OLAP_LOG_WARNING("fail to save header. [res=%d table=%s]",
                              res, temp_table->full_name().c_str());
             break;
         }
         temp_table->release_header_lock();
+        temp_table->release_migration_lock();
     }
 
     // Show delete conditions in tablet header.
@@ -2429,15 +2636,14 @@ OLAPStatus OLAPEngine::cancel_delete(const TCancelDeleteDataReq& request) {
         cond_handler.log_conds(table);
     }
 
-    OLAP_LOG_INFO("finish to process cancel delete. [res=%d]", res);
+    LOG(INFO) << "finish to process cancel delete. res=" << res;
     return res;
 }
 
 OLAPStatus OLAPEngine::delete_data(
         const TPushReq& request,
         vector<TTabletInfo>* tablet_info_vec) {
-    OLAP_LOG_INFO("begin to process delete data. [request='%s']",
-                  ThriftDebugString(request).c_str());
+    LOG(INFO) << "begin to process delete data. request=" << ThriftDebugString(request);
     DorisMetrics::delete_requests_total.increment(1);
 
     OLAPStatus res = OLAP_SUCCESS;
@@ -2471,7 +2677,7 @@ OLAPStatus OLAPEngine::delete_data(
         return res;
     }
 
-    OLAP_LOG_INFO("finish to process delete data. [res=%d]", res);
+    LOG(INFO) << "finish to process delete data. res=" << res;
     return res;
 }
 
@@ -2480,9 +2686,15 @@ OLAPStatus OLAPEngine::recover_tablet_until_specfic_version(
     OLAPTablePtr table = get_table(recover_tablet_req.tablet_id,
                                    recover_tablet_req.schema_hash);
     if (table == nullptr) { return OLAP_ERR_TABLE_NOT_FOUND; }
-    RETURN_NOT_OK(table->recover_tablet_until_specfic_version(recover_tablet_req.version,
-                                                        recover_tablet_req.version_hash));
-    return OLAP_SUCCESS;
+    OLAPStatus lock_status = table->try_migration_rdlock();
+    if (lock_status != OLAP_SUCCESS) {
+        return lock_status;
+    }
+    OLAPStatus res = OLAP_SUCCESS;
+    res = table->recover_tablet_until_specfic_version(recover_tablet_req.version,
+                                                        recover_tablet_req.version_hash);
+    table->release_migration_lock();
+    return res;
 }
 
 string OLAPEngine::get_info_before_incremental_clone(OLAPTablePtr tablet,
@@ -2499,13 +2711,13 @@ string OLAPEngine::get_info_before_incremental_clone(OLAPTablePtr tablet,
         // TODO: Used in upgraded. If old Doris version, version can be converted.
         Version version(least_complete_version->start_version(), least_complete_version->end_version()); 
         missing_versions->push_back(version);
-        LOG(INFO) << "least complete version for incremental clone. table=" << tablet->full_name() << ", "
-                  << "least_complete_version=" << least_complete_version->end_version();
+        LOG(INFO) << "least complete version for incremental clone. table=" << tablet->full_name()
+                  << ", least_complete_version=" << least_complete_version->end_version();
     }
 
     tablet->release_header_lock();
     LOG(INFO) << "finish to calculate missing versions when clone. [table=" << tablet->full_name()
-              << " committed_version=" << committed_version << " missing_versions_size=" << missing_versions->size() << "]";
+              << ", committed_version=" << committed_version << " missing_versions_size=" << missing_versions->size() << "]";
 
     // get download path
     return tablet->tablet_path() + CLONE_PREFIX;
@@ -2554,20 +2766,37 @@ OLAPStatus OLAPEngine::finish_clone(OLAPTablePtr tablet, const string& clone_dir
             break;
         }
 
+        std::vector<std::string> files_to_check;
+        for (auto& clone_file : clone_files) {
+            if (local_files.find(clone_file) != local_files.end()) {
+                files_to_check.push_back(clone_file);
+            }
+        }
+        revoke_files_from_gc(files_to_check);
+        // get the local files again
+        // because the original local files maybe be deleted by gc before check is done
+        local_files.clear();
+        if ((res = dir_walk(tablet_dir, NULL, &local_files)) != OLAP_SUCCESS) {
+            LOG(WARNING) << "failed to dir walk when clone. [tablet_dir=" << tablet_dir << "]";
+            break;
+        }
+
         // link files from clone dir, if file exists, skip it
         for (const string& clone_file : clone_files) {
             if (local_files.find(clone_file) != local_files.end()) {
-                OLAP_LOG_DEBUG("find same file when clone, skip it. [table=%s clone_file=%s]",
-                               tablet->full_name().c_str(), clone_file.c_str());
+                VLOG(3) << "find same file when clone, skip it. "
+                        << "tablet=" << tablet->full_name()
+                        << ", clone_file=" << clone_file;
                 continue;
             }
 
             string from = clone_dir + "/" + clone_file;
             string to = tablet_dir + "/" + clone_file;
-            LOG(INFO) << "src file:" << from << ", " << "dest file:" << to;
+            LOG(INFO) << "src file:" << from << "dest file:" << to;
             if (link(from.c_str(), to.c_str()) != 0) {
-                OLAP_LOG_WARNING("fail to create hard link when clone. [from=%s to=%s]",
-                                 from.c_str(), to.c_str());
+                LOG(WARNING) << "fail to create hard link when clone."
+                             << "[from=" << from
+                             << " to=" << to << "]";
                 res = OLAP_ERR_OS_ERROR;
                 break;
             }
@@ -2605,15 +2834,43 @@ OLAPStatus OLAPEngine::finish_clone(OLAPTablePtr tablet, const string& clone_dir
     // clear clone dir
     boost::filesystem::path clone_dir_path(clone_dir);
     boost::filesystem::remove_all(clone_dir_path);
-    OLAP_LOG_INFO("finish to clone data, clear downloaded data. "
-                  "[table=%s clone_dir=%s clone_res=%d]",
-                  tablet->full_name().c_str(), clone_dir.c_str(), res);
+    LOG(INFO) << "finish to clone data, clear downloaded data. res=" << res
+              << ", tablet=" << tablet->full_name()
+              << ", clone_dir=" << clone_dir;
+    return res;
+}
+
+OLAPStatus OLAPEngine::obtain_shard_path_by_hash(
+        int64_t path_hash, std::string* shard_path, OlapStore** store) {
+    LOG(INFO) << "begin to process obtain root path by hash: " <<  path_hash;
+    OLAPStatus res = OLAP_SUCCESS;
+
+    auto the_store = OLAPEngine::get_instance()->get_store(path_hash);
+    if (the_store == nullptr) {
+        LOG(WARNING) << "failed to get store by path hash: " << path_hash;
+        return OLAP_REQUEST_FAILED;
+    }
+
+    uint64_t shard = 0;
+    res = the_store->get_shard(&shard);
+    if (res != OLAP_SUCCESS) {
+        LOG(WARNING) << "fail to get root path shard. res: " << res;
+        return res;
+    }
+    
+    stringstream root_path_stream;
+    root_path_stream << the_store->path() << DATA_PREFIX << "/" << shard;
+    *shard_path = root_path_stream.str();
+    *store = the_store;
+
+    LOG(INFO) << "success to process obtain root path by hash. path: "
+              << shard_path;
     return res;
 }
 
 OLAPStatus OLAPEngine::obtain_shard_path(
         TStorageMedium::type storage_medium, std::string* shard_path, OlapStore** store) {
-    OLAP_LOG_INFO("begin to process obtain root path. [storage_medium=%d]", storage_medium);
+    LOG(INFO) << "begin to process obtain root path. storage_medium=" << storage_medium;
     OLAPStatus res = OLAP_SUCCESS;
 
     if (shard_path == NULL) {
@@ -2639,17 +2896,16 @@ OLAPStatus OLAPEngine::obtain_shard_path(
     *shard_path = root_path_stream.str();
     *store = stores[0];
 
-    OLAP_LOG_INFO("success to process obtain root path. [path='%s']",
-                  shard_path->c_str());
+    LOG(INFO) << "success to process obtain root path. path=" << shard_path;
     return res;
 }
 
 OLAPStatus OLAPEngine::load_header(
         const string& shard_path,
         const TCloneReq& request) {
-    OLAP_LOG_INFO("begin to process load headers. "
-                  "[tablet_id=%ld schema_hash=%d]",
-                  request.tablet_id, request.schema_hash);
+    LOG(INFO) << "begin to process load headers."
+              << "tablet_id=" << request.tablet_id
+              << ", schema_hash=" << request.schema_hash;
     OLAPStatus res = OLAP_SUCCESS;
 
     OlapStore* store = nullptr;
@@ -2682,7 +2938,7 @@ OLAPStatus OLAPEngine::load_header(
         return res;
     }
 
-    OLAP_LOG_INFO("success to process load headers.");
+    LOG(INFO) << "success to process load headers.";
     return res;
 }
 
@@ -2691,8 +2947,8 @@ OLAPStatus OLAPEngine::load_header(
         const string& shard_path,
         TTabletId tablet_id,
         TSchemaHash schema_hash) {
-    OLAP_LOG_INFO("begin to process load headers. [tablet_id=%ld schema_hash=%d]",
-                  tablet_id, schema_hash);
+    LOG(INFO) << "begin to process load headers. tablet_id=" << tablet_id
+              << "schema_hash=" << schema_hash;
     OLAPStatus res = OLAP_SUCCESS;
 
     stringstream schema_hash_path_stream;
@@ -2708,14 +2964,14 @@ OLAPStatus OLAPEngine::load_header(
         return res;
     }
 
-    OLAP_LOG_INFO("success to process load headers.");
+    LOG(INFO) << "success to process load headers.";
     return res;
 }
 
 OLAPStatus OLAPEngine::clear_alter_task(const TTabletId tablet_id,
                                         const TSchemaHash schema_hash) {
-    OLAP_LOG_INFO("begin to process clear alter task. [tablet_id=%ld schema_hash=%d]",
-                  tablet_id, schema_hash);
+    LOG(INFO) << "begin to process clear alter task. tablet_id=" << tablet_id
+              << ", schema_hash=" << schema_hash;
     OLAPTablePtr tablet = get_table(tablet_id, schema_hash);
     if (tablet.get() == NULL) {
         OLAP_LOG_WARNING("can't find tablet when process clear alter task. ",
@@ -2772,8 +3028,9 @@ OLAPStatus OLAPEngine::clear_alter_task(const TTabletId tablet_id,
         related_table->release_header_lock();
     }
 
-    OLAP_LOG_INFO("finish to process clear alter task. [tablet_id=%ld schema_hash=%d]",
-                  related_tablet_id, related_schema_hash);
+    LOG(INFO) << "finish to process clear alter task."
+              << "tablet_id=" << related_tablet_id
+              << ", schema_hash=" << related_schema_hash;
     return OLAP_SUCCESS;
 }
 
@@ -2781,8 +3038,8 @@ OLAPStatus OLAPEngine::push(
         const TPushReq& request,
         vector<TTabletInfo>* tablet_info_vec) {
     OLAPStatus res = OLAP_SUCCESS;
-    OLAP_LOG_INFO("begin to process push. [tablet_id=%ld version=%ld]",
-                  request.tablet_id, request.version);
+    LOG(INFO) << "begin to process push. tablet_id=" << request.tablet_id
+              << ", version=" << request.version;
 
     if (tablet_info_vec == NULL) {
         OLAP_LOG_WARNING("invalid output parameter which is null pointer.");
@@ -2806,16 +3063,22 @@ OLAPStatus OLAPEngine::push(
 
     int64_t duration_ns = 0;
     PushHandler push_handler;
-    if (request.__isset.transaction_id) {
-        {
-            SCOPED_RAW_TIMER(&duration_ns);
-            res = push_handler.process_realtime_push(olap_table, request, type, tablet_info_vec);
-        }
+    OLAPStatus lock_status = olap_table->try_migration_rdlock();
+    if (lock_status != OLAP_SUCCESS) {
+        res = lock_status;
     } else {
-        {
-            SCOPED_RAW_TIMER(&duration_ns);
-            res = push_handler.process(olap_table, request, type, tablet_info_vec);
+        if (request.__isset.transaction_id) {
+            {
+                SCOPED_RAW_TIMER(&duration_ns);
+                res = push_handler.process_realtime_push(olap_table, request, type, tablet_info_vec);
+            }
+        } else {
+            {
+                SCOPED_RAW_TIMER(&duration_ns);
+                res = push_handler.process(olap_table, request, type, tablet_info_vec);
+            }
         }
+        olap_table->release_migration_lock();
     }
 
     if (res != OLAP_SUCCESS) {

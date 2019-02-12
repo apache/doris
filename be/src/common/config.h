@@ -81,19 +81,19 @@ namespace config {
     // the count of thread to check consistency
     CONF_Int32(check_consistency_worker_count, "1");
     // the count of thread to upload
-    CONF_Int32(upload_worker_count, "3");
+    CONF_Int32(upload_worker_count, "1");
     // the count of thread to download
-    CONF_Int32(download_worker_count, "3");
+    CONF_Int32(download_worker_count, "1");
     // the count of thread to make snapshot
     CONF_Int32(make_snapshot_worker_count, "5");
     // the count of thread to release snapshot
     CONF_Int32(release_snapshot_worker_count, "5");
-    // the interval time(seconds) for agent report tasks signatrue to dm
+    // the interval time(seconds) for agent report tasks signatrue to FE
     CONF_Int32(report_task_interval_seconds, "10");
-    // the interval time(seconds) for agent report disk state to dm
-    CONF_Int32(report_disk_state_interval_seconds, "600");
-    // the interval time(seconds) for agent report olap table to dm
-    CONF_Int32(report_olap_table_interval_seconds, "600");
+    // the interval time(seconds) for agent report disk state to FE
+    CONF_Int32(report_disk_state_interval_seconds, "60");
+    // the interval time(seconds) for agent report olap table to FE
+    CONF_Int32(report_olap_table_interval_seconds, "60");
     // the timeout(seconds) for alter table
     CONF_Int32(alter_table_timeout_seconds, "86400");
     // the timeout(seconds) for make snapshot
@@ -121,6 +121,7 @@ namespace config {
 
     // log dir
     CONF_String(sys_log_dir, "${DORIS_HOME}/log");
+    CONF_String(user_function_dir, "${DORIS_HOME}/lib/usr");
     // INFO, WARNING, ERROR, FATAL
     CONF_String(sys_log_level, "INFO");
     // TIME-DAY, TIME-HOUR, SIZE-MB-nnn
@@ -217,9 +218,9 @@ namespace config {
     // incremental delta policy
     CONF_Int32(incremental_delta_expire_time_sec, "1800");
     // garbage sweep policy
-    CONF_Int32(max_garbage_sweep_interval, "86400");
+    CONF_Int32(max_garbage_sweep_interval, "43200");
     CONF_Int32(min_garbage_sweep_interval, "200");
-    CONF_Int32(snapshot_expire_time_sec, "864000");
+    CONF_Int32(snapshot_expire_time_sec, "172800");
     // 仅仅是建议值，当磁盘空间不足时，trash下的文件保存期可不遵守这个参数
     CONF_Int32(trash_file_expire_time_sec, "259200");
     CONF_Int32(disk_capacity_insufficient_percentage, "90");
@@ -259,7 +260,7 @@ namespace config {
     CONF_Int32(periodic_counter_update_period_ms, "500");
 
     // Used for mini Load
-    CONF_Int64(load_data_reserve_hours, "24");
+    CONF_Int64(load_data_reserve_hours, "4");
     CONF_Int64(mini_load_max_mb, "2048");
     CONF_Int32(number_tablet_writer_threads, "16");
 
@@ -337,42 +338,36 @@ namespace config {
     // cpu count
     CONF_Int32(flags_num_cores, "32");
 
-    CONF_Bool(FLAGS_thread_creation_fault_injection, "false");
+    CONF_Bool(thread_creation_fault_injection, "false");
 
     // Set this to encrypt and perform an integrity
     // check on all data spilled to disk during a query
-    CONF_Bool(FLAGS_disk_spill_encryption, "false");
+    CONF_Bool(disk_spill_encryption, "false");
 
     // Writable scratch directories
-    CONF_String(FLAGS_scratch_dirs, "/tmp");
+    CONF_String(scratch_dirs, "/tmp");
 
     // If false and --scratch_dirs contains multiple directories on the same device,
     // then only the first writable directory is used
-    CONF_Bool(FLAGS_allow_multiple_scratch_dirs_per_device, "false");
+    CONF_Bool(allow_multiple_scratch_dirs_per_device, "false");
 
     // linux transparent huge page
-    CONF_Bool(FLAGS_madvise_huge_pages, "false");
+    CONF_Bool(madvise_huge_pages, "false");
 
     // whether use mmap to allocate memory
-    CONF_Bool(FLAGS_mmap_buffers, "false");
-
-    // whether or not user mem pool
-    CONF_Bool(FLAGS_disable_mem_pools, "false");
+    CONF_Bool(mmap_buffers, "false");
 
     // max memory can be allocated by buffer pool
-    CONF_String(FLAGS_buffer_pool_limit, "80G");
+    CONF_String(buffer_pool_limit, "80G");
 
     // clean page can be hold by buffer pool
-    CONF_String(FLAGS_buffer_pool_clean_pages_limit, "20G");
-    
-    // buffer pool can support min memory allocated
-    CONF_Int32(FLAGS_min_buffer_size, "1024");
+    CONF_String(buffer_pool_clean_pages_limit, "20G");
 
     // Sleep time in seconds between memory maintenance iterations
-    CONF_Int64(FLAGS_memory_maintenance_sleep_time_s, "10");
+    CONF_Int64(memory_maintenance_sleep_time_s, "10");
 
     // Aligement
-    CONF_Int32(FLAGS_MEMORY_MAX_ALIGNMENT, "16");
+    CONF_Int32(memory_max_alignment, "16");
 
     // write buffer size before flush
     CONF_Int32(write_buffer_size, "104857600");
@@ -385,6 +380,18 @@ namespace config {
 
     // can perform recovering tablet
     CONF_Bool(force_recovery, "false");
+
+    // the increased frequency of priority for remaining tasks in BlockingPriorityQueue
+    CONF_Int32(priority_queue_remaining_tasks_increased_frequency, "512");
+
+    // sync tablet_meta when modifing meta
+    CONF_Bool(sync_tablet_meta, "false");
+
+    // default thrift rpc timeout ms
+    CONF_Int32(thrift_rpc_timeout_ms, "5000");
+
+    // txn commit rpc timeout
+    CONF_Int32(txn_commit_rpc_timeout_ms, "10000");
 } // namespace config
 
 } // namespace doris

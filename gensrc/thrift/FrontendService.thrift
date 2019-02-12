@@ -457,6 +457,7 @@ struct TLoadTxnBeginRequest {
     5: required string tbl
     6: optional string user_ip
     7: required string label
+    8: optional i64 timestamp
 }
 
 struct TLoadTxnBeginResult {
@@ -500,6 +501,34 @@ struct TStreamLoadPutResult {
     2: optional PaloInternalService.TExecPlanFragmentParams params
 }
 
+enum TRoutineLoadType {
+    KAFKA = 1
+}
+
+struct TKafkaRLTaskProgress {
+    1: required map<i32,i64> partitionIdToOffset
+}
+
+enum TTxnSourceType {
+    ROUTINE_LOAD_TASK = 1
+}
+
+struct TRLTaskTxnCommitAttachment {
+    1: required TRoutineLoadType routineLoadType
+    2: required i64 backendId
+    3: required i64 taskSignature
+    4: required i32 numOfErrorData
+    5: required i32 numOfTotalData
+    6: required string taskId
+    7: required string jobId
+    8: optional TKafkaRLTaskProgress kafkaRLTaskProgress
+}
+
+struct TTxnCommitAttachment {
+    1: required TTxnSourceType txnSourceType
+    2: optional TRLTaskTxnCommitAttachment rlTaskTxnCommitAttachment
+}
+
 struct TLoadTxnCommitRequest {
     1: optional string cluster
     2: required string user
@@ -510,6 +539,7 @@ struct TLoadTxnCommitRequest {
     7: required i64 txnId
     8: required bool sync
     9: optional list<Types.TTabletCommitInfo> commitInfos
+    10: optional TTxnCommitAttachment txnCommitAttachment
 }
 
 struct TLoadTxnCommitResult {
@@ -529,6 +559,14 @@ struct TLoadTxnRollbackRequest {
 
 struct TLoadTxnRollbackResult {
     1: required Status.TStatus status
+}
+
+struct TSnapshotLoaderReportRequest {
+    1: required i64 job_id
+    2: required i64 task_id
+    3: required Types.TTaskType task_type
+    4: optional i32 finished_num
+    5: optional i32 total_num
 }
 
 service FrontendService {
@@ -557,4 +595,5 @@ service FrontendService {
 
     TStreamLoadPutResult streamLoadPut(1: TStreamLoadPutRequest request)
 
+    Status.TStatus snapshotLoaderReport(1: TSnapshotLoaderReportRequest request)
 }

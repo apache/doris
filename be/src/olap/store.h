@@ -42,12 +42,14 @@ public:
     Status load();
 
     const std::string& path() const { return _path; }
+    const int64_t path_hash() const { return _path_hash; }
     bool is_used() const { return _is_used; }
     void set_is_used(bool is_used) { _is_used = is_used; }
     int32_t cluster_id() const { return _cluster_id; }
     RootPathInfo to_root_path_info() {
         RootPathInfo info;
         info.path = _path;
+        info.path_hash = _path_hash;
         info.is_used = _is_used;
         info.capacity = _capacity_bytes;
         return info;
@@ -79,6 +81,10 @@ public:
     static std::string get_root_path_from_schema_hash_path_in_trash(const std::string& schema_hash_dir_in_trash);
 
     OLAPStatus load_tables(OLAPEngine* engine);
+    OLAPStatus check_none_row_oriented_table_in_store(OLAPEngine* engine);
+    OLAPStatus _check_none_row_oriented_table_in_store(
+                        OLAPEngine* engine, TTabletId tablet_id,
+                        TSchemaHash schema_hash, const std::string& header);
 
 private:
     std::string _cluster_id_path() const { return _path + CLUSTER_ID_PREFIX; }
@@ -96,11 +102,14 @@ private:
     OLAPStatus _load_table_from_header(OLAPEngine* engine, TTabletId tablet_id,
                 TSchemaHash schema_hash, const std::string& header);
 
+    void _deal_with_header_error(TTabletId tablet_id, TSchemaHash schema_hash, int shard);
+
 private:
     friend class OLAPRootPath;
     friend class OLAPEngine;
     
     std::string _path;
+    int64_t _path_hash;
     int32_t _cluster_id;
     uint32_t _rand_seed;
 

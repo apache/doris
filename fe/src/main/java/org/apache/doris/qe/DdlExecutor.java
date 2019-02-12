@@ -17,6 +17,9 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.AdminCancelRepairTableStmt;
+import org.apache.doris.analysis.AdminRepairTableStmt;
+import org.apache.doris.analysis.AdminSetConfigStmt;
 import org.apache.doris.analysis.AlterClusterStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
 import org.apache.doris.analysis.AlterDatabaseRename;
@@ -29,8 +32,10 @@ import org.apache.doris.analysis.CancelBackupStmt;
 import org.apache.doris.analysis.CancelLoadStmt;
 import org.apache.doris.analysis.CreateClusterStmt;
 import org.apache.doris.analysis.CreateDbStmt;
+import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.CreateRepositoryStmt;
 import org.apache.doris.analysis.CreateRoleStmt;
+import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.CreateViewStmt;
@@ -38,6 +43,7 @@ import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.analysis.DeleteStmt;
 import org.apache.doris.analysis.DropClusterStmt;
 import org.apache.doris.analysis.DropDbStmt;
+import org.apache.doris.analysis.DropFunctionStmt;
 import org.apache.doris.analysis.DropRepositoryStmt;
 import org.apache.doris.analysis.DropRoleStmt;
 import org.apache.doris.analysis.DropTableStmt;
@@ -46,13 +52,17 @@ import org.apache.doris.analysis.GrantStmt;
 import org.apache.doris.analysis.LinkDbStmt;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.MigrateDbStmt;
+import org.apache.doris.analysis.PauseRoutineLoadStmt;
 import org.apache.doris.analysis.RecoverDbStmt;
 import org.apache.doris.analysis.RecoverPartitionStmt;
 import org.apache.doris.analysis.RecoverTableStmt;
 import org.apache.doris.analysis.RestoreStmt;
+import org.apache.doris.analysis.ResumeRoutineLoadStmt;
 import org.apache.doris.analysis.RevokeStmt;
 import org.apache.doris.analysis.SetUserPropertyStmt;
+import org.apache.doris.analysis.StopRoutineLoadStmt;
 import org.apache.doris.analysis.SyncStmt;
+import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -78,6 +88,10 @@ public class DdlExecutor {
             catalog.createDb((CreateDbStmt) ddlStmt);
         } else if (ddlStmt instanceof DropDbStmt) {
             catalog.dropDb((DropDbStmt) ddlStmt);
+        } else if (ddlStmt instanceof CreateFunctionStmt) {
+            catalog.createFunction((CreateFunctionStmt) ddlStmt);
+        } else if (ddlStmt instanceof DropFunctionStmt) {
+            catalog.dropFunction((DropFunctionStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateTableStmt) {
             catalog.createTable((CreateTableStmt) ddlStmt);
         } else if (ddlStmt instanceof DropTableStmt) {
@@ -101,7 +115,15 @@ public class DdlExecutor {
             catalog.getLoadInstance().addLoadJob(loadStmt, jobType, System.currentTimeMillis());
         } else if (ddlStmt instanceof CancelLoadStmt) {
             catalog.getLoadInstance().cancelLoadJob((CancelLoadStmt) ddlStmt);
-        } else if (ddlStmt instanceof DeleteStmt) {
+        } else if (ddlStmt instanceof CreateRoutineLoadStmt) {
+            catalog.getRoutineLoadManager().addRoutineLoadJob((CreateRoutineLoadStmt) ddlStmt);
+        } else if (ddlStmt instanceof PauseRoutineLoadStmt) {
+            catalog.getRoutineLoadManager().pauseRoutineLoadJob((PauseRoutineLoadStmt) ddlStmt);
+        } else if (ddlStmt instanceof ResumeRoutineLoadStmt) {
+            catalog.getRoutineLoadManager().resumeRoutineLoadJob((ResumeRoutineLoadStmt) ddlStmt);
+        } else if (ddlStmt instanceof StopRoutineLoadStmt) {
+            catalog.getRoutineLoadManager().stopRoutineLoadJob((StopRoutineLoadStmt) ddlStmt);
+        }  else if (ddlStmt instanceof DeleteStmt) {
             catalog.getLoadInstance().delete((DeleteStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateUserStmt) {
             CreateUserStmt stmt = (CreateUserStmt) ddlStmt;
@@ -151,6 +173,14 @@ public class DdlExecutor {
             catalog.getBackupHandler().dropRepository((DropRepositoryStmt) ddlStmt);
         } else if (ddlStmt instanceof SyncStmt) {
             return;
+        } else if (ddlStmt instanceof TruncateTableStmt) {
+            catalog.truncateTable((TruncateTableStmt) ddlStmt);
+        } else if (ddlStmt instanceof AdminRepairTableStmt) {
+            catalog.getTabletChecker().repairTable((AdminRepairTableStmt) ddlStmt);
+        } else if (ddlStmt instanceof AdminCancelRepairTableStmt) {
+            catalog.getTabletChecker().cancelRepairTable((AdminCancelRepairTableStmt) ddlStmt);
+        } else if (ddlStmt instanceof AdminSetConfigStmt) {
+            catalog.setConfig((AdminSetConfigStmt) ddlStmt);
         } else {
             throw new DdlException("Unknown statement.");
         }

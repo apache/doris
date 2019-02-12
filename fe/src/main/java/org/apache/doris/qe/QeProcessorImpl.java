@@ -20,8 +20,14 @@ package org.apache.doris.qe;
 
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.thrift.*;
+import org.apache.doris.thrift.TReportExecStatusParams;
+import org.apache.doris.thrift.TReportExecStatusResult;
+import org.apache.doris.thrift.TStatus;
+import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TUniqueId;
+
 import com.google.common.collect.Maps;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -49,7 +55,7 @@ public final class QeProcessorImpl implements QeProcessor {
 
     @Override
     public void registerQuery(TUniqueId queryId, QueryInfo info) throws UserException {
-        LOG.info("register query id = " + queryId.toString());
+        LOG.info("register query id = " + DebugUtil.printId(queryId));
         final QueryInfo result = coordinatorMap.putIfAbsent(queryId, info);
         if (result != null) {
             throw new UserException("queryId " + queryId + " already exists");
@@ -58,8 +64,9 @@ public final class QeProcessorImpl implements QeProcessor {
 
     @Override
     public void unregisterQuery(TUniqueId queryId) {
-        LOG.info("deregister query id = " + queryId.toString());
-        coordinatorMap.remove(queryId);
+        if (coordinatorMap.remove(queryId) != null) {
+            LOG.info("deregister query id {}", DebugUtil.printId(queryId));
+        }
     }
 
     @Override
@@ -77,8 +84,10 @@ public final class QeProcessorImpl implements QeProcessor {
                     .queryStartTime(info.getStartExecTime())
                     .sql(info.getSql())
                     .user(context.getQualifiedUser())
-                    .db(context.getDatabase()).fragmentInstanceInfos(info.getCoord()
-                            .getFragmentInstanceInfos()).build();
+                    .connId(String.valueOf(context.getConnectionId()))
+                    .db(context.getDatabase())
+                    .fragmentInstanceInfos(info.getCoord().getFragmentInstanceInfos())
+                    .profile(info.getCoord().getQueryProfile()).build();
             querySet.put(queryIdStr, item);
         }
         return querySet;
@@ -86,9 +95,8 @@ public final class QeProcessorImpl implements QeProcessor {
 
     @Override
     public TReportExecStatusResult reportExecStatus(TReportExecStatusParams params) {
-        LOG.info("ReportExecStatus(): instance_id=" + params.fragment_instance_id.toString()
-                + "queryID=" + params.query_id.toString() + " params=" + params);
-
+        LOG.info("ReportExecStatus(): fragment_instance_id=" + DebugUtil.printId(params.fragment_instance_id)
+                + ", query id=" + DebugUtil.printId(params.query_id) + " params=" + params);
         final TReportExecStatusResult result = new TReportExecStatusResult();
         final QueryInfo info = coordinatorMap.get(params.query_id);
         if (info == null) {
@@ -107,7 +115,6 @@ public final class QeProcessorImpl implements QeProcessor {
     }
 
     public static final class QueryInfo {
-
         private final ConnectContext connectContext;
         private final Coordinator coord;
         private final String sql;

@@ -17,19 +17,18 @@
 
 #include <gtest/gtest.h>
 
-#include "olap/column_file/byte_buffer.h"
-#include "olap/column_file/out_stream.h"
-#include "olap/column_file/in_stream.h"
-#include "olap/column_file/file_stream.h"
-#include "olap/column_file/run_length_byte_writer.h"
-#include "olap/column_file/run_length_byte_reader.h"
-#include "olap/column_file/column_reader.h"
-#include "olap/column_file/stream_index_reader.h"
-#include "olap/column_file/stream_index_writer.h"
+#include "olap/byte_buffer.h"
+#include "olap/out_stream.h"
+#include "olap/in_stream.h"
+#include "olap/file_stream.h"
+#include "olap/run_length_byte_writer.h"
+#include "olap/run_length_byte_reader.h"
+#include "olap/column_reader.h"
+#include "olap/stream_index_reader.h"
+#include "olap/stream_index_writer.h"
 #include "util/logging.h"
 
 namespace doris {
-namespace column_file {
 
 using namespace testing;
 
@@ -47,7 +46,7 @@ TEST(TestStream, UncompressOutStream) {
 
     ASSERT_EQ(out_stream->output_buffers().size(), 1);
 
-    std::vector<ByteBuffer*>::const_iterator it = out_stream->output_buffers().begin();
+    std::vector<StorageByteBuffer*>::const_iterator it = out_stream->output_buffers().begin();
     ASSERT_EQ((*it)->position(), 0);
     StreamHead head;
     (*it)->get((char *)&head, sizeof(head));
@@ -79,10 +78,10 @@ TEST(TestStream, UncompressOutStream2) {
 
     ASSERT_EQ(out_stream->output_buffers().size(), 2);
 
-    std::vector<ByteBuffer*> inputs;
-    std::vector<ByteBuffer*>::const_iterator it = out_stream->output_buffers().begin();
+    std::vector<StorageByteBuffer*> inputs;
+    std::vector<StorageByteBuffer*>::const_iterator it = out_stream->output_buffers().begin();
     for (; it != out_stream->output_buffers().end(); ++it) {
-        ByteBuffer *tmp_byte_buffer = ByteBuffer::reference_buffer(*it, 0, (*it)->limit());
+        StorageByteBuffer *tmp_byte_buffer = StorageByteBuffer::reference_buffer(*it, 0, (*it)->limit());
         inputs.push_back(tmp_byte_buffer);
     }
     std::vector<uint64_t> offsets;
@@ -131,10 +130,10 @@ TEST(TestStream, UncompressOutStream3) {
 
     ASSERT_EQ(out_stream->output_buffers().size(), 2);
 
-    std::vector<ByteBuffer*> inputs;
-    std::vector<ByteBuffer*>::const_iterator it = out_stream->output_buffers().begin();
+    std::vector<StorageByteBuffer*> inputs;
+    std::vector<StorageByteBuffer*>::const_iterator it = out_stream->output_buffers().begin();
     for (; it != out_stream->output_buffers().end(); ++it) {
-        ByteBuffer *tmp_byte_buffer = ByteBuffer::reference_buffer(*it, 0, (*it)->limit());
+        StorageByteBuffer *tmp_byte_buffer = StorageByteBuffer::reference_buffer(*it, 0, (*it)->limit());
         inputs.push_back(tmp_byte_buffer);
     }
 
@@ -177,10 +176,10 @@ TEST(TestStream, UncompressInStream) {
     out_stream->flush();
 
     // read data
-    std::vector<ByteBuffer*> inputs;
-    std::vector<ByteBuffer*>::const_iterator it = out_stream->output_buffers().begin();
+    std::vector<StorageByteBuffer*> inputs;
+    std::vector<StorageByteBuffer*>::const_iterator it = out_stream->output_buffers().begin();
     ASSERT_NE(it, out_stream->output_buffers().end());
-    ByteBuffer *tmp_byte_buffer = ByteBuffer::reference_buffer(*it, 0, (*it)->capacity());
+    StorageByteBuffer *tmp_byte_buffer = StorageByteBuffer::reference_buffer(*it, 0, (*it)->capacity());
     inputs.push_back(tmp_byte_buffer);
 
     std::vector<uint64_t> offsets;
@@ -219,7 +218,7 @@ TEST(TestStream, CompressOutStream) {
 
     //ASSERT_EQ(out_stream->output_buffers().size(), 1);
 
-    std::vector<ByteBuffer*>::const_iterator it = out_stream->output_buffers().begin();
+    std::vector<StorageByteBuffer*>::const_iterator it = out_stream->output_buffers().begin();
 
     StreamHead head;
     (*it)->get((char *)&head, sizeof(head));
@@ -243,10 +242,10 @@ TEST(TestStream, CompressOutStream2) {
     out_stream->write(0x5a);
     out_stream->flush();
 
-    std::vector<ByteBuffer*> inputs;
-    std::vector<ByteBuffer*>::const_iterator it = out_stream->output_buffers().begin();
+    std::vector<StorageByteBuffer*> inputs;
+    std::vector<StorageByteBuffer*>::const_iterator it = out_stream->output_buffers().begin();
     for (; it != out_stream->output_buffers().end(); ++it) {
-        ByteBuffer *tmp_byte_buffer = ByteBuffer::reference_buffer(*it, 0, (*it)->limit());
+        StorageByteBuffer *tmp_byte_buffer = StorageByteBuffer::reference_buffer(*it, 0, (*it)->limit());
         inputs.push_back(tmp_byte_buffer);
     }
     std::vector<uint64_t> offsets;
@@ -290,10 +289,10 @@ TEST(TestStream, CompressOutStream3) {
     out_stream->write(write_data, sizeof(write_data));
     out_stream->flush();
 
-    std::vector<ByteBuffer*> inputs;
-    std::vector<ByteBuffer*>::const_iterator it = out_stream->output_buffers().begin();
+    std::vector<StorageByteBuffer*> inputs;
+    std::vector<StorageByteBuffer*>::const_iterator it = out_stream->output_buffers().begin();
     for (; it != out_stream->output_buffers().end(); ++it) {
-        ByteBuffer *tmp_byte_buffer = ByteBuffer::reference_buffer(*it, 0, (*it)->limit());
+        StorageByteBuffer *tmp_byte_buffer = StorageByteBuffer::reference_buffer(*it, 0, (*it)->limit());
         inputs.push_back(tmp_byte_buffer);
     }
     std::vector<uint64_t> offsets;
@@ -342,10 +341,10 @@ TEST(TestStream, CompressOutStream4) {
     }
     out_stream->flush();
 
-    std::vector<ByteBuffer*> inputs;
-    std::vector<ByteBuffer*>::const_iterator it = out_stream->output_buffers().begin();
+    std::vector<StorageByteBuffer*> inputs;
+    std::vector<StorageByteBuffer*>::const_iterator it = out_stream->output_buffers().begin();
     for (; it != out_stream->output_buffers().end(); ++it) {
-        ByteBuffer *tmp_byte_buffer = ByteBuffer::reference_buffer(*it, 0, (*it)->limit());
+        StorageByteBuffer *tmp_byte_buffer = StorageByteBuffer::reference_buffer(*it, 0, (*it)->limit());
         inputs.push_back(tmp_byte_buffer);
     }
     std::vector<uint64_t> offsets;
@@ -398,10 +397,10 @@ TEST(TestStream, CompressMassOutStream) {
     //out_stream->write(100);
     out_stream->flush();
 
-    std::vector<ByteBuffer*> inputs;
-    std::vector<ByteBuffer*>::const_iterator it = out_stream->output_buffers().begin();
+    std::vector<StorageByteBuffer*> inputs;
+    std::vector<StorageByteBuffer*>::const_iterator it = out_stream->output_buffers().begin();
     for (; it != out_stream->output_buffers().end(); ++it) {
-        ByteBuffer *tmp_byte_buffer = ByteBuffer::reference_buffer(*it, 0, (*it)->limit());
+        StorageByteBuffer *tmp_byte_buffer = StorageByteBuffer::reference_buffer(*it, 0, (*it)->limit());
         inputs.push_back(tmp_byte_buffer);
     }
     std::vector<uint64_t> offsets;
@@ -444,10 +443,10 @@ TEST(TestStream, CompressInStream) {
     out_stream->flush();
 
     // read data
-    std::vector<ByteBuffer*> inputs;
-    std::vector<ByteBuffer*>::const_iterator it = out_stream->output_buffers().begin();
+    std::vector<StorageByteBuffer*> inputs;
+    std::vector<StorageByteBuffer*>::const_iterator it = out_stream->output_buffers().begin();
     ASSERT_NE(it, out_stream->output_buffers().end());
-    ByteBuffer *tmp_byte_buffer = ByteBuffer::reference_buffer(*it, 0, (*it)->capacity());
+    StorageByteBuffer *tmp_byte_buffer = StorageByteBuffer::reference_buffer(*it, 0, (*it)->capacity());
     inputs.push_back(tmp_byte_buffer);
 
     std::vector<uint64_t> offsets;
@@ -490,10 +489,10 @@ TEST(TestStream, SeekUncompress) {
     out_stream->flush();
 
     // read data
-    std::vector<ByteBuffer*> inputs;
-    std::vector<ByteBuffer*>::const_iterator it = out_stream->output_buffers().begin();
+    std::vector<StorageByteBuffer*> inputs;
+    std::vector<StorageByteBuffer*>::const_iterator it = out_stream->output_buffers().begin();
     ASSERT_NE(it, out_stream->output_buffers().end());
-    ByteBuffer *tmp_byte_buffer = ByteBuffer::reference_buffer(*it, 0, (*it)->capacity());
+    StorageByteBuffer *tmp_byte_buffer = StorageByteBuffer::reference_buffer(*it, 0, (*it)->capacity());
     inputs.push_back(tmp_byte_buffer);
 
     std::vector<uint64_t> offsets;
@@ -543,10 +542,10 @@ TEST(TestStream, SkipUncompress) {
     out_stream->flush();
 
     // read data
-    std::vector<ByteBuffer*> inputs;
-    std::vector<ByteBuffer*>::const_iterator it = out_stream->output_buffers().begin();
+    std::vector<StorageByteBuffer*> inputs;
+    std::vector<StorageByteBuffer*>::const_iterator it = out_stream->output_buffers().begin();
     ASSERT_NE(it, out_stream->output_buffers().end());
-    ByteBuffer *tmp_byte_buffer = ByteBuffer::reference_buffer(*it, 0, (*it)->capacity());
+    StorageByteBuffer *tmp_byte_buffer = StorageByteBuffer::reference_buffer(*it, 0, (*it)->capacity());
     inputs.push_back(tmp_byte_buffer);
 
     std::vector<uint64_t> offsets;
@@ -585,10 +584,10 @@ TEST(TestStream, SeekCompress) {
     out_stream->flush();
 
     // read data
-    std::vector<ByteBuffer*> inputs;
-    std::vector<ByteBuffer*>::const_iterator it = out_stream->output_buffers().begin();
+    std::vector<StorageByteBuffer*> inputs;
+    std::vector<StorageByteBuffer*>::const_iterator it = out_stream->output_buffers().begin();
     ASSERT_NE(it, out_stream->output_buffers().end());
-    ByteBuffer *tmp_byte_buffer = ByteBuffer::reference_buffer(*it, 0, (*it)->capacity());
+    StorageByteBuffer *tmp_byte_buffer = StorageByteBuffer::reference_buffer(*it, 0, (*it)->capacity());
     inputs.push_back(tmp_byte_buffer);
 
     std::vector<uint64_t> offsets;
@@ -631,10 +630,10 @@ TEST(TestStream, SkipCompress) {
     out_stream->flush();
 
     // read data
-    std::vector<ByteBuffer*> inputs;
-    std::vector<ByteBuffer*>::const_iterator it = out_stream->output_buffers().begin();
+    std::vector<StorageByteBuffer*> inputs;
+    std::vector<StorageByteBuffer*>::const_iterator it = out_stream->output_buffers().begin();
     ASSERT_NE(it, out_stream->output_buffers().end());
-    ByteBuffer *tmp_byte_buffer = ByteBuffer::reference_buffer(*it, 0, (*it)->capacity());
+    StorageByteBuffer *tmp_byte_buffer = StorageByteBuffer::reference_buffer(*it, 0, (*it)->capacity());
     inputs.push_back(tmp_byte_buffer);
 
     std::vector<uint64_t> offsets;
@@ -689,7 +688,7 @@ public:
         ASSERT_EQ(OLAP_SUCCESS, helper.open_with_mode("tmp_file", 
                 O_RDONLY, S_IRUSR | S_IWUSR)); 
 
-        _shared_buffer = ByteBuffer::create(
+        _shared_buffer = StorageByteBuffer::create(
                 OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE + sizeof(StreamHead));
         ASSERT_TRUE(_shared_buffer != NULL);
 
@@ -711,7 +710,7 @@ public:
     OutStream* _out_stream;
     RunLengthByteWriter* _writer;
     FileHandler helper;
-    ByteBuffer* _shared_buffer;
+    StorageByteBuffer* _shared_buffer;
     ReadOnlyFileStream* _stream;
     OlapReaderStatistics _stats;
 };
@@ -845,7 +844,6 @@ TEST_F(TestRunLengthByte, Skip) {
     ASSERT_EQ(value, 0x5e);
 }
 
-}
 }
 
 int main(int argc, char** argv) {

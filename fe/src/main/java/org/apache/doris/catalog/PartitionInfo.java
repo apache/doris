@@ -71,6 +71,16 @@ public class PartitionInfo implements Writable {
         idToReplicationNum.put(partitionId, replicationNum);
     }
 
+    public void dropPartition(long partitionId) {
+        idToDataProperty.remove(partitionId);
+        idToReplicationNum.remove(partitionId);
+    }
+
+    public void addPartition(long partitionId, DataProperty dataProperty, short replicationNum) {
+        idToDataProperty.put(partitionId, dataProperty);
+        idToReplicationNum.put(partitionId, replicationNum);
+    }
+
     public static PartitionInfo read(DataInput in) throws IOException {
         PartitionInfo partitionInfo = new PartitionInfo();
         partitionInfo.readFields(in);

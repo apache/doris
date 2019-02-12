@@ -21,7 +21,6 @@
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "runtime/raw_value.h"
-#include "util/debug_util.h"
 
 namespace doris {
 
@@ -125,7 +124,7 @@ bool SelectNode::copy_rows(RowBatch* output_batch) {
     if (VLOG_ROW_IS_ON) {
         for (int i = 0; i < output_batch->num_rows(); ++i) {
             TupleRow* row = output_batch->get_row(i);
-            VLOG_ROW << "SelectNode input row: " << print_row(row, row_desc());
+            VLOG_ROW << "SelectNode input row: " << row->to_string(row_desc());
         }
     }
 

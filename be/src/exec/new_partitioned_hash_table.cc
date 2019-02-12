@@ -31,7 +31,6 @@
 #include "runtime/raw_value.h"
 #include "runtime/runtime_state.h"
 #include "runtime/string_value.h"
-#include "util/debug_util.h"
 #include "util/doris_metrics.h"
 
 #include "common/names.h"
@@ -566,7 +565,7 @@ void NewPartitionedHashTable::DebugStringTuple(std::stringstream& ss, HtData& ht
   }
   if (desc != NULL) {
     Tuple* row[num_build_tuples_];
-    ss << " " << print_row(GetRow(htdata, reinterpret_cast<TupleRow*>(row)), *desc);
+    ss << " " << GetRow(htdata, reinterpret_cast<TupleRow*>(row))->to_string(*desc);
   }
 }
 

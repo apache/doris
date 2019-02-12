@@ -48,6 +48,7 @@
 #include "gen_cpp/Data_types.h"
 #include "runtime/runtime_state.h"
 #include "runtime/raw_value.h"
+#include "runtime/user_function_cache.h"
 #include "util/debug_util.h"
 
 #include "gen_cpp/Exprs_types.h"
@@ -1077,11 +1078,15 @@ Status Expr::create_tree_internal(const vector<TExprNode>& nodes, ObjectPool* po
 
 // TODO chenhao
 void Expr::close() {
-  for (Expr* child : _children) child->close();
-  /*if (_cache_entry != nullptr) {
-    LibCache::instance()->decrement_use_count(_cache_entry);
-    _cache_entry = nullptr;
-  }*/
+    for (Expr* child : _children) child->close();
+    /*if (_cache_entry != nullptr) {
+      LibCache::instance()->decrement_use_count(_cache_entry);
+      _cache_entry = nullptr;
+      }*/
+    if (_cache_entry != nullptr) {
+        UserFunctionCache::instance()->release_entry(_cache_entry);
+        _cache_entry = nullptr;
+    }
 }
 
 void Expr::close(const vector<Expr*>& exprs) {

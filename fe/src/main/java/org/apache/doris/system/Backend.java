@@ -25,12 +25,11 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.metric.MetricRepo;
-import org.apache.doris.system.BackendEvent.BackendEventType;
+import org.apache.doris.system.HeartbeatResponse.HbStatus;
 import org.apache.doris.thrift.TDisk;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
-import com.google.common.eventbus.EventBus;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -38,8 +37,6 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.LinkedList;
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -154,12 +151,8 @@ public class Backend implements Writable {
         return heartbeatErrMsg;
     }
 
-    // back compatible with unit test
+    // for test only
     public void updateOnce(int bePort, int httpPort, int beRpcPort) {
-        updateOnce(bePort, httpPort, beRpcPort, -1);
-    }
-
-    public void updateOnce(int bePort, int httpPort, int beRpcPort, int brpcPort) {
         boolean isChanged = false;
         if (this.bePort.get() != bePort) {
             isChanged = true;
@@ -176,11 +169,6 @@ public class Backend implements Writable {
             this.beRpcPort.set(beRpcPort);
         }
 
-        if (this.brpcPort.get() != brpcPort) {
-            isChanged = true;
-            this.brpcPort.set(brpcPort);
-        }
-
         long currentTime = System.currentTimeMillis();
         this.lastUpdateMs.set(currentTime);
         if (!isAlive.get()) {
@@ -188,10 +176,6 @@ public class Backend implements Writable {
             this.lastStartTime.set(currentTime);
             LOG.info("{} is alive,", this.toString());
             this.isAlive.set(true);
-        }
-
-        if (isChanged) {
-            Catalog.getInstance().getEditLog().logBackendStateChange(this);
         }
 
         heartbeatErrMsg = "";
@@ -203,16 +187,6 @@ public class Backend implements Writable {
             return true;
         }
         return false;
-    }
-
-    public void setBad(EventBus eventBus, String errMsg) {
-        if (isAlive.compareAndSet(true, false)) {
-            Catalog.getInstance().getEditLog().logBackendStateChange(this);
-            LOG.warn("{} is dead", this.toString());
-        }
-
-        eventBus.post(new BackendEvent(BackendEventType.BACKEND_DOWN, "missing heartbeat", Long.valueOf(id)));
-        heartbeatErrMsg = errMsg;
     }
 
     public void setBackendState(BackendState state) {
@@ -303,15 +277,8 @@ public class Backend implements Writable {
         return this.disksRef.get();
     }
 
-    public List<String> getDiskInfosAsString() {
-        ImmutableMap<String, DiskInfo> disks = disksRef.get();
-        List<String> diskInfoStrings = new LinkedList<String>();
-        for (DiskInfo diskInfo : disks.values()) {
-            diskInfoStrings.add(diskInfo.getRootPath() + "|" + diskInfo.getTotalCapacityB() + "|"
-                    + diskInfo.getDataUsedCapacityB() + "|" + diskInfo.getAvailableCapacityB() + "|"
-                    + diskInfo.getState().name());
-        }
-        return diskInfoStrings;
+    public boolean hasPathHash() {
+        return disksRef.get().values().stream().allMatch(v -> v.hasPathHash());
     }
 
     public long getTotalCapacityB() {
@@ -348,10 +315,24 @@ public class Backend implements Writable {
         return dataUsedCapacityB;
     }
 
+    public String getPathByPathHash(long pathHash) {
+        for (DiskInfo diskInfo : disksRef.get().values()) {
+            if (diskInfo.getPathHash() == pathHash) {
+                return diskInfo.getRootPath();
+            }
+        }
+        return null;
+    }
+
     public void updateDisks(Map<String, TDisk> backendDisks) {
         // update status or add new diskInfo
         ImmutableMap<String, DiskInfo> disks = disksRef.get();
         Map<String, DiskInfo> newDisks = Maps.newHashMap();
+        /*
+         * set isChanged to true only if new disk is added or old disk is dropped.
+         * we ignore the change of capacity, because capacity info is only used in master FE.
+         */
+        boolean isChanged = false;
         for (TDisk tDisk : backendDisks.values()) {
             String rootPath = tDisk.getRoot_path();
             long totalCapacityB = tDisk.getDisk_total_capacity();
@@ -362,6 +343,7 @@ public class Backend implements Writable {
             DiskInfo diskInfo = disks.get(rootPath);
             if (diskInfo == null) {
                 diskInfo = new DiskInfo(rootPath);
+                isChanged = true;
                 LOG.info("add new disk info. backendId: {}, rootPath: {}", id, rootPath);
             }
             newDisks.put(rootPath, diskInfo);
@@ -369,31 +351,43 @@ public class Backend implements Writable {
             diskInfo.setTotalCapacityB(totalCapacityB);
             diskInfo.setDataUsedCapacityB(dataUsedCapacityB);
             diskInfo.setAvailableCapacityB(diskAvailableCapacityB);
+            if (tDisk.isSetPath_hash()) {
+                diskInfo.setPathHash(tDisk.getPath_hash());
+            }
+
+            if (tDisk.isSetStorage_medium()) {
+                diskInfo.setStorageMedium(tDisk.getStorage_medium());
+            }
+
             if (isUsed) {
-                diskInfo.setState(DiskState.ONLINE);
+                if (diskInfo.setState(DiskState.ONLINE)) {
+                    isChanged = true;
+                }
             } else {
-                diskInfo.setState(DiskState.OFFLINE);
+                if (diskInfo.setState(DiskState.OFFLINE)) {
+                    isChanged = true;
+                }
             }
             LOG.debug("update disk info. backendId: {}, diskInfo: {}", id, diskInfo.toString());
         }
 
         // remove not exist rootPath in backend
-        // no remove op. just log
         for (DiskInfo diskInfo : disks.values()) {
             String rootPath = diskInfo.getRootPath();
             if (!backendDisks.containsKey(rootPath)) {
+                isChanged = true;
                 LOG.warn("remove not exist rootPath. backendId: {}, rootPath: {}", id, rootPath);
             }
         }
 
-        // update disksRef
-        disksRef.set(ImmutableMap.copyOf(newDisks));
-
-        // log disk changing
-        Catalog.getInstance().getEditLog().logBackendStateChange(this);
-
-        // disks is changed, regenerated capacity metrics
-        MetricRepo.generateCapacityMetrics();
+        if (isChanged) {
+            // update disksRef
+            disksRef.set(ImmutableMap.copyOf(newDisks));
+            // log disk changing
+            Catalog.getInstance().getEditLog().logBackendStateChange(this);
+            // disks is changed, regenerated capacity metrics
+            MetricRepo.generateCapacityMetrics();
+        }
     }
 
     public static Backend read(DataInput in) throws IOException {
@@ -533,5 +527,49 @@ public class Backend implements Writable {
         return DecommissionType.SystemDecommission;
     }
 
+    /*
+     * handle Backend's heartbeat response.
+     * return true if any port changed, or alive state is changed.
+     */
+    public boolean handleHbResponse(BackendHbResponse hbResponse) {
+        boolean isChanged = false;
+        if (hbResponse.getStatus() == HbStatus.OK) {
+            if (this.bePort.get() != hbResponse.getBePort()) {
+                isChanged = true;
+                this.bePort.set(hbResponse.getBePort());
+            }
+
+            if (this.httpPort.get() != hbResponse.getHttpPort()) {
+                isChanged = true;
+                this.httpPort.set(hbResponse.getHttpPort());
+            }
+
+            if (this.brpcPort.get() != hbResponse.getBrpcPort()) {
+                isChanged = true;
+                this.brpcPort.set(hbResponse.getBrpcPort());
+            }
+
+            this.lastUpdateMs.set(hbResponse.getHbTime());
+            if (!isAlive.get()) {
+                isChanged = true;
+                this.lastStartTime.set(hbResponse.getHbTime());
+                LOG.info("{} is alive, last start time: {}", this.toString(), hbResponse.getHbTime());
+                this.isAlive.set(true);
+            } else if (this.lastStartTime.get() <= 0) {
+                this.lastStartTime.set(hbResponse.getHbTime());
+            }
+
+            heartbeatErrMsg = "";
+        } else {
+            if (isAlive.compareAndSet(true, false)) {
+                isChanged = true;
+                LOG.info("{} is dead,", this.toString());
+            }
+
+            heartbeatErrMsg = hbResponse.getMsg() == null ? "Unknown error" : hbResponse.getMsg();
+        }
+
+        return isChanged;
+    }
 }
 

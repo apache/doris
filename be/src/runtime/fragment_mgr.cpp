@@ -33,6 +33,7 @@
 #include "util/debug_util.h"
 #include "util/doris_metrics.h"
 #include "util/thrift_util.h"
+#include "runtime/client_cache.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/DataSinks_types.h"
@@ -313,7 +314,6 @@ void FragmentExecState::coordinator_callback(
                 _executor.cancel();
                 return;
             }
-
             coord->reportExecStatus(res, params);
         }
 
@@ -500,40 +500,31 @@ void FragmentMgr::cancel_worker() {
     LOG(INFO) << "FragmentMgr cancel worker is going to exit.";
 }
 
-
-Status FragmentMgr::fetch_fragment_exec_infos(PFetchFragmentExecInfosResult* result,
-                                              const PFetchFragmentExecInfoRequest* request) {
-    int fragment_id_list_size = request->finst_id_size();
-    for (int i = 0; i < fragment_id_list_size; i++) {
-        const PUniqueId& p_fragment_id = request->finst_id(i);
-        TUniqueId id;
-        id.__set_hi(p_fragment_id.hi());
-        id.__set_lo(p_fragment_id.lo()); 
-        PFragmentExecInfo* info = result->add_fragment_exec_info();
-        PUniqueId* finst_id = info->mutable_finst_id();
-        finst_id->set_hi(p_fragment_id.hi());
-        finst_id->set_lo(p_fragment_id.lo()); 
-
-        bool is_running = false; 
-        std::lock_guard<std::mutex> lock(_lock);
-        {
-            auto iter = _fragment_map.find(id);
-            if (iter == _fragment_map.end()) {
-                info->set_exec_status(PFragmentExecStatus::FINISHED);
-                continue;
+Status FragmentMgr::trigger_profile_report(const PTriggerProfileReportRequest* request) {
+    if (request->instance_ids_size() > 0) {
+        for (int i = 0; i < request->instance_ids_size(); i++) {
+            const PUniqueId& p_fragment_id = request->instance_ids(i);
+            TUniqueId id;
+            id.__set_hi(p_fragment_id.hi());
+            id.__set_lo(p_fragment_id.lo());
+            {
+                std::lock_guard<std::mutex> lock(_lock);
+                auto iter = _fragment_map.find(id);
+                if (iter != _fragment_map.end()) {
+                    iter->second->executor()->report_profile_once();
+                }
             }
-            is_running = iter->second->executor()->runtime_state()->is_running();
         }
-
-        if (is_running) {
-            info->set_exec_status(PFragmentExecStatus::RUNNING);
-        } else {
-            info->set_exec_status(PFragmentExecStatus::WAIT);
+    } else {
+        std::lock_guard<std::mutex> lock(_lock);
+        auto iter = _fragment_map.begin();
+        for (; iter != _fragment_map.end(); iter++) {
+            iter->second->executor()->report_profile_once();
         }
     }
-
-    return Status::OK;       
+    return Status::OK;
 }
+
 
 void FragmentMgr::debug(std::stringstream& ss) {
     // Keep things simple

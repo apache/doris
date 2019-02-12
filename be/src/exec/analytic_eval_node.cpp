@@ -153,7 +153,6 @@ Status AnalyticEvalNode::prepare(RuntimeState* state) {
     _mem_pool.reset(new MemPool(mem_tracker()));
 
     _evaluation_timer = ADD_TIMER(runtime_profile(), "EvaluationTime");
-
     DCHECK_EQ(_result_tuple_desc->slots().size(), _evaluators.size());
 
     for (int i = 0; i < _evaluators.size(); ++i) {
@@ -236,7 +235,6 @@ Status AnalyticEvalNode::open(RuntimeState* state) {
 
     while (!_input_eos && _prev_input_row == NULL) {
         RETURN_IF_ERROR(child(0)->get_next(state, _curr_child_batch.get(), &_input_eos));
-
         if (_curr_child_batch->num_rows() > 0) {
             _prev_input_row = _curr_child_batch->get_row(0);
             process_child_batches(state);

@@ -100,6 +100,8 @@
                     
                 hll_hash(column) 用于将表或数据里面的某一列转化成HLL列的数据结构
 
+                now() 设置某一列导入的数据为导入执行的时间点。该列必须为 DATE/DATETIME 类型。
+
     3. broker_name
 
         所使用的 broker 名称，可以通过 show broker 命令查看。不同的数据源需使用对应的 broker。
@@ -151,6 +153,8 @@
         可以指定如下参数：
         timeout：         指定导入操作的超时时间。默认超时为4小时。单位秒。
         max_filter_ratio：最大容忍可过滤（数据不规范等原因）的数据比例。默认零容忍。
+        exec_mem_limit:   设置导入使用的内存上限。默认为2G，单位字节。这里是指单个 BE 节点的内存上限。
+                          一个导入可能分布于多个BE。我们假设 1GB 数据在单个节点处理需要最大5GB内存。那么假设1GB文件分布在2个节点处理，那么理论上，每个节点需要内存为2.5GB。则该参数可以设置为 2684354560，即2.5GB
 
     5. 导入数据格式样例
 
@@ -214,7 +218,6 @@
         LOAD LABEL example_db.label3
         (
         DATA INFILE("hdfs://hdfs_host:hdfs_port/user/palo/data/input/*")
-        NEGATIVE
         INTO TABLE `my_table`
         COLUMNS TERMINATED BY "\\x01"
         )
@@ -338,6 +341,43 @@
         )
         )
         WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password");
+
+    8. 导入的数据同一列做sum max然后生成两列指标
+
+       假设导入文件 file 有两列, 我们称为 k1 和 v1， my_table 表有 4 列，分别是 k1, sumv1, maxv1, minv1，建表语句如下：
+
+       CREATE TABLE my_db.my_table
+       (
+         k1 INT,
+         sumv1 INT SUM,
+         maxv1 INT MAX,
+         minv1 INT MIN
+       )
+         ENGINE=olap
+         AGGREGATE KEY(k1)
+         DISTRIBUTED BY HASH (k1) BUCKETS 32
+         PARTITION BY RANGE (k1)
+         (
+         PARTITION p1 VALUES LESS THAN ("2014-01-01"),
+         PARTITION p2 VALUES LESS THAN ("2014-06-01")
+       )
+
+       导入语句可以写成：
+
+       LOAD LABEL my_db.mylabel
+       (
+         DATA INFILE("hdfs://hdfs_host:hdfs_port/user/palo/data/input/file")
+         INTO TABLE `my_table`
+         PARTITION (p1, p2)
+         COLUMNS TERMINATED BY ","
+         (k1, v1)
+         SET (
+           sumv1 = v1,
+           maxv1 = v1,
+           minv1 = v1
+         )
+       )
+       WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password");
  
 ## keyword
     BROKER LOAD

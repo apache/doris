@@ -18,6 +18,8 @@
 #ifndef DORIS_BE_SRC_AGENT_HEARTBEAT_SERVER_H
 #define DORIS_BE_SRC_AGENT_HEARTBEAT_SERVER_H
 
+#include <mutex>
+
 #include "thrift/transport/TTransportUtils.h"
 
 #include "agent/status.h"
@@ -31,6 +33,7 @@ namespace doris {
 const uint32_t HEARTBEAT_INTERVAL = 10;
 class OLAPEngine;
 class Status;
+class ThriftServer;
 
 class HeartbeatServer : public HeartbeatServiceIf {
 public:
@@ -47,14 +50,18 @@ public:
     // Output parameters:
     // * heartbeat_result: The result of heartbeat set
     virtual void heartbeat(THeartbeatResult& heartbeat_result, const TMasterInfo& master_info);
-private:
 
+private:
     Status _heartbeat(
         const TMasterInfo& master_info);
 
-    TMasterInfo* _master_info;
     OLAPEngine* _olap_engine;
+
+    // mutex to protect master_info and _epoch
+    std::mutex _hb_mtx;
+    TMasterInfo* _master_info;
     int64_t _epoch;
+
     DISALLOW_COPY_AND_ASSIGN(HeartbeatServer);
 };  // class HeartBeatServer
 

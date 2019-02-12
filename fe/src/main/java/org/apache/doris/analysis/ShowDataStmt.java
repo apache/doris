@@ -17,30 +17,29 @@
 
 package org.apache.doris.analysis;
 
+import com.google.common.base.Strings;
+
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ColumnType;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Table.TableType;
-import org.apache.doris.catalog.Tablet;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
-
-import com.google.common.base.Strings;
 
 import java.util.Arrays;
 import java.util.Comparator;
@@ -54,15 +53,15 @@ import java.util.TreeSet;
 public class ShowDataStmt extends ShowStmt {
     private static final ShowResultSetMetaData SHOW_TABLE_DATA_META_DATA =
             ShowResultSetMetaData.builder()
-                    .addColumn(new Column("TableName", ColumnType.createVarchar(20)))
-                    .addColumn(new Column("Size", ColumnType.createVarchar(30)))
+                    .addColumn(new Column("TableName", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Size", ScalarType.createVarchar(30)))
                     .build();
 
     private static final ShowResultSetMetaData SHOW_INDEX_DATA_META_DATA =
             ShowResultSetMetaData.builder()
-                    .addColumn(new Column("TableName", ColumnType.createVarchar(20)))
-                    .addColumn(new Column("IndexName", ColumnType.createVarchar(20)))
-                    .addColumn(new Column("Size", ColumnType.createVarchar(30)))
+                    .addColumn(new Column("TableName", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("IndexName", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Size", ScalarType.createVarchar(30)))
                     .build();
 
     private String dbName;
@@ -122,20 +121,7 @@ public class ShowDataStmt extends ShowStmt {
                     }
 
                     OlapTable olapTable = (OlapTable) table;
-                    long tableSize = 0;
-                    for (Partition partition : olapTable.getPartitions()) {
-                        for (MaterializedIndex mIndex : partition.getMaterializedIndices()) {
-                            for (Tablet tablet : mIndex.getTablets()) {
-                                for (Replica replica : tablet.getReplicas()) {
-                                    if (replica.getState() == ReplicaState.NORMAL
-                                            || replica.getState() == ReplicaState.SCHEMA_CHANGE) {
-                                        tableSize += replica.getDataSize();
-                                    }
-                                } // end for replicas
-                            } // end for tablets
-                        } // end for tables
-                    } // end for partitions
-
+                    long tableSize = olapTable.getDataSize();
                     Pair<Double, String> tableSizePair = DebugUtil.getByteUint(tableSize);
                     String readableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(tableSizePair.first) + " "
                             + tableSizePair.second;
@@ -201,15 +187,8 @@ public class ShowDataStmt extends ShowStmt {
                     long indexSize = 0;
                     for (Partition partition : olapTable.getPartitions()) {
                         MaterializedIndex mIndex = partition.getIndex(indexId);
-                        for (Tablet tablet : mIndex.getTablets()) {
-                            for (Replica replica : tablet.getReplicas()) {
-                                if (replica.getState() == ReplicaState.NORMAL
-                                        || replica.getState() == ReplicaState.SCHEMA_CHANGE) {
-                                    indexSize += replica.getDataSize();
-                                }
-                            } // end for replicas
-                        } // end for tablets
-                    } // end for partitions
+                        indexSize += mIndex.getDataSize();
+                    }
 
                     Pair<Double, String> indexSizePair = DebugUtil.getByteUint(indexSize);
                     String readableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(indexSizePair.first) + " "

@@ -1,3 +1,4 @@
+
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -18,11 +19,17 @@
 package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.Frontend;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
@@ -33,10 +40,16 @@ import java.util.List;
  * SHOW PROC /frontends/
  */
 public class FrontendsProcNode implements ProcNodeInterface {
+    private static final Logger LOG = LogManager.getLogger(FrontendsProcNode.class);
+
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("name").add("Host").add("EditLogPort").add("Role").add("IsMaster").add("ClusterId").add("Join")
+            .add("Name").add("IP").add("HostName").add("EditLogPort").add("HttpPort").add("QueryPort").add("RpcPort")
+            .add("Role").add("IsMaster").add("ClusterId").add("Join").add("Alive")
+            .add("ReplayedJournalId").add("LastHeartbeat").add("IsHelper").add("ErrMsg")
             .build();
     
+    public static final int HOSTNAME_INDEX = 2;
+
     private Catalog catalog;
     
     public FrontendsProcNode(Catalog catalog) {
@@ -68,30 +81,53 @@ public class FrontendsProcNode implements ProcNodeInterface {
         List<InetSocketAddress> allFe = catalog.getHaProtocol().getElectableNodes(true /* include leader */);
         allFe.addAll(catalog.getHaProtocol().getObserverNodes());
         List<Pair<String, Integer>> allFeHosts = convertToHostPortPair(allFe);
+        List<Pair<String, Integer>> helperNodes = catalog.getHelperNodes();
         
         for (Frontend fe : catalog.getFrontends(null /* all */)) {
+
             List<String> info = new ArrayList<String>();
             info.add(fe.getNodeName());
             info.add(fe.getHost());
+
+            info.add(FrontendOptions.getHostnameByIp(fe.getHost()));
             info.add(Integer.toString(fe.getEditLogPort()));
+            info.add(Integer.toString(Config.http_port));
+
+            if (fe.getHost().equals(catalog.getSelfNode().first)) {
+                info.add(Integer.toString(Config.query_port));
+                info.add(Integer.toString(Config.rpc_port));
+            } else {
+                info.add(Integer.toString(fe.getQueryPort()));
+                info.add(Integer.toString(fe.getRpcPort()));
+            }
+
             info.add(fe.getRole().name());
-            if (fe.getHost().equals(masterIp) && fe.getEditLogPort() == masterPort) {
-                info.add("true");
-            } else {
-                info.add("false");
-            }
+            info.add(String.valueOf(fe.getHost().equals(masterIp) && fe.getEditLogPort() == masterPort));
+
             info.add(Integer.toString(catalog.getClusterId()));
+            info.add(String.valueOf(isJoin(allFeHosts, fe)));
             
-            if (!isJoin(allFeHosts, fe)) {
-                info.add("false");
-            } else {
+            if (fe.getHost().equals(catalog.getSelfNode().first)) {
                 info.add("true");
+                info.add(Long.toString(catalog.getEditLog().getMaxJournalId()));
+            } else {
+                info.add(String.valueOf(fe.isAlive()));
+                info.add(Long.toString(fe.getReplayedJournalId()));
             }
+            info.add(TimeUtils.longToTimeString(fe.getLastUpdateTime()));
             
+            info.add(String.valueOf(isHelperNode(helperNodes, fe)));
+
+            info.add(fe.getHeartbeatErrMsg());
+
             infos.add(info);
         }
     }
     
+    private static boolean isHelperNode(List<Pair<String, Integer>> helperNodes, Frontend fe) {
+        return helperNodes.stream().anyMatch(p -> p.first.equals(fe.getHost()) && p.second == fe.getEditLogPort());
+    }
+
     private static boolean isJoin(List<Pair<String, Integer>> allFeHosts, Frontend fe) {
         for (Pair<String, Integer> pair : allFeHosts) {
             if (fe.getHost().equals(pair.first) && fe.getEditLogPort() == pair.second) {

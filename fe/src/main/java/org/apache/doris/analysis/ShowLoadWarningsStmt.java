@@ -18,7 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ColumnType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -31,27 +31,33 @@ import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.net.MalformedURLException;
+import java.net.URL;
+
 // SHOW LOAD WARNINGS statement used to get error detail of src data.
 public class ShowLoadWarningsStmt extends ShowStmt {
     private static final Logger LOG = LogManager.getLogger(ShowLoadWarningsStmt.class);
 
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
-                    .addColumn(new Column("JobId", ColumnType.createVarchar(15)))
-                    .addColumn(new Column("Label", ColumnType.createVarchar(15)))
-                    .addColumn(new Column("ErrorMsgDetail", ColumnType.createVarchar(100)))
+                    .addColumn(new Column("JobId", ScalarType.createVarchar(15)))
+                    .addColumn(new Column("Label", ScalarType.createVarchar(15)))
+                    .addColumn(new Column("ErrorMsgDetail", ScalarType.createVarchar(100)))
                     .build();
 
     private String dbName;
+    private String rawUrl;
+    private URL url;
     private Expr whereClause;
     private LimitElement limitElement;
 
     private String label;
     private long jobId;
 
-    public ShowLoadWarningsStmt(String db, Expr labelExpr,
+    public ShowLoadWarningsStmt(String db, String url, Expr labelExpr,
                                 LimitElement limitElement) {
         this.dbName = db;
+        this.rawUrl = url;
         this.whereClause = labelExpr;
         this.limitElement = limitElement;
 
@@ -86,38 +92,66 @@ public class ShowLoadWarningsStmt extends ShowStmt {
         return jobId != 0;
     }
 
+    public URL getURL() {
+        return url;
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         super.analyze(analyzer);
-        if (Strings.isNullOrEmpty(dbName)) {
-            dbName = analyzer.getDefaultDb();
-            if (Strings.isNullOrEmpty(dbName)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
+
+        if (rawUrl != null) {
+            // get load error from url
+            if (rawUrl.isEmpty()) {
+                throw new AnalysisException("Error load url is missing");
             }
+
+            if (dbName != null || whereClause != null || limitElement != null) {
+                throw new AnalysisException(
+                        "Can not set database, where or limit clause if getting error log from url");
+            }
+
+            // url should like:
+            // http://be_ip:be_http_port/api/_load_error_log?file=__shard_xxx/error_log_xxx
+            analyzeUrl();
         } else {
-            dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
-        }
-
-        // analyze where clause if not null
-        if (whereClause == null) {
-            throw new AnalysisException("should supply condition like: LABEL = \"your_load_label\","
-                    + " or LOAD_JOB_ID = $job_id");
-        }
-
-        if (whereClause != null) {
-            if (whereClause instanceof CompoundPredicate) {
-                CompoundPredicate cp = (CompoundPredicate) whereClause;
-                if (cp.getOp() != org.apache.doris.analysis.CompoundPredicate.Operator.AND) {
-                    throw new AnalysisException("Only allow compound predicate with operator AND");
+            if (Strings.isNullOrEmpty(dbName)) {
+                dbName = analyzer.getDefaultDb();
+                if (Strings.isNullOrEmpty(dbName)) {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
                 }
-
-                analyzeSubPredicate(cp.getChild(0));
-                analyzeSubPredicate(cp.getChild(1));
             } else {
-                analyzeSubPredicate(whereClause);
+                dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
+            }
+
+            // analyze where clause if not null
+            if (whereClause == null) {
+                throw new AnalysisException("should supply condition like: LABEL = \"your_load_label\","
+                        + " or LOAD_JOB_ID = $job_id");
+            }
+
+            if (whereClause != null) {
+                if (whereClause instanceof CompoundPredicate) {
+                    CompoundPredicate cp = (CompoundPredicate) whereClause;
+                    if (cp.getOp() != org.apache.doris.analysis.CompoundPredicate.Operator.AND) {
+                        throw new AnalysisException("Only allow compound predicate with operator AND");
+                    }
+
+                    analyzeSubPredicate(cp.getChild(0));
+                    analyzeSubPredicate(cp.getChild(1));
+                } else {
+                    analyzeSubPredicate(whereClause);
+                }
             }
         }
+    }
 
+    private void analyzeUrl() throws AnalysisException {
+        try {
+            url = new URL(rawUrl);
+        } catch (MalformedURLException e) {
+            throw new AnalysisException("Invalid url: " + e.getMessage());
+        }
     }
 
     private void analyzeSubPredicate(Expr subExpr) throws AnalysisException {

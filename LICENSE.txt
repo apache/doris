@@ -202,35 +202,21 @@
 
 --------------------------------------------------------------------------------
 
-be/src/gutil (some portions): Apache 2.0, and 3-clause BSD
+be/src/gutil/atomicops-internals-x86.h : Apache 2.0 License
 
-Some portions of this module are derived from code in the Chromium project,
-copyright (c) Google inc and (c) The Chromium Authors and licensed under the
-Apache 2.0 License or the under the 3-clause BSD license:
+Copyright 2003 Google Inc.
 
-  Copyright (c) 2013 The Chromium Authors. All rights reserved.
+--------------------------------------------------------------------------------
 
-  Redistribution and use in source and binary forms, with or without modification, are
-  permitted provided that the following conditions are met:
+be/src/gutil/atomicops-internals-x86.cc : Apache 2.0 License
 
-     * Redistributions of source code must retain the above copyright
-       notice, this list of conditions and the following disclaimer.
+Copyright 2007 Google Inc.
 
-     * Redistributions in binary form must reproduce the above copyright notice, this list
-       of conditions and the following disclaimer in the documentation and/or other
-       materials provided with the distribution.  * Neither the name of Google Inc. nor
-       the names of its contributors may be used to endorse or promote products derived
-       from this software without specific prior written permission.
+--------------------------------------------------------------------------------
 
-  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY
-  EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
-  MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL
-  THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-  SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT
-  OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-  INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
-  LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+be/src/gutil/stl_util.h : Apache 2.0 License
+
+Copyright 2007 Google Inc.
 
 --------------------------------------------------------------------------------
 
@@ -289,6 +275,39 @@ be/src/gutil/valgrind.h: licensed under the following terms:
    NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
    SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+--------------------------------------------------------------------------------
+
+be/src/gutil: 3-clause BSD
+
+Except above files in this module, other files of this module are derived from code in
+the Chromium project, copyright (c) Google inc and (c) The Chromium Authors and 
+licensed under the 3-clause BSD license:
+
+  Copyright (c) 2013 The Chromium Authors. All rights reserved.
+
+  Redistribution and use in source and binary forms, with or without modification, are
+  permitted provided that the following conditions are met:
+
+     * Redistributions of source code must retain the above copyright
+       notice, this list of conditions and the following disclaimer.
+
+     * Redistributions in binary form must reproduce the above copyright notice, this list
+       of conditions and the following disclaimer in the documentation and/or other
+       materials provided with the distribution.  
+       
+     * Neither the name of Google Inc. nor the names of its contributors may be used to 
+       endorse or promote products derived from this software without specific prior 
+       written permission.
+
+  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY
+  EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+  MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL
+  THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+  SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT
+  OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+  INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+  LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 --------------------------------------------------------------------------------
 
@@ -340,6 +359,14 @@ Parts of be/src/runtime/string_search.hpp: Python Software License V2
 
 --------------------------------------------------------------------------------
 
+be/src/olap/lru_cache.h : BSD-style license
+
+  Copyright (c) 2011 The LevelDB Authors. All rights reserved.
+  Use of this source code is governed by a BSD-style license that can be
+  found in the LICENSE file. See the AUTHORS file for names of contributors.
+
+--------------------------------------------------------------------------------
+
 be/src/olap/lru_cache.cpp : BSD-style license
 
   Copyright (c) 2011 The LevelDB Authors. All rights reserved.
@@ -348,8 +375,156 @@ be/src/olap/lru_cache.cpp : BSD-style license
 
 --------------------------------------------------------------------------------
 
+be/src/olap/skiplist.h : BSD-style license
+
+  Copyright (c) 2011 The LevelDB Authors. All rights reserved.
+  Use of this source code is governed by a BSD-style license that can be
+  found in the LICENSE file. See the AUTHORS file for names of contributors.
+
+--------------------------------------------------------------------------------
+
+be/src/util/arena.h : BSD-style license
+
+  Copyright (c) 2011 The LevelDB Authors. All rights reserved.
+  Use of this source code is governed by a BSD-style license that can be
+  found in the LICENSE file. See the AUTHORS file for names of contributors.
+
+--------------------------------------------------------------------------------
+
+be/src/util/arena.cpp : BSD-style license
+
+  Copyright (c) 2011 The LevelDB Authors. All rights reserved.
+  Use of this source code is governed by a BSD-style license that can be
+  found in the LICENSE file. See the AUTHORS file for names of contributors.
+
+--------------------------------------------------------------------------------
+
+be/src/olap/new_status.h : BSD-style license
+
+  Copyright (c) 2011 The LevelDB Authors. All rights reserved.
+  Use of this source code is governed by a BSD-style license that can be
+  found in the LICENSE file. See the AUTHORS file for names of contributors.
+
+--------------------------------------------------------------------------------
+
+be/src/olap/new_status.cpp : BSD-style license
+
+  Copyright (c) 2011 The LevelDB Authors. All rights reserved.
+  Use of this source code is governed by a BSD-style license that can be
+  found in the LICENSE file. See the AUTHORS file for names of contributors.
+
+--------------------------------------------------------------------------------
+
+be/src/util/murmur_hash3.h : licensed under the following terms:
+
+  MurmurHash3 was written by Austin Appleby, and is placed in the public
+  domain. The author hereby disclaims copyright to this source code.
+
+--------------------------------------------------------------------------------
+
 be/src/util/murmur_hash3.cpp : licensed under the following terms:
 
   MurmurHash3 was written by Austin Appleby, and is placed in the public
-  omain. The author hereby disclaims copyright to this source code.
+  domain. The author hereby disclaims copyright to this source code.
+
+--------------------------------------------------------------------------------
+
+webroot/static/jquery.js : MIT license
+
+  Copyright 2005, 2014 jQuery Foundation and other contributors,
+    https://jquery.org/
+
+  This software consists of voluntary contributions made by many individuals. For exact
+  contribution history, see the revision history available at
+  https://github.com/jquery/jquery
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy of this
+  software and associated documentation files (the "Software"), to deal in the Software
+  without restriction, including without limitation the rights to use, copy, modify,
+  merge, publish, distribute, sublicense, and/or sell copies of the Software, and to
+  permit persons to whom the Software is furnished to do so, subject to the following
+  conditions:
+
+  The above copyright notice and this permission notice shall be
+    included in all copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+  INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
+  PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+  LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT
+  OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+  OTHER DEALINGS IN THE SOFTWARE.
+
+--------------------------------------------------------------------------------
+
+webroot/static/jquery.dataTables.js and webroot/static/datatables*: MIT license
+
+  Copyright (C) 2008-2015, SpryMedia Ltd.
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy of this
+  software and associated documentation files (the "Software"), to deal in the Software
+  without restriction, including without limitation the rights to use, copy, modify,
+  merge, publish, distribute, sublicense, and/or sell copies of the Software, and to
+  permit persons to whom the Software is furnished to do so, subject to the following
+  conditions:
+
+  The above copyright notice and this permission notice shall be included in all copies or
+  substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+  INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
+  PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+  LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT
+  OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+  OTHER DEALINGS IN THE SOFTWARE.
+
+--------------------------------------------------------------------------------
+
+webroot/static/bootstrap.css: MIT license
+
+  The MIT License (MIT)
+
+  Copyright (c) 2011-2015 Twitter, Inc.
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy of this
+  software and associated documentation files (the "Software"), to deal in the Software
+  without restriction, including without limitation the rights to use, copy, modify,
+  merge, publish, distribute, sublicense, and/or sell copies of the Software, and to
+  permit persons to whom the Software is furnished to do so, subject to the following
+  conditions:
+
+  The above copyright notice and this permission notice shall be included in all copies or
+  substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+  INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
+  PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+  LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT
+  OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+  OTHER DEALINGS IN THE SOFTWARE.
+
+--------------------------------------------------------------------------------
+
+normalize.css embedded in webroot/static/bootstrap.css: MIT
+
+Copyright (c) Nicolas Gallagher and Jonathan Neal
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+of the Software, and to permit persons to whom the Software is furnished to do
+so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
 

@@ -242,19 +242,15 @@ public abstract class LoadEtlTask extends MasterTask {
             db.readLock();
             try {
                 table = (OlapTable) db.getTable(tableId);
-            } finally {
-                db.readUnlock();
-            }
-            if (table == null) {
-                throw new LoadException("table does not exist. id: " + tableId);
-            }
-            
-            TableLoadInfo tableLoadInfo = tableEntry.getValue();
-            for (Entry<Long, PartitionLoadInfo> partitionEntry : tableLoadInfo.getIdToPartitionLoadInfo().entrySet()) {
-                long partitionId = partitionEntry.getKey();
-                boolean needLoad = false;
-                db.readLock();
-                try {
+                if (table == null) {
+                    throw new LoadException("table does not exist. id: " + tableId);
+                }
+
+                TableLoadInfo tableLoadInfo = tableEntry.getValue();
+                for (Entry<Long, PartitionLoadInfo> partitionEntry : tableLoadInfo.getIdToPartitionLoadInfo().entrySet()) {
+                    long partitionId = partitionEntry.getKey();
+                    boolean needLoad = false;
+
                     Partition partition = table.getPartition(partitionId);
                     if (partition == null) {
                         throw new LoadException("partition does not exist. id: " + partitionId);
@@ -292,9 +288,10 @@ public abstract class LoadEtlTask extends MasterTask {
                     
                     // partition might have no load data
                     partitionEntry.getValue().setNeedLoad(needLoad);
-                } finally {
-                    db.readUnlock();
+
                 }
+            } finally {
+                db.readUnlock();
             }
         }
         

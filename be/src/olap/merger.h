@@ -23,20 +23,20 @@
 
 namespace doris {
 
-class Rowset;
-class IData;
+class SegmentGroup;
+class ColumnData;
 
 class Merger {
 public:
     // parameter index is created by caller, and it is empty.
-    Merger(OLAPTablePtr table, Rowset* index, ReaderType type);
+    Merger(OLAPTablePtr table, SegmentGroup* index, ReaderType type);
 
     virtual ~Merger() {};
 
-    // @brief read from multiple OLAPData and Rowset, then write into single OLAPData and Rowset
+    // @brief read from multiple OLAPData and SegmentGroup, then write into single OLAPData and SegmentGroup
     // @return  OLAPStatus: OLAP_SUCCESS or FAIL
     // @note it will take long time to finish.
-    OLAPStatus merge(const std::vector<IData*>& olap_data_arr, 
+    OLAPStatus merge(const std::vector<ColumnData*>& olap_data_arr, 
                      uint64_t* merged_rows, uint64_t* filted_rows);
 
     // 获取在做merge过程中累积的行数
@@ -45,7 +45,7 @@ public:
     }
 private:
     OLAPTablePtr _table;
-    Rowset* _index;
+    SegmentGroup* _segment_group;
     ReaderType _reader_type;
     uint64_t _row_count;
     Version _simple_merge_version;

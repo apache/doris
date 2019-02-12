@@ -38,7 +38,7 @@ import org.powermock.core.classloader.annotations.PrepareForTest;
 import org.powermock.modules.junit4.PowerMockRunner;
 
 @RunWith(PowerMockRunner.class)
-@PowerMockIgnore("org.apache.log4j.*")
+@PowerMockIgnore({ "org.apache.log4j.*", "javax.management.*" })
 @PrepareForTest(Catalog.class)
 public class TableTest {
 
@@ -63,21 +63,21 @@ public class TableTest {
 
         List<Column> columns = new ArrayList<Column>();
         columns.add(new Column("column2", 
-                        ColumnType.createType(PrimitiveType.TINYINT), false, AggregateType.MIN, "", ""));
+                        ScalarType.createType(PrimitiveType.TINYINT), false, AggregateType.MIN, "", ""));
         columns.add(new Column("column3", 
-                        ColumnType.createType(PrimitiveType.SMALLINT), false, AggregateType.SUM, "", ""));
+                        ScalarType.createType(PrimitiveType.SMALLINT), false, AggregateType.SUM, "", ""));
         columns.add(new Column("column4", 
-                        ColumnType.createType(PrimitiveType.INT), false, AggregateType.REPLACE, "", ""));
+                        ScalarType.createType(PrimitiveType.INT), false, AggregateType.REPLACE, "", ""));
         columns.add(new Column("column5", 
-                        ColumnType.createType(PrimitiveType.BIGINT), false, AggregateType.REPLACE, "", ""));
+                        ScalarType.createType(PrimitiveType.BIGINT), false, AggregateType.REPLACE, "", ""));
         columns.add(new Column("column6", 
-                        ColumnType.createType(PrimitiveType.FLOAT), false, AggregateType.REPLACE, "", ""));
+                        ScalarType.createType(PrimitiveType.FLOAT), false, AggregateType.REPLACE, "", ""));
         columns.add(new Column("column7", 
-                        ColumnType.createType(PrimitiveType.DOUBLE), false, AggregateType.REPLACE, "", ""));
-        columns.add(new Column("column8", ColumnType.createChar(10), true, null, "", ""));
-        columns.add(new Column("column9", ColumnType.createVarchar(10), true, null, "", ""));
-        columns.add(new Column("column10", ColumnType.createType(PrimitiveType.DATE), true, null, "", ""));
-        columns.add(new Column("column11", ColumnType.createType(PrimitiveType.DATETIME), true, null, "", ""));
+                        ScalarType.createType(PrimitiveType.DOUBLE), false, AggregateType.REPLACE, "", ""));
+        columns.add(new Column("column8", ScalarType.createChar(10), true, null, "", ""));
+        columns.add(new Column("column9", ScalarType.createVarchar(10), true, null, "", ""));
+        columns.add(new Column("column10", ScalarType.createType(PrimitiveType.DATE), true, null, "", ""));
+        columns.add(new Column("column11", ScalarType.createType(PrimitiveType.DATETIME), true, null, "", ""));
 
         Table table1 = new OlapTable(1000L, "group1", columns, KeysType.AGG_KEYS,
                                      new SinglePartitionInfo(), new RandomDistributionInfo(10));

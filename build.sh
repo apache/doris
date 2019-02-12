@@ -35,7 +35,13 @@ export DORIS_HOME=${ROOT}
 
 . ${DORIS_HOME}/env.sh
 
-PARALLEL=8
+# build thirdparty libraries if necessary
+if [[ ! -f ${DORIS_THIRDPARTY}/installed/lib/librdkafka.a ]]; then
+    echo "Thirdparty libraries need to be build ..."
+    ${DORIS_THIRDPARTY}/build-thirdparty.sh
+fi
+
+PARALLEL=$[$(nproc)/4+1]
 
 # Check args
 usage() {

@@ -23,6 +23,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 
@@ -34,6 +35,7 @@ import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.JSONArray;
+import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.DataInput;
@@ -66,6 +68,8 @@ public class BackupJobInfo implements Writable {
     public long backupTime;
     public Map<String, BackupTableInfo> tables = Maps.newHashMap();
     public boolean success;
+
+    public int metaVersion;
 
     // This map is used to save the table alias mapping info when processing a restore job.
     // origin -> alias
@@ -229,6 +233,7 @@ public class BackupJobInfo implements Writable {
         jobInfo.dbName = dbName;
         jobInfo.dbId = dbId;
         jobInfo.success = true;
+        jobInfo.metaVersion = FeConstants.meta_version;
 
         // tbls
         for (Table tbl : tbls) {
@@ -242,8 +247,8 @@ public class BackupJobInfo implements Writable {
                 BackupPartitionInfo partitionInfo = new BackupPartitionInfo();
                 partitionInfo.id = partition.getId();
                 partitionInfo.name = partition.getName();
-                partitionInfo.version = partition.getCommittedVersion();
-                partitionInfo.versionHash = partition.getCommittedVersionHash();
+                partitionInfo.version = partition.getVisibleVersion();
+                partitionInfo.versionHash = partition.getVisibleVersionHash();
                 tableInfo.partitions.put(partitionInfo.name, partitionInfo);
                 // indexes
                 for (MaterializedIndex index : partition.getMaterializedIndices()) {
@@ -282,6 +287,7 @@ public class BackupJobInfo implements Writable {
          *   "database": "db1"
          *   "id": 10000
          *   "backup_result": "succeed",
+         *   "meta_version" : 40 // this is optional
          *   "backup_objects": {
          *       "table1": {
          *           "partitions": {
@@ -321,6 +327,14 @@ public class BackupJobInfo implements Writable {
         jobInfo.dbName = (String) root.get("database");
         jobInfo.dbId = root.getLong("id");
         jobInfo.backupTime = root.getLong("backup_time");
+        
+        try {
+            jobInfo.metaVersion = root.getInt("meta_version");
+        } catch (JSONException e) {
+            // meta_version does not exist
+            jobInfo.metaVersion = FeConstants.meta_version;
+        }
+        
         JSONObject backupObjs = root.getJSONObject("backup_objects");
         String[] tblNames = JSONObject.getNames(backupObjs);
         for (String tblName : tblNames) {
@@ -394,51 +408,63 @@ public class BackupJobInfo implements Writable {
     public void writeToFile(File jobInfoFile) throws FileNotFoundException {
         PrintWriter printWriter = new PrintWriter(jobInfoFile);
         try {
-            printWriter.print(toJson().toString());
+            printWriter.print(toJson(true).toString());
             printWriter.flush();
         } finally {
             printWriter.close();
         }
     }
 
-    public JSONObject toJson() {
+    // Only return basic info, table and partitions
+    public String getBrief() {
+        return toJson(false).toString(1);
+    }
+
+    public JSONObject toJson(boolean verbose) {
         JSONObject root = new JSONObject();
         root.put("name", name);
         root.put("database", dbName);
-        root.put("id", dbId);
+        if (verbose) {
+            root.put("id", dbId);
+        }
         root.put("backup_time", backupTime);
         JSONObject backupObj = new JSONObject();
         root.put("backup_objects", backupObj);
+        root.put("meta_version", FeConstants.meta_version);
         
         for (BackupTableInfo tblInfo : tables.values()) {
             JSONObject tbl = new JSONObject();
-            tbl.put("id", tblInfo.id);
+            if (verbose) {
+                tbl.put("id", tblInfo.id);
+            }
             JSONObject parts = new JSONObject();
             tbl.put("partitions", parts);
             for (BackupPartitionInfo partInfo : tblInfo.partitions.values()) {
                 JSONObject part = new JSONObject();
-                part.put("id", partInfo.id);
-                part.put("version", partInfo.version);
-                part.put("version_hash", partInfo.versionHash);
-                JSONObject indexes = new JSONObject();
-                part.put("indexes", indexes);
-                for (BackupIndexInfo idxInfo : partInfo.indexes.values()) {
-                    JSONObject idx = new JSONObject();
-                    idx.put("id", idxInfo.id);
-                    idx.put("schema_hash", idxInfo.schemaHash);
-                    JSONObject tablets = new JSONObject();
-                    JSONArray tabletsOrder = new JSONArray();
-                    idx.put("tablets", tablets);
-                    for (BackupTabletInfo tabletInfo : idxInfo.tablets) {
-                        JSONArray files = new JSONArray();
-                        tablets.put(String.valueOf(tabletInfo.id), files);
-                        for (String fileName : tabletInfo.files) {
-                            files.put(fileName);
+                if (verbose) {
+                    part.put("id", partInfo.id);
+                    part.put("version", partInfo.version);
+                    part.put("version_hash", partInfo.versionHash);
+                    JSONObject indexes = new JSONObject();
+                    part.put("indexes", indexes);
+                    for (BackupIndexInfo idxInfo : partInfo.indexes.values()) {
+                        JSONObject idx = new JSONObject();
+                        idx.put("id", idxInfo.id);
+                        idx.put("schema_hash", idxInfo.schemaHash);
+                        JSONObject tablets = new JSONObject();
+                        JSONArray tabletsOrder = new JSONArray();
+                        idx.put("tablets", tablets);
+                        for (BackupTabletInfo tabletInfo : idxInfo.tablets) {
+                            JSONArray files = new JSONArray();
+                            tablets.put(String.valueOf(tabletInfo.id), files);
+                            for (String fileName : tabletInfo.files) {
+                                files.put(fileName);
+                            }
+                            // to save the order of tablets
+                            tabletsOrder.put(String.valueOf(tabletInfo.id));
                         }
-                        // to save the order of tablets
-                        tabletsOrder.put(String.valueOf(tabletInfo.id));
+                        indexes.put(idxInfo.name, idx);
                     }
-                    indexes.put(idxInfo.name, idx);
                 }
                 parts.put(partInfo.name, part);
             }
@@ -450,7 +476,7 @@ public class BackupJobInfo implements Writable {
     }
 
     public String toString(int indentFactor) {
-        return toJson().toString(indentFactor);
+        return toJson(true).toString(indentFactor);
     }
 
     public String getInfo() {
@@ -476,7 +502,7 @@ public class BackupJobInfo implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        Text.writeString(out, toJson().toString());
+        Text.writeString(out, toJson(true).toString());
         out.writeInt(tblAlias.size());
         for (Map.Entry<String, String> entry : tblAlias.entrySet()) {
             Text.writeString(out, entry.getKey());
@@ -498,7 +524,7 @@ public class BackupJobInfo implements Writable {
 
     @Override
     public String toString() {
-        return toJson().toString();
+        return toJson(true).toString();
     }
 }
 

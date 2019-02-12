@@ -94,19 +94,10 @@ Status FileUtils::scan_dir(
     }
     DeferOp close_dir(std::bind<void>(&closedir, dir));
 
-    struct dirent entry;
-    struct dirent* result = nullptr;
     int64_t count = 0;
     while (true) {
-        int ret = readdir_r(dir, &entry, &result);
-        if (ret != 0) {
-            char buf[64];
-            std::stringstream ss;
-            ss << "readdir(" << dir_path << ") failed, because: " << strerror_r(errno, buf, 64);
-            return Status(ss.str());
-        }
+        auto result = readdir(dir);
         if (result == nullptr) {
-            // Over
             break;
         }
         std::string file_name = result->d_name;
@@ -122,6 +113,35 @@ Status FileUtils::scan_dir(
 
     if (file_count != nullptr) {
         *file_count = count;
+    }
+
+    return Status::OK;
+}
+
+Status FileUtils::scan_dir(
+        const std::string& dir_path,
+        const std::function<bool(const std::string&, const std::string&)>& callback) {
+    auto dir_closer = [] (DIR* dir) { closedir(dir); };
+    std::unique_ptr<DIR, decltype(dir_closer)> dir(opendir(dir_path.c_str()), dir_closer);
+    if (dir == nullptr) {
+        char buf[64];
+        LOG(WARNING) << "fail to open dir, dir=" << dir_path << ", errmsg=" << strerror_r(errno, buf, 64);
+        return Status("fail to opendir");
+    }
+
+    while (true) {
+        auto result = readdir(dir.get());
+        if (result == nullptr) {
+            break;
+        }
+        std::string file_name = result->d_name;
+        if (file_name == "." || file_name == "..") {
+            continue; 
+        }
+        auto is_continue = callback(dir_path, file_name);
+        if (!is_continue) {
+            break;
+        }
     }
 
     return Status::OK;

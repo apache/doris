@@ -42,6 +42,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.powermock.api.easymock.PowerMock;
+import org.powermock.core.classloader.annotations.PowerMockIgnore;
 import org.powermock.core.classloader.annotations.PrepareForTest;
 import org.powermock.modules.junit4.PowerMockRunner;
 
@@ -53,6 +54,7 @@ import java.util.List;
 import java.util.Map;
 
 @RunWith(PowerMockRunner.class)
+@PowerMockIgnore({ "org.apache.log4j.*", "javax.management.*" })
 @PrepareForTest({LoadChecker.class, Catalog.class})
 public class LoadCheckerTest {
     private long dbId;
@@ -237,7 +239,7 @@ public class LoadCheckerTest {
         // set table family load infos
         OlapTable table = (OlapTable) db.getTable(tableId);
         Partition partition = table.getPartition(partitionId);
-        long newVersion = partition.getCommittedVersion() + 1;
+        long newVersion = partition.getVisibleVersion() + 1;
         long newVersionHash = 1L;
         PartitionLoadInfo partitionLoadInfo = new PartitionLoadInfo(new ArrayList<Source>());
         partitionLoadInfo.setVersion(newVersion);
@@ -286,7 +288,7 @@ public class LoadCheckerTest {
         for (MaterializedIndex olapIndex : partition.getMaterializedIndices()) {
             for (Tablet tablet : olapIndex.getTablets()) {
                 for (Replica replica : tablet.getReplicas()) {
-                    replica.updateInfo(newVersion, newVersionHash, 0L, 0L);
+                    replica.updateVersionInfo(newVersion, newVersionHash, 0L, 0L);
                 }
             }
         }       
@@ -311,7 +313,7 @@ public class LoadCheckerTest {
         // set table family load infos
         OlapTable table = (OlapTable) db.getTable(tableId);
         Partition partition = table.getPartition(partitionId);
-        long newVersion = partition.getCommittedVersion() + 1;
+        long newVersion = partition.getVisibleVersion() + 1;
         long newVersionHash = 0L;
         PartitionLoadInfo partitionLoadInfo = new PartitionLoadInfo(new ArrayList<Source>());
         partitionLoadInfo.setVersion(newVersion);
@@ -328,7 +330,7 @@ public class LoadCheckerTest {
         for (MaterializedIndex index : partition.getMaterializedIndices()) {
             for (Tablet tablet : index.getTablets()) {
                 for (Replica replica : tablet.getReplicas()) {
-                    replica.updateInfo(newVersion, newVersionHash, 0L, 0L);
+                    replica.updateVersionInfo(newVersion, newVersionHash, 0L, 0L);
                 }
                 TabletLoadInfo tabletLoadInfo = new TabletLoadInfo("/label/path", 1L);
                 tabletLoadInfos.put(tablet.getId(), tabletLoadInfo);

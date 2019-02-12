@@ -66,7 +66,7 @@ public class EsStateStore extends Daemon {
     private Map<Long, EsTable> esTables;
     
     public EsStateStore() {
-        super(Config.es_state_sync_interval_secs * 1000);
+        super(Config.es_state_sync_interval_second * 1000);
         esTables = Maps.newConcurrentMap();
     }
     
@@ -85,9 +85,13 @@ public class EsStateStore extends Daemon {
     
     protected void runOneCycle() {
         for (EsTable esTable : esTables.values()) {
-            EsTableState esTableState = loadEsIndexMetadataV55(esTable);
-            if (esTableState != null) {
-                esTable.setEsTableState(esTableState);
+            try {
+                EsTableState esTableState = loadEsIndexMetadataV55(esTable);
+                if (esTableState != null) {
+                    esTable.setEsTableState(esTableState);
+                }
+            } catch (Throwable e) {
+                LOG.error("errors while load table {} state from es", esTable.getName());
             }
         }
     }

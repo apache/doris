@@ -36,7 +36,6 @@ import org.apache.doris.task.CloneTask;
 import org.apache.doris.thrift.TBackend;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TTabletInfo;
-
 import org.easymock.EasyMock;
 import org.junit.Assert;
 import org.junit.Before;
@@ -51,7 +50,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 @RunWith(PowerMockRunner.class)
-@PowerMockIgnore("org.apache.log4j.*")
+@PowerMockIgnore({ "org.apache.log4j.*", "javax.management.*" })
 @PrepareForTest({ Catalog.class })
 public class CloneTest {
     private Clone clone;

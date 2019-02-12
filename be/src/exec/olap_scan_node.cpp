@@ -38,6 +38,7 @@
 #include "util/runtime_profile.h"
 #include "util/thread_pool.hpp"
 #include "util/debug_util.h"
+#include "util/priority_thread_pool.hpp"
 #include "agent/cgroups_mgr.h"
 #include "common/resource_tls.h"
 #include <boost/variant.hpp>
@@ -108,6 +109,7 @@ void OlapScanNode::_init_counter(RuntimeState* state) {
 #endif
     ADD_TIMER(_runtime_profile, "ShowHintsTime");
 
+    _reader_init_timer = ADD_TIMER(_runtime_profile, "ReaderInitTime");
     _read_compressed_counter =
         ADD_COUNTER(_runtime_profile, "CompressedBytesRead", TUnit::BYTES);
     _read_uncompressed_counter =
@@ -119,6 +121,8 @@ void OlapScanNode::_init_counter(RuntimeState* state) {
         ADD_TIMER(_runtime_profile, "BlockFetchTime");
     _raw_rows_counter =
         ADD_COUNTER(_runtime_profile, "RawRowsRead", TUnit::UNIT);
+    _block_convert_timer = ADD_TIMER(_runtime_profile, "BlockConvertTime");
+    _block_seek_timer = ADD_TIMER(_runtime_profile, "BlockSeekTime");
 
     _rows_vec_cond_counter =
         ADD_COUNTER(_runtime_profile, "RowsVectorPredFiltered", TUnit::UNIT);
@@ -239,7 +243,6 @@ Status OlapScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eo
     // wait for batch from queue
     RowBatch* materialized_batch = NULL;
     {
-        state->set_query_state_for_wait();
         boost::unique_lock<boost::mutex> l(_row_batches_lock);
         while (_materialized_row_batches.empty() && !_transfer_done) {
             if (state->is_cancelled()) {
@@ -254,7 +257,6 @@ Status OlapScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eo
             DCHECK(materialized_batch != NULL);
             _materialized_row_batches.pop_front();
         }
-        state->set_query_state_for_running();
     }
 
     // return batch
@@ -289,7 +291,7 @@ Status OlapScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eo
             for (int i = 0; i < row_batch->num_rows(); ++i) {
                 TupleRow* row = row_batch->get_row(i);
                 VLOG_ROW << "OlapScanNode output row: "
-                    << print_tuple(row->get_tuple(0), *_tuple_desc);
+                    << Tuple::to_string(row->get_tuple(0), *_tuple_desc);
             }
         }
         __sync_fetch_and_sub(&_buffered_bytes,
@@ -303,6 +305,13 @@ Status OlapScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eo
     *eos = true;
     boost::lock_guard<boost::mutex> guard(_status_mutex);
     return _status;
+}
+
+Status OlapScanNode::collect_query_statistics(QueryStatistics* statistics) {
+    RETURN_IF_ERROR(ExecNode::collect_query_statistics(statistics));
+    statistics->add_scan_bytes(_read_compressed_counter->value());
+    statistics->add_scan_rows(rows_returned());
+    return Status::OK;
 }
 
 Status OlapScanNode::close(RuntimeState* state) {
@@ -701,8 +710,8 @@ Status OlapScanNode::normalize_in_predicate(SlotDescriptor* slot, ColumnValueRan
 
                 // 1.2 Skip if InPredicate value size larger then max_scan_key_num
                 if (pred->hybird_set()->size() > config::doris_max_scan_key_num) {
-                    LOG(WARNING) << "Predicate value num " << pred->hybird_set()->size()
-                                 << " excede limit " << config::doris_max_scan_key_num;
+                    VLOG(3) << "Predicate value num " << pred->hybird_set()->size()
+                            << " excede limit " << config::doris_max_scan_key_num;
                     continue;
                 }
 

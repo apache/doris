@@ -76,10 +76,11 @@ public class MetadataViewer {
             
             for (String partName : partitions) {
                 Partition partition = olapTable.getPartition(partName);
-                long committedVersion = partition.getCommittedVersion();
+                long visibleVersion = partition.getVisibleVersion();
                 short replicationNum = olapTable.getPartitionInfo().getReplicationNum(partition.getId());
 
                 for (MaterializedIndex index : partition.getMaterializedIndices()) {
+                    int schemaHash = olapTable.getSchemaHashByIndexId(index.getId());
                     for (Tablet tablet : index.getTablets()) {
                         long tabletId = tablet.getId();
                         int count = replicationNum;
@@ -91,11 +92,12 @@ public class MetadataViewer {
                             Backend be = infoService.getBackend(replica.getBackendId());
                             if (be == null || !be.isAvailable()) {
                                 status = ReplicaStatus.DEAD;
-                            } else {
-                                if (replica.getVersion() < committedVersion
+                            } else if (replica.getVersion() < visibleVersion
                                         || replica.getLastFailedVersion() > 0) {
                                     status = ReplicaStatus.VERSION_ERROR;
-                                }
+
+                            } else if (replica.getSchemaHash() != -1 && replica.getSchemaHash() != schemaHash) {
+                                status = ReplicaStatus.SCHEMA_ERROR;
                             }
                             
                             if (filterReplica(status, statusFilter, op)) {
@@ -108,7 +110,8 @@ public class MetadataViewer {
                             row.add(String.valueOf(replica.getVersion()));
                             row.add(String.valueOf(replica.getLastFailedVersion()));
                             row.add(String.valueOf(replica.getLastSuccessVersion()));
-                            row.add(String.valueOf(committedVersion));
+                            row.add(String.valueOf(visibleVersion));
+                            row.add(String.valueOf(replica.getSchemaHash()));
                             row.add(String.valueOf(replica.getVersionCount()));
                             row.add(replica.getState().name());
                             row.add(status.name());

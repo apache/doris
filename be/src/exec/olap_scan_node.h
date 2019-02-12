@@ -35,7 +35,6 @@
 #include "runtime/row_batch_interface.hpp"
 #include "runtime/vectorized_row_batch.h"
 #include "util/progress_updater.h"
-#include "util/debug_util.h"
 
 namespace doris {
 
@@ -57,6 +56,7 @@ public:
     virtual Status prepare(RuntimeState* state);
     virtual Status open(RuntimeState* state);
     virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos);
+    Status collect_query_statistics(QueryStatistics* statistics) override;
     virtual Status close(RuntimeState* state);
     virtual Status set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges);
 
@@ -125,7 +125,7 @@ protected:
 
         while (!h.empty()) {
             HeapType v = h.top();
-            s << "\nID: " << v.id << " Value:" << print_tuple(v.tuple, *_tuple_desc);
+            s << "\nID: " << v.id << " Value:" << Tuple::to_string(v.tuple, *_tuple_desc);
             h.pop();
         }
 
@@ -246,6 +246,7 @@ private:
     RuntimeProfile::Counter* _scan_timer;
     RuntimeProfile::Counter* _tablet_counter;
     RuntimeProfile::Counter* _rows_pushed_cond_filtered_counter = nullptr;
+    RuntimeProfile::Counter* _reader_init_timer = nullptr;
 
     TResourceInfo* _resource_info;
 
@@ -266,6 +267,8 @@ private:
     RuntimeProfile::Counter* _stats_filtered_counter = nullptr;
     RuntimeProfile::Counter* _del_filtered_counter = nullptr;
 
+    RuntimeProfile::Counter* _block_seek_timer = nullptr;
+    RuntimeProfile::Counter* _block_convert_timer = nullptr;
     RuntimeProfile::Counter* _block_load_timer = nullptr;
     RuntimeProfile::Counter* _block_load_counter = nullptr;
     RuntimeProfile::Counter* _block_fetch_timer = nullptr;

@@ -18,7 +18,7 @@
 #include "olap/memtable.h"
 
 #include "olap/hll.h"
-#include "olap/writer.h"
+#include "olap/data_writer.h"
 #include "olap/row_cursor.h"
 #include "util/runtime_profile.h"
 #include "util/debug_util.h"
@@ -71,7 +71,7 @@ void MemTable::insert(Tuple* tuple) {
         switch (type.type) {
             case TYPE_CHAR: {
                 const StringValue* src = tuple->get_string_slot(slot->tuple_offset());
-                StringSlice* dest = (StringSlice*)(_tuple_buf + offset);
+                Slice* dest = (Slice*)(_tuple_buf + offset);
                 dest->size = (*_field_infos)[i].length;
                 dest->data = _arena.Allocate(dest->size);
                 memcpy(dest->data, src->ptr, src->len);
@@ -80,7 +80,7 @@ void MemTable::insert(Tuple* tuple) {
             }
             case TYPE_VARCHAR: {
                 const StringValue* src = tuple->get_string_slot(slot->tuple_offset());
-                StringSlice* dest = (StringSlice*)(_tuple_buf + offset);
+                Slice* dest = (Slice*)(_tuple_buf + offset);
                 dest->size = src->len;
                 dest->data = _arena.Allocate(dest->size);
                 memcpy(dest->data, src->ptr, dest->size);
@@ -88,7 +88,7 @@ void MemTable::insert(Tuple* tuple) {
             }
             case TYPE_HLL: {
                 const StringValue* src = tuple->get_string_slot(slot->tuple_offset());
-                StringSlice* dest = (StringSlice*)(_tuple_buf + offset);
+                Slice* dest = (Slice*)(_tuple_buf + offset);
                 dest->size = src->len;
                 bool exist = _skip_list->Contains(_tuple_buf);
                 if (exist) {
@@ -143,7 +143,7 @@ void MemTable::insert(Tuple* tuple) {
     }
 }
 
-OLAPStatus MemTable::flush(IWriter* writer) {
+OLAPStatus MemTable::flush(ColumnDataWriter* writer) {
     Table::Iterator it(_skip_list);
     for (it.SeekToFirst(); it.Valid(); it.Next()) {
         const char* row = it.key();
@@ -156,7 +156,7 @@ OLAPStatus MemTable::flush(IWriter* writer) {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus MemTable::close(IWriter* writer) {
+OLAPStatus MemTable::close(ColumnDataWriter* writer) {
     return flush(writer);
 }
 

@@ -17,17 +17,16 @@
 
 #include <gtest/gtest.h>
 
-#include "olap/column_file/byte_buffer.h"
-#include "olap/column_file/out_stream.h"
-#include "olap/column_file/in_stream.h"
-#include "olap/column_file/run_length_integer_writer.h"
-#include "olap/column_file/run_length_integer_reader.h"
-#include "olap/column_file/stream_index_writer.h"
-#include "olap/column_file/stream_index_reader.h"
+#include "olap/byte_buffer.h"
+#include "olap/out_stream.h"
+#include "olap/in_stream.h"
+#include "olap/run_length_integer_writer.h"
+#include "olap/run_length_integer_reader.h"
+#include "olap/stream_index_writer.h"
+#include "olap/stream_index_reader.h"
 #include "util/logging.h"
 
 namespace doris {
-namespace column_file {
 
 class TestRunLengthUnsignInteger : public testing::Test {
 public:
@@ -63,7 +62,7 @@ public:
         ASSERT_EQ(OLAP_SUCCESS, helper.open_with_mode("tmp_file", 
                 O_RDONLY, S_IRUSR | S_IWUSR)); 
 
-        _shared_buffer = ByteBuffer::create(
+        _shared_buffer = StorageByteBuffer::create(
                 OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE + sizeof(StreamHead));
         ASSERT_TRUE(_shared_buffer != NULL);
 
@@ -85,7 +84,7 @@ public:
     OutStream* _out_stream;
     RunLengthIntegerWriter* _writer;
     FileHandler helper;
-    ByteBuffer* _shared_buffer;
+    StorageByteBuffer* _shared_buffer;
     ReadOnlyFileStream* _stream;
     OlapReaderStatistics _stats;
 };
@@ -375,7 +374,7 @@ virtual void SetUp() {
         ASSERT_EQ(OLAP_SUCCESS, helper.open_with_mode("tmp_file", 
                 O_RDONLY, S_IRUSR | S_IWUSR)); 
 
-        _shared_buffer = ByteBuffer::create(
+        _shared_buffer = StorageByteBuffer::create(
                 OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE + sizeof(StreamHead));
         ASSERT_TRUE(_shared_buffer != NULL);
 
@@ -397,7 +396,7 @@ virtual void SetUp() {
     OutStream* _out_stream;
     RunLengthIntegerWriter* _writer;
     FileHandler helper;
-    ByteBuffer* _shared_buffer;
+    StorageByteBuffer* _shared_buffer;
     ReadOnlyFileStream* _stream;
     OlapReaderStatistics _stats;
 };
@@ -839,7 +838,6 @@ TEST_F(TestRunLengthSignInteger, DirectEncodingForDeltaOverflows2) {
    
 }
 
-}
 }
 
 int main(int argc, char** argv) {

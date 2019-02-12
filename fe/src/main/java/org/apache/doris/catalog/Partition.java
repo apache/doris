@@ -22,6 +22,10 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.meta.MetaContext;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -36,6 +40,8 @@ import java.util.Map.Entry;
  * Internal representation of partition-related metadata.
  */
 public class Partition extends MetaObject implements Writable {
+    private static final Logger LOG = LogManager.getLogger(Partition.class);
+
     public static final long PARTITION_INIT_VERSION = 1L;
     public static final long PARTITION_INIT_VERSION_HASH = 0L;
 
@@ -51,13 +57,19 @@ public class Partition extends MetaObject implements Writable {
 
     private MaterializedIndex baseIndex;
     private Map<Long, MaterializedIndex> idToRollupIndex;
-    private long committedVersion;
-    private long committedVersionHash;
 
+    /*
+     * committed version(hash): after txn is committed, set committed version(hash)
+     * visible version(hash): after txn is published, set visible version
+     * next version(hash): next version is set after finished committing, it should equals to committed version + 1
+     */
+
+    // not have committedVersion because committedVersion = nextVersion - 1
+    private long committedVersionHash;
+    private long visibleVersion;
+    private long visibleVersionHash;
     private long nextVersion;
     private long nextVersionHash;
-    // not have currentVersion because currentVersion = nextVersion - 1
-    private long currentVersionHash;
 
     private DistributionInfo distributionInfo;
 
@@ -74,13 +86,14 @@ public class Partition extends MetaObject implements Writable {
         this.baseIndex = baseIndex;
         this.idToRollupIndex = new HashMap<Long, MaterializedIndex>();
 
-        this.committedVersion = PARTITION_INIT_VERSION;
-        this.committedVersionHash = PARTITION_INIT_VERSION_HASH;
-        this.distributionInfo = distributionInfo;
+        this.visibleVersion = PARTITION_INIT_VERSION;
+        this.visibleVersionHash = PARTITION_INIT_VERSION_HASH;
         // PARTITION_INIT_VERSION == 1, so the first load version is 2 !!!
         this.nextVersion = PARTITION_INIT_VERSION + 1;
         this.nextVersionHash = Util.generateVersionHash();
-        this.currentVersionHash = PARTITION_INIT_VERSION_HASH;
+        this.committedVersionHash = PARTITION_INIT_VERSION_HASH;
+
+        this.distributionInfo = distributionInfo;
     }
 
     public void setIdForRestore(long id) {
@@ -103,30 +116,47 @@ public class Partition extends MetaObject implements Writable {
         this.state = state;
     }
 
-    public void updateCommitVersionAndVersionHash(long committedVersion, long committedVersionHash) {
-        this.committedVersion = committedVersion;
-        this.committedVersionHash = committedVersionHash;
-        // if it is upgrade from old palo cluster, then should update next version info
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_45) {
-         // the partition is created and not import any data
-            if (committedVersion == PARTITION_INIT_VERSION + 1 && committedVersionHash == PARTITION_INIT_VERSION_HASH) {
-                this.nextVersion = PARTITION_INIT_VERSION + 1;
-                this.nextVersionHash = Util.generateVersionHash();
-                this.currentVersionHash = PARTITION_INIT_VERSION_HASH;
-            } else {
-                this.nextVersion = committedVersion + 1;
-                this.nextVersionHash = Util.generateVersionHash();
-                this.currentVersionHash = committedVersionHash;
+    /*
+     * If a partition is overwritten by a restore job, we need to reset all version info to
+     * the restored partition version info》
+     */
+    public void updateVersionForRestore(long visibleVersion, long visibleVersionHash) {
+        this.visibleVersion = visibleVersion;
+        this.visibleVersionHash = visibleVersionHash;
+        this.nextVersion = this.visibleVersion + 1;
+        this.nextVersionHash = Util.generateVersionHash();
+        this.committedVersionHash = visibleVersionHash;
+        LOG.info("update partition {} version for restore: visible: {}-{}, next: {}-{}",
+                visibleVersion, visibleVersionHash, nextVersion, nextVersionHash);
+    }
+
+    public void updateVisibleVersionAndVersionHash(long visibleVersion, long visibleVersionHash) {
+        this.visibleVersion = visibleVersion;
+        this.visibleVersionHash = visibleVersionHash;
+        if (MetaContext.get() != null) {
+            // MetaContext is not null means we are in a edit log replay thread.
+            // if it is upgrade from old palo cluster, then should update next version info
+            if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_45) {
+                // the partition is created and not import any data
+                if (visibleVersion == PARTITION_INIT_VERSION + 1 && visibleVersionHash == PARTITION_INIT_VERSION_HASH) {
+                    this.nextVersion = PARTITION_INIT_VERSION + 1;
+                    this.nextVersionHash = Util.generateVersionHash();
+                    this.committedVersionHash = PARTITION_INIT_VERSION_HASH;
+                } else {
+                    this.nextVersion = visibleVersion + 1;
+                    this.nextVersionHash = Util.generateVersionHash();
+                    this.committedVersionHash = visibleVersionHash;
+                }
             }
         }
     }
     
-    public long getCommittedVersion() {
-        return committedVersion;
+    public long getVisibleVersion() {
+        return visibleVersion;
     }
 
-    public long getCommittedVersionHash() {
-        return committedVersionHash;
+    public long getVisibleVersionHash() {
+        return visibleVersionHash;
     }
 
     public PartitionState getState() {
@@ -161,17 +191,17 @@ public class Partition extends MetaObject implements Writable {
         return nextVersionHash;
     }
 
-    public void setNextVersionHash(long nextVersionHash, long currentVersionHash) {
-        this.currentVersionHash = currentVersionHash;
+    public void setNextVersionHash(long nextVersionHash, long committedVersionHash) {
         this.nextVersionHash = nextVersionHash;
+        this.committedVersionHash = committedVersionHash;
     }
     
-    public long getCurrentVersion() {
+    public long getCommittedVersion() {
         return Math.max(this.nextVersion - 1, 2);
     }
     
-    public long getCurrentVersionHash() {
-        return currentVersionHash;
+    public long getCommittedVersionHash() {
+        return committedVersionHash;
     }
 
     public List<MaterializedIndex> getRollupIndices() {
@@ -201,12 +231,21 @@ public class Partition extends MetaObject implements Writable {
         return indices;
     }
 
+    public long getDataSize() {
+        long dataSize = 0;
+        for (MaterializedIndex mIndex : getMaterializedIndices()) {
+            dataSize += mIndex.getDataSize();
+        }
+        return dataSize;
+    }
+
     public static Partition read(DataInput in) throws IOException {
         Partition partition = new Partition();
         partition.readFields(in);
         return partition;
     }
 
+    @Override
     public void write(DataOutput out) throws IOException {
         super.write(out);
 
@@ -224,17 +263,18 @@ public class Partition extends MetaObject implements Writable {
             }
         }
 
-        out.writeLong(committedVersion);
-        out.writeLong(committedVersionHash);
+        out.writeLong(visibleVersion);
+        out.writeLong(visibleVersionHash);
 
         out.writeLong(nextVersion);
         out.writeLong(nextVersionHash);
-        out.writeLong(currentVersionHash);
+        out.writeLong(committedVersionHash);
 
         Text.writeString(out, distributionInfo.getType().name());
         distributionInfo.write(out);
     }
 
+    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
 
@@ -250,22 +290,22 @@ public class Partition extends MetaObject implements Writable {
             idToRollupIndex.put(rollupTable.getId(), rollupTable);
         }
 
-        committedVersion = in.readLong();
-        committedVersionHash = in.readLong();
+        visibleVersion = in.readLong();
+        visibleVersionHash = in.readLong();
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_45) {
             nextVersion = in.readLong();
             nextVersionHash = in.readLong();
-            currentVersionHash = in.readLong();
+            committedVersionHash = in.readLong();
         } else {
             // the partition is created and not import any data
-            if (committedVersion == PARTITION_INIT_VERSION + 1 && committedVersionHash == PARTITION_INIT_VERSION_HASH) {
+            if (visibleVersion == PARTITION_INIT_VERSION + 1 && visibleVersionHash == PARTITION_INIT_VERSION_HASH) {
                 this.nextVersion = PARTITION_INIT_VERSION + 1;
                 this.nextVersionHash = Util.generateVersionHash();
-                this.currentVersionHash = PARTITION_INIT_VERSION_HASH;
+                this.committedVersionHash = PARTITION_INIT_VERSION_HASH;
             } else {
-                this.nextVersion = committedVersion + 1;
+                this.nextVersion = visibleVersion + 1;
                 this.nextVersionHash = Util.generateVersionHash();
-                this.currentVersionHash = committedVersionHash;
+                this.committedVersionHash = visibleVersionHash;
             }
         }
         DistributionInfoType distriType = DistributionInfoType.valueOf(Text.readString(in));
@@ -278,6 +318,7 @@ public class Partition extends MetaObject implements Writable {
         }
     }
 
+    @Override
     public boolean equals(Object obj) {
         if (this == obj) {
             return true;
@@ -302,8 +343,8 @@ public class Partition extends MetaObject implements Writable {
             }
         }
 
-        return (committedVersion == partition.committedVersion)
-                && (committedVersionHash == partition.committedVersionHash)
+        return (visibleVersion == partition.visibleVersion)
+                && (visibleVersionHash == partition.visibleVersionHash)
                 && (baseIndex.equals(partition.baseIndex)
                 && distributionInfo.eqauls(partition.distributionInfo));
     }
@@ -326,8 +367,8 @@ public class Partition extends MetaObject implements Writable {
             }
         }
 
-        buffer.append("committedVersion: ").append(committedVersion).append("; ");
-        buffer.append("committedVersionHash: ").append(committedVersionHash).append("; ");
+        buffer.append("committedVersion: ").append(visibleVersion).append("; ");
+        buffer.append("committedVersionHash: ").append(visibleVersionHash).append("; ");
 
         buffer.append("distribution_info.type: ").append(distributionInfo.getType().name()).append("; ");
         buffer.append("distribution_info: ").append(distributionInfo.toString());

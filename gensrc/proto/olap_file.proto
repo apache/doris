@@ -54,12 +54,12 @@ message PDelta {
     required int64 end_version = 2;
     required int64 version_hash = 3;
     required int64 creation_time = 4;
-    repeated PRowSet rowset = 5;
+    repeated PSegmentGroup segment_group = 5;
     optional DeleteConditionMessage delete_condition = 6;
 }
 
-message PRowSet {
-    required int32 rowset_id = 1;
+message PSegmentGroup {
+    required int32 segment_group_id = 1;
     required int32 num_segments = 2;
     required int64 index_size = 3;
     required int64 data_size = 4;
@@ -72,12 +72,12 @@ message PPendingDelta {
     required int64 partition_id = 1;
     required int64 transaction_id = 2;
     required int64 creation_time = 3;
-    repeated PPendingRowSet pending_rowset = 4;
+    repeated PPendingSegmentGroup pending_segment_group = 4;
     optional DeleteConditionMessage delete_condition = 5;
 }
 
-message PPendingRowSet {
-    required int32 pending_rowset_id = 1;
+message PPendingSegmentGroup {
+    required int32 pending_segment_group_id = 1;
     required int32 num_segments = 2;
     required PUniqueId load_id = 3;
     repeated ColumnPruning column_pruning = 4;
@@ -96,7 +96,7 @@ message SchemaChangeStatusMessage {
 }
 
 enum DataFileType {
-    OLAP_DATA_FILE = 0;
+    OLAP_DATA_FILE = 0; //Deprecated. Only columnar-wise format is supported.
     COLUMN_ORIENTED_FILE = 1;
 }
 

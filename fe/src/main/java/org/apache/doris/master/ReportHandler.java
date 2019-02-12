@@ -29,6 +29,7 @@ import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.clone.CloneChecker;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.Daemon;
 import org.apache.doris.persist.ReplicaPersistInfo;
@@ -62,6 +63,7 @@ import org.apache.doris.thrift.TTaskType;
 import com.google.common.collect.LinkedListMultimap;
 import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
 
 import org.apache.commons.lang.StringUtils;
@@ -80,12 +82,15 @@ public class ReportHandler extends Daemon {
     private static final Logger LOG = LogManager.getLogger(ReportHandler.class);
 
     private BlockingQueue<ReportTask> reportQueue = Queues.newLinkedBlockingQueue();
+
     public ReportHandler() {
     }
+
     public TMasterResult handleReport(TReportRequest request) throws TException {
         TMasterResult result = new TMasterResult();
         TStatus tStatus = new TStatus(TStatusCode.OK);
         result.setStatus(tStatus);
+        
         // get backend
         TBackend tBackend = request.getBackend();
         String host = tBackend.getHost();
@@ -98,25 +103,40 @@ public class ReportHandler extends Daemon {
             tStatus.setError_msgs(errorMsgs);
             return result;
         }
+        
         long beId = backend.getId();
         Map<TTaskType, Set<Long>> tasks = null;
         Map<String, TDisk> disks = null;
         Map<Long, TTablet> tablets = null;
         boolean forceRecovery = false;
         long reportVersion = -1;
+
+        String reportType = "";
         if (request.isSetTasks()) {
             tasks = request.getTasks();
+            reportType += " task";
         }
+        
         if (request.isSetDisks()) {
             disks = request.getDisks();
+            reportType += " disk";
         }
+        
         if (request.isSetTablets()) {
             tablets = request.getTablets();
             reportVersion = request.getReport_version();
+            reportType += " tablet";
+        } else if (request.isSetTablet_list()) {
+            // the 'tablets' member will be deprecated in future.
+            tablets = buildTabletMap(request.getTablet_list());
+            reportVersion = request.getReport_version();
+            reportType += " tablet";
         }
+        
         if (request.isSetForce_recovery()) {
             forceRecovery = request.isForce_recovery();
         }
+        
         ReportTask reportTask = new ReportTask(beId, tasks, disks, tablets, reportVersion, forceRecovery);
         try {
             reportQueue.put(reportTask);
@@ -128,16 +148,33 @@ public class ReportHandler extends Daemon {
             tStatus.setError_msgs(errorMsgs);
             return result;
         }
-        LOG.info("receive report from be {}. current queue size: {}", backend.getId(), reportQueue.size());
+        
+        LOG.info("receive report from be {}. type: {}, current queue size: {}",
+                backend.getId(), reportType, reportQueue.size());
         return result;
     }
+
+    private Map<Long, TTablet> buildTabletMap(List<TTablet> tabletList) {
+        Map<Long, TTablet> tabletMap = Maps.newHashMap();
+        for (TTablet tTablet : tabletList) {
+            if (tTablet.getTablet_infos().isEmpty()) {
+                continue;
+            }
+
+            tabletMap.put(tTablet.getTablet_infos().get(0).getTablet_id(), tTablet);
+        }
+        return tabletMap;
+    }
+
     private class ReportTask extends MasterTask {
+
         private long beId;
         private Map<TTaskType, Set<Long>> tasks;
         private Map<String, TDisk> disks;
         private Map<Long, TTablet> tablets;
         private long reportVersion;
         private boolean forceRecovery = false;
+
         public ReportTask(long beId, Map<TTaskType, Set<Long>> tasks,
                 Map<String, TDisk> disks,
                 Map<Long, TTablet> tablets, long reportVersion, 
@@ -149,6 +186,7 @@ public class ReportHandler extends Daemon {
             this.reportVersion = reportVersion;
             this.forceRecovery = forceRecovery;
         }
+
         @Override
         protected void exec() {
             if (tasks != null) {
@@ -192,8 +230,10 @@ public class ReportHandler extends Daemon {
         ListMultimap<Long, TPartitionVersionInfo> transactionsToPublish = LinkedListMultimap.create();
         ListMultimap<Long, Long> transactionsToClear = LinkedListMultimap.create();
         
-        List<RecoverTabletTask> tabletRecoverTask = Lists.newArrayList();
         List<CreateReplicaTask> createReplicaTasks = Lists.newArrayList();
+
+        // db id -> tablet id
+        ListMultimap<Long, Long> tabletRecoveryMap = LinkedListMultimap.create();
 
         // 1. do the diff. find out (intersection) / (be - meta) / (meta - be)
         Catalog.getCurrentInvertedIndex().tabletReport(backendId, backendTablets, storageMediumMap,
@@ -204,7 +244,7 @@ public class ReportHandler extends Daemon {
                                                        tabletMigrationMap, 
                                                        transactionsToPublish, 
                                                        transactionsToClear, 
-                                                       tabletRecoverTask);
+                                                       tabletRecoveryMap);
 
         // 2. sync
         sync(backendTablets, tabletSyncMap, backendId, backendReportVersion);
@@ -217,8 +257,7 @@ public class ReportHandler extends Daemon {
         deleteFromBackend(backendTablets, foundTabletsWithValidSchema, foundTabletsWithInvalidSchema, backendId);
         
         // 5. migration (ssd <-> hdd)
-        // disable migration because stream load does not support migration
-        // handleMigration(tabletMigrationMap, backendId);
+        handleMigration(tabletMigrationMap, backendId);
         
         // 6. send clear transactions to be
         handleClearTransactions(transactionsToClear, backendId);
@@ -227,7 +266,7 @@ public class ReportHandler extends Daemon {
         handleRepublishVersionInfo(transactionsToPublish, backendId);
         
         // 8. send recover request to 
-        handleRecoverTablet(tabletRecoverTask, backendId, forceRecovery);
+        handleRecoverTablet(tabletRecoveryMap, backendTablets, backendId, forceRecovery);
         
         // 9. send force create replica task to be
         // handleForceCreateReplica(createReplicaTasks, backendId, forceRecovery);
@@ -252,7 +291,7 @@ public class ReportHandler extends Daemon {
 
         AgentBatchTask batchTask = new AgentBatchTask();
         for (AgentTask task : diffTasks) {
-            // these tasks donot need to do diff
+            // these tasks no need to do diff
             // 1. CREATE
             // 2. SYNC DELETE
             // 3. CHECK_CONSISTENCY
@@ -301,6 +340,7 @@ public class ReportHandler extends Daemon {
                 List<Long> tabletIds = tabletSyncMap.get(dbId);
                 LOG.info("before sync tablets in db[{}]. report num: {}. backend[{}]",
                          dbId, tabletIds.size(), backendId);
+
                 for (Long tabletId : tabletIds) {
                     long tableId = invertedIndex.getTableId(tabletId);
                     OlapTable olapTable = (OlapTable) db.getTable(tableId);
@@ -319,7 +359,7 @@ public class ReportHandler extends Daemon {
                     if (index == null) {
                         continue;
                     }
-                    long schemaHash = olapTable.getSchemaHashByIndexId(indexId);
+                    int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
 
                     Tablet tablet = index.getTablet(tabletId);
                     if (tablet == null) {
@@ -361,21 +401,44 @@ public class ReportHandler extends Daemon {
 
                         if (metaVersion < backendVersion
                                 || (metaVersion == backendVersion && metaVersionHash != backendVersionHash)) {
+                            
+                            // This is just a optimization for the old compatibility
+                            // The init version in FE is (1-0), in BE is (2-0)
+                            // If the BE report version is (2-0), we just update the replica's version in Master FE,
+                            // and no need to write edit log, to save some time.
+                            // TODO(cmy): This will be removed later.
+                            boolean isInitVersion = metaVersion == 1 && metaVersionHash == 0
+                                    && backendVersion == 2 && backendVersionHash == 0;
 
                             if (backendReportVersion < Catalog.getCurrentSystemInfo()
                                     .getBackendReportVersion(backendId)) {
                                 continue;
                             }
 
-                            // happens when PUSH finished in BE but failed or not yet report to FE
-                            replica.updateInfo(backendVersion, backendVersionHash, dataSize, rowCount);
+                            // happens when
+                            // 1. PUSH finished in BE but failed or not yet report to FE
+                            // 2. repair for VERSION_INCOMPLETE finished in BE, but failed or not yet report to FE
+                            replica.updateVersionInfo(backendVersion, backendVersionHash, dataSize, rowCount);
                             
+                            if (replica.getLastFailedVersion() < 0 && !isInitVersion) {
+                                // last failed version < 0 means this replica becomes health after sync,
+                                // so we write an edit log to sync this operation
+                                ReplicaPersistInfo info = ReplicaPersistInfo.createForClone(dbId, tableId,
+                                        partitionId, indexId, tabletId, backendId, replica.getId(),
+                                        replica.getVersion(), replica.getVersionHash(), schemaHash,
+                                        dataSize, rowCount,
+                                        replica.getLastFailedVersion(), replica.getLastFailedVersionHash(),
+                                        replica.getLastSuccessVersion(), replica.getLastSuccessVersionHash());
+                                Catalog.getInstance().getEditLog().logUpdateReplica(info);
+                            }
+
                             ++syncCounter;
-                            LOG.debug("sync replica[{}] in db[{}].", replica.getId(), dbId);
+                            LOG.debug("sync replica {} of tablet {} in backend {} in db {}.",
+                                    replica.getId(), tabletId, backendId, dbId);
                         } else {
-                            LOG.debug("replica[{}] version is changed between check and real sync."
-                                    + " meta[{}-{}]. backend[{}-{}]",
-                                      replica.getId(), metaVersion, metaVersionHash,
+                            LOG.debug("replica {} of tablet {} in backend {} version is changed"
+                                    + " between check and real sync. meta[{}-{}]. backend[{}-{}]",
+                                    replica.getId(), tabletId, backendId, metaVersion, metaVersionHash,
                                       backendVersion, backendVersionHash);
                         }
                     }
@@ -432,7 +495,8 @@ public class ReportHandler extends Daemon {
                     }
                     
                     // check report version again
-                    if (backendReportVersion < Catalog.getCurrentSystemInfo().getBackendReportVersion(backendId)) {
+                    long currentBackendReportVersion = Catalog.getCurrentSystemInfo().getBackendReportVersion(backendId);
+                    if (backendReportVersion < currentBackendReportVersion) {
                         continue;
                     }
 
@@ -458,8 +522,8 @@ public class ReportHandler extends Daemon {
                                 double bfFpp = olapTable.getBfFpp();
                                 CreateReplicaTask createReplicaTask = new CreateReplicaTask(backendId, dbId, 
                                         tableId, partitionId, indexId, tabletId, shortKeyColumnCount, 
-                                        schemaHash, partition.getCommittedVersion(), 
-                                        partition.getCommittedVersionHash(), keysType, 
+                                        schemaHash, partition.getVisibleVersion(), 
+                                        partition.getVisibleVersionHash(), keysType, 
                                         TStorageType.COLUMN,
                                         TStorageMedium.HDD, columns, bfColumns, bfFpp, null);
                                 createReplicaTasks.add(createReplicaTask);
@@ -479,17 +543,21 @@ public class ReportHandler extends Daemon {
                                                                                      indexId, tabletId, backendId);
 
                         Catalog.getInstance().getEditLog().logDeleteReplica(info);
-                        LOG.warn("delete replica[{}] in tablet[{}] from meta. backend[{}]",
-                                 replica.getId(), tabletId, backendId);
+                        LOG.warn("delete replica[{}] in tablet[{}] from meta. backend[{}], report version: {}"
+                                + ", current report version: {}",
+                                replica.getId(), tabletId, backendId, backendReportVersion,
+                                currentBackendReportVersion);
                         
                         // check for clone
                         replicas = tablet.getReplicas();
                         if (replicas.size() == 0) {
                             LOG.error("invalid situation. tablet[{}] is empty", tabletId);
                         } else if (replicas.size() < replicationNum) {
-                            CloneChecker.getInstance().checkTabletForSupplement(dbId, tableId,
-                                                                                partitionId,
-                                                                                indexId, tabletId);
+                            if (!Config.use_new_tablet_scheduler) {
+                                CloneChecker.getInstance().checkTabletForSupplement(dbId, tableId,
+                                                                                    partitionId,
+                                                                                    indexId, tabletId);
+                            }
                         }
                     }
                 } // end for tabletMetas
@@ -583,24 +651,116 @@ public class ReportHandler extends Daemon {
         AgentTaskExecutor.submit(batchTask);
     }
     
-    private static void handleRecoverTablet(List<RecoverTabletTask> tabletRecoverTasks, long backendId, 
-            boolean forceRecovery) {
-        if (tabletRecoverTasks.size() > 0) {
-            // print a warn log here to indicate the exceptions on the backend
-            LOG.warn("find {} tablets with report version less than version in meta on backend {}" 
-                        +  " they need clone or force recovery, force recovery is [{}]", 
-                        tabletRecoverTasks.size(), backendId, forceRecovery);
-        }
-        if (!forceRecovery) {
+    private static void handleRecoverTablet(ListMultimap<Long, Long> tabletRecoveryMap,
+            Map<Long, TTablet> backendTablets, long backendId, boolean forceRecovery) {
+        if (tabletRecoveryMap.isEmpty()) {
             return;
         }
-        AgentBatchTask batchTask = new AgentBatchTask();
-        for (RecoverTabletTask recoverTask : tabletRecoverTasks) {
-            batchTask.addTask(recoverTask);
-            AgentTaskQueue.addTask(recoverTask);
+
+        // print a warn log here to indicate the exceptions on the backend
+        LOG.warn("find {} tablets with report version less than version in meta on backend {}"
+                + " they need clone or force recovery",
+                tabletRecoveryMap.size(), backendId);
+
+        TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
+        if (!forceRecovery) {
+            LOG.warn("force recovery is disable. try reset the tablet's version, and waiting clone");
+            for (Long dbId : tabletRecoveryMap.keySet()) {
+                Database db = Catalog.getInstance().getDb(dbId);
+                if (db == null) {
+                    continue;
+                }
+                db.writeLock();
+                try {
+                    for (Long tabletId : tabletRecoveryMap.get(dbId)) {
+                        long tableId = invertedIndex.getTableId(tabletId);
+                        OlapTable olapTable = (OlapTable) db.getTable(tableId);
+                        if (olapTable == null) {
+                            continue;
+                        }
+
+                        long partitionId = invertedIndex.getPartitionId(tabletId);
+                        Partition partition = olapTable.getPartition(partitionId);
+                        if (partition == null) {
+                            continue;
+                        }
+
+                        long indexId = invertedIndex.getIndexId(tabletId);
+                        MaterializedIndex index = partition.getIndex(indexId);
+                        if (index == null) {
+                            continue;
+                        }
+
+                        long schemaHash = olapTable.getSchemaHashByIndexId(indexId);
+
+                        Tablet tablet = index.getTablet(tabletId);
+                        if (tablet == null) {
+                            continue;
+                        }
+
+                        Replica replica = tablet.getReplicaByBackendId(backendId);
+                        if (replica == null) {
+                            continue;
+                        }
+
+                        for (TTabletInfo tTabletInfo : backendTablets.get(tabletId).getTablet_infos()) {
+                            if (tTabletInfo.getSchema_hash() == schemaHash) {
+                                if (replica.getVersion() > tTabletInfo.getVersion()) {
+                                    LOG.warn("recover for replica {} of tablet {} on backend {}",
+                                            replica.getId(), tabletId, backendId);
+                                    if (replica.getVersion() == tTabletInfo.getVersion() + 1) {
+                                        // this missing version is the last version of this replica
+                                        replica.updateVersionInfoForRecovery(
+                                                tTabletInfo.getVersion(), /* set version to BE report version */
+                                                -1, /* BE report version hash is meaningless here */
+                                                replica.getVersion(), /* set LFV to current FE version */
+                                                replica.getVersionHash(), /* set LFV hash to current FE version hash */
+                                                tTabletInfo.getVersion(), /* set LSV to BE report version */
+                                                -1 /* LSV hash is unknown */);
+                                    } else {
+                                        // this missing version is a hole
+                                        replica.updateVersionInfoForRecovery(
+                                                tTabletInfo.getVersion(), /* set version to BE report version */
+                                                -1, /* BE report version hash is meaningless here */
+                                                tTabletInfo.getVersion() + 1, /* LFV */
+                                                -1, /* LFV hash is unknown */
+                                                /* remain LSV unchanged, which should be equal to replica.version */
+                                                replica.getLastSuccessVersion(),
+                                                replica.getLastSuccessVersionHash());
+                                    }
+                                    // no need to write edit log, if FE crashed, this will be recovered again
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                } finally {
+                    db.writeUnlock();
+                }
+            }
+
+            return;
+        } else {
+            LOG.warn("force recovery is enable. use recovery tablet task to recover");
+            AgentBatchTask batchTask = new AgentBatchTask();
+            for (long tabletId : tabletRecoveryMap.values()) {
+                Replica replica = invertedIndex.getReplica(tabletId, backendId);
+
+                RecoverTabletTask recoverTask = new RecoverTabletTask(backendId,
+                        tabletId, replica.getVersion(), replica.getVersionHash(),
+                        backendTablets.get(tabletId).getTablet_infos().get(0).getSchema_hash());
+                LOG.warn("recover replica {} of tablet {} on backend {}, schema hash: {}"
+                        + ", version: {}-{}",
+                        replica.getId(), tabletId, backendId,
+                        backendTablets.get(tabletId).getTablet_infos().get(0).getSchema_hash(),
+                        replica.getVersion(), replica.getVersionHash());
+
+                batchTask.addTask(recoverTask);
+                AgentTaskQueue.addTask(recoverTask);
+            }
+
+            AgentTaskExecutor.submit(batchTask);
         }
-        
-        AgentTaskExecutor.submit(batchTask);
     }
     
     private static void handleForceCreateReplica(List<CreateReplicaTask> createReplicaTasks, 
@@ -663,6 +823,11 @@ public class ReportHandler extends Daemon {
                 throw new MetaNotFoundException("table[" + tableId + "] does not exist");
             }
 
+            // colocate table will delete Replica in meta when balance
+            if (Catalog.getCurrentColocateIndex().isColocateTable(olapTable.getId())) {
+                return;
+            }
+
             Partition partition = olapTable.getPartition(partitionId);
             if (partition == null) {
                 throw new MetaNotFoundException("partition[" + partitionId + "] does not exist");
@@ -673,18 +838,19 @@ public class ReportHandler extends Daemon {
             if (materializedIndex == null) {
                 throw new MetaNotFoundException("index[" + indexId + "] does not exist");
             }
+
             Tablet tablet = materializedIndex.getTablet(tabletId);
             if (tablet == null) {
                 throw new MetaNotFoundException("tablet[" + tabletId + "] does not exist");
             }
 
-            long committedVersion = partition.getCommittedVersion();
-            long committedVersionHash = partition.getCommittedVersionHash();
+            long visibleVersion = partition.getVisibleVersion();
+            long visibleVersionHash = partition.getVisibleVersionHash();
 
             // check replica version
-            if (version < committedVersion || (version == committedVersion && versionHash != committedVersionHash)) {
+            if (version < visibleVersion || (version == visibleVersion && versionHash != visibleVersionHash)) {
                 throw new MetaNotFoundException("version is invalid. tablet[" + version + "-" + versionHash + "]"
-                        + ", committed[" + committedVersion + "-" + committedVersionHash + "]");
+                        + ", visible[" + visibleVersion + "-" + visibleVersionHash + "]");
             }
             
             // check schema hash
@@ -694,17 +860,17 @@ public class ReportHandler extends Daemon {
             }
 
             List<Replica> replicas = tablet.getReplicas();
-            int replicationOnLine = 0;
+            int onlineReplicaNum = 0;
             for (Replica replica : replicas) {
                 final long id = replica.getBackendId();
                 final Backend backend = Catalog.getCurrentSystemInfo().getBackend(id);
                 if (backend != null && backend.isAlive() && !backend.isDecommissioned()
 						&& replica.getState() == ReplicaState.NORMAL) {
-                    replicationOnLine++;
+                    onlineReplicaNum++;
                 }
             }
             
-            if (replicationOnLine < replicationNum) {
+            if (onlineReplicaNum < replicationNum) {
                 long replicaId = Catalog.getInstance().getNextId();
                 long lastFailedVersion = -1L;
                 long lastFailedVersionHash = 0L;
@@ -712,23 +878,23 @@ public class ReportHandler extends Daemon {
                     // this is a fatal error
                     throw new MetaNotFoundException("version is invalid. tablet[" + version + "-" + versionHash + "]"
                             + ", partition's max version [" + (partition.getNextVersion() - 1) + "]");
-                } else if (version < partition.getCurrentVersion() 
-                        || version == partition.getCurrentVersion() 
-                            && versionHash != partition.getCurrentVersionHash()) {
-                    lastFailedVersion = partition.getCurrentVersion();
-                    lastFailedVersionHash = partition.getCurrentVersionHash();
+                } else if (version < partition.getCommittedVersion() 
+                        || version == partition.getCommittedVersion() 
+                            && versionHash != partition.getCommittedVersionHash()) {
+                    lastFailedVersion = partition.getCommittedVersion();
+                    lastFailedVersionHash = partition.getCommittedVersionHash();
                 }
-                Replica replica = new Replica(replicaId, backendId, version, versionHash, 
+                Replica replica = new Replica(replicaId, backendId, version, versionHash, schemaHash,
                                               dataSize, rowCount, ReplicaState.NORMAL, 
                                               lastFailedVersion, lastFailedVersionHash, version, versionHash);
                 tablet.addReplica(replica);
                 
                 // write edit log
                 ReplicaPersistInfo info = ReplicaPersistInfo.createForAdd(dbId, tableId, partitionId, indexId,
-                                                                          tabletId, backendId, replicaId,
-                                                                          version, versionHash, dataSize, rowCount, 
-                                                                          lastFailedVersion, lastFailedVersionHash, 
-                                                                          version, versionHash);
+                        tabletId, backendId, replicaId,
+                        version, versionHash, schemaHash, dataSize, rowCount,
+                        lastFailedVersion, lastFailedVersionHash,
+                        version, versionHash);
 
                 Catalog.getInstance().getEditLog().logAddReplica(info);
 
@@ -748,6 +914,7 @@ public class ReportHandler extends Daemon {
             db.writeUnlock();
         }
     }
+
     @Override
     protected void runOneCycle() {
         while (true) {

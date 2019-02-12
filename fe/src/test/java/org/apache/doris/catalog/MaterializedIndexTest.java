@@ -39,7 +39,7 @@ import org.powermock.core.classloader.annotations.PrepareForTest;
 import org.powermock.modules.junit4.PowerMockRunner;
 
 @RunWith(PowerMockRunner.class)
-@PowerMockIgnore("org.apache.log4j.*")
+@PowerMockIgnore({ "org.apache.log4j.*", "javax.management.*" })
 @PrepareForTest(Catalog.class)
 public class MaterializedIndexTest {
 
@@ -54,9 +54,9 @@ public class MaterializedIndexTest {
         indexId = 10000;
 
         columns = new LinkedList<Column>();
-        columns.add(new Column("k1", ColumnType.createType(PrimitiveType.TINYINT), true, null, "", ""));
-        columns.add(new Column("k2", ColumnType.createType(PrimitiveType.SMALLINT), true, null, "", ""));
-        columns.add(new Column("v1", ColumnType.createType(PrimitiveType.INT), false, AggregateType.REPLACE, "", ""));
+        columns.add(new Column("k1", ScalarType.createType(PrimitiveType.TINYINT), true, null, "", ""));
+        columns.add(new Column("k2", ScalarType.createType(PrimitiveType.SMALLINT), true, null, "", ""));
+        columns.add(new Column("v1", ScalarType.createType(PrimitiveType.INT), false, AggregateType.REPLACE, "", ""));
         index = new MaterializedIndex(indexId, IndexState.NORMAL);
 
         catalog = EasyMock.createMock(Catalog.class);

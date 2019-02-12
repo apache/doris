@@ -34,8 +34,6 @@ static const uint32_t OLAP_MAX_PATH_LEN = 512;
 static const uint32_t OLAP_DEFAULT_MAX_PACKED_ROW_BLOCK_SIZE = 1024 * 1024 * 20;
 // 每个row block压缩前的最大长度，也就是buf的最大长度
 static const uint32_t OLAP_DEFAULT_MAX_UNPACKED_ROW_BLOCK_SIZE = 1024 * 1024 * 100;
-// 块大小使用uint32_t保存, 这里定义为2G,
-static const uint32_t OLAP_MAX_SEGMENT_FILE_SIZE = 2147483648;
 // 列存储文件的块大小,由于可能会被全部载入内存,所以需要严格控制大小, 这里定义为256MB
 static const uint32_t OLAP_MAX_COLUMN_SEGMENT_FILE_SIZE = 268435456;
 // 在列存储文件中, 数据分块压缩, 每个块的默认压缩前的大小
@@ -237,7 +235,7 @@ enum OLAPStatus {
     OLAP_ERR_PUSH_INPUT_DATA_ERROR = -910,
     OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST = -911,
 
-    // Rowset
+    // SegmentGroup
     // [-1000, -1100)
     OLAP_ERR_INDEX_LOAD_ERROR = -1000,
     OLAP_ERR_INDEX_EOF = -1001,
@@ -278,6 +276,7 @@ enum OLAPStatus {
     OLAP_ERR_HEADER_LOAD_JSON_HEADER = -1410,
     OLAP_ERR_HEADER_INIT_FAILED = -1411,
     OLAP_ERR_HEADER_PB_PARSE_FAILED = -1412,
+    OLAP_ERR_HEADER_HAS_PENDING_DATA = -1413,
 
     // OLAPTableSchema
     // [-1500, -1600)

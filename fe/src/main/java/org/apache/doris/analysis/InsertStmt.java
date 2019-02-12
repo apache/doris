@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import com.google.common.base.Preconditions;
 import org.apache.doris.catalog.BrokerTable;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
@@ -38,6 +39,7 @@ import org.apache.doris.planner.DataSplitSink;
 import org.apache.doris.planner.ExportSink;
 import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 
@@ -69,7 +71,7 @@ public class InsertStmt extends DdlStmt {
     private final List<String> planHints;
     private Boolean isRepartition;
     private boolean isStreaming = false;
-    
+
     private Map<Long, Integer> indexIdToSchemaHash = null;
 
     // set after parse all columns and expr in query statement
@@ -127,11 +129,11 @@ public class InsertStmt extends DdlStmt {
     public Map<Long, Integer> getIndexIdToSchemaHash() {
         return this.indexIdToSchemaHash;
     }
-    
+
     public long getTransactionId() {
         return this.transactionId;
     }
-    
+
     public Boolean isRepartition() {
         return isRepartition;
     }
@@ -167,6 +169,18 @@ public class InsertStmt extends DdlStmt {
 
     public QueryStmt getQueryStmt() {
         return queryStmt;
+    }
+
+
+    @Override
+    public void rewriteExprs(ExprRewriter rewriter) throws AnalysisException {
+        Preconditions.checkState(isAnalyzed());
+        queryStmt.rewriteExprs(rewriter);
+    }
+
+    @Override
+    public boolean isExplain() {
+        return queryStmt.isExplain();
     }
 
     public boolean isStreaming() {
@@ -212,7 +226,7 @@ public class InsertStmt extends DdlStmt {
 
         // create data sink
         createDataSink();
-        
+
         if (targetTable instanceof OlapTable) {
             String dbName = tblName.getDb();
             // check exist
@@ -222,11 +236,11 @@ public class InsertStmt extends DdlStmt {
             // if all previous job finished
             UUID uuid = UUID.randomUUID();
             String jobLabel = "insert_" + uuid;
-            LoadJobSourceType sourceType = isStreaming ? LoadJobSourceType.INSERT_STREAMING 
+            LoadJobSourceType sourceType = isStreaming ? LoadJobSourceType.INSERT_STREAMING
                     : LoadJobSourceType.FRONTEND;
             transactionId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(db.getId(),
-                    jobLabel,
-                    "fe", sourceType);
+                                                                                      jobLabel,
+                                                                                      "fe", sourceType);
             if (isStreaming) {
                 OlapTableSink sink = (OlapTableSink) dataSink;
                 TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
@@ -294,7 +308,7 @@ public class InsertStmt extends DdlStmt {
 
             if (!brokerTable.isWritable()) {
                 throw new AnalysisException("table " + brokerTable.getName()
-                        + "is not writable. path should be an dir");
+                                                    + "is not writable. path should be an dir");
             }
 
         } else {
@@ -387,9 +401,9 @@ public class InsertStmt extends DdlStmt {
         // TargeTable's hll column must be hll_hash's result
         if (col.getType().equals(Type.HLL)) {
             final String hllMismatchLog = "Column's type is HLL,"
-                    + " SelectList must contains HLL or hll_hash function's result, column=" + col.getName(); 
+                    + " SelectList must contains HLL or hll_hash function's result, column=" + col.getName();
             if (expr instanceof SlotRef) {
-                final SlotRef slot = (SlotRef)expr;
+                final SlotRef slot = (SlotRef) expr;
                 if (!slot.getType().equals(Type.HLL)) {
                     throw new AnalysisException(hllMismatchLog);
                 }

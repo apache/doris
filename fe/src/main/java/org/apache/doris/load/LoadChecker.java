@@ -20,22 +20,13 @@ package org.apache.doris.load;
 import org.apache.doris.alter.RollupJob;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.Replica;
-import org.apache.doris.catalog.Replica.ReplicaState;
-import org.apache.doris.transaction.GlobalTransactionMgr;
-import org.apache.doris.transaction.TabletCommitInfo;
-import org.apache.doris.transaction.TransactionCommitFailedException;
-import org.apache.doris.transaction.TransactionState;
-import org.apache.doris.transaction.TransactionStatus;
+import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Tablet;
-import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
-import org.apache.doris.clone.Clone;
-import org.apache.doris.clone.CloneJob.JobPriority;
-import org.apache.doris.clone.CloneJob.JobType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.Daemon;
@@ -47,22 +38,28 @@ import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.HadoopLoadEtlTask;
-import org.apache.doris.task.MiniLoadEtlTask;
-import org.apache.doris.task.MiniLoadPendingTask;
 import org.apache.doris.task.HadoopLoadPendingTask;
 import org.apache.doris.task.InsertLoadEtlTask;
 import org.apache.doris.task.MasterTask;
 import org.apache.doris.task.MasterTaskExecutor;
+import org.apache.doris.task.MiniLoadEtlTask;
+import org.apache.doris.task.MiniLoadPendingTask;
 import org.apache.doris.task.PullLoadEtlTask;
 import org.apache.doris.task.PullLoadPendingTask;
 import org.apache.doris.task.PushTask;
 import org.apache.doris.thrift.TPriority;
 import org.apache.doris.thrift.TPushType;
 import org.apache.doris.thrift.TTaskType;
+import org.apache.doris.transaction.GlobalTransactionMgr;
+import org.apache.doris.transaction.TabletCommitInfo;
+import org.apache.doris.transaction.TransactionException;
+import org.apache.doris.transaction.TransactionState;
+import org.apache.doris.transaction.TransactionStatus;
+
 import com.google.common.collect.Maps;
 
-import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -301,7 +298,10 @@ public class LoadChecker extends Daemon {
             // if could not commit successfully and commit again until job is timeout
             if (job.getQuorumFinishTimeMs() < 0) {
                 job.setQuorumFinishTimeMs(System.currentTimeMillis());
-            } else if (System.currentTimeMillis() - job.getQuorumFinishTimeMs() > stragglerTimeout 
+            }
+
+            // if all tablets are finished or stay in quorum finished for long time, try to commit it.
+            if (System.currentTimeMillis() - job.getQuorumFinishTimeMs() > stragglerTimeout
                     || job.getFullTablets().containsAll(jobTotalTablets)) {
                 tryCommitJob(job, db);
             }
@@ -329,7 +329,7 @@ public class LoadChecker extends Daemon {
                 tabletCommitInfos.add(new TabletCommitInfo(tabletId, replica.getBackendId()));
             }
             globalTransactionMgr.commitTransaction(job.getDbId(), job.getTransactionId(), tabletCommitInfos);
-        } catch (MetaNotFoundException | TransactionCommitFailedException e) {
+        } catch (MetaNotFoundException | TransactionException e) {
             LOG.warn("errors while commit transaction [{}], cancel the job {}, reason is {}", 
                     transactionState.getTransactionId(), job, e);
             load.cancelLoadJob(job, CancelType.UNKNOWN, transactionState.getReason());

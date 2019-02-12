@@ -121,6 +121,7 @@ Status OlapScanner::_prepare(
 
 Status OlapScanner::open() {
     RETURN_IF_ERROR(_ctor_status);
+    SCOPED_TIMER(_parent->_reader_init_timer);
 
     if (_conjunct_ctxs.size() > _direct_conjunct_size) {
         _use_pushdown_conjuncts = true;
@@ -260,7 +261,7 @@ Status OlapScanner::get_batch(
 
             _convert_row_to_tuple(tuple);
             if (VLOG_ROW_IS_ON) {
-                VLOG_ROW << "OlapScanner input row: " << print_tuple(tuple, *_tuple_desc);
+                VLOG_ROW << "OlapScanner input row: " << Tuple::to_string(tuple, *_tuple_desc);
             }
 
             // 3.4 Set tuple to RowBatch(not commited)
@@ -312,7 +313,7 @@ Status OlapScanner::get_batch(
                     }
                 }
                 if (VLOG_ROW_IS_ON) {
-                    VLOG_ROW << "OlapScanner output row: " << print_tuple(tuple, *_tuple_desc);
+                    VLOG_ROW << "OlapScanner output row: " << Tuple::to_string(tuple, *_tuple_desc);
                 }
 
                 // check direct && pushdown conjuncts success then commit tuple
@@ -361,7 +362,7 @@ void OlapScanner::_convert_row_to_tuple(Tuple* tuple) {
         size_t len = field->size();
         switch (slot_desc->type().type) {
         case TYPE_CHAR: {
-            StringSlice* slice = reinterpret_cast<StringSlice*>(ptr);
+            Slice* slice = reinterpret_cast<Slice*>(ptr);
             StringValue *slot = tuple->get_string_slot(slot_desc->tuple_offset());
             slot->ptr = slice->data;
             slot->len = strnlen(slot->ptr, slice->size);
@@ -369,7 +370,7 @@ void OlapScanner::_convert_row_to_tuple(Tuple* tuple) {
         }
         case TYPE_VARCHAR:
         case TYPE_HLL: {
-            StringSlice* slice = reinterpret_cast<StringSlice*>(ptr);
+            Slice* slice = reinterpret_cast<Slice*>(ptr);
             StringValue *slot = tuple->get_string_slot(slot_desc->tuple_offset());
             slot->ptr = slice->data;
             slot->len = slice->size;
@@ -430,6 +431,8 @@ void OlapScanner::update_counter() {
     COUNTER_UPDATE(_parent->_block_load_timer, _reader->stats().block_load_ns);
     COUNTER_UPDATE(_parent->_block_load_counter, _reader->stats().blocks_load);
     COUNTER_UPDATE(_parent->_block_fetch_timer, _reader->stats().block_fetch_ns);
+    COUNTER_UPDATE(_parent->_block_seek_timer, _reader->stats().block_seek_ns);
+    COUNTER_UPDATE(_parent->_block_convert_timer, _reader->stats().block_convert_ns);
 
     COUNTER_UPDATE(_parent->_raw_rows_counter, _reader->stats().raw_rows_read);
     // COUNTER_UPDATE(_parent->_filtered_rows_counter, _reader->stats().num_rows_filtered);

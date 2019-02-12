@@ -71,13 +71,13 @@ OLAPStatus CumulativeCompaction::init(OLAPTablePtr table) {
     _release_header_lock();
     if (res != OLAP_SUCCESS) {
         _table->release_cumulative_lock();
-        OLAP_LOG_INFO("no suitable delta versions. don't do cumulative compaction now.");
+        LOG(INFO) << "no suitable delta versions. don't do cumulative compaction now.";
         return res;
     }
 
     if (!_validate_need_merged_versions()) {
         _table->release_cumulative_lock();
-        OLAP_LOG_FATAL("error! invalid need merged versions");
+        LOG(FATAL) << "error! invalid need merged versions.";
         return OLAP_ERR_CUMULATIVE_INVALID_NEED_MERGED_VERSIONS;
     }
 
@@ -96,10 +96,9 @@ OLAPStatus CumulativeCompaction::run() {
     }
 
     // 0. 准备工作
-    OLAP_LOG_INFO("start cumulative compaction [table=%s; cumulative_version=%d-%d]",
-                  _table->full_name().c_str(),
-                  _cumulative_version.first,
-                  _cumulative_version.second);
+    LOG(INFO) << "start cumulative compaction. tablet=" << _table->full_name()
+              << ", cumulative_version=" << _cumulative_version.first << "-"
+              << _cumulative_version.second;
     OlapStopWatch watch;
 
     // 1. 计算新的cumulative文件的version hash
@@ -127,19 +126,19 @@ OLAPStatus CumulativeCompaction::run() {
     {
         DorisMetrics::cumulative_compaction_deltas_total.increment(_need_merged_versions.size());
         int64_t merge_bytes = 0;
-        for (IData* i_data : _data_source) {
-            merge_bytes += i_data->olap_index()->data_size();
+        for (ColumnData* i_data : _data_source) {
+            merge_bytes += i_data->segment_group()->data_size();
         }
         DorisMetrics::cumulative_compaction_bytes_total.increment(merge_bytes);
     }
 
     do {
         // 3. 生成新cumulative文件对应的olap index
-        _new_cumulative_index = new (nothrow) Rowset(_table.get(),
+        _new_segment_group = new (nothrow) SegmentGroup(_table.get(),
                                                         _cumulative_version,
                                                         _cumulative_version_hash,
                                                         false, 0, 0);
-        if (_new_cumulative_index == NULL) {
+        if (_new_segment_group == NULL) {
             OLAP_LOG_WARNING("failed to malloc new cumulative olap index. "
                              "[table=%s; cumulative_version=%d-%d]",
                              _table->full_name().c_str(),
@@ -161,9 +160,9 @@ OLAPStatus CumulativeCompaction::run() {
     } while (0);
 
     // 5. 如果出现错误，执行清理工作
-    if (res != OLAP_SUCCESS && _new_cumulative_index != NULL) {
-        _new_cumulative_index->delete_all_files();
-        SAFE_DELETE(_new_cumulative_index);
+    if (res != OLAP_SUCCESS && _new_segment_group != NULL) {
+        _new_segment_group->delete_all_files();
+        SAFE_DELETE(_new_segment_group);
     }
     
     if (_data_source.size() != 0) {
@@ -172,8 +171,8 @@ OLAPStatus CumulativeCompaction::run() {
 
     _table->release_cumulative_lock();
 
-    OLAP_LOG_TRACE("elapsed time of doing cumulative compaction. [time=%ldus]",
-            watch.get_elapse_time_us());
+    VLOG(10) << "elapsed time of doing cumulative compaction. "
+             << "time=" << watch.get_elapse_time_us();
     return res;
 }
 
@@ -183,7 +182,7 @@ OLAPStatus CumulativeCompaction::_calculate_need_merged_versions() {
     Versions delta_versions;
     res = _get_delta_versions(&delta_versions);
     if (res != OLAP_SUCCESS) {
-        OLAP_LOG_INFO("failed to get delta versions.");
+        LOG(INFO) << "failed to get delta versions.";
         return res;
     }
 
@@ -301,7 +300,7 @@ OLAPStatus CumulativeCompaction::_get_delta_versions(Versions* delta_versions) {
     }
 
     if (delta_versions->size() == 0) {
-        OLAP_LOG_INFO("no delta versions.[cumulative_point=%d]", _old_cumulative_layer_point);
+        LOG(INFO) << "no delta versions. cumulative_point=" << _old_cumulative_layer_point;
         return OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS;
     }
 
@@ -309,8 +308,8 @@ OLAPStatus CumulativeCompaction::_get_delta_versions(Versions* delta_versions) {
     // 因为我们总是保留最新的delta不合并到cumulative文件里，所以此时应该返回错误，不进行cumulative
     if (delta_versions->size() == 1) {
         delta_versions->clear();
-        OLAP_LOG_TRACE("only one delta version. no new delta versions.[cumulative_point=%d]",
-                       _old_cumulative_layer_point);
+        VLOG(10) << "only one delta version. no new delta versions. "
+                 << ", cumulative_point=" << _old_cumulative_layer_point;
         return OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS;
     }
 
@@ -370,7 +369,7 @@ bool CumulativeCompaction::_find_previous_version(const Version current_version,
 
 OLAPStatus CumulativeCompaction::_do_cumulative_compaction() {
     OLAPStatus res = OLAP_SUCCESS;
-    Merger merger(_table, _new_cumulative_index, READER_CUMULATIVE_COMPACTION);
+    Merger merger(_table, _new_segment_group, READER_CUMULATIVE_COMPACTION);
 
     // 1. merge delta files into new cumulative file
     uint64_t merged_rows = 0;
@@ -385,7 +384,7 @@ OLAPStatus CumulativeCompaction::_do_cumulative_compaction() {
     }
 
     // 2. load new cumulative file
-    res = _new_cumulative_index->load();
+    res = _new_segment_group->load();
     if (res != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("failed to load cumulative index. [table=%s; cumulative_version=%d-%d]",
                          _table->full_name().c_str(),
@@ -396,25 +395,28 @@ OLAPStatus CumulativeCompaction::_do_cumulative_compaction() {
 
     // Check row num changes
     uint64_t source_rows = 0;
-    for (IData* i_data : _data_source) {
-        source_rows += i_data->olap_index()->num_rows();
+    for (ColumnData* i_data : _data_source) {
+        source_rows += i_data->segment_group()->num_rows();
     }
     bool row_nums_check = config::row_nums_check;
     if (row_nums_check) {
-        if (source_rows != _new_cumulative_index->num_rows() + merged_rows + filted_rows) {
-            OLAP_LOG_FATAL("fail to check row num! "
-                           "[source_rows=%lu merged_rows=%lu filted_rows=%lu new_index_rows=%lu]",
-                           source_rows, merged_rows, filted_rows, _new_cumulative_index->num_rows());
+        if (source_rows != _new_segment_group->num_rows() + merged_rows + filted_rows) {
+            LOG(FATAL) << "fail to check row num! "
+                       << "source_rows=" << source_rows
+                       << ", merged_rows=" << merged_rows
+                       << ", filted_rows=" << filted_rows
+                       << ", new_index_rows=" << _new_segment_group->num_rows();
             return OLAP_ERR_CHECK_LINES_ERROR;
         }
     } else {
-        OLAP_LOG_INFO("all row nums. "
-                      "[source_rows=%lu merged_rows=%lu filted_rows=%lu new_index_rows=%lu]",
-                      source_rows, merged_rows, filted_rows, _new_cumulative_index->num_rows());
+        LOG(INFO) << "all row nums. source_rows=" << source_rows
+                  << ", merged_rows=" << merged_rows
+                  << ", filted_rows=" << filted_rows
+                  << ", new_index_rows=" << _new_segment_group->num_rows();
     }
 
     // 3. add new cumulative file into table
-    vector<Rowset*> unused_indices;
+    vector<SegmentGroup*> unused_indices;
     _obtain_header_wrlock();
     res = _update_header(&unused_indices);
     if (res != OLAP_SUCCESS) {
@@ -430,11 +432,10 @@ OLAPStatus CumulativeCompaction::_do_cumulative_compaction() {
     // 4. validate that delete action is right
     res = _validate_delete_file_action();
     if (res != OLAP_SUCCESS) {
-        OLAP_LOG_FATAL("delete action of cumulative compaction has error. roll back."
-                       "[table=%s; cumulative_version=%d-%d]",
-                       _table->full_name().c_str(),
-                       _cumulative_version.first,
-                       _cumulative_version.second);
+        LOG(FATAL) << "delete action of cumulative compaction has error. roll back."
+                   << "tablet=" << _table->full_name()
+                   << ", cumulative_version=" << _cumulative_version.first 
+                   << "-" << _cumulative_version.second;
         // if error happened, roll back
         OLAPStatus ret = _roll_back(unused_indices);
         if (ret != OLAP_SUCCESS) {
@@ -452,40 +453,39 @@ OLAPStatus CumulativeCompaction::_do_cumulative_compaction() {
     // 6. delete delta files which have been merged into new cumulative file
     _delete_unused_delta_files(&unused_indices);
 
-    OLAP_LOG_INFO("succeed to do cumulative compaction. [table=%s; cumulative_version=%d-%d]",
-                  _table->full_name().c_str(),
-                  _cumulative_version.first,
-                  _cumulative_version.second);
+    LOG(INFO) << "succeed to do cumulative compaction. tablet=" << _table->full_name()
+              << ", cumulative_version=" << _cumulative_version.first << "-"
+              << _cumulative_version.second;
     return res;
 }
 
-OLAPStatus CumulativeCompaction::_update_header(vector<Rowset*>* unused_indices) {
-    vector<Rowset*> new_indices;
-    new_indices.push_back(_new_cumulative_index);
+OLAPStatus CumulativeCompaction::_update_header(vector<SegmentGroup*>* unused_indices) {
+    vector<SegmentGroup*> new_indices;
+    new_indices.push_back(_new_segment_group);
 
     OLAPStatus res = OLAP_SUCCESS;
     res = _table->replace_data_sources(&_need_merged_versions, &new_indices, unused_indices);
     if (res != OLAP_SUCCESS) {
-        OLAP_LOG_FATAL("failed to replace data sources. [res=%d table=%s]",
-                       res, _table->full_name().c_str());
+        LOG(FATAL) << "failed to replace data sources. res=" << res
+                   << ", tablet=" << _table->full_name();
         return res;
     }
 
     res = _table->save_header();
     if (res != OLAP_SUCCESS) {
-        OLAP_LOG_FATAL("failed to save header. [res=%d table=%s]",
-                       res, _table->full_name().c_str());
+        LOG(FATAL) << "failed to save header. res=" << res
+                   << ", tablet=" << _table->full_name();
         return res;
     }
 
     return res;
 }
 
-void CumulativeCompaction::_delete_unused_delta_files(vector<Rowset*>* unused_indices) {
+void CumulativeCompaction::_delete_unused_delta_files(vector<SegmentGroup*>* unused_indices) {
     if (!unused_indices->empty()) {
         OLAPEngine* unused_index = OLAPEngine::get_instance();
 
-        for (vector<Rowset*>::iterator it = unused_indices->begin();
+        for (vector<SegmentGroup*>::iterator it = unused_indices->begin();
                 it != unused_indices->end(); ++it) {
             unused_index->add_unused_index(*it);
         }
@@ -513,7 +513,7 @@ bool CumulativeCompaction::_validate_need_merged_versions() {
 OLAPStatus CumulativeCompaction::_validate_delete_file_action() {
     // 1. acquire the new cumulative version to make sure that all is right after deleting files
     Version test_version = Version(0, _cumulative_version.second);
-    vector<IData*> test_sources;
+    vector<ColumnData*> test_sources;
     _table->acquire_data_sources(test_version, &test_sources);
     if (test_sources.size() == 0) {
         OLAP_LOG_WARNING("acquire data source failed. [test_verison=%d-%d]",
@@ -525,12 +525,12 @@ OLAPStatus CumulativeCompaction::_validate_delete_file_action() {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus CumulativeCompaction::_roll_back(const vector<Rowset*>& old_olap_indices) {
+OLAPStatus CumulativeCompaction::_roll_back(const vector<SegmentGroup*>& old_olap_indices) {
     vector<Version> need_remove_version;
     need_remove_version.push_back(_cumulative_version);
     // unused_indices will only contain new cumulative index
     // we don't need to delete it here; we will delete new cumulative index in the end.
-    vector<Rowset*> unused_indices;
+    vector<SegmentGroup*> unused_indices;
 
     OLAPStatus res = OLAP_SUCCESS;
     res = _table->replace_data_sources(&need_remove_version, &old_olap_indices, &unused_indices);

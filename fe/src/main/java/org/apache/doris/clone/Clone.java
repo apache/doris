@@ -120,8 +120,8 @@ public class Clone {
             }
 
             // check job num
-            // TODO(cmy): for now we limit clone job num in all priority level.
-            if (jobNum >= Config.clone_max_job_num) {
+            // TODO(cmy): for now we limit clone job num for NORMAL and LOW Priority clone job
+            if (priority != JobPriority.HIGH && jobNum >= Config.clone_max_job_num) {
                 LOG.debug("too many clone jobs. job num: {}", jobNum);
                 return false;
             }
@@ -256,8 +256,8 @@ public class Clone {
                     jobInfo.add(job.getPriority().name());
                     CloneTask cloneTask = job.getCloneTask();
                     if (cloneTask != null) {
-                        jobInfo.add(cloneTask.getCommittedVersion());
-                        jobInfo.add(cloneTask.getCommittedVersionHash());
+                        jobInfo.add(cloneTask.getVisibleVersion());
+                        jobInfo.add(cloneTask.getVisibleVersionHash());
                         jobInfo.add(cloneTask.getFailedTimes());
                     } else {
                         jobInfo.add(-1L);
@@ -419,8 +419,8 @@ public class Clone {
         long indexId = task.getIndexId();
         long backendId = task.getBackendId();
         int schemaHash = task.getSchemaHash();
-        long taskVersion = task.getCommittedVersion();
-        long taskVersionHash = task.getCommittedVersionHash();
+        long taskVersion = task.getVisibleVersion();
+        long taskVersionHash = task.getVisibleVersionHash();
         Database db = Catalog.getInstance().getDb(dbId);
         if (db == null) {
             String failMsg = "db does not exist. id: " + dbId;
@@ -440,19 +440,23 @@ public class Clone {
             if (partition == null) {
                 throw new MetaNotFoundException("partition does not exist. id: " + partitionId);
             }
+
             MaterializedIndex index = partition.getIndex(indexId);
             if (index == null) {
                 throw new MetaNotFoundException("index does not exist. id: " + indexId);
             }
+
             if (schemaHash != olapTable.getSchemaHashByIndexId(indexId)) {
                 throw new MetaNotFoundException("schema hash is not consistent. index's: "
                         + olapTable.getSchemaHashByIndexId(indexId)
                         + ", task's: " + schemaHash);
             }
+
             Tablet tablet = index.getTablet(tabletId);
             if (tablet == null) {
                 throw new MetaNotFoundException("tablet does not exist. id: " + tabletId);
             }
+
             Replica replica = tablet.getReplicaByBackendId(backendId);
             if (replica == null) {
                 throw new MetaNotFoundException("replica does not exist. tablet id: " + tabletId 
@@ -495,7 +499,7 @@ public class Clone {
                 }
  
                 replica.setState(ReplicaState.NORMAL);
-                replica.updateInfo(version, versionHash, dataSize, rowCount);
+                replica.updateVersionInfo(version, versionHash, dataSize, rowCount);
 
                 job.setCloneFinishTimeMs(System.currentTimeMillis());
                 job.setState(JobState.FINISHED);
@@ -506,7 +510,8 @@ public class Clone {
                 // the clone type is converted to catchup clone 
                 ReplicaPersistInfo info = ReplicaPersistInfo.createForClone(dbId, tableId, partitionId, indexId,
                                                                             tabletId, backendId, replica.getId(),
-                                                                            version, versionHash, dataSize, rowCount,
+                                                                            version, versionHash,
+                                                                            schemaHash, dataSize, rowCount,
                                                                             replica.getLastFailedVersion(),
                                                                             replica.getLastFailedVersionHash(),
                                                                             replica.getLastSuccessVersion(), 

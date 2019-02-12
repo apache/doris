@@ -58,7 +58,7 @@ Field::Field(const FieldInfo& field_info)
     _type_info = get_type_info(field_info.type);
     if (_type == OLAP_FIELD_TYPE_CHAR || _type == OLAP_FIELD_TYPE_VARCHAR
             || _type == OLAP_FIELD_TYPE_HLL) {
-        _size = sizeof(StringSlice);
+        _size = sizeof(Slice);
     } else {
         /*
          * the field_info.size and field_info.index_length is equal to zero,

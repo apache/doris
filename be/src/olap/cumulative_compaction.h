@@ -24,13 +24,13 @@
 #include <vector>
 
 #include "olap/merger.h"
-#include "olap/olap_data.h"
+#include "olap/column_data.h"
 #include "olap/olap_define.h"
 #include "olap/olap_table.h"
 
 namespace doris {
 
-class Rowset;
+class SegmentGroup;
 
 class CumulativeCompaction {
 public:
@@ -40,7 +40,7 @@ public:
             _old_cumulative_layer_point(0),
             _new_cumulative_layer_point(0),
             _max_delta_file_size(0),
-            _new_cumulative_index(NULL) {}
+            _new_segment_group(NULL) {}
 
     ~CumulativeCompaction() {}
     
@@ -110,13 +110,13 @@ private:
     // 返回值：
     // - 如果成功，返回OLAP_SUCCESS
     // - 如果不成功，返回相应错误码
-    OLAPStatus _update_header(std::vector<Rowset*>* unused_indices);
+    OLAPStatus _update_header(std::vector<SegmentGroup*>* unused_indices);
 
     // 删除不再使用的delta文件
     //
     // 输入输出参数
     // - unused_indices: 待删除的不再使用的delta文件对应的olap index
-    void _delete_unused_delta_files(std::vector<Rowset*>* unused_indices);
+    void _delete_unused_delta_files(std::vector<SegmentGroup*>* unused_indices);
 
     // 验证得到的m_need_merged_versions是否正确
     //
@@ -133,7 +133,7 @@ private:
     OLAPStatus _validate_delete_file_action();
 
     // 恢复header头文件的文件版本和table的data source
-    OLAPStatus _roll_back(const std::vector<Rowset*>& old_olap_indices);
+    OLAPStatus _roll_back(const std::vector<SegmentGroup*>& old_olap_indices);
 
     void _obtain_header_rdlock() {
         _table->obtain_header_rdlock();
@@ -170,9 +170,9 @@ private:
     // 新cumulative文件的version hash
     VersionHash _cumulative_version_hash;
     // 新cumulative文件对应的olap index
-    Rowset* _new_cumulative_index;
+    SegmentGroup* _new_segment_group;
     // 可合并的delta文件的data文件
-    std::vector<IData*> _data_source;
+    std::vector<ColumnData*> _data_source;
     // 可合并的delta文件的版本
     std::vector<Version> _need_merged_versions;
 

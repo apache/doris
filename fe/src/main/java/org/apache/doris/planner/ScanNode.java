@@ -20,7 +20,11 @@ package org.apache.doris.planner;
 import java.util.List;
 import java.util.Map;
 
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.common.UserException;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TScanRangeLocations;
 import com.google.common.base.Objects;
@@ -60,6 +64,19 @@ abstract public class ScanNode extends PlanNode {
 
     public void setSortColumn(String column) {
         sortColumn = column;
+    }
+
+    /**
+     * cast expr to SlotDescriptor type
+     */
+    protected Expr castToSlot(SlotDescriptor slotDesc, Expr expr) throws UserException {
+        PrimitiveType dstType = slotDesc.getType().getPrimitiveType();
+        PrimitiveType srcType = expr.getType().getPrimitiveType();
+        if (dstType != srcType) {
+            return expr.castTo(slotDesc.getType());
+        } else {
+            return expr;
+        }
     }
 
     /**

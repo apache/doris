@@ -29,6 +29,8 @@ import org.apache.doris.backup.RestoreJob_D;
 import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.FunctionSearchDesc;
 import org.apache.doris.cluster.BaseParam;
 import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.Config;
@@ -49,6 +51,8 @@ import org.apache.doris.load.ExportMgr;
 import org.apache.doris.load.Load;
 import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.load.LoadJob;
+import org.apache.doris.load.routineload.RoutineLoadJob;
+import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.UserProperty;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
@@ -134,7 +138,7 @@ public class EditLog {
                 case OperationType.OP_SAVE_TRANSACTION_ID: {
                     String idString = ((Text) journal.getData()).toString();
                     long id = Long.parseLong(idString);
-                    catalog.getCurrentGlobalTransactionMgr().getTransactionIDGenerator().initTransactionId(id + 1);
+                    Catalog.getCurrentGlobalTransactionMgr().getTransactionIDGenerator().initTransactionId(id + 1);
                     break;
                 }
                 case OperationType.OP_CREATE_DB: {
@@ -202,7 +206,7 @@ public class EditLog {
                     DropPartitionInfo info = (DropPartitionInfo) journal.getData();
                     LOG.info("Begin to unprotect drop partition. db = " + info.getDbId()
                             + " table = " + info.getTableId()
-                                + " partitionName = " + info.getPartitionName());
+                            + " partitionName = " + info.getPartitionName());
                     catalog.replayDropPartition(info);
                     break;
                 }
@@ -392,6 +396,11 @@ public class EditLog {
                     catalog.replayAddReplica(info);
                     break;
                 }
+                case OperationType.OP_UPDATE_REPLICA: {
+                    ReplicaPersistInfo info = (ReplicaPersistInfo) journal.getData();
+                    catalog.replayUpdateReplica(info);
+                    break;
+                }
                 case OperationType.OP_DELETE_REPLICA: {
                     ReplicaPersistInfo info = (ReplicaPersistInfo) journal.getData();
                     catalog.replayDeleteReplica(info);
@@ -427,7 +436,7 @@ public class EditLog {
                 case OperationType.OP_ADD_FIRST_FRONTEND:
                 case OperationType.OP_ADD_FRONTEND: {
                     Frontend fe = (Frontend) journal.getData();
-                    catalog.addFrontendWithCheck(fe);
+                    catalog.replayAddFrontend(fe);
                     break;
                 }
                 case OperationType.OP_REMOVE_FRONTEND: {
@@ -503,13 +512,13 @@ public class EditLog {
                 case OperationType.OP_META_VERSION: {
                     String versionString = ((Text) journal.getData()).toString();
                     int version = Integer.parseInt(versionString);
-                    if (catalog.getJournalVersion() > FeConstants.meta_version) {
+                    if (MetaContext.get().getMetaVersion() > FeConstants.meta_version) {
                         LOG.error("meta data version is out of date, image: {}. meta: {}."
-                                + "please update FeConstants.meta_version and restart.",
-                                  catalog.getJournalVersion(), FeConstants.meta_version);
+                                        + "please update FeConstants.meta_version and restart.",
+                                MetaContext.get().getMetaVersion(), FeConstants.meta_version);
                         System.exit(-1);
                     }
-                    catalog.setJournalVersion(version);
+                    MetaContext.get().setMetaVersion(version);
                     break;
                 }
                 case OperationType.OP_GLOBAL_VARIABLE: {
@@ -567,7 +576,7 @@ public class EditLog {
                     catalog.getBrokerMgr().replayDropAllBroker(param);
                     break;
                 }
-                case OperationType.OP_SET_LOAD_ERROR_URL: {
+                case OperationType.OP_SET_LOAD_ERROR_HUB: {
                     final LoadErrorHub.Param param = (LoadErrorHub.Param) journal.getData();
                     catalog.getLoadInstance().setLoadErrorHubInfo(param);
                     break;
@@ -579,14 +588,14 @@ public class EditLog {
                 }
                 case OperationType.OP_UPSERT_TRANSACTION_STATE: {
                     final TransactionState state = (TransactionState) journal.getData();
-                    catalog.getCurrentGlobalTransactionMgr().replayUpsertTransactionState(state);
+                    Catalog.getCurrentGlobalTransactionMgr().replayUpsertTransactionState(state);
                     LOG.debug("opcode: {}, tid: {}", opCode, state.getTransactionId());
 
                     break;
                 }
                 case OperationType.OP_DELETE_TRANSACTION_STATE: {
                     final TransactionState state = (TransactionState) journal.getData();
-                    catalog.getCurrentGlobalTransactionMgr().replayDeleteTransactionState(state);
+                    Catalog.getCurrentGlobalTransactionMgr().replayDeleteTransactionState(state);
                     LOG.debug("opcode: {}, tid: {}", opCode, state.getTransactionId());
                     break;
                 }
@@ -598,6 +607,56 @@ public class EditLog {
                 case OperationType.OP_DROP_REPOSITORY: {
                     String repoName = ((Text) journal.getData()).toString();
                     catalog.getBackupHandler().getRepoMgr().removeRepo(repoName, true);
+                    break;
+                }
+                case OperationType.OP_TRUNCATE_TABLE: {
+                    TruncateTableInfo info = (TruncateTableInfo) journal.getData();
+                    catalog.replayTruncateTable(info);
+                    break;
+                }
+                case OperationType.OP_COLOCATE_ADD_TABLE: {
+                    final ColocatePersistInfo info = (ColocatePersistInfo) journal.getData();
+                    catalog.getColocateTableIndex().replayAddTableToGroup(info);
+                    break;
+                }
+                case OperationType.OP_COLOCATE_REMOVE_TABLE: {
+                    final ColocatePersistInfo info = (ColocatePersistInfo) journal.getData();
+                    catalog.getColocateTableIndex().replayRemoveTable(info);
+                    break;
+                }
+                case OperationType.OP_COLOCATE_BACKENDS_PER_BUCKETSEQ: {
+                    final ColocatePersistInfo info = (ColocatePersistInfo) journal.getData();
+                    catalog.getColocateTableIndex().replayAddBackendsPerBucketSeq(info);
+                    break;
+                }
+                case OperationType.OP_COLOCATE_MARK_BALANCING: {
+                    final ColocatePersistInfo info = (ColocatePersistInfo) journal.getData();
+                    catalog.getColocateTableIndex().replayMarkGroupBalancing(info);
+                    break;
+                }
+                case OperationType.OP_COLOCATE_MARK_STABLE: {
+                    final ColocatePersistInfo info = (ColocatePersistInfo) journal.getData();
+                    catalog.getColocateTableIndex().replayMarkGroupStable(info);
+                    break;
+                }
+                case OperationType.OP_MODIFY_TABLE_COLOCATE: {
+                    final TablePropertyInfo info = (TablePropertyInfo) journal.getData();
+                    catalog.replayModifyTableColocate(info);
+                    break;
+                }
+                case OperationType.OP_HEARTBEAT: {
+                    final HbPackage hbPackage = (HbPackage) journal.getData();
+                    Catalog.getCurrentHeartbeatMgr().replayHearbeat(hbPackage);
+                    break;
+                }
+                case OperationType.OP_ADD_FUNCTION: {
+                    final Function function = (Function) journal.getData();
+                    Catalog.getCurrentCatalog().replayCreateFunction(function);
+                    break;
+                }
+                case OperationType.OP_DROP_FUNCTION: {
+                    FunctionSearchDesc function = (FunctionSearchDesc) journal.getData();
+                    Catalog.getCurrentCatalog().replayDropFunction(function);
                     break;
                 }
                 default: {
@@ -650,7 +709,7 @@ public class EditLog {
             journal.write(op, writable);
         } catch (Exception e) {
             LOG.error("Fatal Error : write stream Exception", e);
-            Runtime.getRuntime().exit(-1);
+            System.exit(-1);
         }
 
         // get a new transactionId
@@ -660,10 +719,13 @@ public class EditLog {
         long end = System.currentTimeMillis();
         numTransactions++;
         totalTimeTransactions += (end - start);
+        if (MetricRepo.isInit.get()) {
+            MetricRepo.HISTO_EDIT_LOG_WRITE_LATENCY.update((end - start));
+        }
 
         if (LOG.isDebugEnabled()) {
             LOG.debug("nextId = {}, numTransactions = {}, totalTimeTransactions = {}, op = {}",
-                      txId, numTransactions, totalTimeTransactions, op);
+                    txId, numTransactions, totalTimeTransactions, op);
         }
 
         if (txId == Config.edit_log_roll_num) {
@@ -691,7 +753,7 @@ public class EditLog {
     public void logSaveNextId(long nextId) {
         logEdit(OperationType.OP_SAVE_NEXTID, new Text(Long.toString(nextId)));
     }
-    
+
     public void logSaveTransactionId(long transactionId) {
         logEdit(OperationType.OP_SAVE_TRANSACTION_ID, new Text(Long.toString(transactionId)));
     }
@@ -776,6 +838,10 @@ public class EditLog {
         logEdit(OperationType.OP_LOAD_DONE, job);
     }
 
+    public void logRoutineLoadJob(RoutineLoadJob job) {
+        logEdit(OperationType.OP_ROUTINE_LOAD_JOB, job);
+    }
+
     public void logStartRollup(RollupJob rollupJob) {
         logEdit(OperationType.OP_START_ROLLUP, rollupJob);
     }
@@ -783,7 +849,7 @@ public class EditLog {
     public void logFinishingRollup(RollupJob rollupJob) {
         logEdit(OperationType.OP_FINISHING_ROLLUP, rollupJob);
     }
-    
+
     public void logFinishRollup(RollupJob rollupJob) {
         logEdit(OperationType.OP_FINISH_ROLLUP, rollupJob);
     }
@@ -850,6 +916,10 @@ public class EditLog {
 
     public void logAddReplica(ReplicaPersistInfo info) {
         logEdit(OperationType.OP_ADD_REPLICA, info);
+    }
+
+    public void logUpdateReplica(ReplicaPersistInfo info) {
+        logEdit(OperationType.OP_UPDATE_REPLICA, info);
     }
 
     public void logDeleteReplica(ReplicaPersistInfo info) {
@@ -1003,7 +1073,7 @@ public class EditLog {
     }
 
     public void logSetLoadErrorHub(LoadErrorHub.Param param) {
-        logEdit(OperationType.OP_SET_LOAD_ERROR_URL, param);
+        logEdit(OperationType.OP_SET_LOAD_ERROR_HUB, param);
     }
 
     public void logExportCreate(ExportJob job) {
@@ -1027,7 +1097,7 @@ public class EditLog {
     public void logDeleteTransactionState(TransactionState transactionState) {
         logEdit(OperationType.OP_DELETE_TRANSACTION_STATE, transactionState);
     }
-    
+
     public void logBackupJob(BackupJob job) {
         logEdit(OperationType.OP_BACKUP_JOB, job);
     }
@@ -1046,5 +1116,45 @@ public class EditLog {
 
     public void logUpdateUserProperty(UserPropertyInfo propertyInfo) {
         logEdit(OperationType.OP_UPDATE_USER_PROPERTY, propertyInfo);
+    }
+
+    public void logTruncateTable(TruncateTableInfo info) {
+        logEdit(OperationType.OP_TRUNCATE_TABLE, info);
+    }
+
+    public void logColocateAddTable(ColocatePersistInfo info) {
+        logEdit(OperationType.OP_COLOCATE_ADD_TABLE, info);
+    }
+
+    public void logColocateRemoveTable(ColocatePersistInfo info) {
+        logEdit(OperationType.OP_COLOCATE_REMOVE_TABLE, info);
+    }
+
+    public void logColocateBackendsPerBucketSeq(ColocatePersistInfo info) {
+        logEdit(OperationType.OP_COLOCATE_BACKENDS_PER_BUCKETSEQ, info);
+    }
+
+    public void logColocateMarkBalancing(ColocatePersistInfo info) {
+        logEdit(OperationType.OP_COLOCATE_MARK_BALANCING, info);
+    }
+
+    public void logColocateMarkStable(ColocatePersistInfo info) {
+        logEdit(OperationType.OP_COLOCATE_MARK_STABLE, info);
+    }
+
+    public void logModifyTableColocate(TablePropertyInfo info) {
+        logEdit(OperationType.OP_MODIFY_TABLE_COLOCATE, info);
+    }
+
+    public void logHeartbeat(HbPackage hbPackage) {
+        logEdit(OperationType.OP_HEARTBEAT, hbPackage);
+    }
+
+    public void logAddFunction(Function function) {
+        logEdit(OperationType.OP_ADD_FUNCTION, function);
+    }
+
+    public void logDropFunction(FunctionSearchDesc function) {
+        logEdit(OperationType.OP_DROP_FUNCTION, function);
     }
 }

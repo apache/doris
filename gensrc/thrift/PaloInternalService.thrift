@@ -46,7 +46,8 @@ enum TQueryType {
 
 enum TErrorHubType {
     MYSQL,
-    NULL_TYPE 
+    BROKER,
+    NULL_TYPE
 }
 
 enum TPrefetchMode {
@@ -63,9 +64,16 @@ struct TMysqlErrorHubInfo {
     6: required string table;
 }
 
+struct TBrokerErrorHubInfo {
+    1: required Types.TNetworkAddress broker_addr;
+    2: required string path;
+    3: required map<string, string> prop;
+}
+
 struct TLoadErrorHubInfo {
     1: required TErrorHubType type = TErrorHubType.NULL_TYPE;
     2: optional TMysqlErrorHubInfo mysql_info;
+    3: optional TBrokerErrorHubInfo broker_info;
 }
 
 // Query options that correspond to PaloService.PaloQueryOptions,
@@ -112,11 +120,11 @@ struct TQueryOptions {
   // sophisticated strategies - e.g. reserving a small number of buffers large enough to
   // fit maximum-sized rows.
   25: optional i64 max_row_size = 524288;
-  
+
   // stream preaggregation
   26: optional bool disable_stream_preaggregations = false;
 
-  // multithreaded degree of intra-node parallelism 
+  // multithreaded degree of intra-node parallelism
   27: optional i32 mt_dop = 0;
 }
 
@@ -141,7 +149,7 @@ struct TPlanFragmentDestination {
 struct TPlanFragmentExecParams {
   // a globally unique id assigned to the entire query
   1: required Types.TUniqueId query_id
-  
+
   // a globally unique id assigned to this particular execution instance of
   // a TPlanFragment
   2: required Types.TUniqueId fragment_instance_id
@@ -167,6 +175,7 @@ struct TPlanFragmentExecParams {
   // Id of this fragment in its role as a sender.
   9: optional i32 sender_id
   10: optional i32 num_senders
+  11: optional bool send_query_statistics_with_every_batch
 }
 
 // Global query parameters assigned by the coordinator.
@@ -209,7 +218,7 @@ struct TExecPlanFragmentParams {
   // Global query parameters assigned by coordinator.
   // required in V1
   7: optional TQueryGlobals query_globals
-  
+
   // options for the query
   // required in V1
   8: optional TQueryOptions query_options
@@ -329,7 +338,7 @@ struct TTabletWriterCloseResult {
     1: required Status.TStatus status
 }
 
-// 
+//
 struct TTabletWriterCancelParams {
     1: required Types.TUniqueId id
     2: required i64 index_id
@@ -348,7 +357,7 @@ struct TFetchDataParams {
 }
 
 struct TFetchDataResult {
-    // result batch 
+    // result batch
     1: required Data.TResultBatch result_batch
     // end of stream flag
     2: required bool eos
@@ -369,4 +378,3 @@ struct TExportStatusResult {
     2: required Types.TExportState state
     3: optional list<string> files
 }
-

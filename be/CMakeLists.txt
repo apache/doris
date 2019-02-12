@@ -23,7 +23,7 @@ if (DEFINED ENV{DORIS_GCC_HOME})
     set(CMAKE_CXX_COMPILER "$ENV{DORIS_GCC_HOME}/bin/g++")
     set(GCC_HOME $ENV{DORIS_GCC_HOME})
 else()
-    set(GCC_HOME "/usr")
+    message(FATAL_ERROR "DORIS_GCC_HOME environment variable is not set")
 endif()
 
 project(doris CXX C)
@@ -359,11 +359,7 @@ endif()
 # modifying it at runtime, then re-compiling (and optimizing) the modified code. The final
 # optimizations will be less effective if the initial code is also optimized.
 set(CLANG_IR_CXX_FLAGS "-gcc-toolchain" ${GCC_HOME})
-set(CLANG_IR_CXX_FLAGS ${CLANG_IR_CXX_FLAGS} "-std=gnu++11" "-c" "-emit-llvm" "-D__STDC_CONSTANT_MACROS" "-D__STDC_FORMAT_MACROS" "-D__STDC_LIMIT_MACROS" "-DIR_COMPILE" "-DNDEBUG" "-DHAVE_INTTYPES_H" "-DHAVE_NETINET_IN_H" "-DBOOST_DATE_TIME_POSIX_TIME_STD_CONFIG" "-D__GLIBCXX_BITSIZE_INT_N_0=128" "-D__GLIBCXX_TYPE_INT_N_0=__int128" "-U_GLIBCXX_USE_FLOAT128" "-DLLVM_ON_UNIX")
-if (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 7.0)
-    # for support float128
-    set(CLANG_IR_CXX_FLAGS ${CLANG_IR_CXX_FLAGS} "-D__STRICT_ANSI__")
-endif()
+set(CLANG_IR_CXX_FLAGS ${CLANG_IR_CXX_FLAGS} "-std=c++11" "-c" "-emit-llvm" "-D__STDC_CONSTANT_MACROS" "-D__STDC_FORMAT_MACROS" "-D__STDC_LIMIT_MACROS" "-DIR_COMPILE" "-DNDEBUG" "-DHAVE_INTTYPES_H" "-DHAVE_NETINET_IN_H" "-DBOOST_DATE_TIME_POSIX_TIME_STD_CONFIG" "-D__GLIBCXX_BITSIZE_INT_N_0=128" "-D__GLIBCXX_TYPE_INT_N_0=__int128" "-U_GLIBCXX_USE_FLOAT128" "-DLLVM_ON_UNIX")
 
 message(STATUS "CLANG_IR_CXX_FLAGS: ${CLANG_IR_CXX_FLAGS}")
 
@@ -387,32 +383,12 @@ message(STATUS "LLVM compile flags: ${LLVM_CFLAGS}")
 # these reasons we need to manually add the system c++ headers to the path when we
 # compile the IR code with clang.
 
-# Check the release version of the system to set the correct flags.
-# You may have to modify the ${CLANG_BASE_FLAGS} by you own.
-execute_process(COMMAND lsb_release -si OUTPUT_VARIABLE LINUX_VERSION)
-string(TOLOWER ${LINUX_VERSION} LINUX_VERSION_LOWER)
-message(STATUS "${LINUX_VERSION_LOWER}")
-
-# if(DEFINED ENV{CLANG_BASE_FLAGS})
-#     set(CLANG_BASE_FLAGS
-#         $ENV{CLANG_BASE_FLAGS})
-# elseif(${LINUX_VERSION_LOWER} MATCHES "ubuntu")
-#     set(CLANG_BASE_FLAGS
-#         "-I/usr/include/c++/5/"
-#         "-I/usr/include/x86_64-linux-gnu/c++/5/")
-# elseif(${LINUX_VERSION_LOWER} MATCHES "centos")
-#     set(CLANG_BASE_FLAGS
-#         "-I/usr/include/c++/4.8.5/"
-#         "-I/usr/include/c++/4.8.5/x86_64-redhat-linux/")
-# elseif(${LINUX_VERSION_LOWER} MATCHES "fedora")
-#     set(CLANG_BASE_FLAGS
-#         "-I/usr/include/c++/7/"
-#         "-I/usr/include/c++/7/x86_64-redhat-linux/")
-# else()
-#     message(FATAL_ERROR "Currently not support system ${LINUX_VERSION}")
-# endif()
+if(DEFINED ENV{CLANG_COMPATIBLE_FLAGS})
+    set(CLANG_COMPATIBLE_FLAGS $ENV{CLANG_COMPATIBLE_FLAGS})
+endif()
 
 message(STATUS "CLANG_BASE_FLAGS: ${CLANG_BASE_FLAGS}")
+message(STATUS "CLANG_COMPATIBLE_FLAGS: ${CLANG_COMPATIBLE_FLAGS}")
 
 set(CLANG_INCLUDE_FLAGS
     "-I${LLVM_HOME}/include"
@@ -423,6 +399,7 @@ set(CLANG_INCLUDE_FLAGS
     "-I${THIRDPARTY_DIR}/include/event/"
     "-I${GPERFTOOLS_HOME}/include"
     ${CLANG_BASE_FLAGS}
+    ${CLANG_COMPATIBLE_FLAGS}
 )
 
 # Set include dirs
@@ -557,6 +534,7 @@ add_subdirectory(${SRC_DIR}/udf)
 add_subdirectory(${SRC_DIR}/runtime)
 add_subdirectory(${SRC_DIR}/testutil)
 add_subdirectory(${SRC_DIR}/tools)
+add_subdirectory(${SRC_DIR}/udf_samples)
 
 # Utility CMake function to make specifying tests and benchmarks less verbose
 FUNCTION(ADD_BE_TEST TEST_NAME)

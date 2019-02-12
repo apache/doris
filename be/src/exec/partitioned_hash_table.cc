@@ -27,7 +27,6 @@
 #include "runtime/raw_value.h"
 #include "runtime/runtime_state.h"
 #include "runtime/string_value.hpp"
-#include "util/debug_util.h"
 #include "util/doris_metrics.h"
 
 // using namespace llvm;
@@ -391,7 +390,7 @@ void PartitionedHashTable::debug_string_tuple(
     }
     if (desc != NULL) {
         Tuple* row[_num_build_tuples];
-        ss << " " << print_row(get_row(htdata, reinterpret_cast<TupleRow*>(row)), *desc);
+        ss << " " << get_row(htdata, reinterpret_cast<TupleRow*>(row))->to_string(*desc);
     }
 }
 

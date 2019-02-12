@@ -25,8 +25,8 @@
 #include <vector>
 
 #include "gen_cpp/column_data_file.pb.h"
-#include "olap/column_file/bloom_filter.hpp"
-#include "olap/column_file/stream_index_common.h"
+#include "olap/bloom_filter.hpp"
+#include "olap/stream_index_common.h"
 #include "olap/field.h"
 #include "olap/olap_table.h"
 #include "olap/row_cursor.h"
@@ -76,7 +76,7 @@ public:
     bool eval(const std::pair<WrapperField*, WrapperField*>& statistic) const;
     int del_eval(const std::pair<WrapperField*, WrapperField*>& stat) const;
 
-    bool eval(const column_file::BloomFilter& bf) const;
+    bool eval(const BloomFilter& bf) const;
     
     CondOp op;
     // valid when op is not OP_IN
@@ -106,7 +106,7 @@ public:
     bool eval(const std::pair<WrapperField*, WrapperField*>& statistic) const;
     int del_eval(const std::pair<WrapperField*, WrapperField*>& statistic) const;
 
-    bool eval(const column_file::BloomFilter& bf) const;
+    bool eval(const BloomFilter& bf) const;
 
     inline bool is_key() const {
         return _is_key;

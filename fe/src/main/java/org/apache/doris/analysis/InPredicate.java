@@ -67,19 +67,19 @@ public class InPredicate extends Predicate {
 
             functionSet.addBuiltin(ScalarFunction.createBuiltin(IN_ITERATE,
                     Lists.newArrayList(t, t), true, Type.BOOLEAN,
-                    "palo::InPredicate::in_iterate", null, null, false));
+                    "doris::InPredicate::in_iterate", null, null, false));
             functionSet.addBuiltin(ScalarFunction.createBuiltin(NOT_IN_ITERATE,
                     Lists.newArrayList(t, t), true, Type.BOOLEAN,
-                    "palo::InPredicate::not_in_iterate", null, null, false));
+                    "doris::InPredicate::not_in_iterate", null, null, false));
 
-            String prepareFn = "palo::InPredicate::set_lookup_prepare_" + typeString;
-            String closeFn = "palo::InPredicate::set_lookup_close_" + typeString;
+            String prepareFn = "doris::InPredicate::set_lookup_prepare_" + typeString;
+            String closeFn = "doris::InPredicate::set_lookup_close_" + typeString;
             functionSet.addBuiltin(ScalarFunction.createBuiltin(IN_SET_LOOKUP,
                     Lists.newArrayList(t, t), true, Type.BOOLEAN,
-                    "palo::InPredicate::in_set_lookup", prepareFn, closeFn, false));
+                    "doris::InPredicate::in_set_lookup", prepareFn, closeFn, false));
             functionSet.addBuiltin(ScalarFunction.createBuiltin(NOT_IN_SET_LOOKUP,
                     Lists.newArrayList(t, t), true, Type.BOOLEAN,
-                    "palo::InPredicate::not_in_set_lookup", prepareFn, closeFn, false));
+                    "doris::InPredicate::not_in_set_lookup", prepareFn, closeFn, false));
 
         }
     }
@@ -223,7 +223,7 @@ public class InPredicate extends Predicate {
     }
 
     @Override
-    public String toSql() {
+    public String toSqlImpl() {
         StringBuilder strBuilder = new StringBuilder();
         String notStr = (isNotIn) ? "NOT " : "";
         strBuilder.append(getChild(0).toSql() + " " + notStr + "IN (");

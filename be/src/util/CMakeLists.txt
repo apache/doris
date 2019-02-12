@@ -22,7 +22,7 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/util")
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/util")
 
 add_library(Util STATIC
-  arena.cc
+  arena.cpp
   bfd_parser.cpp
   bitmap.cpp
   codec.cpp
@@ -50,6 +50,7 @@ add_library(Util STATIC
   thrift_util.cpp
   thrift_client.cpp
   thrift_server.cpp
+  stack_util.cpp
   symbols_util.cpp
   system_metrics.cpp
   url_parser.cpp
@@ -62,6 +63,7 @@ add_library(Util STATIC
   filesystem_util.cc
   load_error_hub.cpp
   mysql_load_error_hub.cpp
+  broker_load_error_hub.cpp
   null_load_error_hub.cpp
   time.cpp
   os_info.cpp
@@ -70,6 +72,8 @@ add_library(Util STATIC
   core_local.cpp
   uid_util.cpp
   aes_util.cpp
+  string_util.cpp
+  md5.cpp
 )
 
 #ADD_BE_TEST(integer-array-test)

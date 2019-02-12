@@ -28,7 +28,6 @@
 #include "exprs/expr.h"
 #include "exprs/scalar_fn_call.h"
 #include "gutil/strings/substitute.h"
-#include "runtime/lib_cache.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/raw_value.h"
 #include "runtime/runtime_state.h"

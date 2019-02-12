@@ -18,7 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ColumnType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
@@ -31,7 +31,7 @@ public class ShowDbStmt extends ShowStmt {
     private static final String DB_COL = "Database";
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
-                    .addColumn(new Column(DB_COL, ColumnType.createVarchar(20)))
+                    .addColumn(new Column(DB_COL, ScalarType.createVarchar(20)))
                     .build();
 
     private String pattern;

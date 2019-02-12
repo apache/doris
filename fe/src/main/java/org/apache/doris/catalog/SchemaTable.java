@@ -49,342 +49,342 @@ public class SchemaTable extends Table {
 //        // AUTHORS
 //        pos = 0;
 //        columns = new ArrayList();
-//        columns.add(new Column("Name", ColumnType.createCharType(50), pos++));
-//        columns.add(new Column("Location", ColumnType.createCharType(50), pos++));
-//        columns.add(new Column("Comment", ColumnType.createCharType(50), pos++));
+//        columns.add(new Column("Name", ScalarType.createCharType(50), pos++));
+//        columns.add(new Column("Location", ScalarType.createCharType(50), pos++));
+//        columns.add(new Column("Comment", ScalarType.createCharType(50), pos++));
 //        tableMap.put("authors", columns);
 //        // COLUMNS
 //        pos = 0;
 //        columns = new ArrayList();
-//        columns.add(new Column("TABLE_CATALOG", ColumnType.createCharType(FN_REFLEN), pos++));
-//        columns.add(new Column("TABLE_SCHEMA", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("TABLE_NAME", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("COLUMN_NAME", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("TABLE_CATALOG", ScalarType.createCharType(FN_REFLEN), pos++));
+//        columns.add(new Column("TABLE_SCHEMA", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("TABLE_NAME", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("COLUMN_NAME", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
 //        columns.add(
-//          new Column("ORDINAL_POSITION", ColumnType.createType(PrimitiveType.BIGINT), pos++));
+//          new Column("ORDINAL_POSITION", ScalarType.createType(PrimitiveType.BIGINT), pos++));
 //        columns.add(
-//          new Column("COLUMN_DEFAULT", ColumnType.createCharType(MAX_FIELD_VARCHARLENGTH), pos++));
-//        columns.add(new Column("IS_NULLABLE", ColumnType.createCharType(3), pos++));
-//        columns.add(new Column("DATA_TYPE", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
+//          new Column("COLUMN_DEFAULT", ScalarType.createCharType(MAX_FIELD_VARCHARLENGTH), pos++));
+//        columns.add(new Column("IS_NULLABLE", ScalarType.createCharType(3), pos++));
+//        columns.add(new Column("DATA_TYPE", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
 //        columns.add(
-//          new Column("CHARACTER_MAXIMUM_LENGTH", ColumnType.createType(PrimitiveType.BIGINT),
+//          new Column("CHARACTER_MAXIMUM_LENGTH", ScalarType.createType(PrimitiveType.BIGINT),
 //            pos++));
 //        columns.add(
-//          new Column("CHARACTER_OCTET_LENGTH", ColumnType.createType(PrimitiveType.BIGINT), pos++));
+//          new Column("CHARACTER_OCTET_LENGTH", ScalarType.createType(PrimitiveType.BIGINT), pos++));
 //        columns.add(
-//          new Column("NUMERIC_PRECISION", ColumnType.createType(PrimitiveType.BIGINT), pos++));
+//          new Column("NUMERIC_PRECISION", ScalarType.createType(PrimitiveType.BIGINT), pos++));
 //        columns.add(
-//          new Column("NUMERIC_SCALE", ColumnType.createType(PrimitiveType.BIGINT), pos++));
+//          new Column("NUMERIC_SCALE", ScalarType.createType(PrimitiveType.BIGINT), pos++));
 //        columns.add(
-//          new Column("CHARACTER_SET_NAME", ColumnType.createCharType(MY_CS_NAME_SIZE), pos++));
+//          new Column("CHARACTER_SET_NAME", ScalarType.createCharType(MY_CS_NAME_SIZE), pos++));
 //        columns.add(
-//          new Column("COLLATION_NAME", ColumnType.createCharType(MY_CS_NAME_SIZE), pos++));
-//        columns.add(new Column("COLUMN_TYPE", ColumnType.createCharType(65535), pos++));
-//        columns.add(new Column("COLUMN_KEY", ColumnType.createCharType(3), pos++));
-//        columns.add(new Column("EXTRA", ColumnType.createCharType(27), pos++));
-//        columns.add(new Column("PRIVILEGES", ColumnType.createCharType(80), pos++));
-//        columns.add(new Column("COLUMN_COMMENT", ColumnType.createCharType(255), pos++));
+//          new Column("COLLATION_NAME", ScalarType.createCharType(MY_CS_NAME_SIZE), pos++));
+//        columns.add(new Column("COLUMN_TYPE", ScalarType.createCharType(65535), pos++));
+//        columns.add(new Column("COLUMN_KEY", ScalarType.createCharType(3), pos++));
+//        columns.add(new Column("EXTRA", ScalarType.createCharType(27), pos++));
+//        columns.add(new Column("PRIVILEGES", ScalarType.createCharType(80), pos++));
+//        columns.add(new Column("COLUMN_COMMENT", ScalarType.createCharType(255), pos++));
 //        tableMap.put("columns", columns);
 //        // create table
 //        pos = 0;
 //        columns = new ArrayList();
-//        columns.add(new Column("Catalog", ColumnType.createCharType(FN_REFLEN), pos++));
-//        columns.add(new Column("Schema", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("Table", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("Create Table", ColumnType.createCharType(65535), pos++));
+//        columns.add(new Column("Catalog", ScalarType.createCharType(FN_REFLEN), pos++));
+//        columns.add(new Column("Schema", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("Table", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("Create Table", ScalarType.createCharType(65535), pos++));
 //        tableMap.put("create_table", columns);
 //        // ENGINES
 //        pos = 0;
 //        columns = new ArrayList();
-//        columns.add(new Column("ENGINE", ColumnType.createCharType(64), pos++));
-//        columns.add(new Column("SUPPORT", ColumnType.createCharType(8), pos++));
-//        columns.add(new Column("COMMENT", ColumnType.createCharType(80), pos++));
-//        columns.add(new Column("TRANSACTIONS", ColumnType.createCharType(3), pos++));
-//        columns.add(new Column("XA", ColumnType.createCharType(3), pos++));
-//        columns.add(new Column("SAVEPOINTS", ColumnType.createCharType(3), pos++));
+//        columns.add(new Column("ENGINE", ScalarType.createCharType(64), pos++));
+//        columns.add(new Column("SUPPORT", ScalarType.createCharType(8), pos++));
+//        columns.add(new Column("COMMENT", ScalarType.createCharType(80), pos++));
+//        columns.add(new Column("TRANSACTIONS", ScalarType.createCharType(3), pos++));
+//        columns.add(new Column("XA", ScalarType.createCharType(3), pos++));
+//        columns.add(new Column("SAVEPOINTS", ScalarType.createCharType(3), pos++));
 //        tableMap.put("engines", columns);
 //        // EVENTS
 //        pos = 0;
 //        columns = new ArrayList();
-//        columns.add(new Column("EVENT_CATALOG", ColumnType.createCharType(FN_REFLEN), pos++));
-//        columns.add(new Column("EVENT_SCHEMA", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("EVENT_NAME", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("DEFINER", ColumnType.createCharType(77), pos++));
-//        columns.add(new Column("TIME_ZONE", ColumnType.createCharType(64), pos++));
-//        columns.add(new Column("EVENT_BODY", ColumnType.createCharType(8), pos++));
-//        columns.add(new Column("EVENT_DEFINITION", ColumnType.createCharType(65535), pos++));
-//        columns.add(new Column("EVENT_TYPE", ColumnType.createCharType(9), pos++));
+//        columns.add(new Column("EVENT_CATALOG", ScalarType.createCharType(FN_REFLEN), pos++));
+//        columns.add(new Column("EVENT_SCHEMA", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("EVENT_NAME", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("DEFINER", ScalarType.createCharType(77), pos++));
+//        columns.add(new Column("TIME_ZONE", ScalarType.createCharType(64), pos++));
+//        columns.add(new Column("EVENT_BODY", ScalarType.createCharType(8), pos++));
+//        columns.add(new Column("EVENT_DEFINITION", ScalarType.createCharType(65535), pos++));
+//        columns.add(new Column("EVENT_TYPE", ScalarType.createCharType(9), pos++));
 //        columns.add(
-//          new Column("EXECUTE_AT", ColumnType.createType(PrimitiveType.TIMESTAMP), pos++));
-//        columns.add(new Column("INTERVAL_VALUE", ColumnType.createCharType(256), pos++));
-//        columns.add(new Column("INTERVAL_FIELD", ColumnType.createCharType(18), pos++));
-//        columns.add(new Column("SQL_MODE", ColumnType.createCharType(32 * 256), pos++));
-//        columns.add(new Column("STARTS", ColumnType.createType(PrimitiveType.TIMESTAMP), pos++));
-//        columns.add(new Column("ENDS", ColumnType.createType(PrimitiveType.TIMESTAMP), pos++));
-//        columns.add(new Column("STATUS", ColumnType.createCharType(18), pos++));
-//        columns.add(new Column("ON_COMPLETION", ColumnType.createCharType(12), pos++));
-//        columns.add(new Column("CREATED", ColumnType.createType(PrimitiveType.TIMESTAMP), pos++));
+//          new Column("EXECUTE_AT", ScalarType.createType(PrimitiveType.TIMESTAMP), pos++));
+//        columns.add(new Column("INTERVAL_VALUE", ScalarType.createCharType(256), pos++));
+//        columns.add(new Column("INTERVAL_FIELD", ScalarType.createCharType(18), pos++));
+//        columns.add(new Column("SQL_MODE", ScalarType.createCharType(32 * 256), pos++));
+//        columns.add(new Column("STARTS", ScalarType.createType(PrimitiveType.TIMESTAMP), pos++));
+//        columns.add(new Column("ENDS", ScalarType.createType(PrimitiveType.TIMESTAMP), pos++));
+//        columns.add(new Column("STATUS", ScalarType.createCharType(18), pos++));
+//        columns.add(new Column("ON_COMPLETION", ScalarType.createCharType(12), pos++));
+//        columns.add(new Column("CREATED", ScalarType.createType(PrimitiveType.TIMESTAMP), pos++));
 //        columns.add(
-//          new Column("LAST_ALTERED", ColumnType.createType(PrimitiveType.TIMESTAMP), pos++));
+//          new Column("LAST_ALTERED", ScalarType.createType(PrimitiveType.TIMESTAMP), pos++));
 //        columns.add(
-//          new Column("LAST_EXECUTED", ColumnType.createType(PrimitiveType.TIMESTAMP), pos++));
-//        columns.add(new Column("EVENT_COMMENT", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("ORIGINATOR", ColumnType.createType(PrimitiveType.BIGINT), pos++));
+//          new Column("LAST_EXECUTED", ScalarType.createType(PrimitiveType.TIMESTAMP), pos++));
+//        columns.add(new Column("EVENT_COMMENT", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("ORIGINATOR", ScalarType.createType(PrimitiveType.BIGINT), pos++));
 //        columns.add(
-//          new Column("CHARACTER_SET_CLIENT", ColumnType.createCharType(MY_CS_NAME_SIZE), pos++));
+//          new Column("CHARACTER_SET_CLIENT", ScalarType.createCharType(MY_CS_NAME_SIZE), pos++));
 //        columns.add(
-//          new Column("COLLATION_CONNECTION", ColumnType.createCharType(MY_CS_NAME_SIZE), pos++));
+//          new Column("COLLATION_CONNECTION", ScalarType.createCharType(MY_CS_NAME_SIZE), pos++));
 //        columns.add(
-//          new Column("DATABASE_COLLATION", ColumnType.createCharType(MY_CS_NAME_SIZE), pos++));
+//          new Column("DATABASE_COLLATION", ScalarType.createCharType(MY_CS_NAME_SIZE), pos++));
 //        tableMap.put("events", columns);
 //
 //        // OPEN_TABLES
 //        pos = 0;
 //        columns = new ArrayList();
-//        columns.add(new Column("Database", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("Table", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("In_use", ColumnType.createType(PrimitiveType.BIGINT), pos++));
-//        columns.add(new Column("Name_locked", ColumnType.createType(PrimitiveType.BIGINT), pos++));
+//        columns.add(new Column("Database", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("Table", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("In_use", ScalarType.createType(PrimitiveType.BIGINT), pos++));
+//        columns.add(new Column("Name_locked", ScalarType.createType(PrimitiveType.BIGINT), pos++));
 //        tableMap.put("open_tables", columns);
 //        // TABLE_NAMES
 //        pos = 0;
 //        columns = new ArrayList();
-//        columns.add(new Column("TABLE_CATALOG", ColumnType.createCharType(FN_REFLEN), pos++));
-//        columns.add(new Column("TABLE_SCHEMA", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("TABLE_NAME", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("TABLE_TYPE", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("TABLE_CATALOG", ScalarType.createCharType(FN_REFLEN), pos++));
+//        columns.add(new Column("TABLE_SCHEMA", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("TABLE_NAME", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("TABLE_TYPE", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
 //        tableMap.put("table_names", columns);
 //        // PLUGINS
 //        pos = 0;
 //        columns = new ArrayList();
-//        columns.add(new Column("PLUGIN_NAME", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("PLUGIN_VERSION", ColumnType.createCharType(20), pos++));
-//        columns.add(new Column("PLUGIN_STATUS", ColumnType.createCharType(10), pos++));
-//        columns.add(new Column("PLUGIN_TYPE", ColumnType.createCharType(80), pos++));
-//        columns.add(new Column("PLUGIN_TYPE_VERSION", ColumnType.createCharType(20), pos++));
-//        columns.add(new Column("PLUGIN_LIBRARY", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("PLUGIN_LIBRARY_VERSION", ColumnType.createCharType(20), pos++));
-//        columns.add(new Column("PLUGIN_AUTHOR", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("PLUGIN_DESCRIPTION", ColumnType.createCharType(65535), pos++));
-//        columns.add(new Column("PLUGIN_LICENSE", ColumnType.createCharType(80), pos++));
+//        columns.add(new Column("PLUGIN_NAME", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("PLUGIN_VERSION", ScalarType.createCharType(20), pos++));
+//        columns.add(new Column("PLUGIN_STATUS", ScalarType.createCharType(10), pos++));
+//        columns.add(new Column("PLUGIN_TYPE", ScalarType.createCharType(80), pos++));
+//        columns.add(new Column("PLUGIN_TYPE_VERSION", ScalarType.createCharType(20), pos++));
+//        columns.add(new Column("PLUGIN_LIBRARY", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("PLUGIN_LIBRARY_VERSION", ScalarType.createCharType(20), pos++));
+//        columns.add(new Column("PLUGIN_AUTHOR", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("PLUGIN_DESCRIPTION", ScalarType.createCharType(65535), pos++));
+//        columns.add(new Column("PLUGIN_LICENSE", ScalarType.createCharType(80), pos++));
 //        tableMap.put("plugins", columns);
 //        // PROCESSLIST
 //        pos = 0;
 //        columns = new ArrayList();
-//        columns.add(new Column("ID", ColumnType.createType(PrimitiveType.BIGINT), pos++));
-//        columns.add(new Column("USER", ColumnType.createCharType(16), pos++));
-//        columns.add(new Column("HOST", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("DB", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("COMMAND", ColumnType.createCharType(16), pos++));
-//        columns.add(new Column("TIME", ColumnType.createType(PrimitiveType.INT), pos++));
-//        columns.add(new Column("STATE", ColumnType.createCharType(64), pos++));
-//        columns.add(new Column("INFO", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("ID", ScalarType.createType(PrimitiveType.BIGINT), pos++));
+//        columns.add(new Column("USER", ScalarType.createCharType(16), pos++));
+//        columns.add(new Column("HOST", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("DB", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("COMMAND", ScalarType.createCharType(16), pos++));
+//        columns.add(new Column("TIME", ScalarType.createType(PrimitiveType.INT), pos++));
+//        columns.add(new Column("STATE", ScalarType.createCharType(64), pos++));
+//        columns.add(new Column("INFO", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
 //        tableMap.put("processlist", columns);
 //        // PROFILING
 //        pos = 0;
 //        columns = new ArrayList();
-//        columns.add(new Column("QUERY_ID", ColumnType.createType(PrimitiveType.INT), pos++));
-//        columns.add(new Column("SEQ", ColumnType.createType(PrimitiveType.INT), pos++));
-//        columns.add(new Column("STATE", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("DURATION", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("CPU_USER", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("CPU_SYSTEM", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("QUERY_ID", ScalarType.createType(PrimitiveType.INT), pos++));
+//        columns.add(new Column("SEQ", ScalarType.createType(PrimitiveType.INT), pos++));
+//        columns.add(new Column("STATE", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("DURATION", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("CPU_USER", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("CPU_SYSTEM", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
 //        columns.add(
-//          new Column("CONTEXT_VOLUNTARY", ColumnType.createType(PrimitiveType.INT), pos++));
+//          new Column("CONTEXT_VOLUNTARY", ScalarType.createType(PrimitiveType.INT), pos++));
 //        columns.add(
-//          new Column("CONTEXT_INVOLUNTARY", ColumnType.createType(PrimitiveType.INT), pos++));
-//        columns.add(new Column("BLOCK_OPS_IN", ColumnType.createType(PrimitiveType.INT), pos++));
-//        columns.add(new Column("BLOCK_OPS_OUT", ColumnType.createType(PrimitiveType.INT), pos++));
-//        columns.add(new Column("MESSAGES_SENT", ColumnType.createType(PrimitiveType.INT), pos++));
+//          new Column("CONTEXT_INVOLUNTARY", ScalarType.createType(PrimitiveType.INT), pos++));
+//        columns.add(new Column("BLOCK_OPS_IN", ScalarType.createType(PrimitiveType.INT), pos++));
+//        columns.add(new Column("BLOCK_OPS_OUT", ScalarType.createType(PrimitiveType.INT), pos++));
+//        columns.add(new Column("MESSAGES_SENT", ScalarType.createType(PrimitiveType.INT), pos++));
 //        columns.add(
-//          new Column("MESSAGES_RECEIVED", ColumnType.createType(PrimitiveType.INT), pos++));
+//          new Column("MESSAGES_RECEIVED", ScalarType.createType(PrimitiveType.INT), pos++));
 //        columns.add(
-//          new Column("PAGE_FAULTS_MAJOR", ColumnType.createType(PrimitiveType.INT), pos++));
+//          new Column("PAGE_FAULTS_MAJOR", ScalarType.createType(PrimitiveType.INT), pos++));
 //        columns.add(
-//          new Column("PAGE_FAULTS_MINOR", ColumnType.createType(PrimitiveType.INT), pos++));
-//        columns.add(new Column("SWAPS", ColumnType.createType(PrimitiveType.INT), pos++));
-//        columns.add(new Column("SOURCE_FUNCTION", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("SOURCE_FILE", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("SOURCE_LINE", ColumnType.createType(PrimitiveType.INT), pos++));
+//          new Column("PAGE_FAULTS_MINOR", ScalarType.createType(PrimitiveType.INT), pos++));
+//        columns.add(new Column("SWAPS", ScalarType.createType(PrimitiveType.INT), pos++));
+//        columns.add(new Column("SOURCE_FUNCTION", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("SOURCE_FILE", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("SOURCE_LINE", ScalarType.createType(PrimitiveType.INT), pos++));
 //        tableMap.put("profiling", columns);
 //        // TABLE PRIVILEGES
 //        pos = 0;
 //        columns = new ArrayList();
-//        columns.add(new Column("GRANTEE", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("TABLE_CATALOG", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("TABLE_SCHEMA", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("TABLE_NAME", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("PRIVILEGE_TYPE", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("IS_GRANTABLE", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("GRANTEE", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("TABLE_CATALOG", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("TABLE_SCHEMA", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("TABLE_NAME", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("PRIVILEGE_TYPE", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("IS_GRANTABLE", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
 //        tableMap.put("table_privileges", columns);
 //
 //        // TABLE CONSTRAINTS
 //        pos = 0;
 //        columns = new ArrayList();
 //        columns.add(
-//          new Column("CONSTRAINT_CATALOG", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
+//          new Column("CONSTRAINT_CATALOG", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
 //        columns.add(
-//          new Column("CONSTRAINT_SCHEMA", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("CONSTRAINT_NAME", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("TABLE_SCHEMA", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("TABLE_NAME", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("CONSTRAINT_TYPE", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
+//          new Column("CONSTRAINT_SCHEMA", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("CONSTRAINT_NAME", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("TABLE_SCHEMA", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("TABLE_NAME", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("CONSTRAINT_TYPE", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
 //        tableMap.put("table_constraints", columns);
 //
 //        // REFERENTIAL_CONSTRAINTS
 //        pos = 0;
 //        columns = new ArrayList();
 //        columns.add(
-//          new Column("CONSTRAINT_CATALOG", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
+//          new Column("CONSTRAINT_CATALOG", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
 //        columns.add(
-//          new Column("CONSTRAINT_SCHEMA", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("CONSTRAINT_NAME", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
+//          new Column("CONSTRAINT_SCHEMA", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("CONSTRAINT_NAME", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
 //        columns.add(
-//          new Column("UNIQUE_CONSTRAINT_CATALOG", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
+//          new Column("UNIQUE_CONSTRAINT_CATALOG", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
 //        columns.add(
-//          new Column("UNIQUE_CONSTRAINT_SCHEMA", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
+//          new Column("UNIQUE_CONSTRAINT_SCHEMA", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
 //        columns.add(
-//          new Column("UNIQUE_CONSTRAINT_NAME", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("MATCH_OPTION", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("UPDATE_RULE", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("DELETE_RULE", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("TABLE_NAME", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
+//          new Column("UNIQUE_CONSTRAINT_NAME", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("MATCH_OPTION", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("UPDATE_RULE", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("DELETE_RULE", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("TABLE_NAME", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
 //        columns.add(
-//          new Column("REFERENCED_TABLE_NAME", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
+//          new Column("REFERENCED_TABLE_NAME", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
 //        tableMap.put("referential_constraints", columns);
 //
 //        // VARIABLES
 //        pos = 0;
 //        columns = new ArrayList();
-//        columns.add(new Column("VARIABLE_NAME", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("VARIABLE_VALUE", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("VARIABLE_NAME", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("VARIABLE_VALUE", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
 //        tableMap.put("variables", columns);
 //
 //        // ROUNTINE
 //        pos = 0;
 //        columns = new ArrayList();
-//        columns.add(new Column("SPECIFIC_NAME", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("ROUTINE_CATALOG", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("ROUTINE_SCHEMA", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("ROUTINE_NAME", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("ROUTINE_TYPE", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("DTD_IDENTIFIER", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("ROUTINE_BODY", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("SPECIFIC_NAME", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("ROUTINE_CATALOG", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("ROUTINE_SCHEMA", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("ROUTINE_NAME", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("ROUTINE_TYPE", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("DTD_IDENTIFIER", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("ROUTINE_BODY", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
 //        columns.add(
-//          new Column("ROUTINE_DEFINITION", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("EXTERNAL_NAME", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
+//          new Column("ROUTINE_DEFINITION", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("EXTERNAL_NAME", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
 //        columns.add(
-//          new Column("EXTERNAL_LANGUAGE", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("PARAMETER_STYLE", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
+//          new Column("EXTERNAL_LANGUAGE", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("PARAMETER_STYLE", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
 //        columns.add(
-//          new Column("IS_DETERMINISTIC", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("SQL_DATA_ACCESS", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("SQL_PATH", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("SECURITY_TYPE", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("CREATED", ColumnType.createType(PrimitiveType.TIMESTAMP), pos++));
+//          new Column("IS_DETERMINISTIC", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("SQL_DATA_ACCESS", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("SQL_PATH", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("SECURITY_TYPE", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("CREATED", ScalarType.createType(PrimitiveType.TIMESTAMP), pos++));
 //        columns.add(
-//          new Column("LAST_ALTERED", ColumnType.createType(PrimitiveType.TIMESTAMP), pos++));
-//        columns.add(new Column("SQL_MODE", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("ROUTINE_COMMENT", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("DEFINER", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
+//          new Column("LAST_ALTERED", ScalarType.createType(PrimitiveType.TIMESTAMP), pos++));
+//        columns.add(new Column("SQL_MODE", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("ROUTINE_COMMENT", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("DEFINER", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
 //        columns.add(
-//          new Column("CHARACTER_SET_CLIENT", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
+//          new Column("CHARACTER_SET_CLIENT", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
 //        columns.add(
-//          new Column("COLLATION_CONNECTION", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
+//          new Column("COLLATION_CONNECTION", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
 //        columns.add(
-//          new Column("DATABASE_COLLATION", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
+//          new Column("DATABASE_COLLATION", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
 //        tableMap.put("routines", columns);
 //
 //        // STATISTICS
 //        pos = 0;
 //        columns = new ArrayList();
-//        columns.add(new Column("TABLE_CATALOG", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("TABLE_SCHEMA", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("TABLE_NAME", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("NON_UNIQUE", ColumnType.createType(PrimitiveType.BIGINT), pos++));
-//        columns.add(new Column("INDEX_SCHEMA", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("INDEX_NAME", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("SEQ_IN_INDEX", ColumnType.createType(PrimitiveType.BIGINT), pos++));
-//        columns.add(new Column("COLUMN_NAME", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("COLLATION", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("CARDINALITY", ColumnType.createType(PrimitiveType.BIGINT), pos++));
-//        columns.add(new Column("SUB_PART", ColumnType.createType(PrimitiveType.BIGINT), pos++));
-//        columns.add(new Column("PACKED", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("NULLABLE", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("INDEX_TYPE", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("COMMENT", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("TABLE_CATALOG", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("TABLE_SCHEMA", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("TABLE_NAME", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("NON_UNIQUE", ScalarType.createType(PrimitiveType.BIGINT), pos++));
+//        columns.add(new Column("INDEX_SCHEMA", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("INDEX_NAME", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("SEQ_IN_INDEX", ScalarType.createType(PrimitiveType.BIGINT), pos++));
+//        columns.add(new Column("COLUMN_NAME", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("COLLATION", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("CARDINALITY", ScalarType.createType(PrimitiveType.BIGINT), pos++));
+//        columns.add(new Column("SUB_PART", ScalarType.createType(PrimitiveType.BIGINT), pos++));
+//        columns.add(new Column("PACKED", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("NULLABLE", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("INDEX_TYPE", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("COMMENT", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
 //        tableMap.put("statistics", columns);
 //
 //        // STATUS
 //        pos = 0;
 //        columns = new ArrayList();
-//        columns.add(new Column("VARIABLE_NAME", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("VARIABLE_VALUE", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("VARIABLE_NAME", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("VARIABLE_VALUE", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
 //        tableMap.put("status", columns);
 //
 //        // TRIGGERS
 //        pos = 0;
 //        columns = new ArrayList();
-//        columns.add(new Column("TRIGGER_CATALOG", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("TRIGGER_SCHEMA", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("TRIGGER_NAME", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("TRIGGER_CATALOG", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("TRIGGER_SCHEMA", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("TRIGGER_NAME", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
 //        columns.add(
-//          new Column("EVENT_MANIPULATION", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
+//          new Column("EVENT_MANIPULATION", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
 //        columns.add(
-//          new Column("EVENT_OBJECT_CATALOG", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
+//          new Column("EVENT_OBJECT_CATALOG", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
 //        columns.add(
-//          new Column("EVENT_OBJECT_SCHEMA", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
+//          new Column("EVENT_OBJECT_SCHEMA", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
 //        columns.add(
-//          new Column("EVENT_OBJECT_TABLE", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("ACTION_ORDER", ColumnType.createType(PrimitiveType.BIGINT), pos++));
+//          new Column("EVENT_OBJECT_TABLE", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("ACTION_ORDER", ScalarType.createType(PrimitiveType.BIGINT), pos++));
 //        columns.add(
-//          new Column("ACTION_CONDITION", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
+//          new Column("ACTION_CONDITION", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
 //        columns.add(
-//          new Column("ACTION_STATEMENT", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
+//          new Column("ACTION_STATEMENT", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
 //        columns.add(
-//          new Column("ACTION_ORIENTATION", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("ACTION_TIMING", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
+//          new Column("ACTION_ORIENTATION", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("ACTION_TIMING", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
 //        columns.add(
-//          new Column("ACTION_REFERENCE_OLD_TABLE", ColumnType.createCharType(NAME_CHAR_LEN),
+//          new Column("ACTION_REFERENCE_OLD_TABLE", ScalarType.createCharType(NAME_CHAR_LEN),
 //            pos++));
 //        columns.add(
-//          new Column("ACTION_REFERENCE_NEW_TABLE", ColumnType.createCharType(NAME_CHAR_LEN),
+//          new Column("ACTION_REFERENCE_NEW_TABLE", ScalarType.createCharType(NAME_CHAR_LEN),
 //            pos++));
 //        columns.add(
-//          new Column("ACTION_REFERENCE_OLD_ROW", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
+//          new Column("ACTION_REFERENCE_OLD_ROW", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
 //        columns.add(
-//          new Column("ACTION_REFERENCE_NEW_ROW", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("CREATED", ColumnType.createType(PrimitiveType.TIMESTAMP), pos++));
-//        columns.add(new Column("SQL_MODE", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("DEFINER", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
+//          new Column("ACTION_REFERENCE_NEW_ROW", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("CREATED", ScalarType.createType(PrimitiveType.TIMESTAMP), pos++));
+//        columns.add(new Column("SQL_MODE", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("DEFINER", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
 //        columns.add(
-//          new Column("CHARACTER_SET_CLIENT", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
+//          new Column("CHARACTER_SET_CLIENT", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
 //        columns.add(
-//          new Column("COLLATION_CONNECTION", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
+//          new Column("COLLATION_CONNECTION", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
 //        columns.add(
-//          new Column("DATABASE_COLLATION", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
+//          new Column("DATABASE_COLLATION", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
 //        tableMap.put("triggers", columns);
 //
 //      /* COLLATION */
 //        pos = 0;
 //        columns = new ArrayList();
-//        columns.add(new Column("COLLATION_NAME", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("COLLATION_NAME", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
 //        columns.add(
-//          new Column("CHARACTER_SET_NAME", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("ID", ColumnType.createType(PrimitiveType.BIGINT), pos++));
-//        columns.add(new Column("IS_DEFAULT", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("IS_COMPILED", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("SORTLEN", ColumnType.createType(PrimitiveType.BIGINT), pos++));
+//          new Column("CHARACTER_SET_NAME", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("ID", ScalarType.createType(PrimitiveType.BIGINT), pos++));
+//        columns.add(new Column("IS_DEFAULT", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("IS_COMPILED", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("SORTLEN", ScalarType.createType(PrimitiveType.BIGINT), pos++));
 //        tableMap.put("collations", columns);
 //      /* CHARSETS */
 //        pos = 0;
 //        columns = new ArrayList();
 //        columns.add(
-//          new Column("CHARACTER_SET_NAME", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
+//          new Column("CHARACTER_SET_NAME", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
 //        columns.add(
-//          new Column("DEFAULT_COLLATE_NAME", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("DESCRIPTION", ColumnType.createCharType(NAME_CHAR_LEN), pos++));
-//        columns.add(new Column("MAXLEN", ColumnType.createType(PrimitiveType.BIGINT), pos++));
+//          new Column("DEFAULT_COLLATE_NAME", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("DESCRIPTION", ScalarType.createCharType(NAME_CHAR_LEN), pos++));
+//        columns.add(new Column("MAXLEN", ScalarType.createType(PrimitiveType.BIGINT), pos++));
 //        tableMap.put("character_sets", columns);
 //    }
 
@@ -423,194 +423,194 @@ public class SchemaTable extends Table {
                             "tables",
                             TableType.SCHEMA,
                             builder()
-                                    .column("TABLE_CATALOG", ColumnType.createVarchar(FN_REFLEN))
-                                    .column("TABLE_SCHEMA", ColumnType.createVarchar(NAME_CHAR_LEN))
-                                    .column("TABLE_NAME", ColumnType.createVarchar(NAME_CHAR_LEN))
-                                    .column("TABLE_TYPE", ColumnType.createVarchar(NAME_CHAR_LEN))
-                                    .column("ENGINE", ColumnType.createVarchar(NAME_CHAR_LEN))
-                                    .column("VERSION", ColumnType.createType(PrimitiveType.BIGINT))
-                                    .column("ROW_FORMAT", ColumnType.createVarchar(10))
-                                    .column("TABLE_ROWS", ColumnType.createType(PrimitiveType.BIGINT))
-                                    .column("AVG_ROW_LENGTH", ColumnType.createType(PrimitiveType.BIGINT))
-                                    .column("DATA_LENGTH", ColumnType.createType(PrimitiveType.BIGINT))
-                                    .column("MAX_DATA_LENGTH", ColumnType.createType(PrimitiveType.BIGINT))
-                                    .column("INDEX_LENGTH", ColumnType.createType(PrimitiveType.BIGINT))
-                                    .column("DATA_FREE", ColumnType.createType(PrimitiveType.BIGINT))
-                                    .column("AUTO_INCREMENT", ColumnType.createType(PrimitiveType.BIGINT))
-                                    .column("CREATE_TIME", ColumnType.createType(PrimitiveType.DATETIME))
-                                    .column("UPDATE_TIME", ColumnType.createType(PrimitiveType.DATETIME))
-                                    .column("CHECK_TIME", ColumnType.createType(PrimitiveType.DATETIME))
-                                    .column("TABLE_COLLATION", ColumnType.createVarchar(MY_CS_NAME_SIZE))
-                                    .column("CHECKSUM", ColumnType.createType(PrimitiveType.BIGINT))
-                                    .column("CREATE_OPTIONS", ColumnType.createVarchar(255))
-                                    .column("TABLE_COMMENT", ColumnType.createVarchar(2048))
+                                    .column("TABLE_CATALOG", ScalarType.createVarchar(FN_REFLEN))
+                                    .column("TABLE_SCHEMA", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("TABLE_NAME", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("TABLE_TYPE", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("ENGINE", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("VERSION", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("ROW_FORMAT", ScalarType.createVarchar(10))
+                                    .column("TABLE_ROWS", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("AVG_ROW_LENGTH", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("DATA_LENGTH", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("MAX_DATA_LENGTH", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("INDEX_LENGTH", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("DATA_FREE", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("AUTO_INCREMENT", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("CREATE_TIME", ScalarType.createType(PrimitiveType.DATETIME))
+                                    .column("UPDATE_TIME", ScalarType.createType(PrimitiveType.DATETIME))
+                                    .column("CHECK_TIME", ScalarType.createType(PrimitiveType.DATETIME))
+                                    .column("TABLE_COLLATION", ScalarType.createVarchar(MY_CS_NAME_SIZE))
+                                    .column("CHECKSUM", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("CREATE_OPTIONS", ScalarType.createVarchar(255))
+                                    .column("TABLE_COMMENT", ScalarType.createVarchar(2048))
                                     .build()))
                     .put("table_privileges", new SchemaTable(
                             SystemIdGenerator.getNextId(),
                             "table_privileges",
                             TableType.SCHEMA,
                             builder()
-                                    .column("GRANTEE", ColumnType.createVarchar(NAME_CHAR_LEN))
-                                    .column("TABLE_CATALOG", ColumnType.createVarchar(NAME_CHAR_LEN))
-                                    .column("TABLE_SCHEMA", ColumnType.createVarchar(NAME_CHAR_LEN))
-                                    .column("TABLE_NAME", ColumnType.createVarchar(NAME_CHAR_LEN))
-                                    .column("PRIVILEGE_TYPE", ColumnType.createVarchar(NAME_CHAR_LEN))
-                                    .column("IS_GRANTABLE", ColumnType.createVarchar(NAME_CHAR_LEN))
+                                    .column("GRANTEE", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("TABLE_CATALOG", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("TABLE_SCHEMA", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("TABLE_NAME", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("PRIVILEGE_TYPE", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("IS_GRANTABLE", ScalarType.createVarchar(NAME_CHAR_LEN))
                                     .build()))
                     .put("referential_constraints", new SchemaTable(
                             SystemIdGenerator.getNextId(),
                             "referential_constraints",
                             TableType.SCHEMA,
                             builder()
-                                    .column("CONSTRAINT_CATALOG", ColumnType.createVarchar(NAME_CHAR_LEN))
-                                    .column("CONSTRAINT_SCHEMA", ColumnType.createVarchar(NAME_CHAR_LEN))
-                                    .column("CONSTRAINT_NAME", ColumnType.createVarchar(NAME_CHAR_LEN))
-                                    .column("UNIQUE_CONSTRAINT_CATALOG", ColumnType.createVarchar(NAME_CHAR_LEN))
-                                    .column("UNIQUE_CONSTRAINT_SCHEMA", ColumnType.createVarchar(NAME_CHAR_LEN))
-                                    .column("UNIQUE_CONSTRAINT_NAME", ColumnType.createVarchar(NAME_CHAR_LEN))
-                                    .column("MATCH_OPTION", ColumnType.createVarchar(NAME_CHAR_LEN))
-                                    .column("UPDATE_RULE", ColumnType.createVarchar(NAME_CHAR_LEN))
-                                    .column("DELETE_RULE", ColumnType.createVarchar(NAME_CHAR_LEN))
-                                    .column("TABLE_NAME", ColumnType.createVarchar(NAME_CHAR_LEN))
-                                    .column("REFERENCED_TABLE_NAME", ColumnType.createVarchar(NAME_CHAR_LEN))
+                                    .column("CONSTRAINT_CATALOG", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("CONSTRAINT_SCHEMA", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("CONSTRAINT_NAME", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("UNIQUE_CONSTRAINT_CATALOG", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("UNIQUE_CONSTRAINT_SCHEMA", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("UNIQUE_CONSTRAINT_NAME", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("MATCH_OPTION", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("UPDATE_RULE", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("DELETE_RULE", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("TABLE_NAME", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("REFERENCED_TABLE_NAME", ScalarType.createVarchar(NAME_CHAR_LEN))
                                     .build()))
                     .put("key_column_usage", new SchemaTable(
                             SystemIdGenerator.getNextId(),
                             "key_column_usage",
                             TableType.SCHEMA,
                             builder()
-                                    .column("CONSTRAINT_CATALOG", ColumnType.createVarchar(NAME_CHAR_LEN))
-                                    .column("CONSTRAINT_SCHEMA", ColumnType.createVarchar(NAME_CHAR_LEN))
-                                    .column("CONSTRAINT_NAME", ColumnType.createVarchar(NAME_CHAR_LEN))
-                                    .column("TABLE_CATALOG", ColumnType.createVarchar(NAME_CHAR_LEN))
-                                    .column("TABLE_SCHEMA", ColumnType.createVarchar(NAME_CHAR_LEN))
-                                    .column("TABLE_NAME", ColumnType.createVarchar(NAME_CHAR_LEN))
-                                    .column("COLUMN_NAME", ColumnType.createVarchar(NAME_CHAR_LEN))
-                                    .column("ORDINAL_POSITION", ColumnType.createType(PrimitiveType.BIGINT))
+                                    .column("CONSTRAINT_CATALOG", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("CONSTRAINT_SCHEMA", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("CONSTRAINT_NAME", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("TABLE_CATALOG", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("TABLE_SCHEMA", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("TABLE_NAME", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("COLUMN_NAME", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("ORDINAL_POSITION", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("POSITION_IN_UNIQUE_CONSTRAINT",
-                                        ColumnType.createType(PrimitiveType.BIGINT))
-                                    .column("REFERENCED_TABLE_SCHEMA", ColumnType.createVarchar(64))
-                                    .column("REFERENCED_TABLE_NAME", ColumnType.createVarchar(64))
-                                    .column("REFERENCED_COLUMN_NAME", ColumnType.createVarchar(64))
+                                        ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("REFERENCED_TABLE_SCHEMA", ScalarType.createVarchar(64))
+                                    .column("REFERENCED_TABLE_NAME", ScalarType.createVarchar(64))
+                                    .column("REFERENCED_COLUMN_NAME", ScalarType.createVarchar(64))
                                     .build()))
                     .put("routines", new SchemaTable(
                             SystemIdGenerator.getNextId(),
                             "routines",
                             TableType.SCHEMA,
                             builder()
-                                    .column("SPECIFIC_NAME", ColumnType.createVarchar(NAME_CHAR_LEN))
-                                    .column("ROUTINE_CATALOG", ColumnType.createVarchar(NAME_CHAR_LEN))
-                                    .column("ROUTINE_SCHEMA", ColumnType.createVarchar(NAME_CHAR_LEN))
-                                    .column("ROUTINE_NAME", ColumnType.createVarchar(NAME_CHAR_LEN))
-                                    .column("ROUTINE_TYPE", ColumnType.createVarchar(NAME_CHAR_LEN))
-                                    .column("DTD_IDENTIFIER", ColumnType.createVarchar(NAME_CHAR_LEN))
-                                    .column("ROUTINE_BODY", ColumnType.createVarchar(NAME_CHAR_LEN))
-                                    .column("ROUTINE_DEFINITION", ColumnType.createVarchar(NAME_CHAR_LEN))
-                                    .column("EXTERNAL_NAME", ColumnType.createVarchar(NAME_CHAR_LEN))
-                                    .column("EXTERNAL_LANGUAGE", ColumnType.createVarchar(NAME_CHAR_LEN))
-                                    .column("PARAMETER_STYLE", ColumnType.createVarchar(NAME_CHAR_LEN))
-                                    .column("IS_DETERMINISTIC", ColumnType.createVarchar(NAME_CHAR_LEN))
-                                    .column("SQL_DATA_ACCESS", ColumnType.createVarchar(NAME_CHAR_LEN))
-                                    .column("SQL_PATH", ColumnType.createVarchar(NAME_CHAR_LEN))
-                                    .column("SECURITY_TYPE", ColumnType.createVarchar(NAME_CHAR_LEN))
-                                    .column("CREATED", ColumnType.createType(PrimitiveType.DATETIME))
-                                    .column("LAST_ALTERED", ColumnType.createType(PrimitiveType.DATETIME))
-                                    .column("SQL_MODE", ColumnType.createVarchar(NAME_CHAR_LEN))
-                                    .column("ROUTINE_COMMENT", ColumnType.createVarchar(NAME_CHAR_LEN))
-                                    .column("DEFINER", ColumnType.createVarchar(NAME_CHAR_LEN))
-                                    .column("CHARACTER_SET_CLIENT", ColumnType.createVarchar(NAME_CHAR_LEN))
-                                    .column("COLLATION_CONNECTION", ColumnType.createVarchar(NAME_CHAR_LEN))
-                                    .column("DATABASE_COLLATION", ColumnType.createVarchar(NAME_CHAR_LEN))
+                                    .column("SPECIFIC_NAME", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("ROUTINE_CATALOG", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("ROUTINE_SCHEMA", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("ROUTINE_NAME", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("ROUTINE_TYPE", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("DTD_IDENTIFIER", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("ROUTINE_BODY", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("ROUTINE_DEFINITION", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("EXTERNAL_NAME", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("EXTERNAL_LANGUAGE", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("PARAMETER_STYLE", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("IS_DETERMINISTIC", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("SQL_DATA_ACCESS", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("SQL_PATH", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("SECURITY_TYPE", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("CREATED", ScalarType.createType(PrimitiveType.DATETIME))
+                                    .column("LAST_ALTERED", ScalarType.createType(PrimitiveType.DATETIME))
+                                    .column("SQL_MODE", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("ROUTINE_COMMENT", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("DEFINER", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("CHARACTER_SET_CLIENT", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("COLLATION_CONNECTION", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("DATABASE_COLLATION", ScalarType.createVarchar(NAME_CHAR_LEN))
                                     .build()))
                     .put("schemata", new SchemaTable(
                             SystemIdGenerator.getNextId(),
                             "schemata",
                             TableType.SCHEMA,
                             builder()
-                                    .column("CATALOG_NAME", ColumnType.createVarchar(512))
-                                    .column("SCHEMA_NAME", ColumnType.createVarchar(32))
-                                    .column("DEFAULT_CHARACTER_SET_NAME", ColumnType.createVarchar(32))
-                                    .column("DEFAULT_COLLATION_NAME", ColumnType.createVarchar(32))
-                                    .column("SQL_PATH", ColumnType.createVarchar(512))
+                                    .column("CATALOG_NAME", ScalarType.createVarchar(512))
+                                    .column("SCHEMA_NAME", ScalarType.createVarchar(32))
+                                    .column("DEFAULT_CHARACTER_SET_NAME", ScalarType.createVarchar(32))
+                                    .column("DEFAULT_COLLATION_NAME", ScalarType.createVarchar(32))
+                                    .column("SQL_PATH", ScalarType.createVarchar(512))
                                     .build()))
                     .put("session_variables", new SchemaTable(
                             SystemIdGenerator.getNextId(),
                             "session_variables",
                             TableType.SCHEMA,
                             builder()
-                                    .column("VARIABLE_NAME", ColumnType.createVarchar(64))
-                                    .column("VARIABLE_VALUE", ColumnType.createVarchar(1024))
+                                    .column("VARIABLE_NAME", ScalarType.createVarchar(64))
+                                    .column("VARIABLE_VALUE", ScalarType.createVarchar(1024))
                                     .build()))
                     .put("global_variables", new SchemaTable(
                             SystemIdGenerator.getNextId(),
                             "global_variables",
                             TableType.SCHEMA,
                             builder()
-                                    .column("VARIABLE_NAME", ColumnType.createVarchar(64))
-                                    .column("VARIABLE_VALUE", ColumnType.createVarchar(1024))
+                                    .column("VARIABLE_NAME", ScalarType.createVarchar(64))
+                                    .column("VARIABLE_VALUE", ScalarType.createVarchar(1024))
                                     .build()))
                     .put("columns", new SchemaTable(
                             SystemIdGenerator.getNextId(),
                             "columns",
                             TableType.SCHEMA,
                             builder()
-                                    .column("TABLE_CATALOG", ColumnType.createVarchar(512))
-                                    .column("TABLE_SCHEMA", ColumnType.createVarchar(64))
-                                    .column("TABLE_NAME", ColumnType.createVarchar(64))
-                                    .column("COLUMN_NAME", ColumnType.createVarchar(64))
-                                    .column("ORDINAL_POSITION", ColumnType.createType(PrimitiveType.BIGINT))
-                                    .column("COLUMN_DEFAULT", ColumnType.createVarchar(1024))
-                                    .column("IS_NULLABLE", ColumnType.createVarchar(3))
-                                    .column("DATA_TYPE", ColumnType.createVarchar(64))
+                                    .column("TABLE_CATALOG", ScalarType.createVarchar(512))
+                                    .column("TABLE_SCHEMA", ScalarType.createVarchar(64))
+                                    .column("TABLE_NAME", ScalarType.createVarchar(64))
+                                    .column("COLUMN_NAME", ScalarType.createVarchar(64))
+                                    .column("ORDINAL_POSITION", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("COLUMN_DEFAULT", ScalarType.createVarchar(1024))
+                                    .column("IS_NULLABLE", ScalarType.createVarchar(3))
+                                    .column("DATA_TYPE", ScalarType.createVarchar(64))
                                     .column("CHARACTER_MAXIMUM_LENGTH",
-                                            ColumnType.createType(PrimitiveType.BIGINT))
+                                            ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("CHARACTER_OCTET_LENGTH",
-                                            ColumnType.createType(PrimitiveType.BIGINT))
-                                    .column("NUMERIC_PRECISION", ColumnType.createType(PrimitiveType.BIGINT))
-                                    .column("NUMERIC_SCALE", ColumnType.createType(PrimitiveType.BIGINT))
-                                    .column("CHARACTER_SET_NAME", ColumnType.createVarchar(32))
-                                    .column("COLLATION_NAME", ColumnType.createVarchar(32))
-                                    .column("COLUMN_TYPE", ColumnType.createVarchar(32))
-                                    .column("COLUMN_KEY", ColumnType.createVarchar(3))
-                                    .column("EXTRA", ColumnType.createVarchar(27))
-                                    .column("PRIVILEGES", ColumnType.createVarchar(80))
-                                    .column("COLUMN_COMMENT", ColumnType.createVarchar(255))
-                                    .column("COLUMN_SIZE", ColumnType.createType(PrimitiveType.BIGINT))
-                                    .column("DECIMAL_DIGITS", ColumnType.createType(PrimitiveType.BIGINT))
+                                            ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("NUMERIC_PRECISION", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("NUMERIC_SCALE", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("CHARACTER_SET_NAME", ScalarType.createVarchar(32))
+                                    .column("COLLATION_NAME", ScalarType.createVarchar(32))
+                                    .column("COLUMN_TYPE", ScalarType.createVarchar(32))
+                                    .column("COLUMN_KEY", ScalarType.createVarchar(3))
+                                    .column("EXTRA", ScalarType.createVarchar(27))
+                                    .column("PRIVILEGES", ScalarType.createVarchar(80))
+                                    .column("COLUMN_COMMENT", ScalarType.createVarchar(255))
+                                    .column("COLUMN_SIZE", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("DECIMAL_DIGITS", ScalarType.createType(PrimitiveType.BIGINT))
                                     .build()))
                     .put("character_sets", new SchemaTable(
                             SystemIdGenerator.getNextId(),
                             "character_sets",
                             TableType.SCHEMA,
                             builder()
-                                    .column("CHARACTER_SET_NAME", ColumnType.createVarchar(512))
-                                    .column("DEFAULT_COLLATE_NAME", ColumnType.createVarchar(64))
-                                    .column("DESCRIPTION", ColumnType.createVarchar(64))
-                                    .column("MAXLEN", ColumnType.createType(PrimitiveType.BIGINT))
+                                    .column("CHARACTER_SET_NAME", ScalarType.createVarchar(512))
+                                    .column("DEFAULT_COLLATE_NAME", ScalarType.createVarchar(64))
+                                    .column("DESCRIPTION", ScalarType.createVarchar(64))
+                                    .column("MAXLEN", ScalarType.createType(PrimitiveType.BIGINT))
                                     .build()))
                     .put("collations", new SchemaTable(
                             SystemIdGenerator.getNextId(),
                             "collations",
                             TableType.SCHEMA,
                             builder()
-                                    .column("COLLATION_NAME", ColumnType.createVarchar(512))
-                                    .column("CHARACTER_SET_NAME", ColumnType.createVarchar(64))
-                                    .column("ID", ColumnType.createType(PrimitiveType.BIGINT))
-                                    .column("IS_DEFAULT", ColumnType.createVarchar(64))
-                                    .column("IS_COMPILED", ColumnType.createVarchar(64))
-                                    .column("SORTLEN", ColumnType.createType(PrimitiveType.BIGINT))
+                                    .column("COLLATION_NAME", ScalarType.createVarchar(512))
+                                    .column("CHARACTER_SET_NAME", ScalarType.createVarchar(64))
+                                    .column("ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("IS_DEFAULT", ScalarType.createVarchar(64))
+                                    .column("IS_COMPILED", ScalarType.createVarchar(64))
+                                    .column("SORTLEN", ScalarType.createType(PrimitiveType.BIGINT))
                                     .build()))
                     .put("table_constraints", new SchemaTable(
                             SystemIdGenerator.getNextId(),
                             "table_constraints",
                             TableType.SCHEMA,
                             builder()
-                                    .column("CONSTRAINT_CATALOG", ColumnType.createVarchar(512))
-                                    .column("CONSTRAINT_SCHEMA", ColumnType.createVarchar(64))
-                                    .column("CONSTRAINT_NAME", ColumnType.createVarchar(64))
-                                    .column("TABLE_SCHEMA", ColumnType.createVarchar(64))
-                                    .column("TABLE_NAME", ColumnType.createVarchar(64))
-                                    .column("CONSTRAINT_TYPE", ColumnType.createVarchar(64))
+                                    .column("CONSTRAINT_CATALOG", ScalarType.createVarchar(512))
+                                    .column("CONSTRAINT_SCHEMA", ScalarType.createVarchar(64))
+                                    .column("CONSTRAINT_NAME", ScalarType.createVarchar(64))
+                                    .column("TABLE_SCHEMA", ScalarType.createVarchar(64))
+                                    .column("TABLE_NAME", ScalarType.createVarchar(64))
+                                    .column("CONSTRAINT_TYPE", ScalarType.createVarchar(64))
                                     .build()))
                     .put("engines",
                          new SchemaTable(
@@ -618,12 +618,12 @@ public class SchemaTable extends Table {
                                          "engines",
                                          TableType.SCHEMA,
                                          builder()
-                                                 .column("ENGINE", ColumnType.createVarchar(64))
-                                                 .column("SUPPORT", ColumnType.createVarchar(8))
-                                                 .column("COMMENT", ColumnType.createVarchar(80))
-                                                 .column("TRANSACTIONS", ColumnType.createVarchar(3))
-                                                 .column("XA", ColumnType.createVarchar(3))
-                                                 .column("SAVEPOINTS", ColumnType.createVarchar(3))
+                                                 .column("ENGINE", ScalarType.createVarchar(64))
+                                                 .column("SUPPORT", ScalarType.createVarchar(8))
+                                                 .column("COMMENT", ScalarType.createVarchar(80))
+                                                 .column("TRANSACTIONS", ScalarType.createVarchar(3))
+                                                 .column("XA", ScalarType.createVarchar(3))
+                                                 .column("SAVEPOINTS", ScalarType.createVarchar(3))
                                                  .build()))
                     .build();
 
@@ -634,8 +634,8 @@ public class SchemaTable extends Table {
             columns = Lists.newArrayList();
         }
 
-        public Builder column(String name, ColumnType type) {
-            columns.add(new Column(name, type.getType(), true));
+        public Builder column(String name, ScalarType type) {
+            columns.add(new Column(name, type.getPrimitiveType(), true));
             return this;
         }
 

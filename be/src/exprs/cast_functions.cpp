@@ -170,9 +170,21 @@ StringVal CastFunctions::cast_to_string_val(FunctionContext* ctx, const LargeInt
     if (UNLIKELY(sv.is_null)) { \
       return sv; \
     } \
-    sv.len = snprintf(reinterpret_cast<char*>(sv.ptr), sv.len, format, val.val); \
-    DCHECK_GT(sv.len, 0); \
-    DCHECK_LE(sv.len, MAX_FLOAT_CHARS); \
+    const FunctionContext::TypeDesc& returnType = ctx->get_return_type(); \
+    if (returnType.len > 0) { \
+        sv.len = snprintf(reinterpret_cast<char*>(sv.ptr), sv.len, format, val.val); \
+        DCHECK_GT(sv.len, 0); \
+        DCHECK_LE(sv.len, MAX_FLOAT_CHARS); \
+        AnyValUtil::TruncateIfNecessary(returnType, &sv); \
+    } else if (returnType.len == -1) { \
+        std::stringstream ss; \
+        ss << val.val; \
+        std::string str = ss.str(); \
+        sv.len = str.length(); \
+        memcpy(sv.ptr, str.c_str(), str.length()); \
+    } else { \
+        DCHECK(false); \
+    } \
     return sv; \
   }
 
@@ -192,17 +204,19 @@ StringVal CastFunctions::cast_to_string_val(FunctionContext* ctx, const DateTime
     return sv;
 }
 
-#if 0
-
-StringVal CastFunctions::CastToStringVal(FunctionContext* ctx, const StringVal& val) {
+StringVal CastFunctions::cast_to_string_val(FunctionContext* ctx, const StringVal& val) {
   if (val.is_null) return StringVal::null();
   StringVal sv;
   sv.ptr = val.ptr;
   sv.len = val.len;
-  AnyValUtil::TruncateIfNecessary(ctx->GetReturnType(), &sv);
+  const FunctionContext::TypeDesc& result_type = ctx->get_return_type();
+  if (result_type.len > 0) {
+      AnyValUtil::TruncateIfNecessary(result_type, &sv);
+  }
   return sv;
 }
 
+#if 0
 StringVal CastFunctions::CastToChar(FunctionContext* ctx, const StringVal& val) {
   if (val.is_null) return StringVal::null();
 

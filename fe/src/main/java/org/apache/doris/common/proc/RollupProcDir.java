@@ -32,9 +32,9 @@ import java.util.List;
 
 public class RollupProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("JobId").add("TableName").add("TransactionId").add("CreateTime").add("FinishedTime")
-            .add("BaseIndexName").add("RollupIndexName").add("State").add("Msg")
-            .add("Progress")
+            .add("JobId").add("TableName").add("CreateTime").add("FinishedTime")
+            .add("BaseIndexName").add("RollupIndexName").add("RollupId").add("TransactionId")
+            .add("State").add("Msg") .add("Progress")
             .build();
 
     private RollupHandler rollupHandler;

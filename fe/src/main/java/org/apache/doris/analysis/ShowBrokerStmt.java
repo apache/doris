@@ -17,9 +17,10 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ColumnType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -27,14 +28,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
-// Show
 public class ShowBrokerStmt extends ShowStmt {
-    private static final ShowResultSetMetaData META_DATA =
-            ShowResultSetMetaData.builder()
-                    .addColumn(new Column("Broker", ColumnType.createVarchar(20)))
-                    .addColumn(new Column("Instances", ColumnType.createVarchar(200)))
-                    .build();
-
     public ShowBrokerStmt() {
     }
 
@@ -49,6 +43,10 @@ public class ShowBrokerStmt extends ShowStmt {
 
     @Override
     public ShowResultSetMetaData getMetaData() {
-        return META_DATA;
+        ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
+        for (String title : BrokerMgr.BROKER_PROC_NODE_TITLE_NAMES) {
+            builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
+        }
+        return builder.build();
     }
 }

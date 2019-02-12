@@ -17,7 +17,11 @@
 
 package org.apache.doris.analysis;
 
+import com.google.common.base.Strings;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.load.PullLoadSourceInfo;
@@ -117,6 +121,20 @@ public class FunctionName implements Writable {
         return db_ + "." + fn_;
     }
 
+    // used to analyze db element in function name, add cluster
+    public String analyzeDb(Analyzer analyzer) throws AnalysisException {
+        String db = db_;
+        if (db == null) {
+            db = analyzer.getDefaultDb();
+        } else {
+            if (Strings.isNullOrEmpty(analyzer.getClusterName())) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_NAME_NULL);
+            }
+            db = ClusterNamespace.getFullName(analyzer.getClusterName(), db);
+        }
+        return db;
+    }
+
     public void analyze(Analyzer analyzer) throws AnalysisException {
         if (fn_.length() == 0) {
             throw new AnalysisException("Function name can not be empty.");
@@ -130,6 +148,17 @@ public class FunctionName implements Writable {
         }
         if (Character.isDigit(fn_.charAt(0))) {
             throw new AnalysisException("Function cannot start with a digit: " + fn_);
+        }
+        if (db_ == null) {
+            db_ = analyzer.getDefaultDb();
+            if (Strings.isNullOrEmpty(db_)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
+            }
+        } else {
+            if (Strings.isNullOrEmpty(analyzer.getClusterName())) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_NAME_NULL);
+            }
+            db_ = ClusterNamespace.getFullName(analyzer.getClusterName(), db_);
         }
 
         // If the function name is not fully qualified, it must not be the same as a builtin

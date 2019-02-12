@@ -41,6 +41,7 @@ message PTransmitDataParams {
     optional PRowBatch row_batch = 6;
     // different per packet
     required int64 packet_seq = 7;
+    optional PQueryStatistics query_statistics = 8;
 };
 
 message PTransmitDataResult {
@@ -129,31 +130,18 @@ message PFetchDataResult {
     // valid when status is ok
     optional int64 packet_seq = 2;
     optional bool eos = 3;
+    optional PQueryStatistics query_statistics = 4;
 };
 
-message PFetchFragmentExecInfoRequest {
-    repeated PUniqueId finst_id = 1;
-};
-
-enum PFragmentExecStatus {
-    RUNNING = 0;
-    WAIT = 1;
-    FINISHED = 2;
+message PTriggerProfileReportRequest {
+    repeated PUniqueId instance_ids = 1;
 }
 
-message PFragmentExecInfo {
-    required PUniqueId finst_id = 1;
-    required int32 exec_status = 2;
-    optional int32 plan_node_type = 3;  // same as TPlanNodeType
-    optional int64 rows_count = 4;
-}
-
-message PFetchFragmentExecInfosResult {
+message PTriggerProfileReportResult {
     required PStatus status = 1;
-    repeated PFragmentExecInfo fragment_exec_info = 2;
 }
 
-service PInternalService {
+service PBackendService {
     rpc transmit_data(PTransmitDataParams) returns (PTransmitDataResult);
     rpc exec_plan_fragment(PExecPlanFragmentRequest) returns (PExecPlanFragmentResult);
     rpc cancel_plan_fragment(PCancelPlanFragmentRequest) returns (PCancelPlanFragmentResult);
@@ -161,6 +149,8 @@ service PInternalService {
     rpc tablet_writer_open(PTabletWriterOpenRequest) returns (PTabletWriterOpenResult);
     rpc tablet_writer_add_batch(PTabletWriterAddBatchRequest) returns (PTabletWriterAddBatchResult);
     rpc tablet_writer_cancel(PTabletWriterCancelRequest) returns (PTabletWriterCancelResult);
-    rpc fetch_fragment_exec_infos(PFetchFragmentExecInfoRequest) returns (PFetchFragmentExecInfosResult);
+    rpc trigger_profile_report(PTriggerProfileReportRequest) returns (PTriggerProfileReportResult);
+    // NOTE(zc): If you want to add new method here,
+    // you MUST add same method to palo_internal_service.proto
 };
 

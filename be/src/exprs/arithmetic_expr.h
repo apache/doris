@@ -18,6 +18,7 @@
 #ifndef DORIS_BE_SRC_EXPRS_ARITHMETIC_EXPR_H
 #define DORIS_BE_SRC_EXPRS_ARITHMETIC_EXPR_H
 
+#include "common/object_pool.h"
 #include "exprs/expr.h"
 
 namespace doris {

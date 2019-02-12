@@ -22,14 +22,14 @@
 #include "olap/olap_engine.h"
 #include "olap/olap_table.h"
 #include "olap/schema_change.h"
-#include "olap/writer.h"
+#include "olap/data_writer.h"
 #include "runtime/descriptors.h"
 #include "runtime/tuple.h"
 #include "gen_cpp/internal_service.pb.h"
 
 namespace doris {
 
-class Rowset;
+class SegmentGroup;
 
 enum WriteType {
     LOAD = 1,
@@ -62,21 +62,22 @@ public:
     int64_t partition_id() const { return _req.partition_id; }
 private:
     void _garbage_collection();
-
+    OLAPStatus _init();
+    
     bool _is_init = false;
     WriteRequest _req;
     OLAPTablePtr _table;
-    Rowset* _cur_rowset;
-    std::vector<Rowset*> _rowset_vec;
-    std::vector<Rowset*> _new_rowset_vec;
+    SegmentGroup* _cur_segment_group;
+    std::vector<SegmentGroup*> _segment_group_vec;
+    std::vector<SegmentGroup*> _new_segment_group_vec;
     OLAPTablePtr _new_table;
-    IWriter* _writer;
+    ColumnDataWriter* _writer;
     MemTable* _mem_table;
     Schema* _schema;
     std::vector<FieldInfo>* _field_infos;
     std::vector<uint32_t> _col_ids;
 
-    int32_t _rowset_id;
+    int32_t _segment_group_id;
     bool _delta_written_success;
 };
 

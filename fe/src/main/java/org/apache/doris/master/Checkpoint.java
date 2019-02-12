@@ -67,10 +67,6 @@ public class Checkpoint extends Daemon {
         this.imageDir = Catalog.IMAGE_DIR;
         this.editLog = editLog;
     }
-    
-    public Checkpoint() {
-        
-    }
 
     public static class NullOutputStream extends OutputStream {
         public void write(byte[] b, int off, int len) throws IOException {
@@ -105,7 +101,7 @@ public class Checkpoint extends Daemon {
        
         long replayedJournalId = -1;
         // generate new image file
-        LOG.info("begin to generate new image: image.{}", replayedJournalId);
+        LOG.info("begin to generate new image: image.{}", checkPointVersion);
         catalog = Catalog.getCheckpoint();
         catalog.setEditLog(editLog);
         try {

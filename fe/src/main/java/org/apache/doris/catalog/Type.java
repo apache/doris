@@ -18,6 +18,8 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.thrift.TColumn;
+import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TScalarType;
 import org.apache.doris.thrift.TStructField;
@@ -288,6 +290,10 @@ public abstract class Type {
         container.setTypes(new ArrayList<TTypeNode>());
         toThrift(container);
         return container;
+    }
+
+    public TColumnType toColumnTypeThrift() {
+        return null;
     }
 
     /**
@@ -917,5 +923,9 @@ public abstract class Type {
                 return Type.INVALID;
 
         }
+    }
+
+    public int getStorageLayoutBytes() {
+        return 0;
     }
 }

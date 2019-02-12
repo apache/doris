@@ -22,7 +22,6 @@ import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ColumnType;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DistributionInfo;
@@ -40,6 +39,7 @@ import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
@@ -143,14 +143,14 @@ public class CatalogMocker {
     public static List<Column> TEST_ROLLUP_SCHEMA = Lists.newArrayList();
 
     static {
-        Column k1 = new Column("k1", new ColumnType(PrimitiveType.TINYINT, -1, -1, -1), true, null, "", "key1");
-        Column k2 = new Column("k2", new ColumnType(PrimitiveType.SMALLINT, -1, -1, -1), true, null, "", "key2");
-        Column k3 = new Column("k3", new ColumnType(PrimitiveType.INT, -1, -1, -1), true, null, "", "key3");
-        Column k4 = new Column("k4", new ColumnType(PrimitiveType.BIGINT, -1, -1, -1), true, null, "", "key4");
-        Column k5 = new Column("k5", new ColumnType(PrimitiveType.LARGEINT, -1, -1, -1), true, null, "", "key5");
-        Column k6 = new Column("k6", new ColumnType(PrimitiveType.DATE, -1, -1, -1), true, null, "", "key6");
-        Column k7 = new Column("k7", new ColumnType(PrimitiveType.DATETIME, -1, -1, -1), true, null, "", "key7");
-        Column k8 = new Column("k8", new ColumnType(PrimitiveType.DECIMAL, -1, 10, 3), true, null, "", "key8");
+        Column k1 = new Column("k1", ScalarType.createType(PrimitiveType.TINYINT), true, null, "", "key1");
+        Column k2 = new Column("k2", ScalarType.createType(PrimitiveType.SMALLINT), true, null, "", "key2");
+        Column k3 = new Column("k3", ScalarType.createType(PrimitiveType.INT), true, null, "", "key3");
+        Column k4 = new Column("k4", ScalarType.createType(PrimitiveType.BIGINT), true, null, "", "key4");
+        Column k5 = new Column("k5", ScalarType.createType(PrimitiveType.LARGEINT), true, null, "", "key5");
+        Column k6 = new Column("k6", ScalarType.createType(PrimitiveType.DATE), true, null, "", "key6");
+        Column k7 = new Column("k7", ScalarType.createType(PrimitiveType.DATETIME), true, null, "", "key7");
+        Column k8 = new Column("k8", ScalarType.createDecimalType(10, 3), true, null, "", "key8");
         k1.setIsKey(true);
         k2.setIsKey(true);
         k3.setIsKey(true);
@@ -160,14 +160,14 @@ public class CatalogMocker {
         k7.setIsKey(true);
         k8.setIsKey(true);
 
-        Column v1 = new Column("v1", new 
-                        ColumnType(PrimitiveType.CHAR, 10, -1, -1), false, AggregateType.REPLACE, "none", " value1");
-        Column v2 = new Column("v2", new 
-                        ColumnType(PrimitiveType.FLOAT, -1, -1, -1), false, AggregateType.MAX, "none", " value2");
-        Column v3 = new Column("v3", new 
-                        ColumnType(PrimitiveType.DOUBLE, -1, -1, -1), false, AggregateType.MIN, "none", " value3");
-        Column v4 = new Column("v4", new 
-                        ColumnType(PrimitiveType.INT, -1, -1, -1), false, AggregateType.SUM, "", " value4");
+        Column v1 = new Column("v1",
+                ScalarType.createChar(10), false, AggregateType.REPLACE, "none", " value1");
+        Column v2 = new Column("v2",
+                ScalarType.createType(PrimitiveType.FLOAT), false, AggregateType.MAX, "none", " value2");
+        Column v3 = new Column("v3",
+                ScalarType.createType(PrimitiveType.DOUBLE), false, AggregateType.MIN, "none", " value3");
+        Column v4 = new Column("v4",
+                ScalarType.createType(PrimitiveType.INT), false, AggregateType.SUM, "", " value4");
 
         TEST_TBL_BASE_SCHEMA.add(k1);
         TEST_TBL_BASE_SCHEMA.add(k2);
@@ -239,9 +239,9 @@ public class CatalogMocker {
         TabletMeta tabletMeta = new TabletMeta(TEST_DB_ID, TEST_TBL_ID, TEST_SINGLE_PARTITION_ID,
                                                TEST_TBL_ID, SCHEMA_HASH);
         baseIndex.addTablet(tablet0, tabletMeta);
-        Replica replica0 = new Replica(TEST_REPLICA0_ID, BACKEND1_ID, ReplicaState.NORMAL);
-        Replica replica1 = new Replica(TEST_REPLICA1_ID, BACKEND2_ID, ReplicaState.NORMAL);
-        Replica replica2 = new Replica(TEST_REPLICA2_ID, BACKEND3_ID, ReplicaState.NORMAL);
+        Replica replica0 = new Replica(TEST_REPLICA0_ID, BACKEND1_ID, 0, ReplicaState.NORMAL);
+        Replica replica1 = new Replica(TEST_REPLICA1_ID, BACKEND2_ID, 0, ReplicaState.NORMAL);
+        Replica replica2 = new Replica(TEST_REPLICA2_ID, BACKEND3_ID, 0, ReplicaState.NORMAL);
 
         tablet0.addReplica(replica0);
         tablet0.addReplica(replica1);
@@ -310,9 +310,9 @@ public class CatalogMocker {
         TabletMeta tabletMetaBaseTabletP1 = new TabletMeta(TEST_DB_ID, TEST_TBL2_ID, TEST_PARTITION1_ID,
                                                            TEST_TBL2_ID, SCHEMA_HASH);
         baseIndexP1.addTablet(baseTabletP1, tabletMetaBaseTabletP1);
-        Replica replica3 = new Replica(TEST_REPLICA3_ID, BACKEND1_ID, ReplicaState.NORMAL);
-        Replica replica4 = new Replica(TEST_REPLICA4_ID, BACKEND2_ID, ReplicaState.NORMAL);
-        Replica replica5 = new Replica(TEST_REPLICA5_ID, BACKEND3_ID, ReplicaState.NORMAL);
+        Replica replica3 = new Replica(TEST_REPLICA3_ID, BACKEND1_ID, 0, ReplicaState.NORMAL);
+        Replica replica4 = new Replica(TEST_REPLICA4_ID, BACKEND2_ID, 0, ReplicaState.NORMAL);
+        Replica replica5 = new Replica(TEST_REPLICA5_ID, BACKEND3_ID, 0, ReplicaState.NORMAL);
 
         baseTabletP1.addReplica(replica3);
         baseTabletP1.addReplica(replica4);
@@ -322,9 +322,9 @@ public class CatalogMocker {
         TabletMeta tabletMetaBaseTabletP2 = new TabletMeta(TEST_DB_ID, TEST_TBL2_ID, TEST_PARTITION2_ID,
                                                            TEST_TBL2_ID, SCHEMA_HASH);
         baseIndexP2.addTablet(baseTabletP2, tabletMetaBaseTabletP2);
-        Replica replica6 = new Replica(TEST_REPLICA6_ID, BACKEND1_ID, ReplicaState.NORMAL);
-        Replica replica7 = new Replica(TEST_REPLICA7_ID, BACKEND2_ID, ReplicaState.NORMAL);
-        Replica replica8 = new Replica(TEST_REPLICA8_ID, BACKEND3_ID, ReplicaState.NORMAL);
+        Replica replica6 = new Replica(TEST_REPLICA6_ID, BACKEND1_ID, 0, ReplicaState.NORMAL);
+        Replica replica7 = new Replica(TEST_REPLICA7_ID, BACKEND2_ID, 0, ReplicaState.NORMAL);
+        Replica replica8 = new Replica(TEST_REPLICA8_ID, BACKEND3_ID, 0, ReplicaState.NORMAL);
 
         baseTabletP2.addReplica(replica6);
         baseTabletP2.addReplica(replica7);
@@ -342,9 +342,9 @@ public class CatalogMocker {
         TabletMeta tabletMetaRollupTabletP1 = new TabletMeta(TEST_DB_ID, TEST_TBL2_ID, TEST_PARTITION1_ID,
                                                              TEST_ROLLUP_TABLET_P1_ID, ROLLUP_SCHEMA_HASH);
         rollupIndexP1.addTablet(rollupTabletP1, tabletMetaRollupTabletP1);
-        Replica replica9 = new Replica(TEST_REPLICA9_ID, BACKEND1_ID, ReplicaState.NORMAL);
-        Replica replica10 = new Replica(TEST_REPLICA10_ID, BACKEND2_ID, ReplicaState.NORMAL);
-        Replica replica11 = new Replica(TEST_REPLICA11_ID, BACKEND3_ID, ReplicaState.NORMAL);
+        Replica replica9 = new Replica(TEST_REPLICA9_ID, BACKEND1_ID, 0, ReplicaState.NORMAL);
+        Replica replica10 = new Replica(TEST_REPLICA10_ID, BACKEND2_ID, 0, ReplicaState.NORMAL);
+        Replica replica11 = new Replica(TEST_REPLICA11_ID, BACKEND3_ID, 0, ReplicaState.NORMAL);
         
         rollupTabletP1.addReplica(replica9);
         rollupTabletP1.addReplica(replica10);
@@ -358,9 +358,9 @@ public class CatalogMocker {
         TabletMeta tabletMetaRollupTabletP2 = new TabletMeta(TEST_DB_ID, TEST_TBL2_ID, TEST_PARTITION1_ID,
                                                              TEST_ROLLUP_TABLET_P2_ID, ROLLUP_SCHEMA_HASH);
         rollupIndexP2.addTablet(rollupTabletP2, tabletMetaRollupTabletP2);
-        Replica replica12 = new Replica(TEST_REPLICA12_ID, BACKEND1_ID, ReplicaState.NORMAL);
-        Replica replica13 = new Replica(TEST_REPLICA13_ID, BACKEND2_ID, ReplicaState.NORMAL);
-        Replica replica14 = new Replica(TEST_REPLICA14_ID, BACKEND3_ID, ReplicaState.NORMAL);
+        Replica replica12 = new Replica(TEST_REPLICA12_ID, BACKEND1_ID, 0, ReplicaState.NORMAL);
+        Replica replica13 = new Replica(TEST_REPLICA13_ID, BACKEND2_ID, 0, ReplicaState.NORMAL);
+        Replica replica14 = new Replica(TEST_REPLICA14_ID, BACKEND3_ID, 0, ReplicaState.NORMAL);
         rollupTabletP2.addReplica(replica12);
         rollupTabletP2.addReplica(replica13);
         rollupTabletP2.addReplica(replica14);

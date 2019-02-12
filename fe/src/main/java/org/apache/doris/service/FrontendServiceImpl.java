@@ -29,6 +29,7 @@ import org.apache.doris.common.AuditLog;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.ThriftServerContext;
 import org.apache.doris.common.ThriftServerEventProcessor;
@@ -79,6 +80,7 @@ import org.apache.doris.thrift.TReportExecStatusResult;
 import org.apache.doris.thrift.TReportRequest;
 import org.apache.doris.thrift.TShowVariableRequest;
 import org.apache.doris.thrift.TShowVariableResult;
+import org.apache.doris.thrift.TSnapshotLoaderReportRequest;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
@@ -87,9 +89,9 @@ import org.apache.doris.thrift.TTableStatus;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TUpdateExportTaskStatusRequest;
 import org.apache.doris.thrift.TUpdateMiniEtlTaskStatusRequest;
-import org.apache.doris.transaction.LabelAlreadyExistsException;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
+import org.apache.doris.transaction.TxnCommitAttachment;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
@@ -265,15 +267,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 if (table != null) {
                     for (Column column : table.getBaseSchema()) {
                         final TColumnDesc desc = new TColumnDesc(column.getName(), column.getDataType().toThrift());
-                        final Integer precision = column.getColumnType().getTypeDesc().getPrecision();
+                        final Integer precision = column.getOriginType().getPrecision();
                         if (precision != null) {
                             desc.setColumnPrecision(precision);
                         }
-                        final Integer columnLength = column.getColumnType().getTypeDesc().getColumnSize();
+                        final Integer columnLength = column.getOriginType().getColumnSize();
                         if (columnLength != null) {
                             desc.setColumnLength(columnLength);
                         }
-                        final Integer decimalDigits = column.getColumnType().getTypeDesc().getDecimalDigits();
+                        final Integer decimalDigits = column.getOriginType().getDecimalDigits();
                         if (decimalDigits != null) {
                             desc.setColumnScale(decimalDigits);
                         }
@@ -299,7 +301,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return result;
         }
         List<List<String>> rows = VariableMgr.dump(SetType.fromThrift(params.getVarType()), ctx.getSessionVariable(),
-                null);
+                                                   null);
         for (List<String> row : rows) {
             map.put(row.get(0), row.get(1));
         }
@@ -348,63 +350,32 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TStatus status = new TStatus(TStatusCode.OK);
         TFeResult result = new TFeResult(FrontendServiceVersion.V1, status);
         try {
-            if (request.isSetIs_retry() && request.isIs_retry()) {
-                // this may be a retry request from Backends,
-                // so we first check if load job has already been submitted.
-                // TODO(cmy):
-                // The Backend will retry the mini load request if it encounter timeout exception.
-                // So this code here is to avoid returning 'label already used' message to user
-                // because of the timeout retry.
-                // But this may still cause 'label already used' error if the timeout is set too short,
-                // because here is no lock to guarantee the atomic operation between 'isLabelUsed' and 'addLabel'
-                // method.
-                // But the default timeout is set to 3 seconds, so in common case, it will not be a problem.
-                if (request.isSetSubLabel()) {
-                    if (ExecuteEnv.getInstance().getMultiLoadMgr().isLabelUsed(fullDbName, 
-                                                                               request.getLabel(),
-                                                                               request.getSubLabel(),
-                                                                               request.getTimestamp())) {
-                        LOG.info("multi mini load job has already been submitted. label: {}, sub label: {}, "
-                                + "timestamp: {}",
-                                 request.getLabel(), request.getSubLabel(), request.getTimestamp());
-                        return result;
-                    }
-                } else {
-                    if (Catalog.getCurrentCatalog().getLoadInstance().isLabelUsed(fullDbName, 
-                                                                                  request.getLabel(),
-                                                                                  request.getTimestamp())) {    
-                        LOG.info("mini load job has already been submitted. label: {}, timestamp: {}",
-                                 request.getLabel(), request.getTimestamp());
-                        return result;
-                    }
-                }
-            }
-            
             if (request.isSetSubLabel()) {
                 ExecuteEnv.getInstance().getMultiLoadMgr().load(request);
             } else {
                 // try to add load job, label will be checked here.
-                Catalog.getInstance().getLoadInstance().addLoadJob(request);
-
-                try {
-                    // gen mini load audit log
-                    logMiniLoadStmt(request);
-                } catch (Exception e) {
-                    LOG.warn("failed log mini load stmt", e);
+                if (Catalog.getInstance().getLoadInstance().addLoadJob(request)) {
+                    try {
+                        // generate mini load audit log
+                        logMiniLoadStmt(request);
+                    } catch (Exception e) {
+                        LOG.warn("failed log mini load stmt", e);
+                    }
                 }
             }
         } catch (UserException e) {
-            LOG.warn("add mini load error", e);
+            LOG.warn("add mini load error: {}", e.getMessage());
             status.setStatus_code(TStatusCode.ANALYSIS_ERROR);
-            status.setError_msgs(Lists.newArrayList(e.getMessage()));
+            status.addToError_msgs(e.getMessage());
         } catch (Throwable e) {
             LOG.warn("unexpected exception when adding mini load", e);
             status.setStatus_code(TStatusCode.ANALYSIS_ERROR);
-            status.setError_msgs(Lists.newArrayList(e.getMessage()));
+            status.addToError_msgs(Strings.nullToEmpty(e.getMessage()));
         } finally {
             ConnectContext.remove();
         }
 
+        LOG.debug("mini load result: {}", result);
         return result;
     }
 
@@ -465,7 +436,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             String failMsg = "job does not exist. id: " + jobId;
             LOG.warn(failMsg);
             status.setStatus_code(TStatusCode.CANCELLED);
-            status.setError_msgs(Lists.newArrayList(failMsg));
+            status.addToError_msgs(failMsg);
             return result;
         }
 
@@ -474,7 +445,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             String failMsg = "task info does not exist. task id: " + taskId + ", job id: " + jobId;
             LOG.warn(failMsg);
             status.setStatus_code(TStatusCode.CANCELLED);
-            status.setError_msgs(Lists.newArrayList(failMsg));
+            status.addToError_msgs(failMsg);
             return result;
         }
 
@@ -498,14 +469,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TMasterOpResult forward(TMasterOpRequest params) throws TException {
-        ThriftServerContext connectionContext = ThriftServerEventProcessor.getConnectionContext();
-        // For NonBlockingServer, we can not get client ip.
-        if (connectionContext != null) {
-            TNetworkAddress clientAddress = connectionContext.getClient();
-
-            Frontend fe = Catalog.getInstance().getFeByHost(clientAddress.getHostname());
+        TNetworkAddress clientAddr = getClientAddr();
+        if (clientAddr != null) {
+            Frontend fe = Catalog.getInstance().getFeByHost(clientAddr.getHostname());
             if (fe == null) {
-                LOG.warn("reject request from invalid host. client: {}", clientAddress);
+                LOG.warn("reject request from invalid host. client: {}", clientAddr);
                 throw new TException("request from invalid host was rejected.");
             }
         }
@@ -518,7 +486,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     private void checkPasswordAndPrivs(String cluster, String user, String passwd, String db, String tbl,
-            String clientIp, PrivPredicate predicate) throws AuthenticationException {
+                                       String clientIp, PrivPredicate predicate) throws AuthenticationException {
 
         final String fullUserName = ClusterNamespace.getFullName(cluster, user);
         final String fullDbName = ClusterNamespace.getFullName(cluster, db);
@@ -527,7 +495,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                                                                       clientIp,
                                                                       passwd)) {
             throw new AuthenticationException("Access denied for "
-                    + fullUserName + "@" + clientIp);
+                                                      + fullUserName + "@" + clientIp);
         }
 
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(clientIp, fullDbName,
@@ -554,12 +522,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                                   request.getTbl(), request.getUser_ip(), PrivPredicate.LOAD);
         } catch (UserException e) {
             status.setStatus_code(TStatusCode.ANALYSIS_ERROR);
-            status.setError_msgs(Lists.newArrayList(e.getMessage()));
+            status.addToError_msgs(e.getMessage());
             return result;
         } catch (Throwable e) {
             LOG.warn("catch unknown result.", e);
             status.setStatus_code(TStatusCode.INTERNAL_ERROR);
-            status.setError_msgs(Lists.newArrayList(e.getMessage()));
+            status.addToError_msgs(Strings.nullToEmpty(e.getMessage()));
             return result;
         }
 
@@ -568,19 +536,31 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TLoadTxnBeginResult loadTxnBegin(TLoadTxnBeginRequest request) throws TException {
-        LOG.info("receive loadTxnBegin request, request={}", request);
+        TNetworkAddress clientAddr = getClientAddr();
+
+        LOG.info("receive loadTxnBegin request, db: {}, tbl: {}, label: {}, backend: {}",
+                request.getDb(), request.getTbl(), request.getLabel(),
+                clientAddr == null ? "unknown" : clientAddr.getHostname());
+        LOG.debug("txn begin request: {}", request);
+
         TLoadTxnBeginResult result = new TLoadTxnBeginResult();
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
         try {
             result.setTxnId(loadTxnBeginImpl(request));
-        } catch (LabelAlreadyExistsException e) {
+        } catch (LabelAlreadyUsedException e) {
             status.setStatus_code(TStatusCode.LABEL_ALREADY_EXISTS);
-            status.setError_msgs(Lists.newArrayList(e.getMessage()));
+            status.addToError_msgs(e.getMessage());
         } catch (UserException e) {
             status.setStatus_code(TStatusCode.ANALYSIS_ERROR);
-            status.setError_msgs(Lists.newArrayList(e.getMessage()));
+            status.addToError_msgs(e.getMessage());
+        } catch (Throwable e) {
+            LOG.warn("catch unknown result.", e);
+            status.setStatus_code(TStatusCode.INTERNAL_ERROR);
+            status.addToError_msgs(Strings.nullToEmpty(e.getMessage()));
+            return result;
         }
+
         return result;
     }
 
@@ -609,9 +589,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             throw new UserException("unknown database, database=" + dbName);
         }
         // begin
+        long timestamp = request.isSetTimestamp() ? request.getTimestamp() : -1;
         return Catalog.getCurrentGlobalTransactionMgr().beginTransaction(
-                db.getId(), request.getLabel(), "streamLoad",
-                TransactionState.LoadJobSourceType.BACKEND_STREAMING);
+                db.getId(), request.getLabel(), timestamp, "streamLoad",
+                TransactionState.LoadJobSourceType.BACKEND_STREAMING, null);
     }
 
     @Override
@@ -624,17 +605,21 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             if (!loadTxnCommitImpl(request)) {
                 // committed success but not visible
                 status.setStatus_code(TStatusCode.PUBLISH_TIMEOUT);
-                status.setError_msgs(
-                        Lists.newArrayList("transaction commit successfully, BUT data will be visible later"));
+                status.addToError_msgs("transaction commit successfully, BUT data will be visible later");
             }
         } catch (UserException e) {
             status.setStatus_code(TStatusCode.ANALYSIS_ERROR);
             status.addToError_msgs(e.getMessage());
+        } catch (Throwable e) {
+            LOG.warn("catch unknown result.", e);
+            status.setStatus_code(TStatusCode.INTERNAL_ERROR);
+            status.addToError_msgs(Strings.nullToEmpty(e.getMessage()));
+            return result;
         }
         return result;
     }
 
-    // return true if commit success and publish success, return false if publish timout
+    // return true if commit success and publish success, return false if publish timeout
     private boolean loadTxnCommitImpl(TLoadTxnCommitRequest request) throws UserException {
         String cluster = request.getCluster();
         if (Strings.isNullOrEmpty(cluster)) {
@@ -655,10 +640,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
             throw new UserException("unknown database, database=" + dbName);
         }
+
         return Catalog.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
                 db, request.getTxnId(),
                 TabletCommitInfo.fromThrift(request.getCommitInfos()),
-                5000);
+                5000, TxnCommitAttachment.fromThrift(request.txnCommitAttachment));
     }
 
     @Override
@@ -673,6 +659,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } catch (UserException e) {
             status.setStatus_code(TStatusCode.ANALYSIS_ERROR);
             status.addToError_msgs(e.getMessage());
+        } catch (Throwable e) {
+            LOG.warn("catch unknown result.", e);
+            status.setStatus_code(TStatusCode.INTERNAL_ERROR);
+            status.addToError_msgs(Strings.nullToEmpty(e.getMessage()));
+            return result;
         }
 
         return result;
@@ -688,7 +679,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                               request.getTbl(), request.getUser_ip(), PrivPredicate.LOAD);
 
         Catalog.getCurrentGlobalTransactionMgr().abortTransaction(request.getTxnId(),
-                request.isSetReason() ? request.getReason() : "system cancel");
+                                                                  request.isSetReason() ? request.getReason() : "system cancel");
     }
 
     @Override
@@ -703,6 +694,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } catch (UserException e) {
             status.setStatus_code(TStatusCode.ANALYSIS_ERROR);
             status.addToError_msgs(e.getMessage());
+        } catch (Throwable e) {
+            LOG.warn("catch unknown result.", e);
+            status.setStatus_code(TStatusCode.INTERNAL_ERROR);
+            status.addToError_msgs(Strings.nullToEmpty(e.getMessage()));
+            return result;
         }
         return result;
     }
@@ -739,5 +735,22 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
     }
 
+    @Override
+    public TStatus snapshotLoaderReport(TSnapshotLoaderReportRequest request) throws TException {
+        if (Catalog.getCurrentCatalog().getBackupHandler().report(request.getTask_type(), request.getJob_id(),
+                request.getTask_id(), request.getFinished_num(), request.getTotal_num())) {
+            return new TStatus(TStatusCode.OK);
+        }
+        return new TStatus(TStatusCode.CANCELLED);
+    }
+
+    private TNetworkAddress getClientAddr() {
+        ThriftServerContext connectionContext = ThriftServerEventProcessor.getConnectionContext();
+        // For NonBlockingServer, we can not get client ip.
+        if (connectionContext != null) {
+            return connectionContext.getClient();
+        }
+        return null;
+    }
 }
 

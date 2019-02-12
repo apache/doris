@@ -37,7 +37,7 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 
 @RunWith(PowerMockRunner.class)
-@PowerMockIgnore("org.apache.log4j.*")
+@PowerMockIgnore({ "org.apache.log4j.*", "javax.management.*" })
 @PrepareForTest(Catalog.class)
 public class ColumnTest {
     
@@ -61,18 +61,18 @@ public class ColumnTest {
         DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
         
         Column column1 = new Column("user", 
-                                new ColumnType(PrimitiveType.CHAR, 20, 1, 0), false, AggregateType.SUM, "", "");
+                                ScalarType.createChar(20), false, AggregateType.SUM, "", "");
         column1.write(dos);
         Column column2 = new Column("age", 
-                                new ColumnType(PrimitiveType.INT, 30, 2, 1), false, AggregateType.REPLACE, "20", "");
+                                ScalarType.createType(PrimitiveType.INT), false, AggregateType.REPLACE, "20", "");
         column2.write(dos);
         
         Column column3 = new Column("name", PrimitiveType.BIGINT);
         column3.setIsKey(true);
         column3.write(dos);
         
-        Column column4 = new Column("age", 
-                                new ColumnType(PrimitiveType.INT, 30, 2, 1), false, AggregateType.REPLACE, "20",
+        Column column4 = new Column("age",
+                                ScalarType.createType(PrimitiveType.INT), false, AggregateType.REPLACE, "20",
                                     "");
         column4.write(dos);
 
@@ -88,7 +88,7 @@ public class ColumnTest {
         Assert.assertEquals(AggregateType.SUM, rColumn1.getAggregationType());
         Assert.assertEquals("", rColumn1.getDefaultValue());
         Assert.assertEquals(0, rColumn1.getScale());
-        Assert.assertEquals(1, rColumn1.getPrecision());
+        Assert.assertEquals(0, rColumn1.getPrecision());
         Assert.assertEquals(20, rColumn1.getStrLen());
         Assert.assertFalse(rColumn1.isAllowNull());
         
@@ -98,10 +98,7 @@ public class ColumnTest {
         Assert.assertEquals(PrimitiveType.INT, rColumn2.getDataType());
         Assert.assertEquals(AggregateType.REPLACE, rColumn2.getAggregationType());
         Assert.assertEquals("20", rColumn2.getDefaultValue());
-        Assert.assertEquals(1, rColumn2.getScale());
-        Assert.assertEquals(2, rColumn2.getPrecision());
-        Assert.assertEquals(30, rColumn2.getStrLen());
-        
+
         Column rColumn3 = Column.read(dis);
         Assert.assertTrue(rColumn3.equals(column3));
 
@@ -119,8 +116,8 @@ public class ColumnTest {
 
     @Test(expected = DdlException.class)
     public void testSchemaChangeAllowed() throws DdlException {
-        Column oldColumn = new Column("user", new ColumnType(PrimitiveType.INT), true, null, true, "0", "");
-        Column newColumn = new Column("user", new ColumnType(PrimitiveType.INT), true, null, false, "0", "");
+        Column oldColumn = new Column("user", ScalarType.createType(PrimitiveType.INT), true, null, true, "0", "");
+        Column newColumn = new Column("user", ScalarType.createType(PrimitiveType.INT), true, null, false, "0", "");
         oldColumn.checkSchemaChangeAllowed(newColumn);
         Assert.fail("No exception throws.");
     }

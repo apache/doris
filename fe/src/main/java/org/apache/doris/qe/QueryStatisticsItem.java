@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TUniqueId;
 import com.google.common.collect.Lists;
@@ -29,16 +30,21 @@ public final class QueryStatisticsItem {
     private final String user;
     private final String sql;
     private final String db;
+    private final String connId;
     private final long queryStartTime;
-    private List<FragmentInstanceInfo> fragmentInstanceInfos;
+    private final List<FragmentInstanceInfo> fragmentInstanceInfos;
+    // root query profile
+    private final RuntimeProfile queryProfile;
 
     private QueryStatisticsItem(Builder builder) {
         this.queryId = builder.queryId;
         this.user = builder.user;
         this.sql = builder.sql;
         this.db = builder.db;
+        this.connId = builder.connId;
         this.queryStartTime = builder.queryStartTime;
         this.fragmentInstanceInfos = builder.fragmentInstanceInfos;
+        this.queryProfile = builder.queryProfile;
     }
 
     public String getDb() {
@@ -51,6 +57,10 @@ public final class QueryStatisticsItem {
 
     public String getSql() {
         return sql;
+    }
+
+    public String getConnId() {
+        return connId;
     }
 
     public String getQueryExecTime() {
@@ -66,13 +76,19 @@ public final class QueryStatisticsItem {
         return fragmentInstanceInfos;
     }
 
+    public RuntimeProfile getQueryProfile() {
+        return queryProfile;
+    }
+
     public static final class Builder {
         private String queryId;
         private String db;
         private String user;
         private String sql;
+        private String connId;
         private long queryStartTime;
         private List<FragmentInstanceInfo> fragmentInstanceInfos;
+        private RuntimeProfile queryProfile;
 
         public Builder() {
             fragmentInstanceInfos = Lists.newArrayList();
@@ -98,6 +114,11 @@ public final class QueryStatisticsItem {
             return this;
         }
 
+        public Builder connId(String connId) {
+            this.connId = connId;
+            return this;
+        }
+
         public Builder queryStartTime(long queryStartTime) {
             this.queryStartTime = queryStartTime;
             return this;
@@ -105,6 +126,11 @@ public final class QueryStatisticsItem {
 
         public Builder fragmentInstanceInfos(List<FragmentInstanceInfo> infos) {
             fragmentInstanceInfos.addAll(infos);
+            return this;
+        }
+
+        public Builder profile(RuntimeProfile profile) {
+            this.queryProfile = profile;
             return this;
         }
 
@@ -128,6 +154,14 @@ public final class QueryStatisticsItem {
 
             if (user == null) {
                 builder.user = "";
+            }
+
+            if (connId == null) {
+                builder.connId = "";
+            }
+
+            if (queryProfile == null) {
+                queryProfile = new RuntimeProfile("");
             }
         }
     }

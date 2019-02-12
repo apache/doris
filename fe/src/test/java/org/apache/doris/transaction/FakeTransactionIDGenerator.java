@@ -26,7 +26,7 @@ import java.io.IOException;
 import mockit.Mock;
 import mockit.MockUp;
 
-public final class FakeTransactionIDGenerator extends MockUp<TransactionIDGenerator> {
+public final class FakeTransactionIDGenerator extends MockUp<TransactionIdGenerator> {
 
     private long currentId = 1000L;
 

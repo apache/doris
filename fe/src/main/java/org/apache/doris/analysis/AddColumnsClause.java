@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import com.google.common.collect.Lists;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -29,10 +30,12 @@ import java.util.Map;
 
 // add some columns to one index.
 public class AddColumnsClause extends AlterClause {
-    private List<Column> columns;
+    private List<ColumnDef> columnDefs;
     private String rollupName;
 
     private Map<String, String> properties;
+    // set in analyze
+    private List<Column> columns;
 
     public List<Column> getColumns() {
         return columns;
@@ -42,27 +45,32 @@ public class AddColumnsClause extends AlterClause {
         return rollupName;
     }
 
-    public AddColumnsClause(List<Column> columns, String rollupName, Map<String, String> properties) {
-        this.columns = columns;
+    public AddColumnsClause(List<ColumnDef> columnDefs, String rollupName, Map<String, String> properties) {
+        this.columnDefs = columnDefs;
         this.rollupName = rollupName;
         this.properties = properties;
     }
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
-        if (columns == null || columns.isEmpty()) {
+        if (columnDefs == null || columnDefs.isEmpty()) {
             throw new AnalysisException("Columns is empty in add columns clause.");
         }
-        for (Column colDef : columns) {
+        for (ColumnDef colDef : columnDefs) {
             colDef.analyze(true);
 
-            if (false == colDef.isAllowNull() && colDef.getDefaultValue() == null) {
+            if (!colDef.isAllowNull() && colDef.getDefaultValue() == null) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DEFAULT_FOR_FIELD, colDef.getName());
             }
         }
 
         // Make sure return null if rollup name is empty.
         rollupName = Strings.emptyToNull(rollupName);
+
+        columns = Lists.newArrayList();
+        for (ColumnDef columnDef : columnDefs) {
+            columns.add(columnDef.toColumn());
+        }
     }
 
     @Override
@@ -75,11 +83,11 @@ public class AddColumnsClause extends AlterClause {
         StringBuilder sb = new StringBuilder();
         sb.append("ADD COLUMN (");
         int idx = 0;
-        for (Column column : columns) {
+        for (ColumnDef columnDef : columnDefs) {
             if (idx != 0) {
                 sb.append(", ");
             }
-            sb.append(column.toSql());
+            sb.append(columnDef.toSql());
             idx++;
         }
         sb.append(")");

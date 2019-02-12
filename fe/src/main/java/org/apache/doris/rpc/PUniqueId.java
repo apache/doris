@@ -19,10 +19,12 @@ package org.apache.doris.rpc;
 
 import com.baidu.bjf.remoting.protobuf.annotation.Protobuf;
 import com.baidu.bjf.remoting.protobuf.annotation.ProtobufClass;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.thrift.TUniqueId;
 
 @ProtobufClass
 public class PUniqueId {
+
     public PUniqueId() {}
     public PUniqueId(TUniqueId tid) {
         hi = tid.getHi();
@@ -33,4 +35,34 @@ public class PUniqueId {
     public long hi;
     @Protobuf(order = 2, required = true)
     public long lo;
+
+    @Override
+    public int hashCode() {
+        int result = 16;
+        result = 31 * result + (int)(hi ^ (hi >>> 32));
+        result = 31 * result + (int)(lo ^ (lo >>> 32));
+        return result;
+    }
+
+    @Override
+    public String toString() {
+        return DebugUtil.printId(this);
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (obj == this) {
+            return true;
+        }
+
+        if (!(obj instanceof PUniqueId) || obj == null) {
+            return false;
+        }
+
+        final PUniqueId other = (PUniqueId)obj;
+        if (hi != other.hi || lo != other.lo) {
+            return false;
+        }
+        return true;
+    }
 }

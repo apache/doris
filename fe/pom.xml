@@ -160,13 +160,6 @@ under the License.
             <version>15.0</version>
         </dependency>
 
-        <!-- https://mvnrepository.com/artifact/org.hamcrest/hamcrest-core -->
-        <dependency>
-            <groupId>org.hamcrest</groupId>
-            <artifactId>hamcrest-core</artifactId>
-            <version>1.1</version>
-        </dependency>
-
         <!-- https://mvnrepository.com/artifact/com.fasterxml.jackson.core/jackson-core -->
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
@@ -515,6 +508,12 @@ under the License.
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-api</artifactId>
             <version>1.7.5</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.kafka</groupId>
+            <artifactId>kafka-clients</artifactId>
+            <version>2.0.0</version>
         </dependency>
 
     </dependencies>

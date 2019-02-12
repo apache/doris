@@ -36,10 +36,12 @@ public class RestoreStmt extends AbstractBackupStmt {
     private final static String PROP_ALLOW_LOAD = "allow_load";
     private final static String PROP_REPLICATION_NUM = "replication_num";
     private final static String PROP_BACKUP_TIMESTAMP = "backup_timestamp";
+    private final static String PROP_META_VERSION = "meta_version";
 
     private boolean allowLoad = false;
     private int replicationNum = FeConstants.default_replication_num;
     private String backupTimestamp = null;
+    private int metaVersion = -1;
 
     public RestoreStmt(LabelName labelName, String repoName, List<TableRef> tblRefs, Map<String, String> properties) {
         super(labelName, repoName, tblRefs, properties);
@@ -55,6 +57,10 @@ public class RestoreStmt extends AbstractBackupStmt {
 
     public String getBackupTimestamp() {
         return backupTimestamp;
+    }
+
+    public int getMetaVersion() {
+        return metaVersion;
     }
 
     @Override
@@ -112,6 +118,18 @@ public class RestoreStmt extends AbstractBackupStmt {
         } else {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR,
                                                 "Missing " + PROP_BACKUP_TIMESTAMP + " property");
+        }
+
+        // meta version
+        if (copiedProperties.containsKey(PROP_META_VERSION)) {
+            try {
+                metaVersion = Integer.valueOf(copiedProperties.get(PROP_META_VERSION));
+            } catch (NumberFormatException e) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR,
+                        "Invalid meta version format: "
+                                + copiedProperties.get(PROP_META_VERSION));
+            }
+            copiedProperties.remove(PROP_META_VERSION);
         }
 
         if (!copiedProperties.isEmpty()) {

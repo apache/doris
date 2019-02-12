@@ -74,7 +74,7 @@ public class EsTable extends Table {
     private void validate(Map<String, String> properties) throws DdlException {
         if (properties == null) {
             throw new DdlException("Please set properties of elasticsearch table, "
-                    + "they are: hosts, thrift_port, http_port, user, password, index");
+                    + "they are: hosts, user, password, index");
         }
 
         hosts = properties.get(HOSTS);
@@ -113,20 +113,6 @@ public class EsTable extends Table {
                 baseSchema.size(), 0, getName(), "");
         tTableDescriptor.setEsTable(tEsTable);
         return tTableDescriptor;
-    }
-    
-    @Override
-    public CreateTableStmt toCreateTableStmt(String dbName) {
-        Map<String, String> properties = Maps.newHashMap();
-        properties.put(HOSTS, hosts);
-        properties.put(USER, userName);
-        properties.put(PASSWORD, passwd);
-        properties.put(INDEX, indexName);
-        properties.put(TYPE, mappingType);
-
-        CreateTableStmt stmt = new CreateTableStmt(false, true, new TableName(dbName, name), baseSchema,
-                                                   type.name(), null, null, null, properties, null);
-        return stmt;
     }
 
     @Override
@@ -175,6 +161,7 @@ public class EsTable extends Table {
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         hosts = Text.readString(in);
+        seeds = hosts.split(",");
         userName = Text.readString(in);
         passwd = Text.readString(in);
         indexName = Text.readString(in);

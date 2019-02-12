@@ -19,7 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.analysis.CompoundPredicate.Operator;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ColumnType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -139,11 +139,11 @@ public class ShowSnapshotStmt extends ShowStmt {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
         if (!Strings.isNullOrEmpty(snapshotName) && !Strings.isNullOrEmpty(timestamp)) {
             for (String title : SNAPSHOT_DETAIL) {
-                builder.addColumn(new Column(title, ColumnType.createVarchar(30)));
+                builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
             }
         } else {
             for (String title : SNAPSHOT_ALL) {
-                builder.addColumn(new Column(title, ColumnType.createVarchar(30)));
+                builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
             }
         }
         return builder.build();

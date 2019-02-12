@@ -19,13 +19,33 @@
             ALTER SYSTEM DROP BROKER broker_name "host:port"[,"host:port"...];
         8) 删除所有Broker
             ALTER SYSTEM DROP ALL BROKER broker_name
-        
+        9) 设置一个 Load error hub，用于集中展示导入时的错误信息
+            ALTER SYSTEM SET LOAD ERRORS HUB PROPERTIES ("key" = "value"[, ...]);
+
     说明：
         1) host 可以使主机名或者ip地址
         2) heartbeat_port 为该节点的心跳端口
         3) 增加和删除节点为同步操作。这两种操作不考虑节点上已有的数据，节点直接从元数据中删除，请谨慎使用。
         4) 节点下线操作用于安全下线节点。该操作为异步操作。如果成功，节点最终会从元数据中删除。如果失败，则不会完成下线。
         5) 可以手动取消节点下线操作。详见 CANCEL ALTER SYSTEM
+        6) Load error hub:
+            当前支持两种类型的 Hub：Mysql 和 Broker。需在 PROPERTIES 中指定 "type" = "mysql" 或 "type" = "broker"。
+            如果需要删除当前的 load error hub，可以将 type 设为 null。
+            1) 当使用 Mysql 类型时，导入时产生的错误信息将会插入到指定的 mysql 库表中，之后可以通过 show load warnings 语句直接查看错误信息。
+               
+                Mysql 类型的 Hub 需指定以下参数：
+                    host：mysql host
+                    port：mysql port
+                    user：mysql user
+                    password：mysql password
+                    database：mysql database
+                    table：mysql table
+
+            2) 当使用 Broker 类型时，导入时产生的错误信息会形成一个文件，通过 broker，写入到指定的远端存储系统中。须确保已经部署对应的 broker
+                Broker 类型的 Hub 需指定以下参数：
+                    broker: broker 的名称
+                    path: 远端存储路径
+                    other properties: 其他访问远端存储所必须的信息，比如认证信息等。
         
 ## example
 
@@ -43,6 +63,31 @@
 
     5. 增加两个Hdfs Broker
         ALTER SYSTEM ADD BROKER hdfs "host1:port", "host2:port";
+
+    6. 添加一个 Mysql 类型的 load error hub
+        ALTER SYSTEM SET LOAD ERRORS HUB PROPERTIES
+        ("type"= "mysql",
+         "host" = "192.168.1.17"
+         "port" = "3306",
+         "user" = "my_name",
+         "password" = "my_passwd",
+         "database" = "doris_load",
+         "table" = "load_errors"
+        );
+
+    7. 添加一个 Broker 类型的 load error hub
+        ALTER SYSTEM SET LOAD ERRORS HUB PROPERTIES
+        ("type"= "broker",
+         "name" = "bos",
+         "path" = "bos://backup-cmy/logs",
+         "bos_endpoint" = "http://gz.bcebos.com",
+         "bos_accesskey" = "069fc278xxxxxx24ddb522",
+         "bos_secret_accesskey"="700adb0c6xxxxxx74d59eaa980a"
+        );
+
+    8. 删除当前的 load error hub
+        ALTER SYSTEM SET LOAD ERRORS HUB PROPERTIES
+        ("type"= "null");
         
 ## keyword
     ALTER,SYSTEM,BACKEND,BROKER,FREE
@@ -220,9 +265,74 @@
     
 # SHOW BACKENDS
 ## description
-    该语句用于查看cluster内的节点
+    该语句用于查看 cluster 内的 BE 节点
     语法：
-        SHOW BACKENDS
+        SHOW BACKENDS;
+
+    说明：
+        1. LastStartTime 表示最近一次 BE 启动时间。
+        2. LastHeartbeat 表示最近一次心跳。
+        3. Alive 表示节点是否存活。
+        4. SystemDecommissioned 为 true 表示节点正在安全下线中。
+        5. ClusterDecommissioned 为 true 表示节点正在冲当前cluster中下线。
+        6. TabletNum 表示该节点上分片数量。
+        7. DataUsedCapacity 表示实际用户数据所占用的空间。
+        8. AvailCapacity 表示磁盘的可使用空间。
+        9. TotalCapacity 表示总磁盘空间。TotalCapacity = AvailCapacity + DataUsedCapacity + 其他非用户数据文件占用空间。
+       10. UsedPct 表示磁盘已使用量百分比。
+       11. ErrMsg 用于显示心跳失败时的错误信息。
         
 ## keyword
     SHOW, BACKENDS
+
+# SHOW FRONTENDS
+## description
+    该语句用于查看 FE 节点
+    语法：
+        SHOW FRONTENDS;
+
+    说明：
+        1. name 表示该 FE 节点在 bdbje 中的名称。
+        2. Join 为 true 表示该节点曾经加入过集群。但不代表当前还在集群内（可能已失联）
+        3. Alive 表示节点是否存活。
+        4. ReplayedJournalId 表示该节点当前已经回放的最大元数据日志id。
+        5. LastHeartbeat 是最近一次心跳。
+        6. IsHelper 表示该节点是否是 bdbje 中的 helper 节点。
+        7. ErrMsg 用于显示心跳失败时的错误信息。
+        
+## keyword
+    SHOW, FRONTENDS
+
+# SHOW BROKER
+## description
+    该语句用于查看当前存在的 broker 
+    语法：
+        SHOW BROKER;
+
+    说明：
+        1. LastStartTime 表示最近一次 BE 启动时间。
+        2. LastHeartbeat 表示最近一次心跳。
+        3. Alive 表示节点是否存活。
+        4. ErrMsg 用于显示心跳失败时的错误信息。
+        
+## keyword
+    SHOW, BROKER
+
+# ADMIN SET CONFIG
+## description
+
+    该语句用于设置集群的配置项（当前仅支持设置FE的配置项）。
+    可设置的配置项，可以通过 AMDIN SHOW FRONTEND CONFIG; 命令查看。
+
+    语法：
+
+        ADMIN SET FRONTEND CONFIG ("key" = "value");
+
+## example
+
+    1. 设置 'disable_balance' 为 true
+
+        ADMIN SET FRONTEND CONFIG ("disable_balance" = "true");
+
+## keyword
+    ADMIN,SET,CONFIG

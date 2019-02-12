@@ -341,7 +341,7 @@ TEST_F(TestRowCursor, EqualAndCompare) {
     ASSERT_EQ(left.get_fixed_len(), 78);
     ASSERT_EQ(left.get_variable_len(), 20);
 
-    StringSlice l_char("well");
+    Slice l_char("well");
     int32_t l_int = 10;
     left.set_field_content(0, reinterpret_cast<char*>(&l_char), _mem_pool.get());
     left.set_field_content(1, reinterpret_cast<char*>(&l_int), _mem_pool.get());
@@ -382,14 +382,14 @@ TEST_F(TestRowCursor, IndexCmp) {
     ASSERT_EQ(left.get_fixed_len(), 78);
     ASSERT_EQ(left.get_variable_len(), 20);
 
-    StringSlice l_char("well");
+    Slice l_char("well");
     int32_t l_int = 10;
     left.set_field_content(0, reinterpret_cast<char*>(&l_char), _mem_pool.get());
     left.set_field_content(1, reinterpret_cast<char*>(&l_int), _mem_pool.get());
 
     RowCursor right_eq;
     res = right_eq.init(tablet_schema);
-    StringSlice r_char_eq("well");
+    Slice r_char_eq("well");
     int32_t r_int_eq = 10;
     right_eq.set_field_content(0, reinterpret_cast<char*>(&r_char_eq), _mem_pool.get());
     right_eq.set_field_content(1, reinterpret_cast<char*>(&r_int_eq), _mem_pool.get());
@@ -398,7 +398,7 @@ TEST_F(TestRowCursor, IndexCmp) {
 
     RowCursor right_lt;
     res = right_lt.init(tablet_schema);
-    StringSlice r_char_lt("well");
+    Slice r_char_lt("well");
     int32_t r_int_lt = 11;
     right_lt.set_field_content(0, reinterpret_cast<char*>(&r_char_lt), _mem_pool.get());
     right_lt.set_field_content(1, reinterpret_cast<char*>(&r_int_lt), _mem_pool.get());
@@ -406,7 +406,7 @@ TEST_F(TestRowCursor, IndexCmp) {
 
     RowCursor right_gt;
     res = right_gt.init(tablet_schema);
-    StringSlice r_char_gt("good");
+    Slice r_char_gt("good");
     int32_t r_int_gt = 10;
     right_gt.set_field_content(0, reinterpret_cast<char*>(&r_char_gt), _mem_pool.get());
     right_gt.set_field_content(1, reinterpret_cast<char*>(&r_int_gt), _mem_pool.get());
@@ -423,14 +423,14 @@ TEST_F(TestRowCursor, FullKeyCmp) {
     ASSERT_EQ(left.get_fixed_len(), 78);
     ASSERT_EQ(left.get_variable_len(), 20);
 
-    StringSlice l_char("well");
+    Slice l_char("well");
     int32_t l_int = 10;
     left.set_field_content(0, reinterpret_cast<char*>(&l_char), _mem_pool.get());
     left.set_field_content(1, reinterpret_cast<char*>(&l_int), _mem_pool.get());
 
     RowCursor right_eq;
     res = right_eq.init(tablet_schema);
-    StringSlice r_char_eq("well");
+    Slice r_char_eq("well");
     int32_t r_int_eq = 10;
     right_eq.set_field_content(0, reinterpret_cast<char*>(&r_char_eq), _mem_pool.get());
     right_eq.set_field_content(1, reinterpret_cast<char*>(&r_int_eq), _mem_pool.get());
@@ -438,7 +438,7 @@ TEST_F(TestRowCursor, FullKeyCmp) {
 
     RowCursor right_lt;
     res = right_lt.init(tablet_schema);
-    StringSlice r_char_lt("well");
+    Slice r_char_lt("well");
     int32_t r_int_lt = 11;
     right_lt.set_field_content(0, reinterpret_cast<char*>(&r_char_lt), _mem_pool.get());
     right_lt.set_field_content(1, reinterpret_cast<char*>(&r_int_lt), _mem_pool.get());
@@ -446,7 +446,7 @@ TEST_F(TestRowCursor, FullKeyCmp) {
 
     RowCursor right_gt;
     res = right_gt.init(tablet_schema);
-    StringSlice r_char_gt("good");
+    Slice r_char_gt("good");
     int32_t r_int_gt = 10;
     right_gt.set_field_content(0, reinterpret_cast<char*>(&r_char_gt), _mem_pool.get());
     right_gt.set_field_content(1, reinterpret_cast<char*>(&r_int_gt), _mem_pool.get());
@@ -467,12 +467,12 @@ TEST_F(TestRowCursor, AggregateWithoutNull) {
     RowCursor left;
     res = left.init(tablet_schema);
 
-    StringSlice l_char("well");
+    Slice l_char("well");
     int32_t l_int = 10;
     int128_t l_largeint = (int128_t)(1) << 100;
     double l_double = 8.8;
     decimal12_t l_decimal(11, 22);
-    StringSlice l_varchar("beijing");
+    Slice l_varchar("beijing");
     left.set_field_content(0, reinterpret_cast<char*>(&l_char), _mem_pool.get());
     left.set_field_content(1, reinterpret_cast<char*>(&l_int), _mem_pool.get());
     left.set_field_content(2, reinterpret_cast<char*>(&l_largeint), _mem_pool.get());
@@ -485,12 +485,12 @@ TEST_F(TestRowCursor, AggregateWithoutNull) {
 
     RowCursor right;
     res = right.init(tablet_schema);
-    StringSlice r_char("well");
+    Slice r_char("well");
     int32_t r_int = 10;
     int128_t r_largeint = (int128_t)(1) << 100;
     double r_double = 5.5;
     decimal12_t r_decimal(22, 22);
-    StringSlice r_varchar("shenzhen");
+    Slice r_varchar("shenzhen");
     right.set_field_content(0, reinterpret_cast<char*>(&r_char), _mem_pool.get());
     right.set_field_content(1, reinterpret_cast<char*>(&r_int), _mem_pool.get());
     right.set_field_content(2, reinterpret_cast<char*>(&r_largeint), _mem_pool.get());
@@ -509,7 +509,7 @@ TEST_F(TestRowCursor, AggregateWithoutNull) {
     decimal12_t agg_decimal = *reinterpret_cast<decimal12_t*>(row.get_field_content_ptr(4));
     ASSERT_TRUE(agg_decimal == r_decimal);
 
-    StringSlice* agg_varchar = reinterpret_cast<StringSlice*>(row.get_field_content_ptr(5));
+    Slice* agg_varchar = reinterpret_cast<Slice*>(row.get_field_content_ptr(5));
     ASSERT_EQ(agg_varchar->compare(r_varchar), 0);
 }
 
@@ -527,10 +527,10 @@ TEST_F(TestRowCursor, AggregateWithNull) {
     RowCursor left;
     res = left.init(tablet_schema);
 
-    StringSlice l_char("well");
+    Slice l_char("well");
     int32_t l_int = 10;
     int128_t l_largeint = (int128_t)(1) << 100;
-    StringSlice l_varchar("beijing");
+    Slice l_varchar("beijing");
     left.set_field_content(0, reinterpret_cast<char*>(&l_char), _mem_pool.get());
     left.set_field_content(1, reinterpret_cast<char*>(&l_int), _mem_pool.get());
     left.set_field_content(2, reinterpret_cast<char*>(&l_largeint), _mem_pool.get());
@@ -543,7 +543,7 @@ TEST_F(TestRowCursor, AggregateWithNull) {
 
     RowCursor right;
     res = right.init(tablet_schema);
-    StringSlice r_char("well");
+    Slice r_char("well");
     int32_t r_int = 10;
     int128_t r_largeint = (int128_t)(1) << 100;
     double r_double = 5.5;

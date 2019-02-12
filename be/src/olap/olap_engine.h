@@ -57,6 +57,7 @@ struct RootPathInfo {
             is_used(false) { }
 
     std::string path;
+    int64_t path_hash;
     int64_t capacity;                  // 总空间，单位字节
     int64_t available;                 // 可用空间，单位字节
     int64_t data_used_capacity;
@@ -183,6 +184,12 @@ public:
     // 获取cache的使用情况信息
     void get_cache_status(rapidjson::Document* document) const;
 
+    void check_none_row_oriented_table(const std::vector<OlapStore*>& stores);
+    OLAPStatus check_none_row_oriented_table_in_path(
+                    OlapStore* store, TTabletId tablet_id,
+                    SchemaHash schema_hash, const std::string& schema_hash_path);
+    OLAPStatus _check_none_row_oriented_table_in_store(OlapStore* store);
+
     // Note: 这里只能reload原先已经存在的root path，即re-load启动时就登记的root path
     // 是允许的，但re-load全新的path是不允许的，因为此处没有彻底更新ce调度器信息
     void load_stores(const std::vector<OlapStore*>& stores);
@@ -197,16 +204,8 @@ public:
         return _index_stream_lru_cache;
     }
 
-    Cache* file_descriptor_lru_cache() {
-        return _file_descriptor_lru_cache;
-    }
-
     // 清理trash和snapshot文件，返回清理后的磁盘使用量
     OLAPStatus start_trash_sweep(double *usage);
-
-    std::condition_variable disk_broken_cv;
-    std::atomic_bool is_report_disk_state_already;
-    std::atomic_bool is_report_olap_table_already;
 
     template<bool include_unused = false>
     std::vector<OlapStore*> get_stores();
@@ -233,6 +232,7 @@ public:
     std::vector<OlapStore*> get_stores_for_create_table(
         TStorageMedium::type storage_medium);
     OlapStore* get_store(const std::string& path);
+    OlapStore* get_store(int64_t path_hash);
 
     uint32_t available_storage_medium_type_count() {
         return _available_storage_medium_type_count;
@@ -266,7 +266,11 @@ public:
 
     void start_delete_unused_index();
 
-    void add_unused_index(Rowset* olap_index);
+    void add_unused_index(SegmentGroup* olap_index);
+
+    // check whether files are in gc's unused files
+    // revoke them from the unused files if they exists
+    void revoke_files_from_gc(const std::vector<std::string>& files_to_check);
 
     // ######################### ALTER TABLE BEGIN #########################
     // The following interfaces are all about alter tablet operation, 
@@ -327,6 +331,13 @@ public:
     virtual OLAPStatus finish_clone(OLAPTablePtr tablet, const std::string& clone_dir,
                                     int64_t committed_version, bool is_incremental_clone);
 
+
+    // Obtain the path by specified path hash
+    virtual OLAPStatus obtain_shard_path_by_hash(
+            int64_t path_hash,
+            std::string* shared_path,
+            OlapStore** store);
+
     // Obtain shard path for new tablet.
     //
     // @param [out] shard_path choose an available root_path to clone new tablet
@@ -355,14 +366,28 @@ public:
         const TPushReq& request,
         std::vector<TTabletInfo>* tablet_info_vec);
 
+    // call this if you want to trigger a disk and tablet report
+    void report_notify(bool is_all) {
+        is_all ? _report_cv.notify_all() : _report_cv.notify_one();
+    }
+
+    // call this to wait a report notification until timeout
+    void wait_for_report_notify(int64_t timeout_sec, bool is_tablet_report) {
+        std::unique_lock<std::mutex> lk(_report_mtx);
+        auto cv_status = _report_cv.wait_for(lk, std::chrono::seconds(timeout_sec));
+        if (cv_status == std::cv_status::no_timeout) {
+            is_tablet_report ? _is_report_olap_table_already = true : 
+                    _is_report_disk_state_already = true;
+        }
+    }
+
 private:
     OLAPStatus check_all_root_path_cluster_id();
 
     bool _used_disk_not_enough(uint32_t unused_num, uint32_t total_num);
 
-    OLAPStatus _get_root_path_capacity(
+    OLAPStatus _get_path_available_capacity(
             const std::string& root_path,
-            int64_t* data_used,
             int64_t* disk_available);
 
     OLAPStatus _config_root_path_unused_flag_file(
@@ -422,13 +447,13 @@ private:
             const std::string& tablet_path_prefix,
             const Version& version,
             VersionHash version_hash,
-            int32_t rowset_id, int32_t segment) const;
+            int32_t segment_group_id, int32_t segment) const;
 
     std::string _construct_data_file_path(
             const std::string& tablet_path_prefix,
             const Version& version,
             VersionHash version_hash,
-            int32_t rowset_id, int32_t segment) const;
+            int32_t segment_group_id, int32_t segment) const;
 
     OLAPStatus _generate_new_header(
             OlapStore* store,
@@ -528,7 +553,7 @@ private:
     RWMutex _tablet_map_lock;
     tablet_map_t _tablet_map;
     RWMutex _transaction_tablet_map_lock;
-    using TxnKey = std::pair<int64_t, int64_t>; //transaction_id, partition_id;
+    using TxnKey = std::pair<int64_t, int64_t>; // partition_id, transaction_id;
     std::map<TxnKey, std::map<TabletInfo, std::vector<PUniqueId>>> _transaction_tablet_map;
     size_t _global_table_id;
     Cache* _file_descriptor_lru_cache;
@@ -543,6 +568,7 @@ private:
     // cache to save tablets' statistics, such as data size and row
     // TODO(cmy): for now, this is a naive implementation
     std::map<int64_t, TTabletStat> _tablet_stat_cache;
+    std::mutex _tablet_stat_mutex;
     // last update time of tablet stat cache
     int64_t _tablet_stat_cache_update_time_ms;
 
@@ -552,7 +578,7 @@ private:
     Mutex _snapshot_mutex;
     uint64_t _snapshot_base_id;
 
-    std::unordered_map<Rowset*, std::vector<std::string>> _gc_files;
+    std::unordered_map<SegmentGroup*, std::vector<std::string>> _gc_files;
     Mutex _gc_mutex;
 
     // Thread functions
@@ -593,6 +619,12 @@ private:
     std::thread _fd_cache_clean_thread;
 
     static atomic_t _s_request_number;
+
+    // for tablet and disk report
+    std::mutex _report_mtx;
+    std::condition_variable _report_cv;
+    std::atomic_bool _is_report_disk_state_already;
+    std::atomic_bool _is_report_olap_table_already;
 };
 
 }  // namespace doris

@@ -31,7 +31,9 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.meta.MetaContext;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 
 import com.google.common.collect.Lists;
@@ -55,7 +57,7 @@ public class GlobalTransactionMgrTest {
     private static Catalog slaveCatalog;
 
     private String transactionSource = "localfe";
-    
+
 
     @Before
     public void setUp() throws InstantiationException, IllegalAccessException, IllegalArgumentException,
@@ -65,8 +67,12 @@ public class GlobalTransactionMgrTest {
         fakeTransactionIDGenerator = new FakeTransactionIDGenerator();
         masterCatalog = CatalogTestUtil.createTestCatalog();
         slaveCatalog = CatalogTestUtil.createTestCatalog();
-        masterCatalog.setJournalVersion(FeMetaVersion.VERSION_40);
-        slaveCatalog.setJournalVersion(FeMetaVersion.VERSION_40);
+        MetaContext metaContext = new MetaContext();
+        metaContext.setMetaVersion(FeMetaVersion.VERSION_40);
+        metaContext.setThreadLocalInfo();
+
+        // masterCatalog.setJournalVersion(FeMetaVersion.VERSION_40);
+        // slaveCatalog.setJournalVersion(FeMetaVersion.VERSION_40);
         masterTransMgr = masterCatalog.getGlobalTransactionMgr();
         masterTransMgr.setEditLog(masterCatalog.getEditLog());
 
@@ -75,8 +81,8 @@ public class GlobalTransactionMgrTest {
     }
 
     @Test
-    public void testBeginTransaction() throws LabelAlreadyExistsException, AnalysisException, 
-        BeginTransactionException {
+    public void testBeginTransaction() throws LabelAlreadyUsedException, AnalysisException,
+            BeginTransactionException {
         FakeCatalog.setCatalog(masterCatalog);
         long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
                 CatalogTestUtil.testTxnLable1,
@@ -89,21 +95,21 @@ public class GlobalTransactionMgrTest {
         assertEquals(CatalogTestUtil.testDbId1, transactionState.getDbId());
         assertEquals(transactionSource, transactionState.getCoordinator());
     }
-    
+
     @Test
-    public void testBeginTransactionWithSameLabel() throws LabelAlreadyExistsException, AnalysisException, 
-        BeginTransactionException {
+    public void testBeginTransactionWithSameLabel() throws LabelAlreadyUsedException, AnalysisException,
+            BeginTransactionException {
         FakeCatalog.setCatalog(masterCatalog);
         long transactionId = 0;
         Throwable throwable = null;
         try {
-            transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1, 
-                    CatalogTestUtil.testTxnLable1, 
+            transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
+                    CatalogTestUtil.testTxnLable1,
                     transactionSource,
                     LoadJobSourceType.FRONTEND);
         } catch (AnalysisException e) {
             e.printStackTrace();
-        } catch (LabelAlreadyExistsException e) {
+        } catch (LabelAlreadyUsedException e) {
             e.printStackTrace();
         }
         TransactionState transactionState = fakeEditLog.getTransaction(transactionId);
@@ -114,10 +120,10 @@ public class GlobalTransactionMgrTest {
         assertEquals(transactionSource, transactionState.getCoordinator());
 
         try {
-        transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
-                CatalogTestUtil.testTxnLable1,
-                transactionSource,
-                LoadJobSourceType.FRONTEND);
+            transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
+                    CatalogTestUtil.testTxnLable1,
+                    transactionSource,
+                    LoadJobSourceType.FRONTEND);
         } catch (Exception e) {
             // TODO: handle exception
         }
@@ -126,8 +132,8 @@ public class GlobalTransactionMgrTest {
     // all replica committed success
     @Test
     public void testCommitTransaction1() throws MetaNotFoundException,
-            TransactionCommitFailedException,
-            IllegalTransactionParameterException, LabelAlreadyExistsException, 
+            TransactionException,
+            IllegalTransactionParameterException, LabelAlreadyUsedException,
             AnalysisException, BeginTransactionException {
         FakeCatalog.setCatalog(masterCatalog);
         long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
@@ -153,7 +159,7 @@ public class GlobalTransactionMgrTest {
         Partition testPartition = masterCatalog.getDb(CatalogTestUtil.testDbId1).getTable(CatalogTestUtil.testTableId1)
                 .getPartition(CatalogTestUtil.testPartition1);
         // check partition version
-        assertEquals(CatalogTestUtil.testStartVersion, testPartition.getCommittedVersion());
+        assertEquals(CatalogTestUtil.testStartVersion, testPartition.getVisibleVersion());
         assertEquals(CatalogTestUtil.testStartVersion + 2, testPartition.getNextVersion());
         // check partition next version
         Tablet tablet = testPartition.getIndex(CatalogTestUtil.testIndexId1).getTablet(CatalogTestUtil.testTabletId1);
@@ -169,8 +175,8 @@ public class GlobalTransactionMgrTest {
     // commit with only two replicas
     @Test
     public void testCommitTransactionWithOneFailed() throws MetaNotFoundException,
-            TransactionCommitFailedException,
-            IllegalTransactionParameterException, LabelAlreadyExistsException, 
+            TransactionException,
+            IllegalTransactionParameterException, LabelAlreadyUsedException,
             AnalysisException, BeginTransactionException {
         TransactionState transactionState = null;
         FakeCatalog.setCatalog(masterCatalog);
@@ -214,7 +220,7 @@ public class GlobalTransactionMgrTest {
         Partition testPartition = masterCatalog.getDb(CatalogTestUtil.testDbId1).getTable(CatalogTestUtil.testTableId1)
                 .getPartition(CatalogTestUtil.testPartition1);
         // check partition version
-        assertEquals(CatalogTestUtil.testStartVersion, testPartition.getCommittedVersion());
+        assertEquals(CatalogTestUtil.testStartVersion, testPartition.getVisibleVersion());
         assertEquals(CatalogTestUtil.testStartVersion + 2, testPartition.getNextVersion());
         // check partition next version
         Tablet tablet = testPartition.getIndex(CatalogTestUtil.testIndexId1).getTablet(CatalogTestUtil.testTabletId1);
@@ -240,7 +246,7 @@ public class GlobalTransactionMgrTest {
         testPartition = masterCatalog.getDb(CatalogTestUtil.testDbId1).getTable(CatalogTestUtil.testTableId1)
                 .getPartition(CatalogTestUtil.testPartition1);
         // check partition version
-        assertEquals(CatalogTestUtil.testStartVersion, testPartition.getCommittedVersion());
+        assertEquals(CatalogTestUtil.testStartVersion, testPartition.getVisibleVersion());
         assertEquals(CatalogTestUtil.testStartVersion + 3, testPartition.getNextVersion());
         // check partition next version
         tablet = testPartition.getIndex(CatalogTestUtil.testIndexId1).getTablet(CatalogTestUtil.testTabletId1);
@@ -262,7 +268,7 @@ public class GlobalTransactionMgrTest {
         assertEquals(CatalogTestUtil.testStartVersion, replcia2.getLastSuccessVersion());
         assertEquals(CatalogTestUtil.testStartVersion, replcia3.getLastSuccessVersion());
         // check partition version
-        assertEquals(CatalogTestUtil.testStartVersion, testPartition.getCommittedVersion());
+        assertEquals(CatalogTestUtil.testStartVersion, testPartition.getVisibleVersion());
         assertEquals(CatalogTestUtil.testStartVersion + 3, testPartition.getNextVersion());
 
         transactionState = fakeEditLog.getTransaction(transactionId2);
@@ -271,8 +277,8 @@ public class GlobalTransactionMgrTest {
         assertTrue(CatalogTestUtil.compareCatalog(masterCatalog, slaveCatalog));
     }
 
-    public void testFinishTransaction() throws MetaNotFoundException, TransactionCommitFailedException,
-            IllegalTransactionParameterException, LabelAlreadyExistsException, 
+    public void testFinishTransaction() throws MetaNotFoundException, TransactionException,
+            IllegalTransactionParameterException, LabelAlreadyUsedException,
             AnalysisException, BeginTransactionException {
         long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
                 CatalogTestUtil.testTxnLable1,
@@ -301,7 +307,7 @@ public class GlobalTransactionMgrTest {
         Partition testPartition = masterCatalog.getDb(CatalogTestUtil.testDbId1).getTable(CatalogTestUtil.testTableId1)
                 .getPartition(CatalogTestUtil.testPartition1);
         // check partition version
-        assertEquals(CatalogTestUtil.testStartVersion + 1, testPartition.getCommittedVersion());
+        assertEquals(CatalogTestUtil.testStartVersion + 1, testPartition.getVisibleVersion());
         assertEquals(CatalogTestUtil.testStartVersion + 2, testPartition.getNextVersion());
         // check partition next version
         Tablet tablet = testPartition.getIndex(CatalogTestUtil.testIndexId1).getTablet(CatalogTestUtil.testTabletId1);
@@ -315,8 +321,8 @@ public class GlobalTransactionMgrTest {
 
     @Test
     public void testFinishTransactionWithOneFailed() throws MetaNotFoundException,
-            TransactionCommitFailedException,
-            IllegalTransactionParameterException, LabelAlreadyExistsException, 
+            TransactionException,
+            IllegalTransactionParameterException, LabelAlreadyUsedException,
             AnalysisException, BeginTransactionException {
         TransactionState transactionState = null;
         Partition testPartition = masterCatalog.getDb(CatalogTestUtil.testDbId1).getTable(CatalogTestUtil.testTableId1)
@@ -408,7 +414,7 @@ public class GlobalTransactionMgrTest {
         testPartition = masterCatalog.getDb(CatalogTestUtil.testDbId1).getTable(CatalogTestUtil.testTableId1)
                 .getPartition(CatalogTestUtil.testPartition1);
         // check partition version
-        assertEquals(CatalogTestUtil.testStartVersion + 1, testPartition.getCommittedVersion());
+        assertEquals(CatalogTestUtil.testStartVersion + 1, testPartition.getVisibleVersion());
         assertEquals(CatalogTestUtil.testStartVersion + 3, testPartition.getNextVersion());
 
         // follower catalog replay the transaction
@@ -432,7 +438,7 @@ public class GlobalTransactionMgrTest {
         assertEquals(CatalogTestUtil.testStartVersion + 2, replcia2.getLastSuccessVersion());
         assertEquals(CatalogTestUtil.testStartVersion + 2, replcia3.getLastSuccessVersion());
         // check partition version
-        assertEquals(CatalogTestUtil.testStartVersion + 2, testPartition.getCommittedVersion());
+        assertEquals(CatalogTestUtil.testStartVersion + 2, testPartition.getVisibleVersion());
         assertEquals(CatalogTestUtil.testStartVersion + 3, testPartition.getNextVersion());
 
         transactionState = fakeEditLog.getTransaction(transactionId2);
@@ -442,8 +448,8 @@ public class GlobalTransactionMgrTest {
     }
 
     @Test
-    public void testDeleteTransaction() throws LabelAlreadyExistsException, 
-        AnalysisException, BeginTransactionException {
+    public void testDeleteTransaction() throws LabelAlreadyUsedException,
+            AnalysisException, BeginTransactionException {
 
         long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
                 CatalogTestUtil.testTxnLable1,

@@ -150,7 +150,7 @@ public class ArithmeticExpr extends Expr {
     }
 
     @Override
-    public String toSql() {
+    public String toSqlImpl() {
         if (children.size() == 1) {
             return op.toString() + " " + getChild(0).toSql();
         } else {
@@ -261,7 +261,7 @@ public class ArithmeticExpr extends Expr {
 
         type = castBinaryOp(commonType);
         fn = getBuiltinFunction(analyzer, fnName, collectChildReturnTypes(),
-                Function.CompareMode.IS_SUPERTYPE_OF);
+                Function.CompareMode.IS_IDENTICAL);
         if (fn == null) {
             Preconditions.checkState(false, String.format(
                     "No match for '%s' with operand types %s and %s", toSql(), t1, t2));

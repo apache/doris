@@ -47,7 +47,7 @@ using std::vector;
     do {\
         int lock_ret = 0;\
         if (0 != (lock_ret = pthread_mutex_init(lockptr, param))) {\
-            OLAP_LOG_FATAL("fail to init mutex. [lock_ret=%d err='%m']", lock_ret);\
+            LOG(FATAL) << "fail to init mutex. err=" << strerror(lock_ret); \
         }\
     } while (0)
 
@@ -55,7 +55,7 @@ using std::vector;
     do {\
         int lock_ret = 0;\
         if (0 != (lock_ret = pthread_mutex_destroy(lockptr))) {\
-            OLAP_LOG_FATAL("fail to destroy mutex. [lock_ret=%d err='%m']", lock_ret);\
+            LOG(FATAL) << "fail to destroy mutex. err=" << strerror(lock_ret); \
         }\
     } while (0)
 
@@ -63,7 +63,7 @@ using std::vector;
     do {\
         int lock_ret = 0;\
         if (0 != (lock_ret = pthread_mutex_lock(lockptr))) {\
-            OLAP_LOG_FATAL("fail to lock mutex. [lock_ret=%d err='%m']", lock_ret);\
+            LOG(FATAL) << "fail to lock mutex. err=" << strerror(lock_ret); \
         }\
     } while (0)
 
@@ -71,7 +71,7 @@ using std::vector;
     do {\
         int lock_ret = 0;\
         if (0 != (lock_ret = pthread_mutex_unlock(lockptr))) {\
-            OLAP_LOG_FATAL("fail to unlock mutex. [lock_ret=%d err='%m']", lock_ret);\
+            LOG(FATAL) << "fail to unlock mutex. err=" << strerror(lock_ret); \
         }\
     } while (0)
 
@@ -79,7 +79,7 @@ using std::vector;
     do {\
         int lock_ret = 0;\
         if (0 != (lock_ret = pthread_rwlock_init(lockptr, param))) {\
-            OLAP_LOG_FATAL("fail to init rwlock. [lock_ret=%d err='%m']", lock_ret);\
+            LOG(FATAL) << "fail to init rwlock. err=" << strerror(lock_ret); \
         }\
     } while (0)
 
@@ -87,7 +87,7 @@ using std::vector;
     do {\
         int lock_ret = 0;\
         if (0 != (lock_ret = pthread_rwlock_destroy(lockptr))) {\
-            OLAP_LOG_FATAL("fail to destroy rwlock. [lock_ret=%d err='%m']", lock_ret);\
+            LOG(FATAL) << "fail to destroy rwlock. err=" << strerror(lock_ret); \
         }\
     } while (0)
 
@@ -95,7 +95,7 @@ using std::vector;
     do {\
         int lock_ret = 0;\
         if (0 != (lock_ret = pthread_rwlock_rdlock(lockptr))) {\
-            OLAP_LOG_FATAL("fail to lock reader lock. [lock_ret=%d err='%m']", lock_ret);\
+            LOG(FATAL) << "fail to lock reader lock. err=" << strerror(lock_ret); \
         }\
     } while (0)
 
@@ -103,7 +103,7 @@ using std::vector;
     do {\
         int lock_ret = 0;\
         if (0 != (lock_ret = pthread_rwlock_wrlock(lockptr))) {\
-            OLAP_LOG_FATAL("fail to lock writer lock. [lock_ret=%d err='%m']", lock_ret);\
+            LOG(FATAL) << "fail to lock writer lock. err=" << strerror(lock_ret); \
         }\
     } while (0)
 
@@ -111,7 +111,7 @@ using std::vector;
     do {\
         int lock_ret = 0;\
         if (0 != (lock_ret = pthread_rwlock_unlock(lockptr))) {\
-            OLAP_LOG_FATAL("fail to unlock rwlock. [lock_ret=%d err='%m']", lock_ret);\
+            LOG(FATAL) << "fail to unlock rwlock. err=" << strerror(lock_ret); \
         }\
     } while (0)
 
@@ -119,7 +119,7 @@ using std::vector;
     do {\
         int cond_ret = 0;\
         if (0 != (cond_ret = pthread_cond_init(condptr, param))) {\
-            OLAP_LOG_FATAL("fail to init cond. [cond_ret=%d err='%m']", cond_ret);\
+            LOG(FATAL) << "fail to init cond. err=" << strerror(cond_ret); \
         }\
     } while (0)
 
@@ -127,7 +127,7 @@ using std::vector;
     do {\
         int cond_ret = 0;\
         if (0 != (cond_ret = pthread_cond_destroy(condptr))) {\
-            OLAP_LOG_FATAL("fail to destroy cond. [cond_ret=%d err='%m']", cond_ret);\
+            LOG(FATAL) << "fail to destroy cond. err=" << strerror(cond_ret); \
         }\
     } while (0)
 
@@ -135,7 +135,7 @@ using std::vector;
     do {\
         int cond_ret = 0;\
         if (0 != (cond_ret = pthread_cond_wait(condptr, lockptr))) {\
-            OLAP_LOG_FATAL("fail to wait cond. [cond_ret=%d err='%m']", cond_ret);\
+            LOG(FATAL) << "fail to wait cond. err=" << strerror(cond_ret); \
         }\
     } while (0)
 
@@ -148,9 +148,9 @@ using std::vector;
         int cond_ret = 0;\
         cond_ret = pthread_cond_timedwait(condptr, lockptr, &outtime);\
         if (0 != cond_ret && ETIMEDOUT != cond_ret) {\
-            OLAP_LOG_FATAL("fail to timewait cond. "\
-                           "[cond_ret=%d err='%m' outtime.tv_sec=%d outtime.tv_nsec=%ld]",\
-                           cond_ret, outtime.tv_sec, outtime.tv_nsec);  \
+            LOG(FATAL) << "fail to timewait cond. err=" << strerror(cond_ret) \
+                       << ", outtime.tv_sec=" << outtime.tv_sec \
+                       << ", outtime.tv_nsec=" << outtime.tv_nsec; \
         }\
     } while (0)
 
@@ -158,7 +158,7 @@ using std::vector;
     do {\
         int cond_ret = 0;\
         if (0 != (cond_ret = pthread_cond_signal(condptr))) {\
-            OLAP_LOG_FATAL("fail to signal cond. [cond_ret=%d err='%m']", cond_ret);\
+            LOG(FATAL) << "fail to signal cond. err=" << strerror(cond_ret); \
         }\
     } while (0)
 
@@ -166,7 +166,7 @@ using std::vector;
     do {\
         int cond_ret = 0;\
         if (0 != (cond_ret = pthread_cond_broadcast(condptr))) {\
-            OLAP_LOG_FATAL("fail to broadcast cond. [cond_ret=%d err='%m']", cond_ret);\
+            LOG(FATAL) << "fail to broadcast cond. err=" << strerror(cond_ret); \
         }\
     } while (0)
 
@@ -284,9 +284,9 @@ OLAPStatus olap_compress(const char* src_buf,
             
             return OLAP_ERR_COMPRESS_ERROR;
         } else if (*written_len > dest_len) {
-            OLAP_LOG_DEBUG("buffer overflow when compressing. [dest_len=%lu written_len=%lu]",
-                             dest_len,
-                             *written_len);
+            VLOG(3) << "buffer overflow when compressing. "
+                    << "dest_len=" << dest_len
+                    << ", written_len=" << *written_len;
             
             return OLAP_ERR_BUFFER_OVERFLOW;
         }
@@ -310,9 +310,9 @@ OLAPStatus olap_compress(const char* src_buf,
             
             return OLAP_ERR_COMPRESS_ERROR;
         } else if (*written_len > dest_len) {
-            OLAP_LOG_DEBUG("buffer overflow when compressing. [dest_len=%lu written_len=%lu]",
-                             dest_len,
-                             *written_len);
+            VLOG(3) << "buffer overflow when compressing. "
+                    << ", dest_len=" << dest_len
+                    << ", written_len=" << *written_len;
             
             return OLAP_ERR_BUFFER_OVERFLOW;
         }
@@ -323,13 +323,10 @@ OLAPStatus olap_compress(const char* src_buf,
         int lz4_res = LZ4_compress_default(src_buf, dest_buf, src_len, dest_len);
         *written_len = lz4_res;
         if (0 == lz4_res) {
-            OLAP_LOG_DEBUG("compress failed."
-                             "[src_len=%lu; dest_len=%lu; written_len=%lu; lz4_res=%d]",
-                             src_len,
-                             dest_len,
-                             *written_len,
-                             lz4_res);
-            
+            VLOG(3) << "compress failed. src_len=" << src_len
+                    << ", dest_len=" << dest_len
+                    << ", written_len=" << *written_len
+                    << ", lz4_res=" << lz4_res;
             return OLAP_ERR_BUFFER_OVERFLOW;
         }
         break;
@@ -1069,8 +1066,7 @@ OLAPStatus move_to_trash(const boost::filesystem::path& schema_hash_root,
     }
 
     // 3. remove file to trash
-    OLAP_LOG_DEBUG("move file to trash. [%s -> %s]",
-            old_file_path.c_str(), new_file_path.c_str());
+    VLOG(3) << "move file to trash. " << old_file_path << " -> " << new_file_path;
     if (rename(old_file_path.c_str(), new_file_path.c_str()) < 0) {
         OLAP_LOG_WARNING("move file to trash failed. [file=%s target='%s' err='%m']",
                 old_file_path.c_str(), new_file_path.c_str());
@@ -1108,11 +1104,11 @@ OLAPStatus Mutex::lock() {
 }
 
 OLAPStatus Mutex::trylock() {
-    if (0 != pthread_mutex_trylock(&_lock)) {
-        OLAP_LOG_DEBUG("failed to got the mutex lock. [err='%m']");
+    int rv = pthread_mutex_trylock(&_lock);
+    if (rv != 0) {
+        VLOG(3) << "failed to got the mutex lock. error=" << strerror(rv);
         return OLAP_ERR_RWLOCK_ERROR;
     }
-
     return OLAP_SUCCESS;
 }
 
@@ -1158,7 +1154,7 @@ OLAPStatus RWMutex::rdlock() {
 
 OLAPStatus RWMutex::tryrdlock() {
     if (0 != pthread_rwlock_tryrdlock(&_lock)) {
-        OLAP_LOG_DEBUG("failed to got the rwlock rdlock. [err='%m']");
+        VLOG(3) << "failed to got the rwlock rdlock. err=" << strerror(errno);
         return OLAP_ERR_RWLOCK_ERROR;
     }
 
@@ -1167,7 +1163,7 @@ OLAPStatus RWMutex::tryrdlock() {
 
 OLAPStatus RWMutex::trywrlock() {
     if (0 != pthread_rwlock_trywrlock(&_lock)) {
-        OLAP_LOG_DEBUG("failed to got the rwlock rdlock. [err='%m']");
+        VLOG(3) << "failed to got the rwlock rdlock. err=" << strerror(errno);
         return OLAP_ERR_RWLOCK_ERROR;
     }
 
@@ -1204,9 +1200,9 @@ void Condition::wait_for_seconds(uint32_t seconds) {
     int cond_ret = 0;
     cond_ret = pthread_cond_timedwait(&_cond, _mutex.getlock(), &outtime);
     if (0 != cond_ret && ETIMEDOUT != cond_ret) {
-        OLAP_LOG_FATAL("fail to timewait cond. "
-                       "[cond_ret=%d err='%m' outtime.tv_sec=%d outtime.tv_nsec=%ld]",
-                       cond_ret, outtime.tv_sec, outtime.tv_nsec); 
+        LOG(FATAL) << "fail to timewait cond. err=" << strerror(cond_ret)
+                   << ", outtime.tv_sec=" << outtime.tv_sec
+                   << ", outtime.tv_nsec=" << outtime.tv_nsec;
     }
 }
 
@@ -1523,12 +1519,12 @@ OLAPStatus dir_walk(const string& root,
         }
 
         if (S_ISDIR(stat_data.st_mode)) {
-            OLAP_LOG_DEBUG("find dir. [d_name='%s']", direntp->d_name);
+            VLOG(3) << "find dir. d_name=" << direntp->d_name;
             if (NULL != dirs) {
                 dirs->insert(direntp->d_name);
             }
         } else {
-            OLAP_LOG_DEBUG("find file. [d_name='%s']", direntp->d_name);
+            VLOG(3) << "find file. d_name=" << direntp->d_name;
             if (NULL != files) {
                 files->insert(direntp->d_name);
             }

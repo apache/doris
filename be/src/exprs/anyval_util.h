@@ -287,7 +287,8 @@ public:
     }
 
     static void TruncateIfNecessary(const FunctionContext::TypeDesc& type, StringVal *val) {
-        if (type.type == FunctionContext::TYPE_VARCHAR) {
+        if (type.type == FunctionContext::TYPE_VARCHAR
+              || type.type == FunctionContext::TYPE_CHAR) {
             DCHECK(type.len >= 0); 
             val->len = std::min(val->len, type.len);
         }   

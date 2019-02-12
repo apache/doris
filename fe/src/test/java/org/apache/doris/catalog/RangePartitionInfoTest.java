@@ -45,7 +45,7 @@ public class RangePartitionInfoTest {
 
     @Test(expected = DdlException.class)
     public void testTinyInt() throws DdlException, AnalysisException {
-        Column k1 = new Column("k1", new ColumnType(PrimitiveType.TINYINT), true, null, "", "");
+        Column k1 = new Column("k1", new ScalarType(PrimitiveType.TINYINT), true, null, "", "");
         partitionColumns.add(k1);
 
         singleRangePartitionDescs.add(new SingleRangePartitionDesc(false, "p1",
@@ -62,7 +62,7 @@ public class RangePartitionInfoTest {
 
     @Test(expected = DdlException.class)
     public void testSmallInt() throws DdlException, AnalysisException {
-        Column k1 = new Column("k1", new ColumnType(PrimitiveType.SMALLINT), true, null, "", "");
+        Column k1 = new Column("k1", new ScalarType(PrimitiveType.SMALLINT), true, null, "", "");
         partitionColumns.add(k1);
 
         singleRangePartitionDescs.add(new SingleRangePartitionDesc(false, "p1",
@@ -78,7 +78,7 @@ public class RangePartitionInfoTest {
 
     @Test(expected = DdlException.class)
     public void testInt() throws DdlException, AnalysisException {
-        Column k1 = new Column("k1", new ColumnType(PrimitiveType.INT), true, null, "", "");
+        Column k1 = new Column("k1", new ScalarType(PrimitiveType.INT), true, null, "", "");
         partitionColumns.add(k1);
 
         singleRangePartitionDescs.add(new SingleRangePartitionDesc(false, "p1",
@@ -95,7 +95,7 @@ public class RangePartitionInfoTest {
 
     @Test(expected = DdlException.class)
     public void testBigInt() throws DdlException, AnalysisException {
-        Column k1 = new Column("k1", new ColumnType(PrimitiveType.BIGINT), true, null, "", "");
+        Column k1 = new Column("k1", new ScalarType(PrimitiveType.BIGINT), true, null, "", "");
         partitionColumns.add(k1);
 
         singleRangePartitionDescs.add(new SingleRangePartitionDesc(false, "p1", new PartitionKeyDesc(Lists
@@ -117,7 +117,7 @@ public class RangePartitionInfoTest {
 
     @Test
     public void testBigIntNormal() throws DdlException, AnalysisException {
-        Column k1 = new Column("k1", new ColumnType(PrimitiveType.BIGINT), true, null, "", "");
+        Column k1 = new Column("k1", new ScalarType(PrimitiveType.BIGINT), true, null, "", "");
         partitionColumns.add(k1);
 
         singleRangePartitionDescs.add(new SingleRangePartitionDesc(false, "p1", new PartitionKeyDesc(Lists

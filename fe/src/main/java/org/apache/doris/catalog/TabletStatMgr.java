@@ -36,6 +36,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+/*
+ * TabletStatMgr is for collecting tablet(replica) statistics from backends.
+ * Each FE will collect by itself.
+ */
 public class TabletStatMgr extends Daemon {
     private static final Logger LOG = LogManager.getLogger(TabletStatMgr.class);
 
@@ -80,7 +84,6 @@ public class TabletStatMgr extends Daemon {
                 TTabletStatResult result = client.get_tablet_stat();
 
                 LOG.info("get tablet stat from backend: {}, num: {}", backend.getId(), result.getTablets_statsSize());
-                // LOG.debug("get tablet stat from backend: {}, stat: {}", backend.getId(), result.getTablets_stats());
                 updateTabletStat(backend.getId(), result);
 
                 ok = true;
@@ -114,8 +117,8 @@ public class TabletStatMgr extends Daemon {
 
                     OlapTable olapTable = (OlapTable) table;
                     for (Partition partition : olapTable.getPartitions()) {
-                        long version = partition.getCommittedVersion();
-                        long versionHash = partition.getCommittedVersionHash();
+                        long version = partition.getVisibleVersion();
+                        long versionHash = partition.getVisibleVersionHash();
                         for (MaterializedIndex index : partition.getMaterializedIndices()) {
                             long indexRowCount = 0L;
                             for (Tablet tablet : index.getTablets()) {
@@ -146,9 +149,13 @@ public class TabletStatMgr extends Daemon {
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
 
         for (Map.Entry<Long, TTabletStat> entry : result.getTablets_stats().entrySet()) {
+            if (invertedIndex.getTabletMeta(entry.getKey()) == null) {
+                // the replica is obsolete, ignore it.
+                continue;
+            }
             Replica replica = invertedIndex.getReplica(entry.getKey(), beId);
             if (replica == null) {
-                // replica may be deleted from catalog
+                // replica may be deleted from catalog, ignore it.
                 continue;
             }
             // TODO(cmy) no db lock protected. I think it is ok even we get wrong row num

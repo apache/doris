@@ -44,8 +44,6 @@
 #include "runtime/tuple_row.h"
 #include "runtime/tuple.h"
 #include "udf/udf_internal.h"
-#include "util/debug_util.h"
-#include "util/runtime_profile.h"
 
 #include "gen_cpp/Exprs_types.h"
 #include "gen_cpp/PlanNodes_types.h"
@@ -309,11 +307,10 @@ Status NewPartitionedAggregationNode::open(RuntimeState* state) {
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(QueryMaintenance(state));
     RETURN_IF_ERROR(_children[0]->get_next(state, &batch, &eos));
-
     if (UNLIKELY(VLOG_ROW_IS_ON)) {
       for (int i = 0; i < batch.num_rows(); ++i) {
         TupleRow* row = batch.get_row(i);
-        VLOG_ROW << "input row: " << print_row(row, _children[0]->row_desc());
+        VLOG_ROW << "input row: " << row->to_string(_children[0]->row_desc());
       }
     }
 
@@ -533,7 +530,6 @@ Status NewPartitionedAggregationNode::GetRowsStreaming(RuntimeState* state,
     RETURN_IF_ERROR(QueryMaintenance(state));
 
     RETURN_IF_ERROR(child(0)->get_next(state, child_batch_.get(), &child_eos_));
-
     SCOPED_TIMER(streaming_timer_);
 
     int remaining_capacity[PARTITION_FANOUT];

@@ -39,6 +39,16 @@ public:
     MetricsActionTest() { }
     virtual ~MetricsActionTest() {
     }
+    void SetUp() override {
+        _evhttp_req = evhttp_request_new(nullptr, nullptr);
+    }
+    void TearDown() override {
+        if (_evhttp_req != nullptr) {
+            evhttp_request_free(_evhttp_req);
+        }
+    }
+private:
+    evhttp_request* _evhttp_req = nullptr;
 };
 
 TEST_F(MetricsActionTest, prometheus_output) {
@@ -56,7 +66,7 @@ TEST_F(MetricsActionTest, prometheus_output) {
         "test_cpu_idle 50\n"
         "# TYPE test_requests_total counter\n"
         "test_requests_total{path=\"/sports\",type=\"put\"} 2345\n";
-    HttpRequest request(nullptr);
+    HttpRequest request(_evhttp_req);
     MetricsAction action(&registry);
     action.handle(&request);
 }
@@ -69,7 +79,7 @@ TEST_F(MetricsActionTest, prometheus_no_prefix) {
     s_expect_response =
         "# TYPE cpu_idle gauge\n"
         "cpu_idle 50\n";
-    HttpRequest request(nullptr);
+    HttpRequest request(_evhttp_req);
     MetricsAction action(&registry);
     action.handle(&request);
 }
@@ -80,7 +90,7 @@ TEST_F(MetricsActionTest, prometheus_no_name) {
     cpu_idle.set_value(50);
     registry.register_metric("", &cpu_idle);
     s_expect_response = "";
-    HttpRequest request(nullptr);
+    HttpRequest request(_evhttp_req);
     MetricsAction action(&registry);
     action.handle(&request);
 }

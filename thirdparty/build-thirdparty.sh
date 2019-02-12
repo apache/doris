@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -31,40 +31,44 @@ set -e
 curdir=`dirname "$0"`
 curdir=`cd "$curdir"; pwd`
 
-if [ ! -f $curdir/vars.sh ]; then
-    echo "vars.sh is missing".
-    exit 1
-fi
-
-export DORIS_HOME=$curdir/../
-export GCC_HOME=$curdir/../palo-toolchain/gcc730
+export DORIS_HOME=$curdir/..
 export TP_DIR=$curdir
 
-source $curdir/vars.sh
-cd $TP_DIR
+# include custom environment variables
+if [[ -f ${DORIS_HOME}/env.sh ]]; then
+    . ${DORIS_HOME}/env.sh
+fi
 
-if [ ! -f $TP_DIR/download-thirdparty.sh ]; then
+if [[ ! -f ${TP_DIR}/download-thirdparty.sh ]]; then
     echo "Download thirdparty script is missing".
     exit 1
 fi
 
-mkdir -p $TP_DIR/src
-mkdir -p $TP_DIR/installed
-export LD_LIBRARY_PATH=$TP_DIR/installed/lib:$LD_LIBRARY_PATH
-
-if [ -f $DORIS_HOME/palo-toolchain/gcc730/bin/gcc ]; then
-    GCC_HOME=$curdir/../palo-toolchain/gcc730
-    export CC=${GCC_HOME}/bin/gcc
-    export CPP=${GCC_HOME}/bin/cpp
-    export CXX=${GCC_HOME}/bin/g++
-else
-    export CC=gcc
-    export CPP=cpp
-    export CXX=g++
+if [ ! -f ${TP_DIR}/vars.sh ]; then
+    echo "vars.sh is missing".
+    exit 1
 fi
+. ${TP_DIR}/vars.sh
+
+cd $TP_DIR
 
 # Download thirdparties.
-$TP_DIR/download-thirdparty.sh $@
+${TP_DIR}/download-thirdparty.sh
+
+export LD_LIBRARY_PATH=$TP_DIR/installed/lib:$LD_LIBRARY_PATH
+
+# set COMPILER
+if [[ ! -z ${DORIS_GCC_HOME} ]]; then
+    export CC=${DORIS_GCC_HOME}/bin/gcc
+    export CPP=${DORIS_GCC_HOME}/bin/cpp
+    export CXX=${DORIS_GCC_HOME}/bin/g++
+else
+    echo "DORIS_GCC_HOME environment variable is not set"
+    exit 1
+fi
+
+# prepare installed prefix
+mkdir -p ${TP_DIR}/installed
 
 check_prerequest() {
     local CMD=$1
@@ -117,7 +121,6 @@ check_prerequest "libtoolize --version" "libtool"
 #########################
 # build all thirdparties
 #########################
-GCC_VERSION="$($CC -dumpversion)"
 
 CMAKE_CMD=`which cmake`
 
@@ -175,6 +178,20 @@ build_openssl() {
         mkdir -p $TP_INSTALL_DIR/lib && \
         ln -s $TP_INSTALL_DIR/lib64/libcrypto.a $TP_INSTALL_DIR/lib/libcrypto.a && \
         ln -s $TP_INSTALL_DIR/lib64/libssl.a $TP_INSTALL_DIR/lib/libssl.a
+    fi
+    # NOTE(zc): remove this dynamic library files to make libcurl static link.
+    # If I don't remove this files, I don't known how to make libcurl link static library
+    if [ -f $TP_INSTALL_DIR/lib64/libcrypto.so ]; then
+        rm -rf $TP_INSTALL_DIR/lib64/libcrypto.so*
+    fi
+    if [ -f $TP_INSTALL_DIR/lib64/libssl.so ]; then
+        rm -rf $TP_INSTALL_DIR/lib64/libssl.so*
+    fi
+    if [ -f $TP_INSTALL_DIR/lib/libcrypto.so ]; then
+        rm -rf $TP_INSTALL_DIR/lib/libcrypto.so*
+    fi
+    if [ -f $TP_INSTALL_DIR/lib/libssl.so ]; then
+        rm -rf $TP_INSTALL_DIR/lib/libssl.so*
     fi
 }
 
@@ -241,7 +258,6 @@ build_protobuf() {
     ./configure --prefix=${TP_INSTALL_DIR} --disable-shared --enable-static --with-zlib=${TP_INSTALL_DIR}/include
     cd src
     sed -i 's/^AM_LDFLAGS\(.*\)$/AM_LDFLAGS\1 -all-static/' Makefile
-    make -j$PARALLEL
     cd -
     make -j$PARALLEL && make install
 }
@@ -353,6 +369,7 @@ build_bzip() {
     check_if_source_exist $BZIP_SOURCE
     cd $TP_SOURCE_DIR/$BZIP_SOURCE
 
+    CFLAGS="-fPIC"
     make -j$PARALLEL install PREFIX=$TP_INSTALL_DIR
 }
 
@@ -374,10 +391,10 @@ build_curl() {
     cd $TP_SOURCE_DIR/$CURL_SOURCE
     
     CPPFLAGS="-I${TP_INCLUDE_DIR}" \
-    LDFLAGS="-L${TP_LIB_DIR}" \
+    LDFLAGS="-L${TP_LIB_DIR}" LIBS="-lcrypto -lssl -lcrypto -ldl" \
     CFLAGS="-fPIC" \
     ./configure --prefix=$TP_INSTALL_DIR --disable-shared --enable-static \
-    --without-ssl --without-libidn2 --disable-ldap
+    --with-ssl=${TP_INSTALL_DIR} --without-libidn2 --disable-ldap --enable-ipv6
     make -j$PARALLEL && make install
 }
 
@@ -395,9 +412,9 @@ build_boost() {
     check_if_source_exist $BOOST_SOURCE
     cd $TP_SOURCE_DIR/$BOOST_SOURCE
 
-    echo "using gcc : $GCC_VERSION : $CXX ; " > tools/build/src/user-config.jam
+    echo "using gcc : doris : ${CXX} ; " > tools/build/src/user-config.jam
     ./bootstrap.sh --prefix=$TP_INSTALL_DIR 
-    ./b2 link=static -d0 -j$PARALLEL --without-mpi --without-graph --without-graph_parallel --without-python cxxflags="-std=c++11 -fPIC -I$TP_INCLUDE_DIR -L$TP_LIB_DIR" install
+    ./b2 --toolset=gcc-doris link=static -d0 -j$PARALLEL --without-mpi --without-graph --without-graph_parallel --without-python cxxflags="-std=c++11 -fPIC -I$TP_INCLUDE_DIR -L$TP_LIB_DIR" install
 }
 
 # mysql
@@ -469,19 +486,6 @@ build_brpc() {
     fi
 }
 
-# java
-build_jdk() {
-    check_if_source_exist $JDK_SOURCE
-
-    if [ -d $TP_INSTALL_DIR/$JDK_SOURCE ];then
-        echo "$JDK_SOURCE already installed"
-    else
-        cp -rf $TP_SOURCE_DIR/$JDK_SOURCE $TP_INSTALL_DIR/
-    fi
-
-    export JAVA_HOME=$TP_INSTALL_DIR/$JDK_SOURCE
-}
-
 # rocksdb
 build_rocksdb() {
     check_if_source_exist $ROCKSDB_SOURCE
@@ -489,7 +493,7 @@ build_rocksdb() {
     cd $TP_SOURCE_DIR/$ROCKSDB_SOURCE
 
     CFLAGS="-I ${TP_INCLUDE_DIR} -I ${TP_INCLUDE_DIR}/snappy -I ${TP_INCLUDE_DIR}/lz4" CXXFLAGS="-fPIC" LDFLAGS="-static-libstdc++ -static-libgcc" \
-        make -j$PARALLEL static_lib
+        make USE_RTTI=1 -j$PARALLEL static_lib
     cp librocksdb.a ../../installed/lib/librocksdb.a
     cp -r include/rocksdb ../../installed/include/
 }
@@ -528,7 +532,6 @@ build_mysql
 build_thrift
 build_leveldb
 build_brpc
-build_jdk
 build_rocksdb
 build_librdkafka
 

@@ -55,7 +55,6 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TStorageType;
@@ -86,7 +85,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
     private void processAddColumn(AddColumnClause alterClause, OlapTable olapTable,
                                   Map<Long, LinkedList<Column>> indexSchemaMap) throws DdlException {
-        Column column = alterClause.getCol();
+        Column column = alterClause.getColumn();
         ColumnPosition columnPos = alterClause.getColPos();
         String targetIndexName = alterClause.getRollupName();
         checkIndexExists(olapTable, targetIndexName);
@@ -264,7 +263,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
     private void processModifyColumn(ModifyColumnClause alterClause, OlapTable olapTable,
                                     Map<Long, LinkedList<Column>> indexSchemaMap) throws DdlException {
-        Column modColumn = alterClause.getCol();
+        Column modColumn = alterClause.getColumn();
         if (KeysType.AGG_KEYS == olapTable.getKeysType()) {
             if (modColumn.isKey() && null != modColumn.getAggregationType()) {
                 throw new DdlException("key column of aggregate key table cannot use aggregation method");
@@ -492,21 +491,20 @@ public class SchemaChangeHandler extends AlterHandler {
                                    Map<Long, LinkedList<Column>> indexSchemaMap) throws DdlException {
         
         if (KeysType.AGG_KEYS == olapTable.getKeysType()) {
-            if (newColumn.isKey() && null != newColumn.getAggregationType()) {
-                throw new DdlException("key column of aggregate key table cannot use aggregation method");
+            if (newColumn.isKey() && newColumn.getAggregationType() != null) {
+                throw new DdlException("key column of aggregate table cannot use aggregation method");
             } else if (null == newColumn.getAggregationType()) {
-                // in aggregate key table, no aggreation method indicate key column
                 newColumn.setIsKey(true);
             }
         } else if (KeysType.UNIQUE_KEYS == olapTable.getKeysType()) {
-            if (null != newColumn.getAggregationType()) {
-                throw new DdlException("column of unique key table cannot use aggregation method");
+            if (newColumn.getAggregationType() != null) {
+                throw new DdlException("column of unique table cannot use aggregation method");
             }
             if (!newColumn.isKey()) {
                 newColumn.setAggregationType(AggregateType.REPLACE, true);
             }
         } else {
-            if (null != newColumn.getAggregationType()) {
+            if (newColumn.getAggregationType() != null) {
                 throw new DdlException("column of duplicate table cannot use aggregation method");
             }
             if (!newColumn.isKey()) {
@@ -663,7 +661,7 @@ public class SchemaChangeHandler extends AlterHandler {
     private void checkRowLength(List<Column> modIndexSchema) throws DdlException {
         int rowLengthBytes = 0;
         for (Column column : modIndexSchema) {
-            rowLengthBytes += column.getColumnType().getMemlayoutBytes();
+            rowLengthBytes += column.getType().getStorageLayoutBytes();
         }
 
         if (rowLengthBytes > Config.max_layout_length_per_row) {
@@ -1039,14 +1037,13 @@ public class SchemaChangeHandler extends AlterHandler {
                 // set replica state
                 for (Tablet tablet : alterIndex.getTablets()) {
                     for (Replica replica : tablet.getReplicas()) {
-                        // has to check last failed version here
-                        // if the replica has version 1,2,3,5,6 not has 4
-                        // then fe will send schema change job to it and it will finish with missing 4
                         if (replica.getState() == ReplicaState.CLONE || replica.getLastFailedVersion() > 0) {
-                            // just skip it (replica cloned from old schema will be deleted)
+                            // this should not happen, cause we only allow schema change when table is stable.
+                            LOG.error("replica {} of tablet {} on backend {} is not NORMAL: {}",
+                                    replica.getId(), tablet.getId(), replica.getBackendId(), replica);
                             continue;
                         }
-                        Preconditions.checkState(replica.getState() == ReplicaState.NORMAL);
+                        Preconditions.checkState(replica.getState() == ReplicaState.NORMAL, replica.getState());
                         replica.setState(ReplicaState.SCHEMA_CHANGE);
                     } // end for replicas
                 } // end for tablets
@@ -1191,6 +1188,7 @@ public class SchemaChangeHandler extends AlterHandler {
             // has to remove here, because check is running every interval, it maybe finished but also in job list
             // some check will failed
             ((SchemaChangeJob) alterJob).deleteAllTableHistorySchema();
+            ((SchemaChangeJob) alterJob).finishJob();
             jobDone(alterJob);
             Catalog.getInstance().getEditLog().logFinishSchemaChange((SchemaChangeJob) alterJob);
         }
@@ -1258,6 +1256,12 @@ public class SchemaChangeHandler extends AlterHandler {
                 } else {
                     throw new DdlException("reduplicated PROPERTIES");
                 }
+
+                if (properties.containsKey(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH)) {
+                    String colocateTable = properties.get(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH);
+                    Catalog.getInstance().modifyTableColocate(db, olapTable, colocateTable);
+                    return;
+                }
             }
 
             if (alterClause instanceof AddColumnClause) {
@@ -1315,10 +1319,12 @@ public class SchemaChangeHandler extends AlterHandler {
                 throw new DdlException("Table[" + tableName + "] is not under SCHEMA CHANGE");
             }
 
-            if (alterJob.getState() == JobState.FINISHING) {
-                throw new DdlException("The schemachange job related with table[" + olapTable.getName()
-                        + "] is under finishing state, it could not be cancelled");
+            if (alterJob.getState() == JobState.FINISHING ||
+                    alterJob.getState() == JobState.FINISHED ||
+                    alterJob.getState() == JobState.CANCELLED) {
+                throw new DdlException("job is already " + alterJob.getState().name() + ", can not cancel it");
             }
+
             // 3. cancel schema change job
             alterJob.cancel(olapTable, "user cancelled");
         } finally {

@@ -67,7 +67,7 @@ public class RangePartitionDesc extends PartitionDesc {
     }
 
     @Override
-    public void analyze(List<Column> cols, Map<String, String> otherProperties) throws AnalysisException {
+    public void analyze(List<ColumnDef> columnDefs, Map<String, String> otherProperties) throws AnalysisException {
         if (partitionColNames == null || partitionColNames.isEmpty()) {
             throw new AnalysisException("No partition columns.");
         }
@@ -79,9 +79,9 @@ public class RangePartitionDesc extends PartitionDesc {
             }
 
             boolean found = false;
-            for (Column col : cols) {
-                if (col.getName().equals(partitionCol)) {
-                    if (!col.isKey()) {
+            for (ColumnDef columnDef : columnDefs) {
+                if (columnDef.getName().equals(partitionCol)) {
+                    if (!columnDef.isKey()) {
                         throw new AnalysisException("Only key column can be partition column");
                     }
                     found = true;
@@ -105,7 +105,7 @@ public class RangePartitionDesc extends PartitionDesc {
             if (otherProperties != null) {
                 givenProperties = Maps.newHashMap(otherProperties);
             }
-            desc.analyze(cols.size(), givenProperties);
+            desc.analyze(columnDefs.size(), givenProperties);
         }
     }
 

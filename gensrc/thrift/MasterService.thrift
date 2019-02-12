@@ -33,6 +33,8 @@ struct TTabletInfo {
     7: optional Types.TStorageMedium storage_medium
     8: optional list<Types.TTransactionId> transaction_ids
     9: optional i64 version_count
+    10: optional i64 path_hash
+    11: optional bool version_miss
 }
 
 struct TFinishTaskRequest {
@@ -50,6 +52,8 @@ struct TFinishTaskRequest {
     12: optional list<string> snapshot_files
     13: optional map<Types.TTabletId, list<string>> tablet_files
     14: optional list<Types.TTabletId> downloaded_tablet_ids
+    15: optional i64 copy_size
+    16: optional i64 copy_time_ms
 }
 
 struct TTablet {
@@ -62,6 +66,8 @@ struct TDisk {
     3: required Types.TSize data_used_capacity
     4: required bool used
     5: optional Types.TSize disk_available_capacity
+    6: optional i64 path_hash
+    7: optional Types.TStorageMedium storage_medium
 }
 
 struct TReportRequest {
@@ -71,6 +77,7 @@ struct TReportRequest {
     4: optional map<Types.TTabletId, TTablet> tablets
     5: optional map<string, TDisk> disks // string root_path
     6: optional bool force_recovery
+    7: optional list<TTablet> tablet_list
 }
 
 struct TMasterResult {

@@ -51,6 +51,7 @@ public class OperationType {
     public static final short OP_RESTORE_FINISH = 115;
     public static final short OP_BACKUP_JOB = 116;
     public static final short OP_RESTORE_JOB = 117;
+    public static final short OP_TRUNCATE_TABLE = 118;
 
     // 20~29 120~129 220~229 ...
     public static final short OP_START_ROLLUP = 20;
@@ -83,6 +84,7 @@ public class OperationType {
     public static final short OP_ADD_REPLICA = 42;
     public static final short OP_DELETE_REPLICA = 43;
     public static final short OP_FINISH_ASYNC_DELETE = 44;
+    public static final short OP_UPDATE_REPLICA = 45;
 
     public static final short OP_ADD_BACKEND = 50;
     public static final short OP_DROP_BACKEND = 51;
@@ -92,8 +94,8 @@ public class OperationType {
     public static final short OP_ADD_FRONTEND = 55;
     public static final short OP_ADD_FIRST_FRONTEND = 56;
     public static final short OP_REMOVE_FRONTEND = 57;
-    public static final short OP_SET_LOAD_ERROR_URL = 58;
-
+    public static final short OP_SET_LOAD_ERROR_HUB = 58;
+    public static final short OP_HEARTBEAT = 59;
     public static final short OP_ALTER_ACCESS_RESOURCE = 60;
     @Deprecated
     public static final short OP_DROP_USER = 61;
@@ -131,11 +133,26 @@ public class OperationType {
     public static final short OP_CREATE_REPOSITORY = 89;
     public static final short OP_DROP_REPOSITORY = 90;
 
+    //colocate table
+    public static final short OP_COLOCATE_ADD_TABLE = 94;
+    public static final short OP_COLOCATE_REMOVE_TABLE = 95;
+    public static final short OP_COLOCATE_BACKENDS_PER_BUCKETSEQ = 96;
+    public static final short OP_COLOCATE_MARK_BALANCING = 97;
+    public static final short OP_COLOCATE_MARK_STABLE = 98;
+    public static final short OP_MODIFY_TABLE_COLOCATE = 99;
+
     //real time load 100 -108
     public static final short OP_UPSERT_TRANSACTION_STATE = 100;
     public static final short OP_DELETE_TRANSACTION_STATE = 101;
     public static final short OP_FINISHING_ROLLUP = 102;
     public static final short OP_FINISHING_SCHEMA_CHANGE = 103;
     public static final short OP_SAVE_TRANSACTION_ID = 104;
+
+    // routine load 110~120
+    public static final short OP_ROUTINE_LOAD_JOB = 110;
+
+    // UDF 130-140
+    public static final short OP_ADD_FUNCTION = 130;
+    public static final short OP_DROP_FUNCTION = 131;
 
 }

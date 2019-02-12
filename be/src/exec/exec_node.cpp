@@ -30,6 +30,7 @@
 #include "exec/partitioned_aggregation_node.h"
 #include "exec/new_partitioned_aggregation_node.h"
 #include "exec/csv_scan_node.h"
+#include "exec/es_scan_node.h"
 #include "exec/pre_aggregation_node.h"
 #include "exec/hash_join_node.h"
 #include "exec/broker_scan_node.h"
@@ -186,7 +187,6 @@ Status ExecNode::prepare(RuntimeState* state) {
     _mem_tracker.reset(new MemTracker(-1, _runtime_profile->name(), state->instance_mem_tracker()));
     _expr_mem_tracker.reset(new MemTracker(-1, "Exprs", _mem_tracker.get()));
     _expr_mem_pool.reset(new MemPool(_expr_mem_tracker.get()));
-
     // TODO chenhao
     RETURN_IF_ERROR(Expr::prepare(_conjunct_ctxs, state, row_desc(), expr_mem_tracker()));
     // TODO(zc):
@@ -210,6 +210,14 @@ Status ExecNode::reset(RuntimeState* state) {
     for (int i = 0; i < _children.size(); ++i) {
         RETURN_IF_ERROR(_children[i]->reset(state));
     }   
+    return Status::OK;
+}
+
+Status ExecNode::collect_query_statistics(QueryStatistics* statistics) {
+    DCHECK(statistics != nullptr);
+    for (auto child_node : _children) {
+        child_node->collect_query_statistics(statistics);
+    } 
     return Status::OK;
 }
 
@@ -350,6 +358,10 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
 
     case TPlanNodeType::MYSQL_SCAN_NODE:
         *node = pool->add(new MysqlScanNode(pool, tnode, descs));
+        return Status::OK;
+
+    case TPlanNodeType::ES_SCAN_NODE:
+        *node = pool->add(new EsScanNode(pool, tnode, descs));
         return Status::OK;
 
     case TPlanNodeType::SCHEMA_SCAN_NODE:
@@ -500,6 +512,7 @@ void ExecNode::collect_nodes(TPlanNodeType::type node_type, vector<ExecNode*>* n
 void ExecNode::collect_scan_nodes(vector<ExecNode*>* nodes) {
     collect_nodes(TPlanNodeType::OLAP_SCAN_NODE, nodes);
     collect_nodes(TPlanNodeType::BROKER_SCAN_NODE, nodes);
+    collect_nodes(TPlanNodeType::ES_SCAN_NODE, nodes);
 }
 
 void ExecNode::init_runtime_profile(const std::string& name) {

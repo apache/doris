@@ -23,11 +23,11 @@ import org.apache.doris.backup.BackupJobInfo.BackupTableInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupTabletInfo;
 import org.apache.doris.backup.RestoreFileMapping.IdChain;
 import org.apache.doris.backup.Status.ErrCode;
-import org.apache.doris.catalog.BrokerMgr.BrokerAddress;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
@@ -131,12 +131,21 @@ public class RestoreJob extends AbstractJob {
 
     private Map<Long, Long> unfinishedSignatureToId = Maps.newConcurrentMap();
 
+    // the meta version is used when reading backup meta from file.
+    // we do not persist this field, because this is just a temporary solution.
+    // the true meta version should be get from backup job info, which is saved when doing backup job.
+    // But the earlier version of Doris do not save the meta version in backup job info, so we allow user to
+    // set this 'metaVersion' in restore stmt.
+    // NOTICE: because we do not persist it, this info may be lost if Frontend restart,
+    // and if you don't want to losing it, backup your data again by using latest Doris version.
+    private int metaVersion = -1;
+
     public RestoreJob() {
         super(JobType.RESTORE);
     }
 
     public RestoreJob(String label, String backupTs, long dbId, String dbName, BackupJobInfo jobInfo,
-            boolean allowLoad, int restoreReplicationNum, long timeoutMs,
+            boolean allowLoad, int restoreReplicationNum, long timeoutMs, int metaVersion,
             Catalog catalog, long repoId) {
         super(JobType.RESTORE, label, dbId, dbName, timeoutMs, catalog, repoId);
         this.backupTimestamp = backupTs;
@@ -144,6 +153,7 @@ public class RestoreJob extends AbstractJob {
         this.allowLoad = allowLoad;
         this.restoreReplicationNum = restoreReplicationNum;
         this.state = RestoreJobState.PENDING;
+        this.metaVersion = metaVersion;
     }
 
     public RestoreJobState getState() {
@@ -152,6 +162,10 @@ public class RestoreJob extends AbstractJob {
 
     public RestoreFileMapping getFileMapping() {
         return fileMapping;
+    }
+    
+    public int getMetaVersion() {
+        return metaVersion;
     }
 
     public synchronized boolean finishTabletSnapshotTask(SnapshotTask task, TFinishTaskRequest request) {
@@ -175,6 +189,7 @@ public class RestoreJob extends AbstractJob {
                 task.getSchemaHash(), request.getSnapshot_path(), Lists.newArrayList());
 
         snapshotInfos.put(task.getTabletId(), task.getBackendId(), info);
+        taskProgress.remove(task.getSignature());
         Long removedTabletId = unfinishedSignatureToId.remove(task.getSignature());
         if (removedTabletId != null) {
             taskErrMsg.remove(task.getSignature());
@@ -207,6 +222,7 @@ public class RestoreJob extends AbstractJob {
             }
         }
 
+        taskProgress.remove(task.getSignature());
         Long beId = unfinishedSignatureToId.remove(task.getSignature());
         if (beId == null || beId != task.getBackendId()) {
             LOG.error("invalid download task: {}. {}", task, this);
@@ -226,6 +242,7 @@ public class RestoreJob extends AbstractJob {
             return false;
         }
 
+        taskProgress.remove(task.getSignature());
         Long tabletId = unfinishedSignatureToId.remove(task.getSignature());
         if (tabletId == null || tabletId != task.getTabletId()) {
             LOG.error("invalid dir move task: {}. {}", task, this);
@@ -290,31 +307,74 @@ public class RestoreJob extends AbstractJob {
 
         LOG.info("run restore job: {}", this);
 
-        switch (state) {
-            case PENDING:
-                checkAndPrepareMeta();
-                break;
-            case SNAPSHOTING:
-                waitingAllSnapshotsFinished();
-                break;
-            case DOWNLOAD:
-                downloadSnapshots();
-                break;
-            case DOWNLOADING:
-                waitingAllDownloadFinished();
-                break;
-            case COMMIT:
-                commit();
-                break;
-            case COMMITTING:
-                waitingAllTabletsCommitted();
-                break;
-            default:
-                break;
+        checkIfNeedCancel();
+
+        if (status.ok()) {
+            switch (state) {
+                case PENDING:
+                    checkAndPrepareMeta();
+                    break;
+                case SNAPSHOTING:
+                    waitingAllSnapshotsFinished();
+                    break;
+                case DOWNLOAD:
+                    downloadSnapshots();
+                    break;
+                case DOWNLOADING:
+                    waitingAllDownloadFinished();
+                    break;
+                case COMMIT:
+                    commit();
+                    break;
+                case COMMITTING:
+                    waitingAllTabletsCommitted();
+                    break;
+                default:
+                    break;
+            }
         }
 
         if (!status.ok()) {
             cancelInternal(false);
+        }
+    }
+
+    /*
+     * return true if some restored objs have been dropped.
+     */
+    private void checkIfNeedCancel() {
+        if (state == RestoreJobState.PENDING) {
+            return;
+        }
+
+        Database db = catalog.getDb(dbId);
+        if (db == null) {
+            status = new Status(ErrCode.NOT_FOUND, "database " + dbId + " has been dropped");
+        }
+
+        db.readLock();
+        try {
+            for (IdChain idChain : fileMapping.getMapping().keySet()) {
+                OlapTable tbl = (OlapTable) db.getTable(idChain.getTblId());
+                if (tbl == null) {
+                    status = new Status(ErrCode.NOT_FOUND, "table " + idChain.getTblId() + " has been dropped");
+                    return;
+                }
+
+                Partition part = tbl.getPartition(idChain.getPartId());
+                if (part == null) {
+                    status = new Status(ErrCode.NOT_FOUND, "partition " + idChain.getPartId() + " has been dropped");
+                    return;
+                }
+
+                MaterializedIndex index = part.getIndex(idChain.getIdxId());
+                if (index == null) {
+                    status = new Status(ErrCode.NOT_FOUND, "index " + idChain.getIdxId() + " has been dropped");
+                    return;
+                }
+            }
+        } finally {
+            db.readUnlock();
         }
     }
 
@@ -365,7 +425,7 @@ public class RestoreJob extends AbstractJob {
                 }
                 
                 if (tbl.getType() != TableType.OLAP) {
-                    status = new Status(ErrCode.COMMON_ERROR, "Only support retore olap table: " + tbl.getName());
+                    status = new Status(ErrCode.COMMON_ERROR, "Only support retore OLAP table: " + tbl.getName());
                     return;
                 }
                 
@@ -442,7 +502,7 @@ public class RestoreJob extends AbstractJob {
                                                 + " in table " + localTbl.getName()
                                                 + " has different replication num '"
                                                 + localRangePartInfo.getReplicationNum(localPartition.getId())
-                                                + "' with parition in repository");
+                                                + "' with parition in repository, which is " + restoreReplicationNum);
                                         return;
                                     }
                                     genFileMapping(localOlapTbl, localPartition, tblInfo.id, backupPartInfo,
@@ -464,7 +524,7 @@ public class RestoreJob extends AbstractJob {
                                             + " in table " + localTbl.getName()
                                             + " has different replication num '"
                                             + localPartInfo.getReplicationNum(localPartition.getId())
-                                            + "' with parition in repository");
+                                            + "' with parition in repository, which is " + restoreReplicationNum);
                                     return;
                                 }
 
@@ -555,13 +615,13 @@ public class RestoreJob extends AbstractJob {
                     int schemaHash = localTbl.getSchemaHashByIndexId(restoredIdx.getId());
                     KeysType keysType = localTbl.getKeysType();
                     List<Column> columns = localTbl.getSchemaByIndexId(restoredIdx.getId());
+                    TabletMeta tabletMeta = new TabletMeta(db.getId(), localTbl.getId(), restorePart.getId(),
+                            restoredIdx.getId(), schemaHash);
                     for (Tablet restoreTablet : restoredIdx.getTablets()) {
-                        TabletMeta tabletMeta = new TabletMeta(db.getId(), localTbl.getId(),
-                                restorePart.getId(), restoredIdx.getId(), schemaHash);
                         Catalog.getCurrentInvertedIndex().addTablet(restoreTablet.getId(), tabletMeta);
                         for (Replica restoreReplica : restoreTablet.getReplicas()) {
                             Catalog.getCurrentInvertedIndex().addReplica(restoreTablet.getId(), restoreReplica);
-                            CreateReplicaTask task = new CreateReplicaTask(restoreReplica.getBackendId(), schemaHash,
+                            CreateReplicaTask task = new CreateReplicaTask(restoreReplica.getBackendId(), dbId,
                                     localTbl.getId(), restorePart.getId(), restoredIdx.getId(),
                                     restoreTablet.getId(), shortKeyColumnCount,
                                     schemaHash, restoreReplica.getVersion(), restoreReplica.getVersionHash(),
@@ -590,13 +650,13 @@ public class RestoreJob extends AbstractJob {
                         int schemaHash = restoreTbl.getSchemaHashByIndexId(index.getId());
                         KeysType keysType = restoreTbl.getKeysType();
                         List<Column> columns = restoreTbl.getSchemaByIndexId(index.getId());
+                        TabletMeta tabletMeta = new TabletMeta(db.getId(), restoreTbl.getId(), restorePart.getId(),
+                                index.getId(), schemaHash);
                         for (Tablet tablet : index.getTablets()) {
-                            TabletMeta tabletMeta = new TabletMeta(db.getId(), restoreTbl.getId(),
-                                    restorePart.getId(), index.getId(), schemaHash);
                             Catalog.getCurrentInvertedIndex().addTablet(tablet.getId(), tabletMeta);
                             for (Replica replica : tablet.getReplicas()) {
                                 Catalog.getCurrentInvertedIndex().addReplica(tablet.getId(), replica);
-                                CreateReplicaTask task = new CreateReplicaTask(replica.getBackendId(), schemaHash,
+                                CreateReplicaTask task = new CreateReplicaTask(replica.getBackendId(), dbId,
                                         restoreTbl.getId(), restorePart.getId(), index.getId(), tablet.getId(),
                                         shortKeyColumnCount, schemaHash, replica.getVersion(), replica.getVersionHash(),
                                         keysType, TStorageType.COLUMN, storageMedium, columns,
@@ -630,9 +690,9 @@ public class RestoreJob extends AbstractJob {
             }
             AgentTaskExecutor.submit(batchTask);
 
-            // estimate timeout, at most 10 seconds
+            // estimate timeout, at most 10 min
             long timeout = Config.tablet_create_timeout_second * 1000L * batchTask.getTaskNum();
-            timeout = Math.min(10 * 1000, timeout);
+            timeout = Math.min(10 * 60 * 1000, timeout);
             boolean ok = false;
             try {
                 LOG.info("begin to send create replica tasks to BE for restore. total {} tasks. timeout: {}",
@@ -662,8 +722,8 @@ public class RestoreJob extends AbstractJob {
                         long remotePartId = backupPartitionInfo.id;
                         Range<PartitionKey> remoteRange = remotePartitionInfo.getRange(remotePartId);
                         DataProperty remoteDataProperty = remotePartitionInfo.getDataProperty(remotePartId);
-                        localPartitionInfo.addPartitionForRestore(restoredPart.getId(), remoteRange,
-                                                                  remoteDataProperty, (short) restoreReplicationNum);
+                        localPartitionInfo.addPartition(restoredPart.getId(), remoteRange,
+                                remoteDataProperty, (short) restoreReplicationNum);
                         localTbl.addPartition(restoredPart);
                     }
 
@@ -694,6 +754,7 @@ public class RestoreJob extends AbstractJob {
         // begin to make snapshots for all replicas
         // snapshot is for incremental download
         unfinishedSignatureToId.clear();
+        taskProgress.clear();
         taskErrMsg.clear();
         batchTask = new AgentBatchTask();
         db.readLock();
@@ -708,7 +769,7 @@ public class RestoreJob extends AbstractJob {
                 SnapshotTask task = new SnapshotTask(null, replica.getBackendId(), signature,
                         jobId, db.getId(),
                         tbl.getId(), part.getId(), index.getId(), tablet.getId(),
-                        part.getCommittedVersion(), part.getCommittedVersionHash(),
+                        part.getVisibleVersion(), part.getVisibleVersionHash(),
                         tbl.getSchemaHashByIndexId(index.getId()), timeoutMs,
                         true /* is restore task*/);
                 batchTask.addTask(task);
@@ -763,11 +824,12 @@ public class RestoreJob extends AbstractJob {
         }
 
         // save version info for creating replicas
-        long committedVersion = remotePart.getCommittedVersion();
-        long committedVersionHash = remotePart.getCommittedVersionHash();
+        long visibleVersion = remotePart.getVisibleVersion();
+        long visibleVersionHash = remotePart.getVisibleVersionHash();
 
         // tablets
         for (MaterializedIndex remoteIdx : remotePart.getMaterializedIndices()) {
+            int schemaHash = remoteTbl.getSchemaHashByIndexId(remoteIdx.getId());
             int remotetabletSize = remoteIdx.getTablets().size();
             remoteIdx.clearTabletsForRestore();
             for (int i = 0; i < remotetabletSize; i++) {
@@ -789,7 +851,7 @@ public class RestoreJob extends AbstractJob {
                 for (Long beId : beIds) {
                     long newReplicaId = catalog.getNextId();
                     Replica newReplica = new Replica(newReplicaId, beId, ReplicaState.NORMAL,
-                            committedVersion, committedVersionHash);
+                            visibleVersion, visibleVersionHash, schemaHash);
                     newTablet.addReplica(newReplica, true /* is restore */);
                 }
             }
@@ -822,7 +884,8 @@ public class RestoreJob extends AbstractJob {
 
     private boolean downloadAndDeserializeMetaInfo() {
         List<BackupMeta> backupMetas = Lists.newArrayList();
-        Status st = repo.getSnapshotMetaFile(jobInfo.name, backupMetas);
+        Status st = repo.getSnapshotMetaFile(jobInfo.name, backupMetas,
+                this.metaVersion == -1 ? jobInfo.metaVersion : this.metaVersion);
         if (!st.ok()) {
             status = st;
             return false;
@@ -857,16 +920,16 @@ public class RestoreJob extends AbstractJob {
                 long remotePartId = backupPartitionInfo.id;
                 Range<PartitionKey> remoteRange = remotePartitionInfo.getRange(remotePartId);
                 DataProperty remoteDataProperty = remotePartitionInfo.getDataProperty(remotePartId);
-                localPartitionInfo.addPartitionForRestore(restorePart.getId(), remoteRange,
+                localPartitionInfo.addPartition(restorePart.getId(), remoteRange,
                                                           remoteDataProperty, (short) restoreReplicationNum);
                 localTbl.addPartition(restorePart);
 
                 // modify tablet inverted index
                 for (MaterializedIndex restoreIdx : restorePart.getMaterializedIndices()) {
                     int schemaHash = localTbl.getSchemaHashByIndexId(restoreIdx.getId());
+                    TabletMeta tabletMeta = new TabletMeta(db.getId(), localTbl.getId(), restorePart.getId(),
+                            restoreIdx.getId(), schemaHash);
                     for (Tablet restoreTablet : restoreIdx.getTablets()) {
-                        TabletMeta tabletMeta = new TabletMeta(db.getId(), localTbl.getId(),
-                                restorePart.getId(), restoreIdx.getId(), schemaHash);
                         Catalog.getCurrentInvertedIndex().addTablet(restoreTablet.getId(), tabletMeta);
                         for (Replica restoreReplica : restoreTablet.getReplicas()) {
                             Catalog.getCurrentInvertedIndex().addReplica(restoreTablet.getId(), restoreReplica);
@@ -882,9 +945,9 @@ public class RestoreJob extends AbstractJob {
                 for (Partition restorePart : restoreTbl.getPartitions()) {
                     for (MaterializedIndex restoreIdx : restorePart.getMaterializedIndices()) {
                         int schemaHash = restoreTbl.getSchemaHashByIndexId(restoreIdx.getId());
+                        TabletMeta tabletMeta = new TabletMeta(db.getId(), restoreTbl.getId(), restorePart.getId(),
+                                restoreIdx.getId(), schemaHash);
                         for (Tablet restoreTablet : restoreIdx.getTablets()) {
-                            TabletMeta tabletMeta = new TabletMeta(db.getId(), restoreTbl.getId(),
-                                    restorePart.getId(), restoreIdx.getId(), schemaHash);
                             Catalog.getCurrentInvertedIndex().addTablet(restoreTablet.getId(), tabletMeta);
                             for (Replica restoreReplica : restoreTablet.getReplicas()) {
                                 Catalog.getCurrentInvertedIndex().addReplica(restoreTablet.getId(), restoreReplica);
@@ -924,6 +987,7 @@ public class RestoreJob extends AbstractJob {
 
         // Send download tasks
         unfinishedSignatureToId.clear();
+        taskProgress.clear();
         taskErrMsg.clear();
         AgentBatchTask batchTask = new AgentBatchTask();
         for (long dbId : dbToSnapshotInfos.keySet()) {
@@ -953,7 +1017,7 @@ public class RestoreJob extends AbstractJob {
                     LOG.debug("backend {} has {} batch, total {} tasks, {}",
                               beId, batchNum, totalNum, this);
 
-                    List<BrokerAddress> brokerAddrs = Lists.newArrayList();
+                    List<FsBroker> brokerAddrs = Lists.newArrayList();
                     Status st = repo.getBrokerAddress(beId, catalog, brokerAddrs);
                     if (!st.ok()) {
                         status = st;
@@ -1052,7 +1116,7 @@ public class RestoreJob extends AbstractJob {
 
         state = RestoreJobState.DOWNLOADING;
 
-        // No log here
+        // No edit log here
         LOG.info("finished to send download tasks to BE. num: {}. {}", batchTask.getTaskNum(), this);
         return;
     }
@@ -1075,6 +1139,7 @@ public class RestoreJob extends AbstractJob {
     private void commit() {
         // Send task to move the download dir
         unfinishedSignatureToId.clear();
+        taskProgress.clear();
         taskErrMsg.clear();
         AgentBatchTask batchTask = new AgentBatchTask();
         // tablet id->(be id -> download info)
@@ -1140,16 +1205,16 @@ public class RestoreJob extends AbstractJob {
                         continue;
                     }
 
-                    // update partition committed version
-                    part.updateCommitVersionAndVersionHash(entry.getValue().first, entry.getValue().second);
+                    // update partition visible version
+                    part.updateVersionForRestore(entry.getValue().first, entry.getValue().second);
 
                     // we also need to update the replica version of these overwritten restored partitions
                     for (MaterializedIndex idx : part.getMaterializedIndices()) {
                         for (Tablet tablet : idx.getTablets()) {
                             for (Replica replica : tablet.getReplicas()) {
-                                if (!replica.checkVersionCatchUp(part.getCommittedVersion(),
-                                                                 part.getCommittedVersionHash())) {
-                                    replica.updateInfo(part.getCommittedVersion(), part.getCommittedVersionHash(),
+                                if (!replica.checkVersionCatchUp(part.getVisibleVersion(),
+                                                                 part.getVisibleVersionHash())) {
+                                    replica.updateVersionInfo(part.getVisibleVersion(), part.getVisibleVersionHash(),
                                                        replica.getDataSize(), replica.getRowCount());
                                 }
                             }
@@ -1199,9 +1264,11 @@ public class RestoreJob extends AbstractJob {
         info.add(TimeUtils.longToTimeString(downloadFinishedTime));
         info.add(TimeUtils.longToTimeString(finishedTime));
         info.add(Joiner.on(", ").join(unfinishedSignatureToId.keySet()));
-        List<String> msgs = taskErrMsg.entrySet().stream().map(n -> "[" + n.getKey() + ": " + n.getValue()
-                + "]").collect(Collectors.toList());
-        info.add(Joiner.on(", ").join(msgs));
+        info.add(Joiner.on(", ").join(taskProgress.entrySet().stream().map(
+                e -> "[" + e.getKey() + ": " + e.getValue().first + "/" + e.getValue().second + "]").collect(
+                        Collectors.toList())));
+        info.add(Joiner.on(", ").join(taskErrMsg.entrySet().stream().map(n -> "[" + n.getKey() + ": " + n.getValue()
+                + "]").collect(Collectors.toList())));
         info.add(status.toString());
         info.add(String.valueOf(timeoutMs / 1000));
         return info;

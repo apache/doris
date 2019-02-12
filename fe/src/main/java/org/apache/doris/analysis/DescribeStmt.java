@@ -19,10 +19,10 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ColumnType;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.common.AnalysisException;
@@ -51,23 +51,23 @@ import java.util.Set;
 public class DescribeStmt extends ShowStmt {
     private static final ShowResultSetMetaData DESC_OLAP_TABLE_ALL_META_DATA =
             ShowResultSetMetaData.builder()
-                    .addColumn(new Column("IndexName", ColumnType.createVarchar(20)))
-                    .addColumn(new Column("Field", ColumnType.createVarchar(20)))
-                    .addColumn(new Column("Type", ColumnType.createVarchar(20)))
-                    .addColumn(new Column("Null", ColumnType.createVarchar(10)))
-                    .addColumn(new Column("Key", ColumnType.createVarchar(10)))
-                    .addColumn(new Column("Default", ColumnType.createVarchar(30)))
-                    .addColumn(new Column("Extra", ColumnType.createVarchar(30)))
+                    .addColumn(new Column("IndexName", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Field", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Type", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Null", ScalarType.createVarchar(10)))
+                    .addColumn(new Column("Key", ScalarType.createVarchar(10)))
+                    .addColumn(new Column("Default", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("Extra", ScalarType.createVarchar(30)))
                     .build();
 
     private static final ShowResultSetMetaData DESC_MYSQL_TABLE_ALL_META_DATA =
             ShowResultSetMetaData.builder()
-                    .addColumn(new Column("Host", ColumnType.createVarchar(30)))
-                    .addColumn(new Column("Port", ColumnType.createVarchar(10)))
-                    .addColumn(new Column("User", ColumnType.createVarchar(30)))
-                    .addColumn(new Column("Password", ColumnType.createVarchar(30)))
-                    .addColumn(new Column("Database", ColumnType.createVarchar(30)))
-                    .addColumn(new Column("Table", ColumnType.createVarchar(30)))
+                    .addColumn(new Column("Host", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("Port", ScalarType.createVarchar(10)))
+                    .addColumn(new Column("User", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("Password", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("Database", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("Table", ScalarType.createVarchar(30)))
                     .build();
 
     // empty col num equals to DESC_OLAP_TABLE_ALL_META_DATA.size()
@@ -117,7 +117,7 @@ public class DescribeStmt extends ShowStmt {
             if (!isAllTables) {
                 // show base table schema only
                 String procString = "/dbs/" + db.getId() + "/" + table.getId() + "/" + TableProcDir.INDEX_SCHEMA
-                        + "/" + table.getName();
+                        + "/" + table.getId();
 
                 node = ProcService.getInstance().open(procString);
                 if (node == null) {
@@ -159,7 +159,7 @@ public class DescribeStmt extends ShowStmt {
 
                             List<String> row = Arrays.asList("",
                                                              column.getName(),
-                                                             column.getColumnType().toString(),
+                                                             column.getOriginType().toString(),
                                                              column.isAllowNull() ? "Yes" : "No",
                                                              ((Boolean) column.isKey()).toString(),
                                                              column.getDefaultValue() == null
@@ -225,7 +225,7 @@ public class DescribeStmt extends ShowStmt {
             }
 
             for (String col : result.getColumnNames()) {
-                builder.addColumn(new Column(col, ColumnType.createVarchar(30)));
+                builder.addColumn(new Column(col, ScalarType.createVarchar(30)));
             }
             return builder.build();
         } else {

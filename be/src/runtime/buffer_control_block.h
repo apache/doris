@@ -24,6 +24,7 @@
 #include <boost/thread/condition_variable.hpp>
 #include "common/status.h"
 #include "gen_cpp/Types_types.h"
+#include "runtime/query_statistics.h"
 
 namespace google {
 namespace protobuf {
@@ -52,7 +53,7 @@ struct GetResultBatchCtx {
     }
 
     void on_failure(const Status& status);
-    void on_close(int64_t packet_seq);
+    void on_close(int64_t packet_seq, QueryStatistics* statistics = nullptr);
     void on_data(TFetchDataResult* t_result, int64_t packet_seq, bool eos = false);
 };
 
@@ -80,6 +81,9 @@ public:
         return _fragment_id;
     }
 
+    void set_query_statistics(std::shared_ptr<QueryStatistics> statistics) {
+        _query_statistics = statistics;
+    }
 private:
     typedef std::list<TFetchDataResult*> ResultQueue;
 
@@ -100,8 +104,13 @@ private:
     boost::condition_variable _data_arriaval;
     // signal removal of data by stream consumer
     boost::condition_variable _data_removal;
-
+   
     std::deque<GetResultBatchCtx*> _waiting_rpc;
+
+    // It is shared with PlanFragmentExecutor and will be called in two different 
+    // threads. But their calls are all at different time, there is no problem of 
+    // multithreaded access.
+    std::shared_ptr<QueryStatistics> _query_statistics;
 };
 
 }

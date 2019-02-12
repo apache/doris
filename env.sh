@@ -1,4 +1,3 @@
-#!/usr/bin/env bash
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -22,20 +21,60 @@ if [[ -z ${DORIS_HOME} ]]; then
     exit 1
 fi
 
+# check OS type
+if [[ ! -z "$OSTYPE" ]]; then
+    if [[ "$OSTYPE" != "linux-gnu" ]]; then
+        echo "Error: Unsupported OS type: $OSTYPE"
+        exit 1
+    fi
+fi
+
 # include custom environment variables
 if [[ -f ${DORIS_HOME}/custom_env.sh ]]; then
-    source ${DORIS_HOME}/custom_env.sh
+    . ${DORIS_HOME}/custom_env.sh
+fi
+
+# set DORIS_THIRDPARTY
+if [[ -z ${DORIS_THIRDPARTY} ]]; then
+    export DORIS_THIRDPARTY=${DORIS_HOME}/thirdparty
+fi
+
+# check python
+export PYTHON=python
+if ! ${PYTHON} --version; then
+    export PYTHON=python2.7
+    if ! ${PYTHON} --version; then
+        echo "Error: python is not found"
+        exit 1
+    fi
+fi
+
+# set GCC HOME
+if [[ -z ${DORIS_GCC_HOME} ]]; then
+    export DORIS_GCC_HOME=$(dirname `which gcc`)/..
+fi
+
+gcc_ver=`${DORIS_GCC_HOME}/bin/gcc -dumpversion`
+required_ver="5.3.1"
+if [[ ! "$(printf '%s\n' "$required_ver" "$gcc_ver" | sort -V | head -n1)" = "$required_ver" ]]; then 
+    echo "Error: GCC version (${gcc_ver}) must be greater than or equal to ${required_ver}"
+    exit 1
+fi
+
+# export CLANG COMPATIBLE FLAGS
+export CLANG_COMPATIBLE_FLAGS=`echo | ${DORIS_GCC_HOME}/bin/gcc -Wp,-v -xc++ - -fsyntax-only 2>&1 \
+                | grep -E '^\s+/' | awk '{print "-I" $1}' | tr '\n' ' '`
+
+# check java home
+if [[ -z ${JAVA_HOME} ]]; then
+    echo "Error: JAVA_HOME is not set"
+    exit 1
 fi
 
 # check java version
-if [ -z ${JAVA_HOME} ]; then
-    echo "Error: JAVA_HOME is not set, use thirdparty/installed/jdk1.8.0_131"
-    export JAVA_HOME=${DORIS_HOME}/thirdparty/installed/jdk1.8.0_131
-fi
-
 export JAVA=${JAVA_HOME}/bin/java
 JAVA_VER=$(${JAVA} -version 2>&1 | sed 's/.* version "\(.*\)\.\(.*\)\..*"/\1\2/; 1q' | cut -f1 -d " ")
-if [ $JAVA_VER -lt 18 ]; then
+if [[ $JAVA_VER -lt 18 ]]; then
     echo "Error: require JAVA with JDK version at least 1.8"
     exit 1
 fi
@@ -45,20 +84,5 @@ export MVN=mvn
 if ! ${MVN} --version; then
     echo "Error: mvn is not found"
     exit 1
-fi
-
-# check python
-export PYTHON=python
-if ! ${PYTHON} --version; then
-    export PYTHON=python2.7
-    if ! ${PYTHON} --version; then
-        echo "Error: python is not found"
-        exit
-    fi
-fi
-
-# set DORIS_THIRDPARTY
-if [ -z ${DORIS_THIRDPARTY} ]; then
-    export DORIS_THIRDPARTY=${DORIS_HOME}/thirdparty
 fi
 

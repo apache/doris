@@ -49,8 +49,8 @@ OLAPStatus PushHandler::process(
         const TPushReq& request,
         PushType push_type,
         vector<TTabletInfo>* tablet_info_vec) {
-    OLAP_LOG_INFO("begin to push data. [table='%s' version=%ld]",
-                   olap_table->full_name().c_str(), request.version);
+    LOG(INFO) << "begin to push data. tablet=" << olap_table->full_name()
+              << ", version=" << request.version;
 
     OLAPStatus res = OLAP_SUCCESS;
     _request = request;
@@ -107,12 +107,11 @@ OLAPStatus PushHandler::process(
         _release_header_lock();
 
         if (!is_schema_changing) {
-            OLAP_LOG_INFO("schema change info is cleared after base table get related tablet, "
-                          "maybe new tablet reach at the same time and load firstly. ",
-                          "[base_table='%s' table='%s' version=%ld]",
-                          olap_table->full_name().c_str(),
-                          related_olap_table->full_name().c_str(),
-                          _request.version);
+            LOG(INFO) << "schema change info is cleared after base table get related tablet, "
+                      << "maybe new tablet reach at the same time and load firstly. "
+                      << ", old_tablet=" << olap_table->full_name()
+                      << ", new_tablet=" << related_olap_table->full_name()
+                      << ", version=" << _request.version;
         } else if (related_olap_table->creation_time() > olap_table->creation_time()) {
             // If current table is old table, append it to table_infoes
             table_infoes.push_back(TableVars());
@@ -126,11 +125,10 @@ OLAPStatus PushHandler::process(
                 goto EXIT;
             }
 
-            OLAP_LOG_INFO("data of new table is generated, stop convert from base table. "
-                          "[base_table='%s' table='%s' version=%ld]",
-                          related_olap_table->full_name().c_str(),
-                          olap_table->full_name().c_str(),
-                          _request.version);
+            LOG(INFO) << "data of new table is generated, stop convert from base table. "
+                      << "old_tablet=" << olap_table->full_name()
+                      << ", new_tablet=" << related_olap_table->full_name()
+                      << ", version=" << _request.version;
             is_new_tablet_effective = true;
         }
     }
@@ -212,8 +210,8 @@ OLAPStatus PushHandler::process(
 
             res = table_var.olap_table->save_header();
             if (res != OLAP_SUCCESS) {
-                LOG(FATAL) << "fail to save header. res=" << res << ", "
-                           << "table=" << table_var.olap_table->full_name();
+                LOG(FATAL) << "fail to save header. res=" << res
+                           << ", table=" << table_var.olap_table->full_name();
                 goto EXIT;
             }
         }
@@ -280,9 +278,9 @@ EXIT:
             continue;
         }
 
-        for (Rowset* rowset : table_var.added_indices) {
-            rowset->delete_all_files();
-            SAFE_DELETE(rowset);
+        for (SegmentGroup* segment_group : table_var.added_indices) {
+            segment_group->delete_all_files();
+            SAFE_DELETE(segment_group);
         }
     }
 
@@ -294,7 +292,7 @@ EXIT:
     }
     _olap_table_arr.clear();
 
-    OLAP_LOG_INFO("finish to process push. [res=%d]", res);
+    LOG(INFO) << "finish to process push. res=" << res;
 
     return res;
 }
@@ -304,8 +302,8 @@ OLAPStatus PushHandler::process_realtime_push(
         const TPushReq& request,
         PushType push_type,
         vector<TTabletInfo>* tablet_info_vec) {
-    OLAP_LOG_INFO("begin to realtime push. [table=%s transaction_id=%ld]",
-                   olap_table->full_name().c_str(), request.transaction_id);
+    LOG(INFO) << "begin to realtime push. tablet=" << olap_table->full_name()
+              << ", transaction_id=" << request.transaction_id;
 
     OLAPStatus res = OLAP_SUCCESS;
     _request = request;
@@ -339,8 +337,9 @@ OLAPStatus PushHandler::process_realtime_push(
 
     // only when fe sends schema_change true, should consider to push related table
     if (_request.is_schema_changing) {
-        OLAP_LOG_DEBUG("push req specify schema changing is true. [table=%s transaction_id=%ld]",
-                       olap_table->full_name().c_str(), request.transaction_id);
+        VLOG(3) << "push req specify schema changing is true. "
+                << "tablet=" << olap_table->full_name()
+                << ", transaction_id=" << request.transaction_id;
         TTabletId related_tablet_id;
         TSchemaHash related_schema_hash;
 
@@ -350,10 +349,11 @@ OLAPStatus PushHandler::process_realtime_push(
         olap_table->release_header_lock();
 
         if (is_schema_changing) {
-            OLAP_LOG_INFO("find schema_change status when realtime push. "
-                          "[table=%s related_tablet_id=%ld related_schema_hash=%d transaction_id=%ld]",
-                          olap_table->full_name().c_str(),
-                          related_tablet_id, related_schema_hash, request.transaction_id);
+            LOG(INFO) << "find schema_change status when realtime push. "
+                      << "tablet=" << olap_table->full_name() 
+                      << ", related_tablet_id=" << related_tablet_id
+                      << ", related_schema_hash=" << related_schema_hash
+                      << ", transaction_id=" << request.transaction_id;
             OLAPTablePtr related_olap_table = OLAPEngine::get_instance()->get_table(
                 related_tablet_id, related_schema_hash);
 
@@ -427,9 +427,9 @@ OLAPStatus PushHandler::process_realtime_push(
                 }
             }
             table_var.olap_table->release_header_lock();
-            OLAP_LOG_INFO("success to check delete condition when realtime push. "
-                          "[table=%s transaction_id=%ld]",
-                          table_var.olap_table->full_name().c_str(), request.transaction_id);
+            LOG(INFO) << "success to check delete condition when realtime push. "
+                      << "tablet=" << table_var.olap_table->full_name()
+                      << ", transaction_id=" << request.transaction_id;
         }
     }
 
@@ -448,14 +448,14 @@ OLAPStatus PushHandler::process_realtime_push(
             continue;
         }
 
-        for (Rowset* olap_index : table_var.added_indices) {
+        for (SegmentGroup* segment_group : table_var.added_indices) {
 
             res = table_var.olap_table->add_pending_data(
-                olap_index, push_type == PUSH_FOR_DELETE ? &request.delete_conditions : NULL);
+                segment_group, push_type == PUSH_FOR_DELETE ? &request.delete_conditions : NULL);
 
             // if pending data exists in tablet, which means push finished
             if (res == OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
-                SAFE_DELETE(olap_index);
+                SAFE_DELETE(segment_group);
                 res = OLAP_SUCCESS;
 
             } else if (res != OLAP_SUCCESS) {
@@ -480,9 +480,10 @@ EXIT:
         if (tablet_info_vec != NULL) {
             _get_tablet_infos(table_infoes, tablet_info_vec);
         }
-        OLAP_LOG_INFO("process realtime push successfully. "
-                      "[table=%s partition_id=%ld transaction_id=%ld]",
-                      olap_table->full_name().c_str(), request.partition_id, request.transaction_id);
+        LOG(INFO) << "process realtime push successfully. "
+                  << "tablet=" << olap_table->full_name()
+                  << ", partition_id=" << request.partition_id
+                  << ", transaction_id=" << request.transaction_id;
     } else {
 
         // error happens, clear
@@ -498,9 +499,9 @@ EXIT:
                 table_var.olap_table->tablet_id(), table_var.olap_table->schema_hash());
 
             // actually, olap_index may has been deleted in delete_transaction()
-            for (Rowset* rowset : table_var.added_indices) {
-                rowset->release();
-                OLAPEngine::get_instance()->add_unused_index(rowset);
+            for (SegmentGroup* segment_group : table_var.added_indices) {
+                segment_group->release();
+                OLAPEngine::get_instance()->add_unused_index(segment_group);
             }
         }
     }
@@ -534,13 +535,12 @@ OLAPStatus PushHandler::_convert(
     RowCursor row;
     BinaryFile raw_file;
     IBinaryReader* reader = NULL;
-    IWriter* writer = NULL;
-    Rowset* delta_rowset = NULL;
+    ColumnDataWriter* writer = NULL;
+    SegmentGroup* delta_segment_group = NULL;
     uint32_t  num_rows = 0;
 
     do {
-        OLAP_LOG_DEBUG("start to convert delta file.");
-
+        VLOG(3) << "start to convert delta file.";
         std::vector<FieldInfo> tablet_schema = curr_olap_table->tablet_schema();
 
         //curr_olap_table->set_tablet_schema();
@@ -581,8 +581,8 @@ OLAPStatus PushHandler::_convert(
             }
         }
 
-        // 2. New Rowset of curr_olap_table for current push
-        OLAP_LOG_DEBUG("init Rowset.");
+        // 2. New SegmentGroup of curr_olap_table for current push
+        VLOG(3) << "init SegmentGroup.";
 
         if (_request.__isset.transaction_id) {
             // create pending data dir
@@ -595,11 +595,11 @@ OLAPStatus PushHandler::_convert(
                 }
             }
 
-            delta_rowset = new(std::nothrow) Rowset(
+            delta_segment_group = new(std::nothrow) SegmentGroup(
                 curr_olap_table.get(), (_request.push_type == TPushType::LOAD_DELETE),
                 0, 0, true, _request.partition_id, _request.transaction_id);
         } else {
-            delta_rowset = new(std::nothrow) Rowset(
+            delta_segment_group = new(std::nothrow) SegmentGroup(
                 curr_olap_table.get(),
                 Version(_request.version, _request.version),
                 _request.version_hash,
@@ -607,20 +607,19 @@ OLAPStatus PushHandler::_convert(
                 0, 0);
         }
 
-        if (NULL == delta_rowset) {
-            OLAP_LOG_WARNING("fail to malloc Rowset. [table='%s' size=%ld]",
-                             curr_olap_table->full_name().c_str(), sizeof(Rowset));
+        if (NULL == delta_segment_group) {
+            OLAP_LOG_WARNING("fail to malloc SegmentGroup. [table='%s' size=%ld]",
+                             curr_olap_table->full_name().c_str(), sizeof(SegmentGroup));
             res = OLAP_ERR_MALLOC_ERROR;
             break;
         }
-        curr_olap_indices->push_back(delta_rowset);
+        curr_olap_indices->push_back(delta_segment_group);
 
-        // 3. New Writer to write data into Rowset
-        OLAP_LOG_DEBUG("init writer. [table='%s' block_row_size=%lu]",
-                       curr_olap_table->full_name().c_str(),
-                       curr_olap_table->num_rows_per_row_block());
+        // 3. New Writer to write data into SegmentGroup
+        VLOG(3) << "init writer. tablet=" << curr_olap_table->full_name()
+                << ", block_row_size=" << curr_olap_table->num_rows_per_row_block();
 
-        if (NULL == (writer = IWriter::create(curr_olap_table, delta_rowset, true))) {
+        if (NULL == (writer = ColumnDataWriter::create(curr_olap_table, delta_segment_group, true))) {
             OLAP_LOG_WARNING("fail to create writer. [table='%s']",
                              curr_olap_table->full_name().c_str());
             res = OLAP_ERR_MALLOC_ERROR;
@@ -633,11 +632,10 @@ OLAPStatus PushHandler::_convert(
             break;
         }
 
-        // 5. Read data from raw file and write into Rowset of curr_olap_table
+        // 5. Read data from raw file and write into SegmentGroup of curr_olap_table
         if (_request.__isset.http_file_path) {
             // Convert from raw to delta
-            OLAP_LOG_DEBUG("start to convert row file to delta.");
-
+            VLOG(3) << "start to convert row file to delta.";
             while (!reader->eof()) {
                 if (OLAP_SUCCESS != (res = writer->attached_by(&row))) {
                     OLAP_LOG_WARNING(
@@ -666,23 +664,27 @@ OLAPStatus PushHandler::_convert(
             }
         }
 
+        if (res != OLAP_SUCCESS) {
+            LOG(WARNING) << "ingest data failed. res" << res;
+            break;
+        }
+
         if (OLAP_SUCCESS != (res = writer->finalize())) {
             OLAP_LOG_WARNING("fail to finalize writer. [res=%d]", res);
             break;
         }
 
-        OLAP_LOG_DEBUG("load the index.");
-
-        if (OLAP_SUCCESS != (res = delta_rowset->load())) {
+        VLOG(3) << "load the index.";
+        if (OLAP_SUCCESS != (res = delta_segment_group->load())) {
             OLAP_LOG_WARNING("fail to load index. [res=%d table='%s' version=%ld]",
                              res, curr_olap_table->full_name().c_str(), _request.version);
             break;
         }
-        _write_bytes += delta_rowset->data_size();
-        _write_rows += delta_rowset->num_rows();
+        _write_bytes += delta_segment_group->data_size();
+        _write_rows += delta_segment_group->num_rows();
 
         // 7. Convert data for schema change tables
-        OLAP_LOG_TRACE("load to related tables of schema_change if possible. ");
+        VLOG(10) << "load to related tables of schema_change if possible.";
         if (NULL != new_olap_table.get()) {
             // create related tablet's pending data dir
             string dir_path = new_olap_table->construct_pending_data_dir_path();
@@ -712,9 +714,8 @@ OLAPStatus PushHandler::_convert(
     SAFE_DELETE(reader);
     SAFE_DELETE(writer);
     OLAP_LOG_NOTICE_PUSH("processed_rows", "%d", num_rows);
-    OLAP_LOG_TRACE("convert delta file end. [table='%s' res=%d]",
-                   curr_olap_table->full_name().c_str(), res);
-
+    VLOG(10) << "convert delta file end. res=" << res
+             << ", tablet=" << curr_olap_table->full_name();
     return res;
 }
 
@@ -744,16 +745,14 @@ OLAPStatus PushHandler::_validate_request(
     }
 
     if (is_new_tablet_effective) {
-        OLAP_LOG_INFO("maybe a alter tablet has already created from base tablet. "
-                       "[table='%s' version=%d]",
-                       olap_table_for_raw->full_name().c_str(),
-                       _request.version);
+        LOG(INFO) << "maybe a alter tablet has already created from base tablet. "
+                  << "tablet=" << olap_table_for_raw->full_name()
+                  << ", version=" << _request.version;
         if (push_type == PUSH_FOR_DELETE
                 && _request.version == latest_delta->start_version()
                 && _request.version_hash == latest_delta->version_hash()) {
-            OLAP_LOG_INFO("base tablet has already convert delete version for new tablet. "
-                          "[version=%ld version_hash=%lu]",
-                          _request.version, _request.version_hash);
+            LOG(INFO) << "base tablet has already convert delete version for new tablet. "
+                      << "version=" << _request.version << ", version_hash=" << _request.version_hash;
             return OLAP_ERR_PUSH_VERSION_ALREADY_EXIST;
         }
     } else {
@@ -811,10 +810,8 @@ OLAPStatus PushHandler::_get_versions_reverted(
         return OLAP_ERR_PUSH_VERSION_INCORRECT;
     }
 
-    OLAP_LOG_DEBUG("latest deltas was founded. [table='%s' version=%d-%d]",
-                   olap_table->full_name().c_str(),
-                   latest_delta->start_version(), latest_delta->end_version());
-
+    VLOG(3) << "latest deltas was founded. tablet=" << olap_table->full_name()
+            << ", version=" << latest_delta->start_version() << "-" << latest_delta->end_version();
     // Remove the cumulative delta that end_version == request.version()
     if (_request.version == latest_delta->start_version()) {
         Versions all_versions;
@@ -823,8 +820,8 @@ OLAPStatus PushHandler::_get_versions_reverted(
         for (Versions::const_iterator v = all_versions.begin(); v != all_versions.end(); ++v) {
             if (v->second == _request.version) {
                 unused_versions->push_back(*v);
-                OLAP_LOG_DEBUG("Add unused version. [table='%s' version=%d-%d]",
-                               olap_table->full_name().c_str(), v->first, v->second);
+                VLOG(3) << "Add unused version. tablet=" << olap_table->full_name()
+                        << "version=" << v->first << "-" << v->second;
             }
         }
 
@@ -851,8 +848,8 @@ OLAPStatus PushHandler::_update_header(
             new_indices,
             unused_indices);
     if (res != OLAP_SUCCESS) {
-        OLAP_LOG_FATAL("fail to replace data sources. [res=%d table='%s']",
-                       res, olap_table->full_name().c_str());
+        LOG(FATAL) << "fail to replace data sources. res=" << res
+                   << ", tablet=" << olap_table->full_name();
         return res;
     }
 
@@ -865,8 +862,8 @@ OLAPStatus PushHandler::_update_header(
     // Note we don't return fail here.
     res = olap_table->save_header();
     if (res != OLAP_SUCCESS) {
-        LOG(FATAL) << "fail to save header. res=" << res << ", "
-                   << "table=" << olap_table->full_name();
+        LOG(FATAL) << "fail to save header. res=" << res
+                   << ", tablet=" << olap_table->full_name();
     }
 
     return res;
@@ -893,15 +890,15 @@ OLAPStatus PushHandler::_clear_alter_table_info(
         res = SchemaChangeHandler::clear_schema_change_single_info(
                 tablet, NULL, false, false);
         if (res != OLAP_SUCCESS) {
-            OLAP_LOG_FATAL("fail to clear schema change info of new table. [res=%d table='%s']",
-                           res, tablet->full_name().c_str());
+            LOG(FATAL) << "fail to clear schema change info of new table. res=" << res
+                       << ", tablet=" << tablet->full_name();
             break;
         }
         
         res = tablet->save_header();
         if (res != OLAP_SUCCESS) {
-            LOG(FATAL) << "fail to save header. res=" << res << ", "
-                       << "table=" << tablet->full_name();
+            LOG(FATAL) << "fail to save header. res=" << res
+                       << ", table=" << tablet->full_name();
             break;
         }
 
@@ -913,14 +910,14 @@ OLAPStatus PushHandler::_clear_alter_table_info(
             res = SchemaChangeHandler::clear_schema_change_single_info(
                     related_tablet, NULL, false, false);
             if (res != OLAP_SUCCESS) {
-                OLAP_LOG_FATAL("fail to clear schema change info of old table. [res=%d table='%s']",
-                               res, related_tablet->full_name().c_str());
+                LOG(FATAL) << "fail to clear schema change info of old table. res=" << res
+                           << ", tablet=" << related_tablet->full_name();
                 break;
             }
             
             res = related_tablet->save_header();
             if (res != OLAP_SUCCESS) {
-                LOG(FATAL) << "fail to save header. res=" << res << ", "
+                LOG(FATAL) << "fail to save header. res=" << res
                            << "table=" << related_tablet->full_name();
                 break;
             }
@@ -1068,7 +1065,7 @@ OLAPStatus BinaryReader::next(RowCursor* row, MemPool* mem_pool) {
         if (schema[i].type == OLAP_FIELD_TYPE_CHAR
                 || schema[i].type == OLAP_FIELD_TYPE_VARCHAR
                 || schema[i].type == OLAP_FIELD_TYPE_HLL) {
-            StringSlice slice(_row_buf + offset, field_size);
+            Slice slice(_row_buf + offset, field_size);
             row->set_field_content(i, reinterpret_cast<char*>(&slice), mem_pool);
         } else {
             row->set_field_content(i, _row_buf + offset, mem_pool);
@@ -1191,7 +1188,7 @@ OLAPStatus LzoBinaryReader::next(RowCursor* row, MemPool* mem_pool) {
         if (schema[i].type == OLAP_FIELD_TYPE_CHAR
                 || schema[i].type == OLAP_FIELD_TYPE_VARCHAR
                 || schema[i].type == OLAP_FIELD_TYPE_HLL) {
-            StringSlice slice(_row_buf + _next_row_start + offset, field_size);
+            Slice slice(_row_buf + _next_row_start + offset, field_size);
             row->set_field_content(i, reinterpret_cast<char*>(&slice), mem_pool);
         } else {
             row->set_field_content(i, _row_buf + _next_row_start + offset, mem_pool);

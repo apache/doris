@@ -900,9 +900,10 @@ int DecimalValue::parse_from_str(const char* decimal_str, int32_t length) {
         *buff = value * powers10[DIG_PER_DEC1 - index_in_powers10];
     }
 
-    // Handle exponent
+    // TODO: we do not support decimal in scientific notation
     if ((frac_ptr + 1) < end && (*frac_ptr == 'e' || *frac_ptr == 'E')) {
-        int64_t exponent = strtoll(frac_ptr + 1, (char**) end, 10);
+        // return E_DEC_BAD_NUM;
+        int64_t exponent = strtoll(frac_ptr + 1, (char**) &end, 10);
         if (end != frac_ptr + 1) { // If at least one digit
             if (errno) { // system error number, it is thread local
                 set_to_zero();
