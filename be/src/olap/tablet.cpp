@@ -613,6 +613,8 @@ const AlterTabletTask& Tablet::alter_task() {
     return _tablet_meta->alter_task();
 }
 
+const 
+
 void Tablet::add_alter_task(int64_t tablet_id,
                             int64_t schema_hash,
                             const vector<Version>& versions_to_alter,
@@ -633,6 +635,24 @@ void Tablet::add_alter_task(int64_t tablet_id,
 OLAPStatus Tablet::delete_alter_task() {
     LOG(INFO) << "delete alter task from table. tablet=" << full_name();
     return _tablet_meta->delete_alter_task();
+}
+
+OLAPStatus Tablet::protected_delete_alter_task() {
+    WriteLock wrlock(&_meta_lock);
+    OLAPStatus res = delete_alter_task();
+    if (res != OLAP_SUCCESS) {
+        LOG(WARNING) << "fail to delete alter task from table. res=" << res
+                        << ", full_name=" << full_name();
+        return res;
+    }
+
+    res = save_tablet_meta();
+    if (res != OLAP_SUCCESS) {
+        LOG(WARNING) << "fail to save tablet header. [res=" << res 
+                     << " , full_name=" << full_name().c_str() << "]";
+        return res;
+    }
+    return res;
 }
 
 void Tablet::set_io_error() {

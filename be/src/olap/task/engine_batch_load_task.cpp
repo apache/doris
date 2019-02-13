@@ -220,7 +220,8 @@ AgentStatus EngineBatchLoadTask::_process() {
     AgentStatus status = DORIS_SUCCESS;
 
     if (!_is_init) {
-        OLAP_LOG_WARNING("has not init yet. tablet_id: %d", _push_req.tablet_id);
+        LOG(WARNING) << "has not init yet. tablet_id: " 
+                     << _push_req.tablet_id;
         return DORIS_ERROR;
     }
 
@@ -247,7 +248,7 @@ AgentStatus EngineBatchLoadTask::_process() {
                 VLOG(3) << "check time out. time_out:" << _push_req.timeout
                         << ", now:" << now;
                 if (_push_req.timeout < now) {
-                    OLAP_LOG_WARNING("push time out");
+                    LOG(WARNING) << "push time out";
                     status = DORIS_PUSH_TIME_OUT;
                     break;
                 }
@@ -330,7 +331,7 @@ OLAPStatus EngineBatchLoadTask::_push(const TPushReq& request,
               << ", version=" << request.version;
 
     if (tablet_info_vec == NULL) {
-        OLAP_LOG_WARNING("invalid output parameter which is null pointer.");
+        LOG(WARNING) << "invalid output parameter which is null pointer.";
         DorisMetrics::push_requests_fail_total.increment(1);
         return OLAP_ERR_CE_CMD_PARAMS_ERROR;
     }
