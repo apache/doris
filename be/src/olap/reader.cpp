@@ -323,7 +323,7 @@ OLAPStatus Reader::init(const ReaderParams& read_params) {
 
     res = _capture_rs_readers(read_params);
     if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to init reader when acquire data sources.[res=%d]", res);      
+        LOG(WARNING) << "fail to init reader when capture_rs_readers. res=" << res;
         return res;
     }
 
@@ -557,18 +557,20 @@ OLAPStatus Reader::_capture_rs_readers(const ReaderParams& read_params) {
 
     for (auto& rs_reader : _rs_readers) {
         RowBlock* block = nullptr;
-        auto res = rs_reader->next_block(&block);
-        if (res == OLAP_SUCCESS) {
-            res = _collect_iter->add_child(rs_reader, block);
-            if (res != OLAP_SUCCESS && res != OLAP_ERR_DATA_EOF) {
-                LOG(WARNING) << "failed to add child to iterator";
+        if (rs_reader->has_next()) {
+            OLAPStatus res = rs_reader->next_block(&block);
+            if (res == OLAP_SUCCESS) {
+                res = _collect_iter->add_child(rs_reader, block);
+                if (res != OLAP_SUCCESS && res != OLAP_ERR_DATA_EOF) {
+                    LOG(WARNING) << "failed to add child to iterator";
+                    return res;
+                }
+            } else if (res == OLAP_ERR_DATA_EOF) {
+                continue;
+            } else {
+                LOG(WARNING) << "prepare block failed, res=" << res;
                 return res;
             }
-        } else if (res == OLAP_ERR_DATA_EOF) {
-            continue;
-        } else {
-            LOG(WARNING) << "prepare block failed, res=" << res;
-            return res;
         }
     }
     _next_key = _collect_iter->current_row(&_next_delete_flag);
@@ -1038,7 +1040,11 @@ OLAPStatus Reader::_init_load_bf_columns(const ReaderParams& read_params) {
 
     // remove the max_equal_index column when it's not varchar
     // or longer than number of short key fields
-    FieldType type = _tablet->tablet_schema().column(max_equal_index).type();
+    FieldType type = OLAP_FIELD_TYPE_NONE;
+    if (max_equal_index == -1) {
+        return res;
+    }
+    type = _tablet->tablet_schema().column(max_equal_index).type();
     if ((type != OLAP_FIELD_TYPE_VARCHAR && type != OLAP_FIELD_TYPE_HLL)
             || max_equal_index + 1 > _tablet->num_short_key_columns()) {
         _load_bf_columns.erase(max_equal_index);

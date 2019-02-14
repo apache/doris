@@ -88,7 +88,7 @@ private:
     RowsetSharedPtr _rowset;
     int _key_range_size;
     int _num_rows_read;
-    std::vector<int> _key_range_indexes;
+    std::vector<int> _key_range_indices;
     bool _is_cumulative_rowset;
     RowsetReaderContext* _current_read_context;
 };

@@ -265,38 +265,20 @@ OLAPStatus AlphaRowsetReader::_init_column_datas(RowsetReaderContext* read_conte
                 new_column_data->set_delete_status(DEL_NOT_SATISFIED);
             }
             _column_datas.emplace_back(new_column_data);
-            if (read_context->lower_bound_keys == nullptr) {
-                if (read_context->is_lower_keys_included != nullptr
-                        || read_context->upper_bound_keys != nullptr
-                        || read_context->is_upper_keys_included != nullptr) {
-                    LOG(WARNING) << "invalid key range arguments";
-                    return OLAP_ERR_INPUT_PARAMETER_ERROR;
-                }
-            _key_range_size = 0;
-            } else {
-                if (read_context->lower_bound_keys->size() != read_context->is_lower_keys_included->size()
-                        || read_context->lower_bound_keys->size() != read_context->upper_bound_keys->size()
-                        || read_context->upper_bound_keys->size() != read_context->is_upper_keys_included->size()) {
-                    std::string error_msg = "invalid key range arguments";
-                    LOG(WARNING) << error_msg;
-                    return OLAP_ERR_INPUT_PARAMETER_ERROR;
-                }
-                _key_range_size = read_context->lower_bound_keys->size();
-            }
         }
 
         RowBlock* row_block = nullptr;
         if (_key_range_size > 0) {
-            _key_range_indexes.push_back(0);
-            size_t pos = _key_range_indexes.size();
-            while (_key_range_indexes[pos] < _key_range_size) {
-                status = new_column_data->prepare_block_read(read_context->lower_bound_keys->at(_key_range_indexes[pos]),
-                        read_context->is_lower_keys_included->at(_key_range_indexes[pos]),
-                        read_context->upper_bound_keys->at(_key_range_indexes[pos]),
-                        read_context->is_upper_keys_included->at(_key_range_indexes[pos]),
+            _key_range_indices.push_back(0);
+            size_t pos = _key_range_indices.size();
+            while (_key_range_indices[pos] < _key_range_size) {
+                status = new_column_data->prepare_block_read(read_context->lower_bound_keys->at(_key_range_indices[pos]),
+                        read_context->is_lower_keys_included->at(_key_range_indices[pos]),
+                        read_context->upper_bound_keys->at(_key_range_indices[pos]),
+                        read_context->is_upper_keys_included->at(_key_range_indices[pos]),
                         &row_block);
                 if (status == OLAP_ERR_DATA_EOF) {
-                    _key_range_indexes[pos]++;
+                    _key_range_indices[pos]++;
                     continue;
                 } else if (status != OLAP_SUCCESS) {
                     LOG(WARNING) << "prepare block read failed";
@@ -305,7 +287,7 @@ OLAPStatus AlphaRowsetReader::_init_column_datas(RowsetReaderContext* read_conte
                     break;
                 }
             }
-            if (_key_range_indexes[pos] >= _key_range_size && status == OLAP_ERR_DATA_EOF) {
+            if (_key_range_indices[pos] >= _key_range_size && status == OLAP_ERR_DATA_EOF) {
                 row_block = nullptr;
             }
         } else {
@@ -331,14 +313,14 @@ OLAPStatus AlphaRowsetReader::_refresh_next_block(size_t pos, RowBlock** next_bl
     if (status == OLAP_ERR_DATA_EOF) {
         // currently, SegmentReader can only support filter one key range a time
         // use the next predicate range to get data from segment here
-        while (_key_range_size > 0 && _key_range_indexes[pos] < _key_range_size) {
-            status = column_data->prepare_block_read(_current_read_context->lower_bound_keys->at(_key_range_indexes[pos]),
-                    _current_read_context->is_lower_keys_included->at(_key_range_indexes[pos]),
-                    _current_read_context->upper_bound_keys->at(_key_range_indexes[pos]),
-                    _current_read_context->is_upper_keys_included->at(_key_range_indexes[pos]),
+        while (_key_range_size > 0 && _key_range_indices[pos] < _key_range_size) {
+            status = column_data->prepare_block_read(_current_read_context->lower_bound_keys->at(_key_range_indices[pos]),
+                    _current_read_context->is_lower_keys_included->at(_key_range_indices[pos]),
+                    _current_read_context->upper_bound_keys->at(_key_range_indices[pos]),
+                    _current_read_context->is_upper_keys_included->at(_key_range_indices[pos]),
                     next_block);
             if (status == OLAP_ERR_DATA_EOF) {
-                _key_range_indexes[pos]++;
+                _key_range_indices[pos]++;
                 continue;
             } else if (status != OLAP_SUCCESS) {
                 LOG(WARNING) << "prepare block read failed";
@@ -347,7 +329,7 @@ OLAPStatus AlphaRowsetReader::_refresh_next_block(size_t pos, RowBlock** next_bl
                 break;
             }
         }
-        if (_key_range_indexes[pos] >= _key_range_size && status == OLAP_ERR_DATA_EOF) {
+        if (_key_range_indices[pos] >= _key_range_size && status == OLAP_ERR_DATA_EOF) {
             *next_block = nullptr;
         }
         return OLAP_SUCCESS;

@@ -32,7 +32,7 @@ using RowsetSharedPtr = std::shared_ptr<Rowset>;
 class RowsetWriter;
 class RowsetReader;
 
-class Rowset {
+class Rowset : public std::enable_shared_from_this<Rowset> {
 public:
     virtual ~Rowset() { }
 
