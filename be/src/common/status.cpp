@@ -34,6 +34,9 @@ const Status Status::MEM_LIMIT_EXCEEDED(
 const Status Status::THRIFT_RPC_ERROR(
     TStatusCode::THRIFT_RPC_ERROR, "Thrift RPC failed", true);
 
+const Status Status::TIMEOUT(
+    TStatusCode::TIMEOUT, "timeout", true);
+
 Status::ErrorDetail::ErrorDetail(const TStatus& status) : 
         error_code(status.status_code),
         error_msgs(status.error_msgs) {

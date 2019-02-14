@@ -311,7 +311,7 @@ Status PlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool* e
 
                     // (cmy), for now, return failed to avoid potential endless loop
                     std::stringstream ss;
-                    ss << "decompress made no progess."
+                    ss << "decompress made no progress."
                        << " input_read_bytes: " << input_read_bytes
                        << " decompressed_len: " << decompressed_len;
                     LOG(WARNING) << ss.str();

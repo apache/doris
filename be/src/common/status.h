@@ -54,6 +54,7 @@ public:
     static const Status CANCELLED;
     static const Status MEM_LIMIT_EXCEEDED;
     static const Status THRIFT_RPC_ERROR;
+    static const Status TIMEOUT;
 
     // copy c'tor makes copy of error detail so Status can be returned by value
     Status(const Status& status) : _error_detail(
