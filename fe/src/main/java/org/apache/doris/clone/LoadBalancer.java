@@ -92,8 +92,14 @@ public class LoadBalancer {
 
         // first we should check if low backends is available.
         // if all low backends is not available, we should not start balance
-        if (lowBe.stream().allMatch(b -> !b.isAvailable())) {
+        if (lowBe.stream().allMatch(b -> !b.isAvailable() || !b.hasAvailDisk())) {
             LOG.info("all low load backends is dead: {}. skip",
+                    lowBe.stream().mapToLong(b -> b.getBeId()).toArray());
+            return alternativeTablets;
+        }
+        
+        if (lowBe.stream().allMatch(b -> !b.hasAvailDisk())) {
+            LOG.info("all low load backends have no available disk. skip",
                     lowBe.stream().mapToLong(b -> b.getBeId()).toArray());
             return alternativeTablets;
         }
@@ -254,14 +260,14 @@ public class LoadBalancer {
                 }
 
                 // classify the paths.
-                // And we only select tablets from 'high' and 'mid' paths
+                // And we only select path from 'low' and 'mid' paths
                 Set<Long> pathLow = Sets.newHashSet();
                 Set<Long> pathMid = Sets.newHashSet();
                 Set<Long> pathHigh = Sets.newHashSet();
                 beStat.getPathStatisticByClass(pathLow, pathMid, pathHigh);
-                pathHigh.addAll(pathMid);
+                pathLow.addAll(pathMid);
 
-                long pathHash = slot.takeAnAvailBalanceSlotFrom(pathHigh);
+                long pathHash = slot.takeAnAvailBalanceSlotFrom(pathLow);
                 if (pathHash == -1) {
                     continue;
                 } else {
