@@ -199,6 +199,16 @@ void EngineBatchLoadTask::_get_file_name_from_path(const string& file_path, stri
 
 AgentStatus EngineBatchLoadTask::_process() {
     AgentStatus status = DORIS_SUCCESS;
+<<<<<<< HEAD
+=======
+
+    if (!_is_init) {
+        LOG(WARNING) << "has not init yet. tablet_id: " 
+                     << _push_req.tablet_id;
+        return DORIS_ERROR;
+    }
+
+>>>>>>> Fix bug in rollback txn case (#628)
     // Remote file not empty, need to download
     if (_push_req.__isset.http_file_path) {
         // Get file length and timeout
@@ -218,9 +228,18 @@ AgentStatus EngineBatchLoadTask::_process() {
             if (_push_req.timeout > 0 && _push_req.timeout < now) {
                 // return status to break this callback
                 VLOG(3) << "check time out. time_out:" << _push_req.timeout
+<<<<<<< HEAD
                     << ", now:" << now;
                 is_timeout = true;
                 return Status::OK;
+=======
+                        << ", now:" << now;
+                if (_push_req.timeout < now) {
+                    LOG(WARNING) << "push time out";
+                    status = DORIS_PUSH_TIME_OUT;
+                    break;
+                }
+>>>>>>> Fix bug in rollback txn case (#628)
             }
 
             RETURN_IF_ERROR(client->init(_remote_file_path));
@@ -306,7 +325,7 @@ OLAPStatus EngineBatchLoadTask::_push(const TPushReq& request,
               << ", version=" << request.version;
 
     if (tablet_info_vec == NULL) {
-        OLAP_LOG_WARNING("invalid output parameter which is null pointer.");
+        LOG(WARNING) << "invalid output parameter which is null pointer.";
         DorisMetrics::push_requests_fail_total.increment(1);
         return OLAP_ERR_CE_CMD_PARAMS_ERROR;
     }

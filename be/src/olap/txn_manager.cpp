@@ -90,6 +90,9 @@ TxnManager::TxnManager() {
     }
 }
 
+// prepare txn should always be allowed because ingest task will be retried 
+// could not distinguish rollup, schema change or base table, prepare txn successfully will allow
+// ingest retried
 OLAPStatus TxnManager::prepare_txn(
     TPartitionId partition_id, TTransactionId transaction_id,
     TTabletId tablet_id, SchemaHash schema_hash, 
@@ -97,6 +100,7 @@ OLAPStatus TxnManager::prepare_txn(
 
     pair<int64_t, int64_t> key(partition_id, transaction_id);
     TabletInfo tablet_info(tablet_id, schema_hash);
+    WriteLock wrlock(_get_txn_lock(transaction_id));
     WriteLock wrlock(&_txn_map_lock);
     auto it = _txn_tablet_map.find(key);
     if (it != _txn_tablet_map.end()) {
@@ -144,6 +148,7 @@ OLAPStatus TxnManager::commit_txn(
     }
     WriteLock wrlock(_get_txn_lock(transaction_id));
     {
+        // get tx
         ReadLock rdlock(&_txn_map_lock);
         auto it = _txn_tablet_map.find(key);
         if (it != _txn_tablet_map.end()) {
@@ -263,11 +268,16 @@ OLAPStatus TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id, TT
     }
 }
 
+// txn could be rollbacked if it does not have related rowset
+// if the txn has related rowset then could not rollback it, because it 
+// may be committed in another thread and our current thread meets erros when writing to data file
+// be has to wait for fe call clear txn api
 OLAPStatus TxnManager::rollback_txn(TPartitionId partition_id, TTransactionId transaction_id,
                                     TTabletId tablet_id, SchemaHash schema_hash) {
     
     pair<int64_t, int64_t> key(partition_id, transaction_id);
     TabletInfo tablet_info(tablet_id, schema_hash);
+    WriteLock wrlock(_get_txn_lock(transaction_id));
     WriteLock wrlock(&_txn_map_lock);
     auto it = _txn_tablet_map.find(key);
     if (it != _txn_tablet_map.end()) {
@@ -291,15 +301,17 @@ OLAPStatus TxnManager::rollback_txn(TPartitionId partition_id, TTransactionId tr
             _txn_tablet_map.erase(it);
         }
         return OLAP_SUCCESS;
-    } else {
-        return OLAP_ERR_TRANSACTION_NOT_EXIST;
     }
+    return OLAP_SUCCESS;
 }
 
+// fe call this api to clear unused rowsets in be
+// could not delete the rowset if it already has a valid version
 OLAPStatus TxnManager::delete_txn(OlapMeta* meta, TPartitionId partition_id, TTransactionId transaction_id,
                                   TTabletId tablet_id, SchemaHash schema_hash) {
     pair<int64_t, int64_t> key(partition_id, transaction_id);
     TabletInfo tablet_info(tablet_id, schema_hash);
+    WriteLock wrlock(_get_txn_lock(transaction_id));
     WriteLock wrlock(&_txn_map_lock);
     auto it = _txn_tablet_map.find(key);
     if (it != _txn_tablet_map.end()) {
@@ -318,6 +330,7 @@ OLAPStatus TxnManager::delete_txn(OlapMeta* meta, TPartitionId partition_id, TTr
                                  << ", tablet: " << tablet_info.to_string()
                                  << ", rowset id: " << load_info.second->rowset_id()
                                  << ", version: " << load_info.second->version().first;
+                    return OLAP_ERR_TRANSACTION_ALREADY_VISIBLE;
                 } else {
                     RowsetMetaManager::remove(meta, load_info.second->rowset_id());
                     StorageEngine::instance()->add_unused_rowset(load_info.second);
@@ -346,6 +359,7 @@ void TxnManager::get_tablet_related_txns(TabletSharedPtr tablet, int64_t* partit
     }
 
     TabletInfo tablet_info(tablet->tablet_id(), tablet->schema_hash());
+    ReadLock rdlock(_get_txn_lock(transaction_id));
     ReadLock rdlock(&_txn_map_lock);
     for (auto& it : _txn_tablet_map) {
         if (it.second.find(tablet_info) != it.second.end()) {
@@ -364,7 +378,7 @@ void TxnManager::get_txn_related_tablets(const TTransactionId transaction_id,
                                          std::map<TabletInfo, RowsetSharedPtr>* tablet_infos) {
     // get tablets in this transaction
     pair<int64_t, int64_t> key(partition_id, transaction_id);
-
+    ReadLock rdlock(_get_txn_lock(transaction_id));
     ReadLock rdlock(&_txn_map_lock);
     auto it = _txn_tablet_map.find(key);
     if (it == _txn_tablet_map.end()) {
@@ -386,12 +400,11 @@ bool TxnManager::has_txn(TPartitionId partition_id, TTransactionId transaction_i
                          TTabletId tablet_id, SchemaHash schema_hash) {
     pair<int64_t, int64_t> key(partition_id, transaction_id);
     TabletInfo tablet_info(tablet_id, schema_hash);
-
-    _txn_map_lock.rdlock();
+    ReadLock rdlock(_get_txn_lock(transaction_id));
+    ReadLock rdlock(&_txn_map_lock);
     auto it = _txn_tablet_map.find(key);
     bool found = it != _txn_tablet_map.end()
                  && it->second.find(tablet_info) != it->second.end();
-    _txn_map_lock.unlock();
 
     return found;
 }
@@ -402,8 +415,8 @@ bool TxnManager::has_committed_txn(TPartitionId partition_id, TTransactionId tra
 
     pair<int64_t, int64_t> key(partition_id, transaction_id);
     TabletInfo tablet_info(tablet_id, schema_hash);
-
-    _txn_map_lock.rdlock();
+    ReadLock rdlock(_get_txn_lock(transaction_id));
+    ReadLock rdlock(&_txn_map_lock);
     auto it = _txn_tablet_map.find(key);
     if (it != _txn_tablet_map.end()) {
         auto load_itr = it->second.find(tablet_info);

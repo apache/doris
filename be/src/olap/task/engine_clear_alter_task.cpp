@@ -46,26 +46,20 @@ OLAPStatus EngineClearAlterTask::_clear_alter_task(const TTabletId tablet_id,
     const AlterTabletTask& alter_task = tablet->alter_task();
     AlterTabletState alter_state = alter_task.alter_state();
     TTabletId related_tablet_id = alter_task.related_tablet_id();
-    TSchemaHash related_schema_hash = alter_task.related_schema_hash();;
+    TSchemaHash related_schema_hash = alter_task.related_schema_hash();
     tablet->release_header_lock();
     if (alter_state == AlterTabletState::ALTER_NONE) {
         return OLAP_SUCCESS;
-    } else {
+    } 
+    
+    if (alter_state == AlterTabletState::ALTER_ALTERING) { 
         LOG(WARNING) << "find alter task unfinished when process clear alter task. "
                      << "tablet=" << tablet->full_name();
         return OLAP_ERR_PREVIOUS_SCHEMA_CHANGE_NOT_FINISHED;
     }
 
     // clear schema change info
-    tablet->obtain_header_wrlock();
-    tablet->delete_alter_task();
-    OLAPStatus res = tablet->save_tablet_meta();
-    if (res != OLAP_SUCCESS) {
-        LOG(FATAL) << "fail to save header. [res=" << res << " tablet='" << tablet->full_name() << "']";
-    } else {
-        LOG(INFO) << "clear alter task on tablet. [tablet='" << tablet->full_name() << "']";
-    }
-    tablet->release_header_lock();
+    OLAPStatus res = tablet->protected_delete_alter_task();
 
     // clear related tablet's schema change info
     TabletSharedPtr related_tablet = TabletManager::instance()->get_tablet(related_tablet_id, related_schema_hash);
@@ -75,22 +69,13 @@ OLAPStatus EngineClearAlterTask::_clear_alter_task(const TTabletId tablet_id,
                          "related_tablet_id=%ld related_schema_hash=%d]",
                          tablet_id, schema_hash, related_tablet_id, related_schema_hash);
     } else {
-        related_tablet->obtain_header_wrlock();
-        related_tablet->delete_alter_task();
-        res = related_tablet->save_tablet_meta();
-        if (res != OLAP_SUCCESS) {
-            LOG(FATAL) << "fail to save header. [res=" << res << " tablet='"
-                       << related_tablet->full_name() << "']";
-        } else {
-            LOG(INFO) << "clear alter task on tablet. [tablet='" << related_tablet->full_name() << "']";
-        }
-        related_tablet->release_header_lock();
+        res = related_tablet->protected_delete_alter_task();
     }
 
     LOG(INFO) << "finish to process clear alter task."
               << "tablet_id=" << related_tablet_id
               << ", schema_hash=" << related_schema_hash;
-    return OLAP_SUCCESS;
+    return res;
 }
 
 } // doris

@@ -107,6 +107,7 @@ public:
     OLAPStatus set_alter_state(AlterTabletState state);
     bool is_schema_changing();
     OLAPStatus delete_alter_task();
+    OLAPStatus protected_delete_alter_task();
     void add_alter_task(int64_t tablet_id, int64_t schema_hash,
                         const vector<Version>& versions_to_alter,
                         const AlterTabletType alter_type);
