@@ -186,11 +186,11 @@ OLAPStatus PushHandler::_do_streaming_ingestion(
     res = _convert(tablet_vars->at(0).tablet, tablet_vars->at(1).tablet,
                    &(tablet_vars->at(0).added_rowsets), &(tablet_vars->at(1).added_rowsets));
     if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "fail to convert tmp file when realtime push. res=" << res;
+        LOG(WARNING) << "fail to convert tmp file when realtime push. res=" << res
                      << "failed to process realtime push."
                      << " table=" << tablet->full_name()
                      << "transaction_id=" << request.transaction_id;
-        for (TabletVars& tablet_var : tablet_vars) {
+        for (TabletVars& tablet_var : *tablet_vars) {
             if (tablet_var.tablet.get() == NULL) {
                 continue;
             }
