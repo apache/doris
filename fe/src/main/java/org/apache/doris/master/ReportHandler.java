@@ -659,8 +659,8 @@ public class ReportHandler extends Daemon {
         }
 
         // print a warn log here to indicate the exceptions on the backend
-        LOG.warn("find {} tablets with report version less than version in meta on backend {}"
-                + " they need clone or force recovery",
+        LOG.warn("find {} tablets with report version less than version in meta, or is set bad, on backend {}"
+                + ", they need clone or force recovery",
                 tabletRecoveryMap.size(), backendId);
 
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
