@@ -59,8 +59,7 @@ OLAPStatus EngineClearAlterTask::_clear_alter_task(const TTabletId tablet_id,
     }
 
     // clear schema change info
-    OLAPStatus res = OLAP_SUCCESS;
-    res = tablet->protected_delete_alter_task();
+    OLAPStatus res = tablet->protected_delete_alter_task();
 
     // clear related tablet's schema change info
     TabletSharedPtr related_tablet = TabletManager::instance()->get_tablet(related_tablet_id, related_schema_hash);
