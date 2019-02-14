@@ -226,7 +226,7 @@ OLAPStatus AlphaRowsetReader::_init_column_datas(RowsetReaderContext* read_conte
             return OLAP_ERR_READER_READING_ERROR;
         }
         if (read_context != nullptr) {
-            new_column_data->set_delete_handler(*read_context->delete_handler);
+            new_column_data->set_delete_handler(read_context->delete_handler);
             new_column_data->set_stats(read_context->stats);
             new_column_data->set_lru_cache(read_context->lru_cache);
             std::vector<ColumnPredicate*> col_predicates;

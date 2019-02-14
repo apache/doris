@@ -162,8 +162,6 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id,
         schema->set_bf_fpp(tablet_schema.bloom_filter_fpp);
     }
 
-    _tablet_meta_pb.set_creation_time(time(NULL));
-    _tablet_meta_pb.set_cumulative_layer_point(-1);
     init_from_pb(_tablet_meta_pb);
 }
 
@@ -254,7 +252,7 @@ OLAPStatus TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
     for (auto& it : tablet_meta_pb.inc_rs_metas()) {
         RowsetMetaSharedPtr rs_meta(new RowsetMeta());
         rs_meta->init_from_pb(it);
-        _rs_metas.push_back(std::move(rs_meta));
+        _inc_rs_metas.push_back(std::move(rs_meta));
     }
 
     // generate TabletState
@@ -311,7 +309,7 @@ OLAPStatus TabletMeta::to_tablet_pb(TabletMetaPB* tablet_meta_pb) {
 OLAPStatus TabletMeta::to_tablet_pb_unlock(TabletMetaPB* tablet_meta_pb) {
     tablet_meta_pb->set_table_id(_table_id);
     tablet_meta_pb->set_partition_id(_partition_id);
-    tablet_meta_pb->set_table_id(_tablet_id);
+    tablet_meta_pb->set_tablet_id(_tablet_id);
     tablet_meta_pb->set_schema_hash(_schema_hash);
     tablet_meta_pb->set_shard_id(_shard_id);
     tablet_meta_pb->set_creation_time(_creation_time);
@@ -343,7 +341,6 @@ OLAPStatus TabletMeta::add_rs_meta(const RowsetMetaSharedPtr& rs_meta) {
     _rs_metas.push_back(std::move(rs_meta));
     RowsetMetaPB* rs_meta_pb = _tablet_meta_pb.add_rs_metas();
     rs_meta->to_rowset_pb(rs_meta_pb);
-    RETURN_NOT_OK(save_meta_unlock());
 
     return OLAP_SUCCESS;
 }
@@ -487,10 +484,10 @@ OLAPStatus TabletMeta::add_delete_predicate(
             break;
         }
         ordinal++;
-    } 
-    
+    }
+
     if (ordinal < _del_pred_array.size()) {
-        // clear existed predicate 
+        // clear existed predicate
         DeletePredicatePB* del_pred = &(_del_pred_array[ordinal]);
         del_pred->clear_sub_predicates();
         for (const string& predicate : delete_predicate.sub_predicates()) {
@@ -564,7 +561,7 @@ OLAPStatus TabletMeta::delete_alter_task() {
     std::lock_guard<std::mutex> lock(_mutex);
     _tablet_meta_pb.clear_alter_tablet_task();
     RETURN_NOT_OK(save_meta_unlock());
-    _alter_task.clear(); 
+    _alter_task.clear();
     return OLAP_SUCCESS;
 }
 

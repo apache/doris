@@ -54,7 +54,7 @@ public:
             const std::vector<uint32_t>& used_columns,
             const std::set<uint32_t>& load_bf_columns,
             const Conditions* conditions,
-            const DeleteHandler& delete_handler,
+            const DeleteHandler* delete_handler,
             const DelCondSatisfied delete_status,
             Cache* lru_cache,
             RuntimeState* runtime_state,
@@ -301,7 +301,7 @@ private:
     doris::FileHandler _file_handler;             // 文件handler
 
     
-    DeleteHandler _delete_handler;
+    const DeleteHandler* _delete_handler = nullptr;
     DelCondSatisfied _delete_status;
 
     bool _eof;                             // eof标志
