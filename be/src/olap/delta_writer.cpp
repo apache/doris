@@ -46,12 +46,22 @@ DeltaWriter::~DeltaWriter() {
 }
 
 void DeltaWriter::_garbage_collection() {
-    TxnManager::instance()->rollback_txn(_req.partition_id, _req.txn_id,_req.tablet_id, _req.schema_hash);
-    StorageEngine::instance()->add_unused_rowset(_cur_rowset);
+    // TODO(ygl): if cur_rowset is null, then the rowset is not built, should clean other
+    // resources during load
+    OLAPStatus rollback_status = TxnManager::instance()->rollback_txn(_req.partition_id,
+        _req.txn_id,_req.tablet_id, _req.schema_hash);
+    // has to check rollback status, because the rowset maybe committed in this thread and
+    // published in another thread, then rollback will failed
+    // when rollback failed should not delete rowset
+    if (rollback_status == OLAP_SUCCESS) {
+        StorageEngine::instance()->add_unused_rowset(_cur_rowset);
+    }
     if (_related_tablet != nullptr) {
-        TxnManager::instance()->rollback_txn(_req.partition_id, _req.txn_id,
+        rollback_status = TxnManager::instance()->rollback_txn(_req.partition_id, _req.txn_id,
             _related_tablet->tablet_id(), _related_tablet->schema_hash());
-        StorageEngine::instance()->add_unused_rowset(_related_rowset);
+        if (rollback_status == OLAP_SUCCESS) {
+            StorageEngine::instance()->add_unused_rowset(_related_rowset);
+        }
     }
 }
 
