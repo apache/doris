@@ -92,7 +92,7 @@ public class LoadBalancer {
 
         // first we should check if low backends is available.
         // if all low backends is not available, we should not start balance
-        if (lowBe.stream().allMatch(b -> !b.isAvailable() || !b.hasAvailDisk())) {
+        if (lowBe.stream().allMatch(b -> !b.isAvailable())) {
             LOG.info("all low load backends is dead: {}. skip",
                     lowBe.stream().mapToLong(b -> b.getBeId()).toArray());
             return alternativeTablets;
