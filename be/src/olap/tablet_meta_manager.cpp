@@ -87,8 +87,7 @@ OLAPStatus TabletMetaManager::save(DataDir* store,
     std::string value;
     tablet_meta->serialize(&value);
     OlapMeta* meta = store->get_meta();
-    OLAPStatus s = meta->put(META_COLUMN_FAMILY_INDEX, key, value);
-    return s;
+    return meta->put(META_COLUMN_FAMILY_INDEX, key, value);
 }
 
 OLAPStatus TabletMetaManager::save(DataDir* store,
@@ -97,8 +96,7 @@ OLAPStatus TabletMetaManager::save(DataDir* store,
     key_stream << HEADER_PREFIX << tablet_id << "_" << schema_hash;
     std::string key = key_stream.str();
     OlapMeta* meta = store->get_meta();
-    OLAPStatus s = meta->put(META_COLUMN_FAMILY_INDEX, key, meta_binary);
-    return s;
+    return meta->put(META_COLUMN_FAMILY_INDEX, key, meta_binary);
 }
 
 OLAPStatus TabletMetaManager::remove(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash) {
@@ -148,8 +146,7 @@ OLAPStatus TabletMetaManager::load_json_header(DataDir* store, const std::string
     tablet_meta_pb.SerializeToString(&meta_binary);
     TTabletId tablet_id = tablet_meta_pb.tablet_id();
     TSchemaHash schema_hash = tablet_meta_pb.schema_hash();
-    OLAPStatus s = save(store, tablet_id, schema_hash, meta_binary);
-    return s;
+    return save(store, tablet_id, schema_hash, meta_binary);
 }
 
 OLAPStatus TabletMetaManager::dump_header(DataDir* store, TTabletId tablet_id,
@@ -159,8 +156,7 @@ OLAPStatus TabletMetaManager::dump_header(DataDir* store, TTabletId tablet_id,
     if (res != OLAP_SUCCESS) {
         return res;
     }
-    res = tablet_meta.save(dump_path);
-    return res;
+    return tablet_meta.save(dump_path);
 }
 
 }

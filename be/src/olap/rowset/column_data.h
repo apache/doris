@@ -92,7 +92,7 @@ public:
         _stats = stats;
     }
 
-    void set_delete_handler(const DeleteHandler& delete_handler) {
+    void set_delete_handler(const DeleteHandler* delete_handler) {
         _delete_handler = delete_handler;
     }
 
@@ -163,7 +163,7 @@ private:
     bool _eof;
     const Conditions* _conditions;
     const std::vector<ColumnPredicate*>* _col_predicates;
-    DeleteHandler _delete_handler;
+    const DeleteHandler*_delete_handler = nullptr;
     DelCondSatisfied _delete_status;
     RuntimeState* _runtime_state;
     OlapReaderStatistics _owned_stats;

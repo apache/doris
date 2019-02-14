@@ -680,6 +680,10 @@ const RowsetSharedPtr Tablet::get_rowset_by_version(const Version& version) cons
     return rowset;
 }
 
+Version Tablet::max_version() const {
+    return _tablet_meta->max_version();
+}
+
 const RowsetSharedPtr Tablet::rowset_with_max_version() const {
     Version max_version = _tablet_meta->max_version();
     RowsetSharedPtr rowset = _rs_version_map.at(max_version);
