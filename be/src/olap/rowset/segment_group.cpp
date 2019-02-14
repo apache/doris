@@ -146,35 +146,16 @@ SegmentGroup::~SegmentGroup() {
     _seg_pb_map.clear();
 }
 
-std::string SegmentGroup::_construct_pending_file_name(int32_t segment_id, const std::string& suffix) const {
-    std::string file_path;
-    file_path.append(PENDING_DELTA_PREFIX);
-    file_path.append("/");
-    file_path.append(std::to_string(_txn_id));
-    file_path.append("_");
-    file_path.append(std::to_string(_rowset_id));
-    file_path.append("_");
-    file_path.append(std::to_string(_segment_group_id));
-    file_path.append("_");
-    file_path.append(std::to_string(segment_id));
-    file_path.append(suffix);
-    return file_path;
-}
-
 std::string SegmentGroup::_construct_file_name(int32_t segment_id, const string& suffix) const {
-    std::string file_name = std::to_string(_rowset_id) + "_" + std::to_string(segment_id) + suffix;
+    std::string file_name = std::to_string(_rowset_id) + "_"
+            + std::to_string(_segment_group_id) + "_" + std::to_string(segment_id) + suffix;
     return file_name;
 }
 
 std::string SegmentGroup::construct_index_file_path(const std::string& snapshot_path, int32_t segment_id) const {
     std::string file_path = snapshot_path;
-    if (_is_pending) {
-        file_path.append("/");
-        file_path.append(_construct_pending_file_name(segment_id, ".idx"));
-    } else {
-        file_path.append("/");
-        file_path.append(_construct_file_name(segment_id, ".idx"));
-    }
+    file_path.append("/");
+    file_path.append(_construct_file_name(segment_id, ".idx"));
     return file_path;
 }
 
@@ -184,13 +165,8 @@ std::string SegmentGroup::construct_index_file_path(int32_t segment_id) const {
 
 std::string SegmentGroup::construct_data_file_path(const std::string& snapshot_path, int32_t segment_id) const {
     std::string file_path = snapshot_path;
-    if (_is_pending) {
-        file_path.append("/");
-        file_path.append(_construct_pending_file_name(segment_id, ".dat"));
-    } else {
-        file_path.append("/");
-        file_path.append(_construct_file_name(segment_id, ".dat"));
-    }
+    file_path.append("/");
+    file_path.append(_construct_file_name(segment_id, ".dat"));
     return file_path;
 }
 
@@ -745,6 +721,11 @@ OLAPStatus SegmentGroup::remove_old_files(std::vector<std::string>* links_to_rem
         std::string old_index_file_name = construct_old_index_file_path(segment_id);
         RETURN_NOT_OK(remove_dir(old_index_file_name));
         links_to_remove->push_back(old_index_file_name);
+    }
+    std::string pending_delta_path = _rowset_path_prefix + PENDING_DELTA_PREFIX;
+    if (check_dir_existed(pending_delta_path)) {
+        LOG(INFO) << "remove pending delta path:" << pending_delta_path;
+        RETURN_NOT_OK(remove_dir(pending_delta_path));
     }
     return OLAP_SUCCESS;
 }
