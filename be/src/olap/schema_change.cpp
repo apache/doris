@@ -1153,21 +1153,9 @@ OLAPStatus SchemaChangeHandler::_check_and_clear_schema_change_info(
     }
 
     // clear schema change info of current tablet
-    {
-        WriteLock wrlock(tablet->get_header_lock_ptr());
-        res = tablet->delete_alter_task();
-        if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "fail to delete alter task from table. res=" << res
-                         << ", full_name=" << tablet->full_name();
-            return res;
-        }
-
-        res = tablet->save_tablet_meta();
-        if (res != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("fail to save tablet header. [res=%d, full_name='%s']",
-                             res, tablet->full_name().c_str());
-            return res;
-        }
+    res = tablet->protected_delete_alter_task();
+    if (res != OLAP_SUCCESS) {
+        return res;
     }
 
     // clear schema change info of related tablet
@@ -1178,24 +1166,7 @@ OLAPStatus SchemaChangeHandler::_check_and_clear_schema_change_info(
                          tablet_id, schema_hash);
         return OLAP_ERR_TABLE_NOT_FOUND;
     }
-
-    {
-        WriteLock wrlock(related_tablet->get_header_lock_ptr());
-        res = related_tablet->delete_alter_task();
-        if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "fail to delete alter task from table. res=" << res
-                         << ", full_name=" << related_tablet->full_name();
-            return res;
-        }
-
-        res = related_tablet->save_tablet_meta();
-        if (res != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("fail to save related_tablet header. [res=%d, full_name='%s']",
-                             res, related_tablet->full_name().c_str());
-            return res;
-        }
-    }
-
+    res = related_tablet->protected_delete_alter_task();
     return res;
 }
 
