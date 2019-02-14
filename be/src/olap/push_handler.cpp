@@ -60,14 +60,6 @@ OLAPStatus PushHandler::process_streaming_ingestion(
     vector<TabletVars> tablet_vars(1);
     tablet_vars[0].tablet = tablet;
     res = _do_streaming_ingestion(tablet, request, push_type, &tablet_vars, tablet_info_vec);
-    // if transaction existed in engine but push not finished, not report to fe
-    if (res == OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
-        LOG(WARNING) << "find transaction existed when realtime push, not report. "
-                     << "[tablet=" << tablet->full_name()
-                     << " partition_id=" << request.partition_id
-                     << "transaction_id=" << request.transaction_id << "]";
-        return res;
-    }
 
     if (res == OLAP_SUCCESS) {
         if (tablet_info_vec != NULL) {
@@ -77,26 +69,6 @@ OLAPStatus PushHandler::process_streaming_ingestion(
                   << "tablet=" << tablet->full_name()
                   << ", partition_id=" << request.partition_id
                   << ", transaction_id=" << request.transaction_id;
-    } else {
-
-        // error happens, clear
-        LOG(WARNING) << "failed to process realtime push."
-                     << " table=" << tablet->full_name()
-                     << "transaction_id=" << request.transaction_id;
-        for (TabletVars& tablet_var : tablet_vars) {
-            if (tablet_var.tablet.get() == NULL) {
-                continue;
-            }
-
-            TxnManager::instance()->rollback_txn(
-                request.partition_id, request.transaction_id,
-                tablet_var.tablet->tablet_id(), tablet_var.tablet->schema_hash());
-
-            // actually, olap_index may has been deleted in delete_transaction()
-            for (RowsetSharedPtr rowset : tablet_var.added_rowsets) {
-                StorageEngine::instance()->add_unused_rowset(rowset);
-            }
-        }
     }
 
     return res;
@@ -118,13 +90,9 @@ OLAPStatus PushHandler::_do_streaming_ingestion(
             request.partition_id, request.transaction_id,
             tablet->tablet_id(), tablet->schema_hash(), load_id);
 
-    // if transaction exists, exit
-    if (res == OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
-        // if push finished, report success to fe
-        res = OLAP_SUCCESS;
-        tablet->release_push_lock();
-        return res;
-    }
+    // prepare txn will be always successful
+    // if current tablet is under schema change, origin tablet is successful and 
+    // new tablet is not sucessful, it maybe a fatal error because new tablet has not load successfully
 
     // only when fe sends schema_change true, should consider to push related tablet
     if (_request.is_schema_changing) {
@@ -166,18 +134,10 @@ OLAPStatus PushHandler::_do_streaming_ingestion(
                 res = TxnManager::instance()->prepare_txn(
                     request.partition_id, request.transaction_id,
                     related_tablet->tablet_id(), related_tablet->schema_hash(), load_id);
-
-                // if related tablet's transaction exists, only push current tablet
-                if (res == OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
-                    LOG(WARNING) << "related tablet's transaction exists in engine, "
-                                 << "only push current tablet. "
-                                 << "related_tablet=" << related_tablet->full_name()
-                                 << " transaction_id=" << request.transaction_id;
-                } else {
-                    tablet_vars->push_back(TabletVars());
-                    TabletVars& new_item = tablet_vars->back();
-                    new_item.tablet = related_tablet;
-                }
+                // prepare txn will always be successful
+                tablet_vars->push_back(TabletVars());
+                TabletVars& new_item = tablet_vars->back();
+                new_item.tablet = related_tablet;
             }
         }
     }
@@ -227,6 +187,25 @@ OLAPStatus PushHandler::_do_streaming_ingestion(
                    &(tablet_vars->at(0).added_rowsets), &(tablet_vars->at(1).added_rowsets));
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to convert tmp file when realtime push. res=" << res;
+                     << "failed to process realtime push."
+                     << " table=" << tablet->full_name()
+                     << "transaction_id=" << request.transaction_id;
+        for (TabletVars& tablet_var : tablet_vars) {
+            if (tablet_var.tablet.get() == NULL) {
+                continue;
+            }
+
+            OLAPStatus rollback_status = TxnManager::instance()->rollback_txn(
+                request.partition_id, request.transaction_id,
+                tablet_var.tablet->tablet_id(), tablet_var.tablet->schema_hash());
+            // has to check rollback status to ensure not delete a committed rowset
+            if (rollback_status == OLAP_SUCCESS) {
+                // actually, olap_index may has been deleted in delete_transaction()
+                for (RowsetSharedPtr rowset : tablet_var.added_rowsets) {
+                    StorageEngine::instance()->add_unused_rowset(rowset);
+                }
+            }
+        }
         return res;
     }
 
@@ -237,13 +216,16 @@ OLAPStatus PushHandler::_do_streaming_ingestion(
         }
 
         for (RowsetSharedPtr rowset : tablet_var.added_rowsets) {
-            TxnManager::instance()->commit_txn(tablet_var.tablet->data_dir()->get_meta(),  
+            OLAPStatus commit_status = TxnManager::instance()->commit_txn(tablet_var.tablet->data_dir()->get_meta(),  
                 request.partition_id, request.transaction_id,
                 tablet_var.tablet->tablet_id(), tablet_var.tablet->schema_hash(), 
                 load_id, rowset, false);
+            if (commit_status != OLAP_SUCCESS && commit_status != OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
+                res = commit_status;
+            }
         }
     }
-    return OLAP_SUCCESS;
+    return res;
 }
 
 void PushHandler::_get_tablet_infos(
