@@ -146,35 +146,16 @@ SegmentGroup::~SegmentGroup() {
     _seg_pb_map.clear();
 }
 
-std::string SegmentGroup::_construct_pending_file_name(int32_t segment_id, const std::string& suffix) const {
-    std::string file_path;
-    file_path.append(PENDING_DELTA_PREFIX);
-    file_path.append("/");
-    file_path.append(std::to_string(_txn_id));
-    file_path.append("_");
-    file_path.append(std::to_string(_rowset_id));
-    file_path.append("_");
-    file_path.append(std::to_string(_segment_group_id));
-    file_path.append("_");
-    file_path.append(std::to_string(segment_id));
-    file_path.append(suffix);
-    return file_path;
-}
-
 std::string SegmentGroup::_construct_file_name(int32_t segment_id, const string& suffix) const {
-    std::string file_name = std::to_string(_rowset_id) + "_" + std::to_string(segment_id) + suffix;
+    std::string file_name = std::to_string(_rowset_id) + "_"
+            + std::to_string(_segment_group_id) + "_" + std::to_string(segment_id) + suffix;
     return file_name;
 }
 
 std::string SegmentGroup::construct_index_file_path(const std::string& snapshot_path, int32_t segment_id) const {
     std::string file_path = snapshot_path;
-    if (_is_pending) {
-        file_path.append("/");
-        file_path.append(_construct_pending_file_name(segment_id, ".idx"));
-    } else {
-        file_path.append("/");
-        file_path.append(_construct_file_name(segment_id, ".idx"));
-    }
+    file_path.append("/");
+    file_path.append(_construct_file_name(segment_id, ".idx"));
     return file_path;
 }
 
@@ -184,13 +165,8 @@ std::string SegmentGroup::construct_index_file_path(int32_t segment_id) const {
 
 std::string SegmentGroup::construct_data_file_path(const std::string& snapshot_path, int32_t segment_id) const {
     std::string file_path = snapshot_path;
-    if (_is_pending) {
-        file_path.append("/");
-        file_path.append(_construct_pending_file_name(segment_id, ".dat"));
-    } else {
-        file_path.append("/");
-        file_path.append(_construct_file_name(segment_id, ".dat"));
-    }
+    file_path.append("/");
+    file_path.append(_construct_file_name(segment_id, ".dat"));
     return file_path;
 }
 
