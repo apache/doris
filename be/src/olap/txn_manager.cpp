@@ -101,7 +101,7 @@ OLAPStatus TxnManager::prepare_txn(
     pair<int64_t, int64_t> key(partition_id, transaction_id);
     TabletInfo tablet_info(tablet_id, schema_hash);
     WriteLock wrlock(_get_txn_lock(transaction_id));
-    WriteLock wrlock(&_txn_map_lock);
+    WriteLock txn_wrlock(&_txn_map_lock);
     auto it = _txn_tablet_map.find(key);
     if (it != _txn_tablet_map.end()) {
         auto load_itr = it->second.find(tablet_info);
@@ -164,9 +164,9 @@ OLAPStatus TxnManager::commit_txn(
                     && load_info.second->rowset_id() == rowset_ptr->rowset_id()) {
                     // find a rowset with same rowset id, then it means a duplicate call
                     LOG(INFO) << "find transaction exists when add to engine."
-                            << "partition_id: " << key.first
-                            << ", transaction_id: " << key.second
-                            << ", tablet: " << tablet_info.to_string();
+                              << "partition_id: " << key.first
+                              << ", transaction_id: " << key.second
+                              << ", tablet: " << tablet_info.to_string();
                     return OLAP_SUCCESS;
                 } else if (load_info.first.hi() == load_id.hi() 
                     && load_info.first.lo() == load_id.lo()
@@ -174,9 +174,9 @@ OLAPStatus TxnManager::commit_txn(
                     && load_info.second->rowset_id() != rowset_ptr->rowset_id()) {
                     // find a rowset with different rowset id, then it should not happen, just return errors
                     LOG(WARNING) << "find transaction exists when add to engine."
-                                << "partition_id: " << key.first
-                                << ", transaction_id: " << key.second
-                                << ", tablet: " << tablet_info.to_string();
+                                 << "partition_id: " << key.first
+                                 << ", transaction_id: " << key.second
+                                 << ", tablet: " << tablet_info.to_string();
                     return OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST;
                 }
             }
@@ -243,9 +243,9 @@ OLAPStatus TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id, TT
             rowset_ptr->rowset_meta());
         if (save_status != OLAP_SUCCESS) {
             LOG(WARNING) << "save committed rowset failed. when publish txn rowset_id:" 
-                        << rowset_ptr->rowset_id() 
-                        << "tablet id: " << tablet_id
-                        << "txn id:" << transaction_id;
+                         << rowset_ptr->rowset_id()
+                         << ", tablet id: " << tablet_id
+                         << ", txn id:" << transaction_id;
             return OLAP_ERR_ROWSET_SAVE_FAILED;
         }
     } else {
@@ -257,9 +257,9 @@ OLAPStatus TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id, TT
         if (it != _txn_tablet_map.end()) {
             it->second.erase(tablet_info);
             LOG(INFO) << "publish txn successfully."
-                    << ",partition_id: " << key.first
-                    << ", txn_id: " << key.second
-                    << ", tablet: " << tablet_info.to_string();
+                      << ", partition_id: " << key.first
+                      << ", txn_id: " << key.second
+                      << ", tablet: " << tablet_info.to_string();
             if (it->second.empty()) {
                 _txn_tablet_map.erase(it);
             }
@@ -278,7 +278,7 @@ OLAPStatus TxnManager::rollback_txn(TPartitionId partition_id, TTransactionId tr
     pair<int64_t, int64_t> key(partition_id, transaction_id);
     TabletInfo tablet_info(tablet_id, schema_hash);
     WriteLock wrlock(_get_txn_lock(transaction_id));
-    WriteLock wrlock(&_txn_map_lock);
+    WriteLock txn_wrlock(&_txn_map_lock);
     auto it = _txn_tablet_map.find(key);
     if (it != _txn_tablet_map.end()) {
         auto load_itr = it->second.find(tablet_info);
@@ -312,7 +312,7 @@ OLAPStatus TxnManager::delete_txn(OlapMeta* meta, TPartitionId partition_id, TTr
     pair<int64_t, int64_t> key(partition_id, transaction_id);
     TabletInfo tablet_info(tablet_id, schema_hash);
     WriteLock wrlock(_get_txn_lock(transaction_id));
-    WriteLock wrlock(&_txn_map_lock);
+    WriteLock txn_wrlock(&_txn_map_lock);
     auto it = _txn_tablet_map.find(key);
     if (it != _txn_tablet_map.end()) {
         auto load_itr = it->second.find(tablet_info);
@@ -359,8 +359,7 @@ void TxnManager::get_tablet_related_txns(TabletSharedPtr tablet, int64_t* partit
     }
 
     TabletInfo tablet_info(tablet->tablet_id(), tablet->schema_hash());
-    ReadLock rdlock(_get_txn_lock(transaction_id));
-    ReadLock rdlock(&_txn_map_lock);
+    ReadLock txn_rdlock(&_txn_map_lock);
     for (auto& it : _txn_tablet_map) {
         if (it.second.find(tablet_info) != it.second.end()) {
             *partition_id = it.first.first;
@@ -379,7 +378,7 @@ void TxnManager::get_txn_related_tablets(const TTransactionId transaction_id,
     // get tablets in this transaction
     pair<int64_t, int64_t> key(partition_id, transaction_id);
     ReadLock rdlock(_get_txn_lock(transaction_id));
-    ReadLock rdlock(&_txn_map_lock);
+    ReadLock txn_rdlock(&_txn_map_lock);
     auto it = _txn_tablet_map.find(key);
     if (it == _txn_tablet_map.end()) {
         OLAP_LOG_WARNING("could not find tablet for [partition_id=%ld transaction_id=%ld]",
@@ -401,7 +400,7 @@ bool TxnManager::has_txn(TPartitionId partition_id, TTransactionId transaction_i
     pair<int64_t, int64_t> key(partition_id, transaction_id);
     TabletInfo tablet_info(tablet_id, schema_hash);
     ReadLock rdlock(_get_txn_lock(transaction_id));
-    ReadLock rdlock(&_txn_map_lock);
+    ReadLock txn_rdlock(&_txn_map_lock);
     auto it = _txn_tablet_map.find(key);
     bool found = it != _txn_tablet_map.end()
                  && it->second.find(tablet_info) != it->second.end();
@@ -416,7 +415,7 @@ bool TxnManager::has_committed_txn(TPartitionId partition_id, TTransactionId tra
     pair<int64_t, int64_t> key(partition_id, transaction_id);
     TabletInfo tablet_info(tablet_id, schema_hash);
     ReadLock rdlock(_get_txn_lock(transaction_id));
-    ReadLock rdlock(&_txn_map_lock);
+    ReadLock txn_rdlock(&_txn_map_lock);
     auto it = _txn_tablet_map.find(key);
     if (it != _txn_tablet_map.end()) {
         auto load_itr = it->second.find(tablet_info);

@@ -46,6 +46,7 @@
 #include "olap/schema_change.h"
 #include "olap/data_dir.h"
 #include "olap/utils.h"
+#include "olap/rowset/alpha_rowset_meta.h"
 #include "olap/rowset/column_data_writer.h"
 #include "util/time.h"
 #include "util/doris_metrics.h"
@@ -127,7 +128,7 @@ OLAPStatus StorageEngine::_load_data_dir(DataDir* data_dir) {
     std::vector<RowsetMetaSharedPtr> dir_rowset_metas;
     LOG(INFO) << "begin loading rowset from meta";
     auto load_rowset_func = [this, data_dir, &dir_rowset_metas](RowsetId rowset_id, const std::string& meta_str) -> bool {
-        RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
+        RowsetMetaSharedPtr rowset_meta(new AlphaRowsetMeta());
         bool parsed = rowset_meta->init(meta_str);
         if (!parsed) {
             LOG(WARNING) << "parse rowset meta string failed for rowset_id:" << rowset_id;
@@ -210,7 +211,7 @@ OLAPStatus StorageEngine::_load_data_dir(DataDir* data_dir) {
             // add visible rowset to tablet, it maybe use in the future
             // there should be only preparing rowset in meta env because visible 
             // rowset is persist with tablet meta currently
-            OLAPStatus publish_status = tablet->add_inc_rowset(*rowset);
+            OLAPStatus publish_status = tablet->add_inc_rowset(rowset);
             if (publish_status != OLAP_SUCCESS) {
                 LOG(WARNING) << "add visilbe rowset to tablet failed rowset_id:" << rowset->rowset_id()
                              << " tablet id: " << rowset_meta->tablet_id()

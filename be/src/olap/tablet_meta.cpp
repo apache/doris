@@ -20,6 +20,7 @@
 #include "olap/file_helper.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
+#include "olap/rowset/alpha_rowset_meta.h"
 #include "olap/tablet_meta_manager.h"
 
 namespace doris {
@@ -35,7 +36,7 @@ OLAPStatus AlterTabletTask::init_from_pb(const AlterTabletPB& alter_task) {
     _related_schema_hash = alter_task.related_schema_hash();
     _alter_type = alter_task.alter_type();
     for (auto& rs_meta_pb : alter_task.rowsets_to_alter()) {
-        RowsetMetaSharedPtr rs_meta(new RowsetMeta());
+        RowsetMetaSharedPtr rs_meta(new AlphaRowsetMeta());
         rs_meta->init_from_pb(rs_meta_pb);
         _rowsets_to_alter.push_back(rs_meta);
     }
@@ -245,12 +246,12 @@ OLAPStatus TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
     _cumulative_layer_point = tablet_meta_pb.cumulative_layer_point();
     RETURN_NOT_OK(_schema.init_from_pb(tablet_meta_pb.schema()));
     for (auto& it : tablet_meta_pb.rs_metas()) {
-        RowsetMetaSharedPtr rs_meta(new RowsetMeta());
+        RowsetMetaSharedPtr rs_meta(new AlphaRowsetMeta());
         rs_meta->init_from_pb(it);
         _rs_metas.push_back(std::move(rs_meta));
     }
     for (auto& it : tablet_meta_pb.inc_rs_metas()) {
-        RowsetMetaSharedPtr rs_meta(new RowsetMeta());
+        RowsetMetaSharedPtr rs_meta(new AlphaRowsetMeta());
         rs_meta->init_from_pb(it);
         _inc_rs_metas.push_back(std::move(rs_meta));
     }
@@ -374,7 +375,7 @@ OLAPStatus TabletMeta::revise_rs_metas(const std::vector<RowsetMetaSharedPtr>& r
     std::lock_guard<std::mutex> lock(_mutex);
     // delete alter task
     _tablet_meta_pb.clear_alter_tablet_task();
-    _alter_task.clear(); 
+    _alter_task.clear();
 
     // remove all old rs_meta and add new rs_meta
     _tablet_meta_pb.clear_rs_metas();
@@ -387,7 +388,6 @@ OLAPStatus TabletMeta::revise_rs_metas(const std::vector<RowsetMetaSharedPtr>& r
     TabletMetaPB tablet_meta_pb;
     RETURN_NOT_OK(to_tablet_pb_unlock(&tablet_meta_pb));
     _tablet_meta_pb = std::move(tablet_meta_pb);
-    RETURN_NOT_OK(save_meta_unlock());
 
     return OLAP_SUCCESS;
 }
@@ -407,7 +407,6 @@ OLAPStatus TabletMeta::add_inc_rs_meta(const RowsetMetaSharedPtr& rs_meta) {
     _inc_rs_metas.push_back(std::move(rs_meta));
     RowsetMetaPB* rs_meta_pb = _tablet_meta_pb.add_inc_rs_metas();
     rs_meta->to_rowset_pb(rs_meta_pb);
-    RETURN_NOT_OK(save_meta_unlock());
 
     return OLAP_SUCCESS;
 }
