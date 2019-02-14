@@ -1724,6 +1724,7 @@ OLAPStatus OLAPEngine::report_all_tablets_info(std::map<TTabletId, TTablet>* tab
 
             tablet_info.__set_version_count(olap_table->file_delta_size());
             tablet_info.__set_path_hash(olap_table->store()->path_hash());
+            tablet_info.__set_used(olap_table->is_used());
 
             tablet.tablet_infos.push_back(tablet_info);
         }

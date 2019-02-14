@@ -35,6 +35,7 @@ struct TTabletInfo {
     9: optional i64 version_count
     10: optional i64 path_hash
     11: optional bool version_miss
+    12: optional bool used
 }
 
 struct TFinishTaskRequest {
