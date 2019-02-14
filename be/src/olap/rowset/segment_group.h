@@ -261,7 +261,6 @@ public:
     bool copy_segments_to_path(const std::string& dest_path);
 
 private:
-    std::string _construct_pending_file_name(int32_t segment_id, const std::string& suffix) const;
     
     std::string _construct_file_name(int32_t segment_id, const std::string& suffix) const;
 
