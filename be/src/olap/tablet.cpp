@@ -145,7 +145,7 @@ OLAPStatus Tablet::load() {
 
 OLAPStatus Tablet::load_rowsets() {
     OLAPStatus res = OLAP_SUCCESS;
-    ReadLock rdlock(&_meta_lock);
+    WriteLock wrlock(&_meta_lock);
     TabletMeta* tablet_meta = _tablet_meta;
     VLOG(3) << "begin to load indices. table=" << full_name()
             << ", version_size=" << tablet_meta->version_count();
@@ -220,7 +220,6 @@ bool Tablet::can_do_compaction() {
 OLAPStatus Tablet::compute_all_versions_hash(const vector<Version>& versions,
                                              VersionHash* version_hash) const {
     DCHECK(version_hash != nullptr) << "invalid parameter, version_hash is nullptr";
-
     int64_t v_hash  = 0L;
     for (auto version : versions) {
         auto it = _rs_version_map.find(version);
@@ -239,6 +238,7 @@ void Tablet::delete_all_files() {
     // Release resources like memory and disk space.
     // we have to call list_versions first, or else error occurs when
     // removing hash_map item and iterating hash_map concurrently.
+    ReadLock rdlock(&_meta_lock);
     for (auto it = _rs_version_map.begin(); it != _rs_version_map.end(); ++it) {
         it->second->remove();
         _rs_version_map.erase(it);
@@ -303,7 +303,7 @@ OLAPStatus Tablet::capture_rs_readers(const vector<Version>& version_path,
             LOG(WARNING) << "fail to find Rowset for version. tablet=" << full_name()
                          << ", version='" << version.first << "-" << version.second;
             release_rs_readers(rs_readers);
-            return OLAP_SUCCESS;
+            return OLAP_ERR_CAPTURE_ROWSET_READER_ERROR;
         }
 
         std::shared_ptr<RowsetReader> rs_reader(it->second->create_reader());
@@ -334,6 +334,7 @@ OLAPStatus Tablet::add_inc_rowset(const RowsetSharedPtr& rowset) {
     _rs_version_map[rowset->version()] = rowset;
     RETURN_NOT_OK(_rs_graph.add_version_to_graph(rowset->version()));
     RETURN_NOT_OK(_tablet_meta->add_inc_rs_meta(rowset->rowset_meta()));
+    RETURN_NOT_OK(_tablet_meta->save_meta());
     return OLAP_SUCCESS;
 }
 
@@ -612,8 +613,6 @@ bool Tablet::is_deletion_rowset(const Version& version) {
 const AlterTabletTask& Tablet::alter_task() {
     return _tablet_meta->alter_task();
 }
-
-const 
 
 void Tablet::add_alter_task(int64_t tablet_id,
                             int64_t schema_hash,
