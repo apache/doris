@@ -720,6 +720,11 @@ OLAPStatus SegmentGroup::remove_old_files(std::vector<std::string>* links_to_rem
         RETURN_NOT_OK(remove_dir(old_index_file_name));
         links_to_remove->push_back(old_index_file_name);
     }
+    std::string pending_delta_path = _rowset_path_prefix + PENDING_DELTA_PREFIX;
+    if (check_dir_existed(pending_delta_path)) {
+        LOG(INFO) << "remove pending delta path:" << pending_delta_path;
+        RETURN_NOT_OK(remove_dir(pending_delta_path));
+    }
     return OLAP_SUCCESS;
 }
 
