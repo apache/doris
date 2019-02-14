@@ -88,12 +88,6 @@ OLAPStatus DeltaWriter::init() {
                                     new_tablet_id, new_schema_hash, _req.load_id);
             }
         }
-
-        // create pending data dir
-        std::string dir_path = _tablet->construct_pending_data_dir_path();
-        if (!check_dir_existed(dir_path)) {
-            RETURN_NOT_OK(create_dirs(dir_path));
-        }
     }
 
     RowsetId rowset_id = 0; // get rowset_id from id generator
@@ -188,14 +182,6 @@ OLAPStatus DeltaWriter::close(google::protobuf::RepeatedPtrField<PTabletInfo>* t
 
     if (_related_tablet != nullptr) {
         LOG(INFO) << "convert version for schema change";
-        {
-            MutexLock push_lock(_related_tablet->get_push_lock());
-            // create pending data dir
-            std::string dir_path = _related_tablet->construct_pending_data_dir_path();
-            if (!check_dir_existed(dir_path)) {
-                RETURN_NOT_OK(create_dirs(dir_path));
-            }
-        }
         SchemaChangeHandler schema_change;
         // TODO(hkp):  this interface will be modified in next pr
         //res = schema_change.schema_version_convert(
