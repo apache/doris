@@ -152,7 +152,7 @@ OLAPStatus StorageEngine::_load_data_dir(DataDir* data_dir) {
         OLAPStatus status = TabletManager::instance()->load_tablet_from_meta(data_dir, tablet_id, schema_hash, value);
         if (status != OLAP_SUCCESS) {
             LOG(WARNING) << "load tablet from header failed. status:" << status
-                << "tablet=" << tablet_id << "." << schema_hash;
+                << ", tablet=" << tablet_id << "." << schema_hash;
         };
         return true;
     };
@@ -172,9 +172,9 @@ OLAPStatus StorageEngine::_load_data_dir(DataDir* data_dir) {
         // tablet maybe dropped, but not drop related rowset meta
         if (tablet.get() == NULL) {
             LOG(WARNING) << "could not find tablet id: " << rowset_meta->tablet_id()
-                         << " schema hash: " << rowset_meta->tablet_schema_hash()
-                         << " for rowset: " << rowset_meta->rowset_id()
-                         << " skip this rowset";
+                         << ", schema hash: " << rowset_meta->tablet_schema_hash()
+                         << ", for rowset: " << rowset_meta->rowset_id()
+                         << ", skip this rowset";
             continue;
         }
         RowsetSharedPtr rowset;
@@ -916,7 +916,7 @@ OLAPStatus StorageEngine::load_header(
     schema_hash_path_stream << shard_path
                             << "/" << request.tablet_id
                             << "/" << request.schema_hash;
-    res =  TabletManager::instance()->load_one_tablet(
+    res = TabletManager::instance()->load_one_tablet(
             store,
             request.tablet_id, request.schema_hash,
             schema_hash_path_stream.str(), false);

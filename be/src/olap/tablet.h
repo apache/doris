@@ -176,6 +176,7 @@ public:
     TabletState tablet_state() const;
 
     const RowsetSharedPtr get_rowset_by_version(const Version& version) const;
+    Version max_version() const;
     const RowsetSharedPtr rowset_with_max_version() const;
     RowsetSharedPtr rowset_with_largest_size();
     OLAPStatus all_rowsets(vector<RowsetSharedPtr> rowsets);

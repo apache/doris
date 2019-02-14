@@ -39,7 +39,7 @@ SegmentReader::SegmentReader(
         const std::vector<uint32_t>& used_columns,
         const std::set<uint32_t>& load_bf_columns,
         const Conditions* conditions,
-        const DeleteHandler& delete_handler,
+        const DeleteHandler* delete_handler,
         const DelCondSatisfied delete_status,
         Cache* lru_cache,
         RuntimeState* runtime_state,
@@ -376,7 +376,7 @@ OLAPStatus SegmentReader::_pick_columns() {
 OLAPStatus SegmentReader::_pick_delete_row_groups(uint32_t first_block, uint32_t last_block) {
     VLOG(3) << "pick for " << first_block << " to " << last_block << " for delete_condition";
 
-    if (_delete_handler.empty()) {
+    if (_delete_handler->empty()) {
         return OLAP_SUCCESS;
     }
 
@@ -385,7 +385,7 @@ OLAPStatus SegmentReader::_pick_delete_row_groups(uint32_t first_block, uint32_t
         return OLAP_SUCCESS;
     }
 
-    for (auto& delete_condition : _delete_handler.get_delete_conditions()) {
+    for (auto& delete_condition : _delete_handler->get_delete_conditions()) {
         if (delete_condition.filter_version <= _segment_group->version().first) {
             continue;
         }

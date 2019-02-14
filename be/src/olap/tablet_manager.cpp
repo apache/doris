@@ -614,9 +614,9 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(CompactionType com
 OLAPStatus TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_id,
         TSchemaHash schema_hash, const std::string& meta_binary) {
     std::unique_ptr<TabletMeta> tablet_meta(new TabletMeta());
-    bool parsed = tablet_meta->deserialize(meta_binary);
-    if (!parsed) {
-        LOG(WARNING) << "parse meta_binary string failed for tablet_id:" << tablet_id << " schema_hash:" << schema_hash;
+    OLAPStatus status = tablet_meta->deserialize(meta_binary);
+    if (status != OLAP_SUCCESS) {
+        LOG(WARNING) << "parse meta_binary string failed for tablet_id:" << tablet_id << ", schema_hash:" << schema_hash;
         return OLAP_ERR_HEADER_PB_PARSE_FAILED;
     }
 
@@ -628,7 +628,7 @@ OLAPStatus TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tab
         return OLAP_ERR_TABLE_CREATE_FROM_HEADER_ERROR;
     }
 
-    if (tablet->rowset_with_max_version() == nullptr && !tablet->is_schema_changing()) {
+    if (tablet->max_version().first == -1 && !tablet->is_schema_changing()) {
         LOG(WARNING) << "tablet not in schema change state without delta is invalid."
                      << "tablet=" << tablet->full_name();
         // tablet state is invalid, drop tablet

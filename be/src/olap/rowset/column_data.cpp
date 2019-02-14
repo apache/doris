@@ -89,7 +89,7 @@ OLAPStatus ColumnData::_next_row(const RowCursor** row, bool without_filter) {
                 return OLAP_SUCCESS;
             } else {
                 DCHECK(_read_block->block_status() == DEL_PARTIAL_SATISFIED);
-                bool row_del_filter = _delete_handler.is_filter_data(
+                bool row_del_filter = _delete_handler->is_filter_data(
                     _segment_group->version().second, _cursor);
                 if (!row_del_filter) {
                     *row = &_cursor;
@@ -561,7 +561,7 @@ int ColumnData::delete_pruning_filter() {
     int ret = DEL_PARTIAL_SATISFIED;
     bool del_partial_stastified = false;
     bool del_stastified = false;
-    for (auto& delete_condtion : _delete_handler.get_delete_conditions()) {
+    for (auto& delete_condtion : _delete_handler->get_delete_conditions()) {
         if (delete_condtion.filter_version <= _segment_group->version().first) {
             continue;
         }
