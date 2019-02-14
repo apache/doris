@@ -147,6 +147,7 @@ OLAPStatus TxnManager::commit_txn(
     }
     WriteLock wrlock(_get_txn_lock(transaction_id));
     {
+        // get tx
         ReadLock rdlock(&_txn_map_lock);
         auto it = _txn_tablet_map.find(key);
         if (it != _txn_tablet_map.end()) {
@@ -298,9 +299,8 @@ OLAPStatus TxnManager::rollback_txn(TPartitionId partition_id, TTransactionId tr
             _txn_tablet_map.erase(it);
         }
         return OLAP_SUCCESS;
-    } else {
-        return OLAP_SUCCESS;
     }
+    return OLAP_SUCCESS;
 }
 
 // fe call this api to clear unused rowsets in be

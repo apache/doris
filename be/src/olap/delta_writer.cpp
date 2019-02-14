@@ -46,6 +46,8 @@ DeltaWriter::~DeltaWriter() {
 }
 
 void DeltaWriter::_garbage_collection() {
+    // TODO(ygl): if cur_rowset is null, then the rowset is not built, should clean other
+    // resources during load
     OLAPStatus rollback_status = TxnManager::instance()->rollback_txn(_req.partition_id, 
         _req.txn_id,_req.tablet_id, _req.schema_hash);
     // has to check rollback status, because the rowset maybe committed in this thread and 
