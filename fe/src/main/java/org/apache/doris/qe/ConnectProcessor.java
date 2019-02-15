@@ -107,7 +107,7 @@ public class ConnectProcessor {
         ctx.getAuditBuilder().put("ScanRows", statistics.scanRows);
         ctx.getAuditBuilder().put("ReturnRows", ctx.getReturnRows());
         ctx.getAuditBuilder().put("StmtId", ctx.getStmtId());
-        ctx.getAuditBuilder().put("QueryId", ctx.queryId() == null ? "" : DebugUtil.printId(ctx.queryId()));
+        ctx.getAuditBuilder().put("QueryId", ctx.queryId() == null ? "NaN" : DebugUtil.printId(ctx.queryId()));
 
         if (ctx.getState().isQuery()) {
             MetricRepo.COUNTER_QUERY_ALL.increase(1L);
