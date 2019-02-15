@@ -41,7 +41,7 @@ class CollectIterator {
 public:
     ~CollectIterator();
 
-    // Hold reader point to get reader params, 
+    // Hold reader point to get reader params,
     // set reverse to true if need read in reverse order.
     OLAPStatus init(Reader* reader);
 
@@ -58,7 +58,7 @@ public:
     bool has_next() {
         if (_merge) {
             // TODO, iterator mergeheap
-            return true;    
+            return true;
         } else {
             for (auto& child_ctx : _children) {
                 if (child_ctx->has_next()) {
@@ -68,7 +68,7 @@ public:
         }
         return false;
     }
-    // Pop the top element and rebuild the heap to 
+    // Pop the top element and rebuild the heap to
     // get the next row cursor.
     inline OLAPStatus next(const RowCursor** row, bool* delete_flag);
 
@@ -108,7 +108,7 @@ private:
         }
 
         bool has_next() {
-            return _rs_reader->has_next(); 
+            return _rs_reader->has_next();
         }
 
         OLAPStatus next(const RowCursor** row, bool* delete_flag) {
@@ -120,7 +120,7 @@ private:
         }
 
     private:
-        // refresh _current_row, 
+        // refresh_current_row
         OLAPStatus _refresh_current_row() {
             DCHECK(_row_block != nullptr);
             do {
@@ -258,7 +258,7 @@ inline OLAPStatus CollectIterator::_normal_next(const RowCursor** row, bool* del
         // this child has been read, to read next
         _child_idx++;
         if (_child_idx < _children.size()) {
-            _cur_child = _children[_child_idx]; 
+            _cur_child = _children[_child_idx];
             *row = _cur_child->current_row(delete_flag);
             return OLAP_SUCCESS;
         } else {
@@ -584,7 +584,7 @@ OLAPStatus Reader::_init_params(const ReaderParams& read_params) {
     _reader_type = read_params.reader_type;
     _tablet = read_params.tablet;
     _version = read_params.version;
-    
+
     res = _init_conditions_param(read_params);
     if (res != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("fail to init conditions param. [res=%d]", res);

@@ -91,7 +91,6 @@ public:
     bool try_cumulative_lock() { return (OLAP_SUCCESS == _cumulative_lock.trylock()); }
     void obtain_cumulative_lock() { _cumulative_lock.lock(); }
     void release_cumulative_lock() { _cumulative_lock.unlock(); }
-    std::string construct_pending_data_dir_path() const;
     std::string construct_dir_path() const;
     int version_count() const;
     const uint32_t calc_cumulative_compaction_score() const;

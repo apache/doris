@@ -26,6 +26,9 @@
 
 namespace doris {
 
+class AlphaRowsetMeta;
+using AlphaRowsetMetaSharedPtr = std::shared_ptr<AlphaRowsetMeta>;
+
 class AlphaRowsetMeta : public RowsetMeta {
 public:
     virtual bool deserialize_extra_properties();
