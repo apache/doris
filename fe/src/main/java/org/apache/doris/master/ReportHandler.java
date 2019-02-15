@@ -823,11 +823,6 @@ public class ReportHandler extends Daemon {
                 throw new MetaNotFoundException("table[" + tableId + "] does not exist");
             }
 
-            // colocate table will delete Replica in meta when balance
-            if (Catalog.getCurrentColocateIndex().isColocateTable(olapTable.getId())) {
-                return;
-            }
-
             Partition partition = olapTable.getPartition(partitionId);
             if (partition == null) {
                 throw new MetaNotFoundException("partition[" + partitionId + "] does not exist");
@@ -857,6 +852,12 @@ public class ReportHandler extends Daemon {
             if (schemaHash != olapTable.getSchemaHashByIndexId(indexId)) {
                 throw new MetaNotFoundException("schema hash is diff[" + schemaHash + "-"
                         + olapTable.getSchemaHashByIndexId(indexId) + "]");
+            }
+
+            // colocate table will delete Replica in meta when balance
+            // but we need to rely on MetaNotFoundException to decide whether delete the tablet in backend
+            if (Catalog.getCurrentColocateIndex().isColocateTable(olapTable.getId())) {
+                return;
             }
 
             List<Replica> replicas = tablet.getReplicas();
