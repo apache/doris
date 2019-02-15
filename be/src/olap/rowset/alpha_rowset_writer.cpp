@@ -29,7 +29,8 @@ AlphaRowsetWriter::AlphaRowsetWriter() :
     _column_data_writer(nullptr),
     _current_rowset_meta(nullptr),
     _is_pending_rowset(false),
-    _num_rows_written(0) {
+    _num_rows_written(0),
+    _is_inited(false) {
 }
 
 OLAPStatus AlphaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) {
@@ -53,12 +54,16 @@ OLAPStatus AlphaRowsetWriter::init(const RowsetWriterContext& rowset_writer_cont
         _current_rowset_meta->set_version(_rowset_writer_context.version);
         _current_rowset_meta->set_version_hash(_rowset_writer_context.version_hash);
     }
-    
     _init();
+    _is_inited = true;
     return OLAP_SUCCESS;
 }
 
 OLAPStatus AlphaRowsetWriter::add_row(RowCursor* row) {
+    if (!_is_inited) {
+        _init();
+        _is_inited = true;
+    }
     OLAPStatus status = _column_data_writer->write(row);
     if (status != OLAP_SUCCESS) {
         std::string error_msg = "add row failed";
@@ -71,6 +76,10 @@ OLAPStatus AlphaRowsetWriter::add_row(RowCursor* row) {
 }
 
 OLAPStatus AlphaRowsetWriter::add_row(const char* row, Schema* schema) {
+    if (!_is_inited) {
+        _init();
+        _is_inited = true;
+    }
     OLAPStatus status = _column_data_writer->write(row);
     if (status != OLAP_SUCCESS) {
         std::string error_msg = "add row failed";
@@ -83,6 +92,10 @@ OLAPStatus AlphaRowsetWriter::add_row(const char* row, Schema* schema) {
 }
 
 OLAPStatus AlphaRowsetWriter::add_row_block(RowBlock* row_block) {
+    if (!_is_inited) {
+        _init();
+        _is_inited = true;
+    }
     size_t pos = 0;
     row_block->set_pos(pos);
     RowCursor row_cursor;
@@ -117,15 +130,17 @@ OLAPStatus AlphaRowsetWriter::flush() {
     OLAPStatus status = _column_data_writer->finalize();
     SAFE_DELETE(_column_data_writer);
     _cur_segment_group->load();
-    _init();
+    _is_inited = false;
     return status;
 }
 
 RowsetSharedPtr AlphaRowsetWriter::build() {
     for (auto& segment_group : _segment_groups) {
-        _current_rowset_meta.set_data_disk_size(segment_group->data_size());
-        _current_rowset_meta.set_index_disk_size(segment_group->index_size());
-        _current_rowset_meta.set_total_disk_size(segment_group->index_size() + segment_group->data_size());
+        _current_rowset_meta->set_data_disk_size(_current_rowset_meta->data_disk_size() + segment_group->data_size());
+        _current_rowset_meta->set_index_disk_size(_current_rowset_meta->index_disk_size() + segment_group->index_size());
+        _current_rowset_meta->set_total_disk_size(_current_rowset_meta->total_disk_size()
+                + segment_group->index_size() + segment_group->data_size());
+        _current_rowset_meta->set_num_rows(_current_rowset_meta->num_rows() + segment_group->num_rows());
         if (_is_pending_rowset) {
             PendingSegmentGroupPB pending_segment_group_pb;
             pending_segment_group_pb.set_pending_segment_group_id(segment_group->segment_group_id());

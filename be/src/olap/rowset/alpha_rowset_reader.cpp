@@ -129,6 +129,7 @@ OLAPStatus AlphaRowsetReader::_get_next_block(size_t pos, RowBlock** row_block) 
 OLAPStatus AlphaRowsetReader::_get_next_not_filtered_row(size_t pos, RowCursor** row) {
     RowBlock* current_row_block = _row_blocks[pos];
     if (current_row_block == nullptr) {
+        LOG(WARNING) << "current_row_block is null";
         return OLAP_ERR_DATA_EOF;
     }
     bool found_row = false;
@@ -152,6 +153,7 @@ OLAPStatus AlphaRowsetReader::_get_next_not_filtered_row(size_t pos, RowCursor**
             OLAPStatus status = _get_next_block(pos, &current_row_block);
             if (status != OLAP_ERR_DATA_EOF
                 && status != OLAP_SUCCESS) {
+                LOG(WARNING) << "_get_next_block failed, status:" << status;
                 return status;
             }
         }
@@ -221,11 +223,12 @@ OLAPStatus AlphaRowsetReader::_init_column_datas(RowsetReaderContext* read_conte
             col_predicates.push_back(column_predicate.second);
         }
     }
-
+    LOG(INFO) << "segment groups size:" << _segment_groups.size() << ", _key_range_size:" << _key_range_size;
     for (auto& segment_group : _segment_groups) {
         std::shared_ptr<ColumnData> new_column_data(ColumnData::create(segment_group.get()));
         OLAPStatus status = new_column_data->init();
         if (status != OLAP_SUCCESS) {
+            LOG(WARNING) << "init column data failed";
             return OLAP_ERR_READER_READING_ERROR;
         }
         if (read_context != nullptr) {
@@ -241,6 +244,7 @@ OLAPStatus AlphaRowsetReader::_init_column_datas(RowsetReaderContext* read_conte
                     read_context->is_using_cache,
                     read_context->runtime_state);
             // filter column data
+            /*
             if (new_column_data->delta_pruning_filter()) {
                 VLOG(3) << "filter delta in query in condition:"
                     << new_column_data->version().first << ", " << new_column_data->version().second;
@@ -260,10 +264,13 @@ OLAPStatus AlphaRowsetReader::_init_column_datas(RowsetReaderContext* read_conte
                     << new_column_data->version().first << ", " << new_column_data->version().second;
                 new_column_data->set_delete_status(DEL_NOT_SATISFIED);
             }
+            */
+           new_column_data->set_delete_status(DEL_NOT_SATISFIED);
             _column_datas.emplace_back(new_column_data);
         }
 
         RowBlock* row_block = nullptr;
+        LOG(INFO) << "_key_range_size:" << _key_range_size;
         if (_key_range_size > 0) {
             _key_range_indices.push_back(0);
             size_t pos = _key_range_indices.size();
@@ -274,6 +281,7 @@ OLAPStatus AlphaRowsetReader::_init_column_datas(RowsetReaderContext* read_conte
                         read_context->is_upper_keys_included->at(_key_range_indices[pos]),
                         &row_block);
                 if (status == OLAP_ERR_DATA_EOF) {
+                    LOG(WARNING) << "prepare block read eof";
                     _key_range_indices[pos]++;
                     continue;
                 } else if (status != OLAP_SUCCESS) {
@@ -330,6 +338,7 @@ OLAPStatus AlphaRowsetReader::_refresh_next_block(size_t pos, RowBlock** next_bl
         }
         return OLAP_SUCCESS;
     } else if (status != OLAP_SUCCESS) {
+        LOG(WARNING) << "get_next_block failed, status:" << status;
         return status;
     } else {
         return OLAP_SUCCESS;
