@@ -245,10 +245,6 @@ void Tablet::delete_all_files() {
     }
 }
 
-string Tablet::construct_pending_data_dir_path() const {
-    return _tablet_path + PENDING_DELTA_PREFIX;
-}
-
 string Tablet::construct_dir_path() const {
     return _tablet_path;
 }
@@ -476,7 +472,6 @@ OLAPStatus Tablet::add_rowset(RowsetSharedPtr rowset) {
 }
 
 RowsetSharedPtr Tablet::rowset_with_largest_size() {
-    ReadLock rdlock(&_meta_lock);
     RowsetSharedPtr largest_rowset = nullptr;
     for (auto& it : _rs_version_map) {
         // use segment_group of base file as target segment_group when base is not empty,

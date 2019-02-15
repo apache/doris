@@ -94,7 +94,6 @@ message RowsetMetaPB {
     optional int64 creation_time = 21;
     // spare field id for future use
     optional bytes extra_properties = 50;
-
 }
 
 message AlphaRowsetExtraMetaPB {

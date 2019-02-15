@@ -139,7 +139,8 @@ RowsetSharedPtr AlphaRowsetWriter::build() {
                     column_pruning->set_null_flag(column_statistics->at(i).first->is_null());
                 }
             }
-            AlphaRowsetMeta* alpha_rowset_meta = (AlphaRowsetMeta*)_current_rowset_meta.get();
+            AlphaRowsetMetaSharedPtr alpha_rowset_meta
+                = std::dynamic_pointer_cast<AlphaRowsetMeta>(_current_rowset_meta);
             alpha_rowset_meta->add_pending_segment_group(pending_segment_group_pb);
         } else {
             SegmentGroupPB segment_group_pb;
@@ -158,7 +159,8 @@ RowsetSharedPtr AlphaRowsetWriter::build() {
                 }
             }
             segment_group_pb.set_empty(segment_group->empty());
-            AlphaRowsetMeta* alpha_rowset_meta = reinterpret_cast<AlphaRowsetMeta*>(_current_rowset_meta.get());
+            AlphaRowsetMetaSharedPtr alpha_rowset_meta
+                = std::dynamic_pointer_cast<AlphaRowsetMeta>(_current_rowset_meta);
             alpha_rowset_meta->add_segment_group(segment_group_pb);
         }
     }
@@ -219,9 +221,9 @@ void AlphaRowsetWriter::_init() {
     //_cur_segment_group->set_load_id(_rowset_writer_context.load_id);
     _segment_groups.push_back(_cur_segment_group);
 
-    _column_data_writer= ColumnDataWriter::create(_cur_segment_group, true,
-                                                  _rowset_writer_context.tablet_schema->compress_kind(),
-                                                  _rowset_writer_context.tablet_schema->bloom_filter_fpp());
+    _column_data_writer = ColumnDataWriter::create(_cur_segment_group, true,
+                                                   _rowset_writer_context.tablet_schema->compress_kind(),
+                                                   _rowset_writer_context.tablet_schema->bloom_filter_fpp());
     DCHECK(_column_data_writer != nullptr) << "memory error occur when creating writer";
 }
 
