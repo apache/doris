@@ -309,7 +309,7 @@ OLAPStatus AlphaRowset::_init_non_pending_segment_groups() {
     for (auto& segment_group_meta : segment_group_metas) {
         Version version = _rowset_meta->version();
         int64_t version_hash = _rowset_meta->version_hash();
-        std::shared_ptr<SegmentGroup> segment_group(new SegmentGroup(_rowset_meta->tablet_id(),
+        std::shared_ptr<SegmentGroup> segment_group(new(std::nothrow) SegmentGroup(_rowset_meta->tablet_id(),
                 _rowset_meta->rowset_id(), _schema, _rowset_path, version, version_hash,
                 false, segment_group_meta.segment_group_id(), segment_group_meta.num_segments()));
         if (segment_group == nullptr) {

@@ -114,9 +114,8 @@ OLAPStatus AlphaRowsetReader::_get_next_block(size_t pos, RowBlock** row_block) 
             // reach the end of one predicate
             // refresh the predicate and continue read
             status = _refresh_next_block(pos, row_block);
-            if (status == OLAP_ERR_DATA_EOF) {
+            if (status != OLAP_SUCCESS) {
                 *row_block = nullptr;
-            } else if (status != OLAP_SUCCESS) {
                 LOG(WARNING) << "refresh next block failed";
                 return status;
             }
@@ -150,10 +149,7 @@ OLAPStatus AlphaRowsetReader::_get_next_not_filtered_row(size_t pos, RowCursor**
             }
         }
         if (!current_row_block->has_remaining()) {
-            OLAPStatus status = _get_next_block(pos, &current_row_block);
-            if (status != OLAP_SUCCESS) {
-                return status;
-            }
+            _get_next_block(pos, &current_row_block);
         }
     }
     if (!found_row) {
@@ -185,10 +181,7 @@ OLAPStatus AlphaRowsetReader::_get_next_row_for_singleton_rowset(RowCursor** row
     RowBlock* row_block = _row_blocks[min_index];
     row_block->pos_inc();
     if (!row_block->has_remaining()) {
-        OLAPStatus status = _get_next_block(min_index, &row_block);
-        if (status != OLAP_SUCCESS) {
-            return status;
-        }
+        _get_next_block(min_index, &row_block);
     }
     return OLAP_SUCCESS;
 }
@@ -219,6 +212,13 @@ OLAPStatus AlphaRowsetReader::_init_column_datas(RowsetReaderContext* read_conte
         _key_range_size = read_context->lower_bound_keys->size();
     }
 
+    std::vector<ColumnPredicate*> col_predicates;
+    if (read_context->predicates != nullptr) {
+        for (auto& column_predicate : *read_context->predicates) {
+            col_predicates.push_back(column_predicate.second);
+        }
+    }
+
     for (auto& segment_group : _segment_groups) {
         std::shared_ptr<ColumnData> new_column_data(ColumnData::create(segment_group.get()));
         OLAPStatus status = new_column_data->init();
@@ -229,13 +229,6 @@ OLAPStatus AlphaRowsetReader::_init_column_datas(RowsetReaderContext* read_conte
             new_column_data->set_delete_handler(read_context->delete_handler);
             new_column_data->set_stats(read_context->stats);
             new_column_data->set_lru_cache(read_context->lru_cache);
-            std::vector<ColumnPredicate*> col_predicates;
-            if (read_context->predicates != nullptr) {
-                for (auto& column_predicate : *read_context->predicates) {
-                    col_predicates.push_back(column_predicate.second);
-                }
-            }
-
             new_column_data->set_read_params(*read_context->return_columns,
                     *read_context->load_bf_columns,
                     *read_context->conditions,

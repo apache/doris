@@ -19,6 +19,7 @@
 
 #include "olap/rowset/alpha_rowset_writer.h"
 #include "olap/rowset/alpha_rowset_meta.h"
+#include "olap/rowset/rowset_meta_manager.h"
 
 namespace doris {
 
@@ -164,10 +165,25 @@ RowsetSharedPtr AlphaRowsetWriter::build() {
             alpha_rowset_meta->add_segment_group(segment_group_pb);
         }
     }
-    RowsetSharedPtr rowset(new AlphaRowset(_rowset_writer_context.tablet_schema,
+    _current_rowset_meta->set_rowset_state(COMMITTED);
+    RowsetSharedPtr rowset(new(std::nothrow) AlphaRowset(_rowset_writer_context.tablet_schema,
                                     _rowset_writer_context.rowset_path_prefix,
                                     _rowset_writer_context.data_dir, _current_rowset_meta));
-    rowset->init();
+    if (rowset == nullptr) {
+        LOG(WARNING) << "new rowset failed when build new rowset";
+        return nullptr;
+    }
+    OLAPStatus status = rowset->init();
+    if (status != OLAP_SUCCESS) {
+        LOG(WARNING) << "rowset init failed when build new rowset";
+        return nullptr;
+    }
+    DataDir* data_dir = _rowset_writer_context.data_dir;
+    status = RowsetMetaManager::save(data_dir->get_meta(), rowset->rowset_id(), _current_rowset_meta);
+    if (status != OLAP_SUCCESS) {
+        LOG(WARNING) << "save rowset meta failed when build new rowset";
+        return nullptr;
+    }
     return rowset;
 }
 
