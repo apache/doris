@@ -150,12 +150,14 @@ OLAPStatus Tablet::load_rowsets() {
     VLOG(3) << "begin to load indices. table=" << full_name()
             << ", version_size=" << tablet_meta->version_count();
     for (auto& rs_meta :  tablet_meta->all_rs_metas()) {
+        LOG(INFO) << "start to new rs";
         Version version = { rs_meta->start_version(), rs_meta->end_version() };
         RowsetSharedPtr rowset(new AlphaRowset(&_schema, _tablet_path, _data_dir, rs_meta));
         _rs_version_map[version] = rowset;
     }
 
     for (auto& it : _rs_version_map) {
+        LOG(INFO) << "start to init rs";
         res = it.second->init();
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to load rowset. "

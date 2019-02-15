@@ -35,6 +35,7 @@ void AlphaRowsetMeta::get_segment_groups(std::vector<SegmentGroupPB>* segment_gr
 void AlphaRowsetMeta::add_segment_group(const SegmentGroupPB& segment_group) {
     SegmentGroupPB* new_segment_group = _extra_meta_pb.add_segment_groups();
     *new_segment_group = segment_group;
+    _serialize_extra_meta_pb();
 }
 
 void AlphaRowsetMeta::get_pending_segment_groups(
@@ -57,6 +58,7 @@ void AlphaRowsetMeta::add_pending_segment_group(const PendingSegmentGroupPB& pen
     }
     PendingSegmentGroupPB* new_pending_segment_group = _extra_meta_pb.add_pending_segment_groups();
     *new_pending_segment_group = pending_segment_group;
+    _serialize_extra_meta_pb();
 }
 
 void AlphaRowsetMeta::_serialize_extra_meta_pb() {
