@@ -66,6 +66,7 @@ private:
     std::shared_ptr<RowsetMeta> _current_rowset_meta;
     bool _is_pending_rowset;
     int _num_rows_written;
+    bool _is_inited;
     RowsetWriterContext _rowset_writer_context;
     std::vector<SegmentGroup*> _segment_groups;
 };

@@ -45,7 +45,7 @@ public:
     // set reverse to true if need read in reverse order.
     OLAPStatus init(Reader* reader);
 
-    OLAPStatus add_child(RowsetReaderSharedPtr rs_reader, RowBlock* block);
+    OLAPStatus add_child(RowsetReaderSharedPtr rs_reader, std::shared_ptr<RowBlock> block);
 
     // Get top row of the heap, NULL if reach end.
     const RowCursor* current_row(bool* delete_flag) const {
@@ -78,7 +78,7 @@ public:
 private:
     class ChildCtx {
     public:
-        ChildCtx(RowsetReaderSharedPtr rs_reader, RowBlock* block, Reader* reader)
+        ChildCtx(RowsetReaderSharedPtr rs_reader, std::shared_ptr<RowBlock> block, Reader* reader)
                 : _rs_reader(rs_reader),
                   _is_delete(rs_reader->delete_flag()),
                   _reader(reader),
@@ -136,7 +136,8 @@ private:
                     _current_row = &_row_cursor;
                     return OLAP_SUCCESS;
                 } else {
-                    auto res = _rs_reader->next_block(&_row_block);
+                    RowBlock* read_block = _row_block.get();
+                    auto res = _rs_reader->next_block(&read_block);
                     if (res != OLAP_SUCCESS) {
                         _current_row = nullptr;
                         return res;
@@ -153,7 +154,7 @@ private:
         Reader* _reader;
 
         RowCursor _row_cursor;
-        RowBlock* _row_block = nullptr;
+        std::shared_ptr<RowBlock> _row_block;
     };
 
     // Compare row cursors between multiple merge elements,
@@ -200,7 +201,7 @@ OLAPStatus CollectIterator::init(Reader* reader) {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus CollectIterator::add_child(RowsetReaderSharedPtr rs_reader, RowBlock* block) {
+OLAPStatus CollectIterator::add_child(RowsetReaderSharedPtr rs_reader, std::shared_ptr<RowBlock> block) {
     std::unique_ptr<ChildCtx> child(new ChildCtx(rs_reader, block, _reader));
     RETURN_NOT_OK(child->init());
     if (child->current_row() == nullptr) {
@@ -556,9 +557,18 @@ OLAPStatus Reader::_capture_rs_readers(const ReaderParams& read_params) {
     }
 
     for (auto& rs_reader : _rs_readers) {
-        RowBlock* block = nullptr;
         if (rs_reader->has_next()) {
-            OLAPStatus res = rs_reader->next_block(&block);
+            RowBlock* read_block = new(std::nothrow) RowBlock(&(_tablet->tablet_schema()));
+            if (read_block == nullptr) {
+                LOG(WARNING) << "new row block failed in reader";
+                return OLAP_ERR_MALLOC_ERROR;
+            }
+            RowBlockInfo block_info;
+            block_info.row_num = _tablet->tablet_schema().num_rows_per_row_block();
+            block_info.null_supported = true;
+            read_block->init(block_info);
+            OLAPStatus res = rs_reader->next_block(&read_block);
+            std::shared_ptr<RowBlock> block(read_block);
             if (res == OLAP_SUCCESS) {
                 res = _collect_iter->add_child(rs_reader, block);
                 if (res != OLAP_SUCCESS && res != OLAP_ERR_DATA_EOF) {

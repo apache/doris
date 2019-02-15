@@ -32,6 +32,7 @@ ROOT=`dirname "$0"`
 ROOT=`cd "$ROOT"; pwd`
 
 export DORIS_HOME=${ROOT}
+export BUILD_TYPE=DEBUG
 
 . ${DORIS_HOME}/env.sh
 
