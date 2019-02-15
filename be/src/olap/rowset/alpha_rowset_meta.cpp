@@ -61,6 +61,10 @@ void AlphaRowsetMeta::add_pending_segment_group(const PendingSegmentGroupPB& pen
     _serialize_extra_meta_pb();
 }
 
+void AlphaRowsetMeta::clear_pending_segment_group() {
+    _extra_meta_pb.clear_pending_segment_groups();
+}
+
 void AlphaRowsetMeta::_serialize_extra_meta_pb() {
     std::string extra_properties;
     _extra_meta_pb.SerializeToString(&extra_properties);
