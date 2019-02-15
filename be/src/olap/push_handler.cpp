@@ -394,18 +394,7 @@ OLAPStatus PushHandler::_convert(
 
         // 7. Convert data for schema change tables
         VLOG(10) << "load to related tables of schema_change if possible.";
-        if (NULL != new_tablet.get()) {
-            // create related tablet's pending data dir
-            string dir_path = new_tablet->construct_pending_data_dir_path();
-            if (!check_dir_existed(dir_path) && (res = create_dirs(dir_path)) != OLAP_SUCCESS) {
-                if (!check_dir_existed(dir_path)) {
-                    LOG(WARNING) << "fail to create pending dir. "
-                                 << "[res=" << res
-                                 << " tablet=" << new_tablet->full_name() << "]";
-                    break;
-                }
-            }
-
+        if (new_tablet != nullptr) {
             SchemaChangeHandler schema_change;
             res = schema_change.schema_version_convert(
                     curr_tablet,
