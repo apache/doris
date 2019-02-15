@@ -201,12 +201,15 @@ RowsetSharedPtr AlphaRowsetWriter::build() {
         LOG(WARNING) << "rowset init failed when build new rowset";
         return nullptr;
     }
-    DataDir* data_dir = _rowset_writer_context.data_dir;
-    status = RowsetMetaManager::save(data_dir->get_meta(), rowset->rowset_id(), _current_rowset_meta);
-    if (status != OLAP_SUCCESS) {
-        LOG(WARNING) << "save rowset meta failed when build new rowset";
-        return nullptr;
+    if (_is_pending_rowset) {
+        DataDir* data_dir = _rowset_writer_context.data_dir;
+        status = RowsetMetaManager::save(data_dir->get_meta(), rowset->rowset_id(), _current_rowset_meta);
+        if (status != OLAP_SUCCESS) {
+            LOG(WARNING) << "save rowset meta failed when build new rowset";
+            return nullptr;
+        }
     }
+    
     return rowset;
 }
 

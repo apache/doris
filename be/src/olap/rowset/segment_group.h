@@ -253,6 +253,10 @@ public:
 
     int64_t get_tablet_id();
 
+    int64_t rowset_id() {
+        return _rowset_id;
+    }
+
     OLAPStatus make_snapshot(const std::string& snapshot_path,
                              std::vector<std::string>* success_links);
 

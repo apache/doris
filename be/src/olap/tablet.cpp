@@ -481,7 +481,7 @@ RowsetSharedPtr Tablet::rowset_with_largest_size() {
         if (it.second->empty() || it.second->zero_num_rows()) {
             continue;
         }
-        if (it.second->rowset_meta()->index_disk_size()
+        if (largest_rowset == nullptr || it.second->rowset_meta()->index_disk_size()
                 > largest_rowset->rowset_meta()->index_disk_size()) {
             largest_rowset = it.second;
         }
