@@ -137,19 +137,23 @@ OLAPStatus AlphaRowsetReader::_get_next_not_filtered_row(size_t pos, RowCursor**
         while (current_row_block->has_remaining()) {
             size_t pos = current_row_block->pos();
             current_row_block->get_row(pos, *row);
-            current_row_block->pos_inc();
             const DeleteHandler* delete_handler = _current_read_context->delete_handler;
             bool row_filtered = delete_handler->is_filter_data(
                     _alpha_rowset_meta->version().second, *(*row));
             if (row_filtered) {
                 _current_read_context->stats->rows_del_filtered++;
+                current_row_block->pos_inc();
             } else {
                 found_row = true;
                 break;
             }
         }
         if (!current_row_block->has_remaining()) {
-            _get_next_block(pos, &current_row_block);
+            OLAPStatus status = _get_next_block(pos, &current_row_block);
+            if (status != OLAP_ERR_DATA_EOF
+                && status != OLAP_SUCCESS) {
+                return status;
+            }
         }
     }
     if (!found_row) {
@@ -180,15 +184,14 @@ OLAPStatus AlphaRowsetReader::_get_next_row_for_singleton_rowset(RowCursor** row
     *row = min_row;
     RowBlock* row_block = _row_blocks[min_index];
     row_block->pos_inc();
-    if (!row_block->has_remaining()) {
-        _get_next_block(min_index, &row_block);
-    }
     return OLAP_SUCCESS;
 }
 
 OLAPStatus AlphaRowsetReader::_get_next_row_for_cumulative_rowset(RowCursor** row) {
     size_t pos = 0;
     OLAPStatus status = _get_next_not_filtered_row(pos, row);
+    RowBlock* row_block = _row_blocks[pos];
+    row_block->pos_inc();
     return status;
 }
 

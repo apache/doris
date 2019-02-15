@@ -123,6 +123,9 @@ OLAPStatus AlphaRowsetWriter::flush() {
 
 RowsetSharedPtr AlphaRowsetWriter::build() {
     for (auto& segment_group : _segment_groups) {
+        _current_rowset_meta.set_data_disk_size(segment_group->data_size());
+        _current_rowset_meta.set_index_disk_size(segment_group->index_size());
+        _current_rowset_meta.set_total_disk_size(segment_group->index_size() + segment_group->data_size());
         if (_is_pending_rowset) {
             PendingSegmentGroupPB pending_segment_group_pb;
             pending_segment_group_pb.set_pending_segment_group_id(segment_group->segment_group_id());
@@ -165,7 +168,12 @@ RowsetSharedPtr AlphaRowsetWriter::build() {
             alpha_rowset_meta->add_segment_group(segment_group_pb);
         }
     }
-    _current_rowset_meta->set_rowset_state(COMMITTED);
+    if (_is_pending_rowset) {
+        _current_rowset_meta->set_rowset_state(COMMITTED);
+    } else {
+        _current_rowset_meta->set_rowset_state(VISIBLE);
+    }
+    
     RowsetSharedPtr rowset(new(std::nothrow) AlphaRowset(_rowset_writer_context.tablet_schema,
                                     _rowset_writer_context.rowset_path_prefix,
                                     _rowset_writer_context.data_dir, _current_rowset_meta));

@@ -303,6 +303,7 @@ OLAPStatus AlphaRowset::split_range(
 }
 
 OLAPStatus AlphaRowset::_init_non_pending_segment_groups() {
+    LOG(INFO) << "_init_non_pending_segment_groups";
     std::vector<SegmentGroupPB> segment_group_metas;
     AlphaRowsetMeta* _alpha_rowset_meta = (AlphaRowsetMeta*)_rowset_meta.get();
     _alpha_rowset_meta->get_segment_groups(&segment_group_metas);
@@ -353,6 +354,7 @@ OLAPStatus AlphaRowset::_init_non_pending_segment_groups() {
             }
             OLAPStatus status = segment_group->add_column_statistics(column_statistic_strings, null_vec);
             if (status != OLAP_SUCCESS) {
+                LOG(WARNING) << "segment group add column statistics failed, status:" << status;
                 return status;
             }
 
@@ -367,6 +369,7 @@ OLAPStatus AlphaRowset::_init_non_pending_segment_groups() {
         }
     }
     _segment_group_size = _segment_groups.size();
+    LOG(INFO) << "_segment_group_size:" << _segment_group_size << ", _is_cumulative_rowset:" << _is_cumulative_rowset;
     if (_is_cumulative_rowset && _segment_group_size > 1) {
         LOG(WARNING) << "invalid segment group meta for cumulative rowset. segment group size:"
                 << _segment_group_size;
@@ -376,6 +379,7 @@ OLAPStatus AlphaRowset::_init_non_pending_segment_groups() {
 }
 
 OLAPStatus AlphaRowset::_init_pending_segment_groups() {
+    LOG(INFO) << "_init_pending_segment_groups";
     std::vector<PendingSegmentGroupPB> pending_segment_group_metas;
     AlphaRowsetMeta* _alpha_rowset_meta = (AlphaRowsetMeta*)_rowset_meta.get();
     _alpha_rowset_meta->get_pending_segment_groups(&pending_segment_group_metas);
@@ -406,6 +410,7 @@ OLAPStatus AlphaRowset::_init_pending_segment_groups() {
         }
     }
     _segment_group_size = _segment_groups.size();
+    LOG(INFO) << "_segment_group_size:" << _segment_group_size << ", _is_cumulative_rowset:" << _is_cumulative_rowset;
     if (_is_cumulative_rowset && _segment_group_size > 1) {
         LOG(WARNING) << "invalid segment group meta for cumulative rowset. segment group size:"
                 << _segment_group_size;
