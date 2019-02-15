@@ -236,8 +236,7 @@ OLAPStatus TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id, TT
     if (rowset_ptr != NULL) {
         // TODO(ygl): rowset is already set version here, memory is changed, if save failed
         // it maybe a fatal error
-        rowset_ptr->set_version(version);
-        rowset_ptr->set_version_hash(version_hash);
+        rowset_ptr->set_version_and_version_hash(version, version_hash);
         OLAPStatus save_status = RowsetMetaManager::save(meta, 
             rowset_ptr->rowset_id(),
             rowset_ptr->rowset_meta());
