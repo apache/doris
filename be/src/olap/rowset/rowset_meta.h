@@ -39,7 +39,11 @@ public:
     virtual ~RowsetMeta() { }
 
     virtual bool init(const std::string& pb_rowset_meta) {
-        return _deserialize_from_pb(pb_rowset_meta);
+        bool ret = _deserialize_from_pb(pb_rowset_meta);
+        if (!ret) {
+            return false;
+        }
+        return deserialize_extra_properties();
     }
 
     virtual bool init_from_pb(const RowsetMetaPB& rowset_meta_pb) {
