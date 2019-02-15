@@ -112,13 +112,52 @@ Version AlphaRowset::version() const {
     return _rowset_meta->version();
 }
 
-void AlphaRowset::set_version(Version version) {
+void AlphaRowset::set_version_and_version_hash(Version version,  VersionHash version_hash) {
     _rowset_meta->set_version(version);
+    _rowset_meta->set_version_hash(version_hash);
     // set the rowset state to VISIBLE
     _rowset_meta->set_rowset_state(VISIBLE);
     _is_pending_rowset = false;
+    AlphaRowsetMetaSharedPtr alpha_rowset_meta =
+            std::dynamic_pointer_cast<AlphaRowsetMeta>(_rowset_meta);
+    std::vector<std::shared_ptr<SegmentGroup>> new_segment_groups;
     for (auto segment_group : _segment_groups) {
         segment_group->set_version(version);
+        segment_group->set_version_hash(version_hash);
+        SegmentGroupPB segment_group_pb;
+        segment_group_pb.set_segment_group_id(segment_group->segment_group_id());
+        segment_group_pb.set_num_segments(segment_group->num_segments());
+        segment_group_pb.set_index_size(segment_group->index_size());
+        segment_group_pb.set_data_size(segment_group->data_size());
+        segment_group_pb.set_num_rows(segment_group->num_rows());
+        const std::vector<KeyRange>* column_statistics = &(segment_group->get_column_statistics());
+        if (column_statistics != nullptr) {
+            for (size_t i = 0; i < column_statistics->size(); ++i) {
+                ColumnPruning* column_pruning = segment_group_pb.add_column_pruning();
+                column_pruning->set_min(column_statistics->at(i).first->to_string());
+                column_pruning->set_max(column_statistics->at(i).second->to_string());
+                column_pruning->set_null_flag(column_statistics->at(i).first->is_null());
+            }
+        }
+        segment_group_pb.set_empty(segment_group->empty());
+        alpha_rowset_meta->add_segment_group(segment_group_pb);
+        std::shared_ptr<SegmentGroup> new_segment_group(new SegmentGroup(
+                segment_group->get_tablet_id(),
+                segment_group->rowset_id(),
+                &(segment_group->get_tablet_schema()),
+                segment_group->rowset_path_prefix(),
+                version,
+                version_hash,
+                false, segment_group->segment_group_id(), 0));
+        new_segment_groups.push_back(new_segment_group);
+    }
+    _segment_groups.swap(new_segment_groups);
+    alpha_rowset_meta->clear_pending_segment_group();
+    OlapMeta* meta = _data_dir->get_meta();
+    OLAPStatus status = RowsetMetaManager::save(meta, rowset_id(), _rowset_meta);
+    if (status != OLAP_SUCCESS) {
+        LOG(FATAL) << "failed to save updated meta of rowset_id:" << rowset_id()
+                << ", status:" << status;
     }
 }
 
@@ -132,13 +171,6 @@ int64_t AlphaRowset::end_version() const {
 
 VersionHash AlphaRowset::version_hash() const {
     return _rowset_meta->version_hash();
-}
-
-void AlphaRowset::set_version_hash(VersionHash version_hash) {
-    _rowset_meta->set_version_hash(version_hash);
-    for (auto segment_group : _segment_groups) {
-        segment_group->set_version_hash(version_hash);
-    }
 }
 
 bool AlphaRowset::in_use() const {
@@ -305,7 +337,7 @@ OLAPStatus AlphaRowset::split_range(
 OLAPStatus AlphaRowset::_init_non_pending_segment_groups() {
     LOG(INFO) << "_init_non_pending_segment_groups";
     std::vector<SegmentGroupPB> segment_group_metas;
-    AlphaRowsetMeta* _alpha_rowset_meta = (AlphaRowsetMeta*)_rowset_meta.get();
+    AlphaRowsetMetaSharedPtr _alpha_rowset_meta = std::dynamic_pointer_cast<AlphaRowsetMeta>(_rowset_meta);
     _alpha_rowset_meta->get_segment_groups(&segment_group_metas);
     for (auto& segment_group_meta : segment_group_metas) {
         Version version = _rowset_meta->version();
@@ -381,7 +413,7 @@ OLAPStatus AlphaRowset::_init_non_pending_segment_groups() {
 OLAPStatus AlphaRowset::_init_pending_segment_groups() {
     LOG(INFO) << "_init_pending_segment_groups";
     std::vector<PendingSegmentGroupPB> pending_segment_group_metas;
-    AlphaRowsetMeta* _alpha_rowset_meta = (AlphaRowsetMeta*)_rowset_meta.get();
+    AlphaRowsetMetaSharedPtr _alpha_rowset_meta = std::dynamic_pointer_cast<AlphaRowsetMeta>(_rowset_meta);
     _alpha_rowset_meta->get_pending_segment_groups(&pending_segment_group_metas);
     for (auto& pending_segment_group_meta : pending_segment_group_metas) {
         Version version = _rowset_meta->version();

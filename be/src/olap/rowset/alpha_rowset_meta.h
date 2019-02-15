@@ -41,6 +41,8 @@ public:
 
     void add_pending_segment_group(const PendingSegmentGroupPB& pending_segment_group);
 
+    void clear_pending_segment_group();
+
 private:
     void _serialize_extra_meta_pb();
 
