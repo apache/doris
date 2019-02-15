@@ -61,15 +61,13 @@ public:
 
     Version version() const override;
 
-    void set_version(Version version) override;
+    void set_version_and_version_hash(Version version, VersionHash version_hash) override;
 
     int64_t end_version() const override;
 
     int64_t start_version() const override;
 
     VersionHash version_hash() const override;
-
-    void set_version_hash(VersionHash version_hash) override;
 
     bool in_use() const override;
 
