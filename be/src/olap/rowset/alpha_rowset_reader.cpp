@@ -72,6 +72,7 @@ OLAPStatus AlphaRowsetReader::next(RowCursor** row) {
 }
 
 OLAPStatus AlphaRowsetReader::next_block(RowBlock** block) {
+    size_t num_rows_in_block = 0;
     while (has_next() && (*block)->pos() < _num_rows_per_row_block) {
         RowCursor* row_cursor = nullptr;
         OLAPStatus status = next(&row_cursor);
@@ -81,7 +82,10 @@ OLAPStatus AlphaRowsetReader::next_block(RowBlock** block) {
         (*block)->set_row((*block)->pos(), *row_cursor);
         (*block)->pos_inc();
         _num_rows_read++;
+        num_rows_in_block++;
     }
+    (*block)->set_pos(0);
+    (*block)->set_limit(num_rows_in_block);
     return OLAP_SUCCESS;
 }
 
@@ -170,9 +174,12 @@ OLAPStatus AlphaRowsetReader::_get_next_row_for_singleton_rowset(RowCursor** row
     RowCursor* min_row = nullptr;
     int min_index = -1;
     for (int i = 0; i < _row_blocks.size(); i++) {
-        RowCursor* current_row = nullptr;
+        RowCursor* current_row = new RowCursor();
+        current_row->init(_segment_groups[0]->get_tablet_schema());
         OLAPStatus status = _get_next_not_filtered_row(i, &current_row);
+        LOG(INFO) << "current_row:" << current_row->to_string();
         if (status == OLAP_ERR_DATA_EOF) {
+            LOG(WARNING) << "read eof";
             continue;
         }
         if (min_row == nullptr || min_row->cmp(*current_row) <  0) {
