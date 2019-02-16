@@ -30,6 +30,7 @@
 #include "olap/comparison_predicate.h"
 #include "olap/in_list_predicate.h"
 #include "olap/null_predicate.h"
+#include "olap/storage_engine.h"
 
 using std::nothrow;
 using std::set;
@@ -549,6 +550,7 @@ OLAPStatus Reader::_capture_rs_readers(const ReaderParams& read_params) {
                    .set_delete_handler(&_delete_handler)
                    .set_stats(&_stats)
                    .set_is_using_cache(is_using_cache)
+                   .set_lru_cache(StorageEngine::instance()->index_stream_lru_cache())
                    .set_runtime_state(read_params.runtime_state);
     RowsetReaderContext context = context_builder.build();
     for (auto& rs_reader : *rs_readers) {
