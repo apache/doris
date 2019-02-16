@@ -117,7 +117,7 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id,
     bool has_bf_columns = false;
     for (TColumn tcolumn : tablet_schema.columns) {
         ColumnPB* column = schema->add_column();
-        uint32_t unique_id = col_ordinal_to_unique_id.at(col_ordinal);
+        uint32_t unique_id = col_ordinal_to_unique_id.at(col_ordinal++);
         column->set_unique_id(unique_id);
         column->set_name(tcolumn.column_name);
         string data_type;

@@ -57,7 +57,6 @@ OLAPStatus MemIndex::load_segment(const char* file, size_t *current_num_rows_per
     OLAPStatus res = OLAP_SUCCESS;
 
     SegmentMetaInfo meta;
-    OLAPIndexHeaderMessage pb;
     uint32_t adler_checksum = 0;
     uint32_t num_entries = 0;
 
