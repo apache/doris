@@ -57,14 +57,9 @@ public:
     }
 
     bool has_next() {
-        if (_merge) {
-            // TODO, iterator mergeheap
-            return true;
-        } else {
-            for (auto& child_ctx : _children) {
-                if (child_ctx->has_next()) {
-                    return true;
-                }
+        for (auto& child_ctx : _children) {
+            if (child_ctx->has_next()) {
+                return true;
             }
         }
         return false;
@@ -109,7 +104,7 @@ private:
         }
 
         bool has_next() {
-            return _rs_reader->has_next();
+            return _rs_reader->has_next() || (_row_block != nullptr && _row_block->has_remaining());
         }
 
         OLAPStatus next(const RowCursor** row, bool* delete_flag) {
@@ -138,10 +133,14 @@ private:
                     return OLAP_SUCCESS;
                 } else {
                     RowBlock* read_block = _row_block.get();
-                    auto res = _rs_reader->next_block(&read_block);
-                    if (res != OLAP_SUCCESS) {
-                        _current_row = nullptr;
-                        return res;
+                    if (_rs_reader->has_next()) {
+                        auto res = _rs_reader->next_block(&read_block);
+                        if (res != OLAP_SUCCESS) {
+                            _current_row = nullptr;
+                            return res;
+                        }
+                    } else {
+                        return OLAP_ERR_DATA_EOF;
                     }
                 }
             } while (_row_block != nullptr);
@@ -364,7 +363,7 @@ OLAPStatus Reader::_dup_key_next_row(RowCursor* row_cursor, bool* eof) {
 }
 
 OLAPStatus Reader::_agg_key_next_row(RowCursor* row_cursor, bool* eof) {
-    *eof = _collect_iter->has_next();
+    *eof = !(_collect_iter->has_next());
     if (*eof) {
         return OLAP_SUCCESS;
     }
@@ -392,6 +391,7 @@ OLAPStatus Reader::_agg_key_next_row(RowCursor* row_cursor, bool* eof) {
     } while (true);
     _merged_rows += merged_count;
     row_cursor->finalize_one_merge(_value_cids);
+    LOG(INFO) << "return row_cursor:" << row_cursor->to_string();
     return OLAP_SUCCESS;
 }
 
