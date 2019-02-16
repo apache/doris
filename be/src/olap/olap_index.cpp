@@ -124,6 +124,9 @@ OLAPStatus MemIndex::load_segment(const char* file, size_t *current_num_rows_per
     _num_entries = meta.range.last;
     _meta.push_back(meta);
 
+    (current_num_rows_per_row_block == NULL
+     || (*current_num_rows_per_row_block = meta.file_header.message().num_rows_per_block()));
+
     if (OLAP_UNLIKELY(num_entries == 0)) {
         file_handler.close();
         return OLAP_SUCCESS;

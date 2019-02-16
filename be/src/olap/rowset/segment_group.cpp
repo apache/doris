@@ -122,7 +122,7 @@ SegmentGroup::SegmentGroup(int64_t tablet_id, int64_t rowset_id, const TabletSch
     _new_segment_created = false;
     _empty = false;
 
-    for (size_t i = 0; i < _schema->num_key_columns(); ++i) {
+    for (size_t i = 0; i < _schema->num_short_key_columns(); ++i) {
         const TabletColumn& column = _schema->column(i);
         _short_key_columns.push_back(column);
         _short_key_length += column.index_length() + 1;// 1 for null byte
@@ -282,6 +282,7 @@ OLAPStatus SegmentGroup::add_column_statistics(
 
 OLAPStatus SegmentGroup::load() {
     if (_empty) {
+        _index_loaded = true;
         return OLAP_SUCCESS;
     }
     OLAPStatus res = OLAP_ERR_INDEX_LOAD_ERROR;
@@ -414,6 +415,7 @@ OLAPStatus SegmentGroup::find_short_key(const RowCursor& key,
                                  RowCursor* helper_cursor,
                                  bool find_last,
                                  RowBlockPosition* pos) const {
+    LOG(INFO) << "version of segment_group:" << _version.first << "-" << _version.second;
     SEGMENT_GROUP_PARAM_VALIDATE();
     POS_PARAM_VALIDATE(pos);
 

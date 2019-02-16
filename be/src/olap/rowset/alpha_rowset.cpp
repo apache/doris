@@ -120,7 +120,6 @@ void AlphaRowset::set_version_and_version_hash(Version version,  VersionHash ver
     _is_pending_rowset = false;
     AlphaRowsetMetaSharedPtr alpha_rowset_meta =
             std::dynamic_pointer_cast<AlphaRowsetMeta>(_rowset_meta);
-    std::vector<std::shared_ptr<SegmentGroup>> new_segment_groups;
     for (auto segment_group : _segment_groups) {
         segment_group->set_version(version);
         segment_group->set_version_hash(version_hash);
@@ -141,17 +140,8 @@ void AlphaRowset::set_version_and_version_hash(Version version,  VersionHash ver
         }
         segment_group_pb.set_empty(segment_group->empty());
         alpha_rowset_meta->add_segment_group(segment_group_pb);
-        std::shared_ptr<SegmentGroup> new_segment_group(new SegmentGroup(
-                segment_group->get_tablet_id(),
-                segment_group->rowset_id(),
-                &(segment_group->get_tablet_schema()),
-                segment_group->rowset_path_prefix(),
-                version,
-                version_hash,
-                false, segment_group->segment_group_id(), 0));
-        new_segment_groups.push_back(new_segment_group);
+        segment_group->set_pending_finished();
     }
-    _segment_groups.swap(new_segment_groups);
     alpha_rowset_meta->clear_pending_segment_group();
     OlapMeta* meta = _data_dir->get_meta();
     OLAPStatus status = RowsetMetaManager::save(meta, rowset_id(), _rowset_meta);
@@ -396,7 +386,7 @@ OLAPStatus AlphaRowset::_init_non_pending_segment_groups() {
                         << "version=" << version.first << "-"
                         << version.second << ", "
                         << "version_hash=" << version_hash;
-                return res; 
+                return res;
             }
         }
     }
@@ -439,6 +429,15 @@ OLAPStatus AlphaRowset::_init_pending_segment_groups() {
                     << "-" << version.second << " version_hash=" << version_hash;
                 // if load segment group failed, rowset init failed
             return OLAP_ERR_TABLE_INDEX_VALIDATE_ERROR;
+        }
+
+        OLAPStatus res = segment_group->load();
+        if (res != OLAP_SUCCESS) {
+            LOG(WARNING) << "fail to load segment_group. res=" << res << ", "
+                << "version=" << version.first << "-"
+                << version.second << ", "
+                << "version_hash=" << version_hash;
+            return res;
         }
     }
     _segment_group_size = _segment_groups.size();
