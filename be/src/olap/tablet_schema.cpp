@@ -136,8 +136,8 @@ size_t TabletSchema::row_size() const {
 size_t TabletSchema::field_index(const std::string& field_name) const {
     int ordinal = -1;
     for (auto& column : _cols) {
+        ordinal++;
         if (column.name() == field_name) {
-            ordinal++;
             break;
         }
     }
