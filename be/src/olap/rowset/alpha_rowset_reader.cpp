@@ -244,7 +244,6 @@ OLAPStatus AlphaRowsetReader::_init_column_datas(RowsetReaderContext* read_conte
                     read_context->is_using_cache,
                     read_context->runtime_state);
             // filter column data
-            /*
             if (new_column_data->delta_pruning_filter()) {
                 VLOG(3) << "filter delta in query in condition:"
                     << new_column_data->version().first << ", " << new_column_data->version().second;
@@ -261,10 +260,9 @@ OLAPStatus AlphaRowsetReader::_init_column_datas(RowsetReaderContext* read_conte
                 new_column_data->set_delete_status(DEL_PARTIAL_SATISFIED);
             } else {
                 VLOG(3) << "not filter delta in delete predicate:"
-                    << new_column_data->version().first << ", " << new_column_data->version().second;
+                        << new_column_data->version().first << ", " << new_column_data->version().second;
                 new_column_data->set_delete_status(DEL_NOT_SATISFIED);
             }
-            */
            new_column_data->set_delete_status(DEL_NOT_SATISFIED);
             _column_datas.emplace_back(new_column_data);
         }

@@ -27,6 +27,7 @@
 #include "olap/olap_common.h"
 #include "json2pb/json_to_pb.h"
 #include "json2pb/pb_to_json.h"
+#include "common/logging.h"
 
 namespace doris {
 
@@ -57,6 +58,7 @@ public:
     }
 
     virtual bool deserialize_extra_properties() {
+        LOG(INFO) << "deserialize_extra_properties";
         return true;
     }
 
@@ -277,6 +279,10 @@ public:
 
     void to_rowset_pb(RowsetMetaPB* rs_meta_pb) {
         *rs_meta_pb = _rowset_meta_pb;
+        AlphaRowsetExtraMetaPB extra_meta_pb;
+        extra_meta_pb.ParseFromString(_rowset_meta_pb.extra_properties());
+        LOG(INFO) << "extra_meta_pb pending group size:" << extra_meta_pb.pending_segment_groups().size();
+        LOG(INFO) << "extra_meta_pb group size:" << extra_meta_pb.segment_groups().size();
     }
 
 private:
