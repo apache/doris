@@ -19,6 +19,7 @@ package org.apache.doris.clone;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DiskInfo.DiskState;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
@@ -28,7 +29,6 @@ import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.catalog.TabletInvertedIndex;
-import org.apache.doris.catalog.DiskInfo.DiskState;
 import org.apache.doris.clone.SchedException.Status;
 import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.clone.TabletSchedCtx.Type;
@@ -1029,6 +1029,10 @@ public class TabletScheduler extends Daemon {
 
     public synchronized int getHistoryNum() {
         return schedHistory.size();
+    }
+
+    public synchronized int getTotalNum() {
+        return allTabletIds.size();
     }
 
     /*

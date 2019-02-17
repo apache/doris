@@ -147,6 +147,19 @@ public final class MetricRepo {
         };
         PALO_METRIC_REGISTER.addPaloMetrics(maxJournalId);
 
+        // scheduled tablet num
+        GaugeMetric<Long> scheduledTabletNum = (GaugeMetric<Long>) new GaugeMetric<Long>(
+                "scheduled_tablet_num", "number of tablets being scheduled") {
+            @Override
+            public Long getValue() {
+                if (!Catalog.getInstance().isMaster()) {
+                    return 0L;
+                }
+                return (long) Catalog.getCurrentCatalog().getTabletScheduler().getTotalNum();
+            }
+        };
+        PALO_METRIC_REGISTER.addPaloMetrics(scheduledTabletNum);
+
         // 2. counter
         COUNTER_REQUEST_ALL = new LongCounterMetric("request_total", "total request");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_REQUEST_ALL);
