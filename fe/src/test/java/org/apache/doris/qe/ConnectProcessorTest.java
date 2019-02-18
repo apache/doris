@@ -27,6 +27,7 @@ import org.apache.doris.mysql.MysqlErrPacket;
 import org.apache.doris.mysql.MysqlOkPacket;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.rpc.PQueryStatistics;
+import org.apache.doris.thrift.TUniqueId;
 
 import org.easymock.EasyMock;
 import org.junit.Assert;
@@ -164,7 +165,7 @@ public class ConnectProcessorTest {
         context.setStmtId(EasyMock.anyLong());
         EasyMock.expectLastCall().anyTimes();
         EasyMock.expect(context.getStmtId()).andReturn(1L).anyTimes();
-
+        EasyMock.expect(context.queryId()).andReturn(new TUniqueId()).anyTimes();
         EasyMock.replay(context);
 
         return context;

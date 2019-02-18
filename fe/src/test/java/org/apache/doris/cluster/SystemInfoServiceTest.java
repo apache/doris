@@ -23,6 +23,7 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.DropBackendClause;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
@@ -58,6 +59,7 @@ public class SystemInfoServiceTest {
     private EditLog editLog;
     private Catalog catalog;
     private SystemInfoService systemInfoService;
+    private TabletInvertedIndex invertedIndex;
     private Database db;
 
     private Analyzer analyzer;
@@ -96,8 +98,10 @@ public class SystemInfoServiceTest {
 
         PowerMock.mockStatic(Catalog.class);
         systemInfoService = new SystemInfoService();
+        invertedIndex = new TabletInvertedIndex();
         EasyMock.expect(Catalog.getInstance()).andReturn(catalog).anyTimes();
         EasyMock.expect(Catalog.getCurrentSystemInfo()).andReturn(systemInfoService).anyTimes();
+        EasyMock.expect(Catalog.getCurrentInvertedIndex()).andReturn(invertedIndex).anyTimes();
         EasyMock.expect(Catalog.getCurrentCatalogJournalVersion()).andReturn(FeConstants.meta_version).anyTimes();
         PowerMock.replay(Catalog.class);
 

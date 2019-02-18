@@ -32,6 +32,7 @@ import org.apache.doris.clone.CloneChecker;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.Daemon;
+import org.apache.doris.persist.BackendTabletsInfo;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.system.Backend;
 import org.apache.doris.task.AgentBatchTask;
@@ -658,13 +659,17 @@ public class ReportHandler extends Daemon {
         }
 
         // print a warn log here to indicate the exceptions on the backend
-        LOG.warn("find {} tablets with report version less than version in meta on backend {}"
-                + " they need clone or force recovery",
+        LOG.warn("find {} tablets with report version less than version in meta, or is set bad, on backend {}"
+                + ", they need clone or force recovery",
                 tabletRecoveryMap.size(), backendId);
 
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
         if (!forceRecovery) {
-            LOG.warn("force recovery is disable. try reset the tablet's version, and waiting clone");
+            LOG.warn("force recovery is disable. try reset the tablets' version"
+                    + " or set it as bad, and waiting clone");
+
+            BackendTabletsInfo backendTabletsInfo = new BackendTabletsInfo(backendId);
+            backendTabletsInfo.setBad(true);
             for (Long dbId : tabletRecoveryMap.keySet()) {
                 Database db = Catalog.getInstance().getDb(dbId);
                 if (db == null) {
@@ -691,7 +696,7 @@ public class ReportHandler extends Daemon {
                             continue;
                         }
 
-                        long schemaHash = olapTable.getSchemaHashByIndexId(indexId);
+                        int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
 
                         Tablet tablet = index.getTablet(tabletId);
                         if (tablet == null) {
@@ -705,6 +710,15 @@ public class ReportHandler extends Daemon {
 
                         for (TTabletInfo tTabletInfo : backendTablets.get(tabletId).getTablet_infos()) {
                             if (tTabletInfo.getSchema_hash() == schemaHash) {
+                                if (tTabletInfo.isSetUsed() && !tTabletInfo.isUsed()) {
+                                    if (replica.setBad(true)) {
+                                        LOG.warn("set bad for replica {} of tablet {} on backend {}",
+                                                replica.getId(), tabletId, backendId);
+                                        backendTabletsInfo.addTabletWithSchemaHash(tabletId, schemaHash);
+                                    }
+                                    break;
+                                }
+
                                 if (replica.getVersion() > tTabletInfo.getVersion()) {
                                     LOG.warn("recover for replica {} of tablet {} on backend {}",
                                             replica.getId(), tabletId, backendId);
@@ -737,6 +751,11 @@ public class ReportHandler extends Daemon {
                 } finally {
                     db.writeUnlock();
                 }
+            } // end for recovery map
+
+            if (!backendTabletsInfo.isEmpty()) {
+                // need to write edit log the sync the bad info to other FEs
+                Catalog.getInstance().getEditLog().logBackendTabletsInfo(backendTabletsInfo);
             }
 
             return;

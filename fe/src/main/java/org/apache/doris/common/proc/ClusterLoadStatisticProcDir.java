@@ -18,9 +18,9 @@
 package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.clone.BackendLoadStatistic;
 import org.apache.doris.clone.ClusterLoadStatistic;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.system.Backend;
 
 import com.google.common.collect.ImmutableList;
 
@@ -68,22 +68,11 @@ public class ClusterLoadStatisticProcDir implements ProcDirInterface {
             throw new AnalysisException("Invalid be id format: " + beIdStr);
         }
 
-        if (statMap == null) {
-            statMap = Catalog.getCurrentCatalog().getTabletScheduler().getStatisticMap();
+        Backend be = Catalog.getCurrentSystemInfo().getBackend(beId);
+        if (be == null) {
+            throw new AnalysisException("backend " + beId + " does not exist");
         }
-        
-        String clusterName = null;
-        for (ClusterLoadStatistic clusterStat : statMap.values()) {
-            BackendLoadStatistic beStat = clusterStat.getBackendLoadStatistic(beId);
-            if (beStat != null) {
-                clusterName = beStat.getClusterName();
-            }
-        }
-        if (clusterName != null) {
-            return new BackendLoadStatisticProcNode(statMap.get(clusterName), beId);
-        }
-
-        throw new AnalysisException("Invalid be id: " + beIdStr);
+        return new BackendProcNode(be);
     }
 
 }

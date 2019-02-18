@@ -28,7 +28,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlChannel;
@@ -50,7 +49,6 @@ import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.nio.ByteBuffer;
 import java.nio.channels.AsynchronousCloseException;
-import java.util.Formatter;
 import java.util.List;
 
 /**
@@ -109,6 +107,7 @@ public class ConnectProcessor {
         ctx.getAuditBuilder().put("ScanRows", statistics.scanRows);
         ctx.getAuditBuilder().put("ReturnRows", ctx.getReturnRows());
         ctx.getAuditBuilder().put("StmtId", ctx.getStmtId());
+        ctx.getAuditBuilder().put("QueryId", ctx.queryId() == null ? "NaN" : DebugUtil.printId(ctx.queryId()));
 
         if (ctx.getState().isQuery()) {
             MetricRepo.COUNTER_QUERY_ALL.increase(1L);
