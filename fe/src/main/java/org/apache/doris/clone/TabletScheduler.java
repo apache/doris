@@ -19,6 +19,7 @@ package org.apache.doris.clone;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DiskInfo.DiskState;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
@@ -165,7 +166,9 @@ public class TabletScheduler extends Daemon {
         Set<Long> deletedBeIds = Sets.newHashSet();
         for (Long beId : backendsWorkingSlots.keySet()) {
             if (backends.containsKey(beId)) {
-                List<Long> pathHashes = backends.get(beId).getDisks().values().stream().map(v -> v.getPathHash()).collect(Collectors.toList());
+                List<Long> pathHashes = backends.get(beId).getDisks().values().stream()
+                        .filter(v -> v.getState()==DiskState.ONLINE)
+                        .map(v -> v.getPathHash()).collect(Collectors.toList());
                 backendsWorkingSlots.get(beId).updatePaths(pathHashes);
             } else {
                 deletedBeIds.add(beId);
@@ -577,16 +580,18 @@ public class TabletScheduler extends Daemon {
      *  we just drop one redundant replica at a time, for safety reason.
      *  choosing a replica to drop base on following priority:
      *  1. backend has been dropped
-     *  2. backend is not available
-     *  3. replica's state is CLONE
-     *  4. replica's last failed version > 0
-     *  5. replica with lower version
-     *  6. replica not in right cluster
-     *  7. replica in higher load backend
+     *  2. replica is bad
+     *  3. backend is not available
+     *  4. replica's state is CLONE
+     *  5. replica's last failed version > 0
+     *  6. replica with lower version
+     *  7. replica not in right cluster
+     *  8. replica in higher load backend
      */
     private void handleRedundantReplica(TabletSchedCtx tabletCtx) throws SchedException {
         stat.counterReplicaRedundantErr.incrementAndGet();
         if (deleteBackendDropped(tabletCtx)
+                || deleteBadReplica(tabletCtx)
                 || deleteBackendUnavailable(tabletCtx)
                 || deleteCloneReplica(tabletCtx)
                 || deleteReplicaWithFailedVersion(tabletCtx)
@@ -605,6 +610,16 @@ public class TabletScheduler extends Daemon {
             long beId = replica.getBackendId();
             if (infoService.getBackend(beId) == null) {
                 deleteReplicaInternal(tabletCtx, replica, "backend dropped");
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean deleteBadReplica(TabletSchedCtx tabletCtx) {
+        for (Replica replica : tabletCtx.getReplicas()) {
+            if (replica.isBad()) {
+                deleteReplicaInternal(tabletCtx, replica, "replica is bad");
                 return true;
             }
         }
@@ -1014,6 +1029,10 @@ public class TabletScheduler extends Daemon {
 
     public synchronized int getHistoryNum() {
         return schedHistory.size();
+    }
+
+    public synchronized int getTotalNum() {
+        return allTabletIds.size();
     }
 
     /*

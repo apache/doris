@@ -73,6 +73,8 @@ public class Replica implements Writable {
 
     private long pathHash = -1;
 
+    private boolean bad = false;
+
     public Replica() {
     }
     
@@ -176,6 +178,18 @@ public class Replica implements Writable {
 
     public void setPathHash(long pathHash) {
         this.pathHash = pathHash;
+    }
+
+    public boolean isBad() {
+        return bad;
+    }
+
+    public boolean setBad(boolean bad) {
+        if (this.bad == bad) {
+            return false;
+        }
+        this.bad = bad;
+        return true;
     }
 
     // only update data size and row num

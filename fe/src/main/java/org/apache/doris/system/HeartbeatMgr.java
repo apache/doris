@@ -230,6 +230,7 @@ public class HeartbeatMgr extends Daemon {
                             : result.getStatus().getError_msgs().get(0));
                 }
             } catch (Exception e) {
+                LOG.warn("backend heartbeat got exception", e);
                 return new BackendHbResponse(backendId,
                         Strings.isNullOrEmpty(e.getMessage()) ? "got exception" : e.getMessage());
             } finally {
