@@ -340,7 +340,6 @@ OLAPStatus AlphaRowset::_init_non_pending_segment_groups() {
                 << "-" << version.second << "' rowset_id='" << _rowset_meta->rowset_id() << "']";
             return OLAP_ERR_CREATE_FILE_ERROR;
         }
-        _segment_groups.push_back(segment_group);
         if (segment_group_meta.has_empty()) {
             segment_group->set_empty(segment_group_meta.empty());
         }
@@ -389,6 +388,7 @@ OLAPStatus AlphaRowset::_init_non_pending_segment_groups() {
                 return res;
             }
         }
+        _segment_groups.push_back(segment_group);
     }
     _segment_group_size = _segment_groups.size();
     LOG(INFO) << "_segment_group_size:" << _segment_group_size << ", _is_cumulative_rowset:" << _is_cumulative_rowset;
