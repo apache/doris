@@ -6048,17 +6048,17 @@ public class Catalog {
     }
 
     public void replayBackendTabletsInfo(BackendTabletsInfo backendTabletsInfo) {
-        Map<Long, Integer> tablets = backendTabletsInfo.getTabletIds();
-        for (Map.Entry<Long, Integer> tabletInfo : tablets.entrySet()) {
-            Replica replica = tabletInvertedIndex.getReplica(tabletInfo.getKey(),
+        List<Pair<Long, Integer>> tabletsWithSchemaHash = backendTabletsInfo.getTabletSchemaHash();
+        for (Pair<Long, Integer> tabletInfo : tabletsWithSchemaHash) {
+            Replica replica = tabletInvertedIndex.getReplica(tabletInfo.first,
                     backendTabletsInfo.getBackendId());
             if (replica == null) {
                 LOG.warn("replica does not found when replay. tablet {}, backend {}",
-                        tabletInfo.getKey(), backendTabletsInfo.getBackendId());
+                        tabletInfo.first, backendTabletsInfo.getBackendId());
                 continue;
             }
 
-            if (replica.getSchemaHash() != tabletInfo.getValue()) {
+            if (replica.getSchemaHash() != tabletInfo.second) {
                 continue;
             }
 

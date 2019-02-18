@@ -17,14 +17,15 @@
 
 package org.apache.doris.persist;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Writable;
 
-import com.google.common.collect.Maps;
+import com.google.common.collect.Lists;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.Map;
+import java.util.List;
 
 /*
  * Author: Chenmingyu
@@ -34,8 +35,8 @@ import java.util.Map;
 public class BackendTabletsInfo implements Writable {
 
     private long backendId;
-    // tablet id -> schema hash
-    private Map<Long, Integer> tabletIds = Maps.newHashMap();
+    // tablet id , schema hash
+    private List<Pair<Long, Integer>> tabletSchemaHash = Lists.newArrayList();
 
     private boolean bad;
 
@@ -47,16 +48,16 @@ public class BackendTabletsInfo implements Writable {
         this.backendId = backendId;
     }
 
-    public void addTabletId(long tabletId, int schemaHash) {
-        tabletIds.put(tabletId, schemaHash);
+    public void addTabletWithSchemaHash(long tabletId, int schemaHash) {
+        tabletSchemaHash.add(Pair.create(tabletId, schemaHash));
     }
 
     public long getBackendId() {
         return backendId;
     }
 
-    public Map<Long, Integer> getTabletIds() {
-        return tabletIds;
+    public List<Pair<Long, Integer>> getTabletSchemaHash() {
+        return tabletSchemaHash;
     }
 
     public void setBad(boolean bad) {
@@ -68,7 +69,7 @@ public class BackendTabletsInfo implements Writable {
     }
 
     public boolean isEmpty() {
-        return tabletIds.isEmpty();
+        return tabletSchemaHash.isEmpty();
     }
 
     public static BackendTabletsInfo read(DataInput in) throws IOException {
@@ -80,10 +81,10 @@ public class BackendTabletsInfo implements Writable {
     @Override
     public void write(DataOutput out) throws IOException {
         out.writeLong(backendId);
-        out.writeInt(tabletIds.size());
-        for (Map.Entry<Long, Integer> entry : tabletIds.entrySet()) {
-            out.writeLong(entry.getKey());
-            out.writeInt(entry.getValue());
+        out.writeInt(tabletSchemaHash.size());
+        for (Pair<Long, Integer> pair : tabletSchemaHash) {
+            out.writeLong(pair.first);
+            out.writeInt(pair.second);
         }
 
         out.writeBoolean(bad);
@@ -95,12 +96,12 @@ public class BackendTabletsInfo implements Writable {
     @Override
     public void readFields(DataInput in) throws IOException {
         backendId = in.readLong();
-        int size = in.readInt();
 
+        int size = in.readInt();
         for (int i = 0; i < size; i++) {
             long tabletId = in.readLong();
             int schemaHash = in.readInt();
-            tabletIds.put(tabletId, schemaHash);
+            tabletSchemaHash.add(Pair.create(tabletId, schemaHash));
         }
 
         bad = in.readBoolean();

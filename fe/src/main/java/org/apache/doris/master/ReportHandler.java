@@ -714,7 +714,7 @@ public class ReportHandler extends Daemon {
                                     if (replica.setBad(true)) {
                                         LOG.warn("set bad for replica {} of tablet {} on backend {}",
                                                 replica.getId(), tabletId, backendId);
-                                        backendTabletsInfo.addTabletId(tabletId, schemaHash);
+                                        backendTabletsInfo.addTabletWithSchemaHash(tabletId, schemaHash);
                                     }
                                     break;
                                 }
