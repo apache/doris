@@ -17,6 +17,7 @@
 
 package org.apache.doris.clone;
 
+import org.apache.doris.catalog.DiskInfo.DiskState;
 import org.apache.doris.clone.BackendLoadStatistic.Classification;
 import org.apache.doris.clone.BalanceStatus.ErrCode;
 import org.apache.doris.common.Config;
@@ -33,17 +34,19 @@ public class RootPathLoadStatistic implements Comparable<RootPathLoadStatistic> 
     private TStorageMedium storageMedium;
     private long capacityB;
     private long usedCapacityB;
+    private DiskState diskState;
 
     private Classification clazz = Classification.INIT;
 
     public RootPathLoadStatistic(long beId, String path, Long pathHash, TStorageMedium storageMedium,
-            long capacityB, long usedCapacityB) {
+            long capacityB, long usedCapacityB, DiskState diskState) {
         this.beId = beId;
         this.path = path;
         this.pathHash = pathHash;
         this.storageMedium = storageMedium;
         this.capacityB = capacityB <= 0 ? 1 : capacityB;
         this.usedCapacityB = usedCapacityB;
+        this.diskState = diskState;
     }
 
     public long getBeId() {
@@ -82,7 +85,16 @@ public class RootPathLoadStatistic implements Comparable<RootPathLoadStatistic> 
         return clazz;
     }
 
+    public DiskState getDiskState() {
+        return diskState;
+    }
+
     public BalanceStatus isFit(long tabletSize, boolean isSupplement) {
+        if (diskState == DiskState.OFFLINE) {
+            return new BalanceStatus(ErrCode.COMMON_ERROR,
+                    toString() + " does not fit tablet with size: " + tabletSize + ", offline");
+        }
+
         if (isSupplement) {
             if ((usedCapacityB + tabletSize) / (double) capacityB > MAX_USAGE_PERCENT_LIMIT
                     && capacityB - usedCapacityB - tabletSize < MIN_LEFT_CAPACITY_BYTES_LIMIT) {
@@ -121,5 +133,4 @@ public class RootPathLoadStatistic implements Comparable<RootPathLoadStatistic> 
         sb.append(", used: ").append(usedCapacityB).append(", total: ").append(capacityB);
         return sb.toString();
     }
-
 }

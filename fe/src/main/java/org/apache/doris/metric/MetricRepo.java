@@ -21,6 +21,8 @@ import org.apache.doris.alter.Alter;
 import org.apache.doris.alter.AlterJob.JobType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.DiskInfo;
+import org.apache.doris.catalog.DiskInfo.DiskState;
+import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.load.Load;
 import org.apache.doris.load.LoadJob.EtlJobType;
 import org.apache.doris.load.LoadJob.JobState;
@@ -145,6 +147,19 @@ public final class MetricRepo {
         };
         PALO_METRIC_REGISTER.addPaloMetrics(maxJournalId);
 
+        // scheduled tablet num
+        GaugeMetric<Long> scheduledTabletNum = (GaugeMetric<Long>) new GaugeMetric<Long>(
+                "scheduled_tablet_num", "number of tablets being scheduled") {
+            @Override
+            public Long getValue() {
+                if (!Catalog.getInstance().isMaster()) {
+                    return 0L;
+                }
+                return (long) Catalog.getCurrentCatalog().getTabletScheduler().getTotalNum();
+            }
+        };
+        PALO_METRIC_REGISTER.addPaloMetrics(scheduledTabletNum);
+
         // 2. counter
         COUNTER_REQUEST_ALL = new LongCounterMetric("request_total", "total request");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_REQUEST_ALL);
@@ -186,20 +201,22 @@ public final class MetricRepo {
     // at runtime.
     public static void generateCapacityMetrics() {
         final String CAPACITY = "capacity";
+        final String TABLET_NUM = "tablet_num";
+        final String DISK_STATE = "disk_state";
         // remove all previous 'capacity' metric
         PALO_METRIC_REGISTER.removeMetrics(CAPACITY);
 
         LOG.info("begin to generate capacity metrics");
         SystemInfoService infoService = Catalog.getCurrentSystemInfo();
+        TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
+
         for (Long beId : infoService.getBackendIds(false)) {
             Backend be = infoService.getBackend(beId);
             if (be == null) {
                 continue;
             }
 
-            LOG.debug("get backend: {}", be);
             for (DiskInfo diskInfo : be.getDisks().values()) {
-                LOG.debug("get disk: {}", diskInfo);
                 GaugeMetric<Long> total = (GaugeMetric<Long>) new GaugeMetric<Long>(CAPACITY,
                         "disk capacity") {
                     @Override
@@ -230,8 +247,41 @@ public final class MetricRepo {
                         .addLabel(new MetricLabel("path", diskInfo.getRootPath()))
                         .addLabel(new MetricLabel("type", "used"));
                 PALO_METRIC_REGISTER.addPaloMetrics(used);
+
+                // disk state
+                // ONLINE: 1, OFFLINE: 0
+                GaugeMetric<Long> diskState = (GaugeMetric<Long>) new GaugeMetric<Long>(DISK_STATE,
+                        "disk state") {
+                    @Override
+                    public Long getValue() {
+                        if (!Catalog.getInstance().isMaster()) {
+                            return 0L;
+                        }
+                        return diskInfo.getState() == DiskState.ONLINE ? 1L : 0L;
+                    }
+                };
+
+                diskState.addLabel(new MetricLabel("backend", be.getHost() + ":" + be.getHttpPort()))
+                    .addLabel(new MetricLabel("path", diskInfo.getRootPath()));
+                PALO_METRIC_REGISTER.addPaloMetrics(diskState);
             }
-        }
+
+            // tablet number of each backends
+            GaugeMetric<Long> tabletNum = (GaugeMetric<Long>) new GaugeMetric<Long>(TABLET_NUM,
+                    "tablet number") {
+                @Override
+                public Long getValue() {
+                    if (!Catalog.getInstance().isMaster()) {
+                        return 0L;
+                    }
+                    return (long) invertedIndex.getTabletNumByBackendId(beId);
+                }
+            };
+
+            tabletNum.addLabel(new MetricLabel("backend", be.getHost() + ":" + be.getHttpPort()));
+            PALO_METRIC_REGISTER.addPaloMetrics(tabletNum);
+
+        } // end for backends
     }
 
     public static synchronized String getMetric(MetricVisitor visitor) {

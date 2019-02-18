@@ -97,6 +97,12 @@ public class LoadBalancer {
                     lowBe.stream().mapToLong(b -> b.getBeId()).toArray());
             return alternativeTablets;
         }
+        
+        if (lowBe.stream().allMatch(b -> !b.hasAvailDisk())) {
+            LOG.info("all low load backends have no available disk. skip",
+                    lowBe.stream().mapToLong(b -> b.getBeId()).toArray());
+            return alternativeTablets;
+        }
 
         // choose tablets from high load backends.
         // BackendLoadStatistic is sorted by load score in ascend order,
@@ -254,14 +260,14 @@ public class LoadBalancer {
                 }
 
                 // classify the paths.
-                // And we only select tablets from 'high' and 'mid' paths
+                // And we only select path from 'low' and 'mid' paths
                 Set<Long> pathLow = Sets.newHashSet();
                 Set<Long> pathMid = Sets.newHashSet();
                 Set<Long> pathHigh = Sets.newHashSet();
                 beStat.getPathStatisticByClass(pathLow, pathMid, pathHigh);
-                pathHigh.addAll(pathMid);
+                pathLow.addAll(pathMid);
 
-                long pathHash = slot.takeAnAvailBalanceSlotFrom(pathHigh);
+                long pathHash = slot.takeAnAvailBalanceSlotFrom(pathLow);
                 if (pathHash == -1) {
                     continue;
                 } else {

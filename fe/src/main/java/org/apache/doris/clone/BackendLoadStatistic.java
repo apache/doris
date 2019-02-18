@@ -18,6 +18,7 @@
 package org.apache.doris.clone;
 
 import org.apache.doris.catalog.DiskInfo;
+import org.apache.doris.catalog.DiskInfo.DiskState;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.clone.BalanceStatus.ErrCode;
 import org.apache.doris.common.Config;
@@ -127,11 +128,15 @@ public class BackendLoadStatistic implements Comparable<BackendLoadStatistic> {
 
         ImmutableMap<String, DiskInfo> disks = be.getDisks();
         for (DiskInfo diskInfo : disks.values()) {
-            totalCapacityB += diskInfo.getTotalCapacityB();
-            totalUsedCapacityB += diskInfo.getDataUsedCapacityB();
+            if (diskInfo.getState() == DiskState.ONLINE) {
+                // we only collect online disk's capacity
+                totalCapacityB += diskInfo.getTotalCapacityB();
+                totalUsedCapacityB += diskInfo.getDataUsedCapacityB();
+            }
+
             RootPathLoadStatistic pathStatistic = new RootPathLoadStatistic(beId, diskInfo.getRootPath(),
                     diskInfo.getPathHash(), diskInfo.getStorageMedium(),
-                    diskInfo.getTotalCapacityB(), diskInfo.getDataUsedCapacityB());
+                    diskInfo.getTotalCapacityB(), diskInfo.getDataUsedCapacityB(), diskInfo.getState());
             pathStatistics.add(pathStatistic);
         }
 
@@ -225,8 +230,18 @@ public class BackendLoadStatistic implements Comparable<BackendLoadStatistic> {
         return status;
     }
 
+    public boolean hasAvailDisk() {
+        for (RootPathLoadStatistic rootPathLoadStatistic : pathStatistics) {
+            if (rootPathLoadStatistic.getDiskState() == DiskState.ONLINE) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /*
-     * Classify the paths into 'low', 'mid' and 'high'
+     * Classify the paths into 'low', 'mid' and 'high',
+     * and skip offline path
      */
     public void getPathStatisticByClass(
             Set<Long> low,
@@ -234,6 +249,10 @@ public class BackendLoadStatistic implements Comparable<BackendLoadStatistic> {
             Set<Long> high) {
 
         for (RootPathLoadStatistic pathStat : pathStatistics) {
+            if (pathStat.getDiskState() == DiskState.OFFLINE) {
+                continue;
+            }
+
             if (pathStat.getClazz() == Classification.LOW) {
                 low.add(pathStat.getPathHash());
             } else if (pathStat.getClazz() == Classification.HIGH) {

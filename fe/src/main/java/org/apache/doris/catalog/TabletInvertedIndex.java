@@ -128,8 +128,7 @@ public class TabletInvertedIndex {
                             if (tabletMeta.containsSchemaHash(backendTabletInfo.getSchema_hash())) {
                                 foundTabletsWithValidSchema.add(tabletId);
                                 // 1. (intersection)
-                                if (needSync(replica, backendTabletInfo.getVersion(),
-                                              backendTabletInfo.getVersion_hash())) {
+                                if (needSync(replica, backendTabletInfo)) {
                                     // need sync
                                     tabletSyncMap.put(tabletMeta.getDbId(), tabletId);
                                 }
@@ -143,11 +142,13 @@ public class TabletInvertedIndex {
 
                                 if (needRecover(replica, tabletMeta.getOldSchemaHash(), backendTabletInfo)) {
                                     LOG.warn("replica {} of tablet {} on backend {} need recovery. "
-                                            + "replica in FE: {}, report version {}-{}, report schema hash: {}",
+                                            + "replica in FE: {}, report version {}-{}, report schema hash: {},"
+                                            + " is bad: {}",
                                             replica.getId(), tabletId, backendId, replica,
                                             backendTabletInfo.getVersion(),
                                             backendTabletInfo.getVersion_hash(),
-                                            backendTabletInfo.getSchema_hash());
+                                            backendTabletInfo.getSchema_hash(),
+                                            backendTabletInfo.isSetUsed() ? backendTabletInfo.isUsed() : "unknown");
                                     tabletRecoveryMap.put(tabletMeta.getDbId(), tabletId);
                                 }
 
@@ -309,20 +310,32 @@ public class TabletInvertedIndex {
         return backendIdToReplica.keySet();
     }
 
-    private boolean needSync(Replica replicaInFe, long backendVersion, long backendVersionHash) {
+    private boolean needSync(Replica replicaInFe, TTabletInfo backendTabletInfo) {
+        if (backendTabletInfo.isSetUsed() && !backendTabletInfo.isUsed()) {
+            // tablet is bad, do not sync
+            // it will be handled in needRecovery()
+            return false;
+        }
         long versionInFe = replicaInFe.getVersion();
         long versionHashInFe = replicaInFe.getVersionHash();
-        if (backendVersion > versionInFe || (versionInFe == backendVersion && versionHashInFe != backendVersionHash)) {
+        if (backendTabletInfo.getVersion() > versionInFe
+                || (versionInFe == backendTabletInfo.getVersion()
+                        && versionHashInFe != backendTabletInfo.getVersion_hash())) {
             return true;
         }
         return false;
     }
     
     /**
-     * if be's report version < fe's meta version, it means some version is missing in BE
+     * if be's report version < fe's meta version, or tablet is unused, it means some version is missing in BE
      * because of some unrecoverable failure.
      */
     private boolean needRecover(Replica replicaInFe, int schemaHashInFe, TTabletInfo backendTabletInfo) {
+        if (backendTabletInfo.isSetUsed() && !backendTabletInfo.isUsed()) {
+            // tablet is bad
+            return true;
+        }
+
         if (schemaHashInFe != backendTabletInfo.getSchema_hash()
                 || backendTabletInfo.getVersion() == -1 && backendTabletInfo.getVersion_hash() == 0) {
             // no data file exist on BE, maybe this is a newly created schema change tablet. no need to recovery

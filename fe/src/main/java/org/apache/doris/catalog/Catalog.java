@@ -141,6 +141,7 @@ import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.mysql.privilege.UserPropertyMgr;
 import org.apache.doris.persist.BackendIdsUpdateInfo;
+import org.apache.doris.persist.BackendTabletsInfo;
 import org.apache.doris.persist.ClusterInfo;
 import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.persist.DatabaseInfo;
@@ -6043,6 +6044,25 @@ public class Catalog {
 
         for (Map.Entry<String, String> entry : configs.entrySet()) {
             ConfigBase.setMutableConfig(entry.getKey(), entry.getValue());
+        }
+    }
+
+    public void replayBackendTabletsInfo(BackendTabletsInfo backendTabletsInfo) {
+        List<Pair<Long, Integer>> tabletsWithSchemaHash = backendTabletsInfo.getTabletSchemaHash();
+        for (Pair<Long, Integer> tabletInfo : tabletsWithSchemaHash) {
+            Replica replica = tabletInvertedIndex.getReplica(tabletInfo.first,
+                    backendTabletsInfo.getBackendId());
+            if (replica == null) {
+                LOG.warn("replica does not found when replay. tablet {}, backend {}",
+                        tabletInfo.first, backendTabletsInfo.getBackendId());
+                continue;
+            }
+
+            if (replica.getSchemaHash() != tabletInfo.second) {
+                continue;
+            }
+
+            replica.setBad(backendTabletsInfo.isBad());
         }
     }
 }

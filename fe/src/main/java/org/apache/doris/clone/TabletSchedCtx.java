@@ -418,6 +418,10 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
          */
         List<Replica> candidates = Lists.newArrayList();
         for (Replica replica : tablet.getReplicas()) {
+            if (replica.isBad()) {
+                continue;
+            }
+
             Backend be = infoService.getBackend(replica.getBackendId());
             if (be == null || !be.isAlive()) {
                 // backend which is in decommission can still be the source backend
@@ -481,10 +485,15 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             throws SchedException {
         Replica chosenReplica = null;
         for (Replica replica : tablet.getReplicas()) {
+            if (replica.isBad()) {
+                continue;
+            }
+
             Backend be = infoService.getBackend(replica.getBackendId());
             if (be == null || !be.isAvailable()) {
                 continue;
             }
+
             if (replica.getLastFailedVersion() <= 0) {
                 continue;
             }

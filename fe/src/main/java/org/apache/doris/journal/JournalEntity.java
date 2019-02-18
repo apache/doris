@@ -43,6 +43,7 @@ import org.apache.doris.master.Checkpoint;
 import org.apache.doris.mysql.privilege.UserProperty;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
 import org.apache.doris.persist.BackendIdsUpdateInfo;
+import org.apache.doris.persist.BackendTabletsInfo;
 import org.apache.doris.persist.CloneInfo;
 import org.apache.doris.persist.ClusterInfo;
 import org.apache.doris.persist.ColocatePersistInfo;
@@ -402,6 +403,11 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_DROP_FUNCTION: {
                 data = FunctionSearchDesc.read(in);
+                needRead = false;
+                break;
+            }
+            case OperationType.OP_BACKEND_TABLETS_INFO: {
+                data = BackendTabletsInfo.read(in);
                 needRead = false;
                 break;
             }
