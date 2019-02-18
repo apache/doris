@@ -31,7 +31,7 @@ using AlphaRowsetMetaSharedPtr = std::shared_ptr<AlphaRowsetMeta>;
 
 class AlphaRowsetMeta : public RowsetMeta {
 public:
-    virtual bool deserialize_extra_properties();
+    bool deserialize_extra_properties() override;
 
     void get_segment_groups(std::vector<SegmentGroupPB>* segment_groups);
 
