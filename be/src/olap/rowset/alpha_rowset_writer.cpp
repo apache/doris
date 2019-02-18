@@ -141,6 +141,7 @@ RowsetSharedPtr AlphaRowsetWriter::build() {
         _current_rowset_meta->set_total_disk_size(_current_rowset_meta->total_disk_size()
                 + segment_group->index_size() + segment_group->data_size());
         _current_rowset_meta->set_num_rows(_current_rowset_meta->num_rows() + segment_group->num_rows());
+        _current_rowset_meta->set_creation_time(time(NULL));
         if (_is_pending_rowset) {
             PendingSegmentGroupPB pending_segment_group_pb;
             pending_segment_group_pb.set_pending_segment_group_id(segment_group->segment_group_id());
@@ -200,14 +201,6 @@ RowsetSharedPtr AlphaRowsetWriter::build() {
     if (status != OLAP_SUCCESS) {
         LOG(WARNING) << "rowset init failed when build new rowset";
         return nullptr;
-    }
-    if (_is_pending_rowset) {
-        DataDir* data_dir = _rowset_writer_context.data_dir;
-        status = RowsetMetaManager::save(data_dir->get_meta(), rowset->rowset_id(), _current_rowset_meta);
-        if (status != OLAP_SUCCESS) {
-            LOG(WARNING) << "save rowset meta failed when build new rowset";
-            return nullptr;
-        }
     }
     
     return rowset;
