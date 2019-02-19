@@ -134,7 +134,7 @@ OLAPStatus SnapshotManager::_calc_snapshot_id_path(
 
     stringstream snapshot_id_path_stream;
     MutexLock auto_lock(&_snapshot_mutex); // will automatically unlock when function return.
-    snapshot_id_path_stream << tablet->storage_root_path_name() << SNAPSHOT_PREFIX
+    snapshot_id_path_stream << tablet->dir_path() << SNAPSHOT_PREFIX
                             << "/" << time_str << "." << _snapshot_base_id++;
     *out_path = snapshot_id_path_stream.str();
     return res;
@@ -198,7 +198,7 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
     res = _calc_snapshot_id_path(ref_tablet, &snapshot_id_path);
     if (res != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("failed to calc snapshot_id_path, [ref tablet=%s]",
-                ref_tablet->storage_root_path_name().c_str());
+                ref_tablet->dir_path().c_str());
         return res;
     }
 
@@ -352,7 +352,7 @@ OLAPStatus SnapshotManager::_create_incremental_snapshot_files(
     res = _calc_snapshot_id_path(ref_tablet, &snapshot_id_path);
     if (res != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("failed to calc snapshot_id_path, [ref tablet=%s]",
-                ref_tablet->storage_root_path_name().c_str());
+                ref_tablet->dir_path().c_str());
         return res;
     }
 
@@ -443,14 +443,14 @@ OLAPStatus SnapshotManager::_append_single_delta(
                          request.tablet_id, request.schema_hash);
         return res;
     }
-    auto tablet = Tablet::create_from_tablet_meta(new_tablet_meta, store);
+    auto tablet = Tablet::create_tablet_from_meta(new_tablet_meta, store);
     if (tablet == NULL) {
         OLAP_LOG_WARNING("fail to load tablet. [res=%d tablet_id='%ld, schema_hash=%d']",
                          res, request.tablet_id, request.schema_hash);
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
-    res = tablet->load();
+    res = tablet->init();
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to load tablet. [res=" << res << " header_path=" << store->path();
         return res;

@@ -241,10 +241,10 @@ message ColumnPB {
 }
 
 message TabletSchemaPB {
-    repeated ColumnPB column = 1;
-    optional int32 num_short_key_columns = 2;
-    optional int32 num_rows_per_row_block = 3;
-    optional KeysType keys_type = 4;
+    optional KeysType keys_type = 1;
+    repeated ColumnPB column = 2;
+    optional int32 num_short_key_columns = 3;
+    optional int32 num_rows_per_row_block = 4;
     optional CompressKind compress_kind = 5;
     optional double bf_fpp = 6;
     optional uint32 next_column_unique_id = 7;
@@ -267,10 +267,10 @@ message TabletMetaPB {
     optional int64 creation_time = 6;
     optional int32 cumulative_layer_point = 7;
 
-    optional TabletSchemaPB schema = 8;
-    repeated RowsetMetaPB rs_metas = 9;
-    repeated RowsetMetaPB inc_rs_metas = 10;
-    optional TabletStatePB tablet_state = 11;
+    optional TabletStatePB tablet_state = 8;
+    optional TabletSchemaPB schema = 9;
+    repeated RowsetMetaPB rs_metas = 10;
+    repeated RowsetMetaPB inc_rs_metas = 11;
     optional AlterTabletPB alter_tablet_task = 12;
 }
 

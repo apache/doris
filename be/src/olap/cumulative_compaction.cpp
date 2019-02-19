@@ -42,7 +42,7 @@ OLAPStatus CumulativeCompaction::init(TabletSharedPtr tablet) {
         return OLAP_ERR_CUMULATIVE_REPEAT_INIT;
     }
 
-    if (!tablet->is_loaded()) {
+    if (!tablet->init_success()) {
         return OLAP_ERR_CUMULATIVE_INVALID_PARAMETERS;
     }
 
@@ -212,7 +212,7 @@ OLAPStatus CumulativeCompaction::_calculate_need_merged_versions() {
             }
 
             Version delta = delta_versions[index];
-            size_t delta_size = _tablet->get_version_data_size(delta);
+            size_t delta_size = _tablet->get_rowset_size_by_version(delta);
             // 如果遇到大的delta文件，或delete版本文件，则：
             if (delta_size >= _max_delta_file_size
                     || _tablet->version_for_delete_predicate(delta)
@@ -240,7 +240,7 @@ OLAPStatus CumulativeCompaction::_calculate_need_merged_versions() {
         if (need_merged_versions.size() == 1 || total_size == 0) {
             // 如果区间末尾是较大的delta版, 则与它合并
             if (index < delta_number
-                    && _tablet->get_version_data_size(delta_versions[index]) >=
+                    && _tablet->get_rowset_size_by_version(delta_versions[index]) >=
                            _max_delta_file_size) {
                 need_merged_versions.push_back(delta_versions[index]);
                 ++index;
@@ -283,7 +283,7 @@ OLAPStatus CumulativeCompaction::_calculate_need_merged_versions() {
     // 扫描的文件相同，依然找不到可以合并的delta文件, 无法执行合并过程。
     // 依此类推，就进入了死循环状态，永远不会进行cumulative compaction
     _tablet->set_cumulative_layer_point(delta_versions[index].first);
-    _tablet->save_tablet_meta();
+    _tablet->save_meta();
     return OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS;
 }
 
@@ -359,7 +359,7 @@ bool CumulativeCompaction::_find_previous_version(const Version current_version,
                 return false;
             }
 
-            size_t data_size = _tablet->get_version_data_size(*version);
+            size_t data_size = _tablet->get_rowset_size_by_version(*version);
             if (data_size >= _max_delta_file_size) {
                 return false;
             }
@@ -452,7 +452,7 @@ OLAPStatus CumulativeCompaction::_do_cumulative_compaction() {
     }
     // 5. 如果合并成功，设置新的cumulative_layer_point
     _tablet->set_cumulative_layer_point(_new_cumulative_layer_point);
-    _tablet->save_tablet_meta();
+    _tablet->save_meta();
     _release_header_lock();
 
     // 6. delete delta files which have been merged into new cumulative file
@@ -476,7 +476,7 @@ OLAPStatus CumulativeCompaction::_update_header(const vector<RowsetSharedPtr>& u
         return res;
     }
 
-    res = _tablet->save_tablet_meta();
+    res = _tablet->save_meta();
     if (res != OLAP_SUCCESS) {
         LOG(FATAL) << "failed to save header. res=" << res
                    << ", tablet=" << _tablet->full_name();
@@ -544,7 +544,7 @@ OLAPStatus CumulativeCompaction::_roll_back(vector<RowsetSharedPtr>& old_olap_in
         return res;
     }
 
-    res = _tablet->save_tablet_meta();
+    res = _tablet->save_meta();
     if (res != OLAP_SUCCESS) {
         LOG(FATAL) << "failed to save header. [tablet=" << _tablet->full_name() << "]";
         return res;
