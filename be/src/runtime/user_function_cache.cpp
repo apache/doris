@@ -18,6 +18,7 @@
 #include "runtime/user_function_cache.h"
 
 #include <vector>
+#include <regex>
 
 #include <boost/algorithm/string/split.hpp> // boost::split
 #include <boost/algorithm/string/predicate.hpp> // boost::algorithm::ends_with
@@ -169,13 +170,22 @@ Status UserFunctionCache::_load_cached_lib() {
     return Status::OK;
 }
 
+std::string get_real_symbol(const std::string& symbol) {
+    static std::regex rx1("8palo_udf");
+    std::string str1 = std::regex_replace(symbol, rx1, "9doris_udf");
+    static std::regex rx2("4palo");
+    std::string str2 = std::regex_replace(str1, rx2, "5doris");
+    return str2;
+}
+
 Status UserFunctionCache::get_function_ptr(
         int64_t fid,
-        const std::string& symbol,
+        const std::string& orig_symbol,
         const std::string& url,
         const std::string& checksum,
         void** fn_ptr,
         UserFunctionCacheEntry** output_entry) {
+    auto symbol = get_real_symbol(orig_symbol);
     if (fid == 0) {
         // Just loading a function ptr in the current process. No need to take any locks.
         RETURN_IF_ERROR(dynamic_lookup(_current_process_handle, symbol.c_str(), fn_ptr));
