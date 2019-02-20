@@ -55,6 +55,9 @@ OLAPStatus TabletColumn::init_from_pb(const ColumnPB& column) {
     if (_has_referenced_column) {
         _referenced_column_id = column.referenced_column_id();
     }
+    if (column.has_aggregation()) {
+        _aggregation = FieldInfo::get_aggregation_type_by_string(column.aggregation());
+    }
     return OLAP_SUCCESS;
 }
 
@@ -71,6 +74,7 @@ OLAPStatus TabletColumn::to_schema_pb(ColumnPB* column) {
     column->set_length(_length);
     column->set_index_length(_index_length);
     column->set_is_bf_column(_is_bf_column);
+    column->set_aggregation(FieldInfo::get_string_by_aggregation_type(_aggregation));
     if (_has_referenced_column)
     column->set_referenced_column_id(_referenced_column_id);
     return OLAP_SUCCESS;
