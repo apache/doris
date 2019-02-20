@@ -556,8 +556,27 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         
         if (cloneTask != null) {
             AgentTaskQueue.removeTask(cloneTask.getBackendId(), TTaskType.CLONE, cloneTask.getSignature());
+
+            // clear all CLONE replicas
+            Database db = Catalog.getInstance().getDb(dbId);
+            if (db != null) {
+                db.writeLock();
+                try {
+                    List<Replica> cloneReplicas = Lists.newArrayList();
+                    tablet.getReplicas().stream().filter(r -> r.getState() == ReplicaState.CLONE).forEach(r -> {
+                        cloneReplicas.add(r);
+                    });
+
+                    for (Replica cloneReplica : cloneReplicas) {
+                        tablet.deleteReplica(cloneReplica);
+                    }
+
+                } finally {
+                    db.writeUnlock();
+                }
+            }
         }
-        
+
         reset();
     }
     
@@ -763,11 +782,28 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
              */
             if (replica.getLastFailedVersion() == reportedTablet.getVersion()
                     && replica.getLastFailedVersionHash() != reportedTablet.getVersion_hash()) {
-                // do not throw exception, cause we want this clone task retry again.
-                throw new SchedException(Status.RUNNING_FAILED,
-                        "replica's last failed version equals to report version: "
-                                + replica.getLastFailedTimestamp() + " but hash is different: "
-                                + replica.getLastFailedVersionHash() + " vs. " + reportedTablet.getVersion_hash());
+
+                if (replica.getLastFailedVersion() == 2 && replica.getLastFailedVersionHash() == 0
+                        && visibleVersion == 1 && visibleVersionHash == 0) {
+                    // this is a very tricky case.
+                    // the partitions's visible version is (1-0), and once there is a load job success in BE
+                    // but failed in FE. so in BE, the replica's version is (2-xx), and the clone task will
+                    // report (2-xx), which is not equal to what we set (2-0)
+                    // the version (2-xx) is delta version which need to be reverted. but because no more load
+                    // job being submitted, this delta version become a residual version.
+                    // we just let this pass
+                    LOG.warn("replica's last failed version equals to report version: "
+                            + replica.getLastFailedTimestamp() + " but hash is different: "
+                            + replica.getLastFailedVersionHash() + " vs. "
+                            + reportedTablet.getVersion_hash() + ", but we let it pass.");
+                } else {
+                    // do not throw exception, cause we want this clone task retry again.
+                    throw new SchedException(Status.RUNNING_FAILED,
+                            "replica's last failed version equals to report version: "
+                                    + replica.getLastFailedTimestamp() + " but hash is different: "
+                                    + replica.getLastFailedVersionHash() + " vs. "
+                                    + reportedTablet.getVersion_hash());
+                }
             }
             
             replica.updateVersionInfo(reportedTablet.getVersion(), reportedTablet.getVersion_hash(),
