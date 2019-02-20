@@ -231,8 +231,6 @@ public class ReportHandler extends Daemon {
         ListMultimap<Long, TPartitionVersionInfo> transactionsToPublish = LinkedListMultimap.create();
         ListMultimap<Long, Long> transactionsToClear = LinkedListMultimap.create();
         
-        List<CreateReplicaTask> createReplicaTasks = Lists.newArrayList();
-
         // db id -> tablet id
         ListMultimap<Long, Long> tabletRecoveryMap = LinkedListMultimap.create();
 
@@ -252,7 +250,7 @@ public class ReportHandler extends Daemon {
 
         // 3. delete (meta - be)
         // BE will automatically drop defective tablets. these tablets should also be dropped in catalog
-        deleteFromMeta(tabletDeleteFromMeta, backendId, backendReportVersion, createReplicaTasks, forceRecovery);
+        deleteFromMeta(tabletDeleteFromMeta, backendId, backendReportVersion, forceRecovery);
         
         // 4. handle (be - meta)
         deleteFromBackend(backendTablets, foundTabletsWithValidSchema, foundTabletsWithInvalidSchema, backendId);
@@ -452,8 +450,8 @@ public class ReportHandler extends Daemon {
     }
 
     private static void deleteFromMeta(ListMultimap<Long, Long> tabletDeleteFromMeta, long backendId,
-            long backendReportVersion, List<CreateReplicaTask> createReplicaTasks,
-            boolean forceRecovery) {
+            long backendReportVersion, boolean forceRecovery) {
+        AgentBatchTask createReplicaBatchTask = new AgentBatchTask();
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
         for (Long dbId : tabletDeleteFromMeta.keySet()) {
             Database db = Catalog.getInstance().getDb(dbId);
@@ -532,7 +530,7 @@ public class ReportHandler extends Daemon {
                                             partition.getVisibleVersionHash(), keysType,
                                             TStorageType.COLUMN,
                                             TStorageMedium.HDD, columns, bfColumns, bfFpp, null);
-                                    createReplicaTasks.add(createReplicaTask);
+                                    createReplicaBatchTask.addTask(createReplicaTask);
                                 } else {
                                     // just set this replica as bad
                                     if (replica.setBad(true)) {
@@ -586,6 +584,10 @@ public class ReportHandler extends Daemon {
                 db.writeUnlock();
             }
         } // end for dbs
+
+        if (forceRecovery && createReplicaBatchTask.getTaskNum() > 0) {
+            AgentTaskExecutor.submit(createReplicaBatchTask);
+        }
     }
 
     private static void deleteFromBackend(Map<Long, TTablet> backendTablets,

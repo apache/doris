@@ -684,7 +684,7 @@ public class SchemaChangeHandler extends AlterHandler {
         Preconditions.checkState(olapTable.getState() == OlapTableState.NORMAL, olapTable.getState().name());
 
         // process properties first
-        // for now. properties has 2 options
+        // for now. properties has 3 options
         // property 1. to specify short key column count.
         // eg.
         //     "indexname1#short_key" = "3"
@@ -773,7 +773,7 @@ public class SchemaChangeHandler extends AlterHandler {
             bfFpp = 0;
         }
 
-        // property 3 storage type
+        // property 3: storage type
         // from now on, we only support COLUMN storage type
         TStorageType newStorageType = TStorageType.COLUMN;
 
@@ -1245,7 +1245,7 @@ public class SchemaChangeHandler extends AlterHandler {
         for (Map.Entry<Long, List<Column>> entry : olapTable.getIndexIdToSchema().entrySet()) {
             indexSchemaMap.put(entry.getKey(), new LinkedList<Column>(entry.getValue()));
         }
-        // index name -> properties
+
         Map<String, String> propertyMap = new HashMap<String, String>();
         for (AlterClause alterClause : alterClauses) {
             // get properties
