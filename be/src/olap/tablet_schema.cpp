@@ -83,6 +83,7 @@ TabletSchema::TabletSchema()
       _num_short_key_columns(0) { }
 
 OLAPStatus TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
+    _keys_type = schema.keys_type();
     for (auto& column_pb : schema.column()) {
         TabletColumn column;
         column.init_from_pb(column_pb);
@@ -97,7 +98,6 @@ OLAPStatus TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
     }
     _num_short_key_columns = schema.num_short_key_columns();
     _num_rows_per_row_block = schema.num_rows_per_row_block();
-    _keys_type = schema.keys_type();
     _compress_kind = schema.compress_kind();
     _next_column_unique_id = schema.next_column_unique_id();
     if (schema.has_bf_fpp()) {
@@ -109,13 +109,13 @@ OLAPStatus TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
 }
 
 OLAPStatus TabletSchema::to_schema_pb(TabletSchemaPB* tablet_meta_pb) {
+    tablet_meta_pb->set_keys_type(_keys_type);
     for (auto& col : _cols) {
         ColumnPB* column = tablet_meta_pb->add_column();
         col.to_schema_pb(column);
     }
     tablet_meta_pb->set_num_short_key_columns(_num_short_key_columns);
     tablet_meta_pb->set_num_rows_per_row_block(_num_rows_per_row_block);
-    tablet_meta_pb->set_keys_type(_keys_type);
     tablet_meta_pb->set_compress_kind(_compress_kind);
     tablet_meta_pb->set_bf_fpp(_bf_fpp);
     tablet_meta_pb->set_next_column_unique_id(_next_column_unique_id);
