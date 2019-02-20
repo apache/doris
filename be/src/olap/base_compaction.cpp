@@ -43,7 +43,7 @@ namespace doris {
 OLAPStatus BaseCompaction::init(TabletSharedPtr tablet, bool is_manual_trigger) {
     // 表在首次查询或PUSH等操作时，会被加载到内存
     // 如果表没有被加载，表明该表上目前没有任何操作，所以不进行BE操作
-    if (!tablet->is_loaded()) {
+    if (!tablet->init_succeeded()) {
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
@@ -200,7 +200,7 @@ bool BaseCompaction::_check_whether_satisfy_policy(bool is_manual_trigger,
         // base文件
         if (temp.first == 0) {
             _old_base_version = temp;
-            base_size = _tablet->get_version_data_size(temp);
+            base_size = _tablet->get_rowset_size_by_version(temp);
             base_creation_time = _tablet->get_rowset_by_version(temp)->creation_time();
             continue;
         }
@@ -257,7 +257,7 @@ bool BaseCompaction::_check_whether_satisfy_policy(bool is_manual_trigger,
             continue;
         }
         // cumulative文件
-        cumulative_total_size += _tablet->get_version_data_size(temp);
+        cumulative_total_size += _tablet->get_rowset_size_by_version(temp);
     }
 
     // 检查是否满足base compaction的触发条件
@@ -440,7 +440,7 @@ OLAPStatus BaseCompaction::_update_header(uint64_t row_count, const vector<Rowse
 
     // 如果保存Header失败, 所有新增的信息会在下次启动时丢失, 属于严重错误
     // 暂时没办法做很好的处理,报FATAL
-    res = _tablet->save_tablet_meta();
+    res = _tablet->save_meta();
     if (res != OLAP_SUCCESS) {
         LOG(FATAL) << "fail to save tablet meta. res=" << res
                    << ", tablet=" << _tablet->full_name()

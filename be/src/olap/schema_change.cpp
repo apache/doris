@@ -1222,7 +1222,7 @@ OLAPStatus SchemaChangeHandler::_do_alter_tablet(
         const TAlterTabletReq& request) {
     OLAPStatus res = OLAP_SUCCESS;
     TabletSharedPtr new_tablet;
-    string base_root_path = ref_tablet->storage_root_path_name();
+    string base_root_path = ref_tablet->data_dir()->path();
 
     LOG(INFO) << "begin to do alter tablet job. new_tablet_id=" << request.new_tablet_req.tablet_id;
     // 1. Create new tablet and register into StorageEngine
@@ -1457,10 +1457,9 @@ OLAPStatus SchemaChangeHandler::_create_new_tablet(
         // Example: unregister all tables when a bad disk found.
         res = new_tablet->register_tablet_into_dir();
         if (res != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("fail to register tablet into root path. "
-                             "[root_path='%s' tablet='%s']",
-                             new_tablet->storage_root_path_name().c_str(),
-                             new_tablet->full_name().c_str());
+            LOG(WARNING) << "fail to register tablet into data dir. "
+                         << "root_path=" << new_tablet->data_dir()->path()
+                         << ", tablet=" << new_tablet->full_name();
             break;
         }
 
@@ -1699,14 +1698,14 @@ OLAPStatus SchemaChangeHandler::_save_schema_change_info(
                                alter_tablet_type);
 
     // save new tablet header :只有一个父ref tablet
-    res = new_tablet->save_tablet_meta();
+    res = new_tablet->save_meta();
     if (res != OLAP_SUCCESS) {
         LOG(FATAL) << "fail to save new tablet header. res=" << res
                    << ", tablet=" << new_tablet->full_name();
         return res;
     }
 
-    res = ref_tablet->save_tablet_meta();
+    res = ref_tablet->save_meta();
     if (res != OLAP_SUCCESS) {
         LOG(FATAL) << "fail to save ref tablet header. res=" << res
                    << ", tablet=" << ref_tablet->full_name().c_str();
@@ -1834,7 +1833,7 @@ OLAPStatus SchemaChangeHandler::_alter_tablet(SchemaChangeParams* sc_params) {
         sc_params->ref_tablet->obtain_header_wrlock();
         sc_params->new_tablet->obtain_header_wrlock();
 
-        if (!sc_params->new_tablet->has_version((*it)->version())) {
+        if (!sc_params->new_tablet->check_version_exist((*it)->version())) {
             // register version
             RowsetSharedPtr new_rowset = rowset_writer->build();
             res = sc_params->new_tablet->add_rowset(new_rowset);
@@ -1862,13 +1861,13 @@ OLAPStatus SchemaChangeHandler::_alter_tablet(SchemaChangeParams* sc_params) {
         }
 
         // 保存header
-        if (OLAP_SUCCESS != sc_params->new_tablet->save_tablet_meta()) {
+        if (OLAP_SUCCESS != sc_params->new_tablet->save_meta()) {
             LOG(FATAL) << "fail to save header. res=" << res
                        << ", tablet=" << sc_params->new_tablet->full_name();
         }
 
         // 保存header
-        if (OLAP_SUCCESS != sc_params->ref_tablet->save_tablet_meta()) {
+        if (OLAP_SUCCESS != sc_params->ref_tablet->save_meta()) {
             LOG(FATAL) << "failed to save header. tablet=" << sc_params->new_tablet->full_name();
         }
 
@@ -1888,7 +1887,7 @@ OLAPStatus SchemaChangeHandler::_alter_tablet(SchemaChangeParams* sc_params) {
 PROCESS_ALTER_EXIT:
     if (res == OLAP_SUCCESS) {
         Version test_version(0, end_version);
-        res = sc_params->new_tablet->test_version(test_version);
+        res = sc_params->new_tablet->check_version_integrity(test_version);
     }
 
     if (res == OLAP_SUCCESS) {

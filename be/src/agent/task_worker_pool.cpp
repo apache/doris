@@ -1627,7 +1627,7 @@ AgentStatus TaskWorkerPool::_move_dir(
         return DORIS_TASK_REQUEST_ERROR;
     }
 
-    std::string dest_tablet_dir = tablet->construct_dir_path();
+    std::string dest_tablet_dir = tablet->tablet_path();
     std::string store_path = tablet->data_dir()->path();
 
     SnapshotLoader* loader = _env->snapshot_loader();
