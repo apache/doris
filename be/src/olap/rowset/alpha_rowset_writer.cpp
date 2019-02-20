@@ -127,6 +127,7 @@ OLAPStatus AlphaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
 }
 
 OLAPStatus AlphaRowsetWriter::flush() {
+    DCHECK(_is_inited);
     OLAPStatus status = _column_data_writer->finalize();
     SAFE_DELETE(_column_data_writer);
     _cur_segment_group->load();
@@ -150,13 +151,13 @@ RowsetSharedPtr AlphaRowsetWriter::build() {
             unique_id->set_hi(_rowset_writer_context.load_id.hi());
             unique_id->set_lo(_rowset_writer_context.load_id.lo());
             pending_segment_group_pb.set_empty(segment_group->empty());
-            const std::vector<KeyRange>* column_statistics = &(segment_group->get_column_statistics());
-            if (column_statistics != nullptr) {
-                for (size_t i = 0; i < column_statistics->size(); ++i) {
+            const std::vector<KeyRange>& column_statistics = segment_group->get_column_statistics();
+            if (column_statistics.size() > 0) {
+                for (size_t i = 0; i < column_statistics.size(); ++i) {
                     ColumnPruning* column_pruning = pending_segment_group_pb.add_column_pruning();
-                    column_pruning->set_min(column_statistics->at(i).first->to_string());
-                    column_pruning->set_max(column_statistics->at(i).second->to_string());
-                    column_pruning->set_null_flag(column_statistics->at(i).first->is_null());
+                    column_pruning->set_min(column_statistics.at(i).first->to_string());
+                    column_pruning->set_max(column_statistics.at(i).second->to_string());
+                    column_pruning->set_null_flag(column_statistics.at(i).first->is_null());
                 }
             }
             AlphaRowsetMetaSharedPtr alpha_rowset_meta
@@ -169,13 +170,13 @@ RowsetSharedPtr AlphaRowsetWriter::build() {
             segment_group_pb.set_index_size(segment_group->index_size());
             segment_group_pb.set_data_size(segment_group->data_size());
             segment_group_pb.set_num_rows(segment_group->num_rows());
-            const std::vector<KeyRange>* column_statistics = &(segment_group->get_column_statistics());
-            if (column_statistics != nullptr) {
-                for (size_t i = 0; i < column_statistics->size(); ++i) {
+            const std::vector<KeyRange>& column_statistics = segment_group->get_column_statistics();
+            if (column_statistics.size() > 0) {
+                for (size_t i = 0; i < column_statistics.size(); ++i) {
                     ColumnPruning* column_pruning = segment_group_pb.add_column_pruning();
-                    column_pruning->set_min(column_statistics->at(i).first->to_string());
-                    column_pruning->set_max(column_statistics->at(i).second->to_string());
-                    column_pruning->set_null_flag(column_statistics->at(i).first->is_null());
+                    column_pruning->set_min(column_statistics.at(i).first->to_string());
+                    column_pruning->set_max(column_statistics.at(i).second->to_string());
+                    column_pruning->set_null_flag(column_statistics.at(i).first->is_null());
                 }
             }
             segment_group_pb.set_empty(segment_group->empty());
@@ -195,14 +196,16 @@ RowsetSharedPtr AlphaRowsetWriter::build() {
                                     _rowset_writer_context.data_dir, _current_rowset_meta));
     if (rowset == nullptr) {
         LOG(WARNING) << "new rowset failed when build new rowset";
+        _segment_groups.clear();
         return nullptr;
     }
     OLAPStatus status = rowset->init();
     if (status != OLAP_SUCCESS) {
+        _segment_groups.clear();
         LOG(WARNING) << "rowset init failed when build new rowset";
         return nullptr;
     }
-
+    _segment_groups.clear();
     return rowset;
 }
 
@@ -212,6 +215,7 @@ OLAPStatus AlphaRowsetWriter::release() {
     for (auto segment_group : _segment_groups) {
         segment_group->delete_all_files();
     }
+    _segment_groups.clear();
     return status;
 }
 
@@ -234,29 +238,29 @@ int32_t AlphaRowsetWriter::num_rows() {
 void AlphaRowsetWriter::_init() {
     _segment_group_id++;
     if (_is_pending_rowset) {
-        _cur_segment_group = new SegmentGroup(
+        _cur_segment_group.reset(new SegmentGroup(
                 _rowset_writer_context.tablet_id,
                 _rowset_writer_context.rowset_id,
                 _rowset_writer_context.tablet_schema,
                 _rowset_writer_context.rowset_path_prefix,
                 false, _segment_group_id, 0, true,
-                _rowset_writer_context.partition_id, _rowset_writer_context.txn_id);
+                _rowset_writer_context.partition_id, _rowset_writer_context.txn_id));
     } else {
-        _cur_segment_group = new SegmentGroup(
+        _cur_segment_group.reset(new SegmentGroup(
                 _rowset_writer_context.tablet_id,
                 _rowset_writer_context.rowset_id,
                 _rowset_writer_context.tablet_schema,
                 _rowset_writer_context.rowset_path_prefix,
                 _rowset_writer_context.version,
                 _rowset_writer_context.version_hash,
-                false, _segment_group_id, 0);
+                false, _segment_group_id, 0));
     }
     DCHECK(_cur_segment_group != nullptr) << "failed to malloc SegmentGroup";
     _cur_segment_group->acquire();
     //_cur_segment_group->set_load_id(_rowset_writer_context.load_id);
     _segment_groups.push_back(_cur_segment_group);
 
-    _column_data_writer = ColumnDataWriter::create(_cur_segment_group, true,
+    _column_data_writer = ColumnDataWriter::create(_cur_segment_group.get(), true,
                                                    _rowset_writer_context.tablet_schema->compress_kind(),
                                                    _rowset_writer_context.tablet_schema->bloom_filter_fpp());
     DCHECK(_column_data_writer != nullptr) << "memory error occur when creating writer";

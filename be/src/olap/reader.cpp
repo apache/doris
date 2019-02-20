@@ -348,7 +348,7 @@ OLAPStatus Reader::init(const ReaderParams& read_params) {
 }
 
 OLAPStatus Reader::_dup_key_next_row(RowCursor* row_cursor, bool* eof) {
-    *eof = _collect_iter->has_next();
+    *eof = !(_collect_iter->has_next());
     if (*eof) {
         return OLAP_SUCCESS;
     }
@@ -373,8 +373,10 @@ OLAPStatus Reader::_agg_key_next_row(RowCursor* row_cursor, bool* eof) {
         auto res = _collect_iter->next(&_next_key, &_next_delete_flag);
         if (res != OLAP_SUCCESS) {
             if (res != OLAP_ERR_DATA_EOF) {
+                LOG(WARNING) << "next failed:" << res;
                 return res;
             }
+            LOG(WARNING) << "next reach eof";
             break;
         }
 
@@ -385,13 +387,11 @@ OLAPStatus Reader::_agg_key_next_row(RowCursor* row_cursor, bool* eof) {
         if (!RowCursor::equal(_key_cids, row_cursor, _next_key)) {
             break;
         }
-
         RowCursor::aggregate(_value_cids, row_cursor, _next_key);
         ++merged_count;
     } while (true);
     _merged_rows += merged_count;
     row_cursor->finalize_one_merge(_value_cids);
-    LOG(INFO) << "return row_cursor:" << row_cursor->to_string();
     return OLAP_SUCCESS;
 }
 
@@ -399,7 +399,7 @@ OLAPStatus Reader::_unique_key_next_row(RowCursor* row_cursor, bool* eof) {
     *eof = false;
     bool cur_delete_flag = false;
     do {
-        *eof = _collect_iter->has_next();
+        *eof = !(_collect_iter->has_next());
         if (*eof) {
             return OLAP_SUCCESS;
         }
@@ -585,8 +585,10 @@ OLAPStatus Reader::_capture_rs_readers(const ReaderParams& read_params) {
             }
         }
     }
-    _next_key = _collect_iter->current_row(&_next_delete_flag);
 
+    if (_collect_iter->has_next()) {
+        _next_key = _collect_iter->current_row(&_next_delete_flag);
+    }
     return OLAP_SUCCESS;
 }
 
