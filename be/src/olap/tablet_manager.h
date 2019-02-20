@@ -54,7 +54,6 @@ class TabletManager {
 public:
     ~TabletManager() {
         _tablet_map.clear();
-        _global_tablet_id = 0;
     }
 
     // Add a tablet pointer to StorageEngine
@@ -174,7 +173,6 @@ private:
     typedef std::map<int64_t, TableInstances> tablet_map_t;
     RWMutex _tablet_map_lock;
     tablet_map_t _tablet_map;
-    size_t _global_tablet_id;
     std::map<std::string, DataDir*> _store_map;
 
     // cache to save tablets' statistics, such as data size and row

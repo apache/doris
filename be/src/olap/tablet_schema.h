@@ -96,13 +96,13 @@ public:
     inline size_t next_column_unique_id() const { return _next_column_unique_id; }
     inline double bloom_filter_fpp() const { return _bf_fpp; }
 private:
+    KeysType _keys_type;
     std::vector<TabletColumn> _cols;
     size_t _num_columns;
     size_t _num_key_columns;
     size_t _num_null_columns;
     size_t _num_short_key_columns;
     size_t _num_rows_per_row_block;
-    KeysType _keys_type;
     CompressKind _compress_kind;
     size_t _next_column_unique_id;
     double _bf_fpp;

@@ -71,11 +71,9 @@ OLAPStatus TabletMetaManager::get_json_header(DataDir* store,
     if (s != OLAP_SUCCESS) {
         return s;
     }
-    TabletMetaPB tablet_meta_pb;
-    tablet_meta.to_tablet_pb(&tablet_meta_pb);
     json2pb::Pb2JsonOptions json_options;
     json_options.pretty_json = true;
-    json2pb::ProtoMessageToJson(tablet_meta_pb, json_header, json_options);
+    tablet_meta.to_json(json_header, json_options);
     return OLAP_SUCCESS;
 }
 
