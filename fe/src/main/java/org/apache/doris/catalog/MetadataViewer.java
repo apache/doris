@@ -90,7 +90,7 @@ public class MetadataViewer {
                             
                             ReplicaStatus status = ReplicaStatus.OK;
                             Backend be = infoService.getBackend(replica.getBackendId());
-                            if (be == null || !be.isAvailable()) {
+                            if (be == null || !be.isAvailable() || replica.isBad()) {
                                 status = ReplicaStatus.DEAD;
                             } else if (replica.getVersion() < visibleVersion
                                         || replica.getLastFailedVersion() > 0) {

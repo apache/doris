@@ -29,16 +29,16 @@ import java.util.List;
 
 public class IncompleteTabletsProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("IncompleteTablets").add("InconsistentTablets")
+            .add("UnhealthyTablets").add("InconsistentTablets")
             .build();
 
     private static final Joiner JOINER = Joiner.on(",");
 
-    Collection<Long> incompleteTabletIds;
+    Collection<Long> unhealthyTabletIds;
     Collection<Long> inconsistentTabletIds;
 
-    public IncompleteTabletsProcNode(Collection<Long> incompleteTabletIds, Collection<Long> inconsistentTabletIds) {
-        this.incompleteTabletIds = incompleteTabletIds;
+    public IncompleteTabletsProcNode(Collection<Long> unhealthyTabletIds, Collection<Long> inconsistentTabletIds) {
+        this.unhealthyTabletIds = unhealthyTabletIds;
         this.inconsistentTabletIds = inconsistentTabletIds;
     }
 
@@ -50,7 +50,7 @@ public class IncompleteTabletsProcNode implements ProcNodeInterface {
 
         List<String> row = new ArrayList<String>(1);
 
-        String incompleteTablets = JOINER.join(Arrays.asList(incompleteTabletIds));
+        String incompleteTablets = JOINER.join(Arrays.asList(unhealthyTabletIds));
         String inconsistentTablets = JOINER.join(Arrays.asList(inconsistentTabletIds));
         row.add(incompleteTablets);
         row.add(inconsistentTablets);

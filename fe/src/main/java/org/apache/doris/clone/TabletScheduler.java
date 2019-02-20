@@ -353,7 +353,7 @@ public class TabletScheduler extends Daemon {
                 if (e.getStatus() == Status.SCHEDULE_FAILED) {
                     // if balance is disabled, remove this tablet
                     if (tabletCtx.getType() == Type.BALANCE && Config.disable_balance) {
-                        removeTabletCtx(tabletCtx, TabletSchedCtx.State.CANCELLED,
+                        finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.CANCELLED,
                                 "disable balance and " + e.getMessage());
                     } else {
                         // we must release resource it current hold, and be scheduled again
@@ -365,19 +365,19 @@ public class TabletScheduler extends Daemon {
                 } else if (e.getStatus() == Status.FINISHED) {
                     // schedule redundant tablet will throw this exception
                     stat.counterTabletScheduledSucceeded.incrementAndGet();
-                    removeTabletCtx(tabletCtx, TabletSchedCtx.State.FINISHED, e.getMessage());
+                    finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.FINISHED, e.getMessage());
                 } else {
                     Preconditions.checkState(e.getStatus() == Status.UNRECOVERABLE, e.getStatus());
                     // discard
                     stat.counterTabletScheduledDiscard.incrementAndGet();
-                    removeTabletCtx(tabletCtx, TabletSchedCtx.State.CANCELLED, e.getMessage());
+                    finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.CANCELLED, e.getMessage());
                 }
                 continue;
             } catch (Exception e) {
                 LOG.warn("got unexpected exception, discard this schedule. tablet: {}",
                         tabletCtx.getTabletId(), e);
                 stat.counterTabletScheduledFailed.incrementAndGet();
-                removeTabletCtx(tabletCtx, TabletSchedCtx.State.UNEXPECTED, e.getMessage());
+                finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.UNEXPECTED, e.getMessage());
             }
 
             Preconditions.checkState(tabletCtx.getState() == TabletSchedCtx.State.RUNNING);
@@ -848,15 +848,27 @@ public class TabletScheduler extends Daemon {
         addTablet(tabletCtx, true /* force */);
     }
 
-    private synchronized void removeTabletCtx(TabletSchedCtx tabletCtx, TabletSchedCtx.State state, String reason) {
+    private void finalizeTabletCtx(TabletSchedCtx tabletCtx, TabletSchedCtx.State state, String reason) {
+        // use 2 steps to avoid nested database lock and synchronized.(releaseTabletCtx() may hold db lock)
+        // remove the tablet ctx, so that no other process can see it
+        removeTabletCtx(tabletCtx, reason);
+        // release resources taken by tablet ctx
+        releaseTabletCtx(tabletCtx, state);
+    }
+
+    private void releaseTabletCtx(TabletSchedCtx tabletCtx, TabletSchedCtx.State state) {
         tabletCtx.setState(state);
         tabletCtx.releaseResource(this);
         tabletCtx.setFinishedTime(System.currentTimeMillis());
+    }
+
+    private synchronized void removeTabletCtx(TabletSchedCtx tabletCtx, String reason) {
         runningTablets.remove(tabletCtx.getTabletId());
         allTabletIds.remove(tabletCtx.getTabletId());
         schedHistory.add(tabletCtx);
         LOG.info("remove the tablet {}. because: {}", tabletCtx.getTabletId(), reason);
     }
+
 
     // get next batch of tablets from queue.
     private synchronized List<TabletSchedCtx> getNextTabletCtxBatch() {
@@ -907,25 +919,25 @@ public class TabletScheduler extends Daemon {
             } else if (e.getStatus() == Status.UNRECOVERABLE) {
                 // unrecoverable
                 stat.counterTabletScheduledDiscard.incrementAndGet();
-                removeTabletCtx(tabletCtx, TabletSchedCtx.State.CANCELLED, e.getMessage());
+                finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.CANCELLED, e.getMessage());
                 return true;
             } else if (e.getStatus() == Status.FINISHED) {
                 // tablet is already healthy, just remove
-                removeTabletCtx(tabletCtx, TabletSchedCtx.State.CANCELLED, e.getMessage());
+                finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.CANCELLED, e.getMessage());
                 return true;
             }
         } catch (Exception e) {
             LOG.warn("got unexpected exception when finish clone task. tablet: {}",
                     tabletCtx.getTabletId(), e);
             stat.counterTabletScheduledDiscard.incrementAndGet();
-            removeTabletCtx(tabletCtx, TabletSchedCtx.State.UNEXPECTED, e.getMessage());
+            finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.UNEXPECTED, e.getMessage());
             return true;
         }
 
         Preconditions.checkState(tabletCtx.getState() == TabletSchedCtx.State.FINISHED);
         stat.counterCloneTaskSucceeded.incrementAndGet();
         gatherStatistics(tabletCtx);
-        removeTabletCtx(tabletCtx, TabletSchedCtx.State.FINISHED, "finished");
+        finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.FINISHED, "finished");
         return true;
     }
 
@@ -976,14 +988,22 @@ public class TabletScheduler extends Daemon {
      *
      * If task is timeout, remove the tablet.
      */
-    public synchronized void handleRunningTablets() {
+    public void handleRunningTablets() {
+        // 1. remove the tablet ctx if timeout
         List<TabletSchedCtx> timeoutTablets = Lists.newArrayList();
-        runningTablets.values().stream().filter(t -> t.isTimeout()).forEach(t -> {
-            timeoutTablets.add(t);
-        });
+        synchronized (this) {
+            runningTablets.values().stream().filter(t -> t.isTimeout()).forEach(t -> {
+                timeoutTablets.add(t);
+            });
+
+            for (TabletSchedCtx tabletSchedCtx : timeoutTablets) {
+                removeTabletCtx(tabletSchedCtx, "timeout");
+            }
+        }
         
+        // 2. release ctx
         timeoutTablets.stream().forEach(t -> {
-            removeTabletCtx(t, TabletSchedCtx.State.TIMEOUT, "timeout");
+            releaseTabletCtx(t, TabletSchedCtx.State.CANCELLED);
             stat.counterCloneTaskTimeout.incrementAndGet();
         });
     }
