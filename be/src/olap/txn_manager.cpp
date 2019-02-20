@@ -293,9 +293,9 @@ OLAPStatus TxnManager::rollback_txn(TPartitionId partition_id, TTransactionId tr
         }
         it->second.erase(tablet_info);
         LOG(INFO) << "rollback transaction from engine successfully."
-                << ",partition_id: " << key.first
-                << ", transaction_id: " << key.second
-                << ", tablet: " << tablet_info.to_string();
+                  << " partition_id: " << key.first
+                  << ", transaction_id: " << key.second
+                  << ", tablet: " << tablet_info.to_string();
         if (it->second.empty()) {
             _txn_tablet_map.erase(it);
         }
