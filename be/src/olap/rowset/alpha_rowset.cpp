@@ -129,7 +129,7 @@ void AlphaRowset::set_version_and_version_hash(Version version,  VersionHash ver
         segment_group_pb.set_index_size(segment_group->index_size());
         segment_group_pb.set_data_size(segment_group->data_size());
         segment_group_pb.set_num_rows(segment_group->num_rows());
-        const std::vector<KeyRange> column_statistics = segment_group->get_column_statistics();
+        const std::vector<KeyRange>& column_statistics = segment_group->get_column_statistics();
         if (column_statistics.size() > 0) {
             for (size_t i = 0; i < column_statistics.size(); ++i) {
                 ColumnPruning* column_pruning = segment_group_pb.add_column_pruning();

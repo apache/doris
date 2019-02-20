@@ -79,7 +79,7 @@ OLAPStatus AlphaRowsetReader::next_block(RowBlock** block) {
         if (status == OLAP_ERR_DATA_EOF) {
             if ((*block)->has_remaining()) {
                 (*block)->set_pos(0);
-                (*block)->set_limit((*block)->pos());
+                (*block)->set_limit(num_rows_in_block);
                 return OLAP_SUCCESS;
             } else {
                 return OLAP_ERR_DATA_EOF;
@@ -236,7 +236,7 @@ OLAPStatus AlphaRowsetReader::_init_column_datas(RowsetReaderContext* read_conte
             col_predicates.push_back(column_predicate.second);
         }
     }
-    LOG(INFO) << "segment groups size:" << _segment_groups.size() << ", _key_range_size:" << _key_range_size;
+
     for (auto& segment_group : _segment_groups) {
         std::shared_ptr<ColumnData> new_column_data(ColumnData::create(segment_group.get()));
         OLAPStatus status = new_column_data->init();
@@ -258,21 +258,21 @@ OLAPStatus AlphaRowsetReader::_init_column_datas(RowsetReaderContext* read_conte
                     read_context->runtime_state);
             // filter column data
             if (new_column_data->delta_pruning_filter()) {
-                VLOG(3) << "filter delta in query in condition:"
+                VLOG(3) << "filter segment group in query in condition:"
                     << new_column_data->version().first << ", " << new_column_data->version().second;
                 continue;
             }
             int ret = new_column_data->delete_pruning_filter();
             if (ret == DEL_SATISFIED) {
-                VLOG(3) << "filter delta in delete predicate:"
+                VLOG(3) << "filter segment group in delete predicate:"
                     << new_column_data->version().first << ", " << new_column_data->version().second;
                 continue;
             } else if (ret == DEL_PARTIAL_SATISFIED) {
-                VLOG(3) << "filter delta partially in delete predicate:"
+                VLOG(3) << "filter segment group partially in delete predicate:"
                     << new_column_data->version().first << ", " << new_column_data->version().second;
                 new_column_data->set_delete_status(DEL_PARTIAL_SATISFIED);
             } else {
-                VLOG(3) << "not filter delta in delete predicate:"
+                VLOG(3) << "not filter segment group in delete predicate:"
                         << new_column_data->version().first << ", " << new_column_data->version().second;
                 new_column_data->set_delete_status(DEL_NOT_SATISFIED);
             }
@@ -280,7 +280,6 @@ OLAPStatus AlphaRowsetReader::_init_column_datas(RowsetReaderContext* read_conte
         }
 
         RowBlock* row_block = nullptr;
-        LOG(INFO) << "_key_range_size:" << _key_range_size;
         if (_key_range_size > 0) {
             _key_range_indices.push_back(0);
             size_t pos = _key_range_indices.size();

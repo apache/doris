@@ -127,15 +127,12 @@ OLAPStatus AlphaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
 }
 
 OLAPStatus AlphaRowsetWriter::flush() {
-    if (_is_inited) {
-        OLAPStatus status = _column_data_writer->finalize();
-        SAFE_DELETE(_column_data_writer);
-        _cur_segment_group->load();
-        _is_inited = false;
-        return status;
-    } else {
-        return OLAP_SUCCESS;
-    }
+    DCHECK(_is_inited);
+    OLAPStatus status = _column_data_writer->finalize();
+    SAFE_DELETE(_column_data_writer);
+    _cur_segment_group->load();
+    _is_inited = false;
+    return status;
 }
 
 RowsetSharedPtr AlphaRowsetWriter::build() {
