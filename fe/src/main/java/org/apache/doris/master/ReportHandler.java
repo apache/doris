@@ -231,8 +231,6 @@ public class ReportHandler extends Daemon {
         ListMultimap<Long, TPartitionVersionInfo> transactionsToPublish = LinkedListMultimap.create();
         ListMultimap<Long, Long> transactionsToClear = LinkedListMultimap.create();
         
-        List<CreateReplicaTask> createReplicaTasks = Lists.newArrayList();
-
         // db id -> tablet id
         ListMultimap<Long, Long> tabletRecoveryMap = LinkedListMultimap.create();
 
@@ -252,7 +250,7 @@ public class ReportHandler extends Daemon {
 
         // 3. delete (meta - be)
         // BE will automatically drop defective tablets. these tablets should also be dropped in catalog
-        deleteFromMeta(tabletDeleteFromMeta, backendId, backendReportVersion, createReplicaTasks);
+        deleteFromMeta(tabletDeleteFromMeta, backendId, backendReportVersion, forceRecovery);
         
         // 4. handle (be - meta)
         deleteFromBackend(backendTablets, foundTabletsWithValidSchema, foundTabletsWithInvalidSchema, backendId);
@@ -452,8 +450,8 @@ public class ReportHandler extends Daemon {
     }
 
     private static void deleteFromMeta(ListMultimap<Long, Long> tabletDeleteFromMeta, long backendId,
-                                       long backendReportVersion, 
-                                       List<CreateReplicaTask> createReplicaTasks) {
+            long backendReportVersion, boolean forceRecovery) {
+        AgentBatchTask createReplicaBatchTask = new AgentBatchTask();
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
         for (Long dbId : tabletDeleteFromMeta.keySet()) {
             Database db = Catalog.getInstance().getDb(dbId);
@@ -511,23 +509,42 @@ public class ReportHandler extends Daemon {
                             LOG.error("backend [{}] invalid situation. tablet[{}] has few replica[{}], " 
                                     + "replica num setting is [{}]", 
                                     backendId, tabletId, replicas.size(), replicationNum);
-                            // there is a replica in fe, but not in be and there is only one replica in this tablet
-                            // in this case, it means data is lost
-                            // should generate a create replica request to be to create a replica forcibly
+                            // there is a replica in FE, but not in BE and there is only one replica in this tablet
+                            // in this case, it means data is lost.
+                            // should generate a create replica request to BE to create a replica forcibly.
                             if (replicas.size() == 1) {
-                                short shortKeyColumnCount = olapTable.getShortKeyColumnCountByIndexId(indexId);
-                                int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
-                                KeysType keysType = olapTable.getKeysType();
-                                List<Column> columns = olapTable.getSchemaByIndexId(indexId);
-                                Set<String> bfColumns = olapTable.getCopiedBfColumns();
-                                double bfFpp = olapTable.getBfFpp();
-                                CreateReplicaTask createReplicaTask = new CreateReplicaTask(backendId, dbId, 
-                                        tableId, partitionId, indexId, tabletId, shortKeyColumnCount, 
-                                        schemaHash, partition.getVisibleVersion(), 
-                                        partition.getVisibleVersionHash(), keysType, 
-                                        TStorageType.COLUMN,
-                                        TStorageMedium.HDD, columns, bfColumns, bfFpp, null);
-                                createReplicaTasks.add(createReplicaTask);
+                                if (forceRecovery) {
+                                    // only create this task if force recovery is true
+                                    LOG.warn("tablet {} has only one replica {} on backend {}"
+                                            + "and it is lost. create an empty replica to recover it",
+                                            tabletId, replica.getId(), backendId);
+                                    short shortKeyColumnCount = olapTable.getShortKeyColumnCountByIndexId(indexId);
+                                    int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
+                                    KeysType keysType = olapTable.getKeysType();
+                                    List<Column> columns = olapTable.getSchemaByIndexId(indexId);
+                                    Set<String> bfColumns = olapTable.getCopiedBfColumns();
+                                    double bfFpp = olapTable.getBfFpp();
+                                    CreateReplicaTask createReplicaTask = new CreateReplicaTask(backendId, dbId,
+                                            tableId, partitionId, indexId, tabletId, shortKeyColumnCount,
+                                            schemaHash, partition.getVisibleVersion(),
+                                            partition.getVisibleVersionHash(), keysType,
+                                            TStorageType.COLUMN,
+                                            TStorageMedium.HDD, columns, bfColumns, bfFpp, null);
+                                    createReplicaBatchTask.addTask(createReplicaTask);
+                                } else {
+                                    // just set this replica as bad
+                                    if (replica.setBad(true)) {
+                                        LOG.warn("tablet {} has only one replica {} on backend {}"
+                                                + "and it is lost, set it as bad",
+                                                tabletId, replica.getId(), backendId);
+                                        BackendTabletsInfo tabletsInfo = new BackendTabletsInfo(backendId);
+                                        tabletsInfo.setBad(true);
+                                        tabletsInfo.addTabletWithSchemaHash(tabletId,
+                                                olapTable.getSchemaHashByIndexId(indexId));
+                                        Catalog.getInstance().getEditLog().logBackendTabletsInfo(tabletsInfo);
+                                    }
+
+                                }
                             }
                             continue;
                         }
@@ -567,6 +584,10 @@ public class ReportHandler extends Daemon {
                 db.writeUnlock();
             }
         } // end for dbs
+
+        if (forceRecovery && createReplicaBatchTask.getTaskNum() > 0) {
+            AgentTaskExecutor.submit(createReplicaBatchTask);
+        }
     }
 
     private static void deleteFromBackend(Map<Long, TTablet> backendTablets,
