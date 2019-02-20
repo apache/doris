@@ -43,7 +43,7 @@ namespace doris {
 OLAPStatus BaseCompaction::init(TabletSharedPtr tablet, bool is_manual_trigger) {
     // 表在首次查询或PUSH等操作时，会被加载到内存
     // 如果表没有被加载，表明该表上目前没有任何操作，所以不进行BE操作
-    if (!tablet->init_success()) {
+    if (!tablet->init_succeeded()) {
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 

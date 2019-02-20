@@ -151,10 +151,6 @@ bool Tablet::is_used() {
     return _data_dir->is_used();
 }
 
-string Tablet::dir_path() const {
-    return _data_dir->path();
-}
-
 string Tablet::tablet_path() const {
     return _tablet_path;
 }

@@ -350,8 +350,8 @@ OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request,
         // Example: unregister all tables when a bad disk found.
         res = tablet_ptr->register_tablet_into_dir();
         if (res != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("fail to register tablet into StorageEngine. [res=%d, root_path=%s]",
-                    res, tablet_ptr->dir_path().c_str());
+            LOG(WARNING) << "fail to register tablet into StorageEngine. res=" << res
+                         << ", data_dir=" << tablet_ptr->data_dir()->path();
             break;
         }
 
@@ -552,9 +552,9 @@ TabletSharedPtr TabletManager::get_tablet(TTabletId tablet_id, SchemaHash schema
         if (!tablet->is_used()) {
             OLAP_LOG_WARNING("tablet cannot be used. [tablet=%ld]", tablet_id);
             tablet.reset();
-        } else if (load_tablet && !tablet->init_success()) {
+        } else if (load_tablet && !tablet->init_succeeded()) {
             if (tablet->init() != OLAP_SUCCESS) {
-                OLAP_LOG_WARNING("fail to load tablet. [tablet=%ld]", tablet_id);
+                LOG(WARNING) << "fail to load tablet. tablet=" << tablet_id;
                 tablet.reset();
             }
         }
@@ -588,7 +588,7 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(CompactionType com
     TabletSharedPtr best_tablet;
     for (tablet_map_t::value_type& table_ins : _tablet_map){
         for (TabletSharedPtr& table_ptr : table_ins.second.table_arr) {
-            if (!table_ptr->init_success() || !table_ptr->can_do_compaction()) {
+            if (!table_ptr->init_succeeded() || !table_ptr->can_do_compaction()) {
                 continue;
             }
 
@@ -645,7 +645,7 @@ OLAPStatus TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tab
     }
     res = tablet->register_tablet_into_dir();
     if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "fail to register tablet into root path. root_path=" << tablet->dir_path();
+        LOG(WARNING) << "fail to register tablet into data_dir. data_dir=" << tablet->data_dir()->path();
         if (drop_tablet(tablet_id, schema_hash, false) != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to drop tablet when create tablet failed. "
                 <<"tablet=" << tablet_id << " schema_hash=" << schema_hash;
@@ -860,7 +860,7 @@ void TabletManager::update_root_path_info(std::map<std::string, DataDirInfo>* pa
         for (auto& tablet : instance.table_arr) {
             (*tablet_counter) ++ ;
             int64_t data_size = tablet->tablet_footprint();
-            auto find = path_map->find(tablet->dir_path()); 
+            auto find = path_map->find(tablet->data_dir()->path()); 
             if (find == path_map->end()) {
                 continue;
             }

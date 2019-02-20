@@ -30,8 +30,6 @@
 #include <boost/date_time/posix_time/posix_time.hpp>
 #include <boost/filesystem.hpp>
 
-
-
 using boost::filesystem::canonical;
 using boost::filesystem::copy_file;
 using boost::filesystem::copy_option;
@@ -134,7 +132,7 @@ OLAPStatus SnapshotManager::_calc_snapshot_id_path(
 
     stringstream snapshot_id_path_stream;
     MutexLock auto_lock(&_snapshot_mutex); // will automatically unlock when function return.
-    snapshot_id_path_stream << tablet->dir_path() << SNAPSHOT_PREFIX
+    snapshot_id_path_stream << tablet->data_dir()->path() << SNAPSHOT_PREFIX
                             << "/" << time_str << "." << _snapshot_base_id++;
     *out_path = snapshot_id_path_stream.str();
     return res;
@@ -197,8 +195,8 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
     string snapshot_id_path;
     res = _calc_snapshot_id_path(ref_tablet, &snapshot_id_path);
     if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("failed to calc snapshot_id_path, [ref tablet=%s]",
-                ref_tablet->dir_path().c_str());
+        LOG(WARNING) << "failed to calc snapshot_id_path, ref tablet="
+                     << ref_tablet->data_dir()->path();
         return res;
     }
 
@@ -351,8 +349,8 @@ OLAPStatus SnapshotManager::_create_incremental_snapshot_files(
     string snapshot_id_path;
     res = _calc_snapshot_id_path(ref_tablet, &snapshot_id_path);
     if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("failed to calc snapshot_id_path, [ref tablet=%s]",
-                ref_tablet->dir_path().c_str());
+        LOG(WARNING) << "failed to calc snapshot_id_path, ref tablet="
+                     << ref_tablet->data_dir()->path();
         return res;
     }
 

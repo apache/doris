@@ -28,7 +28,7 @@ namespace doris {
 class DorisInitOnce {
 public:
     DorisInitOnce()
-        : _init_success(false) {}
+        : _init_succeeded(false) {}
 
     // If the underlying `once_flag` has yet to be invoked, invokes the provided
     // lambda and stores its return value. Otherwise, returns the stored Status.
@@ -37,7 +37,7 @@ public:
         std::call_once(_once_flag, [this, fn] {
             _status = fn();
             if (OLAP_SUCCESS == _status) {
-                _init_success.store(true, std::memory_order_release);
+                _init_succeeded.store(true, std::memory_order_release);
             }
         });
         return _status;
@@ -45,13 +45,13 @@ public:
 
     // std::memory_order_acquire here and std::memory_order_release in
     // init(), taken together, mean that threads can safely synchronize on
-    // _init_success.
-    bool init_success() const {
-        return _init_success.load(std::memory_order_acquire);
+    // _init_succeeded.
+    bool init_succeeded() const {
+        return _init_succeeded.load(std::memory_order_acquire);
     }
 
 private:
-    std::atomic<bool> _init_success;
+    std::atomic<bool> _init_succeeded;
     std::once_flag _once_flag;
     OLAPStatus _status;
 };

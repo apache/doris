@@ -140,6 +140,7 @@ public:
     void set_cumulative_layer_point(int32_t new_point);
 
     inline const size_t num_rows() const;
+    // disk space occupied by tablet
     inline const size_t tablet_footprint() const;
     inline const size_t version_count() const;
     Version max_version() const;

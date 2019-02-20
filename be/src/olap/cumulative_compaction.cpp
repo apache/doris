@@ -42,7 +42,7 @@ OLAPStatus CumulativeCompaction::init(TabletSharedPtr tablet) {
         return OLAP_ERR_CUMULATIVE_REPEAT_INIT;
     }
 
-    if (!tablet->init_success()) {
+    if (!tablet->init_succeeded()) {
         return OLAP_ERR_CUMULATIVE_INVALID_PARAMETERS;
     }
 

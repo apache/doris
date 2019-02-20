@@ -172,7 +172,6 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
     return res;
 }
 
-
 OLAPStatus EngineStorageMigrationTask::_generate_new_header(
         DataDir* store,
         const uint64_t new_shard,
@@ -185,7 +184,7 @@ OLAPStatus EngineStorageMigrationTask::_generate_new_header(
     OLAPStatus res = OLAP_SUCCESS;
 
     DataDir* ref_store =
-            StorageEngine::instance()->get_store(tablet->dir_path());
+            StorageEngine::instance()->get_store(tablet->data_dir()->path());
     TabletMetaManager::get_header(ref_store, tablet->tablet_id(), tablet->schema_hash(), new_tablet_meta);
     SnapshotManager::instance()->update_header_file_info(consistent_rowsets, new_tablet_meta);
     new_tablet_meta->set_shard_id(new_shard);

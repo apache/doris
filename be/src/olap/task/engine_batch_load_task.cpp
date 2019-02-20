@@ -131,7 +131,7 @@ AgentStatus EngineBatchLoadTask::_init() {
 
         // Get local download path
         LOG(INFO) << "start get file. remote_full_path: " << remote_full_path;
-        string root_path = tablet->dir_path();
+        string root_path = tablet->data_dir()->path();
 
         status = _get_tmp_file_dir(root_path, &tmp_file_dir);
         if (DORIS_SUCCESS != status) {

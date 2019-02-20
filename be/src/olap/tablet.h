@@ -65,12 +65,11 @@ public:
 
     OLAPStatus init_once();
     OLAPStatus init();
-    inline bool init_success();
+    inline bool init_succeeded();
 
     bool is_used();
     inline DataDir* data_dir() const;
     OLAPStatus register_tablet_into_dir();
-    std::string dir_path() const;
     std::string tablet_path() const;
 
     // operation for TabletState
@@ -251,8 +250,8 @@ private:
     DISALLOW_COPY_AND_ASSIGN(Tablet);
 };
 
-inline bool Tablet::init_success() {
-    return _init_once.init_success();
+inline bool Tablet::init_succeeded() {
+    return _init_once.init_succeeded();
 }
 
 inline DataDir* Tablet::data_dir() const {

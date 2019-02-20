@@ -1222,7 +1222,7 @@ OLAPStatus SchemaChangeHandler::_do_alter_tablet(
         const TAlterTabletReq& request) {
     OLAPStatus res = OLAP_SUCCESS;
     TabletSharedPtr new_tablet;
-    string base_root_path = ref_tablet->dir_path();
+    string base_root_path = ref_tablet->data_dir()->path();
 
     LOG(INFO) << "begin to do alter tablet job. new_tablet_id=" << request.new_tablet_req.tablet_id;
     // 1. Create new tablet and register into StorageEngine
@@ -1457,10 +1457,9 @@ OLAPStatus SchemaChangeHandler::_create_new_tablet(
         // Example: unregister all tables when a bad disk found.
         res = new_tablet->register_tablet_into_dir();
         if (res != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("fail to register tablet into root path. "
-                             "[root_path='%s' tablet='%s']",
-                             new_tablet->dir_path().c_str(),
-                             new_tablet->full_name().c_str());
+            LOG(WARNING) << "fail to register tablet into data dir. "
+                         << "root_path=" << new_tablet->data_dir()->path()
+                         << ", tablet=" << new_tablet->full_name();
             break;
         }
 
