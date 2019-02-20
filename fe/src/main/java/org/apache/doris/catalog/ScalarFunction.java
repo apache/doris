@@ -167,6 +167,10 @@ public class ScalarFunction extends Function {
                     beFn += "_decimal_val";
                     usesDecimal = true;
                     break;
+                case DECIMAL_V2:
+                    beFn += "_decimal_v2_val";
+                    usesDecimal = true;
+                    break;
                 default:
                     Preconditions.checkState(false, "Argument type not supported: " + argTypes.get(i));
             }

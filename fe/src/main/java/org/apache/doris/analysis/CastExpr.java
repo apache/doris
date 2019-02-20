@@ -104,7 +104,8 @@ public class CastExpr extends Expr {
                     continue;
                 }
                 // Disable casting from boolean/timestamp to decimal
-                if ((fromType.isBoolean() || fromType.isDateType()) && toType == Type.DECIMAL) {
+                if ((fromType.isBoolean() || fromType.isDateType()) && 
+                        (toType == Type.DECIMAL || toType == Type.DECIMAL_V2)) {
                     continue;
                 }
 

@@ -288,6 +288,10 @@ public class BinaryPredicate extends Predicate implements Writable {
                 && (t2 == PrimitiveType.BIGINT || t2 == PrimitiveType.DECIMAL)) {
             return Type.DECIMAL;
         }
+        if ((t1 == PrimitiveType.BIGINT || t1 == PrimitiveType.DECIMAL_V2)
+                && (t2 == PrimitiveType.BIGINT || t2 == PrimitiveType.DECIMAL_V2)) {
+            return Type.DECIMAL_V2;
+        }
         if ((t1 == PrimitiveType.BIGINT || t1 == PrimitiveType.LARGEINT)
                 && (t2 == PrimitiveType.BIGINT || t2 == PrimitiveType.LARGEINT)) {
             return Type.LARGEINT;

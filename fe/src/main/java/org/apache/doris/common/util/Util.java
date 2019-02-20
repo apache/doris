@@ -61,6 +61,7 @@ public class Util {
         TYPE_STRING_MAP.put(PrimitiveType.CHAR, "char(%d)");
         TYPE_STRING_MAP.put(PrimitiveType.VARCHAR, "varchar(%d)");
         TYPE_STRING_MAP.put(PrimitiveType.DECIMAL, "decimal(%d,%d)");
+        TYPE_STRING_MAP.put(PrimitiveType.DECIMAL_V2, "decimal(%d,%d)");
         TYPE_STRING_MAP.put(PrimitiveType.HLL, "varchar(%d)");
     }
     
@@ -224,6 +225,7 @@ public class Util {
                                 TYPE_STRING_MAP.get(dataType), column.getStrLen());
                         break;
                     case DECIMAL:
+                    case DECIMAL_V2:
                         typeString = String.format(
                                 TYPE_STRING_MAP.get(dataType), column.getPrecision(), 
                                 column.getScale());

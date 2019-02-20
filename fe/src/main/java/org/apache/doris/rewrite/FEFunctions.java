@@ -170,6 +170,15 @@ public class FEFunctions {
         return new DecimalLiteral(result);
     }
 
+    @FEFunction(name = "add", argTypes = { "DECIMAL_V2", "DECIMAL_V2" }, returnType = "DECIMAL_V2")
+    public static DecimalLiteral addDecimal_V2(LiteralExpr first, LiteralExpr second) throws AnalysisException {
+        BigDecimal left = new BigDecimal(first.getStringValue());
+        BigDecimal right = new BigDecimal(second.getStringValue());
+
+        BigDecimal result = left.add(right);
+        return new DecimalLiteral(result);
+    }
+
     @FEFunction(name = "add", argTypes = { "LARGEINT", "LARGEINT" }, returnType = "LARGEINT")
     public static LargeIntLiteral addBigInt(LiteralExpr first, LiteralExpr second) throws AnalysisException {
         BigInteger left = new BigInteger(first.getStringValue());
@@ -193,6 +202,15 @@ public class FEFunctions {
 
     @FEFunction(name = "subtract", argTypes = { "DECIMAL", "DECIMAL" }, returnType = "DECIMAL")
     public static DecimalLiteral subtractDecimal(LiteralExpr first, LiteralExpr second) throws AnalysisException {
+        BigDecimal left = new BigDecimal(first.getStringValue());
+        BigDecimal right = new BigDecimal(second.getStringValue());
+
+        BigDecimal result = left.subtract(right);
+        return new DecimalLiteral(result);
+    }
+
+    @FEFunction(name = "subtract", argTypes = { "DECIMAL_V2", "DECIMAL_V2" }, returnType = "DECIMAL_V2")
+    public static DecimalLiteral subtractDecimal_V2(LiteralExpr first, LiteralExpr second) throws AnalysisException {
         BigDecimal left = new BigDecimal(first.getStringValue());
         BigDecimal right = new BigDecimal(second.getStringValue());
 
@@ -233,6 +251,15 @@ public class FEFunctions {
         return new DecimalLiteral(result);
     }
 
+    @FEFunction(name = "multiply", argTypes = { "DECIMAL_V2", "DECIMAL_V2" }, returnType = "DECIMAL_V2")
+    public static DecimalLiteral multiplyDecimal_V2(LiteralExpr first, LiteralExpr second) throws AnalysisException {
+        BigDecimal left = new BigDecimal(first.getStringValue());
+        BigDecimal right = new BigDecimal(second.getStringValue());
+
+        BigDecimal result = left.multiply(right);
+        return new DecimalLiteral(result);
+    }
+
     @FEFunction(name = "multiply", argTypes = { "LARGEINT", "LARGEINT" }, returnType = "LARGEINT")
     public static LargeIntLiteral multiplyBigInt(LiteralExpr first, LiteralExpr second) throws AnalysisException {
         BigInteger left = new BigInteger(first.getStringValue());
@@ -250,6 +277,15 @@ public class FEFunctions {
 
     @FEFunction(name = "divide", argTypes = { "DECIMAL", "DECIMAL" }, returnType = "DECIMAL")
     public static DecimalLiteral divideDecimal(LiteralExpr first, LiteralExpr second) throws AnalysisException {
+        BigDecimal left = new BigDecimal(first.getStringValue());
+        BigDecimal right = new BigDecimal(second.getStringValue());
+
+        BigDecimal result = left.divide(right);
+        return new DecimalLiteral(result);
+    }
+
+    @FEFunction(name = "divide", argTypes = { "DECIMAL_V2", "DECIMAL_V2" }, returnType = "DECIMAL_V2")
+    public static DecimalLiteral divideDecimal_V2(LiteralExpr first, LiteralExpr second) throws AnalysisException {
         BigDecimal left = new BigDecimal(first.getStringValue());
         BigDecimal right = new BigDecimal(second.getStringValue());
 

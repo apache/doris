@@ -285,6 +285,7 @@ types = {
   'DATE': ['DATE'],
   'DATETIME': ['DATETIME'],
   'DECIMAL': ['DECIMAL'],
+  'DECIMAL_V2': ['DECIMAL_V2'],
   'NATIVE_INT_TYPES': ['TINYINT', 'SMALLINT', 'INT', 'BIGINT'],
   'INT_TYPES': ['TINYINT', 'SMALLINT', 'INT', 'BIGINT', 'LARGEINT'],
   'FLOAT_TYPES': ['FLOAT', 'DOUBLE'],
@@ -292,8 +293,8 @@ types = {
   'NATIVE_TYPES': ['BOOLEAN', 'TINYINT', 'SMALLINT', 'INT', 'BIGINT', 'FLOAT', 'DOUBLE'],
   'STRCAST_TYPES': ['BOOLEAN', 'SMALLINT', 'INT', 'BIGINT', 'FLOAT', 'DOUBLE'],
   'ALL_TYPES': ['BOOLEAN', 'TINYINT', 'SMALLINT', 'INT', 'BIGINT', 'LARGEINT', 'FLOAT',\
-                     'DOUBLE', 'VARCHAR', 'DATETIME', 'DECIMAL'],
-  'MAX_TYPES': ['BIGINT', 'LARGEINT', 'DOUBLE', 'DECIMAL'],
+                     'DOUBLE', 'VARCHAR', 'DATETIME', 'DECIMAL', 'DECIMAL_V2'],
+  'MAX_TYPES': ['BIGINT', 'LARGEINT', 'DOUBLE', 'DECIMAL', 'DECIMAL_V2'],
 }
 
 # Operation, [ReturnType], [[Args1], [Args2], ... [ArgsN]]
@@ -323,6 +324,7 @@ native_types = {
   'DATE': 'DateTimeValue',
   'DATETIME': 'DateTimeValue',
   'DECIMAL': 'DecimalValue',
+  'DECIMAL_V2': 'Decimal_V2Value',
 }
 
 # Portable type used in the function implementation
@@ -339,6 +341,7 @@ implemented_types = {
   'DATE': 'DateTimeValue',
   'DATETIME': 'DateTimeValue',
   'DECIMAL': 'DecimalValue',
+  'DECIMAL_V2': 'Decimal_V2Value',
 }
 
 native_ops = {

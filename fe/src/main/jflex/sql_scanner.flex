@@ -118,6 +118,7 @@ import org.apache.doris.common.util.SqlUtils;
         keywordMap.put("date", new Integer(SqlParserSymbols.KW_DATE));
         keywordMap.put("datetime", new Integer(SqlParserSymbols.KW_DATETIME));
         keywordMap.put("decimal", new Integer(SqlParserSymbols.KW_DECIMAL));
+        keywordMap.put("decimal_v2", new Integer(SqlParserSymbols.KW_DECIMAL_V2));
         keywordMap.put("decommission", new Integer(SqlParserSymbols.KW_DECOMMISSION));
         keywordMap.put("default", new Integer(SqlParserSymbols.KW_DEFAULT));
         keywordMap.put("delete", new Integer(SqlParserSymbols.KW_DELETE));

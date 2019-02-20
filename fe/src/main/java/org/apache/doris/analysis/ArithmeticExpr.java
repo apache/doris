@@ -108,6 +108,10 @@ public class ArithmeticExpr extends Expr {
                 Operator.DIVIDE.getName(),
                 Lists.<Type>newArrayList(Type.DECIMAL, Type.DECIMAL),
                 Type.DECIMAL));
+        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
+                Operator.DIVIDE.getName(),
+                Lists.<Type>newArrayList(Type.DECIMAL_V2, Type.DECIMAL_V2),
+                Type.DECIMAL_V2));
 
         // MOD(), FACTORIAL(), BITAND(), BITOR(), BITXOR(), and BITNOT() are registered as
         // builtins, see palo_functions.py
@@ -197,6 +201,8 @@ public class ArithmeticExpr extends Expr {
             return Type.DOUBLE;
         } else if (pt1 == PrimitiveType.DECIMAL || pt2 == PrimitiveType.DECIMAL) {
             return Type.DECIMAL;
+        } else if (pt1 == PrimitiveType.DECIMAL_V2 || pt2 == PrimitiveType.DECIMAL_V2) {
+            return Type.DECIMAL_V2;
         } else if (pt1 == PrimitiveType.LARGEINT || pt2 == PrimitiveType.LARGEINT) {
             return Type.LARGEINT;
         } else {
