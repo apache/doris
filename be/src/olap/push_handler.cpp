@@ -187,9 +187,9 @@ OLAPStatus PushHandler::_do_streaming_ingestion(
                    &(tablet_vars->at(0).added_rowsets), &(tablet_vars->at(1).added_rowsets));
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to convert tmp file when realtime push. res=" << res
-                     << "failed to process realtime push."
-                     << " table=" << tablet->full_name()
-                     << "transaction_id=" << request.transaction_id;
+                     << ", failed to process realtime push."
+                     << ", table=" << tablet->full_name()
+                     << ", transaction_id=" << request.transaction_id;
         for (TabletVars& tablet_var : *tablet_vars) {
             if (tablet_var.tablet.get() == NULL) {
                 continue;
@@ -311,31 +311,17 @@ OLAPStatus PushHandler::_convert(
         // 2. init RowsetBuilder of cur_tablet for current push
         VLOG(3) << "init RowsetBuilder.";
         RowsetWriterContextBuilder context_builder;
-        if (_request.__isset.transaction_id) {
-            context_builder.set_rowset_id(rowset_id)
-                .set_tablet_id(curr_tablet->tablet_id())
-                .set_partition_id(_request.partition_id)
-                .set_tablet_schema_hash(curr_tablet->schema_hash())
-                .set_rowset_type(ALPHA_ROWSET)
-                .set_rowset_path_prefix(curr_tablet->tablet_path())
-                .set_tablet_schema(&(curr_tablet->tablet_schema()))
-                .set_rowset_state(PREPARED)
-                .set_data_dir(curr_tablet->data_dir())
-                .set_txn_id(_request.transaction_id)
-                .set_load_id(load_id);
-        } else {
-            context_builder.set_rowset_id(rowset_id)
-                .set_tablet_id(curr_tablet->tablet_id())
-                .set_partition_id(_request.partition_id)
-                .set_tablet_schema_hash(curr_tablet->schema_hash())
-                .set_rowset_type(ALPHA_ROWSET)
-                .set_rowset_path_prefix(curr_tablet->tablet_path())
-                .set_tablet_schema(&(curr_tablet->tablet_schema()))
-                .set_data_dir(curr_tablet->data_dir())
-                .set_rowset_state(VISIBLE)
-                .set_version(Version(_request.version, _request.version))
-                .set_version_hash(_request.version_hash);
-        }
+        context_builder.set_rowset_id(rowset_id)
+            .set_tablet_id(curr_tablet->tablet_id())
+            .set_partition_id(_request.partition_id)
+            .set_tablet_schema_hash(curr_tablet->schema_hash())
+            .set_rowset_type(ALPHA_ROWSET)
+            .set_rowset_path_prefix(curr_tablet->tablet_path())
+            .set_tablet_schema(&(curr_tablet->tablet_schema()))
+            .set_rowset_state(PREPARED)
+            .set_data_dir(curr_tablet->data_dir())
+            .set_txn_id(_request.transaction_id)
+            .set_load_id(load_id);
         context = context_builder.build();
         rowset_writer->init(context);
 
@@ -373,13 +359,17 @@ OLAPStatus PushHandler::_convert(
 
             reader->finalize();
 
-            if (false == reader->validate_checksum()) {
+            if (!reader->validate_checksum()) {
                 LOG(WARNING) << "pushed delta file has wrong checksum.";
                 res = OLAP_ERR_PUSH_BUILD_DELTA_ERROR;
                 break;
             }
         }
 
+        if (rowset_writer->flush() != OLAP_SUCCESS) {
+            LOG(WARNING) << "failed to finalize writer.";
+            break;
+        }
         RowsetSharedPtr rowset = rowset_writer->build();
 
         if (rowset == nullptr) {
