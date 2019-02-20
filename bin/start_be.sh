@@ -19,6 +19,23 @@
 curdir=`dirname "$0"`
 curdir=`cd "$curdir"; pwd`
 
+OPTS=$(getopt \
+  -n $0 \
+  -o '' \
+  -l 'daemon' \
+  -- "$@")
+
+eval set -- "$OPTS"
+
+RUN_DAEMON=0
+while true; do
+    case "$1" in
+        --daemon) RUN_DAEMON=1 ; shift ;;
+        --) shift ;  break ;;
+        *) ehco "Internal error" ; exit 1 ;;
+    esac
+done
+
 export DORIS_HOME=`cd "$curdir/.."; pwd`
 
 # export env variables from be.conf
@@ -72,4 +89,8 @@ else
     LIMIT="/bin/limit3 -c 0 -n 65536"
 fi
 
-nohup $LIMIT ${DORIS_HOME}/lib/palo_be "$@" >> $LOG_DIR/be.out 2>&1 </dev/null &
+if [ ${RUN_DAEMON} -eq 1 ]; then
+    nohup $LIMIT ${DORIS_HOME}/lib/palo_be "$@" >> $LOG_DIR/be.out 2>&1 </dev/null &
+else
+    $LIMIT ${DORIS_HOME}/lib/palo_be "$@" >> $LOG_DIR/be.out 2>&1 </dev/null
+fi

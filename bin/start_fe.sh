@@ -19,6 +19,26 @@
 curdir=`dirname "$0"`
 curdir=`cd "$curdir"; pwd`
 
+OPTS=$(getopt \
+  -n $0 \
+  -o '' \
+  -l 'daemon' \
+  -l 'helper:' \
+  -- "$@")
+
+eval set -- "$OPTS"
+
+RUN_DAEMON=0
+HELPER=
+while true; do
+    case "$1" in
+        --daemon) RUN_DAEMON=1 ; shift ;;
+        --helper) HELPER=$2 ; shift 2 ;;
+        --) shift ;  break ;;
+        *) ehco "Internal error" ; exit 1 ;;
+    esac
+done
+
 export DORIS_HOME=`cd "$curdir/.."; pwd`
 
 # export env variables from fe.conf
@@ -75,6 +95,16 @@ else
 fi
 
 echo `date` >> $LOG_DIR/fe.out
-nohup $LIMIT $JAVA $JAVA_OPTS org.apache.doris.PaloFe "$@" >> $LOG_DIR/fe.out 2>&1 </dev/null &
+
+if [ x"$HELPER" != x"" ]; then
+    # change it to '-helper' to be compatible with code in Frontend
+    HELPER="-helper $HELPER"
+fi
+
+if [ ${RUN_DAEMON} -eq 1 ]; then
+    nohup $LIMIT $JAVA $JAVA_OPTS org.apache.doris.PaloFe ${HELPER} "$@" >> $LOG_DIR/fe.out 2>&1 </dev/null &
+else
+    $LIMIT $JAVA $JAVA_OPTS org.apache.doris.PaloFe ${HELPER} "$@" >> $LOG_DIR/fe.out 2>&1 </dev/null
+fi
 
 echo $! > $pidfile
