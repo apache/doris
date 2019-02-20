@@ -189,7 +189,7 @@ RowsetSharedPtr AlphaRowsetWriter::build() {
     } else {
         _current_rowset_meta->set_rowset_state(VISIBLE);
     }
-    
+
     RowsetSharedPtr rowset(new(std::nothrow) AlphaRowset(_rowset_writer_context.tablet_schema,
                                     _rowset_writer_context.rowset_path_prefix,
                                     _rowset_writer_context.data_dir, _current_rowset_meta));
@@ -202,7 +202,7 @@ RowsetSharedPtr AlphaRowsetWriter::build() {
         LOG(WARNING) << "rowset init failed when build new rowset";
         return nullptr;
     }
-    
+
     return rowset;
 }
 
