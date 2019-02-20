@@ -53,6 +53,7 @@ add_library(Runtime STATIC
   thread_resource_mgr.cpp
   #  timestamp_value.cpp
   decimal_value.cpp
+  decimal_v2_value.cpp
   large_int_value.cpp
   tuple.cpp
   tuple_row.cpp
@@ -116,5 +117,6 @@ add_library(Runtime STATIC
 #ADD_BE_TEST(parallel_executor_test)
 #ADD_BE_TEST(datetime_value_test)
 #ADD_BE_TEST(decimal_value_test)
+#ADD_BE_TEST(decimal_v2_value_test)
 #ADD_BE_TEST(string_value_test)
 #ADD_BE_TEST(thread_resource_mgr_test)
