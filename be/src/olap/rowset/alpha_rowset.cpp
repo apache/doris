@@ -129,13 +129,13 @@ void AlphaRowset::set_version_and_version_hash(Version version,  VersionHash ver
         segment_group_pb.set_index_size(segment_group->index_size());
         segment_group_pb.set_data_size(segment_group->data_size());
         segment_group_pb.set_num_rows(segment_group->num_rows());
-        const std::vector<KeyRange>* column_statistics = &(segment_group->get_column_statistics());
-        if (column_statistics != nullptr) {
-            for (size_t i = 0; i < column_statistics->size(); ++i) {
+        const std::vector<KeyRange> column_statistics = segment_group->get_column_statistics();
+        if (column_statistics.size() > 0) {
+            for (size_t i = 0; i < column_statistics.size(); ++i) {
                 ColumnPruning* column_pruning = segment_group_pb.add_column_pruning();
-                column_pruning->set_min(column_statistics->at(i).first->to_string());
-                column_pruning->set_max(column_statistics->at(i).second->to_string());
-                column_pruning->set_null_flag(column_statistics->at(i).first->is_null());
+                column_pruning->set_min(column_statistics.at(i).first->to_string());
+                column_pruning->set_max(column_statistics.at(i).second->to_string());
+                column_pruning->set_null_flag(column_statistics.at(i).first->is_null());
             }
         }
         segment_group_pb.set_empty(segment_group->empty());
@@ -351,7 +351,6 @@ OLAPStatus AlphaRowset::_init_non_pending_segment_groups() {
                 // if load segment group failed, rowset init failed
             return OLAP_ERR_TABLE_INDEX_VALIDATE_ERROR;
         }
-
         if (segment_group_meta.column_pruning_size() != 0) {
             size_t column_pruning_size = segment_group_meta.column_pruning_size();
             size_t num_key_columns = _schema->num_key_columns();
@@ -359,7 +358,7 @@ OLAPStatus AlphaRowset::_init_non_pending_segment_groups() {
                 LOG(ERROR) << "column pruning size is error."
                         << "column_pruning_size=" << column_pruning_size << ", "
                         << "num_key_columns=" << _schema->num_key_columns();
-                return OLAP_ERR_TABLE_INDEX_VALIDATE_ERROR; 
+                return OLAP_ERR_TABLE_INDEX_VALIDATE_ERROR;
             }
             std::vector<std::pair<std::string, std::string>> column_statistic_strings(num_key_columns);
             std::vector<bool> null_vec(num_key_columns);
@@ -378,20 +377,18 @@ OLAPStatus AlphaRowset::_init_non_pending_segment_groups() {
                 LOG(WARNING) << "segment group add column statistics failed, status:" << status;
                 return status;
             }
-
-            OLAPStatus res = segment_group->load();
-            if (res != OLAP_SUCCESS) {
-                LOG(WARNING) << "fail to load segment_group. res=" << res << ", "
-                        << "version=" << version.first << "-"
-                        << version.second << ", "
-                        << "version_hash=" << version_hash;
-                return res;
-            }
+        }
+        OLAPStatus res = segment_group->load();
+        if (res != OLAP_SUCCESS) {
+            LOG(WARNING) << "fail to load segment_group. res=" << res << ", "
+                    << "version=" << version.first << "-"
+                    << version.second << ", "
+                    << "version_hash=" << version_hash;
+            return res;
         }
         _segment_groups.push_back(segment_group);
     }
     _segment_group_size = _segment_groups.size();
-    LOG(INFO) << "_segment_group_size:" << _segment_group_size << ", _is_cumulative_rowset:" << _is_cumulative_rowset;
     if (_is_cumulative_rowset && _segment_group_size > 1) {
         LOG(WARNING) << "invalid segment group meta for cumulative rowset. segment group size:"
                 << _segment_group_size;
@@ -401,7 +398,6 @@ OLAPStatus AlphaRowset::_init_non_pending_segment_groups() {
 }
 
 OLAPStatus AlphaRowset::_init_pending_segment_groups() {
-    LOG(INFO) << "_init_pending_segment_groups";
     std::vector<PendingSegmentGroupPB> pending_segment_group_metas;
     AlphaRowsetMetaSharedPtr _alpha_rowset_meta = std::dynamic_pointer_cast<AlphaRowsetMeta>(_rowset_meta);
     _alpha_rowset_meta->get_pending_segment_groups(&pending_segment_group_metas);
@@ -431,6 +427,34 @@ OLAPStatus AlphaRowset::_init_pending_segment_groups() {
             return OLAP_ERR_TABLE_INDEX_VALIDATE_ERROR;
         }
 
+        if (pending_segment_group_meta.column_pruning_size() != 0) {
+            size_t column_pruning_size = pending_segment_group_meta.column_pruning_size();
+            size_t num_key_columns = _schema->num_key_columns();
+            if (num_key_columns != column_pruning_size) {
+                LOG(ERROR) << "column pruning size is error."
+                        << "column_pruning_size=" << column_pruning_size << ", "
+                        << "num_key_columns=" << _schema->num_key_columns();
+                return OLAP_ERR_TABLE_INDEX_VALIDATE_ERROR;
+            }
+            std::vector<std::pair<std::string, std::string>> column_statistic_strings(num_key_columns);
+            std::vector<bool> null_vec(num_key_columns);
+            for (size_t j = 0; j < num_key_columns; ++j) {
+                ColumnPruning column_pruning = pending_segment_group_meta.column_pruning(j);
+                column_statistic_strings[j].first = column_pruning.min();
+                column_statistic_strings[j].second = column_pruning.max();
+                if (column_pruning.has_null_flag()) {
+                    null_vec[j] = column_pruning.null_flag();
+                } else {
+                    null_vec[j] = false;
+                }
+            }
+            OLAPStatus status = segment_group->add_column_statistics(column_statistic_strings, null_vec);
+            if (status != OLAP_SUCCESS) {
+                LOG(WARNING) << "segment group add column statistics failed, status:" << status;
+                return status;
+            }
+        }
+
         OLAPStatus res = segment_group->load();
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to load segment_group. res=" << res << ", "
@@ -441,7 +465,6 @@ OLAPStatus AlphaRowset::_init_pending_segment_groups() {
         }
     }
     _segment_group_size = _segment_groups.size();
-    LOG(INFO) << "_segment_group_size:" << _segment_group_size << ", _is_cumulative_rowset:" << _is_cumulative_rowset;
     if (_is_cumulative_rowset && _segment_group_size > 1) {
         LOG(WARNING) << "invalid segment group meta for cumulative rowset. segment group size:"
                 << _segment_group_size;

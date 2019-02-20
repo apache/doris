@@ -77,7 +77,13 @@ OLAPStatus AlphaRowsetReader::next_block(RowBlock** block) {
         RowCursor* row_cursor = nullptr;
         OLAPStatus status = next(&row_cursor);
         if (status == OLAP_ERR_DATA_EOF) {
-            return OLAP_ERR_DATA_EOF;
+            if ((*block)->has_remaining()) {
+                (*block)->set_pos(0);
+                (*block)->set_limit((*block)->pos());
+                return OLAP_SUCCESS;
+            } else {
+                return OLAP_ERR_DATA_EOF;
+            }
         }
         (*block)->set_row((*block)->pos(), *row_cursor);
         (*block)->pos_inc();
@@ -270,7 +276,6 @@ OLAPStatus AlphaRowsetReader::_init_column_datas(RowsetReaderContext* read_conte
                         << new_column_data->version().first << ", " << new_column_data->version().second;
                 new_column_data->set_delete_status(DEL_NOT_SATISFIED);
             }
-           new_column_data->set_delete_status(DEL_NOT_SATISFIED);
             _column_datas.emplace_back(new_column_data);
         }
 
