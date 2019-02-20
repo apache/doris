@@ -45,7 +45,7 @@ typedef google::protobuf::RepeatedPtrField<DeletePredicatePB> DelPredicateArray;
 //    res = cond_handler.log_conds(tablet);
 // 注:
 //    *  在调用这个类存储和移除删除条件时，需要先对Header文件加写锁；
-//       并在调用完成之后调用tablet->save_tablet_meta()，然后再释放Header文件的锁
+//       并在调用完成之后调用tablet->save_meta()，然后再释放Header文件的锁
 //    *  在调用log_conds()的时候，只需要加读锁
 class DeleteConditionHandler {
 public:

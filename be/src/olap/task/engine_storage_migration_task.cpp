@@ -139,7 +139,7 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
         }
 
         // load the new tablet into OLAPEngine
-        auto tablet = Tablet::create_from_tablet_meta(new_tablet_meta, stores[0]);
+        auto tablet = Tablet::create_tablet_from_meta(new_tablet_meta, stores[0]);
         if (tablet == NULL) {
             OLAP_LOG_WARNING("failed to create from header");
             res = OLAP_ERR_TABLE_CREATE_FROM_HEADER_ERROR;
@@ -172,7 +172,6 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
     return res;
 }
 
-
 OLAPStatus EngineStorageMigrationTask::_generate_new_header(
         DataDir* store,
         const uint64_t new_shard,
@@ -185,7 +184,7 @@ OLAPStatus EngineStorageMigrationTask::_generate_new_header(
     OLAPStatus res = OLAP_SUCCESS;
 
     DataDir* ref_store =
-            StorageEngine::instance()->get_store(tablet->storage_root_path_name());
+            StorageEngine::instance()->get_store(tablet->data_dir()->path());
     TabletMetaManager::get_header(ref_store, tablet->tablet_id(), tablet->schema_hash(), new_tablet_meta);
     SnapshotManager::instance()->update_header_file_info(consistent_rowsets, new_tablet_meta);
     new_tablet_meta->set_shard_id(new_shard);

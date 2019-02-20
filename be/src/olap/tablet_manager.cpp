@@ -89,8 +89,7 @@ bool _sort_tablet_by_creation_time(const TabletSharedPtr& a, const TabletSharedP
 }
 
 TabletManager::TabletManager()
-    : _global_tablet_id(0),
-      _tablet_stat_cache_update_time_ms(0),
+    : _tablet_stat_cache_update_time_ms(0),
       _available_storage_medium_type_count(0) { }
 
 OLAPStatus TabletManager::add_tablet(TTabletId tablet_id, SchemaHash schema_hash,
@@ -100,8 +99,6 @@ OLAPStatus TabletManager::add_tablet(TTabletId tablet_id, SchemaHash schema_hash
             << "tablet_id=" << tablet_id << ", schema_hash=" << schema_hash
             << ", force=" << force;
     _tablet_map_lock.wrlock();
-
-    tablet->set_id(_global_tablet_id++);
 
     TabletSharedPtr table_item;
     for (TabletSharedPtr item : _tablet_map[tablet_id].table_arr) {
@@ -353,8 +350,8 @@ OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request,
         // Example: unregister all tables when a bad disk found.
         res = tablet_ptr->register_tablet_into_dir();
         if (res != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("fail to register tablet into StorageEngine. [res=%d, root_path=%s]",
-                    res, tablet_ptr->storage_root_path_name().c_str());
+            LOG(WARNING) << "fail to register tablet into StorageEngine. res=" << res
+                         << ", data_dir=" << tablet_ptr->data_dir()->path();
             break;
         }
 
@@ -400,7 +397,7 @@ TabletSharedPtr TabletManager::create_tablet(
             break;
         }
 
-        tablet = Tablet::create_from_tablet_meta(tablet_meta, store);
+        tablet = Tablet::create_tablet_from_meta(tablet_meta, store);
         if (tablet == nullptr) {
             LOG(WARNING) << "fail to load tablet from tablet_meta. root_path:" << store->path();
             break;
@@ -489,7 +486,7 @@ OLAPStatus TabletManager::drop_tablet(
     _tablet_map_lock.wrlock();
     related_tablet->obtain_header_wrlock();
     related_tablet->delete_alter_task();
-    res = related_tablet->save_tablet_meta();
+    res = related_tablet->save_meta();
     if (res != OLAP_SUCCESS) {
         LOG(FATAL) << "fail to save tablet header. res=" << res
                    << ", tablet=" << related_tablet->full_name();
@@ -555,9 +552,9 @@ TabletSharedPtr TabletManager::get_tablet(TTabletId tablet_id, SchemaHash schema
         if (!tablet->is_used()) {
             OLAP_LOG_WARNING("tablet cannot be used. [tablet=%ld]", tablet_id);
             tablet.reset();
-        } else if (load_tablet && !tablet->is_loaded()) {
-            if (tablet->load() != OLAP_SUCCESS) {
-                OLAP_LOG_WARNING("fail to load tablet. [tablet=%ld]", tablet_id);
+        } else if (load_tablet && !tablet->init_succeeded()) {
+            if (tablet->init() != OLAP_SUCCESS) {
+                LOG(WARNING) << "fail to load tablet. tablet=" << tablet_id;
                 tablet.reset();
             }
         }
@@ -591,7 +588,7 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(CompactionType com
     TabletSharedPtr best_tablet;
     for (tablet_map_t::value_type& table_ins : _tablet_map){
         for (TabletSharedPtr& table_ptr : table_ins.second.table_arr) {
-            if (!table_ptr->is_loaded() || !table_ptr->can_do_compaction()) {
+            if (!table_ptr->init_succeeded() || !table_ptr->can_do_compaction()) {
                 continue;
             }
 
@@ -622,7 +619,7 @@ OLAPStatus TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tab
 
     // init must be called
     TabletSharedPtr tablet =
-        Tablet::create_from_tablet_meta(tablet_meta.release(), data_dir);
+        Tablet::create_tablet_from_meta(tablet_meta.release(), data_dir);
     if (tablet == nullptr) {
         LOG(WARNING) << "fail to new tablet. tablet_id=" << tablet_id << ", schema_hash:" << schema_hash;
         return OLAP_ERR_TABLE_CREATE_FROM_HEADER_ERROR;
@@ -648,7 +645,7 @@ OLAPStatus TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tab
     }
     res = tablet->register_tablet_into_dir();
     if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "fail to register tablet into root path. root_path=" << tablet->storage_root_path_name();
+        LOG(WARNING) << "fail to register tablet into data_dir. data_dir=" << tablet->data_dir()->path();
         if (drop_tablet(tablet_id, schema_hash, false) != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to drop tablet when create tablet failed. "
                 <<"tablet=" << tablet_id << " schema_hash=" << schema_hash;
@@ -673,7 +670,7 @@ OLAPStatus TabletManager::load_one_tablet(
         return OLAP_ERR_FILE_NOT_EXIST;
     }
 
-    auto tablet = Tablet::create_from_tablet_meta_file(header_path, store);
+    auto tablet = Tablet::create_tablet_from_meta_file(header_path, store);
     if (tablet == NULL) {
         LOG(WARNING) << "fail to load tablet. [header_path=" << header_path << "]";
         move_to_trash(boost_schema_hash_path, boost_schema_hash_path);
@@ -831,7 +828,7 @@ OLAPStatus TabletManager::start_trash_sweep() {
             if (tablet == nullptr) {
                 continue;
             }
-            tablet->delete_expired_incremental_rowset();
+            tablet->delete_expired_inc_rowsets();
         }
     }
     _tablet_map_lock.unlock();
@@ -862,8 +859,8 @@ void TabletManager::update_root_path_info(std::map<std::string, DataDirInfo>* pa
         TableInstances& instance = entry.second;
         for (auto& tablet : instance.table_arr) {
             (*tablet_counter) ++ ;
-            int64_t data_size = tablet->get_data_size();
-            auto find = path_map->find(tablet->storage_root_path_name()); 
+            int64_t data_size = tablet->tablet_footprint();
+            auto find = path_map->find(tablet->data_dir()->path());
             if (find == path_map->end()) {
                 continue;
             }
@@ -880,7 +877,15 @@ void TabletManager::update_storage_medium_type_count(uint32_t storage_medium_typ
 }
 
 void TabletManager::_build_tablet_info(TabletSharedPtr tablet, TTabletInfo* tablet_info) {
-    tablet->get_tablet_info(tablet_info);
+    tablet_info->tablet_id = tablet->tablet_id();
+    tablet_info->schema_hash = tablet->schema_hash();
+    tablet_info->row_count = tablet->num_rows();
+    tablet_info->data_size = tablet->tablet_footprint();
+    Version version = { -1, 0 };
+    VersionHash v_hash = 0;
+    tablet->max_continuous_version_from_begining(&version, &v_hash);
+    tablet_info->version = version.second;
+    tablet_info->version_hash = v_hash;
 }
 
 void TabletManager::_build_tablet_stat() {
@@ -898,10 +903,10 @@ void TabletManager::_build_tablet_stat() {
             }
                 
             // we only get base tablet's stat
-            stat.__set_data_size(tablet->get_data_size());
+            stat.__set_data_size(tablet->tablet_footprint());
             stat.__set_row_num(tablet->num_rows());
             VLOG(3) << "tablet_id=" << item.first 
-                    << ", data_size=" << tablet->get_data_size()
+                    << ", data_size=" << tablet->tablet_footprint()
                     << ", row_num:" << tablet->num_rows();
             break;
         }
@@ -933,7 +938,7 @@ OLAPStatus TabletManager::_create_inital_rowset(
 
     tablet->obtain_header_wrlock();
     tablet->set_cumulative_layer_point(request.version + 1);
-    res = tablet->save_tablet_meta();
+    res = tablet->save_meta();
     tablet->release_header_lock();
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to save header. [tablet=" << tablet->full_name() << "]";

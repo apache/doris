@@ -166,6 +166,31 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id,
     init_from_pb(_tablet_meta_pb);
 }
 
+OLAPStatus TabletMeta::create_from_file(const std::string& file_path) {
+    FileHeader<TabletMetaPB> file_header;
+    FileHandler file_handler;
+
+    if (file_handler.open(file_path.c_str(), O_RDONLY) != OLAP_SUCCESS) {
+        LOG(WARNING) << "fail to open ordinal file. file=" << file_path;
+        return OLAP_ERR_IO_ERROR;
+    }
+
+    // In file_header.unserialize(), it validates file length, signature, checksum of protobuf.
+    if (file_header.unserialize(&file_handler) != OLAP_SUCCESS) {
+        LOG(WARNING) << "fail to unserialize tablet_meta. file='" << file_path;
+        return OLAP_ERR_PARSE_PROTOBUF_ERROR;
+    }
+
+    try {
+       _tablet_meta_pb.CopyFrom(file_header.message());
+    } catch (...) {
+        LOG(WARNING) << "fail to copy protocol buffer object. file='" << file_path;
+        return OLAP_ERR_PARSE_PROTOBUF_ERROR;
+    }
+
+    return init_from_pb(_tablet_meta_pb);
+}
+
 OLAPStatus TabletMeta::save(const string& file_path) {
     DCHECK(!file_path.empty());
 
@@ -194,69 +219,30 @@ OLAPStatus TabletMeta::save(const string& file_path) {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus TabletMeta::create_from_file(const std::string& file_path) {
-    FileHeader<TabletMetaPB> file_header;
-    FileHandler file_handler;
-
-    if (file_handler.open(file_path.c_str(), O_RDONLY) != OLAP_SUCCESS) {
-        LOG(WARNING) << "fail to open ordinal file. file=" << file_path;
-        return OLAP_ERR_IO_ERROR;
+OLAPStatus TabletMeta::save_meta() {
+    string meta_binary;
+    serialize(&meta_binary);
+    OLAPStatus status = TabletMetaManager::save(_data_dir, tablet_id(), schema_hash(), meta_binary);
+    if (status != OLAP_SUCCESS) {
+       LOG(FATAL) << "fail to save tablet_meta. status=" << status
+                  << ", tablet_id=" << tablet_id()
+                  << ", schema_hash=" << schema_hash();
     }
-
-    // In file_header.unserialize(), it validates file length, signature, checksum of protobuf.
-    if (file_header.unserialize(&file_handler) != OLAP_SUCCESS) {
-        LOG(WARNING) << "fail to unserialize tablet_meta. file='" << file_path;
-        return OLAP_ERR_PARSE_PROTOBUF_ERROR;
-    }
-
-    try {
-       _tablet_meta_pb.CopyFrom(file_header.message());
-    } catch (...) {
-        LOG(WARNING) << "fail to copy protocol buffer object. file='" << file_path;
-        return OLAP_ERR_PARSE_PROTOBUF_ERROR;
-    }
-
-    
-    return init_from_pb(_tablet_meta_pb);
+    return status;
 }
 
 OLAPStatus TabletMeta::serialize(string* meta_binary) const {
-    std::lock_guard<std::mutex> lock(_mutex);
-    return serialize_unlock(meta_binary);
-};
-
-OLAPStatus TabletMeta::serialize_unlock(string* meta_binary) const {
     _tablet_meta_pb.SerializeToString(meta_binary);
     return OLAP_SUCCESS;
 };
 
 OLAPStatus TabletMeta::deserialize(const string& meta_binary) {
-    std::lock_guard<std::mutex> lock(_mutex);
     _tablet_meta_pb.ParseFromString(meta_binary);
     return init_from_pb(_tablet_meta_pb);
 }
 
 OLAPStatus TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
-    _table_id = tablet_meta_pb.table_id();
-    _partition_id = tablet_meta_pb.partition_id();
-    _tablet_id = tablet_meta_pb.tablet_id();
-    _schema_hash = tablet_meta_pb.schema_hash();
-    _shard_id = tablet_meta_pb.shard_id();
-    _creation_time = tablet_meta_pb.creation_time();
-    _cumulative_layer_point = tablet_meta_pb.cumulative_layer_point();
-    RETURN_NOT_OK(_schema.init_from_pb(tablet_meta_pb.schema()));
-    for (auto& it : tablet_meta_pb.rs_metas()) {
-        RowsetMetaSharedPtr rs_meta(new AlphaRowsetMeta());
-        rs_meta->init_from_pb(it);
-        _rs_metas.push_back(std::move(rs_meta));
-    }
-    for (auto& it : tablet_meta_pb.inc_rs_metas()) {
-        RowsetMetaSharedPtr rs_meta(new AlphaRowsetMeta());
-        rs_meta->init_from_pb(it);
-        _inc_rs_metas.push_back(std::move(rs_meta));
-    }
-
-    // generate TabletState
+    // init _tablet_state
     switch (tablet_meta_pb.tablet_state()) {
         case PB_NOTREADY:
             _tablet_state = TabletState::TABLET_NOTREADY;
@@ -274,8 +260,23 @@ OLAPStatus TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
             _tablet_state = TabletState::TABLET_SHUTDOWN;
             break;
         default:
-            LOG(WARNING) << "tablet has no state. tablet=" << _tablet_id
-                          << ", schema_hash=" << _schema_hash;
+            LOG(WARNING) << "tablet has no state. tablet=" << tablet_id()
+                          << ", schema_hash=" << schema_hash();
+    }
+
+    // init _schema
+    RETURN_NOT_OK(_schema.init_from_pb(tablet_meta_pb.schema()));
+
+    // init _rs_metas
+    for (auto& it : tablet_meta_pb.rs_metas()) {
+        RowsetMetaSharedPtr rs_meta(new AlphaRowsetMeta());
+        rs_meta->init_from_pb(it);
+        _rs_metas.push_back(std::move(rs_meta));
+    }
+    for (auto& it : tablet_meta_pb.inc_rs_metas()) {
+        RowsetMetaSharedPtr rs_meta(new AlphaRowsetMeta());
+        rs_meta->init_from_pb(it);
+        _inc_rs_metas.push_back(std::move(rs_meta));
     }
 
     // generate AlterTabletTask
@@ -285,36 +286,14 @@ OLAPStatus TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus TabletMeta::save_meta() {
-    std::lock_guard<std::mutex> lock(_mutex);
-    return save_meta_unlock();
-}
-
-OLAPStatus TabletMeta::save_meta_unlock() {
-    string meta_binary;
-    serialize_unlock(&meta_binary);
-    OLAPStatus status = TabletMetaManager::save(_data_dir, _tablet_id, _schema_hash, meta_binary);
-    if (status != OLAP_SUCCESS) {
-       LOG(WARNING) << "fail to save tablet_meta. status=" << status
-                    << ", tablet_id=" << _tablet_id
-                    << ", schema_hash=" << _schema_hash;
-    }
-    return status;
-}
-
-OLAPStatus TabletMeta::to_tablet_pb(TabletMetaPB* tablet_meta_pb) {
-    std::lock_guard<std::mutex> lock(_mutex);
-    return to_tablet_pb_unlock(tablet_meta_pb);
-}
-
-OLAPStatus TabletMeta::to_tablet_pb_unlock(TabletMetaPB* tablet_meta_pb) {
-    tablet_meta_pb->set_table_id(_table_id);
-    tablet_meta_pb->set_partition_id(_partition_id);
-    tablet_meta_pb->set_tablet_id(_tablet_id);
-    tablet_meta_pb->set_schema_hash(_schema_hash);
-    tablet_meta_pb->set_shard_id(_shard_id);
-    tablet_meta_pb->set_creation_time(_creation_time);
-    tablet_meta_pb->set_cumulative_layer_point(_cumulative_layer_point);
+OLAPStatus TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
+    tablet_meta_pb->set_table_id(table_id());
+    tablet_meta_pb->set_partition_id(partition_id());
+    tablet_meta_pb->set_tablet_id(tablet_id());
+    tablet_meta_pb->set_schema_hash(schema_hash());
+    tablet_meta_pb->set_shard_id(shard_id());
+    tablet_meta_pb->set_creation_time(creation_time());
+    tablet_meta_pb->set_cumulative_layer_point(cumulative_layer_point());
 
     for (auto& rs : _rs_metas) {
         rs->to_rowset_pb(tablet_meta_pb->add_rs_metas());
@@ -327,9 +306,37 @@ OLAPStatus TabletMeta::to_tablet_pb_unlock(TabletMetaPB* tablet_meta_pb) {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus TabletMeta::add_rs_meta(const RowsetMetaSharedPtr& rs_meta) {
-    std::lock_guard<std::mutex> lock(_mutex);
+OLAPStatus TabletMeta::to_json(std::string* json_string, json2pb::Pb2JsonOptions& options) {
+    json2pb::ProtoMessageToJson(_tablet_meta_pb, json_string, options);
+    return OLAP_SUCCESS;
+}
 
+void TabletMeta::set_shard_id(int32_t shard_id) {
+    _tablet_meta_pb.set_shard_id(shard_id);
+}
+
+void TabletMeta::set_creation_time(int64_t creation_time) {
+    _tablet_meta_pb.set_creation_time(creation_time);
+}
+
+void TabletMeta::set_cumulative_layer_point(int32_t new_point) {
+    _tablet_meta_pb.set_cumulative_layer_point(new_point);
+}
+
+Version TabletMeta::max_version() const {
+    Version max_version = { -1, 0 };
+    for (auto& rs_meta : _rs_metas) {
+        if (rs_meta->end_version() > max_version.second)  {
+            max_version = rs_meta->version();
+        } else if (rs_meta->end_version() == max_version.second
+                && rs_meta->start_version() == max_version.first) {
+            max_version = rs_meta->version();
+        }
+    }
+    return max_version;
+}
+
+OLAPStatus TabletMeta::add_rs_meta(const RowsetMetaSharedPtr& rs_meta) {
     // check RowsetMeta is valid
     for (auto& rs : _rs_metas) {
         if (rs->start_version() == rs_meta->start_version()
@@ -346,9 +353,24 @@ OLAPStatus TabletMeta::add_rs_meta(const RowsetMetaSharedPtr& rs_meta) {
     return OLAP_SUCCESS;
 }
 
+OLAPStatus TabletMeta::delete_rs_meta_by_version(const Version& version) {
+    auto it = _rs_metas.begin();
+    while (it != _rs_metas.end()) {
+        if ((*it)->version().first == version.first
+              && (*it)->version().second == version.second) {
+            _rs_metas.erase(it);
+        }
+    }
+
+    TabletMetaPB tablet_meta_pb;
+    RETURN_NOT_OK(to_meta_pb(&tablet_meta_pb));
+    _tablet_meta_pb = std::move(tablet_meta_pb);
+
+    return OLAP_SUCCESS;
+}
+
 OLAPStatus TabletMeta::modify_rs_metas(const vector<RowsetMetaSharedPtr>& to_add,
                                        const vector<RowsetMetaSharedPtr>& to_delete) {
-    std::lock_guard<std::mutex> lock(_mutex);
     for (auto del_rs : to_delete) {
         auto it = _rs_metas.begin();
         while (it != _rs_metas.end()) {
@@ -364,15 +386,13 @@ OLAPStatus TabletMeta::modify_rs_metas(const vector<RowsetMetaSharedPtr>& to_add
     }
 
     TabletMetaPB tablet_meta_pb;
-    RETURN_NOT_OK(to_tablet_pb_unlock(&tablet_meta_pb));
+    RETURN_NOT_OK(to_meta_pb(&tablet_meta_pb));
     _tablet_meta_pb = std::move(tablet_meta_pb);
-    RETURN_NOT_OK(save_meta_unlock());
 
     return OLAP_SUCCESS;
 }
 
 OLAPStatus TabletMeta::revise_rs_metas(const std::vector<RowsetMetaSharedPtr>& rs_metas) {
-    std::lock_guard<std::mutex> lock(_mutex);
     // delete alter task
     _tablet_meta_pb.clear_alter_tablet_task();
     _alter_task.clear();
@@ -386,15 +406,13 @@ OLAPStatus TabletMeta::revise_rs_metas(const std::vector<RowsetMetaSharedPtr>& r
     }
 
     TabletMetaPB tablet_meta_pb;
-    RETURN_NOT_OK(to_tablet_pb_unlock(&tablet_meta_pb));
+    RETURN_NOT_OK(to_meta_pb(&tablet_meta_pb));
     _tablet_meta_pb = std::move(tablet_meta_pb);
 
     return OLAP_SUCCESS;
 }
 
 OLAPStatus TabletMeta::add_inc_rs_meta(const RowsetMetaSharedPtr& rs_meta) {
-    std::lock_guard<std::mutex> lock(_mutex);
-
     // check RowsetMeta is valid
     for (auto rs : _inc_rs_metas) {
         if (rs->start_version() == rs_meta->start_version()
@@ -411,26 +429,7 @@ OLAPStatus TabletMeta::add_inc_rs_meta(const RowsetMetaSharedPtr& rs_meta) {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus TabletMeta::delete_rs_meta_by_version(const Version& version) {
-    std::lock_guard<std::mutex> lock(_mutex);
-    auto it = _rs_metas.begin();
-    while (it != _rs_metas.end()) {
-        if ((*it)->version().first == version.first
-              && (*it)->version().second == version.second) {
-            _rs_metas.erase(it);
-        }
-    }
-
-    TabletMetaPB tablet_meta_pb;
-    RETURN_NOT_OK(to_tablet_pb_unlock(&tablet_meta_pb));
-    _tablet_meta_pb = std::move(tablet_meta_pb);
-    RETURN_NOT_OK(save_meta_unlock());
-
-    return OLAP_SUCCESS;
-}
-
 OLAPStatus TabletMeta::delete_inc_rs_meta_by_version(const Version& version) {
-    std::lock_guard<std::mutex> lock(_mutex);
     auto it = _inc_rs_metas.begin();
     while (it != _inc_rs_metas.end()) {
         if ((*it)->version().first == version.first
@@ -440,15 +439,13 @@ OLAPStatus TabletMeta::delete_inc_rs_meta_by_version(const Version& version) {
     }
 
     TabletMetaPB tablet_meta_pb;
-    RETURN_NOT_OK(to_tablet_pb_unlock(&tablet_meta_pb));
+    RETURN_NOT_OK(to_meta_pb(&tablet_meta_pb));
     _tablet_meta_pb = std::move(tablet_meta_pb);
-    RETURN_NOT_OK(save_meta_unlock());
 
     return OLAP_SUCCESS;
 }
 
 RowsetMetaSharedPtr TabletMeta::acquire_inc_rs_meta(const Version& version) const {
-    std::lock_guard<std::mutex> lock(_mutex);
     RowsetMetaSharedPtr rs_meta = nullptr;
     for (int i = 0; i < _inc_rs_metas.size(); ++i) {
         if (_inc_rs_metas[i]->version().first == version.first
@@ -460,23 +457,8 @@ RowsetMetaSharedPtr TabletMeta::acquire_inc_rs_meta(const Version& version) cons
     return rs_meta;
 }
 
-Version TabletMeta::max_version() const {
-    std::lock_guard<std::mutex> lock(_mutex);
-    Version max_version = { -1, 0 };
-    for (auto& rs_meta : _rs_metas) {
-        if (rs_meta->end_version() > max_version.second)  {
-            max_version = rs_meta->version();
-        } else if (rs_meta->end_version() == max_version.second
-                && rs_meta->start_version() == max_version.first) {
-            max_version = rs_meta->version();
-        }
-    }
-    return max_version;
-}
-
 OLAPStatus TabletMeta::add_delete_predicate(
             const DeletePredicatePB& delete_predicate, int64_t version) {
-    std::lock_guard<std::mutex> lock(_mutex);
     int ordinal = 0;
     for (auto& del_pred : _del_pred_array) {
         if (del_pred.version() == version) {
@@ -503,8 +485,8 @@ OLAPStatus TabletMeta::add_delete_predicate(
 }
 
 OLAPStatus TabletMeta::remove_delete_predicate_by_version(const Version& version) {
-    DCHECK(version.first == version.second);
-    std::lock_guard<std::mutex> lock(_mutex);
+    DCHECK(version.first == version.second)
+        << "version=" << version.first << "-" << version.second;
     int ordinal = 0;
     for (; ordinal < _del_pred_array.size(); ++ordinal) {
         const DeletePredicatePB& temp = _del_pred_array.Get(ordinal);
@@ -529,7 +511,6 @@ OLAPStatus TabletMeta::remove_delete_predicate_by_version(const Version& version
 }
 
 DelPredicateArray TabletMeta::delete_predicates() const {
-    std::lock_guard<std::mutex> lock(_mutex);
     return _del_pred_array;
 }
 
@@ -538,7 +519,6 @@ bool TabletMeta::version_for_delete_predicate(const Version& version) {
         return false;
     }
 
-    std::lock_guard<std::mutex> lock(_mutex);
     for (auto& del_pred : _del_pred_array) {
         if (del_pred.version() == version.first) {
             return true;
@@ -549,43 +529,15 @@ bool TabletMeta::version_for_delete_predicate(const Version& version) {
 }
 
 OLAPStatus TabletMeta::add_alter_task(const AlterTabletTask& alter_task) {
-    std::lock_guard<std::mutex> lock(_mutex);
     _alter_task = alter_task;
     RETURN_NOT_OK(_alter_task.to_alter_pb(_tablet_meta_pb.mutable_alter_tablet_task()));
-    RETURN_NOT_OK(save_meta_unlock());
     return OLAP_SUCCESS;
 }
 
 OLAPStatus TabletMeta::delete_alter_task() {
-    std::lock_guard<std::mutex> lock(_mutex);
     _tablet_meta_pb.clear_alter_tablet_task();
-    RETURN_NOT_OK(save_meta_unlock());
     _alter_task.clear();
     return OLAP_SUCCESS;
-}
-
-void TabletMeta::set_cumulative_layer_point(int32_t new_point) {
-    std::lock_guard<std::mutex> lock(_mutex);
-    _cumulative_layer_point = new_point;
-    TabletMetaPB tablet_meta_pb;
-    to_tablet_pb_unlock(&tablet_meta_pb);
-    _tablet_meta_pb = std::move(tablet_meta_pb);
-}
-
-void TabletMeta::set_shard_id(int32_t shard_id) {
-    std::lock_guard<std::mutex> lock(_mutex);
-    _shard_id = shard_id;
-    TabletMetaPB tablet_meta_pb;
-    to_tablet_pb_unlock(&tablet_meta_pb);
-    _tablet_meta_pb = std::move(tablet_meta_pb);
-}
-
-void TabletMeta::set_creation_time(int64_t creation_time) {
-    std::lock_guard<std::mutex> lock(_mutex);
-    _creation_time = _creation_time;
-    TabletMetaPB tablet_meta_pb;
-    to_tablet_pb_unlock(&tablet_meta_pb);
-    _tablet_meta_pb = std::move(tablet_meta_pb);
 }
 
 }  // namespace doris
