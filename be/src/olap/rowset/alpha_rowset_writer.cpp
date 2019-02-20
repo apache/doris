@@ -136,11 +136,6 @@ OLAPStatus AlphaRowsetWriter::flush() {
 }
 
 RowsetSharedPtr AlphaRowsetWriter::build() {
-    OLAPStatus status = flush();
-    if (status != OLAP_SUCCESS) {
-        _segment_groups.clear();
-        return nullptr;
-    }
     for (auto& segment_group : _segment_groups) {
         _current_rowset_meta->set_data_disk_size(_current_rowset_meta->data_disk_size() + segment_group->data_size());
         _current_rowset_meta->set_index_disk_size(_current_rowset_meta->index_disk_size() + segment_group->index_size());
@@ -204,7 +199,7 @@ RowsetSharedPtr AlphaRowsetWriter::build() {
         _segment_groups.clear();
         return nullptr;
     }
-    status = rowset->init();
+    OLAPStatus status = rowset->init();
     if (status != OLAP_SUCCESS) {
         _segment_groups.clear();
         LOG(WARNING) << "rowset init failed when build new rowset";
