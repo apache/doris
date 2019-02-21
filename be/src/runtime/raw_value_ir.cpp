@@ -102,8 +102,8 @@ int RawValue::compare(const void* v1, const void* v2, const TypeDescriptor& type
     case TYPE_DECIMAL_V2: {
         __int128 value1 = reinterpret_cast<const PackedInt128*>(v1)->value;
         __int128 value2 = reinterpret_cast<const PackedInt128*>(v2)->value;
-        DecimalValue decimal_value1;
-        DecimalValue decimal_value2;
+        Decimal_V2Value decimal_value1;
+        Decimal_V2Value decimal_value2;
         decimal_value1.set_value(value1);
         decimal_value2.set_value(value2);
         return (decimal_value1 > decimal_value2)

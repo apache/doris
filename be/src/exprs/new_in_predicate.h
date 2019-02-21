@@ -289,7 +289,13 @@ public:
     static void set_lookup_prepare_decimal_val(doris_udf::FunctionContext* ctx,
                                          doris_udf::FunctionContext::FunctionStateScope scope);
 
+    static void set_lookup_prepare_decimal_v2_val(doris_udf::FunctionContext* ctx,
+                                         doris_udf::FunctionContext::FunctionStateScope scope);
+
     static void set_lookup_close_decimal_val(doris_udf::FunctionContext* ctx,
+                                       doris_udf::FunctionContext::FunctionStateScope scope);
+
+    static void set_lookup_close_decimal_v2_val(doris_udf::FunctionContext* ctx,
                                        doris_udf::FunctionContext::FunctionStateScope scope);
 
     static doris_udf::BooleanVal in_set_lookup(

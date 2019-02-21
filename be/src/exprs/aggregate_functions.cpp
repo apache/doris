@@ -2594,5 +2594,5 @@ template void AggregateFunctions::offset_fn_update<DecimalVal>(
     DecimalVal* dst);
 template void AggregateFunctions::offset_fn_update<Decimal_V2Val>(
     FunctionContext*, const Decimal_V2Val& src, const BigIntVal&, const Decimal_V2Val&,
-    DecimalVal* dst);
+    Decimal_V2Val* dst);
 }

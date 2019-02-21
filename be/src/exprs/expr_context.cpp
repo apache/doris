@@ -379,8 +379,8 @@ void* ExprContext::get_value(Expr* e, TupleRow* row) {
         if (v.is_null) {
             return NULL;
         }
-        _result.decimal_val = Decimal_V2Value::from_decimal_val(v);
-        return &_result.decimal_val;
+        _result.decimal_v2_val = Decimal_V2Value::from_decimal_val(v);
+        return &_result.decimal_v2_val;
     }
 #if 0
     case TYPE_ARRAY:

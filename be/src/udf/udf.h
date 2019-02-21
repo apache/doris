@@ -72,6 +72,7 @@ public:
         TYPE_HLL,
         TYPE_STRING,
         TYPE_FIXED_BUFFER,
+        TYPE_DECIMAL_V2
     };
 
     struct TypeDesc {
@@ -694,7 +695,7 @@ struct Decimal_V2Val : public AnyVal {
 
 
     // Default value is zero
-    Decimal_V2Val() : _value(0) {
+    Decimal_V2Val() : val(0) {
         is_null = false;
         // Do nothing here
     }

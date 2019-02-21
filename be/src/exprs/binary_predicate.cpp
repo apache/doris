@@ -431,7 +431,7 @@ BINARY_PRED_FLOAT_FNS(DoubleVal, get_double_val);
     COMPLICATE_BINARY_PRED_FN(Ge##TYPE##Pred, TYPE, FN, DORIS_TYPE, FROM_FUNC, >=)
 
 COMPLICATE_BINARY_PRED_FNS(DecimalVal, get_decimal_val, DecimalValue, from_decimal_val)
-COMPLICATE_BINARY_PRED_FNS(Decimal_V2Val, get_decimal_val, Decimal_V2Value, from_decimal_val)
+COMPLICATE_BINARY_PRED_FNS(Decimal_V2Val, get_decimal_v2_val, Decimal_V2Value, from_decimal_val)
 
 #define DATETIME_BINARY_PRED_FN(CLASS, OP, LLVM_PRED) \
     BooleanVal CLASS::get_boolean_val(ExprContext* ctx, TupleRow* row) { \

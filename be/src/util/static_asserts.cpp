@@ -33,7 +33,6 @@ private:
     BOOST_STATIC_ASSERT(sizeof(DateTimeValue) == 16);
     // BOOST_STATIC_ASSERT(offsetof(DateTimeValue, _year) == 8);
     BOOST_STATIC_ASSERT(sizeof(DecimalValue) == 40);
-    BOOST_STATIC_ASSERT(sizeof(Decimal_V2Value) == 16);
 };
 
 }
