@@ -253,6 +253,7 @@ typedef boost::variant <
         ColumnValueRange<__int128>,
         ColumnValueRange<StringValue>,
         ColumnValueRange<DateTimeValue>,
+        ColumnValueRange<Decimal_V2Value>,
         ColumnValueRange<DecimalValue> > ColumnValueRangeType;
 
 class DorisScanRange {
@@ -387,6 +388,9 @@ void ColumnValueRange<StringValue>::convert_to_fixed_value();
 
 template<>
 void ColumnValueRange<DecimalValue>::convert_to_fixed_value();
+
+template<>
+void ColumnValueRange<Decimal_V2Value>::convert_to_fixed_value();
 
 template<>
 void ColumnValueRange<__int128>::convert_to_fixed_value();

@@ -491,6 +491,17 @@ Status OlapScanNode::normalize_conjuncts() {
             break;
         }
 
+        case TYPE_DECIMAL_V2: {
+            Decimal_V2Value min = Decimal_V2Value::get_min_decimal();
+            Decimal_V2Value max = Decimal_V2Value::get_max_decimal();
+            ColumnValueRange<Decimal_V2Value> range(slots[slot_idx]->col_name(),
+                                                 slots[slot_idx]->type().type,
+                                                 min,
+                                                 max);
+            normalize_predicate(range, slots[slot_idx]);
+            break;
+        }
+
         default: {
             VLOG(2) << "Unsupport Normalize Slot [ColName="
                     << slots[slot_idx]->col_name() << "]";
@@ -739,6 +750,7 @@ Status OlapScanNode::normalize_in_predicate(SlotDescriptor* slot, ColumnValueRan
                         break;
                     }
                     case TYPE_DECIMAL:
+                    case TYPE_DECIMAL_V2:
                     case TYPE_LARGEINT:
                     case TYPE_CHAR:
                     case TYPE_VARCHAR:
@@ -807,6 +819,7 @@ Status OlapScanNode::normalize_in_predicate(SlotDescriptor* slot, ColumnValueRan
                         break;
                     }
                     case TYPE_DECIMAL:
+                    case TYPE_DECIMAL_V2:
                     case TYPE_CHAR:
                     case TYPE_VARCHAR:
                     case TYPE_HLL:
@@ -919,6 +932,7 @@ Status OlapScanNode::normalize_binary_predicate(SlotDescriptor* slot, ColumnValu
                     break;
                 }
                 case TYPE_DECIMAL:
+                case TYPE_DECIMAL_V2:
                 case TYPE_CHAR:
                 case TYPE_VARCHAR:
 			    case TYPE_HLL:

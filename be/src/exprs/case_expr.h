@@ -47,6 +47,7 @@ public:
     virtual StringVal get_string_val(ExprContext* ctx, TupleRow* row);
     virtual DateTimeVal get_datetime_val(ExprContext* ctx, TupleRow* row);
     virtual DecimalVal get_decimal_val(ExprContext* ctx, TupleRow* row);
+    virtual Decimal_V2Val get_decimal_v2_val(ExprContext* ctx, TupleRow* row);
 
 protected:
     friend class Expr;

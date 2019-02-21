@@ -160,6 +160,7 @@ public:
     static const size_t FLOAT_SIZE = sizeof(float);
     static const size_t DOUBLE_SIZE = sizeof(double);
     static const size_t DECIMAL_SIZE = sizeof(DecimalValue);
+    static const size_t DECIMAL_V2_SIZE = sizeof(Decimal_V2Value);
     static const size_t TIME_DURATION_SIZE = sizeof(boost::posix_time::time_duration);
     static const size_t DATE_SIZE = sizeof(boost::gregorian::date);
     static const size_t LARGEINT_SIZE = sizeof(__int128);

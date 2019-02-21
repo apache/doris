@@ -26,6 +26,7 @@
 #include "exprs/expr.h"
 #include "runtime/tuple_row.h"
 #include "runtime/decimal_value.h"
+#include "runtime/decimal_v2_value.h"
 #include "util/string_parser.hpp"
 
 namespace doris {
@@ -530,6 +531,11 @@ DecimalVal MathFunctions::positive_decimal(
     return val;
 }
 
+Decimal_V2Val MathFunctions::positive_decimal_V2(
+        FunctionContext* ctx, const Decimal_V2Val& val) {
+    return val;
+}
+
 BigIntVal MathFunctions::negative_bigint(
         FunctionContext* ctx, const BigIntVal& val) {
     if (val.is_null) {
@@ -554,6 +560,19 @@ DecimalVal MathFunctions::negative_decimal(
     const DecimalValue& dv1 = DecimalValue::from_decimal_val(val);
     LOG(INFO) << dv1.to_string();
     DecimalVal result;
+    LOG(INFO) << (-dv1).to_string();
+    (-dv1).to_decimal_val(&result);
+    return result;
+}
+
+Decimal_V2Val MathFunctions::negative_decimal_v2(
+        FunctionContext* ctx, const Decimal_V2Val& val) {
+    if (val.is_null) {
+        return val;
+    }
+    const Decimal_V2Value& dv1 = Decimal_V2Value::from_decimal_val(val);
+    LOG(INFO) << dv1.to_string();
+    Decimal_V2Val result;
     LOG(INFO) << (-dv1).to_string();
     (-dv1).to_decimal_val(&result);
     return result;
@@ -601,6 +620,7 @@ LEAST_FNS();
     LEAST_NONNUMERIC_FN(string_val, StringVal, StringValue); \
     LEAST_NONNUMERIC_FN(datetime_val, DateTimeVal, DateTimeValue); \
     LEAST_NONNUMERIC_FN(decimal_val, DecimalVal, DecimalValue); \
+    LEAST_NONNUMERIC_FN(decimal_val, Decimal_V2Val, Decimal_V2Value); \
 
 LEAST_NONNUMERIC_FNS();
 
@@ -646,6 +666,7 @@ GREATEST_FNS();
     GREATEST_NONNUMERIC_FN(string_val, StringVal, StringValue); \
     GREATEST_NONNUMERIC_FN(datetime_val, DateTimeVal, DateTimeValue); \
     GREATEST_NONNUMERIC_FN(decimal_val, DecimalVal, DecimalValue); \
+    GREATEST_NONNUMERIC_FN(decimal_val, Decimal_V2Val, Decimal_V2Value); \
 
 GREATEST_NONNUMERIC_FNS();
 

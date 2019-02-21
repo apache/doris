@@ -374,6 +374,14 @@ void* ExprContext::get_value(Expr* e, TupleRow* row) {
         _result.decimal_val = DecimalValue::from_decimal_val(v);
         return &_result.decimal_val;
     }
+    case TYPE_DECIMAL_V2: {
+        Decimal_V2Val v = e->get_decimal_v2_val(this, row);
+        if (v.is_null) {
+            return NULL;
+        }
+        _result.decimal_val = Decimal_V2Value::from_decimal_val(v);
+        return &_result.decimal_val;
+    }
 #if 0
     case TYPE_ARRAY:
     case TYPE_MAP: {
@@ -449,6 +457,10 @@ DateTimeVal ExprContext::get_datetime_val(TupleRow* row) {
 
 DecimalVal ExprContext::get_decimal_val(TupleRow* row) {
     return _root->get_decimal_val(this, row);
+}
+
+Decimal_V2Val ExprContext::get_decimal_v2_val(TupleRow* row) {
+    return _root->get_decimal_v2_val(this, row);
 }
 
 Status ExprContext::get_const_value(RuntimeState* state, Expr& expr,

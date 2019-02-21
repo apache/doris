@@ -468,6 +468,23 @@ Status Translator::create_value_updaters() {
             }
             break;
         }
+        case TYPE_DECIMAL_V2: {
+            switch (_rollup_schema.value_ops()[i]) {
+            case TAggregationType::MAX:
+                _value_updaters.push_back(update_max<Decimal_V2Value>);
+                break;
+            case TAggregationType::MIN:
+                _value_updaters.push_back(update_min<Decimal_V2Value>);
+                break;
+            case TAggregationType::SUM:
+                _value_updaters.push_back(update_sum<Decimal_V2Value>);
+                break;
+            default:
+                _value_updaters.push_back(fake_update);
+            }
+            break;
+        }
+
         case TYPE_DATE:
         case TYPE_DATETIME: {
             switch (_rollup_schema.value_ops()[i]) {

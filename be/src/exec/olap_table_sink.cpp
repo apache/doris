@@ -461,6 +461,9 @@ Status OlapTableSink::prepare(RuntimeState* state) {
 
     _max_decimal_val.resize(_output_tuple_desc->slots().size());
     _min_decimal_val.resize(_output_tuple_desc->slots().size());
+
+    _max_decimal_v2_val.resize(_output_tuple_desc->slots().size());
+    _min_decimal_v2_val.resize(_output_tuple_desc->slots().size());
     // check if need validate batch
     for (int i = 0; i < _output_tuple_desc->slots().size(); ++i) {
         auto slot = _output_tuple_desc->slots()[i];
@@ -468,6 +471,11 @@ Status OlapTableSink::prepare(RuntimeState* state) {
         case TYPE_DECIMAL:
             _max_decimal_val[i].to_max_decimal(slot->type().precision, slot->type().scale);
             _min_decimal_val[i].to_min_decimal(slot->type().precision, slot->type().scale);
+            _need_validate_data = true;
+            break;
+        case TYPE_DECIMAL_V2:
+            _max_decimal_v2_val[i].to_max_decimal(slot->type().precision, slot->type().scale);
+            _min_decimal_v2_val[i].to_min_decimal(slot->type().precision, slot->type().scale);
             _need_validate_data = true;
             break;
         case TYPE_CHAR:
@@ -707,6 +715,43 @@ int OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitmap* 
                     }
                 }
                 if (*dec_val > _max_decimal_val[i] || *dec_val < _min_decimal_val[i]) {
+                    std::stringstream ss;
+                    ss << "decimal value is not valid for defination, column=" << desc->col_name()
+                        << ", value=" << dec_val->to_string()
+                        << ", precision=" << desc->type().precision
+                        << ", scale=" << desc->type().scale;
+#if BE_TEST
+                    LOG(INFO) << ss.str();
+#else
+                    state->append_error_msg_to_file("", ss.str());
+#endif
+                    filtered_rows++;
+                    row_valid = false;
+                    filter_bitmap->Set(row_no, true);
+                    continue;
+                }
+                break;
+            }
+            case TYPE_DECIMAL_V2: {
+                Decimal_V2Value* dec_val = (Decimal_V2Value*)slot;
+                if (dec_val->scale() > desc->type().scale) {
+                    int code = dec_val->round(dec_val, desc->type().scale, HALF_UP);
+                    if (code != E_DEC_OK) {
+                        std::stringstream ss;
+                        ss << "round one decimal failed.value=" << dec_val->to_string();
+#if BE_TEST
+                        LOG(INFO) << ss.str();
+#else
+                        state->append_error_msg_to_file("", ss.str());
+#endif
+
+                        filtered_rows++;
+                        row_valid = false;
+                        filter_bitmap->Set(row_no, true);
+                        continue;
+                    }
+                }
+                if (*dec_val > _max_decimal_v2_val[i] || *dec_val < _min_decimal_v2_val[i]) {
                     std::stringstream ss;
                     ss << "decimal value is not valid for defination, column=" << desc->col_name()
                         << ", value=" << dec_val->to_string()

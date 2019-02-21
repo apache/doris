@@ -94,13 +94,22 @@ dst);
 
     // Avg for decimals.
     static void decimal_avg_init(doris_udf::FunctionContext* ctx, doris_udf::StringVal* dst);
+    static void decimal_v2_avg_init(doris_udf::FunctionContext* ctx, doris_udf::StringVal* dst);
     static void decimal_avg_update(doris_udf::FunctionContext* ctx,
             const doris_udf::DecimalVal& src,
             doris_udf::StringVal* dst);
+    static void decimal_v2_avg_update(doris_udf::FunctionContext* ctx,
+            const doris_udf::Decimal_V2Val& src,
+            doris_udf::StringVal* dst);
     static void decimal_avg_merge(FunctionContext* ctx, const doris_udf::StringVal& src,
+            doris_udf::StringVal* dst);
+    static void decimal_v2_avg_merge(FunctionContext* ctx, const doris_udf::StringVal& src,
             doris_udf::StringVal* dst);
     static void decimal_avg_remove(doris_udf::FunctionContext* ctx,
             const doris_udf::DecimalVal& src,
+            doris_udf::StringVal* dst);
+    static void decimal_v2_avg_remove(doris_udf::FunctionContext* ctx,
+            const doris_udf::Decimal_V2Val& src,
             doris_udf::StringVal* dst);
 
     // static void decimal_avg_add_or_remove(doris_udf::FunctionContext* ctx,
@@ -113,9 +122,12 @@ dst);
     // }
     static doris_udf::DecimalVal decimal_avg_get_value(doris_udf::FunctionContext* ctx,
          const doris_udf::StringVal& val);
+    static doris_udf::Decimal_V2Val decimal_v2_avg_get_value(doris_udf::FunctionContext* ctx,
+         const doris_udf::StringVal& val);
     static doris_udf::DecimalVal decimal_avg_finalize(doris_udf::FunctionContext* ctx,
          const doris_udf::StringVal& val);
-
+    static doris_udf::Decimal_V2Val decimal_v2_avg_finalize(doris_udf::FunctionContext* ctx,
+         const doris_udf::StringVal& val);
     // SumUpdate, SumMerge
     template <typename SRC_VAL, typename DST_VAL>
     static void sum(doris_udf::FunctionContext*, const SRC_VAL& src, DST_VAL* dst);

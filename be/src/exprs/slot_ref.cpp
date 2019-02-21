@@ -521,4 +521,17 @@ DecimalVal SlotRef::get_decimal_val(ExprContext* context, TupleRow* row) {
     return dec_val;
 }
 
+Decimal_V2Val SlotRef::get_decimal_v2_val(ExprContext* context, TupleRow* row) {
+    DCHECK_EQ(_type.type, TYPE_DECIMAL_V2);
+    Tuple* t = row->get_tuple(_tuple_idx);
+    if (t == NULL || t->is_null(_null_indicator_offset)) {
+        return Decimal_V2Val::null();
+    }
+
+    Decimal_V2Val dec_val;
+    memcpy(&dec_val.val, t->get_slot(_slot_offset), 16);
+
+    return dec_val;
+}
+
 }

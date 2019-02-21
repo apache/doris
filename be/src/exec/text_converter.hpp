@@ -23,6 +23,7 @@
 #include <boost/algorithm/string.hpp>
 
 #include "runtime/decimal_value.h"
+#include "runtime/decimal_v2_value.h"
 #include "runtime/descriptors.h"
 #include "runtime/mem_pool.h"
 #include "runtime/runtime_state.h"
@@ -154,6 +155,16 @@ inline bool TextConverter::write_slot(const SlotDescriptor* slot_desc,
 
     case TYPE_DECIMAL: {
         DecimalValue* decimal_slot = reinterpret_cast<DecimalValue*>(slot);
+
+        if (decimal_slot->parse_from_str(data, len)) {
+            parse_result = StringParser::PARSE_FAILURE;
+        }
+
+        break;
+    }
+
+    case TYPE_DECIMAL_V2: {
+        Decimal_V2Value* decimal_slot = reinterpret_cast<Decimal_V2Value*>(slot);
 
         if (decimal_slot->parse_from_str(data, len)) {
             parse_result = StringParser::PARSE_FAILURE;

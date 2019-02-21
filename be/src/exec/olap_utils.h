@@ -68,6 +68,9 @@ inline CompareLargeFunc get_compare_func(PrimitiveType type) {
     case TYPE_DECIMAL:
         return compare_large<DecimalValue>;
 
+    case TYPE_DECIMAL_V2:
+        return compare_large<Decimal_V2Value>;
+
     case TYPE_CHAR:
     case TYPE_VARCHAR:
         return compare_large<StringValue>;
@@ -182,6 +185,7 @@ inline int get_olap_size(PrimitiveType type) {
         return 8;
     }
 
+    case TYPE_DECIMAL_V2:
     case TYPE_DECIMAL: {
         return 12;
     }

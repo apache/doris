@@ -181,6 +181,20 @@ Status ExportSink::gen_row_buffer(TupleRow* row, std::stringstream* ss) {
                     (*ss) << decimal_str;
                     break;
                 }
+                case TYPE_DECIMAL_V2: {
+                    Decimal_V2Value decimal_val;
+                    memcpy(&decimal_val, item, sizeof(Decimal_V2Value)); 
+                    std::string decimal_str;
+                    int output_scale = _output_expr_ctxs[i]->root()->output_scale();
+
+                    if (output_scale > 0 && output_scale <= 30) {
+                        decimal_str = decimal_val.to_string(output_scale);
+                    } else {
+                        decimal_str = decimal_val.to_string();
+                    }
+                    (*ss) << decimal_str;
+                    break;
+                }
                 default: {
                     std::stringstream err_ss;
                     err_ss << "can't export this type. type = " << _output_expr_ctxs[i]->root()->type();

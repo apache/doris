@@ -274,9 +274,17 @@ public:
         doris_udf::FunctionContext* context, const doris_udf::DecimalVal& val,
         int num_args, const doris_udf::DecimalVal* args);
 
+    static doris_udf::BooleanVal in_iterate(
+        doris_udf::FunctionContext* context, const doris_udf::Decimal_V2Val& val,
+        int num_args, const doris_udf::Decimal_V2Val* args);
+
     static doris_udf::BooleanVal not_in_iterate(
         doris_udf::FunctionContext* context, const doris_udf::DecimalVal& val,
         int num_args, const doris_udf::DecimalVal* args);
+
+    static doris_udf::BooleanVal not_in_iterate(
+        doris_udf::FunctionContext* context, const doris_udf::Decimal_V2Val& val,
+        int num_args, const doris_udf::Decimal_V2Val* args);
 
     static void set_lookup_prepare_decimal_val(doris_udf::FunctionContext* ctx,
                                          doris_udf::FunctionContext::FunctionStateScope scope);
@@ -288,9 +296,17 @@ public:
         doris_udf::FunctionContext* context, const doris_udf::DecimalVal& val,
         int num_args, const doris_udf::DecimalVal* args);
 
+    static doris_udf::BooleanVal in_set_lookup(
+        doris_udf::FunctionContext* context, const doris_udf::Decimal_V2Val& val,
+        int num_args, const doris_udf::Decimal_V2Val* args);
+
     static doris_udf::BooleanVal not_in_set_lookup(
         doris_udf::FunctionContext* context, const doris_udf::DecimalVal& val,
         int num_args, const doris_udf::DecimalVal* args);
+
+    static doris_udf::BooleanVal not_in_set_lookup(
+        doris_udf::FunctionContext* context, const doris_udf::Decimal_V2Val& val,
+        int num_args, const doris_udf::Decimal_V2Val* args);
 
     /* added by lide */
     IN_FUNCTIONS_STMT(LargeIntVal, __int128, large_int_val)

@@ -73,6 +73,10 @@ public:
         return tv.hash(seed);
     }
 
+    static uint32_t hash(const doris_udf::Decimal_V2Val& v, int seed) {
+        return HashUtil::hash(&v.val, 16, seed);
+    }
+
     static uint32_t hash(const doris_udf::LargeIntVal& v, int seed) {
         return HashUtil::hash(&v.val, 8, seed);
     }
@@ -121,6 +125,10 @@ public:
         return HashUtil::fnv_hash64(&tv, sizeof(DecimalValue), seed);
     }
 
+    static uint64_t hash64(const doris_udf::Decimal_V2Val& v, int64_t seed) {
+        return HashUtil::fnv_hash64(&v.val, 16, seed);
+    }
+
     static uint64_t hash64(const doris_udf::LargeIntVal& v, int64_t seed) {
         return HashUtil::fnv_hash64(&v.val, 8, seed);
     }
@@ -167,6 +175,10 @@ public:
         return HashUtil::murmur_hash64A(&tv, sizeof(DecimalValue), seed);
     }
 
+    static uint64_t hash64_murmur(const doris_udf::Decimal_V2Val& v, int64_t seed) {
+        return HashUtil::murmur_hash64A(&v.val, 16, seed);
+    }
+
     static uint64_t hash64_murmur(const doris_udf::LargeIntVal& v, int64_t seed) {
         return HashUtil::murmur_hash64A(&v.val, 8, seed);
     }
@@ -201,6 +213,8 @@ public:
         return doris_udf::FunctionContext::TYPE_STRING;
     case TYPE_DECIMAL:
         return doris_udf::FunctionContext::TYPE_DECIMAL;
+    case TYPE_DECIMAL_V2:
+        return doris_udf::FunctionContext::TYPE_DECIMAL_V2;
     break;
     default:
     DCHECK(false) << "Unknown type: " << type;
@@ -246,6 +260,9 @@ public:
         case TYPE_DECIMAL:
             return sizeof(doris_udf::DecimalVal);
 
+        case TYPE_DECIMAL_V2:
+            return sizeof(doris_udf::Decimal_V2Val);
+
         default:
             DCHECK(false) << t;
             return 0;
@@ -271,6 +288,7 @@ public:
         case TYPE_DATE:
           return alignof(DateTimeVal);
         case TYPE_DECIMAL: return alignof(DecimalVal);
+        case TYPE_DECIMAL_V2: return alignof(Decimal_V2Val);
         default:
             DCHECK(false) << t;
             return 0;
@@ -364,6 +382,9 @@ public:
             reinterpret_cast<const DecimalValue*>(slot)->to_decimal_val(
             reinterpret_cast<doris_udf::DecimalVal*>(dst));
             return; 
+        case TYPE_DECIMAL_V2:
+            memcpy(&reinterpret_cast<doris_udf::Decimal_V2Val*>(dst)->val, slot, 16);
+            return; 
         case TYPE_DATE:
             reinterpret_cast<const DateTimeValue*>(slot)->to_datetime_val(
             reinterpret_cast<doris_udf::DateTimeVal*>(dst));
@@ -432,6 +453,13 @@ inline bool AnyValUtil::equals_intenal(const DateTimeVal& x, const DateTimeVal& 
 
 template<> 
 inline bool AnyValUtil::equals_intenal(const DecimalVal& x, const DecimalVal& y) {
+    DCHECK(!x.is_null);
+    DCHECK(!y.is_null);
+    return x == y;
+}
+
+template<> 
+inline bool AnyValUtil::equals_intenal(const Decimal_V2Val& x, const Decimal_V2Val& y) {
     DCHECK(!x.is_null);
     DCHECK(!y.is_null);
     return x == y;

@@ -149,6 +149,22 @@ Status ResultWriter::add_one_row(TupleRow* row) {
             break;
         }
 
+        case TYPE_DECIMAL_V2: {
+            Decimal_V2Value value;
+            memcpy(&value, item, 16);
+            std::string decimal_str;
+            int output_scale = _output_expr_ctxs[i]->root()->output_scale();
+
+            if (output_scale > 0 && output_scale <= 30) {
+                decimal_str = value.to_string(output_scale);
+            } else {
+                decimal_str = value.to_string();
+            }
+
+            buf_ret = _row_buffer->push_string(decimal_str.c_str(), decimal_str.length());
+            break;
+        }
+
         default:
             LOG(WARNING) << "can't convert this type to mysql type. type = " <<
                          _output_expr_ctxs[i]->root()->type();

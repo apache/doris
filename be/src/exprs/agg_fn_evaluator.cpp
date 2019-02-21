@@ -43,6 +43,7 @@ using doris_udf::LargeIntVal;
 using doris_udf::FloatVal;
 using doris_udf::DoubleVal;
 using doris_udf::DecimalVal;
+using doris_udf::Decimal_V2Val;
 using doris_udf::DateTimeVal;
 using doris_udf::StringVal;
 using doris_udf::AnyVal;
@@ -344,6 +345,10 @@ inline void AggFnEvaluator::set_any_val(
                 reinterpret_cast<DecimalVal*>(dst));
         return;
 
+    case TYPE_DECIMAL_V2:
+        memcpy(&reinterpret_cast<Decimal_V2Val*>(dst)->val, slot, sizeof(__int128));
+        return;
+
     case TYPE_LARGEINT:
         memcpy(&reinterpret_cast<LargeIntVal*>(dst)->val, slot, sizeof(__int128));
         return;
@@ -411,6 +416,10 @@ inline void AggFnEvaluator::set_output_slot(const AnyVal* src,
     case TYPE_DECIMAL:
         *reinterpret_cast<DecimalValue*>(slot) = DecimalValue::from_decimal_val(
                     *reinterpret_cast<const DecimalVal*>(src));
+        return;
+
+    case TYPE_DECIMAL_V2:
+        memcpy(slot, &reinterpret_cast<const Decimal_V2Val*>(src)->val, sizeof(__int128));
         return;
 
     case TYPE_LARGEINT: {
@@ -578,6 +587,13 @@ bool AggFnEvaluator::count_distinct_data_filter(TupleRow* row, Tuple* dst) {
             break;
         }
 
+        case TYPE_DECIMAL_V2: {
+            Decimal_V2Val* value = reinterpret_cast<Decimal_V2Val*>(_staging_input_vals[i]);
+            memcpy(begin, value, sizeof(Decimal_V2Val));
+            begin += sizeof(Decimal_V2Val);
+            break;
+        }
+
         case TYPE_CHAR:
         case TYPE_VARCHAR:
         case TYPE_HLL:  {
@@ -653,6 +669,14 @@ bool AggFnEvaluator::sum_distinct_data_filter(TupleRow* row, Tuple* dst) {
         DecimalValue temp_value = DecimalValue::from_decimal_val(*value);
         is_filter = is_in_hybirdmap((void*) & (temp_value), dst, &is_add_buckets);
         update_mem_trackers(is_filter, is_add_buckets, DECIMAL_SIZE);
+        return is_filter;
+    }
+
+    case TYPE_DECIMAL_V2: {
+        const Decimal_V2Val* value = reinterpret_cast<Decimal_V2Val*>(_staging_input_vals[0]);
+        Decimal_V2Value temp_value = Decimal_V2Value::from_decimal_val(*value);
+        is_filter = is_in_hybirdmap((void*) & (temp_value), dst, &is_add_buckets);
+        update_mem_trackers(is_filter, is_add_buckets, DECIMAL_V2_SIZE);
         return is_filter;
     }
 
@@ -932,6 +956,13 @@ void AggFnEvaluator::serialize_or_finalize(FunctionContext* agg_fn_ctx, Tuple* s
     case TYPE_DECIMAL: {
         typedef DecimalVal(*Fn)(FunctionContext*, AnyVal*);
         DecimalVal v = reinterpret_cast<Fn>(fn)(agg_fn_ctx, _staging_intermediate_val);
+        set_output_slot(&v, dst_slot_desc, dst);
+        break;
+    }
+
+    case TYPE_DECIMAL_V2: {
+        typedef Decimal_V2Val(*Fn)(FunctionContext*, AnyVal*);
+        Decimal_V2Val v = reinterpret_cast<Fn>(fn)(agg_fn_ctx, _staging_intermediate_val);
         set_output_slot(&v, dst_slot_desc, dst);
         break;
     }

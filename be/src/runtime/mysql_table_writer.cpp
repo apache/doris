@@ -149,6 +149,21 @@ Status MysqlTableWriter::insert_row(TupleRow* row) {
             ss << decimal_str;
             break;
         }
+        case TYPE_DECIMAL_V2: {
+            Decimal_V2Value value;
+            memcpy(&value, item, sizeof(Decimal_V2Value));
+            std::string decimal_str;
+            int output_scale = _output_expr_ctxs[i]->root()->output_scale();
+
+            if (output_scale > 0 && output_scale <= 30) {
+                decimal_str = value.to_string(output_scale);
+            } else {
+                decimal_str = value.to_string();
+            }
+            ss << decimal_str;
+            break;
+        }
+
         default: {
             std::stringstream err_ss;
             err_ss << "can't convert this type to mysql type. type = " <<

@@ -31,6 +31,7 @@ using doris_udf::LargeIntVal;
 using doris_udf::FloatVal;
 using doris_udf::DoubleVal;
 using doris_udf::DecimalVal;
+using doris_udf::Decimal_V2Val;
 using doris_udf::DateTimeVal;
 using doris_udf::StringVal;
 using doris_udf::AnyVal;
@@ -85,6 +86,9 @@ AnyVal* create_any_val(ObjectPool* pool, const TypeDescriptor& type) {
 
     case TYPE_DECIMAL:
         return pool->add(new DecimalVal);
+
+    case TYPE_DECIMAL_V2:
+        return pool->add(new Decimal_V2Val);
 
     case TYPE_DATE:
         return pool->add(new DateTimeVal);
@@ -144,6 +148,11 @@ FunctionContext::TypeDesc AnyValUtil::column_type_to_type_desc(const TypeDescrip
         break;
     case TYPE_DECIMAL:
         out.type = FunctionContext::TYPE_DECIMAL;
+        // out.precision = type.precision;
+        // out.scale = type.scale;
+        break;
+    case TYPE_DECIMAL_V2:
+        out.type = FunctionContext::TYPE_DECIMAL_V2;
         // out.precision = type.precision;
         // out.scale = type.scale;
         break;
