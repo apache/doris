@@ -532,8 +532,9 @@ public class ShowExecutor {
                         if (matcher != null && !matcher.match(col.getName())) {
                             continue;
                         }
+
                         final String columnName = col.getName();
-                        final String columnType = col.getType().toString();
+                        final String columnType = col.getOriginType().toString();
                         final String isAllowNull = col.isAllowNull() ? "YES" : "NO";
                         final String isKey = col.isKey() ? "YES" : "NO";
                         final String defaultValue = col.getDefaultValue();
