@@ -431,17 +431,23 @@ OLAPStatus TabletMeta::add_inc_rs_meta(const RowsetMetaSharedPtr& rs_meta) {
 
 OLAPStatus TabletMeta::delete_inc_rs_meta_by_version(const Version& version) {
     auto it = _inc_rs_metas.begin();
+    bool modified = false;
     while (it != _inc_rs_metas.end()) {
         if ((*it)->version().first == version.first
               && (*it)->version().second == version.second) {
             _inc_rs_metas.erase(it);
+            modified = true;
+            break;
+        } else {
+            it++;
         }
     }
 
-    TabletMetaPB tablet_meta_pb;
-    RETURN_NOT_OK(to_meta_pb(&tablet_meta_pb));
-    _tablet_meta_pb = std::move(tablet_meta_pb);
-
+    if (modified) {
+        TabletMetaPB tablet_meta_pb;
+        RETURN_NOT_OK(to_meta_pb(&tablet_meta_pb));
+        _tablet_meta_pb = std::move(tablet_meta_pb);
+    }
     return OLAP_SUCCESS;
 }
 
