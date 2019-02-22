@@ -377,7 +377,6 @@ OLAPStatus TabletMeta::modify_rs_metas(const vector<RowsetMetaSharedPtr>& to_add
     for (auto rs_to_del : to_delete) {
         auto it = _rs_metas.begin();
         while (it != _rs_metas.end()) {
-            LOG(INFO) << "it version: " << (*it)->version().first << "-" << (*it)->version().second;
             if (rs_to_del->version().first == (*it)->version().first
                   && rs_to_del->version().second == (*it)->version().second) {
                 if ((*it)->has_delete_predicate()) {

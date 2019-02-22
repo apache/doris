@@ -182,7 +182,7 @@ OLAPStatus PushHandler::_do_streaming_ingestion(
                      << ", table=" << tablet->full_name()
                      << ", transaction_id=" << request.transaction_id;
         for (TabletVars& tablet_var : *tablet_vars) {
-            if (tablet_var.tablet.get() == nullptr) {
+            if (tablet_var.tablet == nullptr) {
                 continue;
             }
 
