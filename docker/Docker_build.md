@@ -1,8 +1,15 @@
 ## Doris Develop Environment based on docker
+### 0. Download the latest source code
+
+```
+git clone https://github.com/apache/incubator-doris.git
+cp incubator-doris/docker/Dockerfile .
+
+```
+
 ### 1. Build docker image
 
 ```aidl
-cd docker
 
 docker build -t doris:v1.0  .
 

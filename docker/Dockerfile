@@ -97,9 +97,9 @@ WORKDIR ${DEFAULT_DIR}
 # there is a repo which is included all of thirdparty
 ENV REPOSITORY_URL=https://doris-incubating-repo.bj.bcebos.com/thirdparty
 
-# clone lastest source code, download and build third party
-RUN git clone https://github.com/apache/incubator-doris.git \
-    && cd ${DEFAULT_DIR}/incubator-doris && /bin/bash thirdparty/build-thirdparty.sh \
+# clone lastest source code from local dir(please update local dir before docker build), download and build third party
+COPY incubator-doris ${DEFAULT_DIR}/incubator-doris
+RUN cd ${DEFAULT_DIR}/incubator-doris && /bin/bash thirdparty/build-thirdparty.sh \
     && rm -rf ${DEFAULT_DIR}/incubator-doris/thirdparty/src \
     && rm -rf ${DEFAULT_DIR}/doris-thirdparty.tar.gz \
     && rm -rf ${DEFAULT_DIR}/doris-thirdparty \
