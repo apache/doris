@@ -493,7 +493,7 @@ build_rocksdb() {
     cd $TP_SOURCE_DIR/$ROCKSDB_SOURCE
 
     CFLAGS="-I ${TP_INCLUDE_DIR} -I ${TP_INCLUDE_DIR}/snappy -I ${TP_INCLUDE_DIR}/lz4" CXXFLAGS="-fPIC" LDFLAGS="-static-libstdc++ -static-libgcc" \
-        make USE_RTTI=1 -j$PARALLEL static_lib
+        PORTABLE=1 make USE_RTTI=1 -j$PARALLEL static_lib
     cp librocksdb.a ../../installed/lib/librocksdb.a
     cp -r include/rocksdb ../../installed/include/
 }
