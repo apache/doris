@@ -105,13 +105,12 @@ OLAPStatus BaseCompaction::run() {
 
     // 2. 获取生成新base需要的data sources
     vector<RowsetSharedPtr> rowsets;
-    _tablet->capture_consistent_rowsets(_need_merged_versions, &rowsets);
-    if (rowsets.empty()) {
-        OLAP_LOG_WARNING("fail to acquire need data sources. [tablet=%s; version=%d]",
-                         _tablet->full_name().c_str(),
-                         _new_base_version.second);
+    res = _tablet->capture_consistent_rowsets(_need_merged_versions, &rowsets);
+    if (res != OLAP_SUCCESS) {
+        LOG(WARNING) << "fail to acquire need data sources. tablet=" << _tablet->full_name()
+                     << ", version=" << _new_base_version.second;
         _garbage_collection();
-        return OLAP_ERR_BE_ACQUIRE_DATA_SOURCES_ERROR;
+        return res;
     }
 
     {
@@ -153,6 +152,16 @@ OLAPStatus BaseCompaction::run() {
     //    If success, remove files belong to old versions;
     //    If fail, gc files belong to new versions.
     vector<RowsetSharedPtr> unused_rowsets;
+    vector<Version> unused_versions;
+    _get_unused_versions(&unused_versions);
+    res = _tablet->capture_consistent_rowsets(unused_versions, &unused_rowsets);
+    if (res != OLAP_SUCCESS) {
+        LOG(WARNING) << "fail to capture consistent rowsets. tablet=" << _tablet->full_name()
+                     << ", version=" << _new_base_version.second;
+        _garbage_collection();
+        return res;
+    }
+
     res = _update_header(row_count, unused_rowsets);
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to update header. tablet=" << _tablet->full_name()
@@ -164,6 +173,8 @@ OLAPStatus BaseCompaction::run() {
 
     _release_base_compaction_lock();
 
+    LOG(INFO) << "succeed to do base compaction. tablet=" << _tablet->full_name()
+              << ", base_version=" << _new_base_version.first << "-" << _new_base_version.second;
     return OLAP_SUCCESS;
 }
 
@@ -319,7 +330,7 @@ OLAPStatus BaseCompaction::_do_base_compaction(VersionHash new_base_version_hash
             .set_tablet_schema(&(_tablet->tablet_schema()))
             .set_data_dir(_tablet->data_dir())
             .set_rowset_state(VISIBLE)
-            .set_version(Version(_new_base_version.first, _new_base_version.second))
+            .set_version(_new_base_version)
             .set_version_hash(new_base_version_hash);
     RowsetWriterContext context = context_builder.build();
     RowsetWriterSharedPtr rs_writer(new AlphaRowsetWriter());
@@ -375,16 +386,6 @@ OLAPStatus BaseCompaction::_do_base_compaction(VersionHash new_base_version_hash
     VLOG(10) << "merge new base success, start load index. tablet=" << _tablet->full_name()
              << ", version=" << _new_base_version.second;
 
-    res = new_base->init();
-    if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to load index. [version='%d-%d' version_hash=%ld tablet='%s']",
-                         new_base->version().first,
-                         new_base->version().second,
-                         new_base->version_hash(),
-                         _tablet->full_name().c_str());
-        return res;
-    }
-
     // Check row num changes
     uint64_t source_rows = 0;
     for (auto& rowset : rowsets) {
@@ -408,22 +409,15 @@ OLAPStatus BaseCompaction::_do_base_compaction(VersionHash new_base_version_hash
             << ", new_index_rows=" << new_base->num_rows();
     }
 
-    LOG(INFO) << "succeed to do base compaction. tablet=" << _tablet->full_name()
-              << ", base_version=" << _new_base_version.first << "-" << _new_base_version.second;
-    _tablet->release_rs_readers(&rs_readers);
     return OLAP_SUCCESS;
 }
 
 OLAPStatus BaseCompaction::_update_header(uint64_t row_count, const vector<RowsetSharedPtr>& unused_rowsets) {
     WriteLock wrlock(_tablet->get_header_lock_ptr());
-    vector<Version> unused_versions;
-    _get_unused_versions(&unused_versions);
 
     OLAPStatus res = OLAP_SUCCESS;
     // 由于在modify_rowsets中可能会发生很小概率的非事务性失败, 因此这里定位FATAL错误
-    res = _tablet->modify_rowsets(&unused_versions,
-                                  _new_rowsets,
-                                  unused_rowsets);
+    res = _tablet->modify_rowsets(_new_rowsets, unused_rowsets);
     if (res != OLAP_SUCCESS) {
         LOG(FATAL) << "fail to replace data sources. res" << res
                    << ", tablet=" << _tablet->full_name()
@@ -431,12 +425,6 @@ OLAPStatus BaseCompaction::_update_header(uint64_t row_count, const vector<Rowse
                    << ", old_base_verison=" << _old_base_version.second;
         return res;
     }
-
-    LOG(INFO) << "BE remove delete conditions. removed_version=" << _new_base_version.second;
-
-    // Base Compaction完成之后，需要删除header中版本号小于等于新base文件版本号的删除条件
-    DeleteConditionHandler cond_handler;
-    cond_handler.delete_cond(nullptr, _new_base_version.second, true);
 
     // 如果保存Header失败, 所有新增的信息会在下次启动时丢失, 属于严重错误
     // 暂时没办法做很好的处理,报FATAL
@@ -528,7 +516,6 @@ OLAPStatus BaseCompaction::_validate_delete_file_action() {
         return OLAP_ERR_BE_ERROR_DELETE_ACTION;
     }
 
-    _tablet->release_rs_readers(&rs_readers);
     VLOG(3) << "delete file action is OK";
 
     return OLAP_SUCCESS;

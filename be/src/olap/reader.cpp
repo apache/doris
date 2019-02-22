@@ -452,7 +452,6 @@ void Reader::close() {
     VLOG(3) << "merged rows:" << _merged_rows;
     _conditions.finalize();
     _delete_handler.finalize();
-    _tablet->release_rs_readers(&_own_rs_readers);
 
     for (auto pred : _col_predicates) {
         delete pred.second;

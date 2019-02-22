@@ -147,38 +147,29 @@ OLAPStatus PushHandler::_do_streaming_ingestion(
         tablet_vars->resize(2);
     }
 
-    // not call validate request here, because realtime load does not 
-    // contain version info 
+    // not call validate request here, because realtime load does not
+    // contain version info
 
     // check delete condition if push for delete
+    std::queue<DeletePredicatePB> del_preds;
     if (push_type == PUSH_FOR_DELETE) {
-
         for (TabletVars& tablet_var : *tablet_vars) {
-            if (tablet_var.tablet.get() == NULL) {
+            if (tablet_var.tablet == nullptr) {
                 continue;
             }
 
-            if (request.delete_conditions.size() == 0) {
-                OLAP_LOG_WARNING("invalid parameters for store_cond. [condition_size=0]");
-                res = OLAP_ERR_DELETE_INVALID_PARAMETERS;
-                return res;
-            }
-
+            DeletePredicatePB del_pred;
             DeleteConditionHandler del_cond_handler;
             tablet_var.tablet->obtain_header_rdlock();
-            for (const TCondition& cond : request.delete_conditions) {
-                res = del_cond_handler.check_condition_valid(tablet_var.tablet->tablet_schema(), cond);
-                if (res != OLAP_SUCCESS) {
-                    OLAP_LOG_WARNING("fail to check delete condition. [table=%s res=%d]",
-                                     tablet_var.tablet->full_name().c_str(), res);
-                    tablet_var.tablet->release_header_lock();
-                    return res;
-                }
-            }
+            res = del_cond_handler.generate_delete_predicate(tablet_var.tablet->tablet_schema(),
+                                                             request.delete_conditions, &del_pred);
+            del_preds.push(del_pred);
             tablet_var.tablet->release_header_lock();
-            LOG(INFO) << "success to check delete condition when realtime push. "
-                      << "tablet=" << tablet_var.tablet->full_name()
-                      << ", transaction_id=" << request.transaction_id;
+            if (res != OLAP_SUCCESS) {
+                LOG(WARNING) << "fail to generate delete condition. res=" << res
+                             << ", tablet=" << tablet_var.tablet->full_name();
+                return res;
+            }
         }
     }
 
@@ -191,7 +182,7 @@ OLAPStatus PushHandler::_do_streaming_ingestion(
                      << ", table=" << tablet->full_name()
                      << ", transaction_id=" << request.transaction_id;
         for (TabletVars& tablet_var : *tablet_vars) {
-            if (tablet_var.tablet.get() == NULL) {
+            if (tablet_var.tablet.get() == nullptr) {
                 continue;
             }
 
@@ -211,15 +202,18 @@ OLAPStatus PushHandler::_do_streaming_ingestion(
 
     // add pending data to tablet
     for (TabletVars& tablet_var : *tablet_vars) {
-        if (tablet_var.tablet.get() == NULL) {
+        if (tablet_var.tablet == nullptr) {
             continue;
         }
 
         for (RowsetSharedPtr rowset : tablet_var.added_rowsets) {
-            OLAPStatus commit_status = TxnManager::instance()->commit_txn(tablet_var.tablet->data_dir()->get_meta(),  
-                request.partition_id, request.transaction_id,
-                tablet_var.tablet->tablet_id(), tablet_var.tablet->schema_hash(), 
-                load_id, rowset, false);
+            rowset->rowset_meta()->set_delete_predicate(del_preds.front());
+            del_preds.pop();
+            OLAPStatus commit_status = TxnManager::instance()->commit_txn(tablet_var.tablet->data_dir()->get_meta(),
+                                                                          request.partition_id, request.transaction_id,
+                                                                          tablet_var.tablet->tablet_id(),
+                                                                          tablet_var.tablet->schema_hash(),
+                                                                          load_id, rowset, false);
             if (commit_status != OLAP_SUCCESS && commit_status != OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
                 res = commit_status;
             }

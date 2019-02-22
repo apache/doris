@@ -110,7 +110,7 @@ OLAPStatus TxnManager::prepare_txn(
             // case 1: user commit rowset, then the load id must be equal
             std::pair<PUniqueId, RowsetSharedPtr>& load_info = load_itr->second;
             // check if load id is equal
-            if (load_info.first.hi() == load_id.hi() 
+            if (load_info.first.hi() == load_id.hi()
                 && load_info.first.lo() == load_id.lo()
                 && load_info.second != NULL) {
                 LOG(WARNING) << "find transaction exists when add to engine."
@@ -124,7 +124,7 @@ OLAPStatus TxnManager::prepare_txn(
     // not found load id
     // case 1: user start a new txn, rowset_ptr = null
     // case 2: loading txn from meta env
-    std::pair<PUniqueId, RowsetSharedPtr> load_info(load_id, NULL); 
+    std::pair<PUniqueId, RowsetSharedPtr> load_info(load_id, NULL);
     _txn_tablet_map[key][tablet_info] = load_info;
     VLOG(3) << "add transaction to engine successfully."
             << "partition_id: " << key.first
@@ -135,7 +135,7 @@ OLAPStatus TxnManager::prepare_txn(
 
 OLAPStatus TxnManager::commit_txn(
     OlapMeta* meta, TPartitionId partition_id, TTransactionId transaction_id,
-    TTabletId tablet_id, SchemaHash schema_hash, 
+    TTabletId tablet_id, SchemaHash schema_hash,
     const PUniqueId& load_id, RowsetSharedPtr rowset_ptr, bool is_recovery) {
 
     pair<int64_t, int64_t> key(partition_id, transaction_id);
@@ -158,7 +158,7 @@ OLAPStatus TxnManager::commit_txn(
                 // case 1: user commit rowset, then the load id must be equal
                 std::pair<PUniqueId, RowsetSharedPtr>& load_info = load_itr->second;
                 // check if load id is equal
-                if (load_info.first.hi() == load_id.hi() 
+                if (load_info.first.hi() == load_id.hi()
                     && load_info.first.lo() == load_id.lo()
                     && load_info.second != NULL
                     && load_info.second->rowset_id() == rowset_ptr->rowset_id()) {
@@ -168,7 +168,7 @@ OLAPStatus TxnManager::commit_txn(
                               << ", transaction_id: " << key.second
                               << ", tablet: " << tablet_info.to_string();
                     return OLAP_SUCCESS;
-                } else if (load_info.first.hi() == load_id.hi() 
+                } else if (load_info.first.hi() == load_id.hi()
                     && load_info.first.lo() == load_id.lo()
                     && load_info.second != NULL
                     && load_info.second->rowset_id() != rowset_ptr->rowset_id()) {
@@ -182,16 +182,16 @@ OLAPStatus TxnManager::commit_txn(
             }
         }
     }
-    
+
     // if not in recovery mode, then should persist the meta to meta env
     // save meta need access disk, it maybe very slow, so that it is not in global txn lock
     // it is under a single txn lock
     if (!is_recovery) {
-        OLAPStatus save_status = RowsetMetaManager::save(meta, rowset_ptr->rowset_id(), 
+        OLAPStatus save_status = RowsetMetaManager::save(meta, rowset_ptr->rowset_id(),
             rowset_ptr->rowset_meta());
         if (save_status != OLAP_SUCCESS) {
-            LOG(WARNING) << "save committed rowset failed. when commit txn rowset_id:" 
-                        << rowset_ptr->rowset_id() 
+            LOG(WARNING) << "save committed rowset failed. when commit txn rowset_id:"
+                        << rowset_ptr->rowset_id()
                         << "tablet id: " << tablet_id
                         << "txn id:" << transaction_id;
             return OLAP_ERR_ROWSET_SAVE_FAILED;
@@ -200,7 +200,7 @@ OLAPStatus TxnManager::commit_txn(
 
     {
         WriteLock wrlock(&_txn_map_lock);
-        std::pair<PUniqueId, RowsetSharedPtr> load_info(load_id, rowset_ptr); 
+        std::pair<PUniqueId, RowsetSharedPtr> load_info(load_id, rowset_ptr);
         _txn_tablet_map[key][tablet_info] = load_info;
         VLOG(3) << "add transaction to engine successfully."
                 << "partition_id: " << key.first
@@ -237,11 +237,11 @@ OLAPStatus TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id, TT
         // TODO(ygl): rowset is already set version here, memory is changed, if save failed
         // it maybe a fatal error
         rowset_ptr->set_version_and_version_hash(version, version_hash);
-        OLAPStatus save_status = RowsetMetaManager::save(meta, 
+        OLAPStatus save_status = RowsetMetaManager::save(meta,
             rowset_ptr->rowset_id(),
             rowset_ptr->rowset_meta());
         if (save_status != OLAP_SUCCESS) {
-            LOG(WARNING) << "save committed rowset failed. when publish txn rowset_id:" 
+            LOG(WARNING) << "save committed rowset failed. when publish txn rowset_id:"
                          << rowset_ptr->rowset_id()
                          << ", tablet id: " << tablet_id
                          << ", txn id:" << transaction_id;
@@ -268,12 +268,11 @@ OLAPStatus TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id, TT
 }
 
 // txn could be rollbacked if it does not have related rowset
-// if the txn has related rowset then could not rollback it, because it 
+// if the txn has related rowset then could not rollback it, because it
 // may be committed in another thread and our current thread meets erros when writing to data file
 // be has to wait for fe call clear txn api
 OLAPStatus TxnManager::rollback_txn(TPartitionId partition_id, TTransactionId transaction_id,
                                     TTabletId tablet_id, SchemaHash schema_hash) {
-    
     pair<int64_t, int64_t> key(partition_id, transaction_id);
     TabletInfo tablet_info(tablet_id, schema_hash);
     WriteLock wrlock(_get_txn_lock(transaction_id));

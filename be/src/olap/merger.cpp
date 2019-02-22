@@ -70,14 +70,6 @@ OLAPStatus Merger::merge(const vector<RowsetReaderSharedPtr>& rs_readers,
     bool eof = false;
     // The following procedure would last for long time, half of one day, etc.
     while (!has_error) {
-        // Attach row cursor to the memory position of the row block being
-        // written in writer.
-        if (OLAP_SUCCESS != _rs_writer->add_row(&row_cursor)) {
-            LOG(WARNING) << "add row to builder failed. tablet=" << _tablet->full_name();
-            has_error = true;
-            break;
-
-        }
         row_cursor.allocate_memory_for_string_type(_tablet->tablet_schema(), _rs_writer->mem_pool());
 
         // Read one row into row_cursor
@@ -87,6 +79,12 @@ OLAPStatus Merger::merge(const vector<RowsetReaderSharedPtr>& rs_readers,
             break;
         } else if (OLAP_SUCCESS != res) {
             OLAP_LOG_WARNING("reader read failed.");
+            has_error = true;
+            break;
+        }
+
+        if (OLAP_SUCCESS != _rs_writer->add_row(&row_cursor)) {
+            LOG(WARNING) << "add row to builder failed. tablet=" << _tablet->full_name();
             has_error = true;
             break;
         }

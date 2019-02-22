@@ -204,6 +204,8 @@ OLAPStatus AlphaRowsetReader::_get_next_row_for_singleton_rowset(RowCursor** row
 
 OLAPStatus AlphaRowsetReader::_get_next_row_for_cumulative_rowset(RowCursor** row) {
     size_t pos = 0;
+    (*row) = new RowCursor();
+    (*row)->init(_segment_groups[0]->get_tablet_schema());
     OLAPStatus status = _get_next_not_filtered_row(pos, row);
     RowBlock* row_block = _row_blocks[pos];
     row_block->pos_inc();
