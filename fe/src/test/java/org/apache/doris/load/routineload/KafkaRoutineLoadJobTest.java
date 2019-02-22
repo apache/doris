@@ -130,12 +130,14 @@ public class KafkaRoutineLoadJobTest {
                 new KafkaRoutineLoadJob("1", "kafka_routine_load_job", 1L,
                                         1L, routineLoadDesc, 3, 0,
                                         "", "", null);
+        Deencapsulation.setField(kafkaRoutineLoadJob, "consumer", kafkaConsumer);
         Assert.assertEquals(1, kafkaRoutineLoadJob.calculateCurrentConcurrentTaskNum());
     }
 
 
     @Test
-    public void testDivideRoutineLoadJob(@Injectable GlobalTransactionMgr globalTransactionMgr,
+    public void testDivideRoutineLoadJob(@Mocked KafkaConsumer kafkaConsumer,
+                                         @Injectable GlobalTransactionMgr globalTransactionMgr,
                                          @Mocked Catalog catalog,
                                          @Injectable RoutineLoadManager routineLoadManager,
                                          @Mocked RoutineLoadDesc routineLoadDesc)
@@ -163,7 +165,8 @@ public class KafkaRoutineLoadJobTest {
             }
         };
 
-        Deencapsulation.setField(kafkaRoutineLoadJob, "kafkaPartitions", Arrays.asList(1, 4, 6));
+        Deencapsulation.setField(kafkaRoutineLoadJob, "currentKafkaPartitions", Arrays.asList(1, 4, 6));
+        Deencapsulation.setField(kafkaRoutineLoadJob, "consumer", kafkaConsumer);
 
         kafkaRoutineLoadJob.divideRoutineLoadJob(2);
 
@@ -183,7 +186,8 @@ public class KafkaRoutineLoadJobTest {
     }
 
     @Test
-    public void testProcessTimeOutTasks(@Injectable GlobalTransactionMgr globalTransactionMgr,
+    public void testProcessTimeOutTasks(@Mocked KafkaConsumer kafkaConsumer,
+                                        @Injectable GlobalTransactionMgr globalTransactionMgr,
                                         @Mocked Catalog catalog,
                                         @Injectable RoutineLoadManager routineLoadManager,
                                         @Mocked RoutineLoadDesc routineLoadDesc)
@@ -218,6 +222,7 @@ public class KafkaRoutineLoadJobTest {
         routineLoadTaskInfoList.add(kafkaTaskInfo);
 
         Deencapsulation.setField(routineLoadJob, "routineLoadTaskInfoList", routineLoadTaskInfoList);
+        Deencapsulation.setField(routineLoadJob, "consumer", kafkaConsumer);
 
         new MockUp<SystemIdGenerator>() {
             @Mock
@@ -341,7 +346,7 @@ public class KafkaRoutineLoadJobTest {
         Assert.assertEquals(tableId, kafkaRoutineLoadJob.getTableId());
         Assert.assertEquals(serverAddress, Deencapsulation.getField(kafkaRoutineLoadJob, "serverAddress"));
         Assert.assertEquals(topicName, Deencapsulation.getField(kafkaRoutineLoadJob, "topic"));
-        List<Integer> kafkaPartitionResult = Deencapsulation.getField(kafkaRoutineLoadJob, "kafkaPartitions");
+        List<Integer> kafkaPartitionResult = Deencapsulation.getField(kafkaRoutineLoadJob, "customKafkaPartitions");
         Assert.assertEquals(kafkaPartitionString, Joiner.on(",").join(kafkaPartitionResult));
         Assert.assertEquals(routineLoadDesc, kafkaRoutineLoadJob.getRoutineLoadDesc());
     }

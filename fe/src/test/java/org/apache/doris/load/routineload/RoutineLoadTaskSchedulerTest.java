@@ -96,7 +96,8 @@ public class RoutineLoadTaskSchedulerTest {
                 result = 2L;
 
                 routineLoadManager.getClusterIdleSlotNum();
-                result = 3;
+                result = 1;
+                times = 1;
 
                 kafkaRoutineLoadJob1.getDbId();
                 result = 1L;

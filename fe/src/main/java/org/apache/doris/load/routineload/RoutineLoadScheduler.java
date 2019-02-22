@@ -44,6 +44,7 @@ public class RoutineLoadScheduler extends Daemon {
 
     private void process() {
         // update
+        routineLoadManager.reSchedulerRoutineLoadJob();
         // get need scheduler routine jobs
         List<RoutineLoadJob> routineLoadJobList = null;
         try {
