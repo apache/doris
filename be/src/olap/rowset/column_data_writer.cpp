@@ -239,7 +239,6 @@ OLAPStatus ColumnDataWriter::_flush_row_block(bool finalize) {
     _num_rows += _row_index;
     _all_num_rows += _row_index;
     _row_index = 0;
-
     return OLAP_SUCCESS;
 }
 
