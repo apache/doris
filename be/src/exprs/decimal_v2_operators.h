@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_EXPRS_DECIMAL_OPERATORS_H
-#define DORIS_BE_SRC_QUERY_EXPRS_DECIMAL_OPERATORS_H
+#ifndef DORIS_BE_SRC_EXPRS_DECIMAL_OPERATORS_H
+#define DORIS_BE_SRC_EXPRS_DECIMAL_OPERATORS_H
 
 #include <stdint.h>
 #include "runtime/decimal_v2_value.h"

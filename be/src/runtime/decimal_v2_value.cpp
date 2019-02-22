@@ -311,7 +311,6 @@ std::string Decimal_V2Value::to_string(int round_scale) const {
   }
   if (scale > 1 && scale <= len) str.erase(len - scale, len - 1);
 
-  LOG(INFO) << "str=" << str;
   return str;
 }
 

@@ -54,6 +54,7 @@ protected:
     friend class ComputeFunctions;
     friend class ConditionalFunctions;
     friend class DecimalOperators;
+    friend class Decimal_V2Operators;
 
     CaseExpr(const TExprNode& node);
     virtual Status prepare(

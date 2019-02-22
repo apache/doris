@@ -117,7 +117,7 @@ public:
         doris_udf::FunctionContext* ctx, const doris_udf::DoubleVal& val);
     static doris_udf::DecimalVal positive_decimal(
         doris_udf::FunctionContext* ctx, const doris_udf::DecimalVal& val);
-    static doris_udf::Decimal_V2Val positive_decimal_v2(
+    static doris_udf::Decimal_V2Val positive_decimal(
         doris_udf::FunctionContext* ctx, const doris_udf::Decimal_V2Val& val);
     static doris_udf::BigIntVal negative_bigint(
         doris_udf::FunctionContext* ctx, const doris_udf::BigIntVal& val);
@@ -125,7 +125,7 @@ public:
         doris_udf::FunctionContext* ctx, const doris_udf::DoubleVal& val);
     static doris_udf::DecimalVal negative_decimal(
         doris_udf::FunctionContext* ctx, const doris_udf::DecimalVal& val);
-    static doris_udf::Decimal_V2Val negative_decimal_v2(
+    static doris_udf::Decimal_V2Val negative_decimal(
         doris_udf::FunctionContext* ctx, const doris_udf::Decimal_V2Val& val);
 
     static doris_udf::TinyIntVal least(

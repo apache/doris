@@ -531,7 +531,7 @@ DecimalVal MathFunctions::positive_decimal(
     return val;
 }
 
-Decimal_V2Val MathFunctions::positive_decimal_v2(
+Decimal_V2Val MathFunctions::positive_decimal(
         FunctionContext* ctx, const Decimal_V2Val& val) {
     return val;
 }
@@ -565,7 +565,7 @@ DecimalVal MathFunctions::negative_decimal(
     return result;
 }
 
-Decimal_V2Val MathFunctions::negative_decimal_v2(
+Decimal_V2Val MathFunctions::negative_decimal(
         FunctionContext* ctx, const Decimal_V2Val& val) {
     if (val.is_null) {
         return val;
