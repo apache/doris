@@ -139,9 +139,9 @@ SegmentGroup::~SegmentGroup() {
     delete [] _short_key_buf;
     _current_file_handler.close();
 
-    for (size_t i = 0; i < _column_statistics.size(); ++i) {
-        SAFE_DELETE(_column_statistics[i].first);
-        SAFE_DELETE(_column_statistics[i].second);
+    for (size_t i = 0; i < _zone_maps.size(); ++i) {
+        SAFE_DELETE(_zone_maps[i].first);
+        SAFE_DELETE(_zone_maps[i].second);
     }
     _seg_pb_map.clear();
 }
@@ -216,66 +216,66 @@ bool SegmentGroup::delete_all_files() {
     return success;
 }
 
-OLAPStatus SegmentGroup::add_column_statistics_for_linked_schema_change(
-        const std::vector<std::pair<WrapperField*, WrapperField*>>& column_statistic_fields) {
+OLAPStatus SegmentGroup::add_zone_maps_for_linked_schema_change(
+        const std::vector<std::pair<WrapperField*, WrapperField*>>& zone_map_fields) {
     //When add rollup tablet, the base tablet index maybe empty
-    if (column_statistic_fields.size() == 0) {
+    if (zone_map_fields.size() == 0) {
         return OLAP_SUCCESS;
     }
 
-    //Should use _num_key_columns, not column_statistic_fields.size()
-    //as rollup tablet num_key_columns will less than base tablet column_statistic_fields.size().
+    //Should use _num_key_columns, not zone_map_fields.size()
+    //as rollup tablet num_key_columns will less than base tablet zone_map_fields.size().
     //For LinkedSchemaChange, the rollup tablet keys order is the same as base tablet
     for (size_t i = 0; i < _schema->num_key_columns(); ++i) {
         const TabletColumn& column = _schema->column(i);
         WrapperField* first = WrapperField::create(column);
         DCHECK(first != NULL) << "failed to allocate memory for field: " << i;
-        first->copy(column_statistic_fields[i].first);
+        first->copy(zone_map_fields[i].first);
 
         WrapperField* second = WrapperField::create(column);
         DCHECK(second != NULL) << "failed to allocate memory for field: " << i;
-        second->copy(column_statistic_fields[i].second);
+        second->copy(zone_map_fields[i].second);
 
-        _column_statistics.push_back(std::make_pair(first, second));
+        _zone_maps.push_back(std::make_pair(first, second));
     }
     return OLAP_SUCCESS;
 }
 
-OLAPStatus SegmentGroup::add_column_statistics(
-        const std::vector<std::pair<WrapperField*, WrapperField*>>& column_statistic_fields) {
-    DCHECK(column_statistic_fields.size() == _schema->num_key_columns());
-    for (size_t i = 0; i < column_statistic_fields.size(); ++i) {
+OLAPStatus SegmentGroup::add_zone_maps(
+        const std::vector<std::pair<WrapperField*, WrapperField*>>& zone_map_fields) {
+    DCHECK(zone_map_fields.size() == _schema->num_key_columns());
+    for (size_t i = 0; i < zone_map_fields.size(); ++i) {
         const TabletColumn& column = _schema->column(i);
         WrapperField* first = WrapperField::create(column);
         DCHECK(first != NULL) << "failed to allocate memory for field: " << i;
-        first->copy(column_statistic_fields[i].first);
+        first->copy(zone_map_fields[i].first);
 
         WrapperField* second = WrapperField::create(column);
         DCHECK(second != NULL) << "failed to allocate memory for field: " << i;
-        second->copy(column_statistic_fields[i].second);
+        second->copy(zone_map_fields[i].second);
 
-        _column_statistics.push_back(std::make_pair(first, second));
+        _zone_maps.push_back(std::make_pair(first, second));
     }
     return OLAP_SUCCESS;
 }
 
-OLAPStatus SegmentGroup::add_column_statistics(
-        std::vector<std::pair<std::string, std::string> > &column_statistic_strings,
+OLAPStatus SegmentGroup::add_zone_maps(
+        std::vector<std::pair<std::string, std::string> > &zone_map_strings,
         std::vector<bool> &null_vec) {
-    DCHECK(column_statistic_strings.size() == _schema->num_key_columns());
-    for (size_t i = 0; i < column_statistic_strings.size(); ++i) {
+    DCHECK(zone_map_strings.size() == _schema->num_key_columns());
+    for (size_t i = 0; i < zone_map_strings.size(); ++i) {
         const TabletColumn& column = _schema->column(i);
         WrapperField* first = WrapperField::create(column);
         DCHECK(first != NULL) << "failed to allocate memory for field: " << i ;
-        RETURN_NOT_OK(first->from_string(column_statistic_strings[i].first));
+        RETURN_NOT_OK(first->from_string(zone_map_strings[i].first));
         if (null_vec[i]) {
             //[min, max] -> [NULL, max]
             first->set_null();
         }
         WrapperField* second = WrapperField::create(column);
         DCHECK(first != NULL) << "failed to allocate memory for field: " << i ;
-        RETURN_NOT_OK(second->from_string(column_statistic_strings[i].second));
-        _column_statistics.push_back(std::make_pair(first, second));
+        RETURN_NOT_OK(second->from_string(zone_map_strings[i].second));
+        _zone_maps.push_back(std::make_pair(first, second));
     }
     return OLAP_SUCCESS;
 }

@@ -40,8 +40,7 @@ ColumnDataWriter::ColumnDataWriter(SegmentGroup* segment_group,
       _is_push_write(is_push_write),
       _compress_kind(compress_kind),
       _bloom_filter_fpp(bloom_filter_fpp),
-      _column_statistics(segment_group->get_num_key_columns(),
-                         std::pair<WrapperField*, WrapperField*>(NULL, NULL)),
+      _zone_maps(segment_group->get_num_key_columns(), KeyRange(NULL, NULL)),
       _row_index(0),
       _row_block(NULL),
       _segment_writer(NULL),
@@ -56,9 +55,9 @@ ColumnDataWriter::ColumnDataWriter(SegmentGroup* segment_group,
 }
 
 ColumnDataWriter::~ColumnDataWriter() {
-    for (size_t i = 0; i < _column_statistics.size(); ++i) {
-        SAFE_DELETE(_column_statistics[i].first);
-        SAFE_DELETE(_column_statistics[i].second);
+    for (size_t i = 0; i < _zone_maps.size(); ++i) {
+        SAFE_DELETE(_zone_maps[i].first);
+        SAFE_DELETE(_zone_maps[i].second);
     }
     SAFE_DELETE(_row_block);
     SAFE_DELETE(_segment_writer);
@@ -67,15 +66,15 @@ ColumnDataWriter::~ColumnDataWriter() {
 OLAPStatus ColumnDataWriter::init() {
     OLAPStatus res = OLAP_SUCCESS;
 
-    for (size_t i = 0; i < _column_statistics.size(); ++i) {
-        _column_statistics[i].first = WrapperField::create(_segment_group->get_tablet_schema().column(i));
-        DCHECK(_column_statistics[i].first != nullptr) << "fail to create column statistics field.";
-        _column_statistics[i].first->set_to_max();
+    for (size_t i = 0; i < _zone_maps.size(); ++i) {
+        _zone_maps[i].first = WrapperField::create(_segment_group->get_tablet_schema().column(i));
+        DCHECK(_zone_maps[i].first != nullptr) << "fail to create column statistics field.";
+        _zone_maps[i].first->set_to_max();
 
-        _column_statistics[i].second = WrapperField::create(_segment_group->get_tablet_schema().column(i));
-        DCHECK(_column_statistics[i].second != nullptr) << "fail to create column statistics field.";
-        _column_statistics[i].second->set_null();
-        _column_statistics[i].second->set_to_min();
+        _zone_maps[i].second = WrapperField::create(_segment_group->get_tablet_schema().column(i));
+        DCHECK(_zone_maps[i].second != nullptr) << "fail to create column statistics field.";
+        _zone_maps[i].second->set_null();
+        _zone_maps[i].second->set_to_min();
     }
 
     double size = static_cast<double>(_segment_group->num_segments());
@@ -153,12 +152,12 @@ OLAPStatus ColumnDataWriter::write(const char* row) {
 void ColumnDataWriter::next(const RowCursor& row_cursor) {
     for (size_t i = 0; i < _segment_group->get_num_key_columns(); ++i) {
         char* right = row_cursor.get_field_by_index(i)->get_field_ptr(row_cursor.get_buf());
-        if (_column_statistics[i].first->cmp(right) > 0) {
-            _column_statistics[i].first->copy(right);
+        if (_zone_maps[i].first->cmp(right) > 0) {
+            _zone_maps[i].first->copy(right);
         }
 
-        if (_column_statistics[i].second->cmp(right) < 0) {
-            _column_statistics[i].second->copy(right);
+        if (_zone_maps[i].second->cmp(right) < 0) {
+            _zone_maps[i].second->copy(right);
         }
     }
 
@@ -168,12 +167,12 @@ void ColumnDataWriter::next(const RowCursor& row_cursor) {
 void ColumnDataWriter::next(const char* row, const Schema* schema) {
     for (size_t i = 0; i < _segment_group->get_num_key_columns(); ++i) {
         char* right = const_cast<char*>(row + schema->get_col_offset(i));
-        if (_column_statistics[i].first->cmp(right) > 0) {
-            _column_statistics[i].first->copy(right);
+        if (_zone_maps[i].first->cmp(right) > 0) {
+            _zone_maps[i].first->copy(right);
         }
 
-        if (_column_statistics[i].second->cmp(right) < 0) {
-            _column_statistics[i].second->copy(right);
+        if (_zone_maps[i].second->cmp(right) < 0) {
+            _zone_maps[i].second->copy(right);
         }
     }
 
@@ -197,7 +196,7 @@ OLAPStatus ColumnDataWriter::finalize() {
         return res;
     }
 
-    res = _segment_group->add_column_statistics(_column_statistics);
+    res = _segment_group->add_zone_maps(_zone_maps);
     if (res != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("Fail to set delta pruning![res=%d]", res);
         return res;

@@ -60,7 +60,7 @@ private:
     CompressKind _compress_kind;
     double _bloom_filter_fpp;
     // first is min, second is max
-    std::vector<std::pair<WrapperField*, WrapperField*>> _column_statistics;
+    std::vector<std::pair<WrapperField*, WrapperField*>> _zone_maps;
     uint32_t _row_index;
 
     RowBlock* _row_block;      // 使用RowBlcok缓存要写入的数据

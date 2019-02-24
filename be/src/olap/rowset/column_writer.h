@@ -73,7 +73,7 @@ public:
     //   * column_unique_id
     //   * column_type
     //   * column_encoding
-    //   * column_statistics
+    //   * zone_maps 
     virtual OLAPStatus finalize(ColumnDataHeaderMessage* header);
     virtual void save_encoding(ColumnEncodingMessage* encoding);
     uint32_t column_id() const {

@@ -150,10 +150,8 @@ public:
     
     bool delete_conditions_eval(const RowCursor& row) const;
     
-    bool delta_pruning_filter(
-        const std::vector<std::pair<WrapperField*, WrapperField*>>& column_statistics) const;
-    int delete_pruning_filter(
-        const std::vector<std::pair<WrapperField*, WrapperField*>>& column_statistics) const;
+    bool delta_pruning_filter(const std::vector<KeyRange>& zone_maps) const;
+    int delete_pruning_filter(const std::vector<KeyRange>& zone_maps) const;
 
     const CondColumns& columns() const {
         return _columns;

@@ -328,11 +328,11 @@ OLAPStatus AlphaRowsetReader::_init_column_datas(RowsetReaderContext* read_conte
 OLAPStatus AlphaRowsetReader::_refresh_next_block(size_t pos, RowBlock** next_block) {
     ColumnData* column_data = _column_datas[pos].get();
     OLAPStatus status = column_data->get_next_block(next_block);
-    if (status == OLAP_ERR_DATA_EOF) {
+    if (status == OLAP_ERR_DATA_EOF && _key_range_size > 0) {
         // currently, SegmentReader can only support filter one key range a time
         // use the next predicate range to get data from segment here
         _key_range_indices[pos]++;
-        while (_key_range_size > 0 && _key_range_indices[pos] < _key_range_size) {
+        while (_key_range_indices[pos] < _key_range_size) {
             status = column_data->prepare_block_read(_current_read_context->lower_bound_keys->at(_key_range_indices[pos]),
                     _current_read_context->is_lower_keys_included->at(_key_range_indices[pos]),
                     _current_read_context->upper_bound_keys->at(_key_range_indices[pos]),

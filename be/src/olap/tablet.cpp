@@ -504,8 +504,8 @@ OLAPStatus Tablet::protected_delete_alter_task() {
 
     res = save_meta();
     if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "fail to save tablet header. [res=" << res 
-                     << " , full_name=" << full_name().c_str() << "]";
+        LOG(WARNING) << "fail to save tablet header. res=" << res
+                     << ", full_name=" << full_name();
         return res;
     }
     return res;
