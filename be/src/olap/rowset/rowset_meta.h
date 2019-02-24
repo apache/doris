@@ -76,199 +76,207 @@ public:
         return ret;
     }
 
-    virtual int64_t rowset_id() {
+    int64_t rowset_id() {
         return _rowset_meta_pb.rowset_id();
     }
 
-    virtual void set_rowset_id(int64_t rowset_id) {
+    void set_rowset_id(int64_t rowset_id) {
         _rowset_meta_pb.set_rowset_id(rowset_id);
     }
 
-    virtual int64_t tablet_id() {
+    int64_t tablet_id() {
         return _rowset_meta_pb.tablet_id();
     }
 
-    virtual void set_tablet_id(int64_t tablet_id) {
+    void set_tablet_id(int64_t tablet_id) {
         _rowset_meta_pb.set_tablet_id(tablet_id);
     }
 
-    virtual int64_t txn_id() {
+    int64_t txn_id() {
         return _rowset_meta_pb.txn_id();
     }
 
-    virtual void set_txn_id(int64_t txn_id) {
+    void set_txn_id(int64_t txn_id) {
         _rowset_meta_pb.set_txn_id(txn_id);
     }
 
-    virtual int32_t tablet_schema_hash() {
+    int32_t tablet_schema_hash() {
         return _rowset_meta_pb.tablet_schema_hash();
     }
 
-    virtual void set_tablet_schema_hash(int64_t tablet_schema_hash) {
+    void set_tablet_schema_hash(int64_t tablet_schema_hash) {
         _rowset_meta_pb.set_tablet_schema_hash(tablet_schema_hash);
     }
 
-    virtual RowsetTypePB rowset_type() {
+    RowsetTypePB rowset_type() {
         return _rowset_meta_pb.rowset_type();
     }
 
-    virtual void set_rowset_type(RowsetTypePB rowset_type) {
+    void set_rowset_type(RowsetTypePB rowset_type) {
         _rowset_meta_pb.set_rowset_type(rowset_type);
     }
 
-    virtual RowsetStatePB rowset_state() {
+    RowsetStatePB rowset_state() {
         return _rowset_meta_pb.rowset_state();
     }
 
-    virtual void set_rowset_state(RowsetStatePB rowset_state) {
+    void set_rowset_state(RowsetStatePB rowset_state) {
         _rowset_meta_pb.set_rowset_state(rowset_state);
     }
 
-    virtual Version version() {
+    Version version() {
         return { _rowset_meta_pb.start_version(),
                  _rowset_meta_pb.end_version() };  
     }
 
-    virtual void set_version(Version version) {
+    void set_version(Version version) {
         _rowset_meta_pb.set_start_version(version.first);
         _rowset_meta_pb.set_end_version(version.second);
     }
 
-    virtual bool has_version() {
+    bool has_version() {
         return _rowset_meta_pb.has_start_version()
             &&  _rowset_meta_pb.has_end_version();
     }
 
-    virtual int start_version() const {
+    int start_version() const {
         return _rowset_meta_pb.start_version();
     }
 
-    virtual void set_start_version(int start_version) {
+    void set_start_version(int start_version) {
         _rowset_meta_pb.set_start_version(start_version);
     }
     
-    virtual int end_version() const {
+    int end_version() const {
         return _rowset_meta_pb.end_version();
     }
 
-    virtual void set_end_version(int end_version) {
+    void set_end_version(int end_version) {
         _rowset_meta_pb.set_end_version(end_version);
     }
     
-    virtual VersionHash version_hash() {
+    VersionHash version_hash() {
         return _rowset_meta_pb.version_hash();
     }
 
-    virtual void set_version_hash(VersionHash version_hash) {
+    void set_version_hash(VersionHash version_hash) {
         _rowset_meta_pb.set_version_hash(version_hash);
     }
 
-    virtual int num_rows() {
+    int num_rows() {
         return _rowset_meta_pb.num_rows();
     }
 
-    virtual void set_num_rows(int num_rows) {
+    void set_num_rows(int num_rows) {
         _rowset_meta_pb.set_num_rows(num_rows);
     }
 
-    virtual int total_disk_size() {
+    int total_disk_size() {
         return _rowset_meta_pb.total_disk_size();
     }
 
-    virtual void set_total_disk_size(int total_disk_size) {
+    void set_total_disk_size(int total_disk_size) {
         _rowset_meta_pb.set_total_disk_size(total_disk_size);
     }
 
-    virtual int data_disk_size() {
+    int data_disk_size() {
         return _rowset_meta_pb.data_disk_size();
     }
 
-    virtual void set_data_disk_size(int data_disk_size) {
+    void set_data_disk_size(int data_disk_size) {
         _rowset_meta_pb.set_data_disk_size(data_disk_size);
     }
 
-    virtual int index_disk_size() {
+    int index_disk_size() {
         return _rowset_meta_pb.index_disk_size();
     }
 
-    virtual void set_index_disk_size(int index_disk_size) {
+    void set_index_disk_size(int index_disk_size) {
         _rowset_meta_pb.set_index_disk_size(index_disk_size);
     }
 
-    virtual void column_statistics(std::vector<ColumnPruning>* column_statistics) {
+    void column_statistics(std::vector<ColumnPruning>* column_statistics) {
         for (const ColumnPruning& column_statistic : _rowset_meta_pb.column_statistics()) {
             column_statistics->push_back(column_statistic);
         }
     }
 
-    virtual void set_column_statistics(const std::vector<ColumnPruning>& column_statistics) {
+    void set_column_statistics(const std::vector<ColumnPruning>& column_statistics) {
         for (const ColumnPruning& column_statistic : column_statistics) {
             ColumnPruning* new_column_statistic = _rowset_meta_pb.add_column_statistics();
             *new_column_statistic = column_statistic;
         }
     }
 
-    virtual void add_column_statistic(const ColumnPruning& column_statistic) {
+    void add_column_statistic(const ColumnPruning& column_statistic) {
         ColumnPruning* new_column_statistic = _rowset_meta_pb.add_column_statistics();
         *new_column_statistic = column_statistic;
     }
 
-    virtual const DeletePredicatePB& delete_predicate() {
+    bool has_delete_predicate() {
+        return _rowset_meta_pb.has_delete_predicate();
+    }
+
+    const DeletePredicatePB& delete_predicate() {
         return _rowset_meta_pb.delete_predicate();
     }
 
-    virtual void set_delete_predicate(DeletePredicatePB& delete_predicate) {
+    DeletePredicatePB* mutable_delete_predicate() {
+        return _rowset_meta_pb.mutable_delete_predicate();
+    }
+
+    void set_delete_predicate(DeletePredicatePB& delete_predicate) {
         DeletePredicatePB* new_delete_condition = _rowset_meta_pb.mutable_delete_predicate();
         *new_delete_condition = delete_predicate;
     }
 
-     virtual bool empty() {
+    bool empty() {
         return _rowset_meta_pb.empty();
     }
 
-    virtual void set_empty(bool empty) {
+    void set_empty(bool empty) {
         _rowset_meta_pb.set_empty(empty);
     }
 
-    virtual std::string rowset_path() {
+    std::string rowset_path() {
         return _rowset_meta_pb.rowset_path();
     }
 
-    virtual void set_rowset_path(std::string rowset_path) {
+    void set_rowset_path(std::string rowset_path) {
         _rowset_meta_pb.set_rowset_path(rowset_path);
     }
 
-    virtual PUniqueId load_id() {
+    PUniqueId load_id() {
         return _rowset_meta_pb.load_id();
     }
 
-    virtual void set_load_id(PUniqueId load_id) {
+    void set_load_id(PUniqueId load_id) {
         PUniqueId* new_load_id = _rowset_meta_pb.mutable_load_id();
         new_load_id->set_hi(load_id.hi());
         new_load_id->set_lo(load_id.lo());
     }
 
-    virtual bool delete_flag() {
+    bool delete_flag() {
         return _rowset_meta_pb.delete_flag();
     }
 
-    virtual void set_delete_flag(bool delete_flag) {
+    void set_delete_flag(bool delete_flag) {
         _rowset_meta_pb.set_delete_flag(delete_flag);
     }
 
-    virtual int64_t creation_time() const {
+    int64_t creation_time() const {
         return _rowset_meta_pb.creation_time();
     }
 
-    virtual void set_creation_time(int64_t creation_time) {
+    void set_creation_time(int64_t creation_time) {
         return _rowset_meta_pb.set_creation_time(creation_time);
     }
 
-    virtual int64_t partition_id() {
+    int64_t partition_id() {
         return _rowset_meta_pb.partition_id();
     }
 
-    virtual void set_partition_id(int64_t partition_id) {
+    void set_partition_id(int64_t partition_id) {
         return _rowset_meta_pb.set_partition_id(partition_id);
     }
 
