@@ -117,6 +117,18 @@ void AlphaRowset::set_version_and_version_hash(Version version,  VersionHash ver
     _rowset_meta->set_version_hash(version_hash);
     // set the rowset state to VISIBLE
     _rowset_meta->set_rowset_state(VISIBLE);
+
+    if (rowset_meta()->has_delete_predicate()) {
+        rowset_meta()->mutable_delete_predicate()->set_version(version.first);
+        OlapMeta* meta = _data_dir->get_meta();
+        OLAPStatus status = RowsetMetaManager::save(meta, rowset_id(), _rowset_meta);
+        if (status != OLAP_SUCCESS) {
+            LOG(FATAL) << "failed to save updated meta of rowset_id:" << rowset_id()
+                       << ", status:" << status;
+        }
+        return;
+    }
+
     _is_pending_rowset = false;
     AlphaRowsetMetaSharedPtr alpha_rowset_meta =
             std::dynamic_pointer_cast<AlphaRowsetMeta>(_rowset_meta);

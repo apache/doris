@@ -199,20 +199,6 @@ OLAPStatus Tablet::revise_tablet_meta(const TabletMeta& tablet_meta,
         for (auto& rs_meta : rowsets_to_clone) {
             Version version(rs_meta->start_version(), rs_meta->end_version());
             new_tablet_meta.add_rs_meta(rs_meta);
-
-            // add delete conditions to new local tablet_meta, if it exists in tablet_meta
-            if (version.first == version.second) {
-                for (auto it = tablet_meta.delete_predicates().begin();
-                     it != tablet_meta.delete_predicates().end(); ++it) {
-                    if (it->version() == version.first) {
-                        // add it
-                        new_tablet_meta.add_delete_predicate(*it, version.first);
-                        LOG(INFO) << "add delete condition when clone. [table=" << full_name()
-                                  << " version=" << it->version() << "]";
-                        break;
-                    }
-                }
-            }
         }
 
         if (res != OLAP_SUCCESS) {
@@ -254,10 +240,8 @@ OLAPStatus Tablet::add_rowset(RowsetSharedPtr rowset) {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus Tablet::modify_rowsets(vector<Version>* old_version,
-                                  const vector<RowsetSharedPtr>& to_add,
+OLAPStatus Tablet::modify_rowsets(const vector<RowsetSharedPtr>& to_add,
                                   const vector<RowsetSharedPtr>& to_delete) {
-    WriteLock wrlock(&_meta_lock);
     vector<RowsetMetaSharedPtr> rs_metas_to_add;
     for (auto& rs : to_add) {
         rs_metas_to_add.push_back(rs->rowset_meta());
@@ -272,6 +256,10 @@ OLAPStatus Tablet::modify_rowsets(vector<Version>* old_version,
     for (auto& rs : to_delete) {
         auto it = _rs_version_map.find(rs->version());
         _rs_version_map.erase(it);
+    }
+
+    for (auto& rs : to_add) {
+        _rs_version_map[rs->version()] = rs;;
     }
 
     _rs_graph.reconstruct_rowset_graph(_tablet_meta->all_rs_metas());
@@ -410,9 +398,8 @@ void Tablet::list_versions(vector<Version>* versions) const {
 OLAPStatus Tablet::capture_consistent_rowsets(const Version& spec_version,
                                               vector<RowsetSharedPtr>* rowsets) const {
     vector<Version> version_path;
-    _rs_graph.capture_consistent_versions(spec_version, &version_path);
-
-    capture_consistent_rowsets(version_path, rowsets);
+    RETURN_NOT_OK(_rs_graph.capture_consistent_versions(spec_version, &version_path));
+    RETURN_NOT_OK(capture_consistent_rowsets(version_path, rowsets));
     return OLAP_SUCCESS;
 }
 
@@ -424,8 +411,7 @@ OLAPStatus Tablet::capture_consistent_rowsets(const vector<Version>& version_pat
         if (it == _rs_version_map.end()) {
             LOG(WARNING) << "fail to find Rowset for version. tablet=" << full_name()
                          << ", version='" << version.first << "-" << version.second;
-            release_rowsets(rowsets);
-            return OLAP_SUCCESS;
+            return OLAP_ERR_CAPTURE_ROWSET_ERROR;
         }
 
         rowsets->push_back(it->second);
@@ -433,18 +419,11 @@ OLAPStatus Tablet::capture_consistent_rowsets(const vector<Version>& version_pat
     return OLAP_SUCCESS;
 }
 
-OLAPStatus Tablet::release_rowsets(vector<RowsetSharedPtr>* rowsets) const {
-    DCHECK(rowsets != nullptr) << "rowsets is null. tablet=" << full_name();
-    rowsets->clear();
-    return OLAP_SUCCESS;
-}
-
 OLAPStatus Tablet::capture_rs_readers(const Version& spec_version,
                                       vector<RowsetReaderSharedPtr>* rs_readers) const {
     vector<Version> version_path;
-    _rs_graph.capture_consistent_versions(spec_version, &version_path);
-
-    capture_rs_readers(version_path, rs_readers);
+    RETURN_NOT_OK(_rs_graph.capture_consistent_versions(spec_version, &version_path));
+    RETURN_NOT_OK(capture_rs_readers(version_path, rs_readers));
     return OLAP_SUCCESS;
 }
 
@@ -456,19 +435,12 @@ OLAPStatus Tablet::capture_rs_readers(const vector<Version>& version_path,
         if (it == _rs_version_map.end()) {
             LOG(WARNING) << "fail to find Rowset for version. tablet=" << full_name()
                          << ", version='" << version.first << "-" << version.second;
-            release_rs_readers(rs_readers);
             return OLAP_ERR_CAPTURE_ROWSET_READER_ERROR;
         }
 
         std::shared_ptr<RowsetReader> rs_reader(it->second->create_reader());
         rs_readers->push_back(rs_reader);
     }
-    return OLAP_SUCCESS;
-}
-
-OLAPStatus Tablet::release_rs_readers(vector<RowsetReaderSharedPtr>* rs_readers) const {
-    DCHECK(rs_readers != nullptr) << "rs_readers is null. tablet=" << full_name();
-    rs_readers->clear();
     return OLAP_SUCCESS;
 }
 
