@@ -34,11 +34,10 @@ using std::vector;
 namespace doris {
 
 OLAPStatus CumulativeCompaction::init(TabletSharedPtr tablet) {
-    LOG(INFO) << "init cumulative compaction handler. [tablet=" << tablet->full_name() << "]";
+    LOG(INFO) << "init cumulative compaction handler. tablet=" << tablet->full_name();
 
     if (_is_init) {
-        OLAP_LOG_WARNING("cumulative handler has been inited.[tablet=%s]",
-                         tablet->full_name().c_str());
+        LOG(WARNING) << "cumulative handler has been inited. tablet=" << tablet->full_name();
         return OLAP_ERR_CUMULATIVE_REPEAT_INIT;
     }
 
@@ -50,8 +49,7 @@ OLAPStatus CumulativeCompaction::init(TabletSharedPtr tablet) {
     _max_delta_file_size = config::cumulative_compaction_budgeted_bytes;
 
     if (!_tablet->try_cumulative_lock()) {
-        OLAP_LOG_WARNING("another cumulative is running. [tablet=%s]",
-                         _tablet->full_name().c_str());
+        LOG(WARNING) << "another cumulative is running. tablet=" << _tablet->full_name();
         return OLAP_ERR_CE_TRY_CE_LOCK_ERROR;
     }
 
@@ -61,8 +59,8 @@ OLAPStatus CumulativeCompaction::init(TabletSharedPtr tablet) {
     // 如果为-1，则该table之前没有设置过cumulative layer point
     // 我们在这里设置一下
     if (_old_cumulative_layer_point == -1) {
-        LOG(INFO) << "tablet has an unreasonable cumulative layer point. [tablet='" << _tablet->full_name()
-                  << "' cumulative_layer_point=" << _old_cumulative_layer_point << "]";
+        LOG(INFO) << "tablet has an unreasonable cumulative layer point. tablet=" << _tablet->full_name()
+                  << ", cumulative_layer_point=" << _old_cumulative_layer_point;
         _tablet->release_cumulative_lock();
         return OLAP_ERR_CUMULATIVE_INVALID_PARAMETERS;
     }
@@ -92,7 +90,7 @@ OLAPStatus CumulativeCompaction::init(TabletSharedPtr tablet) {
 OLAPStatus CumulativeCompaction::run() {
     if (!_is_init) {
         _tablet->release_cumulative_lock();
-        OLAP_LOG_WARNING("cumulative handler is not inited.");
+        LOG(WARNING) << "cumulative handler is not inited.";
         return OLAP_ERR_NOT_INITED;
     }
 
@@ -107,21 +105,21 @@ OLAPStatus CumulativeCompaction::run() {
     res = _tablet->compute_all_versions_hash(_need_merged_versions, &_cumulative_version_hash);
     if (res != OLAP_SUCCESS) {
         _tablet->release_cumulative_lock();
-        OLAP_LOG_WARNING("failed to computer cumulative version hash. "
-                         "[tablet=%s; cumulative_version=%d-%d]",
-                         _tablet->full_name().c_str(),
-                         _cumulative_version.first,
-                         _cumulative_version.second);
+        LOG(WARNING) << "failed to computer cumulative version hash."
+                     << " tablet=" << _tablet->full_name()
+                     << ", cumulative_version=" << _cumulative_version.first
+                     << "-" << _cumulative_version.second;
         return res;
     }
 
     // 2. 获取待合并的delta文件对应的data文件
-    _tablet->capture_consistent_rowsets(_need_merged_versions, &_rowsets);
-    if (_rowsets.empty()) {
+    res = _tablet->capture_consistent_rowsets(_need_merged_versions, &_rowsets);
+    if (res != OLAP_SUCCESS) {
         _tablet->release_cumulative_lock();
-        OLAP_LOG_WARNING("failed to acquire data source. [tablet=%s]",
-                         _tablet->full_name().c_str());
-        return OLAP_ERR_CUMULATIVE_FAILED_ACQUIRE_DATA_SOURCE;
+        LOG(WARNING) << "fail to capture consistent rowsets. tablet=" << _tablet->full_name()
+                     << ", version=" << _cumulative_version.first
+                     << "-" << _cumulative_version.second;
+        return res;
     }
 
     {
@@ -144,7 +142,11 @@ OLAPStatus CumulativeCompaction::run() {
                        .set_tablet_schema_hash(_tablet->schema_hash())
                        .set_rowset_type(ALPHA_ROWSET)
                        .set_rowset_path_prefix(_tablet->tablet_path())
-                       .set_tablet_schema(&(_tablet->tablet_schema()));
+                       .set_tablet_schema(&(_tablet->tablet_schema()))
+                       .set_data_dir(_tablet->data_dir())
+                       .set_rowset_state(VISIBLE)
+                       .set_version(_cumulative_version)
+                       .set_version_hash(_cumulative_version_hash);
         RowsetWriterContext context = context_builder.build();
         _rs_writer->init(context);
 
@@ -154,13 +156,11 @@ OLAPStatus CumulativeCompaction::run() {
             _rs_readers.push_back(rs_reader);
         }
         res = _do_cumulative_compaction();
-        _rowset = _rs_writer->build();
         if (res != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("failed to do cumulative compaction. "
-                             "[tablet=%s; cumulative_version=%d-%d]",
-                             _tablet->full_name().c_str(),
-                             _cumulative_version.first,
-                             _cumulative_version.second);
+            LOG(WARNING) << "failed to do cumulative compaction."
+                         << ", tablet=" << _tablet->full_name()
+                         << ", cumulative_version=" << _cumulative_version.first
+                         << "-" << _cumulative_version.second;
             break;
         }
     } while (0);
@@ -170,10 +170,6 @@ OLAPStatus CumulativeCompaction::run() {
         StorageEngine::instance()->add_unused_rowset(_rowset);
     }
     
-    if (_rs_readers.empty()) {
-        _tablet->release_rs_readers(&_rs_readers);
-    }
-
     _tablet->release_cumulative_lock();
 
     VLOG(10) << "elapsed time of doing cumulative compaction. "
@@ -389,17 +385,9 @@ OLAPStatus CumulativeCompaction::_do_cumulative_compaction() {
         return res;
     }
 
-    // 2. load new cumulative file
-    res = _rowset->init();
-    if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("failed to load cumulative index. [tablet=%s; cumulative_version=%d-%d]",
-                         _tablet->full_name().c_str(),
-                         _cumulative_version.first,
-                         _cumulative_version.second);
-        return res;
-    }
+    _rowset = _rs_writer->build();
 
-    // Check row num changes
+    // 2. Check row num changes
     uint64_t source_rows = 0;
     for (auto rowset : _rowsets) {
         source_rows += rowset->num_rows();
@@ -426,13 +414,19 @@ OLAPStatus CumulativeCompaction::_do_cumulative_compaction() {
     // 3. add new cumulative file into tablet
     vector<RowsetSharedPtr> unused_rowsets;
     _obtain_header_wrlock();
+    res = _tablet->capture_consistent_rowsets(_need_merged_versions, &unused_rowsets);
+    if (res != OLAP_SUCCESS) {
+        LOG(WARNING) << "fail to capture consistent rowsets. tablet=" << _tablet->full_name()
+                     << ", version=" << _cumulative_version.first
+                     << "-" << _cumulative_version.second;
+        return res;
+    }
     res = _update_header(unused_rowsets);
     if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("failed to update header for new cumulative."
-                         "[tablet=%s; cumulative_version=%d-%d]",
-                         _tablet->full_name().c_str(),
-                         _cumulative_version.first,
-                         _cumulative_version.second);
+        LOG(WARNING) << "failed to update header for new cumulative."
+                     << "tablet=" << _tablet->full_name()
+                     << ", cumulative_version=" << _cumulative_version.first
+                     << "-" << _cumulative_version.second;
         _release_header_lock();
         return res;
     }
@@ -442,7 +436,7 @@ OLAPStatus CumulativeCompaction::_do_cumulative_compaction() {
     if (res != OLAP_SUCCESS) {
         LOG(FATAL) << "delete action of cumulative compaction has error. roll back."
                    << "tablet=" << _tablet->full_name()
-                   << ", cumulative_version=" << _cumulative_version.first 
+                   << ", cumulative_version=" << _cumulative_version.first
                    << "-" << _cumulative_version.second;
         // if error happened, roll back
         OLAPStatus ret = _roll_back(unused_rowsets);
@@ -472,7 +466,7 @@ OLAPStatus CumulativeCompaction::_update_header(const vector<RowsetSharedPtr>& u
     new_rowsets.push_back(_rowset);
 
     OLAPStatus res = OLAP_SUCCESS;
-    res = _tablet->modify_rowsets(&_need_merged_versions, new_rowsets, unused_rowsets);
+    res = _tablet->modify_rowsets(new_rowsets, unused_rowsets);
     if (res != OLAP_SUCCESS) {
         LOG(FATAL) << "failed to replace data sources. res=" << res
                    << ", tablet=" << _tablet->full_name();
@@ -529,19 +523,24 @@ OLAPStatus CumulativeCompaction::_validate_delete_file_action() {
         return OLAP_ERR_CUMULATIVE_ERROR_DELETE_ACTION;
     }
 
-    _tablet->release_rs_readers(&rs_readers);
     return OLAP_SUCCESS;
 }
 
 OLAPStatus CumulativeCompaction::_roll_back(vector<RowsetSharedPtr>& old_olap_indices) {
-    vector<Version> need_remove_version;
-    need_remove_version.push_back(_cumulative_version);
+    vector<RowsetSharedPtr> unused_rowsets;
+    OLAPStatus res = _tablet->capture_consistent_rowsets(_cumulative_version, &unused_rowsets);
+    if (res != OLAP_SUCCESS) {
+        LOG(WARNING) << "fail to capture consistent rowsets. tablet=" << _tablet->full_name()
+                     << ", version=" << _cumulative_version.first
+                     << "-" << _cumulative_version.second;
+        return res;
+    }
+
     // unused_rowsets will only contain new cumulative index
     // we don't need to delete it here; we will delete new cumulative index in the end.
-    vector<RowsetSharedPtr> unused_rowsets;
 
-    OLAPStatus res = OLAP_SUCCESS;
-    res = _tablet->modify_rowsets(&need_remove_version, old_olap_indices, unused_rowsets);
+    res = OLAP_SUCCESS;
+    res = _tablet->modify_rowsets(old_olap_indices, unused_rowsets);
     if (res != OLAP_SUCCESS) {
         LOG(FATAL) << "failed to replace data sources. [tablet=" << _tablet->full_name() << "]";
         return res;
@@ -553,7 +552,7 @@ OLAPStatus CumulativeCompaction::_roll_back(vector<RowsetSharedPtr>& old_olap_in
         return res;
     }
 
-    return res;    
+    return res;
 }
 
 }  // namespace doris

@@ -45,6 +45,34 @@ using google::protobuf::RepeatedPtrField;
 
 namespace doris {
 
+OLAPStatus DeleteConditionHandler::generate_delete_predicate(
+        const TabletSchema& schema,
+        const std::vector<TCondition>& conditions,
+        DeletePredicatePB* del_pred) {
+    if (conditions.size() == 0) {
+        LOG(WARNING) << "invalid parameters for store_cond."
+                     << " condition_size=" << conditions.size();
+        return OLAP_ERR_DELETE_INVALID_PARAMETERS;
+    }
+
+    // 检查删除条件是否符合要求
+    for (const TCondition& condition : conditions) {
+        if (check_condition_valid(schema, condition) != OLAP_SUCCESS) {
+            LOG(WARNING) << "invalid condition. condition=" << ThriftDebugString(condition);
+            return OLAP_ERR_DELETE_INVALID_CONDITION;
+        }
+    }
+
+    // 存储删除条件
+    for (const TCondition& condition : conditions) {
+        string condition_str = construct_sub_predicates(condition);
+        del_pred->add_sub_predicates(condition_str);
+        LOG(INFO) << "store one sub-delete condition. condition=" << condition_str;
+    }
+
+    return OLAP_SUCCESS;
+}
+
 string DeleteConditionHandler::construct_sub_predicates(const TCondition& condition) {
     string op = condition.condition_op;
     if (op == "<") {
@@ -59,74 +87,6 @@ string DeleteConditionHandler::construct_sub_predicates(const TCondition& condit
         condition_str = condition.column_name + op + condition.condition_values[0];
     }
     return condition_str;
-}
-
-// 删除指定版本号的删除条件；需要注意的是，如果table上没有任何删除条件，或者
-// 指定版本号的删除条件不存在，也会返回OLAP_SUCCESS。
-OLAPStatus DeleteConditionHandler::delete_cond(DelPredicateArray* delete_conditions,
-        const int32_t version,
-        bool delete_smaller_version_conditions) {
-    if (version < 0) {
-        OLAP_LOG_WARNING("invalid parameters for delete_cond. [version=%d]", version);
-        return OLAP_ERR_DELETE_INVALID_PARAMETERS;
-    }
-
-    if (delete_conditions->size() == 0) {
-        return OLAP_SUCCESS;
-    }
-
-    int index = 0;
-
-    while (index != delete_conditions->size()) {
-        // 1. 如果删除条件的版本号等于形参指定的版本号，则删除该版本的文件；
-        // 2. 如果还指定了delete_smaller_version_conditions为true，则同时删除
-        //    版本号小于指定版本号的删除条件；否则不删除。
-        DeletePredicatePB temp = delete_conditions->Get(index);
-
-        if (temp.version() == version ||
-                (temp.version() < version && delete_smaller_version_conditions)) {
-            // 将要移除的删除条件记录到log中
-            string del_cond_str;
-            const RepeatedPtrField<string>& sub_predicates = temp.sub_predicates();
-
-            for (int i = 0; i != sub_predicates.size(); ++i) {
-                del_cond_str += sub_predicates.Get(i) + ";";
-            }
-
-            LOG(INFO) << "delete one condition. version=" << temp.version()
-                      << ", condition=" << del_cond_str;
-
-            // 移除过滤条件
-            // 因为pb没有提供直接删除数组特定元素的方法，所以用下面的删除方式；这种方式会改变存在
-            // Header文件中的删除条件的顺序。因为我们不关心删除条件的顺序，所以对我们没影响
-            delete_conditions->SwapElements(index, delete_conditions->size() - 1);
-            delete_conditions->RemoveLast();
-        } else {
-            ++index;
-        }
-    }
-
-    return OLAP_SUCCESS;
-}
-
-OLAPStatus DeleteConditionHandler::log_conds(std::string tablet_full_name,
-        const DelPredicateArray& delete_conditions) {
-    LOG(INFO) << "display all delete condition. tablet=" << tablet_full_name;
-
-    for (int index = 0; index != delete_conditions.size(); ++index) {
-        DeletePredicatePB temp = delete_conditions.Get(index);
-        string del_cond_str;
-        const RepeatedPtrField<string>& sub_predicates = temp.sub_predicates();
-
-        // 将属于一条删除条件的子条件重新拼接成一条删除条件；子条件之间用分号隔开
-        for (int i = 0; i != sub_predicates.size(); ++i) {
-            del_cond_str += sub_predicates.Get(i) + ";";
-        }
-
-        LOG(INFO) << "condition item: version=" << temp.version()
-                  << ", condition=" << del_cond_str;
-    }
-    return OLAP_SUCCESS;
 }
 
 OLAPStatus DeleteConditionHandler::check_condition_valid(

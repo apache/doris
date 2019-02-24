@@ -118,8 +118,7 @@ public:
 
     // operation in rowsets
     OLAPStatus add_rowset(RowsetSharedPtr rowset);
-    OLAPStatus modify_rowsets(std::vector<Version>* old_version,
-                              const vector<RowsetSharedPtr>& to_add,
+    OLAPStatus modify_rowsets(const vector<RowsetSharedPtr>& to_add,
                               const vector<RowsetSharedPtr>& to_delete);
     const RowsetSharedPtr get_rowset_by_version(const Version& version) const;
     size_t get_rowset_size_by_version(const Version& version);
@@ -142,18 +141,11 @@ public:
                                           vector<RowsetSharedPtr>* rowsets) const;
     OLAPStatus capture_consistent_rowsets(const vector<Version>& version_path,
                                           vector<RowsetSharedPtr>* rowsets) const;
-    OLAPStatus release_rowsets(vector<RowsetSharedPtr>* rowsets) const;
-
     OLAPStatus capture_rs_readers(const Version& spec_version,
                                   vector<RowsetReaderSharedPtr>* rs_readers) const;
     OLAPStatus capture_rs_readers(const vector<Version>& version_path,
                                   vector<RowsetReaderSharedPtr>* rs_readers) const;
-    OLAPStatus release_rs_readers(vector<RowsetReaderSharedPtr>* rs_readers) const;
 
-    // operation for delete predicate
-    OLAPStatus add_delete_predicates(const DeletePredicatePB& delete_predicate, int64_t version) {
-        return _tablet_meta->add_delete_predicate(delete_predicate, version);
-    }
     DelPredicateArray delete_predicates() { return _tablet_meta->delete_predicates(); }
     bool version_for_delete_predicate(const Version& version);
     bool version_for_load_deletion(const Version& version);

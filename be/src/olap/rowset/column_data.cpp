@@ -470,15 +470,16 @@ OLAPStatus ColumnData::get_first_row_block(RowBlock** row_block) {
     _is_normal_read = true;
     _eof = false;
 
-    auto res = _schema_change_init();
-    if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "failed to initial for schema change block read, res:" << res;
-        return res;
-    }
+    //TODO. schema change should take consideration of it
+    //auto res = _schema_change_init();
+    //if (res != OLAP_SUCCESS) {
+    //    LOG(WARNING) << "failed to initial for schema change block read, res:" << res;
+    //    return res;
+    //}
 
     // to be same with OLAPData, we use segment_group.
     RowBlockPosition block_pos;
-    res = segment_group()->find_first_row_block(&block_pos);
+    OLAPStatus res = segment_group()->find_first_row_block(&block_pos);
     if (res != OLAP_SUCCESS) {
         if (res == OLAP_ERR_INDEX_EOF) {
             *row_block = nullptr;

@@ -349,6 +349,9 @@ OLAPStatus TabletMeta::add_rs_meta(const RowsetMetaSharedPtr& rs_meta) {
     _rs_metas.push_back(std::move(rs_meta));
     RowsetMetaPB* rs_meta_pb = _tablet_meta_pb.add_rs_metas();
     rs_meta->to_rowset_pb(rs_meta_pb);
+    if (rs_meta->has_delete_predicate()) {
+        add_delete_predicate(rs_meta->delete_predicate(), rs_meta->version().first);
+    }
 
     return OLAP_SUCCESS;
 }
@@ -371,12 +374,17 @@ OLAPStatus TabletMeta::delete_rs_meta_by_version(const Version& version) {
 
 OLAPStatus TabletMeta::modify_rs_metas(const vector<RowsetMetaSharedPtr>& to_add,
                                        const vector<RowsetMetaSharedPtr>& to_delete) {
-    for (auto del_rs : to_delete) {
+    for (auto rs_to_del : to_delete) {
         auto it = _rs_metas.begin();
         while (it != _rs_metas.end()) {
-            if (del_rs->version().first == (*it)->version().first
-                  && del_rs->version().second == (*it)->version().second) {
+            if (rs_to_del->version().first == (*it)->version().first
+                  && rs_to_del->version().second == (*it)->version().second) {
+                if ((*it)->has_delete_predicate()) {
+                    remove_delete_predicate_by_version((*it)->version());
+                }
                 _rs_metas.erase(it);
+            } else {
+                it++;
             }
         }
     }

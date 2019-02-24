@@ -32,26 +32,16 @@ namespace doris {
 
 typedef google::protobuf::RepeatedPtrField<DeletePredicatePB> DelPredicateArray;
 
-// 实现了删除条件的存储，移除和显示功能
-// *  存储删除条件：
-//    OLAPStatus res;
-//    DeleteConditionHandler cond_handler;
-//    res = cond_handler.store_cond(tablet, condition_version, delete_condition);
-// *  移除删除条件
-//    res = cond_handler.delete_cond(tablet, condition_version, true);
-//    或者
-//    res = cond_handler.delete_cond(tablet, condition_version, false);
-// *  将一个table上现存有的所有删除条件打印到log中
-//    res = cond_handler.log_conds(tablet);
-// 注:
-//    *  在调用这个类存储和移除删除条件时，需要先对Header文件加写锁；
-//       并在调用完成之后调用tablet->save_meta()，然后再释放Header文件的锁
-//    *  在调用log_conds()的时候，只需要加读锁
 class DeleteConditionHandler {
 public:
 
     DeleteConditionHandler() {}
     ~DeleteConditionHandler() {}
+
+    // generated DeletePredicatePB by TCondition
+    OLAPStatus generate_delete_predicate(const TabletSchema& schema,
+                                         const std::vector<TCondition>& conditions,
+                                         DeletePredicatePB* del_pred);
 
     // 检查cond表示的删除条件是否符合要求；
     // 如果不符合要求，返回OLAP_ERR_DELETE_INVALID_CONDITION；符合要求返回OLAP_SUCCESS
@@ -60,31 +50,6 @@ public:
     // construct sub condition from TCondition
     std::string construct_sub_predicates(const TCondition& condition);
 
-    // 从Header文件中移除特定版本号的删除条件。在调用之前需要对Header文件加写锁
-    //
-    // 输入参数：
-    //     * table：需要移除删除条件的olap engine表
-    //     * version：要移除的删除条件的版本
-    //     * delete_smaller_version_conditions:
-    //         * 如果true，则移除小于等于指定版本号的删除条件；
-    //         * 如果false，则只删除指定版本的删除条件
-    // 返回值：
-    //     * OLAP_SUCCESS:
-    //         * 移除删除条件成功
-    //         * 这个表没有任何删除条件
-    //         * 这个表没有指定版本号的删除条件
-    //     * OLAP_ERR_DELETE_INVALID_PARAMETERS：函数参数不符合要求
-    OLAPStatus delete_cond(
-            DelPredicateArray* delete_condition, const int32_t version, bool delete_smaller_version_conditions);
-
-    // 将一个olap engine的表上存有的所有删除条件打印到log中。调用前只需要给Header文件加读锁
-    //
-    // 输入参数：
-    //     tablet: 要打印删除条件的olap engine表
-    // 返回值：
-    //     OLAP_SUCCESS：调用成功
-    OLAPStatus log_conds(std::string tablet_full_name,
-        const DelPredicateArray& delete_conditions);
 private:
 
     // 检查指定的删除条件版本是否符合要求；
@@ -100,7 +65,7 @@ private:
                 return i;
             }
         }
-        LOG(WARNING) << "invalid field name. [name='" << field_name << "']";
+        LOG(WARNING) << "invalid field name. name='" << field_name;
         return -1;
     }
 };
