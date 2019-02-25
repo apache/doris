@@ -22,6 +22,7 @@
 #include <utility>
 #include <thrift/protocol/TDebugProtocol.h>
 
+#include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/utils.h"
 #include "olap/wrapper_field.h"
@@ -51,7 +52,7 @@ using doris::ColumnStatistics;
 //  1. 对行的过滤在DeleteHandler。
 //     这部分直接调用delete_condition_eval实现,内部调用eval函数，因为对row的过滤不涉及部分过滤这种状态。
 //  2. 过滤block是在SegmentReader里面,直接调用del_eval
-//  3. 过滤version实在Reader里面,调用delta_pruning_filter
+//  3. 过滤version实在Reader里面,调用rowset_pruning_filter
 
 namespace doris {
 
@@ -595,32 +596,31 @@ bool Conditions::delete_conditions_eval(const RowCursor& row) const {
     }
 
     VLOG(3) << "Row meets the delete conditions. "
-            << "condition_count=" << _columns.size() 
+            << "condition_count=" << _columns.size()
             << ", row=" << row.to_string();
     return true;
 }
 
-bool Conditions::delta_pruning_filter(
-        const std::vector<std::pair<WrapperField*, WrapperField*>>& column_statistics) const {
+bool Conditions::rowset_pruning_filter(const std::vector<KeyRange>& zone_maps) const {
     //通过所有列上的删除条件对version进行过滤
     for (auto& cond_it : _columns) {
-        if (cond_it.second->is_key() && cond_it.first > column_statistics.size()) {
-            OLAP_LOG_WARNING("where condition not equal column statistics size."
-                    "[cond_id=%d, column_statistics_size=%lu]", 
-                    cond_it.first,
-                    column_statistics.size());
+        if (cond_it.second->is_key() && cond_it.first > zone_maps.size()) {
+            LOG(WARNING) << "where condition not equal zone maps size. "
+                         << "cond_id=" << cond_it.first
+                         << ", zone_map_size=" << zone_maps.size();
             return false;
         }
-        if (cond_it.second->is_key() && !cond_it.second->eval(column_statistics[cond_it.first])) {
+        if (cond_it.second->is_key() && !cond_it.second->eval(zone_maps[cond_it.first])) {
             return true;
         }
     }
     return false;
 }
 
-int Conditions::delete_pruning_filter(
-        const std::vector<std::pair<WrapperField*, WrapperField*>>& col_stat) const {
-
+int Conditions::delete_pruning_filter(const std::vector<KeyRange>& zone_maps) const {
+    if (_columns.empty()) {
+        return DEL_NOT_SATISFIED;
+    }
     //通过所有列上的删除条件对version进行过滤
     /*
      * the relationship between condcolumn A and B is A & B.
@@ -636,16 +636,15 @@ int Conditions::delete_pruning_filter(
          * this is base on the assumption that the delete condition
          * is only about key field, not about value field.
         */
-        if (cond_it.second->is_key() && cond_it.first > col_stat.size()) {
-            OLAP_LOG_WARNING("where condition not equal column statistics size."
-                    "[cond_id=%d, column_statistics_size=%lu]", 
-                    cond_it.first,
-                    col_stat.size());
+        if (cond_it.second->is_key() && cond_it.first > zone_maps.size()) {
+            LOG(WARNING) << "where condition not equal column statistics size. "
+                         << "cond_id=" << cond_it.first
+                         << ", zone_map_size=" << zone_maps.size();
             del_partial_satisfied = true;
             continue;
         }
 
-        int del_ret = cond_it.second->del_eval(col_stat[cond_it.first]);
+        int del_ret = cond_it.second->del_eval(zone_maps[cond_it.first]);
         if (DEL_SATISFIED == del_ret) {
             continue;
         } else if (DEL_PARTIAL_SATISFIED == del_ret) {
@@ -656,8 +655,8 @@ int Conditions::delete_pruning_filter(
         }
     }
 
-    if (true == del_not_satisfied || 0 == _columns.size()) {
-        // if the size of condcolumn vector is zero, 
+    if (del_not_satisfied) {
+        // if the size of condcolumn vector is zero,
         // the delete condtion is not satisfied.
         ret = DEL_NOT_SATISFIED;
     } else if (true == del_partial_satisfied) {

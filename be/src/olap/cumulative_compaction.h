@@ -118,7 +118,7 @@ private:
     //
     // 输入输出参数
     // - unused_rowsets: 待删除的不再使用的delta文件对应的olap index
-    void _delete_unused_delta_files(std::vector<RowsetSharedPtr>* unused_rowsets);
+    void _delete_unused_rowsets(std::vector<RowsetSharedPtr>* unused_rowsets);
 
     // 验证得到的m_need_merged_versions是否正确
     //

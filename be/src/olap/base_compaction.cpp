@@ -101,7 +101,7 @@ OLAPStatus BaseCompaction::run() {
         return res;
     }
 
-    VLOG(10) << "new_base_version_hash" << new_base_version_hash;
+    VLOG(10) << "new_base_version_hash:" << new_base_version_hash;
 
     // 2. 获取生成新base需要的data sources
     vector<RowsetSharedPtr> rowsets;
@@ -146,8 +146,6 @@ OLAPStatus BaseCompaction::run() {
         return OLAP_ERR_BE_ERROR_DELETE_ACTION;
     }
 
-    VLOG(3) << "elapsed time of doing base compaction:" << stage_watch.get_elapse_time_us();
-
     // 4. make new versions visable.
     //    If success, remove files belong to old versions;
     //    If fail, gc files belong to new versions.
@@ -174,7 +172,10 @@ OLAPStatus BaseCompaction::run() {
     _release_base_compaction_lock();
 
     LOG(INFO) << "succeed to do base compaction. tablet=" << _tablet->full_name()
-              << ", base_version=" << _new_base_version.first << "-" << _new_base_version.second;
+              << ", base_version=" << _new_base_version.first << "-" << _new_base_version.second
+              << ". elapsed time of doing base compaction"
+              << ", time=" << stage_watch.get_elapse_second() << "s";
+
     return OLAP_SUCCESS;
 }
 

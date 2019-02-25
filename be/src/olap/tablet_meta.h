@@ -86,6 +86,9 @@ public:
     void set_alter_type(AlterTabletType alter_type) { _alter_type = alter_type; }
 
     const vector<RowsetMetaSharedPtr>& rowsets_to_alter() const { return _rowsets_to_alter; }
+    void add_rowset_to_alter(const RowsetMetaSharedPtr& rs_meta) {
+        return _rowsets_to_alter.push_back(rs_meta);
+    }
 
 private:
     AlterTabletState _alter_state;
@@ -152,6 +155,7 @@ public:
 
     inline const vector<RowsetMetaSharedPtr>& all_rs_metas() const;
     OLAPStatus add_rs_meta(const RowsetMetaSharedPtr& rs_meta);
+    RowsetMetaSharedPtr acquire_rs_meta_by_version(const Version& version) const;
     OLAPStatus delete_rs_meta_by_version(const Version& version);
     OLAPStatus modify_rs_metas(const vector<RowsetMetaSharedPtr>& to_add,
                                const vector<RowsetMetaSharedPtr>& to_delete);
@@ -160,7 +164,7 @@ public:
     inline const vector<RowsetMetaSharedPtr>& all_inc_rs_metas() const;
     OLAPStatus add_inc_rs_meta(const RowsetMetaSharedPtr& rs_meta);
     OLAPStatus delete_inc_rs_meta_by_version(const Version& version);
-    RowsetMetaSharedPtr acquire_inc_rs_meta(const Version& version) const;
+    RowsetMetaSharedPtr acquire_inc_rs_meta_by_version(const Version& version) const;
 
     OLAPStatus add_delete_predicate(const DeletePredicatePB& delete_predicate, int64_t version);
     OLAPStatus remove_delete_predicate_by_version(const Version& version);
