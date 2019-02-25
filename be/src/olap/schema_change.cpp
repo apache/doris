@@ -773,7 +773,8 @@ bool SchemaChangeDirectly::process(RowsetReaderSharedPtr rowset_reader, RowsetWr
         goto DIRECTLY_PROCESS_ERR;
     }
 
-    add_filted_rows(rowset_reader->get_filtered_rows());
+    //TODO: unify filtered_rows
+    //add_filted_rows(rowset_reader->get_filtered_rows());
 
     // Check row num changes
     if (config::row_nums_check) {
@@ -981,7 +982,8 @@ bool SchemaChangeWithSorting::process(
         goto SORTING_PROCESS_ERR;
     }
 
-    add_filted_rows(rowset_reader->get_filtered_rows());
+    //TODO: unify get_filtered_rows
+    //add_filted_rows(rowset_reader->get_filtered_rows());
 
     // Check row num changes
     if (config::row_nums_check) {
@@ -1419,7 +1421,7 @@ OLAPStatus SchemaChangeHandler::_create_new_tablet(
                     << ", tablet=" << request.tablet_id
                     << ":" << request.tablet_schema.schema_hash;
             }
-        } else if (NULL != tablet_to_create) {
+        } else if (tablet_to_create != nullptr) {
             tablet_to_create->delete_all_files();
         }
     }
@@ -1634,16 +1636,16 @@ OLAPStatus SchemaChangeHandler::_save_alter_tablet_state(
     base_tablet->set_alter_state(state);
     OLAPStatus res = base_tablet->save_meta();
     if (res != OLAP_SUCCESS) {
-        LOG(FATAL) << "fail to save ref tablet header. res=" << res
-                   << ", tablet=" << base_tablet->full_name();
+        LOG(FATAL) << "fail to save base tablet meta. res=" << res
+                   << ", base_tablet=" << base_tablet->full_name();
         return res;
     }
 
     new_tablet->set_alter_state(state);
     res = new_tablet->save_meta();
     if (res != OLAP_SUCCESS) {
-        LOG(FATAL) << "fail to save ref tablet header. res=" << res
-                   << ", tablet=" << base_tablet->full_name();
+        LOG(FATAL) << "fail to save new tablet meta. res=" << res
+                   << ", new_tablet=" << base_tablet->full_name();
         return res;
     }
 

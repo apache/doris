@@ -19,18 +19,16 @@
 
 namespace doris {
 
-AlphaRowsetReader::AlphaRowsetReader(int num_key_columns, int num_short_key_columns,
-        int num_rows_per_row_block, const std::string rowset_path, RowsetMeta* rowset_meta,
+AlphaRowsetReader::AlphaRowsetReader(
+        int num_rows_per_row_block, RowsetMeta* rowset_meta,
         std::vector<std::shared_ptr<SegmentGroup>> segment_groups,
-        RowsetSharedPtr rowset) : _num_key_columns(num_key_columns),
-            _num_short_key_columns(num_short_key_columns),
-            _num_rows_per_row_block(num_rows_per_row_block),
-            _rowset_path(rowset_path),
-            _alpha_rowset_meta(nullptr),
-            _segment_groups(segment_groups),
-            _rowset(rowset),
-            _key_range_size(0),
-            _num_rows_read(0) {
+        RowsetSharedPtr rowset)
+      : _num_rows_per_row_block(num_rows_per_row_block),
+        _alpha_rowset_meta(nullptr),
+        _segment_groups(segment_groups),
+        _rowset(rowset),
+        _key_range_size(0),
+        _num_rows_read(0) {
     _alpha_rowset_meta = reinterpret_cast<AlphaRowsetMeta*>(rowset_meta);
     Version version = _alpha_rowset_meta->version();
     if (version.first == version.second) {
@@ -157,8 +155,12 @@ OLAPStatus AlphaRowsetReader::_get_next_not_filtered_row(size_t pos, RowCursor**
         size_t pos = current_row_block->pos();
         current_row_block->get_row(pos, *row);
         found_row = !delete_handler->is_filter_data(_alpha_rowset_meta->version().second, *(*row));
+        if (!found_row) {
+            current_row_block->pos_inc();
+            _current_read_context->stats->rows_del_filtered++;
+        }
     }
-    
+
     return OLAP_SUCCESS;
 }
 
@@ -262,7 +264,7 @@ OLAPStatus AlphaRowsetReader::_init_column_datas(RowsetReaderContext* read_conte
                     read_context->is_using_cache,
                     read_context->runtime_state);
             // filter column data
-            if (new_column_data->delta_pruning_filter()) {
+            if (new_column_data->rowset_pruning_filter()) {
                 VLOG(3) << "filter segment group in query in condition:"
                     << new_column_data->version().first << ", " << new_column_data->version().second;
                 continue;

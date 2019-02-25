@@ -68,16 +68,16 @@ public:
     ~Cond();
 
     OLAPStatus init(const TCondition& tcond, const TabletColumn& column);
-    
+
     // 用一行数据的指定列同条件进行比较，如果符合过滤条件，
     // 即按照此条件，行应被过滤掉，则返回true，否则返回false
     bool eval(char* right) const;
-    
-    bool eval(const std::pair<WrapperField*, WrapperField*>& statistic) const;
-    int del_eval(const std::pair<WrapperField*, WrapperField*>& stat) const;
+
+    bool eval(const KeyRange& statistic) const;
+    int del_eval(const KeyRange& stat) const;
 
     bool eval(const BloomFilter& bf) const;
-    
+
     CondOp op;
     // valid when op is not OP_IN
     WrapperField* operand_field;
@@ -150,7 +150,7 @@ public:
     
     bool delete_conditions_eval(const RowCursor& row) const;
     
-    bool delta_pruning_filter(const std::vector<KeyRange>& zone_maps) const;
+    bool rowset_pruning_filter(const std::vector<KeyRange>& zone_maps) const;
     int delete_pruning_filter(const std::vector<KeyRange>& zone_maps) const;
 
     const CondColumns& columns() const {

@@ -176,7 +176,7 @@ OLAPStatus CumulativeCompaction::run() {
               << ", cumulative_version=" << _cumulative_version.first
               << "-" << _cumulative_version.second
               << ". elapsed time of doing cumulative compaction"
-              << ", time=" << watch.get_elapse_time_us() / (100000.0) << "s";
+              << ", time=" << watch.get_elapse_second() << "s";
     return res;
 }
 
@@ -451,7 +451,7 @@ OLAPStatus CumulativeCompaction::_do_cumulative_compaction() {
     _release_header_lock();
 
     // 6. delete delta files which have been merged into new cumulative file
-    _delete_unused_delta_files(&unused_rowsets);
+    _delete_unused_rowsets(&unused_rowsets);
 
     return res;
 }
@@ -478,7 +478,7 @@ OLAPStatus CumulativeCompaction::_update_header(const vector<RowsetSharedPtr>& u
     return res;
 }
 
-void CumulativeCompaction::_delete_unused_delta_files(vector<RowsetSharedPtr>* unused_rowsets) {
+void CumulativeCompaction::_delete_unused_rowsets(vector<RowsetSharedPtr>* unused_rowsets) {
     if (!unused_rowsets->empty()) {
         StorageEngine* storage_engine = StorageEngine::instance();
 

@@ -198,7 +198,7 @@ OLAPStatus ColumnDataWriter::finalize() {
 
     res = _segment_group->add_zone_maps(_zone_maps);
     if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("Fail to set delta pruning![res=%d]", res);
+        LOG(WARNING) << "Fail to set zone_map! res=" << res;
         return res;
     }
 

@@ -527,7 +527,7 @@ OLAPStatus ColumnData::get_next_row_block(RowBlock** row_block) {
     return OLAP_SUCCESS;
 }
 
-bool ColumnData::delta_pruning_filter() {
+bool ColumnData::rowset_pruning_filter() {
     if (empty() || zero_num_rows()) {
         return true;
     }
@@ -536,7 +536,7 @@ bool ColumnData::delta_pruning_filter() {
         return false;
     }
 
-    return _conditions->delta_pruning_filter(_segment_group->get_zone_maps());
+    return _conditions->rowset_pruning_filter(_segment_group->get_zone_maps());
 }
 
 int ColumnData::delete_pruning_filter() {

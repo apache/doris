@@ -52,9 +52,8 @@ OLAPStatus AlphaRowset::init() {
 
 std::shared_ptr<RowsetReader> AlphaRowset::create_reader() {
     return std::shared_ptr<RowsetReader>(new AlphaRowsetReader(
-            _schema->num_key_columns(), _schema->num_short_key_columns(),
-            _schema->num_rows_per_row_block(), _rowset_path,
-            _rowset_meta.get(), _segment_groups, shared_from_this()));
+            _schema->num_rows_per_row_block(), _rowset_meta.get(),
+            _segment_groups, shared_from_this()));
 }
 
 OLAPStatus AlphaRowset::copy(RowsetWriter* dest_rowset_writer) {

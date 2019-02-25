@@ -670,7 +670,7 @@ OLAPStatus EngineCloneTask::_clone_incremental_data(TabletSharedPtr tablet, cons
 
     // check missing versions exist in clone src
     for (Version version : missed_versions) {
-        RowsetMetaSharedPtr inc_rs_meta = cloned_tablet_meta.acquire_inc_rs_meta(version);
+        RowsetMetaSharedPtr inc_rs_meta = cloned_tablet_meta.acquire_inc_rs_meta_by_version(version);
         if (inc_rs_meta == nullptr) {
             LOG(WARNING) << "missed version is not found in cloned tablet meta."
                          << ", missed_version=" << version.first << "-" << version.second;

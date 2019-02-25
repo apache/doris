@@ -101,7 +101,7 @@ OLAPStatus BaseCompaction::run() {
         return res;
     }
 
-    VLOG(10) << "new_base_version_hash" << new_base_version_hash;
+    VLOG(10) << "new_base_version_hash:" << new_base_version_hash;
 
     // 2. 获取生成新base需要的data sources
     vector<RowsetSharedPtr> rowsets;
@@ -174,7 +174,7 @@ OLAPStatus BaseCompaction::run() {
     LOG(INFO) << "succeed to do base compaction. tablet=" << _tablet->full_name()
               << ", base_version=" << _new_base_version.first << "-" << _new_base_version.second
               << ". elapsed time of doing base compaction"
-              << ", time=" << stage_watch.get_elapse_time_us() / (100000.0) << "s";
+              << ", time=" << stage_watch.get_elapse_second() << "s";
 
     return OLAP_SUCCESS;
 }

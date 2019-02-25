@@ -325,7 +325,7 @@ bool Tablet::has_expired_inc_rowset() {
 void Tablet::delete_inc_rowset_by_version(const Version& version,
                                           const VersionHash& version_hash,
                                           vector<string>* files_to_remove) {
-    RowsetMetaSharedPtr rowset = _tablet_meta->acquire_inc_rs_meta(version);
+    RowsetMetaSharedPtr rowset = _tablet_meta->acquire_inc_rs_meta_by_version(version);
     if (rowset == nullptr) { return; }
 
     _tablet_meta->delete_inc_rs_meta_by_version(version);
@@ -481,7 +481,8 @@ void Tablet::add_alter_task(int64_t tablet_id,
     alter_task.set_related_tablet_id(tablet_id);
     alter_task.set_related_schema_hash(schema_hash);
     for (auto& version : versions_to_alter) {
-        RowsetMetaSharedPtr rs_meta = _tablet_meta->acquire_inc_rs_meta(version);
+        RowsetMetaSharedPtr rs_meta = _tablet_meta->acquire_rs_meta_by_version(version);
+        alter_task.add_rowset_to_alter(rs_meta);
     }
 
     alter_task.set_alter_type(alter_type);

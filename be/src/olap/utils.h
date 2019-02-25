@@ -68,6 +68,10 @@ public:
                           (now.tv_usec - _begin_time.tv_usec));
     }
 
+    double get_elapse_second() {
+        return get_elapse_time_us() / 100000.0;
+    }
+
     void reset() {
         gettimeofday(&_begin_time, 0);
     }
