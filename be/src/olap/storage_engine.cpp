@@ -614,7 +614,7 @@ void StorageEngine::clear_transaction_task(const TTransactionId transaction_id,
 TabletSharedPtr StorageEngine::create_tablet(const TCreateTabletReq& request,
                                              const bool is_schema_change_tablet,
                                              const TabletSharedPtr ref_tablet) {
-    // Get all available stores, use data_dir of ref_tablet when doing schema change 
+    // Get all available stores, use data_dir of ref_tablet when doing schema change
     std::vector<DataDir*> stores;
     if (!is_schema_change_tablet) {
         stores = get_stores_for_create_tablet(request.storage_medium);

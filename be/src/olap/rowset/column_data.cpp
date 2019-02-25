@@ -527,16 +527,16 @@ OLAPStatus ColumnData::get_next_row_block(RowBlock** row_block) {
     return OLAP_SUCCESS;
 }
 
-bool ColumnData::delta_pruning_filter() {
+bool ColumnData::rowset_pruning_filter() {
     if (empty() || zero_num_rows()) {
         return true;
     }
 
-    if (!_segment_group->has_column_statistics()) {
+    if (!_segment_group->has_zone_maps()) {
         return false;
     }
 
-    return _conditions->delta_pruning_filter(_segment_group->get_column_statistics());
+    return _conditions->rowset_pruning_filter(_segment_group->get_zone_maps());
 }
 
 int ColumnData::delete_pruning_filter() {
@@ -546,7 +546,7 @@ int ColumnData::delete_pruning_filter() {
         return DEL_NOT_SATISFIED;
     }
 
-    if (false == _segment_group->has_column_statistics()) {
+    if (false == _segment_group->has_zone_maps()) {
         /*
          * if segment_group has no column statistics, we cannot judge whether the data can be filtered or not
          */
@@ -568,7 +568,7 @@ int ColumnData::delete_pruning_filter() {
         }
 
         Conditions* del_cond = delete_condtion.del_cond;
-        int del_ret = del_cond->delete_pruning_filter(_segment_group->get_column_statistics());
+        int del_ret = del_cond->delete_pruning_filter(_segment_group->get_zone_maps());
         if (DEL_SATISFIED == del_ret) {
             del_stastified = true;
             break;
