@@ -332,12 +332,10 @@ OLAPStatus AlphaRowset::split_range(
     }
 
     ranges->emplace_back(end_key.to_tuple());
-
     return OLAP_SUCCESS;
 }
 
 OLAPStatus AlphaRowset::_init_non_pending_segment_groups() {
-    LOG(INFO) << "_init_non_pending_segment_groups";
     std::vector<SegmentGroupPB> segment_group_metas;
     AlphaRowsetMetaSharedPtr _alpha_rowset_meta = std::dynamic_pointer_cast<AlphaRowsetMeta>(_rowset_meta);
     _alpha_rowset_meta->get_segment_groups(&segment_group_metas);
