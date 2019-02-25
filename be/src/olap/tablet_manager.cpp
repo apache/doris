@@ -174,8 +174,8 @@ void TabletManager::cancel_unfinished_schema_change() {
 
     for (const auto& tablet_instance : _tablet_map) {
         for (TabletSharedPtr tablet : tablet_instance.second.table_arr) {
-            if (tablet.get() == NULL) {
-                OLAP_LOG_WARNING("get empty TabletSharedPtr. [tablet_id=%ld]", tablet_instance.first);
+            if (tablet == nullptr) {
+                LOG(WARNING) << "tablet does not exist. tablet_id=" << tablet_instance.first;
                 continue;
             }
 
@@ -188,14 +188,17 @@ void TabletManager::cancel_unfinished_schema_change() {
             }
 
             TabletSharedPtr new_tablet = get_tablet(tablet_id, schema_hash, false);
-            if (new_tablet.get() == NULL) {
-                OLAP_LOG_WARNING("the tablet referenced by schema change cannot be found. "
-                                 "schema change cancelled. [tablet='%s']",
-                                 tablet->full_name().c_str());
+            if (new_tablet == nullptr) {
+                LOG(WARNING) << "new tablet created by alter tablet does not exist. "
+                             << "tablet=" << tablet->full_name();
                 continue;
             }
 
             // DORIS-3741. Upon restart, it should not clear schema change request.
+            if (tablet->alter_state() == AlterTabletState::ALTER_FINISHED
+                && new_tablet->alter_state() == AlterTabletState::ALTER_FINISHED) {
+                continue;
+            }
             new_tablet->set_alter_state(AlterTabletState::ALTER_FAILED);
             tablet->set_alter_state(AlterTabletState::ALTER_FAILED);
             VLOG(3) << "cancel unfinished schema change. tablet=" << tablet->full_name();

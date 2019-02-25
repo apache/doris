@@ -53,7 +53,7 @@ OLAPStatus EngineSchemaChangeTask::execute() {
         // schema change job is in finishing state in fe, be restarts, then the tablet is in ALTER_TABLE_FAILED state
         // if drop the old tablet, then data is lost
         status = TabletManager::instance()->drop_tablet(_alter_tablet_req.new_tablet_req.tablet_id, 
-                                                            _alter_tablet_req.new_tablet_req.tablet_schema.schema_hash);
+                                                        _alter_tablet_req.new_tablet_req.tablet_schema.schema_hash);
 
         if (status != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("delete failed rollup file failed, status: %d, "
@@ -92,7 +92,7 @@ OLAPStatus EngineSchemaChangeTask::execute() {
 
 OLAPStatus EngineSchemaChangeTask::_create_rollup_tablet(const TAlterTabletReq& request) {
     LOG(INFO) << "begin to create rollup tablet. "
-              << "old_tablet_id=" << request.base_tablet_id
+              << "base_tablet_id=" << request.base_tablet_id
               << ", new_tablet_id=" << request.new_tablet_req.tablet_id;
 
     DorisMetrics::create_rollup_requests_total.increment(1);
@@ -103,21 +103,21 @@ OLAPStatus EngineSchemaChangeTask::_create_rollup_tablet(const TAlterTabletReq& 
     res = handler.process_alter_tablet(ROLLUP, request);
 
     if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("failed to do rollup. "
-                         "[base_tablet=%ld new_tablet=%ld] [res=%d]",
-                         request.base_tablet_id, request.new_tablet_req.tablet_id, res);
+        LOG(WARNING) << "failed to do rollup. res=" << res
+                     << "base_tablet=" << request.base_tablet_id
+                     << ", new_tablet=" << request.new_tablet_req.tablet_id;
         DorisMetrics::create_rollup_requests_failed.increment(1);
         return res;
     }
 
     LOG(INFO) << "success to create rollup tablet. res=" << res
-              << ", old_tablet_id=" << request.base_tablet_id 
+              << ", base_tablet_id=" << request.base_tablet_id 
               << ", new_tablet_id=" << request.new_tablet_req.tablet_id;
     return res;
 } // create_rollup_tablet
 
 OLAPStatus EngineSchemaChangeTask::_schema_change(const TAlterTabletReq& request) {
-    LOG(INFO) << "begin to schema change. old_tablet_id=" << request.base_tablet_id
+    LOG(INFO) << "begin to schema change. base_tablet_id=" << request.base_tablet_id
               << ", new_tablet_id=" << request.new_tablet_req.tablet_id;
 
     DorisMetrics::schema_change_requests_total.increment(1);
@@ -128,15 +128,15 @@ OLAPStatus EngineSchemaChangeTask::_schema_change(const TAlterTabletReq& request
     res = handler.process_alter_tablet(SCHEMA_CHANGE, request);
 
     if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("failed to do schema change. "
-                         "[base_tablet=%ld new_tablet=%ld] [res=%d]",
-                         request.base_tablet_id, request.new_tablet_req.tablet_id, res);
+        LOG(WARNING) << "failed to do schema change. res=" << res
+                     << "base_tablet=" << request.base_tablet_id
+                     << ", new_tablet=" << request.new_tablet_req.tablet_id;
         DorisMetrics::schema_change_requests_failed.increment(1);
         return res;
     }
 
-    LOG(INFO) << "success to submit schema change."
-              << "old_tablet_id=" << request.base_tablet_id
+    LOG(INFO) << "success to do schema change."
+              << "base_tablet_id=" << request.base_tablet_id
               << ", new_tablet_id=" << request.new_tablet_req.tablet_id;
     return res;
 }

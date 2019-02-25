@@ -123,12 +123,6 @@ private:
                 if (_row_block->has_remaining()) {
                     size_t pos = _row_block->pos();
                     _row_block->get_row(pos, &_row_cursor);
-                    if (_row_block->block_status() == DEL_PARTIAL_SATISFIED &&
-                        _reader->_delete_handler.is_filter_data(_rs_reader->version().second, _row_cursor)) {
-                        _reader->_stats.rows_del_filtered++;
-                        _row_block->pos_inc();
-                        continue;
-                    }
                     _current_row = &_row_cursor;
                     return OLAP_SUCCESS;
                 } else {

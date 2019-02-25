@@ -169,19 +169,20 @@ OLAPStatus CumulativeCompaction::run() {
     if (res != OLAP_SUCCESS && _rowset != NULL) {
         StorageEngine::instance()->add_unused_rowset(_rowset);
     }
-    
+
     _tablet->release_cumulative_lock();
 
-    VLOG(10) << "elapsed time of doing cumulative compaction. "
-             << "time=" << watch.get_elapse_time_us();
+    LOG(INFO) << "succeed to do cumulative compaction. tablet=" << _tablet->full_name()
+              << ", cumulative_version=" << _cumulative_version.first
+              << "-" << _cumulative_version.second
+              << ". elapsed time of doing cumulative compaction"
+              << ", time=" << watch.get_elapse_second() << "s";
     return res;
 }
 
 OLAPStatus CumulativeCompaction::_calculate_need_merged_versions() {
-    OLAPStatus res = OLAP_SUCCESS;
-    
     Versions delta_versions;
-    res = _get_delta_versions(&delta_versions);
+    OLAPStatus res = _get_delta_versions(&delta_versions);
     if (res != OLAP_SUCCESS) {
         LOG(INFO) << "failed to get delta versions.";
         return res;
@@ -450,11 +451,8 @@ OLAPStatus CumulativeCompaction::_do_cumulative_compaction() {
     _release_header_lock();
 
     // 6. delete delta files which have been merged into new cumulative file
-    _delete_unused_delta_files(&unused_rowsets);
+    _delete_unused_rowsets(&unused_rowsets);
 
-    LOG(INFO) << "succeed to do cumulative compaction. tablet=" << _tablet->full_name()
-              << ", cumulative_version=" << _cumulative_version.first << "-"
-              << _cumulative_version.second;
     return res;
 }
 
@@ -480,7 +478,7 @@ OLAPStatus CumulativeCompaction::_update_header(const vector<RowsetSharedPtr>& u
     return res;
 }
 
-void CumulativeCompaction::_delete_unused_delta_files(vector<RowsetSharedPtr>* unused_rowsets) {
+void CumulativeCompaction::_delete_unused_rowsets(vector<RowsetSharedPtr>* unused_rowsets) {
     if (!unused_rowsets->empty()) {
         StorageEngine* storage_engine = StorageEngine::instance();
 

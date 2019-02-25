@@ -399,7 +399,6 @@ OLAPStatus ColumnWriter::finalize(ColumnDataHeaderMessage* header) {
     column->set_is_bf_column(is_bf_column());
 
     save_encoding(header->add_column_encoding());
-    //segment_statistics()->save(header->add_column_statistics());
 
 FINALIZE_EXIT:
     SAFE_DELETE_ARRAY(index_buf);

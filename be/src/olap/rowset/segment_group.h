@@ -63,22 +63,22 @@ public:
     bool index_loaded();
     OLAPStatus load_pb(const char* file, uint32_t seg_id);
 
-    bool has_column_statistics() {
-        return _column_statistics.size() != 0;
+    bool has_zone_maps() {
+        return _zone_maps.size() != 0;
     }
 
-    OLAPStatus add_column_statistics_for_linked_schema_change(
-        const std::vector<std::pair<WrapperField*, WrapperField*>>& column_statistic_fields);
+    OLAPStatus add_zone_maps_for_linked_schema_change(
+        const std::vector<std::pair<WrapperField*, WrapperField*>>& zone_map_fields);
 
-    OLAPStatus add_column_statistics(
-        const std::vector<std::pair<WrapperField*, WrapperField*>>& column_statistic_fields);
+    OLAPStatus add_zone_maps(
+        const std::vector<std::pair<WrapperField*, WrapperField*>>& zone_map_fields);
 
-    OLAPStatus add_column_statistics(
-        std::vector<std::pair<std::string, std::string>> &column_statistic_strings,
+    OLAPStatus add_zone_maps(
+        std::vector<std::pair<std::string, std::string>> &zone_map_strings,
         std::vector<bool> &null_vec);
 
-    const std::vector<std::pair<WrapperField*, WrapperField*>>& get_column_statistics() {
-        return _column_statistics;
+    const std::vector<std::pair<WrapperField*, WrapperField*>>& get_zone_maps() {
+        return _zone_maps;
     }
 
     // 检查index文件和data文件的有效性
@@ -316,7 +316,7 @@ private:
     mutable boost::mutex _index_load_lock;
     size_t _current_num_rows_per_row_block;
 
-    std::vector<std::pair<WrapperField*, WrapperField*>> _column_statistics;
+    std::vector<std::pair<WrapperField*, WrapperField*>> _zone_maps;
     std::unordered_map<uint32_t, FileHeader<ColumnDataHeaderMessage> > _seg_pb_map;
 
 };

@@ -46,12 +46,12 @@ using std::vector;
 namespace doris {
 
 RowBlockChanger::RowBlockChanger(const TabletSchema& tablet_schema,
-                                 const TabletSharedPtr &ref_tablet) {
+                                 const TabletSharedPtr &base_tablet) {
     _schema_mapping.resize(tablet_schema.num_columns());
 }
 
 RowBlockChanger::RowBlockChanger(const TabletSchema& tablet_schema,
-                                 const TabletSharedPtr& ref_tablet,
+                                 const TabletSharedPtr& base_tablet,
                                  const DeleteHandler& delete_handler) {
     _schema_mapping.resize(tablet_schema.num_columns());
     _delete_handler = delete_handler;
@@ -717,7 +717,7 @@ bool SchemaChangeDirectly::process(RowsetReaderSharedPtr rowset_reader, RowsetWr
     }
 
     VLOG(3) << "init writer. tablet=" << _tablet->full_name()
-        << "block_row_size=" << _tablet->num_rows_per_row_block();
+            << "block_row_number=" << _tablet->num_rows_per_row_block();
     bool result = true;
     RowBlock* new_row_block = NULL;
 
@@ -773,7 +773,8 @@ bool SchemaChangeDirectly::process(RowsetReaderSharedPtr rowset_reader, RowsetWr
         goto DIRECTLY_PROCESS_ERR;
     }
 
-    add_filted_rows(rowset_reader->get_filtered_rows());
+    //TODO: unify filtered_rows
+    //add_filted_rows(rowset_reader->get_filtered_rows());
 
     // Check row num changes
     if (config::row_nums_check) {
@@ -981,7 +982,8 @@ bool SchemaChangeWithSorting::process(
         goto SORTING_PROCESS_ERR;
     }
 
-    add_filted_rows(rowset_reader->get_filtered_rows());
+    //TODO: unify get_filtered_rows
+    //add_filted_rows(rowset_reader->get_filtered_rows());
 
     // Check row num changes
     if (config::row_nums_check) {
@@ -1161,9 +1163,9 @@ OLAPStatus SchemaChangeHandler::_check_and_clear_schema_change_info(
     // clear schema change info of related tablet
     TabletSharedPtr related_tablet = TabletManager::instance()->get_tablet(
             tablet_id, schema_hash);
-    if (related_tablet.get() == NULL) {
-        OLAP_LOG_WARNING("get null tablet! [tablet_id=%ld schema_hash=%d]",
-                         tablet_id, schema_hash);
+    if (related_tablet == nullptr) {
+        LOG(WARNING) << "tablet does not exist. tablet_id=" << tablet_id
+                     << ", schema_hash=" << schema_hash;
         return OLAP_ERR_TABLE_NOT_FOUND;
     }
     res = related_tablet->protected_delete_alter_task();
@@ -1172,32 +1174,32 @@ OLAPStatus SchemaChangeHandler::_check_and_clear_schema_change_info(
 
 OLAPStatus SchemaChangeHandler::process_alter_tablet(AlterTabletType type,
                                                      const TAlterTabletReq& request) {
-    OLAPStatus res = OLAP_SUCCESS;
-    LOG(INFO) << "begin to validate alter tablet request.";
+    LOG(INFO) << "begin to validate alter tablet request. base_tablet_id=" << request.base_tablet_id
+              << ", new_tablet_id=" << request.new_tablet_req.tablet_id;
 
     // 1. Lock schema_change_lock util schema change info is stored in tablet header
     if (!TabletManager::instance()->try_schema_change_lock(request.base_tablet_id)) {
-        OLAP_LOG_WARNING("failed to obtain schema change lock. [res=%d tablet=%ld]",
-                         res, request.base_tablet_id);
+        LOG(WARNING) << "failed to obtain schema change lock. "
+                     << "base_tablet=" << request.base_tablet_id;
         return OLAP_ERR_TRY_LOCK_FAILED;
     }
 
     // 2. Get base tablet
-    TabletSharedPtr ref_tablet = TabletManager::instance()->get_tablet(
+    TabletSharedPtr base_tablet = TabletManager::instance()->get_tablet(
             request.base_tablet_id, request.base_schema_hash);
-    if (ref_tablet.get() == NULL) {
-        OLAP_LOG_WARNING("fail to find base tablet. [base_tablet=%ld base_schema_hash=%d]",
-                         request.base_tablet_id, request.base_schema_hash);
+    if (base_tablet == nullptr) {
+        LOG(WARNING) << "fail to find base tablet. base_tablet=" << request.base_tablet_id
+                     << ", base_schema_hash=" << request.base_schema_hash;
         TabletManager::instance()->release_schema_change_lock(request.base_tablet_id);
         return OLAP_ERR_TABLE_NOT_FOUND;
     }
 
     // 3. Check if history schema change information exist,
     //    if exist, it will be cleaned only when all delta versions converted
-    res = _check_and_clear_schema_change_info(ref_tablet, request);
+    OLAPStatus res = _check_and_clear_schema_change_info(base_tablet, request);
     if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("failed to check and clear schema change info. [tablet='%s']",
-                         ref_tablet->full_name().c_str());
+        LOG(WARNING) << "failed to check and clear schema change info."
+                     << " base_tablet=" << base_tablet->full_name();
         TabletManager::instance()->release_schema_change_lock(request.base_tablet_id);
         return res;
     }
@@ -1205,67 +1207,32 @@ OLAPStatus SchemaChangeHandler::process_alter_tablet(AlterTabletType type,
     // 4. return failed if new tablet already exist in StorageEngine.
     TabletSharedPtr new_tablet = TabletManager::instance()->get_tablet(
             request.new_tablet_req.tablet_id, request.new_tablet_req.tablet_schema.schema_hash);
-    if (new_tablet.get() != NULL) {
-        res = OLAP_SUCCESS;
-    } else {
-        res = _do_alter_tablet(type, ref_tablet, request);
+    if (new_tablet != nullptr) {
+        TabletManager::instance()->release_schema_change_lock(request.base_tablet_id);
+        return OLAP_SUCCESS;
     }
 
-    TabletManager::instance()->release_schema_change_lock(request.base_tablet_id);
+    LOG(INFO) << "finish to validate alter tablet request. base_tablet_id=" << request.base_tablet_id
+              << ", new_tablet_id=" << request.new_tablet_req.tablet_id;
 
-    return res;
-}
-
-OLAPStatus SchemaChangeHandler::_do_alter_tablet(
-        AlterTabletType type,
-        TabletSharedPtr ref_tablet,
-        const TAlterTabletReq& request) {
-    OLAPStatus res = OLAP_SUCCESS;
-    TabletSharedPtr new_tablet;
-    string base_root_path = ref_tablet->data_dir()->path();
-
-    LOG(INFO) << "begin to do alter tablet job. new_tablet_id=" << request.new_tablet_req.tablet_id;
-    // 1. Create new tablet and register into StorageEngine
-    res = _create_new_tablet(ref_tablet,
-                                 request.new_tablet_req,
-                                 &base_root_path,
-                                 &new_tablet);
+    // 5. Create new tablet and register into StorageEngine
+    res = _create_new_tablet(base_tablet, request.new_tablet_req, &new_tablet);
     if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to create new tablet. [tablet=%ld]",
-                         request.new_tablet_req.tablet_id);
+        LOG(WARNING) << "fail to create new tablet. tablet=" << request.new_tablet_req.tablet_id;
         return res;
     }
 
-    // set schema change status temporarily,
-    // after waiting transactions to finish, will calculate versions again
-    vector<Version> tmp_versions_to_be_changed;
-    tmp_versions_to_be_changed.push_back(Version(-1, -1));
-    ref_tablet->obtain_push_lock();
-    ref_tablet->obtain_header_wrlock();
-    new_tablet->obtain_header_wrlock();
-    res = _save_schema_change_info(type, ref_tablet, new_tablet, tmp_versions_to_be_changed);
-    new_tablet->release_header_lock();
-    ref_tablet->release_header_lock();
-    if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to save schema change info before waiting transactions. "
-                         "[base=%s new=%s res=%d]", ref_tablet->full_name().c_str(),
-                         new_tablet->full_name().c_str(), res);
-        ref_tablet->release_push_lock();
-        TabletManager::instance()->drop_tablet(
-                new_tablet->tablet_id(), new_tablet->schema_hash());
-        return res;
-    }
-
+    base_tablet->obtain_push_lock();
     // get current transactions
     int64_t partition_id;
     std::set<int64_t> transaction_ids;
-    TxnManager::instance()->get_tablet_related_txns(ref_tablet, &partition_id, &transaction_ids);
-    ref_tablet->release_push_lock();
+    TxnManager::instance()->get_tablet_related_txns(base_tablet, &partition_id, &transaction_ids);
+    base_tablet->release_push_lock();
 
     // wait transactions to publish version
     int num = 0;
     while (!transaction_ids.empty()) {
-        VLOG(3) << "wait transactions when schema change. tablet=" << ref_tablet->full_name()
+        VLOG(3) << "wait transactions when schema change. tablet=" << base_tablet->full_name()
                 << ", transaction_size=" << transaction_ids.size();
         num++;
         if (num % 100 == 0) {
@@ -1279,56 +1246,48 @@ OLAPStatus SchemaChangeHandler::_do_alter_tablet(
         for (int64_t transaction_id : transaction_ids) {
             if (!TxnManager::instance()->has_txn(
                 partition_id, transaction_id,
-                ref_tablet->tablet_id(), ref_tablet->schema_hash())) {
+                base_tablet->tablet_id(), base_tablet->schema_hash())) {
                 finished_transactions.push_back(transaction_id);
             }
         }
         for (int64_t transaction_id : finished_transactions) {
             transaction_ids.erase(transaction_id);
             VLOG(3) << "transaction finished when schema change is waiting. "
-                    << "tablet=" << ref_tablet->full_name()
+                    << "tablet=" << base_tablet->full_name()
                     << ", transaction_id=" << transaction_id
                     << ", transaction_size=" << transaction_ids.size();
         }
     }
 
     // 2. Get version_to_be_changed and store into tablet header
-    ref_tablet->obtain_push_lock();
-    ref_tablet->obtain_header_wrlock();
+    base_tablet->obtain_push_lock();
+    base_tablet->obtain_header_wrlock();
     new_tablet->obtain_header_wrlock();
-
-    // before calculating version_to_be_changed,
-    // remove all data from new tablet, prevent to rewrite data(those double pushed when wait)
-    VLOG(3) << "begin to remove all data from new tablet to prevent rewrite. "
-            << "new_tablet=" << new_tablet->full_name();
 
     vector<Version> versions_to_be_changed;
     vector<RowsetReaderSharedPtr> rs_readers;
     // delete handlers for new tablet
     DeleteHandler delete_handler;
     do {
-        // inherit cumulative_layer_point from ref_tablet
-        new_tablet->set_cumulative_layer_point(ref_tablet->cumulative_layer_point());
+        // inherit cumulative_layer_point from base_tablet
+        new_tablet->set_cumulative_layer_point(base_tablet->cumulative_layer_point());
 
         // get history versions to be changed
-        res = _get_versions_to_be_changed(ref_tablet, versions_to_be_changed);
+        res = _get_versions_to_be_changed(base_tablet, versions_to_be_changed);
         if (res != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("fail to get version to be changed. [res=%d]", res);
+            LOG(WARNING) << "fail to get version to be changed. res=" << res;
             break;
         }
 
         // store schema change information into tablet header
-        res = _save_schema_change_info(type,
-                                       ref_tablet,
-                                       new_tablet,
-                                       versions_to_be_changed);
+        res = _add_alter_tablet_task(type, base_tablet, new_tablet, versions_to_be_changed);
         if (res != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("fail to save schema change info. [res=%d]", res);
+            LOG(WARNING) << "fail to save schema change info. res=" << res;
             break;
         }
 
         // acquire data sources correspond to history versions
-        ref_tablet->capture_rs_readers(versions_to_be_changed, &rs_readers);
+        base_tablet->capture_rs_readers(versions_to_be_changed, &rs_readers);
         if (rs_readers.size() < 1) {
             LOG(WARNING) << "fail to acquire all data sources. "
                          << "version_num=" << versions_to_be_changed.size()
@@ -1347,8 +1306,8 @@ OLAPStatus SchemaChangeHandler::_do_alter_tablet(
 
         res = delete_handler.init(new_tablet->tablet_schema(), new_tablet->delete_predicates(), end_version);
         if (res != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("init delete handler failed. [tablet=%s; end_version=%d]",
-                             ref_tablet->full_name().c_str(), end_version);
+            LOG(WARNING) << "init delete handler failed. base_tablet=" << base_tablet->full_name()
+                         << ", end_version=" << end_version;
 
             // release delete handlers which have been inited successfully.
             delete_handler.finalize();
@@ -1357,56 +1316,47 @@ OLAPStatus SchemaChangeHandler::_do_alter_tablet(
     } while (0);
 
     new_tablet->release_header_lock();
-    ref_tablet->release_header_lock();
-    ref_tablet->release_push_lock();
+    base_tablet->release_header_lock();
+    base_tablet->release_push_lock();
 
-    if (res == OLAP_SUCCESS) {
-        // 3. Generate alter job
-        SchemaChangeParams sc_params;
-        sc_params.alter_tablet_type = type;
-        sc_params.ref_tablet = ref_tablet;
-        sc_params.new_tablet = new_tablet;
-        sc_params.ref_rowset_readers = rs_readers;
-        sc_params.delete_handler = delete_handler;
+    if (res != OLAP_SUCCESS) {
+        TabletManager::instance()->release_schema_change_lock(request.base_tablet_id);
 
-
-        // 4. Update schema change status of ref_tablet and new_tablets
-        new_tablet->set_alter_state(AlterTabletState::ALTER_ALTERING);
-        ref_tablet->set_alter_state(AlterTabletState::ALTER_ALTERING);
-
-        // add tid to cgroup
-        CgroupsMgr::apply_system_cgroup();
-
-        // process the job : special for query tablet split key
-        VLOG(10) << "starts to alter tablet. "
-                 << "old_tablet=" << sc_params.ref_tablet->full_name()
-                 << ", new_tablet=" << sc_params.new_tablet->full_name();
-
-        if ((res = _alter_tablet(&sc_params)) != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("failed to alter tablet. [request='%s']",
-                             sc_params.debug_message.c_str());
-        }
-
-        VLOG(10) << "schema change thread completed the job. "
-                 << "request=" << sc_params.debug_message;
-    } else {
         // Delete tablet when submit alter tablet failed.
-        TabletManager::instance()->drop_tablet(
-                new_tablet->tablet_id(), new_tablet->schema_hash());
+        TabletManager::instance()->drop_tablet(new_tablet->tablet_id(), new_tablet->schema_hash());
+        return _save_alter_tablet_state(AlterTabletState::ALTER_FAILED, base_tablet, new_tablet);
     }
 
-    OLAP_LOG_WARNING("finish to generate alter tablet job. [res=%d]", res);
+    // 3. Generate alter job
+    SchemaChangeParams sc_params;
+    sc_params.alter_tablet_type = type;
+    sc_params.base_tablet = base_tablet;
+    sc_params.new_tablet = new_tablet;
+    sc_params.ref_rowset_readers = rs_readers;
+    sc_params.delete_handler = delete_handler;
+
+    res = _convert_historical_rowsets(sc_params);
+    if (res != OLAP_SUCCESS) {
+        LOG(WARNING) << "failed to alter tablet. request=" << sc_params.debug_message;
+        TabletManager::instance()->release_schema_change_lock(request.base_tablet_id);
+        return _save_alter_tablet_state(AlterTabletState::ALTER_FAILED, base_tablet, new_tablet);
+    }
+
+    _save_alter_tablet_state(AlterTabletState::ALTER_FINISHED, base_tablet, new_tablet);
+    TabletManager::instance()->release_schema_change_lock(request.base_tablet_id);
+
+    LOG(INFO) << "schema change thread completed the job. "
+              << "request=" << sc_params.debug_message;
     return res;
 }
 
 OLAPStatus SchemaChangeHandler::_create_new_tablet(
-        const TabletSharedPtr ref_tablet,
+        const TabletSharedPtr base_tablet,
         const TCreateTabletReq& request,
-        const string* ref_root_path,
-        TabletSharedPtr* out_new_tablet) {
+        TabletSharedPtr* new_tablet) {
     OLAPStatus res = OLAP_SUCCESS;
-    Tablet* new_tablet = NULL;
     bool is_tablet_added = false;
+    TabletSharedPtr tablet_to_create;
 
     // 1. Lock to ensure that all _create_new_tablet operation execute in serial
     static Mutex create_tablet_lock;
@@ -1414,11 +1364,10 @@ OLAPStatus SchemaChangeHandler::_create_new_tablet(
 
     do {
         // 2. Create tablet with only header, no deltas
-        TabletSharedPtr new_tablet = StorageEngine::instance()->create_tablet(request, true, ref_tablet);
-        if (new_tablet == NULL) {
-            OLAP_LOG_WARNING("failed to create tablet. [tablet=%ld xml_path=%d]",
-                             request.tablet_id,
-                             request.tablet_schema.schema_hash);
+        TabletSharedPtr tablet_to_create = StorageEngine::instance()->create_tablet(request, true, base_tablet);
+        if (tablet_to_create == nullptr) {
+            LOG(WARNING) << "failed to create tablet. tablet=" << request.tablet_id
+                         << ", schema_hash=" << request.tablet_schema.schema_hash;
             res = OLAP_ERR_INPUT_PARAMETER_ERROR;
             break;
         }
@@ -1430,24 +1379,21 @@ OLAPStatus SchemaChangeHandler::_create_new_tablet(
         //
         // 当出现以上2种情况时，为了能够区分alter得到的新表和旧表，这里把新表的creation_time设置为
         // 旧表的creation_time加1
-        if (new_tablet->creation_time() <= ref_tablet->creation_time()) {
-            OLAP_LOG_WARNING("new tablet's creation time is less than or equal to old tablet"
-                             "[new_tablet_creation_time=%ld; old_tablet_creation_time=%ld]",
-                             new_tablet->creation_time(),
-                             ref_tablet->creation_time());
-            int64_t new_creation_time = ref_tablet->creation_time() + 1;
-            new_tablet->set_creation_time(new_creation_time);
+        if (tablet_to_create->creation_time() <= base_tablet->creation_time()) {
+            LOG(WARNING) << "new tablet's creation time is less than or equal to old tablet"
+                         << "new_tablet_creation_time=" << tablet_to_create->creation_time()
+                         << ", base_tablet_creation_time=" << base_tablet->creation_time();
+            int64_t new_creation_time = base_tablet->creation_time() + 1;
+            tablet_to_create->set_creation_time(new_creation_time);
         }
 
         // 3. Add tablet to StorageEngine will make it visiable to user
-        res = TabletManager::instance()->add_tablet(
-                request.tablet_id,
-                request.tablet_schema.schema_hash,
-                new_tablet, 
-                false);
+        res = TabletManager::instance()->add_tablet(request.tablet_id,
+                                                    request.tablet_schema.schema_hash,
+                                                    tablet_to_create, false);
         if (res != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("failed to add tablet to StorageEngine. [res=%d tablet='%s']",
-                             res, new_tablet->full_name().c_str());
+            LOG(WARNING) << "failed to add tablet to StorageEngine. res=" << res
+                         << ", tablet=" << tablet_to_create->full_name();
             break;
         }
         is_tablet_added = true;
@@ -1455,28 +1401,15 @@ OLAPStatus SchemaChangeHandler::_create_new_tablet(
         // 4. Register tablet into store, so that we can manage tablet from
         // the perspective of root path.
         // Example: unregister all tables when a bad disk found.
-        res = new_tablet->register_tablet_into_dir();
+        res = tablet_to_create->register_tablet_into_dir();
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to register tablet into data dir. "
-                         << "root_path=" << new_tablet->data_dir()->path()
-                         << ", tablet=" << new_tablet->full_name();
+                         << "root_path=" << tablet_to_create->data_dir()->path()
+                         << ", tablet=" << tablet_to_create->full_name();
             break;
         }
 
-        TabletSharedPtr tablet;
-        tablet = TabletManager::instance()->get_tablet(
-                request.tablet_id, request.tablet_schema.schema_hash);
-        if (tablet.get() == NULL) {
-            OLAP_LOG_WARNING("failed to get tablet from StorageEngine. [tablet=%ld schema_hash=%d]",
-                             request.tablet_id,
-                             request.tablet_schema.schema_hash);
-            res = OLAP_ERR_OTHER_ERROR;
-            break;
-        }
-
-        if (out_new_tablet != NULL) {
-            *out_new_tablet = tablet;
-        }
+        *new_tablet = tablet_to_create;
     } while (0);
 
     if (res != OLAP_SUCCESS) {
@@ -1488,8 +1421,8 @@ OLAPStatus SchemaChangeHandler::_create_new_tablet(
                     << ", tablet=" << request.tablet_id
                     << ":" << request.tablet_schema.schema_hash;
             }
-        } else if (NULL != new_tablet) {
-            new_tablet->delete_all_files();
+        } else if (tablet_to_create != nullptr) {
+            tablet_to_create->delete_all_files();
         }
     }
 
@@ -1509,7 +1442,7 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
 
     OLAPStatus res = OLAP_SUCCESS;
     LOG(INFO) << "begin to convert delta version for schema changing. "
-              << "old_tablet=" << src_tablet->full_name()
+              << "base_tablet=" << src_tablet->full_name()
               << ", dest_tablet=" << dest_tablet->full_name();
 
     // a. 解析Alter请求，转换成内部的表示形式
@@ -1632,45 +1565,30 @@ SCHEMA_VERSION_CONVERT_ERR:
 }
 
 OLAPStatus SchemaChangeHandler::_get_versions_to_be_changed(
-        TabletSharedPtr ref_tablet,
+        TabletSharedPtr base_tablet,
         vector<Version>& versions_to_be_changed) {
-    int32_t request_version = 0;
-    RowsetSharedPtr rowset = ref_tablet->rowset_with_max_version();
-    if (rowset != NULL) {
-        request_version = rowset->version().second - 1;
-    } else {
-        LOG(WARNING) << "Table has no version. path=" << ref_tablet->full_name();
+    Version request_version = { -1, 0 };
+    RowsetSharedPtr rowset = base_tablet->rowset_with_max_version();
+    if (rowset == nullptr) {
+        LOG(WARNING) << "Tablet has no version. base_tablet=" << base_tablet->full_name();
         return OLAP_ERR_ALTER_DELTA_DOES_NOT_EXISTS;
+    } else {
+        request_version = rowset->version();
     }
 
-    // 最新版本的delta可以被重导覆盖，因此计算获取的路径中，
-    // 必须包含最新版本的delta
-    if (request_version >= 0) {
-        vector<Version> span_versions;
-        ref_tablet->capture_consistent_versions(Version(0, request_version), &span_versions);
-
-        // get all version list
-        vector<Version> all_versions;
-        ref_tablet->list_versions(&all_versions);
-        if (0 == all_versions.size()) {
-            LOG(WARNING) << "there'is no any version in the tablet. tablet=" << ref_tablet->full_name();
-            return OLAP_ERR_VERSION_NOT_EXIST;
-        }
-
-        for (uint32_t i = 0; i < span_versions.size(); i++) {
-            versions_to_be_changed.push_back(span_versions[i]);
-        }
+    vector<Version> span_versions;
+    base_tablet->capture_consistent_versions(request_version, &span_versions);
+    for (uint32_t i = 0; i < span_versions.size(); i++) {
+        versions_to_be_changed.push_back(span_versions[i]);
     }
-    versions_to_be_changed.push_back(
-            Version(rowset->version().first, rowset->version().second));
 
     return OLAP_SUCCESS;
 }
 
 // 增加A->(B|C|...) 的schema_change信息
-OLAPStatus SchemaChangeHandler::_save_schema_change_info(
+OLAPStatus SchemaChangeHandler::_add_alter_tablet_task(
         AlterTabletType alter_tablet_type,
-        TabletSharedPtr ref_tablet,
+        TabletSharedPtr base_tablet,
         TabletSharedPtr new_tablet,
         const vector<Version>& versions_to_be_changed) {
 
@@ -1678,26 +1596,29 @@ OLAPStatus SchemaChangeHandler::_save_schema_change_info(
     // prevent to set base's status after new's dropping (clear base's status)
     if (TabletManager::instance()->get_tablet(
             new_tablet->tablet_id(), new_tablet->schema_hash()).get() == NULL) {
-        OLAP_LOG_WARNING("fail to find tablet before saving status. [tablet='%s']",
-                         new_tablet->full_name().c_str());
+        LOG(WARNING) << "new_tablet does not exist. tablet=" << new_tablet->full_name();
         return OLAP_ERR_TABLE_NOT_FOUND;
     }
 
-    OLAPStatus res = OLAP_SUCCESS;
-
     // 1. 在新表和旧表中添加schema change标志
-    ref_tablet->delete_alter_task();
-    ref_tablet->add_alter_task(new_tablet->tablet_id(),
-                               new_tablet->schema_hash(),
-                               versions_to_be_changed,
-                               alter_tablet_type);
+    base_tablet->delete_alter_task();
+    base_tablet->add_alter_task(new_tablet->tablet_id(),
+                                new_tablet->schema_hash(),
+                                versions_to_be_changed,
+                                alter_tablet_type);
+    base_tablet->set_alter_state(AlterTabletState::ALTER_ALTERING);
+    OLAPStatus res = base_tablet->save_meta();
+    if (res != OLAP_SUCCESS) {
+        LOG(FATAL) << "fail to save ref tablet header. res=" << res
+                   << ", tablet=" << base_tablet->full_name();
+        return res;
+    }
 
-    new_tablet->add_alter_task(ref_tablet->tablet_id(),
-                               ref_tablet->schema_hash(),
+    new_tablet->add_alter_task(base_tablet->tablet_id(),
+                               base_tablet->schema_hash(),
                                vector<Version>(),  // empty versions
                                alter_tablet_type);
-
-    // save new tablet header :只有一个父ref tablet
+    new_tablet->set_alter_state(AlterTabletState::ALTER_ALTERING);
     res = new_tablet->save_meta();
     if (res != OLAP_SUCCESS) {
         LOG(FATAL) << "fail to save new tablet header. res=" << res
@@ -1705,93 +1626,95 @@ OLAPStatus SchemaChangeHandler::_save_schema_change_info(
         return res;
     }
 
-    res = ref_tablet->save_meta();
+    return res;
+}
+
+OLAPStatus SchemaChangeHandler::_save_alter_tablet_state(
+        AlterTabletState state,
+        TabletSharedPtr base_tablet,
+        TabletSharedPtr new_tablet) {
+    base_tablet->set_alter_state(state);
+    OLAPStatus res = base_tablet->save_meta();
     if (res != OLAP_SUCCESS) {
-        LOG(FATAL) << "fail to save ref tablet header. res=" << res
-                   << ", tablet=" << ref_tablet->full_name().c_str();
+        LOG(FATAL) << "fail to save base tablet meta. res=" << res
+                   << ", base_tablet=" << base_tablet->full_name();
+        return res;
+    }
+
+    new_tablet->set_alter_state(state);
+    res = new_tablet->save_meta();
+    if (res != OLAP_SUCCESS) {
+        LOG(FATAL) << "fail to save new tablet meta. res=" << res
+                   << ", new_tablet=" << base_tablet->full_name();
         return res;
     }
 
     return res;
 }
-
 // @static
-OLAPStatus SchemaChangeHandler::_alter_tablet(SchemaChangeParams* sc_params) {
-    OLAPStatus res = OLAP_SUCCESS;
-    LOG(INFO) << "begin to process alter tablet job. "
-              << "old_tablet=" << sc_params->ref_tablet->full_name()
-              << ", new_tablet=" << sc_params->new_tablet->full_name();
+OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams& sc_params) {
+    LOG(INFO) << "begin to convert rowsets for new_tablet from base_tablet. "
+              << "base_tablet=" << sc_params.base_tablet->full_name()
+              << ", new_tablet=" << sc_params.new_tablet->full_name();
 
     // find end version
     int32_t end_version = -1;
-    for (size_t i = 0; i < sc_params->ref_rowset_readers.size(); ++i) {
-        if (sc_params->ref_rowset_readers[i]->version().second > end_version) {
-            end_version = sc_params->ref_rowset_readers[i]->version().second;
+    for (size_t i = 0; i < sc_params.ref_rowset_readers.size(); ++i) {
+        if (sc_params.ref_rowset_readers[i]->version().second > end_version) {
+            end_version = sc_params.ref_rowset_readers[i]->version().second;
         }
     }
 
     // change中增加了filter信息，在_parse_request中会设置filter的column信息
     // 并在每次row block的change时，过滤一些数据
-    RowBlockChanger rb_changer(sc_params->new_tablet->tablet_schema(),
-                               sc_params->ref_tablet,
-                               sc_params->delete_handler);
+    RowBlockChanger rb_changer(sc_params.new_tablet->tablet_schema(),
+                               sc_params.base_tablet, sc_params.delete_handler);
 
     bool sc_sorting = false;
     bool sc_directly = false;
     SchemaChange* sc_procedure = NULL;
 
     // a. 解析Alter请求，转换成内部的表示形式
-    res = _parse_request(sc_params->ref_tablet,
-                         sc_params->new_tablet,
-                         &rb_changer,
-                         &sc_sorting,
-                         &sc_directly);
+    OLAPStatus res = _parse_request(sc_params.base_tablet, sc_params.new_tablet,
+                                    &rb_changer, &sc_sorting, &sc_directly);
     if (res != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("failed to parse the request. [res=%d]", res);
         goto PROCESS_ALTER_EXIT;
     }
 
     // b. 生成历史数据转换器
-    if (true == sc_sorting) {
+    if (sc_sorting) {
         size_t memory_limitation = config::memory_limitation_per_thread_for_schema_change;
         LOG(INFO) << "doing schema change with sorting.";
-        sc_procedure = new(nothrow) SchemaChangeWithSorting(
-                               sc_params->new_tablet,
-                               rb_changer,
-                               memory_limitation * 1024 * 1024 * 1024);
-    } else if (true == sc_directly) {
+        sc_procedure = new(nothrow) SchemaChangeWithSorting(sc_params.new_tablet, rb_changer,
+                                                            memory_limitation * 1024 * 1024 * 1024);
+    } else if (sc_directly) {
         LOG(INFO) << "doing schema change directly.";
-        sc_procedure = new(nothrow) SchemaChangeDirectly(
-                sc_params->new_tablet, rb_changer);
+        sc_procedure = new(nothrow) SchemaChangeDirectly(sc_params.new_tablet, rb_changer);
     } else {
         LOG(INFO) << "doing linked schema change.";
-        sc_procedure = new(nothrow) LinkedSchemaChange(
-                                sc_params->ref_tablet,
-                                sc_params->new_tablet);
+        sc_procedure = new(nothrow) LinkedSchemaChange(sc_params.base_tablet, sc_params.new_tablet);
     }
 
-    if (NULL == sc_procedure) {
-        OLAP_LOG_WARNING("failed to malloc SchemaChange. [size=%ld]",
-                         sizeof(SchemaChangeWithSorting));
+    if (sc_procedure == nullptr) {
+        LOG(WARNING) << "failed to malloc SchemaChange. "
+                     << "malloc_size=" << sizeof(SchemaChangeWithSorting);
         res = OLAP_ERR_MALLOC_ERROR;
         goto PROCESS_ALTER_EXIT;
     }
 
     // c. 转换历史数据
-    for (vector<RowsetReaderSharedPtr>::iterator it = sc_params->ref_rowset_readers.end() - 1;
-            it >= sc_params->ref_rowset_readers.begin(); --it) {
-        VLOG(10) << "begin to convert a history delta. "
-                 << "version=" << (*it)->version().first << "-" << (*it)->version().second;
+    for (auto& rs_reader : sc_params.ref_rowset_readers) {
+        VLOG(10) << "begin to convert a history rowset. version="
+                 << rs_reader->version().first << "-" << rs_reader->version().second;
 
         // set status for monitor
         // 只要有一个new_table为running，ref table就设置为running
         // NOTE 如果第一个sub_table先fail，这里会继续按正常走
-        sc_params->ref_tablet->set_alter_state(AlterTabletState::ALTER_ALTERING);
-        sc_params->new_tablet->set_alter_state(AlterTabletState::ALTER_ALTERING);
 
         RowsetId rowset_id = 0;
-        TabletSharedPtr new_tablet = sc_params->new_tablet;
-        res = RowsetIdGenerator::instance()->get_next_id(sc_params->new_tablet->data_dir(), &rowset_id);
+        TabletSharedPtr new_tablet = sc_params.new_tablet;
+        res = RowsetIdGenerator::instance()->get_next_id(sc_params.new_tablet->data_dir(), &rowset_id);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "generate next id failed";
             goto PROCESS_ALTER_EXIT;
@@ -1806,8 +1729,8 @@ OLAPStatus SchemaChangeHandler::_alter_tablet(SchemaChangeParams* sc_params) {
                        .set_rowset_path_prefix(new_tablet->tablet_path())
                        .set_tablet_schema(&(new_tablet->tablet_schema()))
                        .set_rowset_state(VISIBLE)
-                       .set_version((*it)->version())
-                       .set_version_hash((*it)->version_hash());
+                       .set_version(rs_reader->version())
+                       .set_version_hash(rs_reader->version_hash());
         RowsetWriterContext builder_context = context_builder.build();
 
         RowsetWriterSharedPtr rowset_writer(new AlphaRowsetWriter());
@@ -1817,10 +1740,10 @@ OLAPStatus SchemaChangeHandler::_alter_tablet(SchemaChangeParams* sc_params) {
             goto PROCESS_ALTER_EXIT;
         }
 
-        if (!sc_procedure->process(*it, rowset_writer, sc_params->new_tablet)) {
+        if (!sc_procedure->process(rs_reader, rowset_writer, sc_params.new_tablet)) {
             LOG(WARNING) << "failed to process the version. "
-                         << " version=" << (*it)->version().first
-                         << "-" << (*it)->version().second;
+                         << " version=" << rs_reader->version().first
+                         << "-" << rs_reader->version().second;
             rowset_writer->release();
 
             res = OLAP_ERR_INPUT_PARAMETER_ERROR;
@@ -1829,57 +1752,59 @@ OLAPStatus SchemaChangeHandler::_alter_tablet(SchemaChangeParams* sc_params) {
 
         // 将新版本的数据加入header
         // 为了防止死锁的出现，一定要先锁住旧表，再锁住新表
-        sc_params->new_tablet->obtain_push_lock();
-        sc_params->ref_tablet->obtain_header_wrlock();
-        sc_params->new_tablet->obtain_header_wrlock();
+        sc_params.new_tablet->obtain_push_lock();
+        sc_params.base_tablet->obtain_header_wrlock();
+        sc_params.new_tablet->obtain_header_wrlock();
 
-        if (!sc_params->new_tablet->check_version_exist((*it)->version())) {
+        if (!sc_params.new_tablet->check_version_exist(rs_reader->version())) {
             // register version
             RowsetSharedPtr new_rowset = rowset_writer->build();
-            res = sc_params->new_tablet->add_rowset(new_rowset);
+            res = sc_params.new_tablet->add_rowset(new_rowset);
             if (OLAP_SUCCESS != res) {
                 LOG(WARNING) << "failed to register new version. "
-                             << " tablet='%s'" << sc_params->new_tablet->full_name()
-                             << " version='" << (*it)->version().first
-                             << "-" << (*it)->version().second << "'";
+                             << " tablet=" << sc_params.new_tablet->full_name()
+                             << ", version=" << rs_reader->version().first
+                             << "-" << rs_reader->version().second;
                 new_rowset->remove();
 
-                sc_params->new_tablet->release_header_lock();
-                sc_params->ref_tablet->release_header_lock();
+                sc_params.new_tablet->release_header_lock();
+                sc_params.base_tablet->release_header_lock();
 
                 goto PROCESS_ALTER_EXIT;
             }
 
-            VLOG(3) << "register new version. tablet=" << sc_params->new_tablet->full_name()
-                    << ", version=" << (*it)->version().first << "-" << (*it)->version().second;
+            VLOG(3) << "register new version. tablet=" << sc_params.new_tablet->full_name()
+                    << ", version=" << rs_reader->version().first
+                    << "-" << rs_reader->version().second;
         } else {
             LOG(WARNING) << "version already exist, version revert occured. "
-                         << "[tablet=" << sc_params->new_tablet->full_name()
-                         << " version='" << (*it)->version().first
-                         << "-" << (*it)->version().second << "']";
+                         << "tablet=" << sc_params.new_tablet->full_name()
+                         << ", version='" << rs_reader->version().first
+                         << "-" << rs_reader->version().second;
             rowset_writer->release();
         }
 
         // 保存header
-        if (OLAP_SUCCESS != sc_params->new_tablet->save_meta()) {
+        if (OLAP_SUCCESS != sc_params.new_tablet->save_meta()) {
             LOG(FATAL) << "fail to save header. res=" << res
-                       << ", tablet=" << sc_params->new_tablet->full_name();
+                       << ", tablet=" << sc_params.new_tablet->full_name();
         }
 
         // 保存header
-        if (OLAP_SUCCESS != sc_params->ref_tablet->save_meta()) {
-            LOG(FATAL) << "failed to save header. tablet=" << sc_params->new_tablet->full_name();
+        if (OLAP_SUCCESS != sc_params.base_tablet->save_meta()) {
+            LOG(FATAL) << "failed to save header. tablet=" << sc_params.new_tablet->full_name();
         }
 
-        sc_params->new_tablet->release_header_lock();
-        sc_params->ref_tablet->release_header_lock();
-        sc_params->new_tablet->release_push_lock();
+        sc_params.new_tablet->release_header_lock();
+        sc_params.base_tablet->release_header_lock();
+        sc_params.new_tablet->release_push_lock();
 
         VLOG(10) << "succeed to convert a history version."
-            << ", version=" << (*it)->version().first << "-" << (*it)->version().second;
+                 << ", version=" << rs_reader->version().first
+                 << "-" << rs_reader->version().second;
 
         // 释放RowsetReader
-        (*it)->close();
+        rs_reader->close();
     }
 
     // XXX: 此时应该不取消SchemaChange状态，因为新Delta还要转换成新旧Schema的版本
@@ -1887,33 +1812,23 @@ OLAPStatus SchemaChangeHandler::_alter_tablet(SchemaChangeParams* sc_params) {
 PROCESS_ALTER_EXIT:
     if (res == OLAP_SUCCESS) {
         Version test_version(0, end_version);
-        res = sc_params->new_tablet->check_version_integrity(test_version);
+        res = sc_params.new_tablet->check_version_integrity(test_version);
     }
 
-    if (res == OLAP_SUCCESS) {
-        sc_params->ref_tablet->set_alter_state(AlterTabletState::ALTER_FINISHED);
-        sc_params->new_tablet->set_alter_state(AlterTabletState::ALTER_FINISHED);
-        VLOG(3) << "set alter tablet job status. "
-                << "state=" << sc_params->ref_tablet->alter_state();
-    } else {
-        sc_params->ref_tablet->set_alter_state(AlterTabletState::ALTER_FAILED);
-        sc_params->new_tablet->set_alter_state(AlterTabletState::ALTER_FAILED);
-        VLOG(3) << "set alter tablet job status. "
-                << "state=" << sc_params->ref_tablet->alter_state();
-    }
-
-    for (auto& rs_reader : sc_params->ref_rowset_readers) {
+    for (auto& rs_reader : sc_params.ref_rowset_readers) {
         rs_reader->close();
     }
     SAFE_DELETE(sc_procedure);
 
-    LOG(INFO) << "finish to process alter tablet job. res=" << res;
+    LOG(INFO) << "finish converting rowsets for new_tablet from base_tablet. "
+              << "base_tablet=" << sc_params.base_tablet->full_name()
+              << ", new_tablet=" << sc_params.new_tablet->full_name();
     return res;
 }
 
 // @static
 // 分析column的mapping以及filter key的mapping
-OLAPStatus SchemaChangeHandler::_parse_request(TabletSharedPtr ref_tablet,
+OLAPStatus SchemaChangeHandler::_parse_request(TabletSharedPtr base_tablet,
                                                TabletSharedPtr new_tablet,
                                                RowBlockChanger* rb_changer,
                                                bool* sc_sorting,
@@ -1928,7 +1843,7 @@ OLAPStatus SchemaChangeHandler::_parse_request(TabletSharedPtr ref_tablet,
         ColumnMapping* column_mapping = rb_changer->get_mutable_column_mapping(i);
 
         if (new_column.has_reference_column()) {
-            int32_t column_index = ref_tablet->field_index(new_column.referenced_column());
+            int32_t column_index = base_tablet->field_index(new_column.referenced_column());
 
             if (column_index < 0) {
                 LOG(WARNING) << "referenced column was missing. "
@@ -1943,7 +1858,7 @@ OLAPStatus SchemaChangeHandler::_parse_request(TabletSharedPtr ref_tablet,
             continue;
         }
 
-        int32_t column_index = ref_tablet->field_index(column_name);
+        int32_t column_index = base_tablet->field_index(column_name);
         if (column_index >= 0) {
             column_mapping->ref_column = column_index;
             continue;
@@ -1954,7 +1869,7 @@ OLAPStatus SchemaChangeHandler::_parse_request(TabletSharedPtr ref_tablet,
         {
             column_mapping->ref_column = -1;
 
-            if (i < ref_tablet->num_short_key_columns()) {
+            if (i < base_tablet->num_short_key_columns()) {
                 *sc_directly = true;
             }
 
@@ -2007,13 +1922,13 @@ OLAPStatus SchemaChangeHandler::_parse_request(TabletSharedPtr ref_tablet,
         }
     }
 
-    if (ref_tablet->num_short_key_columns() != new_tablet->num_short_key_columns()) {
+    if (base_tablet->num_short_key_columns() != new_tablet->num_short_key_columns()) {
         // the number of short_keys changed, can't do linked schema change
         *sc_directly = true;
         return OLAP_SUCCESS;
     }
 
-    const TabletSchema& ref_tablet_schema = ref_tablet->tablet_schema();
+    const TabletSchema& ref_tablet_schema = base_tablet->tablet_schema();
     const TabletSchema& new_tablet_schema = new_tablet->tablet_schema();
     for (size_t i = 0; i < new_tablet->num_columns(); ++i) {
         ColumnMapping* column_mapping = rb_changer->get_mutable_column_mapping(i);
@@ -2037,7 +1952,7 @@ OLAPStatus SchemaChangeHandler::_parse_request(TabletSharedPtr ref_tablet,
         }
     }
 
-    if (ref_tablet->delete_predicates().size() != 0){
+    if (base_tablet->delete_predicates().size() != 0){
         //there exists delete condtion in header, can't do linked schema change
         *sc_directly = true;
     }
