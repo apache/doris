@@ -141,8 +141,6 @@ RowsetSharedPtr AlphaRowsetWriter::build() {
         _current_rowset_meta->set_index_disk_size(_current_rowset_meta->index_disk_size() + segment_group->index_size());
         _current_rowset_meta->set_total_disk_size(_current_rowset_meta->total_disk_size()
                 + segment_group->index_size() + segment_group->data_size());
-        _current_rowset_meta->set_num_rows(_current_rowset_meta->num_rows() + segment_group->num_rows());
-        _current_rowset_meta->set_creation_time(time(NULL));
         if (_is_pending_rowset) {
             PendingSegmentGroupPB pending_segment_group_pb;
             pending_segment_group_pb.set_pending_segment_group_id(segment_group->segment_group_id());
@@ -190,6 +188,11 @@ RowsetSharedPtr AlphaRowsetWriter::build() {
     } else {
         _current_rowset_meta->set_rowset_state(VISIBLE);
     }
+    if (_num_rows_written == 0) {
+        _current_rowset_meta->set_empty(true);
+    }
+    _current_rowset_meta->set_num_rows(_num_rows_written);
+    _current_rowset_meta->set_creation_time(time(NULL));
 
     RowsetSharedPtr rowset(new(std::nothrow) AlphaRowset(_rowset_writer_context.tablet_schema,
                                     _rowset_writer_context.rowset_path_prefix,

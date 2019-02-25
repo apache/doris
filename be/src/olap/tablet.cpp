@@ -117,14 +117,12 @@ OLAPStatus Tablet::init_once() {
     VLOG(3) << "begin to load indices. tablet=" << full_name()
             << ", version_size=" << tablet_meta->version_count();
     for (auto& rs_meta :  tablet_meta->all_rs_metas()) {
-        LOG(INFO) << "start to new rs";
         Version version = { rs_meta->start_version(), rs_meta->end_version() };
         RowsetSharedPtr rowset(new AlphaRowset(&_schema, _tablet_path, _data_dir, rs_meta));
         _rs_version_map[version] = rowset;
     }
 
     for (auto& it : _rs_version_map) {
-        LOG(INFO) << "start to init rs";
         res = it.second->init();
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to load rowset. "
@@ -437,7 +435,10 @@ OLAPStatus Tablet::capture_rs_readers(const vector<Version>& version_path,
                          << ", version='" << version.first << "-" << version.second;
             return OLAP_ERR_CAPTURE_ROWSET_READER_ERROR;
         }
-
+        // if the rowset is empty, there is no need to read
+        if (it->second->empty()) {
+            continue;
+        }
         std::shared_ptr<RowsetReader> rs_reader(it->second->create_reader());
         rs_readers->push_back(rs_reader);
     }
