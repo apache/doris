@@ -166,7 +166,7 @@ void RawValue::print_value(const void* value, const TypeDescriptor& type, int sc
         break;
 
     case TYPE_DECIMAL_V2:
-        *stream << reinterpret_cast<const PackedInt128*>(value)->value;
+        *stream << *reinterpret_cast<const DecimalValue*>(value);
         break;
 
     case TYPE_LARGEINT:

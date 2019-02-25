@@ -168,8 +168,8 @@ inline bool RawValue::lt(const void* v1, const void* v2, const TypeDescriptor& t
                *reinterpret_cast<const DecimalValue*>(v2);
 
     case TYPE_DECIMAL_V2:
-        return reinterpret_cast<const PackedInt128*>(v1)->value <
-               reinterpret_cast<const PackedInt128*>(v2)->value;
+        return *reinterpret_cast<const Decimal_V2Value*>(v1) <
+               *reinterpret_cast<const Decimal_V2Value*>(v2);
 
     case TYPE_LARGEINT:
         return reinterpret_cast<const PackedInt128*>(v1)->value <
@@ -230,8 +230,8 @@ inline bool RawValue::eq(const void* v1, const void* v2, const TypeDescriptor& t
                *reinterpret_cast<const DecimalValue*>(v2);
 
     case TYPE_DECIMAL_V2:
-        return reinterpret_cast<const PackedInt128*>(v1)->value ==
-               reinterpret_cast<const PackedInt128*>(v2)->value;
+        return *reinterpret_cast<const Decimal_V2Value*>(v1) ==
+               *reinterpret_cast<const Decimal_V2Value*>(v2);
 
     case TYPE_LARGEINT:
         return reinterpret_cast<const PackedInt128*>(v1)->value ==

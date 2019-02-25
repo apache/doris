@@ -180,6 +180,7 @@ public class TupleDescriptor {
         // slotIdx is the index into the resulting tuple struct.  The first (smallest) field
         // is 0, next is 1, etc.
         int slotIdx = 0;
+        int offset2 = -1;
         for (int slotSize = 1; slotSize <= PrimitiveType.getMaxSlotSize(); ++slotSize) {
             if (slotsBySize.get(slotSize).isEmpty()) {
                 continue;
@@ -190,11 +191,18 @@ public class TupleDescriptor {
                 if (slotSize == 40) {
                     alignTo = 4;
                 }
+
+                if (slotSize == 16) {
+                    offset2 = (offset + 16 - 1) / 16 * 16;
+                }
                 offset = (offset + alignTo - 1) / alignTo * alignTo;
             }
 
             for (SlotDescriptor d : slotsBySize.get(slotSize)) {
                 d.setByteSize(slotSize);
+                if (d.getType().getPrimitiveType() == PrimitiveType.DECIMAL_V2) {
+                    if (offset2 != -1) offset = offset2;
+                }
                 d.setByteOffset(offset);
                 d.setSlotIdx(slotIdx++);
                 offset += slotSize;

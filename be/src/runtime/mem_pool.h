@@ -101,6 +101,9 @@ class MemPool {
     return allocate<false>(size, DEFAULT_ALIGNMENT);
   }
 
+  uint8_t* allocate(int64_t size, int alignment) {
+    return allocate<false>(size, alignment);
+
   /// Same as Allocate() except the mem limit is checked before the allocation and
   /// this call will fail (returns NULL) if it does.
   /// The caller must handle the NULL case. This should be used for allocations
