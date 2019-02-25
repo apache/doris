@@ -571,9 +571,7 @@ Decimal_V2Val MathFunctions::negative_decimal(
         return val;
     }
     const Decimal_V2Value& dv1 = Decimal_V2Value::from_decimal_val(val);
-    LOG(INFO) << dv1.to_string();
     Decimal_V2Val result;
-    LOG(INFO) << (-dv1).to_string();
     (-dv1).to_decimal_val(&result);
     return result;
 }

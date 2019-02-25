@@ -346,7 +346,8 @@ inline void AggFnEvaluator::set_any_val(
         return;
 
     case TYPE_DECIMAL_V2:
-        memcpy(&reinterpret_cast<Decimal_V2Val*>(dst)->val, slot, sizeof(__int128));
+        reinterpret_cast<const Decimal_V2Value*>(slot)->to_decimal_val(
+                reinterpret_cast<Decimal_V2Val*>(dst));
         return;
 
     case TYPE_LARGEINT:
@@ -419,7 +420,8 @@ inline void AggFnEvaluator::set_output_slot(const AnyVal* src,
         return;
 
     case TYPE_DECIMAL_V2:
-        memcpy(slot, &reinterpret_cast<const Decimal_V2Val*>(src)->val, sizeof(__int128));
+        *reinterpret_cast<Decimal_V2Value*>(slot) = Decimal_V2Value::from_decimal_val(
+                    *reinterpret_cast<const Decimal_V2Val*>(src));
         return;
 
     case TYPE_LARGEINT: {
