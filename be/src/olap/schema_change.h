@@ -44,11 +44,11 @@ public:
     typedef std::vector<ColumnMapping> SchemaMapping;
 
     RowBlockChanger(const TabletSchema& tablet_schema,
-                    const TabletSharedPtr& ref_tablet,
+                    const TabletSharedPtr& base_tablet,
                     const DeleteHandler& delete_handler);
 
     RowBlockChanger(const TabletSchema& tablet_schema,
-                    const TabletSharedPtr& ref_tablet);
+                    const TabletSharedPtr& base_tablet);
     
     virtual ~RowBlockChanger();
 
@@ -257,7 +257,7 @@ public:
     OLAPStatus process_alter_tablet(AlterTabletType alter_tablet_type,
                                    const TAlterTabletReq& request);
 
-    OLAPStatus schema_version_convert(TabletSharedPtr ref_tablet,
+    OLAPStatus schema_version_convert(TabletSharedPtr base_tablet,
                                       TabletSharedPtr new_tablet,
                                       std::vector<RowsetSharedPtr>* old_rowsets,
                                       std::vector<RowsetSharedPtr>* new_rowsets);
@@ -272,17 +272,13 @@ private:
     OLAPStatus _check_and_clear_schema_change_info(TabletSharedPtr tablet,
                                                    const TAlterTabletReq& request);
 
-    OLAPStatus _get_versions_to_be_changed(TabletSharedPtr ref_tablet,
+    OLAPStatus _get_versions_to_be_changed(TabletSharedPtr base_tablet,
                                            std::vector<Version>& versions_to_be_changed);
-
-    OLAPStatus _do_alter_tablet(AlterTabletType type,
-                               TabletSharedPtr ref_tablet,
-                               const TAlterTabletReq& request);
 
     struct SchemaChangeParams {
         // 为了让calc_split_key也可使用普通schema_change的线程，才设置了此type
         AlterTabletType alter_tablet_type;
-        TabletSharedPtr ref_tablet;
+        TabletSharedPtr base_tablet;
         TabletSharedPtr new_tablet;
         std::vector<RowsetReaderSharedPtr> ref_rowset_readers;
         std::string debug_message;
@@ -293,25 +289,27 @@ private:
     };
 
     // 根据给定的table_desc，创建Tablet，并挂接到StorageEngine中
-    OLAPStatus _create_new_tablet(const TabletSharedPtr ref_tablet,
-                                      const TCreateTabletReq& create_tablet_req,
-                                      const std::string* ref_root_path,
-                                      TabletSharedPtr* out_new_tablet);
+    OLAPStatus _create_new_tablet(const TabletSharedPtr base_tablet,
+                                  const TCreateTabletReq& create_tablet_req,
+                                  TabletSharedPtr* new_tablet);
 
     // 增加A->(B|C|...) 的schema_change信息
     //  在split table时，增加split-tablet status相关的信息
     //  其他的都增加在schema-change status中
-    OLAPStatus _save_schema_change_info(AlterTabletType alter_tablet_type,
-                                        TabletSharedPtr ref_tablet,
-                                        TabletSharedPtr new_tablet,
-                                        const std::vector<Version>& versions_to_be_changed);
+    OLAPStatus _add_alter_tablet_task(AlterTabletType alter_tablet_type,
+                                      TabletSharedPtr base_tablet,
+                                      TabletSharedPtr new_tablet,
+                                      const std::vector<Version>& versions_to_be_changed);
+    OLAPStatus _save_alter_tablet_state(AlterTabletState state,
+                                        TabletSharedPtr base_tablet,
+                                        TabletSharedPtr new_tablet);
 
-    static OLAPStatus _alter_tablet(SchemaChangeParams* sc_params);
+    static OLAPStatus _convert_historical_rowsets(const SchemaChangeParams& sc_params);
 
-    static OLAPStatus _parse_request(TabletSharedPtr ref_tablet,
+    static OLAPStatus _parse_request(TabletSharedPtr base_tablet,
                                      TabletSharedPtr new_tablet,
                                      RowBlockChanger* rb_changer,
-                                     bool* sc_sorting, 
+                                     bool* sc_sorting,
                                      bool* sc_directly);
 
     // 需要新建default_value时的初始化设置

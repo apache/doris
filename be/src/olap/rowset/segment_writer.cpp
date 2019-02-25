@@ -153,7 +153,7 @@ OLAPStatus SegmentWriter::_make_file_header(ColumnDataHeaderMessage* file_header
         //   * column_unique_id
         //   * column_type
         //   * column_encoding
-        //   * column_statistics
+        //   * zone_maps
         res = (*it)->finalize(file_header);
 
         if (OLAP_UNLIKELY(OLAP_SUCCESS != res)) {

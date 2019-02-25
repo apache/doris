@@ -120,7 +120,7 @@ OLAPStatus AlphaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
         segment_group->copy_segments_to_path(_rowset_writer_context.rowset_path_prefix);
         _cur_segment_group->set_empty(segment_group->empty());
         _cur_segment_group->set_num_segments(segment_group->num_segments());
-        _cur_segment_group->add_column_statistics_for_linked_schema_change(segment_group->get_column_statistics());
+        _cur_segment_group->add_zone_maps_for_linked_schema_change(segment_group->get_zone_maps());
         _num_rows_written += alpha_rowset->num_rows();
     }
     return OLAP_SUCCESS;
@@ -149,13 +149,13 @@ RowsetSharedPtr AlphaRowsetWriter::build() {
             unique_id->set_hi(_rowset_writer_context.load_id.hi());
             unique_id->set_lo(_rowset_writer_context.load_id.lo());
             pending_segment_group_pb.set_empty(segment_group->empty());
-            const std::vector<KeyRange>& column_statistics = segment_group->get_column_statistics();
-            if (column_statistics.size() > 0) {
-                for (size_t i = 0; i < column_statistics.size(); ++i) {
-                    ColumnPruning* column_pruning = pending_segment_group_pb.add_column_pruning();
-                    column_pruning->set_min(column_statistics.at(i).first->to_string());
-                    column_pruning->set_max(column_statistics.at(i).second->to_string());
-                    column_pruning->set_null_flag(column_statistics.at(i).first->is_null());
+            const std::vector<KeyRange>& zone_maps = segment_group->get_zone_maps();
+            if (!zone_maps.empty()) {
+                for (size_t i = 0; i < zone_maps.size(); ++i) {
+                    ZoneMap* new_zone_map = pending_segment_group_pb.add_zone_maps();
+                    new_zone_map->set_min(zone_maps.at(i).first->to_string());
+                    new_zone_map->set_max(zone_maps.at(i).second->to_string());
+                    new_zone_map->set_null_flag(zone_maps.at(i).first->is_null());
                 }
             }
             AlphaRowsetMetaSharedPtr alpha_rowset_meta
@@ -168,13 +168,13 @@ RowsetSharedPtr AlphaRowsetWriter::build() {
             segment_group_pb.set_index_size(segment_group->index_size());
             segment_group_pb.set_data_size(segment_group->data_size());
             segment_group_pb.set_num_rows(segment_group->num_rows());
-            const std::vector<KeyRange>& column_statistics = segment_group->get_column_statistics();
-            if (column_statistics.size() > 0) {
-                for (size_t i = 0; i < column_statistics.size(); ++i) {
-                    ColumnPruning* column_pruning = segment_group_pb.add_column_pruning();
-                    column_pruning->set_min(column_statistics.at(i).first->to_string());
-                    column_pruning->set_max(column_statistics.at(i).second->to_string());
-                    column_pruning->set_null_flag(column_statistics.at(i).first->is_null());
+            const std::vector<KeyRange>& zone_maps = segment_group->get_zone_maps();
+            if (!zone_maps.empty()) {
+                for (size_t i = 0; i < zone_maps.size(); ++i) {
+                    ZoneMap* new_zone_map = segment_group_pb.add_zone_maps();
+                    new_zone_map->set_min(zone_maps.at(i).first->to_string());
+                    new_zone_map->set_max(zone_maps.at(i).second->to_string());
+                    new_zone_map->set_null_flag(zone_maps.at(i).first->is_null());
                 }
             }
             segment_group_pb.set_empty(segment_group->empty());

@@ -437,6 +437,18 @@ OLAPStatus TabletMeta::add_inc_rs_meta(const RowsetMetaSharedPtr& rs_meta) {
     return OLAP_SUCCESS;
 }
 
+RowsetMetaSharedPtr TabletMeta::acquire_rs_meta_by_version(const Version& version) const {
+    RowsetMetaSharedPtr rs_meta = nullptr;
+    for (int i = 0; i < _rs_metas.size(); ++i) {
+        if (_rs_metas[i]->version().first == version.first
+              && _rs_metas[i]->version().second == version.second) {
+            rs_meta = _rs_metas[i];
+            break;
+        }
+    }
+    return rs_meta;
+}
+
 OLAPStatus TabletMeta::delete_inc_rs_meta_by_version(const Version& version) {
     auto it = _inc_rs_metas.begin();
     bool modified = false;
@@ -459,7 +471,7 @@ OLAPStatus TabletMeta::delete_inc_rs_meta_by_version(const Version& version) {
     return OLAP_SUCCESS;
 }
 
-RowsetMetaSharedPtr TabletMeta::acquire_inc_rs_meta(const Version& version) const {
+RowsetMetaSharedPtr TabletMeta::acquire_inc_rs_meta_by_version(const Version& version) const {
     RowsetMetaSharedPtr rs_meta = nullptr;
     for (int i = 0; i < _inc_rs_metas.size(); ++i) {
         if (_inc_rs_metas[i]->version().first == version.first

@@ -21,14 +21,14 @@ package doris;
 import "olap_common.proto";
 import "types.proto";
 
-message ColumnPruning {
+message ZoneMap {
     required bytes min = 1;
     required bytes max = 2;
     optional bool null_flag = 3;
 }
 
 message DeltaPruning {
-    repeated ColumnPruning column_pruning = 1;
+    repeated ZoneMap zone_maps = 1;
 }
 
 // define OLAP FileVersion Message, Base, delta and cumulative delta 
@@ -85,7 +85,7 @@ message RowsetMetaPB {
     optional int64 data_disk_size = 13;
     optional int64 index_disk_size = 14;
     // column min/max/null flag statistic info
-    repeated ColumnPruning column_statistics = 15;
+    repeated ZoneMap zone_maps = 15;
     optional DeletePredicatePB delete_predicate = 16;
     optional bool empty = 17;
     optional string rowset_path = 18;
@@ -107,7 +107,7 @@ message SegmentGroupPB {
     required int64 index_size = 3;
     required int64 data_size = 4;
     required int64 num_rows = 5;
-    repeated ColumnPruning column_pruning = 6;
+    repeated ZoneMap zone_maps = 6;
     optional bool empty = 7;
 }
 
@@ -123,7 +123,7 @@ message PendingSegmentGroupPB {
     required int32 pending_segment_group_id = 1;
     required int32 num_segments = 2;
     required PUniqueId load_id = 3;
-    repeated ColumnPruning column_pruning = 4;
+    repeated ZoneMap zone_maps = 4;
     optional bool empty = 5;
 }
 

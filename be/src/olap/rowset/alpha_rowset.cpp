@@ -52,9 +52,8 @@ OLAPStatus AlphaRowset::init() {
 
 std::shared_ptr<RowsetReader> AlphaRowset::create_reader() {
     return std::shared_ptr<RowsetReader>(new AlphaRowsetReader(
-            _schema->num_key_columns(), _schema->num_short_key_columns(),
-            _schema->num_rows_per_row_block(), _rowset_path,
-            _rowset_meta.get(), _segment_groups, shared_from_this()));
+            _schema->num_rows_per_row_block(), _rowset_meta.get(),
+            _segment_groups, shared_from_this()));
 }
 
 OLAPStatus AlphaRowset::copy(RowsetWriter* dest_rowset_writer) {
@@ -141,13 +140,13 @@ void AlphaRowset::set_version_and_version_hash(Version version,  VersionHash ver
         segment_group_pb.set_index_size(segment_group->index_size());
         segment_group_pb.set_data_size(segment_group->data_size());
         segment_group_pb.set_num_rows(segment_group->num_rows());
-        const std::vector<KeyRange>& column_statistics = segment_group->get_column_statistics();
-        if (column_statistics.size() > 0) {
-            for (size_t i = 0; i < column_statistics.size(); ++i) {
-                ColumnPruning* column_pruning = segment_group_pb.add_column_pruning();
-                column_pruning->set_min(column_statistics.at(i).first->to_string());
-                column_pruning->set_max(column_statistics.at(i).second->to_string());
-                column_pruning->set_null_flag(column_statistics.at(i).first->is_null());
+        const std::vector<KeyRange>& zone_maps = segment_group->get_zone_maps();
+        if (zone_maps.size() > 0) {
+            for (size_t i = 0; i < zone_maps.size(); ++i) {
+                ZoneMap* new_zone_map = segment_group_pb.add_zone_maps();
+                new_zone_map->set_min(zone_maps.at(i).first->to_string());
+                new_zone_map->set_max(zone_maps.at(i).second->to_string());
+                new_zone_map->set_null_flag(zone_maps.at(i).first->is_null());
             }
         }
         segment_group_pb.set_empty(segment_group->empty());
@@ -361,28 +360,28 @@ OLAPStatus AlphaRowset::_init_non_pending_segment_groups() {
                 // if load segment group failed, rowset init failed
             return OLAP_ERR_TABLE_INDEX_VALIDATE_ERROR;
         }
-        if (segment_group_meta.column_pruning_size() != 0) {
-            size_t column_pruning_size = segment_group_meta.column_pruning_size();
+        if (segment_group_meta.zone_maps_size() != 0) {
+            size_t zone_maps_size = segment_group_meta.zone_maps_size();
             size_t num_key_columns = _schema->num_key_columns();
-            if (num_key_columns != column_pruning_size) {
+            if (num_key_columns != zone_maps_size) {
                 LOG(ERROR) << "column pruning size is error."
-                        << "column_pruning_size=" << column_pruning_size << ", "
+                        << "zone_maps_size=" << zone_maps_size << ", "
                         << "num_key_columns=" << _schema->num_key_columns();
                 return OLAP_ERR_TABLE_INDEX_VALIDATE_ERROR;
             }
-            std::vector<std::pair<std::string, std::string>> column_statistic_strings(num_key_columns);
+            std::vector<std::pair<std::string, std::string>> zone_map_strings(num_key_columns);
             std::vector<bool> null_vec(num_key_columns);
             for (size_t j = 0; j < num_key_columns; ++j) {
-                ColumnPruning column_pruning = segment_group_meta.column_pruning(j);
-                column_statistic_strings[j].first = column_pruning.min();
-                column_statistic_strings[j].second = column_pruning.max();
-                if (column_pruning.has_null_flag()) {
-                    null_vec[j] = column_pruning.null_flag();
+                const ZoneMap& zone_map = segment_group_meta.zone_maps(j);
+                zone_map_strings[j].first = zone_map.min();
+                zone_map_strings[j].second = zone_map.max();
+                if (zone_map.has_null_flag()) {
+                    null_vec[j] = zone_map.null_flag();
                 } else {
                     null_vec[j] = false;
                 }
             }
-            OLAPStatus status = segment_group->add_column_statistics(column_statistic_strings, null_vec);
+            OLAPStatus status = segment_group->add_zone_maps(zone_map_strings, null_vec);
             if (status != OLAP_SUCCESS) {
                 LOG(WARNING) << "segment group add column statistics failed, status:" << status;
                 return status;
@@ -437,28 +436,28 @@ OLAPStatus AlphaRowset::_init_pending_segment_groups() {
             return OLAP_ERR_TABLE_INDEX_VALIDATE_ERROR;
         }
 
-        if (pending_segment_group_meta.column_pruning_size() != 0) {
-            size_t column_pruning_size = pending_segment_group_meta.column_pruning_size();
+        if (pending_segment_group_meta.zone_maps_size() != 0) {
+            size_t zone_maps_size = pending_segment_group_meta.zone_maps_size();
             size_t num_key_columns = _schema->num_key_columns();
-            if (num_key_columns != column_pruning_size) {
+            if (num_key_columns != zone_maps_size) {
                 LOG(ERROR) << "column pruning size is error."
-                        << "column_pruning_size=" << column_pruning_size << ", "
+                        << "zone_maps_size=" << zone_maps_size << ", "
                         << "num_key_columns=" << _schema->num_key_columns();
                 return OLAP_ERR_TABLE_INDEX_VALIDATE_ERROR;
             }
-            std::vector<std::pair<std::string, std::string>> column_statistic_strings(num_key_columns);
+            std::vector<std::pair<std::string, std::string>> zone_map_strings(num_key_columns);
             std::vector<bool> null_vec(num_key_columns);
             for (size_t j = 0; j < num_key_columns; ++j) {
-                ColumnPruning column_pruning = pending_segment_group_meta.column_pruning(j);
-                column_statistic_strings[j].first = column_pruning.min();
-                column_statistic_strings[j].second = column_pruning.max();
-                if (column_pruning.has_null_flag()) {
-                    null_vec[j] = column_pruning.null_flag();
+                const ZoneMap& zone_map = pending_segment_group_meta.zone_maps(j);
+                zone_map_strings[j].first = zone_map.min();
+                zone_map_strings[j].second = zone_map.max();
+                if (zone_map.has_null_flag()) {
+                    null_vec[j] = zone_map.null_flag();
                 } else {
                     null_vec[j] = false;
                 }
             }
-            OLAPStatus status = segment_group->add_column_statistics(column_statistic_strings, null_vec);
+            OLAPStatus status = segment_group->add_zone_maps(zone_map_strings, null_vec);
             if (status != OLAP_SUCCESS) {
                 LOG(WARNING) << "segment group add column statistics failed, status:" << status;
                 return status;
