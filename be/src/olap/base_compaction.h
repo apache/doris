@@ -91,18 +91,16 @@ private:
     // - 如果执行成功，则返回OLAP_SUCCESS；
     // - 其它情况下，返回相应的错误码
     OLAPStatus _do_base_compaction(VersionHash new_base_version_hash,
-                                   const std::vector<RowsetSharedPtr>& rowsets,
-                                   uint64_t* row_count);
+                                   const std::vector<RowsetSharedPtr>& rowsets);
    
     // 更新Header使得修改对外可见
-    // 输出参数：
+    // 输入参数：
     // - unused_rowsets: 需要被物理删除的Rowset*
     //
     // 返回值：
     // - 如果执行成功，则返回OLAP_SUCCESS；
     // - 其它情况下，返回相应的错误码
-    OLAPStatus _update_header(uint64_t row_count,
-                              const std::vector<RowsetSharedPtr>& unused_rowsets);
+    OLAPStatus _update_header(const std::vector<RowsetSharedPtr>& unused_rowsets);
 
     // 删除不再使用的Rowset
     // 
