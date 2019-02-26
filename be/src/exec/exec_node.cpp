@@ -143,10 +143,12 @@ ExecNode::~ExecNode() {
 
 void ExecNode::push_down_predicate(
         RuntimeState* state, std::list<ExprContext*>* expr_ctxs) {
-    for (int i = 0; i < _children.size(); ++i) {
-        _children[i]->push_down_predicate(state, expr_ctxs);
-        if (expr_ctxs->size() == 0) {
-            return;
+    if (_type != TPlanNodeType::AGGREGATION_NODE) {
+        for (int i = 0; i < _children.size(); ++i) {
+            _children[i]->push_down_predicate(state, expr_ctxs);
+            if (expr_ctxs->size() == 0) {
+                return;
+            }
         }
     }
 
