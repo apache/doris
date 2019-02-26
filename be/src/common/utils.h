@@ -17,39 +17,32 @@
 
 #pragma once
 
-#include <stdint.h>
-
 #include <string>
-#include <map>
-#include <vector>
-
-#include "librdkafka/rdkafka.h"
-
-#include "exec/file_reader.h"
-#include "runtime/message_body_sink.h"
 
 namespace doris {
 
-class KafkaConsumerPipe : public StreamLoadPipe {
-public:
-    KafkaConsumerPipe(size_t max_buffered_bytes = 1024 * 1024,
-                      size_t min_chunk_size = 64 * 1024)
-            : StreamLoadPipe(max_buffered_bytes, min_chunk_size) {
-
-    }
-
-    virtual ~KafkaConsumerPipe() {}
-
-    Status append_with_line_delimiter(const char* data, size_t size) {
-        Status st = append(data, size);
-        if (!st.ok()) {
-            return st;
-        }
-    
-        // append the line delimiter
-        st = append("\n", 1);
-        return st;
-    }
+struct AuthInfo {
+    std::string user;
+    std::string passwd;
+    std::string cluster;
+    std::string user_ip;
+    // -1 as unset
+    int64_t auth_code = -1;
 };
 
-} // end namespace doris
+template<class T>
+void set_request_auth(T* req, const AuthInfo& auth) {
+    if (auth.auth_code != -1) {
+        // if auth_code is set, no need to set other info
+        req->auth_code = auth.auth_code;
+    } else {
+        req->user = auth.user;
+        req->passwd = auth.passwd;
+        if (!auth.cluster.empty()) {
+            req->__set_cluster(auth.cluster);
+        }
+        req->__set_user_ip(auth.user_ip);
+    }
+}
+
+}

@@ -17,74 +17,82 @@
 
 #pragma once
 
-#include <stdint.h>
+#include <mutex>
 
-#include <string>
-#include <map>
-#include <vector>
+#include "librdkafka/rdkafkacpp.h"
+
+#include "runtime/stream_load/stream_load_context.h"
 
 namespace doris {
 
 class KafkaConsumerPipe;
-class RdKafka::KafkaConsumer;
+class Status;
 
-class KafkaConsumer {
+class DataConsumer {
 public:
-    KafkaConsumer(
-            const std::string& brokers,
-            const std::string& group_id,
-            const std::string& client_id,
-            const std::string& topic,
-            const std::map<int64_t, int64_t>& partition_offset,
-            std::shared_ptr<KafkaConsumerPipe> kafka_consumer_pipe, 
-            ):
-        _k_brokers(broker),
-        _k_group_id(group_id),
-        _k_client_id(client_id),
-        _k_topic(topic),
-        _k_partition_offset(partition_offset),
-        _kafka_consumer_pipe(kafka_consumer_pipe),
+    DataConsumer(StreamLoadContext* ctx):
+        _ctx(ctx),
         _init(false),
         _finished(false),
         _cancelled(false) {
-        
+
+        _ctx->ref();
     }
 
-    // init the KafkaConsumer with the given parameters
-    Status init();
+    virtual ~DataConsumer() {
+        if (_ctx->unref()) {
+            delete _ctx;
+        }
+    }
 
+    // init the consumer with the given parameters
+    virtual Status init() = 0;
+    
     // start consuming
-    Status start();
+    virtual Status start() = 0;
 
     // cancel the consuming process.
     // if the consumer is not initialized, or the consuming
     // process is already finished, call cancel() will
     // return ERROR
-    Status cancel();
+    virtual Status cancel() = 0;
 
-    ~KafkaConsumer() {
-        if (_consumer) {
-            _consumer->close();
-            delete _consumer;
+protected:
+    StreamLoadContext* _ctx;
+
+    // lock to protect the following bools
+    std::mutex _lock;
+    bool _init;
+    bool _finished;
+    bool _cancelled;
+};
+
+class KafkaDataConsumer : public DataConsumer {
+public:
+    KafkaDataConsumer(
+            StreamLoadContext* ctx,
+            std::shared_ptr<KafkaConsumerPipe> kafka_consumer_pipe 
+            ):
+        DataConsumer(ctx),
+        _kafka_consumer_pipe(kafka_consumer_pipe) {
+    }
+
+    virtual Status init() override;
+
+    virtual Status start() override;
+
+    virtual Status cancel() override;
+
+    virtual ~KafkaDataConsumer() {
+        if (_k_consumer) {
+            _k_consumer->close();
+            delete _k_consumer;
         }
     }
 
 private:
-
-    std::string _k_brokers;
-    std::string _k_group_id;
-    std::string _k_client_id;
-    std::string _k_topic;
-    // partition id -> offset
-    std::map<int64_t, int64_t> _k_partition_offset;
     std::shared_ptr<KafkaConsumerPipe> _kafka_consumer_pipe;
-    RdKafka::KafkaConsumer* _consumer;
-
-    // lock to protect the following bools
-    std::mutex _lock
-    bool _init;
-    bool _finished;
-    bool _cancelled;
+    RdKafka::KafkaConsumer* _k_consumer = nullptr;
 };
 
 } // end namespace doris

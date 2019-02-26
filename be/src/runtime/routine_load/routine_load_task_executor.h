@@ -17,33 +17,59 @@
 
 #pragma once
 
-#include "agent/agent_server.h"
+#include <functional>
+#include <map>
+#include <mutex>
 
-using apache::thrift::transport::TProcessor;
-using std::deque;
-using std::list;
-using std::map;
-using std::nothrow;
-using std::set;
-using std::string;
-using std::to_string;
-using std::vector;
+#include "util/thread_pool.hpp"
+#include "util/uid_util.h"
 
 namespace doris {
 
-class RoutineLoadTaskExecutor {
+class ExecEnv;
+class Status;
+class StreamLoadContext;
+class TRoutineLoadTask;
 
+// A routine load task executor will receive routine load
+// tasks from FE, put it to a fixed thread pool.
+// The thread pool will process each task and report the result
+// to FE finally.
+class RoutineLoadTaskExecutor {
 public:
+    // paramater: task id
+    typedef std::function<void (StreamLoadContext*)> ExecFinishCallback; 
+
+    RoutineLoadTaskExecutor(ExecEnv* exec_env):
+        _exec_env(exec_env) {
+        _thread_pool = new ThreadPool(10, 1000);    
+    }
+
+    ~RoutineLoadTaskExecutor() {
+        if (_thread_pool) {
+            delete _thread_pool;
+        }
+    }
+    
     // submit a routine load task
-    Status submit_task(RoutineLoadTask task);
+    Status submit_task(const TRoutineLoadTask& task);
 
 private:
+    // execute the task
+    void exec_task(StreamLoadContext* ctx, ExecFinishCallback cb);
     
-    ThreadPool _thread_pool;    
-    std::mutex _lock;
+    void err_handler(
+            StreamLoadContext* ctx,
+            const Status& st,
+            const std::string& err_msg);
 
-    // submitted tasks
-    std::set<int64_t> task_ids; 
-}
+private:
+    ExecEnv* _exec_env;
+    ThreadPool* _thread_pool;    
+
+    std::mutex _lock;
+    // task id -> load context
+    std::unordered_map<UniqueId, StreamLoadContext*> _task_map;
+};
 
 } // end namespace

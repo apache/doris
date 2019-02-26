@@ -63,6 +63,28 @@ struct TTabletStatResult {
     1: required map<i64, TTabletStat> tablets_stats
 }
 
+struct TKafkaLoadInfo {
+    1: required string brokers;
+    2: required string group_id;
+    3: required string client_id;
+    4: required string topic;
+    5: optional i64 max_interval_s;
+    6: optional i64 max_batch_rows;
+    7: optional i64 max_batch_size;
+    8: optional map<i32, i64> partition_begin_offset;
+}
+
+struct TRoutineLoadTask {
+    1: required Types.TLoadSourceType type
+    2: required Types.TUniqueId id
+    3: required i64 txn_id
+    4: required i64 auth_code
+    5: optional string db
+    6: optional string tbl
+    7: optional string label
+    8: optional TKafkaLoadInfo kafka_load_info
+}
+
 service BackendService {
     // Called by coord to start asynchronous execution of plan fragment in backend.
     // Returns as soon as all incoming data streams have been set up.
@@ -119,4 +141,6 @@ service BackendService {
     Status.TStatus erase_export_task(1:Types.TUniqueId task_id);
 
     TTabletStatResult get_tablet_stat();
+
+    Status.TStatus submit_routine_load_task(1:TRoutineLoadTask task);
 }
