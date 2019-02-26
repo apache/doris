@@ -128,7 +128,6 @@ Decimal_V2Value operator+(const Decimal_V2Value& v1, const Decimal_V2Value& v2) 
     int128_t result;
     int128_t x = v1.value();
     int128_t y = v2.value();
-    Decimal_V2Value value;
     if (x == 0) {
        result = y;
     } else if (y == 0) {
@@ -148,15 +147,13 @@ Decimal_V2Value operator+(const Decimal_V2Value& v1, const Decimal_V2Value& v2) 
         }
     }
 
-    value.set_value(result);
-    return value;
+    return Decimal_V2Value(result);
 }
 
 Decimal_V2Value operator-(const Decimal_V2Value& v1, const Decimal_V2Value& v2) {
     int128_t result;
     int128_t x = v1.value();
     int128_t y = v2.value();
-    Decimal_V2Value value;
     if (x == 0) {
        result = -y;
     } else if (y == 0) {
@@ -177,59 +174,54 @@ Decimal_V2Value operator-(const Decimal_V2Value& v1, const Decimal_V2Value& v2) 
         }
     }
 
-    value.set_value(result);
-    return value;
+    return Decimal_V2Value(result);
 }
 
 Decimal_V2Value operator*(const Decimal_V2Value& v1, const Decimal_V2Value& v2){
     int128_t result;
     int128_t x = v1.value();
     int128_t y = v2.value();
-    Decimal_V2Value value; // default 0
 
-    if (x == 0 || y == 0) return value;
+    if (x == 0 || y == 0) return Decimal_V2Value(0);
 
     bool is_positive = (x > 0 && y > 0) || (x < 0 && y < 0);
 
     do_mul(abs(x), abs(y), &result);
 
     if (!is_positive) result = -result;
-    value.set_value(result);
 
-    return value;
+    return Decimal_V2Value(result);
 }
 
 Decimal_V2Value operator/(const Decimal_V2Value& v1, const Decimal_V2Value& v2){
     int128_t result;
     int128_t x = v1.value();
     int128_t y = v2.value();
-    Decimal_V2Value value;
 
     //todo: return 0 for divide zero 
-    if (x == 0 || y == 0) return value;
+    if (x == 0 || y == 0) return Decimal_V2Value(0);
     bool is_positive = (x > 0 && y > 0) || (x < 0 && y < 0);
     do_div(abs(x), abs(y), &result);
 
     if (!is_positive) result = -result;
-    value.set_value(result);
 
-    return value;
+    return Decimal_V2Value(result);
 }
 
 Decimal_V2Value operator%(const Decimal_V2Value& v1, const Decimal_V2Value& v2){
     int128_t result;
     int128_t x = v1.value();
     int128_t y = v2.value();
-    Decimal_V2Value value;
 
     //todo: return 0 for divide zero 
-    if (x == 0 || y == 0) return value;
+    if (x == 0 || y == 0) return Decimal_V2Value(0);
+
     bool is_positive = (x > 0 && y > 0) || (x < 0 && y < 0);
     do_mod(abs(x), abs(y), &result);
 
     if (!is_positive) result = -result;
-    value.set_value(result);
-    return value;
+
+    return Decimal_V2Value(result);
 }
 
 std::ostream& operator<<(std::ostream& os, Decimal_V2Value const& decimal_value) {
@@ -244,9 +236,7 @@ std::istream& operator>>(std::istream& ism, Decimal_V2Value& decimal_value) {
 }
 
 Decimal_V2Value operator-(const Decimal_V2Value& v) {
-    Decimal_V2Value result;
-    result.set_value(-v.value());
-    return result;
+    return Decimal_V2Value(-v.value());
 }
 
 Decimal_V2Value& Decimal_V2Value::operator+=(const Decimal_V2Value& other) {

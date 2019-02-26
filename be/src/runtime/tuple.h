@@ -51,7 +51,7 @@ public:
     // initialize individual tuple with data residing in mem pool
     static Tuple* create(int size, MemPool* pool) {
         // assert(size > 0);
-        Tuple* result = reinterpret_cast<Tuple*>(pool->allocate(size), 16);
+        Tuple* result = reinterpret_cast<Tuple*>(pool->allocate(size));
         result->init(size);
         return result;
     }

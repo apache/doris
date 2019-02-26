@@ -100,12 +100,10 @@ int RawValue::compare(const void* v1, const void* v2, const TypeDescriptor& type
                 ? 1 : (*decimal_value1 < *decimal_value2 ? -1 : 0);
 
     case TYPE_DECIMAL_V2: {
-        const Decimal_V2Value* decimal_value1;
-        const Decimal_V2Value* decimal_value2;
-        decimal_value1 = reinterpret_cast<const Decimal_V2Value*>(v1);
-        decimal_value2 = reinterpret_cast<const Decimal_V2Value*>(v2);
-        return (*decimal_value1 > *decimal_value2)
-                ? 1 : (*decimal_value1 < *decimal_value2 ? -1 : 0);
+        Decimal_V2Value decimal_value1(reinterpret_cast<const PackedInt128*>(v1)->value);
+        Decimal_V2Value decimal_value2(reinterpret_cast<const PackedInt128*>(v2)->value);
+        return (decimal_value1 > decimal_value2)
+                ? 1 : (decimal_value1 < decimal_value2 ? -1 : 0);
     }
 
     case TYPE_LARGEINT: {

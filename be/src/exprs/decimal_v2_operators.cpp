@@ -37,7 +37,7 @@ void Decimal_V2Operators::init() {
     Decimal_V2Val Decimal_V2Operators::cast_to_decimal_v2_val( \
             FunctionContext* context, const from_type& val) { \
         if (val.is_null) return Decimal_V2Val::null(); \
-        Decimal_V2Value dv = val.val;\
+        Decimal_V2Value dv(val.val, 0);\
         Decimal_V2Val result;\
         dv.to_decimal_val(&result);\
         return result;\

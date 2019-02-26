@@ -702,7 +702,7 @@ struct Decimal_V2Val : public AnyVal {
 
     const __int128& value() const { return val; }
 
-    void set_value(__int128 value) {
+    Decimal_V2Val(__int128 value) {
         val = value;
     }
 

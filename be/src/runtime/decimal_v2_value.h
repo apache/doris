@@ -55,7 +55,8 @@ public:
         static_cast<int128_t>(MAX_INT_VALUE) * ONE_BILLION + MAX_FRAC_VALUE;
 
     Decimal_V2Value() : _value(0){}
-    const int128_t& value() const { return _value; }
+    inline const int128_t& value() const { return _value;}
+    inline int128_t& value() { return _value; }
 
     Decimal_V2Value(const std::string& decimal_str) {
         parse_from_str(decimal_str.c_str(), decimal_str.size());
@@ -81,8 +82,8 @@ public:
        if (is_negtive) _value = -_value;
     }
 
-    Decimal_V2Value(int64_t int_value) {
-        _value = static_cast<int128_t>(int_value) * ONE_BILLION;
+    Decimal_V2Value(int128_t int_value) {
+        _value = int_value;
     }
 
     void set_value(int128_t value) {
@@ -227,13 +228,11 @@ public:
     }
 
     static Decimal_V2Value from_decimal_val(const Decimal_V2Val& val) {
-       Decimal_V2Value result;
-       result.set_value(val.value());
-       return result;
+       return Decimal_V2Value(val.value());
     }
 
     void to_decimal_val(Decimal_V2Val* value) const {
-       value->set_value(_value);
+       value->val = _value;
     }
 
     // set Decimal_V2Value to zero

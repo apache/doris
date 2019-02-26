@@ -24,6 +24,7 @@
 #include "olap/utils.h"
 #include "exprs/expr.h"
 #include "util/debug_util.h"
+#include "util/types.h"
 #include "runtime/primitive_type.h"
 #include "runtime/row_batch.h"
 #include "runtime/tuple_row.h"
@@ -216,9 +217,9 @@ Status DppWriter::append_one_row(TupleRow* row) {
             break;
         }
         case TYPE_DECIMAL_V2: {
-            const Decimal_V2Value* decimal_val = reinterpret_cast<const Decimal_V2Value*>(item);
-            int64_t int_val = decimal_val->int_value();
-            int32_t frac_val = decimal_val->frac_value();
+            Decimal_V2Value decimal_val(reinterpret_cast<const PackedInt128*>(item)->value);
+            int64_t int_val = decimal_val.int_value();
+            int32_t frac_val = decimal_val.frac_value();
             append_to_buf(&int_val, sizeof(int_val));
             append_to_buf(&frac_val, sizeof(frac_val));
             break;

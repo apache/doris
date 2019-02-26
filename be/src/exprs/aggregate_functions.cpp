@@ -393,7 +393,7 @@ Decimal_V2Val AggregateFunctions::decimal_v2_avg_get_value(FunctionContext* ctx,
         return Decimal_V2Val::null();
     }
     Decimal_V2Value v1 = Decimal_V2Value::from_decimal_val(val_struct->sum);
-    Decimal_V2Value v = v1 / Decimal_V2Value(val_struct->count);
+    Decimal_V2Value v = v1 / Decimal_V2Value(val_struct->count, 0);
     Decimal_V2Val res;
     v.to_decimal_val(&res);
 
