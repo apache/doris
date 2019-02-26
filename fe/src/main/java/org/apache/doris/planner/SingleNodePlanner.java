@@ -297,6 +297,7 @@ public class SingleNodePlanner {
         return root;
     }
 
+    
     /**
      * If there are unassigned conjuncts that are bound by tupleIds or if there are slot
      * equivalences for tupleIds that have not yet been enforced, returns a SelectNode on
@@ -682,7 +683,7 @@ public class SingleNodePlanner {
             // Have the build side of a join copy data to a compact representation
             // in the tuple buffer.
             root.getChildren().get(1).setCompactData(true);
-            assignConjuncts(root, analyzer);
+            root.assignConjuncts(analyzer);
         }
 
         if (selectStmt.getSortInfo() != null && selectStmt.getLimit() == -1
@@ -785,57 +786,6 @@ public class SingleNodePlanner {
         }
         tupleDesc.computeMemLayout();
         return tupleDesc;
-    }
-
-    /**
-     * Assign all unassigned conjuncts to node which can be correctly evaluated by node. Ignores OJ conjuncts.
-     */
-    private void assignConjuncts(PlanNode node, Analyzer analyzer) {
-        List<Expr> conjuncts = getUnassignedConjuncts(node, analyzer);
-        node.addConjuncts(conjuncts);
-        analyzer.markConjunctsAssigned(conjuncts);
-    }
-
-    /**
-     * Return all unassigned conjuncts which can be correctly evaluated by node. Ignores OJ conjuncts.
-     */
-    private List<Expr> getUnassignedConjuncts(PlanNode node, Analyzer analyzer) {
-        List<Expr> conjuncts = Lists.newArrayList();
-        for (Expr e : analyzer.getAllUnassignedConjuncts(node.getTupleIds())) {
-            if (canEvalPredicate(node.getTupleIds(), e, analyzer)) {
-                conjuncts.add(e);
-            }
-        }
-        return conjuncts;
-    }
-
-    /**
-     * Returns true if predicate can be correctly evaluated by a tree materializing 'tupleIds', otherwise false: - the
-     * predicate needs to be bound by the materialized tuple ids - a Where clause predicate can only be correctly
-     * evaluated if for all outer-joined referenced tids the last join to outer-join this tid has been materialized
-     */
-    private boolean canEvalPredicate(List<TupleId> tupleIds, Expr e, Analyzer analyzer) {
-        if (!e.isBoundByTupleIds(tupleIds)) {
-            return false;
-        }
-        if (!analyzer.isWhereClauseConjunct(e)) {
-            return true;
-        }
-        ArrayList<TupleId> tids = Lists.newArrayList();
-        e.getIds(tids, null);
-        for (TupleId tid : tids) {
-            TableRef rhsRef = analyzer.getLastOjClause(tid);
-            if (rhsRef == null) {
-                // this is not outer-joined; ignore
-                continue;
-            }
-            if (!tupleIds.containsAll(rhsRef.getMaterializedTupleIds()) || !tupleIds.containsAll(
-                    rhsRef.getLeftTblRef().getMaterializedTupleIds())) {
-                // the last join to outer-join this tid hasn't been materialized yet
-                return false;
-            }
-        }
-        return true;
     }
 
     // no need to remove?
