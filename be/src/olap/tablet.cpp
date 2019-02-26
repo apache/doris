@@ -548,14 +548,6 @@ bool Tablet::can_do_compaction() {
         return false;
     }
 
-    if (this->is_schema_changing()) {
-        Version test_version = Version(0, lastest_delta->end_version());
-        vector<Version> path_versions;
-        if (OLAP_SUCCESS != _rs_graph.capture_consistent_versions(test_version, &path_versions)) {
-            return false;
-        }
-    }
-
     return true;
 }
 
