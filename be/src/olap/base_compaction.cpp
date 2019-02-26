@@ -122,13 +122,10 @@ OLAPStatus BaseCompaction::run() {
         DorisMetrics::base_compaction_bytes_total.increment(merge_bytes);
     }
 
-    // 保存生成base文件时候累积的行数
-    uint64_t row_count = 0;
-
     // 3. 执行base compaction
     //    执行过程可能会持续比较长时间
     stage_watch.reset();
-    res = _do_base_compaction(new_base_version_hash, rowsets, &row_count);
+    res = _do_base_compaction(new_base_version_hash, rowsets);
     // 释放不再使用的ColumnData对象
     if (res != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("fail to do base version. [tablet=%s; version=%d]",
@@ -160,7 +157,7 @@ OLAPStatus BaseCompaction::run() {
         return res;
     }
 
-    res = _update_header(row_count, unused_rowsets);
+    res = _update_header(unused_rowsets);
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to update header. tablet=" << _tablet->full_name()
                      << ", version=" << _new_base_version.first << "-" << _new_base_version.second;
@@ -316,8 +313,7 @@ bool BaseCompaction::_check_whether_satisfy_policy(bool is_manual_trigger,
 }
 
 OLAPStatus BaseCompaction::_do_base_compaction(VersionHash new_base_version_hash,
-                                               const vector<RowsetSharedPtr>& rowsets,
-                                               uint64_t* row_count) {
+                                               const vector<RowsetSharedPtr>& rowsets) {
     // 1. 生成新base文件对应的olap index
     RowsetId rowset_id = 0;
     RowsetIdGenerator::instance()->get_next_id(_tablet->data_dir(), &rowset_id);
@@ -364,21 +360,20 @@ OLAPStatus BaseCompaction::_do_base_compaction(VersionHash new_base_version_hash
 
     Merger merger(_tablet, rs_writer, READER_BASE_COMPACTION);
     res = merger.merge(rs_readers, &merged_rows, &filted_rows);
-    if (res == OLAP_SUCCESS) {
-        *row_count = merger.row_count();
-    }
-    RowsetSharedPtr new_base = rs_writer->build();
 
     // 3. 如果merge失败，执行清理工作，返回错误码退出
     if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to make new base version. [tablet='%s' version='%d.%d' res=%d]",
-                         _tablet->full_name().c_str(),
-                         _new_base_version.first,
-                         _new_base_version.second,
-                         res);
-
-        StorageEngine::instance()->add_unused_rowset(new_base);
+        LOG(WARNING) << "fail to make new base version."
+                     << "tablet=" << _tablet->full_name()
+                     << "version=" << rs_writer->version().first << "-" << rs_writer->version().second
+                     << "res=" << res;
         return OLAP_ERR_BE_MERGE_ERROR;
+    }
+    RowsetSharedPtr new_base = rs_writer->build();
+    if (new_base == nullptr) {
+        LOG(WARNING) << "rowset writer build failed. writer version:"
+                     << rs_writer->version().first << "-" << rs_writer->version().second;
+        return OLAP_ERR_MALLOC_ERROR;
     }
 
     // 4. 如果merge成功，则将新base文件对应的olap index载入
@@ -413,7 +408,7 @@ OLAPStatus BaseCompaction::_do_base_compaction(VersionHash new_base_version_hash
     return OLAP_SUCCESS;
 }
 
-OLAPStatus BaseCompaction::_update_header(uint64_t row_count, const vector<RowsetSharedPtr>& unused_rowsets) {
+OLAPStatus BaseCompaction::_update_header(const vector<RowsetSharedPtr>& unused_rowsets) {
     WriteLock wrlock(_tablet->get_header_lock_ptr());
 
     OLAPStatus res = OLAP_SUCCESS;

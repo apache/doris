@@ -386,6 +386,11 @@ OLAPStatus CumulativeCompaction::_do_cumulative_compaction() {
     }
 
     _rowset = _rs_writer->build();
+    if (_rowset == nullptr) {
+        LOG(WARNING) << "rowset writer build failed. writer version:"
+                     << _rs_writer->version().first << "-" << _rs_writer->version().second;
+        return OLAP_ERR_MALLOC_ERROR;
+    }
 
     // 2. Check row num changes
     uint64_t source_rows = 0;
