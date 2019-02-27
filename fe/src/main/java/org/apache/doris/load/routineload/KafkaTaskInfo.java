@@ -62,9 +62,13 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
     public RoutineLoadTask createStreamLoadTask(long beId) throws LoadException {
         RoutineLoadJob routineLoadJob = routineLoadManager.getJob(jobId);
         Map<Integer, Long> partitionIdToOffset = Maps.newHashMap();
-        this.getPartitions().parallelStream()
-                .forEach(entity -> partitionIdToOffset.put(entity, ((KafkaProgress) routineLoadJob.getProgress())
-                        .getPartitionIdToOffset().get(entity)));
+        for (Integer partitionId : partitions) {
+            KafkaProgress kafkaProgress = (KafkaProgress) routineLoadJob.getProgress();
+            if (!kafkaProgress.getPartitionIdToOffset().containsKey(partitionId)) {
+                kafkaProgress.getPartitionIdToOffset().put(partitionId, 0L);
+            }
+            partitionIdToOffset.put(partitionId, kafkaProgress.getPartitionIdToOffset().get(partitionId));
+        }
         RoutineLoadTask routineLoadTask = new KafkaRoutineLoadTask(routineLoadJob.getResourceInfo(),
                                                                    beId, routineLoadJob.getDbId(),
                                                                    routineLoadJob.getTableId(),
