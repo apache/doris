@@ -30,7 +30,6 @@ import com.google.common.base.Strings;
 
 import java.util.LinkedList;
 import java.util.List;
-import java.util.Map;
 
 public class DeleteStmt extends DdlStmt {
     private final TableName tbl;
@@ -39,7 +38,7 @@ public class DeleteStmt extends DdlStmt {
 
     private List<Predicate> deleteConditions;
 
-    public DeleteStmt(TableName tableName, String partitionName, Expr wherePredicate, Map<String, String> properties) {
+    public DeleteStmt(TableName tableName, String partitionName, Expr wherePredicate) {
         this.tbl = tableName;
         this.partitionName = Strings.emptyToNull(partitionName);
         this.wherePredicate = wherePredicate;
