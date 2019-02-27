@@ -3092,7 +3092,7 @@ public class Load {
             tableId = olapTable.getId();
             if (partitionName == null) {
                 if (olapTable.getPartitionInfo().getType() == PartitionType.RANGE) {
-                    throw new DdlException("This is range partitioned table."
+                    throw new DdlException("This is a range partitioned table."
                             + " You should specify partition in delete stmt");
                 } else {
                     // this is a unpartitioned table, use table name as partition name
