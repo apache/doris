@@ -147,10 +147,8 @@ public:
         return _store_map.size();
     }
 
-    void start_delete_unused_index();
     void start_delete_unused_rowset();
 
-    void add_unused_index(SegmentGroup* olap_index);
     void add_unused_rowset(RowsetSharedPtr rowset);
 
     OLAPStatus recover_tablet_until_specfic_version(
@@ -196,6 +194,10 @@ public:
 
     OLAPStatus execute_task(EngineTask* task);
 
+    bool add_paths(std::vector<std::string> paths);
+
+    bool remove_paths(std::vector<std::string> paths);
+
 private:
     OLAPStatus check_all_root_path_cluster_id();
 
@@ -236,11 +238,11 @@ private:
     // delete tablet with io error process function
     void* _disk_stat_monitor_thread_callback(void* arg);
 
-    // unused index process function
-    void* _unused_index_thread_callback(void* arg);
-
     // cumulative process function
     void* _cumulative_compaction_thread_callback(void* arg);
+
+    // cumulative process function
+    void* _global_gc_thread_callback(void* arg);
 
     // clean file descriptors cache
     void* _fd_cache_clean_callback(void* arg);
@@ -250,6 +252,8 @@ private:
     OLAPStatus _clean_unfinished_converting_data(DataDir* data_dir);
 
     OLAPStatus _remove_old_meta_and_files(DataDir* data_dir);
+    
+    void _perform_global_gc(DataDir* data_dir);
 
 private:
 
@@ -315,14 +319,14 @@ private:
     // thread to monitor disk stat
     std::thread _disk_stat_monitor_thread;
 
-    // thread to monitor unused index
-    std::thread _unused_index_thread;
-
     // thread to run base compaction
     std::vector<std::thread> _base_compaction_threads;
 
     // thread to check cumulative
     std::vector<std::thread> _cumulative_compaction_threads;
+
+    // thread to global gc
+    std::vector<std::thread> _global_gc_threads;
 
     std::thread _fd_cache_clean_thread;
 
@@ -335,6 +339,12 @@ private:
     std::atomic_bool _is_report_tablet_already;
 
     Mutex _engine_task_mutex;
+
+    std::set<std::string> _all_scanned_paths;
+    Mutex _scanned_path_mutex;
+
+    std::set<std::string> _all_valid_paths;
+    Mutex _valid_path_mutex;
 };
 
 }  // namespace doris

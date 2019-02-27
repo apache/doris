@@ -63,6 +63,8 @@ public:
     Tablet(TabletMeta* tablet_meta, DataDir* data_dir);
     ~Tablet();
 
+    static bool is_valid_tablet_path(std::string path);
+
     OLAPStatus init_once();
     OLAPStatus init();
     inline bool init_succeeded();

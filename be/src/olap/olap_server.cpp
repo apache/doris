@@ -52,12 +52,6 @@ OLAPStatus StorageEngine::_start_bg_worker() {
             _disk_stat_monitor_thread_callback(nullptr);
         });
 
-    // start thread for monitoring the unused index
-    _unused_index_thread = std::thread(
-        [this] {
-            _unused_index_thread_callback(nullptr);
-        });
-
     // start be and ce threads for merge data
     int32_t base_compaction_num_threads = config::base_compaction_num_threads;
     _base_compaction_threads.reserve(base_compaction_num_threads);
@@ -81,6 +75,13 @@ OLAPStatus StorageEngine::_start_bg_worker() {
         [this] {
             _fd_cache_clean_callback(nullptr);
         });
+
+    for (auto data_dir : get_stores()) {
+        _global_gc_threads.emplace_back(
+        [this, data_dir] {
+            _global_gc_thread_callback((void*)data_dir);
+        });
+    }
 
     VLOG(10) << "init finished.";
     return OLAP_SUCCESS;
@@ -191,27 +192,6 @@ void* StorageEngine::_disk_stat_monitor_thread_callback(void* arg) {
 
     while (true) {
         start_disk_stat_monitor();
-        sleep(interval);
-    }
-
-    return NULL;
-}
-
-void* StorageEngine::_unused_index_thread_callback(void* arg) {
-#ifdef GOOGLE_PROFILER
-    ProfilerRegisterThread();
-#endif
-
-    uint32_t interval = config::unused_index_monitor_interval;
-
-    if (interval <= 0) {
-        OLAP_LOG_WARNING("unused_index_monitor_interval config is illegal: [%d], "
-                         "force set to 1", interval);
-        interval = 1;
-    }
-
-    while (true) {
-        start_delete_unused_index();
         sleep(interval);
     }
 

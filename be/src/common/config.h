@@ -377,6 +377,9 @@ namespace config {
 
     // can perform recovering tablet
     CONF_Bool(force_recovery, "false");
+
+    // global gc
+    CONF_Int32(global_gc_check_interval_seconds, "10");
 } // namespace config
 
 } // namespace doris

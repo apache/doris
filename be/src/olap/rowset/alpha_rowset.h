@@ -40,6 +40,8 @@ public:
                 DataDir* data_dir, RowsetMetaSharedPtr rowset_meta);
     virtual ~AlphaRowset() {}
 
+    static bool is_valid_rowset_path(std::string path);
+
     OLAPStatus init() override;
 
     OLAPStatus init_without_validate();

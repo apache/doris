@@ -965,42 +965,6 @@ OLAPStatus StorageEngine::_do_sweep(
     return res;
 }
 
-void StorageEngine::start_delete_unused_index() {
-    _gc_mutex.lock();
-
-    for (auto it = _gc_files.begin(); it != _gc_files.end();) {
-        if (it->first->is_in_use()) {
-            ++it;
-        } else {
-            delete it->first;
-            vector<string> files = it->second;
-            remove_files(files);
-            it = _gc_files.erase(it);
-        }
-    }
-
-    _gc_mutex.unlock();
-}
-
-void StorageEngine::add_unused_index(SegmentGroup* segment_group) {
-    _gc_mutex.lock();
-
-    auto it = _gc_files.find(segment_group);
-    if (it == _gc_files.end()) {
-        vector<string> files;
-        for (size_t seg_id = 0; seg_id < segment_group->num_segments(); ++seg_id) {
-            string index_file = segment_group->construct_index_file_path(seg_id);
-            files.push_back(index_file);
-
-            string data_file = segment_group->construct_data_file_path(seg_id);
-            files.push_back(data_file);
-        }
-        _gc_files[segment_group] = files;
-    }
-
-    _gc_mutex.unlock();
-}
-
 void StorageEngine::start_delete_unused_rowset() {
     _gc_mutex.lock();
 
@@ -1213,6 +1177,37 @@ OLAPStatus StorageEngine::execute_task(EngineTask* task) {
         }
         return fin_status;
     }
+}
+
+void StorageEngine::_perform_global_gc(DataDir* data_dir) {
+    // init the set of valid path
+    // validate the path in data dir
+}
+
+void* StorageEngine::_global_gc_thread_callback(void* arg) {
+#ifdef GOOGLE_PROFILER
+    ProfilerRegisterThread();
+#endif
+
+    LOG(INFO) << "try to start global gc thread!";
+    uint32_t interval = config::global_gc_check_interval_seconds;
+    if (interval <= 0) {
+        LOG(WARNING) << "global gc thread check interval config is illegal:" << interval
+            << "will be forced set to one day";
+        interval = 24 * 3600; // one day
+    }
+
+    while (true) {
+        // must be here, because this thread is start on start and
+        // cgroup is not initialized at this time
+        // add tid to cgroup
+        LOG(INFO) << "try to perform global gc!";
+        CgroupsMgr::apply_system_cgroup();
+        _perform_global_gc((DataDir*)arg);
+        usleep(interval * 1000000);
+    }
+
+    return NULL;
 }
 
 }  // namespace doris
