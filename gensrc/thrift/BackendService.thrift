@@ -76,13 +76,14 @@ struct TKafkaLoadInfo {
 
 struct TRoutineLoadTask {
     1: required Types.TLoadSourceType type
-    2: required Types.TUniqueId id
-    3: required i64 txn_id
-    4: required i64 auth_code
-    5: optional string db
-    6: optional string tbl
-    7: optional string label
-    8: optional TKafkaLoadInfo kafka_load_info
+    2: required i64 job_id
+    3: required Types.TUniqueId id
+    4: required i64 txn_id
+    5: required i64 auth_code
+    6: optional string db
+    7: optional string tbl
+    8: optional string label
+    9: optional TKafkaLoadInfo kafka_load_info
 }
 
 service BackendService {

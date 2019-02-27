@@ -211,6 +211,7 @@ bool StreamLoadExecutor::collect_load_stat(StreamLoadContext* ctx, TTxnCommitAtt
 
             TRLTaskTxnCommitAttachment rl_attach;
             rl_attach.loadSourceType = TLoadSourceType::KAFKA;
+            rl_attach.jobId = ctx->job_id;
             rl_attach.id = ctx->id.to_thrift();
             rl_attach.__set_loadedRows(ctx->number_loaded_rows);
             rl_attach.__set_filteredRows(ctx->number_filtered_rows);

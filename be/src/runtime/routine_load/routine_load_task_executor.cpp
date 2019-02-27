@@ -43,6 +43,7 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
     StreamLoadContext* ctx = new StreamLoadContext(_exec_env);
     ctx->load_type = TLoadType::ROUTINE_LOAD;
     ctx->load_src_type = task.type;
+    ctx->job_id = task.job_id;
     ctx->id = UniqueId(task.id);
     ctx->txn_id = task.txn_id;
     ctx->db = task.db;

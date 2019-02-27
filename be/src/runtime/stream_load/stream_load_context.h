@@ -108,6 +108,10 @@ public:
     // load data source: eg: KAFKA/RAW
     TLoadSourceType::type load_src_type;
 
+    // the job this stream load task belongs to,
+    // set to -1 if there is no job
+    int64_t job_id = -1;
+
     // id for each load
     UniqueId id;
 
