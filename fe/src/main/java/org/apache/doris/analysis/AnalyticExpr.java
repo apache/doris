@@ -365,11 +365,6 @@ public class AnalyticExpr extends Expr {
         fnCall.analyze(analyzer);
         type = getFnCall().getType();
 
-        if (partitionExprs == null || partitionExprs.size() == 0) {
-            throw new AnalysisException(
-                " Analytic function must contains  PARTITION in palo system.");
-        }
-
         for (Expr e : partitionExprs) {
             if (e.isConstant()) {
                 throw new AnalysisException(
