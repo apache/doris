@@ -477,6 +477,7 @@ public enum PrimitiveType {
 
         compatibilityMatrix[DECIMAL.ordinal()][DECIMAL.ordinal()] = DECIMAL;
         compatibilityMatrix[DECIMAL_V2.ordinal()][DECIMAL_V2.ordinal()] = DECIMAL_V2;
+        compatibilityMatrix[DECIMAL_V2.ordinal()][DECIMAL.ordinal()] = DECIMAL_V2;
         
         compatibilityMatrix[HLL.ordinal()][HLL.ordinal()] = HLL;
     }
@@ -605,7 +606,11 @@ public enum PrimitiveType {
     }
 
     public boolean isDecimalType() {
-        return this == DECIMAL || this == DECIMAL_V2;
+        return this == DECIMAL;
+    }
+
+    public boolean isDecimal_V2Type() {
+        return this == DECIMAL_V2;
     }
 
     public PrimitiveType getNumResultType() {
@@ -677,6 +682,8 @@ public enum PrimitiveType {
             return BIGINT;
         } else if (isDecimalType()) {
             return DECIMAL;
+        } else if (isDecimal_V2Type()) {
+            return DECIMAL_V2;
         } else if (isDateType()) {
             return DATETIME;
             // Timestamps get summed as DOUBLE for AVG.
@@ -690,7 +697,7 @@ public enum PrimitiveType {
     }
 
     public boolean isNumericType() {
-        return isFixedPointType() || isFloatingPointType() || isDecimalType();
+        return isFixedPointType() || isFloatingPointType() || isDecimalType() || isDecimal_V2Type();
     }
 
     public boolean isValid() {

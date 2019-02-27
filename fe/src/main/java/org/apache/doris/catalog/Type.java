@@ -844,6 +844,7 @@ public abstract class Type {
 
         compatibilityMatrix[VARCHAR.ordinal()][HLL.ordinal()] = PrimitiveType.INVALID_TYPE;
 
+        compatibilityMatrix[DECIMAL.ordinal()][DECIMAL_V2.ordinal()] = PrimitiveType.DECIMAL_V2;
 
         // Check all of the necessary entries that should be filled.
         // ignore binary

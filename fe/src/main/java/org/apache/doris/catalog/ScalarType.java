@@ -542,7 +542,7 @@ public class ScalarType extends Type {
         } else if (isDecimal()) {
             return createDecimalTypeInternal(MAX_PRECISION, scale);
         } else if (isDecimal_V2()) {
-            return createDecimalTypeInternal(MAX_PRECISION, scale);
+            return createDecimal_V2TypeInternal(MAX_PRECISION, scale);
         } else if (isLargeIntType()) {
         return ScalarType.LARGEINT;
         } else {
@@ -557,7 +557,7 @@ public class ScalarType extends Type {
         } else if (type == PrimitiveType.DECIMAL) {
             return createDecimalTypeInternal(MAX_PRECISION, scale);
         } else if (type == PrimitiveType.DECIMAL_V2) {
-            return createDecimalTypeInternal(MAX_PRECISION, scale);
+            return createDecimal_V2TypeInternal(MAX_PRECISION, scale);
         }
         return createType(PrimitiveType.values()[type.ordinal() + 1]);
     }
