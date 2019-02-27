@@ -77,7 +77,7 @@ OLAPStatus ColumnDataWriter::init() {
         _zone_maps[i].second->set_to_min();
     }
 
-    double size = static_cast<double>(_segment_group->num_segments());
+    double size = static_cast<double>(OLAP_MAX_COLUMN_SEGMENT_FILE_SIZE);
     size *= OLAP_COLUMN_FILE_SEGMENT_SIZE_SCALE;
     _max_segment_size = static_cast<uint32_t>(lround(size));
 
