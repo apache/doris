@@ -353,8 +353,11 @@ public class FunctionCallExpr extends Expr {
             }
         }
 
-        // determine type
+        // Function's arg can't be null for the following functions.
         Expr arg = getChild(0);
+        if (arg == null) {
+            return;
+        }
 
         // SUM and AVG cannot be applied to non-numeric types
         if (fnName.getFunction().equalsIgnoreCase("sum")
