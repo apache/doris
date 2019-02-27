@@ -31,7 +31,6 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.transaction.BeginTransactionException;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Strings;
 
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.PartitionInfo;
@@ -57,13 +56,21 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     private String serverAddress;
     private String topic;
     // optional, user want to load partitions.
-    private List<Integer> kafkaPartitions;
+    private List<Integer> customKafkaPartitions;
+    // current kafka partitions is the actually partition which will be fetched
+    private List<Integer> currentKafkaPartitions;
+
+    // this is the kafka consumer which is used to fetch the number of partitions
+    private KafkaConsumer consumer;
 
     public KafkaRoutineLoadJob(String name, long dbId, long tableId, String serverAddress, String topic) {
         super(name, dbId, tableId, LoadDataSourceType.KAFKA);
         this.serverAddress = serverAddress;
         this.topic = topic;
         this.progress = new KafkaProgress();
+        this.customKafkaPartitions = new ArrayList<>();
+        this.currentKafkaPartitions = new ArrayList<>();
+        setConsumer();
     }
 
     // TODO(ml): I will change it after ut.
@@ -78,15 +85,30 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         this.serverAddress = serverAddress;
         this.topic = topic;
         this.progress = kafkaProgress;
+        this.customKafkaPartitions = new ArrayList<>();
+        this.currentKafkaPartitions = new ArrayList<>();
+        setConsumer();
     }
 
-    private void setKafkaPartitions(List<Integer> kafkaPartitions) throws LoadException {
+    private void setCustomKafkaPartitions(List<Integer> kafkaPartitions) throws LoadException {
         writeLock();
         try {
-            if (this.kafkaPartitions != null) {
+            if (this.customKafkaPartitions.size() != 0) {
                 throw new LoadException("Kafka partitions have been initialized");
             }
-            this.kafkaPartitions = kafkaPartitions;
+            // check if custom kafka partition is valid
+            List<Integer> allKafkaPartitions = getAllKafkaPartitions();
+            outter:
+            for (Integer customkafkaPartition : kafkaPartitions) {
+                for (Integer kafkaPartition : allKafkaPartitions) {
+                    if (kafkaPartition.equals(customkafkaPartition)) {
+                        continue outter;
+                    }
+                }
+                throw new LoadException("there is a custom kafka partition " + customkafkaPartition
+                                                + " which is invalid for topic " + topic);
+            }
+            this.customKafkaPartitions = kafkaPartitions;
         } finally {
             writeUnlock();
         }
@@ -97,13 +119,13 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         List<RoutineLoadTaskInfo> result = new ArrayList<>();
         writeLock();
         try {
-            if (state == JobState.NEED_SCHEDULER) {
+            if (state == JobState.NEED_SCHEDULE) {
                 // divide kafkaPartitions into tasks
                 for (int i = 0; i < currentConcurrentTaskNum; i++) {
                     try {
                         KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo(UUID.randomUUID().toString(), id);
                         routineLoadTaskInfoList.add(kafkaTaskInfo);
-                        needSchedulerTaskInfoList.add(kafkaTaskInfo);
+                        needScheduleTaskInfoList.add(kafkaTaskInfo);
                         result.add(kafkaTaskInfo);
                     } catch (UserException e) {
                         LOG.error("failed to begin txn for kafka routine load task, change job state to failed");
@@ -113,9 +135,9 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                     }
                 }
                 if (result.size() != 0) {
-                    for (int i = 0; i < kafkaPartitions.size(); i++) {
+                    for (int i = 0; i < currentKafkaPartitions.size(); i++) {
                         ((KafkaTaskInfo) routineLoadTaskInfoList.get(i % currentConcurrentTaskNum))
-                                .addKafkaPartition(kafkaPartitions.get(i));
+                                .addKafkaPartition(currentKafkaPartitions.get(i));
                     }
                     // change job state to running
                     // TODO(ml): edit log
@@ -132,20 +154,15 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     @Override
     public int calculateCurrentConcurrentTaskNum() throws MetaNotFoundException {
-        updatePartitions();
+        updateCurrentKafkaPartitions();
         SystemInfoService systemInfoService = Catalog.getCurrentSystemInfo();
         Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
             LOG.warn("db {} is not exists from job {}", dbId, id);
             throw new MetaNotFoundException("db " + dbId + " is not exists from job " + id);
         }
-        String clusterName = db.getClusterName();
-        if (Strings.isNullOrEmpty(clusterName)) {
-            LOG.debug("database {} has no cluster name", dbId);
-            clusterName = SystemInfoService.DEFAULT_CLUSTER;
-        }
-        int aliveBeNum = systemInfoService.getClusterBackendIds(clusterName, true).size();
-        int partitionNum = kafkaPartitions.size();
+        int aliveBeNum = systemInfoService.getBackendIds(true).size();
+        int partitionNum = currentKafkaPartitions.size();
         if (desireTaskConcurrentNum == 0) {
             desireTaskConcurrentNum = partitionNum;
         }
@@ -169,8 +186,40 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         // add new task
         KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo((KafkaTaskInfo) routineLoadTaskInfo);
         routineLoadTaskInfoList.add(kafkaTaskInfo);
-        needSchedulerTaskInfoList.add(kafkaTaskInfo);
+        needScheduleTaskInfoList.add(kafkaTaskInfo);
         return kafkaTaskInfo;
+    }
+
+    // if customKafkaPartition is not null, then return false immediately
+    // else if kafka partitions of topic has been changed, return true.
+    // else return false
+    @Override
+    protected boolean needReschedule() {
+        if (customKafkaPartitions != null && customKafkaPartitions.size() != 0) {
+            return false;
+        } else {
+            List<Integer> newCurrentKafkaPartition = getAllKafkaPartitions();
+            if (currentKafkaPartitions.containsAll(newCurrentKafkaPartition)) {
+                if (currentKafkaPartitions.size() > newCurrentKafkaPartition.size()) {
+                    return true;
+                } else {
+                    return false;
+                }
+            } else {
+                return true;
+            }
+
+        }
+    }
+
+    private List<Integer> getAllKafkaPartitions() {
+        List<Integer> result = new ArrayList<>();
+        List<PartitionInfo> partitionList = consumer.partitionsFor(
+                topic, Duration.ofSeconds(FETCH_PARTITIONS_TIMEOUT));
+        for (PartitionInfo partitionInfo : partitionList) {
+            result.add(partitionInfo.partition());
+        }
+        return result;
     }
 
     public static KafkaRoutineLoadJob fromCreateStmt(CreateRoutineLoadStmt stmt) throws AnalysisException,
@@ -185,16 +234,6 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         } finally {
             database.readUnlock();
         }
-        List<Integer> kafkaPartitionList = new ArrayList<>();
-        if (stmt.getCustomProperties().get(CreateRoutineLoadStmt.KAFKA_PARTITIONS_PROPERTY) != null) {
-            String[] kafkaPartitionStringList = stmt.getCustomProperties()
-                    .get(CreateRoutineLoadStmt.KAFKA_PARTITIONS_PROPERTY).split(",");
-            for (String s : kafkaPartitionStringList) {
-                kafkaPartitionList.add(Integer.valueOf(s));
-            }
-        } else {
-            LOG.debug("All of partitions which belong to topic will be load for {} routine load job", stmt.getName());
-        }
 
         // init kafka routine load job
         KafkaRoutineLoadJob kafkaRoutineLoadJob =
@@ -206,22 +245,32 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         return kafkaRoutineLoadJob;
     }
 
-    private void updatePartitions() {
-        // fetch all of kafkaPartitions in topic
-        if (kafkaPartitions == null || kafkaPartitions.size() == 0) {
-            kafkaPartitions = new ArrayList<>();
-            Properties props = new Properties();
-            props.put("bootstrap.servers", this.serverAddress);
-            props.put("group.id", FE_GROUP_ID);
-            props.put("key.deserializer", "org.apache.kafka.common.serialization.StringDeserializer");
-            props.put("value.deserializer", "org.apache.kafka.common.serialization.StringDeserializer");
-            KafkaConsumer<String, String> consumer = new KafkaConsumer<>(props);
-            List<PartitionInfo> partitionList = consumer.partitionsFor(
-                    topic, Duration.ofSeconds(FETCH_PARTITIONS_TIMEOUT));
-            for (PartitionInfo partitionInfo : partitionList) {
-                kafkaPartitions.add(partitionInfo.partition());
+    // current kafka partitions = customKafkaPartitions == 0 ? all of partition of kafka topic : customKafkaPartitions
+    private void updateCurrentKafkaPartitions() {
+        if (customKafkaPartitions == null || customKafkaPartitions.size() == 0) {
+            LOG.debug("All of partitions which belong to topic will be loaded for {} routine load job", name);
+            // fetch all of kafkaPartitions in topic
+            currentKafkaPartitions.addAll(getAllKafkaPartitions());
+        } else {
+            currentKafkaPartitions = customKafkaPartitions;
+        }
+        // update the progress of new partitions
+        for (Integer kafkaPartition : currentKafkaPartitions) {
+            try {
+                ((KafkaProgress) progress).getPartitionIdToOffset().get(kafkaPartition);
+            } catch (NullPointerException e) {
+                ((KafkaProgress) progress).getPartitionIdToOffset().put(kafkaPartition, 0L);
             }
         }
+    }
+
+    private void setConsumer() {
+        Properties props = new Properties();
+        props.put("bootstrap.servers", this.serverAddress);
+        props.put("group.id", FE_GROUP_ID);
+        props.put("key.deserializer", "org.apache.kafka.common.serialization.StringDeserializer");
+        props.put("value.deserializer", "org.apache.kafka.common.serialization.StringDeserializer");
+        consumer = new KafkaConsumer<>(props);
     }
 
     private void setOptional(CreateRoutineLoadStmt stmt) throws LoadException {
@@ -235,7 +284,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             setMaxErrorNum(stmt.getMaxErrorNum());
         }
         if (stmt.getKafkaPartitions() != null) {
-            setKafkaPartitions(stmt.getKafkaPartitions());
+            setCustomKafkaPartitions(stmt.getKafkaPartitions());
         }
     }
 }
