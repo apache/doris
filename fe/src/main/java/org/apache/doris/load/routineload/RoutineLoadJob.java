@@ -54,6 +54,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -74,31 +75,30 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
     private static final String STAR_STRING = "*";
 
     /**
-                      +-----------------+
-     fe scheduler job |  NEED_SCHEDULER |  user resume job
-     +-----------     +                 | <---------+
-     |                |                 |           |
-     v                +-----------------+           ^
-     |
-     +------------+   user pause job        +-------+----+
-     |  RUNNING   |                         |  PAUSED    |
-     |            +-----------------------> |            |
-     +----+-------+                         +-------+----+
-     |                                              |
-     |                +---------------+             |
-     |                | STOPPED       |             |
-     +--------------> |               | <-----------+
-     user stop job    +---------------+    user stop| job
-     |                                              |
-     |                                              |
-     |                 +---------------+            |
-     |                 | CANCELLED     |            |
-     +---------------> |               | <----------+
-     system error      +---------------+    system error
-
+     *                  +-----------------+
+     * fe schedule job |  NEED_SCHEDULE |  user resume job
+     * +-----------     +                 | <---------+
+     * |                |                 |           |
+     * v                +-----------------+           ^
+     * |
+     * +------------+   user pause job        +-------+----+
+     * |  RUNNING   |                         |  PAUSED    |
+     * |            +-----------------------> |            |
+     * +----+-------+                         +-------+----+
+     * |                                              |
+     * |                +---------------+             |
+     * |                | STOPPED       |             |
+     * +--------------> |               | <-----------+
+     * user stop job    +---------------+    user stop| job
+     * |                                              |
+     * |                                              |
+     * |                 +---------------+            |
+     * |                 | CANCELLED     |            |
+     * +---------------> |               | <----------+
+     * system error      +---------------+    system error
      */
     public enum JobState {
-        NEED_SCHEDULER,
+        NEED_SCHEDULE,
         RUNNING,
         PAUSED,
         STOPPED,
@@ -135,7 +135,7 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
 
     // The tasks belong to this job
     protected List<RoutineLoadTaskInfo> routineLoadTaskInfoList;
-    protected List<RoutineLoadTaskInfo> needSchedulerTaskInfoList;
+    protected List<RoutineLoadTaskInfo> needScheduleTaskInfoList;
 
     protected ReentrantReadWriteLock lock;
     // TODO(ml): error sample
@@ -145,11 +145,11 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
         this.name = name;
         this.dbId = dbId;
         this.tableId = tableId;
-        this.state = JobState.NEED_SCHEDULER;
+        this.state = JobState.NEED_SCHEDULE;
         this.dataSourceType = dataSourceType;
         this.resourceInfo = ConnectContext.get().toResourceCtx();
         this.routineLoadTaskInfoList = new ArrayList<>();
-        this.needSchedulerTaskInfoList = new ArrayList<>();
+        this.needScheduleTaskInfoList = new ArrayList<>();
         lock = new ReentrantReadWriteLock(true);
     }
 
@@ -165,12 +165,12 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
         this.tableId = tableId;
         this.routineLoadDesc = routineLoadDesc;
         this.desireTaskConcurrentNum = desireTaskConcurrentNum;
-        this.state = JobState.NEED_SCHEDULER;
+        this.state = JobState.NEED_SCHEDULE;
         this.dataSourceType = dataSourceType;
         this.maxErrorNum = maxErrorNum;
         this.resourceInfo = ConnectContext.get().toResourceCtx();
         this.routineLoadTaskInfoList = new ArrayList<>();
-        this.needSchedulerTaskInfoList = new ArrayList<>();
+        this.needScheduleTaskInfoList = new ArrayList<>();
         lock = new ReentrantReadWriteLock(true);
     }
 
@@ -304,8 +304,8 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
 
     }
 
-    public List<RoutineLoadTaskInfo> getNeedSchedulerTaskInfoList() {
-        return needSchedulerTaskInfoList;
+    public List<RoutineLoadTaskInfo> getNeedScheduleTaskInfoList() {
+        return needScheduleTaskInfoList;
     }
 
     public void updateState(JobState jobState) {
@@ -322,7 +322,7 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
         writeLock();
         try {
             List<RoutineLoadTaskInfo> runningTasks = new ArrayList<>(routineLoadTaskInfoList);
-            runningTasks.removeAll(needSchedulerTaskInfoList);
+            runningTasks.removeAll(needScheduleTaskInfoList);
 
             for (RoutineLoadTaskInfo routineLoadTaskInfo : runningTasks) {
                 if ((System.currentTimeMillis() - routineLoadTaskInfo.getLoadStartTimeMs())
@@ -373,10 +373,10 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
     }
 
 
-    public void removeNeedSchedulerTask(RoutineLoadTaskInfo routineLoadTaskInfo) {
+    public void removeNeedScheduleTask(RoutineLoadTaskInfo routineLoadTaskInfo) {
         writeLock();
         try {
-            needSchedulerTaskInfoList.remove(routineLoadTaskInfo);
+            needScheduleTaskInfoList.remove(routineLoadTaskInfo);
         } finally {
             writeUnlock();
         }
@@ -399,7 +399,7 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
             throws UnsupportedOperationException {
         switch (state) {
             case RUNNING:
-                if (desireState == JobState.NEED_SCHEDULER) {
+                if (desireState == JobState.NEED_SCHEDULE) {
                     throw new UnsupportedOperationException("Could not transform " + state + " to " + desireState);
                 }
                 break;
@@ -498,12 +498,16 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
                 // step5: create a new task for partitions
                 RoutineLoadTaskInfo newRoutineLoadTaskInfo = reNewTask(routineLoadTaskInfo);
                 Catalog.getCurrentCatalog().getRoutineLoadManager()
-                        .getNeedSchedulerTasksQueue().addAll(Lists.newArrayList(newRoutineLoadTaskInfo));
+                        .getNeedScheduleTasksQueue().add(newRoutineLoadTaskInfo);
             }
+        } catch (NoSuchElementException e) {
+            LOG.debug("There is no {} task in task info list. Maybe task has been renew or job state has changed. "
+                              + " Transaction {} will not be committed",
+                      txnState.getLabel(), txnState.getTransactionId());
         } catch (Throwable e) {
             LOG.error("failed to update offset in routine load task {} when transaction {} has been committed. "
                               + "change job to paused",
-                      rlTaskTxnCommitAttachment.getTaskId(), txnState.getTransactionId());
+                      rlTaskTxnCommitAttachment.getTaskId(), txnState.getTransactionId(), e);
             executePause("failed to update offset when transaction "
                                  + txnState.getTransactionId() + " has been committed");
         } finally {
@@ -580,15 +584,15 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
         pausedReason = reason;
         state = JobState.PAUSED;
         routineLoadTaskInfoList.clear();
-        needSchedulerTaskInfoList.clear();
+        needScheduleTaskInfoList.clear();
     }
 
     public void resume() {
         // TODO(ml): edit log
         writeLock();
         try {
-            checkStateTransform(JobState.NEED_SCHEDULER);
-            state = JobState.NEED_SCHEDULER;
+            checkStateTransform(JobState.NEED_SCHEDULE);
+            state = JobState.NEED_SCHEDULE;
         } finally {
             writeUnlock();
         }
@@ -601,9 +605,28 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
             checkStateTransform(JobState.STOPPED);
             state = JobState.STOPPED;
             routineLoadTaskInfoList.clear();
-            needSchedulerTaskInfoList.clear();
+            needScheduleTaskInfoList.clear();
         } finally {
             writeUnlock();
         }
+    }
+
+    public void reschedule() {
+        if (needReschedule()) {
+            writeLock();
+            try {
+                if (state == JobState.RUNNING) {
+                    state = JobState.NEED_SCHEDULE;
+                    routineLoadTaskInfoList.clear();
+                    needScheduleTaskInfoList.clear();
+                }
+            } finally {
+                writeUnlock();
+            }
+        }
+    }
+
+    protected boolean needReschedule() {
+        return false;
     }
 }

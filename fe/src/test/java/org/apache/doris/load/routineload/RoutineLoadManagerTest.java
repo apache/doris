@@ -109,7 +109,7 @@ public class RoutineLoadManagerTest {
         Assert.assertEquals(1L, routineLoadJob.getDbId());
         Assert.assertEquals(jobName, routineLoadJob.getName());
         Assert.assertEquals(1L, routineLoadJob.getTableId());
-        Assert.assertEquals(RoutineLoadJob.JobState.NEED_SCHEDULER, routineLoadJob.getState());
+        Assert.assertEquals(RoutineLoadJob.JobState.NEED_SCHEDULE, routineLoadJob.getState());
 
         Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob =
                 Deencapsulation.getField(routineLoadManager, "dbToNameToRoutineLoadJob");
