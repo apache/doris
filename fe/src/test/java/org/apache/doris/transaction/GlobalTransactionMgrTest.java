@@ -23,7 +23,6 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import com.google.common.collect.Maps;
-import com.sleepycat.je.tree.IN;
 import mockit.Deencapsulation;
 import mockit.Expectations;
 import mockit.Injectable;
@@ -373,10 +372,10 @@ public class GlobalTransactionMgrTest {
         Assert.assertEquals(Integer.valueOf(100), Deencapsulation.getField(routineLoadJob, "currentTotalNum"));
         Assert.assertEquals(Integer.valueOf(1), Deencapsulation.getField(routineLoadJob, "currentErrorNum"));
         Assert.assertEquals(Long.valueOf(10L), ((KafkaProgress) routineLoadJob.getProgress()).getPartitionIdToOffset().get(1));
-        Assert.assertEquals(1, routineLoadJob.getNeedSchedulerTaskInfoList().size());
-        Assert.assertNotEquals("label", routineLoadJob.getNeedSchedulerTaskInfoList().get(0));
-        Assert.assertEquals(1, routineLoadManager.getNeedSchedulerTasksQueue().size());
-        Assert.assertNotEquals("label", routineLoadManager.getNeedSchedulerTasksQueue().peek().getId());
+        Assert.assertEquals(1, routineLoadJob.getNeedScheduleTaskInfoList().size());
+        Assert.assertNotEquals("label", routineLoadJob.getNeedScheduleTaskInfoList().get(0));
+        Assert.assertEquals(1, routineLoadManager.getNeedScheduleTasksQueue().size());
+        Assert.assertNotEquals("label", routineLoadManager.getNeedScheduleTasksQueue().peek().getId());
 
     }
 
@@ -437,10 +436,6 @@ public class GlobalTransactionMgrTest {
                 result = "label";
                 database.getTable(anyLong);
                 result = olapTable;
-                routineLoadTaskInfo.getJobId();
-                result = Deencapsulation.getField(routineLoadJob, "id");
-                routineLoadTaskInfo.getPartitions();
-                result = Lists.newArrayList().add(1);
             }
         };
         Deencapsulation.setField(masterTransMgr, "idToTransactionState", idToTransactionState);
@@ -449,8 +444,8 @@ public class GlobalTransactionMgrTest {
         Assert.assertEquals(Integer.valueOf(0), Deencapsulation.getField(routineLoadJob, "currentTotalNum"));
         Assert.assertEquals(Integer.valueOf(0), Deencapsulation.getField(routineLoadJob, "currentErrorNum"));
         Assert.assertEquals(Long.valueOf(10L), ((KafkaProgress) routineLoadJob.getProgress()).getPartitionIdToOffset().get(1));
-        Assert.assertEquals(0, routineLoadJob.getNeedSchedulerTaskInfoList().size());
-        Assert.assertEquals(0, routineLoadManager.getNeedSchedulerTasksQueue().size());
+        Assert.assertEquals(0, routineLoadJob.getNeedScheduleTaskInfoList().size());
+        Assert.assertEquals(0, routineLoadManager.getNeedScheduleTasksQueue().size());
         Assert.assertEquals(RoutineLoadJob.JobState.PAUSED, routineLoadJob.getState());
     }
 

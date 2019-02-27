@@ -117,9 +117,7 @@ public class KafkaRoutineLoadJobTest {
                 result = catalog;
                 catalog.getDb(anyLong);
                 result = database;
-                database.getClusterName();
-                result = clusterName;
-                systemInfoService.getClusterBackendIds(clusterName, true);
+                systemInfoService.getBackendIds(true);
                 result = beIds;
                 connectContext.toResourceCtx();
                 result = tResourceInfo;
@@ -129,7 +127,7 @@ public class KafkaRoutineLoadJobTest {
         KafkaRoutineLoadJob kafkaRoutineLoadJob =
                 new KafkaRoutineLoadJob("1", "kafka_routine_load_job", 1L,
                                         1L, routineLoadDesc, 3, 0,
-                                        "", "", null);
+                                        "", "", new KafkaProgress());
         Deencapsulation.setField(kafkaRoutineLoadJob, "consumer", kafkaConsumer);
         Assert.assertEquals(1, kafkaRoutineLoadJob.calculateCurrentConcurrentTaskNum());
     }
@@ -170,7 +168,7 @@ public class KafkaRoutineLoadJobTest {
 
         kafkaRoutineLoadJob.divideRoutineLoadJob(2);
 
-        List<RoutineLoadTaskInfo> result = kafkaRoutineLoadJob.getNeedSchedulerTaskInfoList();
+        List<RoutineLoadTaskInfo> result = kafkaRoutineLoadJob.getNeedScheduleTaskInfoList();
         Assert.assertEquals(2, result.size());
         for (RoutineLoadTaskInfo routineLoadTaskInfo : result) {
             KafkaTaskInfo kafkaTaskInfo = (KafkaTaskInfo) routineLoadTaskInfo;
@@ -246,10 +244,10 @@ public class KafkaRoutineLoadJobTest {
                         Deencapsulation.getField(routineLoadJob, "routineLoadTaskInfoList");
                 Assert.assertNotEquals("1", idToRoutineLoadTask.get(0).getId());
                 Assert.assertEquals(1, idToRoutineLoadTask.size());
-                List<RoutineLoadTaskInfo> needSchedulerTask =
-                        Deencapsulation.getField(routineLoadJob, "needSchedulerTaskInfoList");
-                Assert.assertEquals(1, needSchedulerTask.size());
-                Assert.assertEquals(100, (int) ((KafkaTaskInfo) (needSchedulerTask.get(0)))
+                List<RoutineLoadTaskInfo> needScheduleTask =
+                        Deencapsulation.getField(routineLoadJob, "needScheduleTaskInfoList");
+                Assert.assertEquals(1, needScheduleTask.size());
+                Assert.assertEquals(100, (int) ((KafkaTaskInfo) (needScheduleTask.get(0)))
                         .getPartitions().get(0));
             }
         };
@@ -310,14 +308,18 @@ public class KafkaRoutineLoadJobTest {
 
     @Test
     public void testFromCreateStmt(@Mocked Catalog catalog,
+                                   @Mocked KafkaConsumer kafkaConsumer,
                                    @Injectable Database database,
                                    @Injectable OlapTable table) throws LoadException, AnalysisException {
         CreateRoutineLoadStmt createRoutineLoadStmt = initCreateRoutineLoadStmt();
         RoutineLoadDesc routineLoadDesc = new RoutineLoadDesc(columnSeparator, null, null, partitionNames.getPartitionNames());
         Deencapsulation.setField(createRoutineLoadStmt, "routineLoadDesc", routineLoadDesc);
         List<Integer> kafkaIntegerList = Lists.newArrayList();
+        List<PartitionInfo> kafkaPartitionInfoList = Lists.newArrayList();
         for (String s : kafkaPartitionString.split(",")) {
             kafkaIntegerList.add(Integer.valueOf(s));
+            PartitionInfo partitionInfo = new PartitionInfo(topicName, Integer.valueOf(s), null, null, null);
+            kafkaPartitionInfoList.add(partitionInfo);
         }
         Deencapsulation.setField(createRoutineLoadStmt, "kafkaPartitions", kafkaIntegerList);
         Deencapsulation.setField(createRoutineLoadStmt, "kafkaEndpoint", serverAddress);
@@ -337,6 +339,8 @@ public class KafkaRoutineLoadJobTest {
                 result = tableId;
                 table.getType();
                 result = Table.TableType.OLAP;
+                kafkaConsumer.partitionsFor(anyString, (Duration) any);
+                result = kafkaPartitionInfoList;
             }
         };
 

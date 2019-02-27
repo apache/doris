@@ -58,7 +58,7 @@ public class RoutineLoadManager {
     private Map<String, RoutineLoadJob> idToRoutineLoadJob;
     private Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob;
 
-    private Queue<RoutineLoadTaskInfo> needSchedulerTasksQueue;
+    private Queue<RoutineLoadTaskInfo> needScheduleTasksQueue;
 
     private ReentrantReadWriteLock lock;
 
@@ -83,12 +83,12 @@ public class RoutineLoadManager {
         dbToNameToRoutineLoadJob = Maps.newConcurrentMap();
         beIdToConcurrentTasks = Maps.newHashMap();
         beIdToMaxConcurrentTasks = Maps.newHashMap();
-        needSchedulerTasksQueue = Queues.newLinkedBlockingQueue();
+        needScheduleTasksQueue = Queues.newLinkedBlockingQueue();
         lock = new ReentrantReadWriteLock(true);
     }
 
-    public Queue<RoutineLoadTaskInfo> getNeedSchedulerTasksQueue() {
-        return needSchedulerTasksQueue;
+    public Queue<RoutineLoadTaskInfo> getNeedScheduleTasksQueue() {
+        return needScheduleTasksQueue;
     }
 
     private void updateBeIdToMaxConcurrentTasks() {
@@ -396,9 +396,9 @@ public class RoutineLoadManager {
         // TODO(ml): remove old routine load job
     }
 
-    public void reSchedulerRoutineLoadJob() {
+    public void rescheduleRoutineLoadJob() {
         for (RoutineLoadJob routineLoadJob : idToRoutineLoadJob.values()) {
-            routineLoadJob.rescheduler();
+            routineLoadJob.reschedule();
         }
     }
 

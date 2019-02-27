@@ -40,7 +40,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.ThreadPoolExecutor;
 
 public class RoutineLoadSchedulerTest {
 
@@ -77,8 +76,8 @@ public class RoutineLoadSchedulerTest {
         RoutineLoadJob routineLoadJob =
                 new KafkaRoutineLoadJob("1", "kafka_routine_load_job", 1L,
                                         1L, routineLoadDesc ,3, 0,
-                                        "", "", null);
-        routineLoadJob.setState(RoutineLoadJob.JobState.NEED_SCHEDULER);
+                                        "", "", new KafkaProgress());
+        routineLoadJob.setState(RoutineLoadJob.JobState.NEED_SCHEDULE);
         List<RoutineLoadJob> routineLoadJobList = new ArrayList<>();
         routineLoadJobList.add(routineLoadJob);
 
@@ -90,13 +89,11 @@ public class RoutineLoadSchedulerTest {
             {
                 catalog.getRoutineLoadManager();
                 result = routineLoadManager;
-                routineLoadManager.getRoutineLoadJobByState(RoutineLoadJob.JobState.NEED_SCHEDULER);
+                routineLoadManager.getRoutineLoadJobByState(RoutineLoadJob.JobState.NEED_SCHEDULE);
                 result = routineLoadJobList;
                 catalog.getDb(anyLong);
                 result = database;
-                database.getClusterName();
-                result = clusterName;
-                systemInfoService.getClusterBackendIds(clusterName, true);
+                systemInfoService.getBackendIds( true);
                 result = beIds;
                 routineLoadManager.getSizeOfIdToRoutineLoadTask();
                 result = 1;
@@ -109,8 +106,8 @@ public class RoutineLoadSchedulerTest {
         Deencapsulation.setField(routineLoadScheduler, "routineLoadManager", routineLoadManager);
         routineLoadScheduler.runOneCycle();
 
-        Assert.assertEquals(2, routineLoadJob.getNeedSchedulerTaskInfoList().size());
-        for (RoutineLoadTaskInfo routineLoadTaskInfo : routineLoadJob.getNeedSchedulerTaskInfoList()) {
+        Assert.assertEquals(2, routineLoadJob.getNeedScheduleTaskInfoList().size());
+        for (RoutineLoadTaskInfo routineLoadTaskInfo : routineLoadJob.getNeedScheduleTaskInfoList()) {
             KafkaTaskInfo kafkaTaskInfo = (KafkaTaskInfo) routineLoadTaskInfo;
             if (kafkaTaskInfo.getPartitions().size() == 2) {
                 Assert.assertTrue(kafkaTaskInfo.getPartitions().contains(100));
