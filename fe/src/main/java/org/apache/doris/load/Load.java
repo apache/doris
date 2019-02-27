@@ -39,6 +39,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Partition.PartitionState;
+import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
@@ -3089,6 +3090,16 @@ public class Load {
             }
 
             tableId = olapTable.getId();
+            if (partitionName == null) {
+                if (olapTable.getPartitionInfo().getType() == PartitionType.RANGE) {
+                    throw new DdlException("This is a range partitioned table."
+                            + " You should specify partition in delete stmt");
+                } else {
+                    // this is a unpartitioned table, use table name as partition name
+                    partitionName = olapTable.getName();
+                }
+            }
+            
             Partition partition = olapTable.getPartition(partitionName);
             if (partition == null) {
                 throw new DdlException("Partition does not exist. name: " + partitionName);
@@ -3170,6 +3181,7 @@ public class Load {
         }
     }
 
+    @Deprecated
     public void deleteOld(DeleteStmt stmt) throws DdlException {
         String dbName = stmt.getDbName();
         String tableName = stmt.getTableName();
