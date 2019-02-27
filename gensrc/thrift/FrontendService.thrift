@@ -510,12 +510,13 @@ struct TKafkaRLTaskProgress {
 struct TRLTaskTxnCommitAttachment {
     1: required Types.TLoadSourceType loadSourceType
     2: required Types.TUniqueId id
-    3: optional i64 loadedRows
-    4: optional i64 filteredRows
-    5: optional i64 receivedBytes
-    6: optional i64 loadedBytes
-    7: optional i64 loadCostMs
-    8: optional TKafkaRLTaskProgress kafkaRLTaskProgress
+    3: required i64 jobId
+    4: optional i64 loadedRows
+    5: optional i64 filteredRows
+    6: optional i64 receivedBytes
+    7: optional i64 loadedBytes
+    8: optional i64 loadCostMs
+    9: optional TKafkaRLTaskProgress kafkaRLTaskProgress
 }
 
 struct TTxnCommitAttachment {
