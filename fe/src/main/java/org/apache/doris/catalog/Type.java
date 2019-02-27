@@ -223,7 +223,7 @@ public abstract class Type {
     }
 
     public boolean isNumericType() {
-        return isFixedPointType() || isFloatingPointType() || isDecimal();
+        return isFixedPointType() || isFloatingPointType() || isDecimal() || isDecimal_V2();
     }
 
     public boolean isNativeType() {

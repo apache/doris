@@ -165,7 +165,7 @@ public class ArithmeticExpr extends Expr {
     @Override
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.ARITHMETIC_EXPR;
-        if (!type.isDecimal()) {
+        if (!type.isDecimal() && !type.isDecimal_V2()) {
             msg.setOpcode(op.getOpcode());
             msg.setOutput_column(outputColumn);
         }

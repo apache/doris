@@ -27,6 +27,8 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.thrift.TFunction;
 import org.apache.doris.thrift.TFunctionBinaryType;
 import org.apache.doris.thrift.TScalarFunction;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -40,6 +42,7 @@ import java.util.List;
  * Internal representation of a scalar function.
  */
 public class ScalarFunction extends Function {
+    private static final Logger LOG = LogManager.getLogger(ScalarFunction.class);
     // The name inside the binary at location_ that contains this particular
     // function. e.g. org.example.MyUdf.class.
     private String symbolName;
@@ -128,6 +131,7 @@ public class ScalarFunction extends Function {
         // Convert Add(TINYINT, TINYINT) --> Add_TinyIntVal_TinyIntVal
         String beFn = name;
         boolean usesDecimal = false;
+        boolean usesDecimal_V2 = false;
         for (int i = 0; i < argTypes.size(); ++i) {
             switch (argTypes.get(i).getPrimitiveType()) {
                 case BOOLEAN:
@@ -169,13 +173,14 @@ public class ScalarFunction extends Function {
                     break;
                 case DECIMAL_V2:
                     beFn += "_decimal_v2_val";
-                    usesDecimal = true;
+                    usesDecimal_V2 = true;
                     break;
                 default:
                     Preconditions.checkState(false, "Argument type not supported: " + argTypes.get(i));
             }
         }
         String beClass = usesDecimal ? "DecimalOperators" : "Operators";
+        if (usesDecimal_V2) beClass = "Decimal_V2Operators";
         String symbol = "doris::" + beClass + "::" + beFn;
         return createBuiltinOperator(name, symbol, argTypes, retType);
     }

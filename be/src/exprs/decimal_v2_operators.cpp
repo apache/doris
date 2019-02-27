@@ -134,6 +134,16 @@ DateTimeVal Decimal_V2Operators::cast_to_datetime_val(
     return result;
 }
 
+DecimalVal Decimal_V2Operators::cast_to_decimal_val(
+            FunctionContext* context, const Decimal_V2Val& val) {
+    if (val.is_null) return DecimalVal::null();
+    Decimal_V2Value v2(val.val);
+    DecimalValue dv(v2.int_value(), v2.frac_value());
+    DecimalVal result;
+    dv.to_decimal_val(&result);
+    return result;
+}
+
 #define DECIMAL_ARITHMETIC_OP(FN_NAME, OP) \
     Decimal_V2Val Decimal_V2Operators::FN_NAME##_decimal_v2_val_decimal_v2_val( \
             FunctionContext* context, const Decimal_V2Val& v1, const Decimal_V2Val& v2) { \

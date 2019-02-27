@@ -53,6 +53,7 @@ public:
     static DoubleVal cast_to_double_val(FunctionContext*, const Decimal_V2Val&);
     static StringVal cast_to_string_val(FunctionContext*, const Decimal_V2Val&);
     static DateTimeVal cast_to_datetime_val(FunctionContext*, const Decimal_V2Val&);
+    static DecimalVal cast_to_decimal_val(FunctionContext*, const Decimal_V2Val&);
 
     static Decimal_V2Val add_decimal_v2_val_decimal_v2_val(
         FunctionContext*, const Decimal_V2Val&, const Decimal_V2Val&);
