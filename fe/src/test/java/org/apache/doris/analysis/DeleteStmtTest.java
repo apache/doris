@@ -133,8 +133,7 @@ public class DeleteStmtTest {
         }
         
         // case 6 partition is null
-        binaryPredicate = new BinaryPredicate(Operator.EQ, new StringLiteral("abc"),
-                                              new SlotRef(null, "k1"));
+        binaryPredicate = new BinaryPredicate(Operator.EQ, new SlotRef(null, "k1"), new StringLiteral("abc"));
         compoundPredicate = new CompoundPredicate(org.apache.doris.analysis.CompoundPredicate.Operator.AND,
                                                   binaryPredicate,
                                                   binaryPredicate);
@@ -143,6 +142,7 @@ public class DeleteStmtTest {
         try {
             deleteStmt.analyze(analyzer);
         } catch (UserException e) {
+            e.printStackTrace();
             Assert.assertTrue(e.getMessage().contains("Partition is not set"));
         }
 
