@@ -58,7 +58,7 @@ public class RoutineLoadManager {
     private Map<String, RoutineLoadJob> idToRoutineLoadJob;
     private Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob;
 
-    private Queue<RoutineLoadTaskInfo> needSchedulerTasksQueue;
+    private Queue<RoutineLoadTaskInfo> needScheduleTasksQueue;
 
     private ReentrantReadWriteLock lock;
 
@@ -82,35 +82,29 @@ public class RoutineLoadManager {
         idToRoutineLoadJob = Maps.newConcurrentMap();
         dbToNameToRoutineLoadJob = Maps.newConcurrentMap();
         beIdToConcurrentTasks = Maps.newHashMap();
-        needSchedulerTasksQueue = Queues.newLinkedBlockingQueue();
+        beIdToMaxConcurrentTasks = Maps.newHashMap();
+        needScheduleTasksQueue = Queues.newLinkedBlockingQueue();
         lock = new ReentrantReadWriteLock(true);
     }
 
-    public Queue<RoutineLoadTaskInfo> getNeedSchedulerTasksQueue() {
-        return needSchedulerTasksQueue;
+    public Queue<RoutineLoadTaskInfo> getNeedScheduleTasksQueue() {
+        return needScheduleTasksQueue;
     }
 
-    public void initBeIdToMaxConcurrentTasks() {
-        if (beIdToMaxConcurrentTasks == null) {
-            beIdToMaxConcurrentTasks = Catalog.getCurrentSystemInfo().getBackendIds(true)
+    private void updateBeIdToMaxConcurrentTasks() {
+        beIdToMaxConcurrentTasks = Catalog.getCurrentSystemInfo().getBackendIds(true)
                     .parallelStream().collect(Collectors.toMap(beId -> beId, beId -> DEFAULT_BE_CONCURRENT_TASK_NUM));
-        }
     }
 
+    // this is not real-time number
     public int getTotalMaxConcurrentTaskNum() {
-        readLock();
-        try {
-            initBeIdToMaxConcurrentTasks();
-            return beIdToMaxConcurrentTasks.values().stream().mapToInt(i -> i).sum();
-        } finally {
-            readUnlock();
-        }
+        return beIdToMaxConcurrentTasks.values().stream().mapToInt(i -> i).sum();
     }
 
     public void updateBeIdTaskMaps() {
         writeLock();
         try {
-            initBeIdToMaxConcurrentTasks();
+            updateBeIdToMaxConcurrentTasks();
             List<Long> beIds = Catalog.getCurrentSystemInfo().getBackendIds(true);
 
             // diff beIds and beIdToMaxConcurrentTasks.keys()
@@ -295,7 +289,7 @@ public class RoutineLoadManager {
         readLock();
         try {
             int result = 0;
-            initBeIdToMaxConcurrentTasks();
+            updateBeIdToMaxConcurrentTasks();
             for (Map.Entry<Long, Integer> entry : beIdToMaxConcurrentTasks.entrySet()) {
                 if (beIdToConcurrentTasks.get(entry.getKey()) == null) {
                     result += entry.getValue();
@@ -314,7 +308,7 @@ public class RoutineLoadManager {
         try {
             long result = -1L;
             int maxIdleSlotNum = 0;
-            initBeIdToMaxConcurrentTasks();
+            updateBeIdToMaxConcurrentTasks();
             for (Map.Entry<Long, Integer> entry : beIdToMaxConcurrentTasks.entrySet()) {
                 if (beIdToConcurrentTasks.get(entry.getKey()) == null) {
                     result = maxIdleSlotNum < entry.getValue() ? entry.getKey() : result;
@@ -400,6 +394,12 @@ public class RoutineLoadManager {
     // Cancelled and stopped job will be remove after Configure.label_keep_max_second seconds
     public void removeOldRoutineLoadJobs() {
         // TODO(ml): remove old routine load job
+    }
+
+    public void rescheduleRoutineLoadJob() {
+        for (RoutineLoadJob routineLoadJob : idToRoutineLoadJob.values()) {
+            routineLoadJob.reschedule();
+        }
     }
 
 }

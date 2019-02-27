@@ -28,20 +28,29 @@ import org.apache.doris.task.RoutineLoadTask;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.Queue;
+import java.util.concurrent.LinkedBlockingQueue;
 
 /**
  * Routine load task scheduler is a function which allocate task to be.
  * Step1: get total idle task num of backends.
+ *   Step1.1: if total idle task num == 0, exit this round and switch to the next round immediately
  * Step2: equally divide to be
+ *   Step2.1: if there is no task in queue, waiting task until an element becomes available.
+ *   Step2.2: divide task to be
  * Step3: submit tasks to be
  */
-// TODO(ml): change interval ms in constructor
 public class RoutineLoadTaskScheduler extends Daemon {
 
     private static final Logger LOG = LogManager.getLogger(RoutineLoadTaskScheduler.class);
 
-    private RoutineLoadManager routineLoadManager = Catalog.getInstance().getRoutineLoadManager();
+    private RoutineLoadManager routineLoadManager;
+    private LinkedBlockingQueue<RoutineLoadTaskInfo> needScheduleTasksQueue;
+
+    public RoutineLoadTaskScheduler() {
+        super("routine load task", 0);
+        routineLoadManager = Catalog.getInstance().getRoutineLoadManager();
+        needScheduleTasksQueue = (LinkedBlockingQueue) routineLoadManager.getNeedScheduleTasksQueue();
+    }
 
     @Override
     protected void runOneCycle() {
@@ -49,7 +58,7 @@ public class RoutineLoadTaskScheduler extends Daemon {
             process();
         } catch (Throwable e) {
             LOG.warn("Failed to process one round of RoutineLoadTaskScheduler with error message {}",
-                    e.getMessage(), e);
+                     e.getMessage(), e);
         }
     }
 
@@ -57,44 +66,46 @@ public class RoutineLoadTaskScheduler extends Daemon {
         // update current beIdMaps for tasks
         routineLoadManager.updateBeIdTaskMaps();
 
-        // get idle be task num
-        int clusterIdleSlotNum = routineLoadManager.getClusterIdleSlotNum();
-        int scheduledTaskNum = 0;
-        Queue<RoutineLoadTaskInfo> needSchedulerTasksQueue = routineLoadManager.getNeedSchedulerTasksQueue();
+        LOG.info("There are {} need schedule task in queue when {}",
+                 needScheduleTasksQueue.size(), System.currentTimeMillis());
         AgentBatchTask batchTask = new AgentBatchTask();
-
+        int sizeOfTasksQueue = needScheduleTasksQueue.size();
+        int clusterIdleSlotNum = routineLoadManager.getClusterIdleSlotNum();
+        int needScheduleTaskNum = sizeOfTasksQueue < clusterIdleSlotNum ? sizeOfTasksQueue : clusterIdleSlotNum;
+        int scheduledTaskNum = 0;
+        // get idle be task num
         // allocate task to be
-        while (clusterIdleSlotNum > 0) {
-            if (needSchedulerTasksQueue.peek() != null) {
-                RoutineLoadTaskInfo routineLoadTaskInfo = needSchedulerTasksQueue.poll();
-                long beId = routineLoadManager.getMinTaskBeId();
-                RoutineLoadJob routineLoadJob = null;
-                try {
-                    routineLoadJob = routineLoadManager.getJobByTaskId(routineLoadTaskInfo.getId());
-                } catch (MetaNotFoundException e) {
-                    LOG.warn("task {} has been abandoned", routineLoadTaskInfo.getId());
-                    continue;
-                }
-                RoutineLoadTask routineLoadTask = routineLoadTaskInfo.createStreamLoadTask(beId);
-                if (routineLoadTask != null) {
-                    // remove task for needSchedulerTasksList in job
-                    routineLoadJob.removeNeedSchedulerTask(routineLoadTaskInfo);
-                    routineLoadTaskInfo.setLoadStartTimeMs(System.currentTimeMillis());
-                    AgentTaskQueue.addTask(routineLoadTask);
-                    batchTask.addTask(routineLoadTask);
-                    clusterIdleSlotNum--;
-                    scheduledTaskNum++;
-                    routineLoadManager.addNumOfConcurrentTasksByBeId(beId);
-                } else {
-                    LOG.debug("Task {} for job has been already discarded", routineLoadTaskInfo.getId());
-                }
-            } else {
-                LOG.debug("All of tasks were scheduled.");
-                break;
+        while (needScheduleTaskNum > 0) {
+            RoutineLoadTaskInfo routineLoadTaskInfo = null;
+            try {
+                routineLoadTaskInfo = needScheduleTasksQueue.take();
+            } catch (InterruptedException e) {
+                LOG.warn("Taking routine load task from queue has been interrupted with error msg {}",
+                         e.getMessage());
+                return;
             }
+
+            long beId = routineLoadManager.getMinTaskBeId();
+            RoutineLoadJob routineLoadJob = null;
+            try {
+                routineLoadJob = routineLoadManager.getJobByTaskId(routineLoadTaskInfo.getId());
+            } catch (MetaNotFoundException e) {
+                LOG.warn("task {} has been abandoned", routineLoadTaskInfo.getId());
+                return;
+            }
+            RoutineLoadTask routineLoadTask = routineLoadTaskInfo.createStreamLoadTask(beId);
+            // remove task for needScheduleTasksList in job
+            routineLoadJob.removeNeedScheduleTask(routineLoadTaskInfo);
+            routineLoadTaskInfo.setLoadStartTimeMs(System.currentTimeMillis());
+            AgentTaskQueue.addTask(routineLoadTask);
+            batchTask.addTask(routineLoadTask);
+            clusterIdleSlotNum--;
+            scheduledTaskNum++;
+            routineLoadManager.addNumOfConcurrentTasksByBeId(beId);
+
+            needScheduleTaskNum--;
         }
-        LOG.info("{} tasks have bean allocated to be. There are {} remaining idle slot in cluster.",
-                scheduledTaskNum, routineLoadManager.getClusterIdleSlotNum());
+        LOG.info("{} tasks have bean allocated to be.", scheduledTaskNum);
 
         if (batchTask.getTaskNum() > 0) {
             AgentTaskExecutor.submit(batchTask);
