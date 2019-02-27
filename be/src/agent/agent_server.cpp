@@ -416,7 +416,7 @@ void AgentServer::make_snapshot(TAgentResult& return_value,
     TStatus status;
     vector<string> error_msgs;
     TStatusCode::type status_code = TStatusCode::OK;
-
+    return_value.__set_snapshot_version(PREFERRED_SNAPSHOT_VERSION);
     string snapshot_path;
     OLAPStatus make_snapshot_status =
             SnapshotManager::instance()->make_snapshot(snapshot_request, &snapshot_path);

@@ -191,9 +191,14 @@ int64_t AlphaRowset::ref_count() const {
 }
 
 OLAPStatus AlphaRowset::make_snapshot(const std::string& snapshot_path,
+                                    std::vector<std::string>* success_files) {
+    return OLAP_SUCCESS;
+}
+                                    
+OLAPStatus AlphaRowset::convert_from_old_files(const std::string& snapshot_path,
                                       std::vector<std::string>* success_files) {
     for (auto segment_group : _segment_groups) {
-        OLAPStatus status = segment_group->make_snapshot(snapshot_path, success_files);
+        OLAPStatus status = segment_group->convert_from_old_files(snapshot_path, success_files);
         if (status != OLAP_SUCCESS) {
             LOG(WARNING) << "create hard links failed for segment group:"
                          << segment_group->segment_group_id();
@@ -203,6 +208,18 @@ OLAPStatus AlphaRowset::make_snapshot(const std::string& snapshot_path,
     return OLAP_SUCCESS;
 }
 
+OLAPStatus AlphaRowset::convert_to_old_files(const std::string& snapshot_path, 
+                                std::vector<std::string>* success_files) {
+    for (auto segment_group : _segment_groups) {
+        OLAPStatus status = segment_group->convert_to_old_files(snapshot_path, success_files);
+        if (status != OLAP_SUCCESS) {
+            LOG(WARNING) << "create hard links failed for segment group:"
+                         << segment_group->segment_group_id();
+            return status;
+        }
+    }
+    return OLAP_SUCCESS;
+}
 
 OLAPStatus AlphaRowset::remove_old_files(std::vector<std::string>* files_to_remove) {
     for (auto segment_group : _segment_groups) {

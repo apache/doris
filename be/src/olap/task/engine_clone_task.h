@@ -47,7 +47,8 @@ public:
 private:
     
     virtual OLAPStatus _finish_clone(TabletSharedPtr tablet, const std::string& clone_dir,
-                                    int64_t committed_version, bool is_incremental_clone);
+                                    int64_t committed_version, bool is_incremental_clone, 
+                                    int32_t snapshot_version);
     
     OLAPStatus _clone_incremental_data(TabletSharedPtr tablet, const TabletMeta& cloned_tablet_meta,
                                      int64_t committed_version);
@@ -62,7 +63,8 @@ private:
         string* src_file_path,
         vector<string>* error_msgs,
         const vector<Version>* missing_versions,
-        bool* allow_incremental_clone);
+        bool* allow_incremental_clone, 
+        int32_t* snapshot_version);
 
 private:
     const TCloneReq& _clone_req;

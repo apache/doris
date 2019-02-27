@@ -257,10 +257,15 @@ public:
         return _rowset_id;
     }
 
-    OLAPStatus make_snapshot(const std::string& snapshot_path,
+    OLAPStatus convert_from_old_files(const std::string& snapshot_path,
+                             std::vector<std::string>* success_links);
+    
+    OLAPStatus convert_to_old_files(const std::string& snapshot_path,
                              std::vector<std::string>* success_links);
 
     OLAPStatus remove_old_files(std::vector<std::string>* linkes_to_remove);
+
+    OLAPStatus remove_new_files(std::vector<std::string>* linkes_to_remove);
 
     bool copy_segments_to_path(const std::string& dest_path);
 

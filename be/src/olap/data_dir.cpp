@@ -459,6 +459,29 @@ std::string DataDir::get_absolute_tablet_path(TabletMeta* tablet_meta, bool with
     }
 }
 
+std::string DataDir::get_absolute_tablet_path(TabletMetaPB* tablet_meta, bool with_schema_hash) {
+    if (with_schema_hash) {
+        return _path + DATA_PREFIX + "/" + std::to_string(tablet_meta->shard_id())
+            + "/" + std::to_string(tablet_meta->tablet_id()) 
+            + "/" + std::to_string(tablet_meta->schema_hash());
+
+    } else {
+        return _path + DATA_PREFIX + "/" + std::to_string(tablet_meta->shard_id())
+            + "/" + std::to_string(tablet_meta->tablet_id());
+    }
+}
+
+std::string DataDir::get_absolute_tablet_path(OLAPHeaderMessage& olap_header_msg, bool with_schema_hash) {
+    if (with_schema_hash) {
+        return _path + DATA_PREFIX + "/" + std::to_string(olap_header_msg.shard())
+            + "/" + std::to_string(olap_header_msg.tablet_id()) + "/" + std::to_string(olap_header_msg.schema_hash());
+
+    } else {
+        return _path + DATA_PREFIX + "/" + std::to_string(olap_header_msg.shard())
+            + "/" + std::to_string(olap_header_msg.tablet_id());
+    }
+}
+
 void DataDir::find_tablet_in_trash(int64_t tablet_id, std::vector<std::string>* paths) {
     // path: /root_path/trash/time_label/tablet_id/schema_hash
     std::string trash_path = _path + TRASH_PREFIX;

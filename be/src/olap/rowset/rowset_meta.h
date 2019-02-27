@@ -239,11 +239,12 @@ public:
     }
 
     std::string rowset_path() {
-        return _rowset_meta_pb.rowset_path();
+        // return _rowset_meta_pb.rowset_path();
+        return "";
     }
 
     void set_rowset_path(std::string rowset_path) {
-        _rowset_meta_pb.set_rowset_path(rowset_path);
+        // _rowset_meta_pb.set_rowset_path(rowset_path);
     }
 
     PUniqueId load_id() {

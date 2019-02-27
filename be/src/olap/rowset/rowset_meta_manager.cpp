@@ -82,6 +82,12 @@ OLAPStatus RowsetMetaManager::save(OlapMeta* meta, int64_t rowset_id, RowsetMeta
     return status;
 }
 
+OLAPStatus RowsetMetaManager::save(OlapMeta* meta, int64_t rowset_id, string& meta_binary) {
+    std::string key = ROWSET_PREFIX + std::to_string(rowset_id);
+    OLAPStatus status = meta->put(META_COLUMN_FAMILY_INDEX, key, meta_binary);
+    return status;
+}
+
 OLAPStatus RowsetMetaManager::remove(OlapMeta* meta, int64_t rowset_id) {
     std::string key = ROWSET_PREFIX + std::to_string(rowset_id);
     LOG(INFO) << "start to remove rowset, key:" << key;

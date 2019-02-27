@@ -24,6 +24,8 @@
 #include "olap/olap_meta.h"
 #include "olap/new_status.h"
 
+using std::string;
+
 namespace doris {
 
 // Helper class for managing rowset meta of one root path.
@@ -34,6 +36,8 @@ public:
     static OLAPStatus get_json_rowset_meta(OlapMeta* meta, int64_t rowset_id, std::string* json_rowset_meta);
 
     static OLAPStatus save(OlapMeta* meta, int64_t rowset_id, RowsetMetaSharedPtr rowset_meta);
+
+    static OLAPStatus save(OlapMeta* meta, int64_t rowset_id, string& meta_binary);
 
     static OLAPStatus remove(OlapMeta* meta, int64_t rowset_id);
 

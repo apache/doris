@@ -48,6 +48,7 @@ OLAPStatus EngineCloneTask::execute() {
     string src_file_path;
     TBackend src_host;
     // Check local tablet exist or not
+    int32_t snapshot_version = 1;
     TabletSharedPtr tablet =
             TabletManager::instance()->get_tablet(
             _clone_req.tablet_id, _clone_req.schema_hash);
@@ -73,9 +74,10 @@ OLAPStatus EngineCloneTask::execute() {
         status = _clone_copy(_clone_req, _signature, local_data_path,
                             &src_host, &src_file_path, _error_msgs,
                             &missed_versions,
-                            &allow_incremental_clone);
+                            &allow_incremental_clone, 
+                            &snapshot_version);
         if (status == DORIS_SUCCESS) {
-            OLAPStatus olap_status = _finish_clone(tablet, local_data_path, _clone_req.committed_version, allow_incremental_clone);
+            OLAPStatus olap_status = _finish_clone(tablet, local_data_path, _clone_req.committed_version, allow_incremental_clone, snapshot_version);
             if (olap_status != OLAP_SUCCESS) {
                 LOG(WARNING) << "failed to finish incremental clone. [table=" << tablet->full_name()
                                 << " res=" << olap_status << "]";
@@ -87,13 +89,13 @@ OLAPStatus EngineCloneTask::execute() {
             LOG(INFO) << "begin to full clone. [table=" << tablet->full_name();
             status = _clone_copy(_clone_req, _signature, local_data_path,
                                 &src_host, &src_file_path,  _error_msgs,
-                                NULL, NULL);
+                                NULL, NULL, &snapshot_version);
             if (status == DORIS_SUCCESS) {
                 LOG(INFO) << "download successfully when full clone. [table=" << tablet->full_name()
                             << " src_host=" << src_host.host << " src_file_path=" << src_file_path
                             << " local_data_path=" << local_data_path << "]";
 
-                OLAPStatus olap_status = _finish_clone(tablet, local_data_path, _clone_req.committed_version, false);
+                OLAPStatus olap_status = _finish_clone(tablet, local_data_path, _clone_req.committed_version, false, snapshot_version);
 
                 if (olap_status != OLAP_SUCCESS) {
                     LOG(WARNING) << "fail to finish full clone. [table=" << tablet->full_name()
@@ -123,12 +125,12 @@ OLAPStatus EngineCloneTask::execute() {
                                 << "/" << _clone_req.tablet_id
                                 << "/" << _clone_req.schema_hash;
             status = _clone_copy(_clone_req,
-                                                    _signature,
-                                                    tablet_dir_stream.str(),
-                                                    &src_host,
-                                                    &src_file_path,
-                                                    _error_msgs,
-                                                    NULL, NULL);
+                                _signature,
+                                tablet_dir_stream.str(),
+                                &src_host,
+                                &src_file_path,
+                                _error_msgs,
+                                NULL, NULL, &snapshot_version);
         }
 
         if (status == DORIS_SUCCESS) {
@@ -233,7 +235,8 @@ AgentStatus EngineCloneTask::_clone_copy(
         string* src_file_path,
         vector<string>* error_msgs,
         const vector<Version>* missed_versions,
-        bool* allow_incremental_clone) {
+        bool* allow_incremental_clone, 
+        int32_t* snapshot_version) {
     AgentStatus status = DORIS_SUCCESS;
 
     std::string token = _master_info.token;
@@ -251,6 +254,8 @@ AgentStatus EngineCloneTask::_clone_copy(
         TSnapshotRequest snapshot_request;
         snapshot_request.__set_tablet_id(clone_req.tablet_id);
         snapshot_request.__set_schema_hash(clone_req.schema_hash);
+        // This is a new version be, should set preferred version to 2
+        snapshot_request.__set_preferred_snapshot_version(PREFERRED_SNAPSHOT_VERSION);
         if (missed_versions != NULL) {
             // TODO: missing version composed of singleton delta.
             // if not, this place should be rewrote.
@@ -263,7 +268,7 @@ AgentStatus EngineCloneTask::_clone_copy(
         agent_client.make_snapshot(
                 snapshot_request,
                 &make_snapshot_result);
-
+        *snapshot_version = make_snapshot_result.snapshot_version;
         if (make_snapshot_result.__isset.allow_incremental_clone) {
             // During upgrading, some BE nodes still be installed an old previous old.
             // which incremental clone is not ready in those nodes.
@@ -551,7 +556,8 @@ AgentStatus EngineCloneTask::_clone_copy(
 
 
 OLAPStatus EngineCloneTask::_finish_clone(TabletSharedPtr tablet, const string& clone_dir,
-                                         int64_t committed_version, bool is_incremental_clone) {
+                                         int64_t committed_version, bool is_incremental_clone, 
+                                         int32_t snapshot_version) {
     OLAPStatus res = OLAP_SUCCESS;
     vector<string> linked_success_files;
 
