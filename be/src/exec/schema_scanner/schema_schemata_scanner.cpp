@@ -18,7 +18,7 @@
 #include "exec/schema_scanner/schema_schemata_scanner.h"
 #include "runtime/primitive_type.h"
 #include "runtime/string_value.h"
-#include "exec/schema_scanner/frontend_helper.h"
+#include "exec/schema_scanner/schema_helper.h"
 
 namespace doris {
 
@@ -54,7 +54,7 @@ Status SchemaSchemataScanner::start(RuntimeState *state) {
         db_params.__set_user_ip(*(_param->user_ip));
     }
     if (NULL != _param->ip && 0 != _param->port) {
-        RETURN_IF_ERROR(FrontendHelper::get_db_names(*(_param->ip),
+        RETURN_IF_ERROR(SchemaHelper::get_db_names(*(_param->ip),
                     _param->port, db_params, &_db_result)); 
     } else {
         return Status("IP or port dosn't exists");
@@ -75,7 +75,7 @@ Status SchemaSchemataScanner::fill_one_row(Tuple *tuple, MemPool *pool) {
     {
         void *slot = tuple->get_slot(_tuple_desc->slots()[1]->tuple_offset());
         StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-        std::string db_name = FrontendHelper::extract_db_name(_db_result.dbs[_db_index]);
+        std::string db_name = SchemaHelper::extract_db_name(_db_result.dbs[_db_index]);
         str_slot->ptr = (char *)pool->allocate(db_name.size());
         str_slot->len = db_name.size();
         memcpy(str_slot->ptr, db_name.c_str(), str_slot->len);
