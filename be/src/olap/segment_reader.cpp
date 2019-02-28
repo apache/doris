@@ -316,12 +316,12 @@ OLAPStatus SegmentReader::get_block(
         return res;
     }
 
-    DCHECK(num_rows_load == _num_rows_in_block || _next_block_id == _end_block)
-        << "num_rows_load must equal with _num_rows_in_block"
-        << ", num_rows_load:" << num_rows_load
-        << ", _num_rows_in_block:" << _num_rows_in_block
-        << ", _next_block_id" << _next_block_id
-        << ", _end_block" << _end_block;
+   //DCHECK(num_rows_load == _num_rows_in_block || _next_block_id == _end_block)
+   //    << "num_rows_load must equal with _num_rows_in_block"
+   //    << ", num_rows_load:" << num_rows_load
+   //    << ", _num_rows_in_block:" << _num_rows_in_block
+   //    << ", _next_block_id" << _next_block_id
+   //    << ", _end_block" << _end_block;
 
     _seek_to_block(_next_block_id + 1, _without_filter);
 
