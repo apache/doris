@@ -17,21 +17,38 @@
 
 #pragma once
 
-#include <string>
-
-#include "common/utils.h"
-#include "http/http_common.h"
+#include "common/status.h"
+#include "gen_cpp/FrontendService_types.h"
 
 namespace doris {
 
-class HttpRequest;
+class ExecEnv;
+class FrontendServiceClient;
+template <class T> class ClientConnection;
 
-std::string encode_basic_auth(const std::string& user, const std::string& passwd);
-// parse Basic authorization
-// return true, if request contain valid basic authorization.
-// Otherwise return fasle
-bool parse_basic_auth(const HttpRequest& req, std::string* user, std::string* passwd);
+// this class is a helper for jni call. easy for unit test
+class FrontendHelper {
+public:
+    static void setup(ExecEnv* exec_env);
 
-bool parse_basic_auth(const HttpRequest& req, AuthInfo* auth);
+    // for default timeout
+    static Status rpc(
+        const std::string& ip,
+        const int32_t port,
+        std::function<void (ClientConnection<FrontendServiceClient>&)> callback) {
+
+        return rpc(ip, port, callback, config::thrift_rpc_timeout_ms);
+    }
+
+    static Status rpc(
+        const std::string& ip,
+        const int32_t port,
+        std::function<void (ClientConnection<FrontendServiceClient>&)> callback,
+        int timeout_ms);
+
+private:
+    static ExecEnv* _s_exec_env;
+};
 
 }
+

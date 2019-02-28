@@ -15,9 +15,37 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime/kafka_consumer_pipe.h"
+#pragma once
 
 namespace doris {
 
+class ExecEnv;
+class StreamLoadContext;
+class Status;
+class TTxnCommitAttachment;
 
-} // end namespace doris
+class StreamLoadExecutor {
+
+public:
+    StreamLoadExecutor(ExecEnv* exec_env):
+        _exec_env(exec_env) {
+    }
+
+    Status begin_txn(StreamLoadContext* ctx);
+
+    Status commit_txn(StreamLoadContext* ctx);
+
+    void rollback_txn(StreamLoadContext* ctx);
+
+    Status execute_plan_fragment(StreamLoadContext* ctx);
+
+private:
+    // collect the load statistics from context and set them to stat
+    // return true if stat is set, otherwise, return false
+    bool collect_load_stat(StreamLoadContext* ctx, TTxnCommitAttachment* attachment);
+
+private:
+    ExecEnv* _exec_env;
+};
+
+}

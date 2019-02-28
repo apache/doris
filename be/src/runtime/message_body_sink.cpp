@@ -15,15 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "http/message_body_sink.h"
+#include "runtime/message_body_sink.h"
 
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <algorithm>
-
-#include "http/http_channel.h"
-#include "http/http_parser.h"
 
 #include "util/runtime_profile.h"
 
