@@ -19,7 +19,7 @@
 #include "runtime/primitive_type.h"
 #include "runtime/string_value.h"
 #include "runtime/runtime_state.h"
-#include "exec/schema_scanner/frontend_helper.h"
+#include "exec/schema_scanner/schema_helper.h"
 
 namespace doris {
 
@@ -53,7 +53,7 @@ Status SchemaVariablesScanner::start(RuntimeState *state) {
     var_params.__set_threadId(_param->thread_id);
     
     if (NULL != _param->ip && 0 != _param->port) {
-        RETURN_IF_ERROR(FrontendHelper::show_varialbes(*(_param->ip),
+        RETURN_IF_ERROR(SchemaHelper::show_varialbes(*(_param->ip),
                     _param->port, var_params, &_var_result)); 
     } else {
         return Status("IP or port dosn't exists");

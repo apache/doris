@@ -15,42 +15,40 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef  DORIS_BE_SRC_QUERY_EXEC_SCHEMA_SCANNER_FRONTEND_HELPER_H
-#define  DORIS_BE_SRC_QUERY_EXEC_SCHEMA_SCANNER_FRONTEND_HELPER_H
+#pragma once
 
 #include "common/status.h"
 #include "gen_cpp/FrontendService_types.h"
 
 namespace doris {
 
-class ExecEnv;
-class FrontendServiceClient;
-template <class T> class ClientConnection;
-
-// this class is a helper for jni call. easy for unit test
-class FrontendHelper {
+// this class is a helper for getting schema info from FE
+class SchemaHelper {
 public:
-    static void setup(ExecEnv* exec_env);
     static Status get_db_names(
             const std::string& ip,
             const int32_t port,
             const TGetDbsParams &db_params,
             TGetDbsResult *db_result);
+
     static Status get_table_names(
             const std::string& ip,
             const int32_t port,
             const TGetTablesParams &table_params,
             TGetTablesResult *table_result);
+
     static Status list_table_status(
             const std::string& ip,
             const int32_t port,
             const TGetTablesParams &table_params,
             TListTableStatusResult *table_result);
+
     static Status describe_table(
             const std::string& ip,
             const int32_t port,
             const TDescribeTableParams &desc_params,
             TDescribeTableResult *desc_result);
+
     static Status show_varialbes(
             const std::string& ip,
             const int32_t port,
@@ -58,27 +56,7 @@ public:
             TShowVariableResult *var_result);
 
     static std::string extract_db_name(const std::string& full_name);
-
-    // for default timeout
-    static Status rpc(
-        const std::string& ip,
-        const int32_t port,
-        std::function<void (ClientConnection<FrontendServiceClient>&)> callback) {
-
-        return rpc(ip, port, callback, config::thrift_rpc_timeout_ms);
-    }
-
-    static Status rpc(
-        const std::string& ip,
-        const int32_t port,
-        std::function<void (ClientConnection<FrontendServiceClient>&)> callback,
-        int timeout_ms);
-
-private:
-    static ExecEnv* _s_exec_env;
 };
 
 }
-
-#endif
 

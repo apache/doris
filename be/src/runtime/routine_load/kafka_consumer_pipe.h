@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_RUNTIME_KAFKA_COMSUMER_PIPE_H
-#define DORIS_BE_SRC_RUNTIME_KAFKA_COMSUMER_PIPE_H
+#pragma once
 
 #include <stdint.h>
 
@@ -27,24 +26,30 @@
 #include "librdkafka/rdkafka.h"
 
 #include "exec/file_reader.h"
-#include "http/message_body_sink.h"
+#include "runtime/message_body_sink.h"
 
 namespace doris {
 
-class KafkaConsumerPipe : public MessageBodySink, public FileReader {
+class KafkaConsumerPipe : public StreamLoadPipe {
 public:
-    KafkaConsumerPipe();
-    ~KafkaConsumerPipe();
+    KafkaConsumerPipe(size_t max_buffered_bytes = 1024 * 1024,
+                      size_t min_chunk_size = 64 * 1024)
+            : StreamLoadPipe(max_buffered_bytes, min_chunk_size) {
 
+    }
 
-private:
-    // this is only for testing librdkafka.a
-    void test_kafka_lib() {
-        //rd_kafka_conf_t *conf = rd_kafka_conf_new();
-        //rd_kafka_topic_conf_t *topic_conf = rd_kafka_topic_conf_new();
+    virtual ~KafkaConsumerPipe() {}
+
+    Status append_with_line_delimiter(const char* data, size_t size) {
+        Status st = append(data, size);
+        if (!st.ok()) {
+            return st;
+        }
+    
+        // append the line delimiter
+        st = append("\n", 1);
+        return st;
     }
 };
 
 } // end namespace doris
-
-#endif // DORIS_BE_SRC_RUNTIME_KAFKA_COMSUMER_PIPE_H

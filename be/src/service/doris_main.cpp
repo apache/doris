@@ -55,7 +55,7 @@
 #include "service/http_service.h"
 #include <gperftools/profiler.h>
 #include "common/resource_tls.h"
-#include "exec/schema_scanner/frontend_helper.h"
+#include "util/frontend_helper.h"
 
 static void help(const char*);
 
