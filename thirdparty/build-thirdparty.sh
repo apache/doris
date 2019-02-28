@@ -507,7 +507,7 @@ build_librdkafka() {
     CPPFLAGS="-I${TP_INCLUDE_DIR}" \
     LDFLAGS="-L${TP_LIB_DIR}"
     CFLAGS="-fPIC" \
-    ./configure --prefix=$TP_INSTALL_DIR --enable-static
+    ./configure --prefix=$TP_INSTALL_DIR --enable-static --disable-ssl --disable-sasl
     make -j$PARALLEL && make install
 }
 

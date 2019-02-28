@@ -21,7 +21,7 @@
 #include <mutex>
 #include <unordered_map>
 
-#include "runtime/stream_load_pipe.h" // for StreamLoadPipe
+#include "runtime/stream_load/stream_load_pipe.h" // for StreamLoadPipe
 #include "util/uid_util.h" // for std::hash for UniqueId
 
 namespace doris {
@@ -52,6 +52,15 @@ public:
         auto stream = it->second;
         _stream_map.erase(it);
         return stream;
+    }
+
+    void remove(const UniqueId& id) {
+        std::lock_guard<std::mutex> l(_lock);
+        auto it = _stream_map.find(id);
+        if (it != std::end(_stream_map)) {
+            _stream_map.erase(it);
+        }
+        return;
     }
 
 private:

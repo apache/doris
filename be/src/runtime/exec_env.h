@@ -50,6 +50,8 @@ class ThreadPool;
 class ThreadResourceMgr;
 class TmpFileMgr;
 class WebPageHandler;
+class StreamLoadExecutor;
+class RoutineLoadTaskExecutor;
 
 class BackendServiceClient;
 class FrontendServiceClient;
@@ -110,10 +112,14 @@ public:
     BufferPool* buffer_pool() { return _buffer_pool; }
     TabletWriterMgr* tablet_writer_mgr() { return _tablet_writer_mgr; }
     LoadStreamMgr* load_stream_mgr() { return _load_stream_mgr; }
+
     const std::vector<StorePath>& store_paths() const { return _store_paths; }
     void set_store_paths(const std::vector<StorePath>& paths) { _store_paths = paths; }
     OLAPEngine* olap_engine() { return _olap_engine; }
     void set_olap_engine(OLAPEngine* olap_engine) { _olap_engine = olap_engine; }
+
+    StreamLoadExecutor* stream_load_executor() { return _stream_load_executor; }
+    RoutineLoadTaskExecutor* routine_load_task_executor() { return _routine_load_task_executor; }
 
 private:
     Status _init(const std::vector<StorePath>& store_paths);
@@ -158,6 +164,9 @@ private:
     BufferPool* _buffer_pool = nullptr;
 
     OLAPEngine* _olap_engine = nullptr;
+
+    StreamLoadExecutor* _stream_load_executor = nullptr;
+    RoutineLoadTaskExecutor* _routine_load_task_executor = nullptr;
 };
 
 }

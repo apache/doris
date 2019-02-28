@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "http/message_body_sink.h"
+#include "runtime/message_body_sink.h"
 
 #include <gtest/gtest.h>
 
