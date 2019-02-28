@@ -80,35 +80,40 @@ public class LoadBalancer {
         List<TabletSchedCtx> alternativeTablets = Lists.newArrayList();
 
         // get classification of backends
-        List<BackendLoadStatistic> lowBe = Lists.newArrayList();
-        List<BackendLoadStatistic> midBe = Lists.newArrayList();
-        List<BackendLoadStatistic> highBe = Lists.newArrayList();
-        clusterStat.getBackendStatisticByClass(lowBe, midBe, highBe);
+        List<BackendLoadStatistic> lowBEs = Lists.newArrayList();
+        List<BackendLoadStatistic> midBEs = Lists.newArrayList();
+        List<BackendLoadStatistic> highBEs = Lists.newArrayList();
+        clusterStat.getBackendStatisticByClass(lowBEs, midBEs, highBEs);
         
-        if (lowBe.isEmpty() && highBe.isEmpty()) {
+        if (lowBEs.isEmpty() && highBEs.isEmpty()) {
             LOG.info("cluster is balance: {}. skip", clusterName);
             return alternativeTablets;
         }
 
         // first we should check if low backends is available.
         // if all low backends is not available, we should not start balance
-        if (lowBe.stream().allMatch(b -> !b.isAvailable())) {
+        if (lowBEs.stream().allMatch(b -> !b.isAvailable())) {
             LOG.info("all low load backends is dead: {}. skip",
-                    lowBe.stream().mapToLong(b -> b.getBeId()).toArray());
+                    lowBEs.stream().mapToLong(b -> b.getBeId()).toArray());
             return alternativeTablets;
         }
         
-        if (lowBe.stream().allMatch(b -> !b.hasAvailDisk())) {
+        if (lowBEs.stream().allMatch(b -> !b.hasAvailDisk())) {
             LOG.info("all low load backends have no available disk. skip",
-                    lowBe.stream().mapToLong(b -> b.getBeId()).toArray());
+                    lowBEs.stream().mapToLong(b -> b.getBeId()).toArray());
             return alternativeTablets;
         }
+
+        // get the number of low load paths. and we should at most select this number of tablets
+        long numOfLowPaths = lowBEs.stream().filter(b -> b.isAvailable() && b.hasAvailDisk()).mapToLong(
+                b -> b.getAvailPathNum()).sum();
+        LOG.info("get number of low load paths: {}", numOfLowPaths);
 
         // choose tablets from high load backends.
         // BackendLoadStatistic is sorted by load score in ascend order,
         // so we need to traverse it from last to first
-        for (int i = highBe.size() - 1; i >= 0; i--) {
-            BackendLoadStatistic beStat = highBe.get(i);
+        OUTER: for (int i = highBEs.size() - 1; i >= 0; i--) {
+            BackendLoadStatistic beStat = highBEs.get(i);
 
             // classify the paths.
             Set<Long> pathLow = Sets.newHashSet();
@@ -156,6 +161,10 @@ public class LoadBalancer {
                     tabletCtx.setOrigPriority(Priority.LOW);
 
                     alternativeTablets.add(tabletCtx);
+                    if (--numOfLowPaths <= 0) {
+                        // enough
+                        break OUTER;
+                    }
 
                     // update remaining paths
                     int remaining = remainingPaths.get(replicaPathHash) - 1;
