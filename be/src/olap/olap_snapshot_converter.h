@@ -69,12 +69,14 @@ public:
     OLAPStatus to_alter_tablet_pb(const SchemaChangeStatusMessage& schema_change_msg, AlterTabletPB* alter_tablet_pb);
 
     // from olap header to tablet meta
-    OLAPStatus to_new_snapshot(const OLAPHeaderMessage& olap_header, string& old_data_path_prefix, 
-        TabletMetaPB* tablet_meta_pb, string& new_data_path_prefix, DataDir& data_dir, vector<RowsetMetaPB>* pending_rowsets);
+    OLAPStatus to_new_snapshot(const OLAPHeaderMessage& olap_header, const string& old_data_path_prefix, 
+        TabletMetaPB* tablet_meta_pb, const string& new_data_path_prefix, DataDir& data_dir, vector<RowsetMetaPB>* pending_rowsets);
 
     // from tablet meta to olap header
     OLAPStatus to_old_snapshot(const TabletMetaPB& tablet_meta_pb, string& new_data_path_prefix, 
-        OLAPHeaderMessage* olap_header, string& old_data_path_prefix, DataDir& data_dir);
+        OLAPHeaderMessage* olap_header, string& old_data_path_prefix);
+    
+    OLAPStatus save(const string& file_path, const OLAPHeaderMessage& olap_header);
 };
 
 }

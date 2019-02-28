@@ -271,8 +271,8 @@ OLAPStatus OlapSnapshotConverter::to_alter_tablet_pb(const SchemaChangeStatusMes
 }
 
 // from olap header to tablet meta
-OLAPStatus OlapSnapshotConverter::to_new_snapshot(const OLAPHeaderMessage& olap_header, string& old_data_path_prefix, 
-    TabletMetaPB* tablet_meta_pb, string& new_data_path_prefix, DataDir& data_dir, vector<RowsetMetaPB>* pending_rowsets) {
+OLAPStatus OlapSnapshotConverter::to_new_snapshot(const OLAPHeaderMessage& olap_header, const string& old_data_path_prefix, 
+    TabletMetaPB* tablet_meta_pb, const string& new_data_path_prefix, DataDir& data_dir, vector<RowsetMetaPB>* pending_rowsets) {
     RETURN_NOT_OK(to_tablet_meta_pb(olap_header, tablet_meta_pb, pending_rowsets, &data_dir));
 
     TabletSchema tablet_schema;
@@ -310,7 +310,7 @@ OLAPStatus OlapSnapshotConverter::to_new_snapshot(const OLAPHeaderMessage& olap_
 
 // from tablet meta to olap header
 OLAPStatus OlapSnapshotConverter::to_old_snapshot(const TabletMetaPB& tablet_meta_pb, string& new_data_path_prefix, 
-    OLAPHeaderMessage* olap_header, string& old_data_path_prefix, DataDir& data_dir) {
+    OLAPHeaderMessage* olap_header, string& old_data_path_prefix) {
     RETURN_NOT_OK(to_olap_header(tablet_meta_pb, olap_header));
 
     TabletSchema tablet_schema;
@@ -320,7 +320,7 @@ OLAPStatus OlapSnapshotConverter::to_old_snapshot(const TabletMetaPB& tablet_met
     for (auto& visible_rowset : tablet_meta_pb.rs_metas()) {
         RowsetMetaSharedPtr alpha_rowset_meta(new AlphaRowsetMeta());
         alpha_rowset_meta->init_from_pb(visible_rowset);
-        AlphaRowset rowset(&tablet_schema, new_data_path_prefix, &data_dir, alpha_rowset_meta);
+        AlphaRowset rowset(&tablet_schema, new_data_path_prefix, nullptr, alpha_rowset_meta);
         std::vector<std::string> success_files;
         RETURN_NOT_OK(rowset.convert_to_old_files(old_data_path_prefix, &success_files));
     }
@@ -329,10 +329,38 @@ OLAPStatus OlapSnapshotConverter::to_old_snapshot(const TabletMetaPB& tablet_met
     for (auto& inc_rowset : tablet_meta_pb.inc_rs_metas()) {
         RowsetMetaSharedPtr alpha_rowset_meta(new AlphaRowsetMeta());
         alpha_rowset_meta->init_from_pb(inc_rowset);
-        AlphaRowset rowset(&tablet_schema, new_data_path_prefix, &data_dir, alpha_rowset_meta);
+        AlphaRowset rowset(&tablet_schema, new_data_path_prefix, nullptr, alpha_rowset_meta);
         std::vector<std::string> success_files;
         RETURN_NOT_OK(rowset.convert_to_old_files(old_data_path_prefix, &success_files));
     }
+    return OLAP_SUCCESS;
+}
+
+OLAPStatus OlapSnapshotConverter::save(const string& file_path, const OLAPHeaderMessage& olap_header) {
+    DCHECK(!file_path.empty());
+
+    FileHeader<OLAPHeaderMessage> file_header;
+    FileHandler file_handler;
+
+    if (file_handler.open_with_mode(file_path.c_str(),
+            O_CREAT | O_WRONLY | O_TRUNC, S_IRUSR | S_IWUSR) != OLAP_SUCCESS) {
+        LOG(WARNING) << "fail to open header file. file='" << file_path;
+        return OLAP_ERR_IO_ERROR;
+    }
+
+    try {
+        file_header.mutable_message()->CopyFrom(olap_header);
+    } catch (...) {
+        LOG(WARNING) << "fail to copy protocol buffer object. file='" << file_path;
+        return OLAP_ERR_OTHER_ERROR;
+    }
+
+    if (file_header.prepare(&file_handler) != OLAP_SUCCESS
+            || file_header.serialize(&file_handler) != OLAP_SUCCESS) {
+        LOG(WARNING) << "fail to serialize to file header. file='" << file_path;
+        return OLAP_ERR_SERIALIZE_PROTOBUF_ERROR;
+    }
+
     return OLAP_SUCCESS;
 }
 

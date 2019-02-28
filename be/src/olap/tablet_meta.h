@@ -120,6 +120,7 @@ public:
     // Previous tablet_meta is a physical file in tablet dir, which is not stored in rocksdb.
     OLAPStatus create_from_file(const std::string& file_path);
     OLAPStatus save(const std::string& file_path);
+    static OLAPStatus save(const string& file_path, TabletMetaPB& tablet_meta_pb);
     OLAPStatus save_meta();
 
     OLAPStatus serialize(string* meta_binary) const;
@@ -160,6 +161,7 @@ public:
     OLAPStatus modify_rs_metas(const vector<RowsetMetaSharedPtr>& to_add,
                                const vector<RowsetMetaSharedPtr>& to_delete);
     OLAPStatus revise_rs_metas(const std::vector<RowsetMetaSharedPtr>& rs_metas);
+    OLAPStatus revise_inc_rs_metas(const std::vector<RowsetMetaSharedPtr>& rs_metas);
 
     inline const vector<RowsetMetaSharedPtr>& all_inc_rs_metas() const;
     OLAPStatus add_inc_rs_meta(const RowsetMetaSharedPtr& rs_meta);

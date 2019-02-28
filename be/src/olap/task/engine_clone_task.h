@@ -55,7 +55,7 @@ private:
 
     OLAPStatus _clone_full_data(TabletSharedPtr tablet, TabletMeta* cloned_tablet_meta);
 
-    AgentStatus _clone_copy(
+    AgentStatus _clone_copy(DataDir& data_dir,
         const TCloneReq& clone_req,
         int64_t signature,
         const string& local_data_path,
@@ -65,6 +65,8 @@ private:
         const vector<Version>* missing_versions,
         bool* allow_incremental_clone, 
         int32_t* snapshot_version);
+        
+    OLAPStatus _convert_to_new_snapshot(DataDir& data_dir, const string& clone_dir, int64_t tablet_id);
 
 private:
     const TCloneReq& _clone_req;

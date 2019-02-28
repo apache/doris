@@ -19,6 +19,8 @@
 
 #include <set>
 
+#include "olap/olap_snapshot_converter.h"
+
 using std::set;
 using std::stringstream;
 
@@ -71,7 +73,7 @@ OLAPStatus EngineCloneTask::execute() {
         string local_data_path = tablet->tablet_path() + CLONE_PREFIX;
 
         bool allow_incremental_clone = false;
-        status = _clone_copy(_clone_req, _signature, local_data_path,
+        status = _clone_copy(*(tablet->data_dir()), _clone_req, _signature, local_data_path,
                             &src_host, &src_file_path, _error_msgs,
                             &missed_versions,
                             &allow_incremental_clone, 
@@ -87,7 +89,7 @@ OLAPStatus EngineCloneTask::execute() {
         } else {
             // begin to full clone if incremental failed
             LOG(INFO) << "begin to full clone. [table=" << tablet->full_name();
-            status = _clone_copy(_clone_req, _signature, local_data_path,
+            status = _clone_copy(*(tablet->data_dir()), _clone_req, _signature, local_data_path,
                                 &src_host, &src_file_path,  _error_msgs,
                                 NULL, NULL, &snapshot_version);
             if (status == DORIS_SUCCESS) {
@@ -124,7 +126,8 @@ OLAPStatus EngineCloneTask::execute() {
             tablet_dir_stream << local_shard_root_path
                                 << "/" << _clone_req.tablet_id
                                 << "/" << _clone_req.schema_hash;
-            status = _clone_copy(_clone_req,
+            status = _clone_copy(*store,
+                                _clone_req,
                                 _signature,
                                 tablet_dir_stream.str(),
                                 &src_host,
@@ -228,6 +231,7 @@ OLAPStatus EngineCloneTask::execute() {
 }
 
 AgentStatus EngineCloneTask::_clone_copy(
+        DataDir& data_dir,
         const TCloneReq& clone_req,
         int64_t signature,
         const string& local_data_path,
@@ -536,6 +540,9 @@ AgentStatus EngineCloneTask::_clone_copy(
                 break;
             }
         } // Clone files from remote backend
+        if (make_snapshot_result.snapshot_version < PREFERRED_SNAPSHOT_VERSION) {
+            _convert_to_new_snapshot(data_dir, local_data_path, clone_req.tablet_id);
+        }
 
         // Release snapshot, if failed, ignore it. OLAP engine will drop useless snapshot
         TAgentResult release_snapshot_result;
@@ -554,6 +561,67 @@ AgentStatus EngineCloneTask::_clone_copy(
     return status;
 }
 
+OLAPStatus EngineCloneTask::_convert_to_new_snapshot(DataDir& data_dir, const string& clone_dir, int64_t tablet_id) {
+    OLAPStatus res = OLAP_SUCCESS;   
+    // check clone dir existed
+    if (!check_dir_existed(clone_dir)) {
+        res = OLAP_ERR_DIR_NOT_EXIST;
+        OLAP_LOG_WARNING("clone dir not existed when clone. [clone_dir=%s]",
+                         clone_dir.c_str());
+        return res;
+    }
+
+    // load src header
+    string cloned_meta_file = clone_dir + "/" + std::to_string(tablet_id) + ".hdr";
+    FileHeader<OLAPHeaderMessage> file_header;
+    FileHandler file_handler;
+    OLAPHeaderMessage olap_header_msg;
+    if (file_handler.open(cloned_meta_file.c_str(), O_RDONLY) != OLAP_SUCCESS) {
+        LOG(WARNING) << "fail to open ordinal file. file=" << cloned_meta_file;
+        return OLAP_ERR_IO_ERROR;
+    }
+
+    // In file_header.unserialize(), it validates file length, signature, checksum of protobuf.
+    if (file_header.unserialize(&file_handler) != OLAP_SUCCESS) {
+        LOG(WARNING) << "fail to unserialize tablet_meta. file='" << cloned_meta_file;
+        return OLAP_ERR_PARSE_PROTOBUF_ERROR;
+    }
+
+    set<string> clone_files;
+    if ((res = dir_walk(clone_dir, NULL, &clone_files)) != OLAP_SUCCESS) {
+        LOG(WARNING) << "failed to dir walk when clone. [clone_dir=" << clone_dir << "]";
+        return res;
+    }
+
+    try {
+       olap_header_msg.CopyFrom(file_header.message());
+    } catch (...) {
+        LOG(WARNING) << "fail to copy protocol buffer object. file='" << cloned_meta_file;
+        return OLAP_ERR_PARSE_PROTOBUF_ERROR;
+    }
+    OlapSnapshotConverter converter;
+    TabletMetaPB tablet_meta_pb;
+    vector<RowsetMetaPB> pending_rowsets;
+    res = converter.to_new_snapshot(olap_header_msg, clone_dir, &tablet_meta_pb, clone_dir, data_dir, &pending_rowsets);
+    if (res != OLAP_SUCCESS) {
+        LOG(WARNING) << "fail to convert snapshot to new format. dir='" << clone_dir;
+        return res;
+    }
+    vector<string> files_to_delete;
+    for (auto& file_name : clone_files) {
+        files_to_delete.push_back(file_name);
+    }
+    // remove all files
+    remove_files(files_to_delete);
+
+    res = TabletMeta::save(cloned_meta_file, tablet_meta_pb);
+    if (res != OLAP_SUCCESS) {
+        LOG(WARNING) << "fail to save converted tablet meta to dir='" << clone_dir;
+        return res;
+    }
+
+    return OLAP_SUCCESS;
+}
 
 OLAPStatus EngineCloneTask::_finish_clone(TabletSharedPtr tablet, const string& clone_dir,
                                          int64_t committed_version, bool is_incremental_clone, 

@@ -61,12 +61,6 @@ OLAPStatus AlphaRowset::copy(RowsetWriter* dest_rowset_writer) {
 }
 
 OLAPStatus AlphaRowset::remove() {
-    OlapMeta* meta = _data_dir->get_meta();
-    OLAPStatus status = RowsetMetaManager::remove(meta, rowset_id());
-    if (status != OLAP_SUCCESS) {
-        LOG(FATAL) << "failed to remove meta of rowset_id:" << rowset_id();
-        return status;
-    }
     for (auto segment_group : _segment_groups) {
         bool ret = segment_group->delete_all_files();
         if (!ret) {
@@ -119,12 +113,6 @@ void AlphaRowset::set_version_and_version_hash(Version version,  VersionHash ver
 
     if (rowset_meta()->has_delete_predicate()) {
         rowset_meta()->mutable_delete_predicate()->set_version(version.first);
-        OlapMeta* meta = _data_dir->get_meta();
-        OLAPStatus status = RowsetMetaManager::save(meta, rowset_id(), _rowset_meta);
-        if (status != OLAP_SUCCESS) {
-            LOG(FATAL) << "failed to save updated meta of rowset_id:" << rowset_id()
-                       << ", status:" << status;
-        }
         return;
     }
 
@@ -154,12 +142,6 @@ void AlphaRowset::set_version_and_version_hash(Version version,  VersionHash ver
         segment_group->set_pending_finished();
     }
     alpha_rowset_meta->clear_pending_segment_group();
-    OlapMeta* meta = _data_dir->get_meta();
-    OLAPStatus status = RowsetMetaManager::save(meta, rowset_id(), _rowset_meta);
-    if (status != OLAP_SUCCESS) {
-        LOG(FATAL) << "failed to save updated meta of rowset_id:" << rowset_id()
-                << ", status:" << status;
-    }
 }
 
 int64_t AlphaRowset::start_version() const {
@@ -192,12 +174,20 @@ int64_t AlphaRowset::ref_count() const {
 
 OLAPStatus AlphaRowset::make_snapshot(const std::string& snapshot_path,
                                     std::vector<std::string>* success_files) {
+    for (auto& segment_group : _segment_groups) {
+        OLAPStatus status = segment_group->make_snapshot(snapshot_path, success_files);
+        if (status != OLAP_SUCCESS) {
+            LOG(WARNING) << "create hard links failed for segment group:"
+                         << segment_group->segment_group_id();
+            return status;
+        }
+    }
     return OLAP_SUCCESS;
 }
                                     
 OLAPStatus AlphaRowset::convert_from_old_files(const std::string& snapshot_path,
                                       std::vector<std::string>* success_files) {
-    for (auto segment_group : _segment_groups) {
+    for (auto& segment_group : _segment_groups) {
         OLAPStatus status = segment_group->convert_from_old_files(snapshot_path, success_files);
         if (status != OLAP_SUCCESS) {
             LOG(WARNING) << "create hard links failed for segment group:"
@@ -210,7 +200,7 @@ OLAPStatus AlphaRowset::convert_from_old_files(const std::string& snapshot_path,
 
 OLAPStatus AlphaRowset::convert_to_old_files(const std::string& snapshot_path, 
                                 std::vector<std::string>* success_files) {
-    for (auto segment_group : _segment_groups) {
+    for (auto& segment_group : _segment_groups) {
         OLAPStatus status = segment_group->convert_to_old_files(snapshot_path, success_files);
         if (status != OLAP_SUCCESS) {
             LOG(WARNING) << "create hard links failed for segment group:"
@@ -222,7 +212,7 @@ OLAPStatus AlphaRowset::convert_to_old_files(const std::string& snapshot_path,
 }
 
 OLAPStatus AlphaRowset::remove_old_files(std::vector<std::string>* files_to_remove) {
-    for (auto segment_group : _segment_groups) {
+    for (auto& segment_group : _segment_groups) {
         OLAPStatus status = segment_group->remove_old_files(files_to_remove);
         if (status != OLAP_SUCCESS) {
             LOG(WARNING) << "remove old files failed for segment group:"
