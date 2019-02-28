@@ -210,6 +210,10 @@ ${DORIS_TEST_BINARY_DIR}/olap/olap_header_manager_test
 ${DORIS_TEST_BINARY_DIR}/olap/olap_meta_test
 ${DORIS_TEST_BINARY_DIR}/olap/delta_writer_test
 
+# Running routine load test
+${DORIS_TEST_BINARY_DIR}/runtime/kafka_consumer_pipe_test
+${DORIS_TEST_BINARY_DIR}/runtime/routine_load_task_executor_test
+
 ## Running agent unittest
 # Prepare agent testdata
 if [ -d ${DORIS_TEST_BINARY_DIR}/agent/test_data ]; then
