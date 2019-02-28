@@ -22,7 +22,7 @@
 #include <mutex>
 
 #include "exec/file_reader.h"
-#include "http/message_body_sink.h"
+#include "runtime/message_body_sink.h"
 #include "util/bit_util.h"
 #include "util/byte_buffer.h"
 

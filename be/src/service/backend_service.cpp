@@ -34,6 +34,7 @@
 #include "runtime/pull_load_task_mgr.h"
 #include "runtime/export_task_mgr.h"
 #include "runtime/result_buffer_mgr.h"
+#include "runtime/routine_load/routine_load_task_executor.h"
 
 namespace doris {
 
@@ -226,6 +227,12 @@ void BackendService::erase_export_task(TStatus& t_status, const TUniqueId& task_
 
 void BackendService::get_tablet_stat(TTabletStatResult& result) {
     OLAPEngine::get_instance()->get_tablet_stat(result);
+}
+
+void BackendService::submit_routine_load_task(
+        TStatus& t_status, const TRoutineLoadTask& task) {
+    Status status = _exec_env->routine_load_task_executor()->submit_task(task);
+    status.to_thrift(&t_status);
 }
 
 } // namespace doris

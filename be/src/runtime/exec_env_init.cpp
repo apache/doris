@@ -43,8 +43,10 @@
 #include "util/bfd_parser.h"
 #include "runtime/etl_job_mgr.h"
 #include "runtime/load_path_mgr.h"
-#include "runtime/load_stream_mgr.h"
 #include "runtime/pull_load_task_mgr.h"
+#include "runtime/routine_load/routine_load_task_executor.h"
+#include "runtime/stream_load/load_stream_mgr.h"
+#include "runtime/stream_load/stream_load_executor.h"
 #include "util/pretty_printer.h"
 #include "util/doris_metrics.h"
 #include "util/brpc_stub_cache.h"
@@ -95,6 +97,8 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _tablet_writer_mgr = new TabletWriterMgr(this);
     _load_stream_mgr = new LoadStreamMgr();
     _brpc_stub_cache = new BrpcStubCache();
+    _stream_load_executor = new StreamLoadExecutor(this);
+    _routine_load_task_executor = new RoutineLoadTaskExecutor(this);
 
     _client_cache->init_metrics(DorisMetrics::metrics(), "backend");
     _frontend_client_cache->init_metrics(DorisMetrics::metrics(), "frontend");
@@ -208,6 +212,9 @@ void ExecEnv::_destory() {
     delete _client_cache;
     delete _result_mgr;
     delete _stream_mgr;
+    delete _stream_load_executor;
+    delete _routine_load_task_executor;
+
     _metrics = nullptr;
 }
 

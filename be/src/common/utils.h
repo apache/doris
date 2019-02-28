@@ -19,19 +19,30 @@
 
 #include <string>
 
-#include "common/utils.h"
-#include "http/http_common.h"
-
 namespace doris {
 
-class HttpRequest;
+struct AuthInfo {
+    std::string user;
+    std::string passwd;
+    std::string cluster;
+    std::string user_ip;
+    // -1 as unset
+    int64_t auth_code = -1;
+};
 
-std::string encode_basic_auth(const std::string& user, const std::string& passwd);
-// parse Basic authorization
-// return true, if request contain valid basic authorization.
-// Otherwise return fasle
-bool parse_basic_auth(const HttpRequest& req, std::string* user, std::string* passwd);
-
-bool parse_basic_auth(const HttpRequest& req, AuthInfo* auth);
+template<class T>
+void set_request_auth(T* req, const AuthInfo& auth) {
+    if (auth.auth_code != -1) {
+        // if auth_code is set, no need to set other info
+        req->auth_code = auth.auth_code;
+    } else {
+        req->user = auth.user;
+        req->passwd = auth.passwd;
+        if (!auth.cluster.empty()) {
+            req->__set_cluster(auth.cluster);
+        }
+        req->__set_user_ip(auth.user_ip);
+    }
+}
 
 }

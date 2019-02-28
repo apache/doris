@@ -29,7 +29,8 @@
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include "common/logging.h"
-#include "exec/schema_scanner/frontend_helper.h"
+#include "common/utils.h"
+#include "util/frontend_helper.h"
 #include "gen_cpp/FrontendService.h"
 #include "gen_cpp/FrontendService_types.h"
 #include "gen_cpp/HeartbeatService_types.h"
@@ -44,8 +45,10 @@
 #include "runtime/fragment_mgr.h"
 #include "runtime/load_path_mgr.h"
 #include "runtime/plan_fragment_executor.h"
-#include "runtime/stream_load_pipe.h"
-#include "runtime/load_stream_mgr.h"
+#include "runtime/stream_load/stream_load_executor.h"
+#include "runtime/stream_load/stream_load_pipe.h"
+#include "runtime/stream_load/stream_load_context.h"
+#include "runtime/stream_load/load_stream_mgr.h"
 #include "util/byte_buffer.h"
 #include "util/debug_util.h"
 #include "util/json_util.h"
@@ -62,11 +65,7 @@ IntCounter k_streaming_load_duration_ms;
 static IntGauge k_streaming_load_current_processing;
 
 #ifdef BE_TEST
-TLoadTxnBeginResult k_stream_load_begin_result;
-TLoadTxnCommitResult k_stream_load_commit_result;
-TLoadTxnRollbackResult k_stream_load_rollback_result;
 TStreamLoadPutResult k_stream_load_put_result;
-Status k_stream_load_plan_status;
 #endif
 
 static TFileFormatType::type parse_format(const std::string& format_str) {
@@ -83,134 +82,6 @@ static bool is_format_support_streaming(TFileFormatType::type format) {
     default:
         return false;
     }
-}
-
-// stream load context
-struct StreamLoadContext {
-    StreamLoadContext(StreamLoadAction* action_) : action(action_), _refs(0) {
-        start_nanos = MonotonicNanos();
-    }
-
-    ~StreamLoadContext();
-
-    StreamLoadAction* action;
-    // id for each load
-    UniqueId id;
-
-    std::string db;
-    std::string table;
-    // load label, used to identify 
-    std::string label;
-
-    std::string user_ip;
-
-    HttpAuthInfo auth;
-
-    // only used to check if we receive whole body
-    size_t body_bytes = 0;
-    size_t receive_bytes = 0;
-
-    int64_t txn_id = -1;
-
-    bool need_rollback = false;
-    // when use_streaming is true, we use stream_pipe to send source data,
-    // otherwise we save source data to file first, then process it.
-    bool use_streaming = false;
-    TFileFormatType::type format = TFileFormatType::FORMAT_CSV_PLAIN;
-
-    std::shared_ptr<MessageBodySink> body_sink;
-
-    TStreamLoadPutResult put_result;
-    double max_filter_ratio = 0.0;
-    std::vector<TTabletCommitInfo> commit_infos;
-
-    std::promise<Status> promise;
-    std::future<Status> future = promise.get_future();
-
-    Status status;
-
-    int64_t number_loaded_rows = 0;
-    int64_t number_filtered_rows = 0;
-    int64_t start_nanos = 0;
-    int64_t load_cost_nanos = 0;
-    std::string error_url;
-
-    std::string to_json() const;
-
-    std::string brief() const;
-
-    void ref() { _refs.fetch_add(1); }
-    // If unref() returns true, this object should be delete
-    bool unref() { return _refs.fetch_sub(1) == 1; }
-
-private:
-    std::atomic<int> _refs;
-};
-
-StreamLoadContext::~StreamLoadContext() {
-    if (need_rollback) {
-        action->rollback(this);
-        need_rollback = false;
-    }
-}
-
-std::string StreamLoadContext::to_json() const {
-    rapidjson::StringBuffer s;
-    rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(s);
-
-    writer.StartObject();
-    // txn id
-    writer.Key("TxnId");
-    writer.Int64(txn_id);
-
-    // label
-    writer.Key("Label");
-    writer.String(label.c_str());
-
-    // status
-    writer.Key("Status");
-    switch (status.code()) {
-    case TStatusCode::OK:
-        writer.String("Success");
-        break;
-    case TStatusCode::PUBLISH_TIMEOUT:
-        writer.String("Publish Timeout");
-        break;
-    case TStatusCode::LABEL_ALREADY_EXISTS:
-        writer.String("Label Already Exists");
-        break;
-    default:
-        writer.String("Fail");
-        break;
-    }
-    // msg
-    writer.Key("Message");
-    if (status.ok()) {
-        writer.String("OK");
-    } else {
-        writer.String(status.get_error_msg().c_str());
-    }
-    // number_load_rows
-    writer.Key("NumberLoadedRows");
-    writer.Int64(number_loaded_rows);
-    writer.Key("NumberFilteredRows");
-    writer.Int64(number_filtered_rows);
-    writer.Key("LoadBytes");
-    writer.Int64(receive_bytes);
-    writer.Key("LoadTimeMs");
-    writer.Int64(load_cost_nanos / 1000000);
-    if (!error_url.empty()) {
-        writer.Key("ErrorURL");
-        writer.String(error_url.c_str());
-    }
-    writer.EndObject();
-    return s.GetString();
-}
-
-std::string StreamLoadContext::brief() const {
-    std::stringstream ss;
-    ss << " id=" << id << ", txn id=" << txn_id << ", label=" << label;
-    return ss.str();
 }
 
 StreamLoadAction::StreamLoadAction(ExecEnv* exec_env) : _exec_env(exec_env) {
@@ -245,7 +116,7 @@ void StreamLoadAction::handle(HttpRequest* req) {
 
     if (!ctx->status.ok()) {
         if (ctx->need_rollback) {
-            rollback(ctx);
+            _exec_env->stream_load_executor()->rollback_txn(ctx);
             ctx->need_rollback = false;
         }
         if (ctx->body_sink.get() != nullptr) {
@@ -272,10 +143,10 @@ Status StreamLoadAction::_handle(StreamLoadContext* ctx) {
     }
     if (!ctx->use_streaming) {
         // if we use non-streaming, we need to close file first,
-        // then _execute_plan_fragment here
+        // then execute_plan_fragment here
         // this will close file
         ctx->body_sink.reset();
-        RETURN_IF_ERROR(_execute_plan_fragment(ctx));
+        RETURN_IF_ERROR(_exec_env->stream_load_executor()->execute_plan_fragment(ctx));
     } else {
         RETURN_IF_ERROR(ctx->body_sink->finish());
     }
@@ -284,36 +155,7 @@ Status StreamLoadAction::_handle(StreamLoadContext* ctx) {
     RETURN_IF_ERROR(ctx->future.get());
 
     // If put file succeess we need commit this load
-    TLoadTxnCommitRequest request;
-    set_http_auth(&request, ctx->auth);
-    request.db = ctx->db;
-    request.tbl = ctx->table;
-    request.txnId = ctx->txn_id;
-    request.sync = true;
-    request.commitInfos = std::move(ctx->commit_infos);
-    request.__isset.commitInfos = true;
-
-    TNetworkAddress master_addr = _exec_env->master_info()->network_address;
-    TLoadTxnCommitResult result;
-#ifndef BE_TEST
-    RETURN_IF_ERROR(FrontendHelper::rpc(
-        master_addr.hostname, master_addr.port,
-        [&request, &result] (FrontendServiceConnection& client) {
-            client->loadTxnCommit(result, request);
-        }, config::txn_commit_rpc_timeout_ms));
-#else
-    result = k_stream_load_commit_result;
-#endif
-    // Return if this transaction is committed successful; otherwise, we need try to
-    // rollback this transaction
-    Status status(result.status);
-    if (!status.ok()) {
-        LOG(WARNING) << "commit transaction failed, id=" << ctx->id
-            << ", errmsg=" << status.get_error_msg();
-        return status;
-    }
-    // commit success, set need_rollback to false
-    ctx->need_rollback = false;
+    RETURN_IF_ERROR(_exec_env->stream_load_executor()->commit_txn(ctx));
 
     return Status::OK;
 }
@@ -321,9 +163,12 @@ Status StreamLoadAction::_handle(StreamLoadContext* ctx) {
 int StreamLoadAction::on_header(HttpRequest* req) {
     k_streaming_load_current_processing.increment(1);
 
-    StreamLoadContext* ctx = new StreamLoadContext(this);
+    StreamLoadContext* ctx = new StreamLoadContext(_exec_env);
     ctx->ref();
     req->set_handler_ctx(ctx);
+    
+    ctx->load_type = TLoadType::MANUL_LOAD;
+    ctx->load_src_type = TLoadSourceType::RAW;
 
     ctx->db = req->param(HTTP_DB_KEY);
     ctx->table = req->param(HTTP_TABLE_KEY);
@@ -339,7 +184,7 @@ int StreamLoadAction::on_header(HttpRequest* req) {
     if (!st.ok()) {
         ctx->status = st;
         if (ctx->need_rollback) {
-            rollback(ctx);
+            _exec_env->stream_load_executor()->rollback_txn(ctx);
             ctx->need_rollback = false;
         }
         if (ctx->body_sink.get() != nullptr) {
@@ -394,34 +239,7 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, StreamLoadContext* ct
     TNetworkAddress master_addr = _exec_env->master_info()->network_address;
 
     // begin transaction
-    {
-        TLoadTxnBeginRequest request;
-        set_http_auth(&request, ctx->auth);
-        request.db = ctx->db;
-        request.tbl = ctx->table;
-        request.label = ctx->label;
-        // set timestamp
-        request.__set_timestamp(GetCurrentTimeMicros());
-
-        TLoadTxnBeginResult result;
-#ifndef BE_TEST
-        RETURN_IF_ERROR(FrontendHelper::rpc(
-                master_addr.hostname, master_addr.port,
-                [&request, &result] (FrontendServiceConnection& client) {
-                    client->loadTxnBegin(result, request);
-                }));
-#else
-        result = k_stream_load_begin_result;
-#endif
-        Status status(result.status);
-        if (!status.ok()) {
-            LOG(WARNING) << "begin transaction failed, errmsg=" << status.get_error_msg()
-                    << ctx->brief();
-            return status;
-        }
-        ctx->txn_id = result.txnId;
-        ctx->need_rollback = true;
-    }
+    RETURN_IF_ERROR(_exec_env->stream_load_executor()->begin_txn(ctx));
 
     // process put file
     return _process_put(http_req, ctx);
@@ -453,7 +271,7 @@ void StreamLoadAction::on_chunk_data(HttpRequest* req) {
 }
 
 void StreamLoadAction::free_handler_ctx(void* param) {
-    StreamLoadContext* ctx = (StreamLoadContext*)param;
+    StreamLoadContext* ctx = (StreamLoadContext*) param;
     if (ctx == nullptr) {
         return;
     }
@@ -472,7 +290,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
     
     // put request
     TStreamLoadPutRequest request;
-    set_http_auth(&request, ctx->auth);
+    set_request_auth(&request, ctx->auth);
     request.db = ctx->db;
     request.tbl = ctx->table;
     request.txnId = ctx->txn_id;
@@ -531,79 +349,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
     if (!ctx->use_streaming) {
         return Status::OK;
     }
-    return _execute_plan_fragment(ctx);
-}
-
-Status StreamLoadAction::_execute_plan_fragment(StreamLoadContext* ctx) {
-    // submit this params
-#ifndef BE_TEST
-    ctx->ref();
-    auto st = _exec_env->fragment_mgr()->exec_plan_fragment(
-        ctx->put_result.params,
-        [ctx] (PlanFragmentExecutor* executor) {
-            ctx->commit_infos = std::move(executor->runtime_state()->tablet_commit_infos());
-            Status status = executor->status();
-            if (status.ok()) {
-                ctx->number_loaded_rows = executor->runtime_state()->num_rows_load_success();
-                ctx->number_filtered_rows = executor->runtime_state()->num_rows_load_filtered();
-                int64_t num_total_rows =
-                    ctx->number_loaded_rows + ctx->number_filtered_rows;
-                if ((0.0 + ctx->number_filtered_rows) / num_total_rows > ctx->max_filter_ratio) {
-                    status = Status("too many filtered rows");
-                }
-                if (ctx->number_filtered_rows > 0 &&
-                    !executor->runtime_state()->get_error_log_file_path().empty()) {
-                    ctx->error_url = to_load_error_http_path(
-                        executor->runtime_state()->get_error_log_file_path());
-                }
-            } else {
-                LOG(WARNING) << "fragment execute failed"
-                    << ", query_id=" << UniqueId(ctx->put_result.params.params.query_id)
-                    << ", errmsg=" << status.get_error_msg()
-                    << ctx->brief();
-                // cancel body_sink, make sender known it
-                if (ctx->body_sink != nullptr) {
-                    ctx->body_sink->cancel();
-                }
-            }
-            ctx->promise.set_value(status);
-            if (ctx->unref()) {
-                delete ctx;
-            }
-        });
-    if (!st.ok()) {
-        // no need to check unref's return value
-        ctx->unref();
-        return st;
-    }
-#else
-    ctx->promise.set_value(k_stream_load_plan_status);
-#endif
-    return Status::OK;
-}
-
-void StreamLoadAction::rollback(StreamLoadContext* ctx) {
-    TNetworkAddress master_addr = _exec_env->master_info()->network_address;
-    TLoadTxnRollbackRequest request;
-    set_http_auth(&request, ctx->auth);
-    request.db = ctx->db;
-    request.tbl = ctx->table;
-    request.txnId = ctx->txn_id;
-    request.__set_reason(ctx->status.get_error_msg());
-    TLoadTxnRollbackResult result;
-#ifndef BE_TEST
-    auto rpc_st = FrontendHelper::rpc(
-        master_addr.hostname, master_addr.port,
-        [&request, &result] (FrontendServiceConnection& client) {
-            client->loadTxnRollback(result, request);
-        });
-    if (!rpc_st.ok()) {
-        LOG(WARNING) << "transaction rollback failed. errmsg=" << rpc_st.get_error_msg()
-                << ctx->brief();
-    }
-#else
-    result = k_stream_load_rollback_result;
-#endif
+    return _exec_env->stream_load_executor()->execute_plan_fragment(ctx);
 }
 
 Status StreamLoadAction::_data_saved_path(HttpRequest* req, std::string* file_path) {

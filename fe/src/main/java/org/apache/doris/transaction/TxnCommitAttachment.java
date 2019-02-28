@@ -41,8 +41,8 @@ public abstract class TxnCommitAttachment implements Writable {
 
     public static TxnCommitAttachment fromThrift(TTxnCommitAttachment txnCommitAttachment) {
         if (txnCommitAttachment != null) {
-            switch (txnCommitAttachment.txnSourceType) {
-                case ROUTINE_LOAD_TASK:
+            switch (txnCommitAttachment.getLoadType()) {
+                case ROUTINE_LOAD:
                     return new RLTaskTxnCommitAttachment(txnCommitAttachment.getRlTaskTxnCommitAttachment());
                 default:
                     return null;

@@ -34,16 +34,13 @@ import org.apache.doris.load.TxnStateChangeListener;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendServiceImpl;
-import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.thrift.TLoadTxnCommitRequest;
 import org.apache.doris.thrift.TResourceInfo;
-import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.transaction.AbortTransactionException;
 import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.collect.Lists;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -421,7 +418,7 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
         frontendService.loadTxnCommit(request);
     }
 
-    private void updateNumOfData(int numOfErrorData, int numOfTotalData) {
+    private void updateNumOfData(long numOfErrorData, long numOfTotalData) {
         currentErrorNum += numOfErrorData;
         currentTotalNum += numOfTotalData;
         if (currentTotalNum > BASE_OF_ERROR_RATE) {
@@ -487,12 +484,8 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
             // step2: update job progress
             updateProgress(rlTaskTxnCommitAttachment.getProgress());
 
-            // step3: remove task in agentTaskQueue
-            AgentTaskQueue.removeTask(rlTaskTxnCommitAttachment.getBackendId(), TTaskType.STREAM_LOAD,
-                                      rlTaskTxnCommitAttachment.getTaskSignature());
-
             // step4: if rate of error data is more then max_filter_ratio, pause job
-            updateNumOfData(rlTaskTxnCommitAttachment.getNumOfErrorData(), rlTaskTxnCommitAttachment.getNumOfTotalData());
+            updateNumOfData(rlTaskTxnCommitAttachment.getFilteredRows(), rlTaskTxnCommitAttachment.getLoadedRows());
 
             if (state == JobState.RUNNING) {
                 // step5: create a new task for partitions
