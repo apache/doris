@@ -27,10 +27,12 @@
 
 #include "exec/file_reader.h"
 #include "runtime/message_body_sink.h"
+#include "runtime/stream_load/stream_load_pipe.h"
 
 namespace doris {
 
 class KafkaConsumerPipe : public StreamLoadPipe {
+
 public:
     KafkaConsumerPipe(size_t max_buffered_bytes = 1024 * 1024,
                       size_t min_chunk_size = 64 * 1024)
