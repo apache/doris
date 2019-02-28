@@ -1104,8 +1104,9 @@ OLAPStatus Mutex::lock() {
 }
 
 OLAPStatus Mutex::trylock() {
-    if (0 != pthread_mutex_trylock(&_lock)) {
-        VLOG(3) << "failed to got the mutex lock. err=" << strerror(errno);
+    int rv = pthread_mutex_trylock(&_lock);
+    if (rv != 0) {
+        VLOG(3) << "failed to got the mutex lock. err=" << strerror(rv);
         return OLAP_ERR_RWLOCK_ERROR;
     }
 

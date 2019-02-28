@@ -244,7 +244,7 @@ bool TaskWorkerPool::_record_task_info(
     } else {
         signature_set.insert(signature);
         LOG(INFO) << "type: " << task_name
-                  << ", signature: " << signature << ", has been inserted."
+                  << ", signature: " << signature << ", has been inserted"
                   << ", queue size: " << signature_set.size();
         if (task_type == TTaskType::PUSH) {
             _s_total_task_user_count[task_type][user] += 1;

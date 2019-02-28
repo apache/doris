@@ -642,12 +642,14 @@ void StorageEngine::perform_cumulative_compaction() {
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "failed to init cumulative compaction."
                      << "tablet=" << best_tablet->full_name();
+        return;
     }
 
     res = cumulative_compaction.run();
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "failed to do cumulative compaction."
                      << "tablet=" << best_tablet->full_name();
+        return;
     }
 }
 
@@ -667,6 +669,7 @@ void StorageEngine::perform_base_compaction() {
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "failed to init base compaction."
                      << "tablet=" << best_tablet->full_name();
+        return;
     }
 }
 
@@ -833,7 +836,6 @@ void StorageEngine::add_unused_rowset(RowsetSharedPtr rowset) {
 
 // TODO(zc): refactor this funciton
 OLAPStatus StorageEngine::create_tablet(const TCreateTabletReq& request) {
-    
     // Get all available stores, use ref_root_path if the caller specified
     std::vector<DataDir*> stores;
     stores = get_stores_for_create_tablet(request.storage_medium);

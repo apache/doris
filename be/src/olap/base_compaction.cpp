@@ -94,9 +94,8 @@ OLAPStatus BaseCompaction::run() {
     VersionHash new_base_version_hash;
     res = _tablet->compute_all_versions_hash(_need_merged_versions, &new_base_version_hash);
     if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to calculate new base version hash.[tablet=%s; new_base_version=%d]",
-                         _tablet->full_name().c_str(),
-                         _new_base_version.second);
+        LOG(WARNING) << "fail to calculate new base version hash. tablet=" << _tablet->full_name()
+                     << ", new_base_version=" << _new_base_version.second;
         _garbage_collection();
         return res;
     }
@@ -128,9 +127,8 @@ OLAPStatus BaseCompaction::run() {
     res = _do_base_compaction(new_base_version_hash, rowsets);
     // 释放不再使用的ColumnData对象
     if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to do base version. [tablet=%s; version=%d]",
-                         _tablet->full_name().c_str(),
-                         _new_base_version.second);
+        LOG(WARNING) << "fail to do base version. tablet=" << _tablet->full_name()
+                     << ", version=" << _new_base_version.second;
         _garbage_collection();
         return res;
     }
@@ -195,8 +193,7 @@ bool BaseCompaction::_check_whether_satisfy_policy(bool is_manual_trigger,
 
     vector<Version> path_versions;
     if (OLAP_SUCCESS != _tablet->capture_consistent_versions(Version(0, cumulative_layer_point), &path_versions)) {
-        OLAP_LOG_WARNING("fail to select shortest version path. [start=%d end=%d]",
-                         0, cumulative_layer_point);
+        LOG(WARNING) << "fail to select shortest version path. start=0, end=" << cumulative_layer_point;
         return  false;
     }
 
@@ -363,10 +360,10 @@ OLAPStatus BaseCompaction::_do_base_compaction(VersionHash new_base_version_hash
 
     // 3. 如果merge失败，执行清理工作，返回错误码退出
     if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "fail to make new base version."
-                     << "tablet=" << _tablet->full_name()
-                     << "version=" << rs_writer->version().first << "-" << rs_writer->version().second
-                     << "res=" << res;
+        LOG(WARNING) << "fail to make new base version. res=" << res
+                     << ", tablet=" << _tablet->full_name()
+                     << ", version=" << _new_base_version.first
+                     << "-" << _new_base_version.second;
         return OLAP_ERR_BE_MERGE_ERROR;
     }
     RowsetSharedPtr new_base = rs_writer->build();
@@ -463,8 +460,7 @@ void BaseCompaction::_garbage_collection() {
 bool BaseCompaction::_validate_need_merged_versions(
         const vector<Version>& candidate_versions) {
     if (candidate_versions.size() <= 1) {
-        OLAP_LOG_WARNING("unenough versions need to be merged. [size=%lu]",
-                         candidate_versions.size());
+        LOG(WARNING) << "unenough versions need to be merged. size=" << candidate_versions.size();
         return false;
     }
 
@@ -474,10 +470,11 @@ bool BaseCompaction::_validate_need_merged_versions(
         Version previous_version = candidate_versions[index - 1];
         Version current_version = candidate_versions[index];
         if (current_version.first != previous_version.second + 1) {
-            OLAP_LOG_WARNING("wrong need merged version. "
-                             "previous_version=%d-%d; current_version=%d-%d",
-                             previous_version.first, previous_version.second,
-                             current_version.first, current_version.second);
+            LOG(WARNING) << "wrong need merged version. "
+                         << "previous_version=" << previous_version.first
+                         << "-" << previous_version.second
+                         << ", current_version=" << current_version.first
+                         << "-" << current_version.second;
             return false;
         }
     }
@@ -486,11 +483,11 @@ bool BaseCompaction::_validate_need_merged_versions(
     if (_new_base_version.first != 0
             || _new_base_version.first != candidate_versions.begin()->first
             || _new_base_version.second != candidate_versions.rbegin()->second) {
-        OLAP_LOG_WARNING("new_base_version is wrong. "
-                         "[new_base_version=%d-%d; vector_version=%d-%d]",
-                         _new_base_version.first, _new_base_version.second,
-                         candidate_versions.begin()->first,
-                         candidate_versions.rbegin()->second);
+        LOG(WARNING) << "new_base_version is wrong."
+                     << " new_base_version=" << _new_base_version.first
+                     << "-" << _new_base_version.second
+                     << ", vector_version=" << candidate_versions.begin()->first
+                     << "-" << candidate_versions.rbegin()->second;
         return false;
     }
 

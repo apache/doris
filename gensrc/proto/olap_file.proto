@@ -189,8 +189,8 @@ message OLAPHeaderMessage {
 }
 
 enum AlterTabletState {
-    ALTER_NONE = 0;
-    ALTER_ALTERING = 1;
+    ALTER_PREPARE = 0;
+    ALTER_RUNNING = 1;
     ALTER_FINISHED = 2;
     ALTER_FAILED = 3;
 }

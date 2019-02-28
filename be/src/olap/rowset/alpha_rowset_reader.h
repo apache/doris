@@ -43,7 +43,7 @@ public:
     virtual OLAPStatus next(RowCursor** row);
 
     // read next block data
-    virtual OLAPStatus next_block(RowBlock** block);
+    virtual OLAPStatus next_block(std::shared_ptr<RowBlock> block);
 
     virtual bool delete_flag();
 
@@ -57,6 +57,8 @@ public:
     virtual RowsetSharedPtr rowset();
 
     virtual int32_t num_rows();
+
+    virtual int64_t get_filtered_rows();
 
 private:
 

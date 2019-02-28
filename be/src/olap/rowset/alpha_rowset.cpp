@@ -67,7 +67,9 @@ OLAPStatus AlphaRowset::remove() {
         LOG(FATAL) << "failed to remove meta of rowset_id:" << rowset_id();
         return status;
     }
+    LOG(INFO) << "segment group size:" << _segment_groups.size();
     for (auto segment_group : _segment_groups) {
+        LOG(INFO) << "segment_group_id:" << segment_group->segment_group_id();
         bool ret = segment_group->delete_all_files();
         if (!ret) {
             LOG(FATAL) << "delete segment group files failed."

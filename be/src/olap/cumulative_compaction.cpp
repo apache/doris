@@ -30,7 +30,6 @@ using std::nothrow;
 using std::sort;
 using std::vector;
 
-
 namespace doris {
 
 OLAPStatus CumulativeCompaction::init(TabletSharedPtr tablet) {
@@ -143,8 +142,8 @@ OLAPStatus CumulativeCompaction::run() {
                        .set_rowset_type(ALPHA_ROWSET)
                        .set_rowset_path_prefix(_tablet->tablet_path())
                        .set_tablet_schema(&(_tablet->tablet_schema()))
-                       .set_data_dir(_tablet->data_dir())
                        .set_rowset_state(VISIBLE)
+                       .set_data_dir(_tablet->data_dir())
                        .set_version(_cumulative_version)
                        .set_version_hash(_cumulative_version_hash);
         RowsetWriterContext context = context_builder.build();
@@ -310,8 +309,8 @@ OLAPStatus CumulativeCompaction::_get_delta_versions(Versions* delta_versions) {
     // 因为我们总是保留最新的delta不合并到cumulative文件里，所以此时应该返回错误，不进行cumulative
     if (delta_versions->size() == 1) {
         delta_versions->clear();
-        VLOG(10) << "only one delta version. no new delta versions. "
-                 << ", cumulative_point=" << _old_cumulative_layer_point;
+        VLOG(10) << "only one delta version. no new delta versions."
+                 << " cumulative_point=" << _old_cumulative_layer_point;
         return OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS;
     }
 
@@ -322,10 +321,10 @@ OLAPStatus CumulativeCompaction::_get_delta_versions(Versions* delta_versions) {
     OLAPStatus select_status = _tablet->capture_consistent_versions(
         Version(delta_versions->front().first, delta_versions->back().second), &versions_path);
     if (select_status != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("can't do cumulative expansion if fail to select shortest version path. "
-                         "[tablet=%s start=%d; end=%d]",
-                         _tablet->full_name().c_str(),
-                         delta_versions->front().first, delta_versions->back().second);
+        LOG(WARNING) << "can't do cumulative expansion if fail to select shortest version path."
+                     << " tablet=" << _tablet->full_name()
+                     << ", start=" << delta_versions->front().first
+                     << ", end=" << delta_versions->back().second;
         return  select_status;
     }
 
@@ -337,8 +336,7 @@ bool CumulativeCompaction::_find_previous_version(const Version current_version,
     Versions all_versions;
     if (OLAP_SUCCESS != _tablet->capture_consistent_versions(Version(0, current_version.second),
                                                              &all_versions)) {
-        OLAP_LOG_WARNING("fail to select shortest version path. [start=%d; end=%d]",
-                         0, current_version.second);
+        LOG(WARNING) << "fail to select shortest version path. start=0, end=" << current_version.second;
         return  false;
     }
 
@@ -378,10 +376,10 @@ OLAPStatus CumulativeCompaction::_do_cumulative_compaction() {
     uint64_t filted_rows = 0;
     res = merger.merge(_rs_readers, &merged_rows, &filted_rows);
     if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("failed to do cumulative merge. [tablet=%s; cumulative_version=%d-%d]",
-                         _tablet->full_name().c_str(),
-                         _cumulative_version.first,
-                         _cumulative_version.second);
+        LOG(WARNING) << "failed to do cumulative merge."
+                     << " tablet=" << _tablet->full_name()
+                     << ", cumulative_version=" << _cumulative_version.first
+                     << "-" << _cumulative_version.second;
         return res;
     }
 
@@ -422,6 +420,7 @@ OLAPStatus CumulativeCompaction::_do_cumulative_compaction() {
         LOG(WARNING) << "fail to capture consistent rowsets. tablet=" << _tablet->full_name()
                      << ", version=" << _cumulative_version.first
                      << "-" << _cumulative_version.second;
+        _release_header_lock();
         return res;
     }
     res = _update_header(unused_rowsets);
@@ -501,10 +500,11 @@ bool CumulativeCompaction::_validate_need_merged_versions() {
         Version previous_version = _need_merged_versions[index - 1];
         Version current_version = _need_merged_versions[index];
         if (current_version.first != previous_version.second + 1) {
-            OLAP_LOG_WARNING("wrong need merged version. "
-                             "previous_version=%d-%d; current_version=%d-%d",
-                             previous_version.first, previous_version.second,
-                             current_version.first, current_version.second);
+            LOG(WARNING) << "wrong need merged version. "
+                         << "previous_version=" << previous_version.first
+                         << "-" << previous_version.second
+                         << ", current_version=" << current_version.first
+                         << "-" << current_version.second;
             return false;
         }
     }

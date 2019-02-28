@@ -107,7 +107,7 @@ OLAPStatus PushHandler::_do_streaming_ingestion(
         TSchemaHash related_schema_hash = alter_task.related_schema_hash();;
         tablet->release_header_lock();
 
-        if (alter_state == AlterTabletState::ALTER_ALTERING) {
+        if (alter_state == ALTER_RUNNING) {
             LOG(INFO) << "find schema_change status when realtime push. "
                       << "tablet=" << tablet->full_name() 
                       << ", related_tablet_id=" << related_tablet_id
@@ -175,7 +175,7 @@ OLAPStatus PushHandler::_do_streaming_ingestion(
 
     // write
     res = _convert(tablet_vars->at(0).tablet, tablet_vars->at(1).tablet,
-                   &(tablet_vars->at(0).added_rowsets), &(tablet_vars->at(1).added_rowsets));
+                   &(tablet_vars->at(0).rowset_to_add), &(tablet_vars->at(1).rowset_to_add));
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to convert tmp file when realtime push. res=" << res
                      << ", failed to process realtime push."
@@ -192,9 +192,7 @@ OLAPStatus PushHandler::_do_streaming_ingestion(
             // has to check rollback status to ensure not delete a committed rowset
             if (rollback_status == OLAP_SUCCESS) {
                 // actually, olap_index may has been deleted in delete_transaction()
-                for (RowsetSharedPtr rowset : tablet_var.added_rowsets) {
-                    StorageEngine::instance()->add_unused_rowset(rowset);
-                }
+                StorageEngine::instance()->add_unused_rowset(tablet_var.rowset_to_add);
             }
         }
         return res;
@@ -206,17 +204,15 @@ OLAPStatus PushHandler::_do_streaming_ingestion(
             continue;
         }
 
-        for (RowsetSharedPtr rowset : tablet_var.added_rowsets) {
-            rowset->rowset_meta()->set_delete_predicate(del_preds.front());
-            del_preds.pop();
-            OLAPStatus commit_status = TxnManager::instance()->commit_txn(tablet_var.tablet->data_dir()->get_meta(),
-                                                                          request.partition_id, request.transaction_id,
-                                                                          tablet_var.tablet->tablet_id(),
-                                                                          tablet_var.tablet->schema_hash(),
-                                                                          load_id, rowset, false);
-            if (commit_status != OLAP_SUCCESS && commit_status != OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
-                res = commit_status;
-            }
+        tablet_var.rowset_to_add->rowset_meta()->set_delete_predicate(del_preds.front());
+        del_preds.pop();
+        OLAPStatus commit_status = TxnManager::instance()->commit_txn(tablet_var.tablet->data_dir()->get_meta(),
+                                                                      request.partition_id, request.transaction_id,
+                                                                      tablet_var.tablet->tablet_id(),
+                                                                      tablet_var.tablet->schema_hash(),
+                                                                      load_id, tablet_var.rowset_to_add, false);
+        if (commit_status != OLAP_SUCCESS && commit_status != OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
+            res = commit_status;
         }
     }
     return res;
@@ -241,8 +237,8 @@ void PushHandler::_get_tablet_infos(
 OLAPStatus PushHandler::_convert(
         TabletSharedPtr curr_tablet,
         TabletSharedPtr new_tablet,
-        std::vector<RowsetSharedPtr>* cur_rowsets,
-        std::vector<RowsetSharedPtr>* related_rowsets) {
+        RowsetSharedPtr* cur_rowset,
+        RowsetSharedPtr* new_rowset) {
     OLAPStatus res = OLAP_SUCCESS;
     RowCursor row;
     BinaryFile raw_file;
@@ -364,27 +360,23 @@ OLAPStatus PushHandler::_convert(
             LOG(WARNING) << "failed to finalize writer.";
             break;
         }
-        RowsetSharedPtr rowset = rowset_writer->build();
+        *cur_rowset = rowset_writer->build();
 
-        if (rowset == nullptr) {
+        if (*cur_rowset == nullptr) {
             LOG(WARNING) << "fail to build rowset";
             res = OLAP_ERR_MALLOC_ERROR;
             break;
         }
-        cur_rowsets->push_back(rowset);
 
-        _write_bytes += rowset->data_disk_size();
-        _write_rows += rowset->num_rows();
+        _write_bytes += (*cur_rowset)->data_disk_size();
+        _write_rows += (*cur_rowset)->num_rows();
 
         // 7. Convert data for schema change tables
         VLOG(10) << "load to related tables of schema_change if possible.";
         if (new_tablet != nullptr) {
             SchemaChangeHandler schema_change;
-            res = schema_change.schema_version_convert(
-                    curr_tablet,
-                    new_tablet,
-                    cur_rowsets,
-                    related_rowsets);
+            res = schema_change.schema_version_convert(curr_tablet, new_tablet,
+                                                       cur_rowset, new_rowset);
             if (res != OLAP_SUCCESS) {
                 LOG(WARNING) << "failed to change schema version for delta."
                              << "[res=" << res

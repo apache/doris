@@ -159,11 +159,12 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
                              tablet_id, schema_hash);
             return OLAP_ERR_TABLE_NOT_FOUND;
         }
-        AlterTabletState alter_state = tablet->alter_state();
-        if (alter_state == ALTER_FINISHED) {
-            new_tablet->set_alter_state(ALTER_FINISHED);
-        } else {
-            new_tablet->set_alter_state(ALTER_NONE);
+        if (tablet->has_alter_task()) {
+            if (tablet->alter_state() == ALTER_FINISHED) {
+                new_tablet->set_alter_state(ALTER_FINISHED);
+            } else {
+                new_tablet->delete_alter_task();
+            }
         }
     } while (0);
 
