@@ -63,6 +63,8 @@ private:
             const Status& st,
             const std::string& err_msg);
 
+    Status _execute_plan_for_test(StreamLoadContext* ctx);
+
 private:
     ExecEnv* _exec_env;
     ThreadPool* _thread_pool;    

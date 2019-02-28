@@ -39,25 +39,29 @@ Status KafkaDataConsumer::init() {
     RdKafka::Conf *conf = RdKafka::Conf::create(RdKafka::Conf::CONF_GLOBAL);
     
     // conf has to be deleted finally
-    auto conf_deleter = [] (RdKafka::Conf *conf) { delete conf; };
-    DeferOp delete_conf(std::bind<void>(conf_deleter, conf));
+    auto conf_deleter = [conf] () { delete conf; };
+    DeferOp delete_conf(std::bind<void>(conf_deleter));
 
     std::string errstr;
-#define SET_KAFKA_CONF(conf_key, conf_val) \
-    if (conf->set(conf_key, conf_val, errstr) != RdKafka::Conf::CONF_OK) { \
-        std::stringstream ss; \
-        ss << "failed to set '" << conf_key << "'"; \
-        LOG(WARNING) << ss.str(); \
-        return Status(ss.str()); \
-    }
+    auto set_conf = [conf, &errstr](const std::string& conf_key, const std::string& conf_val) {
+        if (conf->set(conf_key, conf_val, errstr) != RdKafka::Conf::CONF_OK) {
+            std::stringstream ss;
+            ss << "failed to set '" << conf_key << "'";
+            LOG(WARNING) << ss.str();
+            return Status(ss.str());
+        }
+        return Status::OK;
+    };
 
-    SET_KAFKA_CONF("metadata.broker.list", _ctx->kafka_info->brokers);
-    SET_KAFKA_CONF("group.id", _ctx->kafka_info->group_id);
-    SET_KAFKA_CONF("client.id", _ctx->kafka_info->client_id);
-    SET_KAFKA_CONF("enable.partition.eof", "false");
-    SET_KAFKA_CONF("enable.auto.offset.store", "false");
+    RETURN_IF_ERROR(set_conf("metadata.broker.list", _ctx->kafka_info->brokers));
+
+    RETURN_IF_ERROR(set_conf("metadata.broker.list", _ctx->kafka_info->brokers));
+    RETURN_IF_ERROR(set_conf("group.id", _ctx->kafka_info->group_id));
+    RETURN_IF_ERROR(set_conf("client.id", _ctx->kafka_info->client_id));
+    RETURN_IF_ERROR(set_conf("enable.partition.eof", "false"));
+    RETURN_IF_ERROR(set_conf("enable.auto.offset.store", "false"));
     // TODO: set it larger than 0 after we set rd_kafka_conf_set_stats_cb()
-    SET_KAFKA_CONF("statistics.interval.ms", "0");
+    RETURN_IF_ERROR(set_conf("statistics.interval.ms", "0"));
 
     // create consumer
     _k_consumer = RdKafka::KafkaConsumer::create(conf, errstr); 
@@ -75,11 +79,11 @@ Status KafkaDataConsumer::init() {
     }
 
     // delete TopicPartition finally
-    auto tp_deleter = [] (const std::vector<RdKafka::TopicPartition*>& vec) {
-        std::for_each(vec.begin(), vec.end(),
-                [](RdKafka::TopicPartition* tp1) { delete tp1; });
+    auto tp_deleter = [&topic_partitions] () {
+            std::for_each(topic_partitions.begin(), topic_partitions.end(),
+                    [](RdKafka::TopicPartition* tp1) { delete tp1; });
     };
-    DeferOp delete_tp(std::bind<void>(tp_deleter, topic_partitions));
+    DeferOp delete_tp(std::bind<void>(tp_deleter));
 
     // assign partition
     RdKafka::ErrorCode err = _k_consumer->assign(topic_partitions);
@@ -120,13 +124,13 @@ Status KafkaDataConsumer::start() {
     while (true) {
         std::unique_lock<std::mutex> l(_lock);
         if (_cancelled) {
-            st = Status::CANCELLED;
-            break;
+            _kafka_consumer_pipe->cancel();
+            return Status::CANCELLED;
         }
 
         if (_finished) {
-            st = Status::OK;
-            break;
+            _kafka_consumer_pipe->finish();
+            return Status::OK;
         }
 
         if (left_time <= 0 || left_rows <= 0 || left_bytes <=0) {
@@ -143,7 +147,11 @@ Status KafkaDataConsumer::start() {
         RdKafka::Message *msg = _k_consumer->consume(1000 /* timeout, ms */);
         switch (msg->err()) {
             case RdKafka::ERR_NO_ERROR:
-                VLOG(3) << "get kafka message, offset: " << msg->offset();
+                LOG(INFO) << "get kafka message"
+                        << ", partition: " << msg->partition()
+                        << ", offset: " << msg->offset()
+                        << ", len: " << msg->len();
+
                 st = _kafka_consumer_pipe->append_with_line_delimiter(
                         static_cast<const char *>(msg->payload()),
                         static_cast<size_t>(msg->len()));
@@ -162,6 +170,7 @@ Status KafkaDataConsumer::start() {
                 LOG(WARNING) << "kafka consume timeout";
                 break;
             default:
+                LOG(WARNING) << "kafka consume failed: " << msg->errstr();
                 st = Status(msg->errstr());
                 break;
         }
