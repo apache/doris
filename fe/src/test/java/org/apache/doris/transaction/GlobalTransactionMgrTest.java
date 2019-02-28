@@ -22,11 +22,6 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
-import com.google.common.collect.Maps;
-import mockit.Deencapsulation;
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mocked;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.CatalogTestUtil;
 import org.apache.doris.catalog.Database;
@@ -51,12 +46,14 @@ import org.apache.doris.load.routineload.RoutineLoadTaskInfo;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TKafkaRLTaskProgress;
+import org.apache.doris.thrift.TLoadSourceType;
 import org.apache.doris.thrift.TRLTaskTxnCommitAttachment;
 import org.apache.doris.thrift.TResourceInfo;
-import org.apache.doris.thrift.TRoutineLoadType;
+import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import org.apache.kafka.clients.consumer.KafkaConsumer;
@@ -69,6 +66,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+
+import mockit.Deencapsulation;
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mocked;
 
 public class GlobalTransactionMgrTest {
 
@@ -331,24 +333,20 @@ public class GlobalTransactionMgrTest {
         routineLoadJob.setState(RoutineLoadJob.JobState.RUNNING);
 
         TRLTaskTxnCommitAttachment rlTaskTxnCommitAttachment = new TRLTaskTxnCommitAttachment();
-        rlTaskTxnCommitAttachment.setBackendId(1L);
-        rlTaskTxnCommitAttachment.setTaskSignature(1L);
-        rlTaskTxnCommitAttachment.setNumOfTotalData(100);
-        rlTaskTxnCommitAttachment.setNumOfErrorData(1);
-        rlTaskTxnCommitAttachment.setTaskId("label");
+        rlTaskTxnCommitAttachment.setId(new TUniqueId());
+        rlTaskTxnCommitAttachment.setLoadedRows(100);
+        rlTaskTxnCommitAttachment.setFilteredRows(1);
         rlTaskTxnCommitAttachment.setJobId(Deencapsulation.getField(routineLoadJob, "id"));
-        rlTaskTxnCommitAttachment.setRoutineLoadType(TRoutineLoadType.KAFKA);
+        rlTaskTxnCommitAttachment.setLoadSourceType(TLoadSourceType.KAFKA);
         TKafkaRLTaskProgress tKafkaRLTaskProgress = new TKafkaRLTaskProgress();
         Map<Integer, Long> kafkaProgress = Maps.newHashMap();
         kafkaProgress.put(1, 10L);
-        tKafkaRLTaskProgress.setPartitionIdToOffset(kafkaProgress);
+        tKafkaRLTaskProgress.setPartitionCmtOffset(kafkaProgress);
         rlTaskTxnCommitAttachment.setKafkaRLTaskProgress(tKafkaRLTaskProgress);
         TxnCommitAttachment txnCommitAttachment = new RLTaskTxnCommitAttachment(rlTaskTxnCommitAttachment);
 
-
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
         routineLoadManager.addRoutineLoadJob(routineLoadJob);
-
 
         new Expectations() {
             {
@@ -409,24 +407,20 @@ public class GlobalTransactionMgrTest {
         routineLoadJob.setState(RoutineLoadJob.JobState.RUNNING);
 
         TRLTaskTxnCommitAttachment rlTaskTxnCommitAttachment = new TRLTaskTxnCommitAttachment();
-        rlTaskTxnCommitAttachment.setBackendId(1L);
-        rlTaskTxnCommitAttachment.setTaskSignature(1L);
-        rlTaskTxnCommitAttachment.setNumOfTotalData(100);
-        rlTaskTxnCommitAttachment.setNumOfErrorData(11);
-        rlTaskTxnCommitAttachment.setTaskId("label");
+        rlTaskTxnCommitAttachment.setId(new TUniqueId());
+        rlTaskTxnCommitAttachment.setLoadedRows(100);
+        rlTaskTxnCommitAttachment.setFilteredRows(11);
         rlTaskTxnCommitAttachment.setJobId(Deencapsulation.getField(routineLoadJob, "id"));
-        rlTaskTxnCommitAttachment.setRoutineLoadType(TRoutineLoadType.KAFKA);
+        rlTaskTxnCommitAttachment.setLoadSourceType(TLoadSourceType.KAFKA);
         TKafkaRLTaskProgress tKafkaRLTaskProgress = new TKafkaRLTaskProgress();
         Map<Integer, Long> kafkaProgress = Maps.newHashMap();
         kafkaProgress.put(1, 10L);
-        tKafkaRLTaskProgress.setPartitionIdToOffset(kafkaProgress);
+        tKafkaRLTaskProgress.setPartitionCmtOffset(kafkaProgress);
         rlTaskTxnCommitAttachment.setKafkaRLTaskProgress(tKafkaRLTaskProgress);
         TxnCommitAttachment txnCommitAttachment = new RLTaskTxnCommitAttachment(rlTaskTxnCommitAttachment);
 
-
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
         routineLoadManager.addRoutineLoadJob(routineLoadJob);
-
 
         new Expectations() {
             {
