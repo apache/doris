@@ -21,7 +21,7 @@
 #include <boost/foreach.hpp>
 
 #include "exec/text_converter.hpp"
-#include "exec/schema_scanner/frontend_helper.h"
+#include "exec/schema_scanner/schema_helper.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/runtime_state.h"
 #include "runtime/row_batch.h"

@@ -42,7 +42,7 @@ add_library(Util STATIC
   parse_util.cpp
   path_builder.cpp
 # TODO: not supported on RHEL 5
-#  perf-counters.cpp
+# perf-counters.cpp
   progress_updater.cpp
   runtime_profile.cpp
   static_asserts.cpp
@@ -67,13 +67,14 @@ add_library(Util STATIC
   null_load_error_hub.cpp
   time.cpp
   os_info.cpp
-#  coding_util.cpp
+# coding_util.cpp
   cidr.cpp
   core_local.cpp
   uid_util.cpp
   aes_util.cpp
   string_util.cpp
   md5.cpp
+  frontend_helper.cpp
 )
 
 #ADD_BE_TEST(integer-array-test)

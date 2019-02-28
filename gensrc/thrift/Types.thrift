@@ -354,3 +354,12 @@ struct TTabletCommitInfo {
     2: required i64 backendId
 }
 
+enum TLoadType {
+    MANUL_LOAD,
+    ROUTINE_LOAD,
+}
+
+enum TLoadSourceType {
+    RAW,
+    KAFKA,
+}
