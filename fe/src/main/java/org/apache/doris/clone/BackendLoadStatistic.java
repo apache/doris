@@ -270,6 +270,10 @@ public class BackendLoadStatistic implements Comparable<BackendLoadStatistic> {
         return pathStatistics;
     }
 
+    public long getAvailPathNum() {
+        return pathStatistics.stream().filter(p -> p.getDiskState() == DiskState.ONLINE).count();
+    }
+
     public String getBrief() {
         StringBuilder sb = new StringBuilder();
         sb.append(beId).append(": replica: ").append(totalReplicaNum);

@@ -92,9 +92,12 @@ public class TabletScheduler extends Daemon {
 
     public static final int BALANCE_SLOT_NUM_FOR_PATH = 2;
 
-    // if the number of scheduled tablets in TabletScheduler exceed this threshold
+    // if the number of scheduled tablets in TabletScheduler exceed this threshold,
     // skip checking.
     public static final int MAX_SCHEDULING_TABLETS = 5000;
+    // if the number of balancing tablets in TabletScheduler exceed this threshold,
+    // no more balance check
+    public static final int MAX_BALANCING_TABLETS = 500;
 
     /*
      * Tablet is added to pendingTablets as well it's id in allTabletIds.
@@ -214,7 +217,7 @@ public class TabletScheduler extends Daemon {
                 && (pendingTablets.size() > MAX_SCHEDULING_TABLETS || runningTablets.size() > MAX_SCHEDULING_TABLETS)) {
             return AddResult.LIMIT_EXCEED;
         }
-        
+
         allTabletIds.add(tablet.getTabletId());
         pendingTablets.offer(tablet);
         return AddResult.ADDED;
@@ -753,6 +756,13 @@ public class TabletScheduler extends Daemon {
             LOG.info("balance is disabled. skip selecting tablets for balance");
             return;
         }
+        
+        long numOfBalancingTablets = getBalanceTabletsNumber();
+        if (numOfBalancingTablets > MAX_BALANCING_TABLETS) {
+            LOG.info("number of balancing tablets {} exceed limit: {}, skip selecting tablets for balance",
+                    numOfBalancingTablets, MAX_BALANCING_TABLETS);
+            return;
+        }
 
         LoadBalancer loadBalancer = new LoadBalancer(statisticMap);
         List<TabletSchedCtx> alternativeTablets = loadBalancer.selectAlternativeTablets();
@@ -1053,6 +1063,11 @@ public class TabletScheduler extends Daemon {
 
     public synchronized int getTotalNum() {
         return allTabletIds.size();
+    }
+
+    public synchronized long getBalanceTabletsNumber() {
+        return pendingTablets.stream().filter(t -> t.getType() == Type.BALANCE).count()
+                + runningTablets.values().stream().filter(t -> t.getType() == Type.BALANCE).count();
     }
 
     /*
