@@ -84,6 +84,7 @@ struct TRoutineLoadTask {
     7: optional string tbl
     8: optional string label
     9: optional TKafkaLoadInfo kafka_load_info
+    10: optional PaloInternalService.TExecPlanFragmentParams params
 }
 
 service BackendService {
