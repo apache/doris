@@ -70,7 +70,7 @@ OLAPStatus AlphaRowset::remove() {
         if (!ret) {
             LOG(FATAL) << "delete segment group files failed."
                        << " tablet id:" << segment_group->get_tablet_id()
-                       << " rowset path:" << segment_group->rowset_path_prefix();
+                       << ", rowset path:" << segment_group->rowset_path_prefix();
             return OLAP_ERR_ROWSET_DELETE_SEGMENT_GROUP_FILE_FAILED;
         }
     }
