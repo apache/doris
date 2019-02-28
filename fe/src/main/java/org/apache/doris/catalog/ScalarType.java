@@ -281,9 +281,9 @@ public class ScalarType extends Type {
             return "DECIMAL(" + precision + "," + scale + ")";
         } else  if (type == PrimitiveType.DECIMAL_V2) {
             if (isWildcardDecimal()) {
-                return "DECIMAL(*,*)";
+                return "DECIMAL_V2(*,*)";
             }
-            return "DECIMAL(" + precision + "," + scale + ")";
+            return "DECIMAL_V2(" + precision + "," + scale + ")";
         } else if (type == PrimitiveType.VARCHAR) {
             if (isWildcardVarchar()) {
                 return "VARCHAR(*)";

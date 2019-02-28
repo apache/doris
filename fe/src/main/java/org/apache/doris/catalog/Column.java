@@ -255,11 +255,7 @@ public class Column implements Writable {
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("`").append(name).append("` ");
-        String typeStr = type.toSql();
-        if (type.getPrimitiveType() == PrimitiveType.DECIMAL_V2) {
-            typeStr = Type.DECIMAL.toSql();
-        }
-        sb.append(typeStr).append(" ");
+        sb.append(type.toSql()).append(" ");
         if (aggregationType != null && aggregationType != AggregateType.NONE && !isAggregationTypeImplicit) {
             sb.append(aggregationType.name()).append(" ");
         }
