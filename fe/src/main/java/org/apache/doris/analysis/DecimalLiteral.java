@@ -73,7 +73,7 @@ public class DecimalLiteral extends LiteralExpr {
 
     private void init(BigDecimal value) {
         this.value = value;
-        type = Type.DECIMAL;
+        type = Type.DECIMAL_V2;
     }
 
     public BigDecimal getValue() {
