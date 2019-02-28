@@ -25,6 +25,8 @@
 #include "runtime/stream_load/stream_load_executor.h"
 #include "util/uid_util.h"
 
+#include <thread>
+
 #include "gen_cpp/FrontendService_types.h"
 #include "gen_cpp/BackendService_types.h"
 #include "gen_cpp/Types_types.h"
@@ -50,6 +52,15 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
     ctx->table = task.tbl;
     ctx->label = task.label;
     ctx->auth.auth_code = task.auth_code;
+
+    // set execute plan params
+    TStreamLoadPutResult put_result;
+    TStatus tstatus;
+    tstatus.status_code = TStatusCode::OK;
+    put_result.status = tstatus;
+    put_result.params = std::move(task.params);
+    put_result.__isset.params = true;
+    ctx->put_result = std::move(put_result);
 
     // the routine load task'txn has alreay began in FE.
     // so it need to rollback if encounter error.
@@ -77,7 +88,8 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
             [this] (StreamLoadContext* ctx) {
                 std::unique_lock<std::mutex> l(_lock);
                 _task_map.erase(ctx->id);
-                LOG(INFO) << "finished routine load task " << ctx->brief();
+                LOG(INFO) << "finished routine load task " << ctx->brief()
+                          << ", current tasks num: " << _task_map.size();
                 if (ctx->unref()) {
                     delete ctx;
                 }
@@ -134,10 +146,15 @@ void RoutineLoadTaskExecutor::exec_task(
     // must put pipe before executing plan fragment
     HANDLE_ERROR(_exec_env->load_stream_mgr()->put(ctx->id, pipe), "failed to add pipe");
 
+#ifndef BE_TEST
     // execute plan fragment, async
     HANDLE_ERROR(_exec_env->stream_load_executor()->execute_plan_fragment(ctx),
             "failed to execute plan fragment");
-
+#else
+    // only for test
+    HANDLE_ERROR(_execute_plan_for_test(ctx), "test failed");
+#endif
+    
     // start to consume, this may block a while
     HANDLE_ERROR(consumer->start(), "consuming failed");
 
@@ -168,6 +185,41 @@ void RoutineLoadTaskExecutor::err_handler(
     }
 
     return;
+}
+
+Status RoutineLoadTaskExecutor::_execute_plan_for_test(StreamLoadContext* ctx) {
+    auto mock_consumer = [this, ctx]() {
+        std::shared_ptr<StreamLoadPipe> pipe = _exec_env->load_stream_mgr()->get(ctx->id);
+        bool eof = false;
+        std::stringstream ss;
+        while (true) { 
+            char one;
+            size_t len = 1;
+            Status st = pipe->read((uint8_t*) &one, &len, &eof);
+            if (!st.ok()) {
+                LOG(WARNING) << "read failed";
+                ctx->promise.set_value(st);
+                break;
+            }
+
+            if (eof) {
+                ctx->promise.set_value(Status::OK);
+                break;
+            }
+
+            if (one == '\n') {
+                LOG(INFO) << "get line: " << ss.str();
+                ss.str("");
+                ctx->number_loaded_rows++;
+            } else {
+                ss << one;
+            }
+        }
+    };
+
+    std::thread t1(mock_consumer);
+    t1.detach();
+    return Status::OK;
 }
 
 } // end namespace
