@@ -185,19 +185,23 @@ bool OlapRewriteNode::copy_one_row(TupleRow* src_row, Tuple* tuple,
         }
         case TPrimitiveType::DECIMAL_V2: {
             Decimal_V2Value* dec_val = (Decimal_V2Value*)src_value;
-            Decimal_V2Value* dst_val = (Decimal_V2Value*)tuple->get_slot(slot_desc->tuple_offset());
+            DecimalValue dst_val;
             if (dec_val->scale() > column_type.scale) {
-                int code = dec_val->round(dst_val, column_type.scale, HALF_UP);
+                int code = dec_val->round(&dst_val, column_type.scale, HALF_UP);
                 if (code != E_DEC_OK) {
                     (*ss) << "round one decimal failed.value=" << dec_val->to_string();
                     return false;
                 }
             } else {
-                *dst_val = *dec_val;
+                dst_val.set_value(dec_val->value());
             }
-            if (*dst_val > _max_decimal_v2_val[i]) {
-                dst_val->to_max_decimal(column_type.precision, column_type.scale);
+            if (dst_val > _max_decimal_v2_val[i]) {
+                dst_val.to_max_decimal(column_type.precision, column_type.scale);
             }
+
+            void* slot = tuple->get_slot(slot_desc->tuple_offset());
+            memcpy(slot, &dst_val, sizeof(Decimal_V2Value));
+            //*reinterpret_cast<PackedInt128*>(slot) = reinterpret_cast<const PackedInt128*>(dst_val)->value;
             break;
         }
         default: {
