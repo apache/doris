@@ -185,7 +185,7 @@ bool OlapRewriteNode::copy_one_row(TupleRow* src_row, Tuple* tuple,
         }
         case TPrimitiveType::DECIMAL_V2: {
             Decimal_V2Value* dec_val = (Decimal_V2Value*)src_value;
-            DecimalValue dst_val;
+            Decimal_V2Value dst_val;
             if (dec_val->scale() > column_type.scale) {
                 int code = dec_val->round(&dst_val, column_type.scale, HALF_UP);
                 if (code != E_DEC_OK) {
