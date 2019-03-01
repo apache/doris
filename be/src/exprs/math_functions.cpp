@@ -811,6 +811,24 @@ void* MathFunctions::least_decimal(Expr* e, TupleRow* row) {
     return &e->children()[result_idx]->_result.decimal_val;
 }
 
+void* MathFunctions::least_decimal_v2(Expr* e, TupleRow* row) {
+    DCHECK_GE(e->get_num_children(), 1);
+    int32_t num_args = e->get_num_children();
+    int result_idx = 0;
+    // NOTE: loop index starts at 0, so If frist arg is NULL, we can return early..
+    for (int i = 0; i < num_args; ++i) {
+        Decimal_V2Value* arg = reinterpret_cast<Decimal_V2Value*>(e->children()[i]->get_value(row));
+        if (arg == NULL) {
+            return NULL;
+        }
+        if (*arg < *reinterpret_cast<Decimal_V2Value*>(e->children()[result_idx]->get_value(row))) {
+            result_idx = i;
+        }
+    }
+    return &e->children()[result_idx]->_result.decimal_v2_val;
+}
+
+
 void* MathFunctions::least_string(Expr* e, TupleRow* row) {
     DCHECK_GE(e->get_num_children(), 1);
     int32_t num_args = e->get_num_children();

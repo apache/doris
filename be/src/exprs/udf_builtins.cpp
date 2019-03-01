@@ -53,7 +53,7 @@ DecimalVal UdfBuiltins::decimal_abs(FunctionContext* context, const DecimalVal& 
     return result;
 }
 
-Decimal_V2Val UdfBuiltins::decimal_v2_abs(FunctionContext* context, const Decimal_V2Val& v) {
+Decimal_V2Val UdfBuiltins::decimal_abs(FunctionContext* context, const Decimal_V2Val& v) {
     if (v.is_null) {
         return v;
     }
