@@ -283,6 +283,9 @@ public class Load {
 
             String columnSeparatorStr = params.get(LoadStmt.KEY_IN_PARAM_COLUMN_SEPARATOR);
             if (columnSeparatorStr != null) {
+                if (columnSeparatorStr.isEmpty()) {
+                    columnSeparatorStr = "\t";
+                }
                 columnSeparator = new ColumnSeparator(columnSeparatorStr);
                 try {
                     columnSeparator.analyze();
