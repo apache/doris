@@ -127,7 +127,8 @@ public class StatisticProcDir implements ProcDirInterface {
                                         partition.getVisibleVersion(), partition.getVisibleVersionHash(),
                                         replicationNum);
 
-                                if (res.first != TabletStatus.HEALTHY) {
+                                // here we treat REDUNDANT as HEALTHY, for user friendly.
+                                if (res.first != TabletStatus.HEALTHY && res.first != TabletStatus.REDUNDANT) {
                                     unhealthyTabletIds.put(dbId, tablet.getId());
                                 }
 
