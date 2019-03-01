@@ -3008,12 +3008,12 @@ public class Load {
         }
     }
 
-    private void checkAndAddRunningSyncDeleteJob(long partitionId, String partitionName) throws DdlException {
+    private boolean checkAndAddRunningSyncDeleteJob(long partitionId, String partitionName) throws DdlException {
         // check if there are synchronized delete job under going
         writeLock();
         try {
             checkHasRunningSyncDeleteJob(partitionId, partitionName);
-            partitionUnderDelete.add(partitionId);
+            return partitionUnderDelete.add(partitionId);
         } finally {
             writeUnlock();
         }
@@ -3073,6 +3073,7 @@ public class Load {
         long tableId = -1;
         long partitionId = -1;
         LoadJob loadDeleteJob = null;
+        boolean addRunningPartition = false;
         db.readLock();
         try {
             Table table = db.getTable(tableName);
@@ -3110,7 +3111,7 @@ public class Load {
             // pre check
             checkDeleteV2(olapTable, partition, conditions,
                           deleteConditions, true);
-            checkAndAddRunningSyncDeleteJob(partitionId, partitionName);
+            addRunningPartition = checkAndAddRunningSyncDeleteJob(partitionId, partitionName);
             // do not use transaction id generator, or the id maybe duplicated
             long jobId = Catalog.getInstance().getNextId();
             String jobLabel = "delete_" + UUID.randomUUID();
@@ -3137,11 +3138,20 @@ public class Load {
             // the delete job will be persist in editLog
             addLoadJob(loadDeleteJob, db);
         } catch (Throwable t) {
-            LOG.debug("error occurred during prepare delete", t);
+            LOG.warn("error occurred during prepare delete", t);
             throw new DdlException(t.getMessage(), t);
         } finally {
+            if (addRunningPartition) {
+                writeLock();
+                try {
+                    partitionUnderDelete.remove(partitionId);
+                } finally {
+                    writeUnlock();
+                }
+            }
             db.readUnlock();
         }
+
         try {
             // TODO  wait loadDeleteJob to finished, using while true? or condition wait
             long startDeleteTime = System.currentTimeMillis();
