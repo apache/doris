@@ -322,7 +322,7 @@ visible_functions = [
             '_ZN5doris16DecimalOperators27mod_decimal_val_decimal_valEPN9doris_udf'
             '15FunctionContextERKNS1_10DecimalValES6_'],
     [['mod'], 'DECIMAL_V2', ['DECIMAL_V2', 'DECIMAL_V2'], 
-            '_ZN5doris16Decimal_V2Operators27mod_decimal_v2_val_decimal_v2_valEPN9doris_udf'
+            '_ZN5doris19Decimal_V2Operators33mod_decimal_v2_val_decimal_v2_valEPN9doris_udf'
             '15FunctionContextERKNS1_13Decimal_V2ValES6_'],
     [['mod', 'fmod'], 'FLOAT', ['FLOAT', 'FLOAT'], 
         '_ZN5doris13MathFunctions10fmod_floatEPN9doris_udf15FunctionContextERKNS1_8FloatValES6_'],
@@ -340,7 +340,7 @@ visible_functions = [
             '15FunctionContextERKNS1_10DecimalValE'],
     [['positive'], 'DECIMAL_V2', ['DECIMAL_V2'],
             '_ZN5doris13MathFunctions16positive_decimalEPN9doris_udf'
-            '15FunctionContextERKNS1_10Decimal_V2ValE'],
+            '15FunctionContextERKNS1_13Decimal_V2ValE'],
     [['negative'], 'BIGINT', ['BIGINT'],
             '_ZN5doris13MathFunctions15negative_bigintEPN9doris_udf'
             '15FunctionContextERKNS1_9BigIntValE'],
