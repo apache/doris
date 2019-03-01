@@ -182,7 +182,8 @@ Status ExportSink::gen_row_buffer(TupleRow* row, std::stringstream* ss) {
                     break;
                 }
                 case TYPE_DECIMAL_V2: {
-                    Decimal_V2Value decimal_val(reinterpret_cast<const PackedInt128*>(item)->value);
+                    Decimal_V2Value decimal_val;
+                    memcpy(&decimal_val, item, sizeof(Decimal_V2Value)); 
                     std::string decimal_str;
                     int output_scale = _output_expr_ctxs[i]->root()->output_scale();
 
