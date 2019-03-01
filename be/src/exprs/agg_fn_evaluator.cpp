@@ -346,8 +346,7 @@ inline void AggFnEvaluator::set_any_val(
         return;
 
     case TYPE_DECIMAL_V2:
-        reinterpret_cast<Decimal_V2Val*>(dst)->val = 
-            reinterpret_cast<const PackedInt128*>(slot)->value;
+        memcpy(&reinterpret_cast<Decimal_V2Val*>(dst)->val, slot, 16);
         return;
 
     case TYPE_LARGEINT:
@@ -420,8 +419,7 @@ inline void AggFnEvaluator::set_output_slot(const AnyVal* src,
         return;
 
     case TYPE_DECIMAL_V2:
-        *reinterpret_cast<Decimal_V2Value*>(slot) = Decimal_V2Value::from_decimal_val(
-                    *reinterpret_cast<const Decimal_V2Val*>(src));
+        memcpy(slot, &reinterpret_cast<const Decimal_V2Val*>(src)->val, sizeof(__int128));
         return;
 
     case TYPE_LARGEINT: {
@@ -676,8 +674,7 @@ bool AggFnEvaluator::sum_distinct_data_filter(TupleRow* row, Tuple* dst) {
 
     case TYPE_DECIMAL_V2: {
         const Decimal_V2Val* value = reinterpret_cast<Decimal_V2Val*>(_staging_input_vals[0]);
-        Decimal_V2Value temp_value = Decimal_V2Value::from_decimal_val(*value);
-        is_filter = is_in_hybirdmap((void*) & (temp_value), dst, &is_add_buckets);
+        is_filter = is_in_hybirdmap((void*) & (value->val), dst, &is_add_buckets);
         update_mem_trackers(is_filter, is_add_buckets, DECIMAL_V2_SIZE);
         return is_filter;
     }

@@ -693,18 +693,12 @@ struct Decimal_V2Val : public AnyVal {
 
     __int128 val;
 
-
     // Default value is zero
-    Decimal_V2Val() : val(0) {
-        is_null = false;
-        // Do nothing here
-    }
+    Decimal_V2Val() : val(0) {}
 
     const __int128& value() const { return val; }
 
-    Decimal_V2Val(__int128 value) {
-        val = value;
-    }
+    Decimal_V2Val(__int128 value) : val(value) {}
 
     static Decimal_V2Val null() {
         Decimal_V2Val result;
