@@ -22,6 +22,7 @@
 #include <assert.h>
 
 #include "runtime/decimal_value.h"
+#include "runtime/decimal_v2_value.h"
 
 // Be careful what this includes since this needs to be linked into the UDF's
 // binary. For example, it would be unfortunate if they had a random dependency
@@ -419,6 +420,21 @@ bool DecimalVal::operator==(const DecimalVal& other) const {
     // TODO(lingbin): implement DecimalVal's own cmp method 
     doris::DecimalValue value1 = doris::DecimalValue::from_decimal_val(*this);
     doris::DecimalValue value2 = doris::DecimalValue::from_decimal_val(other);
+    return value1 == value2;
+}
+
+bool Decimal_V2Val::operator==(const Decimal_V2Val& other) const {
+    if (is_null && other.is_null) {
+        return true;
+    }
+
+    if (is_null || other.is_null) {
+        return false;
+    }
+
+    // TODO(lingbin): implement DecimalVal's own cmp method 
+    doris::Decimal_V2Value value1 = doris::Decimal_V2Value::from_decimal_val(*this);
+    doris::Decimal_V2Value value2 = doris::Decimal_V2Value::from_decimal_val(other);
     return value1 == value2;
 }
 

@@ -253,8 +253,8 @@ typedef boost::variant <
         ColumnValueRange<__int128>,
         ColumnValueRange<StringValue>,
         ColumnValueRange<DateTimeValue>,
-        ColumnValueRange<Decimal_V2Value>,
-        ColumnValueRange<DecimalValue> > ColumnValueRangeType;
+        ColumnValueRange<DecimalValue>,
+        ColumnValueRange<Decimal_V2Value> > ColumnValueRangeType;
 
 class DorisScanRange {
 public:
