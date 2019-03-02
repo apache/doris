@@ -582,9 +582,9 @@ public class ScalarType extends Type {
             case BIGINT:
                 return createDecimalType(19);
             case FLOAT:
-                return createDecimalTypeInternal(MAX_PRECISION, 9);
+                return createDecimal_V2TypeInternal(MAX_PRECISION, 9);
             case DOUBLE:
-                return createDecimalTypeInternal(MAX_PRECISION, 17);
+                return createDecimal_V2TypeInternal(MAX_PRECISION, 17);
             default:
                 return ScalarType.INVALID;
         }

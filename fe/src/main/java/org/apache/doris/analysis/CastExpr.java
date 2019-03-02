@@ -113,8 +113,8 @@ public class CastExpr extends Expr {
                 if (fromType.equals(toType)) {
                     continue;
                 }
-                String beClass = toType.isDecimal() || fromType.isDecimal() ? "DecimalOperators" : "CastFunctions";
-                if (toType.isDecimal_V2() || fromType.isDecimal_V2()) beClass = "Decimal_V2Operators";
+                String beClass = toType.isDecimal_V2() || fromType.isDecimal_V2() ? "Decimal_V2Operators" : "CastFunctions";
+                if (toType.isDecimal() || fromType.isDecimal()) beClass = "DecimalOperators";
                 String typeName = Function.getUdfTypeName(toType.getPrimitiveType());
                 if (toType.getPrimitiveType() == PrimitiveType.DATE) {
                     typeName = "date_val";

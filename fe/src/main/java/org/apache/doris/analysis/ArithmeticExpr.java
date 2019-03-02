@@ -199,10 +199,10 @@ public class ArithmeticExpr extends Expr {
 
         if (pt1 == PrimitiveType.DOUBLE || pt2 == PrimitiveType.DOUBLE) {
             return Type.DOUBLE;
-        } else if (pt1 == PrimitiveType.DECIMAL || pt2 == PrimitiveType.DECIMAL) {
-            return Type.DECIMAL;
         } else if (pt1 == PrimitiveType.DECIMAL_V2 || pt2 == PrimitiveType.DECIMAL_V2) {
             return Type.DECIMAL_V2;
+        } else if (pt1 == PrimitiveType.DECIMAL || pt2 == PrimitiveType.DECIMAL) {
+            return Type.DECIMAL;
         } else if (pt1 == PrimitiveType.LARGEINT || pt2 == PrimitiveType.LARGEINT) {
             return Type.LARGEINT;
         } else {
