@@ -529,7 +529,7 @@ Decimal_V2Val SlotRef::get_decimal_v2_val(ExprContext* context, TupleRow* row) {
     }
 
     Decimal_V2Val dec_val;
-    memcpy(&dec_val.val, t->get_slot(_slot_offset), 16);
+    reinterpret_cast<Decimal_V2Value*>(t->get_slot(_slot_offset))->to_decimal_val(&dec_val);
     return dec_val;
 }
 

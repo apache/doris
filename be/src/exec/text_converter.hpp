@@ -164,12 +164,12 @@ inline bool TextConverter::write_slot(const SlotDescriptor* slot_desc,
     }
 
     case TYPE_DECIMAL_V2: {
-        Decimal_V2Value decimal_val;
-        if (decimal_val.parse_from_str(data, len)) {
+        Decimal_V2Value* decimal_slot = reinterpret_cast<Decimal_V2Value*>(slot);
+
+        if (decimal_slot->parse_from_str(data, len)) {
             parse_result = StringParser::PARSE_FAILURE;
         }
 
-        memcpy(slot, &decimal_val, sizeof(Decimal_V2Value));
         break;
     }
 

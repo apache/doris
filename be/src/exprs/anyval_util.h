@@ -383,7 +383,8 @@ public:
             reinterpret_cast<doris_udf::DecimalVal*>(dst));
             return; 
         case TYPE_DECIMAL_V2:
-            memcpy(&reinterpret_cast<doris_udf::Decimal_V2Val*>(dst)->val, slot, sizeof(Decimal_V2Val));
+            reinterpret_cast<const Decimal_V2Value*>(slot)->to_decimal_val(
+            reinterpret_cast<doris_udf::Decimal_V2Val*>(dst));
             return; 
         case TYPE_DATE:
             reinterpret_cast<const DateTimeValue*>(slot)->to_datetime_val(

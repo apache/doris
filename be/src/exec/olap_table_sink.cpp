@@ -733,13 +733,12 @@ int OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitmap* 
                 break;
             }
             case TYPE_DECIMAL_V2: {
-                Decimal_V2Value dec_val;
-                memcpy(&dec_val, slot, sizeof(Decimal_V2Value));
-                if (dec_val.scale() > desc->type().scale) {
-                    int code = dec_val.round(&dec_val, desc->type().scale, HALF_UP);
+                Decimal_V2Value* dec_val = (Decimal_V2Value*)slot;
+                if (dec_val->scale() > desc->type().scale) {
+                    int code = dec_val->round(dec_val, desc->type().scale, HALF_UP);
                     if (code != E_DEC_OK) {
                         std::stringstream ss;
-                        ss << "round one decimal failed.value=" << dec_val.to_string();
+                        ss << "round one decimal failed.value=" << dec_val->to_string();
 #if BE_TEST
                         LOG(INFO) << ss.str();
 #else
@@ -752,10 +751,10 @@ int OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitmap* 
                         continue;
                     }
                 }
-                if (dec_val > _max_decimal_v2_val[i] || dec_val < _min_decimal_v2_val[i]) {
+                if (*dec_val > _max_decimal_v2_val[i] || *dec_val < _min_decimal_v2_val[i]) {
                     std::stringstream ss;
                     ss << "decimal value is not valid for defination, column=" << desc->col_name()
-                        << ", value=" << dec_val.to_string()
+                        << ", value=" << dec_val->to_string()
                         << ", precision=" << desc->type().precision
                         << ", scale=" << desc->type().scale;
 #if BE_TEST
