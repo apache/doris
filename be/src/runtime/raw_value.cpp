@@ -353,7 +353,7 @@ void RawValue::write(const void* value, const TypeDescriptor& type, void* dst, u
             break;
 
         case TYPE_DECIMAL_V2:
-            memcpy(dst, value, sizeof(Decimal_V2Value));
+            *reinterpret_cast<PackedInt128*>(dst) = *reinterpret_cast<const PackedInt128*>(value);
             break;
 
         default:

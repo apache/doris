@@ -674,7 +674,8 @@ bool AggFnEvaluator::sum_distinct_data_filter(TupleRow* row, Tuple* dst) {
 
     case TYPE_DECIMAL_V2: {
         const Decimal_V2Val* value = reinterpret_cast<Decimal_V2Val*>(_staging_input_vals[0]);
-        is_filter = is_in_hybirdmap((void*) & (value->val), dst, &is_add_buckets);
+        Decimal_V2Value temp_value = Decimal_V2Value::from_decimal_val(*value);
+        is_filter = is_in_hybirdmap((void*) & (temp_value), dst, &is_add_buckets);
         update_mem_trackers(is_filter, is_add_buckets, DECIMAL_V2_SIZE);
         return is_filter;
     }
