@@ -423,21 +423,6 @@ bool DecimalVal::operator==(const DecimalVal& other) const {
     return value1 == value2;
 }
 
-bool Decimal_V2Val::operator==(const Decimal_V2Val& other) const {
-    if (is_null && other.is_null) {
-        return true;
-    }
-
-    if (is_null || other.is_null) {
-        return false;
-    }
-
-    // TODO(lingbin): implement DecimalVal's own cmp method 
-    doris::Decimal_V2Value value1 = doris::Decimal_V2Value::from_decimal_val(*this);
-    doris::Decimal_V2Value value2 = doris::Decimal_V2Value::from_decimal_val(other);
-    return value1 == value2;
-}
-
 const FunctionContext::TypeDesc* FunctionContext::get_arg_type(int arg_idx) const {
     if (arg_idx < 0 || arg_idx >= _impl->_arg_types.size()) {
         return NULL;
