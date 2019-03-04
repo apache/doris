@@ -230,9 +230,19 @@ void BackendService::get_tablet_stat(TTabletStatResult& result) {
 }
 
 void BackendService::submit_routine_load_task(
-        TStatus& t_status, const TRoutineLoadTask& task) {
-    Status status = _exec_env->routine_load_task_executor()->submit_task(task);
-    status.to_thrift(&t_status);
+        TStatus& t_status, const std::vector<TRoutineLoadTask>& tasks) {
+    
+    for (auto& task : tasks) {
+        Status st = _exec_env->routine_load_task_executor()->submit_task(task);
+        if (!st.ok()) {
+            LOG(WARNING) << "failed to submit routine load task. job id: " <<  task.job_id
+                    << " task id: " << task.id;
+        }
+    }
+
+    // we do not care about each task's submit result. just return OK.
+    // FE will handle the failure.
+    return Status::OK.to_thrift(&t_status);
 }
 
 } // namespace doris
