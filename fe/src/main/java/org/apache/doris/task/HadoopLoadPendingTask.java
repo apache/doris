@@ -533,7 +533,7 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
                     columnType = "DECIMAL";
                     break;
                 case DECIMAL_V2:
-                    columnType = "DECIMAL_V2";
+                    columnType = "DECIMAL";
                     break;
                 default:
                     columnType = type.toString();
