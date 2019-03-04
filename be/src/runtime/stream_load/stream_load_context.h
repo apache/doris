@@ -44,21 +44,12 @@ public:
         topic(t_info.topic),
         begin_offset(t_info.partition_begin_offset) {
 
-        if (t_info.__isset.max_interval_s) {
-            max_interval_s = t_info.max_interval_s;
-        }
-
-        if (t_info.__isset.max_batch_rows) {
-            max_batch_rows = t_info.max_batch_rows;
-        }
-
-        if (t_info.__isset.max_batch_size) {
-            max_batch_size = t_info.max_batch_size;
-        }
+        if (t_info.__isset.max_interval_s) { max_interval_s = t_info.max_interval_s; }
+        if (t_info.__isset.max_batch_rows) { max_batch_rows = t_info.max_batch_rows; }
+        if (t_info.__isset.max_batch_size) { max_batch_size = t_info.max_batch_size; }
 
         std::stringstream ss;
         ss << BackendOptions::get_localhost() << "_";
-
         client_id = ss.str() + UniqueId().to_string();
         group_id = ss.str() + UniqueId().to_string();
     }
