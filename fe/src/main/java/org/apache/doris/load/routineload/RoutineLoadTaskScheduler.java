@@ -17,8 +17,6 @@
 
 package org.apache.doris.load.routineload;
 
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.LoadException;
@@ -29,6 +27,10 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TRoutineLoadTask;
+
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -130,9 +132,8 @@ public class RoutineLoadTaskScheduler extends Daemon {
             boolean ok = false;
             try {
                 client = ClientPool.backendPool.borrowObject(address);
-                for (TRoutineLoadTask tRoutineLoadTask : entry.getValue()) {
-                    client.submit_routine_load_task(tRoutineLoadTask);
-                }
+                client.submit_routine_load_task(entry.getValue());
+
                 ok = true;
             } catch (Exception e) {
                 LOG.warn("task exec error. backend[{}]", backend.getId(), e);
