@@ -215,6 +215,8 @@ public:
     void set_io_error();
     void delete_all_files();
 
+    bool check_path(const std::string& check_path);
+
 private:
     TabletState _state;
     TabletMeta* _tablet_meta;

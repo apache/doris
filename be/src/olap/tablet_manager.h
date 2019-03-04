@@ -104,6 +104,8 @@ public:
     // Get tablet pointer
     TabletSharedPtr get_tablet(TTabletId tablet_id, SchemaHash schema_hash, bool load_tablet = true);
 
+    bool get_tablet_id_and_schema_hash_from_path(std::string path, TTabletId* tablet_id, TSchemaHash* schema_hash);
+
     void get_tablet_stat(TTabletStatResult& result);
 
     // parse tablet header msg to generate tablet object

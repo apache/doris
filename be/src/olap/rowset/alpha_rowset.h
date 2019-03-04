@@ -110,6 +110,8 @@ public:
             const RowCursor& end_key,
             uint64_t request_block_row_count,
             vector<OlapTuple>* ranges);
+    
+    bool check_path(const std::string& path) override;
 
 private:
     OLAPStatus _init_segment_groups(bool validate);

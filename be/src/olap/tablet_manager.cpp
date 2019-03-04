@@ -25,6 +25,8 @@
 #include <queue>
 #include <set>
 #include <random>
+#include <regex>
+#include <stdlib.h>
 
 #include <boost/algorithm/string/classification.hpp>
 #include <boost/algorithm/string.hpp>
@@ -380,6 +382,8 @@ OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request,
         }
         // }
     } while (0);
+    // should remove the pending path of tablet id no matter create tablet success or not
+    StorageEngine::instance()->remove_pending_paths(request.tablet_id);
 
     // 7. clear environment
     if (res != OLAP_SUCCESS) {
@@ -410,24 +414,53 @@ TabletSharedPtr TabletManager::create_tablet(
         OLAPStatus res = _create_tablet_meta(request, store, is_schema_change_tablet, ref_tablet, &tablet_meta);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to create tablet meta. res=" << res << ", root=" << store->path();
-            break;
+            continue;
+        }
+
+        stringstream schema_hash_dir_stream;
+        schema_hash_dir_stream << store->path()
+                << DATA_PREFIX
+                << "/" << tablet_meta->shard_id()
+                << "/" << request.tablet_id
+                << "/" << request.tablet_schema.schema_hash;
+        string schema_hash_dir = schema_hash_dir_stream.str();
+        boost::filesystem::path schema_hash_path(schema_hash_dir);
+        boost::filesystem::path tablet_path = schema_hash_path.parent_path();
+        std::string tablet_dir = tablet_path.string();
+        if (!check_dir_existed(schema_hash_dir)) {
+            std::set<std::string> pending_paths;
+            pending_paths.insert(std::move(schema_hash_dir));
+            pending_paths.insert(std::move(tablet_dir));
+            StorageEngine::instance()->add_pending_paths(request.tablet_id, pending_paths);
+            res = create_dirs(schema_hash_dir);
+            if (res != OLAP_SUCCESS) {
+                LOG(WARNING) << "create dir fail. [res=" << res << " path:" << schema_hash_dir;
+                continue;
+            }
         }
 
         tablet = Tablet::create_tablet_from_meta(tablet_meta, store);
         if (tablet == nullptr) {
             LOG(WARNING) << "fail to load tablet from tablet_meta. root_path:" << store->path();
-            break;
+            res = remove_all_dir(tablet_dir);
+            if (res != OLAP_SUCCESS) {
+                LOG(WARNING) << "remove tablet dir:" << tablet_dir;
+            }
+            continue;
         }
 
         // save tablet_meta finally
         res = TabletMetaManager::save(store, request.tablet_id, request.tablet_schema.schema_hash, tablet_meta);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to save tablet meta. res=" << res << ", root=" << store->path();
-            break;
+            res = remove_all_dir(tablet_dir);
+            if (res != OLAP_SUCCESS) {
+                LOG(WARNING) << "remove tablet dir:" << tablet_dir;
+            }
+            continue;
         }
         break;
     }
-
     return tablet;
 } // create_tablet
 
@@ -583,6 +616,35 @@ TabletSharedPtr TabletManager::get_tablet(TTabletId tablet_id, SchemaHash schema
 
     return tablet;
 } // get_tablet
+
+
+bool TabletManager::get_tablet_id_and_schema_hash_from_path(std::string path,
+        TTabletId* tablet_id, TSchemaHash* schema_hash) {
+    std::vector<DataDir*> data_dirs = StorageEngine::instance()->get_stores<true>();
+    for (auto data_dir : data_dirs) {
+        const std::string& data_dir_path = data_dir->path();
+        if (path.find(data_dir_path) != std::string::npos) {
+            std::string pattern = data_dir_path + "/data/\\d+/(\\d+)/(\\d+)?";
+            std::regex rgx (pattern.c_str());
+            std::smatch sm;
+            bool ret = std::regex_search(path, sm, rgx);
+            if (ret) {
+                if (sm.size() == 3) {
+                    *tablet_id = std::strtoll(sm.str(1).c_str(), nullptr, 10);
+                    *schema_hash = std::strtoll(sm.str(2).c_str(), nullptr, 10);
+                    return true;
+                } else if (sm.size() == 2) {
+                    *tablet_id = std::strtoll(sm.str(1).c_str(), nullptr, 10);
+                    return true;
+                } else {
+                    LOG(WARNING) << "invalid match. match size:" << sm.size();
+                    return false;
+                }  
+            }
+        }
+    }
+    return false;
+}
 
 void TabletManager::get_tablet_stat(TTabletStatResult& result) {
     VLOG(3) << "begin to get all tablet stat.";
@@ -960,22 +1022,6 @@ OLAPStatus TabletManager::_create_tablet_meta(
         LOG(WARNING) << "fail to get root path shard. res=" << res;
         return res;
     }
-    stringstream schema_hash_dir_stream;
-    schema_hash_dir_stream << store->path()
-                      << DATA_PREFIX
-                      << "/" << shard_id
-                      << "/" << request.tablet_id
-                      << "/" << request.tablet_schema.schema_hash;
-    string schema_hash_dir = schema_hash_dir_stream.str();
-    if (check_dir_existed(schema_hash_dir)) {
-        LOG(WARNING) << "failed to create the dir that existed. path=" << schema_hash_dir;
-        return OLAP_ERR_CANNOT_CREATE_DIR;
-    }
-    res = create_dirs(schema_hash_dir);
-    if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "create dir fail. [res=" << res << " path:" << schema_hash_dir;
-        return res;
-    }
 
     uint32_t next_unique_id = 0;
     uint32_t col_ordinal = 0;
@@ -1020,7 +1066,6 @@ OLAPStatus TabletManager::_create_tablet_meta(
                        shard_id, request.tablet_schema,
                        next_unique_id, col_ordinal_to_unique_id,
                        tablet_meta);
-
     return OLAP_SUCCESS;
 }
 

@@ -90,6 +90,8 @@ public:
     virtual int64_t txn_id() const = 0;
     
     virtual bool delete_flag() = 0;
+
+    virtual bool check_path(const std::string& path) = 0;
 };
 
 } // namespace doris

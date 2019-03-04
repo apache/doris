@@ -357,7 +357,11 @@ OLAPStatus BaseCompaction::_do_base_compaction(VersionHash new_base_version_hash
 
     Merger merger(_tablet, rs_writer, READER_BASE_COMPACTION);
     res = merger.merge(rs_readers, &merged_rows, &filted_rows);
-
+    if (res == OLAP_SUCCESS) {
+        *row_count = merger.row_count();
+    }
+    RowsetSharedPtr new_base = rs_writer->build();
+    StorageEngine::instance()->remove_pending_paths(rs_writer->rowset_id());
     // 3. 如果merge失败，执行清理工作，返回错误码退出
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to make new base version. res=" << res

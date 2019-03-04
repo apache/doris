@@ -345,7 +345,20 @@ OLAPStatus AlphaRowset::split_range(
     return OLAP_SUCCESS;
 }
 
-OLAPStatus AlphaRowset::_init_non_pending_segment_groups(bool validate) {
+bool AlphaRowset::check_path(const std::string& path) {
+    std::set<std::string> valid_paths;
+    for (auto segment_group : _segment_groups) {
+        for (int i = 0; i < segment_group->num_segments(); ++i) {
+            std::string data_path = segment_group->construct_data_file_path(i);
+            std::string index_path = segment_group->construct_index_file_path(i);
+            valid_paths.insert(data_path);
+            valid_paths.insert(index_path);
+        }
+    }
+    return valid_paths.find(path) != valid_paths.end();
+}
+
+OLAPStatus AlphaRowset::_init_non_pending_segment_groups() {
     std::vector<SegmentGroupPB> segment_group_metas;
     AlphaRowsetMetaSharedPtr _alpha_rowset_meta = std::dynamic_pointer_cast<AlphaRowsetMeta>(_rowset_meta);
     _alpha_rowset_meta->get_segment_groups(&segment_group_metas);

@@ -194,9 +194,17 @@ public:
 
     OLAPStatus execute_task(EngineTask* task);
 
-    bool add_paths(std::vector<std::string> paths);
+    void add_check_paths(std::set<std::string> paths);
 
-    bool remove_paths(std::vector<std::string> paths);
+    void remove_check_paths(std::set<std::string> paths);
+
+    void add_pending_paths(int64_t id, std::set<std::string> paths);
+
+    void remove_pending_paths(int64_t id);
+
+    bool check_path_in_pending_paths(std::string path);
+
+    void process_garbage_path(std::string path);
 
 private:
     OLAPStatus check_all_root_path_cluster_id();
@@ -241,9 +249,6 @@ private:
     // cumulative process function
     void* _cumulative_compaction_thread_callback(void* arg);
 
-    // cumulative process function
-    void* _global_gc_thread_callback(void* arg);
-
     // clean file descriptors cache
     void* _fd_cache_clean_callback(void* arg);
 
@@ -252,8 +257,15 @@ private:
     OLAPStatus _clean_unfinished_converting_data(DataDir* data_dir);
 
     OLAPStatus _remove_old_meta_and_files(DataDir* data_dir);
-    
-    void _perform_global_gc(DataDir* data_dir);
+
+    // path gc process function
+    void* _path_gc_thread_callback(void* arg);
+
+    void* _path_scan_thread_callback(void* arg);
+
+    void _perform_path_gc(void* arg);
+
+    void _perform_path_scan(DataDir* data_dir);
 
 private:
 
@@ -325,10 +337,12 @@ private:
     // thread to check cumulative
     std::vector<std::thread> _cumulative_compaction_threads;
 
-    // thread to global gc
-    std::vector<std::thread> _global_gc_threads;
-
     std::thread _fd_cache_clean_thread;
+
+    std::thread _path_gc_thread;
+
+    // thread to scan disk paths
+    std::vector<std::thread> _path_scan_threads;
 
     static atomic_t _s_request_number;
 
@@ -340,11 +354,11 @@ private:
 
     Mutex _engine_task_mutex;
 
-    std::set<std::string> _all_scanned_paths;
-    Mutex _scanned_path_mutex;
+    std::set<std::string> _all_check_paths;
+    RWMutex _check_path_mutex;
 
-    std::set<std::string> _all_valid_paths;
-    Mutex _valid_path_mutex;
+    std::map<int64_t, std::set<std::string>> _pending_paths;
+    RWMutex _pending_path_mutex;
 };
 
 }  // namespace doris

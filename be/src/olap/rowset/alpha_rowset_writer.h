@@ -3,7 +3,7 @@
 // distributed with this work for additional information
 // regarding copyright ownership.  The ASF licenses this file
 // to you under the Apache License, Version 2.0 (the
-// "License"); you may not use this file except in compliance
+// "License") override; you may not use this file except in compliance
 // with the License.  You may obtain a copy of the License at
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
@@ -30,31 +30,35 @@ class AlphaRowsetWriter : public RowsetWriter {
 public:
     AlphaRowsetWriter();
 
-    virtual OLAPStatus init(const RowsetWriterContext& rowset_writer_context);
+    OLAPStatus init(const RowsetWriterContext& rowset_writer_context) override;
 
     // add a row block to rowset
-    virtual OLAPStatus add_row(RowCursor* row);
+    OLAPStatus add_row(RowCursor* row) override;
 
-    virtual OLAPStatus add_row(const char* row, Schema* schema);
+    OLAPStatus add_row(const char* row, Schema* schema) override;
 
-    virtual OLAPStatus add_row_block(RowBlock* row_block);
+     OLAPStatus add_row_block(RowBlock* row_block) override;
 
     // add rowset by create hard link
-    virtual OLAPStatus add_rowset(RowsetSharedPtr rowset);
+     OLAPStatus add_rowset(RowsetSharedPtr rowset) override;
 
-    virtual OLAPStatus flush();
+     OLAPStatus flush() override;
 
     // get a rowset
-    virtual RowsetSharedPtr build();
+     RowsetSharedPtr build() override;
 
     // release a rowset
-    virtual OLAPStatus release();
+     OLAPStatus release() override;
 
-    virtual MemPool* mem_pool();
+     MemPool* mem_pool() override;
 
-    virtual Version version();
+     Version version() override;
 
-    virtual int32_t num_rows();
+     int32_t num_rows() override;
+
+    RowsetId rowset_id() override {
+        return _rowset_writer_context.rowset_id;
+    }
 
 private:
     void _init();

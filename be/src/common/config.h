@@ -378,8 +378,11 @@ namespace config {
     // can perform recovering tablet
     CONF_Bool(force_recovery, "false");
 
-    // global gc
-    CONF_Int32(global_gc_check_interval_seconds, "10");
+    // path gc
+    CONF_Int32(path_gc_check_interval_second, "1800");
+    CONF_Int32(path_gc_check_step, "1000");
+    CONF_Int32(path_gc_check_step_interval_ms, "10");
+    CONF_Int32(path_scan_interval_second, "1800");
 } // namespace config
 
 } // namespace doris

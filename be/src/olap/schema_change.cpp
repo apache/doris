@@ -1069,6 +1069,7 @@ bool SchemaChangeWithSorting::_internal_sorting(const vector<RowBlock*>& row_blo
     }
     add_merged_rows(merged_rows);
     *rowset = rowset_writer->build();
+    StorageEngine::instance()->remove_pending_paths(rowset_writer->rowset_id());
     return true;
 }
 
@@ -1552,6 +1553,7 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
         goto SCHEMA_VERSION_CONVERT_ERR;
     }
     *new_rowset = rowset_writer->build();
+    StorageEngine::instance()->remove_pending_paths(rowset_writer->rowset_id());
     if (*new_rowset == nullptr) {
         LOG(WARNING) << "build rowset failed.";
         res = OLAP_ERR_MALLOC_ERROR;
@@ -1759,6 +1761,7 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
         if (!sc_params.new_tablet->check_version_exist(rs_reader->version())) {
             // register version
             RowsetSharedPtr new_rowset = rowset_writer->build();
+            StorageEngine::instance()->remove_pending_paths(rowset_writer->rowset_id());
             res = sc_params.new_tablet->add_rowset_unlock(new_rowset);
             if (OLAP_SUCCESS != res) {
                 LOG(WARNING) << "failed to register new version. "

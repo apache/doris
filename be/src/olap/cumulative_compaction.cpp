@@ -384,6 +384,7 @@ OLAPStatus CumulativeCompaction::_do_cumulative_compaction() {
     }
 
     _rowset = _rs_writer->build();
+    StorageEngine::instance()->remove_pending_paths(_rs_writer->rowset_id());
     if (_rowset == nullptr) {
         LOG(WARNING) << "rowset writer build failed. writer version:"
                      << _rs_writer->version().first << "-" << _rs_writer->version().second;
