@@ -21,6 +21,7 @@
 #include "gen_cpp/olap_file.pb.h"
 
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "olap/new_status.h"
@@ -310,7 +311,7 @@ private:
 
 private:
     RowsetMetaPB _rowset_meta_pb;
-    string _rowset_path;    // in memory, not serialized to protocol buffer
+    std::string _rowset_path;    // in memory, not serialized to protocol buffer
 };
 
 } // namespace doris

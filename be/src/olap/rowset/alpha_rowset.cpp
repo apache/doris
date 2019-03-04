@@ -173,7 +173,7 @@ int64_t AlphaRowset::ref_count() const {
 }
 
 OLAPStatus AlphaRowset::make_snapshot(const std::string& snapshot_path,
-                                    std::vector<std::string>* success_files) {
+                                      std::vector<std::string>* success_files) {
     for (auto& segment_group : _segment_groups) {
         OLAPStatus status = segment_group->make_snapshot(snapshot_path, success_files);
         if (status != OLAP_SUCCESS) {
