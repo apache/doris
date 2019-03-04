@@ -29,35 +29,12 @@ import java.io.IOException;
 // "numOfTotalData": "", "taskId": "", "jobId": ""}
 public class RLTaskTxnCommitAttachment extends TxnCommitAttachment {
 
-    public enum LoadSourceType {
-        KAFKA(1);
-
-        private final int flag;
-
-        private LoadSourceType(int flag) {
-            this.flag = flag;
-        }
-
-        public int value() {
-            return flag;
-        }
-
-        public static LoadSourceType valueOf(int flag) {
-            switch (flag) {
-                case 1:
-                    return KAFKA;
-                default:
-                    return null;
-            }
-        }
-    }
-
     private long jobId;
     private TUniqueId taskId;
     private long filteredRows;
     private long loadedRows;
     private RoutineLoadProgress progress;
-    private LoadSourceType loadSourceType;
+    private LoadDataSourceType loadDataSourceType;
 
     public RLTaskTxnCommitAttachment() {
     }
@@ -70,7 +47,7 @@ public class RLTaskTxnCommitAttachment extends TxnCommitAttachment {
 
         switch (rlTaskTxnCommitAttachment.getLoadSourceType()) {
             case KAFKA:
-                this.loadSourceType = LoadSourceType.KAFKA;
+                this.loadDataSourceType = LoadDataSourceType.KAFKA;
                 this.progress = new KafkaProgress(rlTaskTxnCommitAttachment.getKafkaRLTaskProgress());
             default:
                 break;

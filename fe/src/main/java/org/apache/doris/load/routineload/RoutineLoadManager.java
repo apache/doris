@@ -43,6 +43,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Queue;
+import java.util.UUID;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
@@ -55,7 +56,7 @@ public class RoutineLoadManager {
     private Map<Long, Integer> beIdToConcurrentTasks;
 
     // stream load job meta
-    private Map<String, RoutineLoadJob> idToRoutineLoadJob;
+    private Map<Long, RoutineLoadJob> idToRoutineLoadJob;
     private Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob;
 
     private Queue<RoutineLoadTaskInfo> needScheduleTasksQueue;
@@ -328,7 +329,7 @@ public class RoutineLoadManager {
         }
     }
 
-    public RoutineLoadJob getJob(String jobId) {
+    public RoutineLoadJob getJob(long jobId) {
         return idToRoutineLoadJob.get(jobId);
     }
 

@@ -17,17 +17,23 @@
 
 package org.apache.doris.load.routineload;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Daemon;
-import org.apache.doris.task.AgentBatchTask;
-import org.apache.doris.task.AgentTaskExecutor;
-import org.apache.doris.task.AgentTaskQueue;
-import org.apache.doris.task.RoutineLoadTask;
+import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.BackendService;
+import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TRoutineLoadTask;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.LinkedBlockingQueue;
 
 /**
@@ -62,13 +68,13 @@ public class RoutineLoadTaskScheduler extends Daemon {
         }
     }
 
-    private void process() throws LoadException {
+    private void process() throws LoadException, UserException {
         // update current beIdMaps for tasks
         routineLoadManager.updateBeIdTaskMaps();
 
         LOG.info("There are {} need schedule task in queue when {}",
                  needScheduleTasksQueue.size(), System.currentTimeMillis());
-        AgentBatchTask batchTask = new AgentBatchTask();
+        Map<Long, List<TRoutineLoadTask>> beIdTobatchTask = Maps.newHashMap();
         int sizeOfTasksQueue = needScheduleTasksQueue.size();
         int clusterIdleSlotNum = routineLoadManager.getClusterIdleSlotNum();
         int needScheduleTaskNum = sizeOfTasksQueue < clusterIdleSlotNum ? sizeOfTasksQueue : clusterIdleSlotNum;
@@ -88,27 +94,56 @@ public class RoutineLoadTaskScheduler extends Daemon {
             long beId = routineLoadManager.getMinTaskBeId();
             RoutineLoadJob routineLoadJob = null;
             try {
-                routineLoadJob = routineLoadManager.getJobByTaskId(routineLoadTaskInfo.getId());
+                routineLoadJob = routineLoadManager.getJobByTaskId(routineLoadTaskInfo.getId().toString());
             } catch (MetaNotFoundException e) {
                 LOG.warn("task {} has been abandoned", routineLoadTaskInfo.getId());
                 return;
             }
-            RoutineLoadTask routineLoadTask = routineLoadTaskInfo.createStreamLoadTask(beId);
+            TRoutineLoadTask tRoutineLoadTask = routineLoadTaskInfo.createRoutineLoadTask(beId);
             // remove task for needScheduleTasksList in job
             routineLoadJob.removeNeedScheduleTask(routineLoadTaskInfo);
             routineLoadTaskInfo.setLoadStartTimeMs(System.currentTimeMillis());
-            AgentTaskQueue.addTask(routineLoadTask);
-            batchTask.addTask(routineLoadTask);
+            // add to batch task map
+            if (beIdTobatchTask.containsKey(beId)) {
+                beIdTobatchTask.get(beId).add(tRoutineLoadTask);
+            } else {
+                List<TRoutineLoadTask> tRoutineLoadTaskList = Lists.newArrayList();
+                tRoutineLoadTaskList.add(tRoutineLoadTask);
+                beIdTobatchTask.put(beId, tRoutineLoadTaskList);
+            }
+            // count
             clusterIdleSlotNum--;
             scheduledTaskNum++;
             routineLoadManager.addNumOfConcurrentTasksByBeId(beId);
-
             needScheduleTaskNum--;
         }
+        submitBatchTask(beIdTobatchTask);
         LOG.info("{} tasks have bean allocated to be.", scheduledTaskNum);
+    }
 
-        if (batchTask.getTaskNum() > 0) {
-            AgentTaskExecutor.submit(batchTask);
+    // todo: change to batch submit and reuse client
+    private void submitBatchTask(Map<Long, List<TRoutineLoadTask>> beIdToRoutineLoadTask) {
+        for (Map.Entry<Long, List<TRoutineLoadTask>> entry : beIdToRoutineLoadTask.entrySet()) {
+            Backend backend = Catalog.getCurrentSystemInfo().getBackend(entry.getKey());
+            TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBePort());
+            BackendService.Client client = null;
+            boolean ok = false;
+            try {
+                client = ClientPool.backendPool.borrowObject(address);
+                for (TRoutineLoadTask tRoutineLoadTask : entry.getValue()) {
+                    client.submit_routine_load_task(tRoutineLoadTask);
+                }
+                ok = true;
+            } catch (Exception e) {
+                LOG.warn("task exec error. backend[{}]", backend.getId(), e);
+            } finally {
+                if (ok) {
+                    ClientPool.backendPool.returnObject(address, client);
+                } else {
+                    ClientPool.backendPool.invalidateObject(address, client);
+                }
+            }
+
         }
     }
 }

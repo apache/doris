@@ -35,6 +35,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.task.StreamLoadTask;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TPlanNode;
@@ -140,7 +141,8 @@ public class StreamLoadScanNodeTest {
         }
 
         TStreamLoadPutRequest request = getBaseRequest();
-        StreamLoadScanNode scanNode = new StreamLoadScanNode(new PlanNodeId(1), dstDesc, dstTable, request);
+        StreamLoadScanNode scanNode = new StreamLoadScanNode(new PlanNodeId(1), dstDesc, dstTable,
+                                                             StreamLoadTask.fromTStreamLoadPutRequest(request));
         new Expectations() {{
             dstTable.getBaseSchema(); result = columns;
         }};
@@ -174,7 +176,8 @@ public class StreamLoadScanNodeTest {
 
         TStreamLoadPutRequest request = getBaseRequest();
         request.setColumns("k1, k2, v1");
-        StreamLoadScanNode scanNode = new StreamLoadScanNode(new PlanNodeId(1), dstDesc, dstTable, request);
+        StreamLoadScanNode scanNode = new StreamLoadScanNode(new PlanNodeId(1), dstDesc, dstTable,
+                                                             StreamLoadTask.fromTStreamLoadPutRequest(request));
 
         scanNode.init(analyzer);
         scanNode.finalize(analyzer);
@@ -203,7 +206,8 @@ public class StreamLoadScanNodeTest {
 
         TStreamLoadPutRequest request = getBaseRequest();
         request.setColumns("k1 k2 v1");
-        StreamLoadScanNode scanNode = new StreamLoadScanNode(new PlanNodeId(1), dstDesc, dstTable, request);
+        StreamLoadScanNode scanNode = new StreamLoadScanNode(new PlanNodeId(1), dstDesc, dstTable,
+                                                             StreamLoadTask.fromTStreamLoadPutRequest(request));
 
         scanNode.init(analyzer);
         scanNode.finalize(analyzer);
@@ -249,7 +253,8 @@ public class StreamLoadScanNodeTest {
         TStreamLoadPutRequest request = getBaseRequest();
         request.setFileType(TFileType.FILE_LOCAL);
         request.setColumns("k1,k2,v1, v2=k2");
-        StreamLoadScanNode scanNode = new StreamLoadScanNode(new PlanNodeId(1), dstDesc, dstTable, request);
+        StreamLoadScanNode scanNode = new StreamLoadScanNode(new PlanNodeId(1), dstDesc, dstTable,
+                                                             StreamLoadTask.fromTStreamLoadPutRequest(request));
 
         scanNode.init(analyzer);
         scanNode.finalize(analyzer);
@@ -297,7 +302,8 @@ public class StreamLoadScanNodeTest {
         TStreamLoadPutRequest request = getBaseRequest();
         request.setFileType(TFileType.FILE_LOCAL);
         request.setColumns("k1,k2, v1=hll_hash(k2)");
-        StreamLoadScanNode scanNode = new StreamLoadScanNode(new PlanNodeId(1), dstDesc, dstTable, request);
+        StreamLoadScanNode scanNode = new StreamLoadScanNode(new PlanNodeId(1), dstDesc, dstTable,
+                                                             StreamLoadTask.fromTStreamLoadPutRequest(request));
 
         scanNode.init(analyzer);
         scanNode.finalize(analyzer);
@@ -345,7 +351,8 @@ public class StreamLoadScanNodeTest {
         TStreamLoadPutRequest request = getBaseRequest();
         request.setFileType(TFileType.FILE_LOCAL);
         request.setColumns("k1,k2, v1=hll_hash1(k2)");
-        StreamLoadScanNode scanNode = new StreamLoadScanNode(new PlanNodeId(1), dstDesc, dstTable, request);
+        StreamLoadScanNode scanNode = new StreamLoadScanNode(new PlanNodeId(1), dstDesc, dstTable,
+                                                             StreamLoadTask.fromTStreamLoadPutRequest(request));
 
         scanNode.init(analyzer);
         scanNode.finalize(analyzer);
@@ -375,7 +382,8 @@ public class StreamLoadScanNodeTest {
         TStreamLoadPutRequest request = getBaseRequest();
         request.setFileType(TFileType.FILE_LOCAL);
         request.setColumns("k1,k2, v1=k2");
-        StreamLoadScanNode scanNode = new StreamLoadScanNode(new PlanNodeId(1), dstDesc, dstTable, request);
+        StreamLoadScanNode scanNode = new StreamLoadScanNode(new PlanNodeId(1), dstDesc, dstTable,
+                                                             StreamLoadTask.fromTStreamLoadPutRequest(request));
 
         scanNode.init(analyzer);
         scanNode.finalize(analyzer);
@@ -405,7 +413,8 @@ public class StreamLoadScanNodeTest {
         TStreamLoadPutRequest request = getBaseRequest();
         request.setFileType(TFileType.FILE_BROKER);
         request.setColumns("k1,k2,v1, v2=k2");
-        StreamLoadScanNode scanNode = new StreamLoadScanNode(new PlanNodeId(1), dstDesc, dstTable, request);
+        StreamLoadScanNode scanNode = new StreamLoadScanNode(new PlanNodeId(1), dstDesc, dstTable,
+                                                             StreamLoadTask.fromTStreamLoadPutRequest(request));
 
         scanNode.init(analyzer);
         scanNode.finalize(analyzer);
@@ -434,7 +443,8 @@ public class StreamLoadScanNodeTest {
 
         TStreamLoadPutRequest request = getBaseRequest();
         request.setColumns("k1,k2,v1, v2=k3");
-        StreamLoadScanNode scanNode = new StreamLoadScanNode(new PlanNodeId(1), dstDesc, dstTable, request);
+        StreamLoadScanNode scanNode = new StreamLoadScanNode(new PlanNodeId(1), dstDesc, dstTable,
+                                                             StreamLoadTask.fromTStreamLoadPutRequest(request));
 
         scanNode.init(analyzer);
         scanNode.finalize(analyzer);
@@ -480,7 +490,8 @@ public class StreamLoadScanNodeTest {
         TStreamLoadPutRequest request = getBaseRequest();
         request.setColumns("k1,k2,v1, v2=k1");
         request.setWhere("k1 = 1");
-        StreamLoadScanNode scanNode = new StreamLoadScanNode(new PlanNodeId(1), dstDesc, dstTable, request);
+        StreamLoadScanNode scanNode = new StreamLoadScanNode(new PlanNodeId(1), dstDesc, dstTable,
+                                                             StreamLoadTask.fromTStreamLoadPutRequest(request));
 
         scanNode.init(analyzer);
         scanNode.finalize(analyzer);
@@ -526,7 +537,8 @@ public class StreamLoadScanNodeTest {
         TStreamLoadPutRequest request = getBaseRequest();
         request.setColumns("k1,k2,v1, v2=k2");
         request.setWhere("k1   1");
-        StreamLoadScanNode scanNode = new StreamLoadScanNode(new PlanNodeId(1), dstDesc, dstTable, request);
+        StreamLoadScanNode scanNode = new StreamLoadScanNode(new PlanNodeId(1), dstDesc, dstTable,
+                                                             StreamLoadTask.fromTStreamLoadPutRequest(request));
 
         scanNode.init(analyzer);
         scanNode.finalize(analyzer);
@@ -556,7 +568,8 @@ public class StreamLoadScanNodeTest {
         TStreamLoadPutRequest request = getBaseRequest();
         request.setColumns("k1,k2,v1, v2=k1");
         request.setWhere("k5 = 1");
-        StreamLoadScanNode scanNode = new StreamLoadScanNode(new PlanNodeId(1), dstDesc, dstTable, request);
+        StreamLoadScanNode scanNode = new StreamLoadScanNode(new PlanNodeId(1), dstDesc, dstTable,
+                                                             StreamLoadTask.fromTStreamLoadPutRequest(request));
 
         scanNode.init(analyzer);
         scanNode.finalize(analyzer);
@@ -586,7 +599,8 @@ public class StreamLoadScanNodeTest {
         TStreamLoadPutRequest request = getBaseRequest();
         request.setColumns("k1,k2,v1, v2=k1");
         request.setWhere("k1 + v2");
-        StreamLoadScanNode scanNode = new StreamLoadScanNode(new PlanNodeId(1), dstDesc, dstTable, request);
+        StreamLoadScanNode scanNode = new StreamLoadScanNode(new PlanNodeId(1), dstDesc, dstTable,
+                                                             StreamLoadTask.fromTStreamLoadPutRequest(request));
 
         scanNode.init(analyzer);
         scanNode.finalize(analyzer);

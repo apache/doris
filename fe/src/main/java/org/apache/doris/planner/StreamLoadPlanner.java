@@ -27,6 +27,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.LoadErrorHub;
+import org.apache.doris.task.StreamLoadTask;
 import org.apache.doris.thrift.PaloInternalServiceVersion;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TLoadErrorHubInfo;
@@ -63,15 +64,15 @@ public class StreamLoadPlanner {
     // Data will load to this table
     private Database db;
     private OlapTable destTable;
-    private TStreamLoadPutRequest request;
+    private StreamLoadTask streamLoadTask;
 
     private Analyzer analyzer;
     private DescriptorTable descTable;
 
-    public StreamLoadPlanner(Database db, OlapTable destTable, TStreamLoadPutRequest request) {
+    public StreamLoadPlanner(Database db, OlapTable destTable, StreamLoadTask streamLoadTask) {
         this.db = db;
         this.destTable = destTable;
-        this.request = request;
+        this.streamLoadTask = streamLoadTask;
 
         analyzer = new Analyzer(Catalog.getInstance(), null);
         descTable = analyzer.getDescTbl();
@@ -92,14 +93,14 @@ public class StreamLoadPlanner {
         }
 
         // create scan node
-        StreamLoadScanNode scanNode = new StreamLoadScanNode(new PlanNodeId(0), tupleDesc, destTable, request);
+        StreamLoadScanNode scanNode = new StreamLoadScanNode(new PlanNodeId(0), tupleDesc, destTable, streamLoadTask);
         scanNode.init(analyzer);
         descTable.computeMemLayout();
         scanNode.finalize(analyzer);
 
         // create dest sink
-        OlapTableSink olapTableSink = new OlapTableSink(destTable, tupleDesc, request.getPartitions());
-        olapTableSink.init(request.getLoadId(), request.getTxnId(), db.getId());
+        OlapTableSink olapTableSink = new OlapTableSink(destTable, tupleDesc, streamLoadTask.getPartitions());
+        olapTableSink.init(streamLoadTask.getId(), streamLoadTask.getTxnId(), db.getId());
         olapTableSink.finalize();
 
         // for stream load, we only need one fragment, ScanNode -> DataSink.
@@ -150,7 +151,7 @@ public class StreamLoadPlanner {
             }
         }
 
-        LOG.debug("stream load txn id: {}, plan: {}", request.txnId, params);
+        LOG.debug("stream load txn id: {}, plan: {}", streamLoadTask.getTxnId(), params);
         return params;
     }
 }
