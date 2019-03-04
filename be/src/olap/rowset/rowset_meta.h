@@ -239,12 +239,11 @@ public:
     }
 
     std::string rowset_path() {
-        // return _rowset_meta_pb.rowset_path();
-        return "";
+        return _rowset_path;
     }
 
     void set_rowset_path(std::string rowset_path) {
-        // _rowset_meta_pb.set_rowset_path(rowset_path);
+        _rowset_path = rowset_path;
     }
 
     PUniqueId load_id() {
@@ -311,6 +310,7 @@ private:
 
 private:
     RowsetMetaPB _rowset_meta_pb;
+    string _rowset_path;    // in memory, not serialized to protocol buffer
 };
 
 } // namespace doris

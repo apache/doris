@@ -35,7 +35,7 @@ public:
 
     OLAPStatus init();
 
-    OLAPStatus get(const int column_family_index, const std::string& key, std::string& value);
+    OLAPStatus get(const int column_family_index, const std::string& key, std::string* value);
 
     OLAPStatus put(const int column_family_index, const std::string& key, const std::string& value);
 

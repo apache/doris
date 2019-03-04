@@ -784,18 +784,6 @@ OLAPStatus SegmentGroup::remove_old_files(std::vector<std::string>* links_to_rem
     return OLAP_SUCCESS;
 }
 
-OLAPStatus SegmentGroup::remove_new_files(std::vector<std::string>* links_to_remove) {
-    for (int segment_id = 0; segment_id < _num_segments; segment_id++) {
-        std::string data_file_name = construct_data_file_path(segment_id);
-        RETURN_NOT_OK(remove_dir(data_file_name));
-        links_to_remove->push_back(data_file_name);
-        std::string index_file_name = construct_index_file_path(segment_id);
-        RETURN_NOT_OK(remove_dir(index_file_name));
-        links_to_remove->push_back(index_file_name);
-    }
-    return OLAP_SUCCESS;
-}
-
 bool SegmentGroup::copy_segments_to_path(const std::string& dest_path) {
     if (dest_path.empty() || dest_path == _rowset_path_prefix) {
         return true;

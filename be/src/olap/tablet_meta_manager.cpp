@@ -51,7 +51,7 @@ OLAPStatus TabletMetaManager::get_header(DataDir* store,
     key_stream << HEADER_PREFIX << tablet_id << "_" << schema_hash;
     std::string key = key_stream.str();
     std::string value;
-    OLAPStatus s = meta->get(META_COLUMN_FAMILY_INDEX, key, value);
+    OLAPStatus s = meta->get(META_COLUMN_FAMILY_INDEX, key, &value);
     if (s == OLAP_ERR_META_KEY_NOT_FOUND) {
         LOG(WARNING) << "tablet_id:" << tablet_id << ", schema_hash:" << schema_hash << " not found.";
         return OLAP_ERR_META_KEY_NOT_FOUND;

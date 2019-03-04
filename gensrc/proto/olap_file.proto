@@ -74,7 +74,7 @@ message RowsetMetaPB {
     optional int64 partition_id = 2;
     optional int64 tablet_id = 3;
     optional int64 txn_id = 4;
-    optional int32 tablet_schema_hash = 5;  // 为什么存这个？
+    optional int32 tablet_schema_hash = 5;  // tablet id and schema hash could find tablet
     optional RowsetTypePB rowset_type = 6;  // alpha
     optional RowsetStatePB rowset_state = 7;
     optional int64 start_version = 8;   // PDelta.start_version

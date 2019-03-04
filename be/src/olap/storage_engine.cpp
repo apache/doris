@@ -136,7 +136,7 @@ OLAPStatus StorageEngine::_convert_old_tablet(DataDir* data_dir) {
         }
         string old_data_path_prefix = data_dir->get_absolute_tablet_path(olap_header_msg, true);
         OLAPStatus status = converter.to_new_snapshot(olap_header_msg, old_data_path_prefix, 
-            &tablet_meta_pb, old_data_path_prefix, *data_dir, &pending_rowsets);
+            old_data_path_prefix, *data_dir, &tablet_meta_pb, &pending_rowsets);
         if (status != OLAP_SUCCESS) {
             LOG(WARNING) << "convert olap header to tablet meta failed when convert header and files tablet=" 
                          << tablet_id << "." << schema_hash;
@@ -166,7 +166,8 @@ OLAPStatus StorageEngine::_convert_old_tablet(DataDir* data_dir) {
         }
         return true;
     };
-    OLAPStatus convert_tablet_status = TabletMetaManager::traverse_headers(data_dir->get_meta(), convert_tablet_func, OLD_HEADER_PREFIX);
+    OLAPStatus convert_tablet_status = TabletMetaManager::traverse_headers(data_dir->get_meta(), 
+        convert_tablet_func, OLD_HEADER_PREFIX);
     if (convert_tablet_status != OLAP_SUCCESS) {
         LOG(WARNING) << "there is failure when convert old tablet, data dir:" << data_dir->path();
         return convert_tablet_status;
@@ -263,7 +264,8 @@ OLAPStatus StorageEngine::_remove_old_meta_and_files(DataDir* data_dir) {
         }
         return true;
     };
-    OLAPStatus clean_old_tablet_status = TabletMetaManager::traverse_headers(data_dir->get_meta(), clean_old_files_func, HEADER_PREFIX);
+    OLAPStatus clean_old_tablet_status = TabletMetaManager::traverse_headers(data_dir->get_meta(), 
+        clean_old_files_func, HEADER_PREFIX);
     if (clean_old_tablet_status != OLAP_SUCCESS) {
         LOG(WARNING) << "there is failure when loading tablet and clean old files:" << data_dir->path();
     } else {
@@ -287,7 +289,7 @@ OLAPStatus StorageEngine::_load_data_dir(DataDir* data_dir) {
         RETURN_NOT_OK(_convert_old_tablet(data_dir));
         // TODO(ygl): should load tablet successfully and then set convert flag and clean old files
         RETURN_NOT_OK(data_dir->get_meta()->set_tablet_convert_finished());
-        // convert may be successfully, but crushed before remove old files
+        // convert may be successfully, but crashed before remove old files
         // depend on gc thread to recycle the old files
         _remove_old_meta_and_files(data_dir);
     }

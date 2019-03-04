@@ -37,7 +37,7 @@ public:
 
     static OLAPStatus save(OlapMeta* meta, int64_t rowset_id, RowsetMetaSharedPtr rowset_meta);
 
-    static OLAPStatus save(OlapMeta* meta, int64_t rowset_id, string& meta_binary);
+    static OLAPStatus save(OlapMeta* meta, int64_t rowset_id, const string& meta_binary);
 
     static OLAPStatus remove(OlapMeta* meta, int64_t rowset_id);
 

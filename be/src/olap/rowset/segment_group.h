@@ -265,8 +265,6 @@ public:
 
     OLAPStatus remove_old_files(std::vector<std::string>* linkes_to_remove);
 
-    OLAPStatus remove_new_files(std::vector<std::string>* linkes_to_remove);
-
     OLAPStatus make_snapshot(const std::string& snapshot_path,
                              std::vector<std::string>* success_links);
 

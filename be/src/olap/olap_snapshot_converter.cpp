@@ -81,22 +81,22 @@ OLAPStatus OlapSnapshotConverter::to_tablet_meta_pb(const OLAPHeaderMessage& ola
         RowsetMetaPB* rowset_meta = tablet_meta_pb->add_rs_metas();
         RowsetId next_id;
         RETURN_NOT_OK(RowsetIdGenerator::instance()->get_next_id(data_dir, &next_id));
-        convert_to_rowset_meta(delta, rowset_meta, next_id, olap_header.tablet_id(), olap_header.schema_hash());
+        convert_to_rowset_meta(delta, next_id, olap_header.tablet_id(), olap_header.schema_hash(), rowset_meta);
     }
 
     for (auto& inc_delta : olap_header.incremental_delta()) {
         RowsetMetaPB* rowset_meta = tablet_meta_pb->add_inc_rs_metas();
         RowsetId next_id;
         RETURN_NOT_OK(RowsetIdGenerator::instance()->get_next_id(data_dir, &next_id));
-        convert_to_rowset_meta(inc_delta, rowset_meta, next_id, olap_header.tablet_id(), olap_header.schema_hash());
+        convert_to_rowset_meta(inc_delta, next_id, olap_header.tablet_id(), olap_header.schema_hash(), rowset_meta);
     }
 
     for (auto& pending_delta : olap_header.pending_delta()) {
         RowsetMetaPB rowset_meta;
         RowsetId next_id;
         RETURN_NOT_OK(RowsetIdGenerator::instance()->get_next_id(data_dir, &next_id));
-        convert_to_rowset_meta(pending_delta, &rowset_meta, next_id, olap_header.tablet_id(), olap_header.schema_hash());
-        pending_rowsets->push_back(std::move(rowset_meta));
+        convert_to_rowset_meta(pending_delta, next_id, olap_header.tablet_id(), olap_header.schema_hash(), &rowset_meta);
+        pending_rowsets->emplace_back(std::move(rowset_meta));
     }
     AlterTabletPB* alter_tablet_pb = tablet_meta_pb->mutable_alter_tablet_task();
     to_alter_tablet_pb(olap_header.schema_change_status(), alter_tablet_pb);
@@ -138,8 +138,8 @@ OLAPStatus OlapSnapshotConverter::convert_to_ppending_delta(const RowsetMetaPB& 
     return OLAP_SUCCESS;
 }
 
-OLAPStatus OlapSnapshotConverter::convert_to_rowset_meta(const PDelta& delta, RowsetMetaPB* rowset_meta_pb, 
-        int64_t rowset_id, int64_t tablet_id, int32_t schema_hash) {
+OLAPStatus OlapSnapshotConverter::convert_to_rowset_meta(const PDelta& delta, 
+        int64_t rowset_id, int64_t tablet_id, int32_t schema_hash, RowsetMetaPB* rowset_meta_pb) {
     rowset_meta_pb->set_rowset_id(rowset_id);
     rowset_meta_pb->set_tablet_id(tablet_id);
     rowset_meta_pb->set_tablet_schema_hash(schema_hash);
@@ -179,8 +179,8 @@ OLAPStatus OlapSnapshotConverter::convert_to_rowset_meta(const PDelta& delta, Ro
     return OLAP_SUCCESS;
 }
 
-OLAPStatus OlapSnapshotConverter::convert_to_rowset_meta(const PPendingDelta& pending_delta, RowsetMetaPB* rowset_meta_pb, 
-        int64_t rowset_id, int64_t tablet_id, int32_t schema_hash) {
+OLAPStatus OlapSnapshotConverter::convert_to_rowset_meta(const PPendingDelta& pending_delta, 
+        int64_t rowset_id, int64_t tablet_id, int32_t schema_hash, RowsetMetaPB* rowset_meta_pb) {
     rowset_meta_pb->set_rowset_id(rowset_id);
     rowset_meta_pb->set_tablet_id(tablet_id);
     rowset_meta_pb->set_tablet_schema_hash(schema_hash);
@@ -272,7 +272,7 @@ OLAPStatus OlapSnapshotConverter::to_alter_tablet_pb(const SchemaChangeStatusMes
 
 // from olap header to tablet meta
 OLAPStatus OlapSnapshotConverter::to_new_snapshot(const OLAPHeaderMessage& olap_header, const string& old_data_path_prefix, 
-    TabletMetaPB* tablet_meta_pb, const string& new_data_path_prefix, DataDir& data_dir, vector<RowsetMetaPB>* pending_rowsets) {
+    const string& new_data_path_prefix, DataDir& data_dir, TabletMetaPB* tablet_meta_pb, vector<RowsetMetaPB>* pending_rowsets) {
     RETURN_NOT_OK(to_tablet_meta_pb(olap_header, tablet_meta_pb, pending_rowsets, &data_dir));
 
     TabletSchema tablet_schema;
@@ -310,7 +310,7 @@ OLAPStatus OlapSnapshotConverter::to_new_snapshot(const OLAPHeaderMessage& olap_
 
 // from tablet meta to olap header
 OLAPStatus OlapSnapshotConverter::to_old_snapshot(const TabletMetaPB& tablet_meta_pb, string& new_data_path_prefix, 
-    OLAPHeaderMessage* olap_header, string& old_data_path_prefix) {
+    string& old_data_path_prefix, OLAPHeaderMessage* olap_header) {
     RETURN_NOT_OK(to_olap_header(tablet_meta_pb, olap_header));
 
     TabletSchema tablet_schema;

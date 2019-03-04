@@ -36,7 +36,7 @@ const std::string ROWSET_PREFIX = "rst_";
 OLAPStatus RowsetMetaManager::get_rowset_meta(OlapMeta* meta, int64_t rowset_id, RowsetMetaSharedPtr rowset_meta) {
     std::string key = ROWSET_PREFIX + std::to_string(rowset_id);
     std::string value;
-    OLAPStatus s = meta->get(META_COLUMN_FAMILY_INDEX, key, value);
+    OLAPStatus s = meta->get(META_COLUMN_FAMILY_INDEX, key, &value);
     if (s == OLAP_ERR_META_KEY_NOT_FOUND) {
         std::string error_msg = "rowset id:" + std::to_string(rowset_id) + " not found.";
         LOG(WARNING) << error_msg;
@@ -82,7 +82,7 @@ OLAPStatus RowsetMetaManager::save(OlapMeta* meta, int64_t rowset_id, RowsetMeta
     return status;
 }
 
-OLAPStatus RowsetMetaManager::save(OlapMeta* meta, int64_t rowset_id, string& meta_binary) {
+OLAPStatus RowsetMetaManager::save(OlapMeta* meta, int64_t rowset_id, const string& meta_binary) {
     std::string key = ROWSET_PREFIX + std::to_string(rowset_id);
     OLAPStatus status = meta->put(META_COLUMN_FAMILY_INDEX, key, meta_binary);
     return status;

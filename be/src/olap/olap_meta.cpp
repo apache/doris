@@ -84,9 +84,9 @@ OLAPStatus OlapMeta::init() {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus OlapMeta::get(const int column_family_index, const std::string& key, std::string& value) {
+OLAPStatus OlapMeta::get(const int column_family_index, const std::string& key, std::string* value) {
     rocksdb::ColumnFamilyHandle* handle = _handles[column_family_index];
-    Status s = _db->Get(ReadOptions(), handle, Slice(key), &value);
+    Status s = _db->Get(ReadOptions(), handle, Slice(key), value);
     if (s.IsNotFound()) {
         LOG(WARNING) << "rocks db key not found:" << key;
         return OLAP_ERR_META_KEY_NOT_FOUND;
@@ -159,7 +159,7 @@ OLAPStatus OlapMeta::get_tablet_convert_finished(bool& flag) {
     // get is_header_converted flag
     std::string value;
     std::string key = TABLET_CONVERT_FINISHED;
-    OLAPStatus s = get(DEFAULT_COLUMN_FAMILY_INDEX, key, value);
+    OLAPStatus s = get(DEFAULT_COLUMN_FAMILY_INDEX, key, &value);
     if (s == OLAP_ERR_META_KEY_NOT_FOUND || value == "false") {
         flag = false;
     } else if (value == "true") {

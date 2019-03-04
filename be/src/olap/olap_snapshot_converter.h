@@ -54,11 +54,11 @@ public:
 
     OLAPStatus convert_to_ppending_delta(const RowsetMetaPB& rowset_meta_pb, PPendingDelta* pending_delta);
 
-    OLAPStatus convert_to_rowset_meta(const PDelta& delta, RowsetMetaPB* rowset_meta_pb, 
-        int64_t rowset_id, int64_t tablet_id, int32_t schema_hash);
+    OLAPStatus convert_to_rowset_meta(const PDelta& delta, int64_t rowset_id, int64_t tablet_id, 
+        int32_t schema_hash, RowsetMetaPB* rowset_meta_pb);
 
-    OLAPStatus convert_to_rowset_meta(const PPendingDelta& pending_delta, RowsetMetaPB* rowset_meta_pb, 
-        int64_t rowset_id, int64_t tablet_id, int32_t schema_hash);
+    OLAPStatus convert_to_rowset_meta(const PPendingDelta& pending_delta, int64_t rowset_id, 
+        int64_t tablet_id, int32_t schema_hash, RowsetMetaPB* rowset_meta_pb);
 
     OLAPStatus to_column_pb(const ColumnMessage& column_msg, ColumnPB* column_pb);
 
@@ -70,11 +70,11 @@ public:
 
     // from olap header to tablet meta
     OLAPStatus to_new_snapshot(const OLAPHeaderMessage& olap_header, const string& old_data_path_prefix, 
-        TabletMetaPB* tablet_meta_pb, const string& new_data_path_prefix, DataDir& data_dir, vector<RowsetMetaPB>* pending_rowsets);
+        const string& new_data_path_prefix, DataDir& data_dir, TabletMetaPB* tablet_meta_pb, vector<RowsetMetaPB>* pending_rowsets);
 
     // from tablet meta to olap header
     OLAPStatus to_old_snapshot(const TabletMetaPB& tablet_meta_pb, string& new_data_path_prefix, 
-        OLAPHeaderMessage* olap_header, string& old_data_path_prefix);
+        string& old_data_path_prefix, OLAPHeaderMessage* olap_header);
     
     OLAPStatus save(const string& file_path, const OLAPHeaderMessage& olap_header);
 };
