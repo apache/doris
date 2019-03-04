@@ -65,13 +65,11 @@ struct TTabletStatResult {
 
 struct TKafkaLoadInfo {
     1: required string brokers;
-    2: required string group_id;
-    3: required string client_id;
-    4: required string topic;
-    5: optional i64 max_interval_s;
-    6: optional i64 max_batch_rows;
-    7: optional i64 max_batch_size;
-    8: optional map<i32, i64> partition_begin_offset;
+    2: required string topic;
+    3: required map<i32, i64> partition_begin_offset;
+    4: optional i64 max_interval_s;
+    5: optional i64 max_batch_rows;
+    6: optional i64 max_batch_size;
 }
 
 struct TRoutineLoadTask {
@@ -144,5 +142,5 @@ service BackendService {
 
     TTabletStatResult get_tablet_stat();
 
-    Status.TStatus submit_routine_load_task(1:TRoutineLoadTask task);
+    Status.TStatus submit_routine_load_task(1:list<TRoutineLoadTask> tasks);
 }
