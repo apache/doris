@@ -218,11 +218,17 @@ dst);
  
     // count distinct in multi distinct for decimal
     static void count_or_sum_distinct_decimal_init(doris_udf::FunctionContext* ctx, doris_udf::StringVal* dst);
+    static void count_or_sum_distinct_decimal_v2_init(doris_udf::FunctionContext* ctx, doris_udf::StringVal* dst);
     static void count_or_sum_distinct_decimal_update(FunctionContext* ctx, DecimalVal& src, StringVal* dst);
+    static void count_or_sum_distinct_decimal_v2_update(FunctionContext* ctx, Decimal_V2Val& src, StringVal* dst);
     static void count_or_sum_distinct_decimal_merge(FunctionContext* ctx, StringVal& src, StringVal* dst);
+    static void count_or_sum_distinct_decimal_v2_merge(FunctionContext* ctx, StringVal& src, StringVal* dst);
     static StringVal count_or_sum_distinct_decimal_serialize(FunctionContext* ctx, const StringVal& state_sv);
+    static StringVal count_or_sum_distinct_decimal_v2_serialize(FunctionContext* ctx, const StringVal& state_sv);
     static BigIntVal count_distinct_decimal_finalize(FunctionContext* ctx, const StringVal& state_sv);
+    static BigIntVal count_distinct_decimal_v2_finalize(FunctionContext* ctx, const StringVal& state_sv);
     static DecimalVal sum_distinct_decimal_finalize(FunctionContext* ctx, const StringVal& state_sv);
+    static Decimal_V2Val sum_distinct_decimal_v2_finalize(FunctionContext* ctx, const StringVal& state_sv);
 
     // count distinct in multi disticnt for Date
     static void count_distinct_date_init(doris_udf::FunctionContext* ctx, doris_udf::StringVal* dst);
