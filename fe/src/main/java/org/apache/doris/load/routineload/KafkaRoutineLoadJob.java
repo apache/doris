@@ -75,7 +75,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     // TODO(ml): I will change it after ut.
     @VisibleForTesting
-    public KafkaRoutineLoadJob(String id, String name, long dbId, long tableId,
+    public KafkaRoutineLoadJob(long id, String name, long dbId, long tableId,
                                RoutineLoadDesc routineLoadDesc,
                                int desireTaskConcurrentNum, int maxErrorNum,
                                String serverAddress, String topic, KafkaProgress kafkaProgress) {
@@ -88,6 +88,14 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         this.customKafkaPartitions = new ArrayList<>();
         this.currentKafkaPartitions = new ArrayList<>();
         setConsumer();
+    }
+
+    public String getTopic() {
+        return topic;
+    }
+
+    public String getServerAddress() {
+        return serverAddress;
     }
 
     private void setCustomKafkaPartitions(List<Integer> kafkaPartitions) throws LoadException {
@@ -123,7 +131,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 // divide kafkaPartitions into tasks
                 for (int i = 0; i < currentConcurrentTaskNum; i++) {
                     try {
-                        KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo(UUID.randomUUID().toString(), id);
+                        KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo(UUID.randomUUID(), id);
                         routineLoadTaskInfoList.add(kafkaTaskInfo);
                         needScheduleTaskInfoList.add(kafkaTaskInfo);
                         result.add(kafkaTaskInfo);
