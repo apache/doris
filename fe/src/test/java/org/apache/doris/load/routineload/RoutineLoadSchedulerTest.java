@@ -74,7 +74,7 @@ public class RoutineLoadSchedulerTest {
         };
 
         RoutineLoadJob routineLoadJob =
-                new KafkaRoutineLoadJob("1", "kafka_routine_load_job", 1L,
+                new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
                                         1L, routineLoadDesc ,3, 0,
                                         "", "", new KafkaProgress());
         routineLoadJob.setState(RoutineLoadJob.JobState.NEED_SCHEDULE);

@@ -22,9 +22,14 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.task.RoutineLoadTask;
+import org.apache.doris.thrift.TExecPlanFragmentParams;
+import org.apache.doris.thrift.TRoutineLoadTask;
 import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.TransactionState;
+
+import java.util.UUID;
 
 /**
  * Routine load task info is the task info include the only id (signature).
@@ -36,13 +41,14 @@ public abstract class RoutineLoadTaskInfo {
     
     private RoutineLoadManager routineLoadManager = Catalog.getCurrentCatalog().getRoutineLoadManager();
     
-    protected String id;
+    protected UUID id;
     protected long txnId;
-    protected String jobId;
+    protected long jobId;
     private long createTimeMs;
     private long loadStartTimeMs;
+    private TExecPlanFragmentParams tExecPlanFragmentParams;
     
-    public RoutineLoadTaskInfo(String id, String jobId) throws BeginTransactionException,
+    public RoutineLoadTaskInfo(UUID id, long jobId) throws BeginTransactionException,
             LabelAlreadyUsedException, AnalysisException {
         this.id = id;
         this.jobId = jobId;
@@ -50,15 +56,15 @@ public abstract class RoutineLoadTaskInfo {
         // begin a txn for task
         RoutineLoadJob routineLoadJob = routineLoadManager.getJob(jobId);
         txnId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(
-                routineLoadJob.getDbId(), id, -1, "streamLoad",
+                routineLoadJob.getDbId(), id.toString(), -1, "streamLoad",
                 TransactionState.LoadJobSourceType.ROUTINE_LOAD_TASK, routineLoadJob);
     }
     
-    public String getId() {
+    public UUID getId() {
         return id;
     }
     
-    public String getJobId() {
+    public long getJobId() {
         return jobId;
     }
     
@@ -74,13 +80,13 @@ public abstract class RoutineLoadTaskInfo {
         return txnId;
     }
     
-    abstract RoutineLoadTask createStreamLoadTask(long beId) throws LoadException;
+    abstract TRoutineLoadTask createRoutineLoadTask(long beId) throws LoadException, UserException;
     
     @Override
     public boolean equals(Object obj) {
         if (obj instanceof RoutineLoadTaskInfo) {
             RoutineLoadTaskInfo routineLoadTaskInfo = (RoutineLoadTaskInfo) obj;
-            return this.id.equals(routineLoadTaskInfo.getId());
+            return this.id.toString().equals(routineLoadTaskInfo.getId().toString());
         } else {
             return false;
         }
