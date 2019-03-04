@@ -528,9 +528,7 @@ Decimal_V2Val SlotRef::get_decimal_v2_val(ExprContext* context, TupleRow* row) {
         return Decimal_V2Val::null();
     }
 
-    Decimal_V2Val dec_val;
-    reinterpret_cast<Decimal_V2Value*>(t->get_slot(_slot_offset))->to_decimal_val(&dec_val);
-    return dec_val;
+    return Decimal_V2Val(reinterpret_cast<PackedInt128*>(t->get_slot(_slot_offset))->value);
 }
 
 }
