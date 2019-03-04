@@ -44,6 +44,10 @@ public class LoadColumnsInfo implements ParseNode {
         this.columnMappingList = columnMappingList;
     }
 
+    public Map<String, Expr> getParsedExprMap() {
+        return parsedExprMap;
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
         checkColumnNames();
