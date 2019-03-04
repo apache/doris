@@ -95,4 +95,35 @@ private:
     RdKafka::KafkaConsumer* _k_consumer = nullptr;
 };
 
+class KafkaEventCb : public RdKafka::EventCb {
+public:
+    void event_cb(RdKafka::Event &event) {
+        switch (event.type()) {
+            case RdKafka::Event::EVENT_ERROR:
+                LOG(INFO) << "kafka error: " << RdKafka::err2str(event.err())
+                          << ", event: " << event.str();
+                break;
+            case RdKafka::Event::EVENT_STATS:
+                LOG(INFO) << "kafka stats: " << event.str();
+                break;
+
+            case RdKafka::Event::EVENT_LOG:
+                LOG(INFO) << "kafka log-" << event.severity() << "-" << event.fac().c_str()
+                          << ", event: " << event.str();
+                break;
+
+            case RdKafka::Event::EVENT_THROTTLE:
+                LOG(INFO) << "kafka throttled: " << event.throttle_time() << "ms by "
+                          <<  event.broker_name() << " id " << (int) event.broker_id();
+                break;
+
+            default:
+                LOG(INFO) << "kafka event: " << event.type()
+                          << ", err: " << RdKafka::err2str(event.err())
+                          << ", event: " << event.str();
+                break;
+        }
+    }
+};
+
 } // end namespace doris
