@@ -62,6 +62,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 public class KafkaRoutineLoadJobTest {
 
@@ -125,7 +126,7 @@ public class KafkaRoutineLoadJobTest {
         };
 
         KafkaRoutineLoadJob kafkaRoutineLoadJob =
-                new KafkaRoutineLoadJob("1", "kafka_routine_load_job", 1L,
+                new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
                                         1L, routineLoadDesc, 3, 0,
                                         "", "", new KafkaProgress());
         Deencapsulation.setField(kafkaRoutineLoadJob, "consumer", kafkaConsumer);
@@ -149,7 +150,7 @@ public class KafkaRoutineLoadJobTest {
         };
 
         KafkaRoutineLoadJob kafkaRoutineLoadJob =
-                new KafkaRoutineLoadJob("1", "kafka_routine_load_job", 1L,
+                new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
                                         1L, routineLoadDesc, 3, 0,
                                         "", "", null);
 
@@ -200,7 +201,7 @@ public class KafkaRoutineLoadJobTest {
         };
 
         RoutineLoadJob routineLoadJob =
-                new KafkaRoutineLoadJob("1", "kafka_routine_load_job", 1L,
+                new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
                                         1L, routineLoadDesc, 3, 0,
                                         "", "", null);
         new Expectations() {
@@ -214,7 +215,7 @@ public class KafkaRoutineLoadJobTest {
         };
 
         List<RoutineLoadTaskInfo> routineLoadTaskInfoList = new ArrayList<>();
-        KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo("1", "1");
+        KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo(new UUID(1, 1), 1L);
         kafkaTaskInfo.addKafkaPartition(100);
         kafkaTaskInfo.setLoadStartTimeMs(System.currentTimeMillis() - DEFAULT_TASK_TIMEOUT_SECONDS * 60 * 1000);
         routineLoadTaskInfoList.add(kafkaTaskInfo);
@@ -231,7 +232,7 @@ public class KafkaRoutineLoadJobTest {
 
         new Expectations() {
             {
-                routineLoadManager.getJob("1");
+                routineLoadManager.getJob(1L);
                 result = routineLoadJob;
             }
         };

@@ -814,7 +814,7 @@ public class ShowExecutor {
         // get routine load info
         List<List<String>> rows = Lists.newArrayList();
         List<String> row = Lists.newArrayList();
-        row.add(routineLoadJob.getId());
+        row.add(String.valueOf(routineLoadJob.getId()));
         row.add(routineLoadJob.getName());
         row.add(String.valueOf(routineLoadJob.getDbId()));
         row.add(String.valueOf(routineLoadJob.getTableId()));
