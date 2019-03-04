@@ -220,7 +220,7 @@ public class GenericPoolTest {
         }
 
         @Override
-        public TStatus submit_routine_load_task(TRoutineLoadTask task) throws TException {
+        public TStatus submit_routine_load_task(List<TRoutineLoadTask> tasks) throws TException {
             // TODO Auto-generated method stub
             return null;
         }
