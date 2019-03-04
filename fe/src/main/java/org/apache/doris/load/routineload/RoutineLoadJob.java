@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -31,11 +32,16 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.TxnStateChangeListener;
+import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendServiceImpl;
+import org.apache.doris.thrift.TExecPlanFragmentParams;
+import org.apache.doris.thrift.TFileFormatType;
+import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TLoadTxnCommitRequest;
 import org.apache.doris.thrift.TResourceInfo;
+import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.transaction.AbortTransactionException;
 import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.TransactionState;
@@ -107,10 +113,12 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
 
     }
 
-    protected String id;
+    protected long id;
     protected String name;
     protected long dbId;
     protected long tableId;
+    // this code is used to verify be task request
+    protected long authCode;
     protected RoutineLoadDesc routineLoadDesc; // optional
     protected int desireTaskConcurrentNum; // optional
     protected JobState state;
@@ -134,17 +142,23 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
     protected List<RoutineLoadTaskInfo> routineLoadTaskInfoList;
     protected List<RoutineLoadTaskInfo> needScheduleTaskInfoList;
 
+    // plan fragment which will be initialized during job scheduler
+    protected TExecPlanFragmentParams tExecPlanFragmentParams;
+
     protected ReentrantReadWriteLock lock;
     // TODO(ml): error sample
 
     public RoutineLoadJob(String name, long dbId, long tableId, LoadDataSourceType dataSourceType) {
-        this.id = UUID.randomUUID().toString();
+        this.id = Catalog.getInstance().getNextId();
         this.name = name;
         this.dbId = dbId;
         this.tableId = tableId;
         this.state = JobState.NEED_SCHEDULE;
         this.dataSourceType = dataSourceType;
         this.resourceInfo = ConnectContext.get().toResourceCtx();
+        this.authCode = new StringBuilder().append(ConnectContext.get().getQualifiedUser())
+                .append(ConnectContext.get().getRemoteIP())
+                .append(id).append(System.currentTimeMillis()).toString().hashCode();
         this.routineLoadTaskInfoList = new ArrayList<>();
         this.needScheduleTaskInfoList = new ArrayList<>();
         lock = new ReentrantReadWriteLock(true);
@@ -152,7 +166,7 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
 
     // TODO(ml): I will change it after ut.
     @VisibleForTesting
-    public RoutineLoadJob(String id, String name, long dbId, long tableId,
+    public RoutineLoadJob(long id, String name, long dbId, long tableId,
                           RoutineLoadDesc routineLoadDesc,
                           int desireTaskConcurrentNum, LoadDataSourceType dataSourceType,
                           int maxErrorNum) {
@@ -187,7 +201,7 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
         lock.writeLock().unlock();
     }
 
-    public String getId() {
+    public long getId() {
         return id;
     }
 
@@ -225,6 +239,10 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
 
     public void setState(JobState state) {
         this.state = state;
+    }
+
+    public long getAuthCode() {
+        return authCode;
     }
 
     protected void setRoutineLoadDesc(RoutineLoadDesc routineLoadDesc) throws LoadException {
@@ -324,7 +342,7 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
             for (RoutineLoadTaskInfo routineLoadTaskInfo : runningTasks) {
                 if ((System.currentTimeMillis() - routineLoadTaskInfo.getLoadStartTimeMs())
                         > DEFAULT_TASK_TIMEOUT_SECONDS * 1000) {
-                    String oldSignature = routineLoadTaskInfo.getId();
+                    String oldSignature = routineLoadTaskInfo.getId().toString();
                     // abort txn if not committed
                     try {
                         Catalog.getCurrentGlobalTransactionMgr()

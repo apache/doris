@@ -39,6 +39,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.task.StreamLoadTask;
 import org.apache.doris.thrift.TBrokerRangeDesc;
 import org.apache.doris.thrift.TBrokerScanNode;
 import org.apache.doris.thrift.TBrokerScanRange;
@@ -70,7 +71,7 @@ public class StreamLoadScanNode extends ScanNode {
     // TODO(zc): now we use scanRange
     // input parameter
     private Table dstTable;
-    private TStreamLoadPutRequest request;
+    private StreamLoadTask streamLoadTask;
 
     // helper
     private Analyzer analyzer;
@@ -82,10 +83,10 @@ public class StreamLoadScanNode extends ScanNode {
 
     // used to construct for streaming loading
     public StreamLoadScanNode(
-            PlanNodeId id, TupleDescriptor tupleDesc, Table dstTable, TStreamLoadPutRequest request) {
+            PlanNodeId id, TupleDescriptor tupleDesc, Table dstTable, StreamLoadTask streamLoadTask) {
         super(id, tupleDesc, "StreamLoadScanNode");
         this.dstTable = dstTable;
-        this.request = request;
+        this.streamLoadTask = streamLoadTask;
     }
 
     @Override
@@ -97,19 +98,19 @@ public class StreamLoadScanNode extends ScanNode {
         brokerScanRange = new TBrokerScanRange();
 
         TBrokerRangeDesc rangeDesc = new TBrokerRangeDesc();
-        rangeDesc.file_type = request.getFileType();
-        rangeDesc.format_type = request.getFormatType();
+        rangeDesc.file_type = streamLoadTask.getFileType();
+        rangeDesc.format_type = streamLoadTask.getFormatType();
         rangeDesc.splittable = false;
-        switch (request.getFileType()) {
+        switch (streamLoadTask.getFileType()) {
             case FILE_LOCAL:
-                rangeDesc.path = request.getPath();
+                rangeDesc.path = streamLoadTask.getPath();
                 break;
             case FILE_STREAM:
                 rangeDesc.path = "Invalid Path";
-                rangeDesc.load_id = request.getLoadId();
+                rangeDesc.load_id = streamLoadTask.getId();
                 break;
             default:
-                throw new UserException("unsupported file type, type=" + request.getFileType());
+                throw new UserException("unsupported file type, type=" + streamLoadTask.getFileType());
         }
         rangeDesc.start_offset = 0;
         rangeDesc.size = -1;
@@ -123,35 +124,14 @@ public class StreamLoadScanNode extends ScanNode {
         // columns: k1, k2, v1, v2=k1 + k2
         // this means that there are three columns(k1, k2, v1) in source file,
         // and v2 is derived from (k1 + k2)
-        if (request.isSetColumns()) {
-            String columnsSQL = new String("COLUMNS " + request.getColumns());
-            SqlParser parser = new SqlParser(new SqlScanner(new StringReader(columnsSQL)));
-            ImportColumnsStmt columnsStmt;
-            try {
-                columnsStmt = (ImportColumnsStmt) parser.parse().value;
-            } catch (Error e) {
-                LOG.warn("error happens when parsing columns, sql={}", columnsSQL, e);
-                throw new AnalysisException("failed to parsing columns' header, maybe contain unsupported character");
-            } catch (AnalysisException e) {
-                LOG.warn("analyze columns' statement failed, sql={}, error={}",
-                        columnsSQL, parser.getErrorMsg(columnsSQL), e);
-                String errorMessage = parser.getErrorMsg(columnsSQL);
-                if (errorMessage == null) {
-                    throw  e;
-                } else {
-                    throw new AnalysisException(errorMessage, e);
-                }
-            } catch (Exception e) {
-                LOG.warn("failed to parse columns header, sql={}", columnsSQL, e);
-                throw new UserException("parse columns header failed", e);
-            }
-
-            for (ImportColumnDesc columnDesc : columnsStmt.getColumns()) {
+        if (streamLoadTask.getColumnToColumnExpr() != null || streamLoadTask.getColumnToColumnExpr().size() != 0) {
+            for (Map.Entry<String, Expr> entry : streamLoadTask.getColumnToColumnExpr().entrySet()) {
                 // make column name case match with real column name
-                String realColName = dstTable.getColumn(columnDesc.getColumn()) == null ? columnDesc.getColumn()
-                        : dstTable.getColumn(columnDesc.getColumn()).getName();
-                if (columnDesc.getExpr() != null) {
-                    exprsByName.put(realColName, columnDesc.getExpr());
+                String column = entry.getKey();
+                String realColName = dstTable.getColumn(column) == null ? column
+                        : dstTable.getColumn(column).getName();
+                if (entry.getValue() != null) {
+                    exprsByName.put(realColName, entry.getValue());
                 } else {
                     SlotDescriptor slotDesc = analyzer.getDescTbl().addSlotDescriptor(srcTupleDesc);
                     slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
@@ -203,36 +183,14 @@ public class StreamLoadScanNode extends ScanNode {
         }
 
         // analyze where statement
-        if (request.isSetWhere()) {
+        if (streamLoadTask.getWhereExpr() != null) {
             Map<String, SlotDescriptor> dstDescMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
             for (SlotDescriptor slotDescriptor : desc.getSlots()) {
                 dstDescMap.put(slotDescriptor.getColumn().getName(), slotDescriptor);
             }
 
-            String whereSQL = new String("WHERE " + request.getWhere());
-            SqlParser parser = new SqlParser(new SqlScanner(new StringReader(whereSQL)));
-            ImportWhereStmt whereStmt;
-            try {
-                whereStmt = (ImportWhereStmt) parser.parse().value;
-            } catch (Error e) {
-                LOG.warn("error happens when parsing where header, sql={}", whereSQL, e);
-                throw new AnalysisException("failed to parsing where header, maybe contain unsupported character");
-            } catch (AnalysisException e) {
-                LOG.warn("analyze where statement failed, sql={}, error={}",
-                        whereSQL, parser.getErrorMsg(whereSQL), e);
-                String errorMessage = parser.getErrorMsg(whereSQL);
-                if (errorMessage == null) {
-                    throw  e;
-                } else {
-                    throw new AnalysisException(errorMessage, e);
-                }
-            } catch (Exception e) {
-                LOG.warn("failed to parse where header, sql={}", whereSQL, e);
-                throw new UserException("parse columns header failed", e);
-            }
-
             // substitute SlotRef in filter expression
-            Expr whereExpr = whereStmt.getExpr();
+            Expr whereExpr = streamLoadTask.getWhereExpr();
 
             List<SlotRef> slots = Lists.newArrayList();
             whereExpr.collect(SlotRef.class, slots);
@@ -258,8 +216,8 @@ public class StreamLoadScanNode extends ScanNode {
         computeStats(analyzer);
         createDefaultSmap(analyzer);
 
-        if (request.isSetColumnSeparator()) {
-            String sep = ColumnSeparator.convertSeparator(request.getColumnSeparator());
+        if (streamLoadTask.getColumnSeparator() != null) {
+            String sep = streamLoadTask.getColumnSeparator().getColumnSeparator();
             params.setColumn_separator(sep.getBytes(Charset.forName("UTF-8"))[0]);
         } else {
             params.setColumn_separator((byte) '\t');
