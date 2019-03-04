@@ -39,6 +39,7 @@ import org.junit.Test;
 
 import java.util.Map;
 import java.util.Queue;
+import java.util.UUID;
 
 import mockit.Deencapsulation;
 import mockit.Expectations;
@@ -64,7 +65,7 @@ public class RoutineLoadTaskSchedulerTest {
         long beId = 100L;
 
         Queue<RoutineLoadTaskInfo> routineLoadTaskInfoQueue = Queues.newLinkedBlockingQueue();
-        KafkaTaskInfo routineLoadTaskInfo1 = new KafkaTaskInfo("1", "1");
+        KafkaTaskInfo routineLoadTaskInfo1 = new KafkaTaskInfo(new UUID(1, 1), 1l);
         routineLoadTaskInfo1.addKafkaPartition(1);
         routineLoadTaskInfo1.addKafkaPartition(2);
         routineLoadTaskInfoQueue.add(routineLoadTaskInfo1);
@@ -116,7 +117,7 @@ public class RoutineLoadTaskSchedulerTest {
                 result = beId;
                 routineLoadManager.getJobByTaskId(anyString);
                 result = kafkaRoutineLoadJob1;
-                routineLoadManager.getJob(anyString);
+                routineLoadManager.getJob(anyLong);
                 result = kafkaRoutineLoadJob1;
             }
         };
@@ -127,7 +128,7 @@ public class RoutineLoadTaskSchedulerTest {
 //
 //        new Expectations() {
 //            {
-//                routineLoadTaskInfo1.createStreamLoadTask(anyLong);
+//                routineLoadTaskInfo1.createRoutineLoadTask(anyLong);
 //                result = kafkaRoutineLoadTask;
 //            }
 //        };
