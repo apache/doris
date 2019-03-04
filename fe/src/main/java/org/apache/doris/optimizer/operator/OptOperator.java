@@ -1,0 +1,61 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.optimizer.operator;
+
+// Base class for operation. Operation can be logical or physical
+// Pattern is a special kind of operation which is only used in rules to
+// match pattern and then do transform
+// All operators have type property and some of them have other arguments
+// for example, LogicalScan have property indicating which table is going
+// to be scanned
+public abstract class OptOperator {
+    private OptOperatorType type;
+
+    protected OptOperator(OptOperatorType type) {
+        this.type = type;
+    }
+
+    public OptOperatorType getType() { return type; }
+    public String getName() { return type.getName(); }
+
+    public boolean isLogical() { return false; }
+    public boolean isPhysical() { return false; }
+    // if this operator is pattern
+    public boolean isPattern() { return false; }
+
+    public String debugString() {
+        return type.getName();
+    }
+
+    @Override
+    public int hashCode() {
+        return type.hashCode();
+    }
+
+    // equals is used to find if there is also a redundant MultiExpression
+    @Override
+    public boolean equals(Object obj) {
+        if (obj == null || getClass() != obj.getClass()) {
+            return false;
+        }
+        return type == ((OptOperator) obj).type;
+    }
+
+    @Override
+    public String toString() { return debugString(); }
+}
