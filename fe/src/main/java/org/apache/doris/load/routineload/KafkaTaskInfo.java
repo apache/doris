@@ -20,22 +20,15 @@ package org.apache.doris.load.routineload;
 import com.google.common.base.Joiner;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.planner.StreamLoadPlanner;
-import org.apache.doris.task.KafkaRoutineLoadTask;
-import org.apache.doris.task.RoutineLoadTask;
-import org.apache.doris.task.StreamLoadTask;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
-import org.apache.doris.thrift.TFileFormatType;
-import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TKafkaLoadInfo;
 import org.apache.doris.thrift.TLoadSourceType;
+import org.apache.doris.thrift.TPlanFragment;
 import org.apache.doris.thrift.TRoutineLoadTask;
-import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.BeginTransactionException;
 
@@ -52,8 +45,7 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
 
     private List<Integer> partitions;
 
-    public KafkaTaskInfo(UUID id, long jobId) throws LabelAlreadyUsedException,
-            BeginTransactionException, AnalysisException {
+    public KafkaTaskInfo(UUID id, long jobId) {
         super(id, jobId);
         this.partitions = new ArrayList<>();
     }
@@ -74,7 +66,7 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
 
     // todo: reuse plan fragment of stream load
     @Override
-    public TRoutineLoadTask createRoutineLoadTask(long beId) throws LoadException, UserException {
+    public TRoutineLoadTask createRoutineLoadTask() throws LoadException, UserException {
         KafkaRoutineLoadJob routineLoadJob = (KafkaRoutineLoadJob) routineLoadManager.getJob(jobId);
         Map<Integer, Long> partitionIdToOffset = Maps.newHashMap();
         for (Integer partitionId : partitions) {
@@ -96,7 +88,7 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         tRoutineLoadTask.setTbl(database.getTable(routineLoadJob.getTableId()).getName());
         StringBuilder stringBuilder = new StringBuilder();
         // label = (serviceAddress_topic_partition1:offset_partition2:offset).hashcode()
-        String label = String.valueOf(stringBuilder.append(routineLoadJob.getServerAddress()).append("_")
+        String label = String.valueOf(stringBuilder.append(routineLoadJob.getBrokerList()).append("_")
                                               .append(routineLoadJob.getTopic()).append("_")
                                               .append(Joiner.on("_").withKeyValueSeparator(":")
                                                               .join(partitionIdToOffset)).toString().hashCode());
@@ -104,21 +96,19 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         tRoutineLoadTask.setAuth_code(routineLoadJob.getAuthCode());
         TKafkaLoadInfo tKafkaLoadInfo = new TKafkaLoadInfo();
         tKafkaLoadInfo.setTopic((routineLoadJob).getTopic());
-        tKafkaLoadInfo.setBrokers((routineLoadJob).getServerAddress());
+        tKafkaLoadInfo.setBrokers((routineLoadJob).getBrokerList());
         tKafkaLoadInfo.setPartition_begin_offset(partitionIdToOffset);
         tRoutineLoadTask.setKafka_load_info(tKafkaLoadInfo);
         tRoutineLoadTask.setType(TLoadSourceType.KAFKA);
-        tRoutineLoadTask.setParams(createTExecPlanFragmentParams(routineLoadJob));
+        tRoutineLoadTask.setParams(updateTExecPlanFragmentParams(routineLoadJob));
         return tRoutineLoadTask;
     }
 
 
-    private TExecPlanFragmentParams createTExecPlanFragmentParams(RoutineLoadJob routineLoadJob) throws UserException {
-        StreamLoadTask streamLoadTask = StreamLoadTask.fromRoutineLoadTaskInfo(this);
-        Database database = Catalog.getCurrentCatalog().getDb(routineLoadJob.getDbId());
-        StreamLoadPlanner planner = new StreamLoadPlanner(database,
-                                                          (OlapTable) database.getTable(routineLoadJob.getTableId()),
-                                                          streamLoadTask);
-        return planner.plan();
+    private TExecPlanFragmentParams updateTExecPlanFragmentParams(RoutineLoadJob routineLoadJob) throws UserException {
+        TExecPlanFragmentParams tExecPlanFragmentParams = routineLoadJob.gettExecPlanFragmentParams();
+        TPlanFragment tPlanFragment = tExecPlanFragmentParams.getFragment();
+        tPlanFragment.getOutput_sink().getOlap_table_sink().setTxn_id(this.txnId);
+        return tExecPlanFragmentParams;
     }
 }
