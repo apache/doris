@@ -119,7 +119,7 @@ public class LoadBalancer {
             Set<Long> pathLow = Sets.newHashSet();
             Set<Long> pathMid = Sets.newHashSet();
             Set<Long> pathHigh = Sets.newHashSet();
-            beStat.getPathStatisticByClass(pathLow, pathMid, pathHigh);
+            beStat.getPathStatisticByClass(pathLow, pathMid, pathHigh, null);
             // we only select tablets from available mid and high load path
             pathHigh.addAll(pathMid);
             
@@ -273,7 +273,7 @@ public class LoadBalancer {
                 Set<Long> pathLow = Sets.newHashSet();
                 Set<Long> pathMid = Sets.newHashSet();
                 Set<Long> pathHigh = Sets.newHashSet();
-                beStat.getPathStatisticByClass(pathLow, pathMid, pathHigh);
+                beStat.getPathStatisticByClass(pathLow, pathMid, pathHigh, tabletCtx.getStorageMedium());
                 pathLow.addAll(pathMid);
 
                 long pathHash = slot.takeAnAvailBalanceSlotFrom(pathLow);
