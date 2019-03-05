@@ -63,7 +63,7 @@ public class CreateRoutineLoadStmtTest {
         Map<String, String> customProperties = Maps.newHashMap();
 
         customProperties.put(CreateRoutineLoadStmt.KAFKA_TOPIC_PROPERTY, topicName);
-        customProperties.put(CreateRoutineLoadStmt.KAFKA_ENDPOINT_PROPERTY, serverAddress);
+        customProperties.put(CreateRoutineLoadStmt.KAFKA_BROKER_LIST_PROPERTY, serverAddress);
         customProperties.put(CreateRoutineLoadStmt.KAFKA_PARTITIONS_PROPERTY, kafkaPartitionString);
 
         CreateRoutineLoadStmt createRoutineLoadStmt = new CreateRoutineLoadStmt(jobName, tableName,
@@ -109,7 +109,7 @@ public class CreateRoutineLoadStmtTest {
         Map<String, String> customProperties = Maps.newHashMap();
 
         customProperties.put(CreateRoutineLoadStmt.KAFKA_TOPIC_PROPERTY, topicName);
-        customProperties.put(CreateRoutineLoadStmt.KAFKA_ENDPOINT_PROPERTY, serverAddress);
+        customProperties.put(CreateRoutineLoadStmt.KAFKA_BROKER_LIST_PROPERTY, serverAddress);
         customProperties.put(CreateRoutineLoadStmt.KAFKA_PARTITIONS_PROPERTY, kafkaPartitionString);
 
         CreateRoutineLoadStmt createRoutineLoadStmt = new CreateRoutineLoadStmt(jobName, tableName,
@@ -129,7 +129,7 @@ public class CreateRoutineLoadStmtTest {
         Assert.assertEquals(partitionNames.getPartitionNames(), createRoutineLoadStmt.getRoutineLoadDesc().getPartitionNames());
         Assert.assertEquals(2, createRoutineLoadStmt.getDesiredConcurrentNum());
         Assert.assertEquals(0, createRoutineLoadStmt.getMaxErrorNum());
-        Assert.assertEquals(serverAddress, createRoutineLoadStmt.getKafkaEndpoint());
+        Assert.assertEquals(serverAddress, createRoutineLoadStmt.getKafkaBrokerList());
         Assert.assertEquals(topicName, createRoutineLoadStmt.getKafkaTopic());
         Assert.assertEquals(kafkaPartitionString, Joiner.on(",").join(createRoutineLoadStmt.getKafkaPartitions()));
     }
