@@ -321,7 +321,7 @@ public class GlobalTransactionMgrTest {
         routineLoadTaskInfoList.add(routineLoadTaskInfo);
         TransactionState transactionState = new TransactionState(1L, 1L, "label", 1L, LoadJobSourceType.ROUTINE_LOAD_TASK, "be1");
         transactionState.setTransactionStatus(TransactionStatus.PREPARE);
-        transactionState.setTxnStateChangeListener(routineLoadJob);
+        Deencapsulation.setField(transactionState, "txnStateChangeListener", routineLoadJob);
         Map<Long, TransactionState> idToTransactionState = Maps.newHashMap();
         idToTransactionState.put(1L, transactionState);
         Deencapsulation.setField(routineLoadJob, "maxErrorNum", 10);
@@ -330,7 +330,7 @@ public class GlobalTransactionMgrTest {
         KafkaProgress oldkafkaProgress = new KafkaProgress();
         oldkafkaProgress.setPartitionIdToOffset(oldKafkaProgressMap);
         Deencapsulation.setField(routineLoadJob, "progress", oldkafkaProgress);
-        routineLoadJob.setState(RoutineLoadJob.JobState.RUNNING);
+        Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.RUNNING);
 
         TRLTaskTxnCommitAttachment rlTaskTxnCommitAttachment = new TRLTaskTxnCommitAttachment();
         rlTaskTxnCommitAttachment.setId(new TUniqueId());
@@ -395,7 +395,7 @@ public class GlobalTransactionMgrTest {
         routineLoadTaskInfoList.add(routineLoadTaskInfo);
         TransactionState transactionState = new TransactionState(1L, 1L, "label", 1L, LoadJobSourceType.ROUTINE_LOAD_TASK, "be1");
         transactionState.setTransactionStatus(TransactionStatus.PREPARE);
-        transactionState.setTxnStateChangeListener(routineLoadJob);
+        Deencapsulation.setField(transactionState, "txnStateChangeListener", routineLoadJob);
         Map<Long, TransactionState> idToTransactionState = Maps.newHashMap();
         idToTransactionState.put(1L, transactionState);
         Deencapsulation.setField(routineLoadJob, "maxErrorNum", 10);
@@ -404,7 +404,7 @@ public class GlobalTransactionMgrTest {
         KafkaProgress oldkafkaProgress = new KafkaProgress();
         oldkafkaProgress.setPartitionIdToOffset(oldKafkaProgressMap);
         Deencapsulation.setField(routineLoadJob, "progress", oldkafkaProgress);
-        routineLoadJob.setState(RoutineLoadJob.JobState.RUNNING);
+        Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.RUNNING);
 
         TRLTaskTxnCommitAttachment rlTaskTxnCommitAttachment = new TRLTaskTxnCommitAttachment();
         rlTaskTxnCommitAttachment.setId(new TUniqueId());

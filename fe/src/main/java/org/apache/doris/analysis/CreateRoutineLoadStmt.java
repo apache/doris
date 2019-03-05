@@ -78,7 +78,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     public static final String MAX_ERROR_NUMBER_PROPERTY = "max_error_number";
 
     // kafka type properties
-    public static final String KAFKA_ENDPOINT_PROPERTY = "kafka_endpoint";
+    public static final String KAFKA_BROKER_LIST_PROPERTY = "kafka_broker_list";
     public static final String KAFKA_TOPIC_PROPERTY = "kafka_topic";
     // optional
     public static final String KAFKA_PARTITIONS_PROPERTY = "kafka_partitions";
@@ -93,7 +93,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
             .build();
 
     private static final ImmutableSet<String> KAFKA_PROPERTIES_SET = new ImmutableSet.Builder<String>()
-            .add(KAFKA_ENDPOINT_PROPERTY)
+            .add(KAFKA_BROKER_LIST_PROPERTY)
             .add(KAFKA_TOPIC_PROPERTY)
             .add(KAFKA_PARTITIONS_PROPERTY)
             .build();
@@ -110,7 +110,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     private RoutineLoadDesc routineLoadDesc;
     private int desiredConcurrentNum;
     private int maxErrorNum;
-    private String kafkaEndpoint;
+    private String kafkaBrokerList;
     private String kafkaTopic;
     private List<Integer> kafkaPartitions;
 
@@ -121,7 +121,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         this.dbTableName = dbTableName;
         this.loadPropertyList = loadPropertyList;
         this.properties = properties;
-        this.typeName = typeName;
+        this.typeName = typeName.toUpperCase();
         this.customProperties = customProperties;
     }
 
@@ -145,6 +145,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         return customProperties;
     }
 
+    // nullable
     public RoutineLoadDesc getRoutineLoadDesc() {
         return routineLoadDesc;
     }
@@ -157,8 +158,8 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         return maxErrorNum;
     }
 
-    public String getKafkaEndpoint() {
-        return kafkaEndpoint;
+    public String getKafkaBrokerList() {
+        return kafkaBrokerList;
     }
 
     public String getKafkaTopic() {
@@ -176,6 +177,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         FeNameFormat.checkCommonName(NAME_TYPE, name);
         // check dbName and tableName
         checkDBTableName();
+        dbTableName.analyze(analyzer);
         // check load properties include column separator etc.
         checkLoadProperties(analyzer);
         // check routine load properties include desired concurrent number etc.
@@ -291,12 +293,16 @@ public class CreateRoutineLoadStmt extends DdlStmt {
             throw new AnalysisException(optional.get() + " is invalid kafka custom property");
         }
         // check endpoint
-        kafkaEndpoint = customProperties.get(KAFKA_ENDPOINT_PROPERTY);
-        if (Strings.isNullOrEmpty(kafkaEndpoint)) {
-            throw new AnalysisException(KAFKA_ENDPOINT_PROPERTY + " is required property");
+        kafkaBrokerList = customProperties.get(KAFKA_BROKER_LIST_PROPERTY);
+        if (Strings.isNullOrEmpty(kafkaBrokerList)) {
+            throw new AnalysisException(KAFKA_BROKER_LIST_PROPERTY + " is required property");
         }
-        if (!Pattern.matches(ENDPOINT_REGEX, kafkaEndpoint)) {
-            throw new AnalysisException(KAFKA_ENDPOINT_PROPERTY + " not match pattern " + ENDPOINT_REGEX);
+        String[] kafkaBrokerList = this.kafkaBrokerList.split(",");
+        for (String broker : kafkaBrokerList) {
+            if (!Pattern.matches(ENDPOINT_REGEX, broker)) {
+                throw new AnalysisException(KAFKA_BROKER_LIST_PROPERTY + ":" + broker
+                                                    + " not match pattern " + ENDPOINT_REGEX);
+            }
         }
         // check topic
         kafkaTopic = customProperties.get(KAFKA_TOPIC_PROPERTY);
