@@ -80,6 +80,7 @@ import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.proc.BackendsProcDir;
 import org.apache.doris.common.proc.FrontendsProcNode;
@@ -801,14 +802,18 @@ public class ShowExecutor {
         }
 
         // check auth
-        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
-                                                                routineLoadJob.getDbFullName(),
-                                                                routineLoadJob.getTableName(),
-                                                                PrivPredicate.LOAD)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
-                                                ConnectContext.get().getQualifiedUser(),
-                                                ConnectContext.get().getRemoteIP(),
-                                                routineLoadJob.getTableName());
+        try {
+            if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
+                                                                    routineLoadJob.getDbFullName(),
+                                                                    routineLoadJob.getTableName(),
+                                                                    PrivPredicate.LOAD)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
+                                                    ConnectContext.get().getQualifiedUser(),
+                                                    ConnectContext.get().getRemoteIP(),
+                                                    routineLoadJob.getTableName());
+            }
+        } catch (MetaNotFoundException e) {
+            throw new AnalysisException(e.getMessage());
         }
 
         // get routine load info

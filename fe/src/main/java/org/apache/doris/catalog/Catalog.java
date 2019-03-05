@@ -100,6 +100,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MarkedCountDownLatch;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
@@ -133,6 +134,8 @@ import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.LoadJob.JobState;
 import org.apache.doris.load.routineload.RoutineLoadManager;
+import org.apache.doris.load.routineload.RoutineLoadScheduler;
+import org.apache.doris.load.routineload.RoutineLoadTaskScheduler;
 import org.apache.doris.master.Checkpoint;
 import org.apache.doris.master.MetaHelper;
 import org.apache.doris.meta.MetaContext;
@@ -349,6 +352,10 @@ public class Catalog {
 
     private TabletChecker tabletChecker;
 
+    private RoutineLoadScheduler routineLoadScheduler;
+
+    private RoutineLoadTaskScheduler routineLoadTaskScheduler;
+
     public List<Frontend> getFrontends(FrontendNodeType nodeType) {
         if (nodeType == null) {
             // get all
@@ -466,6 +473,9 @@ public class Catalog {
         this.stat = new TabletSchedulerStat();
         this.tabletScheduler = new TabletScheduler(this, systemInfo, tabletInvertedIndex, stat);
         this.tabletChecker = new TabletChecker(this, systemInfo, tabletScheduler, stat);
+
+        this.routineLoadScheduler = new RoutineLoadScheduler(routineLoadManager);
+        this.routineLoadTaskScheduler = new RoutineLoadTaskScheduler(routineLoadManager);
     }
 
     public static void destroyCheckpoint() {
@@ -649,6 +659,10 @@ public class Catalog {
         // the clear threads runs every min(transaction_clean_interval_second,stream_load_default_timeout_second)/10
         txnCleaner.setInterval(Math.min(Config.transaction_clean_interval_second,
                 Config.stream_load_default_timeout_second) * 100L);
+
+        // 8. start routine load scheduler
+        routineLoadScheduler.start();
+        routineLoadTaskScheduler.start();
 
     }
 
@@ -6063,6 +6077,23 @@ public class Catalog {
             }
 
             replica.setBad(backendTabletsInfo.isBad());
+        }
+    }
+
+    public List<Long> getBackendIdsByCluster(String clusterName) throws MetaNotFoundException {
+        if (nameToCluster.containsKey(clusterName)) {
+            Cluster cluster = nameToCluster.get(clusterName);
+            if (cluster == null) {
+                throw new MetaNotFoundException("Cluster " + clusterName + "has been deleted");
+            }
+            tryLock(true);
+            try {
+                return cluster.getBackendIdList();
+            } finally {
+                unlock();
+            }
+        } else {
+            throw new MetaNotFoundException("Cluster " + clusterName + "has been deleted");
         }
     }
 }

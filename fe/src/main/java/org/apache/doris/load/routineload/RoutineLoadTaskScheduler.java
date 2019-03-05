@@ -17,6 +17,9 @@
 
 package org.apache.doris.load.routineload;
 
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.LoadException;
@@ -52,12 +55,16 @@ public class RoutineLoadTaskScheduler extends Daemon {
     private static final Logger LOG = LogManager.getLogger(RoutineLoadTaskScheduler.class);
 
     private RoutineLoadManager routineLoadManager;
-    private LinkedBlockingQueue<RoutineLoadTaskInfo> needScheduleTasksQueue;
 
+    @VisibleForTesting
     public RoutineLoadTaskScheduler() {
         super("routine load task", 0);
-        routineLoadManager = Catalog.getInstance().getRoutineLoadManager();
-        needScheduleTasksQueue = (LinkedBlockingQueue) routineLoadManager.getNeedScheduleTasksQueue();
+        this.routineLoadManager = Catalog.getInstance().getRoutineLoadManager();
+    }
+
+    public RoutineLoadTaskScheduler(RoutineLoadManager routineLoadManager) {
+        super("routine load task", 0);
+        this.routineLoadManager = routineLoadManager;
     }
 
     @Override
@@ -70,7 +77,9 @@ public class RoutineLoadTaskScheduler extends Daemon {
         }
     }
 
-    private void process() throws LoadException, UserException {
+    private void process() throws LoadException, UserException, InterruptedException {
+        LinkedBlockingQueue<RoutineLoadTaskInfo> needScheduleTasksQueue =
+                (LinkedBlockingQueue) routineLoadManager.getNeedScheduleTasksQueue();
         // update current beIdMaps for tasks
         routineLoadManager.updateBeIdTaskMaps();
 
@@ -83,17 +92,13 @@ public class RoutineLoadTaskScheduler extends Daemon {
         int scheduledTaskNum = 0;
         // get idle be task num
         // allocate task to be
+        if (needScheduleTaskNum == 0) {
+            Thread.sleep(1000);
+            return;
+        }
         while (needScheduleTaskNum > 0) {
-            RoutineLoadTaskInfo routineLoadTaskInfo = null;
-            try {
-                routineLoadTaskInfo = needScheduleTasksQueue.take();
-            } catch (InterruptedException e) {
-                LOG.warn("Taking routine load task from queue has been interrupted with error msg {}",
-                         e.getMessage());
-                return;
-            }
-
-            long beId = routineLoadManager.getMinTaskBeId();
+            // allocate be to task and begin transaction for task
+            RoutineLoadTaskInfo routineLoadTaskInfo = needScheduleTasksQueue.peek();
             RoutineLoadJob routineLoadJob = null;
             try {
                 routineLoadJob = routineLoadManager.getJobByTaskId(routineLoadTaskInfo.getId().toString());
@@ -101,7 +106,27 @@ public class RoutineLoadTaskScheduler extends Daemon {
                 LOG.warn("task {} has been abandoned", routineLoadTaskInfo.getId());
                 return;
             }
-            TRoutineLoadTask tRoutineLoadTask = routineLoadTaskInfo.createRoutineLoadTask(beId);
+            long beId;
+            try {
+                beId = routineLoadManager.getMinTaskBeId(routineLoadJob.getClusterName());
+                routineLoadTaskInfo.setTxn();
+            } catch (Exception e) {
+                LOG.warn("put task to the rear of queue with error " + e.getMessage());
+                needScheduleTasksQueue.take();
+                needScheduleTasksQueue.put(routineLoadTaskInfo);
+                needScheduleTaskNum--;
+                continue;
+            }
+
+            // task to thrift
+            try {
+                routineLoadTaskInfo = needScheduleTasksQueue.take();
+            } catch (InterruptedException e) {
+                LOG.warn("Taking routine load task from queue has been interrupted with error msg {}",
+                         e.getMessage());
+                return;
+            }
+            TRoutineLoadTask tRoutineLoadTask = routineLoadTaskInfo.createRoutineLoadTask();
             // remove task for needScheduleTasksList in job
             routineLoadJob.removeNeedScheduleTask(routineLoadTaskInfo);
             routineLoadTaskInfo.setLoadStartTimeMs(System.currentTimeMillis());
@@ -123,7 +148,6 @@ public class RoutineLoadTaskScheduler extends Daemon {
         LOG.info("{} tasks have bean allocated to be.", scheduledTaskNum);
     }
 
-    // todo: change to batch submit and reuse client
     private void submitBatchTask(Map<Long, List<TRoutineLoadTask>> beIdToRoutineLoadTask) {
         for (Map.Entry<Long, List<TRoutineLoadTask>> entry : beIdToRoutineLoadTask.entrySet()) {
             Backend backend = Catalog.getCurrentSystemInfo().getBackend(entry.getKey());
@@ -133,7 +157,6 @@ public class RoutineLoadTaskScheduler extends Daemon {
             try {
                 client = ClientPool.backendPool.borrowObject(address);
                 client.submit_routine_load_task(entry.getValue());
-
                 ok = true;
             } catch (Exception e) {
                 LOG.warn("task exec error. backend[{}]", backend.getId(), e);
