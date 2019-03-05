@@ -76,7 +76,7 @@ public class RoutineLoadManagerTest {
         String topicName = "topic1";
         customProperties.put(CreateRoutineLoadStmt.KAFKA_TOPIC_PROPERTY, topicName);
         String serverAddress = "http://127.0.0.1:8080";
-        customProperties.put(CreateRoutineLoadStmt.KAFKA_ENDPOINT_PROPERTY, serverAddress);
+        customProperties.put(CreateRoutineLoadStmt.KAFKA_BROKER_LIST_PROPERTY, serverAddress);
         CreateRoutineLoadStmt createRoutineLoadStmt = new CreateRoutineLoadStmt(jobName, tableName,
                                                                                 loadPropertyList, properties,
                                                                                 typeName, customProperties);
@@ -142,7 +142,7 @@ public class RoutineLoadManagerTest {
         String topicName = "topic1";
         customProperties.put(CreateRoutineLoadStmt.KAFKA_TOPIC_PROPERTY, topicName);
         String serverAddress = "http://127.0.0.1:8080";
-        customProperties.put(CreateRoutineLoadStmt.KAFKA_ENDPOINT_PROPERTY, serverAddress);
+        customProperties.put(CreateRoutineLoadStmt.KAFKA_BROKER_LIST_PROPERTY, serverAddress);
         CreateRoutineLoadStmt createRoutineLoadStmt = new CreateRoutineLoadStmt(jobName, tableName,
                                                                                 loadPropertyList, properties,
                                                                                 typeName, customProperties);
@@ -236,7 +236,7 @@ public class RoutineLoadManagerTest {
 
         new Expectations() {
             {
-                systemInfoService.getBackendIds(true);
+                systemInfoService.getClusterBackendIds(anyString, true);
                 result = beIds;
                 Catalog.getCurrentSystemInfo();
                 result = systemInfoService;
@@ -245,7 +245,7 @@ public class RoutineLoadManagerTest {
 
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
         routineLoadManager.addNumOfConcurrentTasksByBeId(1L);
-        Assert.assertEquals(2L, routineLoadManager.getMinTaskBeId());
+        Assert.assertEquals(2L, routineLoadManager.getMinTaskBeId("default"));
     }
 
     @Test

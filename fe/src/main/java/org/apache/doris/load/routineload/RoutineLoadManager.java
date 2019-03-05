@@ -92,6 +92,10 @@ public class RoutineLoadManager {
         return needScheduleTasksQueue;
     }
 
+    public void addTasksToNeedScheduleQueue(List<RoutineLoadTaskInfo> routineLoadTaskInfoList) {
+        needScheduleTasksQueue.addAll(routineLoadTaskInfoList);
+    }
+
     private void updateBeIdToMaxConcurrentTasks() {
         beIdToMaxConcurrentTasks = Catalog.getCurrentSystemInfo().getBackendIds(true)
                     .parallelStream().collect(Collectors.toMap(beId -> beId, beId -> DEFAULT_BE_CONCURRENT_TASK_NUM));
@@ -172,7 +176,7 @@ public class RoutineLoadManager {
         writeLock();
         try {
             // check if db.routineLoadName has been used
-            if (isNameUsed(routineLoadJob.dbId, routineLoadJob.getName())) {
+            if (isNameUsed(routineLoadJob.getDbId(), routineLoadJob.getName())) {
                 throw new DdlException("Name " + routineLoadJob.getName() + " already used in db "
                                                + routineLoadJob.getDbId());
             }
@@ -228,17 +232,26 @@ public class RoutineLoadManager {
             throw new DdlException("There is not routine load job with name " + pauseRoutineLoadStmt.getName());
         }
         // check auth
+        String dbFullName;
+        String tableName;
+        try {
+            dbFullName = routineLoadJob.getDbFullName();
+            tableName = routineLoadJob.getTableName();
+        } catch (MetaNotFoundException e) {
+            throw new DdlException("The metadata of job has been changed. The job will be cancelled automatically", e);
+        }
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
-                                                                routineLoadJob.getDbFullName(),
-                                                                routineLoadJob.getTableName(),
+                                                                dbFullName,
+                                                                tableName,
                                                                 PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                                                 ConnectContext.get().getQualifiedUser(),
                                                 ConnectContext.get().getRemoteIP(),
-                                                routineLoadJob.getTableName());
+                                                tableName);
         }
 
-        routineLoadJob.pause("User " + ConnectContext.get().getQualifiedUser() + "pauses routine load job");
+        routineLoadJob.updateState(RoutineLoadJob.JobState.PAUSED,
+                                   "User " + ConnectContext.get().getQualifiedUser() + "pauses routine load job");
     }
 
     public void resumeRoutineLoadJob(ResumeRoutineLoadStmt resumeRoutineLoadStmt) throws DdlException,
@@ -248,16 +261,24 @@ public class RoutineLoadManager {
             throw new DdlException("There is not routine load job with name " + resumeRoutineLoadStmt.getName());
         }
         // check auth
+        String dbFullName;
+        String tableName;
+        try {
+            dbFullName = routineLoadJob.getDbFullName();
+            tableName = routineLoadJob.getTableName();
+        } catch (MetaNotFoundException e) {
+            throw new DdlException("The metadata of job has been changed. The job will be cancelled automatically", e);
+        }
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
-                                                                routineLoadJob.getDbFullName(),
-                                                                routineLoadJob.getTableName(),
+                                                                dbFullName,
+                                                                tableName,
                                                                 PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                                                 ConnectContext.get().getQualifiedUser(),
                                                 ConnectContext.get().getRemoteIP(),
-                                                routineLoadJob.getTableName());
+                                                tableName);
         }
-        routineLoadJob.resume();
+        routineLoadJob.updateState(RoutineLoadJob.JobState.NEED_SCHEDULE);
     }
 
     public void stopRoutineLoadJob(StopRoutineLoadStmt stopRoutineLoadStmt) throws DdlException, AnalysisException {
@@ -266,16 +287,24 @@ public class RoutineLoadManager {
             throw new DdlException("There is not routine load job with name " + stopRoutineLoadStmt.getName());
         }
         // check auth
+        String dbFullName;
+        String tableName;
+        try {
+            dbFullName = routineLoadJob.getDbFullName();
+            tableName = routineLoadJob.getTableName();
+        } catch (MetaNotFoundException e) {
+            throw new DdlException("The metadata of job has been changed. The job will be cancelled automatically", e);
+        }
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
-                                                                routineLoadJob.getDbFullName(),
-                                                                routineLoadJob.getTableName(),
+                                                                dbFullName,
+                                                                tableName,
                                                                 PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                                                 ConnectContext.get().getQualifiedUser(),
                                                 ConnectContext.get().getRemoteIP(),
-                                                routineLoadJob.getTableName());
+                                                tableName);
         }
-        routineLoadJob.stop();
+        routineLoadJob.updateState(RoutineLoadJob.JobState.STOPPED);
     }
 
     public int getSizeOfIdToRoutineLoadTask() {
@@ -304,21 +333,26 @@ public class RoutineLoadManager {
         }
     }
 
-    public long getMinTaskBeId() throws LoadException {
+    public long getMinTaskBeId(String clusterName) throws LoadException {
+        List<Long> beIdsInCluster = Catalog.getCurrentSystemInfo().getClusterBackendIds(clusterName);
+        if (beIdsInCluster == null) {
+            throw new LoadException("The " + clusterName + " has been deleted");
+        }
+
         readLock();
         try {
             long result = -1L;
             int maxIdleSlotNum = 0;
             updateBeIdToMaxConcurrentTasks();
-            for (Map.Entry<Long, Integer> entry : beIdToMaxConcurrentTasks.entrySet()) {
-                if (beIdToConcurrentTasks.get(entry.getKey()) == null) {
-                    result = maxIdleSlotNum < entry.getValue() ? entry.getKey() : result;
-                    maxIdleSlotNum = Math.max(maxIdleSlotNum, entry.getValue());
-                } else {
-                    int idelTaskNum = entry.getValue() - beIdToConcurrentTasks.get(entry.getKey());
-                    result = maxIdleSlotNum < idelTaskNum ? entry.getKey() : result;
-                    maxIdleSlotNum = Math.max(maxIdleSlotNum, idelTaskNum);
-                }
+            for (Long beId : beIdsInCluster) {
+                    int idleTaskNum = 0;
+                    if (beIdToConcurrentTasks.containsKey(beId)) {
+                        idleTaskNum = beIdToMaxConcurrentTasks.get(beId) - beIdToConcurrentTasks.get(beId);
+                    } else {
+                        idleTaskNum = DEFAULT_BE_CONCURRENT_TASK_NUM;
+                    }
+                    result = maxIdleSlotNum < idleTaskNum ? beId : result;
+                    maxIdleSlotNum = Math.max(maxIdleSlotNum, idleTaskNum);
             }
             if (result < 0) {
                 throw new LoadException("There is no empty slot in cluster");
@@ -369,17 +403,12 @@ public class RoutineLoadManager {
         throw new MetaNotFoundException("could not found task by id " + taskId);
     }
 
-    public List<RoutineLoadJob> getRoutineLoadJobByState(RoutineLoadJob.JobState jobState) throws LoadException {
-        List<RoutineLoadJob> jobs = new ArrayList<>();
-        Collection<RoutineLoadJob> stateJobs = null;
+    public List<RoutineLoadJob> getRoutineLoadJobByState(RoutineLoadJob.JobState jobState) {
         LOG.debug("begin to get routine load job by state {}", jobState.name());
-        stateJobs = idToRoutineLoadJob.values().stream()
+        List<RoutineLoadJob> stateJobs = idToRoutineLoadJob.values().stream()
                 .filter(entity -> entity.getState() == jobState).collect(Collectors.toList());
-        if (stateJobs != null) {
-            jobs.addAll(stateJobs);
-            LOG.info("got {} routine load jobs by state {}", jobs.size(), jobState.name());
-        }
-        return jobs;
+        LOG.debug("got {} routine load jobs by state {}", stateJobs.size(), jobState.name());
+        return stateJobs;
     }
 
     public List<RoutineLoadTaskInfo> processTimeoutTasks() {
@@ -397,9 +426,9 @@ public class RoutineLoadManager {
         // TODO(ml): remove old routine load job
     }
 
-    public void rescheduleRoutineLoadJob() {
+    public void updateRoutineLoadJob() {
         for (RoutineLoadJob routineLoadJob : idToRoutineLoadJob.values()) {
-            routineLoadJob.reschedule();
+            routineLoadJob.update();
         }
     }
 

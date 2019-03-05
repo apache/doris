@@ -77,7 +77,7 @@ public class RoutineLoadSchedulerTest {
                 new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
                                         1L, routineLoadDesc ,3, 0,
                                         "", "", new KafkaProgress());
-        routineLoadJob.setState(RoutineLoadJob.JobState.NEED_SCHEDULE);
+        Deencapsulation.setField(routineLoadJob,"state", RoutineLoadJob.JobState.NEED_SCHEDULE);
         List<RoutineLoadJob> routineLoadJobList = new ArrayList<>();
         routineLoadJobList.add(routineLoadJob);
 
