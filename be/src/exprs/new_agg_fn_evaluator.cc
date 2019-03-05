@@ -262,8 +262,8 @@ void NewAggFnEvaluator::SetDstSlot(const AnyVal* src, const SlotDescriptor& dst_
                     *reinterpret_cast<const DecimalVal*>(src));
         return;
     case TYPE_DECIMAL_V2:
-        *reinterpret_cast<Decimal_V2Value*>(slot) = Decimal_V2Value::from_decimal_val(
-                    *reinterpret_cast<const Decimal_V2Val*>(src));
+        *reinterpret_cast<PackedInt128*>(slot) = 
+            reinterpret_cast<const Decimal_V2Val*>(src)->val;
         return;
     default:
       DCHECK(false) << "NYI: " << dst_slot_desc.type();
@@ -367,8 +367,8 @@ inline void NewAggFnEvaluator::set_any_val(
         return;
 
     case TYPE_DECIMAL_V2:
-        reinterpret_cast<const Decimal_V2Value*>(slot)->to_decimal_val(
-                reinterpret_cast<Decimal_V2Val*>(dst));
+        reinterpret_cast<Decimal_V2Val*>(dst)->val = 
+            reinterpret_cast<const PackedInt128*>(slot)->value;
         return;
 
     case TYPE_LARGEINT:

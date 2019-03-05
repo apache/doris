@@ -193,7 +193,8 @@ bool OlapRewriteNode::copy_one_row(TupleRow* src_row, Tuple* tuple,
                     return false;
                 }
             } else {
-                *dst_val = *dec_val;
+                *reinterpret_cast<PackedInt128*>(dst_val) = 
+                    *reinterpret_cast<const PackedInt128*>(dec_val);
             }
             if (*dst_val > _max_decimal_v2_val[i]) {
                 dst_val->to_max_decimal(column_type.precision, column_type.scale);

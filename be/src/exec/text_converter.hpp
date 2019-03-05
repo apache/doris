@@ -31,6 +31,7 @@
 #include "runtime/datetime_value.h"
 #include "runtime/tuple.h"
 #include "util/string_parser.hpp"
+#include "util/types.h"
 #include "olap/utils.h"
 
 namespace doris {
@@ -164,11 +165,14 @@ inline bool TextConverter::write_slot(const SlotDescriptor* slot_desc,
     }
 
     case TYPE_DECIMAL_V2: {
-        Decimal_V2Value* decimal_slot = reinterpret_cast<Decimal_V2Value*>(slot);
+        Decimal_V2Value decimal_slot;
 
-        if (decimal_slot->parse_from_str(data, len)) {
+        if (decimal_slot.parse_from_str(data, len)) {
             parse_result = StringParser::PARSE_FAILURE;
         }
+
+        *reinterpret_cast<PackedInt128*>(slot) = 
+            *reinterpret_cast<const PackedInt128*>(&decimal_slot);
 
         break;
     }

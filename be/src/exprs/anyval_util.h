@@ -22,6 +22,7 @@
 #include "runtime/primitive_type.h"
 #include "udf/udf.h"
 #include "util/hash_util.hpp"
+#include "util/types.h"
 #include "common/status.h"
 
 namespace doris {
@@ -383,8 +384,8 @@ public:
             reinterpret_cast<doris_udf::DecimalVal*>(dst));
             return; 
         case TYPE_DECIMAL_V2:
-            reinterpret_cast<const Decimal_V2Value*>(slot)->to_decimal_val(
-            reinterpret_cast<doris_udf::Decimal_V2Val*>(dst));
+            reinterpret_cast<doris_udf::Decimal_V2Val*>(dst)->val = 
+                reinterpret_cast<const PackedInt128*>(slot)->value;
             return; 
         case TYPE_DATE:
             reinterpret_cast<const DateTimeValue*>(slot)->to_datetime_val(
