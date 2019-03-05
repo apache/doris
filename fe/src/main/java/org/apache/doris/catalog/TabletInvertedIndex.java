@@ -474,7 +474,7 @@ public class TabletInvertedIndex {
             if (replicaMetaTable.containsRow(tabletId)) {
                 return Lists.newArrayList(replicaMetaTable.row(tabletId).values());
             }
-            return null;
+            return Lists.newArrayList();
         } finally {
             readUnlock();
         }
