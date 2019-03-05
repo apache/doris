@@ -1287,10 +1287,8 @@ bool check_dir_existed(const string& path) {
 
     try {
         if (boost::filesystem::exists(p)) {
-            VLOG(3) << "dir already existed. [path='" << path << "']";
             return true;
         } else {
-            VLOG(3) << "dir does not existed. [path='" << path << "']";
             return false;
         }
     } catch (...) {
@@ -1423,7 +1421,6 @@ OLAPStatus remove_dir(const string& path) {
 
     try {
         if (boost::filesystem::remove(p)) {
-            VLOG(3) << "success to del dir. [path='" << path << "']";
             return OLAP_SUCCESS;
         }
     } catch (...) {
@@ -1459,7 +1456,6 @@ OLAPStatus remove_all_dir(const string& path) {
 
     try {
         if (boost::filesystem::remove_all(p)) {
-            VLOG(3) << "success to del all dir. [path='" << path << "']";
             return OLAP_SUCCESS;
         }
     } catch (...) {

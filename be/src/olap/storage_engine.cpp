@@ -1182,18 +1182,15 @@ OLAPStatus StorageEngine::execute_task(EngineTask* task) {
 }
 
 void StorageEngine::add_check_paths(std::set<std::string> paths) {
-    WriteLock wr_lock(&_check_path_mutex);
+    _check_path_mutex.wrlock();
     _all_check_paths.insert(paths.begin(), paths.end());
+    _check_path_mutex.unlock();
 }
 
 void StorageEngine::remove_check_paths(std::set<std::string> paths) {
-    WriteLock wr_lock(&_check_path_mutex);
-    for (const auto& path : paths) {
-        auto path_iter = _all_check_paths.find(path);
-        if (path_iter != _all_check_paths.end()) {
-            _all_check_paths.erase(path_iter);
-        }
-    }
+    _check_path_mutex.wrlock();
+    _remove_check_paths_no_lock(paths);
+    _check_path_mutex.unlock();
 }
 
 void StorageEngine::add_pending_paths(int64_t id, std::set<std::string> paths) {
@@ -1218,10 +1215,12 @@ bool StorageEngine::check_path_in_pending_paths(std::string path) {
 }
 
 void StorageEngine::process_garbage_path(std::string path) {
-    LOG(INFO) << "collect garbage dir path:" << path;
-    OLAPStatus status = remove_dir(path);
-    if (status != OLAP_SUCCESS) {
-        LOG(WARNING) << "remove garbage dir path:" << path << " failed";
+    if (check_dir_existed(path)) {
+        LOG(INFO) << "collect garbage dir path:" << path;
+        OLAPStatus status = remove_all_dir(path);
+        if (status != OLAP_SUCCESS) {
+            LOG(WARNING) << "remove garbage dir path:" << path << " failed";
+        }
     }
 }
 
@@ -1232,79 +1231,79 @@ void StorageEngine::_perform_path_gc(void* arg) {
     int start = 0;
     int step = config::path_gc_check_step;
     while (true) {
-        {
-            ReadLock rd_lock(&_check_path_mutex);
-            for (int index = start; index < start + step;) {
-                auto path_iter = std::next(_all_check_paths.begin(), index);
-                if (path_iter == _all_check_paths.end()) {
-                    break;
-                }
-                std::string path = *path_iter;
-                TTabletId tablet_id = -1;
-                TSchemaHash schema_hash = -1;
-                bool is_valid = TabletManager::instance()->get_tablet_id_and_schema_hash_from_path(path,
-                        &tablet_id, &schema_hash);
-                std::set<std::string> paths;
-                paths.insert(std::move(path));
-                if (!is_valid) {
-                    LOG(WARNING) << "unknow path:" << path;
-                    remove_check_paths(paths);
-                    continue;
-                } else {
-                    if (tablet_id >=0 && schema_hash >=0) {
-                        // tablet schema hash path or rowset file path
-                        TabletSharedPtr tablet = TabletManager::instance()->get_tablet(tablet_id, schema_hash);
-                        if (tablet == nullptr) {
+        _check_path_mutex.wrlock();
+        for (int index = start; index < start + step;) {
+            auto path_iter = std::next(_all_check_paths.begin(), index);
+            if (path_iter == _all_check_paths.end()) {
+                break;
+            }
+            std::string path = *path_iter;
+            TTabletId tablet_id = -1;
+            TSchemaHash schema_hash = -1;
+            bool is_valid = TabletManager::instance()->get_tablet_id_and_schema_hash_from_path(path,
+                    &tablet_id, &schema_hash);
+            std::set<std::string> paths;
+            paths.insert(path);
+            if (!is_valid) {
+                LOG(WARNING) << "unknow path:" << path;
+                _remove_check_paths_no_lock(paths);
+                continue;
+            } else {
+                if (tablet_id >0 && schema_hash >0) {
+                    // tablet schema hash path or rowset file path
+                    TabletSharedPtr tablet = TabletManager::instance()->get_tablet(tablet_id, schema_hash);
+                    if (tablet == nullptr) {
+                        bool exist_in_pending = check_path_in_pending_paths(path);
+                        if (!exist_in_pending) {
+                            process_garbage_path(path);
+                            _remove_check_paths_no_lock(paths);
+                            continue;
+                        }
+                    } else {
+                        bool valid = tablet->check_path(path);
+                        if (!valid) {
                             bool exist_in_pending = check_path_in_pending_paths(path);
                             if (!exist_in_pending) {
                                 process_garbage_path(path);
-                                remove_check_paths(paths);
+                                _remove_check_paths_no_lock(paths);
                                 continue;
                             }
-                        } else {
-                            bool valid = tablet->check_path(path);
-                            if (!valid) {
-                                bool exist_in_pending = check_path_in_pending_paths(path);
-                                if (!exist_in_pending) {
-                                    process_garbage_path(path);
-                                    remove_check_paths(paths);
-                                    continue;
-                                }
-                            }
-                        }
-                    } else if (tablet_id >=0 && schema_hash == -1) {
-                        // tablet id path
-                        if (FileUtils::is_dir(path)) {
-                            bool exist = TabletManager::instance()->check_tablet_id_exist(tablet_id);
-                            if (!exist) {
-                                bool exist_in_pending = check_path_in_pending_paths(path);
-                                if (!exist_in_pending) {
-                                    LOG(INFO) << "collect garbage dir path:" << path;
-                                    OLAPStatus status = remove_dir(path);
-                                    if (status != OLAP_SUCCESS) {
-                                        LOG(WARNING) << "remove garbage dir path:" << path << " failed";
-                                    }
-                                    remove_check_paths(paths);
-                                    continue;
-                                }
-                            }
-                        } else {
-                            LOG(WARNING) << "unknown file:" << path;
-                            remove_check_paths(paths);
-                            continue;
                         }
                     }
+                } else if (tablet_id >0 && schema_hash <= 0) {
+                    // tablet id path
+                    if (FileUtils::is_dir(path)) {
+                        bool exist = TabletManager::instance()->check_tablet_id_exist(tablet_id);
+                        if (!exist) {
+                            bool exist_in_pending = check_path_in_pending_paths(path);
+                            if (!exist_in_pending) {
+                                process_garbage_path(path);
+                                _remove_check_paths_no_lock(paths);
+                                continue;
+                            }
+                        }
+                    } else {
+                        LOG(WARNING) << "unknown path:" << path;
+                        _remove_check_paths_no_lock(paths);
+                        continue;
+                    }
+                } else {
+                    LOG(WARNING) << "unknown path:" << path;
+                    _remove_check_paths_no_lock(paths);
+                    continue;
                 }
-                ++index;
             }
-
-            start += step;
-            if (start >= _all_check_paths.size()) {
-                break;
-            }
+            ++index;
         }
+
+        start += step;
+        if (start >= _all_check_paths.size()) {
+            _check_path_mutex.unlock();
+            break;
+        }
+        _check_path_mutex.unlock();
         sleep(config::path_gc_check_step_interval_ms);
-    }  
+    }
     LOG(INFO) << "finished one time path gc.";
 }
 
@@ -1332,17 +1331,19 @@ void* StorageEngine::_path_gc_thread_callback(void* arg) {
 }
 
 void StorageEngine::_perform_path_scan(DataDir* data_dir) {
+    _check_path_mutex.rdlock();
     LOG(INFO) << "start to scan data dir path:" << data_dir->path();
     std::set<std::string> shards;
     std::string data_path = data_dir->path() + DATA_PREFIX;
     if (dir_walk(data_path, &shards, nullptr) != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to walk dir. [path=" << data_path << "]";
+        _check_path_mutex.unlock();
         return;
     }
     std::set<std::string> check_paths;
     for (const auto& shard : shards) {
         std::string shard_path = data_path + "/" + shard;
-        check_paths.insert(shard_path);
+        // check_paths.insert(shard_path);
         std::set<std::string> tablet_ids;
         if (dir_walk(shard_path, &tablet_ids, nullptr) != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to walk dir. [path=" << shard_path << "]";
@@ -1371,6 +1372,7 @@ void StorageEngine::_perform_path_scan(DataDir* data_dir) {
             }
         }
     }
+    _check_path_mutex.unlock();
     LOG(INFO) << "scan data dir path:" << data_dir->path() << " finished. path size:" << check_paths.size();
     add_check_paths(check_paths);
 }
@@ -1396,6 +1398,15 @@ void* StorageEngine::_path_scan_thread_callback(void* arg) {
     }
 
     return NULL;
+}
+
+void StorageEngine::_remove_check_paths_no_lock(std::set<std::string> paths) {
+    for (const auto& path : paths) {
+        auto path_iter = _all_check_paths.find(path);
+        if (path_iter != _all_check_paths.end()) {
+            _all_check_paths.erase(path_iter);
+        }
+    }
 }
 
 }  // namespace doris

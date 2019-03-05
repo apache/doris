@@ -267,6 +267,8 @@ private:
 
     void _perform_path_scan(DataDir* data_dir);
 
+    void _remove_check_paths_no_lock(std::set<std::string> paths);
+
 private:
 
     struct CompactionCandidate {

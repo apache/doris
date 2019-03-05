@@ -624,7 +624,7 @@ bool TabletManager::get_tablet_id_and_schema_hash_from_path(std::string path,
     for (auto data_dir : data_dirs) {
         const std::string& data_dir_path = data_dir->path();
         if (path.find(data_dir_path) != std::string::npos) {
-            std::string pattern = data_dir_path + "/data/\\d+/(\\d+)/(\\d+)?";
+            std::string pattern = data_dir_path + "/data/\\d+/(\\d+)/?(\\d+)?";
             std::regex rgx (pattern.c_str());
             std::smatch sm;
             bool ret = std::regex_search(path, sm, rgx);
