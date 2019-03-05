@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime/decimal_value.h"
+#include "runtime/decimal_v2_value.h"
 
 #include <iostream>
 #include <string>
