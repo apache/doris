@@ -25,6 +25,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
@@ -241,15 +242,14 @@ public class BackendLoadStatistic implements Comparable<BackendLoadStatistic> {
 
     /*
      * Classify the paths into 'low', 'mid' and 'high',
-     * and skip offline path
+     * and skip offline path, and path with different storage medium 
      */
     public void getPathStatisticByClass(
-            Set<Long> low,
-            Set<Long> mid,
-            Set<Long> high) {
+            Set<Long> low, Set<Long> mid, Set<Long> high, TStorageMedium storageMedium) {
 
         for (RootPathLoadStatistic pathStat : pathStatistics) {
-            if (pathStat.getDiskState() == DiskState.OFFLINE) {
+            if (pathStat.getDiskState() == DiskState.OFFLINE
+                    || (storageMedium != null && pathStat.getStorageMedium() != storageMedium)) {
                 continue;
             }
 
