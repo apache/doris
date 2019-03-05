@@ -113,7 +113,7 @@ public class RoutineLoadTaskSchedulerTest {
 
                 routineLoadManager.getNeedScheduleTasksQueue();
                 result = routineLoadTaskInfoQueue;
-                routineLoadManager.getMinTaskBeId();
+                routineLoadManager.getMinTaskBeId(anyString);
                 result = beId;
                 routineLoadManager.getJobByTaskId(anyString);
                 result = kafkaRoutineLoadJob1;

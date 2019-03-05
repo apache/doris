@@ -317,6 +317,8 @@ public class TransactionState implements Writable {
                 case ABORTED:
                     txnStateChangeListener.beforeAborted(this, txnStatusChangeReason);
                     break;
+                default:
+                    break;
             }
         }
         
@@ -424,10 +426,6 @@ public class TransactionState implements Writable {
                                       Config.load_straggler_wait_second * 1000);
         timeoutMillis = Math.max(timeoutMillis, 3000);
         return System.currentTimeMillis() - publishVersionTime > timeoutMillis;
-    }
-    
-    public void setTxnStateChangeListener(TxnStateChangeListener txnStateChangeListener) {
-        this.txnStateChangeListener = txnStateChangeListener;
     }
     
     public TxnStateChangeListener getTxnStateChangeListener() {
