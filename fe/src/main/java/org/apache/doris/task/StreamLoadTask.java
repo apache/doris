@@ -45,6 +45,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.StringReader;
 import java.util.Map;
+import java.util.UUID;
 
 public class StreamLoadTask {
 
@@ -131,19 +132,18 @@ public class StreamLoadTask {
         }
     }
 
-    public static StreamLoadTask fromRoutineLoadTaskInfo(RoutineLoadTaskInfo routineLoadTaskInfo) {
-        TUniqueId queryId = new TUniqueId(routineLoadTaskInfo.getId().getMostSignificantBits(),
-                                          routineLoadTaskInfo.getId().getLeastSignificantBits());
-        StreamLoadTask streamLoadTask = new StreamLoadTask(queryId, routineLoadTaskInfo.getTxnId(),
+    // the taskId and txnId is faked
+    public static StreamLoadTask fromRoutineLoadJob(RoutineLoadJob routineLoadJob) {
+        UUID taskId = UUID.randomUUID();
+        TUniqueId queryId = new TUniqueId(taskId.getMostSignificantBits(),
+                                          taskId.getLeastSignificantBits());
+        StreamLoadTask streamLoadTask = new StreamLoadTask(queryId, -1L,
                                                            TFileType.FILE_STREAM, TFileFormatType.FORMAT_CSV_PLAIN);
-        RoutineLoadManager routineLoadManager = Catalog.getCurrentCatalog().getRoutineLoadManager();
-        streamLoadTask.setOptionalFromRoutineLoadTaskInfo(routineLoadTaskInfo,
-                                                          routineLoadManager.getJob(routineLoadTaskInfo.getJobId()));
+        streamLoadTask.setOptionalFromRoutineLoadJob(routineLoadJob);
         return streamLoadTask;
     }
 
-    private void setOptionalFromRoutineLoadTaskInfo(RoutineLoadTaskInfo routineLoadTaskInfo,
-                                                    RoutineLoadJob routineLoadJob) {
+    private void setOptionalFromRoutineLoadJob(RoutineLoadJob routineLoadJob) {
         if (routineLoadJob.getRoutineLoadDesc() != null) {
             RoutineLoadDesc routineLoadDesc = routineLoadJob.getRoutineLoadDesc();
             if (routineLoadDesc.getColumnsInfo() != null) {
