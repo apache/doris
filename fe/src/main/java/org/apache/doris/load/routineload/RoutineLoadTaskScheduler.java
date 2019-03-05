@@ -31,9 +31,6 @@ import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TRoutineLoadTask;
 
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -109,7 +106,7 @@ public class RoutineLoadTaskScheduler extends Daemon {
             long beId;
             try {
                 beId = routineLoadManager.getMinTaskBeId(routineLoadJob.getClusterName());
-                routineLoadTaskInfo.setTxn();
+                routineLoadTaskInfo.beginTxn();
             } catch (Exception e) {
                 LOG.warn("put task to the rear of queue with error " + e.getMessage());
                 needScheduleTasksQueue.take();

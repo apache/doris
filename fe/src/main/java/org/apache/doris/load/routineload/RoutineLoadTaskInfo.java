@@ -76,7 +76,7 @@ public abstract class RoutineLoadTaskInfo {
 
     abstract TRoutineLoadTask createRoutineLoadTask() throws LoadException, UserException;
 
-    public void setTxn() throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException {
+    public void beginTxn() throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException {
         // begin a txn for task
         RoutineLoadJob routineLoadJob = routineLoadManager.getJob(jobId);
         txnId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(

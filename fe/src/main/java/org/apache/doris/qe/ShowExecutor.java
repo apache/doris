@@ -802,18 +802,22 @@ public class ShowExecutor {
         }
 
         // check auth
+        String dbFullName;
+        String tableName;
         try {
-            if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
-                                                                    routineLoadJob.getDbFullName(),
-                                                                    routineLoadJob.getTableName(),
-                                                                    PrivPredicate.LOAD)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
-                                                    ConnectContext.get().getQualifiedUser(),
-                                                    ConnectContext.get().getRemoteIP(),
-                                                    routineLoadJob.getTableName());
-            }
+            dbFullName = routineLoadJob.getDbFullName();
+            tableName = routineLoadJob.getTableName();
         } catch (MetaNotFoundException e) {
-            throw new AnalysisException(e.getMessage());
+            throw new AnalysisException("The metadata of job has been changed. The job will be cancelled automatically", e);
+        }
+        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
+                                                                dbFullName,
+                                                                tableName,
+                                                                PrivPredicate.LOAD)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
+                                                ConnectContext.get().getQualifiedUser(),
+                                                ConnectContext.get().getRemoteIP(),
+                                                tableName);
         }
 
         // get routine load info

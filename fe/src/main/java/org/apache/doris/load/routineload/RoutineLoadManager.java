@@ -232,18 +232,22 @@ public class RoutineLoadManager {
             throw new DdlException("There is not routine load job with name " + pauseRoutineLoadStmt.getName());
         }
         // check auth
+        String dbFullName;
+        String tableName;
         try {
-            if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
-                                                                    routineLoadJob.getDbFullName(),
-                                                                    routineLoadJob.getTableName(),
-                                                                    PrivPredicate.LOAD)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
-                                                    ConnectContext.get().getQualifiedUser(),
-                                                    ConnectContext.get().getRemoteIP(),
-                                                    routineLoadJob.getTableName());
-            }
+            dbFullName = routineLoadJob.getDbFullName();
+            tableName = routineLoadJob.getTableName();
         } catch (MetaNotFoundException e) {
-            throw new DdlException(e.getMessage());
+            throw new DdlException("The metadata of job has been changed. The job will be cancelled automatically", e);
+        }
+        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
+                                                                dbFullName,
+                                                                tableName,
+                                                                PrivPredicate.LOAD)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
+                                                ConnectContext.get().getQualifiedUser(),
+                                                ConnectContext.get().getRemoteIP(),
+                                                tableName);
         }
 
         routineLoadJob.updateState(RoutineLoadJob.JobState.PAUSED,
@@ -257,18 +261,22 @@ public class RoutineLoadManager {
             throw new DdlException("There is not routine load job with name " + resumeRoutineLoadStmt.getName());
         }
         // check auth
+        String dbFullName;
+        String tableName;
         try {
-            if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
-                                                                    routineLoadJob.getDbFullName(),
-                                                                    routineLoadJob.getTableName(),
-                                                                    PrivPredicate.LOAD)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
-                                                    ConnectContext.get().getQualifiedUser(),
-                                                    ConnectContext.get().getRemoteIP(),
-                                                    routineLoadJob.getTableName());
-            }
+            dbFullName = routineLoadJob.getDbFullName();
+            tableName = routineLoadJob.getTableName();
         } catch (MetaNotFoundException e) {
-            throw new DdlException(e.getMessage());
+            throw new DdlException("The metadata of job has been changed. The job will be cancelled automatically", e);
+        }
+        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
+                                                                dbFullName,
+                                                                tableName,
+                                                                PrivPredicate.LOAD)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
+                                                ConnectContext.get().getQualifiedUser(),
+                                                ConnectContext.get().getRemoteIP(),
+                                                tableName);
         }
         routineLoadJob.updateState(RoutineLoadJob.JobState.NEED_SCHEDULE);
     }
@@ -279,18 +287,22 @@ public class RoutineLoadManager {
             throw new DdlException("There is not routine load job with name " + stopRoutineLoadStmt.getName());
         }
         // check auth
+        String dbFullName;
+        String tableName;
         try {
-            if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
-                                                                    routineLoadJob.getDbFullName(),
-                                                                    routineLoadJob.getTableName(),
-                                                                    PrivPredicate.LOAD)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
-                                                    ConnectContext.get().getQualifiedUser(),
-                                                    ConnectContext.get().getRemoteIP(),
-                                                    routineLoadJob.getTableName());
-            }
+            dbFullName = routineLoadJob.getDbFullName();
+            tableName = routineLoadJob.getTableName();
         } catch (MetaNotFoundException e) {
-            throw new DdlException(e.getMessage());
+            throw new DdlException("The metadata of job has been changed. The job will be cancelled automatically", e);
+        }
+        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
+                                                                dbFullName,
+                                                                tableName,
+                                                                PrivPredicate.LOAD)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
+                                                ConnectContext.get().getQualifiedUser(),
+                                                ConnectContext.get().getRemoteIP(),
+                                                tableName);
         }
         routineLoadJob.updateState(RoutineLoadJob.JobState.STOPPED);
     }
@@ -322,11 +334,9 @@ public class RoutineLoadManager {
     }
 
     public long getMinTaskBeId(String clusterName) throws LoadException {
-        List<Long> beIdsInCluster = new ArrayList<>();
-        try {
-            beIdsInCluster = Catalog.getCurrentCatalog().getBackendIdsByCluster(clusterName);
-        } catch (MetaNotFoundException e) {
-            throw new LoadException(e.getMessage());
+        List<Long> beIdsInCluster = Catalog.getCurrentSystemInfo().getClusterBackendIds(clusterName);
+        if (beIdsInCluster == null) {
+            throw new LoadException("The " + clusterName + " has been deleted");
         }
 
         readLock();

@@ -6079,22 +6079,5 @@ public class Catalog {
             replica.setBad(backendTabletsInfo.isBad());
         }
     }
-
-    public List<Long> getBackendIdsByCluster(String clusterName) throws MetaNotFoundException {
-        if (nameToCluster.containsKey(clusterName)) {
-            Cluster cluster = nameToCluster.get(clusterName);
-            if (cluster == null) {
-                throw new MetaNotFoundException("Cluster " + clusterName + "has been deleted");
-            }
-            tryLock(true);
-            try {
-                return cluster.getBackendIdList();
-            } finally {
-                unlock();
-            }
-        } else {
-            throw new MetaNotFoundException("Cluster " + clusterName + "has been deleted");
-        }
-    }
 }
 
