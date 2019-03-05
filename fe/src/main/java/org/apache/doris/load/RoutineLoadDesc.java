@@ -28,6 +28,7 @@ public class RoutineLoadDesc {
     private final ColumnSeparator columnSeparator;
     private final LoadColumnsInfo columnsInfo;
     private final Expr wherePredicate;
+    // nullable
     private final List<String> partitionNames;
 
     public RoutineLoadDesc(ColumnSeparator columnSeparator, LoadColumnsInfo columnsInfo,
@@ -50,6 +51,7 @@ public class RoutineLoadDesc {
         return wherePredicate;
     }
 
+    // nullable
     public List<String> getPartitionNames() {
         return partitionNames;
     }

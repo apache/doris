@@ -47,17 +47,11 @@ public abstract class RoutineLoadTaskInfo {
     private long createTimeMs;
     private long loadStartTimeMs;
     private TExecPlanFragmentParams tExecPlanFragmentParams;
-    
-    public RoutineLoadTaskInfo(UUID id, long jobId) throws BeginTransactionException,
-            LabelAlreadyUsedException, AnalysisException {
+
+    public RoutineLoadTaskInfo(UUID id, long jobId) {
         this.id = id;
         this.jobId = jobId;
         this.createTimeMs = System.currentTimeMillis();
-        // begin a txn for task
-        RoutineLoadJob routineLoadJob = routineLoadManager.getJob(jobId);
-        txnId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(
-                routineLoadJob.getDbId(), id.toString(), -1, "streamLoad",
-                TransactionState.LoadJobSourceType.ROUTINE_LOAD_TASK, routineLoadJob);
     }
     
     public UUID getId() {
@@ -79,8 +73,16 @@ public abstract class RoutineLoadTaskInfo {
     public long getTxnId() {
         return txnId;
     }
-    
-    abstract TRoutineLoadTask createRoutineLoadTask(long beId) throws LoadException, UserException;
+
+    abstract TRoutineLoadTask createRoutineLoadTask() throws LoadException, UserException;
+
+    public void beginTxn() throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException {
+        // begin a txn for task
+        RoutineLoadJob routineLoadJob = routineLoadManager.getJob(jobId);
+        txnId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(
+                routineLoadJob.getDbId(), id.toString(), -1, "streamLoad",
+                TransactionState.LoadJobSourceType.ROUTINE_LOAD_TASK, routineLoadJob);
+    }
     
     @Override
     public boolean equals(Object obj) {
