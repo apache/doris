@@ -160,6 +160,9 @@ static void append_any_val_type(
     case TYPE_DECIMAL:
         append_mangled_token("DecimalVal", s);
         break;
+    case TYPE_DECIMAL_V2:
+        append_mangled_token("Decimal_V2Val", s);
+        break;
     default:
         DCHECK(false) << "NYI: " << type.debug_string();
     }

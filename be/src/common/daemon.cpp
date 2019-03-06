@@ -45,6 +45,7 @@
 #include "exprs/es_functions.h"
 #include "exprs/timestamp_functions.h"
 #include "exprs/decimal_operators.h"
+#include "exprs/decimal_v2_operators.h"
 #include "exprs/utility_functions.h"
 #include "exprs/json_functions.h"
 #include "exprs/hll_hash_function.h"
@@ -182,6 +183,7 @@ void init_daemon(int argc, char** argv, const std::vector<StorePath>& paths) {
     EncryptionFunctions::init();
     TimestampFunctions::init();
     DecimalOperators::init();
+    Decimal_V2Operators::init();
     UtilityFunctions::init();
     CompoundPredicate::init();
     JsonFunctions::init();
