@@ -31,6 +31,7 @@
 #include "runtime/stream_load/load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_executor.h"
 #include "service/backend_options.h"
+#include "util/string_util.h"
 #include "util/time.h"
 #include "util/uid_util.h"
 
@@ -47,18 +48,11 @@ public:
         if (t_info.__isset.max_interval_s) { max_interval_s = t_info.max_interval_s; }
         if (t_info.__isset.max_batch_rows) { max_batch_rows = t_info.max_batch_rows; }
         if (t_info.__isset.max_batch_size) { max_batch_size = t_info.max_batch_size; }
-
-        std::stringstream ss;
-        ss << BackendOptions::get_localhost() << "_";
-        client_id = ss.str() + UniqueId().to_string();
-        group_id = ss.str() + UniqueId().to_string();
     }
 
 public:
     std::string brokers;
     std::string topic;
-    std::string group_id;
-    std::string client_id;
 
     // the following members control the max progress of a consuming
     // process. if any of them reach, the consuming will finish.
@@ -95,8 +89,6 @@ public:
         }
     }
 
-    void rollback();
-
     std::string to_json() const;
 
     // return the brief info of this context.
@@ -123,8 +115,6 @@ public:
     std::string db;
     std::string table;
     std::string label;
-
-    std::string user_ip;
 
     AuthInfo auth;
 
@@ -160,6 +150,9 @@ public:
 
     KafkaLoadInfo* kafka_info = nullptr;
 
+    // consumer_id is used for data consumer cache key.
+    // to identified a specified data consumer.
+    int64_t consumer_id;
 private:
     ExecEnv* _exec_env;
     std::atomic<int> _refs;
