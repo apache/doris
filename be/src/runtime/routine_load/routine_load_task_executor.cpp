@@ -83,12 +83,14 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
     _task_map[ctx->id] = ctx;
     
     // offer the task to thread pool
-    if (!_thread_pool->offer(
+    if (!_thread_pool.offer(
             boost::bind<void>(&RoutineLoadTaskExecutor::exec_task, this, ctx,
+            &_data_consumer_pool,
             [this] (StreamLoadContext* ctx) {
                 std::unique_lock<std::mutex> l(_lock);
                 _task_map.erase(ctx->id);
                 LOG(INFO) << "finished routine load task " << ctx->brief()
+                          << ", status: " << ctx->status.get_error_msg()
                           << ", current tasks num: " << _task_map.size();
                 if (ctx->unref()) {
                     delete ctx;
@@ -111,25 +113,9 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
 }
 
 void RoutineLoadTaskExecutor::exec_task(
-        StreamLoadContext* ctx, ExecFinishCallback cb) {
-
-    // create pipe and consumer
-    std::shared_ptr<StreamLoadPipe> pipe;
-    std::shared_ptr<DataConsumer> consumer;
-    switch (ctx->load_src_type) {
-        case TLoadSourceType::KAFKA:
-            pipe = std::make_shared<KafkaConsumerPipe>();
-            consumer = std::make_shared<KafkaDataConsumer>(
-                    ctx, std::static_pointer_cast<KafkaConsumerPipe>(pipe));
-            ctx->body_sink = pipe;
-            break;
-        default:
-            std::stringstream ss;
-            ss << "unknown routine load task type: " << ctx->load_type;
-            err_handler(ctx, Status::CANCELLED, ss.str());
-            cb(ctx);
-            return;
-    }
+        StreamLoadContext* ctx,
+        DataConsumerPool* consumer_pool,
+        ExecFinishCallback cb) {
 
 #define HANDLE_ERROR(stmt, err_msg) \
     do { \
@@ -141,7 +127,25 @@ void RoutineLoadTaskExecutor::exec_task(
         } \
     } while (false);
 
-    HANDLE_ERROR(consumer->init(), "failed to init consumer");
+    // get or create data consumer
+    std::shared_ptr<DataConsumer> consumer;
+    HANDLE_ERROR(consumer_pool->get_consumer(ctx, &consumer), "failed to get consumer");    
+
+    // create and set pipe
+    std::shared_ptr<StreamLoadPipe> pipe;
+    switch (ctx->load_src_type) {
+        case TLoadSourceType::KAFKA:
+            pipe = std::make_shared<KafkaConsumerPipe>();
+            std::static_pointer_cast<KafkaDataConsumer>(consumer)->assign_topic_partitions(ctx);
+            break;
+        default:
+            std::stringstream ss;
+            ss << "unknown routine load task type: " << ctx->load_type;
+            err_handler(ctx, Status::CANCELLED, ss.str());
+            cb(ctx);
+            return;
+    }
+    ctx->body_sink = pipe;
 
     // must put pipe before executing plan fragment
     HANDLE_ERROR(_exec_env->load_stream_mgr()->put(ctx->id, pipe), "failed to add pipe");
@@ -156,7 +160,7 @@ void RoutineLoadTaskExecutor::exec_task(
 #endif
     
     // start to consume, this may block a while
-    HANDLE_ERROR(consumer->start(), "consuming failed");
+    HANDLE_ERROR(consumer->start(ctx), "consuming failed");
 
     // wait for consumer finished
     HANDLE_ERROR(ctx->future.get(), "consume failed");
@@ -165,7 +169,10 @@ void RoutineLoadTaskExecutor::exec_task(
     
     // commit txn
     HANDLE_ERROR(_exec_env->stream_load_executor()->commit_txn(ctx), "commit failed");
-    
+
+    // return the consumer back to pool
+    consumer_pool->return_consumer(consumer);    
+
     cb(ctx);
 }
 
@@ -187,6 +194,7 @@ void RoutineLoadTaskExecutor::err_handler(
     return;
 }
 
+// for test only
 Status RoutineLoadTaskExecutor::_execute_plan_for_test(StreamLoadContext* ctx) {
     auto mock_consumer = [this, ctx]() {
         std::shared_ptr<StreamLoadPipe> pipe = _exec_env->load_stream_mgr()->get(ctx->id);

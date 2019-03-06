@@ -74,15 +74,13 @@ std::string StreamLoadContext::to_json() const {
 
 std::string StreamLoadContext::brief(bool detail) const {
     std::stringstream ss;
-    ss << " id=" << id << ", txn id=" << txn_id << ", label=" << label;
+    ss << "id=" << id << ", txn id=" << txn_id << ", label=" << label;
     if (detail) {
         switch(load_src_type) {
             case TLoadSourceType::KAFKA:
                 if (kafka_info != nullptr) {
                     ss << ", kafka"
                        << ", brokers: " << kafka_info->brokers
-                       << ", group_id: " << kafka_info->group_id
-                       << ", client_id: " << kafka_info->client_id
                        << ", topic: " << kafka_info->topic
                        << ", partition: ";
                     for (auto& entry : kafka_info->begin_offset) {
