@@ -39,6 +39,8 @@ public:
 
     OLAPStatus init() override;
 
+    OLAPStatus init_without_validate();
+
     std::shared_ptr<RowsetReader> create_reader() override;
 
     OLAPStatus copy(RowsetWriter* dest_rowset_writer) override;
@@ -105,11 +107,11 @@ public:
             vector<OlapTuple>* ranges);
 
 private:
-    OLAPStatus _init_segment_groups();
+    OLAPStatus _init_segment_groups(bool validate);
 
-    OLAPStatus _init_pending_segment_groups();
+    OLAPStatus _init_pending_segment_groups(bool validate);
 
-    OLAPStatus _init_non_pending_segment_groups();
+    OLAPStatus _init_non_pending_segment_groups(bool validate);
 
     std::shared_ptr<SegmentGroup> _segment_group_with_largest_size();
 

@@ -91,6 +91,7 @@ OLAPStatus TabletMetaManager::save(DataDir* store,
     std::stringstream key_stream;
     key_stream << header_prefix << tablet_id << "_" << schema_hash;
     std::string key = key_stream.str();
+    VLOG(3) << "save tablet meta to meta store: key = " << key; 
     OlapMeta* meta = store->get_meta();
     return meta->put(META_COLUMN_FAMILY_INDEX, key, meta_binary);
 }

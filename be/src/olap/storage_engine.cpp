@@ -120,6 +120,7 @@ StorageEngine::~StorageEngine() {
 }
 
 // convert old tablet and its files to new tablet meta and rowset format
+// if any error occurred during converting, stop it and break.
 OLAPStatus StorageEngine::_convert_old_tablet(DataDir* data_dir) {
     auto convert_tablet_func = [this, data_dir](long tablet_id,
         long schema_hash, const std::string& value) -> bool {
@@ -161,8 +162,11 @@ OLAPStatus StorageEngine::_convert_old_tablet(DataDir* data_dir) {
         status = TabletMetaManager::save(data_dir, tablet_meta_pb.tablet_id(), tablet_meta_pb.schema_hash(), meta_binary);
         if (status != OLAP_SUCCESS) {
             LOG(WARNING) << "convert olap header to tablet meta failed when save tablet meta tablet=" 
-                        << tablet_id << "." << schema_hash;
+                         << tablet_id << "." << schema_hash;
             return false;
+        } else {
+            LOG(INFO) << "convert olap header to tablet meta successfully and save tablet meta to meta tablet=" 
+                      << tablet_id << "." << schema_hash;
         }
         return true;
     };
@@ -250,6 +254,7 @@ OLAPStatus StorageEngine::_remove_old_meta_and_files(DataDir* data_dir) {
             RowsetMetaSharedPtr alpha_rowset_meta(new AlphaRowsetMeta());
             alpha_rowset_meta->init_from_pb(visible_rowset);
             AlphaRowset rowset(&tablet_schema, data_path_prefix, data_dir, alpha_rowset_meta);
+            rowset.init();
             std::vector<std::string> old_files;
             rowset.remove_old_files(&old_files);
         }
@@ -259,6 +264,7 @@ OLAPStatus StorageEngine::_remove_old_meta_and_files(DataDir* data_dir) {
             RowsetMetaSharedPtr alpha_rowset_meta(new AlphaRowsetMeta());
             alpha_rowset_meta->init_from_pb(inc_rowset);
             AlphaRowset rowset(&tablet_schema, data_path_prefix, data_dir, alpha_rowset_meta);
+            rowset.init();
             std::vector<std::string> old_files;
             rowset.remove_old_files(&old_files);
         }
@@ -280,22 +286,33 @@ OLAPStatus StorageEngine::_load_data_dir(DataDir* data_dir) {
     bool is_tablet_convert_finished = false;
     OLAPStatus res = data_dir->get_meta()->get_tablet_convert_finished(is_tablet_convert_finished);
     if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "get convert flag from meta failed";
+        LOG(WARNING) << "get convert flag from meta failed dir = " << data_dir->path();
         return res;
     }
 
     if (!is_tablet_convert_finished) {
         _clean_unfinished_converting_data(data_dir);
-        RETURN_NOT_OK(_convert_old_tablet(data_dir));
+        res = _convert_old_tablet(data_dir);
+        if (res != OLAP_SUCCESS) {
+            LOG(WARNING) << "convert old tablet failed for  dir = " << data_dir->path();
+            return res;
+        }
         // TODO(ygl): should load tablet successfully and then set convert flag and clean old files
-        RETURN_NOT_OK(data_dir->get_meta()->set_tablet_convert_finished());
+        res = data_dir->get_meta()->set_tablet_convert_finished();
+        if (res != OLAP_SUCCESS) {
+            LOG(WARNING) << "save convert flag failed after convert old tablet. " 
+                         << " dir = " << data_dir->path();
+            return res;
+        }
         // convert may be successfully, but crashed before remove old files
         // depend on gc thread to recycle the old files
-        _remove_old_meta_and_files(data_dir);
+        // _remove_old_meta_and_files(data_dir);
+    } else {
+        LOG(INFO) << "tablets have been converted, skip convert process";
     }
 
     std::string data_dir_path = data_dir->path();
-    LOG(INFO) <<"start to load tablets from data_dir_path:" << data_dir_path;
+    LOG(INFO) << "start to load tablets from data_dir_path:" << data_dir_path;
     // load rowset meta from meta env and create rowset
     // COMMITTED: add to txn manager
     // VISIBLE: add to tablet

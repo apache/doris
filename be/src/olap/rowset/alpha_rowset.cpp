@@ -47,7 +47,11 @@ AlphaRowset::AlphaRowset(const TabletSchema* schema,
 }
 
 OLAPStatus AlphaRowset::init() {
-    return _init_segment_groups();
+    return _init_segment_groups(true);
+}
+
+OLAPStatus AlphaRowset::init_without_validate() {
+    return _init_segment_groups(false);
 }
 
 std::shared_ptr<RowsetReader> AlphaRowset::create_reader() {
@@ -341,7 +345,7 @@ OLAPStatus AlphaRowset::split_range(
     return OLAP_SUCCESS;
 }
 
-OLAPStatus AlphaRowset::_init_non_pending_segment_groups() {
+OLAPStatus AlphaRowset::_init_non_pending_segment_groups(bool validate) {
     std::vector<SegmentGroupPB> segment_group_metas;
     AlphaRowsetMetaSharedPtr _alpha_rowset_meta = std::dynamic_pointer_cast<AlphaRowsetMeta>(_rowset_meta);
     _alpha_rowset_meta->get_segment_groups(&segment_group_metas);
@@ -361,7 +365,7 @@ OLAPStatus AlphaRowset::_init_non_pending_segment_groups() {
         }
 
         // validate segment group
-        if (segment_group->validate() != OLAP_SUCCESS) {
+        if (validate && segment_group->validate() != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to validate segment_group. [version="<< version.first
                     << "-" << version.second << " version_hash=" << version_hash;
                 // if load segment group failed, rowset init failed
@@ -394,13 +398,15 @@ OLAPStatus AlphaRowset::_init_non_pending_segment_groups() {
                 return status;
             }
         }
-        OLAPStatus res = segment_group->load();
-        if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "fail to load segment_group. res=" << res << ", "
-                    << "version=" << version.first << "-"
-                    << version.second << ", "
-                    << "version_hash=" << version_hash;
-            return res;
+        if (validate) {
+            OLAPStatus res = segment_group->load();
+            if (res != OLAP_SUCCESS) {
+                LOG(WARNING) << "fail to load segment_group. res=" << res << ", "
+                        << "version=" << version.first << "-"
+                        << version.second << ", "
+                        << "version_hash=" << version_hash;
+                return res;
+            }
         }
         _segment_groups.push_back(segment_group);
     }
@@ -413,7 +419,7 @@ OLAPStatus AlphaRowset::_init_non_pending_segment_groups() {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus AlphaRowset::_init_pending_segment_groups() {
+OLAPStatus AlphaRowset::_init_pending_segment_groups(bool validate) {
     std::vector<PendingSegmentGroupPB> pending_segment_group_metas;
     AlphaRowsetMetaSharedPtr _alpha_rowset_meta = std::dynamic_pointer_cast<AlphaRowsetMeta>(_rowset_meta);
     _alpha_rowset_meta->get_pending_segment_groups(&pending_segment_group_metas);
@@ -436,7 +442,7 @@ OLAPStatus AlphaRowset::_init_pending_segment_groups() {
         }
 
         // validate segment group
-        if (segment_group->validate() != OLAP_SUCCESS) {
+        if (validate && segment_group->validate() != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to validate segment_group. [version="<< version.first
                     << "-" << version.second << " version_hash=" << version_hash;
                 // if load segment group failed, rowset init failed
@@ -470,14 +476,15 @@ OLAPStatus AlphaRowset::_init_pending_segment_groups() {
                 return status;
             }
         }
-
-        OLAPStatus res = segment_group->load();
-        if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "fail to load segment_group. res=" << res << ", "
-                << "version=" << version.first << "-"
-                << version.second << ", "
-                << "version_hash=" << version_hash;
-            return res;
+        if (validate) {
+            OLAPStatus res = segment_group->load();
+            if (res != OLAP_SUCCESS) {
+                LOG(WARNING) << "fail to load segment_group. res=" << res << ", "
+                    << "version=" << version.first << "-"
+                    << version.second << ", "
+                    << "version_hash=" << version_hash;
+                return res;
+            }
         }
     }
     _segment_group_size = _segment_groups.size();
@@ -489,11 +496,11 @@ OLAPStatus AlphaRowset::_init_pending_segment_groups() {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus AlphaRowset::_init_segment_groups() {
+OLAPStatus AlphaRowset::_init_segment_groups(bool validate) {
     if (_is_pending_rowset) {
-        return _init_pending_segment_groups();
+        return _init_pending_segment_groups(validate);
     } else {
-        return _init_non_pending_segment_groups();
+        return _init_non_pending_segment_groups(validate);
     }
 }
 

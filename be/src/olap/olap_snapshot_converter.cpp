@@ -102,6 +102,8 @@ OLAPStatus OlapSnapshotConverter::to_tablet_meta_pb(const OLAPHeaderMessage& ola
     to_alter_tablet_pb(olap_header.schema_change_status(), alter_tablet_pb);
     tablet_meta_pb->set_in_restore_mode(olap_header.in_restore_mode());
     tablet_meta_pb->set_tablet_state(TabletStatePB::PB_RUNNING);
+    VLOG(3) << "convert tablet meta tablet id = " << olap_header.tablet_id() 
+            << " schema hash = " << olap_header.schema_hash() << " successfully.";
     return OLAP_SUCCESS;
 }
 
@@ -176,6 +178,10 @@ OLAPStatus OlapSnapshotConverter::convert_to_rowset_meta(const PDelta& delta,
     DeletePredicatePB* delete_condition = rowset_meta_pb->mutable_delete_predicate();
     *delete_condition = delta.delete_condition();
     rowset_meta_pb->set_creation_time(delta.creation_time());
+    VLOG(3) << "convert pending delta start_version = " << delta.start_version()
+            << " end_version = " <<  delta.end_version()
+            << " version_hash = " << delta.version_hash()
+            << " to rowset id = " << rowset_id;
     return OLAP_SUCCESS;
 }
 
@@ -218,6 +224,10 @@ OLAPStatus OlapSnapshotConverter::convert_to_rowset_meta(const PPendingDelta& pe
     DeletePredicatePB* delete_condition = rowset_meta_pb->mutable_delete_predicate();
     *delete_condition = pending_delta.delete_condition();
     rowset_meta_pb->set_creation_time(pending_delta.creation_time());
+    VLOG(3) << "convert pending delta txn id = " << pending_delta.transaction_id()
+            << " tablet_id = " <<  tablet_id
+            << " schema_hash = " << schema_hash
+            << " to rowset id = " << rowset_id;
     return OLAP_SUCCESS;
 }
 
@@ -283,6 +293,7 @@ OLAPStatus OlapSnapshotConverter::to_new_snapshot(const OLAPHeaderMessage& olap_
         RowsetMetaSharedPtr alpha_rowset_meta(new AlphaRowsetMeta());
         alpha_rowset_meta->init_from_pb(visible_rowset);
         AlphaRowset rowset(&tablet_schema, new_data_path_prefix, &data_dir, alpha_rowset_meta);
+        RETURN_NOT_OK(rowset.init_without_validate());
         std::vector<std::string> success_files;
         RETURN_NOT_OK(rowset.convert_from_old_files(old_data_path_prefix, &success_files));
     }
@@ -292,6 +303,7 @@ OLAPStatus OlapSnapshotConverter::to_new_snapshot(const OLAPHeaderMessage& olap_
         RowsetMetaSharedPtr alpha_rowset_meta(new AlphaRowsetMeta());
         alpha_rowset_meta->init_from_pb(inc_rowset);
         AlphaRowset rowset(&tablet_schema, new_data_path_prefix, &data_dir, alpha_rowset_meta);
+        RETURN_NOT_OK(rowset.init_without_validate());
         std::vector<std::string> success_files;
         RETURN_NOT_OK(rowset.convert_from_old_files(old_data_path_prefix, &success_files));
     }
@@ -301,6 +313,7 @@ OLAPStatus OlapSnapshotConverter::to_new_snapshot(const OLAPHeaderMessage& olap_
         RowsetMetaSharedPtr alpha_rowset_meta(new AlphaRowsetMeta());
         alpha_rowset_meta->init_from_pb(pending_rowset);
         AlphaRowset rowset(&tablet_schema, new_data_path_prefix, &data_dir, alpha_rowset_meta);
+        RETURN_NOT_OK(rowset.init_without_validate());
         std::vector<std::string> success_files;
         std::string pending_delta_path = old_data_path_prefix + PENDING_DELTA_PREFIX;
         RETURN_NOT_OK(rowset.convert_from_old_files(pending_delta_path, &success_files));
@@ -321,6 +334,7 @@ OLAPStatus OlapSnapshotConverter::to_old_snapshot(const TabletMetaPB& tablet_met
         RowsetMetaSharedPtr alpha_rowset_meta(new AlphaRowsetMeta());
         alpha_rowset_meta->init_from_pb(visible_rowset);
         AlphaRowset rowset(&tablet_schema, new_data_path_prefix, nullptr, alpha_rowset_meta);
+        RETURN_NOT_OK(rowset.init());
         std::vector<std::string> success_files;
         RETURN_NOT_OK(rowset.convert_to_old_files(old_data_path_prefix, &success_files));
     }
@@ -330,6 +344,7 @@ OLAPStatus OlapSnapshotConverter::to_old_snapshot(const TabletMetaPB& tablet_met
         RowsetMetaSharedPtr alpha_rowset_meta(new AlphaRowsetMeta());
         alpha_rowset_meta->init_from_pb(inc_rowset);
         AlphaRowset rowset(&tablet_schema, new_data_path_prefix, nullptr, alpha_rowset_meta);
+        RETURN_NOT_OK(rowset.init());
         std::vector<std::string> success_files;
         RETURN_NOT_OK(rowset.convert_to_old_files(old_data_path_prefix, &success_files));
     }
