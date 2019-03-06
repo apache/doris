@@ -29,12 +29,14 @@ import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 public class BackendLoadStatistic implements Comparable<BackendLoadStatistic> {
@@ -55,9 +57,9 @@ public class BackendLoadStatistic implements Comparable<BackendLoadStatistic> {
 
     private boolean isAvailable;
 
-    private long totalCapacityB = 1; // init as 1 to avoid dividing zero error
-    private long totalUsedCapacityB = 0;
-    private long totalReplicaNum = 0;
+    private Map<TStorageMedium, Long> totalCapacityMap = Maps.newHashMap();
+    private Map<TStorageMedium, Long> totalUsedCapacityMap = Maps.newHashMap();
+    private Map<TStorageMedium, Long> totalReplicaNumMap = Maps.newHashMap();
 
     public static class LoadScore {
         public double replicaNumCoefficient = 0.5;
@@ -65,7 +67,7 @@ public class BackendLoadStatistic implements Comparable<BackendLoadStatistic> {
         public double score = 0.0;
     }
 
-    private LoadScore loadScore;
+    private Map<TStorageMedium, LoadScore> loadScoreMap = Maps.newHashMap();
 
     private Classification clazz = Classification.INIT;
 
@@ -91,20 +93,23 @@ public class BackendLoadStatistic implements Comparable<BackendLoadStatistic> {
         return isAvailable;
     }
 
-    public long getTotalCapacityB() {
-        return totalCapacityB;
+    public long getTotalCapacityB(TStorageMedium medium) {
+        return totalCapacityMap.getOrDefault(medium, -1L);
     }
 
-    public long getTotalUsedCapacityB() {
-        return totalUsedCapacityB;
+    public long getTotalUsedCapacityB(TStorageMedium medium) {
+        return totalUsedCapacityMap.getOrDefault(medium, -1L);
     }
 
-    public long getReplicaNum() {
-        return totalReplicaNum;
+    public long getReplicaNum(TStorageMedium medium) {
+        return totalReplicaNumMap.getOrDefault(medium, -1L);
     }
 
-    public double getLoadScore() {
-        return loadScore.score;
+    public double getLoadScore(TStorageMedium medium) {
+        if (loadScoreMap.containsKey(medium)) {
+            return loadScoreMap.get(medium).score;
+        }
+        return 0.0;
     }
 
     public void setClazz(Classification clazz) {
@@ -129,10 +134,11 @@ public class BackendLoadStatistic implements Comparable<BackendLoadStatistic> {
 
         ImmutableMap<String, DiskInfo> disks = be.getDisks();
         for (DiskInfo diskInfo : disks.values()) {
+            TStorageMedium medium = diskInfo.getStorageMedium();
             if (diskInfo.getState() == DiskState.ONLINE) {
                 // we only collect online disk's capacity
-                totalCapacityB += diskInfo.getTotalCapacityB();
-                totalUsedCapacityB += diskInfo.getDataUsedCapacityB();
+                totalCapacityMap.put(medium, totalCapacityMap.getOrDefault(medium, 0L) + diskInfo.getTotalCapacityB());
+                totalUsedCapacityMap.put(medium, totalUsedCapacityMap.getOrDefault(medium, 0L) + diskInfo.getDataUsedCapacityB());
             }
 
             RootPathLoadStatistic pathStatistic = new RootPathLoadStatistic(beId, diskInfo.getRootPath(),
@@ -140,21 +146,24 @@ public class BackendLoadStatistic implements Comparable<BackendLoadStatistic> {
                     diskInfo.getTotalCapacityB(), diskInfo.getDataUsedCapacityB(), diskInfo.getState());
             pathStatistics.add(pathStatistic);
         }
+        totalReplicaNumMap = invertedIndex.getReplicaNumByBeIdAndStorageMedium(beId);
 
-        totalReplicaNum = invertedIndex.getTabletNumByBackendId(beId);
-
-        classifyPathByLoad();
+        for (TStorageMedium storageMedium : TStorageMedium.values()) {
+            classifyPathByLoad(storageMedium);
+        }
 
         // sort the list
         Collections.sort(pathStatistics);
     }
 
-    private void classifyPathByLoad() {
+    private void classifyPathByLoad(TStorageMedium storageMedium) {
         long totalCapacity = 0;
         long totalUsedCapacity = 0;
         for (RootPathLoadStatistic pathStat : pathStatistics) {
-            totalCapacity += pathStat.getCapacityB();
-            totalUsedCapacity += pathStat.getUsedCapacityB();
+            if (pathStat.getStorageMedium() == storageMedium) {
+                totalCapacity += pathStat.getCapacityB();
+                totalUsedCapacity += pathStat.getUsedCapacityB();
+            }
         }
         double avgUsedPercent = totalCapacity == 0 ? 0.0 : totalUsedCapacity / (double) totalCapacity;
 
@@ -162,6 +171,10 @@ public class BackendLoadStatistic implements Comparable<BackendLoadStatistic> {
         int midCounter = 0;
         int highCounter = 0;
         for (RootPathLoadStatistic pathStat : pathStatistics) {
+            if (pathStat.getStorageMedium() != storageMedium) {
+                continue;
+            }
+
             if (Math.abs(pathStat.getUsedPercent() - avgUsedPercent)
                     / avgUsedPercent > Config.balance_load_score_threshold) {
                 if (pathStat.getUsedPercent() > avgUsedPercent) {
@@ -177,8 +190,8 @@ public class BackendLoadStatistic implements Comparable<BackendLoadStatistic> {
             }
         }
 
-        LOG.info("classify path by load. avg used percent: {}. low/mid/high: {}/{}/{}",
-                avgUsedPercent, lowCounter, midCounter, highCounter);
+        LOG.info("classify path by load. storage: {} avg used percent: {}. low/mid/high: {}/{}/{}",
+                avgUsedPercent, storageMedium, lowCounter, midCounter, highCounter);
     }
 
     public void calcScore(double avgClusterUsedCapacityPercent, double avgClusterReplicaNumPerBackend) {

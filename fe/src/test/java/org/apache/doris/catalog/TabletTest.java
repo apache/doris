@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.thrift.TStorageMedium;
 
 import org.easymock.EasyMock;
 import org.junit.Assert;
@@ -59,7 +60,7 @@ public class TabletTest {
         PowerMock.replay(Catalog.class);
 
         tablet = new Tablet(1);
-        TabletMeta tabletMeta = new TabletMeta(10, 20, 30, 40, 1);
+        TabletMeta tabletMeta = new TabletMeta(10, 20, 30, 40, 1, TStorageMedium.HDD);
         invertedIndex.addTablet(1, tabletMeta);
         replica1 = new Replica(1L, 1L, 100L, 0L, 0, 200000L, 3000L, ReplicaState.NORMAL, 0, 0, 0, 0);
         replica2 = new Replica(2L, 2L, 100L, 0L, 0, 200000L, 3000L, ReplicaState.NORMAL, 0, 0, 0, 0);

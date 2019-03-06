@@ -17,6 +17,8 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.thrift.TStorageMedium;
+
 import com.google.common.base.Preconditions;
 
 import org.apache.logging.log4j.LogManager;
@@ -35,9 +37,12 @@ public class TabletMeta {
     private int oldSchemaHash;
     private int newSchemaHash;
 
+    private TStorageMedium storageMedium;
+
     private ReentrantReadWriteLock lock;
 
-    public TabletMeta(long dbId, long tableId, long partitionId, long indexId, int schemaHash) {
+    public TabletMeta(long dbId, long tableId, long partitionId, long indexId, int schemaHash,
+            TStorageMedium storageMedium) {
         this.dbId = dbId;
         this.tableId = tableId;
         this.partitionId = partitionId;
@@ -45,6 +50,8 @@ public class TabletMeta {
 
         this.oldSchemaHash = schemaHash;
         this.newSchemaHash = -1;
+
+        this.storageMedium = storageMedium;
 
         lock = new ReentrantReadWriteLock();
     }
@@ -63,6 +70,14 @@ public class TabletMeta {
 
     public long getIndexId() {
         return indexId;
+    }
+
+    public TStorageMedium getStorageMedium() {
+        return storageMedium;
+    }
+
+    public void setStorageMedium(TStorageMedium storageMedium) {
+        this.storageMedium = storageMedium;
     }
 
     public void setNewSchemaHash(int newSchemaHash) {

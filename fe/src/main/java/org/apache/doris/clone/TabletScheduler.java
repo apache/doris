@@ -297,7 +297,7 @@ public class TabletScheduler extends Daemon {
         statisticMap.clear();
         List<String> clusterNames = infoService.getClusterNames();
         for (String clusterName : clusterNames) {
-            ClusterLoadStatistic clusterLoadStatistic = new ClusterLoadStatistic(clusterName, catalog,
+            ClusterLoadStatistic clusterLoadStatistic = new ClusterLoadStatistic(clusterName,
                     infoService, invertedIndex);
             clusterLoadStatistic.init();
             statisticMap.put(clusterName, clusterLoadStatistic);

@@ -49,6 +49,7 @@ import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
+import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -448,7 +449,7 @@ public class RestoreJob_D extends AbstractBackupJob_D {
                                 for (Tablet tablet : index.getTablets()) {
                                     long tabletId = tablet.getId();
                                     TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId,
-                                                                           schemaHash);
+                                            schemaHash, TStorageMedium.HDD);
                                     invertedIndex.addTablet(tabletId, tabletMeta);
                                     for (Replica replica : tablet.getReplicas()) {
                                         invertedIndex.addReplica(tabletId, replica);
@@ -499,7 +500,7 @@ public class RestoreJob_D extends AbstractBackupJob_D {
                                     invertedIndex.addReplica(tabletId, replica);
                                 }
                                 TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId,
-                                                                       schemaHash);
+                                        schemaHash, TStorageMedium.HDD);
                                 invertedIndex.addTablet(tabletId, tabletMeta);
                             }
                         }

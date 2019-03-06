@@ -17,7 +17,6 @@
 
 package org.apache.doris.clone;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.clone.BackendLoadStatistic.Classification;
 import org.apache.doris.clone.BackendLoadStatistic.LoadScore;
@@ -59,7 +58,7 @@ public class ClusterLoadStatistic {
 
     private List<BackendLoadStatistic> beLoadStatistics = Lists.newArrayList();
 
-    public ClusterLoadStatistic(String clusterName, Catalog catalog, SystemInfoService infoService,
+    public ClusterLoadStatistic(String clusterName, SystemInfoService infoService,
             TabletInvertedIndex invertedIndex) {
         this.clusterName = clusterName;
         this.infoService = infoService;

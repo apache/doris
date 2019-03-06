@@ -17,7 +17,9 @@
 
 package org.apache.doris.common.proc;
 
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.DiskInfo;
+import org.apache.doris.clone.ClusterLoadStatistic;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugUtil;
@@ -37,17 +39,20 @@ public class BackendProcNode implements ProcNodeInterface {
             .build();
 
     private Backend backend;
+    private Map<String, ClusterLoadStatistic> statMap;
 
     public BackendProcNode(Backend backend) {
         this.backend = backend;
+        this.statMap = Catalog.getCurrentCatalog().getTabletScheduler().getStatisticMap();
     }
 
     @Override
     public ProcResult fetchResult() throws AnalysisException {
         Preconditions.checkNotNull(backend);
 
-        BaseProcResult result = new BaseProcResult();
+        ClusterLoadStatistic clusterStat = statMap.get(backend.getOwnerClusterName());
 
+        BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
 
         for (Map.Entry<String, DiskInfo> entry : backend.getDisks().entrySet()) {

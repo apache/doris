@@ -44,6 +44,7 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TOlapTable;
+import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
@@ -906,6 +907,7 @@ public class OlapTable extends Table {
             copied.setState(OlapTableState.NORMAL);
             for (Partition partition : copied.getPartitions()) {
                 partition.setState(PartitionState.NORMAL);
+                copied.getPartitionInfo().setDataProperty(partition.getId(), new DataProperty(TStorageMedium.HDD));
                 for (MaterializedIndex idx : partition.getMaterializedIndices()) {
                     idx.setState(IndexState.NORMAL);
                     for (Tablet tablet : idx.getTablets()) {
