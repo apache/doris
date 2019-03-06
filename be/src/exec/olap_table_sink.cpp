@@ -736,6 +736,7 @@ int OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitmap* 
                 Decimal_V2Value dec_val(reinterpret_cast<const PackedInt128*>(slot)->value);
                 if (dec_val.scale() > desc->type().scale) {
                     int code = dec_val.round(&dec_val, desc->type().scale, HALF_UP);
+                    reinterpret_cast<PackedInt128*>(slot)->value = dec_val.value();
                     if (code != E_DEC_OK) {
                         std::stringstream ss;
                         ss << "round one decimal failed.value=" << dec_val.to_string();
