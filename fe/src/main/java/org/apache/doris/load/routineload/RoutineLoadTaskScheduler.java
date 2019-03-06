@@ -98,17 +98,18 @@ public class RoutineLoadTaskScheduler extends Daemon {
             RoutineLoadTaskInfo routineLoadTaskInfo = needScheduleTasksQueue.peek();
             RoutineLoadJob routineLoadJob = null;
             try {
-                routineLoadJob = routineLoadManager.getJobByTaskId(routineLoadTaskInfo.getId().toString());
-            } catch (MetaNotFoundException e) {
-                LOG.warn("task {} has been abandoned", routineLoadTaskInfo.getId());
-                return;
-            }
-            long beId;
-            try {
-                beId = routineLoadManager.getMinTaskBeId(routineLoadJob.getClusterName());
+                routineLoadJob = routineLoadManager.getJobByTaskId(routineLoadTaskInfo.getId());
+                allocateTaskToBe(routineLoadTaskInfo, routineLoadJob);
                 routineLoadTaskInfo.beginTxn();
-            } catch (Exception e) {
-                LOG.warn("put task to the rear of queue with error " + e.getMessage());
+            } catch (MetaNotFoundException e) {
+                needScheduleTasksQueue.take();
+                // task has been abandoned while renew task has been added in queue
+                // or database has been deleted
+                LOG.warn("task {} has been abandoned with error message {}",
+                         routineLoadTaskInfo.getId(), e.getMessage(), e);
+                return;
+            } catch (LoadException e) {
+                LOG.warn("put task to the rear of queue with error " + e.getMessage(), e);
                 needScheduleTasksQueue.take();
                 needScheduleTasksQueue.put(routineLoadTaskInfo);
                 needScheduleTaskNum--;
@@ -128,21 +129,20 @@ public class RoutineLoadTaskScheduler extends Daemon {
             routineLoadJob.removeNeedScheduleTask(routineLoadTaskInfo);
             routineLoadTaskInfo.setLoadStartTimeMs(System.currentTimeMillis());
             // add to batch task map
-            if (beIdTobatchTask.containsKey(beId)) {
-                beIdTobatchTask.get(beId).add(tRoutineLoadTask);
+            if (beIdTobatchTask.containsKey(routineLoadTaskInfo.getBeId())) {
+                beIdTobatchTask.get(routineLoadTaskInfo.getBeId()).add(tRoutineLoadTask);
             } else {
                 List<TRoutineLoadTask> tRoutineLoadTaskList = Lists.newArrayList();
                 tRoutineLoadTaskList.add(tRoutineLoadTask);
-                beIdTobatchTask.put(beId, tRoutineLoadTaskList);
+                beIdTobatchTask.put(routineLoadTaskInfo.getBeId(), tRoutineLoadTaskList);
             }
             // count
             clusterIdleSlotNum--;
             scheduledTaskNum++;
-            routineLoadManager.addNumOfConcurrentTasksByBeId(beId);
             needScheduleTaskNum--;
         }
         submitBatchTask(beIdTobatchTask);
-        LOG.info("{} tasks have bean allocated to be.", scheduledTaskNum);
+        LOG.info("{} tasks have been allocated to be.", scheduledTaskNum);
     }
 
     private void submitBatchTask(Map<Long, List<TRoutineLoadTask>> beIdToRoutineLoadTask) {
@@ -166,5 +166,19 @@ public class RoutineLoadTaskScheduler extends Daemon {
             }
 
         }
+    }
+
+    // check if previous be has idle slot
+    // true: allocate previous be to task
+    // false: allocate the most idle be to task
+    private void allocateTaskToBe(RoutineLoadTaskInfo routineLoadTaskInfo, RoutineLoadJob routineLoadJob)
+            throws MetaNotFoundException, LoadException {
+        if (routineLoadTaskInfo.getPreviousBeId() != -1L) {
+            if (routineLoadManager.checkBeToTask(routineLoadTaskInfo.getPreviousBeId(), routineLoadJob.getClusterName())) {
+                routineLoadTaskInfo.setBeId(routineLoadTaskInfo.getPreviousBeId());
+                return;
+            }
+        }
+        routineLoadTaskInfo.setBeId(routineLoadManager.getMinTaskBeId(routineLoadJob.getClusterName()));
     }
 }

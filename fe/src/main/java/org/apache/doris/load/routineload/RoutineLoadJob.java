@@ -17,6 +17,7 @@
 
 package org.apache.doris.load.routineload;
 
+import com.google.common.collect.Maps;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Catalog;
@@ -41,6 +42,7 @@ import org.apache.doris.thrift.TLoadTxnCommitRequest;
 import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.transaction.AbortTransactionException;
 import org.apache.doris.transaction.BeginTransactionException;
+import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -54,7 +56,9 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
@@ -280,7 +284,7 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
     }
 
     public String getClusterName() throws MetaNotFoundException {
-        Database database = Catalog.getCurrentCatalog().getDb(id);
+        Database database = Catalog.getCurrentCatalog().getDb(dbId);
         if (database == null) {
             throw new MetaNotFoundException("Database " + dbId + "has been deleted");
         }
@@ -363,16 +367,6 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
                             continue;
                         }
                     }
-
-                    try {
-                        result.add(unprotectRenewTask(routineLoadTaskInfo));
-                        LOG.debug("Task {} was ran more then {} minutes. It was removed and rescheduled",
-                                  oldSignature, DEFAULT_TASK_TIMEOUT_SECONDS);
-                    } catch (UserException e) {
-                        state = JobState.CANCELLED;
-                        // TODO(ml): edit log
-                        LOG.warn("failed to renew a routine load task in job {} with error message {}", id, e.getMessage());
-                    }
                 }
             }
         } finally {
@@ -381,10 +375,30 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
         return result;
     }
 
-    abstract List<RoutineLoadTaskInfo> divideRoutineLoadJob(int currentConcurrentTaskNum);
+    abstract void divideRoutineLoadJob(int currentConcurrentTaskNum);
 
     public int calculateCurrentConcurrentTaskNum() throws MetaNotFoundException {
         return 0;
+    }
+
+    public Map<Long, Integer> getBeIdToConcurrentTaskNum() {
+        Map<Long, Integer> beIdConcurrentTasksNum = Maps.newHashMap();
+        readLock();
+        try {
+            for (RoutineLoadTaskInfo routineLoadTaskInfo : routineLoadTaskInfoList) {
+                if (routineLoadTaskInfo.getBeId() != -1L) {
+                    long beId = routineLoadTaskInfo.getBeId();
+                    if (beIdConcurrentTasksNum.containsKey(beId)) {
+                        beIdConcurrentTasksNum.put(beId, beIdConcurrentTasksNum.get(beId) + 1);
+                    } else {
+                        beIdConcurrentTasksNum.put(beId, 1);
+                    }
+                }
+            }
+            return beIdConcurrentTasksNum;
+        } finally {
+            readUnlock();
+        }
     }
 
     @Override
@@ -409,10 +423,10 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
 
     // if rate of error data is more then max_filter_ratio, pause job
     protected void updateProgress(RLTaskTxnCommitAttachment attachment) {
-        updateNumOfData(attachment.getFilteredRows(), attachment.getLoadedRows());
+        updateNumOfData(attachment.getFilteredRows(), attachment.getLoadedRows() + attachment.getFilteredRows());
     }
 
-    public boolean containsTask(String taskId) {
+    public boolean containsTask(UUID taskId) {
         readLock();
         try {
             return routineLoadTaskInfoList.parallelStream()
@@ -488,22 +502,13 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
     }
 
     @Override
-    public void beforeAborted(TransactionState txnState, TransactionState.TxnStatusChangeReason txnStatusChangeReason)
+    public void beforeAborted(TransactionState txnState, String txnStatusChangeReason)
             throws AbortTransactionException {
         readLock();
         try {
-            if (txnStatusChangeReason != null) {
-                switch (txnStatusChangeReason) {
-                    case TIMEOUT:
-                    default:
-                        String taskId = txnState.getLabel();
-                        if (routineLoadTaskInfoList.parallelStream().anyMatch(entity -> entity.getId().equals(taskId))) {
-                            throw new AbortTransactionException(
-                                    "there are task " + taskId + " related to this txn, "
-                                            + "txn could not be abort", txnState.getTransactionId());
-                        }
-                        break;
-                }
+            String taskId = txnState.getLabel();
+            if (routineLoadTaskInfoList.parallelStream().anyMatch(entity -> entity.getId().toString().equals(taskId))) {
+                LOG.debug("there are a txn of routine load task will be aborted");
             }
         } finally {
             readUnlock();
@@ -511,49 +516,99 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
     }
 
     @Override
-    public void onCommitted(TransactionState txnState) {
-        // step0: get progress from transaction state
-        RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment = (RLTaskTxnCommitAttachment) txnState.getTxnCommitAttachment();
-
-        writeLock();
+    public void beforeCommitted(TransactionState txnState) throws TransactionException {
+        readLock();
         try {
-            // step1: find task in job
+            // check if task has been aborted
             Optional<RoutineLoadTaskInfo> routineLoadTaskInfoOptional =
                     routineLoadTaskInfoList.parallelStream()
-                            .filter(entity -> entity.getId().equals(txnState.getLabel())).findFirst();
+                            .filter(entity -> entity.getId().toString().equals(txnState.getLabel())).findFirst();
+            if (!routineLoadTaskInfoOptional.isPresent()) {
+                throw new TransactionException("txn " + txnState.getTransactionId() + " could not be committed"
+                                                       + " while task " + txnState.getLabel() + "has been aborted ");
+            }
+        } finally {
+            readUnlock();
+        }
+    }
+
+    @Override
+    public void onCommitted(TransactionState txnState) throws TransactionException {
+        writeLock();
+        try {
+            // step0: find task in job
+            Optional<RoutineLoadTaskInfo> routineLoadTaskInfoOptional =
+                    routineLoadTaskInfoList.parallelStream()
+                            .filter(entity -> entity.getId().toString().equals(txnState.getLabel())).findFirst();
             if (routineLoadTaskInfoOptional.isPresent()) {
-                RoutineLoadTaskInfo routineLoadTaskInfo = routineLoadTaskInfoOptional.get();
-
-                // step2: update job progress
-                updateProgress(rlTaskTxnCommitAttachment);
-
-                if (state == JobState.RUNNING) {
-                    // step3: create a new task for partitions
-                    RoutineLoadTaskInfo newRoutineLoadTaskInfo = unprotectRenewTask(routineLoadTaskInfo);
-                    Catalog.getCurrentCatalog().getRoutineLoadManager()
-                            .getNeedScheduleTasksQueue().add(newRoutineLoadTaskInfo);
-                }
+                executeCommitTask(routineLoadTaskInfoOptional.get(), txnState);
             } else {
                 LOG.debug("There is no {} task in task info list. Maybe task has been renew or job state has changed. "
                                   + " Transaction {} will not be committed",
                           txnState.getLabel(), txnState.getTransactionId());
+                throw new TransactionException("txn " + txnState.getTransactionId() + " could not be committed"
+                                                       + " while task " + txnState.getLabel() + "has been aborted ");
             }
+        } catch (TransactionException e) {
+            LOG.warn(e.getMessage(), e);
+            throw e;
         } catch (Throwable e) {
-            LOG.error("failed to update offset in routine load task {} when transaction {} has been committed. "
-                              + "change job to paused",
-                      rlTaskTxnCommitAttachment.getTaskId(), txnState.getTransactionId(), e);
+            LOG.warn(e.getMessage(), e);
             updateState(JobState.PAUSED, "failed to update offset when transaction "
-                                 + txnState.getTransactionId() + " has been committed");
+                    + txnState.getTransactionId() + " has been committed");
         } finally {
             writeUnlock();
         }
     }
 
+    // txn will be aborted but progress will be update
+    // be will abort txn when all of kafka data is wrong
+    // progress will be update otherwise the progress will be hung
     @Override
-    public void onAborted(TransactionState txnState, TransactionState.TxnStatusChangeReason txnStatusChangeReason) {
-        updateState(JobState.PAUSED, txnStatusChangeReason.name());
-        LOG.debug("job {} need to be pause while txn {} abort with reason {}",
-                  id, txnState.getTransactionId(), txnStatusChangeReason.name());
+    public void onAborted(TransactionState txnState, String txnStatusChangeReason) {
+        if (txnStatusChangeReason != null) {
+            LOG.debug("task will be reschedule when txn {} abort with reason {}", txnState.getTransactionId(),
+                      txnStatusChangeReason);
+        } else {
+            LOG.debug("task will be reschedule when txn {} abort", txnState.getTransactionId());
+        }
+        writeLock();
+        try {
+            // step0: find task in job
+            Optional<RoutineLoadTaskInfo> routineLoadTaskInfoOptional =
+                    routineLoadTaskInfoList.parallelStream()
+                            .filter(entity -> entity.getId().toString().equals(txnState.getLabel())).findFirst();
+            if (routineLoadTaskInfoOptional.isPresent()) {
+                executeCommitTask(routineLoadTaskInfoOptional.get(), txnState);
+            } else {
+                LOG.debug("There is no {} task in task info list. Maybe task has been renew or job state has changed. "
+                                  + " Transaction {} will be aborted successfully",
+                          txnState.getLabel(), txnState.getTransactionId());
+            }
+        } catch (Exception e) {
+            updateState(JobState.PAUSED,
+                        "failed to renew task when txn has been aborted with error " + e.getMessage());
+            // TODO(ml): edit log
+            LOG.warn("failed to renew a routine load task in job {} with error message {}", id, e.getMessage());
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    // check task exists or not before call method
+    private void executeCommitTask(RoutineLoadTaskInfo routineLoadTaskInfo, TransactionState txnState)
+            throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException {
+        // step0: get progress from transaction state
+        RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment = (RLTaskTxnCommitAttachment) txnState.getTxnCommitAttachment();
+        // step1: update job progress
+        updateProgress(rlTaskTxnCommitAttachment);
+
+        if (state == JobState.RUNNING) {
+            // step2: create a new task for partitions
+            RoutineLoadTaskInfo newRoutineLoadTaskInfo = unprotectRenewTask(routineLoadTaskInfo);
+            Catalog.getCurrentCatalog().getRoutineLoadManager()
+                    .getNeedScheduleTasksQueue().add(newRoutineLoadTaskInfo);
+        }
     }
 
     protected static void unprotectCheckCreate(CreateRoutineLoadStmt stmt) throws AnalysisException {

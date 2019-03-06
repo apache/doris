@@ -43,7 +43,8 @@ public:
     KafkaLoadInfo(const TKafkaLoadInfo& t_info):
         brokers(t_info.brokers),
         topic(t_info.topic),
-        begin_offset(t_info.partition_begin_offset) {
+        begin_offset(t_info.partition_begin_offset),
+        cmt_offset(t_info.partition_begin_offset) {
 
         if (t_info.__isset.max_interval_s) { max_interval_s = t_info.max_interval_s; }
         if (t_info.__isset.max_batch_rows) { max_batch_rows = t_info.max_batch_rows; }

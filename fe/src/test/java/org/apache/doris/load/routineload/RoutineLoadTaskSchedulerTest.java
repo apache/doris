@@ -115,7 +115,7 @@ public class RoutineLoadTaskSchedulerTest {
                 result = routineLoadTaskInfoQueue;
                 routineLoadManager.getMinTaskBeId(anyString);
                 result = beId;
-                routineLoadManager.getJobByTaskId(anyString);
+                routineLoadManager.getJobByTaskId((UUID) any);
                 result = kafkaRoutineLoadJob1;
                 routineLoadManager.getJob(anyLong);
                 result = kafkaRoutineLoadJob1;
@@ -147,8 +147,8 @@ public class RoutineLoadTaskSchedulerTest {
                 Assert.assertEquals(200L,
                         (long) ((KafkaRoutineLoadTask) routineLoadTask).getPartitionIdToOffset().get(2));
 
-                routineLoadManager.addNumOfConcurrentTasksByBeId(beId);
-                times = 1;
+//                routineLoadManager.increaseNumOfConcurrentTasksByBeId(beId);
+//                times = 1;
             }
         };
     }
