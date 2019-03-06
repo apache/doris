@@ -627,8 +627,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             cluster = SystemInfoService.DEFAULT_CLUSTER;
         }
 
-        checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
-                              request.getTbl(), request.getUser_ip(), PrivPredicate.LOAD);
+        if (request.isSetAuth_code()) {
+            // TODO(cmy): find a way to check
+        } else {
+            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
+                    request.getTbl(), request.getUser_ip(), PrivPredicate.LOAD);
+        }
 
         // get database
         Catalog catalog = Catalog.getInstance();
@@ -676,8 +680,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             cluster = SystemInfoService.DEFAULT_CLUSTER;
         }
 
-        checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
-                              request.getTbl(), request.getUser_ip(), PrivPredicate.LOAD);
+        if (request.isSetAuth_code()) {
+            // TODO(cmy): find a way to check
+        } else {
+            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
+                    request.getTbl(), request.getUser_ip(), PrivPredicate.LOAD);
+        }
 
         Catalog.getCurrentGlobalTransactionMgr().abortTransaction(request.getTxnId(),
                                                                   request.isSetReason() ? request.getReason() : "system cancel");
@@ -754,4 +762,5 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return null;
     }
 }
+
 

@@ -23,13 +23,18 @@
 #include <vector>
 
 #include "common/status.h"
+#include "runtime/stream_load/stream_load_pipe.h"
 #include "runtime/routine_load/kafka_consumer_pipe.h"
+#include "service/backend_options.h"
 #include "util/defer_op.h"
 #include "util/stopwatch.hpp"
+#include "util/uid_util.h"
 
 namespace doris {
 
-Status KafkaDataConsumer::init() {
+// init kafka consumer will only set common configs such as
+// brokers, groupid
+Status KafkaDataConsumer::init(StreamLoadContext* ctx) {
     std::unique_lock<std::mutex> l(_lock); 
     if (_init) {
         // this consumer has already been initialized.
@@ -42,29 +47,32 @@ Status KafkaDataConsumer::init() {
     auto conf_deleter = [conf] () { delete conf; };
     DeferOp delete_conf(std::bind<void>(conf_deleter));
 
+    std::stringstream ss;
+    ss << BackendOptions::get_localhost() << "_";
+    std::string group_id = ss.str() + UniqueId().to_string();
+    LOG(INFO) << "init kafka consumer with group id: " << group_id;
+
     std::string errstr;
-    auto set_conf = [conf, &errstr](const std::string& conf_key, const std::string& conf_val) {
+    auto set_conf = [&conf, &errstr](const std::string& conf_key, const std::string& conf_val) {
         if (conf->set(conf_key, conf_val, errstr) != RdKafka::Conf::CONF_OK) {
             std::stringstream ss;
             ss << "failed to set '" << conf_key << "'";
             LOG(WARNING) << ss.str();
             return Status(ss.str());
         }
+        VLOG(3) << "set " << conf_key << ": " << conf_val;
         return Status::OK;
     };
 
-    RETURN_IF_ERROR(set_conf("metadata.broker.list", _ctx->kafka_info->brokers));
-
-    RETURN_IF_ERROR(set_conf("metadata.broker.list", _ctx->kafka_info->brokers));
-    RETURN_IF_ERROR(set_conf("group.id", _ctx->kafka_info->group_id));
-    RETURN_IF_ERROR(set_conf("client.id", _ctx->kafka_info->client_id));
+    RETURN_IF_ERROR(set_conf("metadata.broker.list", ctx->kafka_info->brokers));
+    RETURN_IF_ERROR(set_conf("group.id", group_id));
     RETURN_IF_ERROR(set_conf("enable.partition.eof", "false"));
     RETURN_IF_ERROR(set_conf("enable.auto.offset.store", "false"));
     // TODO: set it larger than 0 after we set rd_kafka_conf_set_stats_cb()
     RETURN_IF_ERROR(set_conf("statistics.interval.ms", "0"));
+    RETURN_IF_ERROR(set_conf("auto.offset.reset", "error"));
 
-    KafkaEventCb event_cb;
-    if (conf->set("event_cb", &event_cb, errstr) != RdKafka::Conf::CONF_OK) {
+    if (conf->set("event_cb", &_k_event_cb, errstr) != RdKafka::Conf::CONF_OK) {
         std::stringstream ss;
         ss << "failed to set 'event_cb'";
         LOG(WARNING) << ss.str();
@@ -78,13 +86,26 @@ Status KafkaDataConsumer::init() {
         return Status("failed to create kafka consumer");
     }
 
+    VLOG(3) << "finished to init kafka consumer. " << ctx->brief();
+
+    _init = true;
+    return Status::OK;
+}
+
+Status KafkaDataConsumer::assign_topic_partitions(StreamLoadContext* ctx) {
+    DCHECK(_k_consumer);
     // create TopicPartitions
+    std::stringstream ss;
     std::vector<RdKafka::TopicPartition*> topic_partitions;
-    for (auto& entry : _ctx->kafka_info->begin_offset) {
+    for (auto& entry : ctx->kafka_info->begin_offset) {
         RdKafka::TopicPartition* tp1 = RdKafka::TopicPartition::create(
-                _ctx->kafka_info->topic, entry.first, entry.second);
+                ctx->kafka_info->topic, entry.first, entry.second);
         topic_partitions.push_back(tp1);
+        ss << "partition[" << entry.first << "-" << entry.second << "] ";
     }
+
+    VLOG(1) << "assign topic partitions: " << ctx->kafka_info->topic
+        << ", " << ss.str();
 
     // delete TopicPartition finally
     auto tp_deleter = [&topic_partitions] () {
@@ -96,19 +117,15 @@ Status KafkaDataConsumer::init() {
     // assign partition
     RdKafka::ErrorCode err = _k_consumer->assign(topic_partitions);
     if (err) {
-        LOG(WARNING) << "failed to assign topic partitions: " << _ctx->brief(true)
+        LOG(WARNING) << "failed to assign topic partitions: " << ctx->brief(true)
                 << ", err: " << RdKafka::err2str(err);
-        return Status("failed to assgin topic partitions");
+        return Status("failed to assign topic partitions");
     }
 
-    VLOG(3) << "finished to init kafka consumer. "
-            << _ctx->brief(true);
-
-    _init = true;
     return Status::OK;
 }
 
-Status KafkaDataConsumer::start() {
+Status KafkaDataConsumer::start(StreamLoadContext* ctx) {
     {
         std::unique_lock<std::mutex> l(_lock);
         if (!_init) {
@@ -116,15 +133,17 @@ Status KafkaDataConsumer::start() {
         }
     }
     
-    int64_t left_time = _ctx->kafka_info->max_interval_s;
-    int64_t left_rows = _ctx->kafka_info->max_batch_rows;
-    int64_t left_bytes = _ctx->kafka_info->max_batch_size;
+    int64_t left_time = ctx->kafka_info->max_interval_s;
+    int64_t left_rows = ctx->kafka_info->max_batch_rows;
+    int64_t left_bytes = ctx->kafka_info->max_batch_size;
+
+    std::shared_ptr<KafkaConsumerPipe> kakfa_pipe = std::static_pointer_cast<KafkaConsumerPipe>(ctx->body_sink);
 
     LOG(INFO) << "start consumer"
-        << ". interval(s): " << left_time
+        << ". max time(s): " << left_time
         << ", bath rows: " << left_rows
         << ", batch size: " << left_bytes
-        << ". " << _ctx->brief();
+        << ". " << ctx->brief();
 
     MonotonicStopWatch watch;
     watch.start();
@@ -132,23 +151,33 @@ Status KafkaDataConsumer::start() {
     while (true) {
         std::unique_lock<std::mutex> l(_lock);
         if (_cancelled) {
-            _kafka_consumer_pipe->cancel();
+            kakfa_pipe ->cancel();
             return Status::CANCELLED;
         }
 
         if (_finished) {
-            _kafka_consumer_pipe->finish();
+            kakfa_pipe ->finish();
             return Status::OK;
         }
 
         if (left_time <= 0 || left_rows <= 0 || left_bytes <=0) {
-            VLOG(3) << "kafka consume batch finished"
+            VLOG(3) << "kafka consume batch done"
                     << ". left time=" << left_time
                     << ", left rows=" << left_rows
                     << ", left bytes=" << left_bytes; 
-            _kafka_consumer_pipe->finish();
-            _finished = true;
-            return Status::OK;
+
+            if (left_bytes == ctx->kafka_info->max_batch_size) {
+                // nothing to be consumed, cancel it
+                kakfa_pipe->cancel();
+                _cancelled = true;
+                return Status::CANCELLED;
+            } else {
+                DCHECK(left_bytes < ctx->kafka_info->max_batch_size);
+                DCHECK(left_rows < ctx->kafka_info->max_batch_rows);
+                kakfa_pipe->finish();
+                _finished = true;
+                return Status::OK;
+            }
         }
 
         // consume 1 message at a time
@@ -160,15 +189,15 @@ Status KafkaDataConsumer::start() {
                         << ", offset: " << msg->offset()
                         << ", len: " << msg->len();
 
-                st = _kafka_consumer_pipe->append_with_line_delimiter(
+                st = kakfa_pipe ->append_with_line_delimiter(
                         static_cast<const char *>(msg->payload()),
                         static_cast<size_t>(msg->len()));
                 if (st.ok()) {
                     left_rows--;
                     left_bytes -= msg->len();
-                    _ctx->kafka_info->cmt_offset[msg->partition()] = msg->offset();
-                    VLOG(3) << "consume partition[ " << msg->partition()
-                            << " - " << msg->offset();
+                    ctx->kafka_info->cmt_offset[msg->partition()] = msg->offset();
+                    VLOG(3) << "consume partition[" << msg->partition()
+                            << " - " << msg->offset() << "]";
                 }
 
                 break;
@@ -185,17 +214,17 @@ Status KafkaDataConsumer::start() {
         delete msg; 
 
         if (!st.ok()) {
-            _kafka_consumer_pipe->cancel();
+            kakfa_pipe ->cancel();
             return st;
         }
 
-        left_time = _ctx->kafka_info->max_interval_s - watch.elapsed_time() / 1000 / 1000 / 1000; 
+        left_time = ctx->kafka_info->max_interval_s - watch.elapsed_time() / 1000 / 1000 / 1000; 
     }
 
     return Status::OK;
 }
 
-Status KafkaDataConsumer::cancel() {
+Status KafkaDataConsumer::cancel(StreamLoadContext* ctx) {
     std::unique_lock<std::mutex> l(_lock);
     if (!_init) {
         return Status("consumer is not initialized");
@@ -207,6 +236,25 @@ Status KafkaDataConsumer::cancel() {
 
     _cancelled = true;
     return Status::OK;
+}
+
+Status KafkaDataConsumer::reset() {
+    std::unique_lock<std::mutex> l(_lock);
+    _finished = false;
+    _cancelled = false;
+    return Status::OK;
+}
+
+// if the kafka brokers and topic are same,
+// we considered this consumer as matched, thus can be reused.
+bool KafkaDataConsumer::match(StreamLoadContext* ctx) {
+    if (ctx->load_src_type != TLoadSourceType::KAFKA) {
+        return false;
+    }
+    if (_brokers != ctx->kafka_info->brokers || _topic != ctx->kafka_info->topic) {
+        return false;
+    }
+    return true;
 }
 
 } // end namespace doris
