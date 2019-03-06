@@ -244,7 +244,7 @@
         WITH BROKER my_hdfs_broker
         (
         "hadoop.security.authentication" = "kerberos",
-        "kerberos_principal"="palo@BAIDU.COM",
+        "kerberos_principal"="doris@YOUR.COM",
         "kerberos_keytab"="/home/palo/palo.keytab"
         )
 
@@ -261,7 +261,7 @@
         WITH BROKER my_hdfs_broker
         (
         "hadoop.security.authentication"="kerberos",
-        "kerberos_principal"="palo@BAIDU.COM",
+        "kerberos_principal"="doris@YOUR.COM",
         "kerberos_keytab_content"="BQIAAABEAAEACUJBSURVLkNPTQAEcGFsbw"
         )
 

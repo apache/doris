@@ -48,7 +48,7 @@ public class AmbariDeployManagerTest {
 
         Field ambariUrlF = manager.getClass().getDeclaredField("ambariUrl");
         ambariUrlF.setAccessible(true);
-        ambariUrlF.set(manager, "180.76.168.210:8080");
+        ambariUrlF.set(manager, "127.0.0.1:8080");
 
         Field clusterNameF = manager.getClass().getDeclaredField("clusterName");
         clusterNameF.setAccessible(true);
@@ -60,7 +60,7 @@ public class AmbariDeployManagerTest {
 
         Field blueprintF = manager.getClass().getDeclaredField("blueprintUrl");
         blueprintF.setAccessible(true);
-        blueprintF.set(manager, "http://180.76.168.210:8080/api/v1/clusters/BDP?format=blueprint");
+        blueprintF.set(manager, "http://127.0.0.1:8080/api/v1/clusters/BDP?format=blueprint");
     }
 
     @Test
@@ -85,14 +85,14 @@ public class AmbariDeployManagerTest {
     }
 
     private String getBlueprint() throws NoSuchMethodException, IllegalAccessException, InvocationTargetException {
-        String res = Util.getResultForUrl("http://180.76.168.210:8080/api/v1/clusters/BDP?format=blueprint",
+        String res = Util.getResultForUrl("http://127.0.0.1:8080/api/v1/clusters/BDP?format=blueprint",
                 null, 2000, 2000);
         return res;
     }
 
     private String getComponent(String comp)
             throws NoSuchMethodException, IllegalAccessException, InvocationTargetException {
-        String res = Util.getResultForUrl("http://180.76.168.210:8080/api/v1/clusters/BDP/services/PALO/components/"
+        String res = Util.getResultForUrl("http://127.0.0.1:8080/api/v1/clusters/BDP/services/PALO/components/"
                 + comp, null, 2000, 2000);
 
         return res;
