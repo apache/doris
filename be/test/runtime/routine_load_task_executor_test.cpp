@@ -20,6 +20,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/stream_load/load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_executor.h"
+#include "util/logging.h"
 
 #include <gtest/gtest.h>
 
@@ -28,6 +29,8 @@
 #include "gen_cpp/HeartbeatService_types.h"
 
 namespace doris {
+
+using namespace RdKafka;
 
 extern TLoadTxnBeginResult k_stream_load_begin_result;
 extern TLoadTxnCommitResult k_stream_load_commit_result;
@@ -76,15 +79,13 @@ TEST_F(RoutineLoadTaskExecutorTest, exec_task) {
     
     TKafkaLoadInfo k_info;
     k_info.brokers = "127.0.0.1:9092";
-    k_info.group_id = "6";
-    k_info.client_id = "7";
     k_info.topic = "test";
-    k_info.__set_max_interval_s(10);
+    k_info.__set_max_interval_s(5);
     k_info.__set_max_batch_rows(10);
     k_info.__set_max_batch_size(2048);
     
     std::map<int32_t, int64_t> part_off;
-    part_off[0] = 0L;
+    part_off[0] = 13L;
     k_info.__set_partition_begin_offset(part_off);
 
     task.__set_kafka_load_info(k_info);
@@ -96,11 +97,28 @@ TEST_F(RoutineLoadTaskExecutorTest, exec_task) {
     st = executor.submit_task(task);
     ASSERT_TRUE(st.ok());
 
-    // st = executor.submit_task(task);
-    // ASSERT_TRUE(st.ok());
+    sleep(10);
+    k_info.brokers = "127.0.0.2:9092";
+    task.__set_kafka_load_info(k_info);
+    st = executor.submit_task(task);
+    ASSERT_TRUE(st.ok());
+
+    sleep(10);
+    k_info.brokers = "192.0.0.2:9092";
+    task.__set_kafka_load_info(k_info);
+    st = executor.submit_task(task);
+    ASSERT_TRUE(st.ok());
+
+    sleep(10);
+    k_info.brokers = "192.0.0.2:9092";
+    task.__set_kafka_load_info(k_info);
+    st = executor.submit_task(task);
+    ASSERT_TRUE(st.ok());
+
+    sleep(10);
 }
 
-}
+} // end namespace
 
 int main(int argc, char* argv[]) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
@@ -108,8 +126,9 @@ int main(int argc, char* argv[]) {
         fprintf(stderr, "error read config file. \n");
         return -1;
     }
+    doris::init_glog("be-test");
+
     ::testing::InitGoogleTest(&argc, argv);
-    doris::CpuInfo::init();
     return RUN_ALL_TESTS();
 }
 

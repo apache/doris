@@ -98,6 +98,7 @@ add_library(Runtime STATIC
   stream_load/stream_load_context.cpp
   stream_load/stream_load_executor.cpp
   routine_load/data_consumer.cpp
+  routine_load/data_consumer_pool.cpp
   routine_load/routine_load_task_executor.cpp
 )
 
