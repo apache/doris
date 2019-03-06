@@ -39,7 +39,7 @@ import java.util.List;
 import io.netty.handler.codec.http.HttpMethod;
 
 // Format:
-//   http://username:password@10.73.150.30:8138/api/show_proc?path=/
+//   http://username:password@192.168.1.1:8030/api/show_proc?path=/
 public class ShowProcAction extends RestBaseAction {
     private static final Logger LOG = LogManager.getLogger(ShowProcAction.class);
 
