@@ -23,7 +23,7 @@ public enum OptOperatorType {
 
     OP_PHYSICAL_SCAN("PhysicalScan"),
 
-    OP_PATTERN("Pattern");
+    OP_PATTERN_LEAF("PatternLeaf");
 
     private String name;
 

@@ -38,20 +38,29 @@ public class OptExpression {
     private OptOperator op;
     private List<OptExpression> inputs;
 
+    // store where this Expression has bound from, used to
+    private MultiExpression mExpr;
+
     public OptExpression(OptOperator op) {
         this.op = op;
         inputs = Lists.newArrayList();
     }
 
-    public OptExpression(OptOperator op, OptExpression... inputs) {
+    public OptExpression(OptOperator op, MultiExpression mExpr) {
+        this(op, Lists.newArrayList(), mExpr);
+    }
+
+    public OptExpression(OptOperator op, List<OptExpression> inputs, MultiExpression mExpr) {
         this.op = op;
-        this.inputs = Lists.newArrayList(inputs);
+        this.inputs = inputs;
+        this.mExpr = mExpr;
     }
 
     public OptOperator getOp() { return op; }
     public List<OptExpression> getInputs() { return inputs; }
     public int arity() { return inputs.size(); }
     public OptExpression getInput(int idx) { return getInput(idx); }
+    public MultiExpression getMExpr() { return mExpr; }
 
     // It's only used when this object is part of pattern. this function check if
     // MultiExpression can match this Expression

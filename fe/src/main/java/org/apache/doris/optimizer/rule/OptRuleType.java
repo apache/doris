@@ -15,31 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.optimizer;
+package org.apache.doris.optimizer.rule;
 
-import java.util.List;
+public enum OptRuleType {
+    RULE_OLAP_LSCAN_TO_PSCAN(1, "OlapLogicalScanToPhysicalScan"),
+    RULE_EQ_JOIN_TO_HASH_JOIN(2, "EqualJoinToHashJoin"),
+    RULE_JOIN_COMMUTATIVITY(3, "JoinCommutativity"),
+    RULE_JOIN_ASSOCIATIVITY(4, "JoinAssociativity");
 
-// A Group contains all logical equivalent logical MultiExpressions
-// and physical MultiExpressions
-public class OptGroup {
-    private int id;
-    private List<MultiExpression> mExprs;
-    private int nextMExprId = 1;
-
-    public OptGroup(int id) {
-        this.id = id;
+    OptRuleType(int code, String name) {
+        this.code = code;
+        this.name = name;
     }
+    private int code;
+    private String name;
 
-    public int getId() { return id; }
-    public MultiExpression getFirstMultiExpression() { return null; }
+    public int getCode() { return code; }
+    public String getName() { return name; }
 
-    // Add a MultiExpression
-    public void addMExpr(MultiExpression mExpr) {
-        mExpr.setId(nextMExprId++);
-        mExprs.add(mExpr);
-    }
-
-    public String debugString() {
-        return "";
-    }
+    @Override
+    public String toString() { return name; }
 }

@@ -15,31 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.optimizer;
+package org.apache.doris.optimizer.operator;
 
-import java.util.List;
-
-// A Group contains all logical equivalent logical MultiExpressions
-// and physical MultiExpressions
-public class OptGroup {
-    private int id;
-    private List<MultiExpression> mExprs;
-    private int nextMExprId = 1;
-
-    public OptGroup(int id) {
-        this.id = id;
+public class OptPatternLeaf extends OptPattern {
+    public OptPatternLeaf() {
+        super(OptOperatorType.OP_PATTERN_LEAF);
     }
 
-    public int getId() { return id; }
-    public MultiExpression getFirstMultiExpression() { return null; }
-
-    // Add a MultiExpression
-    public void addMExpr(MultiExpression mExpr) {
-        mExpr.setId(nextMExprId++);
-        mExprs.add(mExpr);
-    }
-
-    public String debugString() {
-        return "";
-    }
+    @Override
+    public boolean isPatternAndLeaf() { return true; }
 }
