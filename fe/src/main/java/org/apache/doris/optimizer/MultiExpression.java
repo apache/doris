@@ -46,8 +46,12 @@ public class MultiExpression {
     public OptOperator getOp() { return op; }
     public int arity() { return inputs.size(); }
     public List<OptGroup> getInputs() { return inputs; }
+    public OptGroup getInput(int idx) { return inputs.get(idx); }
 
     public OptGroup getGroup() { return group; }
+
+    // get next MultiExpression in same group
+    public MultiExpression next() { return null; }
 
     public String debugString() {
         return "MultiExpression";

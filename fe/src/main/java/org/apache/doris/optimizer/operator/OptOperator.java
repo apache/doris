@@ -37,6 +37,8 @@ public abstract class OptOperator {
     public boolean isPhysical() { return false; }
     // if this operator is pattern
     public boolean isPattern() { return false; }
+    // If this operator is pattern and is leaf
+    public boolean isPatternAndLeaf() { return false; }
 
     public String debugString() {
         return type.getName();
