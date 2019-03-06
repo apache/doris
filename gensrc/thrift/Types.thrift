@@ -71,6 +71,7 @@ enum TPrimitiveType {
   LARGEINT,
   VARCHAR,
   HLL,
+  DECIMAL_V2
 }
 
 enum TTypeNodeType {

@@ -54,6 +54,7 @@ public:
     virtual StringVal get_string_val(ExprContext* context, TupleRow* row);
     virtual DateTimeVal get_datetime_val(ExprContext* context, TupleRow* row);
     virtual DecimalVal get_decimal_val(ExprContext* context, TupleRow* row);
+    virtual Decimal_V2Val get_decimal_v2_val(ExprContext* context, TupleRow* row);
     virtual LargeIntVal get_large_int_val(ExprContext* context, TupleRow* row);
 
     virtual Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn);
@@ -111,6 +112,7 @@ public:
     virtual StringVal get_string_val(ExprContext* context, TupleRow* row);
     virtual DateTimeVal get_datetime_val(ExprContext* context, TupleRow* row);
     virtual DecimalVal get_decimal_val(ExprContext* context, TupleRow* row);
+    virtual Decimal_V2Val get_decimal_v2_val(ExprContext* context, TupleRow* row);
     virtual LargeIntVal get_large_int_val(ExprContext* context, TupleRow* row);
 
     virtual Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn);
@@ -140,6 +142,7 @@ public:
     virtual StringVal get_string_val(ExprContext* context, TupleRow* row);
     virtual DateTimeVal get_datetime_val(ExprContext* context, TupleRow* row);
     virtual DecimalVal get_decimal_val(ExprContext* context, TupleRow* row);
+    virtual Decimal_V2Val get_decimal_v2_val(ExprContext* context, TupleRow* row);
     virtual LargeIntVal get_large_int_val(ExprContext* context, TupleRow* row);
 
     virtual Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn);

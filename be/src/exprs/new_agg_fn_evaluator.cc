@@ -261,6 +261,10 @@ void NewAggFnEvaluator::SetDstSlot(const AnyVal* src, const SlotDescriptor& dst_
         *reinterpret_cast<DecimalValue*>(slot) = DecimalValue::from_decimal_val(
                     *reinterpret_cast<const DecimalVal*>(src));
         return;
+    case TYPE_DECIMAL_V2:
+        *reinterpret_cast<PackedInt128*>(slot) = 
+            reinterpret_cast<const Decimal_V2Val*>(src)->val;
+        return;
     default:
       DCHECK(false) << "NYI: " << dst_slot_desc.type();
   }
@@ -360,6 +364,11 @@ inline void NewAggFnEvaluator::set_any_val(
     case TYPE_DECIMAL:
         reinterpret_cast<const DecimalValue*>(slot)->to_decimal_val(
                 reinterpret_cast<DecimalVal*>(dst));
+        return;
+
+    case TYPE_DECIMAL_V2:
+        reinterpret_cast<Decimal_V2Val*>(dst)->val = 
+            reinterpret_cast<const PackedInt128*>(slot)->value;
         return;
 
     case TYPE_LARGEINT:
@@ -541,6 +550,13 @@ void NewAggFnEvaluator::SerializeOrFinalize(Tuple* src,
     case TYPE_DECIMAL: {
       typedef DecimalVal(*Fn)(FunctionContext*, AnyVal*);
       DecimalVal v = reinterpret_cast<Fn>(fn)(
+          agg_fn_ctx_.get(), staging_intermediate_val_);
+      SetDstSlot(&v, dst_slot_desc, dst);
+      break;
+    }
+    case TYPE_DECIMAL_V2: {
+      typedef Decimal_V2Val(*Fn)(FunctionContext*, AnyVal*);
+      Decimal_V2Val v = reinterpret_cast<Fn>(fn)(
           agg_fn_ctx_.get(), staging_intermediate_val_);
       SetDstSlot(&v, dst_slot_desc, dst);
       break;

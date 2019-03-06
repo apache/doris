@@ -63,6 +63,7 @@ private:
     TupleDescriptor* _output_tuple_desc;
 
     std::vector<DecimalValue> _max_decimal_val;
+    std::vector<Decimal_V2Value> _max_decimal_v2_val;
 };
 
 }

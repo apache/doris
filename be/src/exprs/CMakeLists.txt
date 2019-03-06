@@ -36,6 +36,7 @@ add_library(Exprs
   conditional_functions.cpp
   conditional_functions_ir.cpp
   decimal_operators.cpp
+  decimal_v2_operators.cpp
   es_functions.cpp
   literal.cpp
   expr.cpp

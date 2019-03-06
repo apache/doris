@@ -42,6 +42,7 @@ struct BigIntVal;
 struct StringVal;
 struct DateTimeVal;
 struct DecimalVal;
+struct Decimal_V2Val;
 
 // The FunctionContext is passed to every UDF/UDA and is the interface for the UDF to the
 // rest of the system. It contains APIs to examine the system state, report errors
@@ -71,6 +72,7 @@ public:
         TYPE_HLL,
         TYPE_STRING,
         TYPE_FIXED_BUFFER,
+        TYPE_DECIMAL_V2
     };
 
     struct TypeDesc {
@@ -687,6 +689,42 @@ struct DecimalVal : public AnyVal {
 
 };
 
+struct Decimal_V2Val : public AnyVal {
+
+    __int128 val;
+
+    // Default value is zero
+    Decimal_V2Val() : val(0) {}
+
+    const __int128& value() const { return val; }
+
+    Decimal_V2Val(__int128 value) : val(value) {}
+
+    static Decimal_V2Val null() {
+        Decimal_V2Val result;
+        result.is_null = true;
+        return result;
+    }
+    
+    void set_to_zero() {
+        val = 0;
+    }
+    
+    void set_to_abs_value() {
+        if (val < 0) val = -val;
+    }
+
+    bool operator==(const Decimal_V2Val& other) const {
+        return val == other.value();
+    }
+
+    bool operator!=(const Decimal_V2Val& other) const {
+        return val != other.value();
+    }
+
+};
+
+
 struct LargeIntVal : public AnyVal {
     __int128 val;
 
@@ -729,6 +767,7 @@ using doris_udf::FloatVal;
 using doris_udf::DoubleVal;
 using doris_udf::StringVal;
 using doris_udf::DecimalVal;
+using doris_udf::Decimal_V2Val;
 using doris_udf::DateTimeVal;
 using doris_udf::FunctionContext;
 

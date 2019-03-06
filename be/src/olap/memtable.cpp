@@ -116,6 +116,13 @@ void MemTable::insert(Tuple* tuple) {
                 storage_decimal_value->fraction = decimal_value->frac_value();
                 break;
             }
+            case TYPE_DECIMAL_V2: {
+                Decimal_V2Value* decimal_value = tuple->get_decimal_v2_slot(slot->tuple_offset());
+                decimal12_t* storage_decimal_value = reinterpret_cast<decimal12_t*>(_tuple_buf + offset);
+                storage_decimal_value->integer = decimal_value->int_value();
+                storage_decimal_value->fraction = decimal_value->frac_value();
+                break;
+            }
             case TYPE_DATETIME: {
                 DateTimeValue* datetime_value = tuple->get_datetime_slot(slot->tuple_offset());
                 uint64_t* storage_datetime_value = reinterpret_cast<uint64_t*>(_tuple_buf + offset);
