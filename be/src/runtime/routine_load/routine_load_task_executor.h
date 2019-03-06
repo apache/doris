@@ -21,6 +21,7 @@
 #include <map>
 #include <mutex>
 
+#include "runtime/routine_load/data_consumer_pool.h"
 #include "util/thread_pool.hpp"
 #include "util/uid_util.h"
 
@@ -41,14 +42,13 @@ public:
     typedef std::function<void (StreamLoadContext*)> ExecFinishCallback; 
 
     RoutineLoadTaskExecutor(ExecEnv* exec_env):
-        _exec_env(exec_env) {
-        _thread_pool = new ThreadPool(10, 1000);    
+        _exec_env(exec_env),
+        _thread_pool(10, 1000),
+        _data_consumer_pool(10) {
     }
 
     ~RoutineLoadTaskExecutor() {
-        if (_thread_pool) {
-            delete _thread_pool;
-        }
+
     }
     
     // submit a routine load task
@@ -56,18 +56,20 @@ public:
 
 private:
     // execute the task
-    void exec_task(StreamLoadContext* ctx, ExecFinishCallback cb);
+    void exec_task(StreamLoadContext* ctx, DataConsumerPool* pool, ExecFinishCallback cb);
     
     void err_handler(
             StreamLoadContext* ctx,
             const Status& st,
             const std::string& err_msg);
 
+    // for test only
     Status _execute_plan_for_test(StreamLoadContext* ctx);
 
 private:
     ExecEnv* _exec_env;
-    ThreadPool* _thread_pool;    
+    ThreadPool _thread_pool;
+    DataConsumerPool _data_consumer_pool;
 
     std::mutex _lock;
     // task id -> load context

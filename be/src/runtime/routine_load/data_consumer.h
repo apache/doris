@@ -22,77 +22,49 @@
 #include "librdkafka/rdkafkacpp.h"
 
 #include "runtime/stream_load/stream_load_context.h"
+#include "util/uid_util.h"
 
 namespace doris {
 
 class KafkaConsumerPipe;
 class Status;
+class StreamLoadPipe;
 
 class DataConsumer {
 public:
     DataConsumer(StreamLoadContext* ctx):
-        _ctx(ctx),
         _init(false),
         _finished(false),
         _cancelled(false) {
-
-        _ctx->ref();
     }
 
     virtual ~DataConsumer() {
-        if (_ctx->unref()) {
-            delete _ctx;
-        }
     }
 
     // init the consumer with the given parameters
-    virtual Status init() = 0;
-    
+    virtual Status init(StreamLoadContext* ctx) = 0;
     // start consuming
-    virtual Status start() = 0;
-
+    virtual Status start(StreamLoadContext* ctx) = 0;
     // cancel the consuming process.
     // if the consumer is not initialized, or the consuming
     // process is already finished, call cancel() will
     // return ERROR
-    virtual Status cancel() = 0;
+    virtual Status cancel(StreamLoadContext* ctx) = 0;
+    // reset the data consumer before being reused
+    virtual Status reset() = 0;
+    // return true the if the consumer match the need
+    virtual bool match(StreamLoadContext* ctx) = 0;
 
+    const UniqueId& id() { return _id; }
+    
 protected:
-    StreamLoadContext* _ctx;
+    UniqueId _id;
 
     // lock to protect the following bools
     std::mutex _lock;
     bool _init;
     bool _finished;
     bool _cancelled;
-};
-
-class KafkaDataConsumer : public DataConsumer {
-public:
-    KafkaDataConsumer(
-            StreamLoadContext* ctx,
-            std::shared_ptr<KafkaConsumerPipe> kafka_consumer_pipe 
-            ):
-        DataConsumer(ctx),
-        _kafka_consumer_pipe(kafka_consumer_pipe) {
-    }
-
-    virtual Status init() override;
-
-    virtual Status start() override;
-
-    virtual Status cancel() override;
-
-    virtual ~KafkaDataConsumer() {
-        if (_k_consumer) {
-            _k_consumer->close();
-            delete _k_consumer;
-        }
-    }
-
-private:
-    std::shared_ptr<KafkaConsumerPipe> _kafka_consumer_pipe;
-    RdKafka::KafkaConsumer* _k_consumer = nullptr;
 };
 
 class KafkaEventCb : public RdKafka::EventCb {
@@ -124,6 +96,41 @@ public:
                 break;
         }
     }
+};
+
+class KafkaDataConsumer : public DataConsumer {
+public:
+    KafkaDataConsumer(StreamLoadContext* ctx):
+        DataConsumer(ctx),
+        _brokers(ctx->kafka_info->brokers),
+        _topic(ctx->kafka_info->topic) {
+    }
+
+    virtual ~KafkaDataConsumer() {
+        VLOG(3) << "deconstruct consumer";
+        if (_k_consumer) {
+            _k_consumer->close();
+            delete _k_consumer;
+            _k_consumer = nullptr;
+        }
+    }
+
+    virtual Status init(StreamLoadContext* ctx) override;
+    virtual Status start(StreamLoadContext* ctx) override;
+    virtual Status cancel(StreamLoadContext* ctx) override;
+    // reassign partition topics
+    virtual Status reset() override;
+    virtual bool match(StreamLoadContext* ctx) override;
+
+    Status assign_topic_partitions(StreamLoadContext* ctx);
+
+private:
+    std::string _brokers;
+    std::string _topic;
+
+    KafkaEventCb _k_event_cb;
+    RdKafka::KafkaConsumer* _k_consumer = nullptr;
+    std::shared_ptr<KafkaConsumerPipe> _k_consumer_pipe;
 };
 
 } // end namespace doris
