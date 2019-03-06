@@ -124,7 +124,7 @@ OLAPStatus Tablet::init_once() {
     for (auto& it : _rs_version_map) {
         res = it.second->init();
         if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "fail to load rowset. "
+            LOG(WARNING) << "fail to init rowset. "
                          << "version=" << it.first.first << "-" << it.first.second;
             break;
         }

@@ -337,6 +337,10 @@ OLAPStatus BaseCompaction::_do_base_compaction(VersionHash new_base_version_hash
     vector<RowsetReaderSharedPtr> rs_readers;
     for (auto& rowset : rowsets) {
         RowsetReaderSharedPtr rs_reader(rowset->create_reader());
+        if (rs_reader == nullptr) {
+            LOG(WARNING) << "rowset create reader failed. rowset:" <<  rowset->rowset_id();
+            return OLAP_ERR_ROWSET_CREATE_READER;
+        }
         rs_readers.push_back(rs_reader);
     }
 

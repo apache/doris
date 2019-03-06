@@ -185,9 +185,13 @@ void TabletManager::cancel_unfinished_schema_change() {
                 continue;
             }
 
+<<<<<<< HEAD
             tablet_id = tablet->alter_task().related_tablet_id();
             schema_hash = tablet->alter_task().related_schema_hash();;
             TabletSharedPtr new_tablet = get_tablet(tablet_id, schema_hash, false);
+=======
+            TabletSharedPtr new_tablet = get_tablet(tablet_id, schema_hash);
+>>>>>>> realize rowset lazy load
             if (new_tablet == nullptr) {
                 LOG(WARNING) << "new tablet created by alter tablet does not exist. "
                              << "tablet=" << tablet->full_name();
@@ -596,21 +600,16 @@ OLAPStatus TabletManager::drop_tablets_on_error_root_path(
     return res;
 } // drop_tablets_on_error_root_path
 
-TabletSharedPtr TabletManager::get_tablet(TTabletId tablet_id, SchemaHash schema_hash, bool load_tablet) {
+TabletSharedPtr TabletManager::get_tablet(TTabletId tablet_id, SchemaHash schema_hash) {
     _tablet_map_lock.rdlock();
     TabletSharedPtr tablet;
     tablet = _get_tablet_with_no_lock(tablet_id, schema_hash);
     _tablet_map_lock.unlock();
 
-    if (tablet.get() != NULL) {
+    if (tablet != nullptr) {
         if (!tablet->is_used()) {
-            OLAP_LOG_WARNING("tablet cannot be used. [tablet=%ld]", tablet_id);
+            LOG(WARNING) << "tablet cannot be used. tablet=" << tablet_id;
             tablet.reset();
-        } else if (load_tablet && !tablet->init_succeeded()) {
-            if (tablet->init() != OLAP_SUCCESS) {
-                LOG(WARNING) << "fail to load tablet. tablet=" << tablet_id;
-                tablet.reset();
-            }
         }
     }
 
@@ -716,7 +715,12 @@ OLAPStatus TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tab
         return OLAP_ERR_TABLE_INDEX_VALIDATE_ERROR;
     }
 
-    OLAPStatus res = add_tablet(tablet_id, schema_hash, tablet, false);
+    OLAPStatus res = tablet->init();
+    if (res != OLAP_SUCCESS) {
+        LOG(WARNING) << "tablet init failed. tablet:" << tablet->full_name();
+        return res;
+    }
+    res = add_tablet(tablet_id, schema_hash, tablet, false);
     if (res != OLAP_SUCCESS) {
         // insert existed tablet return OLAP_SUCCESS
         if (res == OLAP_ERR_ENGINE_INSERT_EXISTS_TABLE) {
@@ -754,22 +758,26 @@ OLAPStatus TabletManager::load_one_tablet(
     }
 
     auto tablet = Tablet::create_tablet_from_meta_file(header_path, store);
-    if (tablet == NULL) {
+    if (tablet == nullptr) {
         LOG(WARNING) << "fail to load tablet. [header_path=" << header_path << "]";
         move_to_trash(boost_schema_hash_path, boost_schema_hash_path);
         return OLAP_ERR_ENGINE_LOAD_INDEX_TABLE_ERROR;
     }
 
     if (tablet->rowset_with_max_version() == NULL && !tablet->has_alter_task()) {
-        OLAP_LOG_WARNING("tablet not in schema change state without delta is invalid. "
-                         "[header_path=%s]",
-                         header_path.c_str());
+        LOG(WARNING) << "tablet not in schema change state without delta is invalid. "
+                     << "header_path=" << header_path;
         move_to_trash(boost_schema_hash_path, boost_schema_hash_path);
         return OLAP_ERR_ENGINE_LOAD_INDEX_TABLE_ERROR;
     }
 
     // 这里不需要SAFE_DELETE(tablet),因为tablet指针已经在add_table中托管到smart pointer中
     OLAPStatus res = OLAP_SUCCESS;
+    res = tablet->init();
+    if (res != OLAP_SUCCESS) {
+        LOG(WARNING) << "tablet init failed. tablet:" << tablet->full_name();
+        return res;
+    }
     string table_name = tablet->full_name();
     res = add_tablet(tablet_id, schema_hash, tablet, force);
     if (res != OLAP_SUCCESS) {

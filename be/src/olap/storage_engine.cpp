@@ -791,9 +791,9 @@ void StorageEngine::clear_transaction_task(const TTransactionId transaction_id,
         // each tablet
         for (auto& tablet_info : tablet_infos) {
             TabletSharedPtr tablet = TabletManager::instance()->get_tablet(tablet_info.first.tablet_id, 
-                tablet_info.first.schema_hash, false);
+                tablet_info.first.schema_hash);
             OlapMeta* meta = nullptr;
-            if (tablet != NULL) {
+            if (tablet != nullptr) {
                 meta = tablet->data_dir()->get_meta();
             }
             TxnManager::instance()->delete_txn(meta, partition_id, transaction_id,
@@ -1127,8 +1127,8 @@ OLAPStatus StorageEngine::execute_task(EngineTask* task) {
         vector<TabletSharedPtr> related_tablets;
         for (TabletInfo& tablet_info : tablet_infos) {
             TabletSharedPtr tablet = TabletManager::instance()->get_tablet(
-                tablet_info.tablet_id, tablet_info.schema_hash, false);
-            if (tablet != NULL) {
+                tablet_info.tablet_id, tablet_info.schema_hash);
+            if (tablet != nullptr) {
                 related_tablets.push_back(tablet);
                 tablet->obtain_header_wrlock();
             } else {
@@ -1163,8 +1163,8 @@ OLAPStatus StorageEngine::execute_task(EngineTask* task) {
         vector<TabletSharedPtr> related_tablets;
         for (TabletInfo& tablet_info : tablet_infos) {
             TabletSharedPtr tablet = TabletManager::instance()->get_tablet(
-                tablet_info.tablet_id, tablet_info.schema_hash, false);
-            if (tablet != NULL) {
+                tablet_info.tablet_id, tablet_info.schema_hash);
+            if (tablet != nullptr) {
                 related_tablets.push_back(tablet);
                 tablet->obtain_header_wrlock();
             } else {

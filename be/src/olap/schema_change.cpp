@@ -1600,7 +1600,7 @@ OLAPStatus SchemaChangeHandler::_add_alter_task(
     // check new tablet exists,
     // prevent to set base's status after new's dropping (clear base's status)
     if (TabletManager::instance()->get_tablet(
-            new_tablet->tablet_id(), new_tablet->schema_hash()).get() == NULL) {
+            new_tablet->tablet_id(), new_tablet->schema_hash()) == nullptr) {
         LOG(WARNING) << "new_tablet does not exist. tablet=" << new_tablet->full_name();
         return OLAP_ERR_TABLE_NOT_FOUND;
     }

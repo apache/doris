@@ -44,7 +44,9 @@ public:
 
     OLAPStatus init() override;
 
-    OLAPStatus init_without_validate();
+    // this api is for lazy loading data
+    // always means that there are some io
+    OLAPStatus load() override;
 
     std::shared_ptr<RowsetReader> create_reader() override;
 
@@ -114,11 +116,11 @@ public:
     bool check_path(const std::string& path) override;
 
 private:
-    OLAPStatus _init_segment_groups(bool validate);
+    OLAPStatus _init_segment_groups();
 
-    OLAPStatus _init_pending_segment_groups(bool validate);
+    OLAPStatus _init_pending_segment_groups();
 
-    OLAPStatus _init_non_pending_segment_groups(bool validate);
+    OLAPStatus _init_non_pending_segment_groups();
 
     std::shared_ptr<SegmentGroup> _segment_group_with_largest_size();
 
