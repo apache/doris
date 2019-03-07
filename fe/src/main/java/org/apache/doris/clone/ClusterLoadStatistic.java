@@ -71,8 +71,7 @@ public class ClusterLoadStatistic {
         ImmutableMap<Long, Backend> backends = infoService.getBackendsInCluster(clusterName);
         for (Backend backend : backends.values()) {
             BackendLoadStatistic beStatistic = new BackendLoadStatistic(backend.getId(),
-                    backend.getOwnerClusterName(),
-                    infoService, invertedIndex);
+                    backend.getOwnerClusterName(), infoService, invertedIndex);
             try {
                 beStatistic.init();
             } catch (LoadBalanceException e) {
@@ -105,6 +104,9 @@ public class ClusterLoadStatistic {
         for (TStorageMedium medium : TStorageMedium.values()) {
             classifyBackendByLoad(medium);
         }
+
+        // sort be stats by mix load score
+        Collections.sort(beLoadStatistics, BackendLoadStatistic.MIX_COMPARATOR);
     }
 
     /*
@@ -148,7 +150,9 @@ public class ClusterLoadStatistic {
     }
 
     private static void sortBeStats(List<BackendLoadStatistic> beStats, TStorageMedium medium) {
-        if (medium == TStorageMedium.HDD) {
+        if (medium == null) {
+            Collections.sort(beStats, BackendLoadStatistic.MIX_COMPARATOR);
+        } else if (medium == TStorageMedium.HDD) {
             Collections.sort(beStats, BackendLoadStatistic.HDD_COMPARATOR);
         } else {
             Collections.sort(beStats, BackendLoadStatistic.SSD_COMPARATOR);
@@ -308,10 +312,15 @@ public class ClusterLoadStatistic {
     }
 
     public List<BackendLoadStatistic> getSortedBeLoadStats(TStorageMedium medium) {
-        List<BackendLoadStatistic> beStatsWithMedium = beLoadStatistics.stream().filter(
-                b -> b.hasMedium(medium)).collect(Collectors.toList());
-        sortBeStats(beStatsWithMedium, medium);
-        return beStatsWithMedium;
+        if (medium != null) {
+            List<BackendLoadStatistic> beStatsWithMedium = beLoadStatistics.stream().filter(
+                    b -> b.hasMedium(medium)).collect(Collectors.toList());
+            sortBeStats(beStatsWithMedium, medium);
+            return beStatsWithMedium;
+        } else {
+            // be stats are already sorted by mix load score in init()
+            return beLoadStatistics;
+        }
     }
 
     public String getBrief() {

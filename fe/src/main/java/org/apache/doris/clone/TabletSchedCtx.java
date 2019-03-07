@@ -936,7 +936,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         List<String> result = Lists.newArrayList();
         result.add(String.valueOf(tabletId));
         result.add(type.name());
-        result.add(storageMedium.name());
+        result.add(storageMedium == null ? "N/A" : storageMedium.name());
         result.add(tabletStatus == null ? "N/A" : tabletStatus.name());
         result.add(state.name());
         result.add(origPriority.name());

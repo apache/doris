@@ -786,10 +786,10 @@ public class TabletScheduler extends Daemon {
         if (statistic == null) {
             throw new SchedException(Status.UNRECOVERABLE, "cluster does not exist");
         }
-        List<BackendLoadStatistic> beStatistics = statistic.getSortedBeLoadStats(tabletCtx.getStorageMedium());
+        List<BackendLoadStatistic> beStatistics = statistic.getSortedBeLoadStats(null /* sorted ignore medium */);
 
         // get all available paths which this tablet can fit in.
-        // beStatistics is sorted by load score in ascend order, so select from first to last.
+        // beStatistics is sorted by mix load score in ascend order, so select from first to last.
         List<RootPathLoadStatistic> allFitPaths = Lists.newArrayList();
         for (int i = 0; i < beStatistics.size(); i++) {
             BackendLoadStatistic bes = beStatistics.get(i);

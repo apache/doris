@@ -53,9 +53,28 @@ public class BackendLoadStatistic {
 
         @Override
         public int compare(BackendLoadStatistic o1, BackendLoadStatistic o2) {
-            if (o1.getLoadScore(medium) > o2.getLoadScore(medium)) {
+            double score1 = o1.getLoadScore(medium);
+            double score2 = o2.getLoadScore(medium);
+            if (score1 > score2) {
                 return 1;
-            } else if (o1.getLoadScore(medium) == o2.getLoadScore(medium)) {
+            } else if (score1 == score2) {
+                return 0;
+            } else {
+                return -1;
+            }
+        }
+    }
+
+    public static class BeStatMixComparator implements Comparator<BackendLoadStatistic> {
+
+        @Override
+        public int compare(BackendLoadStatistic o1, BackendLoadStatistic o2) {
+            Double score1 = o1.getMixLoadScore();
+            Double score2 = o2.getMixLoadScore();
+
+            if (score1 > score2) {
+                return 1;
+            } else if (score1 == score2) {
                 return 0;
             } else {
                 return -1;
@@ -65,6 +84,7 @@ public class BackendLoadStatistic {
 
     public static final BeStatComparator HDD_COMPARATOR = new BeStatComparator(TStorageMedium.HDD);
     public static final BeStatComparator SSD_COMPARATOR = new BeStatComparator(TStorageMedium.SSD);
+    public static final BeStatMixComparator MIX_COMPARATOR = new BeStatMixComparator();
 
     public enum Classification {
         INIT,
@@ -131,6 +151,18 @@ public class BackendLoadStatistic {
             return loadScoreMap.get(medium).score;
         }
         return 0.0;
+    }
+
+    public double getMixLoadScore() {
+        int mediumCount = 0;
+        double totalLoadScore = 0.0;
+        for (TStorageMedium medium : TStorageMedium.values()) {
+            if (hasMedium(medium)) {
+                mediumCount++;
+                totalLoadScore += getLoadScore(medium);
+            }
+        }
+        return totalLoadScore / mediumCount == 0 ? 1 : mediumCount;
     }
 
     public void setClazz(TStorageMedium medium, Classification clazz) {
@@ -274,7 +306,8 @@ public class BackendLoadStatistic {
         // try choosing path from first to end
         for (int i = 0; i < pathStatistics.size(); i++) {
             RootPathLoadStatistic pathStatistic = pathStatistics.get(i);
-            if (pathStatistic.getStorageMedium() != medium) {
+            // if this is a supplement task, ignore the storage medium
+            if (!isSupplement && pathStatistic.getStorageMedium() != medium) {
                 continue;
             }
 
