@@ -216,8 +216,8 @@ Status DppWriter::append_one_row(TupleRow* row) {
             append_to_buf(&frac_val, sizeof(frac_val));
             break;
         }
-        case TYPE_DECIMAL_V2: {
-            const Decimal_V2Value decimal_val(reinterpret_cast<const PackedInt128*>(item)->value);
+        case TYPE_DECIMALV2: {
+            const DecimalV2Value decimal_val(reinterpret_cast<const PackedInt128*>(item)->value);
             int64_t int_val = decimal_val.int_value();
             int32_t frac_val = decimal_val.frac_value();
             append_to_buf(&int_val, sizeof(int_val));

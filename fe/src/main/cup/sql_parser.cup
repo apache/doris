@@ -3106,11 +3106,11 @@ type ::=
   | KW_CHAR
   {: RESULT = ScalarType.createCharType(-1); :}
   | KW_DECIMAL LPAREN INTEGER_LITERAL:precision RPAREN
-  {: RESULT = ScalarType.createDecimal_V2Type(precision.intValue()); :}
+  {: RESULT = ScalarType.createDecimalV2Type(precision.intValue()); :}
   | KW_DECIMAL LPAREN INTEGER_LITERAL:precision COMMA INTEGER_LITERAL:scale RPAREN
-  {: RESULT = ScalarType.createDecimal_V2Type(precision.intValue(), scale.intValue()); :}
+  {: RESULT = ScalarType.createDecimalV2Type(precision.intValue(), scale.intValue()); :}
   | KW_DECIMAL
-  {: RESULT = ScalarType.createDecimal_V2Type(); :}
+  {: RESULT = ScalarType.createDecimalV2Type(); :}
   | KW_HLL
   {: ScalarType type = ScalarType.createHllType(); 
      type.setAssignedStrLenInColDefinition();

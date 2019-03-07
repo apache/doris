@@ -24,7 +24,7 @@
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/Opcodes_types.h"
 #include "runtime/decimal_value.h"
-#include "runtime/decimal_v2_value.h"
+#include "runtime/decimalv2_value.h"
 #include "runtime/datetime_value.h"
 #include "runtime/large_int_value.h"
 #include "runtime/string_value.h"
@@ -53,7 +53,7 @@ enum PrimitiveType {
     TYPE_ARRAY, /* 17 */
     TYPE_MAP, /* 18 */
     TYPE_HLL, /* 19 */
-    TYPE_DECIMAL_V2  /* 20 */
+    TYPE_DECIMALV2  /* 20 */
 };
 
 inline bool is_enumeration_type(PrimitiveType type) {
@@ -65,7 +65,7 @@ inline bool is_enumeration_type(PrimitiveType type) {
     case TYPE_VARCHAR:
     case TYPE_DATETIME:
     case TYPE_DECIMAL:
-    case TYPE_DECIMAL_V2:
+    case TYPE_DECIMALV2:
     case TYPE_BOOLEAN:
     case TYPE_HLL:
         return false;
@@ -120,7 +120,7 @@ inline int get_byte_size(PrimitiveType type) {
     case TYPE_LARGEINT:
     case TYPE_DATETIME:
     case TYPE_DATE:
-    case TYPE_DECIMAL_V2:
+    case TYPE_DECIMALV2:
         return 16;
 
     case TYPE_DECIMAL:
@@ -158,7 +158,7 @@ inline int get_real_byte_size(PrimitiveType type) {
 
     case TYPE_DATETIME:
     case TYPE_DATE:
-    case TYPE_DECIMAL_V2:
+    case TYPE_DECIMALV2:
         return 16;
 
     case TYPE_DECIMAL:
@@ -209,7 +209,7 @@ inline int get_slot_size(PrimitiveType type) {
     case TYPE_DECIMAL:
         return sizeof(DecimalValue);
 
-    case TYPE_DECIMAL_V2:
+    case TYPE_DECIMALV2:
         return 16;
 
     case INVALID_TYPE:

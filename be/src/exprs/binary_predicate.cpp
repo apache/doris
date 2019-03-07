@@ -27,7 +27,7 @@
 #include "runtime/string_value.h"
 #include "runtime/datetime_value.h"
 #include "runtime/decimal_value.h"
-#include "runtime/decimal_v2_value.h"
+#include "runtime/decimalv2_value.h"
 
 using llvm::BasicBlock;
 using llvm::CmpInst;
@@ -68,8 +68,8 @@ Expr* BinaryPredicate::from_thrift(const TExprNode& node) {
             return new EqDateTimeValPred(node);
         case TPrimitiveType::DECIMAL:
             return new EqDecimalValPred(node);
-        case TPrimitiveType::DECIMAL_V2:
-            return new EqDecimal_V2ValPred(node);
+        case TPrimitiveType::DECIMALV2:
+            return new EqDecimalV2ValPred(node);
         default:
             return NULL;
         }
@@ -100,8 +100,8 @@ Expr* BinaryPredicate::from_thrift(const TExprNode& node) {
             return new NeDateTimeValPred(node);
         case TPrimitiveType::DECIMAL:
             return new NeDecimalValPred(node);
-        case TPrimitiveType::DECIMAL_V2:
-            return new NeDecimal_V2ValPred(node);
+        case TPrimitiveType::DECIMALV2:
+            return new NeDecimalV2ValPred(node);
         default:
             return NULL;
         }
@@ -132,8 +132,8 @@ Expr* BinaryPredicate::from_thrift(const TExprNode& node) {
             return new LtDateTimeValPred(node);
         case TPrimitiveType::DECIMAL:
             return new LtDecimalValPred(node);
-        case TPrimitiveType::DECIMAL_V2:
-            return new LtDecimal_V2ValPred(node);
+        case TPrimitiveType::DECIMALV2:
+            return new LtDecimalV2ValPred(node);
         default:
             return NULL;
         }
@@ -164,8 +164,8 @@ Expr* BinaryPredicate::from_thrift(const TExprNode& node) {
             return new LeDateTimeValPred(node);
         case TPrimitiveType::DECIMAL:
             return new LeDecimalValPred(node);
-        case TPrimitiveType::DECIMAL_V2:
-            return new LeDecimal_V2ValPred(node);
+        case TPrimitiveType::DECIMALV2:
+            return new LeDecimalV2ValPred(node);
         default:
             return NULL;
         }
@@ -196,8 +196,8 @@ Expr* BinaryPredicate::from_thrift(const TExprNode& node) {
             return new GtDateTimeValPred(node);
         case TPrimitiveType::DECIMAL:
             return new GtDecimalValPred(node);
-        case TPrimitiveType::DECIMAL_V2:
-            return new GtDecimal_V2ValPred(node);
+        case TPrimitiveType::DECIMALV2:
+            return new GtDecimalV2ValPred(node);
         default:
             return NULL;
         }
@@ -228,8 +228,8 @@ Expr* BinaryPredicate::from_thrift(const TExprNode& node) {
             return new GeDateTimeValPred(node);
         case TPrimitiveType::DECIMAL:
             return new GeDecimalValPred(node);
-        case TPrimitiveType::DECIMAL_V2:
-            return new GeDecimal_V2ValPred(node);
+        case TPrimitiveType::DECIMALV2:
+            return new GeDecimalV2ValPred(node);
         default:
             return NULL;
         }
@@ -431,7 +431,7 @@ BINARY_PRED_FLOAT_FNS(DoubleVal, get_double_val);
     COMPLICATE_BINARY_PRED_FN(Ge##TYPE##Pred, TYPE, FN, DORIS_TYPE, FROM_FUNC, >=)
 
 COMPLICATE_BINARY_PRED_FNS(DecimalVal, get_decimal_val, DecimalValue, from_decimal_val)
-COMPLICATE_BINARY_PRED_FNS(Decimal_V2Val, get_decimal_v2_val, Decimal_V2Value, from_decimal_val)
+COMPLICATE_BINARY_PRED_FNS(DecimalV2Val, get_decimalv2_val, DecimalV2Value, from_decimal_val)
 
 #define DATETIME_BINARY_PRED_FN(CLASS, OP, LLVM_PRED) \
     BooleanVal CLASS::get_boolean_val(ExprContext* ctx, TupleRow* row) { \

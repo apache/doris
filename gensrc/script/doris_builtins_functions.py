@@ -321,9 +321,9 @@ visible_functions = [
     [['mod'], 'DECIMAL', ['DECIMAL', 'DECIMAL'], 
             '_ZN5doris16DecimalOperators27mod_decimal_val_decimal_valEPN9doris_udf'
             '15FunctionContextERKNS1_10DecimalValES6_'],
-    [['mod'], 'DECIMAL_V2', ['DECIMAL_V2', 'DECIMAL_V2'], 
-            '_ZN5doris19Decimal_V2Operators33mod_decimal_v2_val_decimal_v2_valEPN9doris_udf'
-            '15FunctionContextERKNS1_13Decimal_V2ValES6_'],
+    [['mod'], 'DECIMALV2', ['DECIMALV2', 'DECIMALV2'], 
+            '_ZN5doris18DecimalV2Operators31mod_decimalv2_val_decimalv2_valEPN9doris_udf'
+            '15FunctionContextERKNS1_12DecimalV2ValES6_'],
     [['mod', 'fmod'], 'FLOAT', ['FLOAT', 'FLOAT'], 
         '_ZN5doris13MathFunctions10fmod_floatEPN9doris_udf15FunctionContextERKNS1_8FloatValES6_'],
     [['mod', 'fmod'], 'DOUBLE', ['DOUBLE', 'DOUBLE'], 
@@ -338,9 +338,9 @@ visible_functions = [
     [['positive'], 'DECIMAL', ['DECIMAL'],
             '_ZN5doris13MathFunctions16positive_decimalEPN9doris_udf'
             '15FunctionContextERKNS1_10DecimalValE'],
-    [['positive'], 'DECIMAL_V2', ['DECIMAL_V2'],
+    [['positive'], 'DECIMALV2', ['DECIMALV2'],
             '_ZN5doris13MathFunctions16positive_decimalEPN9doris_udf'
-            '15FunctionContextERKNS1_13Decimal_V2ValE'],
+            '15FunctionContextERKNS1_12DecimalV2ValE'],
     [['negative'], 'BIGINT', ['BIGINT'],
             '_ZN5doris13MathFunctions15negative_bigintEPN9doris_udf'
             '15FunctionContextERKNS1_9BigIntValE'],
@@ -350,9 +350,9 @@ visible_functions = [
     [['negative'], 'DECIMAL', ['DECIMAL'],
             '_ZN5doris13MathFunctions16negative_decimalEPN9doris_udf'
             '15FunctionContextERKNS1_10DecimalValE'],
-    [['negative'], 'DECIMAL_V2', ['DECIMAL_V2'],
+    [['negative'], 'DECIMALV2', ['DECIMALV2'],
             '_ZN5doris13MathFunctions16negative_decimalEPN9doris_udf'
-            '15FunctionContextERKNS1_13Decimal_V2ValE'],
+            '15FunctionContextERKNS1_12DecimalV2ValE'],
 
     [['least'], 'TINYINT', ['TINYINT', '...'],
             '_ZN5doris13MathFunctions5leastEPN9doris_udf15FunctionContextEiPKNS1_10TinyIntValE'],
@@ -374,8 +374,8 @@ visible_functions = [
             '_ZN5doris13MathFunctions5leastEPN9doris_udf15FunctionContextEiPKNS1_11DateTimeValE'],
     [['least'], 'DECIMAL', ['DECIMAL', '...'],
             '_ZN5doris13MathFunctions5leastEPN9doris_udf15FunctionContextEiPKNS1_10DecimalValE'],
-    [['least'], 'DECIMAL_V2', ['DECIMAL_V2', '...'],
-            '_ZN5doris13MathFunctions5leastEPN9doris_udf15FunctionContextEiPKNS1_13Decimal_V2ValE'],
+    [['least'], 'DECIMALV2', ['DECIMALV2', '...'],
+            '_ZN5doris13MathFunctions5leastEPN9doris_udf15FunctionContextEiPKNS1_12DecimalV2ValE'],
 
     [['greatest'], 'TINYINT', ['TINYINT', '...'],
             '_ZN5doris13MathFunctions8greatestEPN9doris_udf15FunctionContextEiPKNS1_10TinyIntValE'],
@@ -397,8 +397,8 @@ visible_functions = [
             '_ZN5doris13MathFunctions8greatestEPN9doris_udf15FunctionContextEiPKNS1_11DateTimeValE'],
     [['greatest'], 'DECIMAL', ['DECIMAL', '...'],
             '_ZN5doris13MathFunctions8greatestEPN9doris_udf15FunctionContextEiPKNS1_10DecimalValE'],
-    [['greatest'], 'DECIMAL_V2', ['DECIMAL_V2', '...'],
-            '_ZN5doris13MathFunctions8greatestEPN9doris_udf15FunctionContextEiPKNS1_13Decimal_V2ValE'],
+    [['greatest'], 'DECIMALV2', ['DECIMALV2', '...'],
+            '_ZN5doris13MathFunctions8greatestEPN9doris_udf15FunctionContextEiPKNS1_12DecimalV2ValE'],
 
     # Conditional Functions
     # Some of these have empty symbols because the BE special-cases them based on the
@@ -414,7 +414,7 @@ visible_functions = [
     [['if'], 'VARCHAR', ['BOOLEAN', 'VARCHAR', 'VARCHAR'], ''],
     [['if'], 'DATETIME', ['BOOLEAN', 'DATETIME', 'DATETIME'], ''],
     [['if'], 'DECIMAL', ['BOOLEAN', 'DECIMAL', 'DECIMAL'], ''],
-    [['if'], 'DECIMAL_V2', ['BOOLEAN', 'DECIMAL_V2', 'DECIMAL_V2'], ''],
+    [['if'], 'DECIMALV2', ['BOOLEAN', 'DECIMALV2', 'DECIMALV2'], ''],
 
     [['nullif'], 'BOOLEAN', ['BOOLEAN', 'BOOLEAN'], ''],
     [['nullif'], 'TINYINT', ['TINYINT', 'TINYINT'], ''],
@@ -427,7 +427,7 @@ visible_functions = [
     [['nullif'], 'VARCHAR', ['VARCHAR', 'VARCHAR'], ''],
     [['nullif'], 'DATETIME', ['DATETIME', 'DATETIME'], ''],
     [['nullif'], 'DECIMAL', ['DECIMAL', 'DECIMAL'], ''],
-    [['nullif'], 'DECIMAL_V2', ['DECIMAL_V2', 'DECIMAL_V2'], ''],
+    [['nullif'], 'DECIMALV2', ['DECIMALV2', 'DECIMALV2'], ''],
 
     [['ifnull'], 'BOOLEAN', ['BOOLEAN', 'BOOLEAN'], ''],
     [['ifnull'], 'TINYINT', ['TINYINT', 'TINYINT'], ''],
@@ -440,7 +440,7 @@ visible_functions = [
     [['ifnull'], 'VARCHAR', ['VARCHAR', 'VARCHAR'], ''],
     [['ifnull'], 'DATETIME', ['DATETIME', 'DATETIME'], ''],
     [['ifnull'], 'DECIMAL', ['DECIMAL', 'DECIMAL'], ''],
-    [['ifnull'], 'DECIMAL_V2', ['DECIMAL_V2', 'DECIMAL_V2'], ''],
+    [['ifnull'], 'DECIMALV2', ['DECIMALV2', 'DECIMALV2'], ''],
 
     [['coalesce'], 'BOOLEAN', ['BOOLEAN', '...'], ''],
     [['coalesce'], 'TINYINT', ['TINYINT', '...'], ''],
@@ -453,7 +453,7 @@ visible_functions = [
     [['coalesce'], 'VARCHAR', ['VARCHAR', '...'], ''],
     [['coalesce'], 'DATETIME', ['DATETIME', '...'], ''],
     [['coalesce'], 'DECIMAL', ['DECIMAL', '...'], ''],
-    [['coalesce'], 'DECIMAL_V2', ['DECIMAL_V2', '...'], ''],
+    [['coalesce'], 'DECIMALV2', ['DECIMALV2', '...'], ''],
 
     [['esquery'], 'BOOLEAN', ['VARCHAR', 'VARCHAR'], 
         '_ZN5doris11ESFunctions5matchEPN'

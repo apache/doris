@@ -224,7 +224,7 @@ uint32_t FieldInfo::get_field_length_by_type(TPrimitiveType::type type, uint32_t
         case TPrimitiveType::HLL:
             return string_length + sizeof(OLAP_STRING_MAX_LENGTH);
         case TPrimitiveType::DECIMAL:    
-        case TPrimitiveType::DECIMAL_V2:    
+        case TPrimitiveType::DECIMALV2:    
             return 12; // use 12 bytes in olap engine.
         default:
             OLAP_LOG_WARNING("unknown field type. [type=%d]", type);

@@ -167,7 +167,7 @@ inline bool RawValue::lt(const void* v1, const void* v2, const TypeDescriptor& t
         return *reinterpret_cast<const DecimalValue*>(v1) <
                *reinterpret_cast<const DecimalValue*>(v2);
 
-    case TYPE_DECIMAL_V2:
+    case TYPE_DECIMALV2:
         return reinterpret_cast<const PackedInt128*>(v1)->value <
                reinterpret_cast<const PackedInt128*>(v2)->value;
 
@@ -229,7 +229,7 @@ inline bool RawValue::eq(const void* v1, const void* v2, const TypeDescriptor& t
         return *reinterpret_cast<const DecimalValue*>(v1) ==
                *reinterpret_cast<const DecimalValue*>(v2);
 
-    case TYPE_DECIMAL_V2:
+    case TYPE_DECIMALV2:
         return reinterpret_cast<const PackedInt128*>(v1)->value ==
                reinterpret_cast<const PackedInt128*>(v2)->value;
 
@@ -293,7 +293,7 @@ inline uint32_t RawValue::get_hash_value(
     case TYPE_DECIMAL:
         return HashUtil::hash(v, 40, seed);
 
-    case TYPE_DECIMAL_V2:
+    case TYPE_DECIMALV2:
         return HashUtil::hash(v, 16, seed);
 
     case TYPE_LARGEINT:
@@ -351,7 +351,7 @@ inline uint32_t RawValue::get_hash_value_fvn(
     case TYPE_DECIMAL:
         return ((DecimalValue *) v)->hash(seed);
 
-    case TYPE_DECIMAL_V2:
+    case TYPE_DECIMALV2:
         return HashUtil::fnv_hash(v, 16, seed);
 
     case TYPE_LARGEINT:
@@ -421,7 +421,7 @@ inline uint32_t RawValue::zlib_crc32(const void* v, const TypeDescriptor& type, 
         return HashUtil::zlib_crc_hash(&frac_val, sizeof(frac_val), seed);
     }
 
-    case TYPE_DECIMAL_V2: {
+    case TYPE_DECIMALV2: {
         return HashUtil::zlib_crc_hash(v, 16, seed);
     }
     default:

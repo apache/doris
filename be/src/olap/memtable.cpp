@@ -116,8 +116,8 @@ void MemTable::insert(Tuple* tuple) {
                 storage_decimal_value->fraction = decimal_value->frac_value();
                 break;
             }
-            case TYPE_DECIMAL_V2: {
-                Decimal_V2Value* decimal_value = tuple->get_decimal_v2_slot(slot->tuple_offset());
+            case TYPE_DECIMALV2: {
+                DecimalV2Value* decimal_value = tuple->get_decimalv2_slot(slot->tuple_offset());
                 decimal12_t* storage_decimal_value = reinterpret_cast<decimal12_t*>(_tuple_buf + offset);
                 storage_decimal_value->integer = decimal_value->int_value();
                 storage_decimal_value->fraction = decimal_value->frac_value();

@@ -158,7 +158,7 @@ public class ColumnDef {
                 FloatLiteral doubleLiteral = new FloatLiteral(defaultValue);
                 break;
             case DECIMAL:
-            case DECIMAL_V2:
+            case DECIMALV2:
                 DecimalLiteral decimalLiteral = new DecimalLiteral(defaultValue);
                 decimalLiteral.checkPrecisionAndScale(scalarType.getScalarPrecision(), scalarType.getScalarScale());
                 break;

@@ -58,13 +58,13 @@ Status OlapRewriteNode::prepare(RuntimeState* state) {
             new RowBatch(child(0)->row_desc(), state->batch_size(), state->fragment_mem_tracker()));
 
     _max_decimal_val.resize(_column_types.size());
-    _max_decimal_v2_val.resize(_column_types.size());
+    _max_decimalv2_val.resize(_column_types.size());
     for (int i = 0; i < _column_types.size(); ++i) {
         if (_column_types[i].type == TPrimitiveType::DECIMAL) {
             _max_decimal_val[i].to_max_decimal(
                 _column_types[i].precision, _column_types[i].scale);
-        } else if (_column_types[i].type == TPrimitiveType::DECIMAL_V2) {
-            _max_decimal_v2_val[i].to_max_decimal(
+        } else if (_column_types[i].type == TPrimitiveType::DECIMALV2) {
+            _max_decimalv2_val[i].to_max_decimal(
                 _column_types[i].precision, _column_types[i].scale);
         }
     }
@@ -183,9 +183,9 @@ bool OlapRewriteNode::copy_one_row(TupleRow* src_row, Tuple* tuple,
             }
             break;
         }
-        case TPrimitiveType::DECIMAL_V2: {
-            Decimal_V2Value* dec_val = (Decimal_V2Value*)src_value;
-            Decimal_V2Value* dst_val = (Decimal_V2Value*)tuple->get_slot(slot_desc->tuple_offset());
+        case TPrimitiveType::DECIMALV2: {
+            DecimalV2Value* dec_val = (DecimalV2Value*)src_value;
+            DecimalV2Value* dst_val = (DecimalV2Value*)tuple->get_slot(slot_desc->tuple_offset());
             if (dec_val->scale() > column_type.scale) {
                 int code = dec_val->round(dst_val, column_type.scale, HALF_UP);
                 if (code != E_DEC_OK) {
@@ -196,7 +196,7 @@ bool OlapRewriteNode::copy_one_row(TupleRow* src_row, Tuple* tuple,
                 *reinterpret_cast<PackedInt128*>(dst_val) = 
                     *reinterpret_cast<const PackedInt128*>(dec_val);
             }
-            if (*dst_val > _max_decimal_v2_val[i]) {
+            if (*dst_val > _max_decimalv2_val[i]) {
                 dst_val->to_max_decimal(column_type.precision, column_type.scale);
             }
             break;

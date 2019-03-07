@@ -256,7 +256,7 @@ public class Column implements Writable {
         StringBuilder sb = new StringBuilder();
         sb.append("`").append(name).append("` ");
         String typeStr = type.toSql();
-        if (type.getPrimitiveType() == PrimitiveType.DECIMAL_V2) {
+        if (type.getPrimitiveType() == PrimitiveType.DECIMALV2) {
             typeStr = Type.DECIMAL.toSql();
         }
         sb.append(typeStr).append(" ");

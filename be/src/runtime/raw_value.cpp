@@ -84,8 +84,8 @@ void RawValue::print_value_as_bytes(const void* value, const TypeDescriptor& typ
         stream->write(chars, sizeof(DecimalValue));
         break;
 
-    case TYPE_DECIMAL_V2:
-        stream->write(chars, sizeof(Decimal_V2Value));
+    case TYPE_DECIMALV2:
+        stream->write(chars, sizeof(DecimalV2Value));
         break;
 
     case TYPE_LARGEINT:
@@ -165,7 +165,7 @@ void RawValue::print_value(const void* value, const TypeDescriptor& type, int sc
         *stream << *reinterpret_cast<const DecimalValue*>(value);
         break;
 
-    case TYPE_DECIMAL_V2:
+    case TYPE_DECIMALV2:
         *stream << reinterpret_cast<const PackedInt128*>(value)->value;
         break;
 
@@ -278,7 +278,7 @@ void RawValue::write(const void* value, void* dst, const TypeDescriptor& type, M
                 *reinterpret_cast<const DecimalValue*>(value);
         break;
 
-    case TYPE_DECIMAL_V2:
+    case TYPE_DECIMALV2:
         *reinterpret_cast<PackedInt128*>(dst) = *reinterpret_cast<const PackedInt128*>(value);
         break;
 
@@ -352,7 +352,7 @@ void RawValue::write(const void* value, const TypeDescriptor& type, void* dst, u
             *reinterpret_cast<DecimalValue*>(dst) = *reinterpret_cast<const DecimalValue*>(value);
             break;
 
-        case TYPE_DECIMAL_V2:
+        case TYPE_DECIMALV2:
             *reinterpret_cast<PackedInt128*>(dst) = *reinterpret_cast<const PackedInt128*>(value);
             break;
 

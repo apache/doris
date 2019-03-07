@@ -141,7 +141,7 @@ Expr::Expr(const TypeDescriptor& type) :
         break;
 
     case TYPE_DECIMAL:
-    case TYPE_DECIMAL_V2:
+    case TYPE_DECIMALV2:
         _node_type = (TExprNodeType::DECIMAL_LITERAL);
         break;
 
@@ -199,7 +199,7 @@ Expr::Expr(const TypeDescriptor& type, bool is_slotref) :
             break;
 
         case TYPE_DECIMAL:
-        case TYPE_DECIMAL_V2:
+        case TYPE_DECIMALV2:
             _node_type = (TExprNodeType::DECIMAL_LITERAL);
             break;
 
@@ -755,8 +755,8 @@ doris_udf::AnyVal* Expr::get_const_val(ExprContext* context) {
         _constant_val.reset(new DecimalVal(get_decimal_val(context, NULL)));
         break;
     }
-    case TYPE_DECIMAL_V2: {
-        _constant_val.reset(new Decimal_V2Val(get_decimal_v2_val(context, NULL)));
+    case TYPE_DECIMALV2: {
+        _constant_val.reset(new DecimalV2Val(get_decimalv2_val(context, NULL)));
         break;
     }
     case TYPE_NULL: {
@@ -842,8 +842,8 @@ DecimalVal Expr::get_decimal_val(ExprContext* context, TupleRow* row) {
     return val;
 }
 
-Decimal_V2Val Expr::get_decimal_v2_val(ExprContext* context, TupleRow* row) {
-    Decimal_V2Val val;
+DecimalV2Val Expr::get_decimalv2_val(ExprContext* context, TupleRow* row) {
+    DecimalV2Val val;
     return val;
 }
 

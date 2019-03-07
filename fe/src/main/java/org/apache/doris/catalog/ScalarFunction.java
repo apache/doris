@@ -131,7 +131,7 @@ public class ScalarFunction extends Function {
         // Convert Add(TINYINT, TINYINT) --> Add_TinyIntVal_TinyIntVal
         String beFn = name;
         boolean usesDecimal = false;
-        boolean usesDecimal_V2 = false;
+        boolean usesDecimalV2 = false;
         for (int i = 0; i < argTypes.size(); ++i) {
             switch (argTypes.get(i).getPrimitiveType()) {
                 case BOOLEAN:
@@ -171,16 +171,16 @@ public class ScalarFunction extends Function {
                     beFn += "_decimal_val";
                     usesDecimal = true;
                     break;
-                case DECIMAL_V2:
-                    beFn += "_decimal_v2_val";
-                    usesDecimal_V2 = true;
+                case DECIMALV2:
+                    beFn += "_decimalv2_val";
+                    usesDecimalV2 = true;
                     break;
                 default:
                     Preconditions.checkState(false, "Argument type not supported: " + argTypes.get(i));
             }
         }
         String beClass = usesDecimal ? "DecimalOperators" : "Operators";
-        if (usesDecimal_V2) beClass = "Decimal_V2Operators";
+        if (usesDecimalV2) beClass = "DecimalV2Operators";
         String symbol = "doris::" + beClass + "::" + beFn;
         return createBuiltinOperator(name, symbol, argTypes, retType);
     }

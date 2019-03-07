@@ -468,7 +468,7 @@ Status Translator::create_value_updaters() {
             }
             break;
         }
-        case TYPE_DECIMAL_V2: {
+        case TYPE_DECIMALV2: {
             switch (_rollup_schema.value_ops()[i]) {
             case TAggregationType::MAX:
                 _value_updaters.push_back(update_max<__int128>);

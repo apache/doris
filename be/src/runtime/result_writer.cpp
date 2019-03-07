@@ -149,8 +149,8 @@ Status ResultWriter::add_one_row(TupleRow* row) {
             break;
         }
 
-        case TYPE_DECIMAL_V2: {
-            Decimal_V2Value decimal_val(reinterpret_cast<const PackedInt128*>(item)->value);
+        case TYPE_DECIMALV2: {
+            DecimalV2Value decimal_val(reinterpret_cast<const PackedInt128*>(item)->value);
             std::string decimal_str;
             int output_scale = _output_expr_ctxs[i]->root()->output_scale();
 
