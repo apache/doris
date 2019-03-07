@@ -508,7 +508,8 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
         try {
             String taskId = txnState.getLabel();
             if (routineLoadTaskInfoList.parallelStream().anyMatch(entity -> entity.getId().toString().equals(taskId))) {
-                LOG.debug("there are a txn of routine load task will be aborted");
+                LOG.debug("there is a txn{} of routine load task {} will be aborted",
+                          txnState.getTransactionId(), taskId);
             }
         } finally {
             readUnlock();
