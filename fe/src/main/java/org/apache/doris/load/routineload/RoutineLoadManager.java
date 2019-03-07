@@ -17,9 +17,11 @@
 
 package org.apache.doris.load.routineload;
 
+import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
+import com.sleepycat.je.tree.IN;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.PauseRoutineLoadStmt;
 import org.apache.doris.analysis.ResumeRoutineLoadStmt;
@@ -53,7 +55,7 @@ public class RoutineLoadManager {
 
     // Long is beId, integer is the size of tasks in be
     private Map<Long, Integer> beIdToMaxConcurrentTasks;
-    private Map<Long, Integer> beIdToConcurrentTasks;
+//    private Map<Long, Integer> beIdToConcurrentTasks;
 
     // stream load job meta
     private Map<Long, RoutineLoadJob> idToRoutineLoadJob;
@@ -82,7 +84,7 @@ public class RoutineLoadManager {
     public RoutineLoadManager() {
         idToRoutineLoadJob = Maps.newConcurrentMap();
         dbToNameToRoutineLoadJob = Maps.newConcurrentMap();
-        beIdToConcurrentTasks = Maps.newHashMap();
+//        beIdToConcurrentTasks = Maps.newHashMap();
         beIdToMaxConcurrentTasks = Maps.newHashMap();
         needScheduleTasksQueue = Queues.newLinkedBlockingQueue();
         lock = new ReentrantReadWriteLock(true);
@@ -109,6 +111,7 @@ public class RoutineLoadManager {
     public void updateBeIdTaskMaps() {
         writeLock();
         try {
+            // step1: update backend number in all of cluster
             updateBeIdToMaxConcurrentTasks();
             List<Long> beIds = Catalog.getCurrentSystemInfo().getBackendIds(true);
 
@@ -121,7 +124,6 @@ public class RoutineLoadManager {
             newBeIds.parallelStream().forEach(entity -> beIdToMaxConcurrentTasks.put(entity, DEFAULT_BE_CONCURRENT_TASK_NUM));
             for (long beId : unavailableBeIds) {
                 beIdToMaxConcurrentTasks.remove(beId);
-                beIdToConcurrentTasks.remove(beId);
             }
             LOG.info("There are {} backends which participate in routine load scheduler. "
                              + "There are {} new backends and {} unavailable backends for routine load",
@@ -131,19 +133,22 @@ public class RoutineLoadManager {
         }
     }
 
-    public void addNumOfConcurrentTasksByBeId(long beId) {
-        writeLock();
-        try {
-            if (beIdToConcurrentTasks.get(beId) == null) {
-                beIdToConcurrentTasks.put(beId, 1);
-            } else {
-                int concurrentTaskNum = (int) beIdToConcurrentTasks.get(beId);
-                concurrentTaskNum++;
-                beIdToConcurrentTasks.put(beId, concurrentTaskNum);
+    private Map<Long, Integer> getBeIdConcurrentTaskMaps() {
+        Map<Long, Integer> beIdToConcurrentTasks = Maps.newHashMap();
+        for (RoutineLoadJob routineLoadJob : getRoutineLoadJobByState(RoutineLoadJob.JobState.RUNNING)) {
+            Map<Long, Integer> jobBeIdToConcurrentTaskNum = routineLoadJob.getBeIdToConcurrentTaskNum();
+            for (Map.Entry<Long, Integer> entry : jobBeIdToConcurrentTaskNum.entrySet()) {
+                if (beIdToConcurrentTasks.containsKey(entry.getKey())) {
+                    beIdToConcurrentTasks.put(entry.getKey(), beIdToConcurrentTasks.get(entry.getKey()) + entry.getValue());
+                } else {
+                    beIdToConcurrentTasks.put(entry.getKey(), entry.getValue());
+                }
             }
-        } finally {
-            writeUnlock();
         }
+        LOG.debug("beIdToConcurrentTasks is {}", Joiner.on(",")
+                .withKeyValueSeparator(":").join(beIdToConcurrentTasks));
+        return beIdToConcurrentTasks;
+
     }
 
     public void addRoutineLoadJob(CreateRoutineLoadStmt createRoutineLoadStmt)
@@ -320,11 +325,12 @@ public class RoutineLoadManager {
         try {
             int result = 0;
             updateBeIdToMaxConcurrentTasks();
+            Map<Long, Integer> beIdToConcurrentTasks = getBeIdConcurrentTaskMaps();
             for (Map.Entry<Long, Integer> entry : beIdToMaxConcurrentTasks.entrySet()) {
-                if (beIdToConcurrentTasks.get(entry.getKey()) == null) {
-                    result += entry.getValue();
-                } else {
+                if (beIdToConcurrentTasks.containsKey(entry.getKey())) {
                     result += entry.getValue() - beIdToConcurrentTasks.get(entry.getKey());
+                } else {
+                    result += entry.getValue();
                 }
             }
             return result;
@@ -344,6 +350,7 @@ public class RoutineLoadManager {
             long result = -1L;
             int maxIdleSlotNum = 0;
             updateBeIdToMaxConcurrentTasks();
+            Map<Long, Integer> beIdToConcurrentTasks = getBeIdConcurrentTaskMaps();
             for (Long beId : beIdsInCluster) {
                     int idleTaskNum = 0;
                     if (beIdToConcurrentTasks.containsKey(beId)) {
@@ -351,6 +358,8 @@ public class RoutineLoadManager {
                     } else {
                         idleTaskNum = DEFAULT_BE_CONCURRENT_TASK_NUM;
                     }
+                    LOG.debug("be {} has idle {}, concurrent task {}, max concurrent task {}", beId, idleTaskNum,
+                              beIdToConcurrentTasks.get(beId), beIdToMaxConcurrentTasks.get(beId));
                     result = maxIdleSlotNum < idleTaskNum ? beId : result;
                     maxIdleSlotNum = Math.max(maxIdleSlotNum, idleTaskNum);
             }
@@ -358,6 +367,36 @@ public class RoutineLoadManager {
                 throw new LoadException("There is no empty slot in cluster");
             }
             return result;
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public boolean checkBeToTask(long beId, String clusterName) throws LoadException {
+        List<Long> beIdsInCluster = Catalog.getCurrentSystemInfo().getClusterBackendIds(clusterName);
+        if (beIdsInCluster == null) {
+            throw new LoadException("The " + clusterName + " has been deleted");
+        }
+
+        if (!beIdsInCluster.contains(beId)) {
+            LOG.debug("the previous be id {} does not belong to cluster name {}", beId, clusterName);
+            return false;
+        }
+
+        // check if be has idle slot
+        readLock();
+        try {
+            int idleTaskNum = 0;
+            Map<Long, Integer> beIdToConcurrentTasks = getBeIdConcurrentTaskMaps();
+            if (beIdToConcurrentTasks.containsKey(beId)) {
+                idleTaskNum = beIdToMaxConcurrentTasks.get(beId) - beIdToConcurrentTasks.get(beId);
+            } else {
+                idleTaskNum = DEFAULT_BE_CONCURRENT_TASK_NUM;
+            }
+            if (idleTaskNum > 0) {
+                return true;
+            }
+            return false;
         } finally {
             readUnlock();
         }
@@ -385,7 +424,7 @@ public class RoutineLoadManager {
             }
             Optional<RoutineLoadJob> optional = routineLoadJobList.parallelStream()
                     .filter(entity -> !entity.getState().isFinalState()).findFirst();
-            if (optional.isPresent()) {
+            if (!optional.isPresent()) {
                 return null;
             }
             return optional.get();
@@ -394,7 +433,7 @@ public class RoutineLoadManager {
         }
     }
 
-    public RoutineLoadJob getJobByTaskId(String taskId) throws MetaNotFoundException {
+    public RoutineLoadJob getJobByTaskId(UUID taskId) throws MetaNotFoundException {
         for (RoutineLoadJob routineLoadJob : idToRoutineLoadJob.values()) {
             if (routineLoadJob.containsTask(taskId)) {
                 return routineLoadJob;
@@ -411,12 +450,10 @@ public class RoutineLoadManager {
         return stateJobs;
     }
 
-    public List<RoutineLoadTaskInfo> processTimeoutTasks() {
-        List<RoutineLoadTaskInfo> routineLoadTaskInfoList = new ArrayList<>();
+    public void processTimeoutTasks() {
         for (RoutineLoadJob routineLoadJob : idToRoutineLoadJob.values()) {
-            routineLoadTaskInfoList.addAll(routineLoadJob.processTimeoutTasks());
+            routineLoadJob.processTimeoutTasks();
         }
-        return routineLoadTaskInfoList;
     }
 
     // Remove old routine load jobs from idToRoutineLoadJob

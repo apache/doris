@@ -82,6 +82,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     public static final String KAFKA_TOPIC_PROPERTY = "kafka_topic";
     // optional
     public static final String KAFKA_PARTITIONS_PROPERTY = "kafka_partitions";
+    public static final String KAFKA_OFFSETS_PROPERTY = "kafka_offsets";
 
     private static final String NAME_TYPE = "ROUTINE LOAD NAME";
     private static final String ENDPOINT_REGEX = "[-A-Za-z0-9+&@#/%?=~_|!:,.;]+[-A-Za-z0-9+&@#/%=~_|]";
@@ -96,6 +97,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
             .add(KAFKA_BROKER_LIST_PROPERTY)
             .add(KAFKA_TOPIC_PROPERTY)
             .add(KAFKA_PARTITIONS_PROPERTY)
+            .add(KAFKA_OFFSETS_PROPERTY)
             .build();
 
     private final String name;
@@ -113,6 +115,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     private String kafkaBrokerList;
     private String kafkaTopic;
     private List<Integer> kafkaPartitions;
+    private List<Long> kafkaOffsets;
 
     public CreateRoutineLoadStmt(String name, TableName dbTableName, List<ParseNode> loadPropertyList,
                                  Map<String, String> properties,
@@ -168,6 +171,10 @@ public class CreateRoutineLoadStmt extends DdlStmt {
 
     public List<Integer> getKafkaPartitions() {
         return kafkaPartitions;
+    }
+
+    public List<Long> getKafkaOffsets(){
+        return kafkaOffsets;
     }
 
     @Override
@@ -243,30 +250,32 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     }
 
     private void checkRoutineLoadProperties() throws AnalysisException {
-        Optional<String> optional = properties.keySet().parallelStream()
-                .filter(entity -> !PROPERTIES_SET.contains(entity)).findFirst();
-        if (optional.isPresent()) {
-            throw new AnalysisException(optional.get() + " is invalid property");
-        }
-
-        // check desired concurrent number
-        final String desiredConcurrentNumberString = properties.get(DESIRED_CONCURRENT_NUMBER_PROPERTY);
-        if (desiredConcurrentNumberString != null) {
-            desiredConcurrentNum = getIntegerValueFromString(desiredConcurrentNumberString,
-                                                             DESIRED_CONCURRENT_NUMBER_PROPERTY);
-            if (desiredConcurrentNum <= 0) {
-                throw new AnalysisException(DESIRED_CONCURRENT_NUMBER_PROPERTY + " must be greater then 0");
-            }
-        }
-
-        // check max error number
-        final String maxErrorNumberString = properties.get(MAX_ERROR_NUMBER_PROPERTY);
-        if (maxErrorNumberString != null) {
-            maxErrorNum = getIntegerValueFromString(maxErrorNumberString, MAX_ERROR_NUMBER_PROPERTY);
-            if (maxErrorNum < 0) {
-                throw new AnalysisException(MAX_ERROR_NUMBER_PROPERTY + " must be greater then or equal to 0");
+        if (properties != null) {
+            Optional<String> optional = properties.keySet().parallelStream()
+                    .filter(entity -> !PROPERTIES_SET.contains(entity)).findFirst();
+            if (optional.isPresent()) {
+                throw new AnalysisException(optional.get() + " is invalid property");
             }
 
+            // check desired concurrent number
+            final String desiredConcurrentNumberString = properties.get(DESIRED_CONCURRENT_NUMBER_PROPERTY);
+            if (desiredConcurrentNumberString != null) {
+                desiredConcurrentNum = getIntegerValueFromString(desiredConcurrentNumberString,
+                                                                 DESIRED_CONCURRENT_NUMBER_PROPERTY);
+                if (desiredConcurrentNum <= 0) {
+                    throw new AnalysisException(DESIRED_CONCURRENT_NUMBER_PROPERTY + " must be greater then 0");
+                }
+            }
+
+            // check max error number
+            final String maxErrorNumberString = properties.get(MAX_ERROR_NUMBER_PROPERTY);
+            if (maxErrorNumberString != null) {
+                maxErrorNum = getIntegerValueFromString(maxErrorNumberString, MAX_ERROR_NUMBER_PROPERTY);
+                if (maxErrorNum < 0) {
+                    throw new AnalysisException(MAX_ERROR_NUMBER_PROPERTY + " must be greater then or equal to 0");
+                }
+
+            }
         }
     }
 
@@ -324,6 +333,16 @@ public class CreateRoutineLoadStmt extends DdlStmt {
                     throw new AnalysisException(KAFKA_PARTITIONS_PROPERTY
                                                         + " must be a number string with comma-separated");
                 }
+            }
+        }
+        // check offsets
+        // Todo(ml)
+        final String kafkaOffsetsString = customProperties.get(KAFKA_OFFSETS_PROPERTY);
+        if (kafkaOffsetsString != null) {
+            kafkaOffsets = new ArrayList<>();
+            String[] kafkaOffsetsStringList = customProperties.get(KAFKA_OFFSETS_PROPERTY).split(",");
+            for (String s : kafkaOffsetsStringList) {
+                kafkaOffsets.add(Long.valueOf(s));
             }
         }
     }
