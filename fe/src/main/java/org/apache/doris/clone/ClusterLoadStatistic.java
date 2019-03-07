@@ -189,7 +189,7 @@ public class ClusterLoadStatistic {
             return false;
         }
 
-        if (!srcBeStat.hasMedium(medium) || destBeStat.hasMedium(medium)) {
+        if (!srcBeStat.hasMedium(medium) || !destBeStat.hasMedium(medium)) {
             return false;
         }
 
