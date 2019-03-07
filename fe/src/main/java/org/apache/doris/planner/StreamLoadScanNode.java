@@ -124,7 +124,7 @@ public class StreamLoadScanNode extends ScanNode {
         // columns: k1, k2, v1, v2=k1 + k2
         // this means that there are three columns(k1, k2, v1) in source file,
         // and v2 is derived from (k1 + k2)
-        if (streamLoadTask.getColumnToColumnExpr() != null || streamLoadTask.getColumnToColumnExpr().size() != 0) {
+        if (streamLoadTask.getColumnToColumnExpr() != null && streamLoadTask.getColumnToColumnExpr().size() != 0) {
             for (Map.Entry<String, Expr> entry : streamLoadTask.getColumnToColumnExpr().entrySet()) {
                 // make column name case match with real column name
                 String column = entry.getKey();

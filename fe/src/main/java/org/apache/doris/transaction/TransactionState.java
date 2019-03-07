@@ -309,7 +309,7 @@ public class TransactionState implements Writable {
         setTransactionStatus(transactionStatus, null);
     }
     
-    public void setTransactionStatus(TransactionStatus transactionStatus, TxnStatusChangeReason txnStatusChangeReason)
+    public void setTransactionStatus(TransactionStatus transactionStatus, String txnStatusChangeReason)
             throws TransactionException {
         // before state changed
         if (txnStateChangeListener != null) {
@@ -317,6 +317,8 @@ public class TransactionState implements Writable {
                 case ABORTED:
                     txnStateChangeListener.beforeAborted(this, txnStatusChangeReason);
                     break;
+                case COMMITTED:
+                    txnStateChangeListener.beforeCommitted(this);
                 default:
                     break;
             }
