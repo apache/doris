@@ -688,7 +688,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         Catalog.getCurrentGlobalTransactionMgr().abortTransaction(request.getTxnId(),
-                                                                  request.isSetReason() ? request.getReason() : "system cancel");
+                                                                  request.isSetReason() ? request.getReason() : "system cancel",
+                                                                  TxnCommitAttachment.fromThrift(request.getTxnCommitAttachment()));
     }
 
     @Override
