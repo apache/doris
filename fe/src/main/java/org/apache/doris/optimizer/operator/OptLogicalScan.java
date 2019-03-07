@@ -17,8 +17,27 @@
 
 package org.apache.doris.optimizer.operator;
 
+import com.google.common.collect.Lists;
+import org.apache.doris.optimizer.rule.OptRule;
+import org.apache.doris.optimizer.rule.implementation.OlapScanRule;
+
+import java.util.List;
+
 public class OptLogicalScan extends OptLogical {
+
     public OptLogicalScan() {
         super(OptOperatorType.OP_LOGICAL_SCAN);
+    }
+
+    @Override
+    public List<OptRule> getCandidateRulesForExplore() {
+        return Lists.newArrayList();
+    }
+
+    @Override
+    public List<OptRule> getCandidateRulesForImplement() {
+        final List<OptRule> rules = Lists.newArrayList();
+        rules.add(OlapScanRule.INSTANCE);
+        return rules;
     }
 }

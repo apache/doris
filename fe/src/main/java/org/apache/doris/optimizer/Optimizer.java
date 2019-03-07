@@ -1,3 +1,5 @@
+package org.apache.doris.optimizer;
+
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -15,26 +17,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.optimizer.rule;
+import org.apache.doris.optimizer.search.OptimizationContext;
+import org.apache.doris.optimizer.search.SchedulerContext;
+import org.apache.doris.optimizer.search.SchedulerContextImp;
 
-public enum OptRuleType {
-    // Used for initial expressions, which do't come from any rules.
-    RULE_NONE(0, "none"),
-    RULE_OLAP_LSCAN_TO_PSCAN(1, "OlapLogicalScanToPhysicalScan"),
-    RULE_EQ_JOIN_TO_HASH_JOIN(2, "EqualJoinToHashJoin"),
-    RULE_JOIN_COMMUTATIVITY(3, "JoinCommutativity"),
-    RULE_JOIN_ASSOCIATIVITY(4, "JoinAssociativity");
+public class Optimizer {
 
-    OptRuleType(int code, String name) {
-        this.code = code;
-        this.name = name;
+    private OptMemo memo;
+    private OptGroup root;
+
+    public Optimizer() {
+        memo = new OptMemo();
     }
-    private int code;
-    private String name;
 
-    public int getCode() { return code; }
-    public String getName() { return name; }
+    public void insert(OptExpression query) {
+        final MultiExpression mExpr = memo.copyIn(query);
+        root = mExpr.getGroup();
+    }
 
-    @Override
-    public String toString() { return name; }
+    public void optimize() {
+        final OptimizationContext oContext = new OptimizationContext();
+        final SchedulerContext sContext = SchedulerContextImp.create(memo, root, oContext);
+        sContext.execute();
+    }
 }

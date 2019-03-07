@@ -17,8 +17,32 @@
 
 package org.apache.doris.optimizer.operator;
 
-public class OptLogicalEqJoin extends OptLogical {
-    public OptLogicalEqJoin() {
+import com.google.common.collect.Lists;
+import org.apache.doris.optimizer.rule.OptRule;
+import org.apache.doris.optimizer.rule.implementation.HashJoinRule;
+import org.apache.doris.optimizer.rule.transformation.JoinAssociativityRule;
+import org.apache.doris.optimizer.rule.transformation.JoinCommutativityRule;
+
+import java.util.List;
+
+public class OptLogicallJoin extends OptLogical {
+
+    public OptLogicallJoin() {
         super(OptOperatorType.OP_LOGICAL_EQ_JOIN);
+    }
+
+    @Override
+    public List<OptRule> getCandidateRulesForExplore() {
+        final List<OptRule> rules = Lists.newArrayList();
+        rules.add(JoinCommutativityRule.INSTANCE);
+        rules.add(JoinAssociativityRule.INSTANCE);
+        return rules;
+    }
+
+    @Override
+    public List<OptRule> getCandidateRulesForImplement() {
+        final List<OptRule> rules = Lists.newArrayList();
+        rules.add(HashJoinRule.INSTANCE);
+        return rules;
     }
 }

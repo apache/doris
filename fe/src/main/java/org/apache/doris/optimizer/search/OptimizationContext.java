@@ -1,3 +1,5 @@
+package org.apache.doris.optimizer.search;
+
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -15,26 +17,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.optimizer.rule;
+public class OptimizationContext {
 
-public enum OptRuleType {
-    // Used for initial expressions, which do't come from any rules.
-    RULE_NONE(0, "none"),
-    RULE_OLAP_LSCAN_TO_PSCAN(1, "OlapLogicalScanToPhysicalScan"),
-    RULE_EQ_JOIN_TO_HASH_JOIN(2, "EqualJoinToHashJoin"),
-    RULE_JOIN_COMMUTATIVITY(3, "JoinCommutativity"),
-    RULE_JOIN_ASSOCIATIVITY(4, "JoinAssociativity");
+    private RequestProperty requestProperty;
 
-    OptRuleType(int code, String name) {
-        this.code = code;
-        this.name = name;
+    public OptimizationContext() {
     }
-    private int code;
-    private String name;
 
-    public int getCode() { return code; }
-    public String getName() { return name; }
+    public void setRequestProperty(RequestProperty property) {
+        this.requestProperty = property;
+    }
+
+    public RequestProperty getRequestProperty() {
+        return requestProperty;
+    }
 
     @Override
-    public String toString() { return name; }
+    public int hashCode() {
+        return super.hashCode();
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        return super.equals(obj);
+    }
 }

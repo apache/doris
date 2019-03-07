@@ -21,7 +21,9 @@ public enum OptOperatorType {
     OP_LOGICAL_SCAN("LogicalScan"),
     OP_LOGICAL_EQ_JOIN("LogicalEqJoin"),
 
-    OP_PHYSICAL_SCAN("PhysicalScan"),
+    OP_PHYSICAL_OLAP_SCAN("PhysicalOlapScan"),
+    OP_PHYSICAL_HASH_JOIN("PhysicalHashJoin"),
+    OP_PHYSICAL_HASH_AGG("PhysicalHashAgg"),
 
     OP_PATTERN_LEAF("PatternLeaf"),
     // following is only used in unit test

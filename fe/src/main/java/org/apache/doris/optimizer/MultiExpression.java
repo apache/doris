@@ -20,6 +20,7 @@ package org.apache.doris.optimizer;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import org.apache.doris.optimizer.operator.OptOperator;
+import org.apache.doris.optimizer.rule.OptRuleType;
 
 import java.util.List;
 import java.util.Objects;
@@ -33,7 +34,8 @@ import java.util.stream.Collectors;
 public class MultiExpression {
     private int id;
     private OptOperator op;
-    private List<OptGroup>  inputs;
+    private List<OptGroup> inputs;
+    private MEState status;
 
     // OptGroup which this MultiExpression belongs to. Firstly it's null when object is created,
     // it will be assigned after it is inserted into OptMemo
@@ -41,18 +43,43 @@ public class MultiExpression {
 
     // next MultiExpression in same OptGroup, set with group
     private MultiExpression next;
+    private OptRuleType ruleTypeDerivedFrom;
+
+    public MultiExpression(OptOperator op, List<OptGroup> inputs, OptRuleType type) {
+        this(op, inputs);
+        this.ruleTypeDerivedFrom = type;
+    }
 
     public MultiExpression(OptOperator op, List<OptGroup> inputs) {
         this.op = op;
         this.inputs = inputs;
+        this.status = MEState.UnImplemented;
+        this.ruleTypeDerivedFrom = OptRuleType.RULE_NONE;
     }
 
-    public void setId(int id) { this.id = id; }
-    public int getId() { return id; }
-    public OptOperator getOp() { return op; }
-    public int arity() { return inputs.size(); }
-    public List<OptGroup> getInputs() { return inputs; }
-    public OptGroup getInput(int idx) { return inputs.get(idx); }
+    public int getId() {
+        return id;
+    }
+
+    public void setId(int id) {
+        this.id = id;
+    }
+
+    public OptOperator getOp() {
+        return op;
+    }
+
+    public int arity() {
+        return inputs.size();
+    }
+
+    public List<OptGroup> getInputs() {
+        return inputs;
+    }
+
+    public OptGroup getInput(int idx) {
+        return inputs.get(idx);
+    }
 
     public void setGroup(OptGroup group) { this.group = group; }
     public OptGroup getGroup() { return group; }
@@ -86,6 +113,18 @@ public class MultiExpression {
         return sb.toString();
     }
 
+    public OptRuleType getRuleTypeDerivedFrom() {
+        return ruleTypeDerivedFrom;
+    }
+
+    public void setStatus(MEState status) {
+        this.status = status;
+    }
+
+    public boolean isImplemented() {
+        return status == MEState.Implemented;
+    }
+
     @Override
     public int hashCode() {
         int hash = op.hashCode();
@@ -113,5 +152,11 @@ public class MultiExpression {
             }
         }
         return true;
+    }
+
+    public enum MEState {
+        UnImplemented,
+        Implementing,
+        Implemented
     }
 }

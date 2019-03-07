@@ -51,6 +51,12 @@ public class OptExpression {
         this.inputs = Lists.newArrayList(inputs);
     }
 
+    public OptExpression(OptOperator op, OptExpression firstChild, OptExpression secondChild) {
+        this(op);
+        inputs.add(firstChild);
+        inputs.add(secondChild);
+    }
+
     public OptExpression(OptOperator op, MultiExpression mExpr) {
         this(op, Lists.newArrayList(), mExpr);
     }
