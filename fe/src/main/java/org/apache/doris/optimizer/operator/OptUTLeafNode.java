@@ -15,17 +15,36 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.optimizer;
+package org.apache.doris.optimizer.operator;
 
-public class OptUtils {
-    public static final String HEADLINE_PREFIX = "->  ";
-    public static final String DETAIL_PREFIX = "    ";
+import org.apache.doris.optimizer.OptUtils;
 
-    public static int combineHash(int hash, int value) {
-        return  ((hash << 5) ^ (hash >> 27)) ^ value;
+public class OptUTLeafNode extends OptOperator {
+    private int value;
+
+    public OptUTLeafNode(int value) {
+        super(OptOperatorType.OP_UNIT_TEST_LEAF);
+        this.value = value;
     }
 
-    public static int combineHash(int hash, Object obj) {
-        return  ((hash << 5) ^ (hash >> 27)) ^ obj.hashCode();
+    public int getValue() { return value; }
+
+    @Override
+    public int hashCode() {
+        return OptUtils.combineHash(super.hashCode(), value);
+    }
+
+    @Override
+    public boolean equals(Object object) {
+        if (!super.equals(object)) {
+            return false;
+        }
+        OptUTLeafNode rhs = (OptUTLeafNode) object;
+        return value == rhs.value;
+    }
+
+    @Override
+    public String getExplainString(String prefix) {
+        return type.getName() + " (value=" + value + ")";
     }
 }

@@ -18,6 +18,9 @@
 package org.apache.doris.optimizer.operator;
 
 public abstract class OptPhysical extends OptOperator {
+    protected OptPhysical(OptOperatorType type) {
+        super(type);
+    }
     @Override
     public boolean isPhysical() { return true; }
 }

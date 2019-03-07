@@ -17,10 +17,13 @@
 
 package org.apache.doris.optimizer;
 
+import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
 import org.apache.doris.optimizer.operator.OptOperator;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 // MultiExpression is another way to represent OptExpression, which
 // contains an operator and inputs.
@@ -36,6 +39,9 @@ public class MultiExpression {
     // it will be assigned after it is inserted into OptMemo
     private OptGroup group;
 
+    // next MultiExpression in same OptGroup, set with group
+    private MultiExpression next;
+
     public MultiExpression(OptOperator op, List<OptGroup> inputs) {
         this.op = op;
         this.inputs = inputs;
@@ -48,13 +54,36 @@ public class MultiExpression {
     public List<OptGroup> getInputs() { return inputs; }
     public OptGroup getInput(int idx) { return inputs.get(idx); }
 
+    public void setGroup(OptGroup group) { this.group = group; }
     public OptGroup getGroup() { return group; }
 
+    public void setNext(MultiExpression next) { this.next = next; }
     // get next MultiExpression in same group
-    public MultiExpression next() { return null; }
+    public MultiExpression next() { return next; }
 
     public String debugString() {
-        return "MultiExpression";
+        StringBuilder sb = new StringBuilder();
+        sb.append(id).append(":").append(op.debugString()).append('[');
+        Joiner joiner = Joiner.on(',');
+        joiner.join(inputs.stream().map(group -> "" + group.getId()).collect(Collectors.toList()));
+        sb.append(']');
+        return sb.toString();
+    }
+
+    public final String getExplainString() {
+        return getExplainString("", "");
+    }
+
+    public String getExplainString(String headlinePrefix, String detailPrefix) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(headlinePrefix).append("MultiExpression:").append(id).append(' ')
+                .append(op.getExplainString(detailPrefix)).append('\n');
+        String childHeadlinePrefix = detailPrefix + OptUtils.HEADLINE_PREFIX;
+        String childDetailPrefix = detailPrefix + OptUtils.DETAIL_PREFIX;
+        for (OptGroup input : inputs) {
+            sb.append(input.getExplain(childHeadlinePrefix, childDetailPrefix));
+        }
+        return sb.toString();
     }
 
     @Override
@@ -68,6 +97,21 @@ public class MultiExpression {
 
     @Override
     public boolean equals(Object obj) {
-        return false;
+        if (obj == null || !(obj instanceof MultiExpression)) {
+            return false;
+        }
+        MultiExpression rhs = (MultiExpression) obj;
+        if (this == rhs) {
+            return true;
+        }
+        if (arity() != rhs.arity() || !op.equals(rhs.getOp())) {
+            return false;
+        }
+        for (int i = 0; i < arity(); ++i) {
+            if (!inputs.get(i).duplicateWith(rhs.getInput(i))) {
+                return false;
+            }
+        }
+        return true;
     }
 }

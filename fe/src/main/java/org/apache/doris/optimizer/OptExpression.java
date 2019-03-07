@@ -46,6 +46,11 @@ public class OptExpression {
         inputs = Lists.newArrayList();
     }
 
+    public OptExpression(OptOperator op, OptExpression... inputs) {
+        this.op = op;
+        this.inputs = Lists.newArrayList(inputs);
+    }
+
     public OptExpression(OptOperator op, MultiExpression mExpr) {
         this(op, Lists.newArrayList(), mExpr);
     }
@@ -59,11 +64,12 @@ public class OptExpression {
     public OptOperator getOp() { return op; }
     public List<OptExpression> getInputs() { return inputs; }
     public int arity() { return inputs.size(); }
-    public OptExpression getInput(int idx) { return getInput(idx); }
+    public OptExpression getInput(int idx) { return inputs.get(idx); }
     public MultiExpression getMExpr() { return mExpr; }
 
     // It's only used when this object is part of pattern. this function check if
     // MultiExpression can match this Expression
+    // Pattern match doesn't care operator's arguments
     public boolean matchMultiExpression(MultiExpression mExpr) {
         // If op is a pattern, it can match all
         if (op.isPattern()) {
@@ -76,14 +82,20 @@ public class OptExpression {
         return arity() == mExpr.arity();
     }
 
+    public String debugString() { return getExplainString("", ""); }
+
+    public final String getExplainString() {
+        return getExplainString("", "");
+    }
     // used for debugging
-    public String debugString() {
+    public String getExplainString(String headlinePrefix, String detailPrefix) {
         StringBuilder sb = new StringBuilder();
-        sb.append("Expression(op=").append(op.debugString())
-                .append(",inputs=[");
-        Joiner onJoiner = Joiner.on(',');
-        sb.append(onJoiner.join(inputs.stream().map(OptExpression::debugString).collect(Collectors.toList())));
-        sb.append("])");
+        sb.append(headlinePrefix).append(op.getExplainString(detailPrefix)).append('\n');
+        String childHeadlinePrefix = detailPrefix + OptUtils.HEADLINE_PREFIX;
+        String childDetailPrefix = detailPrefix + OptUtils.DETAIL_PREFIX;
+        for (OptExpression input : inputs) {
+            sb.append(input.getExplainString(childHeadlinePrefix, childDetailPrefix));
+        }
         return sb.toString();
     }
 }

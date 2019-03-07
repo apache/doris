@@ -17,15 +17,15 @@
 
 package org.apache.doris.optimizer;
 
-public class OptUtils {
-    public static final String HEADLINE_PREFIX = "->  ";
-    public static final String DETAIL_PREFIX = "    ";
+import org.apache.doris.optimizer.operator.OptUTInternalNode;
+import org.apache.doris.optimizer.operator.OptUTLeafNode;
 
-    public static int combineHash(int hash, int value) {
-        return  ((hash << 5) ^ (hash >> 27)) ^ value;
+public class Utils {
+    public static OptExpression createUtLeaf(int value) {
+        return new OptExpression(new OptUTLeafNode(value));
     }
 
-    public static int combineHash(int hash, Object obj) {
-        return  ((hash << 5) ^ (hash >> 27)) ^ obj.hashCode();
+    public static OptExpression createUtInternal(int value, OptExpression... inputs) {
+        return new OptExpression(new OptUTInternalNode(value), inputs);
     }
 }
