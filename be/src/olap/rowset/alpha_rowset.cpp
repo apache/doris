@@ -47,7 +47,7 @@ AlphaRowset::AlphaRowset(const TabletSchema* schema,
 }
 
 OLAPStatus AlphaRowset::init() {
-    DCHECK(!is_inited())
+    DCHECK(!is_inited());
     OLAPStatus status = _init_segment_groups();
     set_inited(true);
     return status;
@@ -77,7 +77,7 @@ OLAPStatus AlphaRowset::load() {
 
 std::shared_ptr<RowsetReader> AlphaRowset::create_reader() {
     if (!is_loaded()) {
-        OLAPStatus status = _load();
+        OLAPStatus status = load();
         if (status != OLAP_SUCCESS) {
             LOG(WARNING) << "alpha rowset load failed. rowset path:" << _rowset_path;
             return nullptr;
@@ -444,7 +444,7 @@ OLAPStatus AlphaRowset::_init_non_pending_segment_groups() {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus AlphaRowset::_init_pending_segment_groups(bool validate) {
+OLAPStatus AlphaRowset::_init_pending_segment_groups() {
     std::vector<PendingSegmentGroupPB> pending_segment_group_metas;
     AlphaRowsetMetaSharedPtr _alpha_rowset_meta = std::dynamic_pointer_cast<AlphaRowsetMeta>(_rowset_meta);
     _alpha_rowset_meta->get_pending_segment_groups(&pending_segment_group_metas);

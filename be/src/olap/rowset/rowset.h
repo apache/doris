@@ -57,7 +57,7 @@ public:
 
     // this api is for lazy loading data
     // always means that there are some io
-    OLAPStatus load() = 0;
+    virtual OLAPStatus load() = 0;
 
     virtual std::shared_ptr<RowsetReader> create_reader() = 0;
 
