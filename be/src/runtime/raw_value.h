@@ -422,7 +422,11 @@ inline uint32_t RawValue::zlib_crc32(const void* v, const TypeDescriptor& type, 
     }
 
     case TYPE_DECIMALV2: {
-        return HashUtil::zlib_crc_hash(v, 16, seed);
+        const DecimalV2Value* dec_val = (const DecimalV2Value*)v;
+        int64_t int_val = dec_val->int_value();
+        int32_t frac_val = dec_val->frac_value();
+        seed = HashUtil::zlib_crc_hash(&int_val, sizeof(int_val), seed);
+        return HashUtil::zlib_crc_hash(&frac_val, sizeof(frac_val), seed);
     }
     default:
         DCHECK(false) << "invalid type: " << type;
