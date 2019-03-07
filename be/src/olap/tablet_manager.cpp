@@ -433,8 +433,8 @@ TabletSharedPtr TabletManager::create_tablet(
         std::string tablet_dir = tablet_path.string();
         if (!check_dir_existed(schema_hash_dir)) {
             std::set<std::string> pending_paths;
-            pending_paths.insert(std::move(schema_hash_dir));
-            pending_paths.insert(std::move(tablet_dir));
+            pending_paths.insert(schema_hash_dir);
+            pending_paths.insert(tablet_dir);
             StorageEngine::instance()->add_pending_paths(request.tablet_id, pending_paths);
             res = create_dirs(schema_hash_dir);
             if (res != OLAP_SUCCESS) {

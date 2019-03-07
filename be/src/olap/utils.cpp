@@ -1511,17 +1511,15 @@ OLAPStatus dir_walk(const string& root,
         // 检查找到的目录项是文件还是目录
         string tmp_ent = root + '/' + direntp->d_name;
         if (lstat(tmp_ent.c_str(), &stat_data) < 0) {
-            OLAP_LOG_WARNING("lstat error.");
+            LOG(WARNING) << "lstat error.";
             continue;
         }
 
         if (S_ISDIR(stat_data.st_mode)) {
-            VLOG(3) << "find dir. d_name=" << direntp->d_name;
             if (NULL != dirs) {
                 dirs->insert(direntp->d_name);
             }
         } else {
-            VLOG(3) << "find file. d_name=" << direntp->d_name;
             if (NULL != files) {
                 files->insert(direntp->d_name);
             }
