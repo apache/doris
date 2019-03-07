@@ -798,7 +798,7 @@ public class ShowExecutor {
         RoutineLoadJob routineLoadJob =
                 Catalog.getCurrentCatalog().getRoutineLoadManager().getJobByName(showRoutineLoadStmt.getName());
         if (routineLoadJob == null) {
-            throw new AnalysisException("There is no routine load job with id " + showRoutineLoadStmt.getName());
+            throw new AnalysisException("There is no routine load job with name " + showRoutineLoadStmt.getName());
         }
 
         // check auth
@@ -831,6 +831,7 @@ public class ShowExecutor {
         row.add(routineLoadJob.getState().name());
         row.add(routineLoadJob.getDesiredConcurrentNumber());
         row.add(routineLoadJob.getProgress().toString());
+        rows.add(row);
 
         resultSet = new ShowResultSet(showRoutineLoadStmt.getMetaData(), rows);
     }

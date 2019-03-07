@@ -35,6 +35,7 @@ import java.util.Map;
 // {"partitionIdToOffset": {}}
 public class KafkaProgress extends RoutineLoadProgress {
 
+    // (partition id, begin offset)
     private Map<Integer, Long> partitionIdToOffset;
 
     public KafkaProgress() {
@@ -57,7 +58,7 @@ public class KafkaProgress extends RoutineLoadProgress {
     public void update(RoutineLoadProgress progress) {
         KafkaProgress newProgress = (KafkaProgress) progress;
         newProgress.getPartitionIdToOffset().entrySet().parallelStream()
-                .forEach(entity -> partitionIdToOffset.put(entity.getKey(), entity.getValue()));
+                .forEach(entity -> partitionIdToOffset.put(entity.getKey(), entity.getValue() + 1));
     }
 
     @Override
@@ -78,9 +79,15 @@ public class KafkaProgress extends RoutineLoadProgress {
         }
     }
 
+    // (partition id, end offset)
+    // end offset = -1 while begin offset of partition is 0
     @Override
     public String toString() {
+        Map<Integer, Long> showPartitionIdToOffset = new HashMap<>();
+        for (Map.Entry<Integer, Long> entry : partitionIdToOffset.entrySet()) {
+            showPartitionIdToOffset.put(entry.getKey(), entry.getValue() - 1);
+        }
         return "KafkaProgress [partitionIdToOffset="
-                + Joiner.on("|").withKeyValueSeparator("_").join(partitionIdToOffset) + "]";
+                + Joiner.on("|").withKeyValueSeparator("_").join(showPartitionIdToOffset) + "]";
     }
 }
