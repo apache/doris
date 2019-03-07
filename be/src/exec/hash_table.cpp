@@ -168,13 +168,13 @@ uint32_t HashTable::hash_variable_len_row() {
                 DecimalValue* decimal = reinterpret_cast<DecimalValue*>(loc);
                 hash = decimal->hash(hash);
             }
-        } else if (_build_expr_ctxs[i]->root()->type().type == TYPE_DECIMAL_V2) {
+        } else if (_build_expr_ctxs[i]->root()->type().type == TYPE_DECIMALV2) {
             void* loc = _expr_values_buffer + _expr_values_buffer_offsets[i];
             if (_expr_value_null_bits[i]) {
                 // Hash the null random seed values at 'loc'
                 hash = HashUtil::hash(loc, sizeof(StringValue), hash);
             } else {
-                Decimal_V2Value* decimal = reinterpret_cast<Decimal_V2Value*>(loc);
+                DecimalV2Value* decimal = reinterpret_cast<DecimalV2Value*>(loc);
                 hash = decimal->hash(hash);
             }
         }
@@ -418,7 +418,7 @@ Function* HashTable::codegen_eval_tuple_row(RuntimeState* state, bool build) {
     for (int i = 0; i < ctxs.size(); ++i) {
         PrimitiveType type = ctxs[i]->root()->type().type;
         if (type == TYPE_DATE || type == TYPE_DATETIME
-                || type == TYPE_DECIMAL || type == TYPE_CHAR || type == TYPE_DECIMAL_V2) {
+                || type == TYPE_DECIMAL || type == TYPE_CHAR || type == TYPE_DECIMALV2) {
             return NULL;
         }
     }

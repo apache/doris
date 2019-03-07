@@ -26,7 +26,7 @@
 #include "exprs/expr.h"
 #include "runtime/tuple_row.h"
 #include "runtime/decimal_value.h"
-#include "runtime/decimal_v2_value.h"
+#include "runtime/decimalv2_value.h"
 #include "util/string_parser.hpp"
 
 namespace doris {
@@ -531,8 +531,8 @@ DecimalVal MathFunctions::positive_decimal(
     return val;
 }
 
-Decimal_V2Val MathFunctions::positive_decimal(
-        FunctionContext* ctx, const Decimal_V2Val& val) {
+DecimalV2Val MathFunctions::positive_decimal(
+        FunctionContext* ctx, const DecimalV2Val& val) {
     return val;
 }
 
@@ -565,13 +565,13 @@ DecimalVal MathFunctions::negative_decimal(
     return result;
 }
 
-Decimal_V2Val MathFunctions::negative_decimal(
-        FunctionContext* ctx, const Decimal_V2Val& val) {
+DecimalV2Val MathFunctions::negative_decimal(
+        FunctionContext* ctx, const DecimalV2Val& val) {
     if (val.is_null) {
         return val;
     }
-    const Decimal_V2Value& dv1 = Decimal_V2Value::from_decimal_val(val);
-    Decimal_V2Val result;
+    const DecimalV2Value& dv1 = DecimalV2Value::from_decimal_val(val);
+    DecimalV2Val result;
     (-dv1).to_decimal_val(&result);
     return result;
 }
@@ -618,7 +618,7 @@ LEAST_FNS();
     LEAST_NONNUMERIC_FN(string_val, StringVal, StringValue); \
     LEAST_NONNUMERIC_FN(datetime_val, DateTimeVal, DateTimeValue); \
     LEAST_NONNUMERIC_FN(decimal_val, DecimalVal, DecimalValue); \
-    LEAST_NONNUMERIC_FN(decimal_val, Decimal_V2Val, Decimal_V2Value); \
+    LEAST_NONNUMERIC_FN(decimal_val, DecimalV2Val, DecimalV2Value); \
 
 LEAST_NONNUMERIC_FNS();
 
@@ -664,7 +664,7 @@ GREATEST_FNS();
     GREATEST_NONNUMERIC_FN(string_val, StringVal, StringValue); \
     GREATEST_NONNUMERIC_FN(datetime_val, DateTimeVal, DateTimeValue); \
     GREATEST_NONNUMERIC_FN(decimal_val, DecimalVal, DecimalValue); \
-    GREATEST_NONNUMERIC_FN(decimal_val, Decimal_V2Val, Decimal_V2Value); \
+    GREATEST_NONNUMERIC_FN(decimal_val, DecimalV2Val, DecimalV2Value); \
 
 GREATEST_NONNUMERIC_FNS();
 
@@ -811,21 +811,21 @@ void* MathFunctions::least_decimal(Expr* e, TupleRow* row) {
     return &e->children()[result_idx]->_result.decimal_val;
 }
 
-void* MathFunctions::least_decimal_v2(Expr* e, TupleRow* row) {
+void* MathFunctions::least_decimalv2(Expr* e, TupleRow* row) {
     DCHECK_GE(e->get_num_children(), 1);
     int32_t num_args = e->get_num_children();
     int result_idx = 0;
     // NOTE: loop index starts at 0, so If frist arg is NULL, we can return early..
     for (int i = 0; i < num_args; ++i) {
-        Decimal_V2Value* arg = reinterpret_cast<Decimal_V2Value*>(e->children()[i]->get_value(row));
+        DecimalV2Value* arg = reinterpret_cast<DecimalV2Value*>(e->children()[i]->get_value(row));
         if (arg == NULL) {
             return NULL;
         }
-        if (*arg < *reinterpret_cast<Decimal_V2Value*>(e->children()[result_idx]->get_value(row))) {
+        if (*arg < *reinterpret_cast<DecimalV2Value*>(e->children()[result_idx]->get_value(row))) {
             result_idx = i;
         }
     }
-    return &e->children()[result_idx]->_result.decimal_v2_val;
+    return &e->children()[result_idx]->_result.decimalv2_val;
 }
 
 

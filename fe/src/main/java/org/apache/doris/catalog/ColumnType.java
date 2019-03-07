@@ -73,7 +73,7 @@ public abstract class ColumnType {
     public static void write(DataOutput out, Type type) throws IOException {
         Preconditions.checkArgument(type.isScalarType(), "only support scalar type serialization");
         ScalarType scalarType = (ScalarType) type;
-        if (scalarType.getPrimitiveType() == PrimitiveType.DECIMAL_V2) {
+        if (scalarType.getPrimitiveType() == PrimitiveType.DECIMALV2) {
             Text.writeString(out, PrimitiveType.DECIMAL.name());
         } else {
             Text.writeString(out, scalarType.getPrimitiveType().name());
@@ -88,7 +88,7 @@ public abstract class ColumnType {
     public static Type read(DataInput in) throws IOException {
         PrimitiveType primitiveType = PrimitiveType.valueOf(Text.readString(in));
         if (primitiveType == PrimitiveType.DECIMAL) { 
-            primitiveType = PrimitiveType.DECIMAL_V2;
+            primitiveType = PrimitiveType.DECIMALV2;
         }
         int scale = in.readInt();
         int precision = in.readInt();

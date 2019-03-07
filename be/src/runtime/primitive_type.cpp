@@ -77,8 +77,8 @@ PrimitiveType thrift_to_type(TPrimitiveType::type ttype) {
     case TPrimitiveType::DECIMAL:
         return TYPE_DECIMAL;
 
-    case TPrimitiveType::DECIMAL_V2:
-        return TYPE_DECIMAL_V2;
+    case TPrimitiveType::DECIMALV2:
+        return TYPE_DECIMALV2;
 
     case TPrimitiveType::CHAR:
         return TYPE_CHAR;
@@ -138,8 +138,8 @@ TPrimitiveType::type to_thrift(PrimitiveType ptype) {
     case TYPE_DECIMAL:
         return TPrimitiveType::DECIMAL;
 
-    case TYPE_DECIMAL_V2:
-        return TPrimitiveType::DECIMAL_V2;
+    case TYPE_DECIMALV2:
+        return TPrimitiveType::DECIMALV2;
 
     case TYPE_CHAR:
         return TPrimitiveType::CHAR;
@@ -199,8 +199,8 @@ std::string type_to_string(PrimitiveType t) {
     case TYPE_DECIMAL:
         return "DECIMAL";
 
-    case TYPE_DECIMAL_V2:
-        return "DECIMAL_V2";
+    case TYPE_DECIMALV2:
+        return "DECIMALV2";
 
     case TYPE_CHAR:
         return "CHAR";
@@ -262,8 +262,8 @@ std::string type_to_odbc_string(PrimitiveType t) {
     case TYPE_DECIMAL:
         return "decimal";
 
-    case TYPE_DECIMAL_V2:
-        return "decimal_v2";
+    case TYPE_DECIMALV2:
+        return "decimalv2";
 
     case TYPE_CHAR:
         return "char";

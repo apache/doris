@@ -89,14 +89,14 @@ functions = [
   ['Math_Greatest', 'BIGINT', ['BIGINT', '...'], 'MathFunctions::greatest_bigint', ['greatest']],
   ['Math_Greatest', 'DOUBLE', ['DOUBLE', '...'], 'MathFunctions::greatest_double', ['greatest']],
   ['Math_Greatest', 'DECIMAL', ['DECIMAL', '...'], 'MathFunctions::greatest_decimal', ['greatest']],
-  ['Math_Greatest', 'DECIMAL_V2', ['DECIMAL_V2', '...'], 'MathFunctions::greatest_decimal', ['greatest']],
+  ['Math_Greatest', 'DECIMALV2', ['DECIMALV2', '...'], 'MathFunctions::greatest_decimal', ['greatest']],
   ['Math_Greatest', 'VARCHAR', ['VARCHAR', '...'], 'MathFunctions::greatest_string', ['greatest']],
   ['Math_Greatest', 'DATETIME', ['DATETIME', '...'], \
         'MathFunctions::greatest_timestamp', ['greatest']],
   ['Math_Least', 'BIGINT', ['BIGINT', '...'], 'MathFunctions::least_bigint', ['least']],
   ['Math_Least', 'DOUBLE', ['DOUBLE', '...'], 'MathFunctions::least_double', ['least']],
   ['Math_Least', 'DECIMAL', ['DECIMAL', '...'], 'MathFunctions::least_decimal', ['least']],
-  ['Math_Least', 'DECIMAL_V2', ['DECIMAL_V2', '...'], 'MathFunctions::least_decimal_v2', ['least']],
+  ['Math_Least', 'DECIMALV2', ['DECIMALV2', '...'], 'MathFunctions::least_decimalv2', ['least']],
   ['Math_Least', 'VARCHAR', ['VARCHAR', '...'], 'MathFunctions::least_string', ['least']],
   ['Math_Least', 'DATETIME', ['DATETIME', '...'], 'MathFunctions::least_timestamp', ['least']],
 
@@ -307,7 +307,7 @@ functions = [
 udf_functions = [
   ['Udf_Math_Abs', 'DECIMAL', ['DECIMAL'], 'UdfBuiltins::decimal_abs', ['udf_abs'],
    ''],
-  ['Udf_Math_Abs', 'DECIMAL_V2', ['DECIMAL_V2'], 'UdfBuiltins::decimal_abs', ['udf_abs'],
+  ['Udf_Math_Abs', 'DECIMALV2', ['DECIMALV2'], 'UdfBuiltins::decimal_abs', ['udf_abs'],
    ''],
   ['Udf_Sub_String', 'VARCHAR', ['VARCHAR', 'INT', 'INT'], 
   ['Udf_Sub_String', 'VARCHAR', ['VARCHAR', 'INT', 'INT'], 

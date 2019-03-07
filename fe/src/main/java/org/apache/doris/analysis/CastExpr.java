@@ -105,7 +105,7 @@ public class CastExpr extends Expr {
                 }
                 // Disable casting from boolean/timestamp to decimal
                 if ((fromType.isBoolean() || fromType.isDateType()) && 
-                        (toType == Type.DECIMAL || toType == Type.DECIMAL_V2)) {
+                        (toType == Type.DECIMAL || toType == Type.DECIMALV2)) {
                     continue;
                 }
 
@@ -113,7 +113,7 @@ public class CastExpr extends Expr {
                 if (fromType.equals(toType)) {
                     continue;
                 }
-                String beClass = toType.isDecimal_V2() || fromType.isDecimal_V2() ? "Decimal_V2Operators" : "CastFunctions";
+                String beClass = toType.isDecimalV2() || fromType.isDecimalV2() ? "DecimalV2Operators" : "CastFunctions";
                 if (toType.isDecimal() || fromType.isDecimal()) beClass = "DecimalOperators";
                 String typeName = Function.getUdfTypeName(toType.getPrimitiveType());
                 if (toType.getPrimitiveType() == PrimitiveType.DATE) {

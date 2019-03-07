@@ -68,7 +68,7 @@ public abstract class LiteralExpr extends Expr {
                 literalExpr = new FloatLiteral(value);
                 break;
             case DECIMAL:
-            case DECIMAL_V2:
+            case DECIMALV2:
                 literalExpr = new DecimalLiteral(value);
                 break;
             case CHAR:

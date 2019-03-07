@@ -284,9 +284,9 @@ public class BinaryPredicate extends Predicate implements Writable {
         if (t1 == PrimitiveType.BIGINT && t2 == PrimitiveType.BIGINT) {
             return Type.getAssignmentCompatibleType(getChild(0).getType(), getChild(1).getType(), false);
         }
-        if ((t1 == PrimitiveType.BIGINT || t1 == PrimitiveType.DECIMAL_V2)
-                && (t2 == PrimitiveType.BIGINT || t2 == PrimitiveType.DECIMAL_V2)) {
-            return Type.DECIMAL_V2;
+        if ((t1 == PrimitiveType.BIGINT || t1 == PrimitiveType.DECIMALV2)
+                && (t2 == PrimitiveType.BIGINT || t2 == PrimitiveType.DECIMALV2)) {
+            return Type.DECIMALV2;
         }
         if ((t1 == PrimitiveType.BIGINT || t1 == PrimitiveType.DECIMAL)
                 && (t2 == PrimitiveType.BIGINT || t2 == PrimitiveType.DECIMAL)) {

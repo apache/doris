@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime/decimal_v2_value.h"
+#include "runtime/decimalv2_value.h"
 #include "util/string_parser.hpp"
 
 #include <algorithm>
@@ -24,17 +24,17 @@
 
 namespace doris {
 
-const char* Decimal_V2Value::_s_llvm_class_name = "class.doris::Decimal_V2Value";
+const char* DecimalV2Value::_s_llvm_class_name = "class.doris::DecimalV2Value";
 
 static inline int128_t abs(const int128_t& x) { return (x < 0) ? -x : x; }
 
 // x>=0 && y>=0
 static int do_add(int128_t x, int128_t y, int128_t* result) {
     int error = E_DEC_OK;
-    if (Decimal_V2Value::MAX_DECIMAL_VALUE - x >= y) {
+    if (DecimalV2Value::MAX_DECIMAL_VALUE - x >= y) {
         *result = x + y;
     } else {
-        *result = Decimal_V2Value::MAX_DECIMAL_VALUE;
+        *result = DecimalV2Value::MAX_DECIMAL_VALUE;
         error = E_DEC_OVERFLOW;
         LOG(INFO) << "overflow (x=" << x << ", y=" << y << ")";
     }
@@ -68,28 +68,28 @@ static int do_mul(int128_t x, int128_t y, int128_t* result) {
     // The bits range of m * n is in (m+n-1 --> m+n)
     int bits = 128 + 128 - clz128(x) - clz128(y); 
     if (bits > (120 + 1)) {
-        *result = Decimal_V2Value::MAX_DECIMAL_VALUE;
+        *result = DecimalV2Value::MAX_DECIMAL_VALUE;
         LOG(INFO) << "overflow (x=" << x << ", y=" << y << ")";
         error = E_DEC_OVERFLOW;
         return error;
     }
 
     int128_t product = x * y;
-    *result = product / Decimal_V2Value::ONE_BILLION;
+    *result = product / DecimalV2Value::ONE_BILLION;
 
     // overflow
-    if (*result > Decimal_V2Value::MAX_DECIMAL_VALUE) {
-        *result = Decimal_V2Value::MAX_DECIMAL_VALUE;
+    if (*result > DecimalV2Value::MAX_DECIMAL_VALUE) {
+        *result = DecimalV2Value::MAX_DECIMAL_VALUE;
         LOG(INFO) << "overflow (x=" << x << ", y=" << y << ")";
         error = E_DEC_OVERFLOW;
         return error;
     }
 
     // truncate with round
-    int128_t remainder = product % Decimal_V2Value::ONE_BILLION;
+    int128_t remainder = product % DecimalV2Value::ONE_BILLION;
     if (remainder != 0) {
         error = E_DEC_TRUNCATED;
-        if (remainder >= (Decimal_V2Value::ONE_BILLION >> 1)) {
+        if (remainder >= (DecimalV2Value::ONE_BILLION >> 1)) {
             *result += 1;
         }
         LOG(INFO) << "truncate (x=" << x << ", y=" << y << ")" << ", result=" << *result;
@@ -101,7 +101,7 @@ static int do_mul(int128_t x, int128_t y, int128_t* result) {
 // x>0 && y>0
 static int do_div(int128_t x, int128_t y, int128_t* result) {
     int error = E_DEC_OK;
-    int128_t dividend = x * Decimal_V2Value::ONE_BILLION;
+    int128_t dividend = x * DecimalV2Value::ONE_BILLION;
     *result = dividend / y;
 
     // overflow
@@ -124,7 +124,7 @@ static int do_mod(int128_t x, int128_t y, int128_t* result) {
     return error;
 }
 
-Decimal_V2Value operator+(const Decimal_V2Value& v1, const Decimal_V2Value& v2) {
+DecimalV2Value operator+(const DecimalV2Value& v1, const DecimalV2Value& v2) {
     int128_t result;
     int128_t x = v1.value();
     int128_t y = v2.value();
@@ -147,10 +147,10 @@ Decimal_V2Value operator+(const Decimal_V2Value& v1, const Decimal_V2Value& v2) 
         }
     }
 
-    return Decimal_V2Value(result);
+    return DecimalV2Value(result);
 }
 
-Decimal_V2Value operator-(const Decimal_V2Value& v1, const Decimal_V2Value& v2) {
+DecimalV2Value operator-(const DecimalV2Value& v1, const DecimalV2Value& v2) {
     int128_t result;
     int128_t x = v1.value();
     int128_t y = v2.value();
@@ -174,15 +174,15 @@ Decimal_V2Value operator-(const Decimal_V2Value& v1, const Decimal_V2Value& v2) 
         }
     }
 
-    return Decimal_V2Value(result);
+    return DecimalV2Value(result);
 }
 
-Decimal_V2Value operator*(const Decimal_V2Value& v1, const Decimal_V2Value& v2){
+DecimalV2Value operator*(const DecimalV2Value& v1, const DecimalV2Value& v2){
     int128_t result;
     int128_t x = v1.value();
     int128_t y = v2.value();
 
-    if (x == 0 || y == 0) return Decimal_V2Value(0);
+    if (x == 0 || y == 0) return DecimalV2Value(0);
 
     bool is_positive = (x > 0 && y > 0) || (x < 0 && y < 0);
 
@@ -190,61 +190,61 @@ Decimal_V2Value operator*(const Decimal_V2Value& v1, const Decimal_V2Value& v2){
 
     if (!is_positive) result = -result;
 
-    return Decimal_V2Value(result);
+    return DecimalV2Value(result);
 }
 
-Decimal_V2Value operator/(const Decimal_V2Value& v1, const Decimal_V2Value& v2){
+DecimalV2Value operator/(const DecimalV2Value& v1, const DecimalV2Value& v2){
     int128_t result;
     int128_t x = v1.value();
     int128_t y = v2.value();
 
     //todo: return 0 for divide zero 
-    if (x == 0 || y == 0) return Decimal_V2Value(0);
+    if (x == 0 || y == 0) return DecimalV2Value(0);
     bool is_positive = (x > 0 && y > 0) || (x < 0 && y < 0);
     do_div(abs(x), abs(y), &result);
 
     if (!is_positive) result = -result;
 
-    return Decimal_V2Value(result);
+    return DecimalV2Value(result);
 }
 
-Decimal_V2Value operator%(const Decimal_V2Value& v1, const Decimal_V2Value& v2){
+DecimalV2Value operator%(const DecimalV2Value& v1, const DecimalV2Value& v2){
     int128_t result;
     int128_t x = v1.value();
     int128_t y = v2.value();
 
     //todo: return 0 for divide zero 
-    if (x == 0 || y == 0) return Decimal_V2Value(0);
+    if (x == 0 || y == 0) return DecimalV2Value(0);
 
     bool is_positive = (x > 0 && y > 0) || (x < 0 && y < 0);
     do_mod(abs(x), abs(y), &result);
 
     if (!is_positive) result = -result;
 
-    return Decimal_V2Value(result);
+    return DecimalV2Value(result);
 }
 
-std::ostream& operator<<(std::ostream& os, Decimal_V2Value const& decimal_value) {
+std::ostream& operator<<(std::ostream& os, DecimalV2Value const& decimal_value) {
     return os << decimal_value.to_string();
 }
 
-std::istream& operator>>(std::istream& ism, Decimal_V2Value& decimal_value) {
+std::istream& operator>>(std::istream& ism, DecimalV2Value& decimal_value) {
     std::string str_buff;
     ism >> str_buff;
     decimal_value.parse_from_str(str_buff.c_str(), str_buff.size());
     return ism;
 }
 
-Decimal_V2Value operator-(const Decimal_V2Value& v) {
-    return Decimal_V2Value(-v.value());
+DecimalV2Value operator-(const DecimalV2Value& v) {
+    return DecimalV2Value(-v.value());
 }
 
-Decimal_V2Value& Decimal_V2Value::operator+=(const Decimal_V2Value& other) {
+DecimalV2Value& DecimalV2Value::operator+=(const DecimalV2Value& other) {
     *this = *this + other;
     return *this;
 }
 
-int Decimal_V2Value::parse_from_str(const char* decimal_str, int32_t length) {
+int DecimalV2Value::parse_from_str(const char* decimal_str, int32_t length) {
     int32_t error = E_DEC_OK;
     StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
     
@@ -257,7 +257,7 @@ int Decimal_V2Value::parse_from_str(const char* decimal_str, int32_t length) {
     return error;
 }
 
-std::string Decimal_V2Value::to_string(int round_scale) const {
+std::string DecimalV2Value::to_string(int round_scale) const {
   if (_value == 0) return std::string(1, '0');
 
 
@@ -304,12 +304,12 @@ std::string Decimal_V2Value::to_string(int round_scale) const {
   return str;
 }
 
-std::string Decimal_V2Value::to_string() const {
+std::string DecimalV2Value::to_string() const {
     return to_string(-1);
 }
 
 // NOTE: only change abstract value, do not change sign
-void Decimal_V2Value::to_max_decimal(int32_t precision, int32_t scale) {
+void DecimalV2Value::to_max_decimal(int32_t precision, int32_t scale) {
    bool is_negtive = (_value < 0);
    static const int64_t INT_MAX_VALUE[PRECISION] = {
         9ll, 
@@ -358,15 +358,15 @@ void Decimal_V2Value::to_max_decimal(int32_t precision, int32_t scale) {
    
    int64_t int_value = INT_MAX_VALUE[precision - scale - 1];
    int64_t frac_value = scale == 0? 0 : FRAC_MAX_VALUE[scale - 1];
-   _value = static_cast<int128_t>(int_value) * Decimal_V2Value::ONE_BILLION + frac_value;
+   _value = static_cast<int128_t>(int_value) * DecimalV2Value::ONE_BILLION + frac_value;
    if (is_negtive) _value = -_value;
 }
 
-std::size_t hash_value(Decimal_V2Value const& value) {
+std::size_t hash_value(DecimalV2Value const& value) {
     return value.hash(0);
 }
 
-int Decimal_V2Value::round(Decimal_V2Value *to, int rounding_scale, DecimalRoundMode op) {
+int DecimalV2Value::round(DecimalV2Value *to, int rounding_scale, DecimalRoundMode op) {
     int32_t error = E_DEC_OK;
     int128_t result;
     

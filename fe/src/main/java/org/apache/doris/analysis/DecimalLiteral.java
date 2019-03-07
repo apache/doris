@@ -73,7 +73,7 @@ public class DecimalLiteral extends LiteralExpr {
 
     private void init(BigDecimal value) {
         this.value = value;
-        type = Type.DECIMAL_V2;
+        type = Type.DECIMALV2;
     }
 
     public BigDecimal getValue() {
@@ -130,7 +130,7 @@ public class DecimalLiteral extends LiteralExpr {
                 buffer.putLong(value.longValue());
                 break;
             case DECIMAL:
-            case DECIMAL_V2:
+            case DECIMALV2:
                 buffer = ByteBuffer.allocate(12);
                 buffer.order(ByteOrder.LITTLE_ENDIAN);
 

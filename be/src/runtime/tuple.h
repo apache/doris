@@ -169,9 +169,9 @@ public:
         return reinterpret_cast<DecimalValue*>(reinterpret_cast<char*>(this) + offset);
     }
 
-    Decimal_V2Value* get_decimal_v2_slot(int offset) {
+    DecimalV2Value* get_decimalv2_slot(int offset) {
         DCHECK(offset != -1);  // -1 offset indicates non-materialized slot
-        return reinterpret_cast<Decimal_V2Value*>(reinterpret_cast<char*>(this) + offset);
+        return reinterpret_cast<DecimalV2Value*>(reinterpret_cast<char*>(this) + offset);
     }
 
     // For C++/IR interop, we need to be able to look up types by name.

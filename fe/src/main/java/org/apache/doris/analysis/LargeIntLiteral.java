@@ -187,7 +187,7 @@ public class LargeIntLiteral extends LiteralExpr {
     protected Expr uncheckedCastTo(Type targetType) throws AnalysisException {
         if (targetType.isFloatingPointType()) {
             return new FloatLiteral(new Double(value.doubleValue()), targetType);
-        } else if (targetType.isDecimal() || targetType.isDecimal_V2()) {
+        } else if (targetType.isDecimal() || targetType.isDecimalV2()) {
             return new DecimalLiteral(new BigDecimal(value));
         } else if (targetType.isNumericType()) {
             try {

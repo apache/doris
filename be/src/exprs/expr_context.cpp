@@ -374,13 +374,13 @@ void* ExprContext::get_value(Expr* e, TupleRow* row) {
         _result.decimal_val = DecimalValue::from_decimal_val(v);
         return &_result.decimal_val;
     }
-    case TYPE_DECIMAL_V2: {
-        Decimal_V2Val v = e->get_decimal_v2_val(this, row);
+    case TYPE_DECIMALV2: {
+        DecimalV2Val v = e->get_decimalv2_val(this, row);
         if (v.is_null) {
             return NULL;
         }
-        _result.decimal_v2_val = Decimal_V2Value::from_decimal_val(v);
-        return &_result.decimal_v2_val;
+        _result.decimalv2_val = DecimalV2Value::from_decimal_val(v);
+        return &_result.decimalv2_val;
     }
 #if 0
     case TYPE_ARRAY:
@@ -459,8 +459,8 @@ DecimalVal ExprContext::get_decimal_val(TupleRow* row) {
     return _root->get_decimal_val(this, row);
 }
 
-Decimal_V2Val ExprContext::get_decimal_v2_val(TupleRow* row) {
-    return _root->get_decimal_v2_val(this, row);
+DecimalV2Val ExprContext::get_decimalv2_val(TupleRow* row) {
+    return _root->get_decimalv2_val(this, row);
 }
 
 Status ExprContext::get_const_value(RuntimeState* state, Expr& expr,

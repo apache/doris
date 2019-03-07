@@ -547,8 +547,8 @@ Status PreAggregationNode::update_agg_row(TupleRow* agg_row, TupleRow* probe_row
                 UpdateMinSlot<DecimalValue>(slot, value);
                 break;
 
-            case TYPE_DECIMAL_V2:
-                UpdateMinSlot<Decimal_V2Value>(slot, value);
+            case TYPE_DECIMALV2:
+                UpdateMinSlot<DecimalV2Value>(slot, value);
                 break;
 
             default:
@@ -597,8 +597,8 @@ Status PreAggregationNode::update_agg_row(TupleRow* agg_row, TupleRow* probe_row
                 UpdateMaxSlot<DecimalValue>(slot, value);
                 break;
 
-            case TYPE_DECIMAL_V2:
-                UpdateMaxSlot<Decimal_V2Value>(slot, value);
+            case TYPE_DECIMALV2:
+                UpdateMaxSlot<DecimalV2Value>(slot, value);
                 break;
 
             default:
@@ -622,8 +622,8 @@ Status PreAggregationNode::update_agg_row(TupleRow* agg_row, TupleRow* probe_row
                 UpdateSumSlot<DecimalValue>(slot, value);
                 break;
 
-            case TYPE_DECIMAL_V2:
-                UpdateSumSlot<Decimal_V2Value>(slot, value);
+            case TYPE_DECIMALV2:
+                UpdateSumSlot<DecimalV2Value>(slot, value);
                 break;
 
             default:

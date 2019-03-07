@@ -47,14 +47,14 @@ public:
     virtual StringVal get_string_val(ExprContext* ctx, TupleRow* row);
     virtual DateTimeVal get_datetime_val(ExprContext* ctx, TupleRow* row);
     virtual DecimalVal get_decimal_val(ExprContext* ctx, TupleRow* row);
-    virtual Decimal_V2Val get_decimal_v2_val(ExprContext* ctx, TupleRow* row);
+    virtual DecimalV2Val get_decimalv2_val(ExprContext* ctx, TupleRow* row);
 
 protected:
     friend class Expr;
     friend class ComputeFunctions;
     friend class ConditionalFunctions;
     friend class DecimalOperators;
-    friend class Decimal_V2Operators;
+    friend class DecimalV2Operators;
 
     CaseExpr(const TExprNode& node);
     virtual Status prepare(

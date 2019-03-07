@@ -110,8 +110,8 @@ public class ArithmeticExpr extends Expr {
                 Type.DECIMAL));
         functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
                 Operator.DIVIDE.getName(),
-                Lists.<Type>newArrayList(Type.DECIMAL_V2, Type.DECIMAL_V2),
-                Type.DECIMAL_V2));
+                Lists.<Type>newArrayList(Type.DECIMALV2, Type.DECIMALV2),
+                Type.DECIMALV2));
 
         // MOD(), FACTORIAL(), BITAND(), BITOR(), BITXOR(), and BITNOT() are registered as
         // builtins, see palo_functions.py
@@ -165,7 +165,7 @@ public class ArithmeticExpr extends Expr {
     @Override
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.ARITHMETIC_EXPR;
-        if (!type.isDecimal() && !type.isDecimal_V2()) {
+        if (!type.isDecimal() && !type.isDecimalV2()) {
             msg.setOpcode(op.getOpcode());
             msg.setOutput_column(outputColumn);
         }
@@ -199,8 +199,8 @@ public class ArithmeticExpr extends Expr {
 
         if (pt1 == PrimitiveType.DOUBLE || pt2 == PrimitiveType.DOUBLE) {
             return Type.DOUBLE;
-        } else if (pt1 == PrimitiveType.DECIMAL_V2 || pt2 == PrimitiveType.DECIMAL_V2) {
-            return Type.DECIMAL_V2;
+        } else if (pt1 == PrimitiveType.DECIMALV2 || pt2 == PrimitiveType.DECIMALV2) {
+            return Type.DECIMALV2;
         } else if (pt1 == PrimitiveType.DECIMAL || pt2 == PrimitiveType.DECIMAL) {
             return Type.DECIMAL;
         } else if (pt1 == PrimitiveType.LARGEINT || pt2 == PrimitiveType.LARGEINT) {

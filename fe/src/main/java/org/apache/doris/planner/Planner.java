@@ -87,12 +87,12 @@ public class Planner {
                     List<SlotId> slotList = Lists.newArrayList();
                     expr.getIds(null, slotList);
                     if (PrimitiveType.DECIMAL != expr.getType().getPrimitiveType() && 
-                            PrimitiveType.DECIMAL_V2 != expr.getType().getPrimitiveType()) {
+                            PrimitiveType.DECIMALV2 != expr.getType().getPrimitiveType()) {
                         continue;
                             }
 
                     if (PrimitiveType.DECIMAL != slotDesc.getType().getPrimitiveType() &&
-                            PrimitiveType.DECIMAL_V2 != slotDesc.getType().getPrimitiveType()) {
+                            PrimitiveType.DECIMALV2 != slotDesc.getType().getPrimitiveType()) {
                         continue;
                             }
 

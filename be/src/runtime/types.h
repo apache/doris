@@ -120,13 +120,13 @@ struct TypeDescriptor {
         return ret;
     }
 
-    static TypeDescriptor create_decimal_v2_type(int precision, int scale) {
+    static TypeDescriptor create_decimalv2_type(int precision, int scale) {
         DCHECK_LE(precision, MAX_PRECISION);
         DCHECK_LE(scale, MAX_SCALE);
         DCHECK_GE(precision, 0);
         DCHECK_LE(scale, precision);
         TypeDescriptor ret;
-        ret.type = TYPE_DECIMAL_V2;
+        ret.type = TYPE_DECIMALV2;
         ret.precision = precision;
         ret.scale = scale;
         return ret;
@@ -156,7 +156,7 @@ struct TypeDescriptor {
         if (type == TYPE_CHAR) {
             return len == o.len;
         }
-        if (type == TYPE_DECIMAL || type == TYPE_DECIMAL_V2) {
+        if (type == TYPE_DECIMAL || type == TYPE_DECIMALV2) {
             return precision == o.precision && scale == o.scale;
         }
         return true;
@@ -183,7 +183,7 @@ struct TypeDescriptor {
     }
 
     inline bool is_decimal_type() const {
-        return (type == TYPE_DECIMAL || type == TYPE_DECIMAL_V2);
+        return (type == TYPE_DECIMAL || type == TYPE_DECIMALV2);
     }
 
     inline bool is_var_len_string_type() const {
@@ -226,7 +226,7 @@ struct TypeDescriptor {
         case TYPE_LARGEINT:
         case TYPE_DATETIME:
         case TYPE_DATE:
-        case TYPE_DECIMAL_V2:
+        case TYPE_DECIMALV2:
             return 16;
 
         case TYPE_DECIMAL:
@@ -274,7 +274,7 @@ struct TypeDescriptor {
         case TYPE_DECIMAL:
             return sizeof(DecimalValue);
 
-        case TYPE_DECIMAL_V2:
+        case TYPE_DECIMALV2:
             return 16;
 
         case INVALID_TYPE:

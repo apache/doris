@@ -102,7 +102,7 @@ public class TypeDef implements ParseNode {
         break;
       }
       case DECIMAL: 
-      case DECIMAL_V2: {
+      case DECIMALV2: {
         int precision = scalarType.decimalPrecision();
         int scale = scalarType.decimalScale();
         // precision: [1, 27]

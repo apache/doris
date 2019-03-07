@@ -462,8 +462,8 @@ Status OlapTableSink::prepare(RuntimeState* state) {
     _max_decimal_val.resize(_output_tuple_desc->slots().size());
     _min_decimal_val.resize(_output_tuple_desc->slots().size());
 
-    _max_decimal_v2_val.resize(_output_tuple_desc->slots().size());
-    _min_decimal_v2_val.resize(_output_tuple_desc->slots().size());
+    _max_decimalv2_val.resize(_output_tuple_desc->slots().size());
+    _min_decimalv2_val.resize(_output_tuple_desc->slots().size());
     // check if need validate batch
     for (int i = 0; i < _output_tuple_desc->slots().size(); ++i) {
         auto slot = _output_tuple_desc->slots()[i];
@@ -473,9 +473,9 @@ Status OlapTableSink::prepare(RuntimeState* state) {
             _min_decimal_val[i].to_min_decimal(slot->type().precision, slot->type().scale);
             _need_validate_data = true;
             break;
-        case TYPE_DECIMAL_V2:
-            _max_decimal_v2_val[i].to_max_decimal(slot->type().precision, slot->type().scale);
-            _min_decimal_v2_val[i].to_min_decimal(slot->type().precision, slot->type().scale);
+        case TYPE_DECIMALV2:
+            _max_decimalv2_val[i].to_max_decimal(slot->type().precision, slot->type().scale);
+            _min_decimalv2_val[i].to_min_decimal(slot->type().precision, slot->type().scale);
             _need_validate_data = true;
             break;
         case TYPE_CHAR:
@@ -732,8 +732,8 @@ int OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitmap* 
                 }
                 break;
             }
-            case TYPE_DECIMAL_V2: {
-                Decimal_V2Value dec_val(reinterpret_cast<const PackedInt128*>(slot)->value);
+            case TYPE_DECIMALV2: {
+                DecimalV2Value dec_val(reinterpret_cast<const PackedInt128*>(slot)->value);
                 if (dec_val.scale() > desc->type().scale) {
                     int code = dec_val.round(&dec_val, desc->type().scale, HALF_UP);
                     reinterpret_cast<PackedInt128*>(slot)->value = dec_val.value();
@@ -752,7 +752,7 @@ int OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitmap* 
                         continue;
                     }
                 }
-                if (dec_val > _max_decimal_v2_val[i] || dec_val < _min_decimal_v2_val[i]) {
+                if (dec_val > _max_decimalv2_val[i] || dec_val < _min_decimalv2_val[i]) {
                     std::stringstream ss;
                     ss << "decimal value is not valid for defination, column=" << desc->col_name()
                         << ", value=" << dec_val.to_string()

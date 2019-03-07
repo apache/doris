@@ -22,7 +22,7 @@
 #include <assert.h>
 
 #include "runtime/decimal_value.h"
-#include "runtime/decimal_v2_value.h"
+#include "runtime/decimalv2_value.h"
 
 // Be careful what this includes since this needs to be linked into the UDF's
 // binary. For example, it would be unfortunate if they had a random dependency
