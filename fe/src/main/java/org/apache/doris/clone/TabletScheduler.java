@@ -702,8 +702,8 @@ public class TabletScheduler extends Daemon {
             if (beStatistic == null) {
                 continue;
             }
-            if (beStatistic.getLoadScore() > maxScore) {
-                maxScore = beStatistic.getLoadScore();
+            if (beStatistic.getLoadScore(tabletCtx.getStorageMedium()) > maxScore) {
+                maxScore = beStatistic.getLoadScore(tabletCtx.getStorageMedium());
                 chosenReplica = replica;
             }
         }
@@ -786,7 +786,7 @@ public class TabletScheduler extends Daemon {
         if (statistic == null) {
             throw new SchedException(Status.UNRECOVERABLE, "cluster does not exist");
         }
-        List<BackendLoadStatistic> beStatistics = statistic.getBeLoadStatistics();
+        List<BackendLoadStatistic> beStatistics = statistic.getSortedBeLoadStats(tabletCtx.getStorageMedium());
 
         // get all available paths which this tablet can fit in.
         // beStatistics is sorted by load score in ascend order, so select from first to last.
@@ -799,7 +799,8 @@ public class TabletScheduler extends Daemon {
             }
 
             List<RootPathLoadStatistic> resultPaths = Lists.newArrayList();
-            BalanceStatus st = bes.isFit(tabletCtx.getTabletSize(), resultPaths, true /* is supplement */);
+            BalanceStatus st = bes.isFit(tabletCtx.getTabletSize(), tabletCtx.getStorageMedium(),
+                    resultPaths, true /* is supplement */);
             if (!st.ok()) {
                 LOG.debug("unable to find path for supplementing tablet: {}. {}", tabletCtx, st);
                 continue;
