@@ -237,8 +237,8 @@ public:
 
     // these two functions are for compatible, and will be deleted later
     // so it is better not to use it.
-    std::string construct_old_index_file_path(int32_t segment_id) const;
-    std::string construct_old_data_file_path(int32_t segment_id) const;
+    std::string construct_old_index_file_path(const std::string& path_prefix, int32_t segment_id) const;
+    std::string construct_old_data_file_path(const std::string& path_prefix, int32_t segment_id) const;
 
     size_t current_num_rows_per_row_block() const;
 
@@ -258,10 +258,16 @@ public:
         return _rowset_id;
     }
 
-    OLAPStatus make_snapshot(const std::string& snapshot_path,
+    OLAPStatus convert_from_old_files(const std::string& snapshot_path,
+                             std::vector<std::string>* success_links);
+    
+    OLAPStatus convert_to_old_files(const std::string& snapshot_path,
                              std::vector<std::string>* success_links);
 
     OLAPStatus remove_old_files(std::vector<std::string>* linkes_to_remove);
+
+    OLAPStatus make_snapshot(const std::string& snapshot_path,
+                             std::vector<std::string>* success_links);
 
     bool copy_segments_to_path(const std::string& dest_path);
 
@@ -269,9 +275,9 @@ private:
     
     std::string _construct_file_name(int32_t segment_id, const std::string& suffix) const;
 
-    std::string _construct_old_pending_file_path(int32_t segment_id, const std::string& suffix) const;
+    std::string _construct_old_pending_file_path(const std::string& path_prefix, int32_t segment_id, const std::string& suffix) const;
     
-    std::string _construct_old_file_path(int32_t segment_id, const std::string& suffix) const;
+    std::string _construct_old_file_path(const std::string& path_prefix, int32_t segment_id, const std::string& suffix) const;
 
 private:
     int64_t _tablet_id;

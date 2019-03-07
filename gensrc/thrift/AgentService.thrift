@@ -145,6 +145,7 @@ struct TSnapshotRequest {
     7: optional bool list_files
     // if all nodes has been upgraded, it can be removed.
     8: optional bool allow_incremental_clone
+    9: optional i32 preferred_snapshot_version = 1  // request preferred snapshot version, default value is 1 for old version be
 }
 
 struct TReleaseSnapshotRequest {
@@ -226,6 +227,9 @@ struct TAgentResult {
     1: required Status.TStatus status
     2: optional string snapshot_path
     3: optional bool allow_incremental_clone
+    // the snapshot that be has done according 
+    // to the preferred snapshot version that client requests
+    4: optional i32 snapshot_version  = 1
 }
 
 struct TTopicItem {
