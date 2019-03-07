@@ -194,17 +194,17 @@ public:
 
     OLAPStatus execute_task(EngineTask* task);
 
-    void add_check_paths(std::set<std::string> paths);
+    void add_check_paths(const std::set<std::string>& paths);
 
-    void remove_check_paths(std::set<std::string> paths);
+    void remove_check_paths(const std::set<std::string>& paths);
 
-    void add_pending_paths(int64_t id, std::set<std::string> paths);
+    void add_pending_paths(int64_t id, const std::set<std::string>& paths);
 
     void remove_pending_paths(int64_t id);
 
-    bool check_path_in_pending_paths(std::string path);
+    bool check_path_in_pending_paths(const std::string& path);
 
-    void process_garbage_path(std::string path);
+    void process_garbage_path(const std::string& path);
 
 private:
     OLAPStatus check_all_root_path_cluster_id();

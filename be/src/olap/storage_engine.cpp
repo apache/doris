@@ -1181,19 +1181,19 @@ OLAPStatus StorageEngine::execute_task(EngineTask* task) {
     }
 }
 
-void StorageEngine::add_check_paths(std::set<std::string> paths) {
+void StorageEngine::add_check_paths(const std::set<std::string>& paths) {
     _check_path_mutex.wrlock();
     _all_check_paths.insert(paths.begin(), paths.end());
     _check_path_mutex.unlock();
 }
 
-void StorageEngine::remove_check_paths(std::set<std::string> paths) {
+void StorageEngine::remove_check_paths(const std::set<std::string>& paths) {
     _check_path_mutex.wrlock();
     _remove_check_paths_no_lock(paths);
     _check_path_mutex.unlock();
 }
 
-void StorageEngine::add_pending_paths(int64_t id, std::set<std::string> paths) {
+void StorageEngine::add_pending_paths(int64_t id, const std::set<std::string>& paths) {
     WriteLock wr_lock(&_pending_path_mutex);
     auto pending_paths= _pending_paths[id];
     pending_paths.insert(paths.begin(), paths.end());
@@ -1204,7 +1204,7 @@ void StorageEngine::remove_pending_paths(int64_t id) {
     _pending_paths.erase(id);
 }
 
-bool StorageEngine::check_path_in_pending_paths(std::string path) {
+bool StorageEngine::check_path_in_pending_paths(const std::string& path) {
     ReadLock rd_lock(&_pending_path_mutex);
     for (auto id_pending_paths : _pending_paths) {
         if (id_pending_paths.second.find(path) != id_pending_paths.second.end()) {
@@ -1214,7 +1214,7 @@ bool StorageEngine::check_path_in_pending_paths(std::string path) {
     return false;
 }
 
-void StorageEngine::process_garbage_path(std::string path) {
+void StorageEngine::process_garbage_path(const std::string& path) {
     if (check_dir_existed(path)) {
         LOG(INFO) << "collect garbage dir path:" << path;
         OLAPStatus status = remove_all_dir(path);
@@ -1322,7 +1322,6 @@ void* StorageEngine::_path_gc_thread_callback(void* arg) {
 
     while (true) {
         LOG(INFO) << "try to perform path gc!";
-        CgroupsMgr::apply_system_cgroup();
         _perform_path_gc((DataDir*)arg);
         usleep(interval * 1000000);
     }
@@ -1392,7 +1391,6 @@ void* StorageEngine::_path_scan_thread_callback(void* arg) {
 
     while (true) {
         LOG(INFO) << "try to perform path scan!";
-        CgroupsMgr::apply_system_cgroup();
         _perform_path_scan((DataDir*)arg);
         usleep(interval * 1000000);
     }

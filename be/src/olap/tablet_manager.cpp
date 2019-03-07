@@ -617,7 +617,7 @@ TabletSharedPtr TabletManager::get_tablet(TTabletId tablet_id, SchemaHash schema
 } // get_tablet
 
 
-bool TabletManager::get_tablet_id_and_schema_hash_from_path(std::string path,
+bool TabletManager::get_tablet_id_and_schema_hash_from_path(const std::string& path,
         TTabletId* tablet_id, TSchemaHash* schema_hash) {
     std::vector<DataDir*> data_dirs = StorageEngine::instance()->get_stores<true>();
     for (auto data_dir : data_dirs) {
