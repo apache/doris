@@ -110,9 +110,6 @@ public class RoutineLoadTaskSchedulerTest {
                 result = "";
                 kafkaRoutineLoadJob1.getProgress();
                 result = kafkaProgress;
-
-                routineLoadManager.getNeedScheduleTasksQueue();
-                result = routineLoadTaskInfoQueue;
                 routineLoadManager.getMinTaskBeId(anyString);
                 result = beId;
                 routineLoadManager.getJobByTaskId((UUID) any);
@@ -134,6 +131,7 @@ public class RoutineLoadTaskSchedulerTest {
 //        };
 
         RoutineLoadTaskScheduler routineLoadTaskScheduler = new RoutineLoadTaskScheduler();
+        Deencapsulation.setField(routineLoadTaskScheduler, "needScheduleTasksQueue", routineLoadTaskInfoQueue);
         routineLoadTaskScheduler.runOneCycle();
 
         new Verifications() {
