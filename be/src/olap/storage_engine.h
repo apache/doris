@@ -246,6 +246,12 @@ private:
     // clean file descriptors cache
     void* _fd_cache_clean_callback(void* arg);
 
+    OLAPStatus _convert_old_tablet(DataDir* data_dir);
+
+    OLAPStatus _clean_unfinished_converting_data(DataDir* data_dir);
+
+    OLAPStatus _remove_old_meta_and_files(DataDir* data_dir);
+
 private:
 
     struct CompactionCandidate {

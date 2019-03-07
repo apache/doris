@@ -44,8 +44,6 @@ using rocksdb::kDefaultColumnFamilyName;
 
 namespace doris {
 
-const std::string HEADER_PREFIX = "hdr_";
-
 OLAPStatus TabletMetaManager::get_header(DataDir* store,
         TTabletId tablet_id, TSchemaHash schema_hash, TabletMeta* tablet_meta) {
     OlapMeta* meta = store->get_meta();
@@ -53,7 +51,7 @@ OLAPStatus TabletMetaManager::get_header(DataDir* store,
     key_stream << HEADER_PREFIX << tablet_id << "_" << schema_hash;
     std::string key = key_stream.str();
     std::string value;
-    OLAPStatus s = meta->get(META_COLUMN_FAMILY_INDEX, key, value);
+    OLAPStatus s = meta->get(META_COLUMN_FAMILY_INDEX, key, &value);
     if (s == OLAP_ERR_META_KEY_NOT_FOUND) {
         LOG(WARNING) << "tablet_id:" << tablet_id << ", schema_hash:" << schema_hash << " not found.";
         return OLAP_ERR_META_KEY_NOT_FOUND;
@@ -78,9 +76,9 @@ OLAPStatus TabletMetaManager::get_json_header(DataDir* store,
 }
 
 OLAPStatus TabletMetaManager::save(DataDir* store,
-        TTabletId tablet_id, TSchemaHash schema_hash, const TabletMeta* tablet_meta) {
+        TTabletId tablet_id, TSchemaHash schema_hash, const TabletMeta* tablet_meta, string header_prefix) {
     std::stringstream key_stream;
-    key_stream << HEADER_PREFIX << tablet_id << "_" << schema_hash;
+    key_stream << header_prefix << tablet_id << "_" << schema_hash;
     std::string key = key_stream.str();
     std::string value;
     tablet_meta->serialize(&value);
@@ -89,17 +87,18 @@ OLAPStatus TabletMetaManager::save(DataDir* store,
 }
 
 OLAPStatus TabletMetaManager::save(DataDir* store,
-        TTabletId tablet_id, TSchemaHash schema_hash, const std::string& meta_binary) {
+        TTabletId tablet_id, TSchemaHash schema_hash, const std::string& meta_binary, string header_prefix) {
     std::stringstream key_stream;
-    key_stream << HEADER_PREFIX << tablet_id << "_" << schema_hash;
+    key_stream << header_prefix << tablet_id << "_" << schema_hash;
     std::string key = key_stream.str();
+    VLOG(3) << "save tablet meta to meta store: key = " << key; 
     OlapMeta* meta = store->get_meta();
     return meta->put(META_COLUMN_FAMILY_INDEX, key, meta_binary);
 }
 
-OLAPStatus TabletMetaManager::remove(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash) {
+OLAPStatus TabletMetaManager::remove(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash, string header_prefix) {
     std::stringstream key_stream;
-    key_stream << HEADER_PREFIX << tablet_id << "_" << schema_hash;
+    key_stream << header_prefix << tablet_id << "_" << schema_hash;
     std::string key = key_stream.str();
     OlapMeta* meta = store->get_meta();
     LOG(INFO) << "start to remove tablet_meta, key:" << key;
@@ -109,7 +108,7 @@ OLAPStatus TabletMetaManager::remove(DataDir* store, TTabletId tablet_id, TSchem
 }
 
 OLAPStatus TabletMetaManager::traverse_headers(OlapMeta* meta,
-        std::function<bool(long, long, const std::string&)> const& func) {
+        std::function<bool(long, long, const std::string&)> const& func, string header_prefix) {
     auto traverse_header_func = [&func](const std::string& key, const std::string& value) -> bool {
         std::vector<std::string> parts;
         // key format: "hdr_" + tablet_id + "_" + schema_hash
@@ -122,7 +121,7 @@ OLAPStatus TabletMetaManager::traverse_headers(OlapMeta* meta,
         TSchemaHash schema_hash = std::stol(parts[2].c_str(), NULL, 10);
         return func(tablet_id, schema_hash, value);
     };
-    OLAPStatus status = meta->iterate(META_COLUMN_FAMILY_INDEX, HEADER_PREFIX, traverse_header_func);
+    OLAPStatus status = meta->iterate(META_COLUMN_FAMILY_INDEX, header_prefix, traverse_header_func);
     return status;
 }
 
