@@ -18,4 +18,7 @@
 package org.apache.doris.optimizer.operator;
 
 public class OptLogicalEqJoin extends OptLogical {
+    public OptLogicalEqJoin() {
+        super(OptOperatorType.OP_LOGICAL_EQ_JOIN);
+    }
 }

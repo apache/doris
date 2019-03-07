@@ -23,7 +23,10 @@ public enum OptOperatorType {
 
     OP_PHYSICAL_SCAN("PhysicalScan"),
 
-    OP_PATTERN_LEAF("PatternLeaf");
+    OP_PATTERN_LEAF("PatternLeaf"),
+    // following is only used in unit test
+    OP_UNIT_TEST_INTERNAL("UnitTestInternalNode"),
+    OP_UNIT_TEST_LEAF("UnitTestLeafNode");
 
     private String name;
 

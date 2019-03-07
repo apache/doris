@@ -19,11 +19,14 @@ package org.apache.doris.optimizer;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 
 // Used to extract matched expression from MultiExpression
 public class OptBinding {
+    private static final Logger LOG = LogManager.getLogger(OptBinding.class);
 
     // Extract a expression from MultiExpression which match the given pattern
     // pattern:  Bound expression should be matched
@@ -44,19 +47,13 @@ public class OptBinding {
             }
             return new OptExpression(mExpr.getOp(), mExpr);
         }
-        // check arity if match
+        // If MultiExpression's arity isn't equal with pattern's, return null
         int arity = mExpr.arity();
         if (arity !=  pattern.arity()) {
             return null;
         }
-
-        // If MultiExpression's arity isn't equal with pattern's, return null
-        if (mExpr.arity() != arity) {
-            return null;
-        }
         // we should binding children
         List<OptExpression> boundInputs = Lists.newArrayList();
-
         if (lastExpr == null) {
             for (int i = 0; i < arity; ++i) {
                 OptExpression inputPattern = pattern.getInput(i);
@@ -71,6 +68,7 @@ public class OptBinding {
         } else {
             boolean hasBound = false;
             for (int i = 0; i < arity; ++i) {
+                LOG.info("binding i={}, hasBound={}", i, hasBound);
                 OptExpression inputLastExpr = lastExpr.getInput(i);
                 if (hasBound) {
                     boundInputs.add(inputLastExpr);
@@ -78,6 +76,9 @@ public class OptBinding {
                     OptExpression inputPattern = pattern.getInput(i);
                     OptGroup inputGroup = mExpr.getInput(i);
                     OptExpression boundInput = bind(inputPattern, inputGroup, inputLastExpr);
+                    LOG.info("going to bind, patter={}, group={}, lastExpr={}, boundInput={}",
+                            inputPattern.debugString(), inputGroup.debugString(), inputLastExpr.debugString(),
+                            (boundInput == null) ? "null" : boundInput.debugString());
                     if (boundInput != null) {
                         hasBound = true;
                     } else {

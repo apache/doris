@@ -18,6 +18,9 @@
 package org.apache.doris.optimizer.operator;
 
 public abstract class OptLogical extends OptOperator {
+    protected OptLogical(OptOperatorType type) {
+        super(type);
+    }
     @Override
     public boolean isLogical() { return true; }
 }

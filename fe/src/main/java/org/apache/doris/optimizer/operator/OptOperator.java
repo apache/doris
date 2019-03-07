@@ -24,7 +24,7 @@ package org.apache.doris.optimizer.operator;
 // for example, LogicalScan have property indicating which table is going
 // to be scanned
 public abstract class OptOperator {
-    private OptOperatorType type;
+    protected OptOperatorType type;
 
     protected OptOperator(OptOperatorType type) {
         this.type = type;
@@ -40,7 +40,18 @@ public abstract class OptOperator {
     // If this operator is pattern and is leaf
     public boolean isPatternAndLeaf() { return false; }
 
+    // If this operator care about its inputs' order. For join operator (A join B) is
+    // not equal with (B join A), so it is order sensitive. And for union operator,
+    // (A union B) is equal with (B union A), so it's order insensitive.
+    public boolean isInputOrderSensitive() { return true; }
+
     public String debugString() {
+        return type.getName();
+    }
+
+    // If operator need to print information in multilines,
+    // except first line, new lines should be printed after prefix
+    public String getExplainString(String prefix) {
         return type.getName();
     }
 

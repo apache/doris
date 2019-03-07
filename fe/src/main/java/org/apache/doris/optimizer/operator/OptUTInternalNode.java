@@ -17,8 +17,35 @@
 
 package org.apache.doris.optimizer.operator;
 
-public class OptLogicalScan extends OptLogical {
-    public OptLogicalScan() {
-        super(OptOperatorType.OP_LOGICAL_SCAN);
+import org.apache.doris.optimizer.OptUtils;
+
+// Only used for UT
+public class OptUTInternalNode extends OptOperator {
+    private int value;
+
+    public OptUTInternalNode(int value) {
+        super(OptOperatorType.OP_UNIT_TEST_INTERNAL);
+        this.value = value;
+    }
+
+    public int getValue() { return value; }
+
+    @Override
+    public int hashCode() {
+        return OptUtils.combineHash(super.hashCode(), value);
+    }
+
+    @Override
+    public boolean equals(Object object) {
+        if (!super.equals(object)) {
+            return false;
+        }
+        OptUTInternalNode rhs = (OptUTInternalNode) object;
+        return value == rhs.value;
+    }
+
+    @Override
+    public String getExplainString(String prefix) {
+        return type.getName() + " (value=" + value + ")";
     }
 }

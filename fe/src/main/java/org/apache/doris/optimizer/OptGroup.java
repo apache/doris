@@ -17,13 +17,15 @@
 
 package org.apache.doris.optimizer;
 
+import com.google.common.collect.Lists;
+
 import java.util.List;
 
 // A Group contains all logical equivalent logical MultiExpressions
 // and physical MultiExpressions
 public class OptGroup {
     private int id;
-    private List<MultiExpression> mExprs;
+    private List<MultiExpression> mExprs = Lists.newArrayList();
     private int nextMExprId = 1;
 
     public OptGroup(int id) {
@@ -31,15 +33,43 @@ public class OptGroup {
     }
 
     public int getId() { return id; }
-    public MultiExpression getFirstMultiExpression() { return null; }
+    public MultiExpression getFirstMultiExpression() {
+        if (mExprs.isEmpty()) { return null; }
+        return mExprs.get(0);
+    }
 
-    // Add a MultiExpression
+    // Add a MultiExpression,
+    // this function will create relationship between this group and MultiExpression
     public void addMExpr(MultiExpression mExpr) {
+        int numExprs = mExprs.size();
+        if (numExprs > 0) {
+            mExprs.get(numExprs - 1).setNext(mExpr);
+        }
         mExpr.setId(nextMExprId++);
+        mExpr.setGroup(this);
         mExprs.add(mExpr);
     }
 
     public String debugString() {
-        return "";
+        StringBuilder sb = new StringBuilder();
+        sb.append("Group: ").append(id);
+        return sb.toString();
     }
+
+    public String getExplain(String headlinePrefix, String detailPrefix) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(headlinePrefix).append("Group:").append(id).append('\n');
+        String childHeadlinePrefix = detailPrefix + OptUtils.HEADLINE_PREFIX;
+        String childDetailPrefix = detailPrefix + OptUtils.DETAIL_PREFIX;
+        for (MultiExpression mExpr : mExprs) {
+            sb.append(mExpr.getExplainString(childHeadlinePrefix, childDetailPrefix));
+        }
+        return sb.toString();
+    }
+
+    public boolean duplicateWith(OptGroup other) {
+        return this == other;
+    }
+
+
 }

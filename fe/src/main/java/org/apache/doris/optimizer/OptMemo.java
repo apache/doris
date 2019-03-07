@@ -18,6 +18,9 @@
 package org.apache.doris.optimizer;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
@@ -36,10 +39,12 @@ import java.util.Map;
 // 2. When exploring an expression, new generated expression would be copied
 //    into this memo with an specified group.
 public class OptMemo {
+    private static final Logger LOG = LogManager.getLogger(OptMemo.class);
+
     // store all groups
     private int nextGroupId = 1;
-    private Map<Integer, OptGroup> groups;
-    private Map<MultiExpression, MultiExpression> mExprs;
+    private Map<Integer, OptGroup> groups = Maps.newHashMap();
+    private Map<MultiExpression, MultiExpression> mExprs = Maps.newHashMap();
 
     public OptMemo() {
     }
@@ -63,7 +68,14 @@ public class OptMemo {
     public MultiExpression copyIn(OptGroup targetGroup, OptExpression expr) {
         List<OptGroup> inputs = Lists.newArrayList();
         for (OptExpression input : expr.getInputs()) {
-            inputs.add(copyIn(input).getGroup());
+            OptGroup inputGroup;
+            if (input.getMExpr() != null) {
+                inputGroup = input.getMExpr().getGroup();
+            } else {
+                inputGroup = copyIn(input).getGroup();
+            }
+            LOG.info("inputGroup is {}", inputGroup.debugString());
+            inputs.add(inputGroup);
         }
         MultiExpression mExpr = new MultiExpression(expr.getOp(), inputs);
         // first get expr
@@ -71,6 +83,8 @@ public class OptMemo {
         if (foundExpr != null) {
             return foundExpr;
         }
+        // we need to put mExpr to MultiExpressions map
+        mExprs.put(mExpr, mExpr);
         // If targetGroup is specified, we add MultiExpression to this group
         if (targetGroup != null) {
             targetGroup.addMExpr(mExpr);
@@ -80,6 +94,12 @@ public class OptMemo {
         OptGroup newGroup = new OptGroup(nextGroupId++);
         newGroup.addMExpr(mExpr);
         return mExpr;
+    }
+
+    // used to dump current state of memo
+    public String debugString() {
+        StringBuilder sb = new StringBuilder();
+        return sb.toString();
     }
 
 }
