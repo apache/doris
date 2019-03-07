@@ -119,7 +119,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     }
 
     @Override
-    public List<RoutineLoadTaskInfo> divideRoutineLoadJob(int currentConcurrentTaskNum) {
+    public void divideRoutineLoadJob(int currentConcurrentTaskNum) {
         List<RoutineLoadTaskInfo> result = new ArrayList<>();
         writeLock();
         try {
@@ -148,7 +148,6 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         } finally {
             writeUnlock();
         }
-        return result;
     }
 
     @Override
@@ -261,9 +260,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     private void updateNewPartitionProgress() {
         // update the progress of new partitions
         for (Integer kafkaPartition : currentKafkaPartitions) {
-            if (((KafkaProgress) progress).getPartitionIdToOffset().containsKey(kafkaPartition)) {
-                ((KafkaProgress) progress).getPartitionIdToOffset().get(kafkaPartition);
-            } else {
+            if (!((KafkaProgress) progress).getPartitionIdToOffset().containsKey(kafkaPartition)) {
                 ((KafkaProgress) progress).getPartitionIdToOffset().put(kafkaPartition, 0L);
             }
         }
@@ -290,6 +287,12 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         }
         if (stmt.getKafkaPartitions() != null) {
             setCustomKafkaPartitions(stmt.getKafkaPartitions());
+            if (stmt.getKafkaOffsets() != null) {
+                for (int i = 0; i < customKafkaPartitions.size(); i++) {
+                    ((KafkaProgress) progress).getPartitionIdToOffset()
+                            .put(customKafkaPartitions.get(i), stmt.getKafkaOffsets().get(i));
+                }
+            }
         }
     }
 }
