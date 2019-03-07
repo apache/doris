@@ -23,8 +23,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.task.RoutineLoadTask;
-import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TRoutineLoadTask;
 import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.TransactionState;
@@ -46,12 +44,22 @@ public abstract class RoutineLoadTaskInfo {
     protected long jobId;
     private long createTimeMs;
     private long loadStartTimeMs;
-    private TExecPlanFragmentParams tExecPlanFragmentParams;
+    // the be id of previous task
+    protected long previousBeId = -1L;
+    // the be id of this task
+    protected long beId = -1L;
 
     public RoutineLoadTaskInfo(UUID id, long jobId) {
         this.id = id;
         this.jobId = jobId;
         this.createTimeMs = System.currentTimeMillis();
+    }
+
+    public RoutineLoadTaskInfo(UUID id, long jobId, long previousBeId) {
+        this.id = id;
+        this.jobId = jobId;
+        this.createTimeMs = System.currentTimeMillis();
+        this.previousBeId = previousBeId;
     }
     
     public UUID getId() {
@@ -65,7 +73,19 @@ public abstract class RoutineLoadTaskInfo {
     public void setLoadStartTimeMs(long loadStartTimeMs) {
         this.loadStartTimeMs = loadStartTimeMs;
     }
-    
+
+    public long getPreviousBeId() {
+        return previousBeId;
+    }
+
+    public void setBeId(long beId) {
+        this.beId = beId;
+    }
+
+    public long getBeId() {
+        return beId;
+    }
+
     public long getLoadStartTimeMs() {
         return loadStartTimeMs;
     }

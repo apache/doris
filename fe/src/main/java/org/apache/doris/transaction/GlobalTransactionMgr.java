@@ -434,6 +434,10 @@ public class GlobalTransactionMgr {
     }
     
     public void abortTransaction(long transactionId, String reason) throws UserException {
+        abortTransaction(transactionId, reason, null);
+    }
+
+    public void abortTransaction(long transactionId, String reason, TxnCommitAttachment txnCommitAttachment) throws UserException {
         if (transactionId < 0) {
             LOG.info("transaction id is {}, less than 0, maybe this is an old type load job, ignore abort operation", transactionId);
             return;
@@ -449,7 +453,7 @@ public class GlobalTransactionMgr {
         }
         return;
     }
-    
+
     public void abortTransaction(Long dbId, String label, String reason) throws UserException {
         Preconditions.checkNotNull(label);
         writeLock();
@@ -789,7 +793,7 @@ public class GlobalTransactionMgr {
                                 || !checkTxnHasRelatedJob(transactionState, dbIdToTxnIds)) {
                             try {
                                 transactionState.setTransactionStatus(TransactionStatus.ABORTED,
-                                                                      TransactionState.TxnStatusChangeReason.TIMEOUT);
+                                                                      TransactionState.TxnStatusChangeReason.TIMEOUT.name());
                             } catch (TransactionException e) {
                                 LOG.warn("txn {} could not be aborted with error message {}",
                                          transactionState.getTransactionId(), e.getMessage());
@@ -877,7 +881,7 @@ public class GlobalTransactionMgr {
         }
         transactionState.setFinishTime(System.currentTimeMillis());
         transactionState.setReason(reason);
-        transactionState.setTransactionStatus(TransactionStatus.ABORTED);
+        transactionState.setTransactionStatus(TransactionStatus.ABORTED, reason);
         unprotectUpsertTransactionState(transactionState);
         for (PublishVersionTask task : transactionState.getPublishVersionTasks().values()) {
             AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.PUBLISH_VERSION, task.getSignature());

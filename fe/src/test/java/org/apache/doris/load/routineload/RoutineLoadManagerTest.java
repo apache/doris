@@ -110,6 +110,7 @@ public class RoutineLoadManagerTest {
         Assert.assertEquals(jobName, routineLoadJob.getName());
         Assert.assertEquals(1L, routineLoadJob.getTableId());
         Assert.assertEquals(RoutineLoadJob.JobState.NEED_SCHEDULE, routineLoadJob.getState());
+        Assert.assertEquals(true, routineLoadJob instanceof KafkaRoutineLoadJob);
 
         Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob =
                 Deencapsulation.getField(routineLoadManager, "dbToNameToRoutineLoadJob");
@@ -244,7 +245,7 @@ public class RoutineLoadManagerTest {
         };
 
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
-        routineLoadManager.addNumOfConcurrentTasksByBeId(1L);
+//        routineLoadManager.increaseNumOfConcurrentTasksByBeId(1L);
         Assert.assertEquals(2L, routineLoadManager.getMinTaskBeId("default"));
     }
 
@@ -264,7 +265,7 @@ public class RoutineLoadManagerTest {
         };
 
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
-        routineLoadManager.addNumOfConcurrentTasksByBeId(1L);
+//        routineLoadManager.increaseNumOfConcurrentTasksByBeId(1L);
         Assert.assertEquals(DEFAULT_BE_CONCURRENT_TASK_NUM * 2 - 1, routineLoadManager.getClusterIdleSlotNum());
     }
 
