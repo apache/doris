@@ -167,7 +167,18 @@ public class BackendLoadStatistic {
                     diskInfo.getTotalCapacityB(), diskInfo.getDataUsedCapacityB(), diskInfo.getState());
             pathStatistics.add(pathStatistic);
         }
+
         totalReplicaNumMap = invertedIndex.getReplicaNumByBeIdAndStorageMedium(beId);
+        // This is very tricky. because the number of replica on specified medium we get
+        // from getReplicaNumByBeIdAndStorageMedium() is counted based on meta data.
+        // but in fact there may not has SSD disk on this backend. So if we found that no SSD disk on this
+        // backend, set the replica number to 0, otherwise, the average replica number on specified medium
+        // will be incorrect.
+        for (TStorageMedium medium : TStorageMedium.values()) {
+            if (!hasMedium(medium)) {
+                totalReplicaNumMap.put(medium, 0L);
+            }
+        }
 
         for (TStorageMedium storageMedium : TStorageMedium.values()) {
             classifyPathByLoad(storageMedium);
@@ -318,8 +329,9 @@ public class BackendLoadStatistic {
         return pathStatistics;
     }
 
-    public long getAvailPathNum() {
-        return pathStatistics.stream().filter(p -> p.getDiskState() == DiskState.ONLINE).count();
+    public long getAvailPathNum(TStorageMedium medium) {
+        return pathStatistics.stream().filter(
+                p -> p.getDiskState() == DiskState.ONLINE && p.getStorageMedium() == medium).count();
     }
 
     public boolean hasMedium(TStorageMedium medium) {
