@@ -43,7 +43,7 @@ OLAPStatus RowsetIdGenerator::get_next_id(DataDir* dir, RowsetId* gen_rowset_id)
     if (_dir_ids.find(dir) == _dir_ids.end()) {
         // could not find dir in map, it means this dir is not loaded
         std::string value;
-        OLAPStatus s = dir->get_meta()->get(DEFAULT_COLUMN_FAMILY_INDEX, key, value);
+        OLAPStatus s = dir->get_meta()->get(DEFAULT_COLUMN_FAMILY_INDEX, key, &value);
         if (s != OLAP_SUCCESS) {
             if (s == OLAP_ERR_META_KEY_NOT_FOUND) {
                 s = dir->get_meta()->put(DEFAULT_COLUMN_FAMILY_INDEX, key, std::to_string(batch_end_id));

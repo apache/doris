@@ -51,6 +51,8 @@ static constexpr uint32_t OLAP_COMPACTION_DEFAULT_CANDIDATE_SIZE = 10;
 // the max length supported for string type
 static const uint16_t OLAP_STRING_MAX_LENGTH = 65535;
 
+static const int32_t PREFERRED_SNAPSHOT_VERSION = 2;
+
 // the max bytes for stored string length
 using StringOffsetType = uint32_t;
 using StringLengthType = uint16_t;
@@ -362,6 +364,7 @@ static const std::string DORIS_COLUMN_FAMILY = "doris";
 static const std::string META_COLUMN_FAMILY = "meta";
 static const std::string END_ROWSET_ID = "end_rowset_id";
 static const std::string CONVERTED_FLAG = "true";
+static const std::string TABLET_CONVERT_FINISHED = "tablet_convert_finished";
 const std::string TABLET_ID_KEY = "tablet_id";
 const std::string TABLET_SCHEMA_HASH_KEY = "schema_hash";
 

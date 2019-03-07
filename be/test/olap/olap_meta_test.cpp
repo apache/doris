@@ -66,12 +66,12 @@ TEST_F(OlapMetaTest, TestPutAndGet) {
     OLAPStatus s = _meta->put(META_COLUMN_FAMILY_INDEX, key, value);
     ASSERT_EQ(OLAP_SUCCESS, s);
     std::string value_get;
-    s = _meta->get(META_COLUMN_FAMILY_INDEX, key, value_get);
+    s = _meta->get(META_COLUMN_FAMILY_INDEX, key, &value_get);
     ASSERT_EQ(OLAP_SUCCESS, s);
     ASSERT_EQ(value, value_get);
 
     // abnormal cases
-    s = _meta->get(META_COLUMN_FAMILY_INDEX, "key_not_exist", value_get);
+    s = _meta->get(META_COLUMN_FAMILY_INDEX, "key_not_exist", &value_get);
     ASSERT_EQ(OLAP_ERR_META_KEY_NOT_FOUND, s);
 }
 
@@ -82,7 +82,7 @@ TEST_F(OlapMetaTest, TestRemove) {
     OLAPStatus s = _meta->put(META_COLUMN_FAMILY_INDEX, key, value);
     ASSERT_EQ(OLAP_SUCCESS, s);
     std::string value_get;
-    s = _meta->get(META_COLUMN_FAMILY_INDEX, key, value_get);
+    s = _meta->get(META_COLUMN_FAMILY_INDEX, key, &value_get);
     ASSERT_EQ(OLAP_SUCCESS, s);
     ASSERT_EQ(value, value_get);
     s = _meta->remove(META_COLUMN_FAMILY_INDEX, key);

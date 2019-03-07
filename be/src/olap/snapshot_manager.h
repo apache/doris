@@ -90,12 +90,8 @@ private:
     OLAPStatus _create_snapshot_files(
             const TabletSharedPtr& ref_tablet,
             const TSnapshotRequest& request,
-            std::string* snapshot_path);
-
-    OLAPStatus _create_incremental_snapshot_files(
-           const TabletSharedPtr& ref_tablet,
-           const TSnapshotRequest& request,
-           std::string* snapshot_path);
+            std::string* snapshot_path, 
+            int32_t snapshot_version);
 
     OLAPStatus _prepare_snapshot_dir(const TabletSharedPtr& ref_tablet,
            std::string* snapshot_id_path);
