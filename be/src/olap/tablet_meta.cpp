@@ -192,6 +192,10 @@ OLAPStatus TabletMeta::create_from_file(const std::string& file_path) {
 }
 
 OLAPStatus TabletMeta::save(const string& file_path) {
+    return TabletMeta::save(file_path, _tablet_meta_pb);
+}
+
+OLAPStatus TabletMeta::save(const string& file_path, TabletMetaPB& tablet_meta_pb) {
     DCHECK(!file_path.empty());
 
     FileHeader<TabletMetaPB> file_header;
@@ -204,7 +208,7 @@ OLAPStatus TabletMeta::save(const string& file_path) {
     }
 
     try {
-        file_header.mutable_message()->CopyFrom(_tablet_meta_pb);
+        file_header.mutable_message()->CopyFrom(tablet_meta_pb);
     } catch (...) {
         LOG(WARNING) << "fail to copy protocol buffer object. file='" << file_path;
         return OLAP_ERR_OTHER_ERROR;
@@ -411,6 +415,26 @@ OLAPStatus TabletMeta::revise_rs_metas(const std::vector<RowsetMetaSharedPtr>& r
 
     for (auto& rs_meta : rs_metas) {
         _rs_metas.push_back(rs_meta);
+    }
+
+    TabletMetaPB tablet_meta_pb;
+    RETURN_NOT_OK(to_meta_pb(&tablet_meta_pb));
+    _tablet_meta_pb = std::move(tablet_meta_pb);
+
+    return OLAP_SUCCESS;
+}
+
+OLAPStatus TabletMeta::revise_inc_rs_metas(const std::vector<RowsetMetaSharedPtr>& rs_metas) {
+    // delete alter task
+    _tablet_meta_pb.clear_alter_tablet_task();
+    _alter_task.clear();
+
+    // remove all old rs_meta and add new rs_meta
+    _tablet_meta_pb.clear_inc_rs_metas();
+    _inc_rs_metas.clear();
+
+    for (auto& rs_meta : rs_metas) {
+        _inc_rs_metas.push_back(rs_meta);
     }
 
     TabletMetaPB tablet_meta_pb;
