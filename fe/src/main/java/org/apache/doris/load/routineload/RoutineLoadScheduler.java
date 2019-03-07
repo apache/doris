@@ -96,8 +96,7 @@ public class RoutineLoadScheduler extends Daemon {
 
         LOG.debug("begin to check timeout tasks");
         // check timeout tasks
-        List<RoutineLoadTaskInfo> rescheduleTasksList = routineLoadManager.processTimeoutTasks();
-        routineLoadManager.addTasksToNeedScheduleQueue(rescheduleTasksList);
+        routineLoadManager.processTimeoutTasks();
     }
 
     private List<RoutineLoadJob> getNeedScheduleRoutineJobs() throws LoadException {

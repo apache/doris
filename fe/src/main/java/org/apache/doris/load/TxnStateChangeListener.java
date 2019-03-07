@@ -18,16 +18,19 @@
 package org.apache.doris.load;
 
 import org.apache.doris.transaction.AbortTransactionException;
+import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
 
 public interface TxnStateChangeListener {
+
+    void beforeCommitted(TransactionState txnState) throws TransactionException;
 
     /**
      * update catalog of job which has related txn after transaction has been committed
      *
      * @param txnState
      */
-    void onCommitted(TransactionState txnState);
+    void onCommitted(TransactionState txnState) throws TransactionException;
 
     /**
      * this interface is executed before txn aborted, you can check if txn could be abort in this stage
@@ -37,7 +40,7 @@ public interface TxnStateChangeListener {
      * @throws AbortTransactionException if transaction could not be abort or there are some exception before aborted,
      *                                   it will throw this exception
      */
-    void beforeAborted(TransactionState txnState, TransactionState.TxnStatusChangeReason txnStatusChangeReason)
+    void beforeAborted(TransactionState txnState, String txnStatusChangeReason)
             throws AbortTransactionException;
 
     /**
@@ -46,5 +49,5 @@ public interface TxnStateChangeListener {
      * @param txnState
      * @param txnStatusChangeReason maybe null
      */
-    void onAborted(TransactionState txnState, TransactionState.TxnStatusChangeReason txnStatusChangeReason);
+    void onAborted(TransactionState txnState, String txnStatusChangeReason);
 }
