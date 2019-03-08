@@ -37,12 +37,6 @@
 #include "olap/utils.h"
 #include "util/once.h"
 
-using std::pair;
-using std::nothrow;
-using std::sort;
-using std::string;
-using std::vector;
-
 namespace doris {
 
 class DataDir;
