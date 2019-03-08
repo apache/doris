@@ -594,7 +594,7 @@ uint64_t ColumnData::get_filted_rows() {
     return _stats->rows_del_filtered;
 }
 
-OLAPStatus ColumnData::_schema_change_init() {
+OLAPStatus ColumnData::schema_change_init() {
     _is_using_cache = false;
 
     for (int i = 0; i < _segment_group->get_tablet_schema().num_columns(); ++i) {

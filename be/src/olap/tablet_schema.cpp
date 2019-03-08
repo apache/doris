@@ -138,14 +138,16 @@ size_t TabletSchema::row_size() const {
 }
 
 size_t TabletSchema::field_index(const std::string& field_name) const {
+    bool field_exist = false;
     int ordinal = -1;
     for (auto& column : _cols) {
         ordinal++;
         if (column.name() == field_name) {
+            field_exist = true;
             break;
         }
     }
-    return ordinal;
+    return field_exist ? ordinal : -1;
 }
 
 const std::vector<TabletColumn>& TabletSchema::columns() const {

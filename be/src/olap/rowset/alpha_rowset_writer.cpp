@@ -114,9 +114,8 @@ OLAPStatus AlphaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
     // this api is for LinkedSchemaChange
     // use create hard link to copy rowset for performance
     // this is feasible because LinkedSchemaChange is done on the same disk
-    AlphaRowset* alpha_rowset = reinterpret_cast<AlphaRowset*>(rowset.get());
+    AlphaRowsetSharedPtr alpha_rowset = std::dynamic_pointer_cast<AlphaRowset>(rowset);
     for (auto& segment_group : alpha_rowset->_segment_groups) {
-        _init();
         segment_group->copy_segments_to_path(_rowset_writer_context.rowset_path_prefix);
         _cur_segment_group->set_empty(segment_group->empty());
         _cur_segment_group->set_num_segments(segment_group->num_segments());
@@ -136,6 +135,7 @@ OLAPStatus AlphaRowsetWriter::flush() {
 }
 
 RowsetSharedPtr AlphaRowsetWriter::build() {
+    LOG(INFO) << "segment group size=" << _segment_groups.size();
     for (auto& segment_group : _segment_groups) {
         _current_rowset_meta->set_data_disk_size(_current_rowset_meta->data_disk_size() + segment_group->data_size());
         _current_rowset_meta->set_index_disk_size(_current_rowset_meta->index_disk_size() + segment_group->index_size());
@@ -240,6 +240,7 @@ int32_t AlphaRowsetWriter::num_rows() {
 
 void AlphaRowsetWriter::_init() {
     _segment_group_id++;
+    LOG(INFO) << "segment_group_id:" << _segment_group_id;
     if (_is_pending_rowset) {
         _cur_segment_group.reset(new SegmentGroup(
                 _rowset_writer_context.tablet_id,
@@ -262,6 +263,7 @@ void AlphaRowsetWriter::_init() {
     _cur_segment_group->acquire();
     //_cur_segment_group->set_load_id(_rowset_writer_context.load_id);
     _segment_groups.push_back(_cur_segment_group);
+    LOG(INFO) << "segment group size" << _segment_groups.size();
 
     _column_data_writer = ColumnDataWriter::create(_cur_segment_group.get(), true,
                                                    _rowset_writer_context.tablet_schema->compress_kind(),
