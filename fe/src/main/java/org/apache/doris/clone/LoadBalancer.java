@@ -110,7 +110,7 @@ public class LoadBalancer {
         // get the number of low load paths. and we should at most select this number of tablets
         long numOfLowPaths = lowBEs.stream().filter(b -> b.isAvailable() && b.hasAvailDisk()).mapToLong(
                 b -> b.getAvailPathNum(medium)).sum();
-        LOG.info("get number of low load paths: {} with medium: {}", numOfLowPaths, medium);
+        LOG.info("get number of low load paths: {}, with medium: {}", numOfLowPaths, medium);
 
         // choose tablets from high load backends.
         // BackendLoadStatistic is sorted by load score in ascend order,

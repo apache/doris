@@ -43,7 +43,7 @@ import java.util.Set;
 public class BackendLoadStatistic {
     private static final Logger LOG = LogManager.getLogger(BackendLoadStatistic.class);
 
-    // comparator based on load score and storage medium
+    // comparator based on load score and storage medium, smaller load score first
     public static class BeStatComparator implements Comparator<BackendLoadStatistic> {
         private TStorageMedium medium;
 
@@ -66,7 +66,6 @@ public class BackendLoadStatistic {
     }
 
     public static class BeStatMixComparator implements Comparator<BackendLoadStatistic> {
-
         @Override
         public int compare(BackendLoadStatistic o1, BackendLoadStatistic o2) {
             Double score1 = o1.getMixLoadScore();

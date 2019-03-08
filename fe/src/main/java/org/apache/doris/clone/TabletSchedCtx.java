@@ -241,6 +241,10 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         ++failedSchedCounter;
     }
     
+    public int getFailedSchedCounter() {
+        return failedSchedCounter;
+    }
+
     public void increaseFailedRunningCounter() {
         ++failedRunningCounter;
     }

@@ -356,10 +356,18 @@ public class TabletScheduler extends Daemon {
                 tabletCtx.setErrMsg(e.getMessage());
 
                 if (e.getStatus() == Status.SCHEDULE_FAILED) {
-                    // if balance is disabled, remove this tablet
-                    if (tabletCtx.getType() == Type.BALANCE && Config.disable_balance) {
-                        finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.CANCELLED,
-                                "disable balance and " + e.getMessage());
+                    if (tabletCtx.getType() == Type.BALANCE) {
+                        // if balance is disabled, remove this tablet
+                        if (Config.disable_balance) {
+                            finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.CANCELLED,
+                                    "disable balance and " + e.getMessage());
+                        } else {
+                            // remove the balance task if it fails to be scheduled many times
+                            if (tabletCtx.getFailedSchedCounter() > 10) {
+                                finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.CANCELLED,
+                                        "schedule failed too many times and " + e.getMessage());
+                            }
+                        }
                     } else {
                         // we must release resource it current hold, and be scheduled again
                         tabletCtx.releaseResource(this);
