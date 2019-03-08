@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_RUNTIME_DECIMAL_VALUE_H
-#define DORIS_BE_SRC_RUNTIME_DECIMAL_VALUE_H
+#ifndef DORIS_BE_SRC_RUNTIME_DECIMALV2_VALUE_H
+#define DORIS_BE_SRC_RUNTIME_DECIMALV2_VALUE_H
 
 #include <cctype>
 #include <climits>
@@ -64,6 +64,11 @@ public:
 
     // Construct from olap engine
     DecimalV2Value(int64_t int_value, int64_t frac_value) {
+        from_olap_decimal(int_value, frac_value);
+    }
+
+    inline bool from_olap_decimal(int64_t int_value, int64_t frac_value) {
+        bool success = true;
         bool is_negtive = (int_value < 0 || frac_value < 0);
         if (is_negtive) {
             int_value = std::abs(int_value);
@@ -72,14 +77,18 @@ public:
 
         if (int_value > MAX_INT_VALUE) {
             int_value = MAX_INT_VALUE;
+            success = false;
         }
 
         if (frac_value > MAX_FRAC_VALUE) {
             frac_value = MAX_FRAC_VALUE;
+            success = false;
         }
 
         _value = static_cast<int128_t>(int_value) * ONE_BILLION + frac_value;
-       if (is_negtive) _value = -_value;
+        if (is_negtive) _value = -_value;
+
+        return success;
     }
 
     DecimalV2Value(int128_t int_value) {
@@ -256,6 +265,8 @@ public:
         return SCALE;
     }
 
+    bool greater_than_scale(int scale);
+
     int round(DecimalV2Value *to, int scale, DecimalRoundMode mode);
 
     inline static int128_t get_scale_base(int scale) {
@@ -339,4 +350,4 @@ namespace std {
     };
 }
 
-#endif // DORIS_BE_SRC_QUERY_RUNTIME_DECIMAL_VALUE_H
+#endif // DORIS_BE_SRC_RUNTIME_DECIMALV2_VALUE_H
