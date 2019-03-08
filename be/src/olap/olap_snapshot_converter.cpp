@@ -77,14 +77,27 @@ OLAPStatus OlapSnapshotConverter::to_tablet_meta_pb(const OLAPHeaderMessage& ola
     schema->set_bf_fpp(olap_header.bf_fpp());
     schema->set_next_column_unique_id(olap_header.next_column_unique_id());
 
+
+    std::unordered_map<Version, RowsetMetaPB*, HashOfVersion> _rs_version_map;
     for (auto& delta : olap_header.delta()) {
         RowsetMetaPB* rowset_meta = tablet_meta_pb->add_rs_metas();
         RowsetId next_id;
         RETURN_NOT_OK(RowsetIdGenerator::instance()->get_next_id(data_dir, &next_id));
         convert_to_rowset_meta(delta, next_id, olap_header.tablet_id(), olap_header.schema_hash(), rowset_meta);
+        Version rowset_version = { delta.start_version(), delta.end_version() };
+        _rs_version_map[rowset_version] = rowset_meta;
+
     }
 
     for (auto& inc_delta : olap_header.incremental_delta()) {
+        // check if inc delta already exist in delta
+        Version rowset_version = { inc_delta.start_version(), inc_delta.end_version() };
+        auto exist_rs = _rs_version_map.find(rowset_version); 
+        if (exist_rs != _rs_version_map.end()) {
+            RowsetMetaPB* rowset_meta = tablet_meta_pb->add_inc_rs_metas();
+            *rowset_meta = *(exist_rs->second);
+            continue;
+        }
         RowsetMetaPB* rowset_meta = tablet_meta_pb->add_inc_rs_metas();
         RowsetId next_id;
         RETURN_NOT_OK(RowsetIdGenerator::instance()->get_next_id(data_dir, &next_id));
@@ -335,6 +348,7 @@ OLAPStatus OlapSnapshotConverter::to_old_snapshot(const TabletMetaPB& tablet_met
         alpha_rowset_meta->init_from_pb(visible_rowset);
         AlphaRowset rowset(&tablet_schema, new_data_path_prefix, nullptr, alpha_rowset_meta);
         RETURN_NOT_OK(rowset.init());
+        RETURN_NOT_OK(rowset.load());
         std::vector<std::string> success_files;
         RETURN_NOT_OK(rowset.convert_to_old_files(old_data_path_prefix, &success_files));
     }
@@ -345,6 +359,7 @@ OLAPStatus OlapSnapshotConverter::to_old_snapshot(const TabletMetaPB& tablet_met
         alpha_rowset_meta->init_from_pb(inc_rowset);
         AlphaRowset rowset(&tablet_schema, new_data_path_prefix, nullptr, alpha_rowset_meta);
         RETURN_NOT_OK(rowset.init());
+        RETURN_NOT_OK(rowset.load());
         std::vector<std::string> success_files;
         RETURN_NOT_OK(rowset.convert_to_old_files(old_data_path_prefix, &success_files));
     }

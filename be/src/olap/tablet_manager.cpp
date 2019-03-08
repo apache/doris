@@ -759,21 +759,21 @@ OLAPStatus TabletManager::load_one_tablet(
         move_to_trash(boost_schema_hash_path, boost_schema_hash_path);
         return OLAP_ERR_ENGINE_LOAD_INDEX_TABLE_ERROR;
     }
-
+    OLAPStatus res = tablet->init();
+    if (res != OLAP_SUCCESS) {
+        LOG(WARNING) << "failed to call init when load tablet "
+                     << " tablet id = " << tablet_id
+                     << " schema_hash = " << schema_hash
+                     << " header path = " << header_path;
+        return res;
+    }
     if (tablet->rowset_with_max_version() == NULL && !tablet->has_alter_task()) {
         LOG(WARNING) << "tablet not in schema change state without delta is invalid. "
                      << "header_path=" << header_path;
         move_to_trash(boost_schema_hash_path, boost_schema_hash_path);
         return OLAP_ERR_ENGINE_LOAD_INDEX_TABLE_ERROR;
     }
-
-    // 这里不需要SAFE_DELETE(tablet),因为tablet指针已经在add_table中托管到smart pointer中
-    OLAPStatus res = OLAP_SUCCESS;
-    res = tablet->init();
-    if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "tablet init failed. tablet:" << tablet->full_name();
-        return res;
-    }
+    
     string table_name = tablet->full_name();
     res = add_tablet(tablet_id, schema_hash, tablet, force);
     if (res != OLAP_SUCCESS) {

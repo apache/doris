@@ -187,6 +187,8 @@ public:
     // operation for clone
     void calc_missed_versions(int64_t spec_version, vector<Version>* missed_versions);
 
+    void unprotect_calc_missed_versions(int64_t spec_version, vector<Version>* missed_versions);
+
     // This function to find max continous version from the beginning.
     // There are 1, 2, 3, 5, 6, 7 versions belongs tablet.
     // Version 3 is target.
@@ -224,16 +226,6 @@ private:
     Mutex _ingest_lock;
     Mutex _base_lock;
     Mutex _cumulative_lock;
-
-    // used for hash-struct of hash_map<Version, Rowset*>.
-    struct HashOfVersion {
-        size_t operator()(const Version& version) const {
-            size_t seed = 0;
-            seed = HashUtil::hash64(&version.first, sizeof(version.first), seed);
-            seed = HashUtil::hash64(&version.second, sizeof(version.second), seed);
-            return seed;
-        }
-    };
     std::unordered_map<Version, RowsetSharedPtr, HashOfVersion> _rs_version_map;
 
     DISALLOW_COPY_AND_ASSIGN(Tablet);
