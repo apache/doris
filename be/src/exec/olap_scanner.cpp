@@ -388,10 +388,11 @@ void OlapScanner::_convert_row_to_tuple(Tuple* tuple) {
         case TYPE_DECIMALV2: {
             DecimalV2Value *slot = tuple->get_decimalv2_slot(slot_desc->tuple_offset());
 
-            // TODO(lingbin): should remove this assign, use set member function
             int64_t int_value = *(int64_t*)(ptr);
             int32_t frac_value = *(int32_t*)(ptr + sizeof(int64_t));
-            *slot = DecimalV2Value(int_value, frac_value);
+            if (!slot->from_olap_decimal(int_value, frac_value)) {
+                tuple->set_null(slot_desc->null_indicator_offset());
+            }
             break;
         }
         case TYPE_DATETIME: {
