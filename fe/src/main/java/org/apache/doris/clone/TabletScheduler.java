@@ -97,7 +97,7 @@ public class TabletScheduler extends Daemon {
     public static final int MAX_SCHEDULING_TABLETS = 5000;
     // if the number of balancing tablets in TabletScheduler exceed this threshold,
     // no more balance check
-    public static final int MAX_BALANCING_TABLETS = 500;
+    public static final int MAX_BALANCING_TABLETS = 100;
 
     /*
      * Tablet is added to pendingTablets as well it's id in allTabletIds.

@@ -256,8 +256,10 @@ public class LoadBalancer {
                 // no replica on this low load backend
                 // 1. check if this clone task can make the cluster more balance.
                 List<RootPathLoadStatistic> availPaths = Lists.newArrayList();
-                if (beStat.isFit(tabletCtx.getTabletSize(), tabletCtx.getStorageMedium(), availPaths,
-                        false /* not supplement */) != BalanceStatus.OK) {
+                BalanceStatus bs;
+                if ((bs = beStat.isFit(tabletCtx.getTabletSize(), tabletCtx.getStorageMedium(), availPaths,
+                        false /* not supplement */)) != BalanceStatus.OK) {
+                    LOG.debug("tablet not fit in BE {}, reason: {}", beStat.getBeId(), bs.getErrMsgs());
                     continue;
                 }
 
@@ -268,6 +270,7 @@ public class LoadBalancer {
 
                 PathSlot slot = backendsWorkingSlots.get(beStat.getBeId());
                 if (slot == null) {
+                    LOG.debug("BE does not have slot: {}", beStat.getBeId());
                     continue;
                 }
 
@@ -281,6 +284,7 @@ public class LoadBalancer {
 
                 long pathHash = slot.takeAnAvailBalanceSlotFrom(pathLow);
                 if (pathHash == -1) {
+                    LOG.debug("paths has no available balance slot: {}", pathLow);
                     continue;
                 } else {
                     tabletCtx.setDest(beStat.getBeId(), pathHash);

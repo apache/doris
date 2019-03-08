@@ -207,10 +207,12 @@ public class ClusterLoadStatistic {
         double currentDiff = Math.abs(currentSrcBeScore - avgLoadScoreMap.get(medium)) + Math.abs(currentDestBeScore - avgLoadScoreMap.get(medium));
         double newDiff = Math.abs(newSrcBeScore.score - avgLoadScoreMap.get(medium)) + Math.abs(newDestBeScore.score - avgLoadScoreMap.get(medium));
 
-        LOG.debug("after migrate {}(size: {}) from {} to {}, medium: {} the load score changed."
-                + "src: {} -> {}, dest: {}->{}, average score: {}. current diff: {}, new diff: {}",
+        LOG.debug("after migrate {}(size: {}) from {} to {}, medium: {}, the load score changed."
+                + " src: {} -> {}, dest: {}->{}, average score: {}. current diff: {}, new diff: {},"
+                + " more balanced: {}",
                 tabletId, tabletSize, srcBeId, destBeId, medium, currentSrcBeScore, newSrcBeScore.score,
-                currentDestBeScore, newDestBeScore.score, avgLoadScoreMap.get(medium), currentDiff, newDiff);
+                currentDestBeScore, newDestBeScore.score, avgLoadScoreMap.get(medium), currentDiff, newDiff,
+                (newDiff < currentDiff));
 
         return newDiff < currentDiff;
     }
