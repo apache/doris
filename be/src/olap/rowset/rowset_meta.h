@@ -21,6 +21,7 @@
 #include "gen_cpp/olap_file.pb.h"
 
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "olap/new_status.h"
@@ -239,11 +240,11 @@ public:
     }
 
     std::string rowset_path() {
-        return _rowset_meta_pb.rowset_path();
+        return _rowset_path;
     }
 
     void set_rowset_path(std::string rowset_path) {
-        _rowset_meta_pb.set_rowset_path(rowset_path);
+        _rowset_path = rowset_path;
     }
 
     PUniqueId load_id() {
@@ -310,6 +311,7 @@ private:
 
 private:
     RowsetMetaPB _rowset_meta_pb;
+    std::string _rowset_path;    // in memory, not serialized to protocol buffer
 };
 
 } // namespace doris

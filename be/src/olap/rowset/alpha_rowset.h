@@ -42,6 +42,8 @@ public:
 
     OLAPStatus init() override;
 
+    OLAPStatus init_without_validate();
+
     std::shared_ptr<RowsetReader> create_reader() override;
 
     OLAPStatus copy(RowsetWriter* dest_rowset_writer) override;
@@ -80,8 +82,14 @@ public:
     
     int64_t ref_count() const override;
 
-    virtual OLAPStatus make_snapshot(const std::string& snapshot_path,
-                                     std::vector<std::string>* success_files);
+    OLAPStatus make_snapshot(const std::string& snapshot_path,
+                             std::vector<std::string>* success_files) override;
+
+    OLAPStatus convert_from_old_files(const std::string& snapshot_path,
+                                 std::vector<std::string>* success_files);
+
+    OLAPStatus convert_to_old_files(const std::string& snapshot_path, 
+                                 std::vector<std::string>* success_files);
 
     OLAPStatus remove_old_files(std::vector<std::string>* files_to_remove) override;
 
@@ -102,11 +110,11 @@ public:
             vector<OlapTuple>* ranges);
 
 private:
-    OLAPStatus _init_segment_groups();
+    OLAPStatus _init_segment_groups(bool validate);
 
-    OLAPStatus _init_pending_segment_groups();
+    OLAPStatus _init_pending_segment_groups(bool validate);
 
-    OLAPStatus _init_non_pending_segment_groups();
+    OLAPStatus _init_non_pending_segment_groups(bool validate);
 
     std::shared_ptr<SegmentGroup> _segment_group_with_largest_size();
 

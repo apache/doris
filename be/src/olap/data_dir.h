@@ -74,6 +74,10 @@ public:
 
     std::string get_absolute_tablet_path(TabletMeta* tablet_meta, bool with_schema_hash);
 
+    std::string get_absolute_tablet_path(OLAPHeaderMessage& olap_header_msg, bool with_schema_hash);
+
+    std::string get_absolute_tablet_path(TabletMetaPB* tablet_meta, bool with_schema_hash);
+
     std::string get_absolute_shard_path(const std::string& shard_string);
 
     void find_tablet_in_trash(int64_t tablet_id, std::vector<std::string>* paths);

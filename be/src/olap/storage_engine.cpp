@@ -42,12 +42,14 @@
 #include "olap/push_handler.h"
 #include "olap/reader.h"
 #include "olap/rowset/rowset_meta_manager.h"
+#include "olap/rowset/alpha_rowset.h"
 #include "olap/rowset_factory.h"
 #include "olap/schema_change.h"
 #include "olap/data_dir.h"
 #include "olap/utils.h"
 #include "olap/rowset/alpha_rowset_meta.h"
 #include "olap/rowset/column_data_writer.h"
+#include "olap/olap_snapshot_converter.h"
 #include "util/time.h"
 #include "util/doris_metrics.h"
 #include "util/pretty_printer.h"
@@ -117,10 +119,200 @@ StorageEngine::~StorageEngine() {
     clear();
 }
 
+// convert old tablet and its files to new tablet meta and rowset format
+// if any error occurred during converting, stop it and break.
+OLAPStatus StorageEngine::_convert_old_tablet(DataDir* data_dir) {
+    auto convert_tablet_func = [this, data_dir](long tablet_id,
+        long schema_hash, const std::string& value) -> bool {
+        OlapSnapshotConverter converter;
+        // convert olap header and files
+        OLAPHeaderMessage olap_header_msg;
+        TabletMetaPB tablet_meta_pb;
+        vector<RowsetMetaPB> pending_rowsets;
+        bool parsed = olap_header_msg.ParseFromString(value);
+        if (!parsed) {
+            LOG(WARNING) << "convert olap header to tablet meta failed when load olap header tablet=" 
+                         << tablet_id << "." << schema_hash;
+            return false;
+        }
+        string old_data_path_prefix = data_dir->get_absolute_tablet_path(olap_header_msg, true);
+        OLAPStatus status = converter.to_new_snapshot(olap_header_msg, old_data_path_prefix, 
+            old_data_path_prefix, *data_dir, &tablet_meta_pb, &pending_rowsets);
+        if (status != OLAP_SUCCESS) {
+            LOG(WARNING) << "convert olap header to tablet meta failed when convert header and files tablet=" 
+                         << tablet_id << "." << schema_hash;
+            return false;
+        }
+
+        // write pending rowset to olap meta
+        for (auto& rowset_pb : pending_rowsets) {
+            string meta_binary;
+            rowset_pb.SerializeToString(&meta_binary);
+            status = RowsetMetaManager::save(data_dir->get_meta(), rowset_pb.rowset_id() , meta_binary);
+            if (status != OLAP_SUCCESS) {
+                LOG(WARNING) << "convert olap header to tablet meta failed when save rowset meta tablet=" 
+                             << tablet_id << "." << schema_hash;
+                return false;
+            }
+        }
+
+        // write converted tablet meta to olap meta
+        string meta_binary;
+        tablet_meta_pb.SerializeToString(&meta_binary);
+        status = TabletMetaManager::save(data_dir, tablet_meta_pb.tablet_id(), tablet_meta_pb.schema_hash(), meta_binary);
+        if (status != OLAP_SUCCESS) {
+            LOG(WARNING) << "convert olap header to tablet meta failed when save tablet meta tablet=" 
+                         << tablet_id << "." << schema_hash;
+            return false;
+        } else {
+            LOG(INFO) << "convert olap header to tablet meta successfully and save tablet meta to meta tablet=" 
+                      << tablet_id << "." << schema_hash;
+        }
+        return true;
+    };
+    OLAPStatus convert_tablet_status = TabletMetaManager::traverse_headers(data_dir->get_meta(), 
+        convert_tablet_func, OLD_HEADER_PREFIX);
+    if (convert_tablet_status != OLAP_SUCCESS) {
+        LOG(WARNING) << "there is failure when convert old tablet, data dir:" << data_dir->path();
+        return convert_tablet_status;
+    } else {
+        LOG(INFO) << "successfully convert old tablet, data dir: " << data_dir->path();
+    }
+    return OLAP_SUCCESS;
+}
+
+OLAPStatus StorageEngine::_clean_unfinished_converting_data(DataDir* data_dir) {
+    auto clean_unifinished_tablet_meta_func = [this, data_dir](long tablet_id,
+        long schema_hash, const std::string& value) -> bool {
+        TabletMetaManager::remove(data_dir, tablet_id, schema_hash, HEADER_PREFIX);
+        LOG(INFO) << "successfully clean temp tablet meta for tablet=" 
+                  << tablet_id << "." << schema_hash 
+                  << "from data dir: " << data_dir->path();
+        return true;
+    };
+    OLAPStatus clean_unfinished_meta_status = TabletMetaManager::traverse_headers(data_dir->get_meta(), 
+        clean_unifinished_tablet_meta_func, HEADER_PREFIX);
+    if (clean_unfinished_meta_status != OLAP_SUCCESS) {
+        // If failed to clean meta just skip the error, there will be useless metas in rocksdb column family
+        LOG(WARNING) << "there is failure when clean temp tablet meta from data dir:" << data_dir->path();
+    } else {
+        LOG(INFO) << "successfully clean temp tablet meta from data dir: " << data_dir->path();
+    }
+    auto clean_unifinished_rowset_meta_func = [this, data_dir](RowsetId rowset_id, const std::string& value) -> bool {
+        RowsetMetaManager::remove(data_dir->get_meta(), rowset_id);
+        LOG(INFO) << "successfully clean temp rowset meta for rowset id =" 
+                  << rowset_id << " from data dir: " << data_dir->path();
+        return true;
+    };
+    OLAPStatus clean_unfinished_rowset_meta_status = RowsetMetaManager::traverse_rowset_metas(data_dir->get_meta(), 
+        clean_unifinished_rowset_meta_func);
+    if (clean_unfinished_rowset_meta_status != OLAP_SUCCESS) {
+        // If failed to clean meta just skip the error, there will be useless metas in rocksdb column family
+        LOG(WARNING) << "there is failure when clean temp rowset meta from data dir:" << data_dir->path();
+    } else {
+        LOG(INFO) << "successfully clean temp rowset meta from data dir: " << data_dir->path();
+    }
+    return OLAP_SUCCESS;
+}
+
+OLAPStatus StorageEngine::_remove_old_meta_and_files(DataDir* data_dir) {
+    // clean old meta(olap header message) 
+    auto clean_old_meta_func = [this, data_dir](long tablet_id,
+        long schema_hash, const std::string& value) -> bool {
+        TabletMetaManager::remove(data_dir, tablet_id, schema_hash, OLD_HEADER_PREFIX);
+        LOG(INFO) << "successfully clean old tablet meta(olap header) for tablet=" 
+                  << tablet_id << "." << schema_hash 
+                  << "from data dir: " << data_dir->path();
+        return true;
+    };
+    OLAPStatus clean_old_meta_status = TabletMetaManager::traverse_headers(data_dir->get_meta(), 
+        clean_old_meta_func, OLD_HEADER_PREFIX);
+    if (clean_old_meta_status != OLAP_SUCCESS) {
+        // If failed to clean meta just skip the error, there will be useless metas in rocksdb column family
+        LOG(WARNING) << "there is failure when clean old tablet meta(olap header) from data dir:" << data_dir->path();
+    } else {
+        LOG(INFO) << "successfully clean old tablet meta(olap header) from data dir: " << data_dir->path();
+    }
+
+    // clean old files because they have hard links in new file name format
+    auto clean_old_files_func = [this, data_dir](long tablet_id,
+        long schema_hash, const std::string& value) -> bool {
+        TabletMetaPB tablet_meta_pb;
+        bool parsed = tablet_meta_pb.ParseFromString(value);
+        if (!parsed) {
+            // if errors when load, just skip it
+            LOG(WARNING) << "failed to load tablet meta from meta store to tablet=" << tablet_id << "." << schema_hash;
+            return true;
+        }
+
+        TabletSchema tablet_schema;
+        tablet_schema.init_from_pb(tablet_meta_pb.schema());
+        string data_path_prefix = data_dir->get_absolute_tablet_path(&tablet_meta_pb, true);
+
+        // convert visible pdelta file to rowsets and remove old files
+        for (auto& visible_rowset : tablet_meta_pb.rs_metas()) {
+            RowsetMetaSharedPtr alpha_rowset_meta(new AlphaRowsetMeta());
+            alpha_rowset_meta->init_from_pb(visible_rowset);
+            AlphaRowset rowset(&tablet_schema, data_path_prefix, data_dir, alpha_rowset_meta);
+            rowset.init();
+            std::vector<std::string> old_files;
+            rowset.remove_old_files(&old_files);
+        }
+
+        // convert inc delta file to rowsets and remove old files
+        for (auto& inc_rowset : tablet_meta_pb.inc_rs_metas()) {
+            RowsetMetaSharedPtr alpha_rowset_meta(new AlphaRowsetMeta());
+            alpha_rowset_meta->init_from_pb(inc_rowset);
+            AlphaRowset rowset(&tablet_schema, data_path_prefix, data_dir, alpha_rowset_meta);
+            rowset.init();
+            std::vector<std::string> old_files;
+            rowset.remove_old_files(&old_files);
+        }
+        return true;
+    };
+    OLAPStatus clean_old_tablet_status = TabletMetaManager::traverse_headers(data_dir->get_meta(), 
+        clean_old_files_func, HEADER_PREFIX);
+    if (clean_old_tablet_status != OLAP_SUCCESS) {
+        LOG(WARNING) << "there is failure when loading tablet and clean old files:" << data_dir->path();
+    } else {
+        LOG(INFO) << "load rowset from meta finished, data dir: " << data_dir->path();
+    }
+    return OLAP_SUCCESS;
+}
+
 // TODO(ygl): deal with rowsets and tablets when load failed
 OLAPStatus StorageEngine::_load_data_dir(DataDir* data_dir) {
+    // check if this is an old data path
+    bool is_tablet_convert_finished = false;
+    OLAPStatus res = data_dir->get_meta()->get_tablet_convert_finished(is_tablet_convert_finished);
+    if (res != OLAP_SUCCESS) {
+        LOG(WARNING) << "get convert flag from meta failed dir = " << data_dir->path();
+        return res;
+    }
+
+    if (!is_tablet_convert_finished) {
+        _clean_unfinished_converting_data(data_dir);
+        res = _convert_old_tablet(data_dir);
+        if (res != OLAP_SUCCESS) {
+            LOG(WARNING) << "convert old tablet failed for  dir = " << data_dir->path();
+            return res;
+        }
+        // TODO(ygl): should load tablet successfully and then set convert flag and clean old files
+        res = data_dir->get_meta()->set_tablet_convert_finished();
+        if (res != OLAP_SUCCESS) {
+            LOG(WARNING) << "save convert flag failed after convert old tablet. " 
+                         << " dir = " << data_dir->path();
+            return res;
+        }
+        // convert may be successfully, but crashed before remove old files
+        // depend on gc thread to recycle the old files
+        // _remove_old_meta_and_files(data_dir);
+    } else {
+        LOG(INFO) << "tablets have been converted, skip convert process";
+    }
+
     std::string data_dir_path = data_dir->path();
-    LOG(INFO) <<"start to load tablets from data_dir_path:" << data_dir_path;
+    LOG(INFO) << "start to load tablets from data_dir_path:" << data_dir_path;
     // load rowset meta from meta env and create rowset
     // COMMITTED: add to txn manager
     // VISIBLE: add to tablet
@@ -132,7 +324,7 @@ OLAPStatus StorageEngine::_load_data_dir(DataDir* data_dir) {
         bool parsed = rowset_meta->init(meta_str);
         if (!parsed) {
             LOG(WARNING) << "parse rowset meta string failed for rowset_id:" << rowset_id;
-            // return false will break meta iterator
+            // return false will break meta iterator, return true to skip this error
             return true;
         }
         dir_rowset_metas.push_back(rowset_meta);
