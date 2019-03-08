@@ -160,6 +160,9 @@ public class TabletInvertedIndex {
                                     if (storageMedium != backendTabletInfo.getStorage_medium()) {
                                         tabletMigrationMap.put(storageMedium, tabletId);
                                     }
+                                    if (storageMedium != tabletMeta.getStorageMedium()) {
+                                        tabletMeta.setStorageMedium(storageMedium);
+                                    }
                                 }
                                 // check if should clear transactions
                                 if (backendTabletInfo.isSetTransaction_ids()) {
