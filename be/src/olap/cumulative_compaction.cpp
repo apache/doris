@@ -152,6 +152,10 @@ OLAPStatus CumulativeCompaction::run() {
         // 4. 执行cumulative compaction合并过程
         for (auto& rowset : _rowsets) {
             RowsetReaderSharedPtr rs_reader(rowset->create_reader());
+            if (rs_reader == nullptr) {
+                LOG(WARNING) << "rowset create reader failed. rowset:" <<  rowset->rowset_id();
+                return OLAP_ERR_ROWSET_CREATE_READER;
+            }
             _rs_readers.push_back(rs_reader);
         }
         res = _do_cumulative_compaction();
@@ -385,6 +389,7 @@ OLAPStatus CumulativeCompaction::_do_cumulative_compaction() {
     }
 
     _rowset = _rs_writer->build();
+    StorageEngine::instance()->remove_pending_paths(_rs_writer->rowset_id());
     if (_rowset == nullptr) {
         LOG(WARNING) << "rowset writer build failed. writer version:"
                      << _rs_writer->version().first << "-" << _rs_writer->version().second;

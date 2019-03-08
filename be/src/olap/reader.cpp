@@ -447,7 +447,7 @@ void Reader::close() {
     _delete_handler.finalize();
 
     for (auto pred : _col_predicates) {
-        delete pred.second;
+        delete pred;
     }
 
     delete _collect_iter;
@@ -748,7 +748,7 @@ OLAPStatus Reader::_init_conditions_param(const ReaderParams& read_params) {
         _conditions.append_condition(read_params.conditions[i]);
         ColumnPredicate* predicate = _parse_to_predicate(read_params.conditions[i]);
         if (predicate != NULL) {
-            _col_predicates[read_params.conditions[i].column_name] = predicate;
+            _col_predicates.push_back(predicate);
         }
     }
 

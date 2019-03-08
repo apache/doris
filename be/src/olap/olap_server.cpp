@@ -87,6 +87,20 @@ OLAPStatus StorageEngine::_start_bg_worker() {
             _fd_cache_clean_callback(nullptr);
         });
 
+    // scan path thread
+    for (auto data_dir : get_stores()) {
+        _path_scan_threads.emplace_back(
+        [this, data_dir] {
+            _path_scan_thread_callback((void*)data_dir);
+        });
+    }
+
+    // path gc thread
+    _path_gc_thread = std::thread(
+        [this] {
+            _path_gc_thread_callback(nullptr);
+        });
+
     VLOG(10) << "init finished.";
     return OLAP_SUCCESS;
 }
@@ -196,27 +210,6 @@ void* StorageEngine::_disk_stat_monitor_thread_callback(void* arg) {
 
     while (true) {
         start_disk_stat_monitor();
-        sleep(interval);
-    }
-
-    return NULL;
-}
-
-void* StorageEngine::_unused_index_thread_callback(void* arg) {
-#ifdef GOOGLE_PROFILER
-    ProfilerRegisterThread();
-#endif
-
-    uint32_t interval = config::unused_index_monitor_interval;
-
-    if (interval <= 0) {
-        OLAP_LOG_WARNING("unused_index_monitor_interval config is illegal: [%d], "
-                         "force set to 1", interval);
-        interval = 1;
-    }
-
-    while (true) {
-        start_delete_unused_index();
         sleep(interval);
     }
 

@@ -1081,6 +1081,7 @@ bool SchemaChangeWithSorting::_internal_sorting(const vector<RowBlock*>& row_blo
     }
     add_merged_rows(merged_rows);
     *rowset = rowset_writer->build();
+    StorageEngine::instance()->remove_pending_paths(rowset_writer->rowset_id());
     return true;
 }
 
@@ -1564,6 +1565,7 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
         goto SCHEMA_VERSION_CONVERT_ERR;
     }
     *new_rowset = rowset_writer->build();
+    StorageEngine::instance()->remove_pending_paths(rowset_writer->rowset_id());
     if (*new_rowset == nullptr) {
         LOG(WARNING) << "build rowset failed.";
         res = OLAP_ERR_MALLOC_ERROR;
@@ -1610,7 +1612,7 @@ OLAPStatus SchemaChangeHandler::_add_alter_task(
     // check new tablet exists,
     // prevent to set base's status after new's dropping (clear base's status)
     if (TabletManager::instance()->get_tablet(
-            new_tablet->tablet_id(), new_tablet->schema_hash()).get() == NULL) {
+            new_tablet->tablet_id(), new_tablet->schema_hash()) == nullptr) {
         LOG(WARNING) << "new_tablet does not exist. tablet=" << new_tablet->full_name();
         return OLAP_ERR_TABLE_NOT_FOUND;
     }
@@ -1771,6 +1773,7 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
         if (!sc_params.new_tablet->check_version_exist(rs_reader->version())) {
             // register version
             RowsetSharedPtr new_rowset = rowset_writer->build();
+            StorageEngine::instance()->remove_pending_paths(rowset_writer->rowset_id());
             res = sc_params.new_tablet->add_rowset_unlock(new_rowset);
             if (OLAP_SUCCESS != res) {
                 LOG(WARNING) << "failed to register new version. "

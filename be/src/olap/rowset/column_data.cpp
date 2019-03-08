@@ -31,12 +31,12 @@ ColumnData* ColumnData::create(SegmentGroup* segment_group) {
 ColumnData::ColumnData(SegmentGroup* segment_group)
       : _segment_group(segment_group),
         _eof(false),
-        _conditions(NULL),
-        _col_predicates(NULL),
+        _conditions(nullptr),
+        _col_predicates(nullptr),
         _delete_status(DEL_NOT_SATISFIED),
-        _runtime_state(NULL),
+        _runtime_state(nullptr),
         _is_using_cache(false),
-        _segment_reader(NULL) {
+        _segment_reader(nullptr) {
     _num_rows_per_block = _segment_group->get_num_rows_per_row_block();
 }
 
