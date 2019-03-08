@@ -35,7 +35,6 @@ class RowsetReader;
 class Rowset : public std::enable_shared_from_this<Rowset> {
 public:
     Rowset() : _is_inited(false), _is_loaded(false) {
-        LOG(INFO) << "is init is " << _is_inited;
     } 
 
     virtual ~Rowset() { }

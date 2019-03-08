@@ -125,11 +125,13 @@ OLAPStatus EngineCloneTask::execute() {
             status = DORIS_ERROR;
         }
 
+
+        stringstream tablet_dir_stream;
+        tablet_dir_stream << local_shard_root_path
+                            << "/" << _clone_req.tablet_id
+                            << "/" << _clone_req.schema_hash;
+
         if (status == DORIS_SUCCESS) {
-            stringstream tablet_dir_stream;
-            tablet_dir_stream << local_shard_root_path
-                                << "/" << _clone_req.tablet_id
-                                << "/" << _clone_req.schema_hash;
             status = _clone_copy(*store,
                                 _clone_req,
                                 _signature,
@@ -157,6 +159,9 @@ OLAPStatus EngineCloneTask::execute() {
                 _error_msgs->push_back("load header failed.");
                 status = DORIS_ERROR;
             }
+            // clone success, delete .hdr file because tablet meta is stored in rocksdb
+            string cloned_meta_file = tablet_dir_stream.str() + "/" + std::to_string(_clone_req.tablet_id) + ".hdr";
+            remove_dir(cloned_meta_file);
         }
 
 #ifndef BE_TEST
@@ -608,7 +613,10 @@ OLAPStatus EngineCloneTask::_convert_to_new_snapshot(DataDir& data_dir, const st
         return res;
     }
     vector<string> files_to_delete;
-    files_to_delete.insert(files_to_delete.end(), clone_files.begin(), clone_files.end());
+    for (auto file_name : clone_files) {
+        string full_file_path = clone_dir + "/" + file_name;
+        files_to_delete.push_back(full_file_path);
+    }
     // remove all files
     remove_files(files_to_delete);
 
