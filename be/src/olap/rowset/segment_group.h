@@ -269,7 +269,7 @@ public:
     OLAPStatus make_snapshot(const std::string& snapshot_path,
                              std::vector<std::string>* success_links);
 
-    bool copy_segments_to_path(const std::string& dest_path);
+    OLAPStatus copy_segments_to_path(const std::string& dest_path);
 
 private:
     
