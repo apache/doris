@@ -50,8 +50,6 @@ public:
 
     std::shared_ptr<RowsetReader> create_reader() override;
 
-    OLAPStatus copy(RowsetWriter* dest_rowset_writer) override;
-
     OLAPStatus remove() override;
 
     void to_rowset_pb(RowsetMetaPB* rs_meta) override;

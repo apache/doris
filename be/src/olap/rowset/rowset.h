@@ -34,20 +34,24 @@ class RowsetReader;
 
 class Rowset : public std::enable_shared_from_this<Rowset> {
 public:
+    Rowset() : _is_inited(false), _is_loaded(false) {
+        LOG(INFO) << "is init is " << _is_inited;
+    } 
+
     virtual ~Rowset() { }
 
     // this api is for init related objects in memory
     virtual OLAPStatus init() = 0;
 
-    bool is_inited() {
+    virtual bool is_inited() {
         return _is_inited;
     }
 
-    void set_inited(bool inited) {
+    virtual void set_inited(bool inited) {
         _is_inited = inited;
     }
 
-    bool is_loaded() {
+    virtual bool is_loaded() {
         return _is_loaded;
     }
 
@@ -60,8 +64,6 @@ public:
     virtual OLAPStatus load() = 0;
 
     virtual std::shared_ptr<RowsetReader> create_reader() = 0;
-
-    virtual OLAPStatus copy(RowsetWriter* dest_rowset_writer) = 0;
 
     virtual OLAPStatus remove() = 0;
 
