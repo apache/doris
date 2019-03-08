@@ -32,6 +32,7 @@
 
 #include "gen_cpp/Types_types.h"
 #include "olap/olap_define.h"
+#include "util/hash_util.hpp"
 
 namespace doris {
 
@@ -175,6 +176,17 @@ enum ReaderType {
 //using Version = std::pair<TupleVersion, TupleVersion>;
 typedef std::pair<int64_t, int64_t> Version;
 typedef std::vector<Version> Versions;
+
+
+// used for hash-struct of hash_map<Version, Rowset*>.
+struct HashOfVersion {
+    size_t operator()(const Version& version) const {
+        size_t seed = 0;
+        seed = HashUtil::hash64(&version.first, sizeof(version.first), seed);
+        seed = HashUtil::hash64(&version.second, sizeof(version.second), seed);
+        return seed;
+    }
+};
 
 // It is used to represent Graph vertex.
 struct Vertex {

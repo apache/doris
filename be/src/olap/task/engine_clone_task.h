@@ -68,6 +68,10 @@ private:
         
     OLAPStatus _convert_to_new_snapshot(DataDir& data_dir, const string& clone_dir, int64_t tablet_id);
 
+    OLAPStatus _convert_rowset_ids(DataDir& data_dir, const string& clone_dir, int64_t tablet_id);
+    
+    OLAPStatus _rename_rowset_id(const RowsetMetaPB& rs_meta_pb, const string& new_path, 
+        DataDir& data_dir, TabletSchema& tablet_schema, RowsetMetaPB* new_rs_meta_pb);
 private:
     const TCloneReq& _clone_req;
     vector<string>* _error_msgs;

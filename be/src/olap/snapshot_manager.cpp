@@ -300,7 +300,13 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
 
         if (request.__isset.missing_version) {
             new_tablet_meta->revise_inc_rs_metas(rs_metas);
+            vector<RowsetMetaSharedPtr> empty_rowsets;
+            new_tablet_meta->revise_rs_metas(empty_rowsets);
         } else {
+            // If this is a full clone, then should clear inc rowset metas because 
+            // related files is not created
+            vector<RowsetMetaSharedPtr> empty_rowsets;
+            new_tablet_meta->revise_inc_rs_metas(empty_rowsets);
             new_tablet_meta->revise_rs_metas(rs_metas);
         }
         if (snapshot_version < PREFERRED_SNAPSHOT_VERSION) {

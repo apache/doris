@@ -257,6 +257,7 @@ OLAPStatus StorageEngine::_remove_old_meta_and_files(DataDir* data_dir) {
             alpha_rowset_meta->init_from_pb(visible_rowset);
             AlphaRowset rowset(&tablet_schema, data_path_prefix, data_dir, alpha_rowset_meta);
             rowset.init();
+            rowset.load();
             std::vector<std::string> old_files;
             rowset.remove_old_files(&old_files);
         }
@@ -267,6 +268,7 @@ OLAPStatus StorageEngine::_remove_old_meta_and_files(DataDir* data_dir) {
             alpha_rowset_meta->init_from_pb(inc_rowset);
             AlphaRowset rowset(&tablet_schema, data_path_prefix, data_dir, alpha_rowset_meta);
             rowset.init();
+            rowset.load();
             std::vector<std::string> old_files;
             rowset.remove_old_files(&old_files);
         }
@@ -296,13 +298,13 @@ OLAPStatus StorageEngine::_load_data_dir(DataDir* data_dir) {
         _clean_unfinished_converting_data(data_dir);
         res = _convert_old_tablet(data_dir);
         if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "convert old tablet failed for  dir = " << data_dir->path();
+            LOG(FATAL) << "convert old tablet failed for  dir = " << data_dir->path();
             return res;
         }
         // TODO(ygl): should load tablet successfully and then set convert flag and clean old files
         res = data_dir->get_meta()->set_tablet_convert_finished();
         if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "save convert flag failed after convert old tablet. " 
+            LOG(FATAL) << "save convert flag failed after convert old tablet. " 
                          << " dir = " << data_dir->path();
             return res;
         }
@@ -375,7 +377,7 @@ OLAPStatus StorageEngine::_load_data_dir(DataDir* data_dir) {
         }
         RowsetSharedPtr rowset;
         OLAPStatus create_status = RowsetFactory::load_rowset(tablet->tablet_schema(), 
-                                                             rowset_meta->rowset_path(), 
+                                                             tablet->tablet_path(), 
                                                              tablet->data_dir(), 
                                                              rowset_meta, &rowset);
         if (create_status != OLAP_SUCCESS) {
@@ -1094,7 +1096,7 @@ OLAPStatus StorageEngine::load_header(
         TTabletId tablet_id,
         TSchemaHash schema_hash) {
     LOG(INFO) << "begin to process load headers. tablet_id=" << tablet_id
-              << "schema_hash=" << schema_hash;
+              << " schema_hash=" << schema_hash;
     OLAPStatus res = OLAP_SUCCESS;
 
     stringstream schema_hash_path_stream;

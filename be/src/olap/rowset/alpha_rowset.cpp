@@ -47,7 +47,7 @@ AlphaRowset::AlphaRowset(const TabletSchema* schema,
 }
 
 OLAPStatus AlphaRowset::init() {
-    DCHECK(!is_inited());
+    DCHECK(!is_inited()) << is_inited();
     OLAPStatus status = _init_segment_groups();
     set_inited(true);
     return status;
@@ -87,10 +87,6 @@ std::shared_ptr<RowsetReader> AlphaRowset::create_reader() {
     return std::shared_ptr<RowsetReader>(new AlphaRowsetReader(
             _schema->num_rows_per_row_block(), _rowset_meta.get(),
             _segment_groups, shared_from_this()));
-}
-
-OLAPStatus AlphaRowset::copy(RowsetWriter* dest_rowset_writer) {
-    return OLAP_SUCCESS;
 }
 
 OLAPStatus AlphaRowset::remove() {
