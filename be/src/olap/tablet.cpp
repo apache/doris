@@ -39,6 +39,12 @@
 
 namespace doris {
 
+using std::pair;
+using std::nothrow;
+using std::sort;
+using std::string;
+using std::vector;
+
 TabletSharedPtr Tablet::create_tablet_from_meta_file(
             const string& file_path, DataDir* data_dir) {
     TabletMeta* tablet_meta = NULL;
@@ -466,7 +472,6 @@ void Tablet::add_alter_task(int64_t tablet_id,
                             int64_t schema_hash,
                             const vector<Version>& versions_to_alter,
                             const AlterTabletType alter_type) {
-    delete_alter_task();
     AlterTabletTask alter_task;
     alter_task.set_alter_state(ALTER_RUNNING);
     alter_task.set_related_tablet_id(tablet_id);

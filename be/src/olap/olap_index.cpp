@@ -62,20 +62,18 @@ OLAPStatus MemIndex::load_segment(const char* file, size_t *current_num_rows_per
 
     if (file == NULL) {
         res = OLAP_ERR_INPUT_PARAMETER_ERROR;
-        OLAP_LOG_WARNING("load segment for loading index error. [file=%s; res=%d]", file, res);
+        LOG(WARNING) << "load index error. file=" << file << ", res=" << res;
         return res;
     }
 
     FileHandler file_handler;
     if ((res = file_handler.open_with_cache(file, O_RDONLY)) != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to open index file. [file='%s']", file);
-        OLAP_LOG_WARNING("load segment for loading index error. [file=%s; res=%d]", file, res);
+        LOG(WARNING) << "load index error. file=" << file << ", res=" << res;
         return res;
     }
 
     if ((res = meta.file_header.unserialize(&file_handler)) != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to read index file header. [file='%s']", file);
-        OLAP_LOG_WARNING("load segment for loading index error. [file=%s; res=%d]", file, res);
+        LOG(WARNING) << "load index error. file=" << file << ", res=" << res;
         file_handler.close();
         return res;
     }
@@ -101,8 +99,7 @@ OLAPStatus MemIndex::load_segment(const char* file, size_t *current_num_rows_per
     }
     if (!is_align) {
         res = OLAP_ERR_INDEX_LOAD_ERROR;
-        OLAP_LOG_WARNING("fail to load_segment, buffer length is not correct.");
-        OLAP_LOG_WARNING("load segment for loading index error. [file=%s; res=%d]", file, res);
+        LOG(WARNING) << "load index error. file=" << file << ", res=" << res;
         file_handler.close();
         return res;
     }

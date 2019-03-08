@@ -42,7 +42,6 @@ using std::string;
 using std::vector;
 
 namespace doris {
-
     
 EngineBatchLoadTask::EngineBatchLoadTask(TPushReq& push_req, 
     std::vector<TTabletInfo>* tablet_infos,
