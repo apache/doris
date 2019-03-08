@@ -100,15 +100,15 @@ public class EsScanNode extends ScanNode {
         
         assignBackends();
     }
+    
+    @Override
+    public int getNumInstances() {
+        return shardScanRanges.size();
+    }
 
     @Override
     public List<TScanRangeLocations> getScanRangeLocations(long maxScanRangeLength) {
-        try {
-            return getShardLocations();
-        } catch (UserException e) {
-            LOG.error("errors while get es shard locations", e);
-        }
-        return null;
+        return shardScanRanges;
     }
     
     @Override

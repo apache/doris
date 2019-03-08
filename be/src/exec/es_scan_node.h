@@ -60,6 +60,7 @@ private:
     bool get_disjuncts(ExprContext* context, Expr* conjunct, vector<TExtPredicate>& disjuncts);
     bool to_ext_literal(ExprContext* context, Expr* expr, TExtLiteral* literal);
 
+
     bool is_match_func(Expr* conjunct);
 
     SlotDescriptor* get_slot_desc(SlotRef* slotRef);
