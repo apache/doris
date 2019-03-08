@@ -629,15 +629,10 @@ bool LinkedSchemaChange::process(
         TabletSharedPtr base_tablet) {
     OLAPStatus status = new_rowset_writer->add_rowset(rowset_reader->rowset());
     if (status != OLAP_SUCCESS) {
-        LOG(WARNING) << "fail to reload index."
+        LOG(WARNING) << "fail to convert rowset."
                      << " tablet='"<< _new_tablet->full_name()
                      << ", version=" << new_rowset_writer->version().first
                      << "-" << new_rowset_writer->version().second;
-        return false;
-    }
-
-    if (new_rowset_writer->flush() != OLAP_SUCCESS) {
-        LOG(WARNING) << "failed to finalizing writer.";
         return false;
     }
 
@@ -1745,7 +1740,7 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
         }
 
         if (!sc_procedure->process(rs_reader, rowset_writer, sc_params.new_tablet, sc_params.base_tablet)) {
-            LOG(WARNING) << "failed to process the version. "
+            LOG(WARNING) << "failed to process the version."
                          << " version=" << rs_reader->version().first
                          << "-" << rs_reader->version().second;
             res = OLAP_ERR_INPUT_PARAMETER_ERROR;
