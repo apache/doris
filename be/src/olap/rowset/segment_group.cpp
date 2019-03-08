@@ -154,6 +154,12 @@ std::string SegmentGroup::_construct_file_name(int32_t segment_id, const string&
     return file_name;
 }
 
+std::string SegmentGroup::_construct_file_name(int64_t rowset_id, int32_t segment_id, const string& suffix) const {
+    std::string file_name = std::to_string(rowset_id) + "_"
+            + std::to_string(_segment_group_id) + "_" + std::to_string(segment_id) + suffix;
+    return file_name;
+}
+
 std::string SegmentGroup::construct_index_file_path(const std::string& snapshot_path, int32_t segment_id) const {
     std::string file_path = snapshot_path;
     file_path.append("/");
@@ -799,12 +805,12 @@ OLAPStatus SegmentGroup::remove_old_files(std::vector<std::string>* links_to_rem
     return OLAP_SUCCESS;
 }
 
-OLAPStatus SegmentGroup::copy_segments_to_path(const std::string& dest_path) {
+OLAPStatus SegmentGroup::copy_segments_to_path(const std::string& dest_path, int64_t rowset_id) {
     if (dest_path.empty() || dest_path == _rowset_path_prefix) {
         return OLAP_SUCCESS;
     }
     for (int segment_id = 0; segment_id < _num_segments; segment_id++) {
-        std::string data_file_name = _construct_file_name(segment_id, ".dat");
+        std::string data_file_name = _construct_file_name(rowset_id, segment_id, ".dat");
         std::string new_data_file_path = dest_path + "/" + data_file_name;
         if (!check_dir_existed(new_data_file_path)) {
             std::string origin_data_file_path = construct_data_file_path(_rowset_path_prefix, segment_id);
@@ -814,10 +820,10 @@ OLAPStatus SegmentGroup::copy_segments_to_path(const std::string& dest_path) {
                 return OLAP_ERR_OS_ERROR;
             }
         }
-        std::string index_file_name = _construct_file_name(segment_id, ".idx");
+        std::string index_file_name = _construct_file_name(rowset_id, segment_id, ".idx");
         std::string new_index_file_path = dest_path + "/" + index_file_name;
         if (!check_dir_existed(new_index_file_path)) {
-            std::string origin_idx_file_path = construct_data_file_path(_rowset_path_prefix, segment_id);
+            std::string origin_idx_file_path = construct_index_file_path(_rowset_path_prefix, segment_id);
             if (link(origin_idx_file_path.c_str(), new_index_file_path.c_str()) != 0) {
                 LOG(WARNING) << "fail to create hard link. from=" << origin_idx_file_path
                              << ", to=" << new_index_file_path << ", error=" << strerror(errno);
