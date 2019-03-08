@@ -20,6 +20,11 @@
 #include <set>
 
 #include "olap/olap_snapshot_converter.h"
+#include "olap/rowset/alpha_rowset.h"
+#include "olap/rowset/alpha_rowset_writer.h"
+#include "olap/rowset/rowset.h"
+#include "olap/rowset/rowset_id_generator.h"
+#include "olap/rowset/rowset_writer.h"
 
 using std::set;
 using std::stringstream;
@@ -120,11 +125,13 @@ OLAPStatus EngineCloneTask::execute() {
             status = DORIS_ERROR;
         }
 
+
+        stringstream tablet_dir_stream;
+        tablet_dir_stream << local_shard_root_path
+                            << "/" << _clone_req.tablet_id
+                            << "/" << _clone_req.schema_hash;
+
         if (status == DORIS_SUCCESS) {
-            stringstream tablet_dir_stream;
-            tablet_dir_stream << local_shard_root_path
-                                << "/" << _clone_req.tablet_id
-                                << "/" << _clone_req.schema_hash;
             status = _clone_copy(*store,
                                 _clone_req,
                                 _signature,
@@ -147,11 +154,14 @@ OLAPStatus EngineCloneTask::execute() {
                     _clone_req.schema_hash);
             if (load_header_status != OLAP_SUCCESS) {
                 LOG(WARNING) << "load header failed. local_shard_root_path: '" << local_shard_root_path
-                                << "' schema_hash: " << _clone_req.schema_hash << ". status: " << load_header_status
-                                << ". signature: " << _signature;
+                             << "' schema_hash: " << _clone_req.schema_hash << ". status: " << load_header_status
+                             << ". signature: " << _signature;
                 _error_msgs->push_back("load header failed.");
                 status = DORIS_ERROR;
             }
+            // clone success, delete .hdr file because tablet meta is stored in rocksdb
+            string cloned_meta_file = tablet_dir_stream.str() + "/" + std::to_string(_clone_req.tablet_id) + ".hdr";
+            remove_dir(cloned_meta_file);
         }
 
 #ifndef BE_TEST
@@ -534,6 +544,10 @@ AgentStatus EngineCloneTask::_clone_copy(
         } // Clone files from remote backend
         if (make_snapshot_result.snapshot_version < PREFERRED_SNAPSHOT_VERSION) {
             _convert_to_new_snapshot(data_dir, local_data_path, clone_req.tablet_id);
+        } else {
+            // if cloned from new version be, then should change all rowset ids 
+            // because they maybe its id same with local rowset
+            _convert_rowset_ids(data_dir, local_data_path, clone_req.tablet_id);
         }
 
         // Release snapshot, if failed, ignore it. OLAP engine will drop useless snapshot
@@ -599,7 +613,10 @@ OLAPStatus EngineCloneTask::_convert_to_new_snapshot(DataDir& data_dir, const st
         return res;
     }
     vector<string> files_to_delete;
-    files_to_delete.insert(files_to_delete.end(), clone_files.begin(), clone_files.end());
+    for (auto file_name : clone_files) {
+        string full_file_path = clone_dir + "/" + file_name;
+        files_to_delete.push_back(full_file_path);
+    }
     // remove all files
     remove_files(files_to_delete);
 
@@ -609,6 +626,97 @@ OLAPStatus EngineCloneTask::_convert_to_new_snapshot(DataDir& data_dir, const st
         return res;
     }
 
+    return OLAP_SUCCESS;
+}
+
+OLAPStatus EngineCloneTask::_convert_rowset_ids(DataDir& data_dir, const string& clone_dir, int64_t tablet_id) {
+    OLAPStatus res = OLAP_SUCCESS;   
+    // check clone dir existed
+    if (!check_dir_existed(clone_dir)) {
+        res = OLAP_ERR_DIR_NOT_EXIST;
+        LOG(WARNING) << "clone dir not existed when convert rowsetids. clone_dir=" << clone_dir.c_str();
+        return res;
+    }
+
+    // load original tablet meta
+    string cloned_meta_file = clone_dir + "/" + std::to_string(tablet_id) + ".hdr";
+    TabletMeta cloned_tablet_meta;
+    if ((res = cloned_tablet_meta.create_from_file(cloned_meta_file)) != OLAP_SUCCESS) {
+        LOG(WARNING) << "fail to load original tablet meta after clone. "
+                     << ", cloned_meta_file=" << cloned_meta_file;
+        return res;
+    }
+    TabletMetaPB cloned_tablet_meta_pb;
+    res = cloned_tablet_meta.to_meta_pb(&cloned_tablet_meta_pb);
+    if (res != OLAP_SUCCESS) {
+        LOG(WARNING) << "fail to serialize tablet meta to pb object. " 
+                     << " , cloned_meta_file=" << cloned_meta_file;
+        return res;
+    }
+    
+    TabletMetaPB new_tablet_meta_pb;
+    new_tablet_meta_pb = cloned_tablet_meta_pb;
+    new_tablet_meta_pb.clear_rs_metas();
+    new_tablet_meta_pb.clear_inc_rs_metas();
+    TabletSchema tablet_schema;
+    RETURN_NOT_OK(tablet_schema.init_from_pb(new_tablet_meta_pb.schema()));
+    for (auto& visible_rowset : cloned_tablet_meta_pb.rs_metas()) {
+        RowsetMetaPB* rowset_meta = new_tablet_meta_pb.add_rs_metas();
+        RETURN_NOT_OK(_rename_rowset_id(visible_rowset, clone_dir, data_dir, tablet_schema, rowset_meta));
+    }
+
+    for (auto& inc_rowset : cloned_tablet_meta_pb.inc_rs_metas()) {
+        RowsetMetaPB* rowset_meta = new_tablet_meta_pb.add_rs_metas();
+        RETURN_NOT_OK(_rename_rowset_id(inc_rowset, clone_dir, data_dir, tablet_schema, rowset_meta));
+    }
+
+    res = TabletMeta::save(cloned_meta_file, new_tablet_meta_pb);
+    if (res != OLAP_SUCCESS) {
+        LOG(WARNING) << "fail to save converted tablet meta to dir='" << clone_dir;
+        return res;
+    }
+
+    return OLAP_SUCCESS;
+}
+
+OLAPStatus EngineCloneTask::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb, const string& new_path, 
+    DataDir& data_dir, TabletSchema& tablet_schema, RowsetMetaPB* new_rs_meta_pb) {
+    RowsetMetaSharedPtr alpha_rowset_meta(new AlphaRowsetMeta());
+    alpha_rowset_meta->init_from_pb(rs_meta_pb);
+    RowsetSharedPtr org_rowset(new AlphaRowset(&tablet_schema, new_path, &data_dir, alpha_rowset_meta));
+    RETURN_NOT_OK(org_rowset->init());
+    RETURN_NOT_OK(org_rowset->load());
+    RowsetId rowset_id = 0;
+    RowsetIdGenerator::instance()->get_next_id(&data_dir, &rowset_id);
+    RowsetMetaSharedPtr org_rowset_meta = org_rowset->rowset_meta();
+    RowsetWriterContextBuilder context_builder;
+    context_builder.set_rowset_id(rowset_id)
+            .set_tablet_id(org_rowset_meta->tablet_id())
+            .set_partition_id(org_rowset_meta->partition_id())
+            .set_tablet_schema_hash(org_rowset_meta->tablet_schema_hash())
+            .set_rowset_type(org_rowset_meta->rowset_type())
+            .set_rowset_path_prefix(new_path)
+            .set_tablet_schema(&tablet_schema)
+            .set_data_dir(&data_dir)
+            .set_rowset_state(org_rowset_meta->rowset_state())
+            .set_version(org_rowset_meta->version())
+            .set_version_hash(org_rowset_meta->version_hash());
+    RowsetWriterContext context = context_builder.build();
+    RowsetWriterSharedPtr rs_writer(new AlphaRowsetWriter());
+    if (rs_writer == nullptr) {
+        LOG(WARNING) << "fail to new rowset.";
+        return OLAP_ERR_MALLOC_ERROR;
+    }
+    rs_writer->init(context);
+    rs_writer->add_rowset(org_rowset);
+    RowsetSharedPtr new_rowset = rs_writer->build();
+    if (new_rowset == nullptr) {
+        LOG(WARNING) << "failed to build rowset when rename rowset id";
+        return OLAP_ERR_MALLOC_ERROR; 
+    }
+    RETURN_NOT_OK(new_rowset->load());
+    new_rowset->rowset_meta()->to_rowset_pb(new_rs_meta_pb);
+    org_rowset->remove();
     return OLAP_SUCCESS;
 }
 
@@ -714,14 +822,13 @@ OLAPStatus EngineCloneTask::_finish_clone(TabletSharedPtr tablet, const string& 
     return res;
 }
 
-
 OLAPStatus EngineCloneTask::_clone_incremental_data(TabletSharedPtr tablet, const TabletMeta& cloned_tablet_meta,
                                               int64_t committed_version) {
     LOG(INFO) << "begin to incremental clone. tablet=" << tablet->full_name()
               << ", committed_version=" << committed_version;
 
     vector<Version> missed_versions;
-    tablet->calc_missed_versions(committed_version, &missed_versions);
+    tablet->unprotect_calc_missed_versions(committed_version, &missed_versions);
     
     vector<Version> versions_to_delete;
     vector<RowsetMetaSharedPtr> rowsets_to_clone;

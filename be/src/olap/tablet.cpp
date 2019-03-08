@@ -610,8 +610,13 @@ OLAPStatus Tablet::compute_all_versions_hash(const vector<Version>& versions,
 
 void Tablet::calc_missed_versions(int64_t spec_version,
                                   vector<Version>* missed_versions) {
-    DCHECK(spec_version > 0) << "invalid spec_version: " << spec_version;
     ReadLock rdlock(&_meta_lock);
+    unprotect_calc_missed_versions(spec_version, missed_versions);
+}
+
+void Tablet::unprotect_calc_missed_versions(int64_t spec_version,
+                                  vector<Version>* missed_versions) {
+    DCHECK(spec_version > 0) << "invalid spec_version: " << spec_version;
     std::list<Version> existing_versions;
     for (auto& rs : _tablet_meta->all_rs_metas()) {
         existing_versions.emplace_back(rs->version());
@@ -658,7 +663,7 @@ OLAPStatus Tablet::max_continuous_version_from_begining(Version* version, Versio
     Version max_continuous_version = { -1, 0 };
     VersionHash max_continuous_version_hash = 0;
     for (int i = 0; i < existing_versions.size(); ++i) {
-        if (existing_versions[i].first.first > max_continuous_version.first + 1) {
+        if (existing_versions[i].first.first > max_continuous_version.second + 1) {
             break;
         }
         max_continuous_version = existing_versions[i].first;

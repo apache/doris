@@ -239,14 +239,6 @@ public:
         _rowset_meta_pb.set_empty(empty);
     }
 
-    std::string rowset_path() {
-        return _rowset_path;
-    }
-
-    void set_rowset_path(std::string rowset_path) {
-        _rowset_path = rowset_path;
-    }
-
     PUniqueId load_id() {
         return _rowset_meta_pb.load_id();
     }
@@ -291,10 +283,6 @@ public:
 
     void to_rowset_pb(RowsetMetaPB* rs_meta_pb) {
         *rs_meta_pb = _rowset_meta_pb;
-        AlphaRowsetExtraMetaPB extra_meta_pb;
-        extra_meta_pb.ParseFromString(_rowset_meta_pb.extra_properties());
-        LOG(INFO) << "extra_meta_pb pending group size:" << extra_meta_pb.pending_segment_groups().size();
-        LOG(INFO) << "extra_meta_pb group size:" << extra_meta_pb.segment_groups().size();
     }
 
 private:
@@ -311,7 +299,6 @@ private:
 
 private:
     RowsetMetaPB _rowset_meta_pb;
-    std::string _rowset_path;    // in memory, not serialized to protocol buffer
 };
 
 } // namespace doris
