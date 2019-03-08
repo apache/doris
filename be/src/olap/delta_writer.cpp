@@ -179,6 +179,7 @@ OLAPStatus DeltaWriter::close(google::protobuf::RepeatedPtrField<PTabletInfo>* t
     OLAPStatus res = OLAP_SUCCESS;
     // use rowset meta manager to save meta
     _cur_rowset = _rowset_writer->build();
+    StorageEngine::instance()->remove_pending_paths(_rowset_writer->rowset_id());
     if (_cur_rowset == nullptr) {
         LOG(WARNING) << "fail to build rowset";
         return OLAP_ERR_MALLOC_ERROR;

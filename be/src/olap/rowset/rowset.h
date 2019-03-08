@@ -36,7 +36,28 @@ class Rowset : public std::enable_shared_from_this<Rowset> {
 public:
     virtual ~Rowset() { }
 
+    // this api is for init related objects in memory
     virtual OLAPStatus init() = 0;
+
+    bool is_inited() {
+        return _is_inited;
+    }
+
+    void set_inited(bool inited) {
+        _is_inited = inited;
+    }
+
+    bool is_loaded() {
+        return _is_loaded;
+    }
+
+    void set_loaded(bool loaded) {
+        _is_loaded= loaded;
+    }
+
+    // this api is for lazy loading data
+    // always means that there are some io
+    virtual OLAPStatus load() = 0;
 
     virtual std::shared_ptr<RowsetReader> create_reader() = 0;
 
@@ -90,6 +111,12 @@ public:
     virtual int64_t txn_id() const = 0;
     
     virtual bool delete_flag() = 0;
+
+    virtual bool check_path(const std::string& path) = 0;
+
+private:
+    bool _is_inited;
+    bool _is_loaded;
 };
 
 } // namespace doris
