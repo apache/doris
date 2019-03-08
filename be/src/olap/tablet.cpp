@@ -112,7 +112,6 @@ Tablet::~Tablet() {
 
 OLAPStatus Tablet::init_once() {
     OLAPStatus res = OLAP_SUCCESS;
-    WriteLock wrlock(&_meta_lock);
     TabletMeta* tablet_meta = _tablet_meta;
     VLOG(3) << "begin to load indices. tablet=" << full_name()
             << ", version_size=" << tablet_meta->version_count();
@@ -159,6 +158,7 @@ OLAPStatus Tablet::save_meta() {
        LOG(WARNING) << "fail to save tablet_meta. res=" << res
                     << ", root=" << _data_dir->path();
     }
+    _schema = _tablet_meta->tablet_schema();
 
     return res;
 }
@@ -232,6 +232,10 @@ OLAPStatus Tablet::register_tablet_into_dir() {
 
 OLAPStatus Tablet::add_rowset(RowsetSharedPtr rowset) {
     WriteLock wrlock(&_meta_lock);
+    return add_rowset_unlock(rowset);
+}
+
+OLAPStatus Tablet::add_rowset_unlock(RowsetSharedPtr rowset) {
     RETURN_NOT_OK(_tablet_meta->add_rs_meta(rowset->rowset_meta()));
     _rs_version_map[rowset->version()] = rowset;
     RETURN_NOT_OK(_rs_graph.add_version_to_graph(rowset->version()));
@@ -435,10 +439,6 @@ OLAPStatus Tablet::capture_rs_readers(const vector<Version>& version_path,
                          << ", version='" << version.first << "-" << version.second;
             return OLAP_ERR_CAPTURE_ROWSET_READER_ERROR;
         }
-        // if the rowset is empty, there is no need to read
-        if (it->second->empty()) {
-            continue;
-        }
         std::shared_ptr<RowsetReader> rs_reader(it->second->create_reader());
         rs_readers->push_back(rs_reader);
     }
@@ -454,17 +454,8 @@ bool Tablet::version_for_load_deletion(const Version& version) {
     return rowset->delete_flag();
 }
 
-AlterTabletState Tablet::alter_state() {
-    return _tablet_meta->alter_task().alter_state();
-}
-
-bool Tablet::is_schema_changing() {
-    return alter_state() != ALTER_NONE;
-}
-
-OLAPStatus Tablet::set_alter_state(AlterTabletState state) {
-    _tablet_meta->mutable_alter_task()->set_alter_state(state);
-    return OLAP_SUCCESS;
+bool Tablet::has_alter_task() const {
+    return _tablet_meta->has_alter_task();
 }
 
 const AlterTabletTask& Tablet::alter_task() {
@@ -477,7 +468,7 @@ void Tablet::add_alter_task(int64_t tablet_id,
                             const AlterTabletType alter_type) {
     delete_alter_task();
     AlterTabletTask alter_task;
-    alter_task.set_alter_state(ALTER_ALTERING);
+    alter_task.set_alter_state(ALTER_RUNNING);
     alter_task.set_related_tablet_id(tablet_id);
     alter_task.set_related_schema_hash(schema_hash);
     for (auto& version : versions_to_alter) {
@@ -492,6 +483,15 @@ void Tablet::add_alter_task(int64_t tablet_id,
 OLAPStatus Tablet::delete_alter_task() {
     LOG(INFO) << "delete alter task from table. tablet=" << full_name();
     return _tablet_meta->delete_alter_task();
+}
+
+AlterTabletState Tablet::alter_state() {
+    return _tablet_meta->alter_task().alter_state();
+}
+
+OLAPStatus Tablet::set_alter_state(AlterTabletState state) {
+    _tablet_meta->mutable_alter_task()->set_alter_state(state);
+    return OLAP_SUCCESS;
 }
 
 OLAPStatus Tablet::protected_delete_alter_task() {

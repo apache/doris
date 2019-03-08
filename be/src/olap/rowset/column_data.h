@@ -34,8 +34,6 @@
 namespace doris {
 
 class Tablet;
-
-
 class SegmentReader;
 
 // This class is column data reader. this class will be used in two case.
@@ -84,6 +82,10 @@ public:
     // Only used to binary search in full-key find row
     const RowCursor* seek_and_get_current_row(const RowBlockPosition& position);
 
+    void set_using_cache(bool is_using_cache) {
+        _is_using_cache = is_using_cache;
+    }
+
     void set_lru_cache(Cache* lru_cache) {
         _lru_cache = lru_cache;
     }
@@ -118,12 +120,12 @@ public:
     int64_t num_rows() const { return _segment_group->num_rows(); }
     Tablet* tablet() const { return _tablet; }
 
-private:
-    DISALLOW_COPY_AND_ASSIGN(ColumnData);
-
     // To compatable with schmea change read, use this function to init column data
     // for schema change read. Only called in get_first_row_block
-    OLAPStatus _schema_change_init();
+    OLAPStatus schema_change_init();
+
+private:
+    DISALLOW_COPY_AND_ASSIGN(ColumnData);
 
     // Try to seek to 'key'. If this funciton returned with OLAP_SUCCESS, current_row()
     // point to the first row meet the requirement.
@@ -180,7 +182,7 @@ private:
     std::vector<uint32_t> _return_columns;
     std::vector<uint32_t> _seek_columns;
     std::set<uint32_t> _load_bf_columns;
-    
+
     SegmentReader* _segment_reader;
 
     std::unique_ptr<VectorizedRowBatch> _seek_vector_batch;

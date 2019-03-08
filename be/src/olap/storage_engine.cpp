@@ -1108,7 +1108,6 @@ void StorageEngine::add_unused_rowset(RowsetSharedPtr rowset) {
 
 // TODO(zc): refactor this funciton
 OLAPStatus StorageEngine::create_tablet(const TCreateTabletReq& request) {
-    
     // Get all available stores, use ref_root_path if the caller specified
     std::vector<DataDir*> stores;
     stores = get_stores_for_create_tablet(request.storage_medium);

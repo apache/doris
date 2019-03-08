@@ -43,16 +43,21 @@ OLAPStatus EngineClearAlterTask::_clear_alter_task(const TTabletId tablet_id,
 
     // get schema change info
     tablet->obtain_header_rdlock();
+    bool has_alter_task = tablet->has_alter_task();
+    tablet->release_header_lock();
+
+    if (!has_alter_task) {
+        return OLAP_SUCCESS;
+    }
+
+    tablet->obtain_header_rdlock();
     const AlterTabletTask& alter_task = tablet->alter_task();
     AlterTabletState alter_state = alter_task.alter_state();
     TTabletId related_tablet_id = alter_task.related_tablet_id();
     TSchemaHash related_schema_hash = alter_task.related_schema_hash();
     tablet->release_header_lock();
-    if (alter_state == AlterTabletState::ALTER_NONE) {
-        return OLAP_SUCCESS;
-    } 
-    
-    if (alter_state == AlterTabletState::ALTER_ALTERING) { 
+
+    if (alter_state == ALTER_RUNNING) {
         LOG(WARNING) << "find alter task unfinished when process clear alter task. "
                      << "tablet=" << tablet->full_name();
         return OLAP_ERR_PREVIOUS_SCHEMA_CHANGE_NOT_FINISHED;
@@ -64,10 +69,10 @@ OLAPStatus EngineClearAlterTask::_clear_alter_task(const TTabletId tablet_id,
     // clear related tablet's schema change info
     TabletSharedPtr related_tablet = TabletManager::instance()->get_tablet(related_tablet_id, related_schema_hash);
     if (related_tablet.get() == NULL) {
-        OLAP_LOG_WARNING("related tablet not found when process clear alter task. "
-                         "[tablet_id=%ld schema_hash=%d "
-                         "related_tablet_id=%ld related_schema_hash=%d]",
-                         tablet_id, schema_hash, related_tablet_id, related_schema_hash);
+        LOG(WARNING) << "related tablet not found when process clear alter task."
+                     << " tablet_id=" << tablet_id << ", schema_hash=" << schema_hash
+                     << ", related_tablet_id=" << related_tablet_id
+                     << ", related_schema_hash=" << related_schema_hash;
     } else {
         res = related_tablet->protected_delete_alter_task();
     }

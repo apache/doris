@@ -118,6 +118,7 @@ public:
 
     // operation in rowsets
     OLAPStatus add_rowset(RowsetSharedPtr rowset);
+    OLAPStatus add_rowset_unlock(RowsetSharedPtr rowset);
     OLAPStatus modify_rowsets(const vector<RowsetSharedPtr>& to_add,
                               const vector<RowsetSharedPtr>& to_delete);
     const RowsetSharedPtr get_rowset_by_version(const Version& version) const;
@@ -151,14 +152,14 @@ public:
     bool version_for_load_deletion(const Version& version);
 
     // message for alter task
-    AlterTabletState alter_state();
-    bool is_schema_changing();
-    OLAPStatus set_alter_state(AlterTabletState state);
+    bool has_alter_task() const;
     const AlterTabletTask& alter_task();
     void add_alter_task(int64_t tablet_id, int64_t schema_hash,
                         const vector<Version>& versions_to_alter,
                         const AlterTabletType alter_type);
     OLAPStatus delete_alter_task();
+    AlterTabletState alter_state();
+    OLAPStatus set_alter_state(AlterTabletState state);
     OLAPStatus protected_delete_alter_task();
 
     // meta lock

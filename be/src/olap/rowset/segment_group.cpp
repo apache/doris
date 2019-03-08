@@ -29,6 +29,7 @@
 #include "olap/utils.h"
 #include "olap/wrapper_field.h"
 #include "olap/schema.h"
+#include "util/stack_util.h"
 
 using std::ifstream;
 using std::string;
@@ -194,22 +195,26 @@ bool SegmentGroup::is_in_use() {
 bool SegmentGroup::delete_all_files() {
     bool success = true;
     if (!_file_created) { return success; }
+    LOG(INFO) << "_num_segments:" << _num_segments
+              << ", get_stack_trace=" << get_stack_trace();
     for (uint32_t seg_id = 0; seg_id < _num_segments; ++seg_id) {
         // get full path for one segment
         string index_path = construct_index_file_path(seg_id);
         string data_path = construct_data_file_path(seg_id);
 
+        LOG(INFO) << "delete index file. path=" << index_path;
         if (remove(index_path.c_str()) != 0) {
             char errmsg[64];
-            LOG(WARNING) << "fail to delete index file. [err='" << strerror_r(errno, errmsg, 64)
-                         << "' path='" << index_path << "']";
+            LOG(WARNING) << "fail to delete index file. err=" << strerror_r(errno, errmsg, 64)
+                         << ", path=" << index_path;
             success = false;
         }
 
+        LOG(WARNING) << "delete data file. path=" << data_path;
         if (remove(data_path.c_str()) != 0) {
             char errmsg[64];
-            LOG(WARNING) << "fail to delete data file. [err='" << strerror_r(errno, errmsg, 64)
-                         << "' path='" << data_path << "']";
+            LOG(WARNING) << "fail to delete data file. err=" << strerror_r(errno, errmsg, 64)
+                         << ", path=" << data_path;
             success = false;
         }
     }
