@@ -27,21 +27,21 @@ import java.util.List;
 /**
  * For creating physical implementations of the MultiExpression and it's children group.
  *
- * +--------------------------------+    Suspending
+ * +--------------------------------+  Children group are not scheduled for implementing.
  * |                                |------------------>+
  * |   ImplementingChildrenStatus   |                   | Child StateMachine
  * |                                |<------------------+
- * +--------------------------------+    Resuming
+ * +--------------------------------+
  *                |
- *                |  Running
+ *                |  Children have been scheduled for implementing.
  *                V
- * +--------------------------------+    Suspending
+ * +--------------------------------+   Rules are not applied for MultiExpression.
  * |                                |------------------>+
  * |    ImplementingSelfStatus      |                   | Child StateMachine
  * |                                |<------------------+
- * +--------------------------------+    Resuming
+ * +--------------------------------+
  *                |
- *                |  Running
+ *                |  Rules have been applied for MultiExpression.
  *                V
  * +--------------------------------+
  * |                                |
@@ -49,25 +49,25 @@ import java.util.List;
  * |                                |
  * +--------------------------------+
  *                |
- *                |  finished
+ *                |
  *                V
  *        Parent StateMachine
  */
-public class TaskMultiExpressionImplementation extends TaskStateMachine {
+public class TaskMultiExpressionImplementation extends Task {
 
     private final MultiExpression mExpr;
     private boolean isApplyTaskScheduled;
     private boolean isApplyTaskScheduledForChildren;
 
-    private TaskMultiExpressionImplementation(MultiExpression mExpr, TaskStateMachine parent) {
-        super(CTaskType.MultiExpressionImplementation, parent);
+    private TaskMultiExpressionImplementation(MultiExpression mExpr, Task parent) {
+        super(parent);
         this.mExpr = mExpr;
         this.isApplyTaskScheduled = false;
         this.isApplyTaskScheduledForChildren = false;
-        this.currentState = new ImplementingChildrenStatus();
+        this.nextState = new ImplementingChildrenStatus();
     }
 
-    public static void schedule(SchedulerContext sContext, MultiExpression mExpr, TaskStateMachine parent) {
+    public static void schedule(SchedulerContext sContext, MultiExpression mExpr, Task parent) {
         sContext.schedule(new TaskMultiExpressionImplementation(mExpr, parent));
     }
 
@@ -81,12 +81,10 @@ public class TaskMultiExpressionImplementation extends TaskStateMachine {
                     TaskGroupImplementation.schedule(sContext, group, TaskMultiExpressionImplementation.this);
                 }
                 isApplyTaskScheduledForChildren = true;
-                setSuspending();
                 return;
             }
 
-            currentState = new ImplementingSelfStatus();
-            setRunning();
+            nextState = new ImplementingSelfStatus();
         }
     }
 
@@ -108,13 +106,11 @@ public class TaskMultiExpressionImplementation extends TaskStateMachine {
                     TaskRuleApplication.schedule(sContext, mExpr, rule, TaskMultiExpressionImplementation.this);
                 }
 
-                setSuspending();
                 isApplyTaskScheduled = true;
                 return;
             }
 
-            currentState = new CompletingStatus();
-            setRunning();
+            nextState = new CompletingStatus();
         }
     }
 

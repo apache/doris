@@ -23,13 +23,13 @@ import org.apache.doris.optimizer.OptGroup;
 /**
  * For creating physical implementations of all expressions in the group.
  *
- * +--------------------------------+    Suspending
+ * +--------------------------------+  MultiExpression is not implemented.
  * |                                |------------------>+
  * |       ImplementingState        |                   | Child StateMachine
  * |                                |<------------------+
- * +--------------------------------+    Resuming
+ * +--------------------------------+
  *                |
- *                |  Running
+ *                |  MultiExpression are all implemented.
  *                V
  * +--------------------------------+
  * |                                |
@@ -37,24 +37,24 @@ import org.apache.doris.optimizer.OptGroup;
  * |                                |
  * +--------------------------------+
  *                |
- *                |  finished
+ *                |
  *                V
  *        Parent StateMachine
  */
 
-public class TaskGroupImplementation extends TaskStateMachine {
+public class TaskGroupImplementation extends Task {
 
     private final OptGroup group;
     private int lastMexprIndex;
 
-    private TaskGroupImplementation(OptGroup group, TaskStateMachine parent) {
-        super(CTaskType.GroupImplementation, parent);
+    private TaskGroupImplementation(OptGroup group, Task parent) {
+        super(parent);
         this.group = group;
-        this.currentState = new ImplementingState();
+        this.nextState = new ImplementingState();
         this.lastMexprIndex = 0;
     }
 
-    public static void schedule(SchedulerContext sContext, OptGroup group, TaskStateMachine parent) {
+    public static void schedule(SchedulerContext sContext, OptGroup group, Task parent) {
         sContext.schedule(new TaskGroupImplementation(group, parent));
     }
 
@@ -73,12 +73,10 @@ public class TaskGroupImplementation extends TaskStateMachine {
             }
 
             if (hasNew) {
-                setSuspending();
                 return;
             }
 
-            currentState = new CompletingState();
-            setRunning();
+            nextState = new CompletingState();
         }
     }
 

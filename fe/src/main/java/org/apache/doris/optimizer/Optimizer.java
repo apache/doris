@@ -17,27 +17,26 @@
 
 package org.apache.doris.optimizer;
 
-import org.apache.doris.optimizer.search.OptimizationContext;
-import org.apache.doris.optimizer.search.SchedulerContext;
-import org.apache.doris.optimizer.search.SchedulerContextImp;
+import org.apache.doris.optimizer.search.*;
 
+/**
+ * Optimizer's entrance class
+ */
 public class Optimizer {
 
     private OptMemo memo;
     private OptGroup root;
 
-    public Optimizer() {
+    public Optimizer(OptExpression query) {
         memo = new OptMemo();
-    }
-
-    public void insert(OptExpression query) {
         final MultiExpression mExpr = memo.copyIn(query);
         root = mExpr.getGroup();
     }
 
     public void optimize() {
         final OptimizationContext oContext = new OptimizationContext();
-        final SchedulerContext sContext = SchedulerContextImp.create(memo, root, oContext);
-        sContext.execute();
+        final Scheduler scheduler = DefaultScheduler.create();
+        final SchedulerContext sContext = SchedulerContextImp.create(memo, root, oContext, scheduler);
+        scheduler.run(sContext);
     }
 }

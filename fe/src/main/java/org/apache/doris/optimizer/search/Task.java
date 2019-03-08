@@ -1,5 +1,3 @@
-package org.apache.doris.optimizer.search;
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -17,29 +15,30 @@ package org.apache.doris.optimizer.search;
 // specific language governing permissions and limitations
 // under the License.
 
+package org.apache.doris.optimizer.search;
+
 import com.google.common.base.Preconditions;
 
 /**
  * Base class for Cascades search task.
  */
-abstract public class TaskStateMachine {
+public abstract class Task {
 
-    protected final CTaskType type;
     // Parent that schedule this.
-    protected final TaskStateMachine parent;
-    // The reference count by child.
+    protected final Task parent;
+    // The reference count by children.
     private int refCountbyChildren;
-    // Current state, it must be assigned by derived class.
-    protected TaskState currentState;
+    // Used to determine where the current state machine is running
+    protected TaskState nextState;
 
-    public TaskStateMachine(CTaskType type, TaskStateMachine parent) {
-        this.type = type;
+    public Task(Task parent) {
         this.parent = parent;
         this.refCountbyChildren = 0;
     }
 
-    public boolean isFinished() { return currentState.isFinished(); };
-    public TaskStateMachine getParent() { return parent; }
+    public boolean isFinished() { return nextState == null ; }
+    public void setFinished() { nextState = null; }
+    public Task getParent() { return parent; }
 
     public void increaseRefByChildren() {
         Preconditions.checkState(refCountbyChildren >= 0);
@@ -57,36 +56,23 @@ abstract public class TaskStateMachine {
     }
 
     public boolean execute(SchedulerContext sContext) {
-        if (currentState.isFinished()) {
-            return true;
-        }
-
-        if (currentState.isSuspending()) {
-            currentState.setResuming();
-        }
-
         while (true) {
-            currentState.handle(sContext);
-
-            if (currentState.isFinished()) {
-                // State Machine finished.
-                break;
-            }
-
-            if (currentState.isSuspending()) {
-                // State Machine suspend.
+            final TaskState lastState = nextState;
+            nextState.handle(sContext);
+            // In two cases, the current execution will exit.
+            // 1. Task state does't change, it indicates that
+            // current state machine needs to be suspended.
+            // 2. Current State machine has finished.
+            if (lastState == nextState || isFinished()) {
                 break;
             }
         }
-
-        return currentState.isFinished();
+        return isFinished();
     }
 
-    public enum CTaskType {
-        GroupOptimization,
-        MultiExpressionOptimization,
-        GroupImplementation,
-        MultiExpressionImplementation,
-        RuleApplication
+    // Base class for StateMacheine's state.
+    protected abstract class TaskState {
+        public abstract void handle(SchedulerContext sContext);
     }
+
 }

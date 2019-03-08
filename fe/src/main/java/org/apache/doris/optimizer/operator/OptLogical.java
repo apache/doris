@@ -17,7 +17,6 @@
 
 package org.apache.doris.optimizer.operator;
 
-import com.google.common.collect.Lists;
 import org.apache.doris.optimizer.rule.OptRule;
 
 import java.util.List;

@@ -17,11 +17,17 @@
 
 package org.apache.doris.optimizer.search;
 
-import org.apache.doris.optimizer.OptMemo;
+/**
+ * for scheduling all the tasks.
+ */
 
-public interface SchedulerContext {
+public interface Scheduler {
 
-    void schedule(Task task);
+    /**
+     * Entrance to task execution.
+     * @param sContext
+     */
+    void run(SchedulerContext sContext);
 
-    OptMemo getMemo();
+    void add(Task task);
 }

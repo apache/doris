@@ -28,7 +28,7 @@ import java.util.List;
 public class OptLogicallJoin extends OptLogical {
 
     public OptLogicallJoin() {
-        super(OptOperatorType.OP_LOGICAL_EQ_JOIN);
+        super(OptOperatorType.OP_LOGICAL_JOIN);
     }
 
     @Override

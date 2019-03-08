@@ -19,7 +19,7 @@ package org.apache.doris.optimizer.operator;
 
 public enum OptOperatorType {
     OP_LOGICAL_SCAN("LogicalScan"),
-    OP_LOGICAL_EQ_JOIN("LogicalEqJoin"),
+    OP_LOGICAL_JOIN("LogicalEqJoin"),
 
     OP_PHYSICAL_OLAP_SCAN("PhysicalOlapScan"),
     OP_PHYSICAL_HASH_JOIN("PhysicalHashJoin"),

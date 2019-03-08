@@ -35,24 +35,24 @@ import java.util.List;
  * |                                |
  * +--------------------------------+
  *                |
- *                | finished
+ *                |
  *                V
  *        Parent StateMachine
  */
-public class TaskRuleApplication extends TaskStateMachine {
+public class TaskRuleApplication extends Task {
 
     private final OptRule rule;
     private final MultiExpression mExpr;
 
-    private TaskRuleApplication(MultiExpression mExpr, OptRule rule, TaskStateMachine parent) {
-        super(CTaskType.RuleApplication, parent);
+    private TaskRuleApplication(MultiExpression mExpr, OptRule rule, Task parent) {
+        super(parent);
         this.mExpr = mExpr;
         this.rule = rule;
-        this.currentState = new ApplyingStatus();
+        this.nextState = new ApplyingStatus();
     }
 
     public static void schedule(SchedulerContext sContext, MultiExpression mExpr, OptRule rule,
-                                TaskStateMachine parent) {
+                                Task parent) {
         sContext.schedule(new TaskRuleApplication(mExpr, rule, parent));
     }
 
@@ -61,7 +61,6 @@ public class TaskRuleApplication extends TaskStateMachine {
         @Override
         public void handle(SchedulerContext sContext) {
             if (!rule.isCompatible(mExpr.getRuleTypeDerivedFrom())) {
-                setFinished();
                 return;
             }
             // Transform
@@ -70,7 +69,6 @@ public class TaskRuleApplication extends TaskStateMachine {
             OptExpression extractExpr = OptBinding.bind(pattern, mExpr, lastExpr);
             final List<OptExpression> newExprs = Lists.newArrayList();
             while (extractExpr != null) {
-                final OptGroup group = mExpr.getGroup();
                 rule.transform(extractExpr, newExprs);
                 if (rule.isApplyOnce()) {
                     break;

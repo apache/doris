@@ -25,21 +25,21 @@ import org.apache.logging.log4j.Logger;
 /**
  * For searching best Plan in the group under the optimization context.
  *
- * +--------------------------------+    Suspending
+ * +--------------------------------+  Group is not implemented
  * |                                |------------------>+
  * |        InitalizingState        |                   | Child StateMachine
  * |                                |<------------------+
- * +--------------------------------+    Resuming
+ * +--------------------------------+
  *                |
- *                |  Running
+ *                |  Group is implemented
  *                V
- * +--------------------------------+    Suspending
+ * +--------------------------------+   MultiExpression is not implemented.
  * |                                |------------------>+
  * | OptimizingMultiExpressionState |                   | Child StateMachine
  * |                                |<------------------+
- * +--------------------------------+    Resuming
+ * +--------------------------------+
  *                |
- *                |  Running
+ *                |  MultiExpression are all implemented.
  *                V
  * +--------------------------------+
  * |                                |
@@ -47,11 +47,11 @@ import org.apache.logging.log4j.Logger;
  * |                                |
  * +--------------------------------+
  *                |
- *                |  finished
+ *                |
  *                V
  *        Parent StateMachine
  */
-public class TaskGroupOptimization extends TaskStateMachine {
+public class TaskGroupOptimization extends Task {
     private final static Logger LOG = LogManager.getLogger(TaskGroupOptimization.class);
 
     private final OptGroup group;
@@ -59,15 +59,15 @@ public class TaskGroupOptimization extends TaskStateMachine {
     private int lastMexprIndex;
 
     public static void schedule(SchedulerContext sContext, OptGroup group,
-                                OptimizationContext optContext, TaskStateMachine parent) {
+                                OptimizationContext optContext, Task parent) {
         sContext.schedule(new TaskGroupOptimization(group, optContext, parent));
     }
 
-    private TaskGroupOptimization(OptGroup group, OptimizationContext optContext, TaskStateMachine parent) {
-        super(CTaskType.GroupOptimization, parent);
+    private TaskGroupOptimization(OptGroup group, OptimizationContext optContext, Task parent) {
+        super(parent);
         this.group = group;
         this.optContext = optContext;
-        this.currentState = new InitalizingState();
+        this.nextState = new InitalizingState();
         this.lastMexprIndex = 0;
     }
 
@@ -77,12 +77,10 @@ public class TaskGroupOptimization extends TaskStateMachine {
         public void handle(SchedulerContext sContext) {
             if (!group.isImplemented()) {
                 TaskGroupImplementation.schedule(sContext, group, TaskGroupOptimization.this);
-                setSuspending();
                 return;
             }
             group.setStatus(OptGroup.GState.Optimizing);
-            currentState = new OptimizingMultiExpressionState();
-            setRunning();
+            nextState = new OptimizingMultiExpressionState();
         }
     }
 
@@ -103,12 +101,10 @@ public class TaskGroupOptimization extends TaskStateMachine {
             }
 
             if (hasNew) {
-                setSuspending();
                 return;
             }
 
-            currentState = new CompletingState();
-            setRunning();
+            nextState = new CompletingState();
         }
     }
 

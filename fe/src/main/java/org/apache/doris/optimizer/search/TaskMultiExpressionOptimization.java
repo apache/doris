@@ -24,20 +24,20 @@ import org.apache.doris.optimizer.OptGroup;
  * For searching the best plan rooted by the multi expression under the optimization context.
  *
  * +--------------------------------+
- * |                                |    finished
+ * |                                |  Sub plan is pruned.
  * |       InitalizationState       |------------------> Parent StateMachine
  * |                                |
  * +--------------------------------+
  *                |
- *                |  Running
+ *                |  Sub plan is't pruned.
  *                V
- * +--------------------------------+    Suspending
+ * +--------------------------------+  Children group are not optimized.
  * |                                |------------------>+
  * |      OptimizingChildGroup      |                   | Child StateMachine
  * |                                |<------------------+
- * +--------------------------------+    Resuming
+ * +--------------------------------+
  *                |
- *                |  Running
+ *                |  Children Group have been optimized.
  *                V
  * +--------------------------------+
  * |                                |
@@ -45,7 +45,7 @@ import org.apache.doris.optimizer.OptGroup;
  * |                                |
  * +--------------------------------+
  *                |
- *                |  Running
+ *                |
  *                V
  * +--------------------------------+
  * |                                |
@@ -53,7 +53,7 @@ import org.apache.doris.optimizer.OptGroup;
  * |                                |
  * +--------------------------------+
  *                |
- *                |  Running
+ *                |
  *                V
  * +--------------------------------+
  * |                                |
@@ -61,25 +61,25 @@ import org.apache.doris.optimizer.OptGroup;
  * |                                |
  * +--------------------------------+
  *                |
- *                |  finished
+ *                |
  *                V
  *        Parent StateMachine
  */
-public class TaskMultiExpressionOptimization extends TaskStateMachine {
+public class TaskMultiExpressionOptimization extends Task {
 
     private final MultiExpression mExpr;
     private final OptimizationContext optContext;
 
     private TaskMultiExpressionOptimization(MultiExpression mExpr, OptimizationContext optContext,
-                                            TaskStateMachine parent) {
-        super(CTaskType.MultiExpressionOptimization, parent);
+                                            Task parent) {
+        super(parent);
         this.mExpr = mExpr;
         this.optContext = optContext;
-        this.currentState = new InitalizationState();
+        this.nextState = new InitalizationState();
     }
 
     public static void schedule(SchedulerContext sContext, MultiExpression mExpr,
-                                OptimizationContext optContext, TaskStateMachine parent) {
+                                OptimizationContext optContext, Task parent) {
         sContext.schedule(new TaskMultiExpressionOptimization(mExpr, optContext, parent));
     }
 
@@ -96,8 +96,7 @@ public class TaskMultiExpressionOptimization extends TaskStateMachine {
                 setFinished();
                 return;
             }
-            currentState = new OptimizingChildGroup();
-            setRunning();
+            nextState = new OptimizingChildGroupState();
         }
 
         private boolean checkProperty(RequestProperty requestProperty) {
@@ -109,7 +108,7 @@ public class TaskMultiExpressionOptimization extends TaskStateMachine {
         }
     }
 
-    private class OptimizingChildGroup extends TaskState {
+    private class OptimizingChildGroupState extends TaskState {
 
         @Override
         public void handle(SchedulerContext sContext) {
@@ -124,12 +123,10 @@ public class TaskMultiExpressionOptimization extends TaskStateMachine {
             }
 
             if (hasNew) {
-                setSuspending();
                 return;
             }
 
-            currentState = new AddingEnforcer();
-            setRunning();
+            nextState = new AddingEnforcer();
         }
 
         private OptimizationContext deriveChildOptConext(MultiExpression parent, OptGroup child) {
@@ -142,8 +139,7 @@ public class TaskMultiExpressionOptimization extends TaskStateMachine {
 
         @Override
         public void handle(SchedulerContext sContext) {
-            currentState = new OptimizingSelf();
-            setRunning();
+            nextState = new OptimizingSelf();
         }
     }
 
@@ -152,8 +148,7 @@ public class TaskMultiExpressionOptimization extends TaskStateMachine {
 
         @Override
         public void handle(SchedulerContext sContext) {
-            currentState = new CompletingOptimization();
-            setRunning();
+            nextState = new CompletingOptimization();
         }
     }
 
