@@ -37,7 +37,7 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
     std::unique_lock<std::mutex> l(_lock); 
     if (_task_map.find(task.id) != _task_map.end()) {
         // already submitted
-        LOG(INFO) << "routine load task " << task.id << " has already been submitted";
+        LOG(INFO) << "routine load task " << UniqueId(task.id) << " has already been submitted";
         return Status::OK;
     }
 
@@ -126,6 +126,8 @@ void RoutineLoadTaskExecutor::exec_task(
             return; \
         } \
     } while (false);
+
+    VLOG(1) << "begin to execute routine load task: " << ctx->brief();
 
     // get or create data consumer
     std::shared_ptr<DataConsumer> consumer;
