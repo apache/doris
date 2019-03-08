@@ -45,7 +45,7 @@ public:
     virtual OLAPStatus next(RowCursor** row) = 0;
 
     // read next block data
-    virtual OLAPStatus next_block(RowBlock** block) = 0;
+    virtual OLAPStatus next_block(std::shared_ptr<RowBlock> block) = 0;
 
     virtual bool delete_flag() = 0;
 
@@ -59,6 +59,8 @@ public:
     virtual void close() = 0;
 
     virtual int32_t num_rows() = 0;
+
+    virtual int64_t get_filtered_rows() = 0;
 };
 
 } // namespace doris

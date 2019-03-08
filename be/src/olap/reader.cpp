@@ -126,9 +126,8 @@ private:
                     _current_row = &_row_cursor;
                     return OLAP_SUCCESS;
                 } else {
-                    RowBlock* read_block = _row_block.get();
                     if (_rs_reader->has_next()) {
-                        auto res = _rs_reader->next_block(&read_block);
+                        auto res = _rs_reader->next_block(_row_block);
                         if (res != OLAP_SUCCESS) {
                             _current_row = nullptr;
                             return res;
@@ -531,7 +530,8 @@ OLAPStatus Reader::_capture_rs_readers(const ReaderParams& read_params) {
     if (eof) { return OLAP_SUCCESS; }
 
     RowsetReaderContextBuilder context_builder;
-    context_builder.set_tablet_schema(&_tablet->tablet_schema())
+    context_builder.set_reader_type(read_params.reader_type)
+                   .set_tablet_schema(&_tablet->tablet_schema())
                    .set_return_columns(&_return_columns)
                    .set_load_bf_columns(&_load_bf_columns)
                    .set_conditions(&_conditions)
@@ -553,7 +553,7 @@ OLAPStatus Reader::_capture_rs_readers(const ReaderParams& read_params) {
 
     for (auto& rs_reader : _rs_readers) {
         if (rs_reader->has_next()) {
-            RowBlock* read_block = new(std::nothrow) RowBlock(&(_tablet->tablet_schema()));
+            std::shared_ptr<RowBlock> read_block(new RowBlock(&(_tablet->tablet_schema())));
             if (read_block == nullptr) {
                 LOG(WARNING) << "new row block failed in reader";
                 return OLAP_ERR_MALLOC_ERROR;
@@ -562,10 +562,9 @@ OLAPStatus Reader::_capture_rs_readers(const ReaderParams& read_params) {
             block_info.row_num = _tablet->tablet_schema().num_rows_per_row_block();
             block_info.null_supported = true;
             read_block->init(block_info);
-            OLAPStatus res = rs_reader->next_block(&read_block);
-            std::shared_ptr<RowBlock> block(read_block);
+            OLAPStatus res = rs_reader->next_block(read_block);
             if (res == OLAP_SUCCESS) {
-                res = _collect_iter->add_child(rs_reader, block);
+                res = _collect_iter->add_child(rs_reader, read_block);
                 if (res != OLAP_SUCCESS && res != OLAP_ERR_DATA_EOF) {
                     LOG(WARNING) << "failed to add child to iterator";
                     return res;

@@ -23,8 +23,8 @@ namespace doris {
 
 using std::to_string;
 
-EngineSchemaChangeTask::EngineSchemaChangeTask(const TAlterTabletReq& alter_tablet_request, 
-        int64_t signature, const TTaskType::type task_type, vector<string>* error_msgs, 
+EngineSchemaChangeTask::EngineSchemaChangeTask(const TAlterTabletReq& alter_tablet_request,
+        int64_t signature, const TTaskType::type task_type, vector<string>* error_msgs,
         const string& process_name):
         _alter_tablet_req(alter_tablet_request),
         _signature(signature),
@@ -39,38 +39,40 @@ OLAPStatus EngineSchemaChangeTask::execute() {
     TTabletId base_tablet_id = _alter_tablet_req.base_tablet_id;
     TSchemaHash base_schema_hash = _alter_tablet_req.base_schema_hash;
 
-    // Check last schema change status, if failed delete tablet file
+    // Check last alter tablet status, if failed delete tablet file
     // Do not need to adjust delete success or not
     // Because if delete failed create rollup will failed
-    // Check lastest schema change status
-    AlterTabletState alter_tablet_state
-        = TabletManager::instance()->show_alter_tablet_state(base_tablet_id, base_schema_hash);
-    LOG(INFO) << "get alter table state:" << alter_tablet_state << ", signature:" << _signature;
+    // Check lastest alter tablet status
+    TabletSharedPtr tablet = TabletManager::instance()->get_tablet(base_tablet_id, base_schema_hash);
+    if (tablet == nullptr) {
+        LOG(WARNING) << "failed to get tablet. tablet=" << base_tablet_id
+                     << ", schema_hash=" << base_schema_hash;
+        return OLAP_ERR_TABLE_NOT_FOUND;
+    }
 
     // Delete failed alter table tablet file
-    if (alter_tablet_state == ALTER_FAILED) {
+    if (tablet->has_alter_task() && tablet->alter_state() == ALTER_FAILED) {
         // !!! could not drop failed tablet
-        // schema change job is in finishing state in fe, be restarts, then the tablet is in ALTER_TABLE_FAILED state
+        // alter tablet job is in finishing state in fe, be restarts, then the tablet is in ALTER_TABLE_FAILED state
         // if drop the old tablet, then data is lost
-        status = TabletManager::instance()->drop_tablet(_alter_tablet_req.new_tablet_req.tablet_id, 
+        status = TabletManager::instance()->drop_tablet(_alter_tablet_req.new_tablet_req.tablet_id,
                                                         _alter_tablet_req.new_tablet_req.tablet_schema.schema_hash);
 
         if (status != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("delete failed rollup file failed, status: %d, "
-                                "signature: %ld.",
-                                status, _signature);
-            _error_msgs->push_back("delete failed rollup file failed, "
+            LOG(WARNING) << "failed to drop tablet after failing alter_tablet task, status=" << status
+                         << ", signature=" << _signature;
+            _error_msgs->push_back("failed to drop tablet after failing alter_tablet task, "
                                     "signature: " + to_string(_signature));
+            return status;
         }
     }
 
-    if (status == OLAP_SUCCESS) {
-        // if there is one running alter task, then not start current task
-        if (alter_tablet_state == ALTER_FINISHED
-                || alter_tablet_state == ALTER_FAILED 
-                || alter_tablet_state == ALTER_NONE) {
-            // Create rollup table
-            switch (_task_type) {
+    // if there is one running alter task, then not start current task
+    if (!tablet->has_alter_task()
+            || tablet->alter_state() == ALTER_FINISHED
+            || tablet->alter_state() == ALTER_FAILED) {
+        // Create rollup table
+        switch (_task_type) {
             case TTaskType::ROLLUP:
                 status = _create_rollup_tablet(_alter_tablet_req);
                 break;
@@ -80,10 +82,9 @@ OLAPStatus EngineSchemaChangeTask::execute() {
             default:
                 // pass
                 break;
-            }
-            if (status != OLAPStatus::OLAP_SUCCESS) {
-                LOG(WARNING) << _process_name << " failed. signature: " << _signature << " status: " << status;
-            }
+        }
+        if (status != OLAPStatus::OLAP_SUCCESS) {
+            LOG(WARNING) << _process_name << " failed. signature: " << _signature << " status: " << status;
         }
     }
 
@@ -91,9 +92,10 @@ OLAPStatus EngineSchemaChangeTask::execute() {
 } // execute
 
 OLAPStatus EngineSchemaChangeTask::_create_rollup_tablet(const TAlterTabletReq& request) {
-    LOG(INFO) << "begin to create rollup tablet. "
-              << "base_tablet_id=" << request.base_tablet_id
-              << ", new_tablet_id=" << request.new_tablet_req.tablet_id;
+    LOG(INFO) << "begin to create rollup tablet. base_tablet_id=" << request.base_tablet_id
+              << ", base_schema_hash" << request.base_schema_hash
+              << ", new_tablet_id=" << request.new_tablet_req.tablet_id
+              << ", new_schema_hash=" << request.new_tablet_req.tablet_schema.schema_hash;
 
     DorisMetrics::create_rollup_requests_total.increment(1);
 
@@ -104,21 +106,27 @@ OLAPStatus EngineSchemaChangeTask::_create_rollup_tablet(const TAlterTabletReq& 
 
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "failed to do rollup. res=" << res
-                     << "base_tablet=" << request.base_tablet_id
-                     << ", new_tablet=" << request.new_tablet_req.tablet_id;
+                     << " base_tablet_id=" << request.base_tablet_id
+                     << ", base_schema_hash" << request.base_schema_hash
+                     << ", new_tablet_id=" << request.new_tablet_req.tablet_id
+                     << ", new_schema_hash=" << request.new_tablet_req.tablet_schema.schema_hash;
         DorisMetrics::create_rollup_requests_failed.increment(1);
         return res;
     }
 
     LOG(INFO) << "success to create rollup tablet. res=" << res
-              << ", base_tablet_id=" << request.base_tablet_id
-              << ", new_tablet_id=" << request.new_tablet_req.tablet_id;
+              << " base_tablet_id=" << request.base_tablet_id
+              << ", base_schema_hash" << request.base_schema_hash
+              << ", new_tablet_id=" << request.new_tablet_req.tablet_id
+              << ", new_schema_hash=" << request.new_tablet_req.tablet_schema.schema_hash;
     return res;
 } // create_rollup_tablet
 
 OLAPStatus EngineSchemaChangeTask::_schema_change(const TAlterTabletReq& request) {
-    LOG(INFO) << "begin to schema change. base_tablet_id=" << request.base_tablet_id
-              << ", new_tablet_id=" << request.new_tablet_req.tablet_id;
+    LOG(INFO) << "begin to alter tablet. base_tablet_id=" << request.base_tablet_id
+              << ", base_schema_hash=" << request.base_schema_hash
+              << ", new_tablet_id=" << request.new_tablet_req.tablet_id
+              << ", new_schema_hash=" << request.new_tablet_req.tablet_schema.schema_hash;
 
     DorisMetrics::schema_change_requests_total.increment(1);
 
@@ -128,16 +136,20 @@ OLAPStatus EngineSchemaChangeTask::_schema_change(const TAlterTabletReq& request
     res = handler.process_alter_tablet(SCHEMA_CHANGE, request);
 
     if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "failed to do schema change. res=" << res
-                     << "base_tablet=" << request.base_tablet_id
-                     << ", new_tablet=" << request.new_tablet_req.tablet_id;
+        LOG(WARNING) << "failed to do alter tablet. res=" << res
+                     << ", base_tablet_id=" << request.base_tablet_id
+                     << ", base_schema_hash=" << request.base_schema_hash
+                     << ", new_tablet_id=" << request.new_tablet_req.tablet_id
+                     << ", new_schema_hash=" << request.new_tablet_req.tablet_schema.schema_hash;
         DorisMetrics::schema_change_requests_failed.increment(1);
         return res;
     }
 
-    LOG(INFO) << "success to do schema change."
-              << "base_tablet_id=" << request.base_tablet_id
-              << ", new_tablet_id=" << request.new_tablet_req.tablet_id;
+    LOG(INFO) << "success to do alter tablet."
+              << " base_tablet_id=" << request.base_tablet_id
+              << ", base_schema_hash" << request.base_schema_hash
+              << ", new_tablet_id=" << request.new_tablet_req.tablet_id
+              << ", new_schema_hash=" << request.new_tablet_req.tablet_schema.schema_hash;
     return res;
 }
 

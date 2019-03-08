@@ -89,12 +89,6 @@ public:
                                   const TabletSharedPtr ref_tablet, 
                                   std::vector<DataDir*> stores);
 
-    // Show status of all alter tablet operation.
-    // 
-    // @param [in] tablet_id & schema_hash specify a tablet
-    // @return alter tablet status
-    AlterTabletState show_alter_tablet_state(TTabletId tablet_id, TSchemaHash schema_hash);
-
     // Drop a tablet by description
     // If set keep_files == true, files will NOT be deleted when deconstruction.
     // Return OLAP_SUCCESS, if run ok

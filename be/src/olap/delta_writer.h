@@ -69,8 +69,8 @@ private:
     WriteRequest _req;
     TabletSharedPtr _tablet;
     RowsetSharedPtr _cur_rowset;
-    RowsetSharedPtr _related_rowset;
-    TabletSharedPtr _related_tablet;
+    RowsetSharedPtr _new_rowset;
+    TabletSharedPtr _new_tablet;
     RowsetWriterSharedPtr _rowset_writer;
     MemTable* _mem_table;
     Schema* _schema;

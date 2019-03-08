@@ -69,21 +69,20 @@ class DataDir;
 
 class AlterTabletTask {
 public:
-    AlterTabletTask();
+    AlterTabletTask() {}
     OLAPStatus init_from_pb(const AlterTabletPB& alter_task);
     OLAPStatus to_alter_pb(AlterTabletPB* alter_task);
-    OLAPStatus clear();
 
-    const AlterTabletState& alter_state() const { return _alter_state; }
-    void set_alter_state(AlterTabletState alter_state) { _alter_state = alter_state; }
+    inline const AlterTabletState& alter_state() const { return _alter_state; }
+    inline void set_alter_state(AlterTabletState alter_state) { _alter_state = alter_state; }
 
     inline int64_t related_tablet_id() const { return _related_tablet_id; }
     inline int64_t related_schema_hash() const { return _related_schema_hash; }
     inline void set_related_tablet_id(int64_t related_tablet_id) { _related_tablet_id = related_tablet_id; }
     inline void set_related_schema_hash(int64_t schema_hash) { _related_schema_hash = schema_hash; }
 
-    const AlterTabletType& alter_type() const { return _alter_type; }
-    void set_alter_type(AlterTabletType alter_type) { _alter_type = alter_type; }
+    inline const AlterTabletType& alter_type() const { return _alter_type; }
+    inline void set_alter_type(AlterTabletType alter_type) { _alter_type = alter_type; }
 
     const vector<RowsetMetaSharedPtr>& rowsets_to_alter() const { return _rowsets_to_alter; }
     void add_rowset_to_alter(const RowsetMetaSharedPtr& rs_meta) {
@@ -173,6 +172,7 @@ public:
     DelPredicateArray delete_predicates() const;
     bool version_for_delete_predicate(const Version& version);
 
+    inline bool has_alter_task() const;
     inline const AlterTabletTask& alter_task() const;
     inline AlterTabletTask* mutable_alter_task();
     OLAPStatus add_alter_task(const AlterTabletTask& alter_task);
@@ -186,6 +186,7 @@ private:
     vector<RowsetMetaSharedPtr> _inc_rs_metas;
     DelPredicateArray _del_pred_array;
 
+    bool _has_alter_task;
     AlterTabletTask _alter_task;
 
     DataDir* _data_dir;
@@ -282,6 +283,10 @@ inline const vector<RowsetMetaSharedPtr>& TabletMeta::all_rs_metas() const {
 
 inline const vector<RowsetMetaSharedPtr>& TabletMeta::all_inc_rs_metas() const {
     return _inc_rs_metas;
+}
+
+inline bool TabletMeta::has_alter_task() const {
+    return _has_alter_task;
 }
 
 inline const AlterTabletTask& TabletMeta::alter_task() const {
