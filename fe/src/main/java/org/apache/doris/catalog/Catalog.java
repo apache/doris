@@ -1697,7 +1697,6 @@ public class Catalog {
     public long loadRecycleBin(DataInputStream dis, long checksum) throws IOException {
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_10) {
             Catalog.getCurrentRecycleBin().readFields(dis);
-
             if (!isCheckpointThread()) {
                 // add tablet in Recycle bin to TabletInvertedIndex
                 Catalog.getCurrentRecycleBin().addTabletToInvertedIndex();

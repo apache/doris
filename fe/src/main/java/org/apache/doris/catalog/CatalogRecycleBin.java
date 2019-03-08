@@ -624,7 +624,9 @@ public class CatalogRecycleBin extends Daemon implements Writable {
                 olapTable = (OlapTable) tableInfo.getTable();
             }
             Preconditions.checkNotNull(olapTable);
-            TStorageMedium medium = olapTable.getPartitionInfo().getDataProperty(partitionId).getStorageMedium();
+            // storage medium should be got from RecyclePartitionInfo, not from olap table. because olap table
+            // does not have this partition any more
+            TStorageMedium medium = partitionInfo.getDataProperty().getStorageMedium();
             for (MaterializedIndex index : partition.getMaterializedIndices()) {
                 long indexId = index.getId();
                 int schemaHash = olapTable.getSchemaHashByIndexId(indexId);

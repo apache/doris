@@ -105,6 +105,8 @@ public class BackendLoadStatistic {
         public double replicaNumCoefficient = 0.5;
         public double capacityCoefficient = 0.5;
         public double score = 0.0;
+
+        public static final LoadScore DUMMY = new LoadScore();
     }
 
     private Map<TStorageMedium, Long> totalCapacityMap = Maps.newHashMap();
@@ -254,7 +256,7 @@ public class BackendLoadStatistic {
             }
         }
 
-        LOG.info("classify path by load. storage: {} avg used percent: {}. low/mid/high: {}/{}/{}",
+        LOG.debug("classify path by load. storage: {} avg used percent: {}. low/mid/high: {}/{}/{}",
                 avgUsedPercent, medium, lowCounter, midCounter, highCounter);
     }
 
@@ -383,7 +385,7 @@ public class BackendLoadStatistic {
             sb.append(", ").append(medium).append(": replica: ").append(totalReplicaNumMap.get(medium));
             sb.append(" used: ").append(totalUsedCapacityMap.getOrDefault(medium, 0L));
             sb.append(" total: ").append(totalCapacityMap.getOrDefault(medium, 0L));
-            sb.append(" score: ").append(loadScoreMap.get(medium));
+            sb.append(" score: ").append(loadScoreMap.getOrDefault(medium, LoadScore.DUMMY).score);
         }
         return sb.toString();
     }
