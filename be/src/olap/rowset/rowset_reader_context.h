@@ -30,6 +30,7 @@
 namespace doris {
 
 struct RowsetReaderContext {
+    ReaderType reader_type;
 	const TabletSchema* tablet_schema;
     // projection columns
     const std::vector<uint32_t>* return_columns;
@@ -70,6 +71,11 @@ struct RowsetReaderContext {
 
 class RowsetReaderContextBuilder {
 public:
+    RowsetReaderContextBuilder& set_reader_type(const ReaderType& reader_type) {
+        _reader_context.reader_type = reader_type;
+        return *this;
+    }
+
     RowsetReaderContextBuilder& set_tablet_schema(const TabletSchema* tablet_schema) {
         _reader_context.tablet_schema = tablet_schema;
         return *this;

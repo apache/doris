@@ -31,6 +31,9 @@
 
 namespace doris {
 
+class AlphaRowset;
+using AlphaRowsetSharedPtr = std::shared_ptr<AlphaRowset>;
+
 class AlphaRowset : public Rowset {
 public:
     AlphaRowset(const TabletSchema* schema, const std::string rowset_path,

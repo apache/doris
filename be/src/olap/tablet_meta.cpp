@@ -25,11 +25,6 @@
 
 namespace doris {
 
-AlterTabletTask::AlterTabletTask()
-    : _alter_state(AlterTabletState::ALTER_NONE),
-      _related_tablet_id(-1),
-      _related_schema_hash(-1) {}
-
 OLAPStatus AlterTabletTask::init_from_pb(const AlterTabletPB& alter_task) {
     _alter_state = alter_task.alter_state();
     _related_tablet_id = alter_task.related_tablet_id();
@@ -51,13 +46,6 @@ OLAPStatus AlterTabletTask::to_alter_pb(AlterTabletPB* alter_task) {
     for (auto& rs : _rowsets_to_alter) {
         rs->to_rowset_pb(alter_task->add_rowsets_to_alter());
     }
-    return OLAP_SUCCESS;
-}
-
-OLAPStatus AlterTabletTask::clear() {
-    _alter_state = AlterTabletState::ALTER_NONE;
-    _related_tablet_id = -1;
-    _related_schema_hash = -1;
     return OLAP_SUCCESS;
 }
 
@@ -115,6 +103,7 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id,
     uint32_t col_ordinal = 0;
     uint32_t key_count = 0;
     bool has_bf_columns = false;
+    LOG(INFO) << "col_ordinal_to_unique_id size:" << col_ordinal_to_unique_id.size();
     for (TColumn tcolumn : tablet_schema.columns) {
         ColumnPB* column = schema->add_column();
         uint32_t unique_id = col_ordinal_to_unique_id.at(col_ordinal++);
@@ -285,7 +274,10 @@ OLAPStatus TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
 
     // generate AlterTabletTask
     if (tablet_meta_pb.has_alter_tablet_task()) {
+        _has_alter_task = true;
         RETURN_NOT_OK(_alter_task.init_from_pb(tablet_meta_pb.alter_tablet_task()));
+    } else {
+        _has_alter_task = false;
     }
     return OLAP_SUCCESS;
 }
@@ -407,7 +399,7 @@ OLAPStatus TabletMeta::modify_rs_metas(const vector<RowsetMetaSharedPtr>& to_add
 OLAPStatus TabletMeta::revise_rs_metas(const std::vector<RowsetMetaSharedPtr>& rs_metas) {
     // delete alter task
     _tablet_meta_pb.clear_alter_tablet_task();
-    _alter_task.clear();
+    _has_alter_task = false;
 
     // remove all old rs_meta and add new rs_meta
     _tablet_meta_pb.clear_rs_metas();
@@ -581,12 +573,13 @@ bool TabletMeta::version_for_delete_predicate(const Version& version) {
 OLAPStatus TabletMeta::add_alter_task(const AlterTabletTask& alter_task) {
     _alter_task = alter_task;
     RETURN_NOT_OK(_alter_task.to_alter_pb(_tablet_meta_pb.mutable_alter_tablet_task()));
+    _has_alter_task = true;
     return OLAP_SUCCESS;
 }
 
 OLAPStatus TabletMeta::delete_alter_task() {
     _tablet_meta_pb.clear_alter_tablet_task();
-    _alter_task.clear();
+    _has_alter_task = false;
     return OLAP_SUCCESS;
 }
 

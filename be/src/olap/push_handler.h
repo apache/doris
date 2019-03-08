@@ -40,7 +40,7 @@ class RowCursor;
 
 struct TabletVars {
     TabletSharedPtr tablet;
-    std::vector<RowsetSharedPtr> added_rowsets;
+    RowsetSharedPtr rowset_to_add;
 };
 
 class PushHandler {
@@ -65,8 +65,8 @@ private:
     OLAPStatus _convert(
             TabletSharedPtr curr_tablet,
             TabletSharedPtr new_tablet_vec,
-            std::vector<RowsetSharedPtr>* cur_rowsets,
-            std::vector<RowsetSharedPtr>* related_rowsets);
+            RowsetSharedPtr* cur_rowset,
+            RowsetSharedPtr* new_rowset);
 
     // Only for debug
     std::string _debug_version_list(const Versions& versions) const;

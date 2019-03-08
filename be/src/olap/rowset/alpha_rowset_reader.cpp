@@ -65,31 +65,32 @@ OLAPStatus AlphaRowsetReader::next(RowCursor** row) {
     } else {
         status = _get_next_row_for_singleton_rowset(row);
     }
-    _num_rows_read++;
     return status;
 }
 
-OLAPStatus AlphaRowsetReader::next_block(RowBlock** block) {
+OLAPStatus AlphaRowsetReader::next_block(std::shared_ptr<RowBlock> block) {
     size_t num_rows_in_block = 0;
-    while (has_next() && (*block)->pos() < _num_rows_per_row_block) {
+    while (has_next() && block->pos() < _num_rows_per_row_block) {
         RowCursor* row_cursor = nullptr;
         OLAPStatus status = next(&row_cursor);
         if (status == OLAP_ERR_DATA_EOF) {
-            if ((*block)->has_remaining()) {
-                (*block)->set_pos(0);
-                (*block)->set_limit(num_rows_in_block);
+            if (block->has_remaining()) {
+                block->set_pos(0);
+                block->set_limit(num_rows_in_block);
+                block->finalize(num_rows_in_block);
                 return OLAP_SUCCESS;
             } else {
                 return OLAP_ERR_DATA_EOF;
             }
         }
-        (*block)->set_row((*block)->pos(), *row_cursor);
-        (*block)->pos_inc();
+        block->set_row(block->pos(), *row_cursor);
+        block->pos_inc();
         _num_rows_read++;
         num_rows_in_block++;
     }
-    (*block)->set_pos(0);
-    (*block)->set_limit(num_rows_in_block);
+    block->set_pos(0);
+    block->set_limit(num_rows_in_block);
+    block->finalize(num_rows_in_block);
     return OLAP_SUCCESS;
 }
 
@@ -111,6 +112,10 @@ void AlphaRowsetReader::close() {
 
 int32_t AlphaRowsetReader::num_rows() {
     return _num_rows_read;
+}
+
+int64_t AlphaRowsetReader::get_filtered_rows() {
+    return _current_read_context->stats->rows_del_filtered;
 }
 
 OLAPStatus AlphaRowsetReader::_get_next_block(size_t pos, RowBlock** row_block) {
@@ -218,15 +223,8 @@ OLAPStatus AlphaRowsetReader::_get_next_row_for_cumulative_rowset(RowCursor** ro
 }
 
 OLAPStatus AlphaRowsetReader::_init_column_datas(RowsetReaderContext* read_context) {
-    if (read_context->lower_bound_keys == nullptr) {
-        if (read_context->is_lower_keys_included != nullptr
-                || read_context->upper_bound_keys != nullptr
-                || read_context->is_upper_keys_included != nullptr) {
-            LOG(WARNING) << "invalid key range arguments";
-            return OLAP_ERR_INPUT_PARAMETER_ERROR;
-        }
-        _key_range_size = 0;
-    } else {
+    std::vector<ColumnPredicate*> col_predicates;
+    if (read_context->reader_type == READER_QUERY) {
         if (read_context->lower_bound_keys->size() != read_context->is_lower_keys_included->size()
                 || read_context->lower_bound_keys->size() != read_context->upper_bound_keys->size()
                 || read_context->upper_bound_keys->size() != read_context->is_upper_keys_included->size()) {
@@ -235,12 +233,10 @@ OLAPStatus AlphaRowsetReader::_init_column_datas(RowsetReaderContext* read_conte
             return OLAP_ERR_INPUT_PARAMETER_ERROR;
         }
         _key_range_size = read_context->lower_bound_keys->size();
-    }
-
-    std::vector<ColumnPredicate*> col_predicates;
-    if (read_context->predicates != nullptr) {
-        for (auto& column_predicate : *read_context->predicates) {
-            col_predicates.push_back(column_predicate.second);
+        if (read_context->predicates != nullptr) {
+            for (auto& column_predicate : *read_context->predicates) {
+                col_predicates.push_back(column_predicate.second);
+            }
         }
     }
 
@@ -251,10 +247,13 @@ OLAPStatus AlphaRowsetReader::_init_column_datas(RowsetReaderContext* read_conte
             LOG(WARNING) << "init column data failed";
             return OLAP_ERR_READER_READING_ERROR;
         }
-        if (read_context != nullptr) {
-            new_column_data->set_delete_handler(read_context->delete_handler);
-            new_column_data->set_stats(read_context->stats);
-            new_column_data->set_lru_cache(read_context->lru_cache);
+        new_column_data->set_delete_handler(read_context->delete_handler);
+        new_column_data->set_stats(read_context->stats);
+        new_column_data->set_lru_cache(read_context->lru_cache);
+        if (read_context->reader_type == READER_ALTER_TABLE) {
+            new_column_data->schema_change_init();
+            new_column_data->set_using_cache(read_context->is_using_cache);
+        } else {
             new_column_data->set_read_params(*read_context->return_columns,
                     *read_context->load_bf_columns,
                     *read_context->conditions,
@@ -265,26 +264,28 @@ OLAPStatus AlphaRowsetReader::_init_column_datas(RowsetReaderContext* read_conte
                     read_context->runtime_state);
             // filter column data
             if (new_column_data->rowset_pruning_filter()) {
-                VLOG(3) << "filter segment group in query in condition:"
-                    << new_column_data->version().first << ", " << new_column_data->version().second;
+                VLOG(3) << "filter segment group in query in condition. version="
+                        << new_column_data->version().first
+                        << "-" << new_column_data->version().second;
                 continue;
             }
-            int ret = new_column_data->delete_pruning_filter();
-            if (ret == DEL_SATISFIED) {
-                VLOG(3) << "filter segment group in delete predicate:"
-                    << new_column_data->version().first << ", " << new_column_data->version().second;
-                continue;
-            } else if (ret == DEL_PARTIAL_SATISFIED) {
-                VLOG(3) << "filter segment group partially in delete predicate:"
-                    << new_column_data->version().first << ", " << new_column_data->version().second;
-                new_column_data->set_delete_status(DEL_PARTIAL_SATISFIED);
-            } else {
-                VLOG(3) << "not filter segment group in delete predicate:"
-                        << new_column_data->version().first << ", " << new_column_data->version().second;
-                new_column_data->set_delete_status(DEL_NOT_SATISFIED);
-            }
-            _column_datas.emplace_back(new_column_data);
         }
+
+        int ret = new_column_data->delete_pruning_filter();
+        if (ret == DEL_SATISFIED) {
+            VLOG(3) << "filter segment group in delete predicate:"
+                << new_column_data->version().first << ", " << new_column_data->version().second;
+            continue;
+        } else if (ret == DEL_PARTIAL_SATISFIED) {
+            VLOG(3) << "filter segment group partially in delete predicate:"
+                << new_column_data->version().first << ", " << new_column_data->version().second;
+            new_column_data->set_delete_status(DEL_PARTIAL_SATISFIED);
+        } else {
+            VLOG(3) << "not filter segment group in delete predicate:"
+                << new_column_data->version().first << ", " << new_column_data->version().second;
+            new_column_data->set_delete_status(DEL_NOT_SATISFIED);
+        }
+        _column_datas.emplace_back(new_column_data);
 
         RowBlock* row_block = nullptr;
         if (_key_range_size > 0) {

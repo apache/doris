@@ -49,7 +49,7 @@ public:
 
     RowBlockChanger(const TabletSchema& tablet_schema,
                     const TabletSharedPtr& base_tablet);
-    
+
     virtual ~RowBlockChanger();
 
     ColumnMapping* get_mutable_column_mapping(size_t column_index);
@@ -57,12 +57,12 @@ public:
     SchemaMapping get_schema_mapping() const {
         return _schema_mapping;
     }
-    
+
     bool change_row_block(
-            const RowBlock& origin_block,
+            const RowBlock* ref_block,
             int32_t data_version,
             RowBlock* mutable_block,
-            uint64_t* filted_rows) const;
+            uint64_t* filtered_rows) const;
 
 private:
     // @brief column-mapping specification of new schema
@@ -96,7 +96,7 @@ public:
     RowBlockAllocator(const TabletSchema& tablet_schema, size_t memory_limitation);
     virtual ~RowBlockAllocator();
 
-    OLAPStatus allocate(RowBlock** row_block, size_t num_rows, 
+    OLAPStatus allocate(RowBlock** row_block, size_t num_rows,
                         bool null_supported);
     void release(RowBlock* row_block);
 
@@ -122,7 +122,7 @@ private:
         bool operator<(const MergeElement& other) const {
             return row_cursor->full_key_cmp(*(other.row_cursor)) > 0;
         }
-        
+
         const RowBlock* row_block;
         RowCursor* row_cursor;
         uint32_t row_block_index;
@@ -137,31 +137,32 @@ private:
 
 class SchemaChange {
 public:
-    SchemaChange() : _filted_rows(0), _merged_rows(0) {}
+    SchemaChange() : _filtered_rows(0), _merged_rows(0) {}
     virtual ~SchemaChange() {}
 
     virtual bool process(RowsetReaderSharedPtr rowset_reader,
                          RowsetWriterSharedPtr new_rowset_builder,
-                         TabletSharedPtr tablet) = 0;
+                         TabletSharedPtr tablet,
+                         TabletSharedPtr base_tablet) = 0;
 
-    void add_filted_rows(uint64_t filted_rows) {
-        _filted_rows += filted_rows;
+    void add_filtered_rows(uint64_t filtered_rows) {
+        _filtered_rows += filtered_rows;
     }
 
     void add_merged_rows(uint64_t merged_rows) {
         _merged_rows += merged_rows;
     }
 
-    uint64_t filted_rows() const {
-        return _filted_rows;
+    uint64_t filtered_rows() const {
+        return _filtered_rows;
     }
 
     uint64_t merged_rows() const {
         return _merged_rows;
     }
 
-    void reset_filted_rows() {
-        _filted_rows = 0;
+    void reset_filtered_rows() {
+        _filtered_rows = 0;
     }
 
     void reset_merged_rows() {
@@ -169,20 +170,21 @@ public:
     }
 
 private:
-    uint64_t _filted_rows;
+    uint64_t _filtered_rows;
     uint64_t _merged_rows;
 };
 
 class LinkedSchemaChange : public SchemaChange {
 public:
     explicit LinkedSchemaChange(
-                TabletSharedPtr base_tablet, 
+                TabletSharedPtr base_tablet,
                 TabletSharedPtr new_tablet);
     ~LinkedSchemaChange() {}
 
     bool process(RowsetReaderSharedPtr rowset_reader,
                  RowsetWriterSharedPtr new_rowset_writer,
-                 TabletSharedPtr tablet);
+                 TabletSharedPtr tablet,
+                 TabletSharedPtr base_tablet);
 private:
     TabletSharedPtr _base_tablet;
     TabletSharedPtr _new_tablet;
@@ -201,7 +203,8 @@ public:
 
     virtual bool process(RowsetReaderSharedPtr rowset_reader,
                          RowsetWriterSharedPtr new_rowset_writer,
-                         TabletSharedPtr tablet);
+                         TabletSharedPtr tablet,
+                         TabletSharedPtr base_tablet);
 
 private:
     TabletSharedPtr _tablet;
@@ -226,7 +229,8 @@ public:
 
     virtual bool process(RowsetReaderSharedPtr rowset_reader,
                          RowsetWriterSharedPtr new_rowset_builder,
-                         TabletSharedPtr tablet);
+                         TabletSharedPtr tablet,
+                         TabletSharedPtr base_tablet);
 
 private:
     bool _internal_sorting(
@@ -259,8 +263,8 @@ public:
 
     OLAPStatus schema_version_convert(TabletSharedPtr base_tablet,
                                       TabletSharedPtr new_tablet,
-                                      std::vector<RowsetSharedPtr>* old_rowsets,
-                                      std::vector<RowsetSharedPtr>* new_rowsets);
+                                      RowsetSharedPtr* base_rowset,
+                                      RowsetSharedPtr* new_rowset);
 
 
 private:
@@ -276,33 +280,27 @@ private:
                                            std::vector<Version>& versions_to_be_changed);
 
     struct SchemaChangeParams {
-        // 为了让calc_split_key也可使用普通schema_change的线程，才设置了此type
         AlterTabletType alter_tablet_type;
         TabletSharedPtr base_tablet;
         TabletSharedPtr new_tablet;
         std::vector<RowsetReaderSharedPtr> ref_rowset_readers;
-        std::string debug_message;
         DeleteHandler delete_handler;
-        // TODO(zc): fuck me please, I don't add mutable here, but no where
-        mutable std::string user;
-        mutable std::string group;
     };
 
-    // 根据给定的table_desc，创建Tablet，并挂接到StorageEngine中
+    // create new tablet for alter_tablet
     OLAPStatus _create_new_tablet(const TabletSharedPtr base_tablet,
                                   const TCreateTabletReq& create_tablet_req,
                                   TabletSharedPtr* new_tablet);
 
-    // 增加A->(B|C|...) 的schema_change信息
-    //  在split table时，增加split-tablet status相关的信息
-    //  其他的都增加在schema-change status中
-    OLAPStatus _add_alter_tablet_task(AlterTabletType alter_tablet_type,
-                                      TabletSharedPtr base_tablet,
-                                      TabletSharedPtr new_tablet,
-                                      const std::vector<Version>& versions_to_be_changed);
-    OLAPStatus _save_alter_tablet_state(AlterTabletState state,
-                                        TabletSharedPtr base_tablet,
-                                        TabletSharedPtr new_tablet);
+    // add alter task to base_tablet and new_tablet.
+    // add A->(B|C|...) relation chain to all of them.
+    OLAPStatus _add_alter_task(AlterTabletType alter_tablet_type,
+                               TabletSharedPtr base_tablet,
+                               TabletSharedPtr new_tablet,
+                               const std::vector<Version>& versions_to_be_changed);
+    OLAPStatus _save_alter_state(AlterTabletState state,
+                                 TabletSharedPtr base_tablet,
+                                 TabletSharedPtr new_tablet);
 
     static OLAPStatus _convert_historical_rowsets(const SchemaChangeParams& sc_params);
 
