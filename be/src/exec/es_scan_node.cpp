@@ -217,7 +217,6 @@ Status EsScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos)
     // get batch
     TExtGetNextResult result;
     RETURN_IF_ERROR(get_next_from_es(result));
-    VLOG(1) << "es get next success: result=" << apache::thrift::ThriftDebugString(result);
     _offsets[_scan_range_idx] += result.rows.num_rows;
 
     // convert
@@ -748,6 +747,12 @@ Status EsScanNode::materialize_row(MemPool* tuple_pool, Tuple* tuple,
         }
         *reinterpret_cast<int64_t*>(slot) = col.long_vals[val_idx];
         break;
+      case TYPE_LARGEINT:
+        if (val_idx >= col.long_vals.size()) {
+          return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "LARGEINT"));
+        }
+        *reinterpret_cast<int128_t*>(slot) = col.long_vals[val_idx];
+        break;
       case TYPE_DOUBLE:
         if (val_idx >= col.double_vals.size()) {
           return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "DOUBLE"));
@@ -767,10 +772,16 @@ Status EsScanNode::materialize_row(MemPool* tuple_pool, Tuple* tuple,
         *reinterpret_cast<int8_t*>(slot) = col.bool_vals[val_idx];
         break;
       case TYPE_DATE:
+        if (val_idx >= col.long_vals.size() ||
+            !reinterpret_cast<DateTimeValue*>(slot)->from_unixtime(col.long_vals[val_idx])) {
+          return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "TYPE_DATE"));
+        }
+        reinterpret_cast<DateTimeValue*>(slot)->cast_to_date();
+        break;
       case TYPE_DATETIME: {
         if (val_idx >= col.long_vals.size() ||
             !reinterpret_cast<DateTimeValue*>(slot)->from_unixtime(col.long_vals[val_idx])) {
-          return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "TYPE_DATE|TYPE_DATETIME"));
+          return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "TYPE_DATETIME"));
         }
         break;
       }
