@@ -145,6 +145,8 @@ Status KafkaDataConsumer::start(StreamLoadContext* ctx) {
         << ", batch size: " << left_bytes
         << ". " << ctx->brief();
 
+    // copy one
+    std::map<int32_t, int64_t> cmt_offset = ctx->kafka_info->cmt_offset;
     MonotonicStopWatch watch;
     watch.start();
     Status st;
@@ -157,6 +159,7 @@ Status KafkaDataConsumer::start(StreamLoadContext* ctx) {
 
         if (_finished) {
             kakfa_pipe ->finish();
+            ctx->kafka_info->cmt_offset = std::move(cmt_offset); 
             return Status::OK;
         }
 
@@ -175,6 +178,7 @@ Status KafkaDataConsumer::start(StreamLoadContext* ctx) {
                 DCHECK(left_bytes < ctx->kafka_info->max_batch_size);
                 DCHECK(left_rows < ctx->kafka_info->max_batch_rows);
                 kakfa_pipe->finish();
+                ctx->kafka_info->cmt_offset = std::move(cmt_offset); 
                 _finished = true;
                 return Status::OK;
             }
@@ -195,7 +199,7 @@ Status KafkaDataConsumer::start(StreamLoadContext* ctx) {
                 if (st.ok()) {
                     left_rows--;
                     left_bytes -= msg->len();
-                    ctx->kafka_info->cmt_offset[msg->partition()] = msg->offset();
+                    cmt_offset[msg->partition()] = msg->offset();
                     VLOG(3) << "consume partition[" << msg->partition()
                             << " - " << msg->offset() << "]";
                 }
