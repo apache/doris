@@ -53,6 +53,8 @@
 #include "util/time.h"
 #include "util/doris_metrics.h"
 #include "util/pretty_printer.h"
+#include "util/file_utils.h"
+#include "agent/cgroups_mgr.h"
 
 using apache::thrift::ThriftDebugString;
 using boost::filesystem::canonical;
@@ -789,9 +791,9 @@ void StorageEngine::clear_transaction_task(const TTransactionId transaction_id,
         // each tablet
         for (auto& tablet_info : tablet_infos) {
             TabletSharedPtr tablet = TabletManager::instance()->get_tablet(tablet_info.first.tablet_id, 
-                tablet_info.first.schema_hash, false);
+                tablet_info.first.schema_hash);
             OlapMeta* meta = nullptr;
-            if (tablet != NULL) {
+            if (tablet != nullptr) {
                 meta = tablet->data_dir()->get_meta();
             }
             TxnManager::instance()->delete_txn(meta, partition_id, transaction_id,
@@ -965,42 +967,6 @@ OLAPStatus StorageEngine::_do_sweep(
     return res;
 }
 
-void StorageEngine::start_delete_unused_index() {
-    _gc_mutex.lock();
-
-    for (auto it = _gc_files.begin(); it != _gc_files.end();) {
-        if (it->first->is_in_use()) {
-            ++it;
-        } else {
-            delete it->first;
-            vector<string> files = it->second;
-            remove_files(files);
-            it = _gc_files.erase(it);
-        }
-    }
-
-    _gc_mutex.unlock();
-}
-
-void StorageEngine::add_unused_index(SegmentGroup* segment_group) {
-    _gc_mutex.lock();
-
-    auto it = _gc_files.find(segment_group);
-    if (it == _gc_files.end()) {
-        vector<string> files;
-        for (size_t seg_id = 0; seg_id < segment_group->num_segments(); ++seg_id) {
-            string index_file = segment_group->construct_index_file_path(seg_id);
-            files.push_back(index_file);
-
-            string data_file = segment_group->construct_data_file_path(seg_id);
-            files.push_back(data_file);
-        }
-        _gc_files[segment_group] = files;
-    }
-
-    _gc_mutex.unlock();
-}
-
 void StorageEngine::start_delete_unused_rowset() {
     _gc_mutex.lock();
 
@@ -1161,8 +1127,8 @@ OLAPStatus StorageEngine::execute_task(EngineTask* task) {
         vector<TabletSharedPtr> related_tablets;
         for (TabletInfo& tablet_info : tablet_infos) {
             TabletSharedPtr tablet = TabletManager::instance()->get_tablet(
-                tablet_info.tablet_id, tablet_info.schema_hash, false);
-            if (tablet != NULL) {
+                tablet_info.tablet_id, tablet_info.schema_hash);
+            if (tablet != nullptr) {
                 related_tablets.push_back(tablet);
                 tablet->obtain_header_wrlock();
             } else {
@@ -1197,8 +1163,8 @@ OLAPStatus StorageEngine::execute_task(EngineTask* task) {
         vector<TabletSharedPtr> related_tablets;
         for (TabletInfo& tablet_info : tablet_infos) {
             TabletSharedPtr tablet = TabletManager::instance()->get_tablet(
-                tablet_info.tablet_id, tablet_info.schema_hash, false);
-            if (tablet != NULL) {
+                tablet_info.tablet_id, tablet_info.schema_hash);
+            if (tablet != nullptr) {
                 related_tablets.push_back(tablet);
                 tablet->obtain_header_wrlock();
             } else {
@@ -1212,6 +1178,232 @@ OLAPStatus StorageEngine::execute_task(EngineTask* task) {
             tablet->release_header_lock();
         }
         return fin_status;
+    }
+}
+
+void StorageEngine::add_check_paths(const std::set<std::string>& paths) {
+    _check_path_mutex.wrlock();
+    _all_check_paths.insert(paths.begin(), paths.end());
+    _check_path_mutex.unlock();
+}
+
+void StorageEngine::remove_check_paths(const std::set<std::string>& paths) {
+    _check_path_mutex.wrlock();
+    _remove_check_paths_no_lock(paths);
+    _check_path_mutex.unlock();
+}
+
+void StorageEngine::add_pending_paths(int64_t id, const std::set<std::string>& paths) {
+    WriteLock wr_lock(&_pending_path_mutex);
+    auto pending_paths= _pending_paths[id];
+    pending_paths.insert(paths.begin(), paths.end());
+}
+
+void StorageEngine::remove_pending_paths(int64_t id) {
+    WriteLock wr_lock(&_pending_path_mutex);
+    _pending_paths.erase(id);
+}
+
+bool StorageEngine::check_path_in_pending_paths(const std::string& path) {
+    ReadLock rd_lock(&_pending_path_mutex);
+    for (auto id_pending_paths : _pending_paths) {
+        if (id_pending_paths.second.find(path) != id_pending_paths.second.end()) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void StorageEngine::process_garbage_path(const std::string& path) {
+    if (check_dir_existed(path)) {
+        LOG(INFO) << "collect garbage dir path:" << path;
+        OLAPStatus status = remove_all_dir(path);
+        if (status != OLAP_SUCCESS) {
+            LOG(WARNING) << "remove garbage dir path:" << path << " failed";
+        }
+    }
+}
+
+void StorageEngine::_perform_path_gc(void* arg) {
+    // init the set of valid path
+    // validate the path in data dir
+    LOG(INFO) << "start to path gc.";
+    int start = 0;
+    int step = config::path_gc_check_step;
+    while (true) {
+        _check_path_mutex.wrlock();
+        for (int index = start; index < start + step;) {
+            auto path_iter = std::next(_all_check_paths.begin(), index);
+            if (path_iter == _all_check_paths.end()) {
+                break;
+            }
+            std::string path = *path_iter;
+            TTabletId tablet_id = -1;
+            TSchemaHash schema_hash = -1;
+            bool is_valid = TabletManager::instance()->get_tablet_id_and_schema_hash_from_path(path,
+                    &tablet_id, &schema_hash);
+            std::set<std::string> paths;
+            paths.insert(path);
+            if (!is_valid) {
+                LOG(WARNING) << "unknow path:" << path;
+                _remove_check_paths_no_lock(paths);
+                continue;
+            } else {
+                if (tablet_id >0 && schema_hash >0) {
+                    // tablet schema hash path or rowset file path
+                    TabletSharedPtr tablet = TabletManager::instance()->get_tablet(tablet_id, schema_hash);
+                    if (tablet == nullptr) {
+                        bool exist_in_pending = check_path_in_pending_paths(path);
+                        if (!exist_in_pending) {
+                            process_garbage_path(path);
+                            _remove_check_paths_no_lock(paths);
+                            continue;
+                        }
+                    } else {
+                        bool valid = tablet->check_path(path);
+                        if (!valid) {
+                            bool exist_in_pending = check_path_in_pending_paths(path);
+                            if (!exist_in_pending) {
+                                process_garbage_path(path);
+                                _remove_check_paths_no_lock(paths);
+                                continue;
+                            }
+                        }
+                    }
+                } else if (tablet_id >0 && schema_hash <= 0) {
+                    // tablet id path
+                    if (FileUtils::is_dir(path)) {
+                        bool exist = TabletManager::instance()->check_tablet_id_exist(tablet_id);
+                        if (!exist) {
+                            bool exist_in_pending = check_path_in_pending_paths(path);
+                            if (!exist_in_pending) {
+                                process_garbage_path(path);
+                                _remove_check_paths_no_lock(paths);
+                                continue;
+                            }
+                        }
+                    } else {
+                        LOG(WARNING) << "unknown path:" << path;
+                        _remove_check_paths_no_lock(paths);
+                        continue;
+                    }
+                } else {
+                    LOG(WARNING) << "unknown path:" << path;
+                    _remove_check_paths_no_lock(paths);
+                    continue;
+                }
+            }
+            ++index;
+        }
+
+        start += step;
+        if (start >= _all_check_paths.size()) {
+            _check_path_mutex.unlock();
+            break;
+        }
+        _check_path_mutex.unlock();
+        sleep(config::path_gc_check_step_interval_ms);
+    }
+    LOG(INFO) << "finished one time path gc.";
+}
+
+void* StorageEngine::_path_gc_thread_callback(void* arg) {
+#ifdef GOOGLE_PROFILER
+    ProfilerRegisterThread();
+#endif
+
+    LOG(INFO) << "try to start path gc thread!";
+    uint32_t interval = config::path_gc_check_interval_second;
+    if (interval <= 0) {
+        LOG(WARNING) << "path gc thread check interval config is illegal:" << interval
+            << "will be forced set to half hour";
+        interval = 1800; // 0.5 hour
+    }
+
+    while (true) {
+        LOG(INFO) << "try to perform path gc!";
+        _perform_path_gc((DataDir*)arg);
+        usleep(interval * 1000000);
+    }
+
+    return NULL;
+}
+
+void StorageEngine::_perform_path_scan(DataDir* data_dir) {
+    _check_path_mutex.rdlock();
+    LOG(INFO) << "start to scan data dir path:" << data_dir->path();
+    std::set<std::string> shards;
+    std::string data_path = data_dir->path() + DATA_PREFIX;
+    if (dir_walk(data_path, &shards, nullptr) != OLAP_SUCCESS) {
+        LOG(WARNING) << "fail to walk dir. [path=" << data_path << "]";
+        _check_path_mutex.unlock();
+        return;
+    }
+    std::set<std::string> check_paths;
+    for (const auto& shard : shards) {
+        std::string shard_path = data_path + "/" + shard;
+        // check_paths.insert(shard_path);
+        std::set<std::string> tablet_ids;
+        if (dir_walk(shard_path, &tablet_ids, nullptr) != OLAP_SUCCESS) {
+            LOG(WARNING) << "fail to walk dir. [path=" << shard_path << "]";
+            continue;
+        }
+        for (const auto& tablet_id : tablet_ids) {
+            std::string tablet_id_path = shard_path + "/" + tablet_id;
+            check_paths.insert(tablet_id_path);
+            std::set<std::string> schema_hashes;
+            if (dir_walk(tablet_id_path, &schema_hashes, nullptr) != OLAP_SUCCESS) {
+                LOG(WARNING) << "fail to walk dir. [path=" << tablet_id_path << "]";
+                continue;
+            }
+            for (const auto& schema_hash : schema_hashes) {
+                std::string tablet_schema_hash_path = tablet_id_path + "/" + schema_hash;
+                check_paths.insert(tablet_schema_hash_path);
+                std::set<std::string> rowset_files;
+                if (dir_walk(tablet_schema_hash_path, nullptr, &rowset_files) != OLAP_SUCCESS) {
+                    LOG(WARNING) << "fail to walk dir. [path=" << tablet_schema_hash_path << "]";
+                    continue;
+                }
+                for (const auto& rowset_file : rowset_files) {
+                    std::string rowset_file_path = tablet_schema_hash_path + "/" + rowset_file;
+                    check_paths.insert(rowset_file_path);
+                }
+            }
+        }
+    }
+    _check_path_mutex.unlock();
+    LOG(INFO) << "scan data dir path:" << data_dir->path() << " finished. path size:" << check_paths.size();
+    add_check_paths(check_paths);
+}
+
+void* StorageEngine::_path_scan_thread_callback(void* arg) {
+#ifdef GOOGLE_PROFILER
+    ProfilerRegisterThread();
+#endif
+
+    LOG(INFO) << "try to start path scan thread!";
+    uint32_t interval = config::path_scan_interval_second;
+    if (interval <= 0) {
+        LOG(WARNING) << "path gc thread check interval config is illegal:" << interval
+            << "will be forced set to one day";
+        interval = 24 * 3600; // one day
+    }
+
+    while (true) {
+        LOG(INFO) << "try to perform path scan!";
+        _perform_path_scan((DataDir*)arg);
+        usleep(interval * 1000000);
+    }
+
+    return NULL;
+}
+
+void StorageEngine::_remove_check_paths_no_lock(std::set<std::string> paths) {
+    for (const auto& path : paths) {
+        auto path_iter = _all_check_paths.find(path);
+        if (path_iter != _all_check_paths.end()) {
+            _all_check_paths.erase(path_iter);
+        }
     }
 }
 

@@ -214,8 +214,7 @@ private:
     int32_t _next_key_index;
 
     Conditions _conditions;
-    //std::vector<ColumnPredicate*> _col_predicates;
-    std::unordered_map<std::string, ColumnPredicate*> _col_predicates;
+    std::vector<ColumnPredicate*> _col_predicates;
 
     DeleteHandler _delete_handler;
 

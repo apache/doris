@@ -40,9 +40,13 @@ public:
                 DataDir* data_dir, RowsetMetaSharedPtr rowset_meta);
     virtual ~AlphaRowset() {}
 
+    static bool is_valid_rowset_path(std::string path);
+
     OLAPStatus init() override;
 
-    OLAPStatus init_without_validate();
+    // this api is for lazy loading data
+    // always means that there are some io
+    OLAPStatus load() override;
 
     std::shared_ptr<RowsetReader> create_reader() override;
 
@@ -108,13 +112,15 @@ public:
             const RowCursor& end_key,
             uint64_t request_block_row_count,
             vector<OlapTuple>* ranges);
+    
+    bool check_path(const std::string& path) override;
 
 private:
-    OLAPStatus _init_segment_groups(bool validate);
+    OLAPStatus _init_segment_groups();
 
-    OLAPStatus _init_pending_segment_groups(bool validate);
+    OLAPStatus _init_pending_segment_groups();
 
-    OLAPStatus _init_non_pending_segment_groups(bool validate);
+    OLAPStatus _init_non_pending_segment_groups();
 
     std::shared_ptr<SegmentGroup> _segment_group_with_largest_size();
 

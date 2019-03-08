@@ -102,7 +102,10 @@ public:
     TabletSharedPtr find_best_tablet_to_compaction(CompactionType compaction_type);
 
     // Get tablet pointer
-    TabletSharedPtr get_tablet(TTabletId tablet_id, SchemaHash schema_hash, bool load_tablet = true);
+    TabletSharedPtr get_tablet(TTabletId tablet_id, SchemaHash schema_hash);
+
+    bool get_tablet_id_and_schema_hash_from_path(const std::string& path,
+            TTabletId* tablet_id, TSchemaHash* schema_hash);
 
     void get_tablet_stat(TTabletStatResult& result);
 

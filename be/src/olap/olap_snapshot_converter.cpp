@@ -293,7 +293,7 @@ OLAPStatus OlapSnapshotConverter::to_new_snapshot(const OLAPHeaderMessage& olap_
         RowsetMetaSharedPtr alpha_rowset_meta(new AlphaRowsetMeta());
         alpha_rowset_meta->init_from_pb(visible_rowset);
         AlphaRowset rowset(&tablet_schema, new_data_path_prefix, &data_dir, alpha_rowset_meta);
-        RETURN_NOT_OK(rowset.init_without_validate());
+        RETURN_NOT_OK(rowset.init());
         std::vector<std::string> success_files;
         RETURN_NOT_OK(rowset.convert_from_old_files(old_data_path_prefix, &success_files));
     }
@@ -303,7 +303,7 @@ OLAPStatus OlapSnapshotConverter::to_new_snapshot(const OLAPHeaderMessage& olap_
         RowsetMetaSharedPtr alpha_rowset_meta(new AlphaRowsetMeta());
         alpha_rowset_meta->init_from_pb(inc_rowset);
         AlphaRowset rowset(&tablet_schema, new_data_path_prefix, &data_dir, alpha_rowset_meta);
-        RETURN_NOT_OK(rowset.init_without_validate());
+        RETURN_NOT_OK(rowset.init());
         std::vector<std::string> success_files;
         RETURN_NOT_OK(rowset.convert_from_old_files(old_data_path_prefix, &success_files));
     }
@@ -313,7 +313,7 @@ OLAPStatus OlapSnapshotConverter::to_new_snapshot(const OLAPHeaderMessage& olap_
         RowsetMetaSharedPtr alpha_rowset_meta(new AlphaRowsetMeta());
         alpha_rowset_meta->init_from_pb(pending_rowset);
         AlphaRowset rowset(&tablet_schema, new_data_path_prefix, &data_dir, alpha_rowset_meta);
-        RETURN_NOT_OK(rowset.init_without_validate());
+        RETURN_NOT_OK(rowset.init());
         std::vector<std::string> success_files;
         std::string pending_delta_path = old_data_path_prefix + PENDING_DELTA_PREFIX;
         RETURN_NOT_OK(rowset.convert_from_old_files(pending_delta_path, &success_files));

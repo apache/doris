@@ -147,10 +147,8 @@ public:
         return _store_map.size();
     }
 
-    void start_delete_unused_index();
     void start_delete_unused_rowset();
 
-    void add_unused_index(SegmentGroup* olap_index);
     void add_unused_rowset(RowsetSharedPtr rowset);
 
     OLAPStatus recover_tablet_until_specfic_version(
@@ -196,6 +194,18 @@ public:
 
     OLAPStatus execute_task(EngineTask* task);
 
+    void add_check_paths(const std::set<std::string>& paths);
+
+    void remove_check_paths(const std::set<std::string>& paths);
+
+    void add_pending_paths(int64_t id, const std::set<std::string>& paths);
+
+    void remove_pending_paths(int64_t id);
+
+    bool check_path_in_pending_paths(const std::string& path);
+
+    void process_garbage_path(const std::string& path);
+
 private:
     OLAPStatus check_all_root_path_cluster_id();
 
@@ -236,9 +246,6 @@ private:
     // delete tablet with io error process function
     void* _disk_stat_monitor_thread_callback(void* arg);
 
-    // unused index process function
-    void* _unused_index_thread_callback(void* arg);
-
     // cumulative process function
     void* _cumulative_compaction_thread_callback(void* arg);
 
@@ -250,6 +257,17 @@ private:
     OLAPStatus _clean_unfinished_converting_data(DataDir* data_dir);
 
     OLAPStatus _remove_old_meta_and_files(DataDir* data_dir);
+
+    // path gc process function
+    void* _path_gc_thread_callback(void* arg);
+
+    void* _path_scan_thread_callback(void* arg);
+
+    void _perform_path_gc(void* arg);
+
+    void _perform_path_scan(DataDir* data_dir);
+
+    void _remove_check_paths_no_lock(std::set<std::string> paths);
 
 private:
 
@@ -315,9 +333,6 @@ private:
     // thread to monitor disk stat
     std::thread _disk_stat_monitor_thread;
 
-    // thread to monitor unused index
-    std::thread _unused_index_thread;
-
     // thread to run base compaction
     std::vector<std::thread> _base_compaction_threads;
 
@@ -325,6 +340,11 @@ private:
     std::vector<std::thread> _cumulative_compaction_threads;
 
     std::thread _fd_cache_clean_thread;
+
+    std::thread _path_gc_thread;
+
+    // thread to scan disk paths
+    std::vector<std::thread> _path_scan_threads;
 
     static atomic_t _s_request_number;
 
@@ -335,6 +355,12 @@ private:
     std::atomic_bool _is_report_tablet_already;
 
     Mutex _engine_task_mutex;
+
+    std::set<std::string> _all_check_paths;
+    RWMutex _check_path_mutex;
+
+    std::map<int64_t, std::set<std::string>> _pending_paths;
+    RWMutex _pending_path_mutex;
 };
 
 }  // namespace doris
