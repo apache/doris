@@ -185,13 +185,9 @@ void TabletManager::cancel_unfinished_schema_change() {
                 continue;
             }
 
-<<<<<<< HEAD
             tablet_id = tablet->alter_task().related_tablet_id();
-            schema_hash = tablet->alter_task().related_schema_hash();;
-            TabletSharedPtr new_tablet = get_tablet(tablet_id, schema_hash, false);
-=======
+            schema_hash = tablet->alter_task().related_schema_hash();
             TabletSharedPtr new_tablet = get_tablet(tablet_id, schema_hash);
->>>>>>> realize rowset lazy load
             if (new_tablet == nullptr) {
                 LOG(WARNING) << "new tablet created by alter tablet does not exist. "
                              << "tablet=" << tablet->full_name();
