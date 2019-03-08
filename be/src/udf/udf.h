@@ -715,11 +715,19 @@ struct DecimalV2Val : public AnyVal {
     }
 
     bool operator==(const DecimalV2Val& other) const {
-        return val == other.value();
+        if (is_null && other.is_null) {
+            return true;
+        }
+
+        if (is_null || other.is_null) {
+            return false;
+        }
+
+        return val == other.val;
     }
 
     bool operator!=(const DecimalV2Val& other) const {
-        return val != other.value();
+        return !(*this == other);
     }
 
 };
