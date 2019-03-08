@@ -223,7 +223,6 @@ OLAPStatus AlphaRowsetReader::_get_next_row_for_cumulative_rowset(RowCursor** ro
 }
 
 OLAPStatus AlphaRowsetReader::_init_column_datas(RowsetReaderContext* read_context) {
-    std::vector<ColumnPredicate*> col_predicates;
     if (read_context->reader_type == READER_QUERY) {
         if (read_context->lower_bound_keys->size() != read_context->is_lower_keys_included->size()
                 || read_context->lower_bound_keys->size() != read_context->upper_bound_keys->size()
@@ -233,11 +232,6 @@ OLAPStatus AlphaRowsetReader::_init_column_datas(RowsetReaderContext* read_conte
             return OLAP_ERR_INPUT_PARAMETER_ERROR;
         }
         _key_range_size = read_context->lower_bound_keys->size();
-        if (read_context->predicates != nullptr) {
-            for (auto& column_predicate : *read_context->predicates) {
-                col_predicates.push_back(column_predicate.second);
-            }
-        }
     }
 
     for (auto& segment_group : _segment_groups) {
@@ -257,7 +251,7 @@ OLAPStatus AlphaRowsetReader::_init_column_datas(RowsetReaderContext* read_conte
             new_column_data->set_read_params(*read_context->return_columns,
                     *read_context->load_bf_columns,
                     *read_context->conditions,
-                    col_predicates,
+                    *read_context->predicates,
                     *read_context->lower_bound_keys,
                     *read_context->upper_bound_keys,
                     read_context->is_using_cache,

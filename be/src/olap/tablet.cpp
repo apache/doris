@@ -113,7 +113,7 @@ Tablet::~Tablet() {
 OLAPStatus Tablet::init_once() {
     OLAPStatus res = OLAP_SUCCESS;
     TabletMeta* tablet_meta = _tablet_meta;
-    VLOG(3) << "begin to load indices. tablet=" << full_name()
+    VLOG(3) << "begin to load tablet. tablet=" << full_name()
             << ", version_size=" << tablet_meta->version_count();
     for (auto& rs_meta :  tablet_meta->all_rs_metas()) {
         Version version = { rs_meta->start_version(), rs_meta->end_version() };
@@ -124,14 +124,14 @@ OLAPStatus Tablet::init_once() {
     for (auto& it : _rs_version_map) {
         res = it.second->init();
         if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "fail to load rowset. "
+            LOG(WARNING) << "fail to init rowset. "
                          << "version=" << it.first.first << "-" << it.first.second;
             break;
         }
     }
 
     if (res != OLAP_SUCCESS) {
-        LOG(FATAL) << "fail to load indices. res=" << res
+        LOG(FATAL) << "fail to load tablet. res=" << res
                     << ", tablet='" << full_name();
         TabletManager::instance()->drop_tablet(tablet_id(), schema_hash());
         return res;
@@ -735,6 +735,26 @@ void Tablet::delete_all_files() {
         it->second->remove();
         _rs_version_map.erase(it);
     }
+}
+
+bool Tablet::check_path(const std::string& path_to_check) {
+    ReadLock rdlock(&_meta_lock);
+    if (path_to_check == _tablet_path) {
+        return true;
+    }
+    boost::filesystem::path tablet_schema_hash_path(_tablet_path);
+    boost::filesystem::path tablet_id_path = tablet_schema_hash_path.parent_path();
+    std::string tablet_id_dir = tablet_id_path.string();
+    if (path_to_check == tablet_id_dir) {
+        return true;
+    }
+    for (auto& version_rowset : _rs_version_map) {
+        bool ret = version_rowset.second->check_path(path_to_check);
+        if (ret) {
+            return true;
+        }
+    }
+    return false;
 }
 
 }  // namespace doris

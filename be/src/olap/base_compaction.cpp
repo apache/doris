@@ -338,6 +338,10 @@ OLAPStatus BaseCompaction::_do_base_compaction(VersionHash new_base_version_hash
     vector<RowsetReaderSharedPtr> rs_readers;
     for (auto& rowset : rowsets) {
         RowsetReaderSharedPtr rs_reader(rowset->create_reader());
+        if (rs_reader == nullptr) {
+            LOG(WARNING) << "rowset create reader failed. rowset:" <<  rowset->rowset_id();
+            return OLAP_ERR_ROWSET_CREATE_READER;
+        }
         rs_readers.push_back(rs_reader);
     }
 
@@ -358,7 +362,7 @@ OLAPStatus BaseCompaction::_do_base_compaction(VersionHash new_base_version_hash
 
     Merger merger(_tablet, rs_writer, READER_BASE_COMPACTION);
     res = merger.merge(rs_readers, &merged_rows, &filted_rows);
-
+    StorageEngine::instance()->remove_pending_paths(rs_writer->rowset_id());
     // 3. 如果merge失败，执行清理工作，返回错误码退出
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to make new base version. res=" << res

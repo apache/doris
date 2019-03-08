@@ -41,7 +41,7 @@ struct RowsetReaderContext {
     const Conditions* conditions;
     // column name -> column predicate
     // adding column_name for predicate to make use of column selectivity
-    const std::unordered_map<std::string, ColumnPredicate*>* predicates;
+    const std::vector<ColumnPredicate*>* predicates;
     const std::vector<RowCursor*>* lower_bound_keys;
     const std::vector<bool>* is_lower_keys_included;
     const std::vector<RowCursor*>* upper_bound_keys;
@@ -97,7 +97,7 @@ public:
     }
 
     RowsetReaderContextBuilder& set_predicates(
-            const std::unordered_map<std::string, ColumnPredicate*>* predicates) {
+            const std::vector<ColumnPredicate*>* predicates) {
         _reader_context.predicates = predicates;
         return *this;
     }

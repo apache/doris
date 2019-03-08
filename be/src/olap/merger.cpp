@@ -50,8 +50,7 @@ OLAPStatus Merger::merge(const vector<RowsetReaderSharedPtr>& rs_readers,
     reader_params.rs_readers = rs_readers;
 
     if (OLAP_SUCCESS != reader.init(reader_params)) {
-        OLAP_LOG_WARNING("fail to initiate reader. [tablet='%s']",
-                _tablet->full_name().c_str());
+        LOG(WARNING) << "fail to initiate reader. tablet=" << _tablet->full_name();
         return OLAP_ERR_INIT_FAILED;
     }
 
@@ -59,7 +58,7 @@ OLAPStatus Merger::merge(const vector<RowsetReaderSharedPtr>& rs_readers,
     RowCursor row_cursor;
 
     if (OLAP_SUCCESS != row_cursor.init(_tablet->tablet_schema())) {
-        OLAP_LOG_WARNING("fail to init row cursor.");
+        LOG(WARNING) << "fail to init row cursor.";
         has_error = true;
     }
 
@@ -74,7 +73,7 @@ OLAPStatus Merger::merge(const vector<RowsetReaderSharedPtr>& rs_readers,
             VLOG(3) << "reader read to the end.";
             break;
         } else if (OLAP_SUCCESS != res) {
-            OLAP_LOG_WARNING("reader read failed.");
+            LOG(WARNING) << "reader read failed.";
             has_error = true;
             break;
         }
