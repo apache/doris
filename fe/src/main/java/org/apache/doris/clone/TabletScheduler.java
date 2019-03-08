@@ -294,15 +294,17 @@ public class TabletScheduler extends Daemon {
      * because we already limit the total number of running clone jobs in cluster by 'backend slots'
      */
     private void updateClusterLoadStatistic() {
-        statisticMap.clear();
+        Map<String, ClusterLoadStatistic> newStatisticMap = Maps.newConcurrentMap();
         Set<String> clusterNames = infoService.getClusterNames();
         for (String clusterName : clusterNames) {
             ClusterLoadStatistic clusterLoadStatistic = new ClusterLoadStatistic(clusterName,
                     infoService, invertedIndex);
             clusterLoadStatistic.init();
-            statisticMap.put(clusterName, clusterLoadStatistic);
+            newStatisticMap.put(clusterName, clusterLoadStatistic);
             LOG.info("update cluster {} load statistic:\n{}", clusterName, clusterLoadStatistic.getBrief());
         }
+
+        this.statisticMap = newStatisticMap;
     }
 
     public Map<String, ClusterLoadStatistic> getStatisticMap() {
