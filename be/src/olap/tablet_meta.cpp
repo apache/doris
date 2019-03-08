@@ -419,7 +419,7 @@ OLAPStatus TabletMeta::revise_rs_metas(const std::vector<RowsetMetaSharedPtr>& r
 OLAPStatus TabletMeta::revise_inc_rs_metas(const std::vector<RowsetMetaSharedPtr>& rs_metas) {
     // delete alter task
     _tablet_meta_pb.clear_alter_tablet_task();
-    _alter_task.clear();
+    _has_alter_task = false;
 
     // remove all old rs_meta and add new rs_meta
     _tablet_meta_pb.clear_inc_rs_metas();
