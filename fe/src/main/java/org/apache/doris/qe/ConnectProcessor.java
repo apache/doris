@@ -100,7 +100,7 @@ public class ConnectProcessor {
         // slow query
         long elapseMs = System.currentTimeMillis() - ctx.getStartTime();
         // query state log
-        ctx.getAuditBuilder().put("GState", ctx.getState());
+        ctx.getAuditBuilder().put("State", ctx.getState());
         ctx.getAuditBuilder().put("Time", elapseMs);
         Preconditions.checkNotNull(statistics); 
         ctx.getAuditBuilder().put("ScanBytes", statistics.scanBytes);

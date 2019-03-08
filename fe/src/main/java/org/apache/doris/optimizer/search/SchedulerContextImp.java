@@ -1,5 +1,3 @@
-package org.apache.doris.optimizer.search;
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -16,6 +14,8 @@ package org.apache.doris.optimizer.search;
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
+package org.apache.doris.optimizer.search;
 
 import com.google.common.base.Preconditions;
 import org.apache.doris.optimizer.OptGroup;
@@ -44,14 +44,6 @@ public class SchedulerContextImp implements SchedulerContext {
         final SchedulerContext sContext = new SchedulerContextImp(memo);
         TaskGroupOptimization.schedule(sContext, firstGroup, oContext, null);
         return sContext;
-    }
-
-    private void push(TaskStateMachine task) {
-        tasks.push(task);
-    }
-
-    private TaskStateMachine pop() {
-        return this.pop();
     }
 
     private void resetEnv() {
@@ -124,12 +116,10 @@ public class SchedulerContextImp implements SchedulerContext {
 
     @Override
     public void schedule(TaskStateMachine task) {
-        push(task);
+        tasks.push(task);
         taskTotal++;
     }
 
     @Override
-    public OptMemo getMemo() {
-        return memo;
-    }
+    public OptMemo getMemo() { return memo; }
 }

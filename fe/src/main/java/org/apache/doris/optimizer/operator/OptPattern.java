@@ -19,9 +19,11 @@ package org.apache.doris.optimizer.operator;
 
 // OptPattern is used in rules as a placeholder for group
 public class OptPattern extends OptOperator {
+
     public OptPattern(OptOperatorType type) {
         super(type);
     }
+
     @Override
     public boolean isPattern() { return true; }
 }

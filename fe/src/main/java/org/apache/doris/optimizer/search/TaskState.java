@@ -1,5 +1,3 @@
-package org.apache.doris.optimizer.search;
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -17,6 +15,8 @@ package org.apache.doris.optimizer.search;
 // specific language governing permissions and limitations
 // under the License.
 
+package org.apache.doris.optimizer.search;
+
 /**
  * Base class for task StateMacheine's state.
  */
@@ -27,13 +27,10 @@ public abstract class TaskState {
     // Current TaskStateMachine is suspended and wait to be resumed
     // by child TaskStateMachine.
     private boolean isSuspending;
-
     // TaskStateMachine has been finished.
     private boolean isFinished;
-
     // TaskStateMachine resume from Suspending.
     private boolean isResuming;
-
     // TaskStateMachine is running.
     private boolean isRunning;
 
@@ -43,18 +40,9 @@ public abstract class TaskState {
 
     public abstract void handle(SchedulerContext sContext);
 
-    public boolean isSuspending() {
-        return isSuspending;
-    }
-
-    public boolean isFinished() {
-        return isFinished;
-    }
-
-    public boolean isResuming() {
-        return isResuming;
-    }
-
+    public boolean isSuspending() { return isSuspending; }
+    public boolean isFinished() { return isFinished; }
+    public boolean isResuming() { return isResuming; }
     public boolean isRunning() {
         return isRunning;
     }

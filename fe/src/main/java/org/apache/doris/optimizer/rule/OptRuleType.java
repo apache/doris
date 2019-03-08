@@ -25,12 +25,13 @@ public enum OptRuleType {
     RULE_JOIN_COMMUTATIVITY(3, "JoinCommutativity"),
     RULE_JOIN_ASSOCIATIVITY(4, "JoinAssociativity");
 
+    private int code;
+    private String name;
+
     OptRuleType(int code, String name) {
         this.code = code;
         this.name = name;
     }
-    private int code;
-    private String name;
 
     public int getCode() { return code; }
     public String getName() { return name; }

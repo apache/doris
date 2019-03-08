@@ -19,7 +19,7 @@ package org.apache.doris.optimizer.operator;
 
 public class OptPhysicalOlapScan extends OptPhysical {
 
-    public OptPhysicalScan() {
-        super(OptOperatorType.OP_PHYSICAL_SCAN);
+    public OptPhysicalOlapScan() {
+        super(OptOperatorType.OP_PHYSICAL_OLAP_SCAN);
     }
 }

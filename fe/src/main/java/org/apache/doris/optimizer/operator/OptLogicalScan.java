@@ -30,9 +30,7 @@ public class OptLogicalScan extends OptLogical {
     }
 
     @Override
-    public List<OptRule> getCandidateRulesForExplore() {
-        return Lists.newArrayList();
-    }
+    public List<OptRule> getCandidateRulesForExplore() { return Lists.newArrayList(); }
 
     @Override
     public List<OptRule> getCandidateRulesForImplement() {

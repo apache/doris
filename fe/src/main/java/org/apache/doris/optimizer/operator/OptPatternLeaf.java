@@ -18,6 +18,7 @@
 package org.apache.doris.optimizer.operator;
 
 public class OptPatternLeaf extends OptPattern {
+
     public OptPatternLeaf() {
         super(OptOperatorType.OP_PATTERN_LEAF);
     }

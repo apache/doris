@@ -1,5 +1,3 @@
-package org.apache.doris.optimizer.search;
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -17,6 +15,8 @@ package org.apache.doris.optimizer.search;
 // specific language governing permissions and limitations
 // under the License.
 
+package org.apache.doris.optimizer.search;
+
 public class OptimizationContext {
 
     private RequestProperty requestProperty;
@@ -24,13 +24,8 @@ public class OptimizationContext {
     public OptimizationContext() {
     }
 
-    public void setRequestProperty(RequestProperty property) {
-        this.requestProperty = property;
-    }
-
-    public RequestProperty getRequestProperty() {
-        return requestProperty;
-    }
+    public void setRequestProperty(RequestProperty property) { this.requestProperty = property; }
+    public RequestProperty getRequestProperty() { return requestProperty; }
 
     @Override
     public int hashCode() {

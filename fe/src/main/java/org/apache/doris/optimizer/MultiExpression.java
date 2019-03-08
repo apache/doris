@@ -57,33 +57,17 @@ public class MultiExpression {
         this.ruleTypeDerivedFrom = OptRuleType.RULE_NONE;
     }
 
-    public int getId() {
-        return id;
-    }
-
-    public void setId(int id) {
-        this.id = id;
-    }
-
-    public OptOperator getOp() {
-        return op;
-    }
-
-    public int arity() {
-        return inputs.size();
-    }
-
-    public List<OptGroup> getInputs() {
-        return inputs;
-    }
-
-    public OptGroup getInput(int idx) {
-        return inputs.get(idx);
-    }
-
+    public int getId() { return id; }
+    public void setId(int id) { this.id = id; }
+    public OptOperator getOp() { return op; }
+    public int arity() { return inputs.size(); }
+    public List<OptGroup> getInputs() { return inputs; }
+    public OptGroup getInput(int idx) { return inputs.get(idx); }
     public void setGroup(OptGroup group) { this.group = group; }
     public OptGroup getGroup() { return group; }
-
+    public OptRuleType getRuleTypeDerivedFrom() { return ruleTypeDerivedFrom; }
+    public void setStatus(MEState status) { this.status = status; }
+    public boolean isImplemented() { return status == MEState.Implemented; }
     public void setNext(MultiExpression next) { this.next = next; }
     // get next MultiExpression in same group
     public MultiExpression next() { return next; }
@@ -111,18 +95,6 @@ public class MultiExpression {
             sb.append(input.getExplain(childHeadlinePrefix, childDetailPrefix));
         }
         return sb.toString();
-    }
-
-    public OptRuleType getRuleTypeDerivedFrom() {
-        return ruleTypeDerivedFrom;
-    }
-
-    public void setStatus(MEState status) {
-        this.status = status;
-    }
-
-    public boolean isImplemented() {
-        return status == MEState.Implemented;
     }
 
     @Override

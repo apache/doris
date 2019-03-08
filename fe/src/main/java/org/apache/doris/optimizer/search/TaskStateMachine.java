@@ -32,16 +32,14 @@ abstract public class TaskStateMachine {
     // Current state, it must be assigned by derived class.
     protected TaskState currentState;
 
-
     public TaskStateMachine(CTaskType type, TaskStateMachine parent) {
         this.type = type;
         this.parent = parent;
         this.refCountbyChildren = 0;
     }
 
-    public TaskStateMachine getParent() {
-        return parent;
-    }
+    public boolean isFinished() { return currentState.isFinished(); };
+    public TaskStateMachine getParent() { return parent; }
 
     public void increaseRefByChildren() {
         Preconditions.checkState(refCountbyChildren >= 0);
@@ -83,10 +81,6 @@ abstract public class TaskStateMachine {
 
         return currentState.isFinished();
     }
-
-    public boolean isFinished() {
-        return currentState.isFinished();
-    };
 
     public enum CTaskType {
         GroupOptimization,

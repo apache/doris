@@ -40,12 +40,6 @@ public class OptGroup {
         this.optContextMap = Maps.newHashMap();
     }
 
-    public int getId() { return id; }
-    public MultiExpression getFirstMultiExpression() {
-        if (mExprs.isEmpty()) { return null; }
-        return mExprs.get(0);
-    }
-
     // Add a MultiExpression,
     // this function will create relationship between this group and MultiExpression
     public void addMExpr(MultiExpression mExpr) {
@@ -79,25 +73,18 @@ public class OptGroup {
         return this == other;
     }
 
-    public boolean isImplemented() {
-        return status == GState.Implemented;
+
+    public MultiExpression getFirstMultiExpression() {
+        if (mExprs.isEmpty()) { return null; }
+        return mExprs.get(0);
     }
 
-    public boolean isOptimized() {
-        return status == GState.Optimized;
-    }
-
-    public List<MultiExpression> getMultiExpressions() {
-        return mExprs;
-    }
-
-    public OptimizationContext lookUp(OptimizationContext newContext) {
-        return optContextMap.get(newContext);
-    }
-
-    public void setStatus(GState status) {
-        this.status = status;
-    }
+    public int getId() { return id; }
+    public boolean isImplemented() { return status == GState.Implemented; }
+    public boolean isOptimized() { return status == GState.Optimized; }
+    public List<MultiExpression> getMultiExpressions() { return mExprs; }
+    public OptimizationContext lookUp(OptimizationContext newContext) { return optContextMap.get(newContext); }
+    public void setStatus(GState status) { this.status = status; }
 
     public enum GState {
         Unimplemented,
