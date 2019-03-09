@@ -228,9 +228,6 @@ private:
 
     OLAPStatus _start_bg_worker();
 
-    // 扫描目录, 加载表
-    OLAPStatus _load_data_dir(DataDir* store);
-
     TabletSharedPtr _find_best_tablet_to_compaction(CompactionType compaction_type);
 
     OLAPStatus _do_sweep(
@@ -252,12 +249,6 @@ private:
 
     // clean file descriptors cache
     void* _fd_cache_clean_callback(void* arg);
-
-    OLAPStatus _convert_old_tablet(DataDir* data_dir);
-
-    OLAPStatus _clean_unfinished_converting_data(DataDir* data_dir);
-
-    OLAPStatus _remove_old_meta_and_files(DataDir* data_dir);
 
     // path gc process function
     void* _path_gc_thread_callback(void* arg);
