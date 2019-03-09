@@ -38,11 +38,16 @@
 
 #include "olap/file_helper.h"
 #include "olap/olap_define.h"
+#include "olap/olap_snapshot_converter.h"
 #include "olap/utils.h" // for check_dir_existed
 #include "service/backend_options.h"
 #include "util/file_utils.h"
 #include "util/string_util.h"
 #include "olap/tablet_meta_manager.h"
+#include "olap/rowset/rowset_meta_manager.h"
+#include "olap/rowset/alpha_rowset_meta.h"
+#include "olap/rowset/alpha_rowset.h"
+#include "olap/rowset_factory.h"
 
 namespace doris {
 
@@ -506,6 +511,314 @@ std::string DataDir::get_root_path_from_schema_hash_path_in_trash(
         const std::string& schema_hash_dir_in_trash) {
     boost::filesystem::path schema_hash_path_in_trash(schema_hash_dir_in_trash);
     return schema_hash_path_in_trash.parent_path().parent_path().parent_path().parent_path().string();
+}
+
+OLAPStatus DataDir::_clean_unfinished_converting_data() {
+    auto clean_unifinished_tablet_meta_func = [this](long tablet_id,
+        long schema_hash, const std::string& value) -> bool {
+        TabletMetaManager::remove(this, tablet_id, schema_hash, HEADER_PREFIX);
+        LOG(INFO) << "successfully clean temp tablet meta for tablet=" 
+                  << tablet_id << "." << schema_hash 
+                  << "from data dir: " << _path;
+        return true;
+    };
+    OLAPStatus clean_unfinished_meta_status = TabletMetaManager::traverse_headers(_meta,
+        clean_unifinished_tablet_meta_func, HEADER_PREFIX);
+    if (clean_unfinished_meta_status != OLAP_SUCCESS) {
+        // If failed to clean meta just skip the error, there will be useless metas in rocksdb column family
+        LOG(WARNING) << "there is failure when clean temp tablet meta from data dir=" << _path;
+    } else {
+        LOG(INFO) << "successfully clean temp tablet meta from data dir=" << _path;
+    }
+    auto clean_unifinished_rowset_meta_func = [this](RowsetId rowset_id, const std::string& value) -> bool {
+        RowsetMetaManager::remove(_meta, rowset_id);
+        LOG(INFO) << "successfully clean temp rowset meta for rowset_id=" 
+                  << rowset_id << " from data dir=" << _path;
+        return true;
+    };
+    OLAPStatus clean_unfinished_rowset_meta_status = RowsetMetaManager::traverse_rowset_metas(_meta,
+        clean_unifinished_rowset_meta_func);
+    if (clean_unfinished_rowset_meta_status != OLAP_SUCCESS) {
+        // If failed to clean meta just skip the error, there will be useless metas in rocksdb column family
+        LOG(WARNING) << "fail to clean temp rowset meta from data dir=" << _path;
+    } else {
+        LOG(INFO) << "success to clean temp rowset meta from data dir=" << _path;
+    }
+    return OLAP_SUCCESS;
+}
+
+// convert old tablet and its files to new tablet meta and rowset format
+// if any error occurred during converting, stop it and break.
+OLAPStatus DataDir::_convert_old_tablet() {
+    auto convert_tablet_func = [this](long tablet_id,
+        long schema_hash, const std::string& value) -> bool {
+        OlapSnapshotConverter converter;
+        // convert olap header and files
+        OLAPHeaderMessage olap_header_msg;
+        TabletMetaPB tablet_meta_pb;
+        vector<RowsetMetaPB> pending_rowsets;
+        bool parsed = olap_header_msg.ParseFromString(value);
+        if (!parsed) {
+            LOG(WARNING) << "convert olap header to tablet meta failed when load olap header tablet=" 
+                         << tablet_id << "." << schema_hash;
+            return false;
+        }
+        string old_data_path_prefix = get_absolute_tablet_path(olap_header_msg, true);
+        OLAPStatus status = converter.to_new_snapshot(olap_header_msg, old_data_path_prefix, 
+            old_data_path_prefix, *this, &tablet_meta_pb, &pending_rowsets);
+        if (status != OLAP_SUCCESS) {
+            LOG(WARNING) << "convert olap header to tablet meta failed when convert header and files tablet=" 
+                         << tablet_id << "." << schema_hash;
+            return false;
+        }
+
+        // write pending rowset to olap meta
+        for (auto& rowset_pb : pending_rowsets) {
+            string meta_binary;
+            rowset_pb.SerializeToString(&meta_binary);
+            status = RowsetMetaManager::save(_meta, rowset_pb.rowset_id() , meta_binary);
+            if (status != OLAP_SUCCESS) {
+                LOG(WARNING) << "convert olap header to tablet meta failed when save rowset meta tablet=" 
+                             << tablet_id << "." << schema_hash;
+                return false;
+            }
+        }
+
+        // write converted tablet meta to olap meta
+        string meta_binary;
+        tablet_meta_pb.SerializeToString(&meta_binary);
+        status = TabletMetaManager::save(this, tablet_meta_pb.tablet_id(), tablet_meta_pb.schema_hash(), meta_binary);
+        if (status != OLAP_SUCCESS) {
+            LOG(WARNING) << "convert olap header to tablet meta failed when save tablet meta tablet=" 
+                         << tablet_id << "." << schema_hash;
+            return false;
+        } else {
+            LOG(INFO) << "convert olap header to tablet meta successfully and save tablet meta to meta tablet=" 
+                      << tablet_id << "." << schema_hash;
+        }
+        return true;
+    };
+    OLAPStatus convert_tablet_status = TabletMetaManager::traverse_headers(_meta, 
+        convert_tablet_func, OLD_HEADER_PREFIX);
+    if (convert_tablet_status != OLAP_SUCCESS) {
+        LOG(WARNING) << "there is failure when convert old tablet, data dir:" << _path;
+        return convert_tablet_status;
+    } else {
+        LOG(INFO) << "successfully convert old tablet, data dir: " << _path;
+    }
+    return OLAP_SUCCESS;
+}
+
+OLAPStatus DataDir::_remove_old_meta_and_files() {
+    // clean old meta(olap header message) 
+    auto clean_old_meta_func = [this](long tablet_id,
+        long schema_hash, const std::string& value) -> bool {
+        TabletMetaManager::remove(this, tablet_id, schema_hash, OLD_HEADER_PREFIX);
+        LOG(INFO) << "successfully clean old tablet meta(olap header) for tablet=" 
+                  << tablet_id << "." << schema_hash 
+                  << "from data dir: " << _path;
+        return true;
+    };
+    OLAPStatus clean_old_meta_status = TabletMetaManager::traverse_headers(_meta,
+        clean_old_meta_func, OLD_HEADER_PREFIX);
+    if (clean_old_meta_status != OLAP_SUCCESS) {
+        // If failed to clean meta just skip the error, there will be useless metas in rocksdb column family
+        LOG(WARNING) << "there is failure when clean old tablet meta(olap header) from data dir:" << _path;
+    } else {
+        LOG(INFO) << "successfully clean old tablet meta(olap header) from data dir: " << _path;
+    }
+
+    // clean old files because they have hard links in new file name format
+    auto clean_old_files_func = [this](long tablet_id,
+        long schema_hash, const std::string& value) -> bool {
+        TabletMetaPB tablet_meta_pb;
+        bool parsed = tablet_meta_pb.ParseFromString(value);
+        if (!parsed) {
+            // if errors when load, just skip it
+            LOG(WARNING) << "failed to load tablet meta from meta store to tablet=" << tablet_id << "." << schema_hash;
+            return true;
+        }
+
+        TabletSchema tablet_schema;
+        tablet_schema.init_from_pb(tablet_meta_pb.schema());
+        string data_path_prefix = get_absolute_tablet_path(&tablet_meta_pb, true);
+
+        // convert visible pdelta file to rowsets and remove old files
+        for (auto& visible_rowset : tablet_meta_pb.rs_metas()) {
+            RowsetMetaSharedPtr alpha_rowset_meta(new AlphaRowsetMeta());
+            alpha_rowset_meta->init_from_pb(visible_rowset);
+            AlphaRowset rowset(&tablet_schema, data_path_prefix, this, alpha_rowset_meta);
+            rowset.init();
+            rowset.load();
+            std::vector<std::string> old_files;
+            rowset.remove_old_files(&old_files);
+        }
+
+        // convert inc delta file to rowsets and remove old files
+        for (auto& inc_rowset : tablet_meta_pb.inc_rs_metas()) {
+            RowsetMetaSharedPtr alpha_rowset_meta(new AlphaRowsetMeta());
+            alpha_rowset_meta->init_from_pb(inc_rowset);
+            AlphaRowset rowset(&tablet_schema, data_path_prefix, this, alpha_rowset_meta);
+            rowset.init();
+            rowset.load();
+            std::vector<std::string> old_files;
+            rowset.remove_old_files(&old_files);
+        }
+        return true;
+    };
+    OLAPStatus clean_old_tablet_status = TabletMetaManager::traverse_headers(_meta,
+        clean_old_files_func, HEADER_PREFIX);
+    if (clean_old_tablet_status != OLAP_SUCCESS) {
+        LOG(WARNING) << "there is failure when loading tablet and clean old files:" << _path;
+    } else {
+        LOG(INFO) << "load rowset from meta finished, data dir: " << _path;
+    }
+    return OLAP_SUCCESS;
+}
+
+// TODO(ygl): deal with rowsets and tablets when load failed
+OLAPStatus DataDir::load() {
+    // check if this is an old data path
+    bool is_tablet_convert_finished = false;
+    OLAPStatus res = _meta->get_tablet_convert_finished(is_tablet_convert_finished);
+    if (res != OLAP_SUCCESS) {
+        LOG(WARNING) << "get convert flag from meta failed dir=" << _path;
+        return res;
+    }
+
+    if (!is_tablet_convert_finished) {
+        _clean_unfinished_converting_data();
+        res = _convert_old_tablet();
+        if (res != OLAP_SUCCESS) {
+            LOG(FATAL) << "convert old tablet failed for  dir = " << _path;
+            return res;
+        }
+        // TODO(ygl): should load tablet successfully and then set convert flag and clean old files
+        res = _meta->set_tablet_convert_finished();
+        if (res != OLAP_SUCCESS) {
+            LOG(FATAL) << "save convert flag failed after convert old tablet. dir=" << _path;
+            return res;
+        }
+        // convert may be successfully, but crashed before remove old files
+        // depend on gc thread to recycle the old files
+        // _remove_old_meta_and_files(data_dir);
+    } else {
+        LOG(INFO) << "tablets have been converted, skip convert process";
+    }
+
+    LOG(INFO) << "start to load tablets from " << _path;
+    // load rowset meta from meta env and create rowset
+    // COMMITTED: add to txn manager
+    // VISIBLE: add to tablet
+    // if one rowset load failed, then the total data dir will not be loaded
+    std::vector<RowsetMetaSharedPtr> dir_rowset_metas;
+    LOG(INFO) << "begin loading rowset from meta";
+    auto load_rowset_func = [this, &dir_rowset_metas](RowsetId rowset_id, const std::string& meta_str) -> bool {
+        RowsetMetaSharedPtr rowset_meta(new AlphaRowsetMeta());
+        bool parsed = rowset_meta->init(meta_str);
+        if (!parsed) {
+            LOG(WARNING) << "parse rowset meta string failed for rowset_id:" << rowset_id;
+            // return false will break meta iterator, return true to skip this error
+            return true;
+        }
+        dir_rowset_metas.push_back(rowset_meta);
+        return true;
+    };
+    OLAPStatus load_rowset_status = RowsetMetaManager::traverse_rowset_metas(_meta, load_rowset_func);
+
+    if (load_rowset_status != OLAP_SUCCESS) {
+        LOG(WARNING) << "errors when load rowset meta from meta env, skip this data dir:" << _path;
+    } else {
+        LOG(INFO) << "load rowset from meta finished, data dir: " << _path;
+    }
+
+    // load tablet
+    // create tablet from tablet meta and add it to tablet mgr
+    LOG(INFO) << "begin loading tablet from meta";
+    auto load_tablet_func = [this](long tablet_id,
+        long schema_hash, const std::string& value) -> bool {
+        OLAPStatus status = TabletManager::instance()->load_tablet_from_meta(this, tablet_id, schema_hash, value);
+        if (status != OLAP_SUCCESS) {
+            LOG(WARNING) << "load tablet from header failed. status:" << status
+                << ", tablet=" << tablet_id << "." << schema_hash;
+        };
+        return true;
+    };
+    OLAPStatus load_tablet_status = TabletMetaManager::traverse_headers(_meta, load_tablet_func);
+    if (load_tablet_status != OLAP_SUCCESS) {
+        LOG(WARNING) << "there is failure when loading tablet headers, path:" << _path;
+    } else {
+        LOG(INFO) << "load rowset from meta finished, data dir: " << _path;
+    }
+
+    // tranverse rowset 
+    // 1. add committed rowset to txn map
+    // 2. add visible rowset to tablet
+    // ignore any errors when load tablet or rowset, because fe will repair them after report
+    for (auto rowset_meta : dir_rowset_metas) {
+        TabletSharedPtr tablet = TabletManager::instance()->get_tablet(rowset_meta->tablet_id(), rowset_meta->tablet_schema_hash());
+        // tablet maybe dropped, but not drop related rowset meta
+        if (tablet.get() == NULL) {
+            LOG(WARNING) << "could not find tablet id: " << rowset_meta->tablet_id()
+                         << ", schema hash: " << rowset_meta->tablet_schema_hash()
+                         << ", for rowset: " << rowset_meta->rowset_id()
+                         << ", skip this rowset";
+            continue;
+        }
+        RowsetSharedPtr rowset;
+        OLAPStatus create_status = RowsetFactory::load_rowset(tablet->tablet_schema(), 
+                                                             tablet->tablet_path(), 
+                                                             tablet->data_dir(), 
+                                                             rowset_meta, &rowset);
+        if (create_status != OLAP_SUCCESS) {
+            LOG(WARNING) << "could not create rowset from rowsetmeta: "
+                         << " rowset_id: " << rowset_meta->rowset_id()
+                         << " rowset_type: " << rowset_meta->rowset_type()
+                         << " rowset_state: " << rowset_meta->rowset_state();
+            continue;
+        }
+        if (rowset_meta->rowset_state() == RowsetStatePB::COMMITTED) {
+            OLAPStatus commit_txn_status = TxnManager::instance()->commit_txn(
+                _meta,
+                rowset_meta->partition_id(), rowset_meta->txn_id(), 
+                rowset_meta->tablet_id(), rowset_meta->tablet_schema_hash(), 
+                rowset_meta->load_id(), rowset, true);
+            if (commit_txn_status != OLAP_SUCCESS && commit_txn_status != OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
+                LOG(WARNING) << "failed to add committed rowset: " << rowset_meta->rowset_id()
+                             << " to tablet: " << rowset_meta->tablet_id() 
+                             << " for txn: " << rowset_meta->txn_id();
+            } else {
+                LOG(INFO) << "successfully to add committed rowset: " << rowset_meta->rowset_id()
+                             << " to tablet: " << rowset_meta->tablet_id() 
+                             << " schema hash: " << rowset_meta->tablet_schema_hash()
+                             << " for txn: " << rowset_meta->txn_id();
+            }
+        } else if (rowset_meta->rowset_state() == RowsetStatePB::VISIBLE) {
+            // add visible rowset to tablet, it maybe use in the future
+            // there should be only preparing rowset in meta env because visible 
+            // rowset is persist with tablet meta currently
+            OLAPStatus publish_status = tablet->add_inc_rowset(rowset);
+            if (publish_status != OLAP_SUCCESS) {
+                LOG(WARNING) << "add visilbe rowset to tablet failed rowset_id:" << rowset->rowset_id()
+                             << " tablet id: " << rowset_meta->tablet_id()
+                             << " txn id:" << rowset_meta->txn_id()
+                             << " start_version: " << rowset_meta->version().first
+                             << " end_version: " << rowset_meta->version().second;
+            } else {
+                LOG(INFO) << "successfully to add visible rowset: " << rowset_meta->rowset_id()
+                          << " to tablet: " << rowset_meta->tablet_id()
+                          << " txn id:" << rowset_meta->txn_id()
+                          << " start_version: " << rowset_meta->version().first
+                          << " end_version: " << rowset_meta->version().second;
+            }
+        } else {
+            LOG(WARNING) << "find invalid rowset: " << rowset_meta->rowset_id()
+                         << " with tablet id: " << rowset_meta->tablet_id() 
+                         << " schema hash: " << rowset_meta->tablet_schema_hash()
+                         << " txn: " << rowset_meta->txn_id();
+        }
+    }
+    return OLAP_SUCCESS;
 }
 
 } // namespace doris

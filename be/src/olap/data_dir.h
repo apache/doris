@@ -90,6 +90,9 @@ public:
         return _id_generator->get_next_id(id);
     }
 
+    // load data from meta and data files
+    OLAPStatus load();
+
 private:
     std::string _cluster_id_path() const { return _path + CLUSTER_ID_PREFIX; }
     Status _init_cluster_id();
@@ -102,6 +105,9 @@ private:
     OLAPStatus _read_and_write_test_file();
     Status _read_cluster_id(const std::string& path, int32_t* cluster_id);
     Status _write_cluster_id_to_path(const std::string& path, int32_t cluster_id); 
+    OLAPStatus _clean_unfinished_converting_data();
+    OLAPStatus _convert_old_tablet();
+    OLAPStatus _remove_old_meta_and_files();
 
 private:
     std::string _path;
