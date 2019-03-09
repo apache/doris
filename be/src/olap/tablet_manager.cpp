@@ -264,7 +264,7 @@ OLAPStatus TabletManager::create_inital_rowset(TTabletId tablet_id, SchemaHash s
             break;
         }
         RowsetId rowset_id = 0;
-        RowsetIdGenerator::instance()->get_next_id(tablet->data_dir(), &rowset_id);
+        tablet->next_rowset_id(&rowset_id);
         RowsetWriterContextBuilder context_builder;
         context_builder.set_rowset_id(rowset_id)
                        .set_tablet_id(tablet->tablet_id())

@@ -211,6 +211,8 @@ public:
 
     bool check_path(const std::string& check_path);
 
+    OLAPStatus next_rowset_id(RowsetId* id);
+
 private:
     TabletState _state;
     TabletMeta* _tablet_meta;
