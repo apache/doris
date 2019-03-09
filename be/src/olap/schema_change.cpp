@@ -1515,7 +1515,7 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
 
     RowsetWriterContextBuilder context_builder;
     RowsetId rowset_id = 0;
-    new_tablet->next_rowset_id(&rowset_id);
+    RETURN_NOT_OK(new_tablet->next_rowset_id(&rowset_id));
     if ((*base_rowset)->is_pending()) {
         PUniqueId load_id;
         load_id.set_hi(0);
