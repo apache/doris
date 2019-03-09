@@ -251,6 +251,7 @@ Status TabletWriterMgr::open(const PTabletWriterOpenRequest& params) {
             // create a new 
             channel.reset(new TabletsChannel(key));
             _tablets_channels.insert(key, channel);
+            _key_time_map.emplace(key, time(nullptr));
         }
     }
     RETURN_IF_ERROR(channel->open(params));
@@ -296,6 +297,7 @@ Status TabletWriterMgr::add_batch(
         if (finished) {
             std::lock_guard<std::mutex> l(_lock);
             _tablets_channels.erase(key);
+            _key_time_map.erase(key);
             if (st.ok()) {
                 auto handle = _lastest_success_channel->insert(
                     key.to_string(), nullptr, 1, dummy_deleter);
@@ -311,6 +313,44 @@ Status TabletWriterMgr::cancel(const PTabletWriterCancelRequest& params) {
     {
         std::lock_guard<std::mutex> l(_lock);
         _tablets_channels.erase(key);
+        _key_time_map.erase(key);
+    }
+    return Status::OK;
+}
+
+Status TabletWriterMgr::start_bg_worker() {
+    _tablets_channel_clean_thread = std::thread([this] {
+                _tablets_channel_clean_thread_callback(nullptr);
+            });
+    return Status::OK;
+}
+
+void* TabletWriterMgr::_tablets_channel_clean_thread_callback(void* arg) {
+#ifdef GOOGLE_PROFILER
+        ProfilerRegisterThread();
+#endif
+        uint32_t interval = 600;
+        while (true) {
+            _start_tablets_channel_clean();
+            sleep(interval);
+        }
+}
+
+Status TabletWriterMgr::_start_tablets_channel_clean() {
+    const int32_t duration_time = config::streaming_load_max_duration_time_sec;
+    time_t now = time(nullptr);
+    {
+        std::lock_guard<std::mutex> l(_lock);
+        auto itr = _key_time_map.begin();
+        while (itr != _key_time_map.end()) {
+            if (difftime(now, itr->second) >= duration_time) {
+                _tablets_channels.erase(itr->first);
+                LOG(INFO) << "erase timeout tablets channel: " << itr->first;
+                itr = _key_time_map.erase(itr);
+            } else {
+                ++itr;
+            }
+        }
     }
     return Status::OK;
 }
