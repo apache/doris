@@ -66,9 +66,8 @@ DataDir::DataDir(const std::string& path, int64_t capacity_bytes)
 DataDir::~DataDir() {
     free(_test_file_read_buf);
     free(_test_file_write_buf);
-    if (_meta != nullptr) {
-        delete _meta;
-    }
+    delete _id_generator;
+    delete _meta;
 }
 
 Status DataDir::init() {
@@ -96,6 +95,12 @@ Status DataDir::init() {
     RETURN_IF_ERROR(_init_extension_and_capacity());
     RETURN_IF_ERROR(_init_file_system());
     RETURN_IF_ERROR(_init_meta());
+
+    _id_generator = new RowsetIdGenerator(_meta);
+    auto res = _id_generator->init();
+    if (res != OLAP_SUCCESS) {
+        return Status("Id generator initialized failed.");
+    }
 
     _is_used = true;
     return Status::OK;
@@ -415,10 +420,6 @@ OLAPStatus DataDir::get_shard(uint64_t* shard) {
 
     *shard = next_shard;
     return OLAP_SUCCESS;
-}
-
-OlapMeta* DataDir::get_meta() {
-    return _meta;
 }
 
 OLAPStatus DataDir::register_tablet(Tablet* tablet) {

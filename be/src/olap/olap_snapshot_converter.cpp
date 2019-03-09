@@ -82,7 +82,7 @@ OLAPStatus OlapSnapshotConverter::to_tablet_meta_pb(const OLAPHeaderMessage& ola
     for (auto& delta : olap_header.delta()) {
         RowsetMetaPB* rowset_meta = tablet_meta_pb->add_rs_metas();
         RowsetId next_id;
-        RETURN_NOT_OK(RowsetIdGenerator::instance()->get_next_id(data_dir, &next_id));
+        RETURN_NOT_OK(data_dir->next_id(&next_id));
         convert_to_rowset_meta(delta, next_id, olap_header.tablet_id(), olap_header.schema_hash(), rowset_meta);
         Version rowset_version = { delta.start_version(), delta.end_version() };
         _rs_version_map[rowset_version] = rowset_meta;
@@ -100,14 +100,14 @@ OLAPStatus OlapSnapshotConverter::to_tablet_meta_pb(const OLAPHeaderMessage& ola
         }
         RowsetMetaPB* rowset_meta = tablet_meta_pb->add_inc_rs_metas();
         RowsetId next_id;
-        RETURN_NOT_OK(RowsetIdGenerator::instance()->get_next_id(data_dir, &next_id));
+        RETURN_NOT_OK(data_dir->next_id(&next_id));
         convert_to_rowset_meta(inc_delta, next_id, olap_header.tablet_id(), olap_header.schema_hash(), rowset_meta);
     }
 
     for (auto& pending_delta : olap_header.pending_delta()) {
         RowsetMetaPB rowset_meta;
         RowsetId next_id;
-        RETURN_NOT_OK(RowsetIdGenerator::instance()->get_next_id(data_dir, &next_id));
+        RETURN_NOT_OK(data_dir->next_id(&next_id));
         convert_to_rowset_meta(pending_delta, next_id, olap_header.tablet_id(), olap_header.schema_hash(), &rowset_meta);
         pending_rowsets->emplace_back(std::move(rowset_meta));
     }

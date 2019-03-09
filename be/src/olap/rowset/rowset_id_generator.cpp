@@ -18,61 +18,43 @@
 #include <fstream>
 
 #include "olap/rowset/rowset_id_generator.h"
+#include "olap/olap_meta.h"
 
 namespace doris {
 
-RowsetIdGenerator* RowsetIdGenerator::_s_instance = nullptr;
-std::mutex RowsetIdGenerator::_mlock;
+static RowsetId k_batch_interval = 10000;
 
-RowsetIdGenerator* RowsetIdGenerator::instance() {
-    if (_s_instance == nullptr) {
-        std::lock_guard<std::mutex> lock(_mlock);
-        if (_s_instance == nullptr) {
-            _s_instance = new RowsetIdGenerator();
-        }
+OLAPStatus RowsetIdGenerator::init() {
+    _next_id = k_batch_interval;
+    _id_batch_end = (k_batch_interval << 1);
+    // get last stored value from meta
+    std::string value;
+    OLAPStatus s = _meta->get(DEFAULT_COLUMN_FAMILY_INDEX, END_ROWSET_ID, &value);
+    if (s == OLAP_SUCCESS) {
+        _next_id = std::stol(value);
+        _id_batch_end = _next_id + k_batch_interval;
+    } else if (s != OLAP_ERR_META_KEY_NOT_FOUND) {
+        return s;
     }
-    return _s_instance;
+    // else: meta-key not found, we will initialize a initial state
+    s = _meta->put(DEFAULT_COLUMN_FAMILY_INDEX, END_ROWSET_ID, std::to_string(_id_batch_end));
+    if (s != OLAP_SUCCESS) {
+        return s;
+    }
+    return OLAP_SUCCESS;
 }
 
-OLAPStatus RowsetIdGenerator::get_next_id(DataDir* dir, RowsetId* gen_rowset_id) {
-    WriteLock wrlock(&_ids_lock);
-    // if could not find the dir in map, then load the start id from meta
-    RowsetId batch_end_id = 10000;
-    std::string key = END_ROWSET_ID;
-    OLAPStatus s = OLAP_SUCCESS;
-    if (_dir_ids.find(dir) == _dir_ids.end()) {
-        // could not find dir in map, it means this dir is not loaded
-        std::string value;
-        OLAPStatus s = dir->get_meta()->get(DEFAULT_COLUMN_FAMILY_INDEX, key, &value);
-        if (s != OLAP_SUCCESS) {
-            if (s == OLAP_ERR_META_KEY_NOT_FOUND) {
-                s = dir->get_meta()->put(DEFAULT_COLUMN_FAMILY_INDEX, key, std::to_string(batch_end_id));
-                if (s != OLAP_SUCCESS) {
-                    return s;
-                }
-                _dir_ids[dir] = std::pair<RowsetId, RowsetId>(batch_end_id, batch_end_id);
-            } else { 
-                return s;
-            }
-        } else {
-            batch_end_id = std::stol(value);
-            _dir_ids[dir] = std::pair<RowsetId, RowsetId>(batch_end_id, batch_end_id);
-        }
-    }
-
-    std::pair<RowsetId, RowsetId>& start_end_id = _dir_ids[dir];
-    if (start_end_id.first + 1 >= start_end_id.second) {
-        start_end_id.second = start_end_id.second + _batch_interval;
-        s = dir->get_meta()->put(DEFAULT_COLUMN_FAMILY_INDEX, key, std::to_string(start_end_id.second));
+OLAPStatus RowsetIdGenerator::get_next_id(RowsetId* gen_rowset_id) {
+    std::lock_guard<std::mutex> l(_lock);
+    if (_next_id >= _id_batch_end) {
+        _id_batch_end += k_batch_interval;
+        auto s = _meta->put(DEFAULT_COLUMN_FAMILY_INDEX, END_ROWSET_ID, std::to_string(_id_batch_end));
         if (s != OLAP_SUCCESS) {
             return s;
         }
-    } 
-
-    start_end_id.first = start_end_id.first + 1;
-    *gen_rowset_id = start_end_id.first;
-
+    }
+    *gen_rowset_id = _next_id++;
     return OLAP_SUCCESS;
-} // get_next_id
+}
 
 } // doris

@@ -767,4 +767,8 @@ bool Tablet::check_path(const std::string& path_to_check) {
     return false;
 }
 
+OLAPStatus Tablet::next_rowset_id(RowsetId* id) {
+    return _data_dir->next_id(id);
+}
+
 }  // namespace doris
