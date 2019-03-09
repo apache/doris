@@ -687,7 +687,7 @@ OLAPStatus EngineCloneTask::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb, co
     RETURN_NOT_OK(org_rowset->init());
     RETURN_NOT_OK(org_rowset->load());
     RowsetId rowset_id = 0;
-    RowsetIdGenerator::instance()->get_next_id(&data_dir, &rowset_id);
+    data_dir.next_id(&rowset_id);
     RowsetMetaSharedPtr org_rowset_meta = org_rowset->rowset_meta();
     RowsetWriterContextBuilder context_builder;
     context_builder.set_rowset_id(rowset_id)

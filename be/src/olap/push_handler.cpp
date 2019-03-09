@@ -252,7 +252,7 @@ OLAPStatus PushHandler::_convert(
     RowsetWriterContext context;
     uint32_t  num_rows = 0;
     RowsetId rowset_id = 0;
-    res = RowsetIdGenerator::instance()->get_next_id(curr_tablet->data_dir(), &rowset_id);
+    res = curr_tablet->next_rowset_id(&rowset_id);
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "generate rowset id failed, res:" << res;
         return OLAP_ERR_ROWSET_GENERATE_ID_FAILED;

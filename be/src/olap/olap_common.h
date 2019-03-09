@@ -229,6 +229,8 @@ typedef std::set<uint32_t> UniqueIdSet;
 // Column unique Id -> column id map
 typedef std::map<ColumnId, ColumnId> UniqueIdToColumnIdMap;
 
+typedef int64_t RowsetId;
+
 }  // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_OLAP_COMMON_H

@@ -15,35 +15,38 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_ROWSET_ROWSET_ID_GENERATOR_H
-#define DORIS_BE_SRC_OLAP_ROWSET_ROWSET_ID_GENERATOR_H
+#pragma once
 
-#include "olap/data_dir.h"
+#include <mutex>
+
 #include "olap/olap_define.h"
+#include "olap/olap_common.h"
 
 namespace doris {
 
-class RowsetIdGenerator {
+class OlapMeta;
 
+class RowsetIdGenerator {
 public:    
+    RowsetIdGenerator(OlapMeta* meta) : _meta(meta) { }
     ~RowsetIdGenerator() {}
 
-    static RowsetIdGenerator* instance();
+    // This function would try to restore sate from meta first,
+    // If there is no such state, will initialize a state, and store 
+    // it into meta.
+    OLAPStatus init();
 
     // generator a id according to data dir
     // rowsetid is not globally unique, it is dir level
     // it saves the batch end id into meta env
-    OLAPStatus get_next_id(DataDir* dir, RowsetId* rowset_id); 
+    OLAPStatus get_next_id(RowsetId* rowset_id); 
 
 private:
-    RowsetIdGenerator(){}
-    RWMutex _ids_lock;
-    RowsetId _batch_interval = 10000;
-    // data dir -> (cur_id, batch_end_id)
-    std::map<DataDir*, std::pair<RowsetId,RowsetId>> _dir_ids; 
-    static RowsetIdGenerator* _s_instance;
-    static std::mutex _mlock;
+    OlapMeta* _meta = nullptr;
+
+    std::mutex _lock;
+    RowsetId _next_id = -1;
+    RowsetId _id_batch_end = -1;
 }; // RowsetIdGenerator
 
 } // namespace doris
-#endif // DORIS_BE_SRC_OLAP_ROWSET_ROWSET_ID_GENERATOR_H
