@@ -133,7 +133,7 @@ OLAPStatus CumulativeCompaction::run() {
     do {
         // 3. 生成新cumulative文件对应的olap index
         RowsetId rowset_id = 0;
-        _tablet->next_rowset_id(&rowset_id);
+        RETURN_NOT_OK(_tablet->next_rowset_id(&rowset_id));
         RowsetWriterContextBuilder context_builder;
         context_builder.set_rowset_id(rowset_id)
                        .set_tablet_id(_tablet->tablet_id())

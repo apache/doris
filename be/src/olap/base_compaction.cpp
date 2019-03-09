@@ -313,7 +313,7 @@ OLAPStatus BaseCompaction::_do_base_compaction(VersionHash new_base_version_hash
                                                const vector<RowsetSharedPtr>& rowsets) {
     // 1. 生成新base文件对应的olap index
     RowsetId rowset_id = 0;
-    _tablet->next_rowset_id(&rowset_id);
+    RETURN_NOT_OK(_tablet->next_rowset_id(&rowset_id));
     RowsetWriterContextBuilder context_builder;
     context_builder.set_rowset_id(rowset_id)
             .set_tablet_id(_tablet->tablet_id())

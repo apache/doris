@@ -202,7 +202,7 @@ OLAPStatus DeltaWriter::close(google::protobuf::RepeatedPtrField<PTabletInfo>* t
             LOG(WARNING) << "failed to convert delta for new tablet in schema change."
                          << "res: " << res << ", "
                          << "new_tablet: " << _new_tablet->full_name();
-                return res;
+            return res;
         }
 
         if (_new_rowset == nullptr) {
