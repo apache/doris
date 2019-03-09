@@ -1030,7 +1030,7 @@ bool SchemaChangeWithSorting::_internal_sorting(const vector<RowBlock*>& row_blo
 
     RowsetWriterContextBuilder context_builder;
     RowsetId rowset_id = 0;
-    OLAPStatus status = RowsetIdGenerator::instance()->get_next_id(_tablet->data_dir(), &rowset_id);
+    OLAPStatus status = _tablet->next_rowset_id(&rowset_id);
     LOG(INFO) << "rowset_id:" << rowset_id;
     if (status != OLAP_SUCCESS) {
         LOG(WARNING) << "get next rowset id failed";
@@ -1503,7 +1503,7 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
 
     RowsetWriterContextBuilder context_builder;
     RowsetId rowset_id = 0;
-    RowsetIdGenerator::instance()->get_next_id(new_tablet->data_dir(), &rowset_id);
+    new_tablet->next_rowset_id(&rowset_id);
     if ((*base_rowset)->is_pending()) {
         PUniqueId load_id;
         load_id.set_hi(0);
@@ -1712,7 +1712,7 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
 
         RowsetId rowset_id = 0;
         TabletSharedPtr new_tablet = sc_params.new_tablet;
-        res = RowsetIdGenerator::instance()->get_next_id(sc_params.new_tablet->data_dir(), &rowset_id);
+        res = sc_params.new_tablet->next_rowset_id(&rowset_id);
         LOG(INFO) << "rowset_id:" << rowset_id;
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "generate next id failed";

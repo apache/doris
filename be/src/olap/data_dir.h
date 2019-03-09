@@ -26,6 +26,7 @@
 #include "gen_cpp/Types_types.h"
 #include "olap/olap_common.h"
 #include "olap/storage_engine.h"
+#include "olap/rowset/rowset_id_generator.h"
 
 namespace doris {
 
@@ -60,7 +61,8 @@ public:
 
     OLAPStatus get_shard(uint64_t* shard);
 
-    OlapMeta* get_meta();
+
+    OlapMeta* get_meta() { return _meta; }
 
     bool is_ssd_disk() const {
         return _storage_medium == TStorageMedium::SSD;
@@ -83,6 +85,10 @@ public:
     void find_tablet_in_trash(int64_t tablet_id, std::vector<std::string>* paths);
 
     static std::string get_root_path_from_schema_hash_path_in_trash(const std::string& schema_hash_dir_in_trash);
+
+    OLAPStatus next_id(RowsetId* id) {
+        return _id_generator->get_next_id(id);
+    }
 
 private:
     std::string _cluster_id_path() const { return _path + CLUSTER_ID_PREFIX; }
@@ -121,7 +127,8 @@ private:
     static const uint32_t MAX_SHARD_NUM = 1024;
     char* _test_file_read_buf;
     char* _test_file_write_buf;
-    OlapMeta* _meta;
+    OlapMeta* _meta = nullptr;
+    RowsetIdGenerator* _id_generator = nullptr;
 };
 
 } // namespace doris
