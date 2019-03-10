@@ -51,6 +51,8 @@ namespace doris {
 // txn manager is used to manage mapping between tablet and txns
 class TxnManager {
 public:
+    TxnManager();
+
     ~TxnManager() {
         _txn_tablet_map.clear();
         _txn_locks.clear();
@@ -99,11 +101,7 @@ public:
 
     bool get_expire_txns(TTabletId tablet_id, std::vector<int64_t>* transaction_ids);
     
-    static TxnManager* instance();
-
 private:
-    TxnManager();
-
     RWMutex* _get_txn_lock(TTransactionId txn_id) {
         return _txn_locks[txn_id % _txn_lock_num].get();
     }
@@ -116,9 +114,7 @@ private:
     const int32_t _txn_lock_num = 100;
     std::map<int32_t, std::shared_ptr<RWMutex>> _txn_locks;
 
-    // singleton
-    static TxnManager* _s_instance;
-    static std::mutex _mlock;
+    DISALLOW_COPY_AND_ASSIGN(TxnManager);
 };  // TxnManager
 
 }

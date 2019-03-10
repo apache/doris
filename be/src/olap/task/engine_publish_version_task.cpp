@@ -43,7 +43,7 @@ OLAPStatus EnginePublishVersionTask::finish() {
 
         int64_t partition_id = partitionVersionInfo.partition_id;
         map<TabletInfo, RowsetSharedPtr> tablet_related_rs;
-        TxnManager::instance()->get_txn_related_tablets(transaction_id, partition_id, &tablet_related_rs);
+        StorageEngine::instance()->txn_manager()->get_txn_related_tablets(transaction_id, partition_id, &tablet_related_rs);
 
         Version version(partitionVersionInfo.version, partitionVersionInfo.version);
         VersionHash version_hash = partitionVersionInfo.version_hash;
@@ -59,7 +59,7 @@ OLAPStatus EnginePublishVersionTask::finish() {
                     << ", version=" << version.first
                     << ", version_hash=" << version_hash
                     << ", transaction_id=" << transaction_id;
-            TabletSharedPtr tablet = TabletManager::instance()->get_tablet(tablet_info.tablet_id, tablet_info.schema_hash);
+            TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_info.tablet_id, tablet_info.schema_hash);
 
             if (tablet.get() == NULL) {
                 LOG(WARNING) << "can't get tablet when publish version. tablet_id=" << tablet_info.tablet_id
@@ -69,7 +69,7 @@ OLAPStatus EnginePublishVersionTask::finish() {
                 continue;
             }
 
-            publish_status = TxnManager::instance()->publish_txn(tablet->data_dir()->get_meta(), 
+            publish_status = StorageEngine::instance()->txn_manager()->publish_txn(tablet->data_dir()->get_meta(), 
                 partition_id, 
                 transaction_id, tablet_info.tablet_id, tablet_info.schema_hash, 
                 version, version_hash);

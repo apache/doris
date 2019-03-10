@@ -1157,7 +1157,7 @@ OLAPStatus SchemaChangeHandler::_check_and_clear_schema_change_info(
     }
 
     // clear schema change info of related tablet
-    TabletSharedPtr related_tablet = TabletManager::instance()->get_tablet(
+    TabletSharedPtr related_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
             tablet_id, schema_hash);
     if (related_tablet == nullptr) {
         LOG(WARNING) << "tablet does not exist. tablet_id=" << tablet_id
@@ -1176,19 +1176,19 @@ OLAPStatus SchemaChangeHandler::process_alter_tablet(AlterTabletType type,
               << ", new_schema_hash=" << request.new_tablet_req.tablet_schema.schema_hash;
 
     // 1. Lock schema_change_lock util schema change info is stored in tablet header
-    if (!TabletManager::instance()->try_schema_change_lock(request.base_tablet_id)) {
+    if (!StorageEngine::instance()->tablet_manager()->try_schema_change_lock(request.base_tablet_id)) {
         LOG(WARNING) << "failed to obtain schema change lock. "
                      << "base_tablet=" << request.base_tablet_id;
         return OLAP_ERR_TRY_LOCK_FAILED;
     }
 
     // 2. Get base tablet
-    TabletSharedPtr base_tablet = TabletManager::instance()->get_tablet(
+    TabletSharedPtr base_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
             request.base_tablet_id, request.base_schema_hash);
     if (base_tablet == nullptr) {
         LOG(WARNING) << "fail to find base tablet. base_tablet=" << request.base_tablet_id
                      << ", base_schema_hash=" << request.base_schema_hash;
-        TabletManager::instance()->release_schema_change_lock(request.base_tablet_id);
+        StorageEngine::instance()->tablet_manager()->release_schema_change_lock(request.base_tablet_id);
         return OLAP_ERR_TABLE_NOT_FOUND;
     }
 
@@ -1198,16 +1198,16 @@ OLAPStatus SchemaChangeHandler::process_alter_tablet(AlterTabletType type,
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "failed to check and clear schema change info."
                      << " base_tablet=" << base_tablet->full_name();
-        TabletManager::instance()->release_schema_change_lock(request.base_tablet_id);
+        StorageEngine::instance()->tablet_manager()->release_schema_change_lock(request.base_tablet_id);
         return res;
     }
 
     // 4. Returning success if new tablet already exist in StorageEngine.
     //    It means that the current request was already handled.
-    TabletSharedPtr new_tablet = TabletManager::instance()->get_tablet(
+    TabletSharedPtr new_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
             request.new_tablet_req.tablet_id, request.new_tablet_req.tablet_schema.schema_hash);
     if (new_tablet != nullptr) {
-        TabletManager::instance()->release_schema_change_lock(request.base_tablet_id);
+        StorageEngine::instance()->tablet_manager()->release_schema_change_lock(request.base_tablet_id);
         return OLAP_SUCCESS;
     }
 
@@ -1218,21 +1218,21 @@ OLAPStatus SchemaChangeHandler::process_alter_tablet(AlterTabletType type,
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to create new tablet. new_tablet_id=" << request.new_tablet_req.tablet_id
                      << ", new_tablet_hash=" << request.new_tablet_req.tablet_schema.schema_hash;
-        TabletManager::instance()->release_schema_change_lock(request.base_tablet_id);
+        StorageEngine::instance()->tablet_manager()->release_schema_change_lock(request.base_tablet_id);
         return res;
     }
 
     base_tablet->obtain_push_lock();
     base_tablet->obtain_header_wrlock();
     new_tablet->obtain_header_wrlock();
-    _save_alter_state(ALTER_PREPARE, base_tablet, new_tablet);
+    _save_alter_state(ALTER_PREPARED, base_tablet, new_tablet);
     new_tablet->release_header_lock();
     base_tablet->release_header_lock();
 
     // get current transactions
     int64_t partition_id;
     std::set<int64_t> transaction_ids;
-    TxnManager::instance()->get_tablet_related_txns(base_tablet, &partition_id, &transaction_ids);
+    StorageEngine::instance()->txn_manager()->get_tablet_related_txns(base_tablet, &partition_id, &transaction_ids);
     base_tablet->release_push_lock();
 
     // wait transactions to publish version
@@ -1250,7 +1250,7 @@ OLAPStatus SchemaChangeHandler::process_alter_tablet(AlterTabletType type,
         // erase finished transaction
         vector<int64_t> finished_transactions;
         for (int64_t transaction_id : transaction_ids) {
-            if (!TxnManager::instance()->has_txn(
+            if (!StorageEngine::instance()->txn_manager()->has_txn(
                 partition_id, transaction_id,
                 base_tablet->tablet_id(), base_tablet->schema_hash())) {
                 finished_transactions.push_back(transaction_id);
@@ -1340,11 +1340,11 @@ OLAPStatus SchemaChangeHandler::process_alter_tablet(AlterTabletType type,
     base_tablet->release_push_lock();
 
     if (res != OLAP_SUCCESS) {
-        TabletManager::instance()->release_schema_change_lock(request.base_tablet_id);
+        StorageEngine::instance()->tablet_manager()->release_schema_change_lock(request.base_tablet_id);
 
         // Delete tablet when submit alter tablet failed.
         _save_alter_state(ALTER_FAILED, base_tablet, new_tablet);
-        TabletManager::instance()->drop_tablet(new_tablet->tablet_id(), new_tablet->schema_hash());
+        StorageEngine::instance()->tablet_manager()->drop_tablet(new_tablet->tablet_id(), new_tablet->schema_hash());
         return res;
     }
 
@@ -1360,14 +1360,14 @@ OLAPStatus SchemaChangeHandler::process_alter_tablet(AlterTabletType type,
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "failed to alter tablet. base_tablet=" << base_tablet->full_name()
                      << ", new_tablet=" << new_tablet->full_name();
-        TabletManager::instance()->release_schema_change_lock(request.base_tablet_id);
+        StorageEngine::instance()->tablet_manager()->release_schema_change_lock(request.base_tablet_id);
         _save_alter_state(ALTER_FAILED, base_tablet, new_tablet);
-        TabletManager::instance()->drop_tablet(new_tablet->tablet_id(), new_tablet->schema_hash());
+        StorageEngine::instance()->tablet_manager()->drop_tablet(new_tablet->tablet_id(), new_tablet->schema_hash());
         return res;
     }
 
     _save_alter_state(ALTER_FINISHED, base_tablet, new_tablet);
-    TabletManager::instance()->release_schema_change_lock(request.base_tablet_id);
+    StorageEngine::instance()->tablet_manager()->release_schema_change_lock(request.base_tablet_id);
 
     return res;
 }
@@ -1410,7 +1410,7 @@ OLAPStatus SchemaChangeHandler::_create_new_tablet(
         }
 
         // 3. Add tablet to StorageEngine will make it visiable to user
-        res = TabletManager::instance()->add_tablet(request.tablet_id,
+        res = StorageEngine::instance()->tablet_manager()->add_tablet(request.tablet_id,
                                                     request.tablet_schema.schema_hash,
                                                     tablet_to_create, false);
         if (res != OLAP_SUCCESS) {
@@ -1436,7 +1436,7 @@ OLAPStatus SchemaChangeHandler::_create_new_tablet(
 
     if (res != OLAP_SUCCESS) {
         if (is_tablet_added) {
-            res = TabletManager::instance()->drop_tablet(
+            res = StorageEngine::instance()->tablet_manager()->drop_tablet(
                     request.tablet_id, request.tablet_schema.schema_hash);
             if (res != OLAP_SUCCESS) {
                 LOG(WARNING) << "fail to drop tablet when create tablet failed. res=" << res
@@ -1606,7 +1606,7 @@ OLAPStatus SchemaChangeHandler::_add_alter_task(
 
     // check new tablet exists,
     // prevent to set base's status after new's dropping (clear base's status)
-    if (TabletManager::instance()->get_tablet(
+    if (StorageEngine::instance()->tablet_manager()->get_tablet(
             new_tablet->tablet_id(), new_tablet->schema_hash()) == nullptr) {
         LOG(WARNING) << "new_tablet does not exist. tablet=" << new_tablet->full_name();
         return OLAP_ERR_TABLE_NOT_FOUND;

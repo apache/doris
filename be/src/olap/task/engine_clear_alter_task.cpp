@@ -34,7 +34,7 @@ OLAPStatus EngineClearAlterTask::_clear_alter_task(const TTabletId tablet_id,
                                 const TSchemaHash schema_hash) {
     LOG(INFO) << "begin to process clear alter task. tablet_id=" << tablet_id
               << ", schema_hash=" << schema_hash;
-    TabletSharedPtr tablet = TabletManager::instance()->get_tablet(tablet_id, schema_hash);
+    TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash);
     if (tablet.get() == NULL) {
         OLAP_LOG_WARNING("can't find tablet when process clear alter task. ",
                          "[tablet_id=%ld, schema_hash=%d]", tablet_id, schema_hash);
@@ -67,7 +67,7 @@ OLAPStatus EngineClearAlterTask::_clear_alter_task(const TTabletId tablet_id,
     OLAPStatus res = tablet->protected_delete_alter_task();
 
     // clear related tablet's schema change info
-    TabletSharedPtr related_tablet = TabletManager::instance()->get_tablet(related_tablet_id, related_schema_hash);
+    TabletSharedPtr related_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(related_tablet_id, related_schema_hash);
     if (related_tablet.get() == NULL) {
         LOG(WARNING) << "related tablet not found when process clear alter task."
                      << " tablet_id=" << tablet_id << ", schema_hash=" << schema_hash

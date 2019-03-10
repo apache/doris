@@ -226,7 +226,7 @@ void BackendService::erase_export_task(TStatus& t_status, const TUniqueId& task_
 }
 
 void BackendService::get_tablet_stat(TTabletStatResult& result) {
-    TabletManager::instance()->get_tablet_stat(result);
+    StorageEngine::instance()->tablet_manager()->get_tablet_stat(result);
 }
 
 void BackendService::submit_routine_load_task(
