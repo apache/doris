@@ -29,7 +29,6 @@ AlphaRowset::AlphaRowset(const TabletSchema* schema,
         _rowset_path(rowset_path),
         _data_dir(data_dir),
         _rowset_meta(rowset_meta),
-        _segment_group_size(0),
         _is_cumulative_rowset(false),
         _is_pending_rowset(false) {
     if (!_rowset_meta->has_version()) {
@@ -431,10 +430,9 @@ OLAPStatus AlphaRowset::_init_non_pending_segment_groups() {
         }
         _segment_groups.push_back(segment_group);
     }
-    _segment_group_size = _segment_groups.size();
-    if (_is_cumulative_rowset && _segment_group_size > 1) {
+    if (_is_cumulative_rowset && _segment_groups.size() > 1) {
         LOG(WARNING) << "invalid segment group meta for cumulative rowset. segment group size:"
-                << _segment_group_size;
+                << _segment_groups.size();
         return OLAP_ERR_ENGINE_LOAD_INDEX_TABLE_ERROR;
     }
     return OLAP_SUCCESS;
@@ -489,10 +487,9 @@ OLAPStatus AlphaRowset::_init_pending_segment_groups() {
             }
         }
     }
-    _segment_group_size = _segment_groups.size();
-    if (_is_cumulative_rowset && _segment_group_size > 1) {
+    if (_is_cumulative_rowset && _segment_groups.size() > 1) {
         LOG(WARNING) << "invalid segment group meta for cumulative rowset. segment group size:"
-                << _segment_group_size;
+                << _segment_groups.size();
         return OLAP_ERR_ENGINE_LOAD_INDEX_TABLE_ERROR;
     }
     return OLAP_SUCCESS;
