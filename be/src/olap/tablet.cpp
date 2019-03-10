@@ -139,7 +139,7 @@ OLAPStatus Tablet::init_once() {
     if (res != OLAP_SUCCESS) {
         LOG(FATAL) << "fail to load tablet. res=" << res
                     << ", tablet='" << full_name();
-        TabletManager::instance()->drop_tablet(tablet_id(), schema_hash());
+        StorageEngine::instance()->tablet_manager()->drop_tablet(tablet_id(), schema_hash());
         return res;
     }
 

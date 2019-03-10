@@ -43,7 +43,7 @@ OLAPStatus EngineSchemaChangeTask::execute() {
     // Do not need to adjust delete success or not
     // Because if delete failed create rollup will failed
     // Check lastest alter tablet status
-    TabletSharedPtr tablet = TabletManager::instance()->get_tablet(base_tablet_id, base_schema_hash);
+    TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(base_tablet_id, base_schema_hash);
     if (tablet == nullptr) {
         LOG(WARNING) << "failed to get tablet. tablet=" << base_tablet_id
                      << ", schema_hash=" << base_schema_hash;
@@ -55,7 +55,7 @@ OLAPStatus EngineSchemaChangeTask::execute() {
         // !!! could not drop failed tablet
         // alter tablet job is in finishing state in fe, be restarts, then the tablet is in ALTER_TABLE_FAILED state
         // if drop the old tablet, then data is lost
-        status = TabletManager::instance()->drop_tablet(_alter_tablet_req.new_tablet_req.tablet_id,
+        status = StorageEngine::instance()->tablet_manager()->drop_tablet(_alter_tablet_req.new_tablet_req.tablet_id,
                                                         _alter_tablet_req.new_tablet_req.tablet_schema.schema_hash);
 
         if (status != OLAP_SUCCESS) {

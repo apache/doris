@@ -51,7 +51,7 @@ DeltaWriter::~DeltaWriter() {
 void DeltaWriter::_garbage_collection() {
     // TODO(ygl): if cur_rowset is null, then the rowset is not built, should clean other
     // resources during load
-    OLAPStatus rollback_status = TxnManager::instance()->rollback_txn(_req.partition_id,
+    OLAPStatus rollback_status = StorageEngine::instance()->txn_manager()->rollback_txn(_req.partition_id,
         _req.txn_id,_req.tablet_id, _req.schema_hash);
     // has to check rollback status, because the rowset maybe committed in this thread and
     // published in another thread, then rollback will failed
@@ -60,7 +60,7 @@ void DeltaWriter::_garbage_collection() {
         StorageEngine::instance()->add_unused_rowset(_cur_rowset);
     }
     if (_new_tablet != nullptr) {
-        rollback_status = TxnManager::instance()->rollback_txn(_req.partition_id, _req.txn_id,
+        rollback_status = StorageEngine::instance()->txn_manager()->rollback_txn(_req.partition_id, _req.txn_id,
             _new_tablet->tablet_id(), _new_tablet->schema_hash());
         if (rollback_status == OLAP_SUCCESS) {
             StorageEngine::instance()->add_unused_rowset(_new_rowset);
@@ -69,7 +69,7 @@ void DeltaWriter::_garbage_collection() {
 }
 
 OLAPStatus DeltaWriter::init() {
-    _tablet = TabletManager::instance()->get_tablet(_req.tablet_id, _req.schema_hash);
+    _tablet = StorageEngine::instance()->tablet_manager()->get_tablet(_req.tablet_id, _req.schema_hash);
     if (_tablet == nullptr) {
         LOG(WARNING) << "tablet_id: " << _req.tablet_id << ", "
                      << "schema_hash: " << _req.schema_hash << " not found";
@@ -78,7 +78,7 @@ OLAPStatus DeltaWriter::init() {
 
     {
         MutexLock push_lock(_tablet->get_push_lock());
-        RETURN_NOT_OK(TxnManager::instance()->prepare_txn(
+        RETURN_NOT_OK(StorageEngine::instance()->txn_manager()->prepare_txn(
                             _req.partition_id, _req.txn_id,
                             _req.tablet_id, _req.schema_hash, _req.load_id));
         if (_req.need_gen_rollup) {
@@ -95,8 +95,8 @@ OLAPStatus DeltaWriter::init() {
                           << "new_tablet_id: " << new_tablet_id << ", "
                           << "new_schema_hash: " << new_schema_hash << ", "
                           << "transaction_id: " << _req.txn_id;
-                _new_tablet = TabletManager::instance()->get_tablet(new_tablet_id, new_schema_hash);
-                TxnManager::instance()->prepare_txn(
+                _new_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(new_tablet_id, new_schema_hash);
+                StorageEngine::instance()->txn_manager()->prepare_txn(
                                     _req.partition_id, _req.txn_id,
                                     new_tablet_id, new_schema_hash, _req.load_id);
             }
@@ -184,7 +184,7 @@ OLAPStatus DeltaWriter::close(google::protobuf::RepeatedPtrField<PTabletInfo>* t
         LOG(WARNING) << "fail to build rowset";
         return OLAP_ERR_MALLOC_ERROR;
     }
-    res = TxnManager::instance()->commit_txn(_tablet->data_dir()->get_meta(),
+    res = StorageEngine::instance()->txn_manager()->commit_txn(_tablet->data_dir()->get_meta(),
         _req.partition_id, _req.txn_id,_req.tablet_id, _req.schema_hash,
         _req.load_id, _cur_rowset, false);
     if (res != OLAP_SUCCESS && res != OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
@@ -209,7 +209,7 @@ OLAPStatus DeltaWriter::close(google::protobuf::RepeatedPtrField<PTabletInfo>* t
             LOG(WARNING) << "fail to build rowset";
             return OLAP_ERR_MALLOC_ERROR;
         }
-        res = TxnManager::instance()->commit_txn(_new_tablet->data_dir()->get_meta(),
+        res = StorageEngine::instance()->txn_manager()->commit_txn(_new_tablet->data_dir()->get_meta(),
             _req.partition_id, _req.txn_id, _new_tablet->tablet_id(),
             _new_tablet->schema_hash(),
             _req.load_id, _new_rowset, false);

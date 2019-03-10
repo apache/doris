@@ -52,6 +52,8 @@ class DataDir;
 // TabletManager provides get,add, delete tablet method for storage engine
 class TabletManager {
 public:
+    TabletManager();
+
     ~TabletManager() {
         _tablet_map.clear();
     }
@@ -137,11 +139,7 @@ public:
 
     void update_storage_medium_type_count(uint32_t storage_medium_type_count);
 
-    static TabletManager* instance();
-
 private:
-    TabletManager();
-    
     void _build_tablet_info(TabletSharedPtr tablet, TTabletInfo* tablet_info);
     
     void _build_tablet_stat();
@@ -180,9 +178,7 @@ private:
 
     uint32_t _available_storage_medium_type_count;
 
-    // singleton
-    static TabletManager* _s_instance;
-    static std::mutex _mlock;
+    DISALLOW_COPY_AND_ASSIGN(TabletManager);
 };
 
 }  // namespace doris

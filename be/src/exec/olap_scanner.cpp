@@ -79,7 +79,7 @@ Status OlapScanner::_prepare(
     VersionHash version_hash =
         strtoul(scan_range->scan_range().version_hash.c_str(), nullptr, 10);
     {
-        _tablet = TabletManager::instance()->get_tablet(tablet_id, schema_hash);
+        _tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash);
         if (_tablet.get() == nullptr) {
             OLAP_LOG_WARNING("tablet does not exist. [tablet_id=%ld schema_hash=%d]",
                              tablet_id, schema_hash);
