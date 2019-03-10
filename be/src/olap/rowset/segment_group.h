@@ -84,16 +84,6 @@ public:
     // 检查index文件和data文件的有效性
     OLAPStatus validate();
 
-    // Finds position of the first (or last if find_last is set) row
-    // block that may contain the smallest key equal to or greater than
-    // 'key'. Returns true on success. If find_last is set, note that
-    // the position is the last block that can possibly contain the
-    // given key.
-    OLAPStatus find_row_block(const RowCursor& key,
-                          RowCursor* helper_cursor,
-                          bool find_last,
-                          RowBlockPosition* position) const;
-
     // Finds position of first row block contain the smallest key equal
     // to or greater than 'key'. Returns true on success.
     OLAPStatus find_short_key(const RowCursor& key,

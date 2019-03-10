@@ -129,7 +129,6 @@ private:
     DataDir* _data_dir;
     RowsetMetaSharedPtr _rowset_meta;
     std::vector<std::shared_ptr<SegmentGroup>> _segment_groups;
-    int _segment_group_size;
     bool _is_cumulative_rowset;
     bool _is_pending_rowset;
     atomic_t _ref_count;
