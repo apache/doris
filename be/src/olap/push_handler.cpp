@@ -86,7 +86,7 @@ OLAPStatus PushHandler::_do_streaming_ingestion(
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);
-    OLAPStatus res = TxnManager::instance()->prepare_txn(
+    OLAPStatus res = StorageEngine::instance()->txn_manager()->prepare_txn(
             request.partition_id, request.transaction_id,
             tablet->tablet_id(), tablet->schema_hash(), load_id);
 
@@ -113,7 +113,7 @@ OLAPStatus PushHandler::_do_streaming_ingestion(
                       << ", related_tablet_id=" << related_tablet_id
                       << ", related_schema_hash=" << related_schema_hash
                       << ", transaction_id=" << request.transaction_id;
-            TabletSharedPtr related_tablet = TabletManager::instance()->get_tablet(
+            TabletSharedPtr related_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
                 related_tablet_id, related_schema_hash);
 
             // if related tablet not exists, only push current tablet
@@ -131,7 +131,7 @@ OLAPStatus PushHandler::_do_streaming_ingestion(
                 PUniqueId load_id;
                 load_id.set_hi(0);
                 load_id.set_lo(0);
-                res = TxnManager::instance()->prepare_txn(
+                res = StorageEngine::instance()->txn_manager()->prepare_txn(
                     request.partition_id, request.transaction_id,
                     related_tablet->tablet_id(), related_tablet->schema_hash(), load_id);
                 // prepare txn will always be successful
@@ -186,7 +186,7 @@ OLAPStatus PushHandler::_do_streaming_ingestion(
                 continue;
             }
 
-            OLAPStatus rollback_status = TxnManager::instance()->rollback_txn(
+            OLAPStatus rollback_status = StorageEngine::instance()->txn_manager()->rollback_txn(
                 request.partition_id, request.transaction_id,
                 tablet_var.tablet->tablet_id(), tablet_var.tablet->schema_hash());
             // has to check rollback status to ensure not delete a committed rowset
@@ -206,7 +206,7 @@ OLAPStatus PushHandler::_do_streaming_ingestion(
 
         tablet_var.rowset_to_add->rowset_meta()->set_delete_predicate(del_preds.front());
         del_preds.pop();
-        OLAPStatus commit_status = TxnManager::instance()->commit_txn(tablet_var.tablet->data_dir()->get_meta(),
+        OLAPStatus commit_status = StorageEngine::instance()->txn_manager()->commit_txn(tablet_var.tablet->data_dir()->get_meta(),
                                                                       request.partition_id, request.transaction_id,
                                                                       tablet_var.tablet->tablet_id(),
                                                                       tablet_var.tablet->schema_hash(),
@@ -230,7 +230,7 @@ void PushHandler::_get_tablet_infos(
         TTabletInfo tablet_info;
         tablet_info.tablet_id = tablet_var.tablet->tablet_id();
         tablet_info.schema_hash = tablet_var.tablet->schema_hash();
-        TabletManager::instance()->report_tablet_info(&tablet_info);
+        StorageEngine::instance()->tablet_manager()->report_tablet_info(&tablet_info);
         tablet_info_vec->push_back(tablet_info);
     }
 }

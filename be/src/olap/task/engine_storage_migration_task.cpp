@@ -47,7 +47,7 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
     DorisMetrics::storage_migrate_requests_total.increment(1);
 
     OLAPStatus res = OLAP_SUCCESS;
-    TabletSharedPtr tablet = TabletManager::instance()->get_tablet(tablet_id, schema_hash);
+    TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash);
     if (tablet.get() == NULL) {
         OLAP_LOG_WARNING("can't find tablet. [tablet_id=%ld schema_hash=%d]",
                 tablet_id, schema_hash);
@@ -145,7 +145,7 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
             res = OLAP_ERR_TABLE_CREATE_FROM_HEADER_ERROR;
             break;
         }
-        res = TabletManager::instance()->add_tablet(tablet_id, schema_hash, tablet, false);
+        res = StorageEngine::instance()->tablet_manager()->add_tablet(tablet_id, schema_hash, tablet, false);
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to add tablet to StorageEngine. [res=%d]", res);
             break;
@@ -153,7 +153,7 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
 
         // if old tablet finished schema change, then the schema change status of the new tablet is DONE
         // else the schema change status of the new tablet is FAILED
-        TabletSharedPtr new_tablet = TabletManager::instance()->get_tablet(tablet_id, schema_hash);
+        TabletSharedPtr new_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash);
         if (new_tablet.get() == NULL) {
             OLAP_LOG_WARNING("get null tablet. [tablet_id=%ld schema_hash=%d]",
                              tablet_id, schema_hash);

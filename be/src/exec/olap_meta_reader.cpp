@@ -43,7 +43,7 @@ Status EngineMetaReader::get_hints(
         RuntimeProfile* profile) {
     auto tablet_id = scan_range->scan_range().tablet_id;
     int32_t schema_hash = strtoul(scan_range->scan_range().schema_hash.c_str(), NULL, 10);
-    TabletSharedPtr table = TabletManager::instance()->get_tablet(
+    TabletSharedPtr table = StorageEngine::instance()->tablet_manager()->get_tablet(
         tablet_id, schema_hash);
     if (table.get() == NULL) {
         LOG(WARNING) << "tablet does not exist. tablet_id=" << tablet_id << ", schema_hash="

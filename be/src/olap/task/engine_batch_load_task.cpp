@@ -101,7 +101,7 @@ AgentStatus EngineBatchLoadTask::_init() {
 
     // Check replica exist
     TabletSharedPtr tablet;
-    tablet = TabletManager::instance()->get_tablet(
+    tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
             _push_req.tablet_id,
             _push_req.schema_hash);
     if (tablet.get() == NULL) {
@@ -320,7 +320,7 @@ OLAPStatus EngineBatchLoadTask::_push(const TPushReq& request,
         return OLAP_ERR_CE_CMD_PARAMS_ERROR;
     }
 
-    TabletSharedPtr tablet = TabletManager::instance()->get_tablet(
+    TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
             request.tablet_id, request.schema_hash);
     if (NULL == tablet.get()) {
         OLAP_LOG_WARNING("false to find tablet. [tablet=%ld schema_hash=%d]",
@@ -377,7 +377,7 @@ OLAPStatus EngineBatchLoadTask::_delete_data(
     }
 
     // 1. Get all tablets with same tablet_id
-    TabletSharedPtr tablet = TabletManager::instance()->get_tablet(request.tablet_id, request.schema_hash);
+    TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(request.tablet_id, request.schema_hash);
     if (tablet.get() == NULL) {
         OLAP_LOG_WARNING("can't find tablet. [tablet=%ld schema_hash=%d]",
                          request.tablet_id, request.schema_hash);

@@ -67,7 +67,7 @@ OLAPStatus SnapshotManager::make_snapshot(
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
-    TabletSharedPtr ref_tablet = TabletManager::instance()->get_tablet(request.tablet_id, request.schema_hash);
+    TabletSharedPtr ref_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(request.tablet_id, request.schema_hash);
     if (ref_tablet.get() == nullptr) {
         LOG(WARNING) << "failed to get tablet. tablet=" << request.tablet_id
                   << " schema_hash=" << request.schema_hash;
