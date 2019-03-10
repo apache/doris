@@ -73,19 +73,6 @@ using std::vector;
 
 namespace doris {
 
-TabletManager* TabletManager::_s_instance = nullptr;
-std::mutex TabletManager::_mlock;
-
-TabletManager* TabletManager::instance() {
-    if (_s_instance == nullptr) {
-        std::lock_guard<std::mutex> lock(_mlock);
-        if (_s_instance == nullptr) {
-            _s_instance = new TabletManager();
-        }
-    }
-    return _s_instance;
-}
-
 bool _sort_tablet_by_creation_time(const TabletSharedPtr& a, const TabletSharedPtr& b) {
     return a->creation_time() < b->creation_time();
 }
@@ -866,7 +853,7 @@ OLAPStatus TabletManager::report_all_tablets_info(std::map<TTabletId, TTablet>* 
             // report expire transaction
             vector<int64_t> transaction_ids;
             // TODO(ygl): tablet manager and txn manager may be dead lock
-            TxnManager::instance()->get_expire_txns(tablet_ptr->tablet_id(), &transaction_ids);
+            StorageEngine::instance()->txn_manager()->get_expire_txns(tablet_ptr->tablet_id(), &transaction_ids);
             tablet_info.__set_transaction_ids(transaction_ids);
 
             if (_available_storage_medium_type_count > 1) {

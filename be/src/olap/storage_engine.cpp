@@ -111,7 +111,9 @@ StorageEngine::StorageEngine(const EngineOptions& options)
         _is_drop_tables(false),
         _index_stream_lru_cache(NULL),
         _is_report_disk_state_already(false),
-        _is_report_tablet_already(false){
+        _is_report_tablet_already(false), 
+        _tablet_manager(new TabletManager()),
+        _txn_manager(new TxnManager()) {
     if (_s_instance == nullptr) {
         _s_instance = this;
     }
@@ -160,7 +162,7 @@ OLAPStatus StorageEngine::open() {
     auto cache = new_lru_cache(config::file_descriptor_cache_capacity);
     if (cache == nullptr) {
         OLAP_LOG_WARNING("failed to init file descriptor LRUCache");
-        TabletManager::instance()->clear();
+        StorageEngine::instance()->tablet_manager()->clear();
         return OLAP_ERR_INIT_FAILED;
     }
     FileHandler::set_fd_cache(cache);
@@ -170,7 +172,7 @@ OLAPStatus StorageEngine::open() {
     _index_stream_lru_cache = new_lru_cache(config::index_stream_cache_capacity);
     if (_index_stream_lru_cache == NULL) {
         OLAP_LOG_WARNING("failed to init index stream LRUCache");
-        TabletManager::instance()->clear();
+        StorageEngine::instance()->tablet_manager()->clear();
         return OLAP_ERR_INIT_FAILED;
     }
 
@@ -184,7 +186,7 @@ OLAPStatus StorageEngine::open() {
     auto dirs = get_stores();
     load_data_dirs(dirs);
     // 取消未完成的SchemaChange任务
-    TabletManager::instance()->cancel_unfinished_schema_change();
+    StorageEngine::instance()->tablet_manager()->cancel_unfinished_schema_change();
 
     return OLAP_SUCCESS;
 }
@@ -200,7 +202,7 @@ void StorageEngine::_update_storage_medium_type_count() {
     }
 
     _available_storage_medium_type_count = available_storage_medium_types.size();
-    TabletManager::instance()->update_storage_medium_type_count(_available_storage_medium_type_count);
+    StorageEngine::instance()->tablet_manager()->update_storage_medium_type_count(_available_storage_medium_type_count);
 }
 
 
@@ -297,7 +299,7 @@ OLAPStatus StorageEngine::get_all_data_dir_info(vector<DataDirInfo>* data_dir_in
 
     // for each tablet, get it's data size, and accumulate the path 'data_used_capacity'
     // which the tablet belongs to.
-    TabletManager::instance()->update_root_path_info(&path_map, &tablet_counter);
+    StorageEngine::instance()->tablet_manager()->update_root_path_info(&path_map, &tablet_counter);
 
     // add path info to data_dir_infos
     for (auto& entry : path_map) {
@@ -443,7 +445,7 @@ void StorageEngine::_delete_tables_on_unused_root_path() {
         _is_drop_tables = true;
     }
     
-    TabletManager::instance()->drop_tablets_on_error_root_path(tablet_info_vec);
+    StorageEngine::instance()->tablet_manager()->drop_tablets_on_error_root_path(tablet_info_vec);
 }
 
 OLAPStatus StorageEngine::_get_path_available_capacity(
@@ -478,17 +480,17 @@ void StorageEngine::clear_transaction_task(const TTransactionId transaction_id,
 
     for (const TPartitionId& partition_id : partition_ids) {
         std::map<TabletInfo, RowsetSharedPtr> tablet_infos;
-        TxnManager::instance()->get_txn_related_tablets(transaction_id, partition_id, &tablet_infos);
+        StorageEngine::instance()->txn_manager()->get_txn_related_tablets(transaction_id, partition_id, &tablet_infos);
 
         // each tablet
         for (auto& tablet_info : tablet_infos) {
-            TabletSharedPtr tablet = TabletManager::instance()->get_tablet(tablet_info.first.tablet_id, 
+            TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_info.first.tablet_id, 
                 tablet_info.first.schema_hash);
             OlapMeta* meta = nullptr;
             if (tablet != nullptr) {
                 meta = tablet->data_dir()->get_meta();
             }
-            TxnManager::instance()->delete_txn(meta, partition_id, transaction_id,
+            StorageEngine::instance()->txn_manager()->delete_txn(meta, partition_id, transaction_id,
                                 tablet_info.first.tablet_id, tablet_info.first.schema_hash);
         }
     }
@@ -510,7 +512,7 @@ TabletSharedPtr StorageEngine::create_tablet(const TCreateTabletReq& request,
         stores.push_back(ref_tablet->data_dir());
     }
 
-    return TabletManager::instance()->create_tablet(request, is_schema_change_tablet, ref_tablet, stores);
+    return StorageEngine::instance()->tablet_manager()->create_tablet(request, is_schema_change_tablet, ref_tablet, stores);
 }
 
 void StorageEngine::start_clean_fd_cache() {
@@ -520,7 +522,7 @@ void StorageEngine::start_clean_fd_cache() {
 }
 
 void StorageEngine::perform_cumulative_compaction() {
-    TabletSharedPtr best_tablet = TabletManager::instance()->find_best_tablet_to_compaction(CompactionType::CUMULATIVE_COMPACTION);
+    TabletSharedPtr best_tablet = StorageEngine::instance()->tablet_manager()->find_best_tablet_to_compaction(CompactionType::CUMULATIVE_COMPACTION);
     if (best_tablet == nullptr) { return; }
 
     CumulativeCompaction cumulative_compaction;
@@ -540,7 +542,7 @@ void StorageEngine::perform_cumulative_compaction() {
 }
 
 void StorageEngine::perform_base_compaction() {
-    TabletSharedPtr best_tablet = TabletManager::instance()->find_best_tablet_to_compaction(CompactionType::BASE_COMPACTION);
+    TabletSharedPtr best_tablet = StorageEngine::instance()->tablet_manager()->find_best_tablet_to_compaction(CompactionType::BASE_COMPACTION);
     if (best_tablet == nullptr) { return; }
 
     BaseCompaction base_compaction;
@@ -614,7 +616,7 @@ OLAPStatus StorageEngine::start_trash_sweep(double* usage) {
     }
 
     // clear expire incremental segment_group
-    TabletManager::instance()->start_trash_sweep();
+    StorageEngine::instance()->tablet_manager()->start_trash_sweep();
 
     return res;
 }
@@ -693,12 +695,12 @@ OLAPStatus StorageEngine::create_tablet(const TCreateTabletReq& request) {
         LOG(WARNING) << "there is no available disk that can be used to create tablet.";
         return OLAP_ERR_CE_CMD_PARAMS_ERROR;
     }
-    return TabletManager::instance()->create_tablet(request, stores);
+    return StorageEngine::instance()->tablet_manager()->create_tablet(request, stores);
 }
 
 OLAPStatus StorageEngine::recover_tablet_until_specfic_version(
         const TRecoverTabletReq& recover_tablet_req) {
-    TabletSharedPtr tablet = TabletManager::instance()->get_tablet(recover_tablet_req.tablet_id,
+    TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(recover_tablet_req.tablet_id,
                                    recover_tablet_req.schema_hash);
     if (tablet == nullptr) { return OLAP_ERR_TABLE_NOT_FOUND; }
     RETURN_NOT_OK(tablet->recover_tablet_until_specfic_version(recover_tablet_req.version,
@@ -767,7 +769,7 @@ OLAPStatus StorageEngine::load_header(
     schema_hash_path_stream << shard_path
                             << "/" << request.tablet_id
                             << "/" << request.schema_hash;
-    res = TabletManager::instance()->load_one_tablet(
+    res = StorageEngine::instance()->tablet_manager()->load_one_tablet(
             store,
             request.tablet_id, request.schema_hash,
             schema_hash_path_stream.str(), false);
@@ -793,7 +795,7 @@ OLAPStatus StorageEngine::load_header(
     schema_hash_path_stream << shard_path
                             << "/" << tablet_id
                             << "/" << schema_hash;
-    res =  TabletManager::instance()->load_one_tablet(
+    res =  StorageEngine::instance()->tablet_manager()->load_one_tablet(
             store,
             tablet_id, schema_hash,
             schema_hash_path_stream.str(), 
@@ -818,7 +820,7 @@ OLAPStatus StorageEngine::execute_task(EngineTask* task) {
         sort(tablet_infos.begin(), tablet_infos.end());
         vector<TabletSharedPtr> related_tablets;
         for (TabletInfo& tablet_info : tablet_infos) {
-            TabletSharedPtr tablet = TabletManager::instance()->get_tablet(
+            TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
                 tablet_info.tablet_id, tablet_info.schema_hash);
             if (tablet != nullptr) {
                 related_tablets.push_back(tablet);
@@ -854,7 +856,7 @@ OLAPStatus StorageEngine::execute_task(EngineTask* task) {
         sort(tablet_infos.begin(), tablet_infos.end());
         vector<TabletSharedPtr> related_tablets;
         for (TabletInfo& tablet_info : tablet_infos) {
-            TabletSharedPtr tablet = TabletManager::instance()->get_tablet(
+            TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
                 tablet_info.tablet_id, tablet_info.schema_hash);
             if (tablet != nullptr) {
                 related_tablets.push_back(tablet);
@@ -932,7 +934,7 @@ void StorageEngine::_perform_path_gc(void* arg) {
             std::string path = *path_iter;
             TTabletId tablet_id = -1;
             TSchemaHash schema_hash = -1;
-            bool is_valid = TabletManager::instance()->get_tablet_id_and_schema_hash_from_path(path,
+            bool is_valid = StorageEngine::instance()->tablet_manager()->get_tablet_id_and_schema_hash_from_path(path,
                     &tablet_id, &schema_hash);
             std::set<std::string> paths;
             paths.insert(path);
@@ -943,7 +945,7 @@ void StorageEngine::_perform_path_gc(void* arg) {
             } else {
                 if (tablet_id >0 && schema_hash >0) {
                     // tablet schema hash path or rowset file path
-                    TabletSharedPtr tablet = TabletManager::instance()->get_tablet(tablet_id, schema_hash);
+                    TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash);
                     if (tablet == nullptr) {
                         bool exist_in_pending = check_path_in_pending_paths(path);
                         if (!exist_in_pending) {
@@ -965,7 +967,7 @@ void StorageEngine::_perform_path_gc(void* arg) {
                 } else if (tablet_id >0 && schema_hash <= 0) {
                     // tablet id path
                     if (FileUtils::is_dir(path)) {
-                        bool exist = TabletManager::instance()->check_tablet_id_exist(tablet_id);
+                        bool exist = StorageEngine::instance()->tablet_manager()->check_tablet_id_exist(tablet_id);
                         if (!exist) {
                             bool exist_in_pending = check_path_in_pending_paths(path);
                             if (!exist_in_pending) {

@@ -71,19 +71,6 @@ using std::vector;
 
 namespace doris {
 
-TxnManager* TxnManager::_s_instance = nullptr;
-std::mutex TxnManager::_mlock;
-
-TxnManager* TxnManager::instance() {
-    if (_s_instance == nullptr) {
-        std::lock_guard<std::mutex> lock(_mlock);
-        if (_s_instance == nullptr) {
-            _s_instance = new TxnManager();
-        }
-    }
-    return _s_instance;
-}
-
 TxnManager::TxnManager() {
     for (int i = 0; i < _txn_lock_num; ++i) {
         _txn_locks[i] = std::make_shared<RWMutex>();

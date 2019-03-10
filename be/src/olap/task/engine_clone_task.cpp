@@ -57,7 +57,7 @@ OLAPStatus EngineCloneTask::execute() {
     // Check local tablet exist or not
     int32_t snapshot_version = 1;
     TabletSharedPtr tablet =
-            TabletManager::instance()->get_tablet(
+            StorageEngine::instance()->tablet_manager()->get_tablet(
             _clone_req.tablet_id, _clone_req.schema_hash);
     // try to repair a tablet with missing version
     if (tablet.get() != NULL) {
@@ -194,7 +194,7 @@ OLAPStatus EngineCloneTask::execute() {
         TTabletInfo tablet_info;
         tablet_info.__set_tablet_id(_clone_req.tablet_id);
         tablet_info.__set_schema_hash(_clone_req.schema_hash);
-        OLAPStatus get_tablet_info_status = TabletManager::instance()->report_tablet_info(&tablet_info);
+        OLAPStatus get_tablet_info_status = StorageEngine::instance()->tablet_manager()->report_tablet_info(&tablet_info);
         if (get_tablet_info_status != OLAP_SUCCESS) {
             LOG(WARNING) << "clone success, but get tablet info failed."
                          << " tablet id: " <<  _clone_req.tablet_id
@@ -220,7 +220,7 @@ OLAPStatus EngineCloneTask::execute() {
                         << ", expected_version: " << _clone_req.committed_version
                         << ", version_hash:" << _clone_req.committed_version_hash;
             // TODO(ygl): if it is incremental clone, should not drop the tablet?
-            OLAPStatus drop_status = TabletManager::instance()->drop_tablet(_clone_req.tablet_id, _clone_req.schema_hash);
+            OLAPStatus drop_status = StorageEngine::instance()->tablet_manager()->drop_tablet(_clone_req.tablet_id, _clone_req.schema_hash);
             if (drop_status != OLAP_SUCCESS && drop_status != OLAP_ERR_TABLE_NOT_FOUND) {
                 // just log
                 LOG(WARNING) << "drop stale cloned table failed! tabelt id: " << _clone_req.tablet_id;
