@@ -737,7 +737,8 @@ OLAPStatus DataDir::load() {
     LOG(INFO) << "begin loading tablet from meta";
     auto load_tablet_func = [this](long tablet_id,
         long schema_hash, const std::string& value) -> bool {
-        OLAPStatus status = TabletManager::instance()->load_tablet_from_meta(this, tablet_id, schema_hash, value);
+        OLAPStatus status = StorageEngine::instance()->tablet_manager()->load_tablet_from_meta(
+                                this, tablet_id, schema_hash, value);
         if (status != OLAP_SUCCESS) {
             LOG(WARNING) << "load tablet from header failed. status:" << status
                 << ", tablet=" << tablet_id << "." << schema_hash;
@@ -756,7 +757,8 @@ OLAPStatus DataDir::load() {
     // 2. add visible rowset to tablet
     // ignore any errors when load tablet or rowset, because fe will repair them after report
     for (auto rowset_meta : dir_rowset_metas) {
-        TabletSharedPtr tablet = TabletManager::instance()->get_tablet(rowset_meta->tablet_id(), rowset_meta->tablet_schema_hash());
+        TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
+                                    rowset_meta->tablet_id(), rowset_meta->tablet_schema_hash());
         // tablet maybe dropped, but not drop related rowset meta
         if (tablet.get() == NULL) {
             LOG(WARNING) << "could not find tablet id: " << rowset_meta->tablet_id()
@@ -778,7 +780,7 @@ OLAPStatus DataDir::load() {
             continue;
         }
         if (rowset_meta->rowset_state() == RowsetStatePB::COMMITTED) {
-            OLAPStatus commit_txn_status = TxnManager::instance()->commit_txn(
+            OLAPStatus commit_txn_status = StorageEngine::instance()->txn_manager()->commit_txn(
                 _meta,
                 rowset_meta->partition_id(), rowset_meta->txn_id(), 
                 rowset_meta->tablet_id(), rowset_meta->tablet_schema_hash(), 

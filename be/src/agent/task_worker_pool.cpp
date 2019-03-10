@@ -479,7 +479,7 @@ void* TaskWorkerPool::_drop_tablet_worker_thread_callback(void* arg_this) {
         vector<string> error_msgs;
         TStatus task_status;
         AgentStatus status = DORIS_SUCCESS;
-        OLAPStatus drop_status = TabletManager::instance()->drop_tablet(drop_tablet_req.tablet_id, drop_tablet_req.schema_hash);
+        OLAPStatus drop_status = StorageEngine::instance()->tablet_manager()->drop_tablet(drop_tablet_req.tablet_id, drop_tablet_req.schema_hash);
         if (drop_status != OLAP_SUCCESS && drop_status != OLAP_ERR_TABLE_NOT_FOUND) {
             status = DORIS_ERROR;
         }
@@ -1221,7 +1221,7 @@ void* TaskWorkerPool::_report_tablet_worker_thread_callback(void* arg_this) {
 
         request.__set_report_version(_s_report_version);
         OLAPStatus report_all_tablets_info_status =
-                TabletManager::instance()->report_all_tablets_info(&request.tablets);
+                StorageEngine::instance()->tablet_manager()->report_all_tablets_info(&request.tablets);
         if (report_all_tablets_info_status != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("report get all tablets info failed. status: %d",
                              report_all_tablets_info_status);
@@ -1535,7 +1535,7 @@ AgentStatus TaskWorkerPool::_get_tablet_info(
 
     tablet_info->__set_tablet_id(tablet_id);
     tablet_info->__set_schema_hash(schema_hash);
-    OLAPStatus olap_status = TabletManager::instance()->report_tablet_info(tablet_info);
+    OLAPStatus olap_status = StorageEngine::instance()->tablet_manager()->report_tablet_info(tablet_info);
     if (olap_status != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("get tablet info failed. status: %d, signature: %ld",
                          olap_status, signature);
@@ -1618,7 +1618,7 @@ AgentStatus TaskWorkerPool::_move_dir(
      bool overwrite,
      std::vector<std::string>* error_msgs) {
 
-    TabletSharedPtr tablet = TabletManager::instance()->get_tablet(
+    TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
                 tablet_id, schema_hash);
     if (tablet.get() == NULL) {
         LOG(INFO) << "failed to get tablet. tablet_id:" << tablet_id

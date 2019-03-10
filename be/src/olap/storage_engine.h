@@ -206,6 +206,9 @@ public:
 
     void process_garbage_path(const std::string& path);
 
+    TabletManager* tablet_manager() { return _tablet_manager.get(); }
+    TxnManager* txn_manager() { return _txn_manager.get(); }
+
 private:
     OLAPStatus check_all_root_path_cluster_id();
 
@@ -352,6 +355,11 @@ private:
 
     std::map<int64_t, std::set<std::string>> _pending_paths;
     RWMutex _pending_path_mutex;
+
+    std::unique_ptr<TabletManager> _tablet_manager;
+    std::unique_ptr<TxnManager> _txn_manager;
+
+    DISALLOW_COPY_AND_ASSIGN(StorageEngine);
 };
 
 }  // namespace doris
