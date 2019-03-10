@@ -398,31 +398,6 @@ OLAPStatus SegmentGroup::validate() {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus SegmentGroup::find_row_block(const RowCursor& key,
-                                 RowCursor* helper_cursor,
-                                 bool find_last,
-                                 RowBlockPosition* pos) const {
-    SEGMENT_GROUP_PARAM_VALIDATE();
-    POS_PARAM_VALIDATE(pos);
-
-    // 将这部分逻辑从memindex移出来，这样可以复用find。
-    OLAPIndexOffset offset = _index.find(key, helper_cursor, find_last);
-    if (offset.offset > 0) {
-        offset.offset = offset.offset - 1;
-    } else {
-        offset.offset = 0;
-    }
-
-    if (find_last) {
-        OLAPIndexOffset next_offset = _index.next(offset);
-        if (!(next_offset == _index.end())) {
-            offset = next_offset;
-        }
-    }
-
-    return _index.get_row_block_position(offset, pos);
-}
-
 OLAPStatus SegmentGroup::find_short_key(const RowCursor& key,
                                  RowCursor* helper_cursor,
                                  bool find_last,
