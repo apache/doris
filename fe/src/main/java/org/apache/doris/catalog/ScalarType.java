@@ -307,7 +307,7 @@ public class ScalarType extends Type {
                 stringBuilder.append("decimal").append("(").append(precision).append(", ").append(scale).append(")");
                 break;
             case DECIMALV2:
-                stringBuilder.append("decimalv2").append("(").append(precision).append(", ").append(scale).append(")");
+                stringBuilder.append("decimal").append("(").append(precision).append(", ").append(scale).append(")");
                 break;
             case BOOLEAN:
                 return "tinyint(1)";

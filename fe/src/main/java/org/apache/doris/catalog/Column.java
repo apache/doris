@@ -256,9 +256,6 @@ public class Column implements Writable {
         StringBuilder sb = new StringBuilder();
         sb.append("`").append(name).append("` ");
         String typeStr = type.toSql();
-        if (type.getPrimitiveType() == PrimitiveType.DECIMALV2) {
-            typeStr = Type.DECIMAL.toSql();
-        }
         sb.append(typeStr).append(" ");
         if (aggregationType != null && aggregationType != AggregateType.NONE && !isAggregationTypeImplicit) {
             sb.append(aggregationType.name()).append(" ");
