@@ -97,8 +97,6 @@ private:
 
     Cache* _lastest_success_channel = nullptr;
 
-    std::unordered_map<TabletsChannelKey, time_t,TabletsChannelKeyHasher> _key_time_map;
-
     // thread to clean timeout tablets_channel
     std::thread _tablets_channel_clean_thread;
 
