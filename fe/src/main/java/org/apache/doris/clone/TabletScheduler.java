@@ -97,7 +97,7 @@ public class TabletScheduler extends Daemon {
     public static final int MAX_SCHEDULING_TABLETS = 5000;
     // if the number of balancing tablets in TabletScheduler exceed this threshold,
     // no more balance check
-    public static final int MAX_BALANCING_TABLETS = 500;
+    public static final int MAX_BALANCING_TABLETS = 100;
 
     /*
      * Tablet is added to pendingTablets as well it's id in allTabletIds.
@@ -294,15 +294,17 @@ public class TabletScheduler extends Daemon {
      * because we already limit the total number of running clone jobs in cluster by 'backend slots'
      */
     private void updateClusterLoadStatistic() {
-        statisticMap.clear();
-        List<String> clusterNames = infoService.getClusterNames();
+        Map<String, ClusterLoadStatistic> newStatisticMap = Maps.newConcurrentMap();
+        Set<String> clusterNames = infoService.getClusterNames();
         for (String clusterName : clusterNames) {
-            ClusterLoadStatistic clusterLoadStatistic = new ClusterLoadStatistic(clusterName, catalog,
+            ClusterLoadStatistic clusterLoadStatistic = new ClusterLoadStatistic(clusterName,
                     infoService, invertedIndex);
             clusterLoadStatistic.init();
-            statisticMap.put(clusterName, clusterLoadStatistic);
+            newStatisticMap.put(clusterName, clusterLoadStatistic);
             LOG.info("update cluster {} load statistic:\n{}", clusterName, clusterLoadStatistic.getBrief());
         }
+
+        this.statisticMap = newStatisticMap;
     }
 
     public Map<String, ClusterLoadStatistic> getStatisticMap() {
@@ -354,10 +356,18 @@ public class TabletScheduler extends Daemon {
                 tabletCtx.setErrMsg(e.getMessage());
 
                 if (e.getStatus() == Status.SCHEDULE_FAILED) {
-                    // if balance is disabled, remove this tablet
-                    if (tabletCtx.getType() == Type.BALANCE && Config.disable_balance) {
-                        finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.CANCELLED,
-                                "disable balance and " + e.getMessage());
+                    if (tabletCtx.getType() == Type.BALANCE) {
+                        // if balance is disabled, remove this tablet
+                        if (Config.disable_balance) {
+                            finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.CANCELLED,
+                                    "disable balance and " + e.getMessage());
+                        } else {
+                            // remove the balance task if it fails to be scheduled many times
+                            if (tabletCtx.getFailedSchedCounter() > 10) {
+                                finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.CANCELLED,
+                                        "schedule failed too many times and " + e.getMessage());
+                            }
+                        }
                     } else {
                         // we must release resource it current hold, and be scheduled again
                         tabletCtx.releaseResource(this);
@@ -702,8 +712,8 @@ public class TabletScheduler extends Daemon {
             if (beStatistic == null) {
                 continue;
             }
-            if (beStatistic.getLoadScore() > maxScore) {
-                maxScore = beStatistic.getLoadScore();
+            if (beStatistic.getLoadScore(tabletCtx.getStorageMedium()) > maxScore) {
+                maxScore = beStatistic.getLoadScore(tabletCtx.getStorageMedium());
                 chosenReplica = replica;
             }
         }
@@ -786,10 +796,10 @@ public class TabletScheduler extends Daemon {
         if (statistic == null) {
             throw new SchedException(Status.UNRECOVERABLE, "cluster does not exist");
         }
-        List<BackendLoadStatistic> beStatistics = statistic.getBeLoadStatistics();
+        List<BackendLoadStatistic> beStatistics = statistic.getSortedBeLoadStats(null /* sorted ignore medium */);
 
         // get all available paths which this tablet can fit in.
-        // beStatistics is sorted by load score in ascend order, so select from first to last.
+        // beStatistics is sorted by mix load score in ascend order, so select from first to last.
         List<RootPathLoadStatistic> allFitPaths = Lists.newArrayList();
         for (int i = 0; i < beStatistics.size(); i++) {
             BackendLoadStatistic bes = beStatistics.get(i);
@@ -799,7 +809,8 @@ public class TabletScheduler extends Daemon {
             }
 
             List<RootPathLoadStatistic> resultPaths = Lists.newArrayList();
-            BalanceStatus st = bes.isFit(tabletCtx.getTabletSize(), resultPaths, true /* is supplement */);
+            BalanceStatus st = bes.isFit(tabletCtx.getTabletSize(), tabletCtx.getStorageMedium(),
+                    resultPaths, true /* is supplement */);
             if (!st.ok()) {
                 LOG.debug("unable to find path for supplementing tablet: {}. {}", tabletCtx, st);
                 continue;

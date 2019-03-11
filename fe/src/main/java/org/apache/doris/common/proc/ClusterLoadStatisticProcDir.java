@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.clone.ClusterLoadStatistic;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.ImmutableList;
 
@@ -36,6 +37,11 @@ public class ClusterLoadStatisticProcDir implements ProcDirInterface {
             .build();
 
     private Map<String, ClusterLoadStatistic> statMap;
+    private TStorageMedium medium;
+
+    public ClusterLoadStatisticProcDir(TStorageMedium medium) {
+        this.medium = medium;
+    }
 
     @Override
     public ProcResult fetchResult() throws AnalysisException {
@@ -45,7 +51,7 @@ public class ClusterLoadStatisticProcDir implements ProcDirInterface {
         statMap = Catalog.getCurrentCatalog().getTabletScheduler().getStatisticMap();
 
         statMap.values().stream().forEach(t -> {
-            List<List<String>> statistics = t.getClusterStatistic();
+            List<List<String>> statistics = t.getClusterStatistic(medium);
             statistics.stream().forEach(v -> {
                 result.addRow(v);
             });

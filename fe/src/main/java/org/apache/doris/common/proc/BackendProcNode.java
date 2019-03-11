@@ -47,7 +47,6 @@ public class BackendProcNode implements ProcNodeInterface {
         Preconditions.checkNotNull(backend);
 
         BaseProcResult result = new BaseProcResult();
-
         result.setNames(TITLE_NAMES);
 
         for (Map.Entry<String, DiskInfo> entry : backend.getDisks().entrySet()) {

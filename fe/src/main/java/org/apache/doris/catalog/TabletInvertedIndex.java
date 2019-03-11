@@ -42,6 +42,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.stream.Collectors;
 
 /*
  * this class stores a inverted index
@@ -158,6 +159,9 @@ public class TabletInvertedIndex {
                                 if (storageMedium != null && backendTabletInfo.isSetStorage_medium()) {
                                     if (storageMedium != backendTabletInfo.getStorage_medium()) {
                                         tabletMigrationMap.put(storageMedium, tabletId);
+                                    }
+                                    if (storageMedium != tabletMeta.getStorageMedium()) {
+                                        tabletMeta.setStorageMedium(storageMedium);
                                     }
                                 }
                                 // check if should clear transactions
@@ -440,7 +444,7 @@ public class TabletInvertedIndex {
         writeLock();
         try {
             Preconditions.checkState(tabletMetaMap.containsKey(tabletId));
-            // Preconditions.checkState(replicaMetaTable.containsRow(tabletId));
+            TabletMeta tabletMeta = tabletMetaMap.get(tabletId);
             if (replicaMetaTable.containsRow(tabletId)) {
                 Replica replica = replicaMetaTable.remove(tabletId, backendId);
                 replicaToTabletMap.remove(replica.getId());
@@ -535,6 +539,21 @@ public class TabletInvertedIndex {
         return tabletIds;
     }
 
+    public List<Long> getTabletIdsByBackendIdAndStorageMedium(long backendId, TStorageMedium storageMedium) {
+        List<Long> tabletIds = Lists.newArrayList();
+        readLock();
+        try {
+            Map<Long, Replica> replicaMetaWithBackend = backingReplicaMetaTable.row(backendId);
+            if (replicaMetaWithBackend != null) {
+                tabletIds = replicaMetaWithBackend.keySet().stream().filter(
+                        id -> tabletMetaMap.get(id).getStorageMedium() == storageMedium).collect(Collectors.toList());
+            }
+        } finally {
+            readUnlock();
+        }
+        return tabletIds;
+    }
+
     public int getTabletNumByBackendId(long backendId) {
         readLock();
         try {
@@ -546,6 +565,30 @@ public class TabletInvertedIndex {
             readUnlock();
         }
         return 0;
+    }
+
+    public Map<TStorageMedium, Long> getReplicaNumByBeIdAndStorageMedium(long backendId) {
+        Map<TStorageMedium, Long> replicaNumMap = Maps.newHashMap();
+        long hddNum = 0;
+        long ssdNum = 0;
+        readLock();
+        try {
+            Map<Long, Replica> replicaMetaWithBackend = backingReplicaMetaTable.row(backendId);
+            if (replicaMetaWithBackend != null) {
+                for (long tabletId : replicaMetaWithBackend.keySet()) {
+                    if (tabletMetaMap.get(tabletId).getStorageMedium() == TStorageMedium.HDD) {
+                        hddNum++;
+                    } else {
+                        ssdNum++;
+                    }
+                }
+            }
+        } finally {
+            readUnlock();
+        }
+        replicaNumMap.put(TStorageMedium.HDD, hddNum);
+        replicaNumMap.put(TStorageMedium.SSD, ssdNum);
+        return replicaNumMap;
     }
 
     // just for test

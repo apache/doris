@@ -56,6 +56,7 @@ import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.DropReplicaTask;
 import org.apache.doris.thrift.TKeysType;
 import org.apache.doris.thrift.TResourceInfo;
+import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.base.Preconditions;
@@ -327,13 +328,14 @@ public class RollupHandler extends AlterHandler {
 
         for (Partition partition : olapTable.getPartitions()) {
             long partitionId = partition.getId();
+            TStorageMedium medium = olapTable.getPartitionInfo().getDataProperty(partitionId).getStorageMedium();
             MaterializedIndex rollupIndex = new MaterializedIndex(rollupIndexId, IndexState.ROLLUP);
             if (isRestore) {
                 rollupIndex.setState(IndexState.NORMAL);
             }
             MaterializedIndex baseIndex = partition.getIndex(baseIndexId);
             TabletMeta rollupTabletMeta = new TabletMeta(dbId, tableId, partitionId, rollupIndexId,
-                                                         rollupSchemaHash);
+                    rollupSchemaHash, medium);
             short replicationNum = olapTable.getPartitionInfo().getReplicationNum(partition.getId());
             for (Tablet baseTablet : baseIndex.getTablets()) {
                 long baseTabletId = baseTablet.getId();
