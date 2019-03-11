@@ -355,7 +355,7 @@ Status TabletWriterMgr::_start_tablets_channel_clean() {
             }
         }
 
-        for(auto key: need_delete_keys) {
+        for(auto& key: need_delete_keys) {
             _tablets_channels.erase(key);
             LOG(INFO) << "erase timeout tablets channel: " << key;
         }
