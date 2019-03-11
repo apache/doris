@@ -18,15 +18,20 @@
 package org.apache.doris.load.routineload;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Queues;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Daemon;
+import org.apache.doris.common.util.LogBuilder;
+import org.apache.doris.common.util.LogKey;
 import org.apache.doris.system.Backend;
+import org.apache.doris.task.RoutineLoadTask;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TRoutineLoadTask;
@@ -36,6 +41,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Queue;
 import java.util.concurrent.LinkedBlockingQueue;
 
 /**
@@ -52,16 +58,19 @@ public class RoutineLoadTaskScheduler extends Daemon {
     private static final Logger LOG = LogManager.getLogger(RoutineLoadTaskScheduler.class);
 
     private RoutineLoadManager routineLoadManager;
+    private LinkedBlockingQueue<RoutineLoadTaskInfo> needScheduleTasksQueue;
 
     @VisibleForTesting
     public RoutineLoadTaskScheduler() {
         super("routine load task", 0);
         this.routineLoadManager = Catalog.getInstance().getRoutineLoadManager();
+        this.needScheduleTasksQueue = Queues.newLinkedBlockingQueue();
     }
 
     public RoutineLoadTaskScheduler(RoutineLoadManager routineLoadManager) {
         super("routine load task", 0);
         this.routineLoadManager = routineLoadManager;
+        this.needScheduleTasksQueue = Queues.newLinkedBlockingQueue();
     }
 
     @Override
@@ -75,8 +84,6 @@ public class RoutineLoadTaskScheduler extends Daemon {
     }
 
     private void process() throws LoadException, UserException, InterruptedException {
-        LinkedBlockingQueue<RoutineLoadTaskInfo> needScheduleTasksQueue =
-                (LinkedBlockingQueue) routineLoadManager.getNeedScheduleTasksQueue();
         // update current beIdMaps for tasks
         routineLoadManager.updateBeIdTaskMaps();
 
@@ -95,28 +102,7 @@ public class RoutineLoadTaskScheduler extends Daemon {
         }
         while (needScheduleTaskNum > 0) {
             // allocate be to task and begin transaction for task
-            RoutineLoadTaskInfo routineLoadTaskInfo = needScheduleTasksQueue.peek();
-            RoutineLoadJob routineLoadJob = null;
-            try {
-                routineLoadJob = routineLoadManager.getJobByTaskId(routineLoadTaskInfo.getId());
-                allocateTaskToBe(routineLoadTaskInfo, routineLoadJob);
-                routineLoadTaskInfo.beginTxn();
-            } catch (MetaNotFoundException e) {
-                needScheduleTasksQueue.take();
-                // task has been abandoned while renew task has been added in queue
-                // or database has been deleted
-                LOG.warn("task {} has been abandoned with error message {}",
-                         routineLoadTaskInfo.getId(), e.getMessage(), e);
-                return;
-            } catch (LoadException e) {
-                LOG.warn("put task to the rear of queue with error " + e.getMessage(), e);
-                needScheduleTasksQueue.take();
-                needScheduleTasksQueue.put(routineLoadTaskInfo);
-                needScheduleTaskNum--;
-                continue;
-            }
-
-            // task to thrift
+            RoutineLoadTaskInfo routineLoadTaskInfo = null;
             try {
                 routineLoadTaskInfo = needScheduleTasksQueue.take();
             } catch (InterruptedException e) {
@@ -124,9 +110,30 @@ public class RoutineLoadTaskScheduler extends Daemon {
                          e.getMessage());
                 return;
             }
+            RoutineLoadJob routineLoadJob = null;
+            try {
+                routineLoadJob = routineLoadManager.getJobByTaskId(routineLoadTaskInfo.getId());
+                allocateTaskToBe(routineLoadTaskInfo, routineLoadJob);
+                routineLoadTaskInfo.beginTxn();
+            } catch (MetaNotFoundException e) {
+                // task has been abandoned while renew task has been added in queue
+                // or database has been deleted
+                needScheduleTaskNum--;
+                LOG.warn(new LogBuilder(LogKey.ROUINTE_LOAD_TASK, routineLoadTaskInfo.getId())
+                                 .add("error_msg", "task has been abandoned with error " + e.getMessage()).build(), e);
+                continue;
+            } catch (LoadException e) {
+                needScheduleTasksQueue.put(routineLoadTaskInfo);
+                needScheduleTaskNum--;
+                LOG.warn(new LogBuilder(LogKey.ROUINTE_LOAD_TASK, routineLoadTaskInfo.getId())
+                                 .add("error_msg", "put task to the rear of queue with error " + e.getMessage())
+                                 .build(), e);
+                continue;
+            }
+
+            // task to thrift
             TRoutineLoadTask tRoutineLoadTask = routineLoadTaskInfo.createRoutineLoadTask();
             // remove task for needScheduleTasksList in job
-            routineLoadJob.removeNeedScheduleTask(routineLoadTaskInfo);
             routineLoadTaskInfo.setLoadStartTimeMs(System.currentTimeMillis());
             // add to batch task map
             if (beIdTobatchTask.containsKey(routineLoadTaskInfo.getBeId())) {
@@ -137,12 +144,19 @@ public class RoutineLoadTaskScheduler extends Daemon {
                 beIdTobatchTask.put(routineLoadTaskInfo.getBeId(), tRoutineLoadTaskList);
             }
             // count
-            clusterIdleSlotNum--;
             scheduledTaskNum++;
             needScheduleTaskNum--;
         }
         submitBatchTask(beIdTobatchTask);
         LOG.info("{} tasks have been allocated to be.", scheduledTaskNum);
+    }
+
+    public void addTaskInQueue(RoutineLoadTaskInfo routineLoadTaskInfo) {
+        needScheduleTasksQueue.add(routineLoadTaskInfo);
+    }
+
+    public void addTaskInQueue(List<RoutineLoadTaskInfo> routineLoadTaskInfoList) {
+        needScheduleTasksQueue.addAll(routineLoadTaskInfoList);
     }
 
     private void submitBatchTask(Map<Long, List<TRoutineLoadTask>> beIdToRoutineLoadTask) {
@@ -154,6 +168,7 @@ public class RoutineLoadTaskScheduler extends Daemon {
             try {
                 client = ClientPool.backendPool.borrowObject(address);
                 client.submit_routine_load_task(entry.getValue());
+                LOG.debug("task {} sent to be {}", Joiner.on(";").join(entry.getValue()), entry.getKey());
                 ok = true;
             } catch (Exception e) {
                 LOG.warn("task exec error. backend[{}]", backend.getId(), e);
@@ -175,10 +190,19 @@ public class RoutineLoadTaskScheduler extends Daemon {
             throws MetaNotFoundException, LoadException {
         if (routineLoadTaskInfo.getPreviousBeId() != -1L) {
             if (routineLoadManager.checkBeToTask(routineLoadTaskInfo.getPreviousBeId(), routineLoadJob.getClusterName())) {
+                LOG.debug(new LogBuilder(LogKey.ROUINTE_LOAD_TASK, routineLoadTaskInfo.getId())
+                                  .add("job_id", routineLoadJob.getId())
+                                  .add("msg", "task use the previous be id")
+                                  .build());
                 routineLoadTaskInfo.setBeId(routineLoadTaskInfo.getPreviousBeId());
                 return;
             }
         }
         routineLoadTaskInfo.setBeId(routineLoadManager.getMinTaskBeId(routineLoadJob.getClusterName()));
+        LOG.debug(new LogBuilder(LogKey.ROUINTE_LOAD_TASK, routineLoadTaskInfo.getId())
+                          .add("job_id", routineLoadJob.getId())
+                          .add("be_id", routineLoadTaskInfo.getBeId())
+                          .add("msg", "task has been allocated to be")
+                          .build());
     }
 }
