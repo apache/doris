@@ -444,7 +444,7 @@ public class GlobalTransactionMgr {
         }
         writeLock();
         try {
-            unprotectAbortTransaction(transactionId, reason);
+            unprotectAbortTransaction(transactionId, reason, txnCommitAttachment);
         } catch (Exception exception) {
             LOG.info("transaction:[{}] reason:[{}] abort failure exception:{}", transactionId, reason, exception);
             throw exception;
@@ -868,6 +868,11 @@ public class GlobalTransactionMgr {
     }
     
     private void unprotectAbortTransaction(long transactionId, String reason) throws UserException {
+        unprotectAbortTransaction(transactionId, reason, null);
+    }
+
+    private void unprotectAbortTransaction(long transactionId, String reason, TxnCommitAttachment txnCommitAttachment)
+            throws UserException {
         TransactionState transactionState = idToTransactionState.get(transactionId);
         if (transactionState == null) {
             throw new UserException("transaction not found");
@@ -878,6 +883,10 @@ public class GlobalTransactionMgr {
         if (transactionState.getTransactionStatus() == TransactionStatus.COMMITTED
                 || transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
             throw new UserException("transaction's state is already committed or visible, could not abort");
+        }
+        // update transaction state extra if exists
+        if (txnCommitAttachment != null) {
+            transactionState.setTxnCommitAttachment(txnCommitAttachment);
         }
         transactionState.setFinishTime(System.currentTimeMillis());
         transactionState.setReason(reason);

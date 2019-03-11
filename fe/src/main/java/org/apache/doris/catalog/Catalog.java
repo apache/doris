@@ -4540,6 +4540,10 @@ public class Catalog {
         return routineLoadManager;
     }
 
+    public RoutineLoadTaskScheduler getRoutineLoadTaskScheduler(){
+        return routineLoadTaskScheduler;
+    }
+
     public ExportMgr getExportMgr() {
         return this.exportMgr;
     }
