@@ -1107,52 +1107,31 @@ OLAPStatus SchemaChangeHandler::_check_and_clear_schema_change_info(
     // broken old relation if a chain was found and there is no version to be changed
     // so, there is no relation between A & B any more
     // including: alter_tablet, split_tablet, rollup_tablet
-    OLAPStatus res = OLAP_SUCCESS;
 
-    // checkes schema change & rollup
     tablet->obtain_header_rdlock();
     bool has_alter_task = tablet->has_alter_task();
-    if (!has_alter_task) {
-        tablet->release_header_lock();
-        return res;
-    }
+    AlterTabletState alter_state = tablet->alter_task().alter_state();
     tablet->release_header_lock();
 
-    tablet->obtain_header_rdlock();
-    const AlterTabletTask& alter_task = tablet->alter_task();
-    AlterTabletState alter_state = alter_task.alter_state();
-    TTabletId tablet_id = alter_task.related_tablet_id();
-    TSchemaHash schema_hash = alter_task.related_schema_hash();;
-    tablet->release_header_lock();
-
-    if (alter_state == ALTER_RUNNING) {
+    if (has_alter_task && alter_state != ALTER_FAILED) {
         LOG(WARNING) << "schema change is not allowed now, "
                      << "until previous schema change is done";
         return OLAP_ERR_PREVIOUS_SCHEMA_CHANGE_NOT_FINISHED;
     }
 
-    if (tablet_id == request.new_tablet_req.tablet_id
-            && schema_hash == request.new_tablet_req.tablet_schema.schema_hash) {
-        LOG(INFO) << "schema change task for specified tablet has already finished. "
-                  << "tablet_id=" << tablet_id << ", schema_hash=" << schema_hash;
-        return res;
+    OLAPStatus res = OLAP_SUCCESS;
+    // Alter task has been failed. Should drop invalid tablet.
+    if (has_alter_task && alter_state == ALTER_FAILED) {
+        res = StorageEngine::instance()->tablet_manager()->drop_tablet(request.new_tablet_req.tablet_id, 
+                                                                       request.new_tablet_req.tablet_schema.schema_hash);
+        if (res != OLAP_SUCCESS) {
+            LOG(WARNING) << "Alter task has been failed. Should drop invalid tablet. res=" << res
+                         << ", new_tablet_id=" << request.new_tablet_req.tablet_id
+                         << ", new_schema_hash=" << request.new_tablet_req.tablet_schema.schema_hash;
+            return res;
+        }
     }
 
-    // clear schema change info of current tablet
-    res = tablet->protected_delete_alter_task();
-    if (res != OLAP_SUCCESS) {
-        return res;
-    }
-
-    // clear schema change info of related tablet
-    TabletSharedPtr related_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
-            tablet_id, schema_hash);
-    if (related_tablet == nullptr) {
-        LOG(WARNING) << "tablet does not exist. tablet_id=" << tablet_id
-                     << ", schema_hash=" << schema_hash;
-        return OLAP_ERR_TABLE_NOT_FOUND;
-    }
-    res = related_tablet->protected_delete_alter_task();
     return res;
 }
 

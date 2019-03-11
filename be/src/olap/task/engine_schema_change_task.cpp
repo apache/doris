@@ -30,62 +30,24 @@ EngineSchemaChangeTask::EngineSchemaChangeTask(const TAlterTabletReq& alter_tabl
         _signature(signature),
         _task_type(task_type),
         _error_msgs(error_msgs),
-        _process_name(process_name) {
-
-}
+        _process_name(process_name) { }
 
 OLAPStatus EngineSchemaChangeTask::execute() {
     OLAPStatus status = OLAP_SUCCESS;
-    TTabletId base_tablet_id = _alter_tablet_req.base_tablet_id;
-    TSchemaHash base_schema_hash = _alter_tablet_req.base_schema_hash;
-
-    // Check last alter tablet status, if failed delete tablet file
-    // Do not need to adjust delete success or not
-    // Because if delete failed create rollup will failed
-    // Check lastest alter tablet status
-    TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(base_tablet_id, base_schema_hash);
-    if (tablet == nullptr) {
-        LOG(WARNING) << "failed to get tablet. tablet=" << base_tablet_id
-                     << ", schema_hash=" << base_schema_hash;
-        return OLAP_ERR_TABLE_NOT_FOUND;
+    // create different alter task according task type
+    switch (_task_type) {
+        case TTaskType::ROLLUP:
+            status = _create_rollup_tablet(_alter_tablet_req);
+            break;
+        case TTaskType::SCHEMA_CHANGE:
+            status = _schema_change(_alter_tablet_req);
+            break;
+        default:
+            break;
     }
-
-    // Delete failed alter table tablet file
-    if (tablet->has_alter_task() && tablet->alter_state() == ALTER_FAILED) {
-        // !!! could not drop failed tablet
-        // alter tablet job is in finishing state in fe, be restarts, then the tablet is in ALTER_TABLE_FAILED state
-        // if drop the old tablet, then data is lost
-        status = StorageEngine::instance()->tablet_manager()->drop_tablet(_alter_tablet_req.new_tablet_req.tablet_id,
-                                                        _alter_tablet_req.new_tablet_req.tablet_schema.schema_hash);
-
-        if (status != OLAP_SUCCESS) {
-            LOG(WARNING) << "failed to drop tablet after failing alter_tablet task, status=" << status
-                         << ", signature=" << _signature;
-            _error_msgs->push_back("failed to drop tablet after failing alter_tablet task, "
-                                    "signature: " + to_string(_signature));
-            return status;
-        }
-    }
-
-    // if there is one running alter task, then not start current task
-    if (!tablet->has_alter_task()
-            || tablet->alter_state() == ALTER_FINISHED
-            || tablet->alter_state() == ALTER_FAILED) {
-        // Create rollup table
-        switch (_task_type) {
-            case TTaskType::ROLLUP:
-                status = _create_rollup_tablet(_alter_tablet_req);
-                break;
-            case TTaskType::SCHEMA_CHANGE:
-                status = _schema_change(_alter_tablet_req);
-                break;
-            default:
-                // pass
-                break;
-        }
-        if (status != OLAPStatus::OLAP_SUCCESS) {
-            LOG(WARNING) << _process_name << " failed. signature: " << _signature << " status: " << status;
-        }
+    if (status != OLAP_SUCCESS) {
+        LOG(WARNING) << _process_name << " failed. "
+                     << "signature: " << _signature << " status: " << status;
     }
 
     return status;
