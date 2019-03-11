@@ -112,7 +112,9 @@ OLAPStatus OlapSnapshotConverter::to_tablet_meta_pb(const OLAPHeaderMessage& ola
         pending_rowsets->emplace_back(std::move(rowset_meta));
     }
     AlterTabletPB* alter_tablet_pb = tablet_meta_pb->mutable_alter_tablet_task();
-    to_alter_tablet_pb(olap_header.schema_change_status(), alter_tablet_pb);
+    if (olap_header.has_schema_change_status()) {
+        to_alter_tablet_pb(olap_header.schema_change_status(), alter_tablet_pb);
+    }
     tablet_meta_pb->set_in_restore_mode(olap_header.in_restore_mode());
     tablet_meta_pb->set_tablet_state(TabletStatePB::PB_RUNNING);
     VLOG(3) << "convert tablet meta tablet id = " << olap_header.tablet_id() 
@@ -132,8 +134,10 @@ OLAPStatus OlapSnapshotConverter::convert_to_pdelta(const RowsetMetaPB& rowset_m
         SegmentGroupPB* new_segment_group = delta->add_segment_group();
         *new_segment_group = segment_group;
     }
-    DeletePredicatePB* delete_condition = delta->mutable_delete_condition();
-    *delete_condition = rowset_meta_pb.delete_predicate();
+    if (rowset_meta_pb.has_delete_predicate()) {
+        DeletePredicatePB* delete_condition = delta->mutable_delete_condition();
+        *delete_condition = rowset_meta_pb.delete_predicate();
+    }
     return OLAP_SUCCESS;
 }
 
@@ -148,8 +152,10 @@ OLAPStatus OlapSnapshotConverter::convert_to_ppending_delta(const RowsetMetaPB& 
         PendingSegmentGroupPB* new_pending_segment_group = pending_delta->add_pending_segment_group();
         *new_pending_segment_group = pending_segment_group;
     }
-    DeletePredicatePB* delete_condition = pending_delta->mutable_delete_condition();
-    *delete_condition = rowset_meta_pb.delete_predicate();
+    if (rowset_meta_pb.has_delete_predicate()) {
+        DeletePredicatePB* delete_condition = pending_delta->mutable_delete_condition();
+        *delete_condition = rowset_meta_pb.delete_predicate();
+    }
     return OLAP_SUCCESS;
 }
 
@@ -188,8 +194,10 @@ OLAPStatus OlapSnapshotConverter::convert_to_rowset_meta(const PDelta& delta,
     rowset_meta_pb->set_data_disk_size(data_size);
     rowset_meta_pb->set_index_disk_size(index_size);
     rowset_meta_pb->set_total_disk_size(data_size + index_size);
-    DeletePredicatePB* delete_condition = rowset_meta_pb->mutable_delete_predicate();
-    *delete_condition = delta.delete_condition();
+    if (delta.has_delete_condition()) {
+        DeletePredicatePB* delete_condition = rowset_meta_pb->mutable_delete_predicate();
+        *delete_condition = delta.delete_condition();
+    }
     rowset_meta_pb->set_creation_time(delta.creation_time());
     VLOG(3) << "convert pending delta start_version = " << delta.start_version()
             << " end_version = " <<  delta.end_version()
@@ -233,9 +241,10 @@ OLAPStatus OlapSnapshotConverter::convert_to_rowset_meta(const PPendingDelta& pe
     rowset_meta_pb->set_data_disk_size(data_size);
     rowset_meta_pb->set_index_disk_size(index_size);
     rowset_meta_pb->set_total_disk_size(data_size + index_size);
-
-    DeletePredicatePB* delete_condition = rowset_meta_pb->mutable_delete_predicate();
-    *delete_condition = pending_delta.delete_condition();
+    if (pending_delta.has_delete_condition()) {
+        DeletePredicatePB* delete_condition = rowset_meta_pb->mutable_delete_predicate();
+        *delete_condition = pending_delta.delete_condition();
+    }
     rowset_meta_pb->set_creation_time(pending_delta.creation_time());
     VLOG(3) << "convert pending delta txn id = " << pending_delta.transaction_id()
             << " tablet_id = " <<  tablet_id
