@@ -92,9 +92,9 @@ OLAPStatus AlphaRowset::remove() {
     for (auto segment_group : _segment_groups) {
         bool ret = segment_group->delete_all_files();
         if (!ret) {
-            LOG(FATAL) << "delete segment group files failed."
-                       << " tablet id:" << segment_group->get_tablet_id()
-                       << ", rowset path:" << segment_group->rowset_path_prefix();
+            LOG(WARNING) << "delete segment group files failed."
+                         << " tablet id:" << segment_group->get_tablet_id()
+                         << ", rowset path:" << segment_group->rowset_path_prefix();
             return OLAP_ERR_ROWSET_DELETE_SEGMENT_GROUP_FILE_FAILED;
         }
     }
@@ -261,6 +261,10 @@ int64_t AlphaRowset::creation_time() {
 
 bool AlphaRowset::is_pending() const {
     return _is_pending_rowset;
+}
+
+PUniqueId AlphaRowset::load_id() const {
+    return _rowset_meta->load_id();
 }
 
 int64_t AlphaRowset::txn_id() const {

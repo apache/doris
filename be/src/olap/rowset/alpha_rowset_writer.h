@@ -29,6 +29,7 @@ namespace doris {
 class AlphaRowsetWriter : public RowsetWriter {
 public:
     AlphaRowsetWriter();
+    virtual ~AlphaRowsetWriter();
 
     OLAPStatus init(const RowsetWriterContext& rowset_writer_context) override;
 
@@ -37,28 +38,27 @@ public:
 
     OLAPStatus add_row(const char* row, Schema* schema) override;
 
-     OLAPStatus add_row_block(RowBlock* row_block) override;
+    OLAPStatus add_row_block(RowBlock* row_block) override;
 
     // add rowset by create hard link
-     OLAPStatus add_rowset(RowsetSharedPtr rowset) override;
+    OLAPStatus add_rowset(RowsetSharedPtr rowset) override;
 
-     OLAPStatus flush() override;
+    OLAPStatus flush() override;
 
     // get a rowset
-     RowsetSharedPtr build() override;
+    RowsetSharedPtr build() override;
 
-    // release a rowset
-     OLAPStatus release() override;
+    MemPool* mem_pool() override;
 
-     MemPool* mem_pool() override;
+    Version version() override;
 
-     Version version() override;
-
-     int32_t num_rows() override;
+    int32_t num_rows() override;
 
     RowsetId rowset_id() override {
         return _rowset_writer_context.rowset_id;
     }
+
+    OLAPStatus garbage_collection() override;
 
 private:
     void _init();
@@ -73,6 +73,7 @@ private:
     bool _is_inited;
     RowsetWriterContext _rowset_writer_context;
     std::vector<std::shared_ptr<SegmentGroup>> _segment_groups;
+    bool _rowset_build;
 };
 
 } // namespace doris
