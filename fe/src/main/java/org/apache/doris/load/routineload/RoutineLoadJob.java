@@ -30,6 +30,8 @@ import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.LogBuilder;
+import org.apache.doris.common.util.LogKey;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.TxnStateChangeListener;
 import org.apache.doris.planner.StreamLoadPlanner;
@@ -55,6 +57,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -74,6 +77,7 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
 
     private static final int DEFAULT_TASK_TIMEOUT_SECONDS = 10;
     private static final int BASE_OF_ERROR_RATE = 10000;
+    private static final int DEFAULT_MAX_ERROR_NUM = (int) (BASE_OF_ERROR_RATE * 0.5);
     private static final String STAR_STRING = "*";
     protected static final int DEFAULT_TASK_MAX_CONCURRENT_NUM = 3;
 
@@ -126,7 +130,7 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
     // max number of error data in ten thousand data
     // maxErrorNum / BASE_OF_ERROR_RATE = max error rate of routine load job
     // if current error rate is more then max error rate, the job will be paused
-    protected int maxErrorNum; // optional
+    protected int maxErrorNum = DEFAULT_MAX_ERROR_NUM; // optional
     // thrift object
     protected TResourceInfo resourceInfo;
 
@@ -141,7 +145,6 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
 
     // The tasks belong to this job
     protected List<RoutineLoadTaskInfo> routineLoadTaskInfoList;
-    protected List<RoutineLoadTaskInfo> needScheduleTaskInfoList;
 
     // plan fragment which will be initialized during job scheduler
     protected TExecPlanFragmentParams tExecPlanFragmentParams;
@@ -161,7 +164,6 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
                 .append(ConnectContext.get().getRemoteIP())
                 .append(id).append(System.currentTimeMillis()).toString().hashCode();
         this.routineLoadTaskInfoList = new ArrayList<>();
-        this.needScheduleTaskInfoList = new ArrayList<>();
         lock = new ReentrantReadWriteLock(true);
     }
 
@@ -182,7 +184,6 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
         this.maxErrorNum = maxErrorNum;
         this.resourceInfo = ConnectContext.get().toResourceCtx();
         this.routineLoadTaskInfoList = new ArrayList<>();
-        this.needScheduleTaskInfoList = new ArrayList<>();
         lock = new ReentrantReadWriteLock(true);
     }
 
@@ -319,9 +320,6 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
     protected void setMaxErrorNum(int maxErrorNum) throws LoadException {
         writeLock();
         try {
-            if (this.maxErrorNum != 0) {
-                throw new LoadException("Max error num has been initialized");
-            }
             this.maxErrorNum = maxErrorNum;
         } finally {
             writeUnlock();
@@ -338,32 +336,30 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
 
     }
 
-    public List<RoutineLoadTaskInfo> getNeedScheduleTaskInfoList() {
-        return needScheduleTaskInfoList;
-    }
-
     public TExecPlanFragmentParams gettExecPlanFragmentParams() {
         return tExecPlanFragmentParams;
     }
 
+    // only check loading task
     public List<RoutineLoadTaskInfo> processTimeoutTasks() {
         List<RoutineLoadTaskInfo> result = new ArrayList<>();
         writeLock();
         try {
             List<RoutineLoadTaskInfo> runningTasks = new ArrayList<>(routineLoadTaskInfoList);
-            runningTasks.removeAll(needScheduleTaskInfoList);
-
             for (RoutineLoadTaskInfo routineLoadTaskInfo : runningTasks) {
-                if ((System.currentTimeMillis() - routineLoadTaskInfo.getLoadStartTimeMs())
-                        > DEFAULT_TASK_TIMEOUT_SECONDS * 1000) {
-                    String oldSignature = routineLoadTaskInfo.getId().toString();
+                if ((routineLoadTaskInfo.getLoadStartTimeMs() != 0L)
+                        && ((System.currentTimeMillis() - routineLoadTaskInfo.getLoadStartTimeMs())
+                        > DEFAULT_TASK_TIMEOUT_SECONDS * 1000)) {
+                    UUID oldTaskId = routineLoadTaskInfo.getId();
                     // abort txn if not committed
                     try {
                         Catalog.getCurrentGlobalTransactionMgr()
                                 .abortTransaction(routineLoadTaskInfo.getTxnId(), "routine load task of txn was timeout");
                     } catch (UserException e) {
                         if (e.getMessage().contains("committed")) {
-                            LOG.debug("txn of task {} has been committed, timeout task has been ignored", oldSignature);
+                            LOG.debug(new LogBuilder(LogKey.ROUINTE_LOAD_TASK, oldTaskId)
+                                              .add("msg", "txn of task has been committed when checking timeout")
+                                              .build());
                             continue;
                         }
                     }
@@ -411,16 +407,6 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
         // TODO(ml)
     }
 
-
-    public void removeNeedScheduleTask(RoutineLoadTaskInfo routineLoadTaskInfo) {
-        writeLock();
-        try {
-            needScheduleTaskInfoList.remove(routineLoadTaskInfo);
-        } finally {
-            writeUnlock();
-        }
-    }
-
     // if rate of error data is more then max_filter_ratio, pause job
     protected void updateProgress(RLTaskTxnCommitAttachment attachment) {
         updateNumOfData(attachment.getFilteredRows(), attachment.getLoadedRows() + attachment.getFilteredRows());
@@ -463,23 +449,43 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
         currentTotalNum += numOfTotalData;
         if (currentTotalNum > BASE_OF_ERROR_RATE) {
             if (currentErrorNum > maxErrorNum) {
-                LOG.info("current error num {} of job {} is more then max error num {}. begin to pause job",
-                         currentErrorNum, id, maxErrorNum);
+                LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
+                                 .add("current_total_num", currentTotalNum)
+                                 .add("current_error_num", currentErrorNum)
+                                 .add("max_error_num", maxErrorNum)
+                                 .add("msg", "current error num is more then max error num, begin to pause job")
+                                 .build());
                 // remove all of task in jobs and change job state to paused
                 executePause("current error num of job is more then max error num");
             }
 
+            LOG.debug(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
+                              .add("current_total_num", currentTotalNum)
+                              .add("current_error_num", currentErrorNum)
+                              .add("max_error_num", maxErrorNum)
+                              .add("msg", "reset current total num and current error num when current total num is more then base")
+                              .build());
             // reset currentTotalNum and currentErrorNum
             currentErrorNum = 0;
             currentTotalNum = 0;
         } else if (currentErrorNum > maxErrorNum) {
-            LOG.info("current error num {} of job {} is more then max error num {}. begin to pause job",
-                     currentErrorNum, id, maxErrorNum);
+            LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
+                             .add("current_total_num", currentTotalNum)
+                             .add("current_error_num", currentErrorNum)
+                             .add("max_error_num", maxErrorNum)
+                             .add("msg", "current error num is more then max error num, begin to pause job")
+                             .build());
             // remove all of task in jobs and change job state to paused
             executePause("current error num is more then max error num");
             // reset currentTotalNum and currentErrorNum
             currentErrorNum = 0;
             currentTotalNum = 0;
+            LOG.debug(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
+                              .add("current_total_num", currentTotalNum)
+                              .add("current_error_num", currentErrorNum)
+                              .add("max_error_num", maxErrorNum)
+                              .add("msg", "reset current total num and current error num when current total num is more then max error num")
+                              .build());
         }
     }
 
@@ -508,8 +514,10 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
         try {
             String taskId = txnState.getLabel();
             if (routineLoadTaskInfoList.parallelStream().anyMatch(entity -> entity.getId().toString().equals(taskId))) {
-                LOG.debug("there is a txn{} of routine load task {} will be aborted",
-                          txnState.getTransactionId(), taskId);
+                LOG.debug(new LogBuilder(LogKey.ROUINTE_LOAD_TASK, txnState.getLabel())
+                                  .add("txn_id", txnState.getTransactionId())
+                                  .add("msg", "task will be aborted")
+                                  .build());
             }
         } finally {
             readUnlock();
@@ -544,9 +552,11 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
             if (routineLoadTaskInfoOptional.isPresent()) {
                 executeCommitTask(routineLoadTaskInfoOptional.get(), txnState);
             } else {
-                LOG.debug("There is no {} task in task info list. Maybe task has been renew or job state has changed. "
-                                  + " Transaction {} will not be committed",
-                          txnState.getLabel(), txnState.getTransactionId());
+                LOG.debug(new LogBuilder(LogKey.ROUINTE_LOAD_TASK, txnState.getLabel())
+                                  .add("txn_id", txnState.getTransactionId())
+                                  .add("msg", "The task is not in task info list. "
+                                          + "Maybe task has been renew or job state has changed. Transaction will not be committed.")
+                                  .build());
                 throw new TransactionException("txn " + txnState.getTransactionId() + " could not be committed"
                                                        + " while task " + txnState.getLabel() + "has been aborted ");
             }
@@ -568,10 +578,14 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
     @Override
     public void onAborted(TransactionState txnState, String txnStatusChangeReason) {
         if (txnStatusChangeReason != null) {
-            LOG.debug("task will be reschedule when txn {} abort with reason {}", txnState.getTransactionId(),
-                      txnStatusChangeReason);
+            LOG.debug(new LogBuilder(LogKey.ROUINTE_LOAD_TASK, txnState.getLabel())
+                              .add("txn_id", txnState.getTransactionId())
+                              .add("msg", "task will be reschedule when txn abort with reason " + txnStatusChangeReason)
+                              .build());
         } else {
-            LOG.debug("task will be reschedule when txn {} abort", txnState.getTransactionId());
+            LOG.debug(new LogBuilder(LogKey.ROUINTE_LOAD_TASK, txnState.getLabel())
+                              .add("txn_id", txnState.getTransactionId())
+                              .add("msg", "task will be reschedule when txn abort").build());
         }
         writeLock();
         try {
@@ -580,17 +594,20 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
                     routineLoadTaskInfoList.parallelStream()
                             .filter(entity -> entity.getId().toString().equals(txnState.getLabel())).findFirst();
             if (routineLoadTaskInfoOptional.isPresent()) {
+                // todo(ml): use previous be id depend on change reason
                 executeCommitTask(routineLoadTaskInfoOptional.get(), txnState);
             } else {
-                LOG.debug("There is no {} task in task info list. Maybe task has been renew or job state has changed. "
-                                  + " Transaction {} will be aborted successfully",
-                          txnState.getLabel(), txnState.getTransactionId());
+                LOG.debug(new LogBuilder(LogKey.ROUINTE_LOAD_TASK, txnState.getLabel())
+                                  .add("txn_id", txnState.getTransactionId())
+                                  .add("msg", "The task is not in task info list. "
+                                          + "Maybe task has been renew or job state has changed. Transaction will not be aborted successfully.")
+                                  .build());
             }
         } catch (Exception e) {
             updateState(JobState.PAUSED,
                         "failed to renew task when txn has been aborted with error " + e.getMessage());
             // TODO(ml): edit log
-            LOG.warn("failed to renew a routine load task in job {} with error message {}", id, e.getMessage());
+            LOG.warn("failed to renew a routine load task in job {} with error message {}", id, e.getMessage(), e);
         } finally {
             writeUnlock();
         }
@@ -601,14 +618,22 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
             throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException {
         // step0: get progress from transaction state
         RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment = (RLTaskTxnCommitAttachment) txnState.getTxnCommitAttachment();
-        // step1: update job progress
-        updateProgress(rlTaskTxnCommitAttachment);
+        if (rlTaskTxnCommitAttachment == null) {
+            LOG.debug(new LogBuilder(LogKey.ROUINTE_LOAD_TASK, routineLoadTaskInfo.getId())
+                              .add("job_id", routineLoadTaskInfo.getJobId())
+                              .add("txn_id", routineLoadTaskInfo.getTxnId())
+                              .add("msg", "commit task will be ignore when attachment txn of task is null,"
+                                      + " maybe task was committed by master when timeout")
+                              .build());
+        } else {
+            // step1: update job progress
+            updateProgress(rlTaskTxnCommitAttachment);
+        }
 
         if (state == JobState.RUNNING) {
             // step2: create a new task for partitions
             RoutineLoadTaskInfo newRoutineLoadTaskInfo = unprotectRenewTask(routineLoadTaskInfo);
-            Catalog.getCurrentCatalog().getRoutineLoadManager()
-                    .getNeedScheduleTasksQueue().add(newRoutineLoadTaskInfo);
+            Catalog.getCurrentCatalog().getRoutineLoadTaskScheduler().addTaskInQueue(newRoutineLoadTaskInfo);
         }
     }
 
@@ -656,6 +681,11 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
     public void updateState(JobState jobState, String reason) {
         writeLock();
         try {
+            LOG.debug(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
+                              .add("current_job_state", getState())
+                              .add("desire_job_state", jobState)
+                              .add("msg", "job will be change to desire state")
+                              .build());
             checkStateTransform(jobState);
             switch (jobState) {
                 case PAUSED:
@@ -673,6 +703,10 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
                 default:
                     break;
             }
+            LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
+                             .add("current_job_state", getState())
+                             .add("msg", "job state has been changed")
+                             .build());
         } finally {
             writeUnlock();
         }
@@ -684,35 +718,33 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
         pausedReason = reason;
         state = JobState.PAUSED;
         routineLoadTaskInfoList.clear();
-        needScheduleTaskInfoList.clear();
     }
 
     private void executeNeedSchedule() {
         // TODO(ml): edit log
         state = JobState.NEED_SCHEDULE;
         routineLoadTaskInfoList.clear();
-        needScheduleTaskInfoList.clear();
     }
 
     private void executeStop() {
         // TODO(ml): edit log
         state = JobState.STOPPED;
         routineLoadTaskInfoList.clear();
-        needScheduleTaskInfoList.clear();
     }
 
     private void executeCancel(String reason) {
         cancelReason = reason;
         state = JobState.CANCELLED;
         routineLoadTaskInfoList.clear();
-        needScheduleTaskInfoList.clear();
     }
 
     public void update() {
         // check if db and table exist
         Database database = Catalog.getCurrentCatalog().getDb(dbId);
         if (database == null) {
-            LOG.info("The database {} has been deleted. Change {} job state to stopped", dbId, id);
+            LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
+                             .add("db_id", dbId)
+                             .add("msg", "The database has been deleted. Change job state to stopped").build());
             updateState(JobState.STOPPED);
         }
         database.readLock();
@@ -720,7 +752,9 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
             Table table = database.getTable(tableId);
             // check table belong to database
             if (table == null) {
-                LOG.info("The table {} has been deleted. Change {} job state to stopeed", tableId, id);
+                LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id).add("db_id", dbId)
+                                 .add("table_id", tableId)
+                                 .add("msg", "The table has been deleted Change job state to stopped").build());
                 updateState(JobState.STOPPED);
             }
         } finally {
@@ -729,6 +763,9 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
 
         // check if partition has been changed
         if (needReschedule()) {
+            LOG.debug(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
+                              .add("msg", "Job need to be rescheduled")
+                              .build());
             executeUpdate();
             updateState(JobState.NEED_SCHEDULE);
         }
