@@ -46,7 +46,7 @@ AlphaRowset::AlphaRowset(const TabletSchema* schema,
 }
 
 OLAPStatus AlphaRowset::init() {
-    DCHECK(!is_inited()) << is_inited();
+    DCHECK(!is_inited());
     OLAPStatus status = _init_segment_groups();
     set_inited(true);
     return status;

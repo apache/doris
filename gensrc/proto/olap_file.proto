@@ -150,7 +150,7 @@ enum KeysType {
 }
 
 message DeletePredicatePB {
-    optional int32 version = 1;
+    required int32 version = 1;
     repeated string sub_predicates = 2;
 }
 
