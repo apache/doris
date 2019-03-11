@@ -26,13 +26,17 @@ Status DataConsumerPool::get_consumer(
     std::unique_lock<std::mutex> l(_lock);
 
     // check if there is an available consumer.
-    // if has, return it
-    for (auto& c : _pool) {
-        if (c->match(ctx)) {
-            VLOG(3) << "get an available data consumer from pool: " << c->id();
-            c->reset();
-            *ret = c;
+    // if has, return it, also remove it from the pool
+    auto iter = std::begin(_pool);
+    while (iter != std::end(_pool)) {
+        if ((*iter)->match(ctx)) {
+            VLOG(3) << "get an available data consumer from pool: " << (*iter)->id();
+            (*iter)->reset();
+            *ret = *iter;
+            iter = _pool.erase(iter);
             return Status::OK; 
+        } else {
+            ++iter;
         }
     }
 
