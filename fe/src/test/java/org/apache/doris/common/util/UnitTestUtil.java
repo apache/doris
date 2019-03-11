@@ -41,6 +41,7 @@ import org.apache.doris.load.DppConfig;
 import org.apache.doris.load.Load;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TDisk;
+import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.Maps;
@@ -75,7 +76,7 @@ public class UnitTestUtil {
 
         // index
         MaterializedIndex index = new MaterializedIndex(indexId, IndexState.NORMAL);
-        TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, 0);
+        TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, 0, TStorageMedium.HDD);
         index.addTablet(tablet, tabletMeta);
 
         tablet.addReplica(replica1);
