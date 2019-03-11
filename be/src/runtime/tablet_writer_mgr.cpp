@@ -47,6 +47,10 @@ public:
         const google::protobuf::RepeatedField<int64_t>& partition_ids,
         google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec);
 
+    time_t last_updated_time() {
+        return _last_updated_time;
+    }
+
 private:
     // open all writer
     Status _open_all_writers(const PTabletWriterOpenRequest& params);
@@ -80,6 +84,9 @@ private:
 
     // TODO(zc): to add this tracker to somewhere
     MemTracker _mem_tracker;
+
+    //use to erase timeout TabletsChannel in _tablets_channels
+    time_t _last_updated_time;
 };
 
 TabletsChannel::~TabletsChannel() {
@@ -110,6 +117,7 @@ Status TabletsChannel::open(const PTabletWriterOpenRequest& params) {
     RETURN_IF_ERROR(_open_all_writers(params));
     
     _opened = true;
+    _last_updated_time = time(nullptr);
     return Status::OK;
 }
 
@@ -148,6 +156,7 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBatchRequest& params) {
         }
     }
     _next_seqs[params.sender_id()]++;
+    _last_updated_time = time(nullptr);
     return Status::OK;
 }
 
@@ -311,6 +320,45 @@ Status TabletWriterMgr::cancel(const PTabletWriterCancelRequest& params) {
     {
         std::lock_guard<std::mutex> l(_lock);
         _tablets_channels.erase(key);
+    }
+    return Status::OK;
+}
+
+Status TabletWriterMgr::start_bg_worker() {
+    _tablets_channel_clean_thread = std::thread(
+        [this] {
+            #ifdef GOOGLE_PROFILER
+                ProfilerRegisterThread();
+            #endif
+
+            uint32_t interval = 60;
+            while (true) {
+                _start_tablets_channel_clean();
+                sleep(interval);
+            }
+        });
+    _tablets_channel_clean_thread.detach();
+    return Status::OK;
+}
+
+Status TabletWriterMgr::_start_tablets_channel_clean() {
+    const int32_t max_alive_time = config::streaming_load_rpc_max_alive_time_sec;
+    time_t now = time(nullptr);
+    {
+        std::lock_guard<std::mutex> l(_lock);
+        std::vector<TabletsChannelKey> need_delete_keys;
+
+        for (auto& kv : _tablets_channels) {
+            time_t last_updated_time = kv.second->last_updated_time();
+            if (difftime(now, last_updated_time) >= max_alive_time) {
+                need_delete_keys.emplace_back(kv.first);
+            }
+        }
+
+        for(auto& key: need_delete_keys) {
+            _tablets_channels.erase(key);
+            LOG(INFO) << "erase timeout tablets channel: " << key;
+        }
     }
     return Status::OK;
 }

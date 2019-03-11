@@ -265,6 +265,7 @@ namespace config {
     CONF_Int32(number_tablet_writer_threads, "16");
 
     CONF_Int64(streaming_load_max_mb, "10240");
+    CONF_Int32(streaming_load_rpc_max_alive_time_sec, "600");
 
     // Fragment thread pool
     CONF_Int32(fragment_pool_thread_num, "64");
