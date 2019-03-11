@@ -45,7 +45,5 @@ public class OptUTInternalNode extends OptOperator {
     }
 
     @Override
-    public String getExplainString(String prefix) {
-        return type.getName() + " (value=" + value + ")";
-    }
+    public String getExplainString(String prefix) { return type.getName() + " (value=" + value + ")"; }
 }

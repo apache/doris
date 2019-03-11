@@ -15,10 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.optimizer.operator;
+package org.apache.doris.optimizer.rule.implementation;
 
-public class OptLogicalEqJoin extends OptLogical {
-    public OptLogicalEqJoin() {
-        super(OptOperatorType.OP_LOGICAL_EQ_JOIN);
+import org.apache.doris.optimizer.OptExpression;
+import org.apache.doris.optimizer.rule.OptRule;
+import org.apache.doris.optimizer.rule.OptRuleType;
+
+public abstract class ImplemetationRule extends OptRule {
+
+    public ImplemetationRule(OptRuleType type, OptExpression pattern) {
+        super(type, pattern);
     }
+
+    @Override
+    public boolean isImplementation() { return true; }
 }

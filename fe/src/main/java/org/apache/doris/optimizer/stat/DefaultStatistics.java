@@ -15,27 +15,30 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.optimizer.rule;
+package org.apache.doris.optimizer.stat;
 
-public enum OptRuleType {
-    // Used for initial expressions, which do't come from any rules.
-    RULE_NONE(0, "none"),
-    RULE_OLAP_LSCAN_TO_PSCAN(1, "OlapLogicalScanToPhysicalScan"),
-    RULE_EQ_JOIN_TO_HASH_JOIN(2, "EqualJoinToHashJoin"),
-    RULE_JOIN_COMMUTATIVITY(3, "JoinCommutativity"),
-    RULE_JOIN_ASSOCIATIVITY(4, "JoinAssociativity");
+public class DefaultStatistics implements Statistics {
 
-    private int code;
-    private String name;
+    private final long cardinality;
+    private final long rowNumbers;
 
-    OptRuleType(int code, String name) {
-        this.code = code;
-        this.name = name;
+    public DefaultStatistics(long cardinality, long rowNumbers) {
+        this.cardinality = cardinality;
+        this.rowNumbers = rowNumbers;
     }
 
-    public int getCode() { return code; }
-    public String getName() { return name; }
+    @Override
+    public long getCardinality() {
+        return cardinality;
+    }
 
     @Override
-    public String toString() { return name; }
+    public long getRowNumbers() {
+        return rowNumbers;
+    }
+
+    @Override
+    public long getScanBytes() {
+        return 0;
+    }
 }

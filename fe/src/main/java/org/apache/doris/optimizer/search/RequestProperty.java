@@ -15,11 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.optimizer.operator;
+package org.apache.doris.optimizer.search;
 
-public class OptPhysicalScan extends OptPhysical {
-
-    public OptPhysicalScan() {
-        super(OptOperatorType.OP_PHYSICAL_SCAN);
-    }
+public class RequestProperty {
 }

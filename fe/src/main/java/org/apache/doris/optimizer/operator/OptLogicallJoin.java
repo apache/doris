@@ -17,20 +17,32 @@
 
 package org.apache.doris.optimizer.operator;
 
+import com.google.common.collect.Lists;
 import org.apache.doris.optimizer.rule.OptRule;
+import org.apache.doris.optimizer.rule.implementation.HashJoinRule;
+import org.apache.doris.optimizer.rule.transformation.JoinAssociativityRule;
+import org.apache.doris.optimizer.rule.transformation.JoinCommutativityRule;
 
 import java.util.List;
 
-public abstract class OptLogical extends OptOperator {
+public class OptLogicallJoin extends OptLogical {
 
-    protected OptLogical(OptOperatorType type) {
-        super(type);
+    public OptLogicallJoin() {
+        super(OptOperatorType.OP_LOGICAL_JOIN);
     }
 
-    public abstract List<OptRule> getCandidateRulesForExplore();
-
-    public abstract List<OptRule> getCandidateRulesForImplement();
+    @Override
+    public List<OptRule> getCandidateRulesForExplore() {
+        final List<OptRule> rules = Lists.newArrayList();
+        rules.add(JoinCommutativityRule.INSTANCE);
+        rules.add(JoinAssociativityRule.INSTANCE);
+        return rules;
+    }
 
     @Override
-    public boolean isLogical() { return true; }
+    public List<OptRule> getCandidateRulesForImplement() {
+        final List<OptRule> rules = Lists.newArrayList();
+        rules.add(HashJoinRule.INSTANCE);
+        return rules;
+    }
 }

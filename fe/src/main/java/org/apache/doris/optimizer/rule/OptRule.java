@@ -41,6 +41,8 @@ public abstract class OptRule {
     public boolean isExploration() { return false; }
     public boolean isImplementation() { return false; }
     public OptExpression getPattern() { return pattern; }
+    public boolean isApplyOnce() { return false; }
+    public boolean isCompatible(OptRuleType type) { return true; }
 
     // Transform before Expression to other Expressions
     public abstract void transform(OptExpression expr, List<OptExpression> newExprs);

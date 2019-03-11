@@ -15,27 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.optimizer.rule;
+package org.apache.doris.optimizer.search;
 
-public enum OptRuleType {
-    // Used for initial expressions, which do't come from any rules.
-    RULE_NONE(0, "none"),
-    RULE_OLAP_LSCAN_TO_PSCAN(1, "OlapLogicalScanToPhysicalScan"),
-    RULE_EQ_JOIN_TO_HASH_JOIN(2, "EqualJoinToHashJoin"),
-    RULE_JOIN_COMMUTATIVITY(3, "JoinCommutativity"),
-    RULE_JOIN_ASSOCIATIVITY(4, "JoinAssociativity");
+/**
+ * for scheduling all the tasks.
+ */
 
-    private int code;
-    private String name;
+public interface Scheduler {
 
-    OptRuleType(int code, String name) {
-        this.code = code;
-        this.name = name;
-    }
+    /**
+     * Entrance to task execution.
+     * @param sContext
+     */
+    void run(SearchContext sContext);
 
-    public int getCode() { return code; }
-    public String getName() { return name; }
-
-    @Override
-    public String toString() { return name; }
+    void add(Task task);
 }

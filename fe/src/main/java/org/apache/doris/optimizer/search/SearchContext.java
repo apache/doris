@@ -15,27 +15,31 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.optimizer.operator;
+package org.apache.doris.optimizer.search;
 
-import com.google.common.collect.Lists;
-import org.apache.doris.optimizer.rule.OptRule;
-import org.apache.doris.optimizer.rule.implementation.OlapScanRule;
+import org.apache.doris.optimizer.OptGroup;
+import org.apache.doris.optimizer.OptMemo;
 
-import java.util.List;
+public class SearchContext {
 
-public class OptLogicalScan extends OptLogical {
+    private final OptMemo memo;
+    private final Scheduler scheduler;
 
-    public OptLogicalScan() {
-        super(OptOperatorType.OP_LOGICAL_SCAN);
+    private SearchContext(OptMemo memo, Scheduler scheduler) {
+        this.memo = memo;
+        this.scheduler = scheduler;
     }
 
-    @Override
-    public List<OptRule> getCandidateRulesForExplore() { return Lists.newArrayList(); }
-
-    @Override
-    public List<OptRule> getCandidateRulesForImplement() {
-        final List<OptRule> rules = Lists.newArrayList();
-        rules.add(OlapScanRule.INSTANCE);
-        return rules;
+    public static SearchContext create(OptMemo memo, OptGroup firstGroup,
+                                       OptimizationContext oContext, Scheduler scheduler) {
+        final SearchContext sContext = new SearchContext(memo, scheduler);
+        TaskGroupOptimization.schedule(sContext, firstGroup, oContext, null);
+        return sContext;
     }
+
+    public void schedule(Task task) {
+        scheduler.add(task);
+    }
+
+    public OptMemo getMemo() { return memo; }
 }

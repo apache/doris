@@ -15,27 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.optimizer.rule;
+package org.apache.doris.optimizer.operator;
 
-public enum OptRuleType {
-    // Used for initial expressions, which do't come from any rules.
-    RULE_NONE(0, "none"),
-    RULE_OLAP_LSCAN_TO_PSCAN(1, "OlapLogicalScanToPhysicalScan"),
-    RULE_EQ_JOIN_TO_HASH_JOIN(2, "EqualJoinToHashJoin"),
-    RULE_JOIN_COMMUTATIVITY(3, "JoinCommutativity"),
-    RULE_JOIN_ASSOCIATIVITY(4, "JoinAssociativity");
+public class OptPhysicalOlapScan extends OptPhysical {
 
-    private int code;
-    private String name;
-
-    OptRuleType(int code, String name) {
-        this.code = code;
-        this.name = name;
+    public OptPhysicalOlapScan() {
+        super(OptOperatorType.OP_PHYSICAL_OLAP_SCAN);
     }
-
-    public int getCode() { return code; }
-    public String getName() { return name; }
-
-    @Override
-    public String toString() { return name; }
 }
