@@ -101,6 +101,8 @@ public:
 
     bool is_pending() const override;
 
+    PUniqueId load_id() const override;
+
     int64_t txn_id() const override;
 
     bool delete_flag() override;

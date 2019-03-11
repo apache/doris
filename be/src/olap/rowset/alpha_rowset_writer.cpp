@@ -30,7 +30,15 @@ AlphaRowsetWriter::AlphaRowsetWriter() :
     _current_rowset_meta(nullptr),
     _is_pending_rowset(false),
     _num_rows_written(0),
-    _is_inited(false) {
+    _is_inited(false),
+    _rowset_build(false) { }
+
+AlphaRowsetWriter::~AlphaRowsetWriter() {
+    SAFE_DELETE(_column_data_writer);
+    if (!_rowset_build) {
+        garbage_collection();
+    }
+    _segment_groups.clear();
 }
 
 OLAPStatus AlphaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) {
@@ -197,29 +205,15 @@ RowsetSharedPtr AlphaRowsetWriter::build() {
     RowsetSharedPtr rowset(new(std::nothrow) AlphaRowset(_rowset_writer_context.tablet_schema,
                                     _rowset_writer_context.rowset_path_prefix,
                                     _rowset_writer_context.data_dir, _current_rowset_meta));
-    if (rowset == nullptr) {
-        LOG(WARNING) << "new rowset failed when build new rowset";
-        _segment_groups.clear();
-        return nullptr;
-    }
+    DCHECK(rowset != nullptr) << "new rowset failed when build new rowset";
+
     OLAPStatus status = rowset->init();
     if (status != OLAP_SUCCESS) {
-        _segment_groups.clear();
         LOG(WARNING) << "rowset init failed when build new rowset";
         return nullptr;
     }
-    _segment_groups.clear();
+    _rowset_build = true;
     return rowset;
-}
-
-OLAPStatus AlphaRowsetWriter::release() {
-    OLAPStatus status = _column_data_writer->finalize();
-    SAFE_DELETE(_column_data_writer);
-    for (auto segment_group : _segment_groups) {
-        segment_group->delete_all_files();
-    }
-    _segment_groups.clear();
-    return status;
 }
 
 MemPool* AlphaRowsetWriter::mem_pool() {
@@ -236,6 +230,19 @@ Version AlphaRowsetWriter::version() {
 
 int32_t AlphaRowsetWriter::num_rows() {
     return _num_rows_written;
+}
+
+OLAPStatus AlphaRowsetWriter::garbage_collection() {
+    for (auto segment_group : _segment_groups) {
+        bool ret = segment_group->delete_all_files();
+        if (!ret) {
+            LOG(WARNING) << "delete segment group files failed."
+                         << " tablet id:" << segment_group->get_tablet_id()
+                         << ", rowset path:" << segment_group->rowset_path_prefix();
+            return OLAP_ERR_ROWSET_DELETE_SEGMENT_GROUP_FILE_FAILED;
+        }
+    }
+    return OLAP_SUCCESS;
 }
 
 void AlphaRowsetWriter::_init() {
