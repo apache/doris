@@ -98,7 +98,7 @@ TEST_F(RoutineLoadTaskExecutorTest, exec_task) {
     ASSERT_TRUE(st.ok());
 
     sleep(10);
-    k_info.brokers = "127.0.0.2:9092";
+    k_info.brokers = "127.0.0.1:9092";
     task.__set_kafka_load_info(k_info);
     st = executor.submit_task(task);
     ASSERT_TRUE(st.ok());
