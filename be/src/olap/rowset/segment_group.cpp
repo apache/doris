@@ -202,8 +202,6 @@ bool SegmentGroup::is_in_use() {
 bool SegmentGroup::delete_all_files() {
     bool success = true;
     if (!_file_created) { return success; }
-    LOG(INFO) << "_num_segments:" << _num_segments
-              << ", get_stack_trace=" << get_stack_trace();
     for (uint32_t seg_id = 0; seg_id < _num_segments; ++seg_id) {
         // get full path for one segment
         string index_path = construct_index_file_path(seg_id);

@@ -33,7 +33,7 @@ using RowsetWriterSharedPtr = std::shared_ptr<RowsetWriter>;
 class RowsetWriter {
 public:
     virtual ~RowsetWriter() { }
-    
+
     virtual OLAPStatus init(const RowsetWriterContext& rowset_writer_context) = 0;
 
     // add a row to rowset
@@ -50,9 +50,6 @@ public:
     // get a rowset
     virtual RowsetSharedPtr build() = 0;
 
-    // release a rowset
-    virtual OLAPStatus release() = 0;
-
     // TODO(hkp): this interface should be optimized!
     virtual MemPool* mem_pool() = 0;
 
@@ -61,6 +58,8 @@ public:
     virtual int32_t num_rows() = 0;
 
     virtual RowsetId rowset_id() = 0;
+
+    virtual OLAPStatus garbage_collection() = 0;
 };
 
 } // namespace doris

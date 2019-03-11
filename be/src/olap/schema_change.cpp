@@ -798,6 +798,10 @@ bool SchemaChangeDirectly::process(RowsetReaderSharedPtr rowset_reader, RowsetWr
                        << ", new_index_rows=" << rowset_writer->num_rows();
             result = false;
         }
+        LOG(INFO) << "all row nums. source_rows=" << rowset_reader->num_rows()
+                  << ", merged_rows=" << merged_rows()
+                  << ", filtered_rows=" << filtered_rows()
+                  << ", new_index_rows=" << rowset_writer->num_rows();
     } else {
         LOG(INFO) << "all row nums. source_rows=" << rowset_reader->num_rows()
                   << ", merged_rows=" << merged_rows()
@@ -1436,11 +1440,6 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
         TabletSharedPtr new_tablet,
         RowsetSharedPtr* base_rowset,
         RowsetSharedPtr* new_rowset) {
-    if ((*new_rowset) == nullptr) {
-        LOG(WARNING) << "new rowsets vector is nullptr.";
-        return OLAP_ERR_INPUT_PARAMETER_ERROR;
-    }
-
     OLAPStatus res = OLAP_SUCCESS;
     LOG(INFO) << "begin to convert delta version for schema changing. "
               << "base_tablet=" << base_tablet->full_name()
@@ -1489,41 +1488,35 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
     }
 
     // c. 转换数据
+    DeleteHandler delete_handler;
+    OlapReaderStatistics stats;
+    RowsetReaderContextBuilder reader_context_builder;
+    reader_context_builder.set_reader_type(READER_ALTER_TABLE)
+                          .set_delete_handler(&delete_handler)
+                          .set_stats(&stats)
+                          .set_is_using_cache(false)
+                          .set_lru_cache(StorageEngine::instance()->index_stream_lru_cache());
+    RowsetReaderContext reader_context = reader_context_builder.build();
     RowsetReaderSharedPtr rowset_reader = (*base_rowset)->create_reader();
-    rowset_reader->init(nullptr);
+    rowset_reader->init(&reader_context);
 
-    RowsetWriterContextBuilder context_builder;
+    RowsetWriterContextBuilder writer_context_builder;
     RowsetId rowset_id = 0;
     RETURN_NOT_OK(new_tablet->next_rowset_id(&rowset_id));
-    if ((*base_rowset)->is_pending()) {
-        PUniqueId load_id;
-        load_id.set_hi(0);
-        load_id.set_lo(0);
-        context_builder.set_rowset_id(rowset_id)
-                       .set_tablet_id(new_tablet->tablet_id())
-                       .set_partition_id(new_tablet->partition_id())
-                       .set_tablet_schema_hash(new_tablet->schema_hash())
-                       .set_rowset_type(ALPHA_ROWSET)
-                       .set_rowset_path_prefix(new_tablet->tablet_path())
-                       .set_tablet_schema(&(new_tablet->tablet_schema()))
-                       .set_rowset_state(PREPARED)
-                       .set_txn_id((*base_rowset)->txn_id())
-                       .set_load_id(load_id);
-    } else {
-        context_builder.set_rowset_id(rowset_id)
-                       .set_tablet_id(new_tablet->tablet_id())
-                       .set_partition_id(new_tablet->partition_id())
-                       .set_tablet_schema_hash(new_tablet->schema_hash())
-                       .set_rowset_type(ALPHA_ROWSET)
-                       .set_rowset_path_prefix(new_tablet->tablet_path())
-                       .set_tablet_schema(&(new_tablet->tablet_schema()))
-                       .set_rowset_state(VISIBLE)
-                       .set_version((*base_rowset)->version())
-                       .set_version_hash((*base_rowset)->version_hash());
-    }
-    RowsetWriterContext context = context_builder.build();
+
+    writer_context_builder.set_rowset_id(rowset_id)
+                          .set_tablet_id(new_tablet->tablet_id())
+                          .set_partition_id(new_tablet->partition_id())
+                          .set_tablet_schema_hash(new_tablet->schema_hash())
+                          .set_rowset_type(ALPHA_ROWSET)
+                          .set_rowset_path_prefix(new_tablet->tablet_path())
+                          .set_tablet_schema(&(new_tablet->tablet_schema()))
+                          .set_rowset_state(PREPARED)
+                          .set_txn_id((*base_rowset)->txn_id())
+                          .set_load_id((*base_rowset)->load_id());
+    RowsetWriterContext writer_context = writer_context_builder.build();
     RowsetWriterSharedPtr rowset_writer(new AlphaRowsetWriter());
-    rowset_writer->init(context);
+    rowset_writer->init(writer_context);
 
     if (!sc_procedure->process(rowset_reader, rowset_writer, new_tablet, base_tablet)) {
         if ((*base_rowset)->is_pending()) {

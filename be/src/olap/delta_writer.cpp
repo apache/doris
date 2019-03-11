@@ -49,20 +49,18 @@ DeltaWriter::~DeltaWriter() {
 }
 
 void DeltaWriter::_garbage_collection() {
-    // TODO(ygl): if cur_rowset is null, then the rowset is not built, should clean other
-    // resources during load
     OLAPStatus rollback_status = StorageEngine::instance()->txn_manager()->rollback_txn(_req.partition_id,
         _req.txn_id,_req.tablet_id, _req.schema_hash);
     // has to check rollback status, because the rowset maybe committed in this thread and
     // published in another thread, then rollback will failed
     // when rollback failed should not delete rowset
-    if (rollback_status == OLAP_SUCCESS) {
+    if (rollback_status == OLAP_SUCCESS && _cur_rowset != nullptr) {
         StorageEngine::instance()->add_unused_rowset(_cur_rowset);
     }
     if (_new_tablet != nullptr) {
         rollback_status = StorageEngine::instance()->txn_manager()->rollback_txn(_req.partition_id, _req.txn_id,
             _new_tablet->tablet_id(), _new_tablet->schema_hash());
-        if (rollback_status == OLAP_SUCCESS) {
+        if (rollback_status == OLAP_SUCCESS && _new_rowset != nullptr) {
             StorageEngine::instance()->add_unused_rowset(_new_rowset);
         }
     }
@@ -206,14 +204,10 @@ OLAPStatus DeltaWriter::close(google::protobuf::RepeatedPtrField<PTabletInfo>* t
             return res;
         }
 
-        if (_new_rowset == nullptr) {
-            LOG(WARNING) << "fail to build rowset";
-            return OLAP_ERR_MALLOC_ERROR;
-        }
         res = StorageEngine::instance()->txn_manager()->commit_txn(_new_tablet->data_dir()->get_meta(),
-            _req.partition_id, _req.txn_id, _new_tablet->tablet_id(),
-            _new_tablet->schema_hash(),
-            _req.load_id, _new_rowset, false);
+                    _req.partition_id, _req.txn_id, _new_tablet->tablet_id(),
+                    _new_tablet->schema_hash(),
+                    _req.load_id, _new_rowset, false);
 
         if (res != OLAP_SUCCESS && res != OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
             LOG(WARNING) << "save pending rowset failed. rowset_id:"

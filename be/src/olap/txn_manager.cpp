@@ -243,7 +243,7 @@ OLAPStatus TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id, TT
         if (it != _txn_tablet_map.end()) {
             it->second.erase(tablet_info);
             LOG(INFO) << "publish txn successfully."
-                      << ", partition_id: " << key.first
+                      << " partition_id: " << key.first
                       << ", txn_id: " << key.second
                       << ", tablet: " << tablet_info.to_string();
             if (it->second.empty()) {
