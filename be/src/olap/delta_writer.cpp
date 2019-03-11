@@ -83,13 +83,14 @@ OLAPStatus DeltaWriter::init() {
                             _req.tablet_id, _req.schema_hash, _req.load_id));
         if (_req.need_gen_rollup) {
             _tablet->obtain_header_rdlock();
+            bool has_alter_task = _tablet->has_alter_task();
             const AlterTabletTask& alter_task = _tablet->alter_task();
             AlterTabletState alter_state = alter_task.alter_state();
             TTabletId new_tablet_id = alter_task.related_tablet_id();
             TSchemaHash new_schema_hash = alter_task.related_schema_hash();;
             _tablet->release_header_lock();
 
-            if (alter_state == ALTER_RUNNING) {
+            if (has_alter_task && alter_state != ALTER_FAILED) {
                 LOG(INFO) << "load with schema change." << "old_tablet_id: " << _tablet->tablet_id() << ", "
                           << "old_schema_hash: " << _tablet->schema_hash() <<  ", "
                           << "new_tablet_id: " << new_tablet_id << ", "
