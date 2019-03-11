@@ -358,6 +358,8 @@ OLAPStatus TabletMeta::delete_rs_meta_by_version(const Version& version) {
         if ((*it)->version().first == version.first
               && (*it)->version().second == version.second) {
             _rs_metas.erase(it);
+        } else {
+            ++it;
         }
     }
 
