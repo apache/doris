@@ -17,11 +17,29 @@
 
 package org.apache.doris.optimizer.search;
 
+import org.apache.doris.optimizer.OptGroup;
 import org.apache.doris.optimizer.OptMemo;
 
-public interface SchedulerContext {
+public class SearchContext {
 
-    void schedule(Task task);
+    private final OptMemo memo;
+    private final Scheduler scheduler;
 
-    OptMemo getMemo();
+    private SearchContext(OptMemo memo, Scheduler scheduler) {
+        this.memo = memo;
+        this.scheduler = scheduler;
+    }
+
+    public static SearchContext create(OptMemo memo, OptGroup firstGroup,
+                                       OptimizationContext oContext, Scheduler scheduler) {
+        final SearchContext sContext = new SearchContext(memo, scheduler);
+        TaskGroupOptimization.schedule(sContext, firstGroup, oContext, null);
+        return sContext;
+    }
+
+    public void schedule(Task task) {
+        scheduler.add(task);
+    }
+
+    public OptMemo getMemo() { return memo; }
 }

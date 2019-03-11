@@ -67,14 +67,14 @@ public class TaskMultiExpressionImplementation extends Task {
         this.nextState = new ImplementingChildrenStatus();
     }
 
-    public static void schedule(SchedulerContext sContext, MultiExpression mExpr, Task parent) {
+    public static void schedule(SearchContext sContext, MultiExpression mExpr, Task parent) {
         sContext.schedule(new TaskMultiExpressionImplementation(mExpr, parent));
     }
 
     private class ImplementingChildrenStatus extends TaskState {
 
         @Override
-        public void handle(SchedulerContext sContext) {
+        public void handle(SearchContext sContext) {
             mExpr.setStatus(MultiExpression.MEState.Implementing);
             if (!isApplyTaskScheduledForChildren) {
                 for (OptGroup group : mExpr.getInputs()) {
@@ -91,7 +91,7 @@ public class TaskMultiExpressionImplementation extends Task {
     private class ImplementingSelfStatus extends TaskState {
 
         @Override
-        public void handle(SchedulerContext sContext) {
+        public void handle(SearchContext sContext) {
             final OptLogical optLogical = (OptLogical) mExpr.getOp();
             if (!isApplyTaskScheduled) {
                 // It's necessary to apply explore rules firstly before apply implement rules. and Scheduling
@@ -117,7 +117,7 @@ public class TaskMultiExpressionImplementation extends Task {
     private class CompletingStatus extends TaskState {
 
         @Override
-        public void handle(SchedulerContext sContext) {
+        public void handle(SearchContext sContext) {
             mExpr.setStatus(MultiExpression.MEState.Implemented);
             setFinished();
         }

@@ -80,7 +80,7 @@ public class DefaultScheduler implements Scheduler {
     }
 
     @Override
-    public void run(SchedulerContext sContext) {
+    public void run(SearchContext sContext) {
         resetEnv();
         while (true) {
             final Task task = tasks.pop();

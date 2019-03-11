@@ -27,7 +27,7 @@ public interface Scheduler {
      * Entrance to task execution.
      * @param sContext
      */
-    void run(SchedulerContext sContext);
+    void run(SearchContext sContext);
 
     void add(Task task);
 }

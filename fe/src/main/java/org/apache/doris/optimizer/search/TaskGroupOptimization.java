@@ -58,7 +58,7 @@ public class TaskGroupOptimization extends Task {
     private final OptimizationContext optContext;
     private int lastMexprIndex;
 
-    public static void schedule(SchedulerContext sContext, OptGroup group,
+    public static void schedule(SearchContext sContext, OptGroup group,
                                 OptimizationContext optContext, Task parent) {
         sContext.schedule(new TaskGroupOptimization(group, optContext, parent));
     }
@@ -74,7 +74,7 @@ public class TaskGroupOptimization extends Task {
     private class InitalizingState extends TaskState {
 
         @Override
-        public void handle(SchedulerContext sContext) {
+        public void handle(SearchContext sContext) {
             if (!group.isImplemented()) {
                 TaskGroupImplementation.schedule(sContext, group, TaskGroupOptimization.this);
                 return;
@@ -87,7 +87,7 @@ public class TaskGroupOptimization extends Task {
     private class OptimizingMultiExpressionState extends TaskState {
 
         @Override
-        public void handle(SchedulerContext sContext) {
+        public void handle(SearchContext sContext) {
             boolean hasNew = false;
             for (; lastMexprIndex < group.getMultiExpressions().size(); lastMexprIndex++) {
                 final MultiExpression mExpr = group.getMultiExpressions().get(lastMexprIndex);
@@ -111,7 +111,7 @@ public class TaskGroupOptimization extends Task {
     private class CompletingState extends TaskState {
 
         @Override
-        public void handle(SchedulerContext sContext) {
+        public void handle(SearchContext sContext) {
             group.setStatus(OptGroup.GState.Optimized);
             setFinished();
         }

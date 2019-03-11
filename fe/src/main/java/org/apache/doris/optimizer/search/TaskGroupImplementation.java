@@ -54,14 +54,14 @@ public class TaskGroupImplementation extends Task {
         this.lastMexprIndex = 0;
     }
 
-    public static void schedule(SchedulerContext sContext, OptGroup group, Task parent) {
+    public static void schedule(SearchContext sContext, OptGroup group, Task parent) {
         sContext.schedule(new TaskGroupImplementation(group, parent));
     }
 
     private class ImplementingState extends TaskState {
 
         @Override
-        public void handle(SchedulerContext sContext) {
+        public void handle(SearchContext sContext) {
             group.setStatus(OptGroup.GState.Implementing);
             boolean hasNew = false;
             for (; lastMexprIndex < group.getMultiExpressions().size(); lastMexprIndex++) {
@@ -83,7 +83,7 @@ public class TaskGroupImplementation extends Task {
     private class CompletingState extends TaskState {
 
         @Override
-        public void handle(SchedulerContext sContext) {
+        public void handle(SearchContext sContext) {
             group.setStatus(OptGroup.GState.Implemented);
             deriveProperty();
             setFinished();

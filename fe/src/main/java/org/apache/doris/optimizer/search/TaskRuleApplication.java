@@ -21,7 +21,6 @@ import com.google.common.collect.Lists;
 import org.apache.doris.optimizer.MultiExpression;
 import org.apache.doris.optimizer.OptBinding;
 import org.apache.doris.optimizer.OptExpression;
-import org.apache.doris.optimizer.OptGroup;
 import org.apache.doris.optimizer.rule.OptRule;
 
 import java.util.List;
@@ -51,7 +50,7 @@ public class TaskRuleApplication extends Task {
         this.nextState = new ApplyingStatus();
     }
 
-    public static void schedule(SchedulerContext sContext, MultiExpression mExpr, OptRule rule,
+    public static void schedule(SearchContext sContext, MultiExpression mExpr, OptRule rule,
                                 Task parent) {
         sContext.schedule(new TaskRuleApplication(mExpr, rule, parent));
     }
@@ -59,7 +58,7 @@ public class TaskRuleApplication extends Task {
     private class ApplyingStatus extends TaskState {
 
         @Override
-        public void handle(SchedulerContext sContext) {
+        public void handle(SearchContext sContext) {
             if (!rule.isCompatible(mExpr.getRuleTypeDerivedFrom())) {
                 return;
             }

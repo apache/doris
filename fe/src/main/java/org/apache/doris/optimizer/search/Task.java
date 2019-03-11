@@ -55,7 +55,7 @@ public abstract class Task {
         return refCountbyChildren != 0;
     }
 
-    public boolean execute(SchedulerContext sContext) {
+    public boolean execute(SearchContext sContext) {
         while (true) {
             final TaskState lastState = nextState;
             nextState.handle(sContext);
@@ -72,7 +72,7 @@ public abstract class Task {
 
     // Base class for StateMacheine's state.
     protected abstract class TaskState {
-        public abstract void handle(SchedulerContext sContext);
+        public abstract void handle(SearchContext sContext);
     }
 
 }

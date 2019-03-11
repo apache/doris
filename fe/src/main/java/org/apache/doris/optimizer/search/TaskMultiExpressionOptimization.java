@@ -78,7 +78,7 @@ public class TaskMultiExpressionOptimization extends Task {
         this.nextState = new InitalizationState();
     }
 
-    public static void schedule(SchedulerContext sContext, MultiExpression mExpr,
+    public static void schedule(SearchContext sContext, MultiExpression mExpr,
                                 OptimizationContext optContext, Task parent) {
         sContext.schedule(new TaskMultiExpressionOptimization(mExpr, optContext, parent));
     }
@@ -86,7 +86,7 @@ public class TaskMultiExpressionOptimization extends Task {
     private class InitalizationState extends TaskState {
 
         @Override
-        public void handle(SchedulerContext sContext) {
+        public void handle(SearchContext sContext) {
             final RequestProperty requestProperty = optContext.getRequestProperty();
             if (checkProperty(requestProperty)) {
                 setFinished();
@@ -111,7 +111,7 @@ public class TaskMultiExpressionOptimization extends Task {
     private class OptimizingChildGroupState extends TaskState {
 
         @Override
-        public void handle(SchedulerContext sContext) {
+        public void handle(SearchContext sContext) {
             boolean hasNew = false;
             for (OptGroup group : mExpr.getInputs()) {
                 if (!group.isOptimized()) {
@@ -138,7 +138,7 @@ public class TaskMultiExpressionOptimization extends Task {
     private class AddingEnforcer extends TaskState {
 
         @Override
-        public void handle(SchedulerContext sContext) {
+        public void handle(SearchContext sContext) {
             nextState = new OptimizingSelf();
         }
     }
@@ -147,7 +147,7 @@ public class TaskMultiExpressionOptimization extends Task {
     private class OptimizingSelf extends TaskState {
 
         @Override
-        public void handle(SchedulerContext sContext) {
+        public void handle(SearchContext sContext) {
             nextState = new CompletingOptimization();
         }
     }
@@ -155,7 +155,7 @@ public class TaskMultiExpressionOptimization extends Task {
     private class CompletingOptimization extends TaskState {
 
         @Override
-        public void handle(SchedulerContext sContext) {
+        public void handle(SearchContext sContext) {
             setFinished();
         }
     }

@@ -36,7 +36,7 @@ public class Optimizer {
     public void optimize() {
         final OptimizationContext oContext = new OptimizationContext();
         final Scheduler scheduler = DefaultScheduler.create();
-        final SchedulerContext sContext = SchedulerContextImp.create(memo, root, oContext, scheduler);
+        final SearchContext sContext = SearchContext.create(memo, root, oContext, scheduler);
         scheduler.run(sContext);
     }
 }
