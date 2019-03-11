@@ -109,6 +109,8 @@ public:
 
     virtual bool is_pending() const = 0;
 
+    virtual PUniqueId load_id() const = 0;
+
     virtual int64_t txn_id() const = 0;
     
     virtual bool delete_flag() = 0;
