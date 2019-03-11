@@ -44,6 +44,7 @@ import org.apache.doris.task.ClearAlterTask;
 import org.apache.doris.task.CreateRollupTask;
 import org.apache.doris.thrift.TKeysType;
 import org.apache.doris.thrift.TResourceInfo;
+import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTabletInfo;
 import org.apache.doris.thrift.TTaskType;
@@ -782,11 +783,13 @@ public class RollupJob extends AlterJob {
             for (Map.Entry<Long, MaterializedIndex> entry : this.partitionIdToRollupIndex.entrySet()) {
                 Partition partition = olapTable.getPartition(entry.getKey());
                 partition.setState(PartitionState.ROLLUP);
+                TStorageMedium medium = olapTable.getPartitionInfo().getDataProperty(
+                        partition.getId()).getStorageMedium();
 
                 if (!Catalog.isCheckpointThread()) {
                     MaterializedIndex rollupIndex = entry.getValue();
                     TabletMeta tabletMeta = new TabletMeta(dbId, tableId, entry.getKey(), rollupIndexId,
-                            rollupSchemaHash);
+                            rollupSchemaHash, medium);
                     for (Tablet tablet : rollupIndex.getTablets()) {
                         long tabletId = tablet.getId();
                         invertedIndex.addTablet(tabletId, tabletMeta);

@@ -36,6 +36,7 @@ import org.apache.doris.task.CloneTask;
 import org.apache.doris.thrift.TBackend;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TTabletInfo;
+
 import org.easymock.EasyMock;
 import org.junit.Assert;
 import org.junit.Before;
@@ -138,7 +139,7 @@ public class CloneTest {
                                             type, priority, timeoutSecond));
         Assert.assertTrue(clone.getCloneTabletIds().contains(tabletId));
 
-        TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, 1);
+        TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, 1, TStorageMedium.HDD);
         Catalog.getCurrentInvertedIndex().addTablet(tabletId, tabletMeta);
         Replica replica = new Replica();
         Catalog.getCurrentInvertedIndex().addReplica(tabletId, replica);
@@ -183,7 +184,7 @@ public class CloneTest {
         Assert.assertTrue(clone.addCloneJob(dbId, tableId, partitionId, indexId, tabletId, backendId,
                                             type, priority, timeoutSecond));
         
-        TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, 1);
+        TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, 1, TStorageMedium.HDD);
         Catalog.getCurrentInvertedIndex().addTablet(tabletId, tabletMeta);
         Replica replica = new Replica();
         Catalog.getCurrentInvertedIndex().addReplica(tabletId, replica);
@@ -219,7 +220,7 @@ public class CloneTest {
                                             type, priority, timeoutSecond));
         Assert.assertEquals(1, clone.getJobNum());
 
-        TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, 1);
+        TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, 1, TStorageMedium.HDD);
         Catalog.getCurrentInvertedIndex().addTablet(tabletId, tabletMeta);
         Replica replica = new Replica();
         Catalog.getCurrentInvertedIndex().addReplica(tabletId, replica);
