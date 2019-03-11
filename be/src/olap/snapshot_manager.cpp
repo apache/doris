@@ -67,6 +67,10 @@ OLAPStatus SnapshotManager::make_snapshot(
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
+    VLOG(3) << "received a make snapshot request,"
+            << " snapshot path is " << *snapshot_path
+            << " snapshot version is " << request.preferred_snapshot_version;
+
     TabletSharedPtr ref_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(request.tablet_id, request.schema_hash);
     if (ref_tablet.get() == nullptr) {
         LOG(WARNING) << "failed to get tablet. tablet=" << request.tablet_id
