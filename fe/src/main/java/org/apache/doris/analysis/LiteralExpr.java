@@ -124,6 +124,8 @@ public abstract class LiteralExpr extends Expr {
 
     public abstract boolean isMinValue();
 
+    // Only used by partition pruning and the derived class which can be used for pruning
+    // must handle MaxLiteral.
     public abstract int compareLiteral(LiteralExpr expr);
 
     // Returns the string representation of the literal's value. Used when passing
