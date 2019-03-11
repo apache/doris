@@ -74,6 +74,12 @@ OLAPStatus EngineCloneTask::execute() {
                   << "tablet=" << tablet->full_name()
                   << ", committed_version=" << _clone_req.committed_version
                   << ", missed_versions_size=" << missed_versions.size();
+        // if missed version size is 0, then it is useless to clone from remote be, it means local data is 
+        // completed. Or remote be will just return header not the rowset files. clone will failed.
+        if (missed_versions.size() == 0) {
+            LOG(INFO) << "missed version size = 0, skip clone and reture success";
+            return OLAP_SUCCESS;
+        }
         // get download path
         string local_data_path = tablet->tablet_path() + CLONE_PREFIX;
 
@@ -87,7 +93,7 @@ OLAPStatus EngineCloneTask::execute() {
             OLAPStatus olap_status = _finish_clone(tablet, local_data_path, _clone_req.committed_version, allow_incremental_clone, snapshot_version);
             if (olap_status != OLAP_SUCCESS) {
                 LOG(WARNING) << "failed to finish incremental clone. [table=" << tablet->full_name()
-                                << " res=" << olap_status << "]";
+                             << " res=" << olap_status << "]";
                 _error_msgs->push_back("incremental clone error.");
                 status = DORIS_ERROR;
             }
@@ -99,14 +105,14 @@ OLAPStatus EngineCloneTask::execute() {
                                 NULL, NULL, &snapshot_version);
             if (status == DORIS_SUCCESS) {
                 LOG(INFO) << "download successfully when full clone. [table=" << tablet->full_name()
-                            << " src_host=" << src_host.host << " src_file_path=" << src_file_path
-                            << " local_data_path=" << local_data_path << "]";
+                          << " src_host=" << src_host.host << " src_file_path=" << src_file_path
+                          << " local_data_path=" << local_data_path << "]";
 
                 OLAPStatus olap_status = _finish_clone(tablet, local_data_path, _clone_req.committed_version, false, snapshot_version);
 
                 if (olap_status != OLAP_SUCCESS) {
                     LOG(WARNING) << "fail to finish full clone. [table=" << tablet->full_name()
-                                    << " res=" << olap_status << "]";
+                                 << " res=" << olap_status << "]";
                     _error_msgs->push_back("full clone error.");
                     status = DORIS_ERROR;
                 }
@@ -543,11 +549,17 @@ AgentStatus EngineCloneTask::_clone_copy(
             }
         } // Clone files from remote backend
         if (make_snapshot_result.snapshot_version < PREFERRED_SNAPSHOT_VERSION) {
-            _convert_to_new_snapshot(data_dir, local_data_path, clone_req.tablet_id);
+            OLAPStatus convert_status = _convert_to_new_snapshot(data_dir, local_data_path, clone_req.tablet_id);
+            if (convert_status != OLAP_SUCCESS) {
+                status = DORIS_ERROR;
+            }
         } else {
             // if cloned from new version be, then should change all rowset ids 
             // because they maybe its id same with local rowset
-            _convert_rowset_ids(data_dir, local_data_path, clone_req.tablet_id);
+            OLAPStatus convert_status = _convert_rowset_ids(data_dir, local_data_path, clone_req.tablet_id);
+            if (convert_status != OLAP_SUCCESS) {
+                status = DORIS_ERROR;
+            }
         }
 
         // Release snapshot, if failed, ignore it. OLAP engine will drop useless snapshot
@@ -775,7 +787,7 @@ OLAPStatus EngineCloneTask::_finish_clone(TabletSharedPtr tablet, const string& 
 
             string from = clone_dir + "/" + clone_file;
             string to = tablet_dir + "/" + clone_file;
-            LOG(INFO) << "src file:" << from << "dest file:" << to;
+            LOG(INFO) << "src file:" << from << " dest file:" << to;
             if (link(from.c_str(), to.c_str()) != 0) {
                 LOG(WARNING) << "fail to create hard link when clone. " 
                              << " from=" << from.c_str() 
@@ -872,6 +884,7 @@ OLAPStatus EngineCloneTask::_clone_full_data(TabletSharedPtr tablet, TabletMeta*
             << ", local_version=" << local_version.first << "-" << local_version.second;
 
         // if local version cross src latest, clone failed
+        // TODO(ygl): 
         if (local_version.first <= cloned_max_version.second
             && local_version.second > cloned_max_version.second) {
             LOG(WARNING) << "stop to full clone, version cross src latest."
@@ -890,25 +903,26 @@ OLAPStatus EngineCloneTask::_clone_full_data(TabletSharedPtr tablet, TabletMeta*
                     && rs_meta->version().second == local_version.second
                     && rs_meta->version_hash() == local_version_hash) {
                     existed_in_src = true;
-                    LOG(INFO) << "Delta has already existed in local header, no need to clone."
-                        << "tablet=" << tablet->full_name()
-                        << ", version='" << local_version.first<< "-" << local_version.second
-                        << ", version_hash=" << local_version_hash;
-
-                    OLAPStatus delete_res = cloned_tablet_meta->delete_rs_meta_by_version(local_version);
-                    if (delete_res != OLAP_SUCCESS) {
-                        LOG(WARNING) << "failed to delete existed version from clone src when full clone. "
-                                     << ", version=" << local_version.first << "-" << local_version.second;
-                        return delete_res;
-                    }
                     break;
                 }
             }
 
-            // Delta labeled in local_version is not existed in clone header,
-            // some overlapping delta will be cloned to replace it.
-            // And also, the specified delta should deleted from local header.
-            if (!existed_in_src) {
+            if (existed_in_src) {
+                OLAPStatus delete_res = cloned_tablet_meta->delete_rs_meta_by_version(local_version);
+                if (delete_res != OLAP_SUCCESS) {
+                    LOG(WARNING) << "failed to delete existed version from clone src when full clone. "
+                                    << ", version=" << local_version.first << "-" << local_version.second;
+                    return delete_res;
+                } else {
+                    LOG(INFO) << "Delta has already existed in local header, no need to clone."
+                        << "tablet=" << tablet->full_name()
+                        << ", version='" << local_version.first<< "-" << local_version.second
+                        << ", version_hash=" << local_version_hash;
+                }
+            } else {
+                // Delta labeled in local_version is not existed in clone header,
+                // some overlapping delta will be cloned to replace it.
+                // And also, the specified delta should deleted from local header.
                 versions_to_delete.push_back(local_version);
                 LOG(INFO) << "Delete delta not included by the clone header, should delete it from local header."
                           << "tablet=" << tablet->full_name() << ","
