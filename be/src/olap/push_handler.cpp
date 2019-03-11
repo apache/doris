@@ -215,7 +215,6 @@ OLAPStatus PushHandler::_do_streaming_ingestion(
         if (commit_status != OLAP_SUCCESS && commit_status != OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
             res = commit_status;
         }
-        del_preds.pop();
     }
     return res;
 }
