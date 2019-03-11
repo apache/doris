@@ -69,6 +69,7 @@ OLAPStatus DeleteConditionHandler::generate_delete_predicate(
         del_pred->add_sub_predicates(condition_str);
         LOG(INFO) << "store one sub-delete condition. condition=" << condition_str;
     }
+    del_pred->set_version(-1);
 
     return OLAP_SUCCESS;
 }
