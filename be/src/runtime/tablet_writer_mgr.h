@@ -101,8 +101,6 @@ private:
     std::thread _tablets_channel_clean_thread;
 
     Status _start_tablets_channel_clean();
-
-    void* _tablets_channel_clean_thread_callback(void* arg);
 };
 
 std::ostream& operator<<(std::ostream& os, const TabletsChannelKey&);

@@ -326,22 +326,19 @@ Status TabletWriterMgr::cancel(const PTabletWriterCancelRequest& params) {
 
 Status TabletWriterMgr::start_bg_worker() {
     _tablets_channel_clean_thread = std::thread(
-         [this] {
-             _tablets_channel_clean_thread_callback(nullptr);
-         });
+        [this] {
+            #ifdef GOOGLE_PROFILER
+                ProfilerRegisterThread();
+            #endif
+
+            uint32_t interval = 60;
+            while (true) {
+                _start_tablets_channel_clean();
+                sleep(interval);
+            }
+        });
     _tablets_channel_clean_thread.detach();
     return Status::OK;
-}
-
-void* TabletWriterMgr::_tablets_channel_clean_thread_callback(void* arg) {
-#ifdef GOOGLE_PROFILER
-        ProfilerRegisterThread();
-#endif
-        uint32_t interval = 60;
-        while (true) {
-            _start_tablets_channel_clean();
-            sleep(interval);
-        }
 }
 
 Status TabletWriterMgr::_start_tablets_channel_clean() {
