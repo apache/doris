@@ -52,7 +52,7 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
 
     public KafkaTaskInfo(KafkaTaskInfo kafkaTaskInfo) throws LabelAlreadyUsedException,
             BeginTransactionException, AnalysisException {
-        super(UUID.randomUUID(), kafkaTaskInfo.getJobId(), kafkaTaskInfo.getPreviousBeId());
+        super(UUID.randomUUID(), kafkaTaskInfo.getJobId(), kafkaTaskInfo.getBeId());
         this.partitions = kafkaTaskInfo.getPartitions();
     }
 
@@ -106,10 +106,11 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
 
 
     private TExecPlanFragmentParams updateTExecPlanFragmentParams(RoutineLoadJob routineLoadJob) throws UserException {
-        TExecPlanFragmentParams tExecPlanFragmentParams = routineLoadJob.gettExecPlanFragmentParams();
+        TExecPlanFragmentParams tExecPlanFragmentParams = routineLoadJob.gettExecPlanFragmentParams().deepCopy();
         TPlanFragment tPlanFragment = tExecPlanFragmentParams.getFragment();
         tPlanFragment.getOutput_sink().getOlap_table_sink().setTxn_id(this.txnId);
         TUniqueId queryId = new TUniqueId(id.getMostSignificantBits(), id.getLeastSignificantBits());
+        tPlanFragment.getOutput_sink().getOlap_table_sink().setLoad_id(queryId);
         tExecPlanFragmentParams.getParams().setQuery_id(queryId);
         tExecPlanFragmentParams.getParams().getPer_node_scan_ranges().values().stream()
                 .forEach(entity -> entity.get(0).getScan_range().getBroker_scan_range().getRanges().get(0).setLoad_id(queryId));

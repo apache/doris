@@ -55,13 +55,12 @@ public class RoutineLoadManager {
 
     // Long is beId, integer is the size of tasks in be
     private Map<Long, Integer> beIdToMaxConcurrentTasks;
-//    private Map<Long, Integer> beIdToConcurrentTasks;
 
     // stream load job meta
     private Map<Long, RoutineLoadJob> idToRoutineLoadJob;
     private Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob;
 
-    private Queue<RoutineLoadTaskInfo> needScheduleTasksQueue;
+
 
     private ReentrantReadWriteLock lock;
 
@@ -84,18 +83,8 @@ public class RoutineLoadManager {
     public RoutineLoadManager() {
         idToRoutineLoadJob = Maps.newConcurrentMap();
         dbToNameToRoutineLoadJob = Maps.newConcurrentMap();
-//        beIdToConcurrentTasks = Maps.newHashMap();
         beIdToMaxConcurrentTasks = Maps.newHashMap();
-        needScheduleTasksQueue = Queues.newLinkedBlockingQueue();
         lock = new ReentrantReadWriteLock(true);
-    }
-
-    public Queue<RoutineLoadTaskInfo> getNeedScheduleTasksQueue() {
-        return needScheduleTasksQueue;
-    }
-
-    public void addTasksToNeedScheduleQueue(List<RoutineLoadTaskInfo> routineLoadTaskInfoList) {
-        needScheduleTasksQueue.addAll(routineLoadTaskInfoList);
     }
 
     private void updateBeIdToMaxConcurrentTasks() {
@@ -340,7 +329,7 @@ public class RoutineLoadManager {
     }
 
     public long getMinTaskBeId(String clusterName) throws LoadException {
-        List<Long> beIdsInCluster = Catalog.getCurrentSystemInfo().getClusterBackendIds(clusterName);
+        List<Long> beIdsInCluster = Catalog.getCurrentSystemInfo().getClusterBackendIds(clusterName, true);
         if (beIdsInCluster == null) {
             throw new LoadException("The " + clusterName + " has been deleted");
         }

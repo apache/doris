@@ -26,6 +26,8 @@ import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.LogBuilder;
+import org.apache.doris.common.util.LogKey;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.transaction.BeginTransactionException;
@@ -128,7 +130,6 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 for (int i = 0; i < currentConcurrentTaskNum; i++) {
                     KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo(UUID.randomUUID(), id);
                     routineLoadTaskInfoList.add(kafkaTaskInfo);
-                    needScheduleTaskInfoList.add(kafkaTaskInfo);
                     result.add(kafkaTaskInfo);
                 }
                 if (result.size() != 0) {
@@ -144,7 +145,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 LOG.debug("Ignore to divide routine load job while job state {}", state);
             }
             // save task into queue of needScheduleTasks
-            Catalog.getCurrentCatalog().getRoutineLoadManager().addTasksToNeedScheduleQueue(result);
+            Catalog.getCurrentCatalog().getRoutineLoadTaskScheduler().addTaskInQueue(result);
         } finally {
             writeUnlock();
         }
@@ -174,12 +175,12 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     @Override
     protected RoutineLoadTaskInfo unprotectRenewTask(RoutineLoadTaskInfo routineLoadTaskInfo) throws AnalysisException,
             LabelAlreadyUsedException, BeginTransactionException {
+        // add new task
+        KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo((KafkaTaskInfo) routineLoadTaskInfo);
         // remove old task
         routineLoadTaskInfoList.remove(routineLoadTaskInfo);
         // add new task
-        KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo((KafkaTaskInfo) routineLoadTaskInfo);
         routineLoadTaskInfoList.add(kafkaTaskInfo);
-        needScheduleTaskInfoList.add(kafkaTaskInfo);
         return kafkaTaskInfo;
     }
 
@@ -262,6 +263,10 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         for (Integer kafkaPartition : currentKafkaPartitions) {
             if (!((KafkaProgress) progress).getPartitionIdToOffset().containsKey(kafkaPartition)) {
                 ((KafkaProgress) progress).getPartitionIdToOffset().put(kafkaPartition, 0L);
+                LOG.debug(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
+                                  .add("kafka_partition_id", kafkaPartition)
+                                  .add("begin_offset", 0)
+                                  .add("msg", "The new partition has been added in job"));
             }
         }
     }
