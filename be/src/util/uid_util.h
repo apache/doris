@@ -59,7 +59,7 @@ struct UniqueId {
     std::string to_string() const {
         char buf[33];
         to_hex(hi, buf);
-        buf[16] = ':';
+        buf[16] = '-';
         to_hex(lo, buf + 17);
         return {buf, 33};
     }

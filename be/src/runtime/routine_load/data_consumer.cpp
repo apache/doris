@@ -145,7 +145,7 @@ Status KafkaDataConsumer::start(StreamLoadContext* ctx) {
         << ", batch size: " << left_bytes
         << ". " << ctx->brief();
 
-    // copy one
+// copy one
     std::map<int32_t, int64_t> cmt_offset = ctx->kafka_info->cmt_offset;
     MonotonicStopWatch watch;
     watch.start();
@@ -171,6 +171,7 @@ Status KafkaDataConsumer::start(StreamLoadContext* ctx) {
 
             if (left_bytes == ctx->kafka_info->max_batch_size) {
                 // nothing to be consumed, cancel it
+                // we do not allow finishing stream load pipe without data
                 kakfa_pipe->cancel();
                 _cancelled = true;
                 return Status::CANCELLED;
