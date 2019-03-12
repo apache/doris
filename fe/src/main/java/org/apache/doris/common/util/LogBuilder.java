@@ -44,7 +44,7 @@ public class LogBuilder {
 
     public LogBuilder(LogKey key, UUID identifier) {
         TUniqueId tUniqueId = new TUniqueId(identifier.getMostSignificantBits(), identifier.getLeastSignificantBits());
-        stringBuffer = new StringBuffer().append(key.name()).append("=").append(tUniqueId.toString()).append(", ");
+        stringBuffer = new StringBuffer().append(key.name()).append("=").append(DebugUtil.printId(tUniqueId)).append(", ");
         entries = Lists.newLinkedList();
     }
 
