@@ -58,9 +58,7 @@ public:
 
     virtual RowsetSharedPtr rowset();
 
-    virtual int32_t num_rows();
-
-    virtual int64_t get_filtered_rows();
+    virtual int64_t filtered_rows();
 
 private:
 
@@ -86,10 +84,11 @@ private:
     std::vector<RowCursor*> _row_cursors;
     RowsetSharedPtr _rowset;
     int _key_range_size;
-    int _num_rows_read;
     std::vector<int> _key_range_indices;
     bool _is_cumulative_rowset;
     RowsetReaderContext* _current_read_context;
+    OlapReaderStatistics _owned_stats;
+    OlapReaderStatistics* _stats = &_owned_stats;
 };
 
 } // namespace doris
