@@ -74,8 +74,6 @@ private:
 
     OLAPStatus _get_next_block(size_t pos, RowBlock** row_block);
 
-    OLAPStatus _refresh_next_block(size_t pos, RowBlock** row_block);
-
 private:
     int _num_key_columns;
     int _num_short_key_columns;

@@ -94,15 +94,11 @@ OLAPStatus AlphaRowsetReader::next_block(std::shared_ptr<RowBlock> block) {
     while (block->pos() < _num_rows_per_row_block) {
         RowCursor* row_cursor = nullptr;
         OLAPStatus status = next(&row_cursor);
-        if (status == OLAP_ERR_DATA_EOF) {
-            if (block->pos() > 0) {
-                block->set_pos(0);
-                block->set_limit(num_rows_in_block);
-                block->finalize(num_rows_in_block);
-                return OLAP_SUCCESS;
-            } else {
-                return OLAP_ERR_DATA_EOF;
-            }
+        if (status == OLAP_ERR_DATA_EOF && block->pos() > 0) {
+            break;
+        } else if (status != OLAP_SUCCESS) {
+            LOG(WARNING) << "next block failed.status:" << status;
+            return status;
         }
         block->set_row(block->pos(), *row_cursor);
         block->pos_inc();
@@ -140,44 +136,54 @@ int64_t AlphaRowsetReader::get_filtered_rows() {
 }
 
 OLAPStatus AlphaRowsetReader::_get_next_block(size_t pos, RowBlock** row_block) {
-     // get next block
+    // get next block
     OLAPStatus status = _column_datas[pos]->get_next_block(row_block);
-    if (status != OLAP_SUCCESS) {
-        if (status == OLAP_ERR_DATA_EOF) {
-            // reach the end of one predicate
-            // refresh the predicate and continue read
-            status = _refresh_next_block(pos, row_block);
-            if (status != OLAP_SUCCESS) {
-                *row_block = nullptr;
-                LOG(WARNING) << "refresh next block failed";
+    if (status == OLAP_ERR_DATA_EOF && _key_range_size > 0) {
+        // reach the end of one predicate
+        // currently, SegmentReader can only support filter one key range a time
+        // refresh the predicate and continue read
+        _key_range_indices[pos]++;
+        OLAPStatus status = OLAP_SUCCESS;
+        while (_key_range_indices[pos] < _key_range_size) {
+            status = _column_datas[pos]->prepare_block_read(
+                    _current_read_context->lower_bound_keys->at(_key_range_indices[pos]),
+                    _current_read_context->is_lower_keys_included->at(_key_range_indices[pos]),
+                    _current_read_context->upper_bound_keys->at(_key_range_indices[pos]),
+                    _current_read_context->is_upper_keys_included->at(_key_range_indices[pos]),
+                    row_block);
+            if (status == OLAP_ERR_DATA_EOF) {
+                _key_range_indices[pos]++;
+                continue;
+            } else if (status != OLAP_SUCCESS) {
+                LOG(WARNING) << "prepare block read failed";
                 return status;
+            } else {
+                break;
             }
-            return OLAP_SUCCESS;
-       }
-       return status;
+        }
+        if (_key_range_indices[pos] >= _key_range_size) {
+            *row_block = nullptr;
+            return OLAP_ERR_DATA_EOF;
+        }
+        return OLAP_SUCCESS;
     }
-    return OLAP_SUCCESS;
+    return status;
 }
 
 OLAPStatus AlphaRowsetReader::_get_next_row_for_singleton_rowset(RowCursor** row) {
     RowCursor* min_row = nullptr;
     int min_index = -1;
     for (int i = 0; i < _row_blocks.size(); i++) {
+        if (_row_blocks[i] == nullptr) {
+            continue;
+        }
         RowCursor* current_row = _row_cursors[i];
         if (!_row_blocks[i]->has_remaining()) {
             OLAPStatus status = _get_next_block(i, &_row_blocks[i]);
-            if (status == OLAP_ERR_DATA_EOF) {
-                LOG(WARNING) << "read eof";
-                continue;
-            } else if (status != OLAP_SUCCESS) {
+            if (status != OLAP_SUCCESS) {
                 LOG(WARNING) << "_get_next_block failed, status:" << status;
-                *row = nullptr;
                 return status;
             }
-        }
-        if (_row_blocks[i] == nullptr) {
-            LOG(WARNING) << "_get_next_block return nullptr";
-            continue;
         }
         size_t pos = _row_blocks[i]->pos();
         _row_blocks[i]->get_row(pos, current_row);
@@ -196,22 +202,17 @@ OLAPStatus AlphaRowsetReader::_get_next_row_for_singleton_rowset(RowCursor** row
 
 OLAPStatus AlphaRowsetReader::_get_next_row_for_cumulative_rowset(RowCursor** row) {
     size_t pos = 0;
+    if (_row_blocks[pos] == nullptr) {
+        return OLAP_ERR_DATA_EOF;
+    }
     RowCursor* current_row = _row_cursors[pos];
     OLAPStatus status = OLAP_SUCCESS;
     if (!_row_blocks[pos]->has_remaining()) {
         status = _get_next_block(pos, &_row_blocks[pos]);
-        if (status == OLAP_ERR_DATA_EOF) {
-            LOG(WARNING) << "read eof";
-            return status;
-        } else if (status != OLAP_SUCCESS) {
+        if (status != OLAP_SUCCESS) {
             LOG(WARNING) << "_get_next_block failed, status:" << status;
-            *row = nullptr;
             return status;
         }
-    }
-    if (_row_blocks[pos] == nullptr) {
-        LOG(WARNING) << "_get_next_block return nullptr";
-        return OLAP_ERR_DATA_EOF;
     }
     size_t block_pos = _row_blocks[pos]->pos();
     _row_blocks[pos]->get_row(block_pos, current_row);
@@ -287,7 +288,8 @@ OLAPStatus AlphaRowsetReader::_init_column_datas(RowsetReaderContext* read_conte
             _key_range_indices.push_back(0);
             size_t pos = _key_range_indices.size();
             while (_key_range_indices[pos - 1] < _key_range_size) {
-                status = new_column_data->prepare_block_read(read_context->lower_bound_keys->at(_key_range_indices[pos - 1]),
+                status = new_column_data->prepare_block_read(
+                        read_context->lower_bound_keys->at(_key_range_indices[pos - 1]),
                         read_context->is_lower_keys_included->at(_key_range_indices[pos - 1]),
                         read_context->upper_bound_keys->at(_key_range_indices[pos - 1]),
                         read_context->is_upper_keys_included->at(_key_range_indices[pos - 1]),
@@ -321,41 +323,6 @@ OLAPStatus AlphaRowsetReader::_init_column_datas(RowsetReaderContext* read_conte
         return OLAP_ERR_READER_READING_ERROR;
     }
     return OLAP_SUCCESS;
-}
-
-OLAPStatus AlphaRowsetReader::_refresh_next_block(size_t pos, RowBlock** next_block) {
-    ColumnData* column_data = _column_datas[pos].get();
-    if (_key_range_size > 0) {
-        // currently, SegmentReader can only support filter one key range a time
-        // use the next predicate range to get data from segment here
-        _key_range_indices[pos]++;
-        OLAPStatus status = OLAP_SUCCESS;
-        while (_key_range_indices[pos] < _key_range_size) {
-            OLAPStatus status = column_data->prepare_block_read(_current_read_context->lower_bound_keys->at(_key_range_indices[pos]),
-                    _current_read_context->is_lower_keys_included->at(_key_range_indices[pos]),
-                    _current_read_context->upper_bound_keys->at(_key_range_indices[pos]),
-                    _current_read_context->is_upper_keys_included->at(_key_range_indices[pos]),
-                    next_block);
-            if (status == OLAP_ERR_DATA_EOF) {
-                _key_range_indices[pos]++;
-                continue;
-            } else if (status != OLAP_SUCCESS) {
-                LOG(WARNING) << "prepare block read failed";
-                return status;
-            } else {
-                break;
-            }
-        }
-        if (_key_range_indices[pos] >= _key_range_size && status == OLAP_ERR_DATA_EOF) {
-            *next_block = nullptr;
-            return OLAP_ERR_DATA_EOF;
-        }
-        return OLAP_SUCCESS;
-    } else {
-        // no condition read/schema change/compaction
-        *next_block = nullptr;
-        return OLAP_ERR_DATA_EOF;
-    }
 }
 
 RowsetSharedPtr AlphaRowsetReader::rowset() {
