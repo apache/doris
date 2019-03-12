@@ -371,9 +371,6 @@ import org.apache.doris.qe.ConnectContext;
   }
 
   private static String escapeBackSlash(String str) {
-      if (ConnectContext.get().getSessionVariable().getSqlMode().equalsIgnoreCase("NO_BACKSLASH_ESCAPES")) {
-          return str;
-      }
       StringWriter writer = new StringWriter();
       int strLen = str.length();
       for (int i = 0; i < strLen; ++i) {
