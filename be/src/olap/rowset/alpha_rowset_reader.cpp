@@ -27,8 +27,7 @@ AlphaRowsetReader::AlphaRowsetReader(
         _alpha_rowset_meta(nullptr),
         _segment_groups(segment_groups),
         _rowset(rowset),
-        _key_range_size(0),
-        _num_rows_read(0) {
+        _key_range_size(0) {
     _alpha_rowset_meta = reinterpret_cast<AlphaRowsetMeta*>(rowset_meta);
     Version version = _alpha_rowset_meta->version();
     if (version.first == version.second) {
@@ -49,6 +48,9 @@ OLAPStatus AlphaRowsetReader::init(RowsetReaderContext* read_context) {
         return OLAP_ERR_INIT_FAILED;
     }
     _current_read_context = read_context;
+    if (_current_read_context->stats != nullptr) {
+        _stats = _current_read_context->stats;
+    }
     OLAPStatus status = _init_column_datas(read_context);
     return status;
 }
@@ -102,7 +104,6 @@ OLAPStatus AlphaRowsetReader::next_block(std::shared_ptr<RowBlock> block) {
         }
         block->set_row(block->pos(), *row_cursor);
         block->pos_inc();
-        _num_rows_read++;
         num_rows_in_block++;
     }
     block->set_pos(0);
@@ -127,12 +128,8 @@ void AlphaRowsetReader::close() {
     _column_datas.clear();
 }
 
-int32_t AlphaRowsetReader::num_rows() {
-    return _num_rows_read;
-}
-
-int64_t AlphaRowsetReader::get_filtered_rows() {
-    return _current_read_context->stats->rows_del_filtered;
+int64_t AlphaRowsetReader::filtered_rows() {
+    return _stats->rows_del_filtered;
 }
 
 OLAPStatus AlphaRowsetReader::_get_next_block(size_t pos, RowBlock** row_block) {
@@ -241,7 +238,7 @@ OLAPStatus AlphaRowsetReader::_init_column_datas(RowsetReaderContext* read_conte
             return OLAP_ERR_READER_READING_ERROR;
         }
         new_column_data->set_delete_handler(read_context->delete_handler);
-        new_column_data->set_stats(read_context->stats);
+        new_column_data->set_stats(_stats);
         new_column_data->set_lru_cache(read_context->lru_cache);
         if (read_context->reader_type == READER_ALTER_TABLE) {
             new_column_data->schema_change_init();
