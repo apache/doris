@@ -24,6 +24,7 @@ import org.apache.doris.thrift.TUniqueId;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.text.DecimalFormat;
+import java.util.UUID;
 
 public class DebugUtil {
     public static final DecimalFormat DECIMAL_FORMAT_SCALE_3 = new DecimalFormat("#.000");
@@ -120,13 +121,20 @@ public class DebugUtil {
 
     public static String printId(final TUniqueId id) {
         StringBuilder builder = new StringBuilder();
-        builder.append(Long.toHexString(id.hi)).append(":").append(Long.toHexString(id.lo));
+        builder.append(Long.toHexString(id.hi)).append("-").append(Long.toHexString(id.lo));
+        return builder.toString();
+    }
+
+    public static String printId(final UUID id) {
+        TUniqueId tUniqueId = new TUniqueId(id.getMostSignificantBits(), id.getLeastSignificantBits());
+        StringBuilder builder = new StringBuilder();
+        builder.append(Long.toHexString(tUniqueId.hi)).append("-").append(Long.toHexString(tUniqueId.lo));
         return builder.toString();
     }
 
     public static String printId(final PUniqueId id) {
         StringBuilder builder = new StringBuilder();
-        builder.append(Long.toHexString(id.hi)).append(":").append(Long.toHexString(id.lo));
+        builder.append(Long.toHexString(id.hi)).append("-").append(Long.toHexString(id.lo));
         return builder.toString();
     }
     
