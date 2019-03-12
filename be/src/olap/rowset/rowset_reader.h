@@ -58,9 +58,7 @@ public:
     // close reader
     virtual void close() = 0;
 
-    virtual int32_t num_rows() = 0;
-
-    virtual int64_t get_filtered_rows() = 0;
+    virtual int64_t filtered_rows() = 0;
 };
 
 } // namespace doris

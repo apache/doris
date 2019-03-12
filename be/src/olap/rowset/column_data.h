@@ -168,8 +168,7 @@ private:
     const DeleteHandler*_delete_handler = nullptr;
     DelCondSatisfied _delete_status;
     RuntimeState* _runtime_state;
-    OlapReaderStatistics _owned_stats;
-    OlapReaderStatistics* _stats = &_owned_stats;
+    OlapReaderStatistics* _stats;
 
     Tablet* _tablet;
     // whether in normal read, use return columns to load block
