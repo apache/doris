@@ -17,6 +17,7 @@
 
 package org.apache.doris.load.routineload;
 
+import com.google.common.base.Joiner;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
@@ -26,6 +27,7 @@ import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.load.RoutineLoadDesc;
@@ -34,6 +36,7 @@ import org.apache.doris.transaction.BeginTransactionException;
 
 import com.google.common.annotations.VisibleForTesting;
 
+import org.apache.doris.transaction.TransactionState;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.PartitionInfo;
 import org.apache.logging.log4j.LogManager;
@@ -167,6 +170,20 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     }
 
     @Override
+    boolean checkCommitInfo(RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment) {
+        if (rlTaskTxnCommitAttachment.getLoadedRows() > 0
+                && ((KafkaProgress) rlTaskTxnCommitAttachment.getProgress()).getPartitionIdToOffset().size() == 0) {
+            LOG.warn(new LogBuilder(LogKey.ROUINTE_LOAD_TASK, DebugUtil.printId(rlTaskTxnCommitAttachment.getTaskId()))
+                             .add("job_id", id)
+                             .add("loaded_rows", rlTaskTxnCommitAttachment.getLoadedRows())
+                             .add("progress_partition_offset_size", 0)
+                             .add("msg", "commit attachment info is incorrect"));
+            return false;
+        }
+        return true;
+    }
+
+    @Override
     protected void updateProgress(RLTaskTxnCommitAttachment attachment) {
         super.updateProgress(attachment);
         this.progress.update(attachment.getProgress());
@@ -185,7 +202,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     }
 
     @Override
-    protected void executeUpdate() {
+    protected void unprotectUpdateProgress() {
         updateNewPartitionProgress();
     }
 
@@ -195,30 +212,47 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     // update current kafka partition at the same time
     // current kafka partitions = customKafkaPartitions == 0 ? all of partition of kafka topic : customKafkaPartitions
     @Override
-    protected boolean needReschedule() {
-        if (customKafkaPartitions != null && customKafkaPartitions.size() != 0) {
-            currentKafkaPartitions = customKafkaPartitions;
-            return false;
-        } else {
-            List<Integer> newCurrentKafkaPartition;
-            try {
-                newCurrentKafkaPartition = getAllKafkaPartitions();
-            } catch (Exception e) {
-                LOG.warn("Job {} failed to fetch all current partition", id);
+    protected boolean unprotectNeedReschedule() {
+        // only running and need_schedule job need to be changed current kafka partitions
+        if (this.state == JobState.RUNNING || this.state == JobState.NEED_SCHEDULE) {
+            if (customKafkaPartitions != null && customKafkaPartitions.size() != 0) {
+                currentKafkaPartitions = customKafkaPartitions;
                 return false;
-            }
-            if (currentKafkaPartitions.containsAll(newCurrentKafkaPartition)) {
-                if (currentKafkaPartitions.size() > newCurrentKafkaPartition.size()) {
-                    currentKafkaPartitions = newCurrentKafkaPartition;
-                    return true;
-                } else {
+            } else {
+                List<Integer> newCurrentKafkaPartition;
+                try {
+                    newCurrentKafkaPartition = getAllKafkaPartitions();
+                } catch (Exception e) {
+                    LOG.warn("Job {} failed to fetch all current partition", id);
                     return false;
                 }
-            } else {
-                currentKafkaPartitions = newCurrentKafkaPartition;
-                return true;
-            }
+                if (currentKafkaPartitions.containsAll(newCurrentKafkaPartition)) {
+                    if (currentKafkaPartitions.size() > newCurrentKafkaPartition.size()) {
+                        currentKafkaPartitions = newCurrentKafkaPartition;
+                        LOG.debug(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
+                                          .add("current_kafka_partitions", Joiner.on(",").join(currentKafkaPartitions))
+                                          .add("msg", "current kafka partitions has been change")
+                                          .build());
+                        return true;
+                    } else {
+                        return false;
+                    }
+                } else {
+                    currentKafkaPartitions = newCurrentKafkaPartition;
+                    LOG.debug(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
+                                      .add("current_kafka_partitions", Joiner.on(",").join(currentKafkaPartitions))
+                                      .add("msg", "current kafka partitions has been change")
+                                      .build());
+                    return true;
+                }
 
+            }
+        } else {
+            LOG.debug(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
+                              .add("job_state", state)
+                              .add("msg", "ignore this turn of checking changed partition when job state is not running")
+                              .build());
+            return false;
         }
     }
 

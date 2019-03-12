@@ -58,6 +58,9 @@ Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx) {
                 if ((0.0 + ctx->number_filtered_rows) / num_total_rows > ctx->max_filter_ratio) {
                     status = Status("too many filtered rows");
                 }
+                else if(ctx->number_loaded_rows==0){
+                    status = Status("all partitions have no load data");
+                }
                 if (ctx->number_filtered_rows > 0 &&
                     !executor->runtime_state()->get_error_log_file_path().empty()) {
 
