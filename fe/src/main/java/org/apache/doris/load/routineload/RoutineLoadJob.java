@@ -30,6 +30,7 @@ import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.load.RoutineLoadDesc;
@@ -57,7 +58,6 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -433,7 +433,7 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
                 break;
             case STOPPED:
             case CANCELLED:
-                throw new UnsupportedOperationException("Could not transfrom " + state + " to " + desireState);
+                throw new UnsupportedOperationException("Could not transform " + state + " to " + desireState);
             default:
                 break;
         }
@@ -456,7 +456,7 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
                                  .add("msg", "current error num is more then max error num, begin to pause job")
                                  .build());
                 // remove all of task in jobs and change job state to paused
-                executePause("current error num of job is more then max error num");
+                updateState(JobState.PAUSED, "current error num of job is more then max error num");
             }
 
             LOG.debug(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
@@ -476,7 +476,7 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
                              .add("msg", "current error num is more then max error num, begin to pause job")
                              .build());
             // remove all of task in jobs and change job state to paused
-            executePause("current error num is more then max error num");
+            updateState(JobState.PAUSED, "current error num is more then max error num");
             // reset currentTotalNum and currentErrorNum
             currentErrorNum = 0;
             currentTotalNum = 0;
@@ -513,7 +513,7 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
         readLock();
         try {
             String taskId = txnState.getLabel();
-            if (routineLoadTaskInfoList.parallelStream().anyMatch(entity -> entity.getId().toString().equals(taskId))) {
+            if (routineLoadTaskInfoList.parallelStream().anyMatch(entity -> DebugUtil.printId(entity.getId()).equals(taskId))) {
                 LOG.debug(new LogBuilder(LogKey.ROUINTE_LOAD_TASK, txnState.getLabel())
                                   .add("txn_id", txnState.getTransactionId())
                                   .add("msg", "task will be aborted")
@@ -531,7 +531,7 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
             // check if task has been aborted
             Optional<RoutineLoadTaskInfo> routineLoadTaskInfoOptional =
                     routineLoadTaskInfoList.parallelStream()
-                            .filter(entity -> entity.getId().toString().equals(txnState.getLabel())).findFirst();
+                            .filter(entity -> DebugUtil.printId(entity.getId()).equals(txnState.getLabel())).findFirst();
             if (!routineLoadTaskInfoOptional.isPresent()) {
                 throw new TransactionException("txn " + txnState.getTransactionId() + " could not be committed"
                                                        + " while task " + txnState.getLabel() + "has been aborted ");
@@ -541,6 +541,7 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
         }
     }
 
+    // the task is committed when the correct number of rows is more then 0
     @Override
     public void onCommitted(TransactionState txnState) throws TransactionException {
         writeLock();
@@ -548,7 +549,7 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
             // step0: find task in job
             Optional<RoutineLoadTaskInfo> routineLoadTaskInfoOptional =
                     routineLoadTaskInfoList.parallelStream()
-                            .filter(entity -> entity.getId().toString().equals(txnState.getLabel())).findFirst();
+                            .filter(entity -> DebugUtil.printId(entity.getId()).equals(txnState.getLabel())).findFirst();
             if (routineLoadTaskInfoOptional.isPresent()) {
                 executeCommitTask(routineLoadTaskInfoOptional.get(), txnState);
             } else {
@@ -572,27 +573,28 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
         }
     }
 
+    // the task is aborted when the correct number of rows is more then 0
+    // be will abort txn when all of kafka data is wrong or total consume data is 0
     // txn will be aborted but progress will be update
-    // be will abort txn when all of kafka data is wrong
     // progress will be update otherwise the progress will be hung
     @Override
     public void onAborted(TransactionState txnState, String txnStatusChangeReason) {
         if (txnStatusChangeReason != null) {
             LOG.debug(new LogBuilder(LogKey.ROUINTE_LOAD_TASK, txnState.getLabel())
                               .add("txn_id", txnState.getTransactionId())
-                              .add("msg", "task will be reschedule when txn abort with reason " + txnStatusChangeReason)
+                              .add("msg", "txn abort with reason " + txnStatusChangeReason)
                               .build());
         } else {
             LOG.debug(new LogBuilder(LogKey.ROUINTE_LOAD_TASK, txnState.getLabel())
                               .add("txn_id", txnState.getTransactionId())
-                              .add("msg", "task will be reschedule when txn abort").build());
+                              .add("msg", "txn abort").build());
         }
         writeLock();
         try {
             // step0: find task in job
             Optional<RoutineLoadTaskInfo> routineLoadTaskInfoOptional =
                     routineLoadTaskInfoList.parallelStream()
-                            .filter(entity -> entity.getId().toString().equals(txnState.getLabel())).findFirst();
+                            .filter(entity -> DebugUtil.printId(entity.getId()).equals(txnState.getLabel())).findFirst();
             if (routineLoadTaskInfoOptional.isPresent()) {
                 // todo(ml): use previous be id depend on change reason
                 executeCommitTask(routineLoadTaskInfoOptional.get(), txnState);
@@ -625,8 +627,8 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
                               .add("msg", "commit task will be ignore when attachment txn of task is null,"
                                       + " maybe task was committed by master when timeout")
                               .build());
-        } else {
-            // step1: update job progress
+        } else if (checkCommitInfo(rlTaskTxnCommitAttachment)) {
+            // step2: update job progress
             updateProgress(rlTaskTxnCommitAttachment);
         }
 
@@ -636,6 +638,9 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
             Catalog.getCurrentCatalog().getRoutineLoadTaskScheduler().addTaskInQueue(newRoutineLoadTaskInfo);
         }
     }
+
+    // check the correctness of commit info
+    abstract boolean checkCommitInfo(RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment);
 
     protected static void unprotectCheckCreate(CreateRoutineLoadStmt stmt) throws AnalysisException {
         // check table belong to db, partitions belong to table
@@ -762,19 +767,24 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
         }
 
         // check if partition has been changed
-        if (needReschedule()) {
-            LOG.debug(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
-                              .add("msg", "Job need to be rescheduled")
-                              .build());
-            executeUpdate();
-            updateState(JobState.NEED_SCHEDULE);
+        writeLock();
+        try {
+            if (unprotectNeedReschedule()) {
+                LOG.debug(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
+                                  .add("msg", "Job need to be rescheduled")
+                                  .build());
+                unprotectUpdateProgress();
+                executeNeedSchedule();
+            }
+        } finally {
+            writeUnlock();
         }
     }
 
-    protected void executeUpdate() {
+    protected void unprotectUpdateProgress() {
     }
 
-    protected boolean needReschedule() {
+    protected boolean unprotectNeedReschedule() {
         return false;
     }
 }
