@@ -196,9 +196,8 @@ RowsetSharedPtr AlphaRowsetWriter::build() {
     } else {
         _current_rowset_meta->set_rowset_state(VISIBLE);
     }
-    if (_num_rows_written == 0) {
-        _current_rowset_meta->set_empty(true);
-    }
+
+    _current_rowset_meta->set_empty(_num_rows_written == 0);
     _current_rowset_meta->set_num_rows(_num_rows_written);
     _current_rowset_meta->set_creation_time(time(NULL));
 
@@ -246,7 +245,6 @@ OLAPStatus AlphaRowsetWriter::garbage_collection() {
 }
 
 void AlphaRowsetWriter::_init() {
-    _segment_group_id++;
     if (_is_pending_rowset) {
         _cur_segment_group.reset(new SegmentGroup(
                 _rowset_writer_context.tablet_id,
@@ -274,6 +272,7 @@ void AlphaRowsetWriter::_init() {
                                                    _rowset_writer_context.tablet_schema->compress_kind(),
                                                    _rowset_writer_context.tablet_schema->bloom_filter_fpp());
     DCHECK(_column_data_writer != nullptr) << "memory error occurs when creating writer";
+    _segment_group_id++;
 }
 
 } // namespace doris
