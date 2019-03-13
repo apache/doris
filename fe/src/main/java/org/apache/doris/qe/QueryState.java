@@ -49,6 +49,7 @@ public class QueryState {
 
     public void reset() {
         stateType = MysqlStateType.OK;
+        errorCode = null;
         infoMessage = null;
     }
 
