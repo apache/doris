@@ -40,7 +40,7 @@ class RowBlock;
 class RowCursor;
 
 struct ColumnMapping {
-    ColumnMapping() : ref_column(-1), default_value(NULL) {}
+    ColumnMapping() : ref_column(-1), default_value(nullptr) {}
     virtual ~ColumnMapping() {}
 
     // <0: use default value
