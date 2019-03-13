@@ -17,10 +17,10 @@
 
 package org.apache.doris.transaction;
 
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.load.TxnStateChangeListener;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.task.PublishVersionTask;
 
@@ -133,9 +133,10 @@ public class TransactionState implements Writable {
     private long publishVersionTime;
     private TransactionStatus preStatus = null;
     
+    private long listenerId;
+
     // optional
     private TxnCommitAttachment txnCommitAttachment;
-    private TxnStateChangeListener txnStateChangeListener;
     
     public TransactionState() {
         this.dbId = -1;
@@ -177,11 +178,9 @@ public class TransactionState implements Writable {
     }
     
     public TransactionState(long dbId, long transactionId, String label, long timestamp,
-            LoadJobSourceType sourceType, String coordinator,  TxnStateChangeListener txnStateChangeListener) {
+            LoadJobSourceType sourceType, String coordinator, long listenerId) {
         this(dbId, transactionId, label, timestamp, sourceType, coordinator);
-        if (txnStateChangeListener != null) {
-            this.txnStateChangeListener = txnStateChangeListener;
-        }
+        this.listenerId = listenerId;
     }
     
     public void setErrorReplicas(Set<Long> newErrorReplicas) {
@@ -221,68 +220,6 @@ public class TransactionState implements Writable {
         return timestamp;
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        out.writeLong(transactionId);
-        Text.writeString(out, label);
-        out.writeLong(dbId);
-        out.writeInt(idToTableCommitInfos.size());
-        for (TableCommitInfo info : idToTableCommitInfos.values()) {
-            info.write(out);
-        }
-        Text.writeString(out, coordinator);
-        out.writeInt(transactionStatus.value());
-        out.writeInt(sourceType.value());
-        out.writeLong(prepareTime);
-        out.writeLong(commitTime);
-        out.writeLong(finishTime);
-        Text.writeString(out, reason);
-        out.writeInt(errorReplicas.size());
-        for (long errorReplciaId : errorReplicas) {
-            out.writeLong(errorReplciaId);
-        }
-        // TODO(ml): persistent will be enable after all of routine load work finished.
-//        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_46) {
-//            if (txnCommitAttachment == null) {
-//                out.writeBoolean(false);
-//            } else {
-//                out.writeBoolean(true);
-//                txnCommitAttachment.write(out);
-//            }
-//        }
-    }
-    
-    @Override
-    public void readFields(DataInput in) throws IOException {
-        transactionId = in.readLong();
-        label = Text.readString(in);
-        dbId = in.readLong();
-        int size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            TableCommitInfo info = new TableCommitInfo();
-            info.readFields(in);
-            idToTableCommitInfos.put(info.getTableId(), info);
-        }
-        coordinator = Text.readString(in);
-        transactionStatus = TransactionStatus.valueOf(in.readInt());
-        sourceType = LoadJobSourceType.valueOf(in.readInt());
-        prepareTime = in.readLong();
-        commitTime = in.readLong();
-        finishTime = in.readLong();
-        reason = Text.readString(in);
-        int errorReplicaNum = in.readInt();
-        for (int i = 0; i < errorReplicaNum; ++i) {
-            errorReplicas.add(in.readLong());
-        }
-        // TODO(ml): persistent will be enable after all of routine load work finished.
-//        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_46) {
-//            if (in.readBoolean()) {
-//                txnCommitAttachment = TransactionStateExtra.readTxnCommitAttachment(in, sourceType);
-//            }
-//        }
-        
-        // TODO(ml): reload txnStateChangeListener by txnCommitAttachment
-    }
     
     public long getTransactionId() {
         return transactionId;
@@ -320,49 +257,57 @@ public class TransactionState implements Writable {
         return this.preStatus;
     }
     
-    
     public TxnCommitAttachment getTxnCommitAttachment() {
         return txnCommitAttachment;
     }
     
-    public void setTransactionStatus(TransactionStatus transactionStatus) throws TransactionException {
-        setTransactionStatus(transactionStatus, null);
+    public void setTransactionStatus(TransactionStatus transactionStatus, boolean isReplay)
+            throws TransactionException {
+        setTransactionStatus(transactionStatus, null, isReplay);
     }
     
-    public void setTransactionStatus(TransactionStatus transactionStatus, String txnStatusChangeReason)
-            throws TransactionException {
+    public void setTransactionStatus(TransactionStatus transactionStatus, String txnStatusChangeReason,
+            boolean isReplay) throws TransactionException {
         // before state changed
-        if (txnStateChangeListener != null) {
-            switch (transactionStatus) {
-                case ABORTED:
-                    txnStateChangeListener.beforeAborted(this, txnStatusChangeReason);
-                    break;
-                case COMMITTED:
-                    txnStateChangeListener.beforeCommitted(this);
-                default:
-                    break;
+        TxnStateChangeListener listener = Catalog.getCurrentGlobalTransactionMgr().getListenerRegistry().getListener(listenerId);
+        if (!isReplay) {
+            if (listener != null) {
+                switch (transactionStatus) {
+                    case ABORTED:
+                        listener.beforeAborted(this, txnStatusChangeReason);
+                        break;
+                    case COMMITTED:
+                        listener.beforeCommitted(this);
+                    default:
+                        break;
+                }
             }
         }
         
-        // state changed
-        this.preStatus = this.transactionStatus;
-        this.transactionStatus = transactionStatus;
+        // if is replay, the status is already be set
+        if (!isReplay) {
+            // state changed
+            this.preStatus = this.transactionStatus;
+            this.transactionStatus = transactionStatus;
+        }
         
         // after state changed
         if (transactionStatus == TransactionStatus.VISIBLE) {
-            this.latch.countDown();
-            if (MetricRepo.isInit.get()) {
-                MetricRepo.COUNTER_TXN_SUCCESS.increase(1L);
+            if (!isReplay) {
+                this.latch.countDown();
+                if (MetricRepo.isInit.get()) {
+                    MetricRepo.COUNTER_TXN_SUCCESS.increase(1L);
+                }
             }
         } else if (transactionStatus == TransactionStatus.ABORTED) {
             if (MetricRepo.isInit.get()) {
                 MetricRepo.COUNTER_TXN_FAILED.increase(1L);
             }
-            if (txnStateChangeListener != null) {
-                txnStateChangeListener.onAborted(this, txnStatusChangeReason);
+            if (listener != null) {
+                listener.onAborted(this, txnStatusChangeReason, isReplay);
             }
-        } else if (transactionStatus == TransactionStatus.COMMITTED && txnStateChangeListener != null) {
-            txnStateChangeListener.onCommitted(this);
+        } else if (transactionStatus == TransactionStatus.COMMITTED && listener != null) {
+            listener.onCommitted(this, isReplay);
         }
     }
     
@@ -450,8 +395,66 @@ public class TransactionState implements Writable {
         return System.currentTimeMillis() - publishVersionTime > timeoutMillis;
     }
     
-    public TxnStateChangeListener getTxnStateChangeListener() {
-        return txnStateChangeListener;
+    @Override
+    public void write(DataOutput out) throws IOException {
+        out.writeLong(transactionId);
+        Text.writeString(out, label);
+        out.writeLong(dbId);
+        out.writeInt(idToTableCommitInfos.size());
+        for (TableCommitInfo info : idToTableCommitInfos.values()) {
+            info.write(out);
+        }
+        Text.writeString(out, coordinator);
+        out.writeInt(transactionStatus.value());
+        out.writeInt(sourceType.value());
+        out.writeLong(prepareTime);
+        out.writeLong(commitTime);
+        out.writeLong(finishTime);
+        Text.writeString(out, reason);
+        out.writeInt(errorReplicas.size());
+        for (long errorReplciaId : errorReplicas) {
+            out.writeLong(errorReplciaId);
+        }
+        // TODO(ml): persistent will be enable after all of routine load work finished.
+//        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_46) {
+//            if (txnCommitAttachment == null) {
+//                out.writeBoolean(false);
+//            } else {
+//                out.writeBoolean(true);
+//                txnCommitAttachment.write(out);
+//            }
+//        }
     }
     
+    @Override
+    public void readFields(DataInput in) throws IOException {
+        transactionId = in.readLong();
+        label = Text.readString(in);
+        dbId = in.readLong();
+        int size = in.readInt();
+        for (int i = 0; i < size; i++) {
+            TableCommitInfo info = new TableCommitInfo();
+            info.readFields(in);
+            idToTableCommitInfos.put(info.getTableId(), info);
+        }
+        coordinator = Text.readString(in);
+        transactionStatus = TransactionStatus.valueOf(in.readInt());
+        sourceType = LoadJobSourceType.valueOf(in.readInt());
+        prepareTime = in.readLong();
+        commitTime = in.readLong();
+        finishTime = in.readLong();
+        reason = Text.readString(in);
+        int errorReplicaNum = in.readInt();
+        for (int i = 0; i < errorReplicaNum; ++i) {
+            errorReplicas.add(in.readLong());
+        }
+        // TODO(ml): persistent will be enable after all of routine load work finished.
+//        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_46) {
+//            if (in.readBoolean()) {
+//                txnCommitAttachment = TransactionStateExtra.readTxnCommitAttachment(in, sourceType);
+//            }
+//        }
+        
+        // TODO(ml): reload txnStateChangeListener by txnCommitAttachment
+    }
 }

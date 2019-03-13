@@ -133,9 +133,9 @@ Status KafkaDataConsumer::start(StreamLoadContext* ctx) {
         }
     }
     
-    int64_t left_time = ctx->kafka_info->max_interval_s;
-    int64_t left_rows = ctx->kafka_info->max_batch_rows;
-    int64_t left_bytes = ctx->kafka_info->max_batch_size;
+    int64_t left_time = ctx->max_interval_s;
+    int64_t left_rows = ctx->max_batch_rows;
+    int64_t left_bytes = ctx->max_batch_size;
 
     std::shared_ptr<KafkaConsumerPipe> kakfa_pipe = std::static_pointer_cast<KafkaConsumerPipe>(ctx->body_sink);
 
@@ -145,7 +145,7 @@ Status KafkaDataConsumer::start(StreamLoadContext* ctx) {
         << ", batch size: " << left_bytes
         << ". " << ctx->brief();
 
-// copy one
+    // copy one
     std::map<int32_t, int64_t> cmt_offset = ctx->kafka_info->cmt_offset;
     MonotonicStopWatch watch;
     watch.start();
@@ -169,15 +169,15 @@ Status KafkaDataConsumer::start(StreamLoadContext* ctx) {
                     << ", left rows=" << left_rows
                     << ", left bytes=" << left_bytes; 
 
-            if (left_bytes == ctx->kafka_info->max_batch_size) {
+            if (left_bytes == ctx->max_batch_size) {
                 // nothing to be consumed, cancel it
                 // we do not allow finishing stream load pipe without data
                 kakfa_pipe->cancel();
                 _cancelled = true;
                 return Status::CANCELLED;
             } else {
-                DCHECK(left_bytes < ctx->kafka_info->max_batch_size);
-                DCHECK(left_rows < ctx->kafka_info->max_batch_rows);
+                DCHECK(left_bytes < ctx->max_batch_size);
+                DCHECK(left_rows < ctx->max_batch_rows);
                 kakfa_pipe->finish();
                 ctx->kafka_info->cmt_offset = std::move(cmt_offset); 
                 _finished = true;
@@ -223,7 +223,7 @@ Status KafkaDataConsumer::start(StreamLoadContext* ctx) {
             return st;
         }
 
-        left_time = ctx->kafka_info->max_interval_s - watch.elapsed_time() / 1000 / 1000 / 1000; 
+        left_time = ctx->max_interval_s - watch.elapsed_time() / 1000 / 1000 / 1000; 
     }
 
     return Status::OK;
