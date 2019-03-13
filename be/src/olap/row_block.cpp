@@ -311,6 +311,8 @@ OLAPStatus RowBlock::find_row(const RowCursor& key,
 void RowBlock::clear() {
     _info.row_num = _capacity;
     _info.checksum = 0;
+    _pos = 0;
+    _limit = 0;
     _mem_pool->clear();
 }
 
