@@ -111,8 +111,8 @@ OLAPStatus OlapSnapshotConverter::to_tablet_meta_pb(const OLAPHeaderMessage& ola
         convert_to_rowset_meta(pending_delta, next_id, olap_header.tablet_id(), olap_header.schema_hash(), &rowset_meta);
         pending_rowsets->emplace_back(std::move(rowset_meta));
     }
-    AlterTabletPB* alter_tablet_pb = tablet_meta_pb->mutable_alter_tablet_task();
     if (olap_header.has_schema_change_status()) {
+        AlterTabletPB* alter_tablet_pb = tablet_meta_pb->mutable_alter_tablet_task();
         to_alter_tablet_pb(olap_header.schema_change_status(), alter_tablet_pb);
     }
     tablet_meta_pb->set_in_restore_mode(olap_header.in_restore_mode());
@@ -286,6 +286,7 @@ OLAPStatus OlapSnapshotConverter::to_column_msg(const ColumnPB& column_pb, Colum
     column_msg->set_is_allow_null(column_pb.is_nullable());
     column_msg->set_unique_id(column_pb.unique_id());
     column_msg->set_is_bf_column(column_pb.is_bf_column());
+    column_msg->set_is_root_column(true);
     return OLAP_SUCCESS;
 }
 
