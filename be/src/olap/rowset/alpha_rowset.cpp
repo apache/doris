@@ -46,13 +46,18 @@ AlphaRowset::AlphaRowset(const TabletSchema* schema,
 }
 
 OLAPStatus AlphaRowset::init() {
-    DCHECK(!is_inited());
+    if (is_inited()) {
+        return OLAP_SUCCESS;
+    }
     OLAPStatus status = _init_segment_groups();
     set_inited(true);
     return status;
 }
 
 OLAPStatus AlphaRowset::load() {
+    if (is_loaded()) {
+        return OLAP_SUCCESS;
+    }
     for (auto& segment_group: _segment_groups) {
         // validate segment group
         if (segment_group->validate() != OLAP_SUCCESS) {
@@ -521,6 +526,32 @@ std::shared_ptr<SegmentGroup> AlphaRowset::_segment_group_with_largest_size() {
         }
     }
     return largest_segment_group;
+}
+
+OLAPStatus AlphaRowset::reset_sizeinfo() {
+    if (!is_loaded()) {
+        RETURN_NOT_OK(load());
+    }
+    // std::vector<PendingSegmentGroupPB> pending_segment_group_metas;
+    AlphaRowsetMetaSharedPtr alpha_rowset_meta = std::dynamic_pointer_cast<AlphaRowsetMeta>(_rowset_meta);
+    // alpha_rowset_meta->get_pending_segment_groups(&pending_segment_group_metas);
+    int32_t segment_group_idx = 0;
+    for (auto segment_group : _segment_groups) {
+        alpha_rowset_meta->set_data_disk_size(alpha_rowset_meta->data_disk_size() + segment_group->data_size());
+        alpha_rowset_meta->set_index_disk_size(alpha_rowset_meta->index_disk_size() + segment_group->index_size());
+        alpha_rowset_meta->set_total_disk_size(alpha_rowset_meta->total_disk_size()
+                + segment_group->index_size() + segment_group->data_size());
+        alpha_rowset_meta->set_num_rows(alpha_rowset_meta->num_rows() + segment_group->num_rows());
+        // pending_segment_group_metas.at(segment_group_idx).set_index_size(segment_group->index_size());
+        // pending_segment_group_metas.at(segment_group_idx).set_data_size(segment_group->data_size());
+        // pending_segment_group_metas.at(segment_group_idx).set_num_rows(segment_group->num_rows());
+        ++segment_group_idx;
+    }
+    // alpha_rowset_meta->clear_pending_segment_group();
+    // for (auto& pending_segment_group_meta : pending_segment_group_metas) {
+    //     alpha_rowset_meta->add_pending_segment_group(pending_segment_group_meta);
+    // }
+    return OLAP_SUCCESS;
 }
 
 }  // namespace doris

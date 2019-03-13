@@ -163,11 +163,11 @@ public:
         _rowset_meta_pb.set_version_hash(version_hash);
     }
 
-    int num_rows() {
+    int64_t num_rows() {
         return _rowset_meta_pb.num_rows();
     }
 
-    void set_num_rows(int num_rows) {
+    void set_num_rows(int64_t num_rows) {
         _rowset_meta_pb.set_num_rows(num_rows);
     }
 
