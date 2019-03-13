@@ -645,18 +645,21 @@ SchemaChangeDirectly::SchemaChangeDirectly(
         _tablet(tablet),
         _row_block_changer(row_block_changer),
         _row_block_allocator(NULL),
-        _src_cursor(NULL) {}
+        _src_cursor(NULL),
+        _dst_cursor(NULL) { }
 
 SchemaChangeDirectly::~SchemaChangeDirectly() {
     VLOG(3) << "~SchemaChangeDirectly()";
     SAFE_DELETE(_row_block_allocator);
     SAFE_DELETE(_src_cursor);
+    SAFE_DELETE(_dst_cursor);
 }
 
 bool SchemaChangeDirectly::_write_row_block(RowsetWriterSharedPtr rowset_writer, RowBlock* row_block) {
     for (uint32_t i = 0; i < row_block->row_block_info().row_num; i++) {
         row_block->get_row(i, _src_cursor);
-        if (OLAP_SUCCESS != rowset_writer->add_row(_src_cursor)) {
+        _dst_cursor->copy(*_src_cursor, rowset_writer->mem_pool());
+        if (OLAP_SUCCESS != rowset_writer->add_row(_dst_cursor)) {
             LOG(WARNING) << "fail to attach writer";
             return false;
         }
@@ -684,6 +687,19 @@ bool SchemaChangeDirectly::process(RowsetReaderSharedPtr rowset_reader, RowsetWr
         }
 
         if (OLAP_SUCCESS != _src_cursor->init(_tablet->tablet_schema())) {
+            LOG(WARNING) << "fail to init row cursor.";
+            return false;
+        }
+    }
+
+    if (NULL == _dst_cursor) {
+        _dst_cursor = new(nothrow) RowCursor();
+        if (NULL == _dst_cursor) {
+            LOG(WARNING) << "fail to allocate row cursor.";
+            return false;
+        }
+
+        if (OLAP_SUCCESS != _dst_cursor->init(_tablet->tablet_schema())) {
             LOG(WARNING) << "fail to init row cursor.";
             return false;
         }
