@@ -92,6 +92,7 @@ OLAPStatus AlphaRowsetReader::next(RowCursor** row) {
 }
 
 OLAPStatus AlphaRowsetReader::next_block(std::shared_ptr<RowBlock> block) {
+    block->clear();
     size_t num_rows_in_block = 0;
     while (block->pos() < _num_rows_per_row_block) {
         RowCursor* row_cursor = nullptr;

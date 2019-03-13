@@ -945,12 +945,7 @@ bool SchemaChangeWithSorting::process(
             new_row_block = nullptr;
         }
 
-        res = rowset_reader->next_block(ref_row_block);
-        if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "failed to get next row block.";
-            result = false;
-            OLAP_GOTO(SORTING_PROCESS_ERR);
-        }
+        rowset_reader->next_block(ref_row_block);
     }
 
     if (!row_block_arr.empty()) {
