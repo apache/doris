@@ -45,14 +45,12 @@ public class KafkaProducerTest {
     public static void main(String[] args) throws InterruptedException {
         KafkaProducerTest kafkaProducerTest = new KafkaProducerTest();
         Producer<Long, String> kafkaProducer = kafkaProducerTest.createProducer();
-        int i = 411;
+        int i = 1;
         while (true) {
             String value = String.valueOf(i);
-//            if (i % 5 == 0) {
-//                value = value + "\t" + value;
-//            } else if (i % 6 == 0) {
-//                value = value + "\t" + value;
-//            }
+            if (i % 10000 == 0) {
+                value = value + "\t" + value;
+            }
             ProducerRecord<Long, String> record = new ProducerRecord<>("miaoling", value);
             try {
                 RecordMetadata metadata = kafkaProducer.send(record).get();
@@ -65,8 +63,6 @@ public class KafkaProducerTest {
                 System.out.println(e);
             }
             i++;
-            Thread.sleep(500);
-
         }
     }
 
