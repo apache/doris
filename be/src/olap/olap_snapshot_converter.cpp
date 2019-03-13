@@ -331,15 +331,19 @@ OLAPStatus OlapSnapshotConverter::to_new_snapshot(const OLAPHeaderMessage& olap_
         RETURN_NOT_OK(rowset.convert_from_old_files(old_data_path_prefix, &success_files));
     }
 
-    // convert pending delta file to rowsets
-    for (auto& pending_rowset : *pending_rowsets) {
+    for (auto it = pending_rowsets->begin(); it != pending_rowsets->end(); ++it) {
         RowsetMetaSharedPtr alpha_rowset_meta(new AlphaRowsetMeta());
-        alpha_rowset_meta->init_from_pb(pending_rowset);
+        alpha_rowset_meta->init_from_pb(*it);
         AlphaRowset rowset(&tablet_schema, new_data_path_prefix, &data_dir, alpha_rowset_meta);
         RETURN_NOT_OK(rowset.init());
         std::vector<std::string> success_files;
-        std::string pending_delta_path = old_data_path_prefix + PENDING_DELTA_PREFIX;
-        RETURN_NOT_OK(rowset.convert_from_old_files(pending_delta_path, &success_files));
+        // std::string pending_delta_path = old_data_path_prefix + PENDING_DELTA_PREFIX;
+        RETURN_NOT_OK(rowset.convert_from_old_files(old_data_path_prefix, &success_files));
+        // pending delta does not have row num, index size, data size info
+        // should load the pending delta, get these info and reset rowset meta's row num
+        // data size, index size
+        RETURN_NOT_OK(rowset.reset_sizeinfo());
+        rowset.to_rowset_pb(&(*it));
     }
     return OLAP_SUCCESS;
 }
