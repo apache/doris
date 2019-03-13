@@ -17,8 +17,6 @@
 
 package org.apache.doris.rewrite;
 
-import org.apache.commons.lang.time.DateFormatUtils;
-import org.apache.commons.lang.time.DateUtils;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.FloatLiteral;
@@ -28,6 +26,11 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+
+import org.apache.commons.lang.time.DateFormatUtils;
+import org.apache.commons.lang.time.DateUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -41,6 +44,7 @@ import java.util.Date;
  * when you add a new function, please ensure the name, argTypes , returnType and compute logic are consistent with BE's function
  */
 public class FEFunctions {
+    private static final Logger LOG = LogManager.getLogger(FEFunctions.class);
     /**
      * date and time function
      */
@@ -72,7 +76,6 @@ public class FEFunctions {
         return new DateLiteral(DateFormatUtils.format(d, "yyyy-MM-dd HH:mm:ss"), Type.DATETIME);
     }
 
-
     @FEFunction(name = "year", argTypes = { "DATETIME" }, returnType = "INT")
     public static IntLiteral year(LiteralExpr arg) throws AnalysisException {
         long timestamp = getTime(arg);
@@ -95,6 +98,12 @@ public class FEFunctions {
         Calendar instance = Calendar.getInstance();
         instance.setTimeInMillis(timestamp);
         return new IntLiteral(instance.get(Calendar.DAY_OF_MONTH), Type.INT);
+    }
+
+    @FEFunction(name = "unix_timestamp", argTypes = { "DATETIME" }, returnType = "INT")
+    public static IntLiteral unix_timestamp(LiteralExpr arg) throws AnalysisException {
+        long timestamp = getTime(arg);
+        return new IntLiteral(timestamp / 1000, Type.INT);
     }
 
     private static long getTime(LiteralExpr expr) throws AnalysisException {
@@ -165,7 +174,6 @@ public class FEFunctions {
     public static DecimalLiteral addDecimal(LiteralExpr first, LiteralExpr second) throws AnalysisException {
         BigDecimal left = new BigDecimal(first.getStringValue());
         BigDecimal right = new BigDecimal(second.getStringValue());
-
         BigDecimal result = left.add(right);
         return new DecimalLiteral(result);
     }
@@ -174,7 +182,6 @@ public class FEFunctions {
     public static LargeIntLiteral addBigInt(LiteralExpr first, LiteralExpr second) throws AnalysisException {
         BigInteger left = new BigInteger(first.getStringValue());
         BigInteger right = new BigInteger(second.getStringValue());
-
         BigInteger result = left.add(right);
         return new LargeIntLiteral(result.toString());
     }
@@ -195,7 +202,6 @@ public class FEFunctions {
     public static DecimalLiteral subtractDecimal(LiteralExpr first, LiteralExpr second) throws AnalysisException {
         BigDecimal left = new BigDecimal(first.getStringValue());
         BigDecimal right = new BigDecimal(second.getStringValue());
-
         BigDecimal result = left.subtract(right);
         return new DecimalLiteral(result);
     }
@@ -204,7 +210,6 @@ public class FEFunctions {
     public static LargeIntLiteral subtractBigInt(LiteralExpr first, LiteralExpr second) throws AnalysisException {
         BigInteger left = new BigInteger(first.getStringValue());
         BigInteger right = new BigInteger(second.getStringValue());
-
         BigInteger result = left.subtract(right);
         return new LargeIntLiteral(result.toString());
     }
@@ -213,7 +218,6 @@ public class FEFunctions {
     public static IntLiteral multiplyInt(LiteralExpr first, LiteralExpr second) throws AnalysisException {
         long left = first.getLongValue();
         long right = second.getLongValue();
-
         long result = Math.multiplyExact(left, right);
         return new IntLiteral(result, Type.BIGINT);
     }
@@ -228,7 +232,6 @@ public class FEFunctions {
     public static DecimalLiteral multiplyDecimal(LiteralExpr first, LiteralExpr second) throws AnalysisException {
         BigDecimal left = new BigDecimal(first.getStringValue());
         BigDecimal right = new BigDecimal(second.getStringValue());
-
         BigDecimal result = left.multiply(right);
         return new DecimalLiteral(result);
     }
@@ -237,7 +240,6 @@ public class FEFunctions {
     public static LargeIntLiteral multiplyBigInt(LiteralExpr first, LiteralExpr second) throws AnalysisException {
         BigInteger left = new BigInteger(first.getStringValue());
         BigInteger right = new BigInteger(second.getStringValue());
-
         BigInteger result = left.multiply(right);
         return new LargeIntLiteral(result.toString());
     }
@@ -252,7 +254,6 @@ public class FEFunctions {
     public static DecimalLiteral divideDecimal(LiteralExpr first, LiteralExpr second) throws AnalysisException {
         BigDecimal left = new BigDecimal(first.getStringValue());
         BigDecimal right = new BigDecimal(second.getStringValue());
-
         BigDecimal result = left.divide(right);
         return new DecimalLiteral(result);
     }
