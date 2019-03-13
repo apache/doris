@@ -202,7 +202,6 @@ public class FEFunctions {
     public static DecimalLiteral subtractDecimal(LiteralExpr first, LiteralExpr second) throws AnalysisException {
         BigDecimal left = new BigDecimal(first.getStringValue());
         BigDecimal right = new BigDecimal(second.getStringValue());
-
         BigDecimal result = left.subtract(right);
         return new DecimalLiteral(result);
     }
@@ -211,7 +210,6 @@ public class FEFunctions {
     public static LargeIntLiteral subtractBigInt(LiteralExpr first, LiteralExpr second) throws AnalysisException {
         BigInteger left = new BigInteger(first.getStringValue());
         BigInteger right = new BigInteger(second.getStringValue());
-
         BigInteger result = left.subtract(right);
         return new LargeIntLiteral(result.toString());
     }
@@ -220,7 +218,6 @@ public class FEFunctions {
     public static IntLiteral multiplyInt(LiteralExpr first, LiteralExpr second) throws AnalysisException {
         long left = first.getLongValue();
         long right = second.getLongValue();
-
         long result = Math.multiplyExact(left, right);
         return new IntLiteral(result, Type.BIGINT);
     }
@@ -235,7 +232,6 @@ public class FEFunctions {
     public static DecimalLiteral multiplyDecimal(LiteralExpr first, LiteralExpr second) throws AnalysisException {
         BigDecimal left = new BigDecimal(first.getStringValue());
         BigDecimal right = new BigDecimal(second.getStringValue());
-
         BigDecimal result = left.multiply(right);
         return new DecimalLiteral(result);
     }
@@ -244,7 +240,6 @@ public class FEFunctions {
     public static LargeIntLiteral multiplyBigInt(LiteralExpr first, LiteralExpr second) throws AnalysisException {
         BigInteger left = new BigInteger(first.getStringValue());
         BigInteger right = new BigInteger(second.getStringValue());
-
         BigInteger result = left.multiply(right);
         return new LargeIntLiteral(result.toString());
     }
@@ -259,17 +254,7 @@ public class FEFunctions {
     public static DecimalLiteral divideDecimal(LiteralExpr first, LiteralExpr second) throws AnalysisException {
         BigDecimal left = new BigDecimal(first.getStringValue());
         BigDecimal right = new BigDecimal(second.getStringValue());
-
         BigDecimal result = left.divide(right);
         return new DecimalLiteral(result);
-    }
-
-    public static void main(String[] args) {
-        try {
-            IntLiteral timestamp = unix_timestamp(new DateLiteral("2018-01-01", Type.DATE));
-            System.out.println(timestamp);
-        } catch (AnalysisException e) {
-            e.printStackTrace();
-        }
     }
 }
