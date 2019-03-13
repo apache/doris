@@ -115,6 +115,10 @@ public:
     
     bool check_path(const std::string& path) override;
 
+    // when convert from old be, should set row num, index size, data size
+    // info by using segment's info
+    OLAPStatus reset_sizeinfo();
+
 private:
     OLAPStatus _init_segment_groups();
 
