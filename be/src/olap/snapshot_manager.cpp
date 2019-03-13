@@ -67,10 +67,6 @@ OLAPStatus SnapshotManager::make_snapshot(
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
-    VLOG(3) << "received a make snapshot request,"
-            << " snapshot path is " << *snapshot_path
-            << " snapshot version is " << request.preferred_snapshot_version;
-
     TabletSharedPtr ref_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(request.tablet_id, request.schema_hash);
     if (ref_tablet.get() == nullptr) {
         LOG(WARNING) << "failed to get tablet. tablet=" << request.tablet_id
@@ -189,6 +185,11 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
         const TSnapshotRequest& request,
         string* snapshot_path, 
         int32_t snapshot_version) {
+    
+    LOG(INFO) << "receive a make snapshot request,"
+              << " request detail is " << apache::thrift::ThriftDebugString(request)
+              << " snapshot_path is " << *snapshot_path
+              << " snapshot_version is " << snapshot_version;
     OLAPStatus res = OLAP_SUCCESS;
     if (snapshot_path == nullptr) {
         LOG(WARNING) << "output parameter cannot be NULL";
@@ -296,6 +297,10 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
             res = rs->make_snapshot(schema_full_path, &success_files);
             if (res != OLAP_SUCCESS) { break; }
             rs_metas.push_back(rs->rowset_meta());
+            VLOG(3) << "add rowset meta to clone list. " 
+                    << " start version " << rs->rowset_meta()->start_version()
+                    << " end version " << rs->rowset_meta()->end_version()
+                    << " empty " << rs->rowset_meta()->empty();
         }
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to create hard link. [path=" << snapshot_id_path << "]";
