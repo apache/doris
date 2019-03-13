@@ -884,7 +884,11 @@ OLAPStatus EngineCloneTask::_clone_full_data(TabletSharedPtr tablet, TabletMeta*
             << ", local_version=" << local_version.first << "-" << local_version.second;
 
         // if local version cross src latest, clone failed
-        // TODO(ygl): 
+        // if local version is : 0-0, 1-1, 2-10, 12-14, 15-15,16-16
+        // cloned max version is 13-13, this clone is failed, because could not
+        // fill local data by using cloned data.
+        // It should not happen because if there is a hole, the following delta will not
+        // do compaction.
         if (local_version.first <= cloned_max_version.second
             && local_version.second > cloned_max_version.second) {
             LOG(WARNING) << "stop to full clone, version cross src latest."
