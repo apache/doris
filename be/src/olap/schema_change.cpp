@@ -773,25 +773,25 @@ bool SchemaChangeDirectly::process(RowsetReaderSharedPtr rowset_reader, RowsetWr
         goto DIRECTLY_PROCESS_ERR;
     }
 
-    add_filtered_rows(rowset_reader->get_filtered_rows());
+    add_filtered_rows(rowset_reader->filtered_rows());
 
     // Check row num changes
     if (config::row_nums_check) {
-        if (rowset_reader->num_rows()
+        if (rowset_reader->rowset()->num_rows()
             != rowset_writer->num_rows() + merged_rows() + filtered_rows()) {
             LOG(WARNING) << "fail to check row num! "
-                       << "source_rows=" << rowset_reader->num_rows()
+                       << "source_rows=" << rowset_reader->rowset()->num_rows()
                        << ", merged_rows=" << merged_rows()
                        << ", filtered_rows=" << filtered_rows()
                        << ", new_index_rows=" << rowset_writer->num_rows();
             result = false;
         }
-        LOG(INFO) << "all row nums. source_rows=" << rowset_reader->num_rows()
+        LOG(INFO) << "all row nums. source_rows=" << rowset_reader->rowset()->num_rows()
                   << ", merged_rows=" << merged_rows()
                   << ", filtered_rows=" << filtered_rows()
                   << ", new_index_rows=" << rowset_writer->num_rows();
     } else {
-        LOG(INFO) << "all row nums. source_rows=" << rowset_reader->num_rows()
+        LOG(INFO) << "all row nums. source_rows=" << rowset_reader->rowset()->num_rows()
                   << ", merged_rows=" << merged_rows()
                   << ", filtered_rows=" << filtered_rows()
                   << ", new_index_rows=" << rowset_writer->num_rows();
@@ -945,12 +945,7 @@ bool SchemaChangeWithSorting::process(
             new_row_block = nullptr;
         }
 
-        res = rowset_reader->next_block(ref_row_block);
-        if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "failed to get next row block.";
-            result = false;
-            OLAP_GOTO(SORTING_PROCESS_ERR);
-        }
+        rowset_reader->next_block(ref_row_block);
     }
 
     if (!row_block_arr.empty()) {
@@ -986,25 +981,25 @@ bool SchemaChangeWithSorting::process(
         goto SORTING_PROCESS_ERR;
     }
 
-    add_filtered_rows(rowset_reader->get_filtered_rows());
+    add_filtered_rows(rowset_reader->filtered_rows());
 
     // Check row num changes
     if (config::row_nums_check) {
-        if (rowset_reader->num_rows()
+        if (rowset_reader->rowset()->num_rows()
             != new_rowset_writer->num_rows() + merged_rows() + filtered_rows()) {
             LOG(WARNING) << "fail to check row num!"
-                         << " source_rows=" << rowset_reader->num_rows()
+                         << " source_rows=" << rowset_reader->rowset()->num_rows()
                          << ", merged_rows=" << merged_rows()
                          << ", filtered_rows=" << filtered_rows()
                          << ", new_index_rows=" << new_rowset_writer->num_rows();
             result = false;
         }
-        LOG(INFO) << "all row nums. source_rows=" << rowset_reader->num_rows()
+        LOG(INFO) << "all row nums. source_rows=" << rowset_reader->rowset()->num_rows()
                   << ", merged_rows=" << merged_rows()
                   << ", filtered_rows=" << filtered_rows()
                   << ", new_index_rows=" << new_rowset_writer->num_rows();
     } else {
-        LOG(INFO) << "all row nums. source_rows=" << rowset_reader->num_rows()
+        LOG(INFO) << "all row nums. source_rows=" << rowset_reader->rowset()->num_rows()
                   << ", merged_rows=" << merged_rows()
                   << ", filtered_rows=" << filtered_rows()
                   << ", new_index_rows=" << new_rowset_writer->num_rows();
@@ -1243,7 +1238,6 @@ OLAPStatus SchemaChangeHandler::process_alter_tablet(AlterTabletType type,
 
     vector<Version> versions_to_be_changed;
     vector<RowsetReaderSharedPtr> rs_readers;
-    OlapReaderStatistics stats;
     // delete handlers for new tablet
     DeleteHandler delete_handler;
     do {
@@ -1294,8 +1288,8 @@ OLAPStatus SchemaChangeHandler::process_alter_tablet(AlterTabletType type,
 
         RowsetReaderContextBuilder context_builder;
         context_builder.set_reader_type(READER_ALTER_TABLE)
+                       .set_tablet_schema(&base_tablet->tablet_schema())
                        .set_delete_handler(&delete_handler)
-                       .set_stats(&stats)
                        .set_is_using_cache(false)
                        .set_lru_cache(StorageEngine::instance()->index_stream_lru_cache());
         RowsetReaderContext context = context_builder.build();
@@ -1477,11 +1471,10 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
 
     // c. 转换数据
     DeleteHandler delete_handler;
-    OlapReaderStatistics stats;
     RowsetReaderContextBuilder reader_context_builder;
     reader_context_builder.set_reader_type(READER_ALTER_TABLE)
+                          .set_tablet_schema(&base_tablet->tablet_schema())
                           .set_delete_handler(&delete_handler)
-                          .set_stats(&stats)
                           .set_is_using_cache(false)
                           .set_lru_cache(StorageEngine::instance()->index_stream_lru_cache());
     RowsetReaderContext reader_context = reader_context_builder.build();

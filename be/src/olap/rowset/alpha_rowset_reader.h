@@ -32,6 +32,8 @@ public:
     AlphaRowsetReader(int num_rows_per_row_block, RowsetMeta* rowset_meta,
                       std::vector<std::shared_ptr<SegmentGroup>> segment_groups,
                       RowsetSharedPtr rowset);
+    
+    ~AlphaRowsetReader();
 
     // reader init
     virtual OLAPStatus init(RowsetReaderContext* read_context);
@@ -56,9 +58,7 @@ public:
 
     virtual RowsetSharedPtr rowset();
 
-    virtual int32_t num_rows();
-
-    virtual int64_t get_filtered_rows();
+    virtual int64_t filtered_rows();
 
 private:
 
@@ -72,8 +72,6 @@ private:
 
     OLAPStatus _get_next_block(size_t pos, RowBlock** row_block);
 
-    OLAPStatus _refresh_next_block(size_t pos, RowBlock** row_block);
-
 private:
     int _num_key_columns;
     int _num_short_key_columns;
@@ -83,12 +81,14 @@ private:
     std::vector<std::shared_ptr<SegmentGroup>> _segment_groups;
     std::vector<std::shared_ptr<ColumnData>> _column_datas;
     std::vector<RowBlock*> _row_blocks;
+    std::vector<RowCursor*> _row_cursors;
     RowsetSharedPtr _rowset;
     int _key_range_size;
-    int _num_rows_read;
     std::vector<int> _key_range_indices;
     bool _is_cumulative_rowset;
     RowsetReaderContext* _current_read_context;
+    OlapReaderStatistics _owned_stats;
+    OlapReaderStatistics* _stats = &_owned_stats;
 };
 
 } // namespace doris

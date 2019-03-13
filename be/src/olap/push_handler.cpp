@@ -205,8 +205,10 @@ OLAPStatus PushHandler::_do_streaming_ingestion(
             continue;
         }
 
-        tablet_var.rowset_to_add->rowset_meta()->set_delete_predicate(del_preds.front());
-        del_preds.pop();
+        if (push_type == PUSH_FOR_DELETE) {
+            tablet_var.rowset_to_add->rowset_meta()->set_delete_predicate(del_preds.front());
+            del_preds.pop();
+        }
         OLAPStatus commit_status = StorageEngine::instance()->txn_manager()->commit_txn(tablet_var.tablet->data_dir()->get_meta(),
                                                                       request.partition_id, request.transaction_id,
                                                                       tablet_var.tablet->tablet_id(),
