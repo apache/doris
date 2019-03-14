@@ -152,11 +152,20 @@ void AlphaRowset::set_version_and_version_hash(Version version,  VersionHash ver
     AlphaRowsetMetaSharedPtr alpha_rowset_meta =
             std::dynamic_pointer_cast<AlphaRowsetMeta>(_rowset_meta);
     vector<SegmentGroupPB> published_segment_groups;
+    alpha_rowset_meta->get_segment_groups(&published_segment_groups);
+    int32_t segment_group_idx = 0;
     for (auto segment_group : _segment_groups) {
         segment_group->set_version(version);
         segment_group->set_version_hash(version_hash);
         segment_group->set_pending_finished();
+        published_segment_groups.at(segment_group_idx).clear_load_id();
+        ++segment_group_idx;
     }
+    alpha_rowset_meta->clear_segment_group();
+    for (auto& segment_group_meta : published_segment_groups) {
+        alpha_rowset_meta->add_segment_group(segment_group_meta);
+    }
+
     _is_pending_rowset = false;
 }
 

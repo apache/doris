@@ -77,7 +77,6 @@ OLAPStatus OlapSnapshotConverter::to_tablet_meta_pb(const OLAPHeaderMessage& ola
     schema->set_bf_fpp(olap_header.bf_fpp());
     schema->set_next_column_unique_id(olap_header.next_column_unique_id());
 
-
     std::unordered_map<Version, RowsetMetaPB*, HashOfVersion> _rs_version_map;
     for (auto& delta : olap_header.delta()) {
         RowsetMetaPB* rowset_meta = tablet_meta_pb->add_rs_metas();
@@ -86,7 +85,6 @@ OLAPStatus OlapSnapshotConverter::to_tablet_meta_pb(const OLAPHeaderMessage& ola
         convert_to_rowset_meta(delta, next_id, olap_header.tablet_id(), olap_header.schema_hash(), rowset_meta);
         Version rowset_version = { delta.start_version(), delta.end_version() };
         _rs_version_map[rowset_version] = rowset_meta;
-
     }
 
     for (auto& inc_delta : olap_header.incremental_delta()) {
