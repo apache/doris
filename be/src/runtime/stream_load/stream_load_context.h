@@ -121,18 +121,6 @@ public:
     // the following members control the max progress of a consuming
     // process. if any of them reach, the consuming will finish.
     int64_t max_interval_s = 5;
-    int64_t max_batch_rows = 1024;
-    int64_t max_batch_size = 100 * 1024 * 1024; // 100MB
-
-    // the following members control the max progress of a consuming
-    // process. if any of them reach, the consuming will finish.
-    int64_t max_interval_s = 5;
-    int64_t max_batch_rows = 100000;
-    int64_t max_batch_size = 100 * 1024 * 1024; // 100MB
-
-    // the following members control the max progress of a consuming
-    // process. if any of them reach, the consuming will finish.
-    int64_t max_interval_s = 5;
     int64_t max_batch_rows = 100000;
     int64_t max_batch_size = 100 * 1024 * 1024; // 100MB
 
