@@ -53,6 +53,10 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
     ctx->label = task.label;
     ctx->auth.auth_code = task.auth_code;
 
+    if (task.__isset.max_interval_s) { ctx->max_interval_s = task.max_interval_s; }
+    if (task.__isset.max_batch_rows) { ctx->max_batch_rows = task.max_batch_rows; }
+    if (task.__isset.max_batch_size) { ctx->max_batch_size = task.max_batch_size; }
+
     // set execute plan params
     TStreamLoadPutResult put_result;
     TStatus tstatus;

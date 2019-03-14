@@ -24,17 +24,12 @@ import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.load.RoutineLoadDesc;
-import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskExecutor;
-import org.apache.doris.task.AgentTaskQueue;
-import org.apache.doris.task.KafkaRoutineLoadTask;
-import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.transaction.BeginTransactionException;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
 
-import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.Map;
@@ -45,7 +40,6 @@ import mockit.Deencapsulation;
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mocked;
-import mockit.Verifications;
 
 public class RoutineLoadTaskSchedulerTest {
 
@@ -119,35 +113,8 @@ public class RoutineLoadTaskSchedulerTest {
             }
         };
 
-        KafkaRoutineLoadTask kafkaRoutineLoadTask = new KafkaRoutineLoadTask(kafkaRoutineLoadJob1.getResourceInfo(),
-                beId, kafkaRoutineLoadJob1.getDbId(), kafkaRoutineLoadJob1.getTableId(),
-                "", 0L, partitionIdToOffset);
-//
-//        new Expectations() {
-//            {
-//                routineLoadTaskInfo1.createRoutineLoadTask(anyLong);
-//                result = kafkaRoutineLoadTask;
-//            }
-//        };
-
         RoutineLoadTaskScheduler routineLoadTaskScheduler = new RoutineLoadTaskScheduler();
         Deencapsulation.setField(routineLoadTaskScheduler, "needScheduleTasksQueue", routineLoadTaskInfoQueue);
         routineLoadTaskScheduler.runOneCycle();
-
-        new Verifications() {
-            {
-                AgentTask routineLoadTask =
-                        AgentTaskQueue.getTask(beId, TTaskType.STREAM_LOAD, 2L);
-
-                Assert.assertEquals(beId, routineLoadTask.getBackendId());
-                Assert.assertEquals(100L,
-                        (long) ((KafkaRoutineLoadTask) routineLoadTask).getPartitionIdToOffset().get(1));
-                Assert.assertEquals(200L,
-                        (long) ((KafkaRoutineLoadTask) routineLoadTask).getPartitionIdToOffset().get(2));
-
-//                routineLoadManager.increaseNumOfConcurrentTasksByBeId(beId);
-//                times = 1;
-            }
-        };
     }
 }

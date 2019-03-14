@@ -66,7 +66,7 @@ public final class FeMetaVersion {
     // persist LoadJob's execMemLimit
     public static final int VERSION_34 = 34;
 
-    // update the BE in cluster, because of forgeting
+    // update the BE in cluster, because of forgetting
     // to remove backend in cluster when drop backend or 
     // decommission in latest versions.
     public static final int VERSION_35 = 35;
@@ -107,4 +107,6 @@ public final class FeMetaVersion {
 
     // replica schema hash
     public static final int VERSION_48 = 48;
+    // routine load job
+    public static final int VERSION_49 = 49;
 }

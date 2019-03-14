@@ -17,15 +17,13 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.base.Joiner;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import mockit.Injectable;
-import mockit.Mock;
-import mockit.MockUp;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.routineload.LoadDataSourceType;
+
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 import org.junit.Assert;
@@ -34,6 +32,10 @@ import org.junit.Test;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+
+import mockit.Injectable;
+import mockit.Mock;
+import mockit.MockUp;
 
 public class CreateRoutineLoadStmtTest {
 
@@ -131,7 +133,6 @@ public class CreateRoutineLoadStmtTest {
         Assert.assertEquals(0, createRoutineLoadStmt.getMaxErrorNum());
         Assert.assertEquals(serverAddress, createRoutineLoadStmt.getKafkaBrokerList());
         Assert.assertEquals(topicName, createRoutineLoadStmt.getKafkaTopic());
-        Assert.assertEquals(kafkaPartitionString, Joiner.on(",").join(createRoutineLoadStmt.getKafkaPartitions()));
     }
 
 }
