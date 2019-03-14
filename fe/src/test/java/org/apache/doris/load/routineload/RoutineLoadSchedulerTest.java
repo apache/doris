@@ -17,29 +17,30 @@
 
 package org.apache.doris.load.routineload;
 
-import com.google.common.collect.Lists;
-import mockit.Deencapsulation;
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mocked;
-import org.apache.doris.common.DdlException;
-import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TResourceInfo;
 
+import com.google.common.collect.Lists;
+
 import org.apache.kafka.clients.consumer.KafkaConsumer;
-import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+
+import mockit.Deencapsulation;
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mocked;
 
 public class RoutineLoadSchedulerTest {
 
@@ -119,7 +120,6 @@ public class RoutineLoadSchedulerTest {
 //        }
     }
 
-
     public void functionTest(@Mocked Catalog catalog,
                              @Mocked SystemInfoService systemInfoService,
                              @Injectable Database database) throws DdlException, InterruptedException {
@@ -130,7 +130,8 @@ public class RoutineLoadSchedulerTest {
             }
         };
 
-        KafkaRoutineLoadJob kafkaRoutineLoadJob = new KafkaRoutineLoadJob("test", 1L, 1L, "10.74.167.16:8092", "test");
+        KafkaRoutineLoadJob kafkaRoutineLoadJob = new KafkaRoutineLoadJob(1L, "test", 1L, 1L, "10.74.167.16:8092",
+                "test");
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
         routineLoadManager.addRoutineLoadJob(kafkaRoutineLoadJob);
 
@@ -157,9 +158,8 @@ public class RoutineLoadSchedulerTest {
         executorService.submit(routineLoadScheduler);
         executorService.submit(routineLoadTaskScheduler);
 
-
-
-        KafkaRoutineLoadJob kafkaRoutineLoadJob1 = new KafkaRoutineLoadJob("test_custom_partition", 1L, 1L, "10.74.167.16:8092", "test_1");
+        KafkaRoutineLoadJob kafkaRoutineLoadJob1 = new KafkaRoutineLoadJob(1L, "test_custom_partition", 1L, 1L,
+                "10.74.167.16:8092", "test_1");
         List<Integer> customKafkaPartitions = new ArrayList<>();
         customKafkaPartitions.add(2);
         Deencapsulation.setField(kafkaRoutineLoadJob1, "customKafkaPartitions", customKafkaPartitions);

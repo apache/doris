@@ -15,26 +15,34 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.task;
+package org.apache.doris.transaction;
 
-import org.apache.doris.load.routineload.LoadDataSourceType;
-import org.apache.doris.thrift.TResourceInfo;
+import com.google.common.collect.Maps;
 
 import java.util.Map;
 
+/*
+ * Author: Chenmingyu
+ * Date: Mar 14, 2019
+ */
 
-public class KafkaRoutineLoadTask extends RoutineLoadTask {
+// saves all TxnStateChangeListeners
+public class TxnStateListenerRegistry {
+    private Map<Long, TxnStateChangeListener> listeners = Maps.newHashMap();
 
-    private Map<Integer, Long> partitionIdToOffset;
-
-    public KafkaRoutineLoadTask(TResourceInfo resourceInfo, long backendId,
-                                long dbId, long tableId, String taskId,
-                                long txnId, Map<Integer, Long> partitionIdToOffset) {
-        super(resourceInfo, backendId, dbId, tableId, taskId, LoadDataSourceType.KAFKA, txnId);
-        this.partitionIdToOffset = partitionIdToOffset;
+    public synchronized boolean register(TxnStateChangeListener listener) {
+        if (listeners.containsKey(listener.getId())) {
+            return false;
+        }
+        listeners.put(listener.getId(), listener);
+        return true;
     }
 
-    public Map<Integer, Long> getPartitionIdToOffset() {
-        return partitionIdToOffset;
+    public synchronized void unregister(long id) {
+        listeners.remove(id);
+    }
+
+    public synchronized TxnStateChangeListener getListener(long id) {
+        return listeners.get(id);
     }
 }

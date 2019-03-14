@@ -20,7 +20,10 @@ package org.apache.doris.common;
 /**
  * Exception for load
  */
-public class LoadException extends Exception {
+public class LoadException extends UserException {
+
+    private static final long serialVersionUID = 1L;
+
     public LoadException(String msg) {
         super(msg);
     }

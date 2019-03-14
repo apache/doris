@@ -17,14 +17,15 @@
 
 package org.apache.doris.load.routineload;
 
-import com.google.common.annotations.VisibleForTesting;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.Daemon;
-
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
+
+import com.google.common.annotations.VisibleForTesting;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -90,15 +91,10 @@ public class RoutineLoadScheduler extends Daemon {
                 // check state and divide job into tasks
                 routineLoadJob.divideRoutineLoadJob(desiredConcurrentTaskNum);
             } catch (MetaNotFoundException e) {
-                LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
-                                 .add("error_msg", "failed to get metadata, change job state to cancelled")
-                                 .build(), e);
-                routineLoadJob.updateState(RoutineLoadJob.JobState.CANCELLED, e.getMessage());
+                routineLoadJob.updateState(RoutineLoadJob.JobState.CANCELLED, e.getMessage(), false /* not replay */);
             } catch (Throwable e) {
-                LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
-                                 .add("error_msg", "failed to scheduler job, change job state to paused")
-                                 .build(), e);
-                routineLoadJob.updateState(RoutineLoadJob.JobState.PAUSED, e.getMessage());
+                LOG.warn("failed to scheduler job, change job state to paused", e);
+                routineLoadJob.updateState(RoutineLoadJob.JobState.PAUSED, e.getMessage(), false /* not replay */);
                 continue;
             }
         }

@@ -386,7 +386,6 @@ nonterminal TablePattern tbl_pattern;
 nonterminal String ident_or_star;
 
 // Routine load
-nonterminal LoadColumnsInfo load_columns_info;
 nonterminal ParseNode load_property;
 nonterminal List<ParseNode> opt_load_property_list;
 
@@ -449,7 +448,7 @@ query ::=
     ;
 
 import_columns_stmt ::=
-    KW_COLUMNS import_column_descs:columns
+    KW_COLUMNS LPAREN import_column_descs:columns RPAREN
     {:
         RESULT = new ImportColumnsStmt(columns);
     :}
@@ -1187,7 +1186,7 @@ load_property ::=
     {:
       RESULT = colSep;
     :}
-    | load_columns_info:columnsInfo
+    | import_columns_stmt:columnsInfo
     {:
       RESULT = columnsInfo;
     :}
@@ -1198,14 +1197,6 @@ load_property ::=
     | partitions:partitionNames
     {:
       RESULT = new PartitionNames(partitionNames);
-    :}
-    ;
-
-load_columns_info ::=
-    col_list:colList
-    opt_col_mapping_list:colMappingList
-    {:
-        RESULT = new LoadColumnsInfo(colList, colMappingList);
     :}
     ;
 

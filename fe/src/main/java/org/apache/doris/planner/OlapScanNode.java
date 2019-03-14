@@ -511,6 +511,7 @@ public class OlapScanNode extends ScanNode {
                 partitionIds.add(partition.getId());
             }
         }
+
         selectedPartitionNum = partitionIds.size();
         LOG.debug("partition prune cost: {} ms, partitions: {}", (System.currentTimeMillis() - start), partitionIds);
 
@@ -576,7 +577,7 @@ public class OlapScanNode extends ScanNode {
         int j = 0;
         for (Long partitionId : partitionIds) {
             Partition partition = olapTable.getPartition(partitionId);
-            LOG.debug("selected partition: " + partition.getName());
+            LOG.debug("selected partition: {}", partition.getName());
             selectedTable = tables.get(j++).get(partitionPos);
             List<Tablet> tablets = new ArrayList<Tablet>();
             Collection<Long> tabletIds = distributionPrune(selectedTable, partition.getDistributionInfo());

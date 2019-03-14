@@ -829,7 +829,7 @@ public class ShowExecutor {
         row.add(String.valueOf(routineLoadJob.getTableId()));
         row.add(routineLoadJob.getPartitions());
         row.add(routineLoadJob.getState().name());
-        row.add(routineLoadJob.getDesiredConcurrentNumber());
+        row.add(String.valueOf(routineLoadJob.getDesiredConcurrentNumber()));
         row.add(routineLoadJob.getProgress().toString());
         rows.add(row);
 

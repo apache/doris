@@ -17,37 +17,32 @@
 
 package org.apache.doris.load.routineload;
 
-import com.google.common.base.Joiner;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import mockit.Deencapsulation;
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
-import mockit.Verifications;
 import org.apache.doris.analysis.ColumnSeparator;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.ParseNode;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.TableName;
-import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Table;
-import org.apache.doris.common.LoadException;
-import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.LabelAlreadyUsedException;
+import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.SystemIdGenerator;
+import org.apache.doris.common.UserException;
+import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.TransactionState;
+
+import com.google.common.base.Joiner;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.PartitionInfo;
@@ -63,6 +58,14 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+
+import mockit.Deencapsulation;
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
+import mockit.Verifications;
 
 public class KafkaRoutineLoadJobTest {
 
@@ -157,7 +160,7 @@ public class KafkaRoutineLoadJobTest {
         new Expectations() {
             {
                 globalTransactionMgr.beginTransaction(anyLong, anyString, anyLong, anyString,
-                                                      TransactionState.LoadJobSourceType.ROUTINE_LOAD_TASK, (KafkaRoutineLoadJob) any);
+                        TransactionState.LoadJobSourceType.ROUTINE_LOAD_TASK, anyLong);
                 result = 0L;
                 catalog.getRoutineLoadManager();
                 result = routineLoadManager;
@@ -208,7 +211,7 @@ public class KafkaRoutineLoadJobTest {
         new Expectations() {
             {
                 globalTransactionMgr.beginTransaction(anyLong, anyString, anyLong, anyString,
-                                                      TransactionState.LoadJobSourceType.ROUTINE_LOAD_TASK, routineLoadJob);
+                        TransactionState.LoadJobSourceType.ROUTINE_LOAD_TASK, routineLoadJob.getId());
                 result = 0L;
                 catalog.getRoutineLoadManager();
                 result = routineLoadManager;
@@ -279,7 +282,7 @@ public class KafkaRoutineLoadJobTest {
         try {
             KafkaRoutineLoadJob kafkaRoutineLoadJob = KafkaRoutineLoadJob.fromCreateStmt(createRoutineLoadStmt);
             Assert.fail();
-        } catch (AnalysisException e) {
+        } catch (UserException e) {
             LOG.info(e.getMessage());
         }
     }
@@ -303,7 +306,7 @@ public class KafkaRoutineLoadJobTest {
         try {
             KafkaRoutineLoadJob kafkaRoutineLoadJob = KafkaRoutineLoadJob.fromCreateStmt(createRoutineLoadStmt);
             Assert.fail();
-        } catch (AnalysisException e) {
+        } catch (UserException e) {
             LOG.info(e.getMessage());
         }
     }
@@ -312,7 +315,7 @@ public class KafkaRoutineLoadJobTest {
     public void testFromCreateStmt(@Mocked Catalog catalog,
                                    @Mocked KafkaConsumer kafkaConsumer,
                                    @Injectable Database database,
-                                   @Injectable OlapTable table) throws LoadException, AnalysisException {
+            @Injectable OlapTable table) throws UserException {
         CreateRoutineLoadStmt createRoutineLoadStmt = initCreateRoutineLoadStmt();
         RoutineLoadDesc routineLoadDesc = new RoutineLoadDesc(columnSeparator, null, null, partitionNames.getPartitionNames());
         Deencapsulation.setField(createRoutineLoadStmt, "routineLoadDesc", routineLoadDesc);
