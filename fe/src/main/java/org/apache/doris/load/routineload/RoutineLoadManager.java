@@ -29,11 +29,14 @@ import org.apache.doris.analysis.StopRoutineLoadStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.util.LogBuilder;
+import org.apache.doris.common.util.LogKey;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.logging.log4j.LogManager;
@@ -41,6 +44,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -83,7 +87,7 @@ public class RoutineLoadManager {
     public RoutineLoadManager() {
         idToRoutineLoadJob = Maps.newConcurrentMap();
         dbToNameToRoutineLoadJob = Maps.newConcurrentMap();
-        beIdToMaxConcurrentTasks = Maps.newHashMap();
+        beIdToMaxConcurrentTasks = Maps.newConcurrentMap();
         lock = new ReentrantReadWriteLock(true);
     }
 
@@ -448,8 +452,29 @@ public class RoutineLoadManager {
     // Remove old routine load jobs from idToRoutineLoadJob
     // This function is called periodically.
     // Cancelled and stopped job will be remove after Configure.label_keep_max_second seconds
-    public void removeOldRoutineLoadJobs() {
-        // TODO(ml): remove old routine load job
+    public void cleanOldRoutineLoadJobs() {
+        writeLock();
+        try {
+            Iterator<Map.Entry<Long, RoutineLoadJob>> iterator = idToRoutineLoadJob.entrySet().iterator();
+            long currentTimestamp = System.currentTimeMillis();
+            while (iterator.hasNext()) {
+                RoutineLoadJob routineLoadJob = iterator.next().getValue();
+                long jobEndTimestamp = routineLoadJob.getEndTimestamp();
+                if (jobEndTimestamp != -1L &&
+                        ((currentTimestamp - jobEndTimestamp) > Config.label_clean_interval_second * 1000)) {
+                    dbToNameToRoutineLoadJob.get(routineLoadJob.getDbId()).get(routineLoadJob.getName()).remove(routineLoadJob);
+                    iterator.remove();
+                    LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
+                                     .add("end_timestamp", routineLoadJob.getEndTimestamp())
+                                     .add("current_timestamp", currentTimestamp)
+                                     .add("job_state", routineLoadJob.getState())
+                                     .add("msg", "old job has been cleaned")
+                    );
+                }
+            }
+        } finally {
+            writeUnlock();
+        }
     }
 
     public void updateRoutineLoadJob() {
