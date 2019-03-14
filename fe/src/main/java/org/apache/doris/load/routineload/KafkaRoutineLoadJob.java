@@ -169,10 +169,15 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         return Math.min(Math.min(partitionNum, Math.min(desireTaskConcurrentNum, aliveBeNum)), DEFAULT_TASK_MAX_CONCURRENT_NUM);
     }
 
+    // partitionIdToOffset must be not empty when loaded rows > 0
+    // situation1: be commit txn but fe throw error when committing txn,
+    //             fe rollback txn without partitionIdToOffset by itself
+    //             this task should not be commit
+    //             otherwise currentErrorNum and currentTotalNum is updated when progress is not updated
     @Override
     boolean checkCommitInfo(RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment) {
         if (rlTaskTxnCommitAttachment.getLoadedRows() > 0
-                && ((KafkaProgress) rlTaskTxnCommitAttachment.getProgress()).getPartitionIdToOffset().size() == 0) {
+                && ((KafkaProgress) rlTaskTxnCommitAttachment.getProgress()).getPartitionIdToOffset().isEmpty()) {
             LOG.warn(new LogBuilder(LogKey.ROUINTE_LOAD_TASK, DebugUtil.printId(rlTaskTxnCommitAttachment.getTaskId()))
                              .add("job_id", id)
                              .add("loaded_rows", rlTaskTxnCommitAttachment.getLoadedRows())
@@ -223,7 +228,13 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 try {
                     newCurrentKafkaPartition = getAllKafkaPartitions();
                 } catch (Exception e) {
-                    LOG.warn("Job {} failed to fetch all current partition", id);
+                    LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
+                                     .add("error_msg", "Job failed to fetch all current partition with error " + e.getMessage())
+                                     .build(), e);
+                    if (this.state == JobState.NEED_SCHEDULE) {
+                        unprotectUpdateState(JobState.PAUSED,
+                                             "Job failed to fetch all current partition with error " + e.getMessage());
+                    }
                     return false;
                 }
                 if (currentKafkaPartitions.containsAll(newCurrentKafkaPartition)) {
