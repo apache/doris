@@ -23,6 +23,8 @@ import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.Daemon;
 
+import org.apache.doris.common.util.LogBuilder;
+import org.apache.doris.common.util.LogKey;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -51,7 +53,7 @@ public class RoutineLoadScheduler extends Daemon {
         try {
             process();
         } catch (Throwable e) {
-            LOG.error("failed to schedule jobs with error massage {}", e.getMessage(), e);
+            LOG.warn("failed to schedule jobs with error massage {}", e.getMessage(), e);
         }
     }
 
@@ -63,7 +65,7 @@ public class RoutineLoadScheduler extends Daemon {
         try {
             routineLoadJobList = getNeedScheduleRoutineJobs();
         } catch (LoadException e) {
-            LOG.error("failed to get need schedule routine jobs");
+            LOG.warn("failed to get need schedule routine jobs", e);
         }
 
         LOG.info("there are {} job need schedule", routineLoadJobList.size());
@@ -72,23 +74,30 @@ public class RoutineLoadScheduler extends Daemon {
                 // create plan of routine load job
                 routineLoadJob.plan();
                 // judge nums of tasks more then max concurrent tasks of cluster
-                int currentConcurrentTaskNum = routineLoadJob.calculateCurrentConcurrentTaskNum();
-                int totalTaskNum = currentConcurrentTaskNum + routineLoadManager.getSizeOfIdToRoutineLoadTask();
-                if (totalTaskNum > routineLoadManager.getTotalMaxConcurrentTaskNum()) {
-                    LOG.info("job {} concurrent task num {}, current total task num {}. "
-                                    + "desired total task num {} more then total max task num {}, "
-                                    + "skip this turn of job scheduler",
-                            routineLoadJob.getId(), currentConcurrentTaskNum,
-                            routineLoadManager.getSizeOfIdToRoutineLoadTask(),
-                            totalTaskNum, routineLoadManager.getTotalMaxConcurrentTaskNum());
+                int desiredConcurrentTaskNum = routineLoadJob.calculateCurrentConcurrentTaskNum();
+                int currentTotalTaskNum = routineLoadManager.getSizeOfIdToRoutineLoadTask();
+                int desiredTotalTaskNum = desiredConcurrentTaskNum + currentTotalTaskNum;
+                if (desiredTotalTaskNum > routineLoadManager.getTotalMaxConcurrentTaskNum()) {
+                    LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
+                                     .add("desired_concurrent_task_num", desiredConcurrentTaskNum)
+                                     .add("current_total_task_num", currentTotalTaskNum)
+                                     .add("desired_total_task_num", desiredTotalTaskNum)
+                                     .add("total_max_task_num", routineLoadManager.getTotalMaxConcurrentTaskNum())
+                                     .add("msg", "skip this turn of job scheduler while there are not enough slot in backends")
+                                     .build());
                     break;
                 }
                 // check state and divide job into tasks
-                routineLoadJob.divideRoutineLoadJob(currentConcurrentTaskNum);
+                routineLoadJob.divideRoutineLoadJob(desiredConcurrentTaskNum);
             } catch (MetaNotFoundException e) {
+                LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
+                                 .add("error_msg", "failed to get metadata, change job state to cancelled")
+                                 .build(), e);
                 routineLoadJob.updateState(RoutineLoadJob.JobState.CANCELLED, e.getMessage());
             } catch (Throwable e) {
-                LOG.warn("failed to scheduler job, change job state to paused", e);
+                LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
+                                 .add("error_msg", "failed to scheduler job, change job state to paused")
+                                 .build(), e);
                 routineLoadJob.updateState(RoutineLoadJob.JobState.PAUSED, e.getMessage());
                 continue;
             }
@@ -97,6 +106,9 @@ public class RoutineLoadScheduler extends Daemon {
         LOG.debug("begin to check timeout tasks");
         // check timeout tasks
         routineLoadManager.processTimeoutTasks();
+
+        LOG.debug("begin to clean old jobs ");
+        routineLoadManager.cleanOldRoutineLoadJobs();
     }
 
     private List<RoutineLoadJob> getNeedScheduleRoutineJobs() throws LoadException {
