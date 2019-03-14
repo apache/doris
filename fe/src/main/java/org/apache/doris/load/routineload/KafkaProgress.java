@@ -17,6 +17,7 @@
 
 package org.apache.doris.load.routineload;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.thrift.TKafkaRLTaskProgress;
 
 import com.google.common.base.Joiner;
@@ -36,10 +37,9 @@ import java.util.Map;
 public class KafkaProgress extends RoutineLoadProgress {
 
     // (partition id, begin offset)
-    private Map<Integer, Long> partitionIdToOffset;
+    private Map<Integer, Long> partitionIdToOffset = Maps.newHashMap();
 
     public KafkaProgress() {
-        partitionIdToOffset = Maps.newHashMap();
     }
 
     public KafkaProgress(TKafkaRLTaskProgress tKafkaRLTaskProgress) {
@@ -48,6 +48,10 @@ public class KafkaProgress extends RoutineLoadProgress {
 
     public Map<Integer, Long> getPartitionIdToOffset() {
         return partitionIdToOffset;
+    }
+
+    public void addPartitionOffset(Pair<Integer, Long> partitionOffset) {
+        partitionIdToOffset.put(partitionOffset.first, partitionOffset.second);
     }
 
     public void setPartitionIdToOffset(Map<Integer, Long> partitionIdToOffset) {
