@@ -17,16 +17,18 @@
 
 package org.apache.doris.load.routineload;
 
-import com.google.common.base.Joiner;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
@@ -35,13 +37,17 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.transaction.BeginTransactionException;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Joiner;
+import com.google.common.collect.Lists;
 
-import org.apache.doris.transaction.TransactionState;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.PartitionInfo;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -55,26 +61,28 @@ import java.util.UUID;
 public class KafkaRoutineLoadJob extends RoutineLoadJob {
     private static final Logger LOG = LogManager.getLogger(KafkaRoutineLoadJob.class);
 
-    private static final String FE_GROUP_ID = "fe_fetch_partitions";
-    private static final int FETCH_PARTITIONS_TIMEOUT = 10;
+    private static final int FETCH_PARTITIONS_TIMEOUT_SECOND = 10;
 
     private String brokerList;
     private String topic;
     // optional, user want to load partitions.
-    private List<Integer> customKafkaPartitions;
+    private List<Integer> customKafkaPartitions = Lists.newArrayList();
     // current kafka partitions is the actually partition which will be fetched
-    private List<Integer> currentKafkaPartitions;
+    private List<Integer> currentKafkaPartitions = Lists.newArrayList();
 
     // this is the kafka consumer which is used to fetch the number of partitions
     private KafkaConsumer consumer;
 
-    public KafkaRoutineLoadJob(String name, long dbId, long tableId, String brokerList, String topic) {
-        super(name, dbId, tableId, LoadDataSourceType.KAFKA);
+    public KafkaRoutineLoadJob() {
+        // for serialization, id is dummy
+        super(-1, LoadDataSourceType.KAFKA);
+    }
+
+    public KafkaRoutineLoadJob(Long id, String name, long dbId, long tableId, String brokerList, String topic) {
+        super(id, name, dbId, tableId, LoadDataSourceType.KAFKA);
         this.brokerList = brokerList;
         this.topic = topic;
         this.progress = new KafkaProgress();
-        this.customKafkaPartitions = new ArrayList<>();
-        this.currentKafkaPartitions = new ArrayList<>();
         setConsumer();
     }
 
@@ -101,26 +109,6 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     public String getBrokerList() {
         return brokerList;
-    }
-
-    // this is a unprotected method which is called in the initialization function
-    private void setCustomKafkaPartitions(List<Integer> kafkaPartitions) throws LoadException {
-        if (this.customKafkaPartitions.size() != 0) {
-            throw new LoadException("Kafka partitions have been initialized");
-        }
-        // check if custom kafka partition is valid
-        List<Integer> allKafkaPartitions = getAllKafkaPartitions();
-        outter:
-        for (Integer customkafkaPartition : kafkaPartitions) {
-            for (Integer kafkaPartition : allKafkaPartitions) {
-                if (kafkaPartition.equals(customkafkaPartition)) {
-                    continue outter;
-                }
-            }
-            throw new LoadException("there is a custom kafka partition " + customkafkaPartition
-                                            + " which is invalid for topic " + topic);
-        }
-        this.customKafkaPartitions = kafkaPartitions;
     }
 
     @Override
@@ -189,8 +177,8 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     }
 
     @Override
-    protected void updateProgress(RLTaskTxnCommitAttachment attachment) {
-        super.updateProgress(attachment);
+    protected void updateProgress(RLTaskTxnCommitAttachment attachment, boolean isReplay) {
+        super.updateProgress(attachment, isReplay);
         this.progress.update(attachment.getProgress());
     }
 
@@ -233,7 +221,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                                      .build(), e);
                     if (this.state == JobState.NEED_SCHEDULE) {
                         unprotectUpdateState(JobState.PAUSED,
-                                             "Job failed to fetch all current partition with error " + e.getMessage());
+                                "Job failed to fetch all current partition with error " + e.getMessage(), false);
                     }
                     return false;
                 }
@@ -270,32 +258,32 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     private List<Integer> getAllKafkaPartitions() {
         List<Integer> result = new ArrayList<>();
         List<PartitionInfo> partitionList = consumer.partitionsFor(
-                topic, Duration.ofSeconds(FETCH_PARTITIONS_TIMEOUT));
+                topic, Duration.ofSeconds(FETCH_PARTITIONS_TIMEOUT_SECOND));
         for (PartitionInfo partitionInfo : partitionList) {
             result.add(partitionInfo.partition());
         }
         return result;
     }
 
-    public static KafkaRoutineLoadJob fromCreateStmt(CreateRoutineLoadStmt stmt) throws AnalysisException,
-            LoadException {
+    public static KafkaRoutineLoadJob fromCreateStmt(CreateRoutineLoadStmt stmt) throws UserException {
         // check db and table
-        Database database = Catalog.getCurrentCatalog().getDb(stmt.getDBTableName().getDb());
-        if (database == null) {
-            throw new AnalysisException("There is no database named " + stmt.getDBTableName().getDb());
+        Database db = Catalog.getCurrentCatalog().getDb(stmt.getDBTableName().getDb());
+        if (db == null) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, stmt.getDBTableName().getDb());
         }
-        database.readLock();
-        Table table;
+        db.readLock();
+        long tableId = -1L;
         try {
-            unprotectCheckCreate(stmt);
-            table = database.getTable(stmt.getDBTableName().getTbl());
+            unprotectedCheckMeta(db, stmt.getDBTableName().getTbl(), stmt.getRoutineLoadDesc());
+            tableId = db.getTable(stmt.getDBTableName().getTbl()).getId();
         } finally {
-            database.readUnlock();
+            db.readUnlock();
         }
 
         // init kafka routine load job
+        long id = Catalog.getInstance().getNextId();
         KafkaRoutineLoadJob kafkaRoutineLoadJob =
-                new KafkaRoutineLoadJob(stmt.getName(), database.getId(), table.getId(),
+                new KafkaRoutineLoadJob(id, stmt.getName(), db.getId(), tableId,
                                         stmt.getKafkaBrokerList(),
                                         stmt.getKafkaTopic());
         kafkaRoutineLoadJob.setOptional(stmt);
@@ -319,30 +307,55 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     private void setConsumer() {
         Properties props = new Properties();
         props.put("bootstrap.servers", this.brokerList);
-        props.put("group.id", FE_GROUP_ID);
+        props.put("group.id", UUID.randomUUID().toString());
         props.put("key.deserializer", "org.apache.kafka.common.serialization.StringDeserializer");
         props.put("value.deserializer", "org.apache.kafka.common.serialization.StringDeserializer");
         consumer = new KafkaConsumer<>(props);
     }
 
-    private void setOptional(CreateRoutineLoadStmt stmt) throws LoadException {
-        if (stmt.getRoutineLoadDesc() != null) {
-            setRoutineLoadDesc(stmt.getRoutineLoadDesc());
+    @Override
+    protected void setOptional(CreateRoutineLoadStmt stmt) throws UserException {
+        super.setOptional(stmt);
+
+        if (!stmt.getKafkaPartitionOffsets().isEmpty()) {
+            setCustomKafkaPartitions(stmt.getKafkaPartitionOffsets());
         }
-        if (stmt.getDesiredConcurrentNum() != 0) {
-            setDesireTaskConcurrentNum(stmt.getDesiredConcurrentNum());
-        }
-        if (stmt.getMaxErrorNum() != 0) {
-            setMaxErrorNum(stmt.getMaxErrorNum());
-        }
-        if (stmt.getKafkaPartitions() != null) {
-            setCustomKafkaPartitions(stmt.getKafkaPartitions());
-            if (stmt.getKafkaOffsets() != null) {
-                for (int i = 0; i < customKafkaPartitions.size(); i++) {
-                    ((KafkaProgress) progress).getPartitionIdToOffset()
-                            .put(customKafkaPartitions.get(i), stmt.getKafkaOffsets().get(i));
-                }
+    }
+
+    // this is a unprotected method which is called in the initialization function
+    private void setCustomKafkaPartitions(List<Pair<Integer, Long>> kafkaPartitionOffsets) throws LoadException {
+        // check if custom kafka partition is valid
+        List<Integer> allKafkaPartitions = getAllKafkaPartitions();
+        for (Pair<Integer, Long> partitionOffset : kafkaPartitionOffsets) {
+            if (!allKafkaPartitions.contains(partitionOffset.first)) {
+                throw new LoadException("there is a custom kafka partition " + partitionOffset.first
+                        + " which is invalid for topic " + topic);
             }
+            this.customKafkaPartitions.add(partitionOffset.first);
+            ((KafkaProgress) progress).addPartitionOffset(partitionOffset);
+        }
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        super.write(out);
+        Text.writeString(out, brokerList);
+        Text.writeString(out, topic);
+
+        out.writeInt(customKafkaPartitions.size());
+        for (Integer partitionId : customKafkaPartitions) {
+            out.writeInt(partitionId);
+        }
+    }
+
+    @Override
+    public void readFields(DataInput in) throws IOException {
+        super.readFields(in);
+        brokerList = Text.readString(in);
+        topic = Text.readString(in);
+        int size = in.readInt();
+        for (int i = 0; i < size; i++) {
+            customKafkaPartitions.add(in.readInt());
         }
     }
 }

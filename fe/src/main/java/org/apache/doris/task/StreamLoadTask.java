@@ -20,8 +20,6 @@
 
 package org.apache.doris.task;
 
-import com.google.common.base.Joiner;
-import com.google.common.collect.Maps;
 import org.apache.doris.analysis.ColumnSeparator;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnDesc;
@@ -29,17 +27,18 @@ import org.apache.doris.analysis.ImportColumnsStmt;
 import org.apache.doris.analysis.ImportWhereStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.routineload.RoutineLoadJob;
-import org.apache.doris.load.routineload.RoutineLoadManager;
-import org.apache.doris.load.routineload.RoutineLoadTaskInfo;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TUniqueId;
+
+import com.google.common.base.Joiner;
+import com.google.common.collect.Maps;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -147,10 +146,16 @@ public class StreamLoadTask {
         if (routineLoadJob.getRoutineLoadDesc() != null) {
             RoutineLoadDesc routineLoadDesc = routineLoadJob.getRoutineLoadDesc();
             if (routineLoadDesc.getColumnsInfo() != null) {
-                columnToColumnExpr = routineLoadDesc.getColumnsInfo().getParsedExprMap();
+                ImportColumnsStmt columnsStmt = routineLoadDesc.getColumnsInfo();
+                if (columnsStmt.getColumns() != null || columnsStmt.getColumns().size() != 0) {
+                    columnToColumnExpr = Maps.newHashMap();
+                    for (ImportColumnDesc columnDesc : columnsStmt.getColumns()) {
+                        columnToColumnExpr.put(columnDesc.getColumn(), columnDesc.getExpr());
+                    }
+                }
             }
             if (routineLoadDesc.getWherePredicate() != null) {
-                whereExpr = routineLoadDesc.getWherePredicate();
+                whereExpr = routineLoadDesc.getWherePredicate().getExpr();
             }
             if (routineLoadDesc.getColumnSeparator() != null) {
                 columnSeparator = routineLoadDesc.getColumnSeparator();
@@ -162,7 +167,7 @@ public class StreamLoadTask {
     }
 
     private void setColumnToColumnExpr(String columns) throws UserException {
-        String columnsSQL = new String("COLUMNS " + columns);
+        String columnsSQL = new String("COLUMNS (" + columns + ")");
         SqlParser parser = new SqlParser(new SqlScanner(new StringReader(columnsSQL)));
         ImportColumnsStmt columnsStmt;
         try {

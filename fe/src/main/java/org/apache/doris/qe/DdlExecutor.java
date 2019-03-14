@@ -72,7 +72,7 @@ import org.apache.doris.load.LoadJob.EtlJobType;
  * Created by zhaochun on 14/11/10.
  */
 public class DdlExecutor {
-    public static void execute(Catalog catalog, DdlStmt ddlStmt) throws DdlException, Exception {
+    public static void execute(Catalog catalog, DdlStmt ddlStmt, String origStmt) throws DdlException, Exception {
         if (ddlStmt instanceof CreateClusterStmt) {
             CreateClusterStmt stmt = (CreateClusterStmt) ddlStmt;
             catalog.createCluster(stmt);
@@ -116,7 +116,7 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof CancelLoadStmt) {
             catalog.getLoadInstance().cancelLoadJob((CancelLoadStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateRoutineLoadStmt) {
-            catalog.getRoutineLoadManager().addRoutineLoadJob((CreateRoutineLoadStmt) ddlStmt);
+            catalog.getRoutineLoadManager().createRoutineLoadJob((CreateRoutineLoadStmt) ddlStmt, origStmt);
         } else if (ddlStmt instanceof PauseRoutineLoadStmt) {
             catalog.getRoutineLoadManager().pauseRoutineLoadJob((PauseRoutineLoadStmt) ddlStmt);
         } else if (ddlStmt instanceof ResumeRoutineLoadStmt) {
