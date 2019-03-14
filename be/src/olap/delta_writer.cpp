@@ -182,9 +182,11 @@ OLAPStatus DeltaWriter::close(google::protobuf::RepeatedPtrField<PTabletInfo>* t
     }
     RETURN_NOT_OK(_mem_table->close(_writer));
 
-    OLAPStatus res = OLAP_SUCCESS;
+    OLAPStatus res = _table->add_pending_version(_req.partition_id, _req.transaction_id, nullptr);
+    if (res != OLAP_SUCCESS && res != OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
+        return res;
+    }
     //add pending data to tablet
-    RETURN_NOT_OK(_table->add_pending_version(_req.partition_id, _req.transaction_id, nullptr));
     for (SegmentGroup* segment_group : _segment_group_vec) {
         RETURN_NOT_OK(_table->add_pending_segment_group(segment_group));
         RETURN_NOT_OK(segment_group->load());
@@ -208,7 +210,10 @@ OLAPStatus DeltaWriter::close(google::protobuf::RepeatedPtrField<PTabletInfo>* t
                 return res;
         }
 
-        RETURN_NOT_OK(_new_table->add_pending_version(_req.partition_id, _req.transaction_id, nullptr));
+        res = _new_table->add_pending_version(_req.partition_id, _req.transaction_id, nullptr);
+        if (res != OLAP_SUCCESS && res != OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
+            return res;
+        }
         for (SegmentGroup* segment_group : _new_segment_group_vec) {
             RETURN_NOT_OK(_new_table->add_pending_segment_group(segment_group));
             RETURN_NOT_OK(segment_group->load());
