@@ -86,7 +86,27 @@ public class TransactionState implements Writable {
     
     public enum TxnStatusChangeReason {
         DB_DROPPED,
-        TIMEOUT
+        TIMEOUT,
+        OFFSET_OUT_OF_RANGE;
+
+        public static TxnStatusChangeReason fromString(String reasonString) {
+            for (TxnStatusChangeReason txnStatusChangeReason : TxnStatusChangeReason.values()) {
+                if (reasonString.contains(txnStatusChangeReason.toString())) {
+                    return txnStatusChangeReason;
+                }
+            }
+            return null;
+        }
+
+        @Override
+        public String toString() {
+            switch (this) {
+                case OFFSET_OUT_OF_RANGE:
+                    return "Offset out of range";
+                default:
+                    return this.name();
+            }
+        }
     }
     
     private long dbId;
