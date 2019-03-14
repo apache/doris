@@ -122,10 +122,6 @@ public:
 private:
     OLAPStatus _init_segment_groups();
 
-    OLAPStatus _init_pending_segment_groups();
-
-    OLAPStatus _init_non_pending_segment_groups();
-
     std::shared_ptr<SegmentGroup> _segment_group_with_largest_size();
 
 private:

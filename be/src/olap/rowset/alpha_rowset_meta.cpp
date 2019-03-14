@@ -38,33 +38,10 @@ void AlphaRowsetMeta::add_segment_group(const SegmentGroupPB& segment_group) {
     _serialize_extra_meta_pb();
 }
 
-void AlphaRowsetMeta::get_pending_segment_groups(
-        std::vector<PendingSegmentGroupPB>* pending_segment_groups) {
-    for (auto& pending_segment_group : _extra_meta_pb.pending_segment_groups()) {
-        pending_segment_groups->push_back(pending_segment_group);
-    }
-}
-
-void AlphaRowsetMeta::add_pending_segment_group(const PendingSegmentGroupPB& pending_segment_group) {
-    for (int i = 0; i < _extra_meta_pb.pending_segment_groups_size(); i++) {
-        const PendingSegmentGroupPB& present_segment_group = _extra_meta_pb.pending_segment_groups(i);
-        if (present_segment_group.pending_segment_group_id() ==
-                pending_segment_group.pending_segment_group_id()) {
-            LOG(WARNING) << "pending segment_group already exists in meta."
-                        << "rowset_id:" << rowset_id()
-                        << ", pending_segment_group_id: " << pending_segment_group.pending_segment_group_id();
-            return;
-        }
-    }
-    PendingSegmentGroupPB* new_pending_segment_group = _extra_meta_pb.add_pending_segment_groups();
-    *new_pending_segment_group = pending_segment_group;
+void AlphaRowsetMeta::clear_segment_group() {
+    _extra_meta_pb.clear_segment_groups();
     _serialize_extra_meta_pb();
 }
-
-void AlphaRowsetMeta::clear_pending_segment_group() {
-    _extra_meta_pb.clear_pending_segment_groups();
-}
-
 void AlphaRowsetMeta::_serialize_extra_meta_pb() {
     std::string extra_properties;
     _extra_meta_pb.SerializeToString(&extra_properties);
