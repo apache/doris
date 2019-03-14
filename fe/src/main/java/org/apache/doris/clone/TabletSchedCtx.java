@@ -799,14 +799,24 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                     // job being submitted, this delta version become a residual version.
                     // we just let this pass
                     LOG.warn("replica's last failed version equals to report version: "
-                            + replica.getLastFailedTimestamp() + " but hash is different: "
+                            + replica.getLastFailedVersion() + " but hash is different: "
                             + replica.getLastFailedVersionHash() + " vs. "
-                            + reportedTablet.getVersion_hash() + ", but we let it pass.");
+                            + reportedTablet.getVersion_hash() + ", but we let it pass."
+                            + " tablet: {}, backend: {}", tabletId, replica.getBackendId());
+                } else if (replica.getVersion() == replica.getLastSuccessVersion()
+                        && replica.getVersionHash() == replica.getLastSuccessVersionHash()
+                        && replica.getVersion() == replica.getLastFailedVersion()) {
+                    // see replica.updateVersionInfo()'s case 5
+                    LOG.warn("replica's version(hash) and last success version(hash) are equal to "
+                            + "last failed version: {}, but last failed version hash is invalid: {}."
+                            + " we let it pass. tablet: {}, backend: {}",
+                            replica.getVersion(), replica.getLastFailedVersionHash(), tabletId, replica.getBackendId());
+                    
                 } else {
                     // do not throw exception, cause we want this clone task retry again.
                     throw new SchedException(Status.RUNNING_FAILED,
                             "replica's last failed version equals to report version: "
-                                    + replica.getLastFailedTimestamp() + " but hash is different: "
+                                    + replica.getLastFailedVersion() + " but hash is different: "
                                     + replica.getLastFailedVersionHash() + " vs. "
                                     + reportedTablet.getVersion_hash());
                 }
