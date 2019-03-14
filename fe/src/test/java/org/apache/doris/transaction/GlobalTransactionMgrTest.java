@@ -316,11 +316,11 @@ public class GlobalTransactionMgrTest {
         List<TabletCommitInfo> tabletCommitInfoList = new ArrayList<>();
         tabletCommitInfoList.add(tabletCommitInfo);
 
-        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob("test", 1L, 1L, "host:port", "topic");
+        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "test", 1L, 1L, "host:port", "topic");
         List<RoutineLoadTaskInfo> routineLoadTaskInfoList = Deencapsulation.getField(routineLoadJob, "routineLoadTaskInfoList");
         routineLoadTaskInfoList.add(routineLoadTaskInfo);
         TransactionState transactionState = new TransactionState(1L, 1L, "label", 1L, LoadJobSourceType.ROUTINE_LOAD_TASK, "be1");
-        transactionState.setTransactionStatus(TransactionStatus.PREPARE);
+        transactionState.setTransactionStatus(TransactionStatus.PREPARE, false);
         Deencapsulation.setField(transactionState, "txnStateChangeListener", routineLoadJob);
         Map<Long, TransactionState> idToTransactionState = Maps.newHashMap();
         idToTransactionState.put(1L, transactionState);
@@ -389,11 +389,11 @@ public class GlobalTransactionMgrTest {
         List<TabletCommitInfo> tabletCommitInfoList = new ArrayList<>();
         tabletCommitInfoList.add(tabletCommitInfo);
 
-        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob("test", 1L, 1L, "host:port", "topic");
+        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "test", 1L, 1L, "host:port", "topic");
         List<RoutineLoadTaskInfo> routineLoadTaskInfoList = Deencapsulation.getField(routineLoadJob, "routineLoadTaskInfoList");
         routineLoadTaskInfoList.add(routineLoadTaskInfo);
         TransactionState transactionState = new TransactionState(1L, 1L, "label", 1L, LoadJobSourceType.ROUTINE_LOAD_TASK, "be1");
-        transactionState.setTransactionStatus(TransactionStatus.PREPARE);
+        transactionState.setTransactionStatus(TransactionStatus.PREPARE, false);
         Deencapsulation.setField(transactionState, "txnStateChangeListener", routineLoadJob);
         Map<Long, TransactionState> idToTransactionState = Maps.newHashMap();
         idToTransactionState.put(1L, transactionState);
