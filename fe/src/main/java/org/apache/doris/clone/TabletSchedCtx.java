@@ -856,7 +856,6 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                 throw new SchedException(Status.UNRECOVERABLE, e.getMessage());
             }
             throw e;
-            
         } finally {
             db.writeUnlock();
         }
@@ -1001,7 +1000,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     public String toString() {
         StringBuilder sb = new StringBuilder();
         sb.append("tablet id: ").append(tabletId).append(", status: ").append(tabletStatus.name());
-        sb.append(", state: ").append(state.name());
+        sb.append(", state: ").append(state.name()).append(", type: ").append(type.name());
         if (srcReplica != null) {
             sb.append(". from backend: ").append(srcReplica.getBackendId());
             sb.append(", src path hash: ").append(srcPathHash);
