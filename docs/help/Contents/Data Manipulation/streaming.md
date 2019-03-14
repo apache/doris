@@ -30,7 +30,7 @@
         例2: 表中有3个列“c1, c2, c3", 源文件中前三列依次对应，但是有多余1列；那么需要指定-H "columns: c1, c2, c3, xxx"; 
         最后一个列随意指定个名称占位即可
         例3: 表中有3个列“year, month, day"三个列，源文件中只有一个时间列，为”2018-06-01 01:02:03“格式；
-        那么可以指定-H "columns: col, year = year(col), month=mont(col), day=day(col)"完成导入
+        那么可以指定-H "columns: col, year = year(col), month=month(col), day=day(col)"完成导入
         
         where: 用于抽取部分数据。用户如果有需要将不需要的数据过滤掉，那么可以通过设定这个选项来达到。
         例1: 只导入大于k1列等于20180601的数据，那么可以在导入时候指定-H "where: k1 = 20180601"
