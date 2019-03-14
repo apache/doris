@@ -488,6 +488,11 @@ int Expr::compute_results_layout(
             data[i].variable_length = true;
         } else if (exprs[i]->type().type == TYPE_DECIMAL) {
             data[i].byte_size = get_byte_size(exprs[i]->type().type);
+
+            // Although the current decimal has a fix-length, for the 
+            // same value, it will work out different hash value due to the
+            // different memory represent if the variable_length here is set 
+            // to false, so we have to keep it.
             data[i].variable_length = true;
         } else {
             data[i].byte_size = get_byte_size(exprs[i]->type().type);
