@@ -86,14 +86,14 @@ OLAPStatus OlapMeta::init() {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus OlapMeta::get(const int column_family_index, const std::string& key, std::string& value) {
+OLAPStatus OlapMeta::get(const int column_family_index, const std::string& key, std::string* value) {
     DorisMetrics::meta_read_request_total.increment(1);
     rocksdb::ColumnFamilyHandle* handle = _handles[column_family_index];
     int64_t duration_ns = 0;
     Status s = Status::OK();
     {
         SCOPED_RAW_TIMER(&duration_ns);
-        s = _db->Get(ReadOptions(), handle, Slice(key), &value);
+        s = _db->Get(ReadOptions(), handle, Slice(key), value);
     }
     DorisMetrics::meta_read_request_duration_us.increment(duration_ns / 1000);
     if (s.IsNotFound()) {
