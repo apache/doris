@@ -247,6 +247,11 @@ public class Replica implements Writable {
      *      V is larger or equal to LFV, reset LFV. And if V is less than LSV, just set V to LSV. This may
      *      happen when a clone task finished and report version V, but the LSV is already larger than V,
      *      And we know that version between V and LSV is valid, so move V forward to LSV.
+     *    
+     * Case 5:
+     *      This is a bug case, I don't know why, may be some previous version introduce it. It looks like
+     *      the V(hash) equals to LSV(hash), and V equals to LFV, but LFV hash is 0 or some unknown number.
+     *      We just reset the LFV(hash) to recovery this replica. 
      */
     private void updateReplicaInfo(long newVersion, long newVersionHash, 
             long lastFailedVersion, long lastFailedVersionHash, 
@@ -319,6 +324,14 @@ public class Replica implements Writable {
                 this.version = this.lastSuccessVersion;
                 this.versionHash = this.lastSuccessVersionHash;
             }
+        }
+
+        // case 5:
+        if (this.version == this.lastSuccessVersion && this.versionHash == this.lastSuccessVersionHash
+                && this.version == this.lastFailedVersion && this.versionHash != this.lastFailedVersionHash) {
+            this.lastFailedVersion = -1;
+            this.lastFailedVersionHash = 0;
+            this.lastFailedTimestamp = -1;
         }
 
         LOG.debug("after update {}", this.toString());
