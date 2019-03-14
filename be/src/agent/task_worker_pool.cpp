@@ -77,9 +77,6 @@ const uint32_t REPORT_TASK_WORKER_COUNT = 1;
 const uint32_t REPORT_DISK_STATE_WORKER_COUNT = 1;
 const uint32_t REPORT_OLAP_TABLE_WORKER_COUNT = 1;
 
-const uint32_t GET_LENGTH_TIMEOUT = 10;
-const uint32_t CURL_OPT_CONNECTTIMEOUT = 120;
-
 std::atomic_ulong TaskWorkerPool::_s_report_version(time(NULL) * 10000);
 Mutex TaskWorkerPool::_s_task_signatures_lock;
 Mutex TaskWorkerPool::_s_running_task_user_count_lock;
@@ -991,9 +988,6 @@ void* TaskWorkerPool::_clone_worker_thread_callback(void* arg_this) {
         task_status.__set_status_code(status_code);
         task_status.__set_error_msgs(error_msgs);
         finish_task_request.__set_task_status(task_status);
-
-        finish_task_request.__set_copy_size(copy_size);
-        finish_task_request.__set_copy_time_ms(copy_time_ms);
 
         worker_pool_this->_finish_task(finish_task_request);
         worker_pool_this->_remove_task_info(agent_task_req.task_type, agent_task_req.signature, "");
