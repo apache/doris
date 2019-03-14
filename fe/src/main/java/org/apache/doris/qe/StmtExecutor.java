@@ -17,10 +17,6 @@
 
 package org.apache.doris.qe;
 
-import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateTableAsSelectStmt;
 import org.apache.doris.analysis.DdlStmt;
@@ -42,8 +38,8 @@ import org.apache.doris.analysis.UnsupportedStmt;
 import org.apache.doris.analysis.UseStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -53,11 +49,11 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.Version;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.common.Version;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlEofPacket;
 import org.apache.doris.mysql.MysqlSerializer;
@@ -68,9 +64,13 @@ import org.apache.doris.rpc.PQueryStatistics;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TQueryOptions;
-import org.apache.doris.thrift.TResultBatch;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TabletCommitInfo;
+
+import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -750,7 +750,7 @@ public class StmtExecutor {
 
     private void handleDdlStmt() {
         try {
-            DdlExecutor.execute(context.getCatalog(), (DdlStmt) parsedStmt);
+            DdlExecutor.execute(context.getCatalog(), (DdlStmt) parsedStmt, originStmt);
             context.getState().setOk();
         } catch (UserException e) {
             // Return message to info client what happened.

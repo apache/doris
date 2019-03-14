@@ -17,16 +17,18 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.base.Strings;
-import com.google.common.collect.ImmutableSet;
-import org.apache.doris.load.routineload.LoadDataSourceType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeNameFormat;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.RoutineLoadDesc;
-import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.load.routineload.LoadDataSourceType;
 
-import java.util.ArrayList;
+import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -57,16 +59,16 @@ import java.util.regex.Pattern;
           load property [[,] load property] ...
 
       load property:
-          column separator | columns | partitions | where
+          column separator | columns_mapping | partitions | where
 
       column separator:
           COLUMNS TERMINATED BY xxx
-      columns:
-          COLUMNS (c1, c2, c3) set (c1, c2, c3=c1+c2)
+      columns_mapping:
+          COLUMNS (c1, c2, c3 = c1 + c2)
       partitions:
           PARTITIONS (p1, p2, p3)
       where:
-          WHERE xxx
+          WHERE c1 > 1
 
       type of routine load:
           KAFKA
@@ -76,6 +78,10 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     public static final String DESIRED_CONCURRENT_NUMBER_PROPERTY = "desired_concurrent_number";
     // max error number in ten thousand records
     public static final String MAX_ERROR_NUMBER_PROPERTY = "max_error_number";
+    // the following 3 properties limit the time and batch size of a single routine load task
+    public static final String MAX_BATCH_INTERVAL_SECOND = "max_batch_interval";
+    public static final String MAX_BATCH_ROWS = "max_batch_rows";
+    public static final String MAX_BATCH_SIZE = "max_batch_size";
 
     // kafka type properties
     public static final String KAFKA_BROKER_LIST_PROPERTY = "kafka_broker_list";
@@ -86,11 +92,13 @@ public class CreateRoutineLoadStmt extends DdlStmt {
 
     private static final String NAME_TYPE = "ROUTINE LOAD NAME";
     private static final String ENDPOINT_REGEX = "[-A-Za-z0-9+&@#/%?=~_|!:,.;]+[-A-Za-z0-9+&@#/%=~_|]";
-    private static final String EMPTY_STRING = "";
 
     private static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
             .add(DESIRED_CONCURRENT_NUMBER_PROPERTY)
             .add(MAX_ERROR_NUMBER_PROPERTY)
+            .add(MAX_BATCH_INTERVAL_SECOND)
+            .add(MAX_BATCH_ROWS)
+            .add(MAX_BATCH_SIZE)
             .build();
 
     private static final ImmutableSet<String> KAFKA_PROPERTIES_SET = new ImmutableSet.Builder<String>()
@@ -103,29 +111,34 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     private final String name;
     private final TableName dbTableName;
     private final List<ParseNode> loadPropertyList;
-    private final Map<String, String> properties;
+    private final Map<String, String> jobProperties;
     private final String typeName;
-    private final Map<String, String> customProperties;
+    private final Map<String, String> dataSourceProperties;
 
-
-    // those load properties will be initialized after analyze
+    // the following variables will be initialized after analyze
+    // -1 as unset, the default value will set in RoutineLoadJob
     private RoutineLoadDesc routineLoadDesc;
-    private int desiredConcurrentNum;
-    private int maxErrorNum;
+    private int desiredConcurrentNum = 1;
+    private int maxErrorNum = -1;
+    private int maxBatchIntervalS = -1;
+    private int maxBatchRows = -1;
+    private int maxBatchSizeBytes = -1;
+
+    // kafka related properties
     private String kafkaBrokerList;
     private String kafkaTopic;
-    private List<Integer> kafkaPartitions;
-    private List<Long> kafkaOffsets;
+    // pair<partition id, offset>
+    private List<Pair<Integer, Long>> kafkaPartitionOffsets = Lists.newArrayList();
 
     public CreateRoutineLoadStmt(String name, TableName dbTableName, List<ParseNode> loadPropertyList,
-                                 Map<String, String> properties,
-                                 String typeName, Map<String, String> customProperties) {
+                                 Map<String, String> jobProperties,
+                                 String typeName, Map<String, String> dataSourceProperties) {
         this.name = name;
         this.dbTableName = dbTableName;
         this.loadPropertyList = loadPropertyList;
-        this.properties = properties;
+        this.jobProperties = jobProperties == null ? Maps.newHashMap() : jobProperties;
         this.typeName = typeName.toUpperCase();
-        this.customProperties = customProperties;
+        this.dataSourceProperties = dataSourceProperties;
     }
 
     public String getName() {
@@ -136,19 +149,10 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         return dbTableName;
     }
 
-    public Map<String, String> getProperties() {
-        return properties;
-    }
-
     public String getTypeName() {
         return typeName;
     }
 
-    public Map<String, String> getCustomProperties() {
-        return customProperties;
-    }
-
-    // nullable
     public RoutineLoadDesc getRoutineLoadDesc() {
         return routineLoadDesc;
     }
@@ -161,6 +165,18 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         return maxErrorNum;
     }
 
+    public int getMaxBatchIntervalS() {
+        return maxBatchIntervalS;
+    }
+
+    public int getMaxBatchRows() {
+        return maxBatchRows;
+    }
+
+    public int getMaxBatchSize() {
+        return maxBatchSizeBytes;
+    }
+
     public String getKafkaBrokerList() {
         return kafkaBrokerList;
     }
@@ -169,50 +185,32 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         return kafkaTopic;
     }
 
-    public List<Integer> getKafkaPartitions() {
-        return kafkaPartitions;
-    }
-
-    public List<Long> getKafkaOffsets(){
-        return kafkaOffsets;
+    public List<Pair<Integer, Long>> getKafkaPartitionOffsets() {
+        return kafkaPartitionOffsets;
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
+    public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
         // check name
         FeNameFormat.checkCommonName(NAME_TYPE, name);
         // check dbName and tableName
-        checkDBTableName();
         dbTableName.analyze(analyzer);
         // check load properties include column separator etc.
         checkLoadProperties(analyzer);
         // check routine load properties include desired concurrent number etc.
-        checkRoutineLoadProperties();
-        // check custom properties
-        checkCustomProperties();
+        checkJobProperties();
+        // check data load source properties
+        checkLoadSourceProperties();
     }
 
-    private void checkDBTableName() throws AnalysisException {
-        if (Strings.isNullOrEmpty(dbTableName.getDb())) {
-            String dbName = ConnectContext.get().getDatabase();
-            if (Strings.isNullOrEmpty(dbName)) {
-                throw new AnalysisException("please choose a database first");
-            }
-            dbTableName.setDb(dbName);
-        }
-        if (Strings.isNullOrEmpty(dbTableName.getTbl())) {
-            throw new AnalysisException("empty table name in create routine load statement");
-        }
-    }
-
-    private void checkLoadProperties(Analyzer analyzer) throws AnalysisException {
+    public void checkLoadProperties(Analyzer analyzer) throws UserException {
         if (loadPropertyList == null) {
             return;
         }
         ColumnSeparator columnSeparator = null;
-        LoadColumnsInfo columnsInfo = null;
-        Expr wherePredicate = null;
+        ImportColumnsStmt importColumnsStmt = null;
+        ImportWhereStmt importWhereStmt = null;
         PartitionNames partitionNames = null;
         for (ParseNode parseNode : loadPropertyList) {
             if (parseNode instanceof ColumnSeparator) {
@@ -221,65 +219,62 @@ public class CreateRoutineLoadStmt extends DdlStmt {
                     throw new AnalysisException("repeat setting of column separator");
                 }
                 columnSeparator = (ColumnSeparator) parseNode;
-                columnSeparator.analyze(analyzer);
-            } else if (parseNode instanceof LoadColumnsInfo) {
+                columnSeparator.analyze(null);
+            } else if (parseNode instanceof ImportColumnsStmt) {
                 // check columns info
-                if (columnsInfo != null) {
+                if (importColumnsStmt != null) {
                     throw new AnalysisException("repeat setting of columns info");
                 }
-                columnsInfo = (LoadColumnsInfo) parseNode;
-                columnsInfo.analyze(analyzer);
-            } else if (parseNode instanceof Expr) {
+                importColumnsStmt = (ImportColumnsStmt) parseNode;
+            } else if (parseNode instanceof ImportWhereStmt) {
                 // check where expr
-                if (wherePredicate != null) {
+                if (importWhereStmt != null) {
                     throw new AnalysisException("repeat setting of where predicate");
                 }
-                wherePredicate = (Expr) parseNode;
-                wherePredicate.analyze(analyzer);
+                importWhereStmt = (ImportWhereStmt) parseNode;
             } else if (parseNode instanceof PartitionNames) {
                 // check partition names
                 if (partitionNames != null) {
                     throw new AnalysisException("repeat setting of partition names");
                 }
                 partitionNames = (PartitionNames) parseNode;
-                partitionNames.analyze(analyzer);
+                partitionNames.analyze(null);
             }
         }
-        routineLoadDesc = new RoutineLoadDesc(columnSeparator, columnsInfo, wherePredicate,
+        routineLoadDesc = new RoutineLoadDesc(columnSeparator, importColumnsStmt, importWhereStmt,
                                               partitionNames.getPartitionNames());
     }
 
-    private void checkRoutineLoadProperties() throws AnalysisException {
-        if (properties != null) {
-            Optional<String> optional = properties.keySet().parallelStream()
-                    .filter(entity -> !PROPERTIES_SET.contains(entity)).findFirst();
-            if (optional.isPresent()) {
-                throw new AnalysisException(optional.get() + " is invalid property");
-            }
-
-            // check desired concurrent number
-            final String desiredConcurrentNumberString = properties.get(DESIRED_CONCURRENT_NUMBER_PROPERTY);
-            if (desiredConcurrentNumberString != null) {
-                desiredConcurrentNum = getIntegerValueFromString(desiredConcurrentNumberString,
-                                                                 DESIRED_CONCURRENT_NUMBER_PROPERTY);
-                if (desiredConcurrentNum <= 0) {
-                    throw new AnalysisException(DESIRED_CONCURRENT_NUMBER_PROPERTY + " must be greater then 0");
-                }
-            }
-
-            // check max error number
-            final String maxErrorNumberString = properties.get(MAX_ERROR_NUMBER_PROPERTY);
-            if (maxErrorNumberString != null) {
-                maxErrorNum = getIntegerValueFromString(maxErrorNumberString, MAX_ERROR_NUMBER_PROPERTY);
-                if (maxErrorNum < 0) {
-                    throw new AnalysisException(MAX_ERROR_NUMBER_PROPERTY + " must be greater then or equal to 0");
-                }
-
-            }
+    private void checkJobProperties() throws AnalysisException {
+        Optional<String> optional = jobProperties.keySet().parallelStream().filter(
+                entity -> !PROPERTIES_SET.contains(entity)).findFirst();
+        if (optional.isPresent()) {
+            throw new AnalysisException(optional.get() + " is invalid property");
         }
+
+        desiredConcurrentNum = getIntegetPropertyOrDefault(DESIRED_CONCURRENT_NUMBER_PROPERTY,
+                "must be greater then 0", desiredConcurrentNum);
+        maxErrorNum = getIntegetPropertyOrDefault(MAX_ERROR_NUMBER_PROPERTY,
+                "must be greater then or equal to 0", maxErrorNum);
+        maxBatchIntervalS = getIntegetPropertyOrDefault(MAX_BATCH_INTERVAL_SECOND,
+                "must be greater then 0", maxBatchIntervalS);
+        maxBatchRows = getIntegetPropertyOrDefault(MAX_BATCH_ROWS, "must be greater then 0", maxBatchRows);
+        maxBatchSizeBytes = getIntegetPropertyOrDefault(MAX_BATCH_SIZE, "must be greater then 0", maxBatchSizeBytes);
     }
 
-    private void checkCustomProperties() throws AnalysisException {
+    private int getIntegetPropertyOrDefault(String propName, String hintMsg, int defaultVal) throws AnalysisException {
+        final String propVal = jobProperties.get(propName);
+        if (propVal != null) {
+            int intVal = getIntegerValueFromString(propVal, propName);
+            if (intVal <= 0) {
+                throw new AnalysisException(propName + " " + hintMsg);
+            }
+            return intVal;
+        }
+        return defaultVal;
+    }
+
+    private void checkLoadSourceProperties() throws AnalysisException {
         LoadDataSourceType type;
         try {
             type = LoadDataSourceType.valueOf(typeName);
@@ -288,23 +283,24 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         }
         switch (type) {
             case KAFKA:
-                checkKafkaCustomProperties();
+                checkKafkaProperties();
                 break;
             default:
                 break;
         }
     }
 
-    private void checkKafkaCustomProperties() throws AnalysisException {
-        Optional<String> optional = customProperties.keySet().parallelStream()
+    private void checkKafkaProperties() throws AnalysisException {
+        Optional<String> optional = dataSourceProperties.keySet().parallelStream()
                 .filter(entity -> !KAFKA_PROPERTIES_SET.contains(entity)).findFirst();
         if (optional.isPresent()) {
             throw new AnalysisException(optional.get() + " is invalid kafka custom property");
         }
-        // check endpoint
-        kafkaBrokerList = customProperties.get(KAFKA_BROKER_LIST_PROPERTY);
+
+        // check broker list
+        kafkaBrokerList = Strings.nullToEmpty(dataSourceProperties.get(KAFKA_BROKER_LIST_PROPERTY)).replaceAll(" ", "");
         if (Strings.isNullOrEmpty(kafkaBrokerList)) {
-            throw new AnalysisException(KAFKA_BROKER_LIST_PROPERTY + " is required property");
+            throw new AnalysisException(KAFKA_BROKER_LIST_PROPERTY + " is a required property");
         }
         String[] kafkaBrokerList = this.kafkaBrokerList.split(",");
         for (String broker : kafkaBrokerList) {
@@ -313,47 +309,70 @@ public class CreateRoutineLoadStmt extends DdlStmt {
                                                     + " not match pattern " + ENDPOINT_REGEX);
             }
         }
+
         // check topic
-        kafkaTopic = customProperties.get(KAFKA_TOPIC_PROPERTY);
+        kafkaTopic = Strings.nullToEmpty(dataSourceProperties.get(KAFKA_TOPIC_PROPERTY)).replaceAll(" ", "");
         if (Strings.isNullOrEmpty(kafkaTopic)) {
-            throw new AnalysisException(KAFKA_TOPIC_PROPERTY + " is required property");
+            throw new AnalysisException(KAFKA_TOPIC_PROPERTY + " is a required property");
         }
+
         // check partitions
-        final String kafkaPartitionsString = customProperties.get(KAFKA_PARTITIONS_PROPERTY);
+        final String kafkaPartitionsString = dataSourceProperties.get(KAFKA_PARTITIONS_PROPERTY);
         if (kafkaPartitionsString != null) {
-            kafkaPartitions = new ArrayList<>();
-            if (kafkaPartitionsString.equals(EMPTY_STRING)) {
+            kafkaPartitionsString.replaceAll(" ", "");
+            if (kafkaPartitionsString.isEmpty()) {
                 throw new AnalysisException(KAFKA_PARTITIONS_PROPERTY + " could not be a empty string");
             }
             String[] kafkaPartionsStringList = kafkaPartitionsString.split(",");
             for (String s : kafkaPartionsStringList) {
                 try {
-                    kafkaPartitions.add(getIntegerValueFromString(s, KAFKA_PARTITIONS_PROPERTY));
+                    kafkaPartitionOffsets.add(Pair.create(getIntegerValueFromString(s, KAFKA_PARTITIONS_PROPERTY), 0L));
                 } catch (AnalysisException e) {
                     throw new AnalysisException(KAFKA_PARTITIONS_PROPERTY
                                                         + " must be a number string with comma-separated");
                 }
             }
         }
-        // check offsets
-        // Todo(ml)
-        final String kafkaOffsetsString = customProperties.get(KAFKA_OFFSETS_PROPERTY);
+
+        // check offset
+        final String kafkaOffsetsString = dataSourceProperties.get(KAFKA_OFFSETS_PROPERTY);
         if (kafkaOffsetsString != null) {
-            kafkaOffsets = new ArrayList<>();
-            String[] kafkaOffsetsStringList = customProperties.get(KAFKA_OFFSETS_PROPERTY).split(",");
-            for (String s : kafkaOffsetsStringList) {
-                kafkaOffsets.add(Long.valueOf(s));
+            kafkaOffsetsString.replaceAll(" ", "");
+            if (kafkaOffsetsString.isEmpty()) {
+                throw new AnalysisException(KAFKA_OFFSETS_PROPERTY + " could not be a empty string");
+            }
+            String[] kafkaOffsetsStringList = kafkaOffsetsString.split(",");
+            if (kafkaOffsetsStringList.length != kafkaPartitionOffsets.size()) {
+                throw new AnalysisException("Partitions number should be equals to offsets number");
+            }
+
+            for (int i = 0; i < kafkaOffsetsStringList.length; i++) {
+                kafkaPartitionOffsets.get(i).second = getLongValueFromString(kafkaOffsetsStringList[i],
+                        KAFKA_OFFSETS_PROPERTY);
             }
         }
     }
 
     private int getIntegerValueFromString(String valueString, String propertyName) throws AnalysisException {
-        if (valueString.equals(EMPTY_STRING)) {
+        if (valueString.isEmpty()) {
             throw new AnalysisException(propertyName + " could not be a empty string");
         }
         int value;
         try {
             value = Integer.valueOf(valueString);
+        } catch (NumberFormatException e) {
+            throw new AnalysisException(propertyName + " must be a integer");
+        }
+        return value;
+    }
+
+    private long getLongValueFromString(String valueString, String propertyName) throws AnalysisException {
+        if (valueString.isEmpty()) {
+            throw new AnalysisException(propertyName + " could not be a empty string");
+        }
+        long value;
+        try {
+            value = Long.valueOf(valueString);
         } catch (NumberFormatException e) {
             throw new AnalysisException(propertyName + " must be a integer");
         }
