@@ -486,6 +486,9 @@ int Expr::compute_results_layout(
                 || exprs[i]->type().type == TYPE_VARCHAR) {
             data[i].byte_size = 16;
             data[i].variable_length = true;
+        } else if (exprs[i]->type().type == TYPE_DECIMAL) {
+            data[i].byte_size = get_byte_size(exprs[i]->type().type);
+            data[i].variable_length = true;
         } else {
             data[i].byte_size = get_byte_size(exprs[i]->type().type);
             data[i].variable_length = false;
