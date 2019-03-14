@@ -294,7 +294,7 @@ OLAPStatus OLAPHeader::add_pending_version(
         if (pending_delta(i).transaction_id() == transaction_id) {
             LOG(WARNING) << "pending delta already exists in header."
                          << "transaction_id: " << transaction_id;
-            return OLAP_ERR_HEADER_ADD_PENDING_DELTA;
+            return OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST;
         }
     }
 
