@@ -39,6 +39,17 @@ class RowBlock;
 // defined in 'row_cursor.h'
 class RowCursor;
 
+struct ColumnMapping {
+    ColumnMapping() : ref_column(-1), default_value(nullptr) {}
+    virtual ~ColumnMapping() {}
+
+    // <0: use default value
+    // >=0: use origin column
+    int32_t ref_column;
+    // normally for default value. stores values for filters
+    WrapperField* default_value;
+};
+
 class RowBlockChanger {
 public:
     typedef std::vector<ColumnMapping> SchemaMapping;

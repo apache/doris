@@ -68,7 +68,7 @@ RowBlockChanger::~RowBlockChanger() {
 
 ColumnMapping* RowBlockChanger::get_mutable_column_mapping(size_t column_index) {
     if (column_index >= _schema_mapping.size()) {
-        return NULL;
+        return nullptr;
     }
 
     return &(_schema_mapping[column_index]);
@@ -149,7 +149,7 @@ bool RowBlockChanger::change_row_block(
         int32_t data_version,
         RowBlock* mutable_block,
         uint64_t* filtered_rows) const {
-    if (mutable_block == NULL) {
+    if (mutable_block == nullptr) {
         LOG(FATAL) << "mutable block is uninitialized.";
         return false;
     } else if (mutable_block->tablet_schema().num_columns() != _schema_mapping.size()) {
@@ -236,7 +236,7 @@ bool RowBlockChanger::change_row_block(
                         write_helper.set_null(i);
                     } else {
                         const Field* field_to_read = read_helper.get_field_by_index(ref_column);
-                        if (NULL == field_to_read) {
+                        if (nullptr == field_to_read) {
                             LOG(WARNING) << "failed to get ref field. index=" << ref_column;
                             return false;
                         }
@@ -281,7 +281,7 @@ bool RowBlockChanger::change_row_block(
                     } else {
                         // 要写入的
                         const Field* field_to_read = read_helper.get_field_by_index(ref_column);
-                        if (NULL == field_to_read) {
+                        if (nullptr == field_to_read) {
                             LOG(WARNING) << "failed to get ref field. index=" << ref_column;
                             return false;
                         }
@@ -368,12 +368,12 @@ bool RowBlockChanger::change_row_block(
 
 RowBlockSorter::RowBlockSorter(RowBlockAllocator* row_block_allocator) :
         _row_block_allocator(row_block_allocator),
-        _swap_row_block(NULL) {}
+        _swap_row_block(nullptr) {}
 
 RowBlockSorter::~RowBlockSorter() {
     if (_swap_row_block) {
         _row_block_allocator->release(_swap_row_block);
-        _swap_row_block = NULL;
+        _swap_row_block = nullptr;
     }
 }
 
@@ -381,14 +381,14 @@ bool RowBlockSorter::sort(RowBlock** row_block) {
     uint32_t row_num = (*row_block)->row_block_info().row_num;
     bool null_supported = (*row_block)->row_block_info().null_supported;
 
-    if (_swap_row_block == NULL || _swap_row_block->capacity() < row_num) {
-        if (_swap_row_block != NULL) {
+    if (_swap_row_block == nullptr || _swap_row_block->capacity() < row_num) {
+        if (_swap_row_block != nullptr) {
             _row_block_allocator->release(_swap_row_block);
-            _swap_row_block = NULL;
+            _swap_row_block = nullptr;
         }
 
         if (_row_block_allocator->allocate(&_swap_row_block, row_num, null_supported) != OLAP_SUCCESS
-                || _swap_row_block == NULL) {
+                || _swap_row_block == nullptr) {
             LOG(WARNING) << "fail to allocate memory.";
             return false;
         }
@@ -401,12 +401,12 @@ bool RowBlockSorter::sort(RowBlock** row_block) {
         return false;
     }
 
-    RowBlock* temp = NULL;
-    vector<RowCursor*> row_cursor_list((*row_block)->row_block_info().row_num, NULL);
+    RowBlock* temp = nullptr;
+    vector<RowCursor*> row_cursor_list((*row_block)->row_block_info().row_num, nullptr);
 
     // create an list of row cursor as long as the number of rows in data block.
     for (size_t i = 0; i < (*row_block)->row_block_info().row_num; ++i) {
-        if ((row_cursor_list[i] = new(nothrow) RowCursor()) == NULL) {
+        if ((row_cursor_list[i] = new(nothrow) RowCursor()) == nullptr) {
             LOG(WARNING) << "failed to malloc RowCursor. size=" << sizeof(RowCursor);
             goto SORT_ERR_EXIT;
         }
@@ -478,14 +478,14 @@ OLAPStatus RowBlockAllocator::allocate(RowBlock** row_block,
             && _memory_allocated + row_block_size > _memory_limitation) {
         VLOG(3) << "RowBlockAllocator::alocate() memory exceeded. "
                 << "m_memory_allocated=" << _memory_allocated;
-        *row_block = NULL;
+        *row_block = nullptr;
         return OLAP_SUCCESS;
     }
 
     // TODO(lijiao) : 为什么舍弃原有的m_row_block_buffer
     *row_block = new(nothrow) RowBlock(&_tablet_schema);
 
-    if (*row_block == NULL) {
+    if (*row_block == nullptr) {
         LOG(WARNING) << "failed to malloc RowBlock. size=" << sizeof(RowBlock);
         return OLAP_ERR_MALLOC_ERROR;
     }
@@ -595,7 +595,7 @@ bool RowBlockMerger::_make_heap(const vector<RowBlock*>& row_block_arr) {
         element.row_block_index = 0;
         element.row_cursor = new(nothrow) RowCursor();
 
-        if (element.row_cursor == NULL) {
+        if (element.row_cursor == nullptr) {
             LOG(FATAL) << "failed to malloc RowCursor. size=" << sizeof(RowCursor);
             return false;
         }
@@ -656,19 +656,22 @@ SchemaChangeDirectly::SchemaChangeDirectly(
         const RowBlockChanger& row_block_changer) :
         _tablet(tablet),
         _row_block_changer(row_block_changer),
-        _row_block_allocator(NULL),
-        _src_cursor(NULL) {}
+        _row_block_allocator(nullptr),
+        _src_cursor(nullptr),
+        _dst_cursor(nullptr) { }
 
 SchemaChangeDirectly::~SchemaChangeDirectly() {
     VLOG(3) << "~SchemaChangeDirectly()";
     SAFE_DELETE(_row_block_allocator);
     SAFE_DELETE(_src_cursor);
+    SAFE_DELETE(_dst_cursor);
 }
 
 bool SchemaChangeDirectly::_write_row_block(RowsetWriterSharedPtr rowset_writer, RowBlock* row_block) {
     for (uint32_t i = 0; i < row_block->row_block_info().row_num; i++) {
         row_block->get_row(i, _src_cursor);
-        if (OLAP_SUCCESS != rowset_writer->add_row(_src_cursor)) {
+        _dst_cursor->copy(*_src_cursor, rowset_writer->mem_pool());
+        if (OLAP_SUCCESS != rowset_writer->add_row(_dst_cursor)) {
             LOG(WARNING) << "fail to attach writer";
             return false;
         }
@@ -688,14 +691,27 @@ bool SchemaChangeDirectly::process(RowsetReaderSharedPtr rowset_reader, RowsetWr
         }
     }
 
-    if (NULL == _src_cursor) {
+    if (nullptr == _src_cursor) {
         _src_cursor = new(nothrow) RowCursor();
-        if (NULL == _src_cursor) {
+        if (nullptr == _src_cursor) {
             LOG(WARNING) << "fail to allocate row cursor.";
             return false;
         }
 
         if (OLAP_SUCCESS != _src_cursor->init(_tablet->tablet_schema())) {
+            LOG(WARNING) << "fail to init row cursor.";
+            return false;
+        }
+    }
+
+    if (nullptr == _dst_cursor) {
+        _dst_cursor = new(nothrow) RowCursor();
+        if (nullptr == _dst_cursor) {
+            LOG(WARNING) << "fail to allocate row cursor.";
+            return false;
+        }
+
+        if (OLAP_SUCCESS != _dst_cursor->init(_tablet->tablet_schema())) {
             LOG(WARNING) << "fail to init row cursor.";
             return false;
         }
@@ -726,7 +742,7 @@ bool SchemaChangeDirectly::process(RowsetReaderSharedPtr rowset_reader, RowsetWr
     VLOG(3) << "init writer. tablet=" << _tablet->full_name()
             << "block_row_number=" << _tablet->num_rows_per_row_block();
     bool result = true;
-    RowBlock* new_row_block = NULL;
+    RowBlock* new_row_block = nullptr;
 
     // Reset filtered_rows and merged_rows statistic
     reset_merged_rows();
@@ -740,11 +756,11 @@ bool SchemaChangeDirectly::process(RowsetReaderSharedPtr rowset_reader, RowsetWr
     rowset_reader->next_block(ref_row_block);
     while (ref_row_block->has_remaining()) {
         // 注意这里强制分配和旧块等大的块(小了可能会存不下)
-        if (NULL == new_row_block
+        if (nullptr == new_row_block
                 || new_row_block->capacity() < ref_row_block->row_block_info().row_num) {
-            if (NULL != new_row_block) {
+            if (nullptr != new_row_block) {
                 _row_block_allocator->release(new_row_block);
-                new_row_block = NULL;
+                new_row_block = nullptr;
             }
 
             if (OLAP_SUCCESS != _row_block_allocator->allocate(
@@ -820,7 +836,7 @@ SchemaChangeWithSorting::SchemaChangeWithSorting(TabletSharedPtr tablet,
         _tablet(tablet),
         _row_block_changer(row_block_changer),
         _memory_limitation(memory_limitation),
-        _row_block_allocator(NULL) {
+        _row_block_allocator(nullptr) {
     // 每次SchemaChange做外排的时候，会写一些临时版本（比如999,1000,1001），为避免Cache冲突，临时
     // 版本进行2个处理：
     // 1. 随机值作为VersionHash
@@ -1457,7 +1473,7 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
     // NOTE split_table如果使用row_block，会导致原block变小
     // 但由于历史数据在后续base/cumulative后还是会变成正常，故用directly也可以
     // b. 生成历史数据转换器
-    SchemaChange* sc_procedure = NULL;
+    SchemaChange* sc_procedure = nullptr;
     if (true == sc_sorting) {
         size_t memory_limitation = config::memory_limitation_per_thread_for_schema_change;
         LOG(INFO) << "doing schema change with sorting.";
@@ -1476,7 +1492,7 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
                                 new_tablet);
     }
 
-    if (NULL == sc_procedure) {
+    if (nullptr == sc_procedure) {
         LOG(FATAL) << "failed to malloc SchemaChange. size=" << sizeof(SchemaChangeWithSorting);
         return OLAP_ERR_MALLOC_ERROR;
     }
@@ -1647,7 +1663,7 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
 
     bool sc_sorting = false;
     bool sc_directly = false;
-    SchemaChange* sc_procedure = NULL;
+    SchemaChange* sc_procedure = nullptr;
 
     // a. 解析Alter请求，转换成内部的表示形式
     OLAPStatus res = _parse_request(sc_params.base_tablet, sc_params.new_tablet,
@@ -1935,7 +1951,7 @@ OLAPStatus SchemaChangeHandler::_init_column_mapping(ColumnMapping* column_mappi
                                                      const std::string& value) {
     column_mapping->default_value = WrapperField::create(column_schema);
 
-    if (column_mapping->default_value == NULL) {
+    if (column_mapping->default_value == nullptr) {
         return OLAP_ERR_MALLOC_ERROR;
     }
 
