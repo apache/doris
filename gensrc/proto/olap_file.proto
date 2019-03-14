@@ -98,7 +98,6 @@ message RowsetMetaPB {
 
 message AlphaRowsetExtraMetaPB {
     repeated SegmentGroupPB segment_groups = 1;
-    repeated PendingSegmentGroupPB pending_segment_groups = 2;
 }
 
 message SegmentGroupPB {
@@ -109,6 +108,7 @@ message SegmentGroupPB {
     required int64 num_rows = 5;
     repeated ZoneMap zone_maps = 6;
     optional bool empty = 7;
+    optional PUniqueId load_id = 8;
 }
 
 message PPendingDelta {
