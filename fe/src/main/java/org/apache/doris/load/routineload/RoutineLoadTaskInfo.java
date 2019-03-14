@@ -102,7 +102,7 @@ public abstract class RoutineLoadTaskInfo {
         RoutineLoadJob routineLoadJob = routineLoadManager.getJob(jobId);
         txnId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(
                 routineLoadJob.getDbId(), DebugUtil.printId(id), -1, "streamLoad",
-                TransactionState.LoadJobSourceType.ROUTINE_LOAD_TASK, routineLoadJob);
+                TransactionState.LoadJobSourceType.ROUTINE_LOAD_TASK, routineLoadJob.getId());
     }
     
     @Override

@@ -17,7 +17,6 @@
 
 package org.apache.doris.load.routineload;
 
-import com.google.common.base.Joiner;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.common.AnalysisException;
@@ -32,6 +31,7 @@ import org.apache.doris.thrift.TRoutineLoadTask;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.BeginTransactionException;
 
+import com.google.common.base.Joiner;
 import com.google.common.collect.Maps;
 
 import java.util.ArrayList;
@@ -64,7 +64,7 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         return partitions;
     }
 
-    // todo: reuse plan fragment of stream load
+    // TODO: reuse plan fragment of stream load
     @Override
     public TRoutineLoadTask createRoutineLoadTask() throws LoadException, UserException {
         KafkaRoutineLoadJob routineLoadJob = (KafkaRoutineLoadJob) routineLoadManager.getJob(jobId);
@@ -101,6 +101,9 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         tRoutineLoadTask.setKafka_load_info(tKafkaLoadInfo);
         tRoutineLoadTask.setType(TLoadSourceType.KAFKA);
         tRoutineLoadTask.setParams(updateTExecPlanFragmentParams(routineLoadJob));
+        tRoutineLoadTask.setMax_interval_s(routineLoadJob.getMaxBatchIntervalS());
+        tRoutineLoadTask.setMax_batch_rows(routineLoadJob.getMaxBatchRows());
+        tRoutineLoadTask.setMax_batch_size(routineLoadJob.getMaxBatchSizeBytes());
         return tRoutineLoadTask;
     }
 
