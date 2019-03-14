@@ -96,10 +96,10 @@ public class RoutineLoadTaskScheduler extends Daemon {
         int scheduledTaskNum = 0;
         // get idle be task num
         // allocate task to be
-        if (needScheduleTaskNum == 0) {
-            Thread.sleep(1000);
-            return;
-        }
+//        if (needScheduleTaskNum == 0) {
+//            Thread.sleep(1000);
+//            return;
+//        }
         while (needScheduleTaskNum > 0) {
             // allocate be to task and begin transaction for task
             RoutineLoadTaskInfo routineLoadTaskInfo = null;
@@ -107,7 +107,7 @@ public class RoutineLoadTaskScheduler extends Daemon {
                 routineLoadTaskInfo = needScheduleTasksQueue.take();
             } catch (InterruptedException e) {
                 LOG.warn("Taking routine load task from queue has been interrupted with error msg {}",
-                         e.getMessage());
+                         e.getMessage(),e);
                 return;
             }
             RoutineLoadJob routineLoadJob = null;
@@ -192,6 +192,7 @@ public class RoutineLoadTaskScheduler extends Daemon {
             if (routineLoadManager.checkBeToTask(routineLoadTaskInfo.getPreviousBeId(), routineLoadJob.getClusterName())) {
                 LOG.debug(new LogBuilder(LogKey.ROUINTE_LOAD_TASK, routineLoadTaskInfo.getId())
                                   .add("job_id", routineLoadJob.getId())
+                                  .add("previous_be_id", routineLoadTaskInfo.getPreviousBeId())
                                   .add("msg", "task use the previous be id")
                                   .build());
                 routineLoadTaskInfo.setBeId(routineLoadTaskInfo.getPreviousBeId());
