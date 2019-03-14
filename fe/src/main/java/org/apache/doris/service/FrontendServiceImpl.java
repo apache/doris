@@ -593,7 +593,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         long timestamp = request.isSetTimestamp() ? request.getTimestamp() : -1;
         return Catalog.getCurrentGlobalTransactionMgr().beginTransaction(
                 db.getId(), request.getLabel(), timestamp, "streamLoad",
-                TransactionState.LoadJobSourceType.BACKEND_STREAMING, null);
+                TransactionState.LoadJobSourceType.BACKEND_STREAMING, -1);
     }
 
     @Override
@@ -729,6 +729,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
             throw new UserException("unknown database, database=" + dbName);
         }
+
         db.readLock();
         try {
             Table table = db.getTable(request.getTbl());

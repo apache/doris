@@ -48,9 +48,6 @@ public:
         for (auto& p : t_info.partition_begin_offset) {
             cmt_offset[p.first] = p.second -1;
         }
-        if (t_info.__isset.max_interval_s) { max_interval_s = t_info.max_interval_s; }
-        if (t_info.__isset.max_batch_rows) { max_batch_rows = t_info.max_batch_rows; }
-        if (t_info.__isset.max_batch_size) { max_batch_size = t_info.max_batch_size; }
     }
 
 public:
@@ -120,6 +117,12 @@ public:
     std::string label;
 
     AuthInfo auth;
+
+    // the following members control the max progress of a consuming
+    // process. if any of them reach, the consuming will finish.
+    int64_t max_interval_s = 5;
+    int64_t max_batch_rows = 100000;
+    int64_t max_batch_size = 100 * 1024 * 1024; // 100MB
 
     // only used to check if we receive whole body
     size_t body_bytes = 0;
