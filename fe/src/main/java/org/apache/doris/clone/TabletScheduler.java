@@ -366,6 +366,12 @@ public class TabletScheduler extends Daemon {
                             if (tabletCtx.getFailedSchedCounter() > 10) {
                                 finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.CANCELLED,
                                         "schedule failed too many times and " + e.getMessage());
+                            } else {
+                                // we must release resource it current hold, and be scheduled again
+                                tabletCtx.releaseResource(this);
+                                // adjust priority to avoid some higher priority always be the first in pendingTablets
+                                stat.counterTabletScheduledFailed.incrementAndGet();
+                                dynamicAdjustPrioAndAddBackToPendingTablets(tabletCtx, e.getMessage());
                             }
                         }
                     } else {
@@ -1253,8 +1259,8 @@ public class TabletScheduler extends Daemon {
             return -1;
         }
 
-        public void freeBalanceSlot(long destPathHash) {
-            Slot slot = pathSlots.get(destPathHash);
+        public synchronized void freeBalanceSlot(long pathHash) {
+            Slot slot = pathSlots.get(pathHash);
             if (slot == null) {
                 return;
             }
