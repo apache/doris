@@ -149,32 +149,24 @@ void AlphaRowset::set_version_and_version_hash(Version version,  VersionHash ver
         return;
     }
 
-    _is_pending_rowset = false;
     AlphaRowsetMetaSharedPtr alpha_rowset_meta =
             std::dynamic_pointer_cast<AlphaRowsetMeta>(_rowset_meta);
+    vector<SegmentGroupPB> published_segment_groups;
+    alpha_rowset_meta->get_segment_groups(&published_segment_groups);
+    int32_t segment_group_idx = 0;
     for (auto segment_group : _segment_groups) {
         segment_group->set_version(version);
         segment_group->set_version_hash(version_hash);
-        SegmentGroupPB segment_group_pb;
-        segment_group_pb.set_segment_group_id(segment_group->segment_group_id());
-        segment_group_pb.set_num_segments(segment_group->num_segments());
-        segment_group_pb.set_index_size(segment_group->index_size());
-        segment_group_pb.set_data_size(segment_group->data_size());
-        segment_group_pb.set_num_rows(segment_group->num_rows());
-        const std::vector<KeyRange>& zone_maps = segment_group->get_zone_maps();
-        if (zone_maps.size() > 0) {
-            for (size_t i = 0; i < zone_maps.size(); ++i) {
-                ZoneMap* new_zone_map = segment_group_pb.add_zone_maps();
-                new_zone_map->set_min(zone_maps.at(i).first->to_string());
-                new_zone_map->set_max(zone_maps.at(i).second->to_string());
-                new_zone_map->set_null_flag(zone_maps.at(i).first->is_null());
-            }
-        }
-        segment_group_pb.set_empty(segment_group->empty());
-        alpha_rowset_meta->add_segment_group(segment_group_pb);
         segment_group->set_pending_finished();
+        published_segment_groups.at(segment_group_idx).clear_load_id();
+        ++segment_group_idx;
     }
-    alpha_rowset_meta->clear_pending_segment_group();
+    alpha_rowset_meta->clear_segment_group();
+    for (auto& segment_group_meta : published_segment_groups) {
+        alpha_rowset_meta->add_segment_group(segment_group_meta);
+    }
+
+    _is_pending_rowset = false;
 }
 
 int64_t AlphaRowset::start_version() const {
@@ -391,19 +383,25 @@ bool AlphaRowset::check_path(const std::string& path) {
     return valid_paths.find(path) != valid_paths.end();
 }
 
-OLAPStatus AlphaRowset::_init_non_pending_segment_groups() {
+OLAPStatus AlphaRowset::_init_segment_groups() {
     std::vector<SegmentGroupPB> segment_group_metas;
     AlphaRowsetMetaSharedPtr _alpha_rowset_meta = std::dynamic_pointer_cast<AlphaRowsetMeta>(_rowset_meta);
     _alpha_rowset_meta->get_segment_groups(&segment_group_metas);
     for (auto& segment_group_meta : segment_group_metas) {
-        Version version = _rowset_meta->version();
-        int64_t version_hash = _rowset_meta->version_hash();
-        std::shared_ptr<SegmentGroup> segment_group(new(std::nothrow) SegmentGroup(_rowset_meta->tablet_id(),
-                _rowset_meta->rowset_id(), _schema, _rowset_path, version, version_hash,
+        std::shared_ptr<SegmentGroup> segment_group;
+        if (_is_pending_rowset) {
+            segment_group.reset(new SegmentGroup(_rowset_meta->tablet_id(),
+                    _rowset_meta->rowset_id(), _schema, _rowset_path, false, segment_group_meta.segment_group_id(),
+                    segment_group_meta.num_segments(), true, 
+                    _rowset_meta->partition_id(), _rowset_meta->txn_id()));
+        } else {
+            segment_group.reset(new SegmentGroup(_rowset_meta->tablet_id(),
+                _rowset_meta->rowset_id(), _schema, _rowset_path, 
+                _rowset_meta->version(), _rowset_meta->version_hash(),
                 false, segment_group_meta.segment_group_id(), segment_group_meta.num_segments()));
+        }
         if (segment_group == nullptr) {
-            LOG(WARNING) << "fail to create olap segment_group. [version='" << version.first
-                << "-" << version.second << "' rowset_id='" << _rowset_meta->rowset_id() << "']";
+            LOG(WARNING) << "fail to create olap segment_group. rowset_id='" << _rowset_meta->rowset_id();
             return OLAP_ERR_CREATE_FILE_ERROR;
         }
         if (segment_group_meta.has_empty()) {
@@ -447,71 +445,6 @@ OLAPStatus AlphaRowset::_init_non_pending_segment_groups() {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus AlphaRowset::_init_pending_segment_groups() {
-    std::vector<PendingSegmentGroupPB> pending_segment_group_metas;
-    AlphaRowsetMetaSharedPtr _alpha_rowset_meta = std::dynamic_pointer_cast<AlphaRowsetMeta>(_rowset_meta);
-    _alpha_rowset_meta->get_pending_segment_groups(&pending_segment_group_metas);
-    for (auto& pending_segment_group_meta : pending_segment_group_metas) {
-        Version version = _rowset_meta->version();
-        int64_t txn_id = _rowset_meta->txn_id();
-        int64_t partition_id = _rowset_meta->partition_id();
-        std::shared_ptr<SegmentGroup> segment_group(new SegmentGroup(_rowset_meta->tablet_id(),
-                _rowset_meta->rowset_id(), _schema, _rowset_path, false, pending_segment_group_meta.pending_segment_group_id(),
-                pending_segment_group_meta.num_segments(), true, partition_id, txn_id));
-        if (segment_group == nullptr) {
-            LOG(WARNING) << "fail to create olap segment_group. [version='" << version.first
-                << "-" << version.second << "' rowset_id='" << _rowset_meta->rowset_id() << "']";
-            return OLAP_ERR_CREATE_FILE_ERROR;
-        }
-        _segment_groups.push_back(segment_group);
-        if (pending_segment_group_meta.has_empty()) {
-            segment_group->set_empty(pending_segment_group_meta.empty());
-        }
-
-        if (pending_segment_group_meta.zone_maps_size() != 0) {
-            size_t zone_maps_size = pending_segment_group_meta.zone_maps_size();
-            size_t num_key_columns = _schema->num_key_columns();
-            if (num_key_columns != zone_maps_size) {
-                LOG(ERROR) << "column pruning size is error."
-                        << "zone_maps_size=" << zone_maps_size << ", "
-                        << "num_key_columns=" << _schema->num_key_columns();
-                return OLAP_ERR_TABLE_INDEX_VALIDATE_ERROR;
-            }
-            std::vector<std::pair<std::string, std::string>> zone_map_strings(num_key_columns);
-            std::vector<bool> null_vec(num_key_columns);
-            for (size_t j = 0; j < num_key_columns; ++j) {
-                const ZoneMap& zone_map = pending_segment_group_meta.zone_maps(j);
-                zone_map_strings[j].first = zone_map.min();
-                zone_map_strings[j].second = zone_map.max();
-                if (zone_map.has_null_flag()) {
-                    null_vec[j] = zone_map.null_flag();
-                } else {
-                    null_vec[j] = false;
-                }
-            }
-            OLAPStatus status = segment_group->add_zone_maps(zone_map_strings, null_vec);
-            if (status != OLAP_SUCCESS) {
-                LOG(WARNING) << "segment group add column statistics failed, status:" << status;
-                return status;
-            }
-        }
-    }
-    if (_is_cumulative_rowset && _segment_groups.size() > 1) {
-        LOG(WARNING) << "invalid segment group meta for cumulative rowset. segment group size:"
-                << _segment_groups.size();
-        return OLAP_ERR_ENGINE_LOAD_INDEX_TABLE_ERROR;
-    }
-    return OLAP_SUCCESS;
-}
-
-OLAPStatus AlphaRowset::_init_segment_groups() {
-    if (_is_pending_rowset) {
-        return _init_pending_segment_groups();
-    } else {
-        return _init_non_pending_segment_groups();
-    }
-}
-
 std::shared_ptr<SegmentGroup> AlphaRowset::_segment_group_with_largest_size() {
     std::shared_ptr<SegmentGroup> largest_segment_group = nullptr;
     size_t largest_segment_group_sizes = 0;
@@ -532,9 +465,9 @@ OLAPStatus AlphaRowset::reset_sizeinfo() {
     if (!is_loaded()) {
         RETURN_NOT_OK(load());
     }
-    // std::vector<PendingSegmentGroupPB> pending_segment_group_metas;
+    std::vector<SegmentGroupPB> segment_group_metas;
     AlphaRowsetMetaSharedPtr alpha_rowset_meta = std::dynamic_pointer_cast<AlphaRowsetMeta>(_rowset_meta);
-    // alpha_rowset_meta->get_pending_segment_groups(&pending_segment_group_metas);
+    alpha_rowset_meta->get_segment_groups(&segment_group_metas);
     int32_t segment_group_idx = 0;
     for (auto segment_group : _segment_groups) {
         alpha_rowset_meta->set_data_disk_size(alpha_rowset_meta->data_disk_size() + segment_group->data_size());
@@ -542,15 +475,15 @@ OLAPStatus AlphaRowset::reset_sizeinfo() {
         alpha_rowset_meta->set_total_disk_size(alpha_rowset_meta->total_disk_size()
                 + segment_group->index_size() + segment_group->data_size());
         alpha_rowset_meta->set_num_rows(alpha_rowset_meta->num_rows() + segment_group->num_rows());
-        // pending_segment_group_metas.at(segment_group_idx).set_index_size(segment_group->index_size());
-        // pending_segment_group_metas.at(segment_group_idx).set_data_size(segment_group->data_size());
-        // pending_segment_group_metas.at(segment_group_idx).set_num_rows(segment_group->num_rows());
+        segment_group_metas.at(segment_group_idx).set_index_size(segment_group->index_size());
+        segment_group_metas.at(segment_group_idx).set_data_size(segment_group->data_size());
+        segment_group_metas.at(segment_group_idx).set_num_rows(segment_group->num_rows());
         ++segment_group_idx;
     }
-    // alpha_rowset_meta->clear_pending_segment_group();
-    // for (auto& pending_segment_group_meta : pending_segment_group_metas) {
-    //     alpha_rowset_meta->add_pending_segment_group(pending_segment_group_meta);
-    // }
+    alpha_rowset_meta->clear_segment_group();
+    for (auto& segment_group_meta : segment_group_metas) {
+        alpha_rowset_meta->add_segment_group(segment_group_meta);
+    }
     return OLAP_SUCCESS;
 }
 

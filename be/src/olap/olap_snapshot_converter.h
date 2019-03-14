@@ -52,8 +52,6 @@ public:
 
     OLAPStatus convert_to_pdelta(const RowsetMetaPB& rowset_meta_pb, PDelta* delta);
 
-    OLAPStatus convert_to_ppending_delta(const RowsetMetaPB& rowset_meta_pb, PPendingDelta* pending_delta);
-
     OLAPStatus convert_to_rowset_meta(const PDelta& delta, int64_t rowset_id, int64_t tablet_id, 
         int32_t schema_hash, RowsetMetaPB* rowset_meta_pb);
 

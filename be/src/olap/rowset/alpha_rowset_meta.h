@@ -37,11 +37,7 @@ public:
 
     void add_segment_group(const SegmentGroupPB& segment_group);
 
-    void get_pending_segment_groups(std::vector<PendingSegmentGroupPB>* pending_segment_groups);
-
-    void add_pending_segment_group(const PendingSegmentGroupPB& pending_segment_group);
-
-    void clear_pending_segment_group();
+    void clear_segment_group();
 
 private:
     void _serialize_extra_meta_pb();

@@ -149,47 +149,30 @@ RowsetSharedPtr AlphaRowsetWriter::build() {
         _current_rowset_meta->set_index_disk_size(_current_rowset_meta->index_disk_size() + segment_group->index_size());
         _current_rowset_meta->set_total_disk_size(_current_rowset_meta->total_disk_size()
                 + segment_group->index_size() + segment_group->data_size());
+        SegmentGroupPB segment_group_pb;
+        segment_group_pb.set_segment_group_id(segment_group->segment_group_id());
+        segment_group_pb.set_num_segments(segment_group->num_segments());
+        segment_group_pb.set_index_size(segment_group->index_size());
+        segment_group_pb.set_data_size(segment_group->data_size());
+        segment_group_pb.set_num_rows(segment_group->num_rows());
+        const std::vector<KeyRange>& zone_maps = segment_group->get_zone_maps();
+        if (!zone_maps.empty()) {
+            for (size_t i = 0; i < zone_maps.size(); ++i) {
+                ZoneMap* new_zone_map = segment_group_pb.add_zone_maps();
+                new_zone_map->set_min(zone_maps.at(i).first->to_string());
+                new_zone_map->set_max(zone_maps.at(i).second->to_string());
+                new_zone_map->set_null_flag(zone_maps.at(i).first->is_null());
+            }
+        }
         if (_is_pending_rowset) {
-            PendingSegmentGroupPB pending_segment_group_pb;
-            pending_segment_group_pb.set_pending_segment_group_id(segment_group->segment_group_id());
-            pending_segment_group_pb.set_num_segments(segment_group->num_segments());
-            PUniqueId* unique_id = pending_segment_group_pb.mutable_load_id();
+            PUniqueId* unique_id = segment_group_pb.mutable_load_id();
             unique_id->set_hi(_rowset_writer_context.load_id.hi());
             unique_id->set_lo(_rowset_writer_context.load_id.lo());
-            pending_segment_group_pb.set_empty(segment_group->empty());
-            const std::vector<KeyRange>& zone_maps = segment_group->get_zone_maps();
-            if (!zone_maps.empty()) {
-                for (size_t i = 0; i < zone_maps.size(); ++i) {
-                    ZoneMap* new_zone_map = pending_segment_group_pb.add_zone_maps();
-                    new_zone_map->set_min(zone_maps.at(i).first->to_string());
-                    new_zone_map->set_max(zone_maps.at(i).second->to_string());
-                    new_zone_map->set_null_flag(zone_maps.at(i).first->is_null());
-                }
-            }
-            AlphaRowsetMetaSharedPtr alpha_rowset_meta
-                = std::dynamic_pointer_cast<AlphaRowsetMeta>(_current_rowset_meta);
-            alpha_rowset_meta->add_pending_segment_group(pending_segment_group_pb);
-        } else {
-            SegmentGroupPB segment_group_pb;
-            segment_group_pb.set_segment_group_id(segment_group->segment_group_id());
-            segment_group_pb.set_num_segments(segment_group->num_segments());
-            segment_group_pb.set_index_size(segment_group->index_size());
-            segment_group_pb.set_data_size(segment_group->data_size());
-            segment_group_pb.set_num_rows(segment_group->num_rows());
-            const std::vector<KeyRange>& zone_maps = segment_group->get_zone_maps();
-            if (!zone_maps.empty()) {
-                for (size_t i = 0; i < zone_maps.size(); ++i) {
-                    ZoneMap* new_zone_map = segment_group_pb.add_zone_maps();
-                    new_zone_map->set_min(zone_maps.at(i).first->to_string());
-                    new_zone_map->set_max(zone_maps.at(i).second->to_string());
-                    new_zone_map->set_null_flag(zone_maps.at(i).first->is_null());
-                }
-            }
-            segment_group_pb.set_empty(segment_group->empty());
-            AlphaRowsetMetaSharedPtr alpha_rowset_meta
-                = std::dynamic_pointer_cast<AlphaRowsetMeta>(_current_rowset_meta);
-            alpha_rowset_meta->add_segment_group(segment_group_pb);
         }
+        segment_group_pb.set_empty(segment_group->empty());
+        AlphaRowsetMetaSharedPtr alpha_rowset_meta
+            = std::dynamic_pointer_cast<AlphaRowsetMeta>(_current_rowset_meta);
+        alpha_rowset_meta->add_segment_group(segment_group_pb);
     }
     if (_is_pending_rowset) {
         _current_rowset_meta->set_rowset_state(COMMITTED);
