@@ -67,9 +67,6 @@ struct TKafkaLoadInfo {
     1: required string brokers;
     2: required string topic;
     3: required map<i32, i64> partition_begin_offset;
-    4: optional i64 max_interval_s;
-    5: optional i64 max_batch_rows;
-    6: optional i64 max_batch_size;
 }
 
 struct TRoutineLoadTask {
@@ -81,8 +78,11 @@ struct TRoutineLoadTask {
     6: optional string db
     7: optional string tbl
     8: optional string label
-    9: optional TKafkaLoadInfo kafka_load_info
-    10: optional PaloInternalService.TExecPlanFragmentParams params
+    9: optional i64 max_interval_s
+    10: optional i64 max_batch_rows
+    11: optional i64 max_batch_size
+    12: optional TKafkaLoadInfo kafka_load_info
+    13: optional PaloInternalService.TExecPlanFragmentParams params
 }
 
 service BackendService {
@@ -124,7 +124,7 @@ service BackendService {
     Status.TStatus register_pull_load_task(1: Types.TUniqueId id, 2: i32 num_senders)
 
     // Call by task coordinator to unregister this task.
-    // This task may be failed because load task have been finished or this task 
+    // This task may be failed because load task have been finished or this task
     // has been canceled by coordinator.
     Status.TStatus deregister_pull_load_task(1: Types.TUniqueId id)
 

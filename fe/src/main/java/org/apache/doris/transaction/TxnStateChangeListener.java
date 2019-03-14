@@ -15,22 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.load;
+package org.apache.doris.transaction;
 
-import org.apache.doris.transaction.AbortTransactionException;
-import org.apache.doris.transaction.TransactionException;
-import org.apache.doris.transaction.TransactionState;
+public abstract class TxnStateChangeListener {
 
-public interface TxnStateChangeListener {
+    protected long id;
 
-    void beforeCommitted(TransactionState txnState) throws TransactionException;
+    public long getId() {
+        return id;
+    }
+
+    public TxnStateChangeListener(long id) {
+        this.id = id;
+    }
+
+    public abstract void beforeCommitted(TransactionState txnState) throws TransactionException;
 
     /**
      * update catalog of job which has related txn after transaction has been committed
      *
      * @param txnState
      */
-    void onCommitted(TransactionState txnState) throws TransactionException;
+    public abstract void onCommitted(TransactionState txnState, boolean isReplay) throws TransactionException;
 
     /**
      * this interface is executed before txn aborted, you can check if txn could be abort in this stage
@@ -40,7 +46,7 @@ public interface TxnStateChangeListener {
      * @throws AbortTransactionException if transaction could not be abort or there are some exception before aborted,
      *                                   it will throw this exception
      */
-    void beforeAborted(TransactionState txnState, String txnStatusChangeReason)
+    public abstract void beforeAborted(TransactionState txnState, String txnStatusChangeReason)
             throws AbortTransactionException;
 
     /**
@@ -49,5 +55,5 @@ public interface TxnStateChangeListener {
      * @param txnState
      * @param txnStatusChangeReason maybe null
      */
-    void onAborted(TransactionState txnState, String txnStatusChangeReason);
+    public abstract void onAborted(TransactionState txnState, String txnStatusChangeReason, boolean isReplay);
 }

@@ -54,10 +54,6 @@ public class RLTaskTxnCommitAttachment extends TxnCommitAttachment {
         }
     }
 
-    public long getJobId() {
-        return jobId;
-    }
-
     public TUniqueId getTaskId() {
         return taskId;
     }

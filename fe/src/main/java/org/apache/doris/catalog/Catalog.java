@@ -100,7 +100,6 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MarkedCountDownLatch;
-import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
@@ -1294,14 +1293,11 @@ public class Catalog {
         try {
             checksum = loadHeader(dis, checksum);
             checksum = loadMasterInfo(dis, checksum);
-            if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_22) {
-                checksum = loadFrontends(dis, checksum);
-            }
+            checksum = loadFrontends(dis, checksum);
             checksum = Catalog.getCurrentSystemInfo().loadBackends(dis, checksum);
             checksum = loadDb(dis, checksum);
             // ATTN: this should be done after load Db, and before loadAlterJob
             recreateTabletInvertIndex();
-
             checksum = loadLoadJob(dis, checksum);
             checksum = loadAlterJob(dis, checksum);
             checksum = loadBackupAndRestoreJob_D(dis, checksum);
@@ -1313,10 +1309,9 @@ public class Catalog {
             checksum = loadExportJob(dis, checksum);
             checksum = loadBackupHandler(dis, checksum);
             checksum = loadPaloAuth(dis, checksum);
-            if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_45) {
-                checksum = loadTransactionState(dis, checksum);
-            }
+            checksum = loadTransactionState(dis, checksum);
             checksum = loadColocateTableIndex(dis, checksum);
+            checksum = loadRoutineLoadJobs(dis, checksum);
 
             long remoteChecksum = dis.readLong();
             Preconditions.checkState(remoteChecksum == checksum, remoteChecksum + " vs. " + checksum);
@@ -1399,24 +1394,27 @@ public class Catalog {
     }
 
     public long loadFrontends(DataInputStream dis, long checksum) throws IOException {
-        int size = dis.readInt();
-        long newChecksum = checksum ^ size;
-        for (int i = 0; i < size; i++) {
-            Frontend fe = Frontend.read(dis);
-            replayAddFrontend(fe);
-        }
-
-        size = dis.readInt();
-        newChecksum ^= size;
-        for (int i = 0; i < size; i++) {
-            if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_41) {
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_22) {
+            int size = dis.readInt();
+            long newChecksum = checksum ^ size;
+            for (int i = 0; i < size; i++) {
                 Frontend fe = Frontend.read(dis);
-                removedFrontends.add(fe.getNodeName());
-            } else {
-                removedFrontends.add(Text.readString(dis));
+                replayAddFrontend(fe);
             }
+            
+            size = dis.readInt();
+            newChecksum ^= size;
+            for (int i = 0; i < size; i++) {
+                if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_41) {
+                    Frontend fe = Frontend.read(dis);
+                    removedFrontends.add(fe.getNodeName());
+                } else {
+                    removedFrontends.add(Text.readString(dis));
+                }
+            }
+            return newChecksum;
         }
-        return newChecksum;
+        return checksum;
     }
 
     public long loadDb(DataInputStream dis, long checksum) throws IOException, DdlException {
@@ -1702,10 +1700,13 @@ public class Catalog {
     }
 
     public long loadTransactionState(DataInputStream dis, long checksum) throws IOException {
-        int size = dis.readInt();
-        long newChecksum = checksum ^ size;
-        globalTransactionMgr.readFields(dis);
-        return newChecksum;
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_45) {
+            int size = dis.readInt();
+            long newChecksum = checksum ^ size;
+            globalTransactionMgr.readFields(dis);
+            return newChecksum;
+        }
+        return checksum;
     }
 
     public long loadRecycleBin(DataInputStream dis, long checksum) throws IOException {
@@ -1722,6 +1723,13 @@ public class Catalog {
     public long loadColocateTableIndex(DataInputStream dis, long checksum) throws IOException {
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_46) {
             Catalog.getCurrentColocateIndex().readFields(dis);
+        }
+        return checksum;
+    }
+
+    public long loadRoutineLoadJobs(DataInputStream dis, long checksum) throws IOException {
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_49) {
+            Catalog.getCurrentCatalog().getRoutineLoadManager().readFields(dis);
         }
         return checksum;
     }
@@ -1770,6 +1778,7 @@ public class Catalog {
             checksum = savePaloAuth(dos, checksum);
             checksum = saveTransactionState(dos, checksum);
             checksum = saveColocateTableIndex(dos, checksum);
+            checksum = saveRoutineLoadJobs(dos, checksum);
             dos.writeLong(checksum);
         } finally {
             dos.close();
@@ -1998,6 +2007,11 @@ public class Catalog {
 
     public long saveColocateTableIndex(DataOutputStream dos, long checksum) throws IOException {
         Catalog.getCurrentColocateIndex().write(dos);
+        return checksum;
+    }
+
+    public long saveRoutineLoadJobs(DataOutputStream dos, long checksum) throws IOException {
+        Catalog.getCurrentCatalog().getRoutineLoadManager().write(dos);
         return checksum;
     }
 

@@ -39,7 +39,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.load.Load;
-import org.apache.doris.load.TxnStateChangeListener;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.PublishVersionTask;
@@ -88,9 +87,10 @@ public class GlobalTransactionMgr {
     private com.google.common.collect.Table<Long, String, Long> dbIdToTxnLabels;
     private Map<Long, Integer> runningTxnNums;
     private TransactionIdGenerator idGenerator;
+    private TxnStateListenerRegistry listenerRegistry = new TxnStateListenerRegistry();
     
     private Catalog catalog;
-    
+
     public GlobalTransactionMgr(Catalog catalog) {
         idToTransactionState = new HashMap<>();
         dbIdToTxnLabels = HashBasedTable.create();
@@ -99,16 +99,20 @@ public class GlobalTransactionMgr {
         this.idGenerator = new TransactionIdGenerator();
     }
     
+    public TxnStateListenerRegistry getListenerRegistry() {
+        return listenerRegistry;
+    }
+
     public long beginTransaction(long dbId, String label, String coordinator, LoadJobSourceType sourceType)
             throws AnalysisException, LabelAlreadyUsedException, BeginTransactionException {
-        return beginTransaction(dbId, label, -1, coordinator, sourceType, null);
+        return beginTransaction(dbId, label, -1, coordinator, sourceType, -1);
     }
     
     /**
      * the app could specify the transaction id
      * 
      * timestamp is used to judge that whether the request is a internal retry request
-     * if label already exist, and timestamps are equal, we return the exist tid, and consider this 'begin'
+     * if label already exist, and timestamp are equal, we return the exist tid, and consider this 'begin'
      * as success.
      * timestamp == -1 is for compatibility
      *
@@ -117,8 +121,7 @@ public class GlobalTransactionMgr {
      * @throws IllegalTransactionParameterException
      */
     public long beginTransaction(long dbId, String label, long timestamp,
-            String coordinator, LoadJobSourceType sourceType,
-            TxnStateChangeListener txnStateChangeListener)
+            String coordinator, LoadJobSourceType sourceType, long listenerId)
             throws AnalysisException, LabelAlreadyUsedException, BeginTransactionException {
         
         if (Config.disable_load_job) {
@@ -151,7 +154,7 @@ public class GlobalTransactionMgr {
             long tid = idGenerator.getNextTransactionId();
             LOG.info("begin transaction: txn id {} with label {} from coordinator {}", tid, label, coordinator);
             TransactionState transactionState = new TransactionState(dbId, tid, label, timestamp, sourceType,
-                    coordinator, txnStateChangeListener);
+                    coordinator, listenerId);
             transactionState.setPrepareTime(System.currentTimeMillis());
             unprotectUpsertTransactionState(transactionState);
             return tid;
@@ -361,7 +364,7 @@ public class GlobalTransactionMgr {
             }
             // 4. update transaction state version
             transactionState.setCommitTime(System.currentTimeMillis());
-            transactionState.setTransactionStatus(TransactionStatus.COMMITTED);
+            transactionState.setTransactionStatus(TransactionStatus.COMMITTED, false /* not replay */);
             transactionState.setErrorReplicas(errorReplicaIds);
             for (long tableId : tableToPartition.keySet()) {
                 TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId);
@@ -390,7 +393,6 @@ public class GlobalTransactionMgr {
         // 6. update nextVersion because of the failure of persistent transaction resulting in error version
         updateCatalogAfterCommitted(transactionState, db);
         LOG.info("transaction:[{}] successfully committed", transactionState);
-        
     }
     
     public boolean commitAndPublishTransaction(Database db, long transactionId,
@@ -489,7 +491,7 @@ public class GlobalTransactionMgr {
                 long dbId = transactionState.getDbId();
                 Database db = catalog.getDb(dbId);
                 if (null == db) {
-                    transactionState.setTransactionStatus(TransactionStatus.ABORTED);
+                    transactionState.setTransactionStatus(TransactionStatus.ABORTED, false /* not replay */);
                     unprotectUpsertTransactionState(transactionState);
                     continue;
                 }
@@ -570,7 +572,7 @@ public class GlobalTransactionMgr {
         if (db == null) {
             writeLock();
             try {
-                transactionState.setTransactionStatus(TransactionStatus.ABORTED);
+                transactionState.setTransactionStatus(TransactionStatus.ABORTED, false /* not replay */);
                 transactionState.setReason("db is dropped");
                 LOG.warn("db is dropped during transaction, abort transaction {}", transactionState);
                 unprotectUpsertTransactionState(transactionState);
@@ -694,7 +696,7 @@ public class GlobalTransactionMgr {
             try {
                 transactionState.setErrorReplicas(errorReplicaIds);
                 transactionState.setFinishTime(System.currentTimeMillis());
-                transactionState.setTransactionStatus(TransactionStatus.VISIBLE);
+                transactionState.setTransactionStatus(TransactionStatus.VISIBLE, false /* not replay */);
                 unprotectUpsertTransactionState(transactionState);
             } catch (TransactionException e) {
                 LOG.warn("failed to change transaction {} status  to visible", transactionState.getTransactionId());
@@ -793,7 +795,7 @@ public class GlobalTransactionMgr {
                                 || !checkTxnHasRelatedJob(transactionState, dbIdToTxnIds)) {
                             try {
                                 transactionState.setTransactionStatus(TransactionStatus.ABORTED,
-                                                                      TransactionState.TxnStatusChangeReason.TIMEOUT.name());
+                                        TransactionState.TxnStatusChangeReason.TIMEOUT.name(), false /* not replay */);
                             } catch (TransactionException e) {
                                 LOG.warn("txn {} could not be aborted with error message {}",
                                          transactionState.getTransactionId(), e.getMessage());
@@ -861,7 +863,11 @@ public class GlobalTransactionMgr {
     
     // for add/update/delete TransactionState
     private void unprotectUpsertTransactionState(TransactionState transactionState) {
-        editLog.logInsertTransactionState(transactionState);
+        if (transactionState.getTransactionStatus() != TransactionStatus.PREPARE) {
+            // no need to persist prepare txn. if prepare txn lost, the following commit will just be failed.
+            // user only need to retry this txn.
+            editLog.logInsertTransactionState(transactionState);
+        }
         idToTransactionState.put(transactionState.getTransactionId(), transactionState);
         updateTxnLabels(transactionState);
         updateDBRunningTxnNum(transactionState.getPreStatus(), transactionState);
@@ -890,7 +896,7 @@ public class GlobalTransactionMgr {
         }
         transactionState.setFinishTime(System.currentTimeMillis());
         transactionState.setReason(reason);
-        transactionState.setTransactionStatus(TransactionStatus.ABORTED, reason);
+        transactionState.setTransactionStatus(TransactionStatus.ABORTED, reason, false /* not replay */);
         unprotectUpsertTransactionState(transactionState);
         for (PublishVersionTask task : transactionState.getPublishVersionTasks().values()) {
             AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.PUBLISH_VERSION, task.getSignature());
@@ -902,6 +908,8 @@ public class GlobalTransactionMgr {
     public void replayUpsertTransactionState(TransactionState transactionState) {
         writeLock();
         try {
+            // set transaction status will call txn state change listener
+            transactionState.setTransactionStatus(transactionState.getTransactionStatus(), true /* is replay */);
             Database db = catalog.getDb(transactionState.getDbId());
             if (transactionState.getTransactionStatus() == TransactionStatus.COMMITTED) {
                 LOG.debug("replay a committed transaction {}", transactionState);
@@ -915,6 +923,9 @@ public class GlobalTransactionMgr {
             updateTxnLabels(transactionState);
             updateDBRunningTxnNum(preTxnState == null ? null : preTxnState.getTransactionStatus(),
                                   transactionState);
+        } catch (TransactionException e) {
+            // should not happen
+            throw new RuntimeException(e);
         } finally {
             writeUnlock();
         }

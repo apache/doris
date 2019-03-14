@@ -17,11 +17,6 @@
 
 package org.apache.doris.load.routineload;
 
-import com.google.common.base.Joiner;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Queues;
-import com.sleepycat.je.tree.IN;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.PauseRoutineLoadStmt;
 import org.apache.doris.analysis.ResumeRoutineLoadStmt;
@@ -35,38 +30,44 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.UserException;
+import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.qe.ConnectContext;
+
+import com.google.common.base.Joiner;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.ArrayList;
-import java.util.Collection;
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Queue;
 import java.util.UUID;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
-public class RoutineLoadManager {
+public class RoutineLoadManager implements Writable {
     private static final Logger LOG = LogManager.getLogger(RoutineLoadManager.class);
     private static final int DEFAULT_BE_CONCURRENT_TASK_NUM = 100;
 
     // Long is beId, integer is the size of tasks in be
-    private Map<Long, Integer> beIdToMaxConcurrentTasks;
+    private Map<Long, Integer> beIdToMaxConcurrentTasks = Maps.newHashMap();
 
     // stream load job meta
-    private Map<Long, RoutineLoadJob> idToRoutineLoadJob;
-    private Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob;
+    private Map<Long, RoutineLoadJob> idToRoutineLoadJob = Maps.newConcurrentMap();
+    private Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newConcurrentMap();
 
-
-
-    private ReentrantReadWriteLock lock;
+    private ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
     private void readLock() {
         lock.readLock().lock();
@@ -85,10 +86,6 @@ public class RoutineLoadManager {
     }
 
     public RoutineLoadManager() {
-        idToRoutineLoadJob = Maps.newConcurrentMap();
-        dbToNameToRoutineLoadJob = Maps.newConcurrentMap();
-        beIdToMaxConcurrentTasks = Maps.newConcurrentMap();
-        lock = new ReentrantReadWriteLock(true);
     }
 
     private void updateBeIdToMaxConcurrentTasks() {
@@ -144,8 +141,8 @@ public class RoutineLoadManager {
 
     }
 
-    public void addRoutineLoadJob(CreateRoutineLoadStmt createRoutineLoadStmt)
-            throws AnalysisException, DdlException, LoadException {
+    public void createRoutineLoadJob(CreateRoutineLoadStmt createRoutineLoadStmt, String origStmt)
+            throws UserException {
         // check load auth
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
                                                                 createRoutineLoadStmt.getDBTableName().getDb(),
@@ -163,11 +160,11 @@ public class RoutineLoadManager {
                 routineLoadJob = KafkaRoutineLoadJob.fromCreateStmt(createRoutineLoadStmt);
                 break;
             default:
-                break;
+                throw new UserException("Unknown data source type: " + type);
         }
-        if (routineLoadJob != null) {
-            addRoutineLoadJob(routineLoadJob);
-        }
+
+        routineLoadJob.setOrigStmt(origStmt);
+        addRoutineLoadJob(routineLoadJob);
     }
 
     public void addRoutineLoadJob(RoutineLoadJob routineLoadJob) throws DdlException {
@@ -178,13 +175,37 @@ public class RoutineLoadManager {
                 throw new DdlException("Name " + routineLoadJob.getName() + " already used in db "
                                                + routineLoadJob.getDbId());
             }
-            idToRoutineLoadJob.put(routineLoadJob.getId(), routineLoadJob);
-            addJobToDbToNameToRoutineLoadJob(routineLoadJob);
-            // TODO(ml): edit log
+
+            unprotectedAddJob(routineLoadJob);
+
+            Catalog.getInstance().getEditLog().logCreateRoutineLoadJob(routineLoadJob);
+            LOG.info("create routine load job: id: {}, name: {}", routineLoadJob.getId(), routineLoadJob.getName());
         } finally {
             writeUnlock();
         }
+    }
 
+    private void unprotectedAddJob(RoutineLoadJob routineLoadJob) {
+        idToRoutineLoadJob.put(routineLoadJob.getId(), routineLoadJob);
+        if (dbToNameToRoutineLoadJob.containsKey(routineLoadJob.getDbId())) {
+            Map<String, List<RoutineLoadJob>> nameToRoutineLoadJob = dbToNameToRoutineLoadJob.get(
+                    routineLoadJob.getDbId());
+            if (nameToRoutineLoadJob.containsKey(routineLoadJob.getName())) {
+                nameToRoutineLoadJob.get(routineLoadJob.getName()).add(routineLoadJob);
+            } else {
+                List<RoutineLoadJob> routineLoadJobList = Lists.newArrayList();
+                routineLoadJobList.add(routineLoadJob);
+                nameToRoutineLoadJob.put(routineLoadJob.getName(), routineLoadJobList);
+            }
+        } else {
+            List<RoutineLoadJob> routineLoadJobList = Lists.newArrayList();
+            routineLoadJobList.add(routineLoadJob);
+            Map<String, List<RoutineLoadJob>> nameToRoutineLoadJob = Maps.newConcurrentMap();
+            nameToRoutineLoadJob.put(routineLoadJob.getName(), routineLoadJobList);
+            dbToNameToRoutineLoadJob.put(routineLoadJob.getDbId(), nameToRoutineLoadJob);
+        }
+        // register txn state listener
+        Catalog.getCurrentGlobalTransactionMgr().getListenerRegistry().register(routineLoadJob);
     }
 
     // TODO(ml): Idempotency
@@ -202,26 +223,6 @@ public class RoutineLoadManager {
             }
         }
         return false;
-    }
-
-    private void addJobToDbToNameToRoutineLoadJob(RoutineLoadJob routineLoadJob) {
-        if (dbToNameToRoutineLoadJob.containsKey(routineLoadJob.getDbId())) {
-            Map<String, List<RoutineLoadJob>> nameToRoutineLoadJob =
-                    dbToNameToRoutineLoadJob.get(routineLoadJob.getDbId());
-            if (nameToRoutineLoadJob.containsKey(routineLoadJob.getName())) {
-                nameToRoutineLoadJob.get(routineLoadJob.getName()).add(routineLoadJob);
-            } else {
-                List<RoutineLoadJob> routineLoadJobList = Lists.newArrayList();
-                routineLoadJobList.add(routineLoadJob);
-                nameToRoutineLoadJob.put(routineLoadJob.getName(), routineLoadJobList);
-            }
-        } else {
-            List<RoutineLoadJob> routineLoadJobList = Lists.newArrayList();
-            routineLoadJobList.add(routineLoadJob);
-            Map<String, List<RoutineLoadJob>> nameToRoutineLoadJob = Maps.newConcurrentMap();
-            nameToRoutineLoadJob.put(routineLoadJob.getName(), routineLoadJobList);
-            dbToNameToRoutineLoadJob.put(routineLoadJob.getDbId(), nameToRoutineLoadJob);
-        }
     }
 
     public void pauseRoutineLoadJob(PauseRoutineLoadStmt pauseRoutineLoadStmt) throws DdlException, AnalysisException {
@@ -249,7 +250,8 @@ public class RoutineLoadManager {
         }
 
         routineLoadJob.updateState(RoutineLoadJob.JobState.PAUSED,
-                                   "User " + ConnectContext.get().getQualifiedUser() + "pauses routine load job");
+                "User " + ConnectContext.get().getQualifiedUser() + "pauses routine load job",
+                false /* not replay */);
     }
 
     public void resumeRoutineLoadJob(ResumeRoutineLoadStmt resumeRoutineLoadStmt) throws DdlException,
@@ -276,7 +278,8 @@ public class RoutineLoadManager {
                                                 ConnectContext.get().getRemoteIP(),
                                                 tableName);
         }
-        routineLoadJob.updateState(RoutineLoadJob.JobState.NEED_SCHEDULE);
+        routineLoadJob.updateState(RoutineLoadJob.JobState.NEED_SCHEDULE, "user operation",
+                false /* not replay */);
     }
 
     public void stopRoutineLoadJob(StopRoutineLoadStmt stopRoutineLoadStmt) throws DdlException, AnalysisException {
@@ -302,7 +305,7 @@ public class RoutineLoadManager {
                                                 ConnectContext.get().getRemoteIP(),
                                                 tableName);
         }
-        routineLoadJob.updateState(RoutineLoadJob.JobState.STOPPED);
+        routineLoadJob.updateState(RoutineLoadJob.JobState.STOPPED, "user operation", false /* not replay */);
     }
 
     public int getSizeOfIdToRoutineLoadTask() {
@@ -483,4 +486,43 @@ public class RoutineLoadManager {
         }
     }
 
+    public void replayCreateRoutineLoadJob(RoutineLoadJob routineLoadJob) {
+        unprotectedAddJob(routineLoadJob);
+        LOG.info("replay add routine load job: {}", routineLoadJob.getId());
+    }
+
+    public void replayChangeRoutineLoadJob(RoutineLoadOperation operation) {
+        RoutineLoadJob job = getJob(operation.getId());
+        job.updateState(operation.getJobState(), "replay", true /* is replay */);
+        LOG.info("replay change routine load job: {}, state: {}", operation.getId(), operation.getJobState());
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        out.writeInt(idToRoutineLoadJob.size());
+        for (RoutineLoadJob routineLoadJob : idToRoutineLoadJob.values()) {
+            routineLoadJob.write(out);
+        }
+    }
+
+    @Override
+    public void readFields(DataInput in) throws IOException {
+        int size = in.readInt();
+        for (int i = 0; i < size; i++) {
+            RoutineLoadJob routineLoadJob = RoutineLoadJob.read(in);
+            idToRoutineLoadJob.put(routineLoadJob.getId(), routineLoadJob);
+            Map<String, List<RoutineLoadJob>> map = dbToNameToRoutineLoadJob.get(routineLoadJob.getDbId());
+            if (map == null) {
+                map = Maps.newConcurrentMap();
+                dbToNameToRoutineLoadJob.put(routineLoadJob.getDbId(), map);
+            }
+
+            List<RoutineLoadJob> jobs = map.get(routineLoadJob.getName());
+            if (jobs == null) {
+                jobs = Lists.newArrayList();
+                map.put(routineLoadJob.getName(), jobs);
+            }
+            jobs.add(routineLoadJob);
+        }
+    }
 }
