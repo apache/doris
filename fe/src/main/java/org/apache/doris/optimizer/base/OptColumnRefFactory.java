@@ -15,27 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.optimizer.operator;
+package org.apache.doris.optimizer.base;
 
-import com.google.common.collect.Lists;
-import org.apache.doris.optimizer.rule.OptRule;
+import com.google.common.collect.Maps;
+import org.apache.doris.catalog.Type;
 
-import java.util.List;
+import java.util.Map;
 
-public abstract class OptLogical extends OptOperator {
+public class OptColumnRefFactory {
+    // usd
+    private int nextId = 1;
+    private Map<Integer, OptColumnRef> columnRefMap = Maps.newHashMap();
 
-    protected OptLogical(OptOperatorType type) {
-        super(type);
+    public OptColumnRef create(String name, Type type) {
+        int id = nextId++;
+        OptColumnRef columnRef = new OptColumnRef(id, type, name);
+        columnRefMap.put(id, columnRef);
+        return columnRef;
     }
 
-    public List<OptRule> getCandidateRulesForExplore() {
-        return Lists.newArrayList();
-    }
-
-    public List<OptRule> getCandidateRulesForImplement() {
-        return Lists.newArrayList();
-    }
-
-    @Override
-    public boolean isLogical() { return true; }
+    public Map<Integer, OptColumnRef> getColumnRefMap() { return columnRefMap; }
 }

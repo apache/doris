@@ -20,10 +20,24 @@ package org.apache.doris.optimizer.operator;
 public enum OptOperatorType {
     OP_LOGICAL_SCAN("LogicalScan"),
     OP_LOGICAL_JOIN("LogicalEqJoin"),
+    OP_LOGICAL_AGGREGATE("LogicalAggregate"),
+    OP_LOGICAL_UNION("LogicalUnion"),
 
     OP_PHYSICAL_OLAP_SCAN("PhysicalOlapScan"),
     OP_PHYSICAL_HASH_JOIN("PhysicalHashJoin"),
     OP_PHYSICAL_HASH_AGG("PhysicalHashAgg"),
+
+    OP_ITEM_ARITHMETIC("ItemArithmetic"),
+    OP_ITEM_BINARY_PREDICATE("ItemBinaryPredicate"),
+    OP_ITEM_CASE("ItemCase"),
+    OP_ITEM_CAST("ItemCast"),
+    OP_ITEM_COLUMN_REF("ItemColumnReference"),
+    OP_ITEM_COMPOUND_PREDICATE("ItemCompoundPredicate"),
+    OP_ITEM_CONST("ItemConst"),
+    OP_ITEM_FUNCTION_CALL("ItemFunctionCall"),
+    OP_ITEM_IN_PREDICATE("ItemInPredicate"),
+    OP_ITEM_IS_NULL_PREDICATE("ItemIsNullPredicate"),
+    OP_ITEM_LIKE_PREDICATE("ItemLikePredicate"),
 
     OP_PATTERN_LEAF("PatternLeaf"),
     // following is only used in unit test

@@ -35,7 +35,7 @@ import java.util.regex.PatternSyntaxException;
 
 public class LikePredicate extends Predicate {
 
-    enum Operator {
+    public enum Operator {
         LIKE("LIKE"),
         REGEXP("REGEXP");
 

@@ -35,6 +35,7 @@ public abstract class OptOperator {
 
     public boolean isLogical() { return false; }
     public boolean isPhysical() { return false; }
+    public boolean isItem() { return false; }
     // if this operator is pattern
     public boolean isPattern() { return false; }
     // If this operator is pattern and is leaf

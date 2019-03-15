@@ -41,6 +41,13 @@ public class OptExpression {
     // store where this Expression has bound from, used to
     private MultiExpression mExpr;
 
+    public static OptExpression create(OptOperator op, OptExpression... inputs) {
+        return new OptExpression(op, inputs);
+    }
+    public static OptExpression create(OptOperator op, List<OptExpression> inputs) {
+        return new OptExpression(op, inputs);
+    }
+
     public OptExpression(OptOperator op) {
         this.op = op;
         inputs = Lists.newArrayList();
@@ -49,6 +56,11 @@ public class OptExpression {
     public OptExpression(OptOperator op, OptExpression... inputs) {
         this.op = op;
         this.inputs = Lists.newArrayList(inputs);
+    }
+
+    public OptExpression(OptOperator op, List<OptExpression> inputs) {
+        this.op = op;
+        this.inputs = inputs;
     }
 
     public OptExpression(OptOperator op, MultiExpression mExpr) {

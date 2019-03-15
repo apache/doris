@@ -17,25 +17,17 @@
 
 package org.apache.doris.optimizer.operator;
 
-import com.google.common.collect.Lists;
-import org.apache.doris.optimizer.rule.OptRule;
+import org.apache.doris.catalog.Type;
 
-import java.util.List;
-
-public abstract class OptLogical extends OptOperator {
-
-    protected OptLogical(OptOperatorType type) {
+public abstract class OptItem extends OptOperator {
+    protected OptItem(OptOperatorType type) {
         super(type);
     }
 
-    public List<OptRule> getCandidateRulesForExplore() {
-        return Lists.newArrayList();
-    }
-
-    public List<OptRule> getCandidateRulesForImplement() {
-        return Lists.newArrayList();
-    }
-
     @Override
-    public boolean isLogical() { return true; }
+    public boolean isItem() { return true; }
+
+    // Scalar return value's type, every scalar has a return value,
+    // such as compare function would return a boolean type result
+    public abstract Type getReturnType();
 }

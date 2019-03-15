@@ -139,6 +139,8 @@ public class ArithmeticExpr extends Expr {
         this.op = other.op;
     }
 
+    public Operator getOp() { return op; }
+
     @Override
     public String toString() {
         return toSql();

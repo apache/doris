@@ -17,33 +17,40 @@
 
 package org.apache.doris.optimizer.operator;
 
-import com.google.common.collect.Lists;
-import org.apache.doris.analysis.BaseTableRef;
-import org.apache.doris.optimizer.rule.OptRule;
-import org.apache.doris.optimizer.rule.implementation.OlapScanRule;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.optimizer.OptUtils;
 
-import java.util.List;
+public class OptItemCast extends OptItem {
+    private Type destType;
 
-public class OptLogicalScan extends OptLogical {
-
-    private BaseTableRef ref;
-
-    public OptLogicalScan() {
-        super(OptOperatorType.OP_LOGICAL_SCAN);
-    }
-
-    public OptLogicalScan(BaseTableRef ref) {
-        super(OptOperatorType.OP_LOGICAL_SCAN);
-        this.ref = ref;
+    public OptItemCast(Type destType) {
+        super(OptOperatorType.OP_ITEM_CAST);
+        this.destType = destType;
     }
 
     @Override
-    public List<OptRule> getCandidateRulesForExplore() { return Lists.newArrayList(); }
+    public Type getReturnType() {
+        return destType;
+    }
 
     @Override
-    public List<OptRule> getCandidateRulesForImplement() {
-        final List<OptRule> rules = Lists.newArrayList();
-        rules.add(OlapScanRule.INSTANCE);
-        return rules;
+    public int hashCode() {
+        return OptUtils.combineHash(super.hashCode(), destType.getPrimitiveType());
+    }
+
+    @Override
+    public boolean equals(Object object) {
+        if (!super.equals(object)) {
+            return false;
+        }
+        OptItemCast rhs = (OptItemCast) object;
+        return destType.equals(rhs.destType);
+    }
+
+    @Override
+    public String getExplainString(String prefix) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(prefix).append("ItemCast(type=").append(type).append(")");
+        return sb.toString();
     }
 }
