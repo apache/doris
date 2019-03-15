@@ -51,6 +51,8 @@ OLAPStatus AlphaRowsetReader::init(RowsetReaderContext* read_context) {
     if (_current_read_context->stats != nullptr) {
         _stats = _current_read_context->stats;
     }
+    _dst_cursor = new(std::nothrow)RowCursor();
+    _dst_cursor->init(*(_current_read_context->tablet_schema));
     OLAPStatus status = _init_column_datas(read_context);
     return status;
 }
@@ -103,7 +105,8 @@ OLAPStatus AlphaRowsetReader::next_block(std::shared_ptr<RowBlock> block) {
             LOG(WARNING) << "next block failed.status:" << status;
             return status;
         }
-        block->set_row(block->pos(), *row_cursor);
+        _dst_cursor->copy(*row_cursor, block->mem_pool());
+        block->set_row(block->pos(), *_dst_cursor);
         block->pos_inc();
         num_rows_in_block++;
     }

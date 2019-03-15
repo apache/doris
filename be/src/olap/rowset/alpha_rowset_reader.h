@@ -89,6 +89,7 @@ private:
     RowsetReaderContext* _current_read_context;
     OlapReaderStatistics _owned_stats;
     OlapReaderStatistics* _stats = &_owned_stats;
+    RowCursor* _dst_cursor;
 };
 
 } // namespace doris
