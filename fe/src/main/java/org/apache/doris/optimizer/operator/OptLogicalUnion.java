@@ -17,25 +17,8 @@
 
 package org.apache.doris.optimizer.operator;
 
-import com.google.common.collect.Lists;
-import org.apache.doris.optimizer.rule.OptRule;
-
-import java.util.List;
-
-public abstract class OptLogical extends OptOperator {
-
-    protected OptLogical(OptOperatorType type) {
-        super(type);
+public class OptLogicalUnion extends OptLogical {
+    public OptLogicalUnion() {
+        super(OptOperatorType.OP_LOGICAL_UNION);
     }
-
-    public List<OptRule> getCandidateRulesForExplore() {
-        return Lists.newArrayList();
-    }
-
-    public List<OptRule> getCandidateRulesForImplement() {
-        return Lists.newArrayList();
-    }
-
-    @Override
-    public boolean isLogical() { return true; }
 }

@@ -15,27 +15,31 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.optimizer.operator;
+package org.apache.doris.optimizer.base;
 
-import com.google.common.collect.Lists;
-import org.apache.doris.optimizer.rule.OptRule;
+import org.apache.doris.catalog.Type;
 
-import java.util.List;
+// Reference to one column
+public class OptColumnRef {
+    // id is unique in one process of an optimization
+    // Used in bit set to accelerate operation
+    private int id;
+    private Type type;
+    // used to debug
+    private String name;
 
-public abstract class OptLogical extends OptOperator {
-
-    protected OptLogical(OptOperatorType type) {
-        super(type);
+    public OptColumnRef(int id, Type type, String name) {
+        this.id = id;
+        this.type = type;
+        this.name = name;
     }
 
-    public List<OptRule> getCandidateRulesForExplore() {
-        return Lists.newArrayList();
-    }
-
-    public List<OptRule> getCandidateRulesForImplement() {
-        return Lists.newArrayList();
-    }
+    public int getId() { return id; }
+    public Type getType() { return type; }
+    public String getName() { return name; }
 
     @Override
-    public boolean isLogical() { return true; }
+    public String toString() {
+        return name;
+    }
 }

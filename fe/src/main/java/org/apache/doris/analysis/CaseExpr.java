@@ -87,6 +87,8 @@ public class CaseExpr extends Expr {
         hasCaseExpr = other.hasCaseExpr;
         hasElseExpr = other.hasElseExpr;
     }
+    public boolean isHasCaseExpr() { return hasCaseExpr; }
+    public boolean isHasElseExpr() { return hasElseExpr; }
 
     @Override
     public Expr clone() {
