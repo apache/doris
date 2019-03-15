@@ -93,6 +93,14 @@ public:
     // load data from meta and data files
     OLAPStatus load();
 
+    void add_pending_paths(int64_t id, const std::set<std::string>& paths);
+
+    void remove_pending_paths(int64_t id);
+
+    void perform_path_gc();
+
+    void perform_path_scan();
+
 private:
     std::string _cluster_id_path() const { return _path + CLUSTER_ID_PREFIX; }
     Status _init_cluster_id();
@@ -108,6 +116,16 @@ private:
     OLAPStatus _clean_unfinished_converting_data();
     OLAPStatus _convert_old_tablet();
     OLAPStatus _remove_old_meta_and_files();
+
+    void _remove_check_paths_no_lock(const std::set<std::string> paths);
+
+    void _process_garbage_path(const std::string& path);
+
+    void _add_check_paths(const std::set<std::string>& paths);
+
+    void _remove_check_paths(const std::set<std::string>& paths);
+
+    bool _check_path_in_pending_paths(const std::string& path);
 
 private:
     std::string _path;
@@ -135,6 +153,12 @@ private:
     char* _test_file_write_buf;
     OlapMeta* _meta = nullptr;
     RowsetIdGenerator* _id_generator = nullptr;
+
+    std::set<std::string> _all_check_paths;
+    RWMutex _check_path_mutex;
+
+    std::map<int64_t, std::set<std::string>> _pending_paths;
+    RWMutex _pending_path_mutex;
 };
 
 } // namespace doris

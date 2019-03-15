@@ -76,19 +76,18 @@ OLAPStatus StorageEngine::_start_bg_worker() {
             _fd_cache_clean_callback(nullptr);
         });
 
-    // scan path thread
+    // path scan and gc thread
     for (auto data_dir : get_stores()) {
         _path_scan_threads.emplace_back(
         [this, data_dir] {
             _path_scan_thread_callback((void*)data_dir);
         });
-    }
 
-    // path gc thread
-    _path_gc_thread = std::thread(
-        [this] {
-            _path_gc_thread_callback(nullptr);
+        _path_gc_threads.emplace_back(
+        [this, data_dir] {
+            _path_gc_thread_callback((void*)data_dir);
         });
+    }
 
     VLOG(10) << "init finished.";
     return OLAP_SUCCESS;

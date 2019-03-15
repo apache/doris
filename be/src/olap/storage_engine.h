@@ -195,18 +195,6 @@ public:
 
     OLAPStatus execute_task(EngineTask* task);
 
-    void add_check_paths(const std::set<std::string>& paths);
-
-    void remove_check_paths(const std::set<std::string>& paths);
-
-    void add_pending_paths(int64_t id, const std::set<std::string>& paths);
-
-    void remove_pending_paths(int64_t id);
-
-    bool check_path_in_pending_paths(const std::string& path);
-
-    void process_garbage_path(const std::string& path);
-
     TabletManager* tablet_manager() { return _tablet_manager.get(); }
     TxnManager* txn_manager() { return _txn_manager.get(); }
 
@@ -257,12 +245,6 @@ private:
     void* _path_gc_thread_callback(void* arg);
 
     void* _path_scan_thread_callback(void* arg);
-
-    void _perform_path_gc(void* arg);
-
-    void _perform_path_scan(DataDir* data_dir);
-
-    void _remove_check_paths_no_lock(std::set<std::string> paths);
 
 private:
 
