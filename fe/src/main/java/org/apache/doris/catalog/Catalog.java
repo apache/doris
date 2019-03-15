@@ -2359,7 +2359,7 @@ public class Catalog {
                 Database db = new Database(id, fullDbName);
                 db.setClusterName(clusterName);
                 unprotectCreateDb(db);
-                editLog.logCreateDb(db);
+                Catalog.getInstance().getEditLog().logCreateDb(db);
             }
         } finally {
             unlock();
@@ -2457,7 +2457,7 @@ public class Catalog {
             fullNameToDb.remove(db.getFullName());
             final Cluster cluster = nameToCluster.get(db.getClusterName());
             cluster.removeDb(dbName, db.getId());
-            editLog.logDropDb(dbName);
+            Catalog.getInstance().getEditLog().logDropDb(dbName);
         } finally {
             unlock();
         }
@@ -2468,6 +2468,7 @@ public class Catalog {
     public void unprotectDropDb(Database db) {
         for (Table table : db.getTables()) {
             unprotectDropTable(db, table.getId());
+            Catalog.getCurrentColocateIndex().removeTable(table.getId());
         }
     }
 
