@@ -136,9 +136,12 @@ public class ColocateTableTest {
                 result = true;
                 paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.DROP);
                 result = true; minTimes = 0; maxTimes = 1;
+            }
+        };
 
-                catalog.getEditLog();
-                result = editLog;
+        new Expectations() {
+            {
+                Deencapsulation.setField(catalog, "editLog", editLog);
             }
         };
 

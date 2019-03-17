@@ -2359,7 +2359,7 @@ public class Catalog {
                 Database db = new Database(id, fullDbName);
                 db.setClusterName(clusterName);
                 unprotectCreateDb(db);
-                Catalog.getInstance().getEditLog().logCreateDb(db);
+                editLog.logCreateDb(db);
             }
         } finally {
             unlock();
@@ -2457,7 +2457,7 @@ public class Catalog {
             fullNameToDb.remove(db.getFullName());
             final Cluster cluster = nameToCluster.get(db.getClusterName());
             cluster.removeDb(dbName, db.getId());
-            Catalog.getInstance().getEditLog().logDropDb(dbName);
+            editLog.logDropDb(dbName);
         } finally {
             unlock();
         }
@@ -2534,7 +2534,7 @@ public class Catalog {
 
             // log
             RecoverInfo recoverInfo = new RecoverInfo(db.getId(), -1L, -1L);
-            Catalog.getInstance().getEditLog().logRecoverDb(recoverInfo);
+            editLog.logRecoverDb(recoverInfo);
         } finally {
             unlock();
         }
@@ -3547,7 +3547,7 @@ public class Catalog {
                     } else {
                         info = ColocatePersistInfo.CreateForAddTable(tableId, groupId, db.getId(), new ArrayList<>());
                     }
-                    Catalog.getInstance().getEditLog().logColocateAddTable(info);
+                    editLog.logColocateAddTable(info);
                 }
 
                 LOG.info("successfully create table[{};{}]", tableName, tableId);
@@ -4127,11 +4127,11 @@ public class Catalog {
             unprotectDropTable(db, table.getId());
 
             DropInfo info = new DropInfo(db.getId(), table.getId(), -1L);
-            Catalog.getInstance().getEditLog().logDropTable(info);
+            editLog.logDropTable(info);
             
             if (Catalog.getCurrentColocateIndex().removeTable(table.getId())) {
                 ColocatePersistInfo colocateInfo = ColocatePersistInfo.CreateForRemoveTable(table.getId());
-                Catalog.getInstance().getEditLog().logColocateRemoveTable(colocateInfo);
+                editLog.logColocateRemoveTable(colocateInfo);
             }
         } finally {
             db.writeUnlock();
