@@ -143,7 +143,6 @@ public class GlobalTransactionMgr {
                         return txnLabels.get(label);
                     }
                 }
-
                 throw new LabelAlreadyUsedException(label);
             }
             if (runningTxnNums.get(dbId) != null
@@ -364,7 +363,7 @@ public class GlobalTransactionMgr {
             }
             // 4. update transaction state version
             transactionState.setCommitTime(System.currentTimeMillis());
-            transactionState.setTransactionStatus(TransactionStatus.COMMITTED, false /* not replay */);
+            transactionState.setTransactionStatus(TransactionStatus.COMMITTED);
             transactionState.setErrorReplicas(errorReplicaIds);
             for (long tableId : tableToPartition.keySet()) {
                 TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId);
@@ -491,7 +490,7 @@ public class GlobalTransactionMgr {
                 long dbId = transactionState.getDbId();
                 Database db = catalog.getDb(dbId);
                 if (null == db) {
-                    transactionState.setTransactionStatus(TransactionStatus.ABORTED, false /* not replay */);
+                    transactionState.setTransactionStatus(TransactionStatus.ABORTED);
                     unprotectUpsertTransactionState(transactionState);
                     continue;
                 }
@@ -572,7 +571,7 @@ public class GlobalTransactionMgr {
         if (db == null) {
             writeLock();
             try {
-                transactionState.setTransactionStatus(TransactionStatus.ABORTED, false /* not replay */);
+                transactionState.setTransactionStatus(TransactionStatus.ABORTED);
                 transactionState.setReason("db is dropped");
                 LOG.warn("db is dropped during transaction, abort transaction {}", transactionState);
                 unprotectUpsertTransactionState(transactionState);
@@ -696,7 +695,7 @@ public class GlobalTransactionMgr {
             try {
                 transactionState.setErrorReplicas(errorReplicaIds);
                 transactionState.setFinishTime(System.currentTimeMillis());
-                transactionState.setTransactionStatus(TransactionStatus.VISIBLE, false /* not replay */);
+                transactionState.setTransactionStatus(TransactionStatus.VISIBLE);
                 unprotectUpsertTransactionState(transactionState);
             } catch (TransactionException e) {
                 LOG.warn("failed to change transaction {} status  to visible", transactionState.getTransactionId());
@@ -795,7 +794,7 @@ public class GlobalTransactionMgr {
                                 || !checkTxnHasRelatedJob(transactionState, dbIdToTxnIds)) {
                             try {
                                 transactionState.setTransactionStatus(TransactionStatus.ABORTED,
-                                        TransactionState.TxnStatusChangeReason.TIMEOUT.name(), false /* not replay */);
+                                        TransactionState.TxnStatusChangeReason.TIMEOUT.name());
                             } catch (TransactionException e) {
                                 LOG.warn("txn {} could not be aborted with error message {}",
                                          transactionState.getTransactionId(), e.getMessage());
@@ -896,7 +895,7 @@ public class GlobalTransactionMgr {
         }
         transactionState.setFinishTime(System.currentTimeMillis());
         transactionState.setReason(reason);
-        transactionState.setTransactionStatus(TransactionStatus.ABORTED, reason, false /* not replay */);
+        transactionState.setTransactionStatus(TransactionStatus.ABORTED, reason);
         unprotectUpsertTransactionState(transactionState);
         for (PublishVersionTask task : transactionState.getPublishVersionTasks().values()) {
             AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.PUBLISH_VERSION, task.getSignature());
@@ -909,7 +908,7 @@ public class GlobalTransactionMgr {
         writeLock();
         try {
             // set transaction status will call txn state change listener
-            transactionState.setTransactionStatus(transactionState.getTransactionStatus(), true /* is replay */);
+            transactionState.replaySetTransactionStatus();
             Database db = catalog.getDb(transactionState.getDbId());
             if (transactionState.getTransactionStatus() == TransactionStatus.COMMITTED) {
                 LOG.debug("replay a committed transaction {}", transactionState);
@@ -923,9 +922,6 @@ public class GlobalTransactionMgr {
             updateTxnLabels(transactionState);
             updateDBRunningTxnNum(preTxnState == null ? null : preTxnState.getTransactionStatus(),
                                   transactionState);
-        } catch (TransactionException e) {
-            // should not happen
-            throw new RuntimeException(e);
         } finally {
             writeUnlock();
         }

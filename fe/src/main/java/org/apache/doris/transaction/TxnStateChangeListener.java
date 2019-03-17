@@ -17,26 +17,24 @@
 
 package org.apache.doris.transaction;
 
-public abstract class TxnStateChangeListener {
+public interface TxnStateChangeListener {
 
-    protected long id;
-
-    public long getId() {
-        return id;
+    public enum ListenResult {
+        CHANGED, UNCHANGED
     }
 
-    public TxnStateChangeListener(long id) {
-        this.id = id;
-    }
+    public long getId();
 
-    public abstract void beforeCommitted(TransactionState txnState) throws TransactionException;
+    public void beforeCommitted(TransactionState txnState) throws TransactionException;
 
     /**
      * update catalog of job which has related txn after transaction has been committed
      *
      * @param txnState
      */
-    public abstract void onCommitted(TransactionState txnState, boolean isReplay) throws TransactionException;
+    public ListenResult onCommitted(TransactionState txnState) throws TransactionException;
+
+    public void replayOnCommitted(TransactionState txnState);
 
     /**
      * this interface is executed before txn aborted, you can check if txn could be abort in this stage
@@ -46,14 +44,18 @@ public abstract class TxnStateChangeListener {
      * @throws AbortTransactionException if transaction could not be abort or there are some exception before aborted,
      *                                   it will throw this exception
      */
-    public abstract void beforeAborted(TransactionState txnState, String txnStatusChangeReason)
+    public void beforeAborted(TransactionState txnState, String txnStatusChangeReason)
             throws AbortTransactionException;
 
     /**
      * this interface is executed when transaction has been aborted
      *
      * @param txnState
-     * @param txnStatusChangeReason maybe null
+     * @param txnStatusChangeReason
+     *            maybe null
+     * @return
      */
-    public abstract void onAborted(TransactionState txnState, String txnStatusChangeReason, boolean isReplay);
+    public ListenResult onAborted(TransactionState txnState, String txnStatusChangeReason);
+
+    public void replayOnAborted(TransactionState txnState);
 }
