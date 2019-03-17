@@ -400,7 +400,6 @@ OLAPStatus SegmentGroup::find_short_key(const RowCursor& key,
                                  RowCursor* helper_cursor,
                                  bool find_last,
                                  RowBlockPosition* pos) const {
-    LOG(INFO) << "version of segment_group:" << _version.first << "-" << _version.second;
     SEGMENT_GROUP_PARAM_VALIDATE();
     POS_PARAM_VALIDATE(pos);
 

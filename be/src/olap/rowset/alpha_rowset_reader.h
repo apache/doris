@@ -38,14 +38,8 @@ public:
     // reader init
     virtual OLAPStatus init(RowsetReaderContext* read_context);
 
-    // check whether rowset has more data
-    virtual bool has_next();
-
-    // read next row data
-    virtual OLAPStatus next(RowCursor** row);
-
     // read next block data
-    virtual OLAPStatus next_block(std::shared_ptr<RowBlock> block);
+    virtual OLAPStatus next_block(RowBlock** block);
 
     virtual bool delete_flag();
 
@@ -64,11 +58,9 @@ private:
 
     OLAPStatus _init_column_datas(RowsetReaderContext* read_context);
 
-    OLAPStatus _get_next_row_for_singleton_rowset(RowCursor** row);
+    OLAPStatus _next_block_for_cumulative_rowset(RowBlock** block);
 
-    OLAPStatus _get_next_row_for_cumulative_rowset(RowCursor** row);
-
-    OLAPStatus _get_next_not_filtered_row(size_t pos, RowCursor** row);
+    OLAPStatus _next_row_for_singleton_rowset(RowCursor** row);
 
     OLAPStatus _get_next_block(size_t pos, RowBlock** row_block);
 
@@ -80,8 +72,17 @@ private:
     AlphaRowsetMeta* _alpha_rowset_meta;
     std::vector<std::shared_ptr<SegmentGroup>> _segment_groups;
     std::vector<std::shared_ptr<ColumnData>> _column_datas;
-    std::vector<RowBlock*> _row_blocks;
+
+    // For singleton Rowset, there are several SegmentGroups
+    // Each of SegmentGroups correponds to a row_block upon scan
+    std::vector<RowBlock*> _row_blocks; 
+    std::unique_ptr<RowBlock> _read_block;
+
+    // For singleton Rowset, there are several SegmentGroups
+    // Each of SegmentGroups correponds to a row_cursor 
     std::vector<RowCursor*> _row_cursors;
+    RowCursor* _dst_cursor;
+
     RowsetSharedPtr _rowset;
     int _key_range_size;
     std::vector<int> _key_range_indices;
@@ -89,7 +90,6 @@ private:
     RowsetReaderContext* _current_read_context;
     OlapReaderStatistics _owned_stats;
     OlapReaderStatistics* _stats = &_owned_stats;
-    RowCursor* _dst_cursor;
 };
 
 } // namespace doris

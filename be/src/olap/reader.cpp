@@ -46,7 +46,7 @@ public:
     // set reverse to true if need read in reverse order.
     OLAPStatus init(Reader* reader);
 
-    OLAPStatus add_child(RowsetReaderSharedPtr rs_reader, std::shared_ptr<RowBlock> block);
+    OLAPStatus add_child(RowsetReaderSharedPtr rs_reader);
 
     // Get top row of the heap, NULL if reach end.
     const RowCursor* current_row(bool* delete_flag) const {
@@ -56,14 +56,6 @@ public:
         return nullptr;
     }
 
-    bool has_next() {
-        for (auto& child_ctx : _children) {
-            if (child_ctx->has_next()) {
-                return true;
-            }
-        }
-        return false;
-    }
     // Pop the top element and rebuild the heap to
     // get the next row cursor.
     inline OLAPStatus next(const RowCursor** row, bool* delete_flag);
@@ -74,11 +66,10 @@ public:
 private:
     class ChildCtx {
     public:
-        ChildCtx(RowsetReaderSharedPtr rs_reader, std::shared_ptr<RowBlock> block, Reader* reader)
+        ChildCtx(RowsetReaderSharedPtr rs_reader, Reader* reader)
                 : _rs_reader(rs_reader),
                   _is_delete(rs_reader->delete_flag()),
-                  _reader(reader),
-                  _row_block(block) { }
+                  _reader(reader) { }
 
         OLAPStatus init() {
             auto res = _row_cursor.init(_reader->_tablet->tablet_schema());
@@ -103,10 +94,6 @@ private:
             return _rs_reader->version().second;
         }
 
-        bool has_next() {
-            return (_row_block != nullptr && _row_block->has_remaining()) || _rs_reader->has_next();
-        }
-
         OLAPStatus next(const RowCursor** row, bool* delete_flag) {
             _row_block->pos_inc();
             auto res = _refresh_current_row();
@@ -118,9 +105,8 @@ private:
     private:
         // refresh_current_row
         OLAPStatus _refresh_current_row() {
-            DCHECK(_row_block != nullptr);
             do {
-                if (_row_block->has_remaining()) {
+                if (_row_block != nullptr && _row_block->has_remaining()) {
                     size_t pos = _row_block->pos();
                     _row_block->get_row(pos, &_row_cursor);
                     if (_row_block->block_status() == DEL_PARTIAL_SATISFIED &&
@@ -132,14 +118,10 @@ private:
                     _current_row = &_row_cursor;
                     return OLAP_SUCCESS;
                 } else {
-                    if (_rs_reader->has_next()) {
-                        auto res = _rs_reader->next_block(_row_block);
-                        if (res != OLAP_SUCCESS) {
-                            _current_row = nullptr;
-                            return res;
-                        }
-                    } else {
-                        return OLAP_ERR_DATA_EOF;
+                    auto res = _rs_reader->next_block(&_row_block);
+                    if (res != OLAP_SUCCESS) {
+                        _current_row = nullptr;
+                        return res;
                     }
                 }
             } while (_row_block != nullptr);
@@ -153,7 +135,7 @@ private:
         Reader* _reader;
 
         RowCursor _row_cursor;
-        std::shared_ptr<RowBlock> _row_block;
+        RowBlock* _row_block = nullptr;
     };
 
     // Compare row cursors between multiple merge elements,
@@ -200,8 +182,8 @@ OLAPStatus CollectIterator::init(Reader* reader) {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus CollectIterator::add_child(RowsetReaderSharedPtr rs_reader, std::shared_ptr<RowBlock> block) {
-    std::unique_ptr<ChildCtx> child(new ChildCtx(rs_reader, block, _reader));
+OLAPStatus CollectIterator::add_child(RowsetReaderSharedPtr rs_reader) {
+    std::unique_ptr<ChildCtx> child(new ChildCtx(rs_reader, _reader));
     RETURN_NOT_OK(child->init());
     if (child->current_row() == nullptr) {
         return OLAP_SUCCESS;
@@ -347,8 +329,8 @@ OLAPStatus Reader::init(const ReaderParams& read_params) {
 }
 
 OLAPStatus Reader::_dup_key_next_row(RowCursor* row_cursor, bool* eof) {
-    *eof = !(_collect_iter->has_next());
-    if (*eof) {
+    if (UNLIKELY(_next_key == nullptr)) {
+        *eof = true;
         return OLAP_SUCCESS;
     }
     row_cursor->copy_without_pool(*_next_key);
@@ -362,8 +344,8 @@ OLAPStatus Reader::_dup_key_next_row(RowCursor* row_cursor, bool* eof) {
 }
 
 OLAPStatus Reader::_agg_key_next_row(RowCursor* row_cursor, bool* eof) {
-    *eof = !(_collect_iter->has_next());
-    if (*eof) {
+    if (UNLIKELY(_next_key == nullptr)) {
+        *eof = true;
         return OLAP_SUCCESS;
     }
     row_cursor->agg_init(*_next_key);
@@ -375,7 +357,6 @@ OLAPStatus Reader::_agg_key_next_row(RowCursor* row_cursor, bool* eof) {
                 LOG(WARNING) << "next failed:" << res;
                 return res;
             }
-            LOG(WARNING) << "next reach eof";
             break;
         }
 
@@ -398,8 +379,8 @@ OLAPStatus Reader::_unique_key_next_row(RowCursor* row_cursor, bool* eof) {
     *eof = false;
     bool cur_delete_flag = false;
     do {
-        *eof = !(_collect_iter->has_next());
-        if (*eof) {
+        if (UNLIKELY(_next_key == nullptr)) {
+            *eof = true;
             return OLAP_SUCCESS;
         }
     
@@ -559,35 +540,14 @@ OLAPStatus Reader::_capture_rs_readers(const ReaderParams& read_params) {
     }
 
     for (auto& rs_reader : _rs_readers) {
-        if (rs_reader->has_next()) {
-            std::shared_ptr<RowBlock> read_block(new RowBlock(&(_tablet->tablet_schema())));
-            if (read_block == nullptr) {
-                LOG(WARNING) << "new row block failed in reader";
-                return OLAP_ERR_MALLOC_ERROR;
-            }
-            RowBlockInfo block_info;
-            block_info.row_num = _tablet->tablet_schema().num_rows_per_row_block();
-            block_info.null_supported = true;
-            read_block->init(block_info);
-            OLAPStatus res = rs_reader->next_block(read_block);
-            if (res == OLAP_SUCCESS) {
-                res = _collect_iter->add_child(rs_reader, read_block);
-                if (res != OLAP_SUCCESS && res != OLAP_ERR_DATA_EOF) {
-                    LOG(WARNING) << "failed to add child to iterator";
-                    return res;
-                }
-            } else if (res == OLAP_ERR_DATA_EOF) {
-                continue;
-            } else {
-                LOG(WARNING) << "prepare block failed, res=" << res;
-                return res;
-            }
+        OLAPStatus res = _collect_iter->add_child(rs_reader);
+        if (res != OLAP_SUCCESS && res != OLAP_ERR_DATA_EOF) {
+            LOG(WARNING) << "failed to add child to iterator";
+            return res;
         }
     }
 
-    if (_collect_iter->has_next()) {
-        _next_key = _collect_iter->current_row(&_next_delete_flag);
-    }
+    _next_key = _collect_iter->current_row(&_next_delete_flag);
     return OLAP_SUCCESS;
 }
 
