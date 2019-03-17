@@ -198,10 +198,10 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         dbTableName.analyze(analyzer);
         // check load properties include column separator etc.
         checkLoadProperties(analyzer);
-        // check routine load properties include desired concurrent number etc.
+        // check routine load job properties include desired concurrent number etc.
         checkJobProperties();
-        // check data load source properties
-        checkLoadSourceProperties();
+        // check data source properties
+        checkDataSourceProperties();
     }
 
     public void checkLoadProperties(Analyzer analyzer) throws UserException {
@@ -274,7 +274,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         return defaultVal;
     }
 
-    private void checkLoadSourceProperties() throws AnalysisException {
+    private void checkDataSourceProperties() throws AnalysisException {
         LoadDataSourceType type;
         try {
             type = LoadDataSourceType.valueOf(typeName);
