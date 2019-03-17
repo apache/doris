@@ -158,10 +158,10 @@ RAPIDJSON_SOURCE=rapidjson-1.1.0
 RAPIDJSON_MD5SUM="badd12c511e081fec6c89c43a7027bce"
 
 # curl
-CURL_DOWNLOAD="https://curl.haxx.se/download/curl-7.54.0.tar.gz"
-CURL_NAME=curl-7.54.0.tar.gz
-CURL_SOURCE=curl-7.54.0
-CURL_MD5SUM="18091896d871982cc4c2b307885eacb3"
+CURL_DOWNLOAD="https://curl.haxx.se/download/curl-7.54.1.tar.gz"
+CURL_NAME=curl-7.54.1.tar.gz
+CURL_SOURCE=curl-7.54.1
+CURL_MD5SUM="21a6e5658fd55103a90b11de7b2a8a8c"
 
 # RE2
 RE2_DOWNLOAD="https://github.com/google/re2/archive/2017-05-01.tar.gz"
@@ -196,8 +196,8 @@ LEVELDB_MD5SUM="298b5bddf12c675d6345784261302252"
 # brpc
 BRPC_DOWNLOAD="https://github.com/brpc/brpc/archive/v0.9.0.tar.gz"
 BRPC_NAME=brpc-0.9.0.tar.gz
-BRPC_SOURCE=brpc-0.9.0
-BRPC_MD5SUM="2e79f413614b99d44083499a81c0db67"
+BRPC_SOURCE=incubator-brpc-0.9.0
+BRPC_MD5SUM="79dfdc8b6e2d7a08dc68f14c5fabe6b7"
 
 # rocksdb
 ROCKSDB_DOWNLOAD="https://github.com/facebook/rocksdb/archive/v5.14.2.tar.gz"
