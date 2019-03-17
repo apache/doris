@@ -61,7 +61,7 @@ import java.util.UUID;
 public class KafkaRoutineLoadJob extends RoutineLoadJob {
     private static final Logger LOG = LogManager.getLogger(KafkaRoutineLoadJob.class);
 
-    private static final int FETCH_PARTITIONS_TIMEOUT_SECOND = 10;
+    private static final int FETCH_PARTITIONS_TIMEOUT_SECOND = 5;
 
     private String brokerList;
     private String topic;
@@ -177,8 +177,14 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     }
 
     @Override
-    protected void updateProgress(RLTaskTxnCommitAttachment attachment, boolean isReplay) {
-        super.updateProgress(attachment, isReplay);
+    protected void updateProgress(RLTaskTxnCommitAttachment attachment) {
+        super.updateProgress(attachment);
+        this.progress.update(attachment.getProgress());
+    }
+
+    @Override
+    protected void replayUpdateProgress(RLTaskTxnCommitAttachment attachment) {
+        super.replayUpdateProgress(attachment);
         this.progress.update(attachment.getProgress());
     }
 
@@ -221,7 +227,8 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                                      .build(), e);
                     if (this.state == JobState.NEED_SCHEDULE) {
                         unprotectUpdateState(JobState.PAUSED,
-                                "Job failed to fetch all current partition with error " + e.getMessage(), false);
+                                "Job failed to fetch all current partition with error " + e.getMessage(),
+                                false /* not replay */);
                     }
                     return false;
                 }
@@ -257,8 +264,8 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     private List<Integer> getAllKafkaPartitions() {
         List<Integer> result = new ArrayList<>();
-        List<PartitionInfo> partitionList = consumer.partitionsFor(
-                topic, Duration.ofSeconds(FETCH_PARTITIONS_TIMEOUT_SECOND));
+        List<PartitionInfo> partitionList = consumer.partitionsFor(topic,
+                Duration.ofSeconds(FETCH_PARTITIONS_TIMEOUT_SECOND));
         for (PartitionInfo partitionInfo : partitionList) {
             result.add(partitionInfo.partition());
         }
@@ -271,8 +278,9 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         if (db == null) {
             ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, stmt.getDBTableName().getDb());
         }
-        db.readLock();
+
         long tableId = -1L;
+        db.readLock();
         try {
             unprotectedCheckMeta(db, stmt.getDBTableName().getTbl(), stmt.getRoutineLoadDesc());
             tableId = db.getTable(stmt.getDBTableName().getTbl()).getId();
@@ -282,10 +290,8 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
         // init kafka routine load job
         long id = Catalog.getInstance().getNextId();
-        KafkaRoutineLoadJob kafkaRoutineLoadJob =
-                new KafkaRoutineLoadJob(id, stmt.getName(), db.getId(), tableId,
-                                        stmt.getKafkaBrokerList(),
-                                        stmt.getKafkaTopic());
+        KafkaRoutineLoadJob kafkaRoutineLoadJob = new KafkaRoutineLoadJob(id, stmt.getName(), db.getId(), 
+                tableId, stmt.getKafkaBrokerList(), stmt.getKafkaTopic());
         kafkaRoutineLoadJob.setOptional(stmt);
 
         return kafkaRoutineLoadJob;
