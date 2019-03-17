@@ -19,10 +19,12 @@ package org.apache.doris.transaction;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.task.PublishVersionTask;
+import org.apache.doris.transaction.TxnStateChangeListener.ListenResult;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Maps;
@@ -134,6 +136,10 @@ public class TransactionState implements Writable {
     private TransactionStatus preStatus = null;
     
     private long listenerId;
+
+    // the result of calling txn state change listener.
+    // this is used for replaying
+    private ListenResult listenResult = ListenResult.UNCHANGED;
 
     // optional
     private TxnCommitAttachment txnCommitAttachment;
@@ -261,56 +267,67 @@ public class TransactionState implements Writable {
         return txnCommitAttachment;
     }
     
-    public void setTransactionStatus(TransactionStatus transactionStatus, boolean isReplay)
+    public void setTransactionStatus(TransactionStatus transactionStatus)
             throws TransactionException {
-        setTransactionStatus(transactionStatus, null, isReplay);
+        setTransactionStatus(transactionStatus, null);
     }
     
-    public void setTransactionStatus(TransactionStatus transactionStatus, String txnStatusChangeReason,
-            boolean isReplay) throws TransactionException {
-        // before state changed
+    public void setTransactionStatus(TransactionStatus transactionStatus, String txnStatusChangeReason)
+            throws TransactionException {
+        // before status changed
         TxnStateChangeListener listener = Catalog.getCurrentGlobalTransactionMgr().getListenerRegistry().getListener(listenerId);
-        if (!isReplay) {
-            if (listener != null) {
-                switch (transactionStatus) {
-                    case ABORTED:
-                        listener.beforeAborted(this, txnStatusChangeReason);
-                        break;
-                    case COMMITTED:
-                        listener.beforeCommitted(this);
-                    default:
-                        break;
-                }
+        if (listener != null) {
+            switch (transactionStatus) {
+                case ABORTED:
+                    listener.beforeAborted(this, txnStatusChangeReason);
+                    break;
+                case COMMITTED:
+                    listener.beforeCommitted(this);
+                default:
+                    break;
             }
         }
+
+        // status changed
+        this.preStatus = this.transactionStatus;
+        this.transactionStatus = transactionStatus;
         
-        // if is replay, the status is already be set
-        if (!isReplay) {
-            // state changed
-            this.preStatus = this.transactionStatus;
-            this.transactionStatus = transactionStatus;
-        }
-        
-        // after state changed
+        // after status changed
         if (transactionStatus == TransactionStatus.VISIBLE) {
-            if (!isReplay) {
-                this.latch.countDown();
-                if (MetricRepo.isInit.get()) {
-                    MetricRepo.COUNTER_TXN_SUCCESS.increase(1L);
-                }
+            this.latch.countDown();
+            if (MetricRepo.isInit.get()) {
+                MetricRepo.COUNTER_TXN_SUCCESS.increase(1L);
             }
         } else if (transactionStatus == TransactionStatus.ABORTED) {
             if (MetricRepo.isInit.get()) {
                 MetricRepo.COUNTER_TXN_FAILED.increase(1L);
             }
             if (listener != null) {
-                listener.onAborted(this, txnStatusChangeReason, isReplay);
+                listenResult = listener.onAborted(this, txnStatusChangeReason);
             }
         } else if (transactionStatus == TransactionStatus.COMMITTED && listener != null) {
-            listener.onCommitted(this, isReplay);
+            listenResult = listener.onCommitted(this);
         }
     }
     
+    public void replaySetTransactionStatus() {
+        // no need to set status, status is already set
+        // here we only care about listener callback
+        if (listenResult == ListenResult.UNCHANGED) {
+            return;
+        }
+
+        TxnStateChangeListener listener = Catalog.getCurrentGlobalTransactionMgr().getListenerRegistry().getListener(
+                listenerId);
+        if (listener != null) {
+            if (transactionStatus == TransactionStatus.ABORTED) {
+                listener.replayOnAborted(this);
+            } else if (transactionStatus == TransactionStatus.COMMITTED) {
+                listener.replayOnCommitted(this);
+            }
+        }
+    }
+
     public void waitTransactionVisible(long timeoutMillis) throws InterruptedException {
         this.latch.await(timeoutMillis, TimeUnit.MILLISECONDS);
     }
@@ -415,15 +432,14 @@ public class TransactionState implements Writable {
         for (long errorReplciaId : errorReplicas) {
             out.writeLong(errorReplciaId);
         }
-        // TODO(ml): persistent will be enable after all of routine load work finished.
-//        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_46) {
-//            if (txnCommitAttachment == null) {
-//                out.writeBoolean(false);
-//            } else {
-//                out.writeBoolean(true);
-//                txnCommitAttachment.write(out);
-//            }
-//        }
+
+        if (txnCommitAttachment == null) {
+            out.writeBoolean(false);
+        } else {
+            out.writeBoolean(true);
+            txnCommitAttachment.write(out);
+        }
+        Text.writeString(out, listenResult.name());
     }
     
     @Override
@@ -448,13 +464,12 @@ public class TransactionState implements Writable {
         for (int i = 0; i < errorReplicaNum; ++i) {
             errorReplicas.add(in.readLong());
         }
-        // TODO(ml): persistent will be enable after all of routine load work finished.
-//        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_46) {
-//            if (in.readBoolean()) {
-//                txnCommitAttachment = TransactionStateExtra.readTxnCommitAttachment(in, sourceType);
-//            }
-//        }
-        
-        // TODO(ml): reload txnStateChangeListener by txnCommitAttachment
+
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_49) {
+            if (in.readBoolean()) {
+                txnCommitAttachment = TxnCommitAttachment.read(in);
+            }
+            listenResult = ListenResult.valueOf(Text.readString(in));
+        }
     }
 }
