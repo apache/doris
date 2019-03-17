@@ -153,6 +153,7 @@ public class RoutineLoadManager implements Writable {
                                                 ConnectContext.get().getRemoteIP(),
                                                 createRoutineLoadStmt.getDBTableName());
         }
+
         RoutineLoadJob routineLoadJob = null;
         LoadDataSourceType type = LoadDataSourceType.valueOf(createRoutineLoadStmt.getTypeName());
         switch (type) {
@@ -173,7 +174,7 @@ public class RoutineLoadManager implements Writable {
             // check if db.routineLoadName has been used
             if (isNameUsed(routineLoadJob.getDbId(), routineLoadJob.getName())) {
                 throw new DdlException("Name " + routineLoadJob.getName() + " already used in db "
-                                               + routineLoadJob.getDbId());
+                        + routineLoadJob.getDbId());
             }
 
             unprotectedAddJob(routineLoadJob);
@@ -187,23 +188,18 @@ public class RoutineLoadManager implements Writable {
 
     private void unprotectedAddJob(RoutineLoadJob routineLoadJob) {
         idToRoutineLoadJob.put(routineLoadJob.getId(), routineLoadJob);
-        if (dbToNameToRoutineLoadJob.containsKey(routineLoadJob.getDbId())) {
-            Map<String, List<RoutineLoadJob>> nameToRoutineLoadJob = dbToNameToRoutineLoadJob.get(
-                    routineLoadJob.getDbId());
-            if (nameToRoutineLoadJob.containsKey(routineLoadJob.getName())) {
-                nameToRoutineLoadJob.get(routineLoadJob.getName()).add(routineLoadJob);
-            } else {
-                List<RoutineLoadJob> routineLoadJobList = Lists.newArrayList();
-                routineLoadJobList.add(routineLoadJob);
-                nameToRoutineLoadJob.put(routineLoadJob.getName(), routineLoadJobList);
-            }
-        } else {
-            List<RoutineLoadJob> routineLoadJobList = Lists.newArrayList();
-            routineLoadJobList.add(routineLoadJob);
-            Map<String, List<RoutineLoadJob>> nameToRoutineLoadJob = Maps.newConcurrentMap();
-            nameToRoutineLoadJob.put(routineLoadJob.getName(), routineLoadJobList);
+
+        Map<String, List<RoutineLoadJob>> nameToRoutineLoadJob = dbToNameToRoutineLoadJob.get(routineLoadJob.getDbId());
+        if (nameToRoutineLoadJob == null) {
+            nameToRoutineLoadJob = Maps.newConcurrentMap();
             dbToNameToRoutineLoadJob.put(routineLoadJob.getDbId(), nameToRoutineLoadJob);
         }
+        List<RoutineLoadJob> routineLoadJobList = nameToRoutineLoadJob.get(routineLoadJob.getName());
+        if (routineLoadJobList == null) {
+            routineLoadJobList = Lists.newArrayList();
+            nameToRoutineLoadJob.put(routineLoadJob.getName(), routineLoadJobList);
+        }
+        routineLoadJobList.add(routineLoadJob);
         // register txn state listener
         Catalog.getCurrentGlobalTransactionMgr().getListenerRegistry().register(routineLoadJob);
     }
@@ -278,8 +274,7 @@ public class RoutineLoadManager implements Writable {
                                                 ConnectContext.get().getRemoteIP(),
                                                 tableName);
         }
-        routineLoadJob.updateState(RoutineLoadJob.JobState.NEED_SCHEDULE, "user operation",
-                false /* not replay */);
+        routineLoadJob.updateState(RoutineLoadJob.JobState.NEED_SCHEDULE, "user operation", false /* not replay */);
     }
 
     public void stopRoutineLoadJob(StopRoutineLoadStmt stopRoutineLoadStmt) throws DdlException, AnalysisException {

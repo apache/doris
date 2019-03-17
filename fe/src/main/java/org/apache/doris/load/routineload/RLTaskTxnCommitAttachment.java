@@ -19,6 +19,7 @@ package org.apache.doris.load.routineload;
 
 import org.apache.doris.thrift.TRLTaskTxnCommitAttachment;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TxnCommitAttachment;
 
 import java.io.DataInput;
@@ -34,12 +35,13 @@ public class RLTaskTxnCommitAttachment extends TxnCommitAttachment {
     private long filteredRows;
     private long loadedRows;
     private RoutineLoadProgress progress;
-    private LoadDataSourceType loadDataSourceType;
 
     public RLTaskTxnCommitAttachment() {
+        super(TransactionState.LoadJobSourceType.ROUTINE_LOAD_TASK);
     }
 
     public RLTaskTxnCommitAttachment(TRLTaskTxnCommitAttachment rlTaskTxnCommitAttachment) {
+        super(TransactionState.LoadJobSourceType.ROUTINE_LOAD_TASK);
         this.jobId = rlTaskTxnCommitAttachment.getJobId();
         this.taskId = rlTaskTxnCommitAttachment.getId();
         this.filteredRows = rlTaskTxnCommitAttachment.getFilteredRows();
@@ -47,7 +49,6 @@ public class RLTaskTxnCommitAttachment extends TxnCommitAttachment {
 
         switch (rlTaskTxnCommitAttachment.getLoadSourceType()) {
             case KAFKA:
-                this.loadDataSourceType = LoadDataSourceType.KAFKA;
                 this.progress = new KafkaProgress(rlTaskTxnCommitAttachment.getKafkaRLTaskProgress());
             default:
                 break;
@@ -81,11 +82,17 @@ public class RLTaskTxnCommitAttachment extends TxnCommitAttachment {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        // TODO: think twice
+        super.write(out);
+        out.writeLong(filteredRows);
+        out.writeLong(loadedRows);
+        progress.write(out);
     }
 
     @Override
     public void readFields(DataInput in) throws IOException {
-     // TODO: think twice
+        super.readFields(in);
+        filteredRows = in.readLong();
+        loadedRows = in.readLong();
+        progress = RoutineLoadProgress.read(in);
     }
 }
