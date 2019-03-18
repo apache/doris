@@ -123,6 +123,7 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
 
     protected long id;
     protected String name;
+    protected String clusterName;
     protected long dbId;
     protected long tableId;
     // this code is used to verify be task request
@@ -177,12 +178,13 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
         this.dataSourceType = type;
     }
 
-    public RoutineLoadJob(Long id, String name, long dbId, long tableId, LoadDataSourceType dataSourceType) {
-        this.id = id;
+    public RoutineLoadJob(Long id, String name, String clusterName, long dbId, long tableId,
+            LoadDataSourceType dataSourceType) {
+        this(id, dataSourceType);
         this.name = name;
+        this.clusterName = clusterName;
         this.dbId = dbId;
         this.tableId = tableId;
-        this.dataSourceType = dataSourceType;
         this.endTimestamp = -1;
         this.authCode = new StringBuilder().append(ConnectContext.get().getQualifiedUser())
                 .append(ConnectContext.get().getRemoteIP())
@@ -320,19 +322,6 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
             return STAR_STRING;
         } else {
             return String.join(",", routineLoadDesc.getPartitionNames());
-        }
-    }
-
-    public String getClusterName() throws MetaNotFoundException {
-        Database database = Catalog.getCurrentCatalog().getDb(dbId);
-        if (database == null) {
-            throw new MetaNotFoundException("Database " + dbId + "has been deleted");
-        }
-        database.readLock();
-        try {
-            return database.getClusterName();
-        } finally {
-            database.readUnlock();
         }
     }
 
@@ -912,6 +901,7 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
 
         out.writeLong(id);
         Text.writeString(out, name);
+        Text.writeString(out, clusterName);
         out.writeLong(dbId);
         out.writeLong(tableId);
         out.writeInt(desireTaskConcurrentNum);
@@ -934,6 +924,7 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
 
         id = in.readLong();
         name = Text.readString(in);
+        clusterName = Text.readString(in);
         dbId = in.readLong();
         tableId = in.readLong();
         desireTaskConcurrentNum = in.readInt();
