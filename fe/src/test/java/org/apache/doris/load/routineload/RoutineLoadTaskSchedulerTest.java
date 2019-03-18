@@ -59,7 +59,7 @@ public class RoutineLoadTaskSchedulerTest {
         long beId = 100L;
 
         Queue<RoutineLoadTaskInfo> routineLoadTaskInfoQueue = Queues.newLinkedBlockingQueue();
-        KafkaTaskInfo routineLoadTaskInfo1 = new KafkaTaskInfo(new UUID(1, 1), 1l);
+        KafkaTaskInfo routineLoadTaskInfo1 = new KafkaTaskInfo(new UUID(1, 1), 1l, "default_cluster");
         routineLoadTaskInfo1.addKafkaPartition(1);
         routineLoadTaskInfo1.addKafkaPartition(2);
         routineLoadTaskInfoQueue.add(routineLoadTaskInfo1);
