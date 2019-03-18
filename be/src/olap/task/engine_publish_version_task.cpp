@@ -74,7 +74,7 @@ OLAPStatus EnginePublishVersionTask::finish() {
                 transaction_id, tablet_info.tablet_id, tablet_info.schema_hash, 
                 version, version_hash);
             
-            if (publish_status != OLAP_SUCCESS && publish_status != OLAP_ERR_TRANSACTION_NOT_EXIST) {
+            if (publish_status != OLAP_SUCCESS) {
                 LOG(WARNING) << "failed to publish for rowset_id:" << rowset->rowset_id()
                              << "tablet id: " << tablet_info.tablet_id
                              << "txn id:" << transaction_id;
