@@ -88,39 +88,14 @@ public class RoutineLoadManager implements Writable {
     public RoutineLoadManager() {
     }
 
-    private void updateBeIdToMaxConcurrentTasks() {
+    public void updateBeIdToMaxConcurrentTasks() {
         beIdToMaxConcurrentTasks = Catalog.getCurrentSystemInfo().getBackendIds(true)
-                    .parallelStream().collect(Collectors.toMap(beId -> beId, beId -> DEFAULT_BE_CONCURRENT_TASK_NUM));
+                .stream().collect(Collectors.toMap(beId -> beId, beId -> DEFAULT_BE_CONCURRENT_TASK_NUM));
     }
 
     // this is not real-time number
     public int getTotalMaxConcurrentTaskNum() {
         return beIdToMaxConcurrentTasks.values().stream().mapToInt(i -> i).sum();
-    }
-
-    public void updateBeIdTaskMaps() {
-        writeLock();
-        try {
-            // step1: update backend number in all of cluster
-            updateBeIdToMaxConcurrentTasks();
-            List<Long> beIds = Catalog.getCurrentSystemInfo().getBackendIds(true);
-
-            // diff beIds and beIdToMaxConcurrentTasks.keys()
-            List<Long> newBeIds = beIds.parallelStream().filter(entity -> beIdToMaxConcurrentTasks.get(entity) == null)
-                    .collect(Collectors.toList());
-            List<Long> unavailableBeIds = beIdToMaxConcurrentTasks.keySet().parallelStream()
-                    .filter(entity -> !beIds.contains(entity))
-                    .collect(Collectors.toList());
-            newBeIds.parallelStream().forEach(entity -> beIdToMaxConcurrentTasks.put(entity, DEFAULT_BE_CONCURRENT_TASK_NUM));
-            for (long beId : unavailableBeIds) {
-                beIdToMaxConcurrentTasks.remove(beId);
-            }
-            LOG.info("There are {} backends which participate in routine load scheduler. "
-                             + "There are {} new backends and {} unavailable backends for routine load",
-                     beIdToMaxConcurrentTasks.size(), newBeIds.size(), unavailableBeIds.size());
-        } finally {
-            writeUnlock();
-        }
     }
 
     private Map<Long, Integer> getBeIdConcurrentTaskMaps() {

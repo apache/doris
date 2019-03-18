@@ -78,8 +78,9 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         super(-1, LoadDataSourceType.KAFKA);
     }
 
-    public KafkaRoutineLoadJob(Long id, String name, long dbId, long tableId, String brokerList, String topic) {
-        super(id, name, dbId, tableId, LoadDataSourceType.KAFKA);
+    public KafkaRoutineLoadJob(Long id, String name, String clusterName, long dbId, long tableId, String brokerList,
+            String topic) {
+        super(id, name, clusterName, dbId, tableId, LoadDataSourceType.KAFKA);
         this.brokerList = brokerList;
         this.topic = topic;
         this.progress = new KafkaProgress();
@@ -119,7 +120,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             if (state == JobState.NEED_SCHEDULE) {
                 // divide kafkaPartitions into tasks
                 for (int i = 0; i < currentConcurrentTaskNum; i++) {
-                    KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo(UUID.randomUUID(), id);
+                    KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo(UUID.randomUUID(), id, clusterName);
                     routineLoadTaskInfoList.add(kafkaTaskInfo);
                     result.add(kafkaTaskInfo);
                 }
@@ -145,7 +146,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     @Override
     public int calculateCurrentConcurrentTaskNum() throws MetaNotFoundException {
         SystemInfoService systemInfoService = Catalog.getCurrentSystemInfo();
-        int aliveBeNum = systemInfoService.getClusterBackendIds(getClusterName(), true).size();
+        int aliveBeNum = systemInfoService.getClusterBackendIds(clusterName, true).size();
         int partitionNum = currentKafkaPartitions.size();
         if (desireTaskConcurrentNum == 0) {
             desireTaskConcurrentNum = partitionNum;
@@ -290,8 +291,8 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
         // init kafka routine load job
         long id = Catalog.getInstance().getNextId();
-        KafkaRoutineLoadJob kafkaRoutineLoadJob = new KafkaRoutineLoadJob(id, stmt.getName(), db.getId(), 
-                tableId, stmt.getKafkaBrokerList(), stmt.getKafkaTopic());
+        KafkaRoutineLoadJob kafkaRoutineLoadJob = new KafkaRoutineLoadJob(id, stmt.getName(),
+                db.getClusterName(), db.getId(), tableId, stmt.getKafkaBrokerList(), stmt.getKafkaTopic());
         kafkaRoutineLoadJob.setOptional(stmt);
 
         return kafkaRoutineLoadJob;
