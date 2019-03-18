@@ -219,7 +219,7 @@ public class KafkaRoutineLoadJobTest {
         };
 
         List<RoutineLoadTaskInfo> routineLoadTaskInfoList = new ArrayList<>();
-        KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo(new UUID(1, 1), 1L);
+        KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo(new UUID(1, 1), 1L, "default_cluster");
         kafkaTaskInfo.addKafkaPartition(100);
         kafkaTaskInfo.setLoadStartTimeMs(System.currentTimeMillis() - DEFAULT_TASK_TIMEOUT_SECONDS * 60 * 1000);
         routineLoadTaskInfoList.add(kafkaTaskInfo);
