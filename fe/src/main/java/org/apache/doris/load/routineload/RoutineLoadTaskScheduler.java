@@ -56,8 +56,12 @@ public class RoutineLoadTaskScheduler extends Daemon {
 
     private static final Logger LOG = LogManager.getLogger(RoutineLoadTaskScheduler.class);
 
+    private static final long BACKEND_SLOT_UPDATE_INTERVAL_MS = 10000; // 10s
+
     private RoutineLoadManager routineLoadManager;
     private LinkedBlockingQueue<RoutineLoadTaskInfo> needScheduleTasksQueue;
+
+    private long lastBackendSlotUpdateTime = -1;
 
     @VisibleForTesting
     public RoutineLoadTaskScheduler() {
@@ -83,23 +87,17 @@ public class RoutineLoadTaskScheduler extends Daemon {
     }
 
     private void process() throws LoadException, UserException, InterruptedException {
-        // update current beIdMaps for tasks
-        routineLoadManager.updateBeIdTaskMaps();
+        updateBackendSlotIfNecessary();
 
-        LOG.info("There are {} need schedule task in queue when {}",
-                 needScheduleTasksQueue.size(), System.currentTimeMillis());
-        Map<Long, List<TRoutineLoadTask>> beIdTobatchTask = Maps.newHashMap();
         int sizeOfTasksQueue = needScheduleTasksQueue.size();
         int clusterIdleSlotNum = routineLoadManager.getClusterIdleSlotNum();
         int needScheduleTaskNum = sizeOfTasksQueue < clusterIdleSlotNum ? sizeOfTasksQueue : clusterIdleSlotNum;
+
+        LOG.info("There are {} tasks need to be scheduled in queue", needScheduleTasksQueue.size());
+
         int scheduledTaskNum = 0;
-        // get idle be task num
-        // allocate task to be
-//        if (needScheduleTaskNum == 0) {
-//            Thread.sleep(1000);
-//            return;
-//        }
-        while (needScheduleTaskNum > 0) {
+        Map<Long, List<TRoutineLoadTask>> beIdTobatchTask = Maps.newHashMap();
+        while (needScheduleTaskNum-- > 0) {
             // allocate be to task and begin transaction for task
             RoutineLoadTaskInfo routineLoadTaskInfo = null;
             try {
@@ -109,21 +107,17 @@ public class RoutineLoadTaskScheduler extends Daemon {
                          e.getMessage(),e);
                 return;
             }
-            RoutineLoadJob routineLoadJob = null;
             try {
-                routineLoadJob = routineLoadManager.getJobByTaskId(routineLoadTaskInfo.getId());
-                allocateTaskToBe(routineLoadTaskInfo, routineLoadJob);
+                allocateTaskToBe(routineLoadTaskInfo);
                 routineLoadTaskInfo.beginTxn();
             } catch (MetaNotFoundException e) {
                 // task has been abandoned while renew task has been added in queue
                 // or database has been deleted
-                needScheduleTaskNum--;
                 LOG.warn(new LogBuilder(LogKey.ROUINTE_LOAD_TASK, routineLoadTaskInfo.getId())
                                  .add("error_msg", "task has been abandoned with error " + e.getMessage()).build(), e);
                 continue;
             } catch (LoadException e) {
                 needScheduleTasksQueue.put(routineLoadTaskInfo);
-                needScheduleTaskNum--;
                 LOG.warn(new LogBuilder(LogKey.ROUINTE_LOAD_TASK, routineLoadTaskInfo.getId())
                                  .add("error_msg", "put task to the rear of queue with error " + e.getMessage())
                                  .build(), e);
@@ -144,10 +138,19 @@ public class RoutineLoadTaskScheduler extends Daemon {
             }
             // count
             scheduledTaskNum++;
-            needScheduleTaskNum--;
         }
         submitBatchTask(beIdTobatchTask);
         LOG.info("{} tasks have been allocated to be.", scheduledTaskNum);
+    }
+
+    private void updateBackendSlotIfNecessary() {
+        long currentTime = System.currentTimeMillis();
+        if (lastBackendSlotUpdateTime != -1
+                && currentTime - lastBackendSlotUpdateTime > BACKEND_SLOT_UPDATE_INTERVAL_MS) {
+            routineLoadManager.updateBeIdToMaxConcurrentTasks();
+            lastBackendSlotUpdateTime = currentTime;
+            LOG.debug("update backend max slot for routine load task scheduling");
+        }
     }
 
     public void addTaskInQueue(RoutineLoadTaskInfo routineLoadTaskInfo) {
@@ -184,12 +187,12 @@ public class RoutineLoadTaskScheduler extends Daemon {
     // check if previous be has idle slot
     // true: allocate previous be to task
     // false: allocate the most idle be to task
-    private void allocateTaskToBe(RoutineLoadTaskInfo routineLoadTaskInfo, RoutineLoadJob routineLoadJob)
+    private void allocateTaskToBe(RoutineLoadTaskInfo routineLoadTaskInfo)
             throws MetaNotFoundException, LoadException {
         if (routineLoadTaskInfo.getPreviousBeId() != -1L) {
-            if (routineLoadManager.checkBeToTask(routineLoadTaskInfo.getPreviousBeId(), routineLoadJob.getClusterName())) {
+            if (routineLoadManager.checkBeToTask(routineLoadTaskInfo.getPreviousBeId(), routineLoadTaskInfo.getClusterName())) {
                 LOG.debug(new LogBuilder(LogKey.ROUINTE_LOAD_TASK, routineLoadTaskInfo.getId())
-                                  .add("job_id", routineLoadJob.getId())
+                                  .add("job_id", routineLoadTaskInfo.getJobId())
                                   .add("previous_be_id", routineLoadTaskInfo.getPreviousBeId())
                                   .add("msg", "task use the previous be id")
                                   .build());
@@ -197,9 +200,9 @@ public class RoutineLoadTaskScheduler extends Daemon {
                 return;
             }
         }
-        routineLoadTaskInfo.setBeId(routineLoadManager.getMinTaskBeId(routineLoadJob.getClusterName()));
+        routineLoadTaskInfo.setBeId(routineLoadManager.getMinTaskBeId(routineLoadTaskInfo.getClusterName()));
         LOG.debug(new LogBuilder(LogKey.ROUINTE_LOAD_TASK, routineLoadTaskInfo.getId())
-                          .add("job_id", routineLoadJob.getId())
+                          .add("job_id", routineLoadTaskInfo.getJobId())
                           .add("be_id", routineLoadTaskInfo.getBeId())
                           .add("msg", "task has been allocated to be")
                           .build());
