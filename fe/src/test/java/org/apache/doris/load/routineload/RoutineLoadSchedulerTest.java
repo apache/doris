@@ -130,8 +130,8 @@ public class RoutineLoadSchedulerTest {
             }
         };
 
-        KafkaRoutineLoadJob kafkaRoutineLoadJob = new KafkaRoutineLoadJob(1L, "test", 1L, 1L, "10.74.167.16:8092",
-                "test");
+        KafkaRoutineLoadJob kafkaRoutineLoadJob = new KafkaRoutineLoadJob(1L, "test", "default_cluster", 1L, 1L,
+                "10.74.167.16:8092", "test");
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
         routineLoadManager.addRoutineLoadJob(kafkaRoutineLoadJob);
 
@@ -158,8 +158,8 @@ public class RoutineLoadSchedulerTest {
         executorService.submit(routineLoadScheduler);
         executorService.submit(routineLoadTaskScheduler);
 
-        KafkaRoutineLoadJob kafkaRoutineLoadJob1 = new KafkaRoutineLoadJob(1L, "test_custom_partition", 1L, 1L,
-                "10.74.167.16:8092", "test_1");
+        KafkaRoutineLoadJob kafkaRoutineLoadJob1 = new KafkaRoutineLoadJob(1L, "test_custom_partition",
+                "default_cluster", 1L, 1L, "10.74.167.16:8092", "test_1");
         List<Integer> customKafkaPartitions = new ArrayList<>();
         customKafkaPartitions.add(2);
         Deencapsulation.setField(kafkaRoutineLoadJob1, "customKafkaPartitions", customKafkaPartitions);

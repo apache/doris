@@ -45,14 +45,14 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
 
     private List<Integer> partitions;
 
-    public KafkaTaskInfo(UUID id, long jobId) {
-        super(id, jobId);
+    public KafkaTaskInfo(UUID id, long jobId, String clusterName) {
+        super(id, jobId, clusterName);
         this.partitions = new ArrayList<>();
     }
 
     public KafkaTaskInfo(KafkaTaskInfo kafkaTaskInfo) throws LabelAlreadyUsedException,
             BeginTransactionException, AnalysisException {
-        super(UUID.randomUUID(), kafkaTaskInfo.getJobId(), kafkaTaskInfo.getBeId());
+        super(UUID.randomUUID(), kafkaTaskInfo.getJobId(), kafkaTaskInfo.getClusterName(), kafkaTaskInfo.getBeId());
         this.partitions = kafkaTaskInfo.getPartitions();
     }
 
