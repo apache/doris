@@ -626,6 +626,10 @@ void TaskWorkerPool::_alter_tablet(
             finish_tablet_infos.push_back(tablet_info);
         }
     }
+    
+    for (auto& tablet_info : finish_tablet_infos) {
+        LOG(INFO) << "finish tablet infos:" <<  apache::thrift::ThriftDebugString(tablet_info);
+    }
 
     if (status == DORIS_SUCCESS) {
         finish_task_request->__set_finish_tablet_infos(finish_tablet_infos);
