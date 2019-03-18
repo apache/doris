@@ -43,6 +43,8 @@ public abstract class RoutineLoadTaskInfo {
     protected UUID id;
     protected long txnId;
     protected long jobId;
+    protected String clusterName;
+
     private long createTimeMs;
     private long loadStartTimeMs;
     // the be id of previous task
@@ -50,16 +52,15 @@ public abstract class RoutineLoadTaskInfo {
     // the be id of this task
     protected long beId = -1L;
 
-    public RoutineLoadTaskInfo(UUID id, long jobId) {
+    public RoutineLoadTaskInfo(UUID id, long jobId, String clusterName) {
         this.id = id;
         this.jobId = jobId;
+        this.clusterName = clusterName;
         this.createTimeMs = System.currentTimeMillis();
     }
 
-    public RoutineLoadTaskInfo(UUID id, long jobId, long previousBeId) {
-        this.id = id;
-        this.jobId = jobId;
-        this.createTimeMs = System.currentTimeMillis();
+    public RoutineLoadTaskInfo(UUID id, long jobId, String clusterName, long previousBeId) {
+        this(id, jobId, clusterName);
         this.previousBeId = previousBeId;
     }
     
@@ -71,6 +72,10 @@ public abstract class RoutineLoadTaskInfo {
         return jobId;
     }
     
+    public String getClusterName() {
+        return clusterName;
+    }
+
     public void setLoadStartTimeMs(long loadStartTimeMs) {
         this.loadStartTimeMs = loadStartTimeMs;
     }
@@ -85,6 +90,10 @@ public abstract class RoutineLoadTaskInfo {
 
     public long getBeId() {
         return beId;
+    }
+
+    public long getCreateTimeMs() {
+        return createTimeMs;
     }
 
     public long getLoadStartTimeMs() {
