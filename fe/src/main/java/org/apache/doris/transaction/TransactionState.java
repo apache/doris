@@ -135,7 +135,7 @@ public class TransactionState implements Writable {
     private long publishVersionTime;
     private TransactionStatus preStatus = null;
     
-    private long listenerId;
+    private long listenerId = -1;
 
     // the result of calling txn state change listener.
     // this is used for replaying
@@ -393,6 +393,7 @@ public class TransactionState implements Writable {
         if (txnCommitAttachment != null) {
             sb.append(" attactment: ").append(txnCommitAttachment);
         }
+        sb.append(", listen result: ").append(listenResult.name());
         return sb.toString();
     }
     
@@ -440,6 +441,7 @@ public class TransactionState implements Writable {
             txnCommitAttachment.write(out);
         }
         Text.writeString(out, listenResult.name());
+        out.writeLong(listenerId);
     }
     
     @Override
@@ -470,6 +472,7 @@ public class TransactionState implements Writable {
                 txnCommitAttachment = TxnCommitAttachment.read(in);
             }
             listenResult = ListenResult.valueOf(Text.readString(in));
+            listenerId = in.readLong();
         }
     }
 }
