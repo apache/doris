@@ -309,7 +309,7 @@ OLAPStatus SegmentReader::get_block(
 
     auto res = _load_to_vectorized_row_batch(batch, num_rows_load);
     if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to load block to vectorized_row_batch. [res=%d]", res);
+        LOG(WARNING) << "fail to load block to vectorized_row_batch. res:" << res;
         return res;
     }
 
