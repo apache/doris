@@ -45,6 +45,7 @@ Status HttpClient::init(const std::string& url) {
 
     if(_header_list != nullptr) {
         curl_slist_free_all(_header_list);
+        _header_list = nullptr;
     }
     // set error_buf
     _error_buf[0] = 0;
