@@ -241,6 +241,14 @@ public :
 private :
 };
 
+class EsTableDescriptor : public TableDescriptor {
+public :
+    EsTableDescriptor(const TTableDescriptor& tdesc);
+    virtual ~EsTableDescriptor();
+    virtual std::string debug_string() const;
+private :
+};
+
 // Descriptor for a KuduTable
 class KuduTableDescriptor : public TableDescriptor {
  public:
