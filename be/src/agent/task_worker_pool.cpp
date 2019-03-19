@@ -632,7 +632,7 @@ void TaskWorkerPool::_alter_tablet(
         task_status.__set_status_code(TStatusCode::OK);
     } else if (status == DORIS_TASK_REQUEST_ERROR) {
         LOG(WARNING) << "alter table request task type invalid. "
-                         "signature:" << signature;
+                     << "signature:" << signature;
         error_msgs.push_back("alter table request new tablet id or schema count invalid.");
         task_status.__set_status_code(TStatusCode::ANALYSIS_ERROR);
     } else {
