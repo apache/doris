@@ -65,7 +65,8 @@ DataDir::DataDir(const std::string& path, int64_t capacity_bytes)
         _to_be_deleted(false),
         _test_file_read_buf(nullptr),
         _test_file_write_buf(nullptr),
-        _meta((nullptr)) {
+        _meta(nullptr),
+        _scanned(false) {
 }
 
 DataDir::~DataDir() {
@@ -838,11 +839,14 @@ void DataDir::remove_pending_ids(const std::string& id) {
     _pending_path_ids.erase(id);
 }
 
+// path consumer
 void DataDir::perform_path_gc() {
     // init the set of valid path
     // validate the path in data dir
+    std::unique_lock<std::mutex> lck(_check_path_mutex);
+    cv.wait(lck, [this]{return _scanned;});
+    _scanned = false;
     LOG(INFO) << "start to path gc.";
-    _check_path_mutex.wrlock();
     int counter = 0;
     for (int index = 0; index < _all_check_paths.size();) {
         ++counter;
@@ -919,24 +923,25 @@ void DataDir::perform_path_gc() {
         }
         ++index;
     }
-    _check_path_mutex.unlock();
+    _all_check_paths.clear();
     LOG(INFO) << "finished one time path gc.";
 }
 
+// path producer
 void DataDir::perform_path_scan() {
-    _check_path_mutex.rdlock();
+    std::unique_lock<std::mutex> lck(_check_path_mutex);
+    _scanned = true;
     LOG(INFO) << "start to scan data dir path:" << _path;
     std::set<std::string> shards;
     std::string data_path = _path + DATA_PREFIX;
     if (dir_walk(data_path, &shards, nullptr) != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to walk dir. [path=" << data_path << "]";
-        _check_path_mutex.unlock();
+        lck.unlock();
+        cv.notify_one();
         return;
     }
-    std::set<std::string> check_paths;
     for (const auto& shard : shards) {
         std::string shard_path = data_path + "/" + shard;
-        // check_paths.insert(shard_path);
         std::set<std::string> tablet_ids;
         if (dir_walk(shard_path, &tablet_ids, nullptr) != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to walk dir. [path=" << shard_path << "]";
@@ -944,7 +949,7 @@ void DataDir::perform_path_scan() {
         }
         for (const auto& tablet_id : tablet_ids) {
             std::string tablet_id_path = shard_path + "/" + tablet_id;
-            check_paths.insert(tablet_id_path);
+            _all_check_paths.insert(tablet_id_path);
             std::set<std::string> schema_hashes;
             if (dir_walk(tablet_id_path, &schema_hashes, nullptr) != OLAP_SUCCESS) {
                 LOG(WARNING) << "fail to walk dir. [path=" << tablet_id_path << "]";
@@ -952,7 +957,7 @@ void DataDir::perform_path_scan() {
             }
             for (const auto& schema_hash : schema_hashes) {
                 std::string tablet_schema_hash_path = tablet_id_path + "/" + schema_hash;
-                check_paths.insert(tablet_schema_hash_path);
+                _all_check_paths.insert(tablet_schema_hash_path);
                 std::set<std::string> rowset_files;
                 if (dir_walk(tablet_schema_hash_path, nullptr, &rowset_files) != OLAP_SUCCESS) {
                     LOG(WARNING) << "fail to walk dir. [path=" << tablet_schema_hash_path << "]";
@@ -960,14 +965,14 @@ void DataDir::perform_path_scan() {
                 }
                 for (const auto& rowset_file : rowset_files) {
                     std::string rowset_file_path = tablet_schema_hash_path + "/" + rowset_file;
-                    check_paths.insert(rowset_file_path);
+                    _all_check_paths.insert(rowset_file_path);
                 }
             }
         }
     }
-    _check_path_mutex.unlock();
-    LOG(INFO) << "scan data dir path:" << _path << " finished. path size:" << check_paths.size();
-    _add_check_paths(check_paths);
+    LOG(INFO) << "scan data dir path:" << _path << " finished. path size:" << _all_check_paths.size();
+    lck.unlock();
+    cv.notify_one();
 }
 
 void DataDir::_process_garbage_path(const std::string& path) {
@@ -978,12 +983,6 @@ void DataDir::_process_garbage_path(const std::string& path) {
             LOG(WARNING) << "remove garbage dir path:" << path << " failed";
         }
     }
-}
-
-void DataDir::_add_check_paths(const std::set<std::string>& paths) {
-    _check_path_mutex.wrlock();
-    _all_check_paths.insert(paths.begin(), paths.end());
-    _check_path_mutex.unlock();
 }
 
 bool DataDir::_check_pending_ids(const std::string& id) {

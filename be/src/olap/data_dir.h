@@ -21,6 +21,7 @@
 #include <set>
 #include <string>
 #include <mutex>
+#include <condition_variable>
 
 #include "common/status.h"
 #include "gen_cpp/Types_types.h"
@@ -121,8 +122,6 @@ private:
 
     void _process_garbage_path(const std::string& path);
 
-    void _add_check_paths(const std::set<std::string>& paths);
-
     void _remove_check_paths(const std::set<std::string>& paths);
 
     bool _check_pending_ids(const std::string& id);
@@ -155,7 +154,9 @@ private:
     RowsetIdGenerator* _id_generator = nullptr;
 
     std::set<std::string> _all_check_paths;
-    RWMutex _check_path_mutex;
+    std::mutex _check_path_mutex;
+    std::condition_variable cv;
+    bool _scanned;
 
     std::set<std::string> _pending_path_ids;
     RWMutex _pending_path_mutex;

@@ -77,16 +77,18 @@ OLAPStatus StorageEngine::_start_bg_worker() {
         });
 
     // path scan and gc thread
-    for (auto data_dir : get_stores()) {
-        _path_scan_threads.emplace_back(
-        [this, data_dir] {
-            _path_scan_thread_callback((void*)data_dir);
-        });
+    if (config::path_gc_check) {
+        for (auto data_dir : get_stores()) {
+            _path_scan_threads.emplace_back(
+            [this, data_dir] {
+                _path_scan_thread_callback((void*)data_dir);
+            });
 
-        _path_gc_threads.emplace_back(
-        [this, data_dir] {
-            _path_gc_thread_callback((void*)data_dir);
-        });
+            _path_gc_threads.emplace_back(
+            [this, data_dir] {
+                _path_gc_thread_callback((void*)data_dir);
+            });
+        }
     }
 
     VLOG(10) << "init finished.";
