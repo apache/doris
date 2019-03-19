@@ -364,5 +364,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         for (int i = 0; i < size; i++) {
             customKafkaPartitions.add(in.readInt());
         }
+
+        setConsumer();
     }
 }
