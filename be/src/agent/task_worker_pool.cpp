@@ -616,19 +616,13 @@ void TaskWorkerPool::_alter_tablet(
                 &tablet_info);
 
         if (status != DORIS_SUCCESS) {
-            OLAP_LOG_WARNING("%s success, but get new tablet info failed."
-                             "tablet_id: %ld, schema_hash: %ld, signature: %ld.",
-                             process_name.c_str(),
-                             alter_tablet_request.new_tablet_req.tablet_id,
-                             alter_tablet_request.new_tablet_req.tablet_schema.schema_hash,
-                             signature);
+            LOG(WARNING) << process_name<< " success, but get new tablet info failed."
+                         << "tablet_id: " << alter_tablet_request.new_tablet_req.tablet_id
+                         << ", schema_hash: " << alter_tablet_request.new_tablet_req.tablet_schema.schema_hash
+                         << ", signature: " << signature;
         } else {
             finish_tablet_infos.push_back(tablet_info);
         }
-    }
-    
-    for (auto& tablet_info : finish_tablet_infos) {
-        LOG(INFO) << "finish tablet infos:" <<  apache::thrift::ThriftDebugString(tablet_info);
     }
 
     if (status == DORIS_SUCCESS) {
@@ -637,8 +631,8 @@ void TaskWorkerPool::_alter_tablet(
         error_msgs.push_back(process_name + " success");
         task_status.__set_status_code(TStatusCode::OK);
     } else if (status == DORIS_TASK_REQUEST_ERROR) {
-        OLAP_LOG_WARNING("alter table request task type invalid. "
-                         "signature: %ld", signature);
+        LOG(WARNING) << "alter table request task type invalid. "
+                         "signature:" << signature;
         error_msgs.push_back("alter table request new tablet id or schema count invalid.");
         task_status.__set_status_code(TStatusCode::ANALYSIS_ERROR);
     } else {

@@ -234,7 +234,6 @@ OLAPStatus AlphaRowsetReader::_init_column_datas(RowsetReaderContext* read_conte
         _key_range_size = read_context->lower_bound_keys->size();
     }
 
-    LOG(INFO) << "segment groups size:" << _segment_groups.size();
     for (auto& segment_group : _segment_groups) {
         std::shared_ptr<ColumnData> new_column_data(ColumnData::create(segment_group.get()));
         OLAPStatus status = new_column_data->init();
@@ -287,7 +286,6 @@ OLAPStatus AlphaRowsetReader::_init_column_datas(RowsetReaderContext* read_conte
 
         RowBlock* row_block = nullptr;
         if (segment_group->empty()) {
-            LOG(INFO) << "segment group is empty";
             _row_blocks.push_back(row_block);
             continue;
         }
@@ -317,7 +315,6 @@ OLAPStatus AlphaRowsetReader::_init_column_datas(RowsetReaderContext* read_conte
             }
         } else {
             status = new_column_data->get_first_row_block(&row_block);
-            LOG(INFO) << "get_first_row_block status:" << status;
             if (status != OLAP_SUCCESS && status != OLAP_ERR_DATA_EOF) {
                 LOG(WARNING) << "get first row block failed, status:" << status;
                 return status;
