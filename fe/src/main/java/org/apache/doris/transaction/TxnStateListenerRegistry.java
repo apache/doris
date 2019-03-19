@@ -19,6 +19,9 @@ package org.apache.doris.transaction;
 
 import com.google.common.collect.Maps;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.util.Map;
 
 /*
@@ -28,6 +31,8 @@ import java.util.Map;
 
 // saves all TxnStateChangeListeners
 public class TxnStateListenerRegistry {
+    private static final Logger LOG = LogManager.getLogger(TxnStateListenerRegistry.class);
+
     private Map<Long, TxnStateChangeListener> listeners = Maps.newHashMap();
 
     public synchronized boolean register(TxnStateChangeListener listener) {
@@ -35,11 +40,13 @@ public class TxnStateListenerRegistry {
             return false;
         }
         listeners.put(listener.getId(), listener);
+        LOG.info("register txn state listener: {}", listener.getId());
         return true;
     }
 
     public synchronized void unregister(long id) {
         listeners.remove(id);
+        LOG.info("unregister txn state listener: {}", id);
     }
 
     public synchronized TxnStateChangeListener getListener(long id) {
