@@ -53,9 +53,13 @@ Status HttpClient::init(const std::string& url) {
     if(_header_list != nullptr) {
         curl_slist_free_all(_header_list);
 <<<<<<< HEAD
+<<<<<<< HEAD
         _header_list = nullptr;
 =======
 >>>>>>> Change HttpClient to support http post
+=======
+        _header_list = nullptr;
+>>>>>>> Add http post feature for HttpClient
     }
     // set error_buf
     _error_buf[0] = 0;
