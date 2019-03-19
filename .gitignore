@@ -10,4 +10,3 @@ thirdparty/src
 *.so.tmp
 .DS_Store
 *.iml
-fe/src/main/java/org/apache/doris/thrift/
