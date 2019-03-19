@@ -148,7 +148,7 @@ TEST_F(HttpClientTest, post_normal) {
     st = client.execute_post_request(request_body, &response);
     ASSERT_TRUE(st.ok());
     ASSERT_EQ(response.length(), request_body.length());
-    ASSERT_STREQ(response.c_str(), request_body.c_str())
+    ASSERT_STREQ(response.c_str(), request_body.c_str());
 }
 
 }
