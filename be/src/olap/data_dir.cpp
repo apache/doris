@@ -828,23 +828,20 @@ OLAPStatus DataDir::load() {
     return OLAP_SUCCESS;
 }
 
-void DataDir::add_pending_paths(int64_t id, const std::set<std::string>& paths) {
+void DataDir::add_pending_ids(const std::string& id) {
     WriteLock wr_lock(&_pending_path_mutex);
-    auto pending_paths= _pending_paths[id];
-    pending_paths.insert(paths.begin(), paths.end());
+    _pending_path_ids.insert(id);
 }
 
-void DataDir::remove_pending_paths(int64_t id) {
+void DataDir::remove_pending_ids(const std::string& id) {
     WriteLock wr_lock(&_pending_path_mutex);
-    _pending_paths.erase(id);
+    _pending_path_ids.erase(id);
 }
 
 void DataDir::perform_path_gc() {
     // init the set of valid path
     // validate the path in data dir
     LOG(INFO) << "start to path gc.";
-    int start = 0;
-    int step = config::path_gc_check_step;
     _check_path_mutex.wrlock();
     int counter = 0;
     for (int index = 0; index < _all_check_paths.size();) {
@@ -872,7 +869,8 @@ void DataDir::perform_path_gc() {
                 // tablet schema hash path or rowset file path
                 TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash);
                 if (tablet == nullptr) {
-                    bool exist_in_pending = _check_path_in_pending_paths(path);
+                    std::string tablet_path_id = TABLET_ID_PREFIX + std::to_string(tablet_id);
+                    bool exist_in_pending = _check_pending_ids(tablet_path_id);
                     if (!exist_in_pending) {
                         _process_garbage_path(path);
                         _remove_check_paths_no_lock(paths);
@@ -881,11 +879,17 @@ void DataDir::perform_path_gc() {
                 } else {
                     bool valid = tablet->check_path(path);
                     if (!valid) {
-                        bool exist_in_pending = _check_path_in_pending_paths(path);
-                        if (!exist_in_pending) {
-                            _process_garbage_path(path);
-                            _remove_check_paths_no_lock(paths);
-                            continue;
+                        RowsetId rowset_id = -1;
+                        bool is_rowset_file = StorageEngine::instance()->tablet_manager()
+                                ->get_rowset_id_from_path(path, &rowset_id);
+                        if (is_rowset_file) {
+                            std::string rowset_path_id = ROWSET_ID_PREFIX + std::to_string(rowset_id);
+                            bool exist_in_pending = _check_pending_ids(rowset_path_id);
+                            if (!exist_in_pending) {
+                                _process_garbage_path(path);
+                                _remove_check_paths_no_lock(paths);
+                                continue;
+                            }
                         }
                     }
                 }
@@ -894,7 +898,8 @@ void DataDir::perform_path_gc() {
                 if (FileUtils::is_dir(path)) {
                     bool exist = StorageEngine::instance()->tablet_manager()->check_tablet_id_exist(tablet_id);
                     if (!exist) {
-                        bool exist_in_pending = _check_path_in_pending_paths(path);
+                        std::string tablet_path_id = TABLET_ID_PREFIX + std::to_string(tablet_id);
+                        bool exist_in_pending = _check_pending_ids(tablet_path_id);
                         if (!exist_in_pending) {
                             _process_garbage_path(path);
                             _remove_check_paths_no_lock(paths);
@@ -981,14 +986,9 @@ void DataDir::_add_check_paths(const std::set<std::string>& paths) {
     _check_path_mutex.unlock();
 }
 
-bool DataDir::_check_path_in_pending_paths(const std::string& path) {
+bool DataDir::_check_pending_ids(const std::string& id) {
     ReadLock rd_lock(&_pending_path_mutex);
-    for (auto id_pending_paths : _pending_paths) {
-        if (id_pending_paths.second.find(path) != id_pending_paths.second.end()) {
-            return true;
-        }
-    }
-    return false;
+    return _pending_path_ids.find(id) != _pending_path_ids.end();
 }
 
 void DataDir::_remove_check_paths_no_lock(const std::set<std::string> paths) {

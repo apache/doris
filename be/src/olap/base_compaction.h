@@ -38,7 +38,8 @@ public:
     BaseCompaction() :
             _new_base_version(0, 0),
             _old_base_version(0, 0),
-            _base_compaction_locked(false) {}
+            _base_compaction_locked(false),
+            _rs_writer(nullptr) {}
 
     virtual ~BaseCompaction() {
         _release_base_compaction_lock();
@@ -175,8 +176,8 @@ private:
     std::vector<Version> _need_merged_versions;
     // 需要新增的版本对应Rowset的
     std::vector<RowsetSharedPtr> _new_rowsets;
-
     bool _base_compaction_locked;
+    RowsetWriterSharedPtr _rs_writer;
 
     DISALLOW_COPY_AND_ASSIGN(BaseCompaction);
 };

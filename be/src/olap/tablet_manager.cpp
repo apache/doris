@@ -326,10 +326,10 @@ OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request,
     TabletSharedPtr tablet;
     do {
         // 3. Create tablet with only header, no deltas
-        tablet = create_tablet(request, false, NULL, stores);
+        tablet = create_tablet(request, false, nullptr, stores);
         if (tablet == nullptr) {
             res = OLAP_ERR_CE_CMD_PARAMS_ERROR;
-            OLAP_LOG_WARNING("fail to create tablet. [res=%d]", res);
+            LOG(WARNING) << "fail to create tablet. res=" << res;
             break;
         }
 
@@ -374,7 +374,9 @@ OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request,
         // }
     } while (0);
     // should remove the pending path of tablet id no matter create tablet success or not
-    StorageEngine::instance()->remove_pending_paths(request.tablet_id);
+    if (tablet != nullptr) {
+        tablet->data_dir()->remove_pending_ids(TABLET_ID_PREFIX + std::to_string(request.tablet_id));
+    }
 
     // 7. clear environment
     if (res != OLAP_SUCCESS) {
@@ -382,10 +384,10 @@ OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request,
         if (is_tablet_added) {
             OLAPStatus status = drop_tablet(
                     request.tablet_id, request.tablet_schema.schema_hash);
-            if (status !=  OLAP_SUCCESS) {
-                OLAP_LOG_WARNING("fail to drop tablet when create tablet failed. [res=%d]", res);
+            if (status != OLAP_SUCCESS) {
+                LOG(WARNING) << "fail to drop tablet when create tablet failed. res=" << res;
             }
-        } else if (NULL != tablet) {
+        } else if (tablet != nullptr) {
             tablet->delete_all_files();
         }
     }
@@ -396,20 +398,20 @@ OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request,
 
 TabletSharedPtr TabletManager::create_tablet(
         const TCreateTabletReq& request, const bool is_schema_change_tablet,
-        const TabletSharedPtr ref_tablet, std::vector<DataDir*> stores) {
+        const TabletSharedPtr ref_tablet, std::vector<DataDir*> data_dirs) {
 
     TabletSharedPtr tablet;
     // Try to create tablet on each of all_available_root_path, util success
-    for (auto& store : stores) {
+    for (auto& data_dir : data_dirs) {
         TabletMeta* tablet_meta = nullptr;
-        OLAPStatus res = _create_tablet_meta(request, store, is_schema_change_tablet, ref_tablet, &tablet_meta);
+        OLAPStatus res = _create_tablet_meta(request, data_dir, is_schema_change_tablet, ref_tablet, &tablet_meta);
         if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "fail to create tablet meta. res=" << res << ", root=" << store->path();
+            LOG(WARNING) << "fail to create tablet meta. res=" << res << ", root=" << data_dir->path();
             continue;
         }
 
         stringstream schema_hash_dir_stream;
-        schema_hash_dir_stream << store->path()
+        schema_hash_dir_stream << data_dir->path()
                 << DATA_PREFIX
                 << "/" << tablet_meta->shard_id()
                 << "/" << request.tablet_id
@@ -419,10 +421,7 @@ TabletSharedPtr TabletManager::create_tablet(
         boost::filesystem::path tablet_path = schema_hash_path.parent_path();
         std::string tablet_dir = tablet_path.string();
         if (!check_dir_existed(schema_hash_dir)) {
-            std::set<std::string> pending_paths;
-            pending_paths.insert(schema_hash_dir);
-            pending_paths.insert(tablet_dir);
-            StorageEngine::instance()->add_pending_paths(request.tablet_id, pending_paths);
+            data_dir->add_pending_ids(TABLET_ID_PREFIX + std::to_string(request.tablet_id));
             res = create_dirs(schema_hash_dir);
             if (res != OLAP_SUCCESS) {
                 LOG(WARNING) << "create dir fail. [res=" << res << " path:" << schema_hash_dir;
@@ -430,9 +429,9 @@ TabletSharedPtr TabletManager::create_tablet(
             }
         }
 
-        tablet = Tablet::create_tablet_from_meta(tablet_meta, store);
+        tablet = Tablet::create_tablet_from_meta(tablet_meta, data_dir);
         if (tablet == nullptr) {
-            LOG(WARNING) << "fail to load tablet from tablet_meta. root_path:" << store->path();
+            LOG(WARNING) << "fail to load tablet from tablet_meta. root_path:" << data_dir->path();
             res = remove_all_dir(tablet_dir);
             if (res != OLAP_SUCCESS) {
                 LOG(WARNING) << "remove tablet dir:" << tablet_dir;
@@ -441,9 +440,9 @@ TabletSharedPtr TabletManager::create_tablet(
         }
 
         // save tablet_meta finally
-        res = TabletMetaManager::save(store, request.tablet_id, request.tablet_schema.schema_hash, tablet_meta);
+        res = TabletMetaManager::save(data_dir, request.tablet_id, request.tablet_schema.schema_hash, tablet_meta);
         if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "fail to save tablet meta. res=" << res << ", root=" << store->path();
+            LOG(WARNING) << "fail to save tablet meta. res=" << res << ", root=" << data_dir->path();
             res = remove_all_dir(tablet_dir);
             if (res != OLAP_SUCCESS) {
                 LOG(WARNING) << "remove tablet dir:" << tablet_dir;
@@ -627,6 +626,22 @@ bool TabletManager::get_tablet_id_and_schema_hash_from_path(const std::string& p
                     return false;
                 }
             }
+        }
+    }
+    return false;
+}
+
+bool TabletManager::get_rowset_id_from_path(const std::string& path, RowsetId* rowset_id) {
+    std::string pattern = "/data/\\d+/\\d+/\\d+/(\\d+)_.*";
+    std::regex rgx (pattern.c_str());
+    std::smatch sm;
+    bool ret = std::regex_search(path, sm, rgx);
+    if (ret) {
+        if (sm.size() == 2) {
+            *rowset_id = std::strtoll(sm.str(1).c_str(), nullptr, 10);
+            return true;
+        } else {
+            return false;
         }
     }
     return false;

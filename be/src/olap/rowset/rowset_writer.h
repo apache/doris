@@ -60,6 +60,8 @@ public:
     virtual RowsetId rowset_id() = 0;
 
     virtual OLAPStatus garbage_collection() = 0;
+
+    virtual DataDir* data_dir() = 0;
 };
 
 } // namespace doris

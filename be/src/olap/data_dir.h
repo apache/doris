@@ -93,9 +93,9 @@ public:
     // load data from meta and data files
     OLAPStatus load();
 
-    void add_pending_paths(int64_t id, const std::set<std::string>& paths);
+    void add_pending_ids(const std::string& id);
 
-    void remove_pending_paths(int64_t id);
+    void remove_pending_ids(const std::string& id);
 
     void perform_path_gc();
 
@@ -125,7 +125,7 @@ private:
 
     void _remove_check_paths(const std::set<std::string>& paths);
 
-    bool _check_path_in_pending_paths(const std::string& path);
+    bool _check_pending_ids(const std::string& id);
 
 private:
     std::string _path;
@@ -157,7 +157,7 @@ private:
     std::set<std::string> _all_check_paths;
     RWMutex _check_path_mutex;
 
-    std::map<int64_t, std::set<std::string>> _pending_paths;
+    std::set<std::string> _pending_path_ids;
     RWMutex _pending_path_mutex;
 };
 

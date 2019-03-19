@@ -124,7 +124,30 @@ OLAPStatus BaseCompaction::run() {
     // 3. 执行base compaction
     //    执行过程可能会持续比较长时间
     stage_watch.reset();
+    RowsetId rowset_id = 0;
+    RETURN_NOT_OK(_tablet->next_rowset_id(&rowset_id));
+    RowsetWriterContextBuilder context_builder;
+    context_builder.set_rowset_id(rowset_id)
+            .set_tablet_id(_tablet->tablet_id())
+            .set_partition_id(_tablet->partition_id())
+            .set_tablet_schema_hash(_tablet->schema_hash())
+            .set_rowset_type(ALPHA_ROWSET)
+            .set_rowset_path_prefix(_tablet->tablet_path())
+            .set_tablet_schema(&(_tablet->tablet_schema()))
+            .set_data_dir(_tablet->data_dir())
+            .set_rowset_state(VISIBLE)
+            .set_version(_new_base_version)
+            .set_version_hash(new_base_version_hash);
+    RowsetWriterContext context = context_builder.build();
+
+    RowsetWriterSharedPtr rs_writer(new (std::nothrow)AlphaRowsetWriter());
+    if (rs_writer == nullptr) {
+        LOG(WARNING) << "fail to new rowset.";
+        return OLAP_ERR_MALLOC_ERROR;
+    }
+    RETURN_NOT_OK(rs_writer->init(context));
     res = _do_base_compaction(new_base_version_hash, rowsets);
+    _tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX + std::to_string(rs_writer->rowset_id()));
     // 释放不再使用的ColumnData对象
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to do base version. tablet=" << _tablet->full_name()
@@ -311,30 +334,6 @@ bool BaseCompaction::_check_whether_satisfy_policy(bool is_manual_trigger,
 
 OLAPStatus BaseCompaction::_do_base_compaction(VersionHash new_base_version_hash,
                                                const vector<RowsetSharedPtr>& rowsets) {
-    // 1. 生成新base文件对应的olap index
-    RowsetId rowset_id = 0;
-    RETURN_NOT_OK(_tablet->next_rowset_id(&rowset_id));
-    RowsetWriterContextBuilder context_builder;
-    context_builder.set_rowset_id(rowset_id)
-            .set_tablet_id(_tablet->tablet_id())
-            .set_partition_id(_tablet->partition_id())
-            .set_tablet_schema_hash(_tablet->schema_hash())
-            .set_rowset_type(ALPHA_ROWSET)
-            .set_rowset_path_prefix(_tablet->tablet_path())
-            .set_tablet_schema(&(_tablet->tablet_schema()))
-            .set_data_dir(_tablet->data_dir())
-            .set_rowset_state(VISIBLE)
-            .set_version(_new_base_version)
-            .set_version_hash(new_base_version_hash);
-    RowsetWriterContext context = context_builder.build();
-
-    RowsetWriterSharedPtr rs_writer(new (std::nothrow)AlphaRowsetWriter());
-    if (rs_writer == nullptr) {
-        LOG(WARNING) << "fail to new rowset.";
-        return OLAP_ERR_MALLOC_ERROR;
-    }
-    rs_writer->init(context);
-
     vector<RowsetReaderSharedPtr> rs_readers;
     for (auto& rowset : rowsets) {
         RowsetReaderSharedPtr rs_reader(rowset->create_reader());
@@ -360,9 +359,8 @@ OLAPStatus BaseCompaction::_do_base_compaction(VersionHash new_base_version_hash
     uint64_t filted_rows = 0;
     OLAPStatus res = OLAP_SUCCESS;
 
-    Merger merger(_tablet, rs_writer, READER_BASE_COMPACTION);
+    Merger merger(_tablet, _rs_writer, READER_BASE_COMPACTION);
     res = merger.merge(rs_readers, &merged_rows, &filted_rows);
-    StorageEngine::instance()->remove_pending_paths(rs_writer->rowset_id());
     // 3. 如果merge失败，执行清理工作，返回错误码退出
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to make new base version. res=" << res
@@ -371,10 +369,10 @@ OLAPStatus BaseCompaction::_do_base_compaction(VersionHash new_base_version_hash
                      << "-" << _new_base_version.second;
         return OLAP_ERR_BE_MERGE_ERROR;
     }
-    RowsetSharedPtr new_base = rs_writer->build();
+    RowsetSharedPtr new_base = _rs_writer->build();
     if (new_base == nullptr) {
         LOG(WARNING) << "rowset writer build failed. writer version:"
-                     << rs_writer->version().first << "-" << rs_writer->version().second;
+                     << _rs_writer->version().first << "-" << _rs_writer->version().second;
         return OLAP_ERR_MALLOC_ERROR;
     }
 

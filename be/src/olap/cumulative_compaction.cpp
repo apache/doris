@@ -159,6 +159,7 @@ OLAPStatus CumulativeCompaction::run() {
             _rs_readers.push_back(rs_reader);
         }
         res = _do_cumulative_compaction();
+        _tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX + std::to_string(_rs_writer->rowset_id()));
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "failed to do cumulative compaction."
                          << ", tablet=" << _tablet->full_name()
@@ -388,7 +389,6 @@ OLAPStatus CumulativeCompaction::_do_cumulative_compaction() {
     }
 
     _rowset = _rs_writer->build();
-    StorageEngine::instance()->remove_pending_paths(_rs_writer->rowset_id());
     if (_rowset == nullptr) {
         LOG(WARNING) << "rowset writer build failed. writer version:"
                      << _rs_writer->version().first << "-" << _rs_writer->version().second;

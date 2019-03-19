@@ -43,6 +43,7 @@ DeltaWriter::~DeltaWriter() {
     }
     SAFE_DELETE(_mem_table);
     SAFE_DELETE(_schema);
+    _rowset_writer->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX + std::to_string(_rowset_writer->rowset_id()));
 }
 
 void DeltaWriter::_garbage_collection() {
@@ -175,7 +176,6 @@ OLAPStatus DeltaWriter::close(google::protobuf::RepeatedPtrField<PTabletInfo>* t
     OLAPStatus res = OLAP_SUCCESS;
     // use rowset meta manager to save meta
     _cur_rowset = _rowset_writer->build();
-    StorageEngine::instance()->remove_pending_paths(_rowset_writer->rowset_id());
     if (_cur_rowset == nullptr) {
         LOG(WARNING) << "fail to build rowset";
         return OLAP_ERR_MALLOC_ERROR;

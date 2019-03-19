@@ -22,6 +22,7 @@
 #include "olap/file_helper.h"
 #include "olap/utils.h"
 #include "olap/storage_engine.h"
+#include "olap/data_dir.h"
 
 namespace doris {
 
@@ -208,9 +209,11 @@ OLAPStatus SegmentWriter::finalize(uint32_t* segment_file_size) {
     OLAPStatus res = OLAP_SUCCESS;
     FileHandler file_handle;
     FileHeader<ColumnDataHeaderMessage> file_header;
-    std::set<std::string> pending_paths;
-    pending_paths.insert(_file_name);
-    StorageEngine::instance()->add_pending_paths(_segment_group->rowset_id(), pending_paths);
+    boost::filesystem::path tablet_path(_segment_group->rowset_path_prefix());
+    boost::filesystem::path data_dir_path = tablet_path.parent_path().parent_path().parent_path();
+    std::string data_dir_string = data_dir_path.string();
+    DataDir* data_dir = StorageEngine::instance()->get_store(data_dir_string);
+    data_dir->add_pending_ids(ROWSET_ID_PREFIX + std::to_string(_segment_group->rowset_id()));
     if (OLAP_SUCCESS != (res = file_handle.open_with_mode(
             _file_name, O_CREAT | O_EXCL | O_WRONLY , S_IRUSR | S_IWUSR))) {
         LOG(WARNING) << "fail to open file. [file_name=" << _file_name << "]";

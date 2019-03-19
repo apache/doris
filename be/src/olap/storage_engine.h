@@ -318,7 +318,7 @@ private:
 
     std::thread _fd_cache_clean_thread;
 
-    std::thread _path_gc_thread;
+    std::vector<std::thread> _path_gc_threads;
 
     // thread to scan disk paths
     std::vector<std::thread> _path_scan_threads;
@@ -332,12 +332,6 @@ private:
     std::atomic_bool _is_report_tablet_already;
 
     Mutex _engine_task_mutex;
-
-    std::set<std::string> _all_check_paths;
-    RWMutex _check_path_mutex;
-
-    std::map<int64_t, std::set<std::string>> _pending_paths;
-    RWMutex _pending_path_mutex;
 
     std::unique_ptr<TabletManager> _tablet_manager;
     std::unique_ptr<TxnManager> _txn_manager;
