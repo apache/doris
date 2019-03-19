@@ -24,7 +24,12 @@ HttpClient::HttpClient() {
 
 HttpClient::~HttpClient() {
     if (_curl != nullptr) {
+        curl_slist header_list = nullptr;
+        curl_easy_getinfo(_curl, CURLOPT_HTTPHEADER, &header_list);
         curl_easy_cleanup(_curl);
+        if(header_list != nullptr) {
+            curl_slist_free_all(header_list);
+        }
         _curl = nullptr;
     }
     if(_header_list != nullptr) {
@@ -40,6 +45,11 @@ Status HttpClient::init(const std::string& url) {
             return Status("fail to initalize curl");
         }
     } else {
+        curl_slist header_list = nullptr;
+        curl_easy_getinfo(_curl, CURLOPT_HTTPHEADER, &header_list);
+        if(slist != nullptr) {
+            curl_slist_free_all(header_list);
+        }
         curl_easy_reset(_curl);
     }
 
