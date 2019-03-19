@@ -55,7 +55,7 @@ OLAPStatus EngineSchemaChangeTask::execute() {
 
 OLAPStatus EngineSchemaChangeTask::_create_rollup_tablet(const TAlterTabletReq& request) {
     LOG(INFO) << "begin to create rollup tablet. base_tablet_id=" << request.base_tablet_id
-              << ", base_schema_hash" << request.base_schema_hash
+              << ", base_schema_hash=" << request.base_schema_hash
               << ", new_tablet_id=" << request.new_tablet_req.tablet_id
               << ", new_schema_hash=" << request.new_tablet_req.tablet_schema.schema_hash;
 

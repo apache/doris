@@ -285,6 +285,10 @@ OLAPStatus AlphaRowsetReader::_init_column_datas(RowsetReaderContext* read_conte
         _row_cursors.push_back(row_cursor);
 
         RowBlock* row_block = nullptr;
+        if (segment_group->empty()) {
+            _row_blocks.push_back(row_block);
+            continue;
+        }
         if (_key_range_size > 0) {
             _key_range_indices.push_back(0);
             size_t pos = _key_range_indices.size();
@@ -311,8 +315,8 @@ OLAPStatus AlphaRowsetReader::_init_column_datas(RowsetReaderContext* read_conte
             }
         } else {
             status = new_column_data->get_first_row_block(&row_block);
-            if (status != OLAP_SUCCESS) {
-                LOG(WARNING) << "get first row block failed";
+            if (status != OLAP_SUCCESS && status != OLAP_ERR_DATA_EOF) {
+                LOG(WARNING) << "get first row block failed, status:" << status;
                 return status;
             }
         }

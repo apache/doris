@@ -467,8 +467,9 @@ OLAPStatus Reader::_capture_rs_readers(const ReaderParams& read_params) {
         rs_readers = &read_params.rs_readers;
     } else {
         _tablet->obtain_header_rdlock();
-        _tablet->capture_rs_readers(_version, &_own_rs_readers);
+        OLAPStatus status = _tablet->capture_rs_readers(_version, &_own_rs_readers);
         _tablet->release_header_lock();
+        RETURN_NOT_OK(status);
 
         if (_own_rs_readers.size() < 1) {
             LOG(WARNING) << "fail to acquire data sources. tablet=" << _tablet->full_name()
