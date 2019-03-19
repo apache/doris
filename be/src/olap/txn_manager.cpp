@@ -318,7 +318,9 @@ OLAPStatus TxnManager::delete_txn(OlapMeta* meta, TPartitionId partition_id, TTr
                     return OLAP_ERR_TRANSACTION_ALREADY_VISIBLE;
                 } else {
                     RowsetMetaManager::remove(meta, load_info.second->rowset_id());
+                    #ifndef BE_TEST
                     StorageEngine::instance()->add_unused_rowset(load_info.second);
+                    #endif
                 }
             }
         }
