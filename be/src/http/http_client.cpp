@@ -27,6 +27,10 @@ HttpClient::~HttpClient() {
         curl_easy_cleanup(_curl);
         _curl = nullptr;
     }
+    if(_header_list != nullptr) {
+        curl_slist_free_all(_header_list);
+        _header_list = nullptr;
+    }
 }
 
 Status HttpClient::init(const std::string& url) {
@@ -39,6 +43,10 @@ Status HttpClient::init(const std::string& url) {
         curl_easy_reset(_curl);
     }
 
+    if(_header_list != nullptr) {
+        curl_slist_free_all(_header_list);
+        _header_list = nullptr;
+    }
     // set error_buf
     _error_buf[0] = 0;
     auto code = curl_easy_setopt(_curl, CURLOPT_ERRORBUFFER, _error_buf);
@@ -129,6 +137,18 @@ size_t HttpClient::on_response_data(const void* data, size_t length) {
         }
     }
     return length;
+}
+
+// Status HttpClient::execute_post_request(const std::string& post_data, const std::function<bool(const void* data, size_t length)>& callback = {}) {
+//     _callback = &callback;
+//     set_post_body(post_data);
+//     return execute(callback);
+// }
+
+Status HttpClient::execute_post_request(const std::string& post_data, std::string* response) {
+    set_method(POST);
+    set_post_body(post_data);
+    return execute(response);
 }
 
 Status HttpClient::execute(const std::function<bool(const void* data, size_t length)>& callback) {

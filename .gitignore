@@ -8,3 +8,5 @@ gensrc/build
 fe/target
 thirdparty/src
 *.so.tmp
+.DS_Store
+*.iml
