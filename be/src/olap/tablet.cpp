@@ -446,6 +446,10 @@ OLAPStatus Tablet::capture_rs_readers(const vector<Version>& version_path,
             return OLAP_ERR_CAPTURE_ROWSET_READER_ERROR;
         }
         std::shared_ptr<RowsetReader> rs_reader(it->second->create_reader());
+        if (rs_reader == nullptr) {
+            LOG(WARNING) << "failed to create reader for rowset:" << it->second->rowset_id();
+            return OLAP_ERR_CAPTURE_ROWSET_READER_ERROR;
+        }
         rs_readers->push_back(rs_reader);
     }
     return OLAP_SUCCESS;

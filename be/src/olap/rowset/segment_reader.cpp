@@ -309,16 +309,9 @@ OLAPStatus SegmentReader::get_block(
 
     auto res = _load_to_vectorized_row_batch(batch, num_rows_load);
     if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to load block to vectorized_row_batch. [res=%d]", res);
+        LOG(WARNING) << "fail to load block to vectorized_row_batch. res:" << res;
         return res;
     }
-
-    DCHECK(num_rows_load == _num_rows_in_block || _next_block_id == _end_block)
-        << "num_rows_load must equal with _num_rows_in_block"
-        << ", num_rows_load:" << num_rows_load
-        << ", _num_rows_in_block:" << _num_rows_in_block
-        << ", _next_block_id" << _next_block_id
-        << ", _end_block" << _end_block;
 
     _seek_to_block(_next_block_id + 1, _without_filter);
 
