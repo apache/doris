@@ -55,6 +55,7 @@ public:
     }
 
 <<<<<<< HEAD
+<<<<<<< HEAD
     // content_type such as "application/json"
     void set_content_type(const std::string content_type) {
         std::string scratch_str = "Content-Type: " + content_type;
@@ -80,9 +81,16 @@ public:
         }
 >>>>>>> Add http post feature for HttpClient
         _header_list = curl_slist_append(NULL, scratch_str.c_str());
+=======
+    // content_type such as "application/json"
+    void set_content_type(const std::string content_type) {
+        std::string scratch_str = "Content-Type: " + content_type;
+        _header_list = curl_slist_append(_header_list, scratch_str.c_str());
+>>>>>>> Add http post feature for HttpClient
         curl_easy_setopt(_curl, CURLOPT_HTTPHEADER, _header_list);
     }
-
+    
+    // you must set CURLOPT_POSTFIELDSIZE before CURLOPT_COPYPOSTFIELDS options, otherwise will cause request hanging up
     void set_post_body(const std::string& post_body) {
 <<<<<<< HEAD
         curl_easy_setopt(_curl, CURLOPT_POSTFIELDS, post_body.c_str());
