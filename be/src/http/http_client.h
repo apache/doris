@@ -56,11 +56,11 @@ public:
 
     void set_content_type(const std::string content_type) {
         std::string scratch_str = "Content-Type: " + content_type;
-        header_list = curl_slist_append(NULL, scratch_str.c_str());
-        curl_easy_setopt(_curl, CURLOPT_HTTPHEADER, header_list);
+        _header_list = curl_slist_append(NULL, scratch_str.c_str());
+        curl_easy_setopt(_curl, CURLOPT_HTTPHEADER, _header_list);
     }
 
-    void set_post_body(const std::string post_body) {
+    void set_post_body(const std::string& post_body) {
         curl_easy_setopt(_curl, CURLOPT_POSTFIELDS, post_body.c_str());
         curl_easy_setopt(_curl, CURLOPT_POSTFIELDSIZE, (long)post_body.length());
     }
@@ -131,7 +131,7 @@ private:
     using HttpCallback = std::function<bool(const void* data, size_t length)>;
     const HttpCallback* _callback = nullptr;
     char _error_buf[CURL_ERROR_SIZE];
-    curl_slist *header_list;
+    curl_slist *_header_list = nullptr;
 };
 
 }
