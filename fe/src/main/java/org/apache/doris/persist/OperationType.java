@@ -159,5 +159,5 @@ public class OperationType {
     // routine load 200
     public static final short OP_CREATE_ROUTINE_LOAD_JOB = 200;
     public static final short OP_CHANGE_ROUTINE_LOAD_JOB = 201;
-
+    public static final short OP_REMOVE_ROUTINE_LOAD_JOB = 202;
 }

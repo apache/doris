@@ -93,6 +93,10 @@ public class RoutineLoadTaskScheduler extends Daemon {
         int clusterIdleSlotNum = routineLoadManager.getClusterIdleSlotNum();
         int needScheduleTaskNum = sizeOfTasksQueue < clusterIdleSlotNum ? sizeOfTasksQueue : clusterIdleSlotNum;
 
+        if (needScheduleTaskNum == 0) {
+            return;
+        }
+
         LOG.info("There are {} tasks need to be scheduled in queue", needScheduleTasksQueue.size());
 
         int scheduledTaskNum = 0;
