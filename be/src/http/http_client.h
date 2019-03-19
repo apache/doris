@@ -58,6 +58,7 @@ public:
     void set_content_type(const std::string content_type) {
         std::string scratch_str = "Content-Type: " + content_type;
 <<<<<<< HEAD
+<<<<<<< HEAD
         _header_list = curl_slist_append(_header_list, scratch_str.c_str());
         curl_easy_setopt(_curl, CURLOPT_HTTPHEADER, _header_list);
 =======
@@ -68,6 +69,14 @@ public:
     
     // you must set CURLOPT_POSTFIELDSIZE before CURLOPT_COPYPOSTFIELDS options, otherwise will cause request hanging up
     void set_post_body(const std::string& post_body) {
+=======
+        _header_list = curl_slist_append(NULL, scratch_str.c_str());
+        curl_easy_setopt(_curl, CURLOPT_HTTPHEADER, _header_list);
+    }
+
+    void set_post_body(const std::string& post_body) {
+        curl_easy_setopt(_curl, CURLOPT_POSTFIELDS, post_body.c_str());
+>>>>>>> Change HttpClient to support http post
         curl_easy_setopt(_curl, CURLOPT_POSTFIELDSIZE, (long)post_body.length());
         curl_easy_setopt(_curl, CURLOPT_COPYPOSTFIELDS, post_body.c_str());
     }
@@ -138,9 +147,13 @@ private:
     const HttpCallback* _callback = nullptr;
     char _error_buf[CURL_ERROR_SIZE];
 <<<<<<< HEAD
+<<<<<<< HEAD
     curl_slist *_header_list = nullptr;
 =======
     curl_slist *header_list;
+>>>>>>> Change HttpClient to support http post
+=======
+    curl_slist *_header_list = nullptr;
 >>>>>>> Change HttpClient to support http post
 };
 
