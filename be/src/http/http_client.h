@@ -54,15 +54,19 @@ public:
         curl_easy_setopt(_curl, CURLOPT_PASSWORD, passwd.c_str());
     }
 
+    // note: set_content_type would reset the http headers
     void set_content_type(const std::string content_type) {
         std::string scratch_str = "Content-Type: " + content_type;
+        if (_header_list != nullptr) {
+            curl_slist_free_all(_header_list);
+        }
         _header_list = curl_slist_append(NULL, scratch_str.c_str());
         curl_easy_setopt(_curl, CURLOPT_HTTPHEADER, _header_list);
     }
 
     void set_post_body(const std::string& post_body) {
-        curl_easy_setopt(_curl, CURLOPT_POSTFIELDS, post_body.c_str());
         curl_easy_setopt(_curl, CURLOPT_POSTFIELDSIZE, (long)post_body.length());
+        curl_easy_setopt(_curl, CURLOPT_COPYPOSTFIELDS, post_body.c_str());
     }
 
     // TODO(zc): support set header

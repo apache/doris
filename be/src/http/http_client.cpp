@@ -29,6 +29,7 @@ HttpClient::~HttpClient() {
     }
     if(_header_list != nullptr) {
         curl_slist_free_all(_header_list);
+        _header_list = nullptr;
     }
 }
 
