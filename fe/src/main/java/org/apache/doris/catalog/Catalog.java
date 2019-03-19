@@ -658,11 +658,6 @@ public class Catalog {
         // the clear threads runs every min(transaction_clean_interval_second,stream_load_default_timeout_second)/10
         txnCleaner.setInterval(Math.min(Config.transaction_clean_interval_second,
                 Config.stream_load_default_timeout_second) * 100L);
-
-        // 8. start routine load scheduler
-        routineLoadScheduler.start();
-        routineLoadTaskScheduler.start();
-
     }
 
     private void getClusterIdAndRole() throws IOException {
@@ -1129,6 +1124,11 @@ public class Catalog {
         domainResolver.start();
 
         tabletStatMgr.start();
+
+        // start routine load scheduler
+        routineLoadScheduler.start();
+        routineLoadTaskScheduler.start();
+
         MetricRepo.init();
     }
 

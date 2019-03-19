@@ -674,6 +674,11 @@ public class EditLog {
                     Catalog.getCurrentCatalog().getRoutineLoadManager().replayChangeRoutineLoadJob(operation);
                     break;
                 }
+                case OperationType.OP_REMOVE_ROUTINE_LOAD_JOB: {
+                    RoutineLoadOperation operation = (RoutineLoadOperation) journal.getData();
+                    Catalog.getCurrentCatalog().getRoutineLoadManager().replayRemoveOldRoutineLoad(operation);
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}", opCode, e);
@@ -1183,5 +1188,9 @@ public class EditLog {
 
     public void logOpRoutineLoadJob(RoutineLoadOperation routineLoadOperation) {
         logEdit(OperationType.OP_CHANGE_ROUTINE_LOAD_JOB, routineLoadOperation);
+    }
+
+    public void logRemoveRoutineLoadJob(RoutineLoadOperation operation) {
+        logEdit(OperationType.OP_REMOVE_ROUTINE_LOAD_JOB, operation);
     }
 }
