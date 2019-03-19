@@ -418,7 +418,8 @@ public class JournalEntity implements Writable {
                 needRead = false;
                 break;
             }
-            case OperationType.OP_CHANGE_ROUTINE_LOAD_JOB: {
+            case OperationType.OP_CHANGE_ROUTINE_LOAD_JOB:
+            case OperationType.OP_REMOVE_ROUTINE_LOAD_JOB: {
                 data = RoutineLoadOperation.read(in);
                 needRead = false;
                 break;
