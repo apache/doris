@@ -363,6 +363,7 @@ OLAPStatus Reader::_agg_key_next_row(RowCursor* row_cursor, bool* eof) {
         if (_aggregation && merged_count > config::doris_scanner_row_num) {
             break;
         }
+
         // break while can NOT doing aggregation
         if (!RowCursor::equal(_key_cids, row_cursor, _next_key)) {
             break;
@@ -400,8 +401,7 @@ OLAPStatus Reader::_unique_key_next_row(RowCursor* row_cursor, bool* eof) {
             // we will not do aggregation in two case:
             //   1. DUP_KEYS keys type has no semantic to aggregate,
             //   2. to make cost of  each scan round reasonable, we will control merged_count.
-            if (_tablet->keys_type() == KeysType::DUP_KEYS
-                || (_aggregation && merged_count > config::doris_scanner_row_num)) {
+            if (_aggregation && merged_count > config::doris_scanner_row_num) {
                 row_cursor->finalize_one_merge(_value_cids);
                 break;
             }
@@ -520,6 +520,7 @@ OLAPStatus Reader::_capture_rs_readers(const ReaderParams& read_params) {
     RowsetReaderContextBuilder context_builder;
     context_builder.set_reader_type(read_params.reader_type)
                    .set_tablet_schema(&_tablet->tablet_schema())
+                   .set_preaggregation(_aggregation)
                    .set_return_columns(&_return_columns)
                    .set_load_bf_columns(&_load_bf_columns)
                    .set_conditions(&_conditions)

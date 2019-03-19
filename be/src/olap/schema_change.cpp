@@ -1300,6 +1300,7 @@ OLAPStatus SchemaChangeHandler::process_alter_tablet(AlterTabletType type,
         RowsetReaderContextBuilder context_builder;
         context_builder.set_reader_type(READER_ALTER_TABLE)
                        .set_tablet_schema(&base_tablet->tablet_schema())
+                       .set_preaggregation(true)
                        .set_delete_handler(&delete_handler)
                        .set_is_using_cache(false)
                        .set_lru_cache(StorageEngine::instance()->index_stream_lru_cache());
@@ -1457,14 +1458,14 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
     // 但由于历史数据在后续base/cumulative后还是会变成正常，故用directly也可以
     // b. 生成历史数据转换器
     SchemaChange* sc_procedure = nullptr;
-    if (true == sc_sorting) {
+    if (sc_sorting) {
         size_t memory_limitation = config::memory_limitation_per_thread_for_schema_change;
         LOG(INFO) << "doing schema change with sorting.";
         sc_procedure = new(nothrow) SchemaChangeWithSorting(
                                 new_tablet,
                                 rb_changer,
                                 memory_limitation * 1024 * 1024 * 1024);
-    } else if (true == sc_directly) {
+    } else if (sc_directly) {
         LOG(INFO) << "doing schema change directly.";
         sc_procedure = new(nothrow) SchemaChangeDirectly(
                                 new_tablet, rb_changer);
@@ -1475,7 +1476,7 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
                                 new_tablet);
     }
 
-    if (nullptr == sc_procedure) {
+    if (sc_procedure == nullptr) {
         LOG(FATAL) << "failed to malloc SchemaChange. size=" << sizeof(SchemaChangeWithSorting);
         return OLAP_ERR_MALLOC_ERROR;
     }
@@ -1485,6 +1486,7 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
     RowsetReaderContextBuilder reader_context_builder;
     reader_context_builder.set_reader_type(READER_ALTER_TABLE)
                           .set_tablet_schema(&base_tablet->tablet_schema())
+                          .set_preaggregation(true)
                           .set_delete_handler(&delete_handler)
                           .set_is_using_cache(false)
                           .set_lru_cache(StorageEngine::instance()->index_stream_lru_cache());

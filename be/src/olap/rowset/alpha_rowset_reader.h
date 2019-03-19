@@ -59,10 +59,10 @@ private:
     OLAPStatus _init_column_datas(RowsetReaderContext* read_context);
 
     OLAPStatus _next_block_for_cumulative_rowset(RowBlock** block);
-
+    OLAPStatus _next_block_for_singleton_without_merge(RowBlock** block);
+    OLAPStatus _next_block_for_singleton_with_merge(RowBlock** block);
     OLAPStatus _next_row_for_singleton_rowset(RowCursor** row);
-
-    OLAPStatus _get_next_block(size_t pos, RowBlock** row_block);
+    OLAPStatus _next_block_for_column_data(size_t pos, RowBlock** row_block);
 
 private:
     int _num_key_columns;
@@ -77,6 +77,7 @@ private:
     // Each of SegmentGroups correponds to a row_block upon scan
     std::vector<RowBlock*> _row_blocks; 
     std::unique_ptr<RowBlock> _read_block;
+    OLAPStatus (AlphaRowsetReader::*_next_block)(RowBlock** block) = nullptr;
 
     // For singleton Rowset, there are several SegmentGroups
     // Each of SegmentGroups correponds to a row_cursor 
@@ -86,7 +87,14 @@ private:
     RowsetSharedPtr _rowset;
     int _key_range_size;
     std::vector<int> _key_range_indices;
-    bool _is_cumulative_rowset;
+
+    // Singleton Rowset is a rowset which start version
+    // and end version of it is equal.
+    // In streaming ingestion, row among different segment 
+    // groups may overlap, and is necessary to be taken
+    // into consideration deliberately.
+    bool _is_singleton_rowset;
+
     RowsetReaderContext* _current_read_context;
     OlapReaderStatistics _owned_stats;
     OlapReaderStatistics* _stats = &_owned_stats;
