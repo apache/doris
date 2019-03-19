@@ -30,9 +30,13 @@ HttpClient::~HttpClient() {
     if(_header_list != nullptr) {
         curl_slist_free_all(_header_list);
 <<<<<<< HEAD
+<<<<<<< HEAD
         _header_list = nullptr;
 =======
 >>>>>>> Change HttpClient to support http post
+=======
+        _header_list = nullptr;
+>>>>>>> Add http post feature for HttpClient
     }
 }
 
