@@ -50,9 +50,10 @@ public:
     static const uint32_t ONE_BILLION = 1000000000;
     static const int64_t MAX_INT_VALUE = 999999999999999999;
     static const int32_t MAX_FRAC_VALUE = 999999999;
+    static const int64_t MAX_INT64 = 9223372036854775807ll;
 
     static const int128_t MAX_DECIMAL_VALUE = 
-        static_cast<int128_t>(MAX_INT_VALUE) * ONE_BILLION + MAX_FRAC_VALUE;
+        static_cast<int128_t>(MAX_INT64) * ONE_BILLION + MAX_FRAC_VALUE;
 
     DecimalV2Value() : _value(0){}
     inline const int128_t& value() const { return _value;}
@@ -75,10 +76,10 @@ public:
             frac_value = std::abs(frac_value);
         } 
 
-        if (int_value > MAX_INT_VALUE) {
-            int_value = MAX_INT_VALUE;
-            success = false;
-        }
+       //if (int_value > MAX_INT_VALUE) {
+       //    int_value = MAX_INT_VALUE;
+       //    success = false;
+       //}
 
         if (frac_value > MAX_FRAC_VALUE) {
             frac_value = MAX_FRAC_VALUE;

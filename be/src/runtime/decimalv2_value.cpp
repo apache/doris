@@ -50,7 +50,7 @@ static int do_sub(int128_t x, int128_t y, int128_t* result) {
 
 // clear leading zero for __int128
 static int clz128(unsigned __int128 v) {
-    if (v == 0) return 128;
+    if (v == 0) return sizeof(__int128);
     unsigned __int128 shifted = v >> 64;
     if (shifted != 0) {
         return __builtin_clzll(shifted);
@@ -62,12 +62,10 @@ static int clz128(unsigned __int128 v) {
 // x>0 && y>0
 static int do_mul(int128_t x, int128_t y, int128_t* result) {
     int error = E_DEC_OK;
+    int128_t max128 = ~(static_cast<int128_t>(1ll) << 127);
 
-    // The bits of result as following is 120
-    // clz128((MAX_INT_VALUE * ONE_BILLION + MAX_FRAC_VALUE) * ONE_BILLION) = 8
-    // The bits range of m * n is in (m+n-1 --> m+n)
-    int bits = 128 + 128 - clz128(x) - clz128(y); 
-    if (bits > (120 + 1)) {
+    int leading_zero_bits = clz128(x) + clz128(y); 
+    if (leading_zero_bits < sizeof(int128_t) || max128 / x < y) {
         *result = DecimalV2Value::MAX_DECIMAL_VALUE;
         LOG(INFO) << "overflow (x=" << x << ", y=" << y << ")";
         error = E_DEC_OVERFLOW;
@@ -216,10 +214,7 @@ DecimalV2Value operator%(const DecimalV2Value& v1, const DecimalV2Value& v2){
     //todo: return 0 for divide zero 
     if (x == 0 || y == 0) return DecimalV2Value(0);
 
-    bool is_positive = (x > 0 && y > 0) || (x < 0 && y < 0);
-    do_mod(abs(x), abs(y), &result);
-
-    if (!is_positive) result = -result;
+    do_mod(x, y, &result);
 
     return DecimalV2Value(result);
 }
@@ -251,7 +246,7 @@ int DecimalV2Value::parse_from_str(const char* decimal_str, int32_t length) {
     _value = StringParser::string_to_decimal(decimal_str, length, 
 		    PRECISION, SCALE, &result);
 
-    if (result != StringParser::PARSE_SUCCESS) { 
+    if (result == StringParser::PARSE_FAILURE) { 
        error = E_DEC_BAD_NUM;
     }
     return error;

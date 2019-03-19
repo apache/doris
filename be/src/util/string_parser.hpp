@@ -630,9 +630,10 @@ inline __int128 StringParser::string_to_decimal(const char* s, int len,
             }
             break;
         } else {
-            // reserve the value which has been parsed sub-string when error occurs
-            //*result = StringParser::PARSE_FAILURE;
-            //return 0;
+            if (value == 0) {
+                *result = StringParser::PARSE_FAILURE;
+                return 0;
+            }
             *result = StringParser::PARSE_SUCCESS;
             value *= get_scale_multiplier(type_scale - scale);
             return is_negative ? -value : value;
@@ -670,6 +671,10 @@ inline __int128 StringParser::string_to_decimal(const char* s, int len,
             __int128 divisor = get_scale_multiplier(shift);
             if (LIKELY(divisor >= 0)) {
                 value /= divisor;
+                __int128 remainder = value % divisor;
+                if (abs(remainder) >= (divisor >> 1)) {
+                    value += 1;
+                }
             } else {
                 DCHECK(divisor == -1); // //DCHECK_EQ doesn't work with __int128.
                 value = 0;
