@@ -64,7 +64,7 @@ public class RoutineLoadOperation implements Writable {
 
     @Override
     public void readFields(DataInput in) throws IOException {
-        in.readLong();
+        id = in.readLong();
         jobState = JobState.valueOf(Text.readString(in));
     }
 }

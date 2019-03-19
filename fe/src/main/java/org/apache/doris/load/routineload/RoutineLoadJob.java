@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -50,6 +51,7 @@ import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TxnStateChangeListener;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -143,7 +145,7 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
     protected RoutineLoadProgress progress;
     protected String pausedReason;
     protected String cancelReason;
-    protected long endTimestamp;
+    protected long endTimestamp = -1;
 
     /*
      * currentErrorRows and currentTotalRows is used for check error rate
@@ -185,7 +187,6 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
         this.clusterName = clusterName;
         this.dbId = dbId;
         this.tableId = tableId;
-        this.endTimestamp = -1;
         this.authCode = new StringBuilder().append(ConnectContext.get().getQualifiedUser())
                 .append(ConnectContext.get().getRemoteIP())
                 .append(id).append(System.currentTimeMillis()).toString().hashCode();
@@ -205,7 +206,6 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
         this.desireTaskConcurrentNum = desireTaskConcurrentNum;
         this.dataSourceType = dataSourceType;
         this.maxErrorNum = maxErrorNum;
-        this.endTimestamp = -1;
     }
 
     protected void setOptional(CreateRoutineLoadStmt stmt) throws UserException {
@@ -602,6 +602,7 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
     @Override
     public void replayOnCommitted(TransactionState txnState) {
         replayUpdateProgress((RLTaskTxnCommitAttachment) txnState.getTxnCommitAttachment());
+        LOG.debug("replay on committed: {}", txnState);
     }
 
     // the task is aborted when the correct number of rows is more then 0
@@ -658,6 +659,7 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
     @Override
     public void replayOnAborted(TransactionState txnState) {
         replayUpdateProgress((RLTaskTxnCommitAttachment) txnState.getTxnCommitAttachment());
+        LOG.debug("replay on aborted: {}", txnState);
     }
 
     // check task exists or not before call method
@@ -789,6 +791,10 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
                 break;
         }
 
+        if (state.isFinalState()) {
+            Catalog.getCurrentGlobalTransactionMgr().getListenerRegistry().unregister(id);
+        }
+
         if (!isReplay) {
             Catalog.getInstance().getEditLog().logOpRoutineLoadJob(new RoutineLoadOperation(id, jobState));
         }
@@ -892,6 +898,17 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
         job.setTypeRead(true);
         job.readFields(in);
         return job;
+    }
+
+    public boolean needRemove() {
+        if (state != JobState.CANCELLED && state != JobState.STOPPED) {
+            return false;
+        }
+        Preconditions.checkState(endTimestamp != -1, endTimestamp);
+        if ((System.currentTimeMillis() - endTimestamp) > Config.label_clean_interval_second * 1000) {
+            return true;
+        }
+        return false;
     }
 
     @Override
