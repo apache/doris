@@ -57,8 +57,13 @@ public:
     // content_type such as "application/json"
     void set_content_type(const std::string content_type) {
         std::string scratch_str = "Content-Type: " + content_type;
+<<<<<<< HEAD
         _header_list = curl_slist_append(_header_list, scratch_str.c_str());
         curl_easy_setopt(_curl, CURLOPT_HTTPHEADER, _header_list);
+=======
+        header_list = curl_slist_append(NULL, scratch_str.c_str());
+        curl_easy_setopt(_curl, CURLOPT_HTTPHEADER, header_list);
+>>>>>>> Change HttpClient to support http post
     }
     
     // you must set CURLOPT_POSTFIELDSIZE before CURLOPT_COPYPOSTFIELDS options, otherwise will cause request hanging up
@@ -132,7 +137,11 @@ private:
     using HttpCallback = std::function<bool(const void* data, size_t length)>;
     const HttpCallback* _callback = nullptr;
     char _error_buf[CURL_ERROR_SIZE];
+<<<<<<< HEAD
     curl_slist *_header_list = nullptr;
+=======
+    curl_slist *header_list;
+>>>>>>> Change HttpClient to support http post
 };
 
 }
