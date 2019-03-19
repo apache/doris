@@ -24,7 +24,6 @@ import org.apache.doris.analysis.StopRoutineLoadStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -34,11 +33,11 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
+import org.apache.doris.load.routineload.RoutineLoadJob.JobState;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -110,8 +109,7 @@ public class RoutineLoadManager implements Writable {
                 }
             }
         }
-        LOG.debug("beIdToConcurrentTasks is {}", Joiner.on(",")
-                .withKeyValueSeparator(":").join(beIdToConcurrentTasks));
+        // LOG.debug("beIdToConcurrentTasks is {}", Joiner.on(",").withKeyValueSeparator(":").join(beIdToConcurrentTasks));
         return beIdToConcurrentTasks;
 
     }
@@ -223,6 +221,7 @@ public class RoutineLoadManager implements Writable {
         routineLoadJob.updateState(RoutineLoadJob.JobState.PAUSED,
                 "User " + ConnectContext.get().getQualifiedUser() + "pauses routine load job",
                 false /* not replay */);
+        LOG.info("pause routine load job: {}, {}", routineLoadJob.getId(), routineLoadJob.getName());
     }
 
     public void resumeRoutineLoadJob(ResumeRoutineLoadStmt resumeRoutineLoadStmt) throws DdlException,
@@ -250,6 +249,7 @@ public class RoutineLoadManager implements Writable {
                                                 tableName);
         }
         routineLoadJob.updateState(RoutineLoadJob.JobState.NEED_SCHEDULE, "user operation", false /* not replay */);
+        LOG.info("resume routine load job: {}, {}", routineLoadJob.getId(), routineLoadJob.getName());
     }
 
     public void stopRoutineLoadJob(StopRoutineLoadStmt stopRoutineLoadStmt) throws DdlException, AnalysisException {
@@ -276,6 +276,7 @@ public class RoutineLoadManager implements Writable {
                                                 tableName);
         }
         routineLoadJob.updateState(RoutineLoadJob.JobState.STOPPED, "user operation", false /* not replay */);
+        LOG.info("stop routine load job: {}, {}", routineLoadJob.getId(), routineLoadJob.getName());
     }
 
     public int getSizeOfIdToRoutineLoadTask() {
@@ -388,7 +389,7 @@ public class RoutineLoadManager implements Writable {
             if (routineLoadJobList == null) {
                 return null;
             }
-            Optional<RoutineLoadJob> optional = routineLoadJobList.parallelStream()
+            Optional<RoutineLoadJob> optional = routineLoadJobList.stream()
                     .filter(entity -> !entity.getState().isFinalState()).findFirst();
             if (!optional.isPresent()) {
                 return null;
@@ -409,10 +410,10 @@ public class RoutineLoadManager implements Writable {
     }
 
     public List<RoutineLoadJob> getRoutineLoadJobByState(RoutineLoadJob.JobState jobState) {
-        LOG.debug("begin to get routine load job by state {}", jobState.name());
+        // LOG.debug("begin to get routine load job by state {}", jobState.name());
         List<RoutineLoadJob> stateJobs = idToRoutineLoadJob.values().stream()
                 .filter(entity -> entity.getState() == jobState).collect(Collectors.toList());
-        LOG.debug("got {} routine load jobs by state {}", stateJobs.size(), jobState.name());
+        // LOG.debug("got {} routine load jobs by state {}", stateJobs.size(), jobState.name());
         return stateJobs;
     }
 
@@ -432,11 +433,13 @@ public class RoutineLoadManager implements Writable {
             long currentTimestamp = System.currentTimeMillis();
             while (iterator.hasNext()) {
                 RoutineLoadJob routineLoadJob = iterator.next().getValue();
-                long jobEndTimestamp = routineLoadJob.getEndTimestamp();
-                if (jobEndTimestamp != -1L &&
-                        ((currentTimestamp - jobEndTimestamp) > Config.label_clean_interval_second * 1000)) {
+                if (routineLoadJob.needRemove()) {
                     dbToNameToRoutineLoadJob.get(routineLoadJob.getDbId()).get(routineLoadJob.getName()).remove(routineLoadJob);
                     iterator.remove();
+
+                    RoutineLoadOperation operation = new RoutineLoadOperation(routineLoadJob.getId(),
+                            JobState.CANCELLED);
+                    Catalog.getInstance().getEditLog().logRemoveRoutineLoadJob(operation);
                     LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
                                      .add("end_timestamp", routineLoadJob.getEndTimestamp())
                                      .add("current_timestamp", currentTimestamp)
@@ -445,6 +448,19 @@ public class RoutineLoadManager implements Writable {
                     );
                 }
             }
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    public void replayRemoveOldRoutineLoad(RoutineLoadOperation operation) {
+        writeLock();
+        try {
+            RoutineLoadJob job = idToRoutineLoadJob.remove(operation.getId());
+            if (job != null) {
+                dbToNameToRoutineLoadJob.get(job.getDbId()).get(job.getName()).remove(job);
+            }
+            LOG.info("replay remove routine load job: {}", operation.getId());
         } finally {
             writeUnlock();
         }
@@ -493,6 +509,9 @@ public class RoutineLoadManager implements Writable {
                 map.put(routineLoadJob.getName(), jobs);
             }
             jobs.add(routineLoadJob);
+            if (!routineLoadJob.getState().isFinalState()) {
+                Catalog.getCurrentGlobalTransactionMgr().getListenerRegistry().register(routineLoadJob);
+            }
         }
     }
 }
