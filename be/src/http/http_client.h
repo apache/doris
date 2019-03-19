@@ -26,7 +26,7 @@
 #include "http/http_headers.h"
 #include "http/http_method.h"
 #include "http/utils.h"
-
+#include "http/http_response.h"
 namespace doris {
 
 // Helper class to access HTTP resource
@@ -52,6 +52,16 @@ public:
         curl_easy_setopt(_curl, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
         curl_easy_setopt(_curl, CURLOPT_USERNAME, user.c_str());
         curl_easy_setopt(_curl, CURLOPT_PASSWORD, passwd.c_str());
+    }
+
+    void set_content_type(const std::string content_type) {
+        curl_slist *header_list = curl_slist_append(NULL, "Content-Type: " + content_type);
+        curl_easy_setopt(_curl, CURLOPT_HTTPHEADER, header_list);
+    }
+
+    void set_post_body(const std::string post_body) {
+        curl_easy_setopt(_curl, CURLOPT_POSTFIELDS, post_body.c_str());
+        curl_easy_setopt(_curl, CURLOPT_POSTFIELDSIZE, (long)post_body.length());
     }
 
     // TODO(zc): support set header
@@ -85,6 +95,12 @@ public:
         return cl;
     }
 
+    long get_http_status() const {
+        long code;
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &code);
+        return code;
+    }
+
     // execute a head method
     Status head() {
         set_method(HEAD);
@@ -94,6 +110,9 @@ public:
     // helper function to download a file, you can call this function to downlaod
     // a file to local_path 
     Status download(const std::string& local_path);
+
+    // Status execute_post_request(const std::string& post_data, const std::function<bool(const void* data, size_t length)>& callback = {});
+    Status execute_post_request(const std::string& post_data, std::string* response);
 
     // execute a simple method, and its response is saved in response argument
     Status execute(std::string* response);

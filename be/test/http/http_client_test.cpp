@@ -47,7 +47,28 @@ public:
     }
 };
 
+class HttpClientTestSimplePostHandler : public HttpHandler {
+public:
+    void handle(HttpRequest* req) override {
+        std::string user;
+        std::string passwd;
+        if (!parse_basic_auth(*req, &user, &passwd) || user != "test1") {
+            HttpChannel::send_basic_challenge(req, "abc");
+            return;
+        }
+        if (req->method() == HttpMethod::POST) {
+            std::string post_body = req->get_request_body();
+            if (post_body != null) {
+                HttpChannel::send_reply(req, post_body);
+            } else {
+                HttpChannel::send_reply(req, "empty");
+            } 
+        } 
+    }
+}
+
 static HttpClientTestSimpleGetHandler s_simple_get_handler = HttpClientTestSimpleGetHandler();
+static HttpClientTestSimplePostHandler s_simple_post_handler = HttpClientTestSimplePostHandler();
 static EvHttpServer* s_server = nullptr;
 
 class HttpClientTest : public testing::Test {
@@ -59,6 +80,7 @@ public:
         s_server = new EvHttpServer(29386);
         s_server->register_handler(GET, "/simple_get", &s_simple_get_handler);
         s_server->register_handler(HEAD, "/simple_get", &s_simple_get_handler);
+        s_server->register_handler(HEAD, "/simple_post", &s_simple_post_handler);
         s_server->start();
     }
 
@@ -112,6 +134,18 @@ TEST_F(HttpClientTest, get_failed) {
     std::string response;
     st = client.execute(&response);
     ASSERT_FALSE(st.ok());
+}
+
+TEST_F(HttpClientTest, post_normal) {
+    HttpClient client;
+    auto st = client.init("http://127.0.0.1:29386/simple_post");
+    ASSERT_TRUE(st.ok());
+    client.set_method(POST);
+    std::string response;
+    std::string request_body = "simple post body query";
+    st = client.execute_post_request(request_body, &response);
+    ASSERT_TRUE(st.ok());
+    ASSERT_EQ(response.length(), request_body.length());
 }
 
 }
