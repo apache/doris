@@ -197,7 +197,7 @@ public class Partition extends MetaObject implements Writable {
     }
     
     public long getCommittedVersion() {
-        return Math.max(this.nextVersion - 1, 2);
+        return this.nextVersion - 1;
     }
     
     public long getCommittedVersionHash() {
