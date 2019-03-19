@@ -24,8 +24,6 @@ HttpClient::HttpClient() {
 
 HttpClient::~HttpClient() {
     if (_curl != nullptr) {
-        curl_slist header_list = nullptr;
-        curl_easy_getinfo(_curl, CURLOPT_HTTPHEADER, &header_list);
         curl_easy_cleanup(_curl);
         if(header_list != nullptr) {
             curl_slist_free_all(header_list);
@@ -41,9 +39,7 @@ Status HttpClient::init(const std::string& url) {
             return Status("fail to initalize curl");
         }
     } else {
-        curl_slist header_list = nullptr;
-        curl_easy_getinfo(_curl, CURLOPT_HTTPHEADER, &header_list);
-        if(slist != nullptr) {
+        if(header_list != nullptr) {
             curl_slist_free_all(header_list);
         }
         curl_easy_reset(_curl);
@@ -148,7 +144,6 @@ size_t HttpClient::on_response_data(const void* data, size_t length) {
 // }
 
 Status HttpClient::execute_post_request(const std::string& post_data, std::string* response) {
-    _callback = &callback;
     set_method(POST);
     set_post_body(post_data);
     return execute(response);

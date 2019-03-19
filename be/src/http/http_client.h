@@ -55,7 +55,8 @@ public:
     }
 
     void set_content_type(const std::string content_type) {
-        curl_slist *header_list = curl_slist_append(NULL, "Content-Type: " + content_type);
+        std::string scratch_str = "Content-Type: " + content_type;
+        header_list = curl_slist_append(NULL, scratch_str.c_str());
         curl_easy_setopt(_curl, CURLOPT_HTTPHEADER, header_list);
     }
 
@@ -97,7 +98,7 @@ public:
 
     long get_http_status() const {
         long code;
-        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &code);
+        curl_easy_getinfo(_curl, CURLINFO_RESPONSE_CODE, &code);
         return code;
     }
 
@@ -130,6 +131,7 @@ private:
     using HttpCallback = std::function<bool(const void* data, size_t length)>;
     const HttpCallback* _callback = nullptr;
     char _error_buf[CURL_ERROR_SIZE];
+    curl_slist *header_list;
 };
 
 }
