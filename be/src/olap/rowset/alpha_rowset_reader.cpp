@@ -58,7 +58,7 @@ OLAPStatus AlphaRowsetReader::init(RowsetReaderContext* read_context) {
      *   2. COMPACTION/CHECKSUM/ALTER_TABLET task has no necessities to
      *      merge row in advance.
      *   3. QUERY task will set preaggregation. If preaggregation is
-     *      set to be true, it is necessary to merge row in advance.
+     *      set to be false, it is necessary to merge row in advance.
      * For cumulative rowset, there is no necessities to merge row in advance.
      */
     if (_is_singleton_rowset) {
@@ -67,7 +67,7 @@ OLAPStatus AlphaRowsetReader::init(RowsetReaderContext* read_context) {
             _next_block = &AlphaRowsetReader::_next_block_for_singleton_without_merge;
         } else {
             if (_current_read_context->reader_type == READER_QUERY
-                    && _current_read_context->preaggregation) {
+                    && !_current_read_context->preaggregation) {
                 // QUERY task which set preaggregation to be true.
                 _next_block = &AlphaRowsetReader::_next_block_for_singleton_with_merge;
                 merge = true;
@@ -180,7 +180,8 @@ OLAPStatus AlphaRowsetReader::_next_block_for_singleton_with_merge(RowBlock** bl
         RowCursor* row_cursor = nullptr;
         status = _next_row_for_singleton_rowset(&row_cursor);
         if (status == OLAP_ERR_DATA_EOF && _read_block->pos() > 0) {
-            return OLAP_SUCCESS;
+            status = OLAP_SUCCESS;
+            break;
         } else if (status != OLAP_SUCCESS) {
             return status;
         }
@@ -193,7 +194,7 @@ OLAPStatus AlphaRowsetReader::_next_block_for_singleton_with_merge(RowBlock** bl
     _read_block->set_limit(num_rows_in_block);
     _read_block->finalize(num_rows_in_block);
     *block = _read_block.get();
-    return OLAP_SUCCESS;
+    return status;
 }
 
 OLAPStatus AlphaRowsetReader::_next_row_for_singleton_rowset(RowCursor** row) {
@@ -208,7 +209,7 @@ OLAPStatus AlphaRowsetReader::_next_row_for_singleton_rowset(RowCursor** row) {
             OLAPStatus status = _next_block_for_column_data(i, &_row_blocks[i]);
             if (status == OLAP_ERR_DATA_EOF) {
                 continue;
-            } else {
+            } else if (status != OLAP_SUCCESS) {
                 LOG(INFO) << "read next row of singleton rowset failed:" << status;
                 return status;
             }
