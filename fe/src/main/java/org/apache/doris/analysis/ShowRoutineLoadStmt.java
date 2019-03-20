@@ -22,6 +22,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -30,39 +31,94 @@ import org.apache.doris.qe.ShowResultSetMetaData;
   Show routine load progress by routine load name
 
   syntax:
-      SHOW ROUTINE LOAD name
+      SHOW [ALL] ROUTINE LOAD [database.][name]
+
+      without ALL: only show job which is not final
+      with ALL: show all of job include history job
+
+      without name: show all of routine load job with different name
+      with name: show all of job named ${name}
+
+      without on db: show all of job in connection db
+         if user does not choose db before, return error
+      with on db: show all of job in ${db}
+
+      example:
+        show routine load named test in database1
+        SHOW ROUTINE LOAD database1.test;
+
+        show routine load in database1
+        SHOW ROUTINE LOAD database1;
+
+        show routine load in database1 include history
+        use database1;
+        SHOW ALL ROUTINE LOAD;
+
+        show routine load in all of database
+        please use show proc
  */
 public class ShowRoutineLoadStmt extends ShowStmt {
 
     private static final ImmutableList<String> TITLE_NAMES =
             new ImmutableList.Builder<String>()
-                    .add("id")
-                    .add("name")
-                    .add("db_id")
-                    .add("table_id")
-                    .add("partitions")
-                    .add("state")
-                    .add(CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PROPERTY)
-                    .add("progress")
+                    .add("Id")
+                    .add("Name")
+                    .add("DBId")
+                    .add("TableId")
+                    .add("State")
+                    .add("DataSourceType")
+                    .add("JobProperties")
+                    .add("DataSourceProperties")
+                    .add("CurrentTaskConcurrentNumber")
+                    .add("TotalRows")
+                    .add("TotalErrorRows")
+                    .add("Progress")
+                    .add("ReasonOfStateChanged")
                     .build();
 
-    private final String name;
+    private final LabelName labelName;
+    private String dbFullName; // optional
+    private String name; // optional
+    private boolean includeHistory = false;
 
-    public ShowRoutineLoadStmt(String name) {
-        this.name = name;
+
+    public ShowRoutineLoadStmt(LabelName labelName, boolean includeHistory) {
+        this.labelName = labelName;
+        this.includeHistory = includeHistory;
+    }
+
+    public String getDbFullName() {
+        return dbFullName;
     }
 
     public String getName() {
         return name;
     }
 
-    @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
-        super.analyze(analyzer);
-        if (Strings.isNullOrEmpty(name)) {
-            throw new AnalysisException("routine load name could not be empty or null");
-        }
+    public boolean isIncludeHistory() {
+        return includeHistory;
     }
+
+    @Override
+    public void analyze(Analyzer analyzer) throws UserException {
+        super.analyze(analyzer);
+        checkLabelName(analyzer);
+    }
+
+    private void checkLabelName(Analyzer analyzer) throws AnalysisException {
+        String dbName = labelName == null ? null : labelName.getDbName();
+        if (Strings.isNullOrEmpty(dbName)) {
+            dbFullName = analyzer.getContext().getDatabase();
+            if (Strings.isNullOrEmpty(dbFullName)) {
+                throw new AnalysisException("please choose a database firstly "
+                                                    + "such as use db, show routine load db.name etc.");
+            }
+        } else {
+            dbFullName = ClusterNamespace.getFullName(getClusterName(), dbName);
+        }
+        name = labelName == null ? null : labelName.getLabelName();
+    }
+
 
     @Override
     public ShowResultSetMetaData getMetaData() {
