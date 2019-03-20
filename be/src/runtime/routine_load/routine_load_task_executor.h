@@ -45,6 +45,8 @@ public:
         _exec_env(exec_env),
         _thread_pool(10, 1000),
         _data_consumer_pool(10) {
+
+        _data_consumer_pool.start_bg_worker();
     }
 
     ~RoutineLoadTaskExecutor() {
