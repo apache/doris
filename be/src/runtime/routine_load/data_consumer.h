@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <ctime>
 #include <mutex>
 
 #include "librdkafka/rdkafkacpp.h"
@@ -35,7 +36,8 @@ public:
     DataConsumer(StreamLoadContext* ctx):
         _init(false),
         _finished(false),
-        _cancelled(false) {
+        _cancelled(false),
+        _last_visit_time(0) {
     }
 
     virtual ~DataConsumer() {
@@ -56,6 +58,7 @@ public:
     virtual bool match(StreamLoadContext* ctx) = 0;
 
     const UniqueId& id() { return _id; }
+    time_t last_visit_time() { return _last_visit_time; }
     
 protected:
     UniqueId _id;
@@ -65,6 +68,7 @@ protected:
     bool _init;
     bool _finished;
     bool _cancelled;
+    time_t _last_visit_time;
 };
 
 class KafkaEventCb : public RdKafka::EventCb {

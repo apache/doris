@@ -17,8 +17,10 @@
 
 #pragma once
 
+#include <ctime>
 #include <memory>
 #include <mutex>
+#include <thread>
 
 #include "runtime/routine_load/data_consumer.h"
 #include "util/lru_cache.hpp"
@@ -48,10 +50,17 @@ public:
     // erase the specified cache
     void return_consumer(std::shared_ptr<DataConsumer> consumer);
 
-protected:
+    Status start_bg_worker();
+
+private:
+    void _clean_idle_consumer_bg();
+
+private:
     std::mutex _lock;
     std::list<std::shared_ptr<DataConsumer>> _pool;
     int64_t _max_pool_size;
+
+    std::thread _clean_idle_consumer_thread;
 };
 
 } // end namespace doris
