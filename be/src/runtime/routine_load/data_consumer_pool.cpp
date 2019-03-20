@@ -64,7 +64,7 @@ void DataConsumerPool::return_consumer(std::shared_ptr<DataConsumer> consumer) {
     std::unique_lock<std::mutex> l(_lock);
 
     if (_pool.size() == _max_pool_size) {
-       VLOG(3) << "data consumer pool is full: " << _pool.size()
+        VLOG(3) << "data consumer pool is full: " << _pool.size()
                 << "-" << _max_pool_size << ", discard the returned consumer: "
                 << consumer->id();
         return;
@@ -75,6 +75,42 @@ void DataConsumerPool::return_consumer(std::shared_ptr<DataConsumer> consumer) {
     VLOG(3) << "return the data consumer: " << consumer->id()
             << ", current pool size: " << _pool.size();
     return;
+}
+
+Status DataConsumerPool::start_bg_worker() {
+    _clean_idle_consumer_thread = std::thread(
+        [this] {
+            #ifdef GOOGLE_PROFILER
+                ProfilerRegisterThread();
+            #endif
+
+            uint32_t interval = 60;
+            while (true) {
+                _clean_idle_consumer_bg();
+                sleep(interval);
+            }
+        });
+    _clean_idle_consumer_thread.detach();
+    return Status::OK;
+}
+
+void DataConsumerPool::_clean_idle_consumer_bg() {
+    const static int32_t max_idle_time_second = 600;
+
+    std::unique_lock<std::mutex> l(_lock);
+    time_t now = time(nullptr);    
+
+    auto iter = std::begin(_pool);
+    while (iter != std::end(_pool)) {
+        if (difftime(now, (*iter)->last_visit_time()) >= max_idle_time_second) {
+            LOG(INFO) << "remove data consumer " << (*iter)->id()
+                    << ", since it last visit: " << (*iter)->last_visit_time()
+                    << ", now: " << now;
+            iter = _pool.erase(iter);
+        } else {
+            ++iter;
+        }
+    }
 }
 
 } // end namespace doris
