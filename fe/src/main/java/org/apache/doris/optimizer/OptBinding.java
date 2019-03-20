@@ -45,7 +45,7 @@ public class OptBinding {
                 // we have already binding this expression
                 return null;
             }
-            return new OptExpression(mExpr.getOp(), mExpr);
+            return OptExpression.createBindingLeafExpression(mExpr);
         }
         // If MultiExpression's arity isn't equal with pattern's, return null
         int arity = mExpr.arity();
@@ -98,7 +98,7 @@ public class OptBinding {
             }
         }
 
-        return new OptExpression(mExpr.getOp(), boundInputs, mExpr);
+        return OptExpression.createBindingInternalExpression(mExpr, boundInputs);
     }
 
     private static OptExpression bind(OptExpression pattern, OptGroup group, OptExpression lastExpr) {

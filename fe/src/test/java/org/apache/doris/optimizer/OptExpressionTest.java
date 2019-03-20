@@ -17,26 +17,30 @@
 
 package org.apache.doris.optimizer;
 
-import static org.junit.Assert.*;
-
+import org.apache.doris.optimizer.operator.OptLogicalUTLeafNode;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.junit.Test;
 
+import static org.junit.Assert.assertEquals;
+
 public class OptExpressionTest {
     private static final Logger LOG = LogManager.getLogger(OptExpression.class);
+
     @Test
     public void getExplainString() {
         // create a tree (internal(1), (internal-2, leaf-3), (internal-4, leaf-5))
-        OptExpression expr = Utils.createUtInternal(1,
-                Utils.createUtInternal(2, Utils.createUtLeaf(3)),
-                Utils.createUtInternal(4, Utils.createUtLeaf(5)));
-
-        assertEquals("UnitTestInternalNode (value=1)\n" +
-                "->  UnitTestInternalNode (value=2)\n" +
-                "    ->  UnitTestLeafNode (value=3)\n" +
-                "->  UnitTestInternalNode (value=4)\n" +
-                "    ->  UnitTestLeafNode (value=5)\n", expr.getExplainString());
+        OptExpression expr = Utils.createUtInternal(
+                Utils.createUtInternal(Utils.createUtLeaf()),
+                Utils.createUtInternal(Utils.createUtLeaf()));
+        final int exprLeftOpValue = ((OptLogicalUTLeafNode) expr.getInput(0).getInput(0).getOp()).getValue();
+        final int exprRightOpValue = ((OptLogicalUTLeafNode) expr.getInput(1).getInput(0).getOp()).getValue();
+        System.out.println(expr.getExplainString());
+        assertEquals("LogicalUnitTestInternalNode\n" +
+                "->  LogicalUnitTestInternalNode\n" +
+                "    ->  LogicalUnitTestLeafNode (value=" + exprLeftOpValue + ")\n" +
+                "->  LogicalUnitTestInternalNode\n" +
+                "    ->  LogicalUnitTestLeafNode (value=" + exprRightOpValue + ")\n", expr.getExplainString());
         LOG.info("expr=\n{}", expr.getExplainString());
     }
 }

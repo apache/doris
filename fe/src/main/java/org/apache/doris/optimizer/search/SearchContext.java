@@ -19,20 +19,28 @@ package org.apache.doris.optimizer.search;
 
 import org.apache.doris.optimizer.OptGroup;
 import org.apache.doris.optimizer.OptMemo;
+import org.apache.doris.optimizer.Optimizer;
+import org.apache.doris.optimizer.base.SearchVariable;
+import org.apache.doris.optimizer.rule.OptRule;
+
+import java.util.List;
 
 public class SearchContext {
 
-    private final OptMemo memo;
+    private final Optimizer optimizer;
     private final Scheduler scheduler;
+    private final SearchVariable variables;
 
-    private SearchContext(OptMemo memo, Scheduler scheduler) {
-        this.memo = memo;
+
+    private SearchContext(Optimizer optimizer, Scheduler scheduler, SearchVariable variables) {
+        this.optimizer = optimizer;
         this.scheduler = scheduler;
+        this.variables = variables;
     }
 
-    public static SearchContext create(OptMemo memo, OptGroup firstGroup,
-                                       OptimizationContext oContext, Scheduler scheduler) {
-        final SearchContext sContext = new SearchContext(memo, scheduler);
+    public static SearchContext create(Optimizer optimizer, OptGroup firstGroup,
+                                       OptimizationContext oContext, Scheduler scheduler, SearchVariable variables) {
+        final SearchContext sContext = new SearchContext(optimizer, scheduler, variables);
         TaskGroupOptimization.schedule(sContext, firstGroup, oContext, null);
         return sContext;
     }
@@ -41,5 +49,7 @@ public class SearchContext {
         scheduler.add(task);
     }
 
-    public OptMemo getMemo() { return memo; }
+    public OptMemo getMemo() { return optimizer.getMemo(); }
+    public List<OptRule> getRules() { return optimizer.getRules(); }
+    public SearchVariable getSearchVariables() { return variables; }
 }

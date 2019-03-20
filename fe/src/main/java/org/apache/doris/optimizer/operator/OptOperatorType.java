@@ -40,9 +40,12 @@ public enum OptOperatorType {
     OP_ITEM_LIKE_PREDICATE("ItemLikePredicate"),
 
     OP_PATTERN_LEAF("PatternLeaf"),
-    // following is only used in unit test
-    OP_UNIT_TEST_INTERNAL("UnitTestInternalNode"),
-    OP_UNIT_TEST_LEAF("UnitTestLeafNode");
+
+    // The following is only used in unit test
+    OP_LOGICAL_UNIT_TEST_INTERNAL("LogicalUnitTestInternalNode"),
+    OP_LOGICAL_UNIT_TEST_LEAF("LogicalUnitTestLeafNode"),
+    OP_PHYSICAL_UNIT_TEST_INTERNAL("PhysicalUnitTestInternalNode"),
+    OP_PHYSICAL_UNIT_TEST_LEAF("PhysicalUnitTestLeafNode");
 
     private String name;
 

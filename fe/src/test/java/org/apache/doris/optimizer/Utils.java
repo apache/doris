@@ -17,15 +17,15 @@
 
 package org.apache.doris.optimizer;
 
-import org.apache.doris.optimizer.operator.OptUTInternalNode;
-import org.apache.doris.optimizer.operator.OptUTLeafNode;
+import org.apache.doris.optimizer.operator.OptLogicalUTInternalNode;
+import org.apache.doris.optimizer.operator.OptLogicalUTLeafNode;
 
 public class Utils {
-    public static OptExpression createUtLeaf(int value) {
-        return new OptExpression(new OptUTLeafNode(value));
+    public static OptExpression createUtLeaf() {
+        return OptExpression.create(new OptLogicalUTLeafNode());
     }
 
-    public static OptExpression createUtInternal(int value, OptExpression... inputs) {
-        return new OptExpression(new OptUTInternalNode(value), inputs);
+    public static OptExpression createUtInternal(OptExpression... inputs) {
+        return OptExpression.create(new OptLogicalUTInternalNode(), inputs);
     }
 }

@@ -56,4 +56,5 @@ public class OptItemBinaryPredicate extends OptItem {
         return sb.toString();
     }
 
+    public BinaryPredicate.Operator getOp() { return op; }
 }

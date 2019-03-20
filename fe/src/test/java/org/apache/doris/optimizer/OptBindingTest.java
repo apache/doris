@@ -17,10 +17,8 @@
 
 package org.apache.doris.optimizer;
 
-import static org.junit.Assert.*;
-
 import org.apache.doris.optimizer.operator.OptPatternLeaf;
-import org.apache.doris.optimizer.operator.OptUTLeafNode;
+import org.apache.doris.optimizer.operator.OptLogicalUTLeafNode;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.junit.Assert;
@@ -33,16 +31,15 @@ public class OptBindingTest {
     public void testBind() {
         // 1. create a
         // create a tree (internal(1), leaf(2), leaf(3))
-        OptExpression expr = Utils.createUtInternal(1,
-                Utils.createUtLeaf(2),
-                Utils.createUtLeaf(3));
+        OptExpression expr = Utils.createUtInternal(Utils.createUtLeaf(),
+                Utils.createUtLeaf());
         OptMemo memo = new OptMemo();
-        MultiExpression mExpr = memo.copyIn(expr);
+        MultiExpression mExpr = memo.init(expr);
         LOG.info("mExpr=\n{}", mExpr.getExplainString());
         // 2. create pattern used to bind
-        OptExpression pattern = Utils.createUtInternal(1,
-                new OptExpression(new OptPatternLeaf()),
-                new OptExpression(new OptPatternLeaf()));
+        OptExpression pattern = Utils.createUtInternal(
+                OptExpression.create(new OptPatternLeaf()),
+                OptExpression.create(new OptPatternLeaf()));
 
         OptExpression bind = OptBinding.bind(pattern, mExpr, null);
         Assert.assertNotNull(bind);
@@ -60,25 +57,25 @@ public class OptBindingTest {
     public void testBindMultiTimes() {
         // 1. create a
         // create a tree (internal(1), leaf(2), leaf(3))
-        OptExpression expr = Utils.createUtInternal(1,
-                Utils.createUtLeaf(2),
-                Utils.createUtLeaf(3));
+        OptExpression expr = Utils.createUtInternal(
+                Utils.createUtLeaf(),
+                Utils.createUtLeaf());
         OptMemo memo = new OptMemo();
-        MultiExpression mExpr = memo.copyIn(expr);
+        MultiExpression mExpr = memo.init(expr);
         // 2. add another to this group
         {
-            OptExpression expr2 = Utils.createUtLeaf(4);
+            OptExpression expr2 = Utils.createUtLeaf();
             memo.copyIn(mExpr.getInput(0), expr2);
         }
         {
-            OptExpression expr2 = Utils.createUtLeaf(5);
+            OptExpression expr2 = Utils.createUtLeaf();
             memo.copyIn(mExpr.getInput(1), expr2);
         }
         LOG.info("mExpr=\n{}", mExpr.getExplainString());
         // 2. create pattern used to bind
-        OptExpression pattern = Utils.createUtInternal(1,
-                new OptExpression(new OptUTLeafNode(1)),
-                new OptExpression(new OptPatternLeaf()));
+        OptExpression pattern = Utils.createUtInternal(
+                OptExpression.create(new OptLogicalUTLeafNode()),
+                OptExpression.create(new OptPatternLeaf()));
 
         OptExpression bind = OptBinding.bind(pattern, mExpr, null);
         Assert.assertNotNull(bind);
@@ -99,25 +96,23 @@ public class OptBindingTest {
     public void testBind4Times() {
         // 1. create a
         // create a tree (internal(1), leaf(2), leaf(3))
-        OptExpression expr = Utils.createUtInternal(1,
-                Utils.createUtLeaf(2),
-                Utils.createUtLeaf(3));
+        OptExpression expr = Utils.createUtInternal(
+                Utils.createUtLeaf(),  // 1
+                Utils.createUtLeaf()); // 2
         OptMemo memo = new OptMemo();
-        MultiExpression mExpr = memo.copyIn(expr);
+        MultiExpression mExpr = memo.init(expr);
         // 2. add another to this group
-        {
-            OptExpression expr2 = Utils.createUtLeaf(4);
-            memo.copyIn(mExpr.getInput(0), expr2);
-        }
-        {
-            OptExpression expr2 = Utils.createUtLeaf(5);
-            memo.copyIn(mExpr.getInput(1), expr2);
-        }
+        OptExpression expr2 = Utils.createUtLeaf(); // 3
+        memo.copyIn(mExpr.getInput(0), expr2);
+
+        OptExpression expr3 = Utils.createUtLeaf(); // 4
+        memo.copyIn(mExpr.getInput(1), expr3);
+
         LOG.info("mExpr=\n{}", mExpr.getExplainString());
         // 2. create pattern used to bind
-        OptExpression pattern = Utils.createUtInternal(1,
-                new OptExpression(new OptUTLeafNode(1)),
-                new OptExpression(new OptUTLeafNode(1)));
+        OptExpression pattern = Utils.createUtInternal(
+                OptExpression.create(new OptLogicalUTLeafNode()),
+                OptExpression.create(new OptLogicalUTLeafNode()));
 
         OptExpression bind = OptBinding.bind(pattern, mExpr, null);
         Assert.assertNotNull(bind);
@@ -126,23 +121,31 @@ public class OptBindingTest {
         Assert.assertNotNull(bind.getMExpr());
         Assert.assertNotNull(bind.getInput(0).getMExpr());
         Assert.assertNotNull(bind.getInput(1).getMExpr());
-        Assert.assertEquals(2, ((OptUTLeafNode) bind.getInput(0).getOp()).getValue());
-        Assert.assertEquals(3, ((OptUTLeafNode) bind.getInput(1).getOp()).getValue());
+
+        final int exprLeftOpValue = ((OptLogicalUTLeafNode)expr.getInput(0).getOp()).getValue();
+        final int exprRightOpValue = ((OptLogicalUTLeafNode)expr.getInput(1).getOp()).getValue();
+        final int expr2OpValue = ((OptLogicalUTLeafNode)expr2.getOp()).getValue();
+        final int expr3OpValue = ((OptLogicalUTLeafNode)expr3.getOp()).getValue();
+
+        Assert.assertEquals(exprLeftOpValue,
+                ((OptLogicalUTLeafNode) bind.getInput(0).getOp()).getValue());
+        Assert.assertEquals(exprRightOpValue,
+                ((OptLogicalUTLeafNode) bind.getInput(1).getOp()).getValue());
 
         bind = OptBinding.bind(pattern, mExpr, bind);
         Assert.assertNotNull(bind);
-        Assert.assertEquals(4, ((OptUTLeafNode) bind.getInput(0).getOp()).getValue());
-        Assert.assertEquals(3, ((OptUTLeafNode) bind.getInput(1).getOp()).getValue());
+        Assert.assertEquals(expr2OpValue, ((OptLogicalUTLeafNode) bind.getInput(0).getOp()).getValue());
+        Assert.assertEquals(exprRightOpValue, ((OptLogicalUTLeafNode) bind.getInput(1).getOp()).getValue());
 
         bind = OptBinding.bind(pattern, mExpr, bind);
         Assert.assertNotNull(bind);
-        Assert.assertEquals(2, ((OptUTLeafNode) bind.getInput(0).getOp()).getValue());
-        Assert.assertEquals(5, ((OptUTLeafNode) bind.getInput(1).getOp()).getValue());
+        Assert.assertEquals(exprLeftOpValue, ((OptLogicalUTLeafNode) bind.getInput(0).getOp()).getValue());
+        Assert.assertEquals(expr3OpValue, ((OptLogicalUTLeafNode) bind.getInput(1).getOp()).getValue());
 
         bind = OptBinding.bind(pattern, mExpr, bind);
         Assert.assertNotNull(bind);
-        Assert.assertEquals(4, ((OptUTLeafNode) bind.getInput(0).getOp()).getValue());
-        Assert.assertEquals(5, ((OptUTLeafNode) bind.getInput(1).getOp()).getValue());
+        Assert.assertEquals(expr2OpValue, ((OptLogicalUTLeafNode) bind.getInput(0).getOp()).getValue());
+        Assert.assertEquals(expr3OpValue, ((OptLogicalUTLeafNode) bind.getInput(1).getOp()).getValue());
 
         bind = OptBinding.bind(pattern, mExpr, bind);
         Assert.assertNull(bind);
@@ -152,14 +155,14 @@ public class OptBindingTest {
     public void testBindDifferentOp() {
         // 1. create a
         // create a tree (internal(1), leaf(2), leaf(3))
-        OptExpression expr = Utils.createUtInternal(1,
-                Utils.createUtLeaf(2),
-                Utils.createUtLeaf(3));
+        OptExpression expr = Utils.createUtInternal(
+                Utils.createUtLeaf(),
+                Utils.createUtLeaf());
         OptMemo memo = new OptMemo();
-        MultiExpression mExpr = memo.copyIn(expr);
+        MultiExpression mExpr = memo.init(expr);
         // 2. create pattern used to bind
-        OptExpression pattern = Utils.createUtInternal(1,
-                new OptExpression(new OptPatternLeaf()));
+        OptExpression pattern = Utils.createUtInternal(
+                OptExpression.create(new OptPatternLeaf()));
 
         // Because pattern has only one input, not equal with expression's, so can't match
         OptExpression bind = OptBinding.bind(pattern, mExpr, null);

@@ -20,6 +20,7 @@ package org.apache.doris.optimizer;
 public class OptUtils {
     public static final String HEADLINE_PREFIX = "->  ";
     public static final String DETAIL_PREFIX = "    ";
+    private static int UT_ID_COUNTER = 1;
 
     public static int combineHash(int hash, int value) {
         return  ((hash << 5) ^ (hash >> 27)) ^ value;
@@ -27,5 +28,9 @@ public class OptUtils {
 
     public static int combineHash(int hash, Object obj) {
         return  ((hash << 5) ^ (hash >> 27)) ^ obj.hashCode();
+    }
+
+    public static int getUTOperatorId() {
+        return UT_ID_COUNTER++;
     }
 }

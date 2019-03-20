@@ -18,9 +18,11 @@
 package org.apache.doris.optimizer.search;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Set;
 import java.util.Stack;
 
 /**
@@ -30,6 +32,7 @@ public class DefaultScheduler implements Scheduler {
     private final static Logger LOG = LogManager.getLogger(DefaultScheduler.class);
 
     private final Stack<Task> tasks;
+    private final Set<Task> pendingTasks;
     private long startSearchingTime;
     private long taskTotal;
     private long tasksSuspendTotal;
@@ -37,6 +40,8 @@ public class DefaultScheduler implements Scheduler {
 
     private DefaultScheduler() {
         this.tasks = new Stack<>();
+        this.tasks.clear();
+        this.pendingTasks = Sets.newHashSet();
         resetEnv();
     }
 
@@ -45,7 +50,6 @@ public class DefaultScheduler implements Scheduler {
     }
 
     private void resetEnv() {
-        this.tasks.clear();
         this.startSearchingTime = System.currentTimeMillis();
         this.taskTotal = 0;
         this.tasksSuspendTotal = 0;
@@ -81,18 +85,18 @@ public class DefaultScheduler implements Scheduler {
 
     @Override
     public void run(SearchContext sContext) {
-        resetEnv();
         while (true) {
-            final Task task = tasks.pop();
-            if (task == null) {
+            if (tasks.isEmpty()) {
                 // Searching finished.
                 break;
             }
+            final Task task = tasks.pop();
             task.execute(sContext);
             if (task.isFinished()) {
                 if (resumeParent(task)) {
                     // Schedule parent task again.
                     tasks.push(task.getParent());
+                    pendingTasks.remove(task.getParent());
                     tasksResumeTotal++;
                 }
                 continue;
@@ -100,6 +104,7 @@ public class DefaultScheduler implements Scheduler {
                 // The task will be scheduled again by the last
                 // child when all children finished.
                 tasksSuspendTotal++;
+                pendingTasks.add(task);
             }
         }
         printSearchInfo();

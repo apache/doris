@@ -91,7 +91,8 @@ public class TaskGroupOptimization extends Task {
             boolean hasNew = false;
             for (; lastMexprIndex < group.getMultiExpressions().size(); lastMexprIndex++) {
                 final MultiExpression mExpr = group.getMultiExpressions().get(lastMexprIndex);
-                if (!mExpr.getOp().isPhysical()) {
+                if (!mExpr.getOp().isPhysical() && sContext.getSearchVariables().isExecuteOptimization()
+                        && mExpr.isImplemented()) {
                     continue;
                 }
 

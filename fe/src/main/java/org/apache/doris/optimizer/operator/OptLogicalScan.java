@@ -19,31 +19,66 @@ package org.apache.doris.optimizer.operator;
 
 import com.google.common.collect.Lists;
 import org.apache.doris.analysis.BaseTableRef;
-import org.apache.doris.optimizer.rule.OptRule;
-import org.apache.doris.optimizer.rule.implementation.OlapScanRule;
+import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Table;
+import org.apache.doris.optimizer.OptExpressionWapper;
+import org.apache.doris.optimizer.base.OptColumnRef;
+import org.apache.doris.optimizer.rule.OptRuleType;
+import org.apache.doris.optimizer.stat.DefaultStatistics;
+import org.apache.doris.optimizer.stat.Statistics;
+import org.apache.doris.optimizer.stat.StatisticsContext;
 
+import java.util.BitSet;
 import java.util.List;
 
 public class OptLogicalScan extends OptLogical {
 
-    private BaseTableRef ref;
+    private List<OptColumnRef> outputs;
+    private BaseTableRef table;
+    private int idCounter;
 
     public OptLogicalScan() {
-        super(OptOperatorType.OP_LOGICAL_SCAN);
+        this(null);
     }
 
-    public OptLogicalScan(BaseTableRef ref) {
+    public OptLogicalScan(BaseTableRef table) {
         super(OptOperatorType.OP_LOGICAL_SCAN);
-        this.ref = ref;
+        this.outputs = Lists.newArrayList();
+        this.idCounter = 0;
+        this.table = table;
+        createOutputColumns();
+    }
+
+    private void createOutputColumns() {
+        for (SlotDescriptor slot : table.getDesc().getMaterializedSlots()) {
+            final OptColumnRef columnRef = new OptColumnRef(idCounter++, slot.getType(), slot.getColumn().getName());
+            outputs.add(columnRef);
+        }
     }
 
     @Override
-    public List<OptRule> getCandidateRulesForExplore() { return Lists.newArrayList(); }
+    public BitSet getCandidateRulesForExplore() { return new BitSet(); }
 
     @Override
-    public List<OptRule> getCandidateRulesForImplement() {
-        final List<OptRule> rules = Lists.newArrayList();
-        rules.add(OlapScanRule.INSTANCE);
-        return rules;
+    public BitSet getCandidateRulesForImplement() {
+        final BitSet set = new BitSet();
+        set.set(OptRuleType.RULE_IMP_OLAP_LSCAN_TO_PSCAN.ordinal());
+        return set;
+    }
+
+    @Override
+    public List<OptColumnRef> deriveOuput(OptExpressionWapper wapper) {
+        return outputs;
+    }
+
+    @Override
+    public Statistics deriveStat(OptExpressionWapper wapper, StatisticsContext context) {
+        Statistics statistics = null;
+        if (table.getTable().getType() == Table.TableType.OLAP) {
+            final OlapTable olapTable = (OlapTable)table.getTable();
+            statistics = new DefaultStatistics(olapTable.getRowCount());
+        }
+        return statistics;
     }
 }

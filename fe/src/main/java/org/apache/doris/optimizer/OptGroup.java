@@ -19,8 +19,11 @@ package org.apache.doris.optimizer;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.apache.doris.optimizer.rule.OptRuleType;
+import org.apache.doris.optimizer.property.OptProperty;
 import org.apache.doris.optimizer.search.OptimizationContext;
+import org.apache.doris.optimizer.stat.Statistics;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
@@ -28,11 +31,15 @@ import java.util.Map;
 // A Group contains all logical equivalent logical MultiExpressions
 // and physical MultiExpressions
 public class OptGroup {
+    private static final Logger LOG = LogManager.getLogger(OptGroup.class);
+
     private int id;
     private List<MultiExpression> mExprs = Lists.newArrayList();
-    private int nextMExprId = 1;
+    private static int nextMExprId = 1;
     private GState status;
     private Map<OptimizationContext, OptimizationContext> optContextMap;
+    private OptProperty logicalProperty;
+    private Statistics statistics;
 
     public OptGroup(int id) {
         this.id = id;
@@ -69,6 +76,9 @@ public class OptGroup {
         return sb.toString();
     }
 
+    public String getExplain() {
+        return getExplain("", "");
+    }
     public boolean duplicateWith(OptGroup other) {
         return this == other;
     }
@@ -79,12 +89,41 @@ public class OptGroup {
         return mExprs.get(0);
     }
 
+    public void deriveProperty() {
+    }
+
     public int getId() { return id; }
     public boolean isImplemented() { return status == GState.Implemented; }
     public boolean isOptimized() { return status == GState.Optimized; }
     public List<MultiExpression> getMultiExpressions() { return mExprs; }
     public OptimizationContext lookUp(OptimizationContext newContext) { return optContextMap.get(newContext); }
     public void setStatus(GState status) { this.status = status; }
+    public GState getStatus() { return status; }
+    public OptProperty getLogicalProperty() { return logicalProperty; }
+    public void setLogicalProperty(OptProperty property) { this.logicalProperty = property; }
+    public Statistics getStatistics() { return statistics; }
+    public void setStatistics(Statistics statistics) { this.statistics = statistics; }
+
+    public void mergeGroup(OptGroup other) {
+        if (other == this) {
+            return;
+        }
+        for (MultiExpression mExpr : other.getMultiExpressions()) {
+            mExprs.add(mExpr);
+            mExpr.setGroup(this);
+        }
+        other.mExprs.clear();
+    }
+
+    public void removeMExpr(MultiExpression removeMExpr) {
+        for (MultiExpression mExpr : mExprs) {
+            if (mExpr.next() == removeMExpr) {
+                mExpr.setNext(removeMExpr.next());
+            }
+        }
+        mExprs.remove(removeMExpr);
+        removeMExpr.setInvalid();
+    }
 
     public enum GState {
         Unimplemented,

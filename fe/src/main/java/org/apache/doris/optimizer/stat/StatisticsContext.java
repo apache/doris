@@ -15,35 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.optimizer.operator;
+package org.apache.doris.optimizer.stat;
 
-import org.apache.doris.optimizer.OptUtils;
+import com.google.common.collect.Lists;
 
-public class OptUTLeafNode extends OptOperator {
-    private int value;
+import java.util.List;
 
-    public OptUTLeafNode(int value) {
-        super(OptOperatorType.OP_UNIT_TEST_LEAF);
-        this.value = value;
-    }
+public class StatisticsContext {
 
-    public int getValue() { return value; }
+    private List<Statistics> childrenStatistics;
 
-    @Override
-    public int hashCode() {
-        return OptUtils.combineHash(super.hashCode(), value);
-    }
+    public StatisticsContext(){
+        childrenStatistics = Lists.newArrayList();
+    };
 
-    @Override
-    public boolean equals(Object object) {
-        if (!super.equals(object)) {
-            return false;
-        }
-        OptUTLeafNode rhs = (OptUTLeafNode) object;
-        return value == rhs.value;
-    }
-
-    @Override
-    public String getExplainString(String prefix) { return type.getName() + " (value=" + value + ")";
-    }
+    public void addChild(Statistics statistics){ this.childrenStatistics.add(statistics); }
+    public List<Statistics> getChildrenStatistics() { return childrenStatistics; }
 }

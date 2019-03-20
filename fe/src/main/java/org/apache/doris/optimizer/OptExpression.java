@@ -17,12 +17,16 @@
 
 package org.apache.doris.optimizer;
 
-import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import org.apache.doris.optimizer.operator.OptOperator;
+import org.apache.doris.optimizer.property.OptLogicalProperty;
+import org.apache.doris.optimizer.property.OptPhysicalProperty;
+import org.apache.doris.optimizer.property.OptProperty;
+import org.apache.doris.optimizer.stat.Statistics;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
-import java.util.stream.Collectors;
 
 // OptExpression consists of OptOperator and its inputs
 // New objects would be created in several scenario
@@ -35,11 +39,48 @@ import java.util.stream.Collectors;
 // 4. When a rule can reply, OptBinding will create a new OptExpression to represent
 //    substituted expression for each binding
 public class OptExpression {
+    private static final Logger LOG = LogManager.getLogger(OptExpression.class);
+
     private OptOperator op;
     private List<OptExpression> inputs;
 
-    // store where this Expression has bound from, used to
+    // Store where this Expression has bound from, used to
     private MultiExpression mExpr;
+    // Store the logical property including schema ...
+    private OptProperty logicalProperty;
+    private OptProperty physicalProperty;
+    private Statistics statistics;
+
+    private OptExpression(OptOperator op) {
+        this.op = op;
+        inputs = Lists.newArrayList();
+    }
+
+    private OptExpression(OptOperator op, List<OptExpression> inputs) {
+        this.op = op;
+        this.inputs = inputs;
+    }
+
+    private OptExpression(OptOperator op, OptExpression... inputs) {
+        this.op = op;
+        this.inputs = Lists.newArrayList(inputs);
+    }
+
+    private OptExpression(MultiExpression mExpr) {
+        this(mExpr, Lists.newArrayList());
+    }
+
+    private OptExpression(MultiExpression mExpr, List<OptExpression> inputs) {
+        this.inputs = inputs;
+        this.mExpr = mExpr;
+        copyPropertyAndStatistics();
+    }
+
+    private void copyPropertyAndStatistics() {
+        this.op = mExpr.getOp();
+        this.logicalProperty = mExpr.getGroup().getLogicalProperty();
+        this.statistics = mExpr.getGroup().getStatistics();
+    }
 
     public static OptExpression create(OptOperator op, OptExpression... inputs) {
         return new OptExpression(op, inputs);
@@ -48,29 +89,13 @@ public class OptExpression {
         return new OptExpression(op, inputs);
     }
 
-    public OptExpression(OptOperator op) {
-        this.op = op;
-        inputs = Lists.newArrayList();
+    public static OptExpression createBindingLeafExpression(MultiExpression source) {
+        return new OptExpression(source);
     }
 
-    public OptExpression(OptOperator op, OptExpression... inputs) {
-        this.op = op;
-        this.inputs = Lists.newArrayList(inputs);
-    }
-
-    public OptExpression(OptOperator op, List<OptExpression> inputs) {
-        this.op = op;
-        this.inputs = inputs;
-    }
-
-    public OptExpression(OptOperator op, MultiExpression mExpr) {
-        this(op, Lists.newArrayList(), mExpr);
-    }
-
-    public OptExpression(OptOperator op, List<OptExpression> inputs, MultiExpression mExpr) {
-        this.op = op;
-        this.inputs = inputs;
-        this.mExpr = mExpr;
+    public static OptExpression createBindingInternalExpression(
+            MultiExpression source, List<OptExpression> boundInputs) {
+        return new OptExpression(source, boundInputs);
     }
 
     public OptOperator getOp() { return op; }
@@ -78,6 +103,10 @@ public class OptExpression {
     public int arity() { return inputs.size(); }
     public OptExpression getInput(int idx) { return inputs.get(idx); }
     public MultiExpression getMExpr() { return mExpr; }
+    public OptProperty getLogicalProperty() { return logicalProperty; }
+    public void setLogicalProperty(OptProperty property) { this.logicalProperty = property; }
+    public Statistics getStatistics() { return statistics; }
+    public void setStatistics(Statistics statistics) { this.statistics = statistics; }
 
     // It's only used when this object is part of pattern. this function check if
     // MultiExpression can match this Expression
@@ -87,11 +116,53 @@ public class OptExpression {
         if (op.isPattern()) {
             return true;
         }
+
         // because this is used to pattern match, just check op type rather than all
         if (op.getType() != mExpr.getOp().getType()) {
             return false;
         }
         return arity() == mExpr.arity();
+    }
+
+    private OptProperty getRightProperty() {
+        if (getOp().isLogical()) {
+            return logicalProperty;
+        } else if (getOp().isPhysical()) {
+            return physicalProperty;
+        }
+        return null;
+    }
+
+    private OptProperty createRightProperty() {
+        if (getOp().isLogical()) {
+            logicalProperty = new OptLogicalProperty();
+            return logicalProperty;
+        } else if (getOp().isPhysical()) {
+            physicalProperty = new OptPhysicalProperty();
+            return physicalProperty;
+        }
+        return null;
+    }
+
+    public OptProperty deriveProperty() {
+        OptProperty property = getRightProperty();
+        if (property != null) {
+            return property;
+        }
+        // Derive children's property.
+        property = createRightProperty();
+        final List<OptProperty> childrenProperty = Lists.newArrayList();
+        for (OptExpression expr : inputs) {
+            childrenProperty.add(expr.deriveProperty());
+        }
+        // Derive current property.
+        final OptExpressionWapper wapper = new OptExpressionWapper(this);
+        property.derive(wapper, childrenProperty);
+        return property;
+    }
+
+    public void deriveStatistics() {
+
     }
 
     public String debugString() { return getExplainString("", ""); }

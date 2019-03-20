@@ -30,12 +30,12 @@ public class JoinAssociativityRule extends ExplorationRule {
     public static JoinAssociativityRule INSTANCE = new JoinAssociativityRule();
 
     private JoinAssociativityRule() {
-        super(OptRuleType.RULE_JOIN_ASSOCIATIVITY,
-                new OptExpression(new OptLogicallJoin(),
-                        new OptExpression(new OptLogicallJoin(),
-                                new OptExpression(new OptPatternLeaf()),
-                                new OptExpression(new OptPatternLeaf())),
-                        new OptExpression(new OptPatternLeaf())));
+        super(OptRuleType.RULE_EXP_JOIN_ASSOCIATIVITY,
+                OptExpression.create(new OptLogicallJoin(),
+                        OptExpression.create(new OptLogicallJoin(),
+                                OptExpression.create(new OptPatternLeaf()),
+                                OptExpression.create(new OptPatternLeaf())),
+                        OptExpression.create(new OptPatternLeaf())));
     }
 
     @Override
@@ -58,11 +58,11 @@ public class JoinAssociativityRule extends ExplorationRule {
         Preconditions.checkNotNull(leftChildJoinRightChild);
 
         //TODO predicates.....
-        final OptExpression newLeftChildJoin = new OptExpression(
+        final OptExpression newLeftChildJoin = OptExpression.create(
                 new OptLogicallJoin(),
                 leftChildJoinLeftChild,
                 rightChild);
-        final OptExpression newTopJoin = new OptExpression(
+        final OptExpression newTopJoin = OptExpression.create(
                 new OptLogicallJoin(),
                 newLeftChildJoin,
                 leftChildJoinRightChild);

@@ -17,8 +17,7 @@
 
 package org.apache.doris.optimizer;
 
-import org.apache.doris.optimizer.operator.OptUTInternalNode;
-import org.apache.doris.optimizer.operator.OptUTLeafNode;
+import org.apache.doris.optimizer.operator.OptLogicalUTInternalNode;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.junit.Assert;
@@ -30,22 +29,22 @@ public class OptMemoTest {
     @Test
     public void copyIn() {
         // create a tree (internal(1), leaf(2), leaf(3))
-        OptExpression expr = Utils.createUtInternal(1,
-                Utils.createUtLeaf(2),
-                Utils.createUtLeaf(3));
+        OptExpression expr = Utils.createUtInternal(
+                Utils.createUtLeaf(),
+                Utils.createUtLeaf());
         LOG.info("expr=\n{}", expr.getExplainString());
         OptMemo memo = new OptMemo();
-        MultiExpression mExpr = memo.copyIn(expr);
+        MultiExpression mExpr = memo.init(expr);
         Assert.assertNotNull(mExpr);
         LOG.info("mExpr=\n{}", mExpr.getExplainString());
-        Assert.assertTrue(mExpr.getOp() instanceof OptUTInternalNode);
+        Assert.assertTrue(mExpr.getOp() instanceof OptLogicalUTInternalNode);
         Assert.assertEquals(2, mExpr.arity());
 
         {
             // copy another time, should return last MultiExpression
-            MultiExpression otherExpr = memo.copyIn(expr);
+            MultiExpression otherExpr = memo.init(expr);
             LOG.info("otherExpr=\n{}", otherExpr.getExplainString());
-            Assert.assertTrue(mExpr.getOp() instanceof OptUTInternalNode);
+            Assert.assertTrue(mExpr.getOp() instanceof OptLogicalUTInternalNode);
             Assert.assertTrue(otherExpr == mExpr);
         }
     }

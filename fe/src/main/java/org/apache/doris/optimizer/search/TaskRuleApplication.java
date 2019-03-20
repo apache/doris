@@ -21,7 +21,11 @@ import com.google.common.collect.Lists;
 import org.apache.doris.optimizer.MultiExpression;
 import org.apache.doris.optimizer.OptBinding;
 import org.apache.doris.optimizer.OptExpression;
+import org.apache.doris.optimizer.OptGroup;
 import org.apache.doris.optimizer.rule.OptRule;
+import org.apache.doris.optimizer.rule.OptRuleType;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 
@@ -39,6 +43,7 @@ import java.util.List;
  *        Parent StateMachine
  */
 public class TaskRuleApplication extends Task {
+    private final static Logger LOG = LogManager.getLogger(TaskRuleApplication.class);
 
     private final OptRule rule;
     private final MultiExpression mExpr;
@@ -59,9 +64,11 @@ public class TaskRuleApplication extends Task {
 
         @Override
         public void handle(SearchContext sContext) {
-            if (!rule.isCompatible(mExpr.getRuleTypeDerivedFrom())) {
+            if (!rule.isCompatible(mExpr.getRuleTypeDerivedFrom()) || !mExpr.isValid()) {
+                setFinished();
                 return;
             }
+
             // Transform
             final OptExpression pattern = rule.getPattern();
             OptExpression lastExpr = null;
@@ -75,9 +82,10 @@ public class TaskRuleApplication extends Task {
                 lastExpr = extractExpr;
                 extractExpr = OptBinding.bind(pattern, mExpr, lastExpr);
             }
+
             // Insert into memo
             for (OptExpression expr : newExprs) {
-                sContext.getMemo().copyIn(mExpr.getGroup(), expr);
+                sContext.getMemo().copyIn(mExpr.getGroup(), expr, rule.getType(), mExpr.getId());
             }
             setFinished();
         }

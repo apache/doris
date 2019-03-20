@@ -22,6 +22,7 @@ import org.apache.doris.optimizer.OptGroup;
 import org.apache.doris.optimizer.operator.OptLogical;
 import org.apache.doris.optimizer.rule.OptRule;
 
+import java.util.BitSet;
 import java.util.List;
 
 /**
@@ -77,13 +78,14 @@ public class TaskMultiExpressionImplementation extends Task {
         public void handle(SearchContext sContext) {
             mExpr.setStatus(MultiExpression.MEState.Implementing);
             if (!isApplyTaskScheduledForChildren) {
+                isApplyTaskScheduledForChildren = true;
                 for (OptGroup group : mExpr.getInputs()) {
                     TaskGroupImplementation.schedule(sContext, group, TaskMultiExpressionImplementation.this);
                 }
-                isApplyTaskScheduledForChildren = true;
-                return;
+                if (mExpr.getInputs().size() > 0) {
+                    return;
+                }
             }
-
             nextState = new ImplementingSelfStatus();
         }
     }
@@ -94,22 +96,33 @@ public class TaskMultiExpressionImplementation extends Task {
         public void handle(SearchContext sContext) {
             final OptLogical optLogical = (OptLogical) mExpr.getOp();
             if (!isApplyTaskScheduled) {
+                boolean hasTaskScheduled = false;
                 // It's necessary to apply explore rules firstly before apply implement rules. and Scheduling
                 // queue is FILO.
-                final List<OptRule> candidateRulesForImplement = optLogical.getCandidateRulesForImplement();
-                for (OptRule rule : candidateRulesForImplement) {
-                    TaskRuleApplication.schedule(sContext, mExpr, rule, TaskMultiExpressionImplementation.this);
+                final List<OptRule> rules = sContext.getRules();
+                final BitSet candidateRulesForImplement = optLogical.getCandidateRulesForImplement();
+                for (OptRule rule : rules) {
+                    if (candidateRulesForImplement.get(rule.type().ordinal())) {
+                        TaskRuleApplication.schedule(sContext, mExpr, rule,
+                                TaskMultiExpressionImplementation.this);
+                        hasTaskScheduled = true;
+                    }
                 }
 
-                final List<OptRule> candidateRulesForExplore = optLogical.getCandidateRulesForExplore();
-                for (OptRule rule : candidateRulesForExplore) {
-                    TaskRuleApplication.schedule(sContext, mExpr, rule, TaskMultiExpressionImplementation.this);
+                final BitSet candidateRulesForExplore = optLogical.getCandidateRulesForExplore();
+                for (OptRule rule : rules) {
+                    if (candidateRulesForExplore.get(rule.type().ordinal())) {
+                        TaskRuleApplication.schedule(sContext, mExpr, rule,
+                                TaskMultiExpressionImplementation.this);
+                        hasTaskScheduled = true;
+                    }
                 }
 
                 isApplyTaskScheduled = true;
-                return;
+                if (hasTaskScheduled) {
+                    return;
+                }
             }
-
             nextState = new CompletingStatus();
         }
     }

@@ -17,7 +17,12 @@
 
 package org.apache.doris.optimizer;
 
+import com.google.common.collect.Lists;
+import org.apache.doris.optimizer.base.SearchVariable;
+import org.apache.doris.optimizer.rule.OptRule;
 import org.apache.doris.optimizer.search.*;
+
+import java.util.List;
 
 /**
  * Optimizer's entrance class
@@ -26,17 +31,29 @@ public class Optimizer {
 
     private OptMemo memo;
     private OptGroup root;
+    private List<OptRule> globalRules;
+    private SearchVariable variables;
 
-    public Optimizer(OptExpression query) {
-        memo = new OptMemo();
-        final MultiExpression mExpr = memo.copyIn(query);
-        root = mExpr.getGroup();
+    public Optimizer(OptExpression query, SearchVariable variables) {
+        this.memo = new OptMemo();
+        final MultiExpression mExpr = memo.init(query);
+        this.root = mExpr.getGroup();
+        this.globalRules = Lists.newArrayList();
+        this.variables = variables;
     }
 
     public void optimize() {
         final OptimizationContext oContext = new OptimizationContext();
         final Scheduler scheduler = DefaultScheduler.create();
-        final SearchContext sContext = SearchContext.create(memo, root, oContext, scheduler);
+        final SearchContext sContext = SearchContext.create(this, root, oContext, scheduler, variables);
         scheduler.run(sContext);
     }
+
+    public void addRule(OptRule rule) {
+        this.globalRules.add(rule);
+    }
+
+    public List<OptRule> getRules() { return globalRules; }
+    public OptMemo getMemo() { return memo; }
+    public OptGroup getRoot() { return root; }
 }

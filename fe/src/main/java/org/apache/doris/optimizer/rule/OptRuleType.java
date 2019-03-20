@@ -20,10 +20,14 @@ package org.apache.doris.optimizer.rule;
 public enum OptRuleType {
     // Used for initial expressions, which do't come from any rules.
     RULE_NONE(0, "none"),
-    RULE_OLAP_LSCAN_TO_PSCAN(1, "OlapLogicalScanToPhysicalScan"),
-    RULE_EQ_JOIN_TO_HASH_JOIN(2, "EqualJoinToHashJoin"),
-    RULE_JOIN_COMMUTATIVITY(3, "JoinCommutativity"),
-    RULE_JOIN_ASSOCIATIVITY(4, "JoinAssociativity");
+    RULE_IMP_OLAP_LSCAN_TO_PSCAN(1, "OlapLogicalScanToPhysicalScan"),
+    RULE_IMP_EQ_JOIN_TO_HASH_JOIN(2, "EqualJoinToHashJoin"),
+    RULE_EXP_JOIN_COMMUTATIVITY(3, "JoinCommutativity"),
+    RULE_EXP_JOIN_ASSOCIATIVITY(4, "JoinAssociativity"),
+    RULE_EXP_UT_COMMUTATIVITY(5, "UtCommutatitivity"),
+    RULE_EXP_UT_ASSOCIATIVITY(6, "UtAssocivity"),
+    RULE_IMP_UT_INTERNAL(7, "UtInternal"),
+    RULE_IMP_UT_LEAF(8, "UtLeaf");
 
     private int code;
     private String name;
