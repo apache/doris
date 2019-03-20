@@ -54,4 +54,6 @@ public class OptItemCompoundPredicate extends OptItem {
         sb.append(prefix).append("ItemCompoundPredicate(op=").append(op).append(")");
         return sb.toString();
     }
+
+    public CompoundPredicate.Operator getOp() { return op; }
 }

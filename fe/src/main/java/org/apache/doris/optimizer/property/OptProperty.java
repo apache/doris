@@ -15,32 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.optimizer.operator;
+package org.apache.doris.optimizer.property;
 
 import org.apache.doris.optimizer.OptExpressionWapper;
-import org.apache.doris.optimizer.stat.Statistics;
-import org.apache.doris.optimizer.stat.StatisticsContext;
 
-import java.util.BitSet;
+import java.util.List;
 
-public class OptLogicalUnion extends OptLogical {
+public abstract class OptProperty {
 
-    public OptLogicalUnion() {
-        super(OptOperatorType.OP_LOGICAL_UNION);
-    }
+    public abstract void derive(OptExpressionWapper wapper, List<OptProperty> childrenProperty);
 
-    @Override
-    public BitSet getCandidateRulesForExplore() {
-        return null;
-    }
-
-    @Override
-    public BitSet getCandidateRulesForImplement() {
-        return null;
-    }
-
-    @Override
-    public Statistics deriveStat(OptExpressionWapper wapper, StatisticsContext context) {
-        return null;
-    }
 }

@@ -15,35 +15,26 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.optimizer.rule.transformation;
+package org.apache.doris.optimizer;
 
 import com.google.common.base.Preconditions;
-import org.apache.doris.optimizer.OptExpression;
-import org.apache.doris.optimizer.operator.OptLogicallJoin;
 import org.apache.doris.optimizer.operator.OptPatternLeaf;
 import org.apache.doris.optimizer.rule.OptRuleType;
+import org.apache.doris.optimizer.rule.transformation.ExplorationRule;
 
 import java.util.List;
 
-public class JoinAssociativityRule extends ExplorationRule {
+public class OptUTInternalAssociativityRule extends ExplorationRule {
 
-    public static JoinAssociativityRule INSTANCE = new JoinAssociativityRule();
+    public static OptUTInternalAssociativityRule INSTANCE = new OptUTInternalAssociativityRule();
 
-    private JoinAssociativityRule() {
-        super(OptRuleType.RULE_EXP_JOIN_ASSOCIATIVITY,
-                OptExpression.create(new OptLogicallJoin(),
-                        OptExpression.create(new OptLogicallJoin(),
+    private OptUTInternalAssociativityRule() {
+        super(OptRuleType.RULE_EXP_UT_ASSOCIATIVITY,
+                OptExpression.create(new OptLogicalUTInternalNode(),
+                        OptExpression.create(new OptLogicalUTInternalNode(),
                                 OptExpression.create(new OptPatternLeaf()),
                                 OptExpression.create(new OptPatternLeaf())),
                         OptExpression.create(new OptPatternLeaf())));
-    }
-
-    @Override
-    public boolean isCompatible(OptRuleType type) {
-        if (type == this.type()) {
-            return false;
-        }
-        return true;
     }
 
     @Override
@@ -59,11 +50,11 @@ public class JoinAssociativityRule extends ExplorationRule {
 
         //TODO predicates.....
         final OptExpression newLeftChildJoin = OptExpression.create(
-                new OptLogicallJoin(),
+                new OptLogicalUTInternalNode(),
                 leftChildJoinLeftChild,
                 rightChild);
         final OptExpression newTopJoin = OptExpression.create(
-                new OptLogicallJoin(),
+                new OptLogicalUTInternalNode(),
                 newLeftChildJoin,
                 leftChildJoinRightChild);
         newExprs.add(newTopJoin);

@@ -18,8 +18,14 @@
 package org.apache.doris.optimizer.operator;
 
 import com.google.common.collect.Lists;
-import org.apache.doris.optimizer.rule.OptRule;
+import org.apache.doris.optimizer.OptExpression;
+import org.apache.doris.optimizer.OptExpressionWapper;
+import org.apache.doris.optimizer.base.OptColumnRef;
+import org.apache.doris.optimizer.property.OptLogicalProperty;
+import org.apache.doris.optimizer.stat.Statistics;
+import org.apache.doris.optimizer.stat.StatisticsContext;
 
+import java.util.BitSet;
 import java.util.List;
 
 public abstract class OptLogical extends OptOperator {
@@ -28,13 +34,20 @@ public abstract class OptLogical extends OptOperator {
         super(type);
     }
 
-    public List<OptRule> getCandidateRulesForExplore() {
-        return Lists.newArrayList();
+    public abstract BitSet getCandidateRulesForExplore();
+
+    public abstract BitSet getCandidateRulesForImplement();
+
+    public List<OptColumnRef> deriveOuput(OptExpressionWapper wapper) {
+        final List<OptColumnRef> results = Lists.newArrayList();
+        for (OptExpression expression : wapper.getExpression().getInputs()) {
+            final OptLogicalProperty property = (OptLogicalProperty)expression.getLogicalProperty();
+            results.addAll(property.getOutputs());
+        }
+        return results;
     }
 
-    public List<OptRule> getCandidateRulesForImplement() {
-        return Lists.newArrayList();
-    }
+    public abstract Statistics deriveStat(OptExpressionWapper wapper, StatisticsContext context);
 
     @Override
     public boolean isLogical() { return true; }

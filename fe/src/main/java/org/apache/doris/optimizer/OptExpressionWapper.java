@@ -15,32 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.optimizer.operator;
+package org.apache.doris.optimizer;
 
-import org.apache.doris.optimizer.OptExpressionWapper;
-import org.apache.doris.optimizer.stat.Statistics;
-import org.apache.doris.optimizer.stat.StatisticsContext;
+/**
+ * For deriving property or statistics when object derived is
+ * MultiExpression and handling OptExpression.
+ */
+public class OptExpressionWapper {
 
-import java.util.BitSet;
+    private final OptExpression expression;
 
-public class OptLogicalUnion extends OptLogical {
-
-    public OptLogicalUnion() {
-        super(OptOperatorType.OP_LOGICAL_UNION);
+    public OptExpressionWapper(OptExpression expression) {
+        this.expression = expression;
     }
 
-    @Override
-    public BitSet getCandidateRulesForExplore() {
-        return null;
-    }
-
-    @Override
-    public BitSet getCandidateRulesForImplement() {
-        return null;
-    }
-
-    @Override
-    public Statistics deriveStat(OptExpressionWapper wapper, StatisticsContext context) {
-        return null;
+    public OptExpression getExpression() {
+        return expression;
     }
 }

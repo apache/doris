@@ -82,7 +82,7 @@ public class StmtToExpressionConvertor {
             OptExpression input = convertQuery(operand.getQueryStmt());
             inputs.add(input);
         }
-        return new OptExpression(unionOp, inputs);
+        return OptExpression.create(unionOp, inputs);
     }
 
     public OptExpression convertSelect(SelectStmt stmt) {
@@ -105,12 +105,12 @@ public class StmtToExpressionConvertor {
 
     public OptExpression convertAggregation(OptExpression root, AggregateInfo aggInfo) {
         OptLogicalAggregate aggregate = new OptLogicalAggregate();
-        return new OptExpression(aggregate, root);
+        return OptExpression.create(aggregate, root);
     }
 
     public OptExpression convertJoin(OptExpression outerExpression, OptExpression innerExpression) {
         OptLogicallJoin joinOp = new OptLogicallJoin();
-        return new OptExpression(joinOp, outerExpression, innerExpression);
+        return OptExpression.create(joinOp, outerExpression, innerExpression);
     }
 
     public OptExpression convertTableRef(TableRef ref) {
@@ -124,7 +124,7 @@ public class StmtToExpressionConvertor {
 
     public OptExpression convertBaseTableRef(BaseTableRef ref) {
         OptLogicalScan scan = new OptLogicalScan(ref);
-        return new OptExpression(scan);
+        return OptExpression.create(scan);
     }
 
     public OptExpression convertExpr(Expr expr) {

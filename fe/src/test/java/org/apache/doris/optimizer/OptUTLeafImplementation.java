@@ -15,35 +15,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.optimizer.operator;
+package org.apache.doris.optimizer;
 
-import org.apache.doris.optimizer.OptUtils;
+import org.apache.doris.optimizer.operator.OptPhysicalOlapScan;
+import org.apache.doris.optimizer.rule.OptRuleType;
+import org.apache.doris.optimizer.rule.implementation.ImplemetationRule;
 
-// Only used for UT
-public class OptUTInternalNode extends OptOperator {
-    private int value;
+import java.util.List;
 
-    public OptUTInternalNode(int value) {
-        super(OptOperatorType.OP_UNIT_TEST_INTERNAL);
-        this.value = value;
-    }
+public class OptUTLeafImplementation extends ImplemetationRule {
 
-    public int getValue() { return value; }
+    public static OptUTLeafImplementation INSTANCE = new OptUTLeafImplementation();
 
-    @Override
-    public int hashCode() {
-        return OptUtils.combineHash(super.hashCode(), value);
-    }
-
-    @Override
-    public boolean equals(Object object) {
-        if (!super.equals(object)) {
-            return false;
-        }
-        OptUTInternalNode rhs = (OptUTInternalNode) object;
-        return value == rhs.value;
+    private OptUTLeafImplementation() {
+        super(OptRuleType.RULE_IMP_UT_LEAF,
+                OptExpression.create(
+                        new OptLogicalUTLeafNode()));
     }
 
     @Override
-    public String getExplainString(String prefix) { return type.getName() + " (value=" + value + ")"; }
+    public void transform(OptExpression expr, List<OptExpression> newExprs) {
+        final OptExpression newExpr = OptExpression.create(new OptPhysicalOlapScan());
+        newExprs.add(newExpr);
+    }
 }

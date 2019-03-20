@@ -17,32 +17,43 @@
 
 package org.apache.doris.optimizer.operator;
 
-import com.google.common.collect.Lists;
-import org.apache.doris.optimizer.rule.OptRule;
-import org.apache.doris.optimizer.rule.implementation.HashJoinRule;
-import org.apache.doris.optimizer.rule.transformation.JoinAssociativityRule;
-import org.apache.doris.optimizer.rule.transformation.JoinCommutativityRule;
+import org.apache.doris.analysis.JoinOperator;
+import org.apache.doris.optimizer.OptExpressionWapper;
+import org.apache.doris.optimizer.rule.OptRuleType;
+import org.apache.doris.optimizer.stat.DefaultStatistics;
+import org.apache.doris.optimizer.stat.RowCountProvider;
+import org.apache.doris.optimizer.stat.Statistics;
+import org.apache.doris.optimizer.stat.StatisticsContext;
 
-import java.util.List;
+import java.util.BitSet;
 
 public class OptLogicallJoin extends OptLogical {
+
+    private JoinOperator operator;
 
     public OptLogicallJoin() {
         super(OptOperatorType.OP_LOGICAL_JOIN);
     }
 
     @Override
-    public List<OptRule> getCandidateRulesForExplore() {
-        final List<OptRule> rules = Lists.newArrayList();
-        rules.add(JoinCommutativityRule.INSTANCE);
-        rules.add(JoinAssociativityRule.INSTANCE);
-        return rules;
+    public BitSet getCandidateRulesForExplore() {
+        final BitSet set = new BitSet();
+        set.set(OptRuleType.RULE_EXP_JOIN_COMMUTATIVITY.ordinal());
+        set.set(OptRuleType.RULE_EXP_JOIN_ASSOCIATIVITY.ordinal());
+        return set;
     }
 
     @Override
-    public List<OptRule> getCandidateRulesForImplement() {
-        final List<OptRule> rules = Lists.newArrayList();
-        rules.add(HashJoinRule.INSTANCE);
-        return rules;
+    public BitSet getCandidateRulesForImplement() {
+        final BitSet set = new BitSet();
+        set.set(OptRuleType.RULE_IMP_EQ_JOIN_TO_HASH_JOIN.ordinal());
+        return set;
+    }
+
+    @Override
+    public Statistics deriveStat(OptExpressionWapper wapper, StatisticsContext context) {
+        final Statistics joinStatistics =
+                new DefaultStatistics(RowCountProvider.getRowCount(wapper.getExpression(), context));
+        return joinStatistics;
     }
 }

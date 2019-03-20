@@ -15,32 +15,36 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.optimizer.operator;
+package org.apache.doris.optimizer;
 
-import org.apache.doris.optimizer.OptExpressionWapper;
-import org.apache.doris.optimizer.stat.Statistics;
-import org.apache.doris.optimizer.stat.StatisticsContext;
+import org.apache.doris.optimizer.operator.OptOperatorType;
+import org.apache.doris.optimizer.operator.OptPhysical;
 
-import java.util.BitSet;
+public class OptPhysicalUTInternalNode extends OptPhysical {
 
-public class OptLogicalUnion extends OptLogical {
+    private int value;
 
-    public OptLogicalUnion() {
-        super(OptOperatorType.OP_LOGICAL_UNION);
+    public OptPhysicalUTInternalNode() {
+        super(OptOperatorType.OP_PHYSICAL_UNIT_TEST_INTERNAL);
+        this.value = OptUtils.getUTOperatorId();;
+    }
+
+    public int getValue() { return value; }
+
+    @Override
+    public int hashCode() {
+        return OptUtils.combineHash(super.hashCode(), value);
     }
 
     @Override
-    public BitSet getCandidateRulesForExplore() {
-        return null;
+    public boolean equals(Object object) {
+        if (!super.equals(object)) {
+            return false;
+        }
+        final OptPhysicalUTInternalNode rhs = (OptPhysicalUTInternalNode) object;
+        return value == rhs.value;
     }
 
     @Override
-    public BitSet getCandidateRulesForImplement() {
-        return null;
-    }
-
-    @Override
-    public Statistics deriveStat(OptExpressionWapper wapper, StatisticsContext context) {
-        return null;
-    }
+    public String getExplainString(String prefix) { return type.getName() + " (value=" + value + ")"; }
 }

@@ -21,6 +21,8 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import org.apache.doris.optimizer.operator.OptOperator;
 import org.apache.doris.optimizer.rule.OptRuleType;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Objects;
@@ -32,6 +34,8 @@ import java.util.stream.Collectors;
 // equal with several logical equivalent Expression. As a result, this
 // can reduce search space dramatically.
 public class MultiExpression {
+    private static final Logger LOG = LogManager.getLogger(OptMemo.class);
+    public static final int INVALID_ID = -1;
     private int id;
     private OptOperator op;
     private List<OptGroup> inputs;
@@ -44,17 +48,19 @@ public class MultiExpression {
     // next MultiExpression in same OptGroup, set with group
     private MultiExpression next;
     private OptRuleType ruleTypeDerivedFrom;
+    private int sourceMExprId;
 
-    public MultiExpression(OptOperator op, List<OptGroup> inputs, OptRuleType type) {
-        this(op, inputs);
-        this.ruleTypeDerivedFrom = type;
-    }
-
-    public MultiExpression(OptOperator op, List<OptGroup> inputs) {
+    public MultiExpression(OptOperator op, List<OptGroup> inputs, OptRuleType ruleTypeDerivedFrom, int sourceMExprId) {
         this.op = op;
         this.inputs = inputs;
         this.status = MEState.UnImplemented;
         this.ruleTypeDerivedFrom = OptRuleType.RULE_NONE;
+        this.ruleTypeDerivedFrom = ruleTypeDerivedFrom;
+        this.sourceMExprId = sourceMExprId;
+    }
+
+    public MultiExpression(OptOperator op, List<OptGroup> inputs) {
+        this(op, inputs, OptRuleType.RULE_NONE, -1);
     }
 
     public int getId() { return id; }
@@ -67,8 +73,11 @@ public class MultiExpression {
     public OptGroup getGroup() { return group; }
     public OptRuleType getRuleTypeDerivedFrom() { return ruleTypeDerivedFrom; }
     public void setStatus(MEState status) { this.status = status; }
+    public MEState getStatus() { return status; }
     public boolean isImplemented() { return status == MEState.Implemented; }
     public void setNext(MultiExpression next) { this.next = next; }
+    public void setInvalid() { this.group = null; }
+    public boolean isValid() { return this.group != null; }
     // get next MultiExpression in same group
     public MultiExpression next() { return next; }
 
@@ -87,7 +96,15 @@ public class MultiExpression {
 
     public String getExplainString(String headlinePrefix, String detailPrefix) {
         StringBuilder sb = new StringBuilder();
-        sb.append(headlinePrefix).append("MultiExpression:").append(id).append(' ')
+        sb.append(headlinePrefix).append("MultiExpression ").append(id);
+        if (ruleTypeDerivedFrom != OptRuleType.RULE_NONE) {
+            sb.append(" (from MultiExpression ")
+                    .append(sourceMExprId)
+                    .append(" rule:")
+                    .append(ruleTypeDerivedFrom)
+                    .append(")");
+        }
+        sb.append(' ')
                 .append(op.getExplainString(detailPrefix)).append('\n');
         String childHeadlinePrefix = detailPrefix + OptUtils.HEADLINE_PREFIX;
         String childDetailPrefix = detailPrefix + OptUtils.DETAIL_PREFIX;

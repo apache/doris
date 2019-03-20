@@ -15,28 +15,38 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.optimizer.rule.implementation;
+package org.apache.doris.optimizer;
 
-import org.apache.doris.optimizer.OptExpression;
-import org.apache.doris.optimizer.operator.OptLogicalScan;
-import org.apache.doris.optimizer.operator.OptPhysicalOlapScan;
+import com.google.common.base.Preconditions;
+import org.apache.doris.optimizer.operator.OptPatternLeaf;
+import org.apache.doris.optimizer.rule.OptRule;
 import org.apache.doris.optimizer.rule.OptRuleType;
 
 import java.util.List;
 
-public class OlapScanRule extends ImplemetationRule {
+public class OptUTInternalImplementation extends OptRule {
 
-    public static OlapScanRule INSTANCE = new OlapScanRule();
+    public static OptUTInternalImplementation INSTANCE = new OptUTInternalImplementation();
 
-    private OlapScanRule() {
-        super(OptRuleType.RULE_IMP_OLAP_LSCAN_TO_PSCAN,
+    private OptUTInternalImplementation() {
+        super(OptRuleType.RULE_IMP_UT_INTERNAL,
                 OptExpression.create(
-                        new OptLogicalScan()));
+                        new OptLogicalUTInternalNode(),
+                        OptExpression.create(new OptPatternLeaf()),
+                        OptExpression.create(new OptPatternLeaf())
+                ));
     }
 
     @Override
     public void transform(OptExpression expr, List<OptExpression> newExprs) {
-        final OptExpression newExpr = OptExpression.create(new OptPhysicalOlapScan());
+        final OptExpression leftChild = expr.getInput(0);
+        final OptExpression rightChild = expr.getInput(1);
+        Preconditions.checkNotNull(leftChild);
+        Preconditions.checkNotNull(rightChild);
+        final OptExpression newExpr = OptExpression.create(
+                new OptPhysicalUTInternalNode(),
+                leftChild,
+                rightChild);
         newExprs.add(newExpr);
     }
 }

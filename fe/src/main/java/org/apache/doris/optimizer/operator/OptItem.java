@@ -30,4 +30,7 @@ public abstract class OptItem extends OptOperator {
     // Scalar return value's type, every scalar has a return value,
     // such as compare function would return a boolean type result
     public abstract Type getReturnType();
+
+    public boolean isConstant() { return false; }
+    public boolean isAlwaysTrue() { return false; }
 }

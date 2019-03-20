@@ -19,26 +19,14 @@ package org.apache.doris.optimizer.stat;
 
 public class DefaultStatistics implements Statistics {
 
-    private final long cardinality;
-    private final long rowNumbers;
+    private final long rowCount;
 
-    public DefaultStatistics(long cardinality, long rowNumbers) {
-        this.cardinality = cardinality;
-        this.rowNumbers = rowNumbers;
+    public DefaultStatistics(long rowCount) {
+        this.rowCount = rowCount;
     }
 
     @Override
-    public long getCardinality() {
-        return cardinality;
-    }
-
-    @Override
-    public long getRowNumbers() {
-        return rowNumbers;
-    }
-
-    @Override
-    public long getScanBytes() {
-        return 0;
+    public long getRowCount() {
+        return rowCount;
     }
 }

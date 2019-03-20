@@ -15,32 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.optimizer.operator;
+package org.apache.doris.optimizer.base;
 
-import org.apache.doris.optimizer.OptExpressionWapper;
-import org.apache.doris.optimizer.stat.Statistics;
-import org.apache.doris.optimizer.stat.StatisticsContext;
+/**
+ * For controlling searching.
+ */
+public class SearchVariable {
 
-import java.util.BitSet;
+    private boolean isExecuteOptimization;
 
-public class OptLogicalUnion extends OptLogical {
-
-    public OptLogicalUnion() {
-        super(OptOperatorType.OP_LOGICAL_UNION);
+    public SearchVariable() {
+        this.isExecuteOptimization = true;
     }
 
-    @Override
-    public BitSet getCandidateRulesForExplore() {
-        return null;
+    public void setExecuteOptimization(boolean value) {
+        this.isExecuteOptimization = value;
     }
 
-    @Override
-    public BitSet getCandidateRulesForImplement() {
-        return null;
-    }
-
-    @Override
-    public Statistics deriveStat(OptExpressionWapper wapper, StatisticsContext context) {
-        return null;
+    public boolean isExecuteOptimization() {
+        return this.isExecuteOptimization;
     }
 }

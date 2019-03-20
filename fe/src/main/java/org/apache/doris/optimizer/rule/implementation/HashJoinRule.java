@@ -31,11 +31,11 @@ public class HashJoinRule extends ImplemetationRule {
     public static HashJoinRule INSTANCE = new HashJoinRule();
 
     private HashJoinRule() {
-        super(OptRuleType.RULE_EQ_JOIN_TO_HASH_JOIN,
-                new OptExpression(
+        super(OptRuleType.RULE_IMP_EQ_JOIN_TO_HASH_JOIN,
+                OptExpression.create(
                         new OptLogicallJoin(),
-                        new OptExpression(new OptPatternLeaf()),
-                        new OptExpression(new OptPatternLeaf())
+                        OptExpression.create(new OptPatternLeaf()),
+                        OptExpression.create(new OptPatternLeaf())
                 ));
     }
 
@@ -45,7 +45,7 @@ public class HashJoinRule extends ImplemetationRule {
         final OptExpression rightChild = expr.getInput(1);
         Preconditions.checkNotNull(leftChild);
         Preconditions.checkNotNull(rightChild);
-        final OptExpression newExpr = new OptExpression(
+        final OptExpression newExpr = OptExpression.create(
                 new OptPhysicalHashJoin(),
                 leftChild,
                 rightChild);

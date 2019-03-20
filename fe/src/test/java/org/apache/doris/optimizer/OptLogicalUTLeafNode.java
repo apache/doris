@@ -15,28 +15,54 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.optimizer.operator;
+package org.apache.doris.optimizer;
 
-import org.apache.doris.optimizer.OptExpressionWapper;
+import org.apache.doris.optimizer.operator.OptLogical;
+import org.apache.doris.optimizer.operator.OptOperatorType;
+import org.apache.doris.optimizer.rule.OptRuleType;
 import org.apache.doris.optimizer.stat.Statistics;
 import org.apache.doris.optimizer.stat.StatisticsContext;
 
 import java.util.BitSet;
 
-public class OptLogicalUnion extends OptLogical {
+public class OptLogicalUTLeafNode extends OptLogical {
+    private int value;
 
-    public OptLogicalUnion() {
-        super(OptOperatorType.OP_LOGICAL_UNION);
+    public OptLogicalUTLeafNode() {
+        super(OptOperatorType.OP_LOGICAL_UNIT_TEST_LEAF);
+        this.value = OptUtils.getUTOperatorId();;
+    }
+
+    public int getValue() { return value; }
+
+    @Override
+    public int hashCode() {
+        return OptUtils.combineHash(super.hashCode(), value);
+    }
+
+    @Override
+    public boolean equals(Object object) {
+        if (!super.equals(object)) {
+            return false;
+        }
+        OptLogicalUTLeafNode rhs = (OptLogicalUTLeafNode) object;
+        return value == rhs.value;
+    }
+
+    @Override
+    public String getExplainString(String prefix) { return type.getName() + " (value=" + value + ")";
     }
 
     @Override
     public BitSet getCandidateRulesForExplore() {
-        return null;
+        return new BitSet();
     }
 
     @Override
     public BitSet getCandidateRulesForImplement() {
-        return null;
+        final BitSet set = new BitSet();
+        set.set(OptRuleType.RULE_IMP_UT_LEAF.ordinal());
+        return set;
     }
 
     @Override

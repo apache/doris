@@ -64,8 +64,8 @@ public class TaskGroupImplementation extends Task {
         public void handle(SearchContext sContext) {
             group.setStatus(OptGroup.GState.Implementing);
             boolean hasNew = false;
-            for (; lastMexprIndex < group.getMultiExpressions().size(); lastMexprIndex++) {
-                final MultiExpression mExpr = group.getMultiExpressions().get(lastMexprIndex);
+            for (int i = 0; i < group.getMultiExpressions().size(); i++) {
+                final MultiExpression mExpr = group.getMultiExpressions().get(i);
                 if (!mExpr.isImplemented()) {
                     TaskMultiExpressionImplementation.schedule(sContext, mExpr, TaskGroupImplementation.this);
                     hasNew = true;
@@ -85,11 +85,11 @@ public class TaskGroupImplementation extends Task {
         @Override
         public void handle(SearchContext sContext) {
             group.setStatus(OptGroup.GState.Implemented);
-            deriveProperty();
+            deriveStatistics(group);
             setFinished();
         }
 
-        public void deriveProperty() {
+        public void deriveStatistics(OptGroup group) {
         }
     }
 }

@@ -17,22 +17,32 @@
 
 package org.apache.doris.optimizer.operator;
 
+import org.apache.doris.optimizer.OptExpressionWapper;
 import org.apache.doris.optimizer.rule.OptRule;
+import org.apache.doris.optimizer.stat.Statistics;
+import org.apache.doris.optimizer.stat.StatisticsContext;
 
+import java.util.BitSet;
 import java.util.List;
 
 public class OptLogicalAggregate extends OptLogical {
+
     public OptLogicalAggregate() {
         super(OptOperatorType.OP_LOGICAL_AGGREGATE);
     }
 
     @Override
-    public List<OptRule> getCandidateRulesForExplore() {
+    public BitSet getCandidateRulesForExplore() {
         return null;
     }
 
     @Override
-    public List<OptRule> getCandidateRulesForImplement() {
+    public BitSet getCandidateRulesForImplement() {
+        return null;
+    }
+
+    @Override
+    public Statistics deriveStat(OptExpressionWapper wapper, StatisticsContext context) {
         return null;
     }
 }

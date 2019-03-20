@@ -15,16 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.optimizer.operator;
+package org.apache.doris.optimizer;
 
-import org.apache.doris.optimizer.OptUtils;
+import org.apache.doris.optimizer.operator.OptOperatorType;
+import org.apache.doris.optimizer.operator.OptPhysical;
 
-public class OptUTLeafNode extends OptOperator {
+public class OptPhysicalUTLeafNode extends OptPhysical {
     private int value;
 
-    public OptUTLeafNode(int value) {
-        super(OptOperatorType.OP_UNIT_TEST_LEAF);
-        this.value = value;
+    public OptPhysicalUTLeafNode() {
+        super(OptOperatorType.OP_PHYSICAL_UNIT_TEST_LEAF);
+        this.value = OptUtils.getUTOperatorId();
     }
 
     public int getValue() { return value; }
@@ -39,7 +40,7 @@ public class OptUTLeafNode extends OptOperator {
         if (!super.equals(object)) {
             return false;
         }
-        OptUTLeafNode rhs = (OptUTLeafNode) object;
+        OptPhysicalUTLeafNode rhs = (OptPhysicalUTLeafNode) object;
         return value == rhs.value;
     }
 

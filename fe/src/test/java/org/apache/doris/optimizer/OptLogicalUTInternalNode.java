@@ -15,28 +15,48 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.optimizer.operator;
+package org.apache.doris.optimizer;
 
 import org.apache.doris.optimizer.OptExpressionWapper;
+import org.apache.doris.optimizer.operator.OptLogical;
+import org.apache.doris.optimizer.operator.OptOperatorType;
+import org.apache.doris.optimizer.rule.OptRuleType;
 import org.apache.doris.optimizer.stat.Statistics;
 import org.apache.doris.optimizer.stat.StatisticsContext;
 
 import java.util.BitSet;
 
-public class OptLogicalUnion extends OptLogical {
+// Only used for UT
+public class OptLogicalUTInternalNode extends OptLogical {
 
-    public OptLogicalUnion() {
-        super(OptOperatorType.OP_LOGICAL_UNION);
+    public OptLogicalUTInternalNode() {
+        super(OptOperatorType.OP_LOGICAL_UNIT_TEST_INTERNAL);
     }
 
     @Override
+    public boolean equals(Object object) {
+        if (!super.equals(object)) {
+            return false;
+        }
+        return true;
+    }
+
+    @Override
+    public String getExplainString(String prefix) { return type.getName(); }
+
+    @Override
     public BitSet getCandidateRulesForExplore() {
-        return null;
+        final BitSet set = new BitSet();
+        set.set(OptRuleType.RULE_EXP_UT_COMMUTATIVITY.ordinal());
+        set.set(OptRuleType.RULE_EXP_UT_ASSOCIATIVITY.ordinal());
+        return set;
     }
 
     @Override
     public BitSet getCandidateRulesForImplement() {
-        return null;
+        final BitSet set = new BitSet();
+        set.set(OptRuleType.RULE_IMP_UT_INTERNAL.ordinal());
+        return set;
     }
 
     @Override
