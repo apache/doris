@@ -47,6 +47,8 @@ public class OptMemo {
     // store all groups
     private int nextGroupId = 1;
     private List<OptGroup> groups = Lists.newArrayList();
+    private List<OptGroup> unusedGroups = Lists.newArrayList();
+    private List<MultiExpression> unusedMExprs = Lists.newArrayList();
     private Map<MultiExpression, MultiExpression> mExprs = Maps.newHashMap();
     private OptGroup root;
 
@@ -120,6 +122,7 @@ public class OptMemo {
             return;
         }
         groups.remove(srcGroup);
+        unusedGroups.add(srcGroup);
         // Replace children srcGroup with destGroup MultExpression refered
         // and MulExpression's host srcGroup with destGroup.
         final List<MultiExpression> newExprsNeedReinserted = Lists.newArrayList();
@@ -150,6 +153,7 @@ public class OptMemo {
                     // Remove mExpr and update parent MultiExpression.
                     mergeGroup(mExpr.getGroup(), foundMExpr.getGroup(), false);
                 } else {
+                    unusedMExprs.add(mExpr);
                     foundMExpr.getGroup().removeMExpr(mExpr);
                     Preconditions.checkState(foundMExpr.getGroup().getMultiExpressions().size() > 0);
                 }

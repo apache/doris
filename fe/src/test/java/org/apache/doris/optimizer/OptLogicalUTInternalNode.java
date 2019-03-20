@@ -15,9 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.optimizer.operator;
+package org.apache.doris.optimizer;
 
 import org.apache.doris.optimizer.OptExpressionWapper;
+import org.apache.doris.optimizer.operator.OptLogical;
+import org.apache.doris.optimizer.operator.OptOperatorType;
 import org.apache.doris.optimizer.rule.OptRuleType;
 import org.apache.doris.optimizer.stat.Statistics;
 import org.apache.doris.optimizer.stat.StatisticsContext;

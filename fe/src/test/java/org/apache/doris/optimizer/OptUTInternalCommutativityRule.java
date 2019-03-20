@@ -1,10 +1,9 @@
-package org.apache.doris.optimizer.rule.transformation;
+package org.apache.doris.optimizer;
 
 import com.google.common.base.Preconditions;
-import org.apache.doris.optimizer.OptExpression;
 import org.apache.doris.optimizer.operator.OptPatternLeaf;
-import org.apache.doris.optimizer.operator.OptLogicalUTInternalNode;
 import org.apache.doris.optimizer.rule.OptRuleType;
+import org.apache.doris.optimizer.rule.transformation.ExplorationRule;
 
 import java.util.List;
 

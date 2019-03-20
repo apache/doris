@@ -17,9 +17,6 @@
 
 package org.apache.doris.optimizer;
 
-import org.apache.doris.optimizer.operator.OptLogicalUTInternalNode;
-import org.apache.doris.optimizer.operator.OptLogicalUTLeafNode;
-
 public class Utils {
     public static OptExpression createUtLeaf() {
         return OptExpression.create(new OptLogicalUTLeafNode());

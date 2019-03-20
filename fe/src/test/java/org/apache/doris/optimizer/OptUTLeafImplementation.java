@@ -15,24 +15,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.optimizer.base;
+package org.apache.doris.optimizer;
 
-/**
- * For controlling searching.
- */
-public class SearchVariable {
+import org.apache.doris.optimizer.operator.OptPhysicalOlapScan;
+import org.apache.doris.optimizer.rule.OptRuleType;
+import org.apache.doris.optimizer.rule.implementation.ImplemetationRule;
 
-    private boolean isExecuteOptimization;
+import java.util.List;
 
-    public SearchVariable() {
-        this.isExecuteOptimization = true;
+public class OptUTLeafImplementation extends ImplemetationRule {
+
+    public static OptUTLeafImplementation INSTANCE = new OptUTLeafImplementation();
+
+    private OptUTLeafImplementation() {
+        super(OptRuleType.RULE_IMP_UT_LEAF,
+                OptExpression.create(
+                        new OptLogicalUTLeafNode()));
     }
 
-    public void setExecuteOptimization(boolean value) {
-        this.isExecuteOptimization = value;
-    }
-
-    public boolean isExecuteOptimization() {
-        return this.isExecuteOptimization;
+    @Override
+    public void transform(OptExpression expr, List<OptExpression> newExprs) {
+        final OptExpression newExpr = OptExpression.create(new OptPhysicalOlapScan());
+        newExprs.add(newExpr);
     }
 }
