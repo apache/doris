@@ -174,11 +174,12 @@ void RoutineLoadTaskExecutor::exec_task(
 
     ctx->load_cost_nanos = MonotonicNanos() - ctx->start_nanos;
     
+    // return the consumer back to pool
+    // call this before commit txn, in case the next task can come very fast
+    consumer_pool->return_consumer(consumer);    
+
     // commit txn
     HANDLE_ERROR(_exec_env->stream_load_executor()->commit_txn(ctx), "commit failed");
-
-    // return the consumer back to pool
-    consumer_pool->return_consumer(consumer);    
 
     cb(ctx);
 }
