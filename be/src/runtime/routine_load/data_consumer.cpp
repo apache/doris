@@ -133,6 +133,8 @@ Status KafkaDataConsumer::start(StreamLoadContext* ctx) {
         }
     }
     
+    _last_visit_time = time(nullptr);
+
     int64_t left_time = ctx->max_interval_s;
     int64_t left_rows = ctx->max_batch_rows;
     int64_t left_bytes = ctx->max_batch_size;
@@ -141,7 +143,7 @@ Status KafkaDataConsumer::start(StreamLoadContext* ctx) {
 
     LOG(INFO) << "start consumer"
         << ". max time(s): " << left_time
-        << ", bath rows: " << left_rows
+        << ", batch rows: " << left_rows
         << ", batch size: " << left_bytes
         << ". " << ctx->brief();
 
