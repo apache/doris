@@ -143,27 +143,10 @@ public class StreamLoadTask {
     }
 
     private void setOptionalFromRoutineLoadJob(RoutineLoadJob routineLoadJob) {
-        if (routineLoadJob.getRoutineLoadDesc() != null) {
-            RoutineLoadDesc routineLoadDesc = routineLoadJob.getRoutineLoadDesc();
-            if (routineLoadDesc.getColumnsInfo() != null) {
-                ImportColumnsStmt columnsStmt = routineLoadDesc.getColumnsInfo();
-                if (columnsStmt.getColumns() != null || columnsStmt.getColumns().size() != 0) {
-                    columnToColumnExpr = Maps.newHashMap();
-                    for (ImportColumnDesc columnDesc : columnsStmt.getColumns()) {
-                        columnToColumnExpr.put(columnDesc.getColumn(), columnDesc.getExpr());
-                    }
-                }
-            }
-            if (routineLoadDesc.getWherePredicate() != null) {
-                whereExpr = routineLoadDesc.getWherePredicate().getExpr();
-            }
-            if (routineLoadDesc.getColumnSeparator() != null) {
-                columnSeparator = routineLoadDesc.getColumnSeparator();
-            }
-            if (routineLoadDesc.getPartitionNames() != null && routineLoadDesc.getPartitionNames().size() != 0) {
-                partitions = Joiner.on(",").join(routineLoadDesc.getPartitionNames());
-            }
-        }
+        columnToColumnExpr = routineLoadJob.getColumnToColumnExpr();
+        whereExpr = routineLoadJob.getWhereExpr();
+        columnSeparator = routineLoadJob.getColumnSeparator();
+        partitions = routineLoadJob.getPartitions() == null ? null : Joiner.on(",").join(routineLoadJob.getPartitions());
     }
 
     private void setColumnToColumnExpr(String columns) throws UserException {
