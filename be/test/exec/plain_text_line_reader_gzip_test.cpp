@@ -91,6 +91,40 @@ TEST_F(PlainTextLineReaderTest, gzip_normal_use) {
     ASSERT_TRUE(eof);
 }
 
+TEST_F(PlainTextLineReaderTest, uncompressed_no_newline) {
+    LocalFileReader file_reader("./be/test/exec/test_data/plain_text_line_reader/no_newline.csv.gz", 0);
+    auto st = file_reader.open();
+    ASSERT_TRUE(st.ok());
+    
+    Decompressor* decompressor;
+    st = Decompressor::create_decompressor(CompressType::GZIP, &decompressor);
+    ASSERT_TRUE(st.ok());
+
+    PlainTextLineReader line_reader(&_profile, &file_reader, decompressor, -1, '\n');
+    const uint8_t* ptr;
+    size_t size;
+    bool eof;
+
+    // 1,2,3
+    st = line_reader.read_line(&ptr, &size, &eof);
+    ASSERT_TRUE(st.ok());
+    ASSERT_EQ(5, size);
+    ASSERT_STREQ("1,2,3", std::string((char*)ptr, size).c_str());
+    ASSERT_FALSE(eof);
+
+    // 4,5
+    st = line_reader.read_line(&ptr, &size, &eof);
+    ASSERT_TRUE(st.ok());
+    ASSERT_EQ(3, size);
+    ASSERT_STREQ("4,5", std::string((char*)ptr, size).c_str());
+    ASSERT_FALSE(eof);
+
+    // Empty
+    st = line_reader.read_line(&ptr, &size, &eof);
+    ASSERT_TRUE(st.ok());
+    ASSERT_TRUE(eof);
+}
+
 TEST_F(PlainTextLineReaderTest, gzip_test_limit) {
     LocalFileReader file_reader("./be/test/exec/test_data/plain_text_line_reader/limit.csv.gz", 0);
     auto st = file_reader.open();
