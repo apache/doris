@@ -17,10 +17,15 @@
 
 package org.apache.doris.load.routineload;
 
+import com.google.common.base.Joiner;
+import com.google.gson.Gson;
+import org.apache.doris.analysis.ColumnSeparator;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ImportColumnDesc;
+import org.apache.doris.analysis.ImportColumnsStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
@@ -31,7 +36,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.LabelAlreadyUsedException;
-import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
@@ -86,7 +90,7 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
     private static final int DEFAULT_MAX_INTERVAL_SECOND = 5;
     private static final int DEFAULT_MAX_BATCH_ROWS = 100000;
     private static final int DEFAULT_MAX_BATCH_SIZE = 100 * 1024 * 1024; // 100MB
-    private static final String STAR_STRING = "*";
+    protected static final String STAR_STRING = "*";
     protected static final int DEFAULT_TASK_MAX_CONCURRENT_NUM = 3;
 
     /**
@@ -130,7 +134,11 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
     protected long tableId;
     // this code is used to verify be task request
     protected long authCode;
-    protected RoutineLoadDesc routineLoadDesc; // optional
+    //    protected RoutineLoadDesc routineLoadDesc; // optional
+    protected List<String> partitions; // optional
+    protected Map<String, Expr> columnToColumnExpr; // optional
+    protected Expr whereExpr; // optional
+    protected ColumnSeparator columnSeparator; // optional
     protected int desireTaskConcurrentNum; // optional
     protected JobState state = JobState.NEED_SCHEDULE;
     protected LoadDataSourceType dataSourceType;
@@ -142,6 +150,7 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
     protected int maxBatchRows = DEFAULT_MAX_BATCH_ROWS;
     protected int maxBatchSizeBytes = DEFAULT_MAX_BATCH_SIZE;
 
+    protected int currentTaskConcurrentNum;
     protected RoutineLoadProgress progress;
     protected String pausedReason;
     protected String cancelReason;
@@ -202,14 +211,13 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
         this.name = name;
         this.dbId = dbId;
         this.tableId = tableId;
-        this.routineLoadDesc = routineLoadDesc;
         this.desireTaskConcurrentNum = desireTaskConcurrentNum;
         this.dataSourceType = dataSourceType;
         this.maxErrorNum = maxErrorNum;
     }
 
     protected void setOptional(CreateRoutineLoadStmt stmt) throws UserException {
-        this.routineLoadDesc = stmt.getRoutineLoadDesc();
+        setRoutineLoadDesc(stmt.getRoutineLoadDesc());
         if (stmt.getDesiredConcurrentNum() != -1) {
             this.desireTaskConcurrentNum = stmt.getDesiredConcurrentNum();
         }
@@ -224,6 +232,29 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
         }
         if (stmt.getMaxBatchSize() != -1) {
             this.maxBatchSizeBytes = stmt.getMaxBatchSize();
+        }
+    }
+
+    private void setRoutineLoadDesc(RoutineLoadDesc routineLoadDesc) {
+        if (routineLoadDesc != null) {
+            if (routineLoadDesc.getColumnsInfo() != null) {
+                ImportColumnsStmt columnsStmt = routineLoadDesc.getColumnsInfo();
+                if (columnsStmt.getColumns() != null || columnsStmt.getColumns().size() != 0) {
+                    columnToColumnExpr = Maps.newHashMap();
+                    for (ImportColumnDesc columnDesc : columnsStmt.getColumns()) {
+                        columnToColumnExpr.put(columnDesc.getColumn(), columnDesc.getExpr());
+                    }
+                }
+            }
+            if (routineLoadDesc.getWherePredicate() != null) {
+                whereExpr = routineLoadDesc.getWherePredicate().getExpr();
+            }
+            if (routineLoadDesc.getColumnSeparator() != null) {
+                columnSeparator = routineLoadDesc.getColumnSeparator();
+            }
+            if (routineLoadDesc.getPartitionNames() != null && routineLoadDesc.getPartitionNames().size() != 0) {
+                partitions = routineLoadDesc.getPartitionNames();
+            }
         }
     }
 
@@ -281,6 +312,9 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
         database.readLock();
         try {
             Table table = database.getTable(tableId);
+            if (table == null) {
+                throw new MetaNotFoundException("Failed to find table " + tableId + " in db " + dbId);
+            }
             return table.getName();
         } finally {
             database.readUnlock();
@@ -299,38 +333,24 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
         return endTimestamp;
     }
 
-    // this is a unprotected method which is called in the initialization function
-    protected void setRoutineLoadDesc(RoutineLoadDesc routineLoadDesc) throws LoadException {
-        if (this.routineLoadDesc != null) {
-            throw new LoadException("Routine load desc has been initialized");
-        }
-        this.routineLoadDesc = routineLoadDesc;
+    public List<String> getPartitions() {
+        return partitions;
     }
 
-    public RoutineLoadDesc getRoutineLoadDesc() {
-        return routineLoadDesc;
+    public Map<String, Expr> getColumnToColumnExpr() {
+        return columnToColumnExpr;
+    }
+
+    public Expr getWhereExpr() {
+        return whereExpr;
+    }
+
+    public ColumnSeparator getColumnSeparator() {
+        return columnSeparator;
     }
 
     public RoutineLoadProgress getProgress() {
         return progress;
-    }
-
-    public String getPartitions() {
-        if (routineLoadDesc == null
-                || routineLoadDesc.getPartitionNames() == null
-                || routineLoadDesc.getPartitionNames().size() == 0) {
-            return STAR_STRING;
-        } else {
-            return String.join(",", routineLoadDesc.getPartitionNames());
-        }
-    }
-
-    public int getDesiredConcurrentNumber() {
-        return desireTaskConcurrentNum;
-    }
-
-    public int getMaxErrorNum() {
-        return maxErrorNum;
     }
 
     public int getMaxBatchIntervalS() {
@@ -463,41 +483,41 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
         if (currentTotalRows > ERROR_SAMPLE_NUM) {
             if (currentErrorRows > maxErrorNum) {
                 LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
-                                 .add("current_total_num", currentTotalRows)
-                                 .add("current_error_num", currentErrorRows)
+                                 .add("current_total_rows", currentTotalRows)
+                                 .add("current_error_rows", currentErrorRows)
                                  .add("max_error_num", maxErrorNum)
-                                 .add("msg", "current error num is more then max error num, begin to pause job")
+                                 .add("msg", "current error rows is more then max error num, begin to pause job")
                                  .build());
                 // remove all of task in jobs and change job state to paused
-                updateState(JobState.PAUSED, "current error num of job is more then max error num", isReplay);
+                updateState(JobState.PAUSED, "current error rows of job is more then max error num", isReplay);
             }
 
             LOG.debug(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
-                              .add("current_total_num", currentTotalRows)
-                              .add("current_error_num", currentErrorRows)
+                              .add("current_total_rows", currentTotalRows)
+                              .add("current_error_rows", currentErrorRows)
                               .add("max_error_num", maxErrorNum)
-                              .add("msg", "reset current total num and current error num when current total num is more then base")
+                              .add("msg", "reset current total rows and current error rows when current total rows is more then base")
                               .build());
             // reset currentTotalNum and currentErrorNum
             currentErrorRows = 0;
             currentTotalRows = 0;
         } else if (currentErrorRows > maxErrorNum) {
             LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
-                             .add("current_total_num", currentTotalRows)
-                             .add("current_error_num", currentErrorRows)
+                             .add("current_total_rows", currentTotalRows)
+                             .add("current_error_rows", currentErrorRows)
                              .add("max_error_num", maxErrorNum)
-                             .add("msg", "current error num is more then max error num, begin to pause job")
+                             .add("msg", "current error rows is more then max error rows, begin to pause job")
                              .build());
             // remove all of task in jobs and change job state to paused
-            updateState(JobState.PAUSED, "current error num is more then max error num", isReplay);
+            updateState(JobState.PAUSED, "current error rows is more then max error num", isReplay);
             // reset currentTotalNum and currentErrorNum
             currentErrorRows = 0;
             currentTotalRows = 0;
             LOG.debug(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
-                              .add("current_total_num", currentTotalRows)
-                              .add("current_error_num", currentErrorRows)
+                              .add("current_total_rows", currentTotalRows)
+                              .add("current_error_rows", currentErrorRows)
                               .add("max_error_num", maxErrorNum)
-                              .add("msg", "reset current total num and current error num when current total num is more then max error num")
+                              .add("msg", "reset current total rows and current error rows when current total rows is more then max error num")
                               .build());
         }
     }
@@ -570,13 +590,16 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
     @Override
     public ListenResult onCommitted(TransactionState txnState) throws TransactionException {
         ListenResult result = ListenResult.UNCHANGED;
+        long taskBeId = -1L;
         writeLock();
         try {
             // find task in job
             Optional<RoutineLoadTaskInfo> routineLoadTaskInfoOptional = routineLoadTaskInfoList.parallelStream().filter(
                     entity -> entity.getTxnId() == txnState.getTransactionId()).findFirst();
             if (routineLoadTaskInfoOptional.isPresent()) {
-                executeCommitTask(routineLoadTaskInfoOptional.get(), txnState);
+                RoutineLoadTaskInfo routineLoadTaskInfo = routineLoadTaskInfoOptional.get();
+                taskBeId = routineLoadTaskInfo.getBeId();
+                executeCommitTask(routineLoadTaskInfo, txnState);
                 result = ListenResult.CHANGED;
             } else {
                 LOG.debug(new LogBuilder(LogKey.ROUINTE_LOAD_TASK, txnState.getLabel()).add("txn_id",
@@ -591,8 +614,8 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
             throw e;
         } catch (Throwable e) {
             LOG.warn(e.getMessage(), e);
-            updateState(JobState.PAUSED, "failed to update offset when transaction "
-                    + txnState.getTransactionId() + " has been committed", false /* not replay */);
+            updateState(JobState.PAUSED, "be " + taskBeId + " commit task failed " + txnState.getLabel() + " with error " + e.getMessage()
+                    + " while transaction " + txnState.getTransactionId() + " has been committed", false /* not replay */);
         } finally {
             writeUnlock();
         }
@@ -612,12 +635,15 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
     @Override
     public ListenResult onAborted(TransactionState txnState, String txnStatusChangeReasonString) {
         ListenResult result = ListenResult.UNCHANGED;
+        long taskBeId = -1L;
         writeLock();
         try {
             // step0: find task in job
-            Optional<RoutineLoadTaskInfo> routineLoadTaskInfoOptional = routineLoadTaskInfoList.parallelStream().filter(
+            Optional<RoutineLoadTaskInfo> routineLoadTaskInfoOptional = routineLoadTaskInfoList.stream().filter(
                     entity -> entity.getTxnId() == txnState.getTransactionId()).findFirst();
             if (routineLoadTaskInfoOptional.isPresent()) {
+                RoutineLoadTaskInfo routineLoadTaskInfo = routineLoadTaskInfoOptional.get();
+                taskBeId = routineLoadTaskInfo.getBeId();
                 // step1: job state will be changed depending on txnStatusChangeReasonString
                 if (txnStatusChangeReasonString != null) {
                     LOG.debug(new LogBuilder(LogKey.ROUINTE_LOAD_TASK, txnState.getLabel()).add("txn_id",
@@ -628,8 +654,8 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
                     if (txnStatusChangeReason != null) {
                         switch (txnStatusChangeReason) {
                             case OFFSET_OUT_OF_RANGE:
-                                updateState(JobState.CANCELLED, txnStatusChangeReason.toString(),
-                                        false /* not replay */);
+                                updateState(JobState.CANCELLED, "be " + taskBeId + " abort task "
+                                        + "with reason " + txnStatusChangeReason.toString(), false /* not replay */);
                                 return result;
                             default:
                                 break;
@@ -641,15 +667,16 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
                             txnState.getTransactionId()).add("msg", "txn abort").build());
                 }
                 // step2: commit task , update progress, maybe create a new task
-                executeCommitTask(routineLoadTaskInfoOptional.get(), txnState);
+                executeCommitTask(routineLoadTaskInfo, txnState);
                 result = ListenResult.CHANGED;
             }
         } catch (Exception e) {
-            updateState(JobState.PAUSED,
-                    "failed to renew task when txn has been aborted with error " + e.getMessage(),
-                    false /* not replay */);
-            // TODO(ml): edit log
-            LOG.warn("failed to renew a routine load task in job {} with error message {}", id, e.getMessage(), e);
+            updateState(JobState.PAUSED, "be " + taskBeId + " abort task " + txnState.getLabel() + " failed with error " + e.getMessage(),
+                        false /* not replay */);
+            LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
+                             .add("task_id", txnState.getLabel())
+                             .add("error_msg", "change job state to paused when task has been aborted with error " + e.getMessage())
+                             .build());
         } finally {
             writeUnlock();
         }
@@ -721,43 +748,6 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
         // columns will be checked when planing
     }
 
-    protected static void unprotectCheckCreate(CreateRoutineLoadStmt stmt) throws AnalysisException {
-        // check table belong to db, partitions belong to table
-        if (stmt.getRoutineLoadDesc() == null) {
-            checkDBSemantics(stmt.getDBTableName(), null);
-        } else {
-            checkDBSemantics(stmt.getDBTableName(), stmt.getRoutineLoadDesc().getPartitionNames());
-        }
-    }
-
-    private static void checkDBSemantics(TableName dbTableName, List<String> partitionNames)
-            throws AnalysisException {
-        String tableName = dbTableName.getTbl();
-        String dbName = dbTableName.getDb();
-
-        // check table belong to database
-        Database database = Catalog.getCurrentCatalog().getDb(dbName);
-        Table table = database.getTable(tableName);
-        if (table == null) {
-            throw new AnalysisException("There is no table named " + tableName + " in " + dbName);
-        }
-        // check table type
-        if (table.getType() != Table.TableType.OLAP) {
-            throw new AnalysisException("Only doris table support routine load");
-        }
-
-        if (partitionNames == null || partitionNames.size() == 0) {
-            return;
-        }
-        // check partitions belong to table
-        Optional<String> partitionNotInTable = partitionNames.parallelStream()
-                .filter(entity -> ((OlapTable) table).getPartition(entity) == null).findFirst();
-        if (partitionNotInTable != null && partitionNotInTable.isPresent()) {
-            throw new AnalysisException("Partition " + partitionNotInTable.get()
-                                                + " does not belong to table " + tableName);
-        }
-    }
-
     public void updateState(JobState jobState, String reason, boolean isReplay) {
         writeLock();
         try {
@@ -775,6 +765,9 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
                           .build());
         checkStateTransform(jobState);
         switch (jobState) {
+            case RUNNING:
+                executeRunning();
+                break;
             case PAUSED:
                 executePause(reason);
                 break;
@@ -795,7 +788,7 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
             Catalog.getCurrentGlobalTransactionMgr().getListenerRegistry().unregister(id);
         }
 
-        if (!isReplay) {
+        if (!isReplay && jobState != JobState.RUNNING) {
             Catalog.getInstance().getEditLog().logOpRoutineLoadJob(new RoutineLoadOperation(id, jobState));
         }
         LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
@@ -803,6 +796,10 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
                          .add("msg", "job state has been changed")
                          .add("is replay", String.valueOf(isReplay))
                          .build());
+    }
+
+    private void executeRunning() {
+        state = JobState.RUNNING;
     }
 
     private void executePause(String reason) {
@@ -836,21 +833,37 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
         if (database == null) {
             LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
                              .add("db_id", dbId)
-                             .add("msg", "The database has been deleted. Change job state to stopped").build());
-            updateState(JobState.STOPPED, "db not exist", false /* not replay */);
-        }
-        database.readLock();
-        try {
-            Table table = database.getTable(tableId);
-            // check table belong to database
-            if (table == null) {
-                LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id).add("db_id", dbId)
-                                 .add("table_id", tableId)
-                                 .add("msg", "The table has been deleted Change job state to stopped").build());
-                updateState(JobState.STOPPED, "table not exist", false /* not replay */);
+                             .add("msg", "The database has been deleted. Change job state to cancelled").build());
+            writeLock();
+            try {
+                if (!state.isFinalState()) {
+                    unprotectUpdateState(JobState.CANCELLED, "db not exist", false /* not replay */);
+                }
+            } finally {
+                writeUnlock();
             }
+        }
+
+        // check table belong to database
+        database.readLock();
+        Table table;
+        try {
+            table = database.getTable(tableId);
         } finally {
             database.readUnlock();
+        }
+        if (table == null) {
+            LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id).add("db_id", dbId)
+                             .add("table_id", tableId)
+                             .add("msg", "The table has been deleted change job state to cancelled").build());
+            writeLock();
+            try {
+                if (!state.isFinalState()) {
+                    unprotectUpdateState(JobState.CANCELLED, "table not exist", false /* not replay */);
+                }
+            } finally {
+                writeUnlock();
+            }
         }
 
         // check if partition has been changed
@@ -879,12 +892,58 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
         this.origStmt = origStmt;
     }
 
-    public String getOrigStmt() {
-        return origStmt;
-    }
-
     // check the correctness of commit info
     abstract boolean checkCommitInfo(RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment);
+
+    public List<String> getShowInfo() {
+        List<String> row = Lists.newArrayList();
+        row.add(String.valueOf(id));
+        row.add(name);
+        row.add(String.valueOf(dbId));
+        row.add(String.valueOf(tableId));
+        row.add(getState().name());
+        row.add(dataSourceType.name());
+        row.add(jobPropertiesToJsonString());
+        row.add(dataSourcePropertiesJsonToString());
+        row.add(String.valueOf(currentTaskConcurrentNum));
+        row.add(String.valueOf(totalRows));
+        row.add(String.valueOf(errorRows));
+        row.add(getProgress().toJsonString());
+        switch (state) {
+            case PAUSED:
+                row.add(pausedReason);
+                break;
+            case CANCELLED:
+                row.add(cancelReason);
+                break;
+            default:
+                row.add("");
+        }
+        return row;
+    }
+
+    public List<List<String>> getTasksShowInfo() {
+        List<List<String>> rows = Lists.newArrayList();
+        routineLoadTaskInfoList.stream().forEach(entity -> rows.add(entity.getTaskShowInfo()));
+        return rows;
+    }
+
+    private String jobPropertiesToJsonString() {
+        Map<String, String> jobProperties = Maps.newHashMap();
+        jobProperties.put("partitions", partitions == null ? STAR_STRING : Joiner.on(",").join(partitions));
+        jobProperties.put("columnToColumnExpr", columnToColumnExpr == null ?
+                STAR_STRING : Joiner.on(",").withKeyValueSeparator(":").join(columnToColumnExpr));
+        jobProperties.put("whereExpr", whereExpr == null ? STAR_STRING : whereExpr.toString());
+        jobProperties.put("columnSeparator", columnSeparator == null ? "\t" : columnSeparator.toString());
+        jobProperties.put("maxErrorNum", String.valueOf(maxErrorNum));
+        jobProperties.put("maxBatchIntervalS", String.valueOf(maxBatchIntervalS));
+        jobProperties.put("maxBatchRows", String.valueOf(maxBatchRows));
+        jobProperties.put("maxBatchSizeBytes", String.valueOf(maxBatchSizeBytes));
+        Gson gson = new Gson();
+        return gson.toJson(jobProperties);
+    }
+
+    abstract String dataSourcePropertiesJsonToString();
 
     public static RoutineLoadJob read(DataInput in) throws IOException {
         RoutineLoadJob job = null;
@@ -970,7 +1029,7 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
         try {
             stmt = (CreateRoutineLoadStmt) parser.parse().value;
             stmt.checkLoadProperties(null);
-            routineLoadDesc = stmt.getRoutineLoadDesc();
+            setRoutineLoadDesc(stmt.getRoutineLoadDesc());
         } catch (Throwable e) {
             throw new IOException("error happens when parsing create routine load stmt: " + origStmt, e);
         }

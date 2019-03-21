@@ -47,6 +47,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -118,13 +119,14 @@ public class RoutineLoadManager implements Writable {
             throws UserException {
         // check load auth
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
-                                                                createRoutineLoadStmt.getDBTableName().getDb(),
-                                                                createRoutineLoadStmt.getDBTableName().getTbl(),
+                                                                createRoutineLoadStmt.getDBName(),
+                                                                createRoutineLoadStmt.getTableName(),
                                                                 PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                                                 ConnectContext.get().getQualifiedUser(),
                                                 ConnectContext.get().getRemoteIP(),
-                                                createRoutineLoadStmt.getDBTableName());
+                                                createRoutineLoadStmt.getDBName(),
+                                                createRoutineLoadStmt.getTableName());
         }
 
         RoutineLoadJob routineLoadJob = null;
@@ -194,10 +196,11 @@ public class RoutineLoadManager implements Writable {
         return false;
     }
 
-    public void pauseRoutineLoadJob(PauseRoutineLoadStmt pauseRoutineLoadStmt) throws DdlException, AnalysisException {
-        RoutineLoadJob routineLoadJob = getJobByName(pauseRoutineLoadStmt.getName());
+    public void pauseRoutineLoadJob(PauseRoutineLoadStmt pauseRoutineLoadStmt)
+            throws DdlException, AnalysisException, MetaNotFoundException {
+        RoutineLoadJob routineLoadJob = getJobByName(pauseRoutineLoadStmt.getDbFullName(), pauseRoutineLoadStmt.getName());
         if (routineLoadJob == null) {
-            throw new DdlException("There is not routine load job with name " + pauseRoutineLoadStmt.getName());
+            throw new DdlException("There is not operable routine load job with name " + pauseRoutineLoadStmt.getName());
         }
         // check auth
         String dbFullName;
@@ -219,16 +222,20 @@ public class RoutineLoadManager implements Writable {
         }
 
         routineLoadJob.updateState(RoutineLoadJob.JobState.PAUSED,
-                "User " + ConnectContext.get().getQualifiedUser() + "pauses routine load job",
-                false /* not replay */);
-        LOG.info("pause routine load job: {}, {}", routineLoadJob.getId(), routineLoadJob.getName());
+                                   "User " + ConnectContext.get().getQualifiedUser() + " pauses routine load job",
+                                   false /* not replay */);
+        LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
+                         .add("current_state", routineLoadJob.getState())
+                         .add("user", ConnectContext.get().getQualifiedUser())
+                         .add("msg", "routine load job has been paused by user")
+                         .build());
     }
 
     public void resumeRoutineLoadJob(ResumeRoutineLoadStmt resumeRoutineLoadStmt) throws DdlException,
-            AnalysisException {
-        RoutineLoadJob routineLoadJob = getJobByName(resumeRoutineLoadStmt.getName());
+            AnalysisException, MetaNotFoundException {
+        RoutineLoadJob routineLoadJob = getJobByName(resumeRoutineLoadStmt.getDBFullName(), resumeRoutineLoadStmt.getName());
         if (routineLoadJob == null) {
-            throw new DdlException("There is not routine load job with name " + resumeRoutineLoadStmt.getName());
+            throw new DdlException("There is not operable routine load job with name " + resumeRoutineLoadStmt.getName() + ".");
         }
         // check auth
         String dbFullName;
@@ -248,14 +255,19 @@ public class RoutineLoadManager implements Writable {
                                                 ConnectContext.get().getRemoteIP(),
                                                 tableName);
         }
-        routineLoadJob.updateState(RoutineLoadJob.JobState.NEED_SCHEDULE, "user operation", false /* not replay */);
-        LOG.info("resume routine load job: {}, {}", routineLoadJob.getId(), routineLoadJob.getName());
+        routineLoadJob.updateState(RoutineLoadJob.JobState.NEED_SCHEDULE, null, false /* not replay */);
+        LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
+                         .add("current_state", routineLoadJob.getState())
+                         .add("user", ConnectContext.get().getQualifiedUser())
+                         .add("msg", "routine load job has been resumed by user")
+                         .build());
     }
 
-    public void stopRoutineLoadJob(StopRoutineLoadStmt stopRoutineLoadStmt) throws DdlException, AnalysisException {
-        RoutineLoadJob routineLoadJob = getJobByName(stopRoutineLoadStmt.getName());
+    public void stopRoutineLoadJob(StopRoutineLoadStmt stopRoutineLoadStmt)
+            throws DdlException, AnalysisException, MetaNotFoundException {
+        RoutineLoadJob routineLoadJob = getJobByName(stopRoutineLoadStmt.getDBFullName(), stopRoutineLoadStmt.getName());
         if (routineLoadJob == null) {
-            throw new DdlException("There is not routine load job with name " + stopRoutineLoadStmt.getName());
+            throw new DdlException("There is not operable routine load job with name " + stopRoutineLoadStmt.getName());
         }
         // check auth
         String dbFullName;
@@ -275,8 +287,14 @@ public class RoutineLoadManager implements Writable {
                                                 ConnectContext.get().getRemoteIP(),
                                                 tableName);
         }
-        routineLoadJob.updateState(RoutineLoadJob.JobState.STOPPED, "user operation", false /* not replay */);
-        LOG.info("stop routine load job: {}, {}", routineLoadJob.getId(), routineLoadJob.getName());
+        routineLoadJob.updateState(RoutineLoadJob.JobState.STOPPED,
+                                   "User  " + ConnectContext.get().getQualifiedUser() + " stop routine load job",
+                                   false /* not replay */);
+        LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
+                         .add("current_state", routineLoadJob.getState())
+                         .add("user", ConnectContext.get().getQualifiedUser())
+                         .add("msg", "routine load job has been stopped by user")
+                         .build());
     }
 
     public int getSizeOfIdToRoutineLoadTask() {
@@ -373,31 +391,52 @@ public class RoutineLoadManager implements Writable {
         return idToRoutineLoadJob.get(jobId);
     }
 
-    public RoutineLoadJob getJobByName(String jobName) {
-        String dbfullName = ConnectContext.get().getDatabase();
-        Database database = Catalog.getCurrentCatalog().getDb(dbfullName);
-        if (database == null) {
+    public RoutineLoadJob getJobByName(String dbFullName, String jobName) throws MetaNotFoundException {
+        List<RoutineLoadJob> routineLoadJobList = getJobByName(dbFullName, jobName, false);
+        if (routineLoadJobList == null || routineLoadJobList.size() == 0) {
+            return null;
+        } else {
+            return routineLoadJobList.get(0);
+        }
+    }
+
+    public List<RoutineLoadJob> getJobByName(String dbFullName, String jobName, boolean includeHistory)
+            throws MetaNotFoundException {
+        // return all of routine load job
+        List<RoutineLoadJob> result;
+        RESULT:
+        {
+            if (dbFullName == null) {
+                result = new ArrayList<>(idToRoutineLoadJob.values());
+                break RESULT;
+            }
+
+            long dbId = 0L;
+            Database database = Catalog.getCurrentCatalog().getDb(dbFullName);
+            if (database == null) {
+                throw new MetaNotFoundException("failed to find database by dbFullName " + dbFullName);
+            }
+            dbId = database.getId();
+            if (!dbToNameToRoutineLoadJob.containsKey(dbId)) {
+                result = new ArrayList<>();
+                break RESULT;
+            }
+            if (jobName == null) {
+                result = dbToNameToRoutineLoadJob.get(dbId).values().stream().flatMap(x -> x.stream())
+                        .collect(Collectors.toList());
+                break RESULT;
+            }
+            if (dbToNameToRoutineLoadJob.get(dbId).containsKey(jobName)) {
+                result = new ArrayList<>(dbToNameToRoutineLoadJob.get(dbId).get(jobName));
+                break RESULT;
+            }
             return null;
         }
-        readLock();
-        try {
-            Map<String, List<RoutineLoadJob>> nameToRoutineLoadJob = dbToNameToRoutineLoadJob.get(database.getId());
-            if (nameToRoutineLoadJob == null) {
-                return null;
-            }
-            List<RoutineLoadJob> routineLoadJobList = nameToRoutineLoadJob.get(jobName);
-            if (routineLoadJobList == null) {
-                return null;
-            }
-            Optional<RoutineLoadJob> optional = routineLoadJobList.stream()
-                    .filter(entity -> !entity.getState().isFinalState()).findFirst();
-            if (!optional.isPresent()) {
-                return null;
-            }
-            return optional.get();
-        } finally {
-            readUnlock();
+
+        if (!includeHistory) {
+            result = result.stream().filter(entity -> !entity.getState().isFinalState()).collect(Collectors.toList());
         }
+        return result;
     }
 
     public RoutineLoadJob getJobByTaskId(UUID taskId) throws MetaNotFoundException {
@@ -468,19 +507,26 @@ public class RoutineLoadManager implements Writable {
 
     public void updateRoutineLoadJob() {
         for (RoutineLoadJob routineLoadJob : idToRoutineLoadJob.values()) {
-            routineLoadJob.update();
+            if (!routineLoadJob.state.isFinalState()) {
+                routineLoadJob.update();
+            }
         }
     }
 
     public void replayCreateRoutineLoadJob(RoutineLoadJob routineLoadJob) {
         unprotectedAddJob(routineLoadJob);
-        LOG.info("replay add routine load job: {}", routineLoadJob.getId());
+        LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
+                         .add("msg", "replay create routine load job")
+                         .build());
     }
 
     public void replayChangeRoutineLoadJob(RoutineLoadOperation operation) {
         RoutineLoadJob job = getJob(operation.getId());
-        job.updateState(operation.getJobState(), "replay", true /* is replay */);
-        LOG.info("replay change routine load job: {}, state: {}", operation.getId(), operation.getJobState());
+        job.updateState(operation.getJobState(), null, true /* is replay */);
+        LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, operation.getId())
+                 .add("current_state", operation.getJobState())
+                 .add("msg", "replay change routine load job")
+                 .build());
     }
 
     @Override
