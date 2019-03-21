@@ -33,8 +33,9 @@ AlphaRowsetReader::AlphaRowsetReader(
 
 AlphaRowsetReader::~AlphaRowsetReader() {
     for (auto& row_cursor : _row_cursors) {
-        delete row_cursor;
+        SAFE_DELETE(row_cursor);
     }
+    SAFE_DELETE(_dst_cursor);
 }
 
 OLAPStatus AlphaRowsetReader::init(RowsetReaderContext* read_context) {
@@ -45,7 +46,7 @@ OLAPStatus AlphaRowsetReader::init(RowsetReaderContext* read_context) {
     if (_current_read_context->stats != nullptr) {
         _stats = _current_read_context->stats;
     }
-    _dst_cursor = new(std::nothrow)RowCursor();
+    _dst_cursor = new (std::nothrow) RowCursor();
     _dst_cursor->init(*(_current_read_context->tablet_schema));
     OLAPStatus status = _init_column_datas(read_context);
 
@@ -82,7 +83,7 @@ OLAPStatus AlphaRowsetReader::init(RowsetReaderContext* read_context) {
     }
 
     if (_is_singleton_rowset && merge) {
-        _read_block.reset(new RowBlock(_current_read_context->tablet_schema));
+        _read_block.reset(new (std::nothrow) RowBlock(_current_read_context->tablet_schema));
         if (_read_block == nullptr) {
             LOG(WARNING) << "new row block failed in reader";
             return OLAP_ERR_MALLOC_ERROR;
@@ -91,7 +92,7 @@ OLAPStatus AlphaRowsetReader::init(RowsetReaderContext* read_context) {
         block_info.row_num = _current_read_context->tablet_schema->num_rows_per_row_block();
         block_info.null_supported = true;
         _read_block->init(block_info);
-        _dst_cursor = new(std::nothrow)RowCursor();
+        _dst_cursor = new (std::nothrow) RowCursor();
         _dst_cursor->init(*(_current_read_context->tablet_schema));
     }
     return status;
@@ -126,19 +127,18 @@ OLAPStatus AlphaRowsetReader::_next_block_for_cumulative_rowset(RowBlock** block
     if (UNLIKELY(_row_blocks.empty() || _row_blocks[pos] == nullptr)) {
         return OLAP_ERR_DATA_EOF;
     }
-    OLAPStatus status = OLAP_SUCCESS;
     if (_row_blocks[pos]->has_remaining()) {
         *block = _row_blocks[pos];
     } else {
         RETURN_NOT_OK(_next_block_for_column_data(pos, &_row_blocks[pos]));
         *block = _row_blocks[pos];
     }
-    return status;
+    return OLAP_SUCCESS;
 }
 
 OLAPStatus AlphaRowsetReader::_next_block_for_singleton_without_merge(RowBlock** block) {
     // If tablet is a duplicate key tablet, there is no necessity to merge.
-    // If preaggregation is set to be false, there is no necessity to merge.
+    // If preaggregation is set to be true, there is no necessity to merge.
     size_t pos = 0;
     while (pos < _row_blocks.size()) {
         if (_row_blocks[pos] == nullptr) {
@@ -300,6 +300,7 @@ OLAPStatus AlphaRowsetReader::_init_column_datas(RowsetReaderContext* read_conte
                     read_context->runtime_state);
             // filter column data
             if (new_column_data->rowset_pruning_filter()) {
+                _stats->rows_stats_filtered += new_column_data->num_rows();
                 VLOG(3) << "filter segment group in query in condition. version="
                         << new_column_data->version().first
                         << "-" << new_column_data->version().second;
@@ -309,6 +310,7 @@ OLAPStatus AlphaRowsetReader::_init_column_datas(RowsetReaderContext* read_conte
 
         int ret = new_column_data->delete_pruning_filter();
         if (ret == DEL_SATISFIED) {
+            _stats->rows_del_filtered += new_column_data->num_rows();
             VLOG(3) << "filter segment group in delete predicate:"
                     << new_column_data->version().first << ", " << new_column_data->version().second;
             continue;
@@ -322,7 +324,7 @@ OLAPStatus AlphaRowsetReader::_init_column_datas(RowsetReaderContext* read_conte
             new_column_data->set_delete_status(DEL_NOT_SATISFIED);
         }
         _column_datas.emplace_back(new_column_data);
-        RowCursor* row_cursor = new RowCursor();
+        RowCursor* row_cursor = new (std::nothrow) RowCursor();
         row_cursor->init(*(_current_read_context->tablet_schema));
         _row_cursors.push_back(row_cursor);
 

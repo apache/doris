@@ -82,7 +82,7 @@ private:
     // For singleton Rowset, there are several SegmentGroups
     // Each of SegmentGroups correponds to a row_cursor 
     std::vector<RowCursor*> _row_cursors;
-    RowCursor* _dst_cursor;
+    RowCursor* _dst_cursor = nullptr;
 
     RowsetSharedPtr _rowset;
     int _key_range_size;

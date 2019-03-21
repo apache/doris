@@ -327,26 +327,30 @@ OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request,
     do {
         // 3. Create tablet with only header, no deltas
         tablet = create_tablet(request, false, NULL, stores);
-        if (tablet == NULL) {
+        if (tablet == nullptr) {
             res = OLAP_ERR_CE_CMD_PARAMS_ERROR;
             OLAP_LOG_WARNING("fail to create tablet. [res=%d]", res);
             break;
         }
 
-        // 4. Add tablet to StorageEngine will make it visiable to user
-        res = add_tablet(
-                request.tablet_id, request.tablet_schema.schema_hash, tablet, false);
+        res = tablet->init();
         if (res != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("fail to add tablet to StorageEngine. [res=%d]", res);
+            LOG(WARNING) << "tablet init failed. tablet:" << tablet->full_name();
+            break;
+        }
+
+        // 4. Add tablet to StorageEngine will make it visiable to user
+        res = add_tablet(request.tablet_id, request.tablet_schema.schema_hash, tablet, false);
+        if (res != OLAP_SUCCESS) {
+            LOG(WARNING) << "fail to add tablet to StorageEngine. res=" << res;
             break;
         }
         is_tablet_added = true;
 
-        TabletSharedPtr tablet_ptr = get_tablet(
-                request.tablet_id, request.tablet_schema.schema_hash);
-        if (tablet_ptr.get() == NULL) {
+        TabletSharedPtr tablet_ptr = get_tablet(request.tablet_id, request.tablet_schema.schema_hash);
+        if (tablet_ptr == nullptr) {
             res = OLAP_ERR_TABLE_NOT_FOUND;
-            OLAP_LOG_WARNING("fail to get tablet. [res=%d]", res);
+            LOG(WARNING) << "fail to get tablet. res=" << res;
             break;
         }
 
@@ -365,7 +369,7 @@ OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request,
         // if (!in_restore_mode && request.__isset.version) {
         res = _create_inital_rowset(tablet_ptr, request);
         if (res != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("fail to create initial version for tablet. [res=%d]", res);
+            LOG(WARNING) << "fail to create initial version for tablet. res=" << res;
         }
         // }
     } while (0);

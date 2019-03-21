@@ -740,9 +740,9 @@ bool SchemaChangeDirectly::process(RowsetReaderSharedPtr rowset_reader, RowsetWr
     rowset_reader->next_block(&ref_row_block);
     while (ref_row_block != nullptr && ref_row_block->has_remaining()) {
         // 注意这里强制分配和旧块等大的块(小了可能会存不下)
-        if (nullptr == new_row_block
+        if (new_row_block == nullptr
                 || new_row_block->capacity() < ref_row_block->row_block_info().row_num) {
-            if (nullptr != new_row_block) {
+            if (new_row_block != nullptr) {
                 _row_block_allocator->release(new_row_block);
                 new_row_block = nullptr;
             }
@@ -842,7 +842,7 @@ bool SchemaChangeWithSorting::process(
         TabletSharedPtr tablet,
         TabletSharedPtr base_tablet) {
     if (_row_block_allocator == nullptr) {
-        _row_block_allocator = new(nothrow) RowBlockAllocator(_tablet->tablet_schema(), _memory_limitation);
+        _row_block_allocator = new (nothrow) RowBlockAllocator(_tablet->tablet_schema(), _memory_limitation);
         if (_row_block_allocator == nullptr) {
             LOG(FATAL) << "failed to malloc RowBlockAllocator. size=" << sizeof(RowBlockAllocator);
             return false;
