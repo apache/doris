@@ -58,21 +58,18 @@ public class RoutineLoadTaskSchedulerTest {
             MetaNotFoundException, AnalysisException, LabelAlreadyUsedException, BeginTransactionException {
         long beId = 100L;
 
-        Queue<RoutineLoadTaskInfo> routineLoadTaskInfoQueue = Queues.newLinkedBlockingQueue();
-        KafkaTaskInfo routineLoadTaskInfo1 = new KafkaTaskInfo(new UUID(1, 1), 1l, "default_cluster");
-        routineLoadTaskInfo1.addKafkaPartition(1);
-        routineLoadTaskInfo1.addKafkaPartition(2);
-        routineLoadTaskInfoQueue.add(routineLoadTaskInfo1);
-
-
-        Map<Long, RoutineLoadTaskInfo> idToRoutineLoadTask = Maps.newHashMap();
-        idToRoutineLoadTask.put(1L, routineLoadTaskInfo1);
-
         Map<Integer, Long> partitionIdToOffset = Maps.newHashMap();
         partitionIdToOffset.put(1, 100L);
         partitionIdToOffset.put(2, 200L);
         KafkaProgress kafkaProgress = new KafkaProgress();
-        kafkaProgress.setPartitionIdToOffset(partitionIdToOffset);
+        Deencapsulation.setField(kafkaProgress, "partitionIdToOffset", partitionIdToOffset);
+
+        Queue<RoutineLoadTaskInfo> routineLoadTaskInfoQueue = Queues.newLinkedBlockingQueue();
+        KafkaTaskInfo routineLoadTaskInfo1 = new KafkaTaskInfo(new UUID(1, 1), 1l, "default_cluster", partitionIdToOffset);
+        routineLoadTaskInfoQueue.add(routineLoadTaskInfo1);
+
+        Map<Long, RoutineLoadTaskInfo> idToRoutineLoadTask = Maps.newHashMap();
+        idToRoutineLoadTask.put(1L, routineLoadTaskInfo1);
 
         Map<String, RoutineLoadJob> idToRoutineLoadJob = Maps.newConcurrentMap();
         idToRoutineLoadJob.put("1", routineLoadJob);
