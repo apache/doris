@@ -199,6 +199,7 @@ import org.apache.doris.common.util.SqlUtils;
         keywordMap.put("pause", new Integer(SqlParserSymbols.KW_PAUSE));
         keywordMap.put("resume", new Integer(SqlParserSymbols.KW_RESUME));
         keywordMap.put("stop", new Integer(SqlParserSymbols.KW_STOP));
+        keywordMap.put("task", new Integer(SqlParserSymbols.KW_TASK));
         keywordMap.put("local", new Integer(SqlParserSymbols.KW_LOCAL));
         keywordMap.put("location", new Integer(SqlParserSymbols.KW_LOCATION));
         keywordMap.put("max", new Integer(SqlParserSymbols.KW_MAX));

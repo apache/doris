@@ -38,7 +38,7 @@ import java.util.regex.Pattern;
  Create routine Load statement,  continually load data from a streaming app
 
  syntax:
-      CREATE ROUTINE LOAD name ON database.table
+      CREATE ROUTINE LOAD [database.]name on table
       [load properties]
       [PROPERTIES
       (
@@ -108,8 +108,8 @@ public class CreateRoutineLoadStmt extends DdlStmt {
             .add(KAFKA_OFFSETS_PROPERTY)
             .build();
 
-    private final String name;
-    private final TableName dbTableName;
+    private final LabelName labelName;
+    private final String tableName;
     private final List<ParseNode> loadPropertyList;
     private final Map<String, String> jobProperties;
     private final String typeName;
@@ -117,6 +117,8 @@ public class CreateRoutineLoadStmt extends DdlStmt {
 
     // the following variables will be initialized after analyze
     // -1 as unset, the default value will set in RoutineLoadJob
+    private String name;
+    private String dbName;
     private RoutineLoadDesc routineLoadDesc;
     private int desiredConcurrentNum = 1;
     private int maxErrorNum = -1;
@@ -130,11 +132,11 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     // pair<partition id, offset>
     private List<Pair<Integer, Long>> kafkaPartitionOffsets = Lists.newArrayList();
 
-    public CreateRoutineLoadStmt(String name, TableName dbTableName, List<ParseNode> loadPropertyList,
+    public CreateRoutineLoadStmt(LabelName labelName, String tableName, List<ParseNode> loadPropertyList,
                                  Map<String, String> jobProperties,
                                  String typeName, Map<String, String> dataSourceProperties) {
-        this.name = name;
-        this.dbTableName = dbTableName;
+        this.labelName = labelName;
+        this.tableName = tableName;
         this.loadPropertyList = loadPropertyList;
         this.jobProperties = jobProperties == null ? Maps.newHashMap() : jobProperties;
         this.typeName = typeName.toUpperCase();
@@ -145,8 +147,12 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         return name;
     }
 
-    public TableName getDBTableName() {
-        return dbTableName;
+    public String getDBName() {
+        return dbName;
+    }
+
+    public String getTableName() {
+        return tableName;
     }
 
     public String getTypeName() {
@@ -192,16 +198,25 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
+        // check dbName and tableName
+        checkDBTable(analyzer);
         // check name
         FeNameFormat.checkCommonName(NAME_TYPE, name);
-        // check dbName and tableName
-        dbTableName.analyze(analyzer);
         // check load properties include column separator etc.
         checkLoadProperties(analyzer);
         // check routine load job properties include desired concurrent number etc.
         checkJobProperties();
         // check data source properties
         checkDataSourceProperties();
+    }
+
+    public void checkDBTable(Analyzer analyzer) throws AnalysisException {
+        labelName.analyze(analyzer);
+        dbName = labelName.getDbName();
+        name = labelName.getLabelName();
+        if (Strings.isNullOrEmpty(tableName)) {
+            throw new AnalysisException("Table name should not be null");
+        }
     }
 
     public void checkLoadProperties(Analyzer analyzer) throws UserException {
