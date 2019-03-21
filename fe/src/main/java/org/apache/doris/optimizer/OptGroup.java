@@ -17,6 +17,7 @@
 
 package org.apache.doris.optimizer;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.doris.optimizer.property.OptProperty;
@@ -47,16 +48,25 @@ public class OptGroup {
         this.optContextMap = Maps.newHashMap();
     }
 
-    // Add a MultiExpression,
+    // Add a new MultiExpression which haven't been added to other group.
     // this function will create relationship between this group and MultiExpression
     public void addMExpr(MultiExpression mExpr) {
+        insertMExpr(mExpr);
+        mExpr.setId(nextMExprId++);
+    }
+
+    // Move a MultiExpression which have been added to other group to this group.
+    public void moveMExpr(MultiExpression mExpr) {
+        insertMExpr(mExpr);
+    }
+
+    private void insertMExpr(MultiExpression mExpr) {
         int numExprs = mExprs.size();
         if (numExprs > 0) {
             mExprs.get(numExprs - 1).setNext(mExpr);
         }
-        mExpr.setId(nextMExprId++);
-        mExpr.setGroup(this);
         mExprs.add(mExpr);
+        mExpr.setGroup(this);
     }
 
     public String debugString() {
@@ -108,7 +118,14 @@ public class OptGroup {
         if (other == this) {
             return;
         }
+
+        Preconditions.checkState(mExprs.size() > 0);
+        MultiExpression lastMExpr = mExprs.get(mExprs.size() - 1);
+        Preconditions.checkState(lastMExpr.next() == null);
+
         for (MultiExpression mExpr : other.getMultiExpressions()) {
+            lastMExpr.setNext(mExpr);
+            lastMExpr = mExpr;
             mExprs.add(mExpr);
             mExpr.setGroup(this);
         }

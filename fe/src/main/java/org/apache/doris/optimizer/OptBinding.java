@@ -68,7 +68,7 @@ public class OptBinding {
         } else {
             boolean hasBound = false;
             for (int i = 0; i < arity; ++i) {
-                LOG.info("binding i={}, hasBound={}", i, hasBound);
+                LOG.debug("binding i={}, hasBound={}", i, hasBound);
                 OptExpression inputLastExpr = lastExpr.getInput(i);
                 if (hasBound) {
                     boundInputs.add(inputLastExpr);
@@ -76,7 +76,7 @@ public class OptBinding {
                     OptExpression inputPattern = pattern.getInput(i);
                     OptGroup inputGroup = mExpr.getInput(i);
                     OptExpression boundInput = bind(inputPattern, inputGroup, inputLastExpr);
-                    LOG.info("going to bind, patter={}, group={}, lastExpr={}, boundInput={}",
+                    LOG.debug("going to bind, patter={}, group={}, lastExpr={}, boundInput={}",
                             inputPattern.debugString(), inputGroup.debugString(), inputLastExpr.debugString(),
                             (boundInput == null) ? "null" : boundInput.debugString());
                     if (boundInput != null) {

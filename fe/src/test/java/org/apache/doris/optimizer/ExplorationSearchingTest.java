@@ -26,28 +26,31 @@ import org.junit.Test;
 
 import java.util.List;
 
-public class SearchingTest {
-    private static final Logger LOG = LogManager.getLogger(OptMemo.class);
+public class ExplorationSearchingTest {
+    private static final Logger LOG = LogManager.getLogger(ExplorationSearchingTest.class);
 
     @Test
     public void testSingleJoin() {
-        final OptExpression expr = Utils.createUtInternal(
+        final OptExpression topJoin = Utils.createUtInternal(
                 Utils.createUtLeaf(),
                 Utils.createUtLeaf());
+        LOG.info("init expr=\n{}", topJoin.getExplainString());
         final SearchVariable variable = new SearchVariable();
         variable.setExecuteOptimization(false);
-        final Optimizer optimizer = new Optimizer(expr, variable);
+        final Optimizer optimizer = new Optimizer(topJoin, variable);
         optimizer.addRule(OptUTInternalCommutativityRule.INSTANCE);
         optimizer.addRule(OptUTInternalAssociativityRule.INSTANCE);
         optimizer.optimize();
 
-        Assert.assertTrue(checkStatusFinishOptimization(optimizer.getMemo().getGroups()));
+        Assert.assertTrue(checkMemoStatusAfterOptimization(optimizer.getMemo()));
         Assert.assertEquals(3, optimizer.getMemo().getGroups().size());
         Assert.assertEquals(4, optimizer.getMemo().getMExprs().size());
         Assert.assertEquals(1, optimizer.getMemo().getGroups().get(0).getMultiExpressions().size());
         Assert.assertEquals(1, optimizer.getMemo().getGroups().get(1).getMultiExpressions().size());
         Assert.assertEquals(2, optimizer.getMemo().getGroups().get(2).getMultiExpressions().size());
-        Assert.assertEquals(2, getPlanCount(optimizer.getRoot()));
+        final long planCount = getPlanCount(optimizer.getRoot());
+        LOG.info("Plans:" + planCount);
+        Assert.assertEquals(2, planCount);
 
     }
 
@@ -59,6 +62,8 @@ public class SearchingTest {
         final OptExpression topJoin = Utils.createUtInternal(
                 bottomJoin,
                 Utils.createUtLeaf());
+        LOG.info("init expr=\n{}", topJoin.getExplainString());
+
         final SearchVariable variable = new SearchVariable();
         variable.setExecuteOptimization(false);
         final Optimizer optimizer = new Optimizer(topJoin, variable);
@@ -66,7 +71,7 @@ public class SearchingTest {
         optimizer.addRule(OptUTInternalAssociativityRule.INSTANCE);
         optimizer.optimize();
 
-        Assert.assertTrue(checkStatusFinishOptimization(optimizer.getMemo().getGroups()));
+        Assert.assertTrue(checkMemoStatusAfterOptimization(optimizer.getMemo()));
         Assert.assertEquals(7, optimizer.getMemo().getGroups().size());
         Assert.assertEquals(15, optimizer.getMemo().getMExprs().size());
         Assert.assertEquals(1, optimizer.getMemo().getGroups().get(0).getMultiExpressions().size());
@@ -76,7 +81,9 @@ public class SearchingTest {
         Assert.assertEquals(6, optimizer.getMemo().getGroups().get(4).getMultiExpressions().size());
         Assert.assertEquals(2, optimizer.getMemo().getGroups().get(5).getMultiExpressions().size());
         Assert.assertEquals(2, optimizer.getMemo().getGroups().get(6).getMultiExpressions().size());
-        Assert.assertEquals(12, getPlanCount(optimizer.getRoot()));
+        final long planCount = getPlanCount(optimizer.getRoot());
+        LOG.info("Plans:" + planCount);
+        Assert.assertEquals(12, planCount);
     }
 
     @Test
@@ -90,6 +97,8 @@ public class SearchingTest {
         final OptExpression topJoin = Utils.createUtInternal(
                 bottom2Join,
                 Utils.createUtLeaf());
+        LOG.info("init expr=\n{}", topJoin.getExplainString());
+
         final SearchVariable variable = new SearchVariable();
         variable.setExecuteOptimization(false);
         final Optimizer optimizer = new Optimizer(topJoin, variable);
@@ -97,10 +106,12 @@ public class SearchingTest {
         optimizer.addRule(OptUTInternalAssociativityRule.INSTANCE);
         optimizer.optimize();
 
-        Assert.assertTrue(checkStatusFinishOptimization(optimizer.getMemo().getGroups()));
+        Assert.assertTrue(checkMemoStatusAfterOptimization(optimizer.getMemo()));
         Assert.assertEquals(15, optimizer.getMemo().getGroups().size());
         Assert.assertEquals(54, optimizer.getMemo().getMExprs().size());
-        Assert.assertEquals(120, getPlanCount(optimizer.getRoot()));
+        final long planCount = getPlanCount(optimizer.getRoot());
+        LOG.info("Plans:" + planCount);
+        Assert.assertEquals(120, planCount);
     }
 
     @Test
@@ -117,64 +128,115 @@ public class SearchingTest {
         final OptExpression topJoin = Utils.createUtInternal(
                 bottom3Join,
                 Utils.createUtLeaf());
+        LOG.info("init expr=\n{}", topJoin.getExplainString());
+
         final SearchVariable variable = new SearchVariable();
         variable.setExecuteOptimization(false);
         final Optimizer optimizer = new Optimizer(topJoin, variable);
         optimizer.addRule(OptUTInternalCommutativityRule.INSTANCE);
         optimizer.addRule(OptUTInternalAssociativityRule.INSTANCE);
         optimizer.optimize();
-        LOG.info("result:\n" + optimizer.getRoot().getExplain());
-//        Assert.assertTrue(checkStatusFinishOptimization(optimizer.getMemo().getGroups()));
-//        Assert.assertEquals(31, optimizer.getMemo().getGroups().size());
-//        Assert.assertEquals(185, optimizer.getMemo().getMExprs().size());
-//        Assert.assertEquals(1680, getPlanCount(optimizer.getRoot()));
+
+        Assert.assertTrue(checkMemoStatusAfterOptimization(optimizer.getMemo()));
+        Assert.assertEquals(31, optimizer.getMemo().getGroups().size());
+        Assert.assertEquals(185, optimizer.getMemo().getMExprs().size());
+        final long planCount = getPlanCount(optimizer.getRoot());
+        LOG.info("Plans:" + planCount);
+        Assert.assertEquals(1680, planCount);
     }
 
-//    @Test
-//    public void testTenJoin() {
-//        final OptExpression bottomJoin = Utils.createUtInternal(
-//                Utils.createUtLeaf(),
-//                Utils.createUtLeaf());
-//        final OptExpression bottom2Join = Utils.createUtInternal(
-//                bottomJoin,
-//                Utils.createUtLeaf());
-//        final OptExpression bottom3Join = Utils.createUtInternal(
-//                bottom2Join,
-//                Utils.createUtLeaf());
-//        final OptExpression bottom4Join = Utils.createUtInternal(
-//                bottom3Join,
-//                Utils.createUtLeaf());
-//        final OptExpression bottom5Join = Utils.createUtInternal(
-//                bottom4Join,
-//                Utils.createUtLeaf());
-//        final OptExpression bottom6Join = Utils.createUtInternal(
-//                bottom5Join,
-//                Utils.createUtLeaf());
-//        final OptExpression bottom7Join = Utils.createUtInternal(
-//                bottom6Join,
-//                Utils.createUtLeaf());
-//        final OptExpression bottom8Join = Utils.createUtInternal(
-//                bottom7Join,
-//                Utils.createUtLeaf());
-//        final OptExpression bottom9Join = Utils.createUtInternal(
-//                bottom8Join,
-//                Utils.createUtLeaf());
-//        final OptExpression topJoin = Utils.createUtInternal(
-//                bottom9Join,
-//                Utils.createUtLeaf());
-//
-//        LOG.info("expr=\n{}", topJoin.getExplainString());
-//        final Optimizer optimizer = new Optimizer(topJoin);
-//        optimizer.addRule(OptUTInternalCommutativityRule.INSTANCE);
-//        optimizer.addRule(OptUTInternalAssociativityRule.INSTANCE);
-//        optimizer.optimize();
-//        final long possibleSolutions = getPossibleSolutions(optimizer.getRoot());
-//        LOG.info("possibleSolutions:" + possibleSolutions);
-//        Assert.assertTrue(checkStatusFinishOptimization(optimizer.getMemo().getGroups()));
-//        Assert.assertEquals(1680, possibleSolutions);
-//    }
+    @Test
+    public void testEightJoin() {
+        final OptExpression bottomJoin = Utils.createUtInternal(
+                Utils.createUtLeaf(),
+                Utils.createUtLeaf());
+        final OptExpression bottom2Join = Utils.createUtInternal(
+                bottomJoin,
+                Utils.createUtLeaf());
+        final OptExpression bottom3Join = Utils.createUtInternal(
+                bottom2Join,
+                Utils.createUtLeaf());
+        final OptExpression bottom4Join = Utils.createUtInternal(
+                bottom3Join,
+                Utils.createUtLeaf());
+        final OptExpression bottom5Join = Utils.createUtInternal(
+                bottom4Join,
+                Utils.createUtLeaf());
+        final OptExpression bottom6Join = Utils.createUtInternal(
+                bottom5Join,
+                Utils.createUtLeaf());
+        final OptExpression bottom7Join = Utils.createUtInternal(
+                bottom6Join,
+                Utils.createUtLeaf());
+        final OptExpression topJoin = Utils.createUtInternal(
+                bottom7Join,
+                Utils.createUtLeaf());
+        LOG.info("init expr=\n{}", topJoin.getExplainString());
 
-    private boolean checkStatusFinishOptimization(List<OptGroup> groups) {
+        final SearchVariable variable = new SearchVariable();
+        variable.setExecuteOptimization(false);
+        final Optimizer optimizer = new Optimizer(topJoin, variable);
+        optimizer.addRule(OptUTInternalCommutativityRule.INSTANCE);
+        optimizer.addRule(OptUTInternalAssociativityRule.INSTANCE);
+        optimizer.optimize();
+
+        Assert.assertTrue(checkMemoStatusAfterOptimization(optimizer.getMemo()));
+        Assert.assertEquals(511, optimizer.getMemo().getGroups().size());
+        Assert.assertEquals(18669, optimizer.getMemo().getMExprs().size());
+        final long planCount = getPlanCount(optimizer.getRoot());
+        LOG.info("Plans:" + planCount);
+        Assert.assertEquals(518918400L, planCount);
+    }
+
+    @Test
+    public void testNineJoin() {
+        final OptExpression bottomJoin = Utils.createUtInternal(
+                Utils.createUtLeaf(),
+                Utils.createUtLeaf());
+        final OptExpression bottom2Join = Utils.createUtInternal(
+                bottomJoin,
+                Utils.createUtLeaf());
+        final OptExpression bottom3Join = Utils.createUtInternal(
+                bottom2Join,
+                Utils.createUtLeaf());
+        final OptExpression bottom4Join = Utils.createUtInternal(
+                bottom3Join,
+                Utils.createUtLeaf());
+        final OptExpression bottom5Join = Utils.createUtInternal(
+                bottom4Join,
+                Utils.createUtLeaf());
+        final OptExpression bottom6Join = Utils.createUtInternal(
+                bottom5Join,
+                Utils.createUtLeaf());
+        final OptExpression bottom7Join = Utils.createUtInternal(
+                bottom6Join,
+                Utils.createUtLeaf());
+        final OptExpression bottom8Join = Utils.createUtInternal(
+                bottom7Join,
+                Utils.createUtLeaf());
+        final OptExpression topJoin = Utils.createUtInternal(
+                bottom8Join,
+                Utils.createUtLeaf());
+        LOG.info("init expr=\n{}", topJoin.getExplainString());
+
+        final SearchVariable variable = new SearchVariable();
+        variable.setExecuteOptimization(false);
+        final Optimizer optimizer = new Optimizer(topJoin, variable);
+        optimizer.addRule(OptUTInternalCommutativityRule.INSTANCE);
+        optimizer.addRule(OptUTInternalAssociativityRule.INSTANCE);
+        optimizer.optimize();
+
+        Assert.assertTrue(checkMemoStatusAfterOptimization(optimizer.getMemo()));
+        Assert.assertEquals(1023, optimizer.getMemo().getGroups().size());
+        Assert.assertEquals(57012, optimizer.getMemo().getMExprs().size());
+        final long planCount = getPlanCount(optimizer.getRoot());
+        LOG.info("Plans:" + planCount);
+        Assert.assertEquals(17643225600L, planCount);
+    }
+
+    private boolean checkMemoStatusAfterOptimization(OptMemo memo) {
+        final List<OptGroup> groups = memo.getGroups();
+        LOG.info("Groups:" + memo.getGroups().size() + " MultExpressions:" + memo.getMExprs().size());
         final List<OptGroup> unoptimizedGroups = Lists.newArrayList();
         final List<MultiExpression> unimplementedMExprs = Lists.newArrayList();
         for (OptGroup group : groups) {
@@ -207,16 +269,16 @@ public class SearchingTest {
         return unoptimizedGroups.size() == 0 && unimplementedMExprs.size() == 0 ? true : false;
     }
 
-
+    // This will take long time for large dag.
     private long getPlanCount(OptGroup group) {
-        long possibleSolutionsTotal = 0;
+        long planCountTotal = 0;
         for (MultiExpression mExpr : group.getMultiExpressions()) {
-            long possibleSolutions = 1;
+            long planCount = 1;
             for (OptGroup child : mExpr.getInputs()) {
-                possibleSolutions *= getPlanCount(child);
+                planCount *= getPlanCount(child);
             }
-            possibleSolutionsTotal += possibleSolutions;
+            planCountTotal += planCount;
         }
-        return possibleSolutionsTotal;
+        return planCountTotal;
     }
 }
