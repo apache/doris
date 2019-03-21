@@ -564,7 +564,18 @@ bool EsScanNode::to_ext_literal(ExprContext* context, Expr* expr, TExtLiteral* l
     case TExprNodeType::FLOAT_LITERAL: {
         TFloatLiteral float_literal;
         void* value = context->get_value(expr, NULL);
-        float_literal.__set_value(*reinterpret_cast<float*>(value));
+        switch (expr->type().type) {
+        case TYPE_FLOAT: {
+            float_literal.__set_value(*reinterpret_cast<float*>(value));
+            break;
+        }
+        case TYPE_DOUBLE: {
+            float_literal.__set_value(*((double *)value));
+            break;
+        }
+        default:
+            return false;
+        }
         literal->__set_float_literal(float_literal);
         return true;
     }

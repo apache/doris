@@ -50,10 +50,10 @@ public class EsTable extends Table {
 
     private String hosts;
     private String[] seeds;
-    private String userName;
-    private String passwd;
+    private String userName = "";
+    private String passwd = "";
     private String indexName;
-    private String mappingType = "doc";
+    private String mappingType = "_doc";
     // only save the partition definition, save the partition key,
     // partition list is got from es cluster dynamically and is saved in esTableState
     private PartitionInfo partitionInfo;
@@ -77,7 +77,7 @@ public class EsTable extends Table {
                     + "they are: hosts, user, password, index");
         }
 
-        hosts = properties.get(HOSTS);
+        hosts = properties.get(HOSTS).trim();
         if (Strings.isNullOrEmpty(hosts)) {
             throw new DdlException("Hosts of ES table is null. "
                     + "Please add properties('hosts'='xxx.xxx.xxx.xxx,xxx.xxx.xxx.xxx') when create table");
@@ -85,25 +85,22 @@ public class EsTable extends Table {
         seeds = hosts.split(",");
         // TODO(ygl) validate the seeds? 
 
-        userName = properties.get(USER);
-        if (Strings.isNullOrEmpty(userName)) {
-            userName = "";
+        if (!Strings.isNullOrEmpty(properties.get(USER).trim())) {
+            userName = properties.get(USER).trim();
         }
 
-        passwd = properties.get(PASSWORD);
-        if (passwd == null) {
-            passwd = "";
+        if (!Strings.isNullOrEmpty(properties.get(PASSWORD).trim())) {
+            passwd = properties.get(PASSWORD).trim();
         }
 
-        indexName = properties.get(INDEX);
+        indexName = properties.get(INDEX).trim();
         if (Strings.isNullOrEmpty(indexName)) {
             throw new DdlException("Index of ES table is null. "
                     + "Please add properties('index'='xxxx') when create table");
         }
 
-        mappingType = properties.get(TYPE);
-        if (Strings.isNullOrEmpty(mappingType)) {
-            mappingType = "docs";
+        if (!Strings.isNullOrEmpty(properties.get(TYPE).trim())) {
+            mappingType = properties.get(TYPE).trim();
         }
     }
     
