@@ -17,6 +17,7 @@
 
 package org.apache.doris.load.routineload;
 
+import com.google.gson.Gson;
 import org.apache.doris.common.Pair;
 import org.apache.doris.thrift.TKafkaRLTaskProgress;
 
@@ -27,6 +28,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -37,7 +39,7 @@ import java.util.Map;
 public class KafkaProgress extends RoutineLoadProgress {
 
     // (partition id, begin offset)
-    private Map<Integer, Long> partitionIdToOffset = Maps.newHashMap();
+    private Map<Integer, Long> partitionIdToOffset = Maps.newConcurrentMap();
 
     public KafkaProgress() {
         super(LoadDataSourceType.KAFKA);
@@ -52,12 +54,20 @@ public class KafkaProgress extends RoutineLoadProgress {
         return partitionIdToOffset;
     }
 
-    public void addPartitionOffset(Pair<Integer, Long> partitionOffset) {
-        partitionIdToOffset.put(partitionOffset.first, partitionOffset.second);
+    public Map<Integer, Long> getPartitionIdToOffset(List<Integer> partitionIds) {
+        Map<Integer, Long> result = Maps.newHashMap();
+        for (Map.Entry<Integer, Long> entry : partitionIdToOffset.entrySet()) {
+            for (Integer partitionId : partitionIds) {
+                if (entry.getKey().equals(partitionId)) {
+                    result.put(partitionId, entry.getValue());
+                }
+            }
+        }
+        return result;
     }
 
-    public void setPartitionIdToOffset(Map<Integer, Long> partitionIdToOffset) {
-        this.partitionIdToOffset = partitionIdToOffset;
+    public void addPartitionOffset(Pair<Integer, Long> partitionOffset) {
+        partitionIdToOffset.put(partitionOffset.first, partitionOffset.second);
     }
 
     // (partition id, end offset)
@@ -77,6 +87,16 @@ public class KafkaProgress extends RoutineLoadProgress {
         KafkaProgress newProgress = (KafkaProgress) progress;
         newProgress.getPartitionIdToOffset().entrySet().parallelStream()
                 .forEach(entity -> partitionIdToOffset.put(entity.getKey(), entity.getValue() + 1));
+    }
+
+    @Override
+    public String toJsonString() {
+        Map<Integer, Long> showPartitionIdToOffset = new HashMap<>();
+        for (Map.Entry<Integer, Long> entry : partitionIdToOffset.entrySet()) {
+            showPartitionIdToOffset.put(entry.getKey(), entry.getValue() - 1);
+        }
+        Gson gson = new Gson();
+        return gson.toJson(showPartitionIdToOffset);
     }
 
     @Override

@@ -206,7 +206,7 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_A
     KW_JOIN,
     KW_KEY, KW_KILL,
     KW_LABEL, KW_LARGEINT, KW_LAST, KW_LEFT, KW_LESS, KW_LEVEL, KW_LIKE, KW_LIMIT, KW_LINK, KW_LOAD,
-    KW_ROUTINE, KW_PAUSE, KW_RESUME, KW_STOP,
+    KW_ROUTINE, KW_PAUSE, KW_RESUME, KW_STOP, KW_TASK,
     KW_LOCAL, KW_LOCATION,
     KW_MAX, KW_MAX_VALUE, KW_MERGE, KW_MIN, KW_MIGRATE, KW_MIGRATIONS, KW_MODIFY,
     KW_NAME, KW_NAMES, KW_NEGATIVE, KW_NO, KW_NOT, KW_NULL, KW_NULLS,
@@ -243,7 +243,8 @@ terminal String COMMENTED_PLAN_HINTS;
 
 // Statement that the result of this parser.
 nonterminal StatementBase query, stmt, show_stmt, show_param, help_stmt, load_stmt,
-    create_routine_load_stmt, pause_routine_load_stmt, resume_routine_load_stmt, stop_routine_load_stmt, show_routine_load_stmt,
+    create_routine_load_stmt, pause_routine_load_stmt, resume_routine_load_stmt, stop_routine_load_stmt,
+    show_routine_load_stmt, show_routine_load_task_stmt,
     describe_stmt, alter_stmt,
     use_stmt, kill_stmt, drop_stmt, recover_stmt, grant_stmt, revoke_stmt, create_stmt, set_stmt, sync_stmt, cancel_stmt, cancel_param, delete_stmt,
     link_stmt, migrate_stmt, enter_stmt, unsupported_stmt, export_stmt, admin_stmt, truncate_stmt, import_columns_stmt, import_where_stmt;
@@ -374,6 +375,7 @@ nonterminal AccessPrivilege privilege_type;
 nonterminal DataDescription data_desc;
 nonterminal List<DataDescription> data_desc_list;
 nonterminal LabelName job_label;
+nonterminal LabelName opt_job_label;
 nonterminal String opt_system;
 nonterminal String opt_cluster;
 nonterminal BrokerDesc opt_broker;
@@ -528,6 +530,8 @@ stmt ::=
     | stop_routine_load_stmt : stmt
     {: RESULT = stmt; :}
     | show_routine_load_stmt : stmt
+    {: RESULT = stmt; :}
+    | show_routine_load_task_stmt : stmt
     {: RESULT = stmt; :}
     | cancel_stmt : stmt
     {: RESULT = stmt; :}
@@ -1001,6 +1005,17 @@ load_stmt ::=
     :}
     ;
 
+opt_job_label ::=
+    /* Empty */
+    {:
+        RESULT = null;
+    :}
+    | job_label:jobLabel
+    {:
+        RESULT = jobLabel;
+    :}
+    ;
+
 job_label ::=
     ident:label
     {:
@@ -1147,12 +1162,12 @@ opt_cluster ::=
 
 // Routine load statement
 create_routine_load_stmt ::=
-    KW_CREATE KW_ROUTINE KW_LOAD ident:jobName KW_ON table_name:dbTableName
+    KW_CREATE KW_ROUTINE KW_LOAD job_label:jobLabel KW_ON ident:tableName
     opt_load_property_list:loadPropertyList
     opt_properties:properties
     KW_FROM ident:type LPAREN key_value_map:customProperties RPAREN
     {:
-        RESULT = new CreateRoutineLoadStmt(jobName, dbTableName, loadPropertyList, properties, type, customProperties);
+        RESULT = new CreateRoutineLoadStmt(jobLabel, tableName, loadPropertyList, properties, type, customProperties);
     :}
     ;
 
@@ -1191,30 +1206,41 @@ load_property ::=
     ;
 
 pause_routine_load_stmt ::=
-    KW_PAUSE KW_ROUTINE KW_LOAD ident:name
+    KW_PAUSE KW_ROUTINE KW_LOAD job_label:jobLabel
     {:
-        RESULT = new PauseRoutineLoadStmt(name);
+        RESULT = new PauseRoutineLoadStmt(jobLabel);
     :}
     ;
 
 resume_routine_load_stmt ::=
-    KW_RESUME KW_ROUTINE KW_LOAD ident:name
+    KW_RESUME KW_ROUTINE KW_LOAD job_label:jobLabel
     {:
-        RESULT = new ResumeRoutineLoadStmt(name);
+        RESULT = new ResumeRoutineLoadStmt(jobLabel);
     :}
     ;
 
 stop_routine_load_stmt ::=
-    KW_STOP KW_ROUTINE KW_LOAD ident:name
+    KW_STOP KW_ROUTINE KW_LOAD job_label:jobLabel
     {:
-        RESULT = new StopRoutineLoadStmt(name);
+        RESULT = new StopRoutineLoadStmt(jobLabel);
     :}
     ;
 
 show_routine_load_stmt ::=
-    KW_SHOW KW_ROUTINE KW_LOAD ident:name
+    KW_SHOW KW_ROUTINE KW_LOAD opt_job_label:jobLabel
     {:
-        RESULT = new ShowRoutineLoadStmt(name);
+        RESULT = new ShowRoutineLoadStmt(jobLabel, false);
+    :}
+    | KW_SHOW KW_ALL KW_ROUTINE KW_LOAD opt_job_label:jobLabel
+    {:
+        RESULT = new ShowRoutineLoadStmt(jobLabel, true);
+    :}
+    ;
+
+show_routine_load_task_stmt ::=
+    KW_SHOW KW_ROUTINE KW_LOAD KW_TASK opt_db:dbName opt_wild_where
+    {:
+        RESULT = new ShowRoutineLoadTaskStmt(dbName, parser.where);
     :}
     ;
 
