@@ -34,7 +34,7 @@ import java.util.stream.Collectors;
 // equal with several logical equivalent Expression. As a result, this
 // can reduce search space dramatically.
 public class MultiExpression {
-    private static final Logger LOG = LogManager.getLogger(OptMemo.class);
+    private static final Logger LOG = LogManager.getLogger(MultiExpression.class);
     public static final int INVALID_ID = -1;
     private int id;
     private OptOperator op;
@@ -42,7 +42,8 @@ public class MultiExpression {
     private MEState status;
 
     // OptGroup which this MultiExpression belongs to. Firstly it's null when object is created,
-    // it will be assigned after it is inserted into OptMemo
+    // it will be assigned after it is inserted into OptMemo.
+    // Note that parent group can't be involved in the calculation of the hash value and the equivalence!!!
     private OptGroup group;
 
     // next MultiExpression in same OptGroup, set with group

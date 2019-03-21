@@ -18,12 +18,12 @@ public class OptUTInternalCommutativityRule extends ExplorationRule {
                         OptExpression.create(new OptPatternLeaf())));
     }
 
-//    public boolean isCompatible(OptRuleType type) {
-//        if (type == this.type()) {
-//            return false;
-//        }
-//        return true;
-//    }
+    public boolean isCompatible(OptRuleType type) {
+        if (type == this.type()) {
+            return false;
+        }
+        return true;
+    }
 
     @Override
     public void transform(OptExpression expr, List<OptExpression> newExprs) {

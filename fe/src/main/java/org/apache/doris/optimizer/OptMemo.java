@@ -20,6 +20,7 @@ package org.apache.doris.optimizer;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.apache.doris.optimizer.rule.OptRuleType;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -27,6 +28,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 // This is key component of our optimizer. We utilize
 // dynamic programing to search optimal query plan. When
@@ -88,7 +90,7 @@ public class OptMemo {
             } else {
                 inputGroup = copyIn(input, fromRule, sourceMExprid).getGroup();
             }
-            LOG.info("inputGroup is {}", inputGroup.debugString());
+            LOG.debug("inputGroup is {}", inputGroup.debugString());
             inputs.add(inputGroup);
         }
         MultiExpression mExpr = new MultiExpression(expr.getOp(), inputs, fromRule, sourceMExprid);
@@ -121,11 +123,13 @@ public class OptMemo {
             // srcGroup == destGroup merge duplicate group
             return;
         }
+
         groups.remove(srcGroup);
         unusedGroups.add(srcGroup);
         // Replace children srcGroup with destGroup MultExpression refered
         // and MulExpression's host srcGroup with destGroup.
         final List<MultiExpression> newExprsNeedReinserted = Lists.newArrayList();
+        final List<OptGroup> newExprsGroupNeedReinserted = Lists.newArrayList();
         for (Iterator<Map.Entry<MultiExpression, MultiExpression>>
              iterator =  mExprs.entrySet().iterator(); iterator.hasNext(); ) {
             final MultiExpression mExpr = iterator.next().getValue();
@@ -140,30 +144,72 @@ public class OptMemo {
             if (referSrcGroupIndexs.size() > 0) {
                 Preconditions.checkState(referSrcGroupIndexs.size() == 1);
                 iterator.remove();
+                newExprsGroupNeedReinserted.add(mExpr.getGroup());
+                mExpr.getGroup().removeMExpr(mExpr);
                 mExpr.getInputs().set(referSrcGroupIndexs.get(0), destGroup);
                 newExprsNeedReinserted.add(mExpr);
             }
         }
 
-        for (MultiExpression mExpr : newExprsNeedReinserted) {
-            final MultiExpression foundMExpr = mExprs.get(mExpr);
+        for (int i = 0; i < newExprsNeedReinserted.size(); i++) {
+            final MultiExpression candicateMExpr = newExprsNeedReinserted.get(i);
+            final OptGroup candicateGroup = newExprsGroupNeedReinserted.get(i);
+            final MultiExpression foundMExpr = mExprs.get(candicateMExpr);
             if (foundMExpr != null) {
-                if (foundMExpr.getGroup() != mExpr.getGroup()) {
-                    // TODO ch.
-                    // Remove mExpr and update parent MultiExpression.
-                    mergeGroup(mExpr.getGroup(), foundMExpr.getGroup(), false);
-                } else {
-                    unusedMExprs.add(mExpr);
-                    foundMExpr.getGroup().removeMExpr(mExpr);
-                    Preconditions.checkState(foundMExpr.getGroup().getMultiExpressions().size() > 0);
-                }
+                Preconditions.checkNotNull(foundMExpr.getGroup());
+                unusedMExprs.add(candicateMExpr);
             } else {
-                mExprs.put(mExpr, mExpr);
+                candicateGroup.moveMExpr(candicateMExpr);
+                mExprs.put(candicateMExpr, candicateMExpr);
             }
         }
 
         if (merge) {
             destGroup.mergeGroup(srcGroup);
+        }
+
+        if (LOG.isDebugEnabled()) {
+            checkLeakInDag();
+        }
+    }
+
+    private void checkLeakInDag() {
+        final Set<Integer> candidateSearchedGroupIds = Sets.newHashSet();
+        final Set<Integer> candidateSearchedMExprIds = Sets.newHashSet();
+        for (OptGroup group : groups) {
+            candidateSearchedGroupIds.add(group.getId());
+        }
+        for (MultiExpression mExpr : mExprs.values()) {
+            candidateSearchedMExprIds.add(mExpr.getId());
+        }
+
+        searchDag(root, candidateSearchedGroupIds, candidateSearchedMExprIds);
+
+        final StringBuilder groupIdsBuilder = new StringBuilder("Leak Group ids:");
+        for (int id : candidateSearchedGroupIds) {
+            groupIdsBuilder.append(id).append(", ");
+        }
+        LOG.info(groupIdsBuilder.toString());
+
+        final StringBuilder mExprIdsBuilder = new StringBuilder("Leak MultiExpression ids:");
+        for (int id : candidateSearchedMExprIds) {
+            mExprIdsBuilder.append(id).append(", ");
+        }
+        LOG.info(mExprIdsBuilder.toString());
+
+        if (!candidateSearchedGroupIds.isEmpty()
+                || !candidateSearchedMExprIds.isEmpty()) {
+            throw new RuntimeException("Exist Leak Group or MultiExpression!");
+        }
+    }
+
+    private void searchDag(OptGroup root, Set<Integer> candidateSearchedGroupIds, Set<Integer> candidateSearchedMExprIds) {
+        candidateSearchedGroupIds.remove(root.getId());
+        for (MultiExpression mExpr : root.getMultiExpressions()) {
+            candidateSearchedMExprIds.remove(mExpr.getId());
+            for (OptGroup input : mExpr.getInputs()) {
+                searchDag(input, candidateSearchedGroupIds, candidateSearchedMExprIds);
+            }
         }
     }
 
@@ -175,12 +221,31 @@ public class OptMemo {
 
     public List<OptGroup> getGroups() { return groups; }
     public Map<MultiExpression, MultiExpression> getMExprs() { return mExprs; }
-    public void setRoot(OptGroup root) { this.root = root; }
+    public OptGroup getRoot() { return this.root; }
 
     public void dump() {
        final String dumpStr = root.getExplain();
        if (root != null) {
            LOG.info("Memo:\n" + dumpStr);
        }
+    }
+
+    public void dumpUnusedGroups() {
+        final StringBuilder strBuilder = new StringBuilder("Unused Groups Ids:");
+        for (OptGroup group : unusedGroups) {
+            strBuilder.append(group.getId()).append(", ");
+        }
+        LOG.info(strBuilder.toString());
+    }
+
+    public void dumpUnusedMexprs() {
+        final StringBuilder strBuilder = new StringBuilder("Unused MultiExpressions Ids:");
+        for (MultiExpression mExpr : unusedMExprs) {
+            strBuilder.append("MExpr:").append(mExpr.getId()).append(" input ");
+            for (OptGroup group : mExpr.getInputs()) {
+                strBuilder.append(group.getId()).append(" ");
+            }
+        }
+        LOG.info(strBuilder.toString());
     }
 }
