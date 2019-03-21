@@ -571,7 +571,24 @@ bool EsScanNode::to_ext_literal(ExprContext* context, Expr* expr, TExtLiteral* l
     case TExprNodeType::INT_LITERAL: {
         TIntLiteral int_literal;
         void* value = context->get_value(expr, NULL);
-        int_literal.__set_value(*reinterpret_cast<int32_t*>(value));
+        int32_t int_val = 0;
+        switch (expr->type().type) {
+        case TYPE_TINYINT: {
+            int_val = *reinterpret_cast<int8_t*>(value);
+            break;
+        }
+        case TYPE_SMALLINT: {
+            int_val = *reinterpret_cast<int16_t*>(value);
+            break;
+        }
+        case TYPE_INT: {
+            int_val = *reinterpret_cast<int32_t*>(value);
+            break;
+        }
+        default:
+            return false;
+        }
+        int_literal.__set_value(int_val);
         literal->__set_int_literal(int_literal);
         return true;
     }
