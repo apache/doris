@@ -223,7 +223,7 @@ OLAPStatus OLAPHeader::add_version(Version version, VersionHash version_hash,
         return OLAP_ERR_HEADER_ADD_VERSION;
     }
 
-    int delta_id = 0;
+    int delta_id = -1;
     for (int i = 0; i < delta_size(); ++i) {
         if (delta(i).start_version() == version.first
             && delta(i).end_version() == version.second) {
@@ -246,7 +246,7 @@ OLAPStatus OLAPHeader::add_version(Version version, VersionHash version_hash,
     // Try to add version to protobuf.
     PDelta* new_delta = nullptr;
     try {
-        if (segment_group_id == -1 || segment_group_id == 0) {
+        if (segment_group_id == -1 || delta_id == -1) {
             // snapshot will use segment_group_id which equals minus one
             new_delta = add_delta();
             new_delta->set_start_version(version.first);
