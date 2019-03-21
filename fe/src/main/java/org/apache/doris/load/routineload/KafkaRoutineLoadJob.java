@@ -17,6 +17,8 @@
 
 package org.apache.doris.load.routineload;
 
+import com.google.common.collect.Maps;
+import com.google.gson.Gson;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
@@ -51,6 +53,7 @@ import java.io.IOException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 import java.util.UUID;
 
@@ -120,18 +123,21 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             if (state == JobState.NEED_SCHEDULE) {
                 // divide kafkaPartitions into tasks
                 for (int i = 0; i < currentConcurrentTaskNum; i++) {
-                    KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo(UUID.randomUUID(), id, clusterName);
+                    Map<Integer, Long> taskKafkaProgress = Maps.newHashMap();
+                    for (int j = 0; j < currentKafkaPartitions.size(); j++) {
+                        if (j % currentConcurrentTaskNum == 0) {
+                            int kafkaPartition = currentKafkaPartitions.get(j);
+                            taskKafkaProgress.put(kafkaPartition,
+                                                  ((KafkaProgress) progress).getPartitionIdToOffset().get(kafkaPartition));
+                        }
+                    }
+                    KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo(UUID.randomUUID(), id, clusterName, taskKafkaProgress);
                     routineLoadTaskInfoList.add(kafkaTaskInfo);
                     result.add(kafkaTaskInfo);
                 }
+                // change job state to running
                 if (result.size() != 0) {
-                    for (int i = 0; i < currentKafkaPartitions.size(); i++) {
-                        ((KafkaTaskInfo) routineLoadTaskInfoList.get(i % currentConcurrentTaskNum))
-                                .addKafkaPartition(currentKafkaPartitions.get(i));
-                    }
-                    // change job state to running
-                    // TODO(ml): edit log
-                    state = JobState.RUNNING;
+                    unprotectUpdateState(JobState.RUNNING, null, false);
                 }
             } else {
                 LOG.debug("Ignore to divide routine load job while job state {}", state);
@@ -155,7 +161,9 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         LOG.info("current concurrent task number is min "
                          + "(current size of partition {}, desire task concurrent num {}, alive be num {})",
                  partitionNum, desireTaskConcurrentNum, aliveBeNum);
-        return Math.min(Math.min(partitionNum, Math.min(desireTaskConcurrentNum, aliveBeNum)), DEFAULT_TASK_MAX_CONCURRENT_NUM);
+        currentTaskConcurrentNum =
+                Math.min(Math.min(partitionNum, Math.min(desireTaskConcurrentNum, aliveBeNum)), DEFAULT_TASK_MAX_CONCURRENT_NUM);
+        return currentTaskConcurrentNum;
     }
 
     // partitionIdToOffset must be not empty when loaded rows > 0
@@ -192,8 +200,10 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     @Override
     protected RoutineLoadTaskInfo unprotectRenewTask(RoutineLoadTaskInfo routineLoadTaskInfo) throws AnalysisException,
             LabelAlreadyUsedException, BeginTransactionException {
+        KafkaTaskInfo oldKafkaTaskInfo = (KafkaTaskInfo) routineLoadTaskInfo;
         // add new task
-        KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo((KafkaTaskInfo) routineLoadTaskInfo);
+        KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo(oldKafkaTaskInfo,
+                                                        ((KafkaProgress)progress).getPartitionIdToOffset(oldKafkaTaskInfo.getPartitions()));
         // remove old task
         routineLoadTaskInfoList.remove(routineLoadTaskInfo);
         // add new task
@@ -275,16 +285,16 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     public static KafkaRoutineLoadJob fromCreateStmt(CreateRoutineLoadStmt stmt) throws UserException {
         // check db and table
-        Database db = Catalog.getCurrentCatalog().getDb(stmt.getDBTableName().getDb());
+        Database db = Catalog.getCurrentCatalog().getDb(stmt.getDBName());
         if (db == null) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, stmt.getDBTableName().getDb());
+            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, stmt.getDBName());
         }
 
         long tableId = -1L;
         db.readLock();
         try {
-            unprotectedCheckMeta(db, stmt.getDBTableName().getTbl(), stmt.getRoutineLoadDesc());
-            tableId = db.getTable(stmt.getDBTableName().getTbl()).getId();
+            unprotectedCheckMeta(db, stmt.getTableName(), stmt.getRoutineLoadDesc());
+            tableId = db.getTable(stmt.getTableName()).getId();
         } finally {
             db.readUnlock();
         }
@@ -341,6 +351,16 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             this.customKafkaPartitions.add(partitionOffset.first);
             ((KafkaProgress) progress).addPartitionOffset(partitionOffset);
         }
+    }
+
+    @Override
+    protected String dataSourcePropertiesJsonToString() {
+        Map<String, String> dataSourceProperties = Maps.newHashMap();
+        dataSourceProperties.put("brokerList", brokerList);
+        dataSourceProperties.put("topic", topic);
+        dataSourceProperties.put("currentKafkaPartitions", Joiner.on(",").join(currentKafkaPartitions));
+        Gson gson = new Gson();
+        return gson.toJson(dataSourceProperties);
     }
 
     @Override

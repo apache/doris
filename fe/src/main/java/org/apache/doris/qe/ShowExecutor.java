@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe;
 
+import com.google.common.base.Strings;
 import org.apache.doris.analysis.AdminShowConfigStmt;
 import org.apache.doris.analysis.AdminShowReplicaDistributionStmt;
 import org.apache.doris.analysis.AdminShowReplicaStatusStmt;
@@ -50,6 +51,7 @@ import org.apache.doris.analysis.ShowRestoreStmt;
 import org.apache.doris.analysis.ShowRolesStmt;
 import org.apache.doris.analysis.ShowRollupStmt;
 import org.apache.doris.analysis.ShowRoutineLoadStmt;
+import org.apache.doris.analysis.ShowRoutineLoadTaskStmt;
 import org.apache.doris.analysis.ShowSnapshotStmt;
 import org.apache.doris.analysis.ShowStmt;
 import org.apache.doris.analysis.ShowTableStatusStmt;
@@ -88,6 +90,8 @@ import org.apache.doris.common.proc.LoadProcDir;
 import org.apache.doris.common.proc.PartitionsProcDir;
 import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.TabletsProcDir;
+import org.apache.doris.common.util.LogBuilder;
+import org.apache.doris.common.util.LogKey;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.ExportMgr;
 import org.apache.doris.load.Load;
@@ -169,6 +173,8 @@ public class ShowExecutor {
             handleShowLoadWarnings();
         } else if (stmt instanceof ShowRoutineLoadStmt) {
             handleShowRoutineLoad();
+        } else if (stmt instanceof ShowRoutineLoadTaskStmt) {
+            handleShowRoutineLoadTask();
         } else if (stmt instanceof ShowDeleteStmt) {
             handleShowDelete();
         } else if (stmt instanceof ShowAlterStmt) {
@@ -794,21 +800,86 @@ public class ShowExecutor {
 
     private void handleShowRoutineLoad() throws AnalysisException {
         ShowRoutineLoadStmt showRoutineLoadStmt = (ShowRoutineLoadStmt) stmt;
+        List<List<String>> rows = Lists.newArrayList();
         // if job exists
-        RoutineLoadJob routineLoadJob =
-                Catalog.getCurrentCatalog().getRoutineLoadManager().getJobByName(showRoutineLoadStmt.getName());
+        List<RoutineLoadJob> routineLoadJobList;
+        try {
+            routineLoadJobList =
+                    Catalog.getCurrentCatalog().getRoutineLoadManager().getJobByName(showRoutineLoadStmt.getDbFullName(),
+                                                                                     showRoutineLoadStmt.getName(),
+                                                                                     showRoutineLoadStmt.isIncludeHistory());
+        } catch (MetaNotFoundException e) {
+            LOG.warn(e.getMessage(), e);
+            throw new AnalysisException(e.getMessage());
+        }
+
+        if (routineLoadJobList != null) {
+            // check auth
+            String dbFullName = showRoutineLoadStmt.getDbFullName();
+            String tableName;
+            for (RoutineLoadJob routineLoadJob : routineLoadJobList) {
+                try {
+                    tableName = routineLoadJob.getTableName();
+                } catch (MetaNotFoundException e) {
+                    // TODO(ml): how to show the cancelled job caused by deleted table
+                    LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
+                                     .add("error_msg", "The table metadata of job has been changed. "
+                                             + "The job will be cancelled automatically")
+                                     .build(), e);
+                    continue;
+                }
+                if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
+                                                                        dbFullName,
+                                                                        tableName,
+                                                                        PrivPredicate.LOAD)) {
+                    LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
+                                     .add("operator", "show routine load job")
+                                     .add("user", ConnectContext.get().getQualifiedUser())
+                                     .add("remote_ip", ConnectContext.get().getRemoteIP())
+                                     .add("db_full_name", dbFullName)
+                                     .add("table_name", tableName)
+                                     .add("error_msg", "The table access denied"));
+                    continue;
+                }
+
+                // get routine load info
+                rows.add(routineLoadJob.getShowInfo());
+            }
+        }
+
+        if (!Strings.isNullOrEmpty(showRoutineLoadStmt.getName()) && rows.size() == 0) {
+            // if the jobName has been specified
+            throw new AnalysisException("There is no job named " + showRoutineLoadStmt.getName()
+                                                + " in db " + showRoutineLoadStmt.getDbFullName()
+                                                + " include history " + showRoutineLoadStmt.isIncludeHistory());
+        }
+        resultSet = new ShowResultSet(showRoutineLoadStmt.getMetaData(), rows);
+    }
+
+    private void handleShowRoutineLoadTask() throws AnalysisException {
+        ShowRoutineLoadTaskStmt showRoutineLoadTaskStmt = (ShowRoutineLoadTaskStmt) stmt;
+        List<List<String>> rows = Lists.newArrayList();
+        // if job exists
+        RoutineLoadJob routineLoadJob;
+        try {
+            routineLoadJob = Catalog.getCurrentCatalog().getRoutineLoadManager().getJobByName(showRoutineLoadTaskStmt.getDbFullName(),
+                                                                                              showRoutineLoadTaskStmt.getJobName());
+        } catch (MetaNotFoundException e) {
+            LOG.warn(e.getMessage(), e);
+            throw new AnalysisException(e.getMessage());
+        }
         if (routineLoadJob == null) {
-            throw new AnalysisException("There is no routine load job with name " + showRoutineLoadStmt.getName());
+            throw new AnalysisException("The job named " + showRoutineLoadTaskStmt.getJobName() + "does not exists "
+                                                + "or job state is stopped or cancelled");
         }
 
         // check auth
-        String dbFullName;
+        String dbFullName = showRoutineLoadTaskStmt.getDbFullName();
         String tableName;
         try {
-            dbFullName = routineLoadJob.getDbFullName();
             tableName = routineLoadJob.getTableName();
         } catch (MetaNotFoundException e) {
-            throw new AnalysisException("The metadata of job has been changed. The job will be cancelled automatically", e);
+            throw new AnalysisException("The table metadata of job has been changed. The job will be cancelled automatically", e);
         }
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
                                                                 dbFullName,
@@ -820,20 +891,9 @@ public class ShowExecutor {
                                                 tableName);
         }
 
-        // get routine load info
-        List<List<String>> rows = Lists.newArrayList();
-        List<String> row = Lists.newArrayList();
-        row.add(String.valueOf(routineLoadJob.getId()));
-        row.add(routineLoadJob.getName());
-        row.add(String.valueOf(routineLoadJob.getDbId()));
-        row.add(String.valueOf(routineLoadJob.getTableId()));
-        row.add(routineLoadJob.getPartitions());
-        row.add(routineLoadJob.getState().name());
-        row.add(String.valueOf(routineLoadJob.getDesiredConcurrentNumber()));
-        row.add(routineLoadJob.getProgress().toString());
-        rows.add(row);
-
-        resultSet = new ShowResultSet(showRoutineLoadStmt.getMetaData(), rows);
+        // get routine load task info
+        rows.addAll(routineLoadJob.getTasksShowInfo());
+        resultSet = new ShowResultSet(showRoutineLoadTaskStmt.getMetaData(), rows);
     }
 
     // Show user property statement

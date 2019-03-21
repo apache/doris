@@ -45,6 +45,7 @@ public class CreateRoutineLoadStmtTest {
     public void testAnalyzeWithDuplicateProperty(@Injectable Analyzer analyzer) throws UserException {
         String jobName = "job1";
         String dbName = "db1";
+        LabelName labelName = new LabelName(dbName, jobName);
         String tableNameString = "table1";
         String topicName = "topic1";
         String serverAddress = "http://127.0.0.1:8080";
@@ -55,7 +56,6 @@ public class CreateRoutineLoadStmtTest {
         ColumnSeparator columnSeparator = new ColumnSeparator(",");
 
         // duplicate load property
-        TableName tableName = new TableName(dbName, tableNameString);
         List<ParseNode> loadPropertyList = new ArrayList<>();
         loadPropertyList.add(columnSeparator);
         loadPropertyList.add(columnSeparator);
@@ -68,7 +68,7 @@ public class CreateRoutineLoadStmtTest {
         customProperties.put(CreateRoutineLoadStmt.KAFKA_BROKER_LIST_PROPERTY, serverAddress);
         customProperties.put(CreateRoutineLoadStmt.KAFKA_PARTITIONS_PROPERTY, kafkaPartitionString);
 
-        CreateRoutineLoadStmt createRoutineLoadStmt = new CreateRoutineLoadStmt(jobName, tableName,
+        CreateRoutineLoadStmt createRoutineLoadStmt = new CreateRoutineLoadStmt(labelName, tableNameString,
                                                                                 loadPropertyList, properties,
                                                                                 typeName, customProperties);
 
@@ -91,6 +91,7 @@ public class CreateRoutineLoadStmtTest {
     public void testAnalyze(@Injectable Analyzer analyzer) throws UserException {
         String jobName = "job1";
         String dbName = "db1";
+        LabelName labelName = new LabelName(dbName, jobName);
         String tableNameString = "table1";
         String topicName = "topic1";
         String serverAddress = "127.0.0.1:8080";
@@ -114,7 +115,7 @@ public class CreateRoutineLoadStmtTest {
         customProperties.put(CreateRoutineLoadStmt.KAFKA_BROKER_LIST_PROPERTY, serverAddress);
         customProperties.put(CreateRoutineLoadStmt.KAFKA_PARTITIONS_PROPERTY, kafkaPartitionString);
 
-        CreateRoutineLoadStmt createRoutineLoadStmt = new CreateRoutineLoadStmt(jobName, tableName,
+        CreateRoutineLoadStmt createRoutineLoadStmt = new CreateRoutineLoadStmt(labelName, tableNameString,
                                                                                 loadPropertyList, properties,
                                                                                 typeName, customProperties);
         new MockUp<StatementBase>() {

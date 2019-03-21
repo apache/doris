@@ -71,6 +71,8 @@ public class RoutineLoadScheduler extends Daemon {
 
         LOG.info("there are {} job need schedule", routineLoadJobList.size());
         for (RoutineLoadJob routineLoadJob : routineLoadJobList) {
+            RoutineLoadJob.JobState errorJobState = null;
+            Throwable throwable = null;
             try {
                 // create plan of routine load job
                 routineLoadJob.plan();
@@ -91,11 +93,28 @@ public class RoutineLoadScheduler extends Daemon {
                 // check state and divide job into tasks
                 routineLoadJob.divideRoutineLoadJob(desiredConcurrentTaskNum);
             } catch (MetaNotFoundException e) {
-                routineLoadJob.updateState(RoutineLoadJob.JobState.CANCELLED, e.getMessage(), false /* not replay */);
+                errorJobState = RoutineLoadJob.JobState.CANCELLED;
+                throwable = e;
             } catch (Throwable e) {
-                LOG.warn("failed to scheduler job, change job state to paused", e);
-                routineLoadJob.updateState(RoutineLoadJob.JobState.PAUSED, e.getMessage(), false /* not replay */);
-                continue;
+                errorJobState = RoutineLoadJob.JobState.PAUSED;
+                throwable = e;
+            }
+
+            if (errorJobState != null) {
+                LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
+                                 .add("current_state", routineLoadJob.getState())
+                                 .add("desired_state", errorJobState)
+                                 .add("warn_msg", "failed to scheduler job, change job state to desired_state with error reason " + throwable.getMessage())
+                                 .build(), throwable);
+                try {
+                    routineLoadJob.updateState(errorJobState, throwable.getMessage(), false);
+                } catch (Throwable e) {
+                    LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
+                                     .add("current_state", routineLoadJob.getState())
+                                     .add("desired_state", errorJobState)
+                                     .add("warn_msg", "failed to change state to desired state")
+                                     .build(), e);
+                }
             }
         }
 
