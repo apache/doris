@@ -176,6 +176,7 @@ private:
     friend class InPredicate;
     friend class OlapScanNode;
     friend class EsScanNode;
+    friend class EsHttpScanNode;
 
     /// FunctionContexts for each registered expression. The FunctionContexts are created
     /// and owned by this ExprContext.
