@@ -186,6 +186,7 @@ Status EsScanNode::open(RuntimeState* state) {
     for (int i = predicate_to_conjunct.size() - 1; i >= 0; i--) {
         int conjunct_index = predicate_to_conjunct[i];
         if (conjunct_accepted_times[conjunct_index] == _scan_ranges.size()) {
+            _pushdown_conjunct_ctxs.push_back(*(_conjunct_ctxs.begin() + conjunct_index));
             _conjunct_ctxs.erase(_conjunct_ctxs.begin() + conjunct_index);
         }
     }
@@ -259,7 +260,8 @@ Status EsScanNode::close(RuntimeState* state) {
     VLOG(1) << "EsScanNode::Close";
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::CLOSE));
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-
+    Expr::close(_pushdown_conjunct_ctxs, state);
+    RETURN_IF_ERROR(ExecNode::close(state));
     for (int i = 0; i < _addresses.size(); ++i) {
         TExtCloseParams params;
         params.__set_scan_handle(_scan_handles[i]);
@@ -307,7 +309,6 @@ Status EsScanNode::close(RuntimeState* state) {
 #endif
     }
 
-    RETURN_IF_ERROR(ExecNode::close(state));
     return Status::OK;
 }
 
