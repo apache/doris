@@ -17,6 +17,8 @@
 
 package org.apache.doris.load.routineload;
 
+import com.google.common.collect.Lists;
+import com.google.gson.Gson;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.common.AnalysisException;
@@ -43,39 +45,27 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
 
     private RoutineLoadManager routineLoadManager = Catalog.getCurrentCatalog().getRoutineLoadManager();
 
-    private List<Integer> partitions;
+    // <partitionId, beginOffsetOfPartitionId>
+    private Map<Integer, Long> partitionIdToOffset;
 
-    public KafkaTaskInfo(UUID id, long jobId, String clusterName) {
+    public KafkaTaskInfo(UUID id, long jobId, String clusterName, Map<Integer, Long> partitionIdToOffset) {
         super(id, jobId, clusterName);
-        this.partitions = new ArrayList<>();
+        this.partitionIdToOffset = partitionIdToOffset;
     }
 
-    public KafkaTaskInfo(KafkaTaskInfo kafkaTaskInfo) throws LabelAlreadyUsedException,
+    public KafkaTaskInfo(KafkaTaskInfo kafkaTaskInfo, Map<Integer, Long> partitionIdToOffset) throws LabelAlreadyUsedException,
             BeginTransactionException, AnalysisException {
         super(UUID.randomUUID(), kafkaTaskInfo.getJobId(), kafkaTaskInfo.getClusterName(), kafkaTaskInfo.getBeId());
-        this.partitions = kafkaTaskInfo.getPartitions();
-    }
-
-    public void addKafkaPartition(int partition) {
-        partitions.add(partition);
+        this.partitionIdToOffset = partitionIdToOffset;
     }
 
     public List<Integer> getPartitions() {
-        return partitions;
+        return new ArrayList<>(partitionIdToOffset.keySet());
     }
 
-    // TODO: reuse plan fragment of stream load
     @Override
     public TRoutineLoadTask createRoutineLoadTask() throws LoadException, UserException {
         KafkaRoutineLoadJob routineLoadJob = (KafkaRoutineLoadJob) routineLoadManager.getJob(jobId);
-        Map<Integer, Long> partitionIdToOffset = Maps.newHashMap();
-        for (Integer partitionId : partitions) {
-            KafkaProgress kafkaProgress = (KafkaProgress) routineLoadJob.getProgress();
-            if (!kafkaProgress.getPartitionIdToOffset().containsKey(partitionId)) {
-                kafkaProgress.getPartitionIdToOffset().put(partitionId, 0L);
-            }
-            partitionIdToOffset.put(partitionId, kafkaProgress.getPartitionIdToOffset().get(partitionId));
-        }
 
         // init tRoutineLoadTask and create plan fragment
         TRoutineLoadTask tRoutineLoadTask = new TRoutineLoadTask();
@@ -107,6 +97,11 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         return tRoutineLoadTask;
     }
 
+    @Override
+    protected String getTaskDataSourceProperties() {
+        Gson gson = new Gson();
+        return gson.toJson(partitionIdToOffset);
+    }
 
     private TExecPlanFragmentParams updateTExecPlanFragmentParams(RoutineLoadJob routineLoadJob) throws UserException {
         TExecPlanFragmentParams tExecPlanFragmentParams = routineLoadJob.gettExecPlanFragmentParams().deepCopy();
