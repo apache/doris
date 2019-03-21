@@ -578,7 +578,7 @@ bool EsScanNode::to_ext_literal(ExprContext* context, Expr* expr, TExtLiteral* l
     case TExprNodeType::STRING_LITERAL: {
         TStringLiteral string_literal;
         void* value = context->get_value(expr, NULL);
-        string_literal.__set_value(*reinterpret_cast<string*>(value));
+        string_literal.__set_value((reinterpret_cast<StringValue*>(value))->debug_string());
         literal->__set_string_literal(string_literal);
         return true;
     }
