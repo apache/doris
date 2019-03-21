@@ -609,8 +609,8 @@ bool TabletManager::get_tablet_id_and_schema_hash_from_path(const std::string& p
     for (auto data_dir : data_dirs) {
         const std::string& data_dir_path = data_dir->path();
         if (path.find(data_dir_path) != std::string::npos) {
-            std::string pattern = data_dir_path + "/data/\\d+/(\\d+)/?(\\d+)?";
-            std::regex rgx (pattern.c_str());
+            static std::string pattern = data_dir_path + "/data/\\d+/(\\d+)/?(\\d+)?";
+            static std::regex rgx (pattern.c_str());
             std::smatch sm;
             bool ret = std::regex_search(path, sm, rgx);
             if (ret) {
@@ -632,8 +632,8 @@ bool TabletManager::get_tablet_id_and_schema_hash_from_path(const std::string& p
 }
 
 bool TabletManager::get_rowset_id_from_path(const std::string& path, RowsetId* rowset_id) {
-    std::string pattern = "/data/\\d+/\\d+/\\d+/(\\d+)_.*";
-    std::regex rgx (pattern.c_str());
+    static std::string pattern = "/data/\\d+/\\d+/\\d+/(\\d+)_.*";
+    static std::regex rgx (pattern.c_str());
     std::smatch sm;
     bool ret = std::regex_search(path, sm, rgx);
     if (ret) {

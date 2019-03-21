@@ -35,7 +35,10 @@ namespace doris {
 // Now, After DataDir was created, it will never be deleted for easy implementation.
 class DataDir {
 public:
-    DataDir(const std::string& path, int64_t capacity_bytes = -1);
+    DataDir(const std::string& path,
+            int64_t capacity_bytes = -1,
+            TabletManager* tablet_manager = nullptr,
+            TxnManager* txn_manager = nullptr);
     ~DataDir();
 
     Status init();
@@ -98,9 +101,13 @@ public:
 
     void remove_pending_ids(const std::string& id);
 
-    void perform_path_gc();
-
+    // this function scans the paths in data dir to collect the paths to check
+    // this is a producer function. After scan, it will notify the perform_path_gc function to gc
     void perform_path_scan();
+
+    // this function is a consumer function
+    // this function will collect garbage paths scaned by last function
+    void perform_path_gc();
 
 private:
     std::string _cluster_id_path() const { return _path + CLUSTER_ID_PREFIX; }
@@ -118,7 +125,7 @@ private:
     OLAPStatus _convert_old_tablet();
     OLAPStatus _remove_old_meta_and_files();
 
-    void _remove_check_paths_no_lock(const std::set<std::string> paths);
+    void _remove_check_paths_no_lock(const std::set<std::string>& paths);
 
     void _process_garbage_path(const std::string& path);
 
@@ -129,11 +136,13 @@ private:
 private:
     std::string _path;
     int64_t _path_hash;
-    int32_t _cluster_id;
     uint32_t _rand_seed;
 
     std::string _file_system;
     int64_t _capacity_bytes;
+    TabletManager* _tablet_manager;
+    TxnManager* _txn_manager;
+    int32_t _cluster_id;
     int64_t _available_bytes;
     int64_t _used_bytes;
     uint64_t _current_shard;

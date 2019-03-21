@@ -50,6 +50,23 @@ struct RowsetWriterContext {
 
 class RowsetWriterContextBuilder {
 public:
+    RowsetWriterContextBuilder() {
+        _rowset_writer_context.rowset_id = 0;
+        _rowset_writer_context.tablet_id = 0;
+        _rowset_writer_context.tablet_schema_hash = 0;
+        _rowset_writer_context.partition_id = 0;
+        _rowset_writer_context.rowset_type = ALPHA_ROWSET;
+        _rowset_writer_context.rowset_path_prefix = "";
+        _rowset_writer_context.tablet_schema = nullptr;
+        _rowset_writer_context.rowset_state = PREPARED;
+        _rowset_writer_context.data_dir = nullptr;
+        _rowset_writer_context.version = Version(0,0);
+        _rowset_writer_context.version_hash = 0;
+        _rowset_writer_context.txn_id = 0;
+        _rowset_writer_context.load_id.set_hi(0);
+        _rowset_writer_context.load_id.set_lo(0);
+    }
+
     RowsetWriterContextBuilder& set_rowset_id(int64_t rowset_id) {
         _rowset_writer_context.rowset_id = rowset_id;
         return *this;

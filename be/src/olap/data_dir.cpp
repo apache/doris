@@ -54,10 +54,13 @@ namespace doris {
 static const char* const kMtabPath = "/etc/mtab";
 static const char* const kTestFilePath = "/.testfile";
 
-DataDir::DataDir(const std::string& path, int64_t capacity_bytes)
+DataDir::DataDir(const std::string& path, int64_t capacity_bytes,
+        TabletManager* tablet_manager, TxnManager* txn_manager)
         : _path(path),
-        _cluster_id(-1),
         _capacity_bytes(capacity_bytes),
+        _tablet_manager(tablet_manager),
+        _txn_manager(txn_manager),
+        _cluster_id(-1),
         _available_bytes(0),
         _used_bytes(0),
         _current_shard(0),
@@ -743,7 +746,7 @@ OLAPStatus DataDir::load() {
     LOG(INFO) << "begin loading tablet from meta";
     auto load_tablet_func = [this](long tablet_id,
         long schema_hash, const std::string& value) -> bool {
-        OLAPStatus status = StorageEngine::instance()->tablet_manager()->load_tablet_from_meta(
+        OLAPStatus status = _tablet_manager->load_tablet_from_meta(
                                 this, tablet_id, schema_hash, value);
         if (status != OLAP_SUCCESS) {
             LOG(WARNING) << "load tablet from header failed. status:" << status
@@ -763,7 +766,7 @@ OLAPStatus DataDir::load() {
     // 2. add visible rowset to tablet
     // ignore any errors when load tablet or rowset, because fe will repair them after report
     for (auto rowset_meta : dir_rowset_metas) {
-        TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
+        TabletSharedPtr tablet = _tablet_manager->get_tablet(
                                     rowset_meta->tablet_id(), rowset_meta->tablet_schema_hash());
         // tablet maybe dropped, but not drop related rowset meta
         if (tablet.get() == NULL) {
@@ -786,7 +789,7 @@ OLAPStatus DataDir::load() {
             continue;
         }
         if (rowset_meta->rowset_state() == RowsetStatePB::COMMITTED) {
-            OLAPStatus commit_txn_status = StorageEngine::instance()->txn_manager()->commit_txn(
+            OLAPStatus commit_txn_status = _txn_manager->commit_txn(
                 _meta,
                 rowset_meta->partition_id(), rowset_meta->txn_id(), 
                 rowset_meta->tablet_id(), rowset_meta->tablet_schema_hash(), 
@@ -860,18 +863,18 @@ void DataDir::perform_path_gc() {
         std::string path = *path_iter;
         TTabletId tablet_id = -1;
         TSchemaHash schema_hash = -1;
-        bool is_valid = StorageEngine::instance()->tablet_manager()->get_tablet_id_and_schema_hash_from_path(path,
+        bool is_valid = _tablet_manager->get_tablet_id_and_schema_hash_from_path(path,
                 &tablet_id, &schema_hash);
         std::set<std::string> paths;
         paths.insert(path);
         if (!is_valid) {
-            LOG(WARNING) << "unknow path:" << path;
+            LOG(WARNING) << "unknown path:" << path;
             _remove_check_paths_no_lock(paths);
             continue;
         } else {
-            if (tablet_id >0 && schema_hash >0) {
+            if (tablet_id > 0 && schema_hash > 0) {
                 // tablet schema hash path or rowset file path
-                TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash);
+                TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id, schema_hash);
                 if (tablet == nullptr) {
                     std::string tablet_path_id = TABLET_ID_PREFIX + std::to_string(tablet_id);
                     bool exist_in_pending = _check_pending_ids(tablet_path_id);
@@ -884,7 +887,7 @@ void DataDir::perform_path_gc() {
                     bool valid = tablet->check_path(path);
                     if (!valid) {
                         RowsetId rowset_id = -1;
-                        bool is_rowset_file = StorageEngine::instance()->tablet_manager()
+                        bool is_rowset_file = _tablet_manager
                                 ->get_rowset_id_from_path(path, &rowset_id);
                         if (is_rowset_file) {
                             std::string rowset_path_id = ROWSET_ID_PREFIX + std::to_string(rowset_id);
@@ -897,10 +900,10 @@ void DataDir::perform_path_gc() {
                         }
                     }
                 }
-            } else if (tablet_id >0 && schema_hash <= 0) {
+            } else if (tablet_id > 0 && schema_hash <= 0) {
                 // tablet id path
                 if (FileUtils::is_dir(path)) {
-                    bool exist = StorageEngine::instance()->tablet_manager()->check_tablet_id_exist(tablet_id);
+                    bool exist = _tablet_manager->check_tablet_id_exist(tablet_id);
                     if (!exist) {
                         std::string tablet_path_id = TABLET_ID_PREFIX + std::to_string(tablet_id);
                         bool exist_in_pending = _check_pending_ids(tablet_path_id);
@@ -990,7 +993,7 @@ bool DataDir::_check_pending_ids(const std::string& id) {
     return _pending_path_ids.find(id) != _pending_path_ids.end();
 }
 
-void DataDir::_remove_check_paths_no_lock(const std::set<std::string> paths) {
+void DataDir::_remove_check_paths_no_lock(const std::set<std::string>& paths) {
     for (const auto& path : paths) {
         auto path_iter = _all_check_paths.find(path);
         if (path_iter != _all_check_paths.end()) {
