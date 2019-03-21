@@ -18,16 +18,19 @@
 package org.apache.doris.load.routineload;
 
 
+import com.google.common.collect.Lists;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.thrift.TRoutineLoadTask;
 import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.TransactionState;
 
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -41,12 +44,12 @@ public abstract class RoutineLoadTaskInfo {
     private RoutineLoadManager routineLoadManager = Catalog.getCurrentCatalog().getRoutineLoadManager();
     
     protected UUID id;
-    protected long txnId;
+    protected long txnId = -1L;
     protected long jobId;
     protected String clusterName;
 
     private long createTimeMs;
-    private long loadStartTimeMs;
+    private long loadStartTimeMs = -1L;
     // the be id of previous task
     protected long previousBeId = -1L;
     // the be id of this task
@@ -113,6 +116,20 @@ public abstract class RoutineLoadTaskInfo {
                 routineLoadJob.getDbId(), DebugUtil.printId(id), -1, "streamLoad",
                 TransactionState.LoadJobSourceType.ROUTINE_LOAD_TASK, routineLoadJob.getId());
     }
+
+    public List<String> getTaskShowInfo() {
+        List<String> row = Lists.newArrayList();
+        row.add(DebugUtil.printId(id));
+        row.add(String.valueOf(txnId));
+        row.add(String.valueOf(jobId));
+        row.add(String.valueOf(TimeUtils.longToTimeString(createTimeMs)));
+        row.add(String.valueOf(TimeUtils.longToTimeString(loadStartTimeMs)));
+        row.add(String.valueOf(beId));
+        row.add(getTaskDataSourceProperties());
+        return row;
+    }
+
+    abstract String getTaskDataSourceProperties();
     
     @Override
     public boolean equals(Object obj) {

@@ -19,6 +19,7 @@ package org.apache.doris.load.routineload;
 
 import org.apache.doris.analysis.ColumnSeparator;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
+import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.ParseNode;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Catalog;
@@ -68,6 +69,7 @@ public class RoutineLoadManagerTest {
             @Mocked Catalog catalog) throws UserException {
         String jobName = "job1";
         String dbName = "db1";
+        LabelName labelName = new LabelName(dbName, jobName);
         String tableNameString = "table1";
         TableName tableName = new TableName(dbName, tableNameString);
         List<ParseNode> loadPropertyList = new ArrayList<>();
@@ -81,7 +83,7 @@ public class RoutineLoadManagerTest {
         customProperties.put(CreateRoutineLoadStmt.KAFKA_TOPIC_PROPERTY, topicName);
         String serverAddress = "http://127.0.0.1:8080";
         customProperties.put(CreateRoutineLoadStmt.KAFKA_BROKER_LIST_PROPERTY, serverAddress);
-        CreateRoutineLoadStmt createRoutineLoadStmt = new CreateRoutineLoadStmt(jobName, tableName,
+        CreateRoutineLoadStmt createRoutineLoadStmt = new CreateRoutineLoadStmt(labelName, tableNameString,
                                                                                 loadPropertyList, properties,
                                                                                 typeName, customProperties);
 
@@ -133,6 +135,7 @@ public class RoutineLoadManagerTest {
                                       @Mocked Catalog catalog) {
         String jobName = "job1";
         String dbName = "db1";
+        LabelName labelName = new LabelName(dbName, jobName);
         String tableNameString = "table1";
         TableName tableName = new TableName(dbName, tableNameString);
         List<ParseNode> loadPropertyList = new ArrayList<>();
@@ -146,7 +149,7 @@ public class RoutineLoadManagerTest {
         customProperties.put(CreateRoutineLoadStmt.KAFKA_TOPIC_PROPERTY, topicName);
         String serverAddress = "http://127.0.0.1:8080";
         customProperties.put(CreateRoutineLoadStmt.KAFKA_BROKER_LIST_PROPERTY, serverAddress);
-        CreateRoutineLoadStmt createRoutineLoadStmt = new CreateRoutineLoadStmt(jobName, tableName,
+        CreateRoutineLoadStmt createRoutineLoadStmt = new CreateRoutineLoadStmt(labelName, tableNameString,
                                                                                 loadPropertyList, properties,
                                                                                 typeName, customProperties);
 
