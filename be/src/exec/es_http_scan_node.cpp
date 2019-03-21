@@ -27,6 +27,8 @@
 #include "runtime/dpp_sink_internal.h"
 #include "service/backend_options.h"
 #include "util/runtime_profile.h"
+#include "exec/es_query_builder.h"
+#include "exec/es_scan_reader.h"
 
 namespace doris {
 
@@ -36,6 +38,7 @@ EsHttpScanNode::EsHttpScanNode(
             _tuple_id(tnode.es_scan_node.tuple_id),
             _runtime_state(nullptr),
             _tuple_desc(nullptr),
+            _query_builder(nullptr),
             _num_running_scanners(0),
             _scan_finished(false),
             _eos(false),
@@ -48,7 +51,7 @@ EsHttpScanNode::~EsHttpScanNode() {
 
 Status EsHttpScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ScanNode::init(tnode));
-    _properties = tnode.es_http_scan_node.properties;
+    _properties = tnode.es_scan_node.properties;
     return Status::OK;
 }
 
@@ -62,6 +65,13 @@ Status EsHttpScanNode::prepare(RuntimeState* state) {
         std::stringstream ss;
         ss << "Failed to get tuple descriptor, _tuple_id=" << _tuple_id;
         return Status(ss.str());
+    }
+
+    for (auto slot_desc : _tuple_desc->slots()) {
+        if (!slot_desc->is_materialized()) {
+            continue;
+        }
+        _column_names.push_back(slot_desc->col_name());
     }
 
     _wait_scanner_timer = ADD_TIMER(runtime_profile(), "WaitScannerTime");
@@ -344,13 +354,14 @@ void EsHttpScanNode::scanner_worker(int start_idx, int length) {
         const TEsScanRange& es_scan_range = 
             _scan_ranges[start_idx + i].scan_range.es_scan_range;
 
-        _properties[EsReader::INDEX] = es_scan_range.index;
+        _properties[EsScanReader::INDEX] = es_scan_range.index;
         if (es_scan_range.__isset.type) {
-            _properties[EsReader::TYPE] = es_scan_range.type;
+            _properties[EsScanReader::TYPE] = es_scan_range.type;
         }
-        _properties[EsReader::SHARD_ID] = std::to_string(es_scan_range.shard_id);
-        _properties[EsReader::BATCH_SIZE] = std::to_string(_runtime_state->batch_size());
-        _properties[EsReader::HOST] = get_host_port(es_scan_range.es_hosts);
+        _properties[EsScanReader::SHARD_ID] = std::to_string(es_scan_range.shard_id);
+        _properties[EsScanReader::BATCH_SIZE] = std::to_string(_runtime_state->batch_size());
+        _properties[EsScanReader::HOST] = get_host_port(es_scan_range.es_hosts);
+        _properties[EsScanReader::QUERY] = EsQueryBuilder::build(_properties, _column_names);
 
         status = scanner_scan(_tuple_id, _properties, scanner_expr_ctxs, &counter);
         if (!status.ok()) {

@@ -26,7 +26,6 @@
 
 #include "common/status.h"
 #include "common/global_types.h"
-#include "exec/es_reader.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/Types_types.h"
 #include "runtime/mem_pool.h"
@@ -46,6 +45,7 @@ class TupleRow;
 class RowDescriptor;
 class MemTracker;
 class RuntimeProfile;
+class EsScanReader;
 
 struct EsScanCounter {
     EsScanCounter() : num_rows_returned(0), num_rows_filtered(0) {
@@ -93,8 +93,8 @@ private:
 
     const TupleDescriptor* _tuple_desc;
     EsScanCounter* _counter;
-    std::vector<std::string> _column_names;
-    std::unique_ptr<EsReader> _es_reader;
+    std::unique_ptr<EsScanReader> _es_reader;
+    std::map<std::string, SlotDescriptor*> _slots_map;
 
     // Profile
     RuntimeProfile::Counter* _rows_read_counter;

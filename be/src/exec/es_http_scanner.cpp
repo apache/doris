@@ -26,6 +26,7 @@
 #include "runtime/raw_value.h"
 #include "runtime/tuple.h"
 #include "exprs/expr.h"
+#include "exec/es_scan_reader.h"
 #include "exec/text_converter.h"
 #include "exec/text_converter.hpp"
 
@@ -54,6 +55,7 @@ EsHttpScanner::EsHttpScanner(
 #endif
         _tuple_desc(nullptr),
         _counter(counter),
+        _es_reader(nullptr),
         _rows_read_counter(nullptr),
         _read_timer(nullptr),
         _materialize_timer(nullptr) {
@@ -71,15 +73,17 @@ Status EsHttpScanner::open() {
         return Status(ss.str());
     }
 
-    for (auto slot_desc : _tuple_desc->slots()) {
-        if (!slot_desc->is_materialized()) {
-            continue;
+    for (auto slot : _tuple_desc->slots()) {
+        auto pair = _slots_map.emplace(slot->col_name(), slot);
+        if (!pair.second) {
+            std::stringstream ss;
+            ss << "Failed to insert slot, col_name=" << slot->col_name();
+            return Status(ss.str());
         }
-        _column_names.push_back(slot_desc->col_name());
     }
 
-    const std::string& host = _properties.at(EsReader::HOST);
-    _es_reader.reset(new EsReader(host, _properties, _column_names));
+    const std::string& host = _properties.at(EsScanReader::HOST);
+    _es_reader.reset(new EsScanReader(host, _properties));
     if (_es_reader == nullptr) {
         return Status("Es reader construct failed.");
     }
@@ -102,9 +106,9 @@ Status EsHttpScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
     SCOPED_TIMER(_read_timer);
     _eof = false;
     while (!_eof) {
-        uint8_t* ptr = nullptr;
+        std::string* buffer = new std::string();
         size_t size = 0;
-        RETURN_IF_ERROR(_es_reader->read(ptr, &size, &_eof));
+        RETURN_IF_ERROR(_es_reader->get_next(&_eof, buffer));
         *eof = _eof;
         if (size == 0) {
             continue;

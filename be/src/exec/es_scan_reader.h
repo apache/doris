@@ -26,31 +26,29 @@
 
 namespace doris {
 
-class EsReader {
+class EsScanReader {
 public:
     constexpr static const char* HOST = "host";
     constexpr static const char* INDEX = "index";
     constexpr static const char* TYPE = "type";
     constexpr static const char* SHARD_ID = "shard_id";
     constexpr static const char* BATCH_SIZE = "batch_size";
+    constexpr static const char* QUERY = "query";
 
-    EsReader(const std::string& target,
-                const std::map<std::string, std::string>& properties,
-                const std::vector<std::string>& columns) : 
+    EsScanReader(const std::string& target,
+                const std::map<std::string, std::string>& properties) :
         _target(target),
         _properties(properties),
-        _columns(columns),
         _eof(false) {
         }
 
-    ~EsReader() {};
+    ~EsScanReader() {};
 
     Status open() { return Status::OK; }
 
-    Status read(uint8_t* buf, size_t* buf_len, bool* eof) {
+    Status get_next(bool* eof, std::string* buf) {
         const char* json = "{\"_scroll_id\": \"DXF1ZXJ5QW5kRmV0Y2gBAAAAAAAA1ewWbEhKNHRWX1NTNG04bERuV05RUlA5Zw==\",\"hits\": {\"total\": 10,\"hits\": [{\"_source\": {\"id\": 1}},{\"_source\": {\"id\": 2}}]}}";
-        memcpy(buf, json, strlen(json));
-        *buf_len = strlen(json);
+        buf->append(json);
         *eof = true;
         return Status::OK;
     }
@@ -61,7 +59,6 @@ private:
 
     const std::string& _target;
     const std::map<std::string, std::string>& _properties;
-    const std::vector<std::string>& _columns;
     bool _eof;
 };
 

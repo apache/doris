@@ -37,6 +37,7 @@ class RuntimeState;
 class PartRangeKey;
 class PartitionInfo;
 class EsHttpScanCounter;
+class EsQueryBuilder;
 
 class EsHttpScanNode : public ScanNode {
 public:
@@ -86,6 +87,7 @@ private:
     TupleId _tuple_id;
     RuntimeState* _runtime_state;
     TupleDescriptor* _tuple_desc;
+    std::unique_ptr<EsQueryBuilder> _query_builder;
 
     int _num_running_scanners;
     std::atomic<bool> _scan_finished;
@@ -99,6 +101,7 @@ private:
     std::vector<std::thread> _scanner_threads;
     std::map<std::string, std::string> _properties;
     std::vector<TScanRangeParams> _scan_ranges;
+    std::vector<std::string> _column_names;
 
     std::mutex _batch_queue_lock;
     std::condition_variable _queue_reader_cond;
