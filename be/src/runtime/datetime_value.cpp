@@ -1541,7 +1541,7 @@ int DateTimeValue::unix_timestamp() const {
     return seconds;
 }
 
-bool DateTimeValue::from_unixtime(int seconds) {
+bool DateTimeValue::from_unixtime(int64_t seconds) {
     if (seconds < 0) {
         return false;
     }
