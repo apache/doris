@@ -385,6 +385,16 @@ void OlapScanner::_convert_row_to_tuple(Tuple* tuple) {
             *slot = DecimalValue(int_value, frac_value);
             break;
         }
+        case TYPE_DECIMALV2: {
+            DecimalV2Value *slot = tuple->get_decimalv2_slot(slot_desc->tuple_offset());
+
+            int64_t int_value = *(int64_t*)(ptr);
+            int32_t frac_value = *(int32_t*)(ptr + sizeof(int64_t));
+            if (!slot->from_olap_decimal(int_value, frac_value)) {
+                tuple->set_null(slot_desc->null_indicator_offset());
+            }
+            break;
+        }
         case TYPE_DATETIME: {
             DateTimeValue *slot = tuple->get_datetime_slot(slot_desc->tuple_offset());
             uint64_t value = *reinterpret_cast<uint64_t*>(ptr);

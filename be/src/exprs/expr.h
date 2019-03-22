@@ -33,6 +33,7 @@
 #include "runtime/string_value.hpp"
 #include "runtime/datetime_value.h"
 #include "runtime/decimal_value.h"
+#include "runtime/decimalv2_value.h"
 #include "udf/udf.h"
 #include "runtime/types.h"
 //#include <boost/scoped_ptr.hpp>
@@ -122,6 +123,7 @@ public:
     // virtual ArrayVal GetArrayVal(ExprContext* context, TupleRow*);
     virtual DateTimeVal get_datetime_val(ExprContext* context, TupleRow*);
     virtual DecimalVal get_decimal_val(ExprContext* context, TupleRow*);
+    virtual DecimalV2Val get_decimalv2_val(ExprContext* context, TupleRow*);
 
     // Get the number of digits after the decimal that should be displayed for this
     // value. Returns -1 if no scale has been specified (currently the scale is only set for
@@ -514,6 +516,7 @@ private:
     static StringVal get_string_val(Expr* expr, ExprContext* context, TupleRow* row);
     static DateTimeVal get_datetime_val(Expr* expr, ExprContext* context, TupleRow* row);
     static DecimalVal get_decimal_val(Expr* expr, ExprContext* context, TupleRow* row);
+    static DecimalV2Val get_decimalv2_val(Expr* expr, ExprContext* context, TupleRow* row);
 
     // Helper function for InlineConstants(). Returns the IR version of what GetConstant()
     // would return.

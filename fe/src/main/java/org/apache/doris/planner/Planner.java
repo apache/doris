@@ -86,10 +86,17 @@ public class Planner {
                 for (Expr expr : outputExprs) {
                     List<SlotId> slotList = Lists.newArrayList();
                     expr.getIds(null, slotList);
-                    if (PrimitiveType.DECIMAL == expr.getType().getPrimitiveType()
-                            && slotList.contains(slotDesc.getId())
-                            && PrimitiveType.DECIMAL == slotDesc.getType().getPrimitiveType()
-                            && null != slotDesc.getColumn()) {
+                    if (PrimitiveType.DECIMAL != expr.getType().getPrimitiveType() && 
+                            PrimitiveType.DECIMALV2 != expr.getType().getPrimitiveType()) {
+                        continue;
+                            }
+
+                    if (PrimitiveType.DECIMAL != slotDesc.getType().getPrimitiveType() &&
+                            PrimitiveType.DECIMALV2 != slotDesc.getType().getPrimitiveType()) {
+                        continue;
+                            }
+
+                    if (slotList.contains(slotDesc.getId()) && null != slotDesc.getColumn()) {
                         // TODO output scale
                         // int outputScale = slotDesc.getColumn().getType().getScale();
                         int outputScale = 10;

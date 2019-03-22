@@ -46,6 +46,11 @@ void ColumnValueRange<DecimalValue>::convert_to_fixed_value() {
 }
 
 template<>
+void ColumnValueRange<DecimalV2Value>::convert_to_fixed_value() {
+    return;
+}
+
+template<>
 void ColumnValueRange<__int128>::convert_to_fixed_value() {
     return;
 }
@@ -147,6 +152,7 @@ Status DorisScanRange::init() {
         case TYPE_VARCHAR:
         case TYPE_CHAR:
         case TYPE_DECIMAL:
+        case TYPE_DECIMALV2:
         case TYPE_DATE:
         case TYPE_DATETIME:
             break;
