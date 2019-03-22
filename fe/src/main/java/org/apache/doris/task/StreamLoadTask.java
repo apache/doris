@@ -29,7 +29,6 @@ import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
@@ -37,13 +36,12 @@ import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Joiner;
-import com.google.common.collect.Maps;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.StringReader;
-import java.util.Map;
+import java.util.List;
 import java.util.UUID;
 
 public class StreamLoadTask {
@@ -56,7 +54,7 @@ public class StreamLoadTask {
     private TFileFormatType formatType;
 
     // optional
-    private Map<String, Expr> columnToColumnExpr;
+    private List<ImportColumnDesc> columnExprDesc;
     private Expr whereExpr;
     private ColumnSeparator columnSeparator;
     private String partitions;
@@ -85,8 +83,8 @@ public class StreamLoadTask {
         return formatType;
     }
 
-    public Map<String, Expr> getColumnToColumnExpr() {
-        return columnToColumnExpr;
+    public List<ImportColumnDesc> getColumnExprDesc() {
+        return columnExprDesc;
     }
 
     public Expr getWhereExpr() {
@@ -128,6 +126,9 @@ public class StreamLoadTask {
         switch (request.getFileType()) {
             case FILE_LOCAL:
                 path = request.getPath();
+                break;
+            default:
+                throw new UserException("unsupported file type, type=" + request.getFileType());
         }
     }
 
@@ -143,7 +144,7 @@ public class StreamLoadTask {
     }
 
     private void setOptionalFromRoutineLoadJob(RoutineLoadJob routineLoadJob) {
-        columnToColumnExpr = routineLoadJob.getColumnToColumnExpr();
+        columnExprDesc = routineLoadJob.getColumnDescs();
         whereExpr = routineLoadJob.getWhereExpr();
         columnSeparator = routineLoadJob.getColumnSeparator();
         partitions = routineLoadJob.getPartitions() == null ? null : Joiner.on(",").join(routineLoadJob.getPartitions());
@@ -173,10 +174,7 @@ public class StreamLoadTask {
         }
 
         if (columnsStmt.getColumns() != null || columnsStmt.getColumns().size() != 0) {
-            columnToColumnExpr = Maps.newHashMap();
-            for (ImportColumnDesc columnDesc : columnsStmt.getColumns()) {
-                columnToColumnExpr.put(columnDesc.getColumn(), columnDesc.getExpr());
-            }
+            columnExprDesc = columnsStmt.getColumns();
         }
     }
 
