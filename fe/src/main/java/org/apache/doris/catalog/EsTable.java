@@ -77,29 +77,33 @@ public class EsTable extends Table {
                     + "they are: hosts, user, password, index");
         }
 
-        hosts = properties.get(HOSTS).trim();
-        if (Strings.isNullOrEmpty(hosts)) {
+        if (Strings.isNullOrEmpty(properties.get(HOSTS))
+                || Strings.isNullOrEmpty(properties.get(HOSTS).trim())) {
             throw new DdlException("Hosts of ES table is null. "
                     + "Please add properties('hosts'='xxx.xxx.xxx.xxx,xxx.xxx.xxx.xxx') when create table");
         }
+        hosts = properties.get(HOSTS).trim();
         seeds = hosts.split(",");
-        // TODO(ygl) validate the seeds? 
 
-        if (!Strings.isNullOrEmpty(properties.get(USER).trim())) {
+        if (!Strings.isNullOrEmpty(properties.get(USER)) 
+                && !Strings.isNullOrEmpty(properties.get(USER).trim())) {
             userName = properties.get(USER).trim();
         }
 
-        if (!Strings.isNullOrEmpty(properties.get(PASSWORD).trim())) {
+        if (!Strings.isNullOrEmpty(properties.get(PASSWORD))
+                && !Strings.isNullOrEmpty(properties.get(PASSWORD).trim())) {
             passwd = properties.get(PASSWORD).trim();
         }
 
-        indexName = properties.get(INDEX).trim();
-        if (Strings.isNullOrEmpty(indexName)) {
+        if (Strings.isNullOrEmpty(properties.get(INDEX))
+                || Strings.isNullOrEmpty(properties.get(INDEX).trim())) {
             throw new DdlException("Index of ES table is null. "
                     + "Please add properties('index'='xxxx') when create table");
         }
+        indexName = properties.get(INDEX).trim();
 
-        if (!Strings.isNullOrEmpty(properties.get(TYPE).trim())) {
+        if (!Strings.isNullOrEmpty(properties.get(TYPE))
+                && !Strings.isNullOrEmpty(properties.get(TYPE).trim())) {
             mappingType = properties.get(TYPE).trim();
         }
     }
