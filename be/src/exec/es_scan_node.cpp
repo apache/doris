@@ -186,6 +186,7 @@ Status EsScanNode::open(RuntimeState* state) {
     for (int i = predicate_to_conjunct.size() - 1; i >= 0; i--) {
         int conjunct_index = predicate_to_conjunct[i];
         if (conjunct_accepted_times[conjunct_index] == _scan_ranges.size()) {
+            _pushdown_conjunct_ctxs.push_back(*(_conjunct_ctxs.begin() + conjunct_index));
             _conjunct_ctxs.erase(_conjunct_ctxs.begin() + conjunct_index);
         }
     }
@@ -259,7 +260,8 @@ Status EsScanNode::close(RuntimeState* state) {
     VLOG(1) << "EsScanNode::Close";
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::CLOSE));
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-
+    Expr::close(_pushdown_conjunct_ctxs, state);
+    RETURN_IF_ERROR(ExecNode::close(state));
     for (int i = 0; i < _addresses.size(); ++i) {
         TExtCloseParams params;
         params.__set_scan_handle(_scan_handles[i]);
@@ -307,7 +309,6 @@ Status EsScanNode::close(RuntimeState* state) {
 #endif
     }
 
-    RETURN_IF_ERROR(ExecNode::close(state));
     return Status::OK;
 }
 
@@ -563,21 +564,53 @@ bool EsScanNode::to_ext_literal(ExprContext* context, Expr* expr, TExtLiteral* l
     case TExprNodeType::FLOAT_LITERAL: {
         TFloatLiteral float_literal;
         void* value = context->get_value(expr, NULL);
-        float_literal.__set_value(*reinterpret_cast<float*>(value));
+        switch (expr->type().type) {
+        case TYPE_FLOAT: {
+            float_literal.__set_value(*reinterpret_cast<float*>(value));
+            break;
+        }
+        case TYPE_DOUBLE: {
+            float_literal.__set_value(*((double *)value));
+            break;
+        }
+        default:
+            return false;
+        }
         literal->__set_float_literal(float_literal);
         return true;
     }
     case TExprNodeType::INT_LITERAL: {
         TIntLiteral int_literal;
         void* value = context->get_value(expr, NULL);
-        int_literal.__set_value(*reinterpret_cast<int32_t*>(value));
+        int64_t int_val = 0;
+        switch (expr->type().type) {
+        case TYPE_TINYINT: {
+            int_val = *reinterpret_cast<int8_t*>(value);
+            break;
+        }
+        case TYPE_SMALLINT: {
+            int_val = *reinterpret_cast<int16_t*>(value);
+            break;
+        }
+        case TYPE_INT: {
+            int_val = *reinterpret_cast<int32_t*>(value);
+            break;
+        }
+        case TYPE_BIGINT: {
+            int_val = *reinterpret_cast<int64_t*>(value);
+            break;
+        }
+        default:
+            return false;
+        }
+        int_literal.__set_value(int_val);
         literal->__set_int_literal(int_literal);
         return true;
     }
     case TExprNodeType::STRING_LITERAL: {
         TStringLiteral string_literal;
         void* value = context->get_value(expr, NULL);
-        string_literal.__set_value(*reinterpret_cast<string*>(value));
+        string_literal.__set_value((reinterpret_cast<StringValue*>(value))->debug_string());
         literal->__set_string_literal(string_literal);
         return true;
     }
@@ -783,6 +816,7 @@ Status EsScanNode::materialize_row(MemPool* tuple_pool, Tuple* tuple,
             !reinterpret_cast<DateTimeValue*>(slot)->from_unixtime(col.long_vals[val_idx])) {
           return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "TYPE_DATETIME"));
         }
+        reinterpret_cast<DateTimeValue*>(slot)->set_type(TIME_DATETIME);
         break;
       }
       case TYPE_DECIMAL: {
