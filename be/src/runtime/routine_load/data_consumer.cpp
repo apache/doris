@@ -149,6 +149,7 @@ Status KafkaDataConsumer::start(StreamLoadContext* ctx) {
 
     // copy one
     std::map<int32_t, int64_t> cmt_offset = ctx->kafka_info->cmt_offset;
+    MonotonicStopWatch consumer_watch;
     MonotonicStopWatch watch;
     watch.start();
     Status st;
@@ -166,10 +167,11 @@ Status KafkaDataConsumer::start(StreamLoadContext* ctx) {
         }
 
         if (left_time <= 0 || left_rows <= 0 || left_bytes <=0) {
-            VLOG(3) << "kafka consume batch done"
+            LOG(INFO) << "kafka consume batch done"
                     << ". left time=" << left_time
                     << ", left rows=" << left_rows
-                    << ", left bytes=" << left_bytes; 
+                    << ", left bytes=" << left_bytes
+                    << ", consumer time(ms)=" << consumer_watch.elapsed_time() / 1000 / 1000;
 
             if (left_bytes == ctx->max_batch_size) {
                 // nothing to be consumed, cancel it
@@ -182,16 +184,19 @@ Status KafkaDataConsumer::start(StreamLoadContext* ctx) {
                 DCHECK(left_rows < ctx->max_batch_rows);
                 kakfa_pipe->finish();
                 ctx->kafka_info->cmt_offset = std::move(cmt_offset); 
+                ctx->receive_bytes = ctx->max_batch_size - left_bytes;
                 _finished = true;
                 return Status::OK;
             }
         }
 
         // consume 1 message at a time
+        consumer_watch.start();
         RdKafka::Message *msg = _k_consumer->consume(1000 /* timeout, ms */);
+        consumer_watch.stop();
         switch (msg->err()) {
             case RdKafka::ERR_NO_ERROR:
-                LOG(INFO) << "get kafka message"
+                VLOG(3) << "get kafka message"
                         << ", partition: " << msg->partition()
                         << ", offset: " << msg->offset()
                         << ", len: " << msg->len();

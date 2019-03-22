@@ -74,6 +74,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Full scan of an Olap table.
@@ -317,8 +318,14 @@ public class OlapScanNode extends ScanNode {
         if (partitionIds == null) {
             partitionIds = new ArrayList<Long>();
             for (Partition partition : olapTable.getPartitions()) {
+                if (!partition.hasData()) {
+                    continue;
+                }
                 partitionIds.add(partition.getId());
             }
+        } else {
+            partitionIds = partitionIds.stream().filter(id -> olapTable.getPartition(id).hasData()).collect(
+                    Collectors.toList());
         }
 
         selectedPartitionNum = partitionIds.size();

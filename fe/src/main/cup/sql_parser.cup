@@ -1205,7 +1205,7 @@ load_property ::=
     {:
       RESULT = columnsInfo;
     :}
-    | where_clause_without_null:wherePredicate
+    | import_where_stmt:wherePredicate
     {:
       RESULT = wherePredicate;
     :}
