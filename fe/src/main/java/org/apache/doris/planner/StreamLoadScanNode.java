@@ -18,18 +18,13 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.ColumnSeparator;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.ImportColumnDesc;
-import org.apache.doris.analysis.ImportColumnsStmt;
-import org.apache.doris.analysis.ImportWhereStmt;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.analysis.SqlParser;
-import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
@@ -49,7 +44,6 @@ import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocations;
-import org.apache.doris.thrift.TStreamLoadPutRequest;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -57,7 +51,6 @@ import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.StringReader;
 import java.nio.charset.Charset;
 import java.util.List;
 import java.util.Map;
@@ -124,14 +117,14 @@ public class StreamLoadScanNode extends ScanNode {
         // columns: k1, k2, v1, v2=k1 + k2
         // this means that there are three columns(k1, k2, v1) in source file,
         // and v2 is derived from (k1 + k2)
-        if (streamLoadTask.getColumnToColumnExpr() != null && streamLoadTask.getColumnToColumnExpr().size() != 0) {
-            for (Map.Entry<String, Expr> entry : streamLoadTask.getColumnToColumnExpr().entrySet()) {
+        if (streamLoadTask.getColumnExprDesc() != null && streamLoadTask.getColumnExprDesc().size() != 0) {
+            for (ImportColumnDesc importColumnDesc : streamLoadTask.getColumnExprDesc()) {
                 // make column name case match with real column name
-                String column = entry.getKey();
-                String realColName = dstTable.getColumn(column) == null ? column
-                        : dstTable.getColumn(column).getName();
-                if (entry.getValue() != null) {
-                    exprsByName.put(realColName, entry.getValue());
+                String columnName = importColumnDesc.getColumnName();
+                String realColName = dstTable.getColumn(columnName) == null ? columnName
+                        : dstTable.getColumn(columnName).getName();
+                if (importColumnDesc.getExpr() != null) {
+                    exprsByName.put(realColName, importColumnDesc.getExpr());
                 } else {
                     SlotDescriptor slotDesc = analyzer.getDescTbl().addSlotDescriptor(srcTupleDesc);
                     slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));

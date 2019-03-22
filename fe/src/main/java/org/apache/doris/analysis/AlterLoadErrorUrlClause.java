@@ -29,8 +29,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.Map;
 
 // FORMAT:
-//   ALTER SYSTEM SET GLOBAL LOAD_ERROR_URL= "mysql://user:password@host:port[/database[/table]]"
-//   ALTER SYSTEM SET GLOBAL LOAD_ERROR_URL= "broker://"
+//   ALTER SYSTEM SET LOAD ERRORS HUB properties("type" = "xxx");
 
 public class AlterLoadErrorUrlClause extends AlterClause {
     private static final Logger LOG = LogManager.getLogger(AlterLoadErrorUrlClause.class);
