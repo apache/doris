@@ -168,16 +168,8 @@ uint32_t HashTable::hash_variable_len_row() {
                 DecimalValue* decimal = reinterpret_cast<DecimalValue*>(loc);
                 hash = decimal->hash(hash);
             }
-        } else if (_build_expr_ctxs[i]->root()->type().type == TYPE_DECIMALV2) {
-            void* loc = _expr_values_buffer + _expr_values_buffer_offsets[i];
-            if (_expr_value_null_bits[i]) {
-                // Hash the null random seed values at 'loc'
-                hash = HashUtil::hash(loc, sizeof(StringValue), hash);
-            } else {
-                DecimalV2Value* decimal = reinterpret_cast<DecimalV2Value*>(loc);
-                hash = decimal->hash(hash);
-            }
         }
+        
     }
 
     return hash;
