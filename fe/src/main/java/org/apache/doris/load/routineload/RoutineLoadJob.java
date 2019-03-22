@@ -17,8 +17,6 @@
 
 package org.apache.doris.load.routineload;
 
-import com.google.common.base.Joiner;
-import com.google.gson.Gson;
 import org.apache.doris.analysis.ColumnSeparator;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.Expr;
@@ -55,9 +53,11 @@ import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TxnStateChangeListener;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.gson.Gson;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -136,7 +136,7 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
     protected long authCode;
     //    protected RoutineLoadDesc routineLoadDesc; // optional
     protected List<String> partitions; // optional
-    protected Map<String, Expr> columnToColumnExpr; // optional
+    protected List<ImportColumnDesc> columnDescs; // optional
     protected Expr whereExpr; // optional
     protected ColumnSeparator columnSeparator; // optional
     protected int desireTaskConcurrentNum; // optional
@@ -240,9 +240,9 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
             if (routineLoadDesc.getColumnsInfo() != null) {
                 ImportColumnsStmt columnsStmt = routineLoadDesc.getColumnsInfo();
                 if (columnsStmt.getColumns() != null || columnsStmt.getColumns().size() != 0) {
-                    columnToColumnExpr = Maps.newHashMap();
+                    columnDescs = Lists.newArrayList();
                     for (ImportColumnDesc columnDesc : columnsStmt.getColumns()) {
-                        columnToColumnExpr.put(columnDesc.getColumn(), columnDesc.getExpr());
+                        columnDescs.add(columnDesc);
                     }
                 }
             }
@@ -337,8 +337,8 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
         return partitions;
     }
 
-    public Map<String, Expr> getColumnToColumnExpr() {
-        return columnToColumnExpr;
+    public List<ImportColumnDesc> getColumnDescs() {
+        return columnDescs;
     }
 
     public Expr getWhereExpr() {
@@ -488,8 +488,11 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
                                  .add("max_error_num", maxErrorNum)
                                  .add("msg", "current error rows is more then max error num, begin to pause job")
                                  .build());
-                // remove all of task in jobs and change job state to paused
-                updateState(JobState.PAUSED, "current error rows of job is more then max error num", isReplay);
+                // if this is a replay thread, the update state should already be replayed by OP_CHANGE_ROUTINE_LOAD_JOB
+                if (!isReplay) {
+                    // remove all of task in jobs and change job state to paused
+                    updateState(JobState.PAUSED, "current error rows of job is more then max error num", isReplay);
+                }
             }
 
             LOG.debug(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
@@ -508,8 +511,10 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
                              .add("max_error_num", maxErrorNum)
                              .add("msg", "current error rows is more then max error rows, begin to pause job")
                              .build());
-            // remove all of task in jobs and change job state to paused
-            updateState(JobState.PAUSED, "current error rows is more then max error num", isReplay);
+            if (!isReplay) {
+                // remove all of task in jobs and change job state to paused
+                updateState(JobState.PAUSED, "current error rows is more then max error num", isReplay);
+            }
             // reset currentTotalNum and currentErrorNum
             currentErrorRows = 0;
             currentTotalRows = 0;
@@ -624,6 +629,7 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
 
     @Override
     public void replayOnCommitted(TransactionState txnState) {
+        Preconditions.checkNotNull(txnState.getTxnCommitAttachment(), txnState);
         replayUpdateProgress((RLTaskTxnCommitAttachment) txnState.getTxnCommitAttachment());
         LOG.debug("replay on committed: {}", txnState);
     }
@@ -685,8 +691,11 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
 
     @Override
     public void replayOnAborted(TransactionState txnState) {
-        replayUpdateProgress((RLTaskTxnCommitAttachment) txnState.getTxnCommitAttachment());
-        LOG.debug("replay on aborted: {}", txnState);
+        // attachment may be null if this task is aborted by FE
+        if (txnState.getTxnCommitAttachment() != null) {
+            replayUpdateProgress((RLTaskTxnCommitAttachment) txnState.getTxnCommitAttachment());
+        }
+        LOG.debug("replay on aborted: {}, has attachment: {}", txnState, txnState.getTxnCommitAttachment() == null);
     }
 
     // check task exists or not before call method
@@ -931,8 +940,7 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
     private String jobPropertiesToJsonString() {
         Map<String, String> jobProperties = Maps.newHashMap();
         jobProperties.put("partitions", partitions == null ? STAR_STRING : Joiner.on(",").join(partitions));
-        jobProperties.put("columnToColumnExpr", columnToColumnExpr == null ?
-                STAR_STRING : Joiner.on(",").withKeyValueSeparator(":").join(columnToColumnExpr));
+        jobProperties.put("columnToColumnExpr", columnDescs == null ? STAR_STRING : Joiner.on(",").join(columnDescs));
         jobProperties.put("whereExpr", whereExpr == null ? STAR_STRING : whereExpr.toString());
         jobProperties.put("columnSeparator", columnSeparator == null ? "\t" : columnSeparator.toString());
         jobProperties.put("maxErrorNum", String.valueOf(maxErrorNum));
