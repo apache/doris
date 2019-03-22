@@ -40,7 +40,9 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.RoutineLoadDesc;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.planner.StreamLoadPlanner;
 import org.apache.doris.qe.ConnectContext;
@@ -81,25 +83,24 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * The routine load job support different streaming medium such as KAFKA
  */
 public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable {
-
     private static final Logger LOG = LogManager.getLogger(RoutineLoadJob.class);
 
-    private static final int DEFAULT_TASK_TIMEOUT_SECONDS = 10;
-    private static final int ERROR_SAMPLE_NUM = 1000 * 10000;
-    private static final int DEFAULT_MAX_ERROR_NUM = 0;
-    private static final int DEFAULT_MAX_INTERVAL_SECOND = 5;
-    private static final int DEFAULT_MAX_BATCH_ROWS = 100000;
-    private static final int DEFAULT_MAX_BATCH_SIZE = 100 * 1024 * 1024; // 100MB
+    public static final int DEFAULT_TASK_MAX_CONCURRENT_NUM = 3;
+    public static final long DEFAULT_MAX_ERROR_NUM = 0;
+
+    public static final long DEFAULT_MAX_INTERVAL_SECOND = 10;
+    public static final long DEFAULT_MAX_BATCH_ROWS = 200000;
+    public static final long DEFAULT_MAX_BATCH_SIZE = 100 * 1024 * 1024; // 100MB
+
     protected static final String STAR_STRING = "*";
-    protected static final int DEFAULT_TASK_MAX_CONCURRENT_NUM = 3;
 
     /**
      *                  +-----------------+
-     * fe schedule job |  NEED_SCHEDULE |  user resume job
-     * +-----------     +                 | <---------+
+     * fe schedule job  |  NEED_SCHEDULE  |  user resume job
+     * +--------------- +                 | <---------+
      * |                |                 |           |
      * v                +-----------------+           ^
-     * |
+     * |                                              |
      * +------------+   user pause job        +-------+----+
      * |  RUNNING   |                         |  PAUSED    |
      * |            +-----------------------> |            |
@@ -145,25 +146,39 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
     // max number of error data in ten thousand data
     // maxErrorNum / BASE_OF_ERROR_RATE = max error rate of routine load job
     // if current error rate is more then max error rate, the job will be paused
-    protected int maxErrorNum = DEFAULT_MAX_ERROR_NUM; // optional
-    protected int maxBatchIntervalS = DEFAULT_MAX_INTERVAL_SECOND;
-    protected int maxBatchRows = DEFAULT_MAX_BATCH_ROWS;
-    protected int maxBatchSizeBytes = DEFAULT_MAX_BATCH_SIZE;
+    protected long maxErrorNum = DEFAULT_MAX_ERROR_NUM; // optional
+
+    /*
+     * The following 3 variables control the max execute time of a single task.
+     * The default max batch interval time is 10 secs.
+     * If a task can consume data from source at rate of 10MB/s, and 500B a row,
+     * then we can process 100MB for 10 secs, which is 200000 rows
+     */
+    protected long maxBatchIntervalS = DEFAULT_MAX_INTERVAL_SECOND;
+    protected long maxBatchRows = DEFAULT_MAX_BATCH_ROWS;
+    protected long maxBatchSizeBytes = DEFAULT_MAX_BATCH_SIZE;
 
     protected int currentTaskConcurrentNum;
     protected RoutineLoadProgress progress;
+
     protected String pausedReason;
     protected String cancelReason;
+
+    protected long createTimestamp = System.currentTimeMillis();
     protected long endTimestamp = -1;
 
     /*
-     * currentErrorRows and currentTotalRows is used for check error rate
-     * errorRows and totalRows are used for statistics
+     * The following variables are for statistics
+     * currentErrorRows/currentTotalRows: the row statistics of current sampling period
+     * errorRows/totalRows/receivedBytes: cumulative measurement
+     * totalTaskExcutorTimeMs: cumulative execution time of tasks
      */
     protected long currentErrorRows;
     protected long currentTotalRows;
     protected long errorRows;
     protected long totalRows;
+    protected long receivedBytes;
+    protected long totalTaskExcutionTimeMs = 1; // init as 1 to avoid division by zero
 
     // The tasks belong to this job
     protected List<RoutineLoadTaskInfo> routineLoadTaskInfoList = Lists.newArrayList();
@@ -353,15 +368,15 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
         return progress;
     }
 
-    public int getMaxBatchIntervalS() {
+    public long getMaxBatchIntervalS() {
         return maxBatchIntervalS;
     }
 
-    public int getMaxBatchRows() {
+    public long getMaxBatchRows() {
         return maxBatchRows;
     }
 
-    public int getMaxBatchSizeBytes() {
+    public long getMaxBatchSizeBytes() {
         return maxBatchSizeBytes;
     }
 
@@ -379,16 +394,15 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
     }
 
     // only check loading task
-    public List<RoutineLoadTaskInfo> processTimeoutTasks() {
-        List<RoutineLoadTaskInfo> result = new ArrayList<>();
+    public void processTimeoutTasks() {
         List<RoutineLoadTaskInfo> timeoutTaskList = new ArrayList<>();
         writeLock();
         try {
             List<RoutineLoadTaskInfo> runningTasks = new ArrayList<>(routineLoadTaskInfoList);
             for (RoutineLoadTaskInfo routineLoadTaskInfo : runningTasks) {
-                if ((routineLoadTaskInfo.getLoadStartTimeMs() != 0L)
+                if (routineLoadTaskInfo.isRunning() 
                         && ((System.currentTimeMillis() - routineLoadTaskInfo.getLoadStartTimeMs())
-                        > DEFAULT_TASK_TIMEOUT_SECONDS * 1000)) {
+                        > maxBatchIntervalS * 2 * 1000)) {
                     timeoutTaskList.add(routineLoadTaskInfo);
                 }
             }
@@ -411,7 +425,6 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
                 }
             }
         }
-        return result;
     }
 
     abstract void divideRoutineLoadJob(int currentConcurrentTaskNum);
@@ -470,17 +483,26 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
     // if rate of error data is more then max_filter_ratio, pause job
     protected void updateProgress(RLTaskTxnCommitAttachment attachment) {
         updateNumOfData(attachment.getFilteredRows(), attachment.getLoadedRows() + attachment.getFilteredRows(),
-                false /* not replay */);
+                attachment.getReceivedBytes(), attachment.getTaskExecutionTimeMs(), false /* not replay */);
     }
 
-    private void updateNumOfData(long numOfErrorRows, long numOfTotalRows, boolean isReplay) {
-        totalRows += numOfTotalRows;
-        errorRows += numOfErrorRows;
+    private void updateNumOfData(long numOfErrorRows, long numOfTotalRows, long receivedBytes,
+            long taskExecutionTime, boolean isReplay) {
+        this.totalRows += numOfTotalRows;
+        this.errorRows += numOfErrorRows;
+        this.receivedBytes += receivedBytes;
+        this.totalTaskExcutionTimeMs += taskExecutionTime;
+
+        if (MetricRepo.isInit.get()) {
+            MetricRepo.COUNTER_ROUTINE_LOAD_ROWS.increase(numOfTotalRows);
+            MetricRepo.COUNTER_ROUTINE_LOAD_ERROR_ROWS.increase(numOfErrorRows);
+            MetricRepo.COUNTER_ROUTINE_LOAD_RECEIVED_BYTES.increase(receivedBytes);
+        }
 
         // check error rate
         currentErrorRows += numOfErrorRows;
         currentTotalRows += numOfTotalRows;
-        if (currentTotalRows > ERROR_SAMPLE_NUM) {
+        if (currentTotalRows > maxBatchRows * 10) {
             if (currentErrorRows > maxErrorNum) {
                 LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
                                  .add("current_total_rows", currentTotalRows)
@@ -529,7 +551,7 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
 
     protected void replayUpdateProgress(RLTaskTxnCommitAttachment attachment) {
         updateNumOfData(attachment.getFilteredRows(), attachment.getLoadedRows() + attachment.getFilteredRows(),
-                true /* is replay */);
+                attachment.getReceivedBytes(), attachment.getTaskExecutionTimeMs(), true /* is replay */);
     }
 
     abstract RoutineLoadTaskInfo unprotectRenewTask(RoutineLoadTaskInfo routineLoadTaskInfo) throws AnalysisException,
@@ -720,7 +742,8 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
         if (state == JobState.RUNNING) {
             // step2: create a new task for partitions
             RoutineLoadTaskInfo newRoutineLoadTaskInfo = unprotectRenewTask(routineLoadTaskInfo);
-            Catalog.getCurrentCatalog().getRoutineLoadTaskScheduler().addTaskInQueue(newRoutineLoadTaskInfo);
+            Catalog.getCurrentCatalog().getRoutineLoadTaskScheduler().addTaskInQueue(
+                    Lists.newArrayList(newRoutineLoadTaskInfo));
         }
 
         return result;
@@ -902,21 +925,24 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
     }
 
     // check the correctness of commit info
-    abstract boolean checkCommitInfo(RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment);
+    protected abstract boolean checkCommitInfo(RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment);
+
+    protected abstract String getStatistic();
 
     public List<String> getShowInfo() {
         List<String> row = Lists.newArrayList();
         row.add(String.valueOf(id));
         row.add(name);
+        row.add(TimeUtils.longToTimeString(createTimestamp));
+        row.add(TimeUtils.longToTimeString(endTimestamp));
         row.add(String.valueOf(dbId));
         row.add(String.valueOf(tableId));
         row.add(getState().name());
         row.add(dataSourceType.name());
+        row.add(String.valueOf(getSizeOfRoutineLoadTaskInfoList()));
         row.add(jobPropertiesToJsonString());
         row.add(dataSourcePropertiesJsonToString());
-        row.add(String.valueOf(currentTaskConcurrentNum));
-        row.add(String.valueOf(totalRows));
-        row.add(String.valueOf(errorRows));
+        row.add(getStatistic());
         row.add(getProgress().toJsonString());
         switch (state) {
             case PAUSED:
@@ -947,6 +973,7 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
         jobProperties.put("maxBatchIntervalS", String.valueOf(maxBatchIntervalS));
         jobProperties.put("maxBatchRows", String.valueOf(maxBatchRows));
         jobProperties.put("maxBatchSizeBytes", String.valueOf(maxBatchSizeBytes));
+        jobProperties.put("currentTaskConcurrentNum", String.valueOf(currentTaskConcurrentNum));
         Gson gson = new Gson();
         return gson.toJson(jobProperties);
     }
@@ -989,13 +1016,22 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
         out.writeLong(dbId);
         out.writeLong(tableId);
         out.writeInt(desireTaskConcurrentNum);
-        out.writeInt(maxErrorNum);
-        out.writeInt(maxBatchIntervalS);
-        out.writeInt(maxBatchRows);
-        out.writeInt(maxBatchSizeBytes);
+        out.writeLong(maxErrorNum);
+        out.writeLong(maxBatchIntervalS);
+        out.writeLong(maxBatchRows);
+        out.writeLong(maxBatchSizeBytes);
         progress.write(out);
+
+        out.writeLong(createTimestamp);
+        out.writeLong(endTimestamp);
+
         out.writeLong(currentErrorRows);
         out.writeLong(currentTotalRows);
+        out.writeLong(errorRows);
+        out.writeLong(totalRows);
+        out.writeLong(receivedBytes);
+        out.writeLong(totalTaskExcutionTimeMs);
+
         Text.writeString(out, origStmt);
     }
 
@@ -1012,10 +1048,10 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
         dbId = in.readLong();
         tableId = in.readLong();
         desireTaskConcurrentNum = in.readInt();
-        maxErrorNum = in.readInt();
-        maxBatchIntervalS = in.readInt();
-        maxBatchRows = in.readInt();
-        maxBatchSizeBytes = in.readInt();
+        maxErrorNum = in.readLong();
+        maxBatchIntervalS = in.readLong();
+        maxBatchRows = in.readLong();
+        maxBatchSizeBytes = in.readLong();
 
         switch (dataSourceType) {
             case KAFKA: {
@@ -1027,8 +1063,16 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
                 throw new IOException("unknown data source type: " + dataSourceType);
         }
 
+        createTimestamp = in.readLong();
+        endTimestamp = in.readLong();
+
         currentErrorRows = in.readLong();
         currentTotalRows = in.readLong();
+        errorRows = in.readLong();
+        totalRows = in.readLong();
+        receivedBytes = in.readLong();
+        totalTaskExcutionTimeMs = in.readLong();
+
         origStmt = Text.readString(in);
 
         // parse the origin stmt to get routine load desc

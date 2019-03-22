@@ -34,6 +34,8 @@ public class RLTaskTxnCommitAttachment extends TxnCommitAttachment {
     private TUniqueId taskId;
     private long filteredRows;
     private long loadedRows;
+    private long receivedBytes;
+    private long taskExecutionTimeMs;
     private RoutineLoadProgress progress;
 
     public RLTaskTxnCommitAttachment() {
@@ -46,6 +48,8 @@ public class RLTaskTxnCommitAttachment extends TxnCommitAttachment {
         this.taskId = rlTaskTxnCommitAttachment.getId();
         this.filteredRows = rlTaskTxnCommitAttachment.getFilteredRows();
         this.loadedRows = rlTaskTxnCommitAttachment.getLoadedRows();
+        this.receivedBytes = rlTaskTxnCommitAttachment.getReceivedBytes();
+        this.taskExecutionTimeMs = rlTaskTxnCommitAttachment.getLoadCostMs();
 
         switch (rlTaskTxnCommitAttachment.getLoadSourceType()) {
             case KAFKA:
@@ -67,14 +71,23 @@ public class RLTaskTxnCommitAttachment extends TxnCommitAttachment {
         return loadedRows;
     }
 
+    public long getReceivedBytes() {
+        return receivedBytes;
+    }
+
+    public long getTaskExecutionTimeMs() {
+        return taskExecutionTimeMs;
+    }
+
     public RoutineLoadProgress getProgress() {
         return progress;
     }
 
     @Override
     public String toString() {
-        return "RoutineLoadTaskTxnExtra [filteredRows=" + filteredRows
+        return "RLTaskTxnCommitAttachment [filteredRows=" + filteredRows
                 + ", loadedRows=" + loadedRows
+                + ", receivedBytes=" + receivedBytes
                 + ", taskId=" + taskId
                 + ", jobId=" + jobId
                 + ", progress=" + progress.toString() + "]";
@@ -85,6 +98,7 @@ public class RLTaskTxnCommitAttachment extends TxnCommitAttachment {
         super.write(out);
         out.writeLong(filteredRows);
         out.writeLong(loadedRows);
+        out.writeLong(receivedBytes);
         progress.write(out);
     }
 
@@ -93,6 +107,7 @@ public class RLTaskTxnCommitAttachment extends TxnCommitAttachment {
         super.readFields(in);
         filteredRows = in.readLong();
         loadedRows = in.readLong();
+        receivedBytes = in.readLong();
         progress = RoutineLoadProgress.read(in);
     }
 }

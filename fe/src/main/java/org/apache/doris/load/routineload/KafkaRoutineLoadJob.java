@@ -74,7 +74,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     private List<Integer> currentKafkaPartitions = Lists.newArrayList();
 
     // this is the kafka consumer which is used to fetch the number of partitions
-    private KafkaConsumer consumer;
+    private KafkaConsumer<String, String> consumer;
 
     public KafkaRoutineLoadJob() {
         // for serialization, id is dummy
@@ -161,7 +161,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         LOG.info("current concurrent task number is min "
                          + "(current size of partition {}, desire task concurrent num {}, alive be num {})",
                  partitionNum, desireTaskConcurrentNum, aliveBeNum);
-        currentTaskConcurrentNum =
+        currentTaskConcurrentNum = 
                 Math.min(Math.min(partitionNum, Math.min(desireTaskConcurrentNum, aliveBeNum)), DEFAULT_TASK_MAX_CONCURRENT_NUM);
         return currentTaskConcurrentNum;
     }
@@ -172,7 +172,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     //             this task should not be commit
     //             otherwise currentErrorNum and currentTotalNum is updated when progress is not updated
     @Override
-    boolean checkCommitInfo(RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment) {
+    protected boolean checkCommitInfo(RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment) {
         if (rlTaskTxnCommitAttachment.getLoadedRows() > 0
                 && ((KafkaProgress) rlTaskTxnCommitAttachment.getProgress()).getPartitionIdToOffset().isEmpty()) {
             LOG.warn(new LogBuilder(LogKey.ROUINTE_LOAD_TASK, DebugUtil.printId(rlTaskTxnCommitAttachment.getTaskId()))
@@ -271,6 +271,19 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                               .build());
             return false;
         }
+    }
+
+    @Override
+    protected String getStatistic() {
+        Map<String, Object> summary = Maps.newHashMap();
+        summary.put("totalRows", totalRows);
+        summary.put("errorRows", errorRows);
+        summary.put("receivedBytes", receivedBytes);
+        summary.put("taskExecuteTaskMs", totalTaskExcutionTimeMs);
+        summary.put("loadBytesRate", receivedBytes / totalTaskExcutionTimeMs * 1000);
+        summary.put("loadRowsRate", (totalRows - errorRows) / totalTaskExcutionTimeMs * 1000);
+        Gson gson = new Gson();
+        return gson.toJson(summary);
     }
 
     private List<Integer> getAllKafkaPartitions() {
