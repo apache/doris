@@ -582,7 +582,7 @@ bool EsScanNode::to_ext_literal(ExprContext* context, Expr* expr, TExtLiteral* l
     case TExprNodeType::INT_LITERAL: {
         TIntLiteral int_literal;
         void* value = context->get_value(expr, NULL);
-        int32_t int_val = 0;
+        int64_t int_val = 0;
         switch (expr->type().type) {
         case TYPE_TINYINT: {
             int_val = *reinterpret_cast<int8_t*>(value);
@@ -594,6 +594,10 @@ bool EsScanNode::to_ext_literal(ExprContext* context, Expr* expr, TExtLiteral* l
         }
         case TYPE_INT: {
             int_val = *reinterpret_cast<int32_t*>(value);
+            break;
+        }
+        case TYPE_BIGINT: {
+            int_val = *reinterpret_cast<int64_t*>(value);
             break;
         }
         default:
@@ -812,6 +816,7 @@ Status EsScanNode::materialize_row(MemPool* tuple_pool, Tuple* tuple,
             !reinterpret_cast<DateTimeValue*>(slot)->from_unixtime(col.long_vals[val_idx])) {
           return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "TYPE_DATETIME"));
         }
+        reinterpret_cast<DateTimeValue*>(slot)->set_type(TIME_DATETIME);
         break;
       }
       case TYPE_DECIMAL: {
