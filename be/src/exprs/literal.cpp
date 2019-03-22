@@ -99,6 +99,12 @@ Literal::Literal(const TExprNode& node) :
         _value.decimal_val = DecimalValue(node.decimal_literal.value);
         break;
     }
+    case TYPE_DECIMALV2: {
+        DCHECK_EQ(node.node_type, TExprNodeType::DECIMAL_LITERAL);
+        DCHECK(node.__isset.decimal_literal);
+        _value.decimalv2_val = DecimalV2Value(node.decimal_literal.value);
+        break;
+    }
     default: 
         break;
         // DCHECK(false) << "Invalid type: " << TypeToString(_type.type);
@@ -152,6 +158,13 @@ DecimalVal Literal::get_decimal_val(ExprContext* context, TupleRow* row) {
     DCHECK_EQ(_type.type, TYPE_DECIMAL) << _type;
     DecimalVal dec_val;
     _value.decimal_val.to_decimal_val(&dec_val);
+    return dec_val;
+}
+
+DecimalV2Val Literal::get_decimalv2_val(ExprContext* context, TupleRow* row) {
+    DCHECK_EQ(_type.type, TYPE_DECIMALV2) << _type;
+    DecimalV2Val dec_val;
+    _value.decimalv2_val.to_decimal_val(&dec_val);
     return dec_val;
 }
 

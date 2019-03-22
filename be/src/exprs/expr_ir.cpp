@@ -74,4 +74,7 @@ DateTimeVal Expr::get_datetime_val(Expr* expr, ExprContext* context, TupleRow* r
 DecimalVal Expr::get_decimal_val(Expr* expr, ExprContext* context, TupleRow* row) {
     return expr->get_decimal_val(context, row);
 }
+DecimalV2Val Expr::get_decimalv2_val(Expr* expr, ExprContext* context, TupleRow* row) {
+    return expr->get_decimalv2_val(context, row);
+}
 }
