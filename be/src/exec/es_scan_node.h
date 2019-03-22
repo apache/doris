@@ -83,6 +83,7 @@ private:
     std::vector<TNetworkAddress> _addresses;
     std::vector<std::string> _scan_handles;
     std::vector<int> _offsets;
+    std::vector<ExprContext*> _pushdown_conjunct_ctxs;
 };
 
 }
