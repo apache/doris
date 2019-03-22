@@ -1289,7 +1289,7 @@ llvm::Function* PartitionedAggregationNode::codegen_update_slot(
             break;
         }
         case AggFnEvaluator::SUM:
-            if (slot_desc->type().type != TYPE_DECIMAL) {
+            if (slot_desc->type().type != TYPE_DECIMAL && slot_desc->type().type != TYPE_DECIMALV2) {
                 if (slot_desc->type().type == TYPE_FLOAT ||
                         slot_desc->type().type == TYPE_DOUBLE) {
                     result = builder.CreateFAdd(dst_value, src.GetVal());
@@ -1298,7 +1298,7 @@ llvm::Function* PartitionedAggregationNode::codegen_update_slot(
                 }
                 break;
             }
-            DCHECK_EQ(slot_desc->type().type, TYPE_DECIMAL);
+            DCHECK(slot_desc->type().type == TYPE_DECIMAL || slot_desc->type().type == TYPE_DECIMALV2);
             // Fall through to xcompiled case
         case AggFnEvaluator::AVG:
         case AggFnEvaluator::NDV: {
@@ -1418,6 +1418,11 @@ Function* PartitionedAggregationNode::codegen_update_tuple() {
         }
         // Only SUM, AVG, and NDV support decimal intermediates
         if (type == TYPE_DECIMAL &&
+                !(op == AggFnEvaluator::SUM || op == AggFnEvaluator::AVG ||
+                    op == AggFnEvaluator::NDV)) {
+            supported = false;
+        }
+        if (type == TYPE_DECIMALV2 &&
                 !(op == AggFnEvaluator::SUM || op == AggFnEvaluator::AVG ||
                     op == AggFnEvaluator::NDV)) {
             supported = false;

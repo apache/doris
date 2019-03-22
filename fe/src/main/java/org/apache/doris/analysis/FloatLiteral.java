@@ -152,13 +152,13 @@ public class FloatLiteral extends LiteralExpr {
 
     @Override
     protected Expr uncheckedCastTo(Type targetType) throws AnalysisException {
-        if (!(targetType.isFloatingPointType() || targetType.isDecimal())) {
+        if (!(targetType.isFloatingPointType() || targetType.isDecimal() || targetType.isDecimalV2())) {
             return super.uncheckedCastTo(targetType);
         }
         if (targetType.isFloatingPointType()) {
             type = targetType;
             return this;
-        } else if (targetType.isDecimal()) {
+        } else if (targetType.isDecimal() || targetType.isDecimalV2()) {
             return new DecimalLiteral(new BigDecimal(value));
         }
         return this;

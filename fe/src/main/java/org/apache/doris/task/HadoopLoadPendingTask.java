@@ -532,6 +532,9 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
                 case DECIMAL:
                     columnType = "DECIMAL";
                     break;
+                case DECIMALV2:
+                    columnType = "DECIMAL";
+                    break;
                 default:
                     columnType = type.toString();
                     break;
@@ -558,7 +561,7 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
             }
 
             // decimal precision scale
-            if (type == PrimitiveType.DECIMAL) {
+            if (type == PrimitiveType.DECIMAL || type == PrimitiveType.DECIMALV2) {
                 dppColumn.put("precision", column.getPrecision());
                 dppColumn.put("scale", column.getScale());
             }

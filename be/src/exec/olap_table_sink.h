@@ -229,6 +229,9 @@ private:
     std::vector<DecimalValue> _max_decimal_val;
     std::vector<DecimalValue> _min_decimal_val;
 
+    std::vector<DecimalV2Value> _max_decimalv2_val;
+    std::vector<DecimalV2Value> _min_decimalv2_val;
+
     // Stats for this
     int64_t _convert_batch_ns = 0;
     int64_t _validate_data_ns = 0;

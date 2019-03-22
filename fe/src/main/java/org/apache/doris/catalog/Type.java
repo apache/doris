@@ -66,7 +66,11 @@ public abstract class Type {
     public static final ScalarType DEFAULT_DECIMAL = (ScalarType)
             ScalarType.createDecimalType(ScalarType.DEFAULT_PRECISION,
                     ScalarType.DEFAULT_SCALE);
+    public static final ScalarType DEFAULT_DECIMALV2 = (ScalarType)
+            ScalarType.createDecimalV2Type(ScalarType.DEFAULT_PRECISION,
+                    ScalarType.DEFAULT_SCALE);
     public static final ScalarType DECIMAL = DEFAULT_DECIMAL;
+    public static final ScalarType DECIMALV2 = DEFAULT_DECIMALV2;
            // (ScalarType) ScalarType.createDecimalTypeInternal(-1, -1);
     public static final ScalarType DEFAULT_VARCHAR = ScalarType.createVarcharType(-1);
     public static final ScalarType VARCHAR = ScalarType.createVarcharType(-1);
@@ -94,6 +98,7 @@ public abstract class Type {
         numericTypes.add(FLOAT);
         numericTypes.add(DOUBLE);
         numericTypes.add(DECIMAL);
+        numericTypes.add(DECIMALV2);
 
         supportedTypes = Lists.newArrayList();
         supportedTypes.add(NULL);
@@ -111,6 +116,7 @@ public abstract class Type {
         supportedTypes.add(DATE);
         supportedTypes.add(DATETIME);
         supportedTypes.add(DECIMAL);
+        supportedTypes.add(DECIMALV2);
     }
 
     public static ArrayList<ScalarType> getIntegerTypes() {
@@ -166,6 +172,10 @@ public abstract class Type {
         return isScalarType(PrimitiveType.DECIMAL);
     }
 
+    public boolean isDecimalV2() {
+        return isScalarType(PrimitiveType.DECIMALV2);
+    }
+
     public boolean isDecimalOrNull() { return isDecimal() || isNull(); }
     public boolean isFullySpecifiedDecimal() { return false; }
     public boolean isWildcardDecimal() { return false; }
@@ -213,7 +223,7 @@ public abstract class Type {
     }
 
     public boolean isNumericType() {
-        return isFixedPointType() || isFloatingPointType() || isDecimal();
+        return isFixedPointType() || isFloatingPointType() || isDecimal() || isDecimalV2();
     }
 
     public boolean isNativeType() {
@@ -453,6 +463,8 @@ public abstract class Type {
                 return Type.DATETIME;
             case DECIMAL:
                 return Type.DECIMAL;
+            case DECIMALV2:
+                return Type.DECIMALV2;
             case CHAR:
                 return Type.CHAR;
             case VARCHAR:
@@ -507,6 +519,11 @@ public abstract class Type {
                     Preconditions.checkState(scalarType.isSetPrecision()
                             && scalarType.isSetPrecision());
                     type = ScalarType.createDecimalType(scalarType.getPrecision(),
+                            scalarType.getScale());
+                } else if (scalarType.getType() == TPrimitiveType.DECIMALV2) {
+                    Preconditions.checkState(scalarType.isSetPrecision()
+                            && scalarType.isSetPrecision());
+                    type = ScalarType.createDecimalV2Type(scalarType.getPrecision(),
                             scalarType.getScale());
                 } else {
                     type = ScalarType.createType(
@@ -608,6 +625,7 @@ public abstract class Type {
             case DOUBLE:
                 return 15;
             case DECIMAL:
+            case DECIMALV2:
                 return t.decimalPrecision();
             default:
                 return null;
@@ -635,6 +653,7 @@ public abstract class Type {
             case DOUBLE:
                 return 15;
             case DECIMAL:
+            case DECIMALV2:
                 return t.decimalScale();
             default:
                 return null;
@@ -664,6 +683,7 @@ public abstract class Type {
             case FLOAT:
             case DOUBLE:
             case DECIMAL:
+            case DECIMALV2:
                 return 10;
             default:
                 // everything else (including boolean and string) is null
@@ -789,6 +809,7 @@ public abstract class Type {
         compatibilityMatrix[LARGEINT.ordinal()][CHAR.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[LARGEINT.ordinal()][VARCHAR.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[LARGEINT.ordinal()][DECIMAL.ordinal()] = PrimitiveType.DECIMAL;
+        compatibilityMatrix[LARGEINT.ordinal()][DECIMALV2.ordinal()] = PrimitiveType.DECIMALV2;
         compatibilityMatrix[LARGEINT.ordinal()][HLL.ordinal()] = PrimitiveType.INVALID_TYPE;
 
         compatibilityMatrix[FLOAT.ordinal()][DOUBLE.ordinal()] = PrimitiveType.DOUBLE;
@@ -823,6 +844,7 @@ public abstract class Type {
 
         compatibilityMatrix[VARCHAR.ordinal()][HLL.ordinal()] = PrimitiveType.INVALID_TYPE;
 
+        compatibilityMatrix[DECIMAL.ordinal()][DECIMALV2.ordinal()] = PrimitiveType.DECIMALV2;
 
         // Check all of the necessary entries that should be filled.
         // ignore binary
@@ -835,6 +857,7 @@ public abstract class Type {
                         t2 == PrimitiveType.INVALID_TYPE) continue;
                 if (t1 == PrimitiveType.NULL_TYPE || t2 == PrimitiveType.NULL_TYPE) continue;
                 if (t1 == PrimitiveType.DECIMAL || t2 == PrimitiveType.DECIMAL) continue;
+                if (t1 == PrimitiveType.DECIMALV2 || t2 == PrimitiveType.DECIMALV2) continue;
                 Preconditions.checkNotNull(compatibilityMatrix[i][j]);
             }
         }
@@ -862,6 +885,8 @@ public abstract class Type {
                 return VARCHAR;
             case DECIMAL:
                 return DECIMAL;
+            case DECIMALV2:
+                return DECIMALV2;
             default:
                 return INVALID;
 
@@ -884,6 +909,12 @@ public abstract class Type {
                 && (t2ResultType == PrimitiveType.BIGINT
                 || t2ResultType == PrimitiveType.DECIMAL)) {
             return Type.DECIMAL;
+        }
+        if ((t1ResultType == PrimitiveType.BIGINT
+                || t1ResultType == PrimitiveType.DECIMALV2)
+                && (t2ResultType == PrimitiveType.BIGINT
+                || t2ResultType == PrimitiveType.DECIMALV2)) {
+            return Type.DECIMALV2;
         }
         if ((t1ResultType == PrimitiveType.BIGINT
                 || t1ResultType == PrimitiveType.LARGEINT)
@@ -919,6 +950,8 @@ public abstract class Type {
                 return Type.DOUBLE;
             case DECIMAL:
                 return Type.DECIMAL;
+            case DECIMALV2:
+                return Type.DECIMALV2;
             default:
                 return Type.INVALID;
 
