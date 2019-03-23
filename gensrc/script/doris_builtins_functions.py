@@ -391,14 +391,14 @@ visible_functions = [
             '_ZN5doris13MathFunctions8greatestEPN9doris_udf15FunctionContextEiPKNS1_8FloatValE'],
     [['greatest'], 'DOUBLE', ['DOUBLE', '...'],
             '_ZN5doris13MathFunctions8greatestEPN9doris_udf15FunctionContextEiPKNS1_9DoubleValE'],
-    [['greatest'], 'VARCHAR', ['VARCHAR', '...'],
-            '_ZN5doris13MathFunctions8greatestEPN9doris_udf15FunctionContextEiPKNS1_9StringValE'],
-    [['greatest'], 'DATETIME', ['DATETIME', '...'],
-            '_ZN5doris13MathFunctions8greatestEPN9doris_udf15FunctionContextEiPKNS1_11DateTimeValE'],
     [['greatest'], 'DECIMAL', ['DECIMAL', '...'],
             '_ZN5doris13MathFunctions8greatestEPN9doris_udf15FunctionContextEiPKNS1_10DecimalValE'],
     [['greatest'], 'DECIMALV2', ['DECIMALV2', '...'],
             '_ZN5doris13MathFunctions8greatestEPN9doris_udf15FunctionContextEiPKNS1_12DecimalV2ValE'],
+    [['greatest'], 'VARCHAR', ['VARCHAR', '...'],
+            '_ZN5doris13MathFunctions8greatestEPN9doris_udf15FunctionContextEiPKNS1_9StringValE'],
+    [['greatest'], 'DATETIME', ['DATETIME', '...'],
+            '_ZN5doris13MathFunctions8greatestEPN9doris_udf15FunctionContextEiPKNS1_11DateTimeValE'],
 
     # Conditional Functions
     # Some of these have empty symbols because the BE special-cases them based on the
