@@ -41,6 +41,7 @@ import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.PartitionInfo;
@@ -52,6 +53,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
@@ -284,6 +286,8 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         summary.put("taskExecuteTaskMs", totalTaskExcutionTimeMs);
         summary.put("receivedBytesRate", receivedBytes / totalTaskExcutionTimeMs * 1000);
         summary.put("loadRowsRate", (totalRows - errorRows - unselectedRows) / totalTaskExcutionTimeMs * 1000);
+        summary.put("committedTaskNum", committedTaskNum);
+        summary.put("abortedTaskNum", abortedTaskNum);
         Gson gson = new Gson();
         return gson.toJson(summary);
     }
@@ -373,8 +377,10 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         Map<String, String> dataSourceProperties = Maps.newHashMap();
         dataSourceProperties.put("brokerList", brokerList);
         dataSourceProperties.put("topic", topic);
-        dataSourceProperties.put("currentKafkaPartitions", Joiner.on(",").join(currentKafkaPartitions));
-        Gson gson = new Gson();
+        List<Integer> sortedPartitions = Lists.newArrayList(currentKafkaPartitions);
+        Collections.sort(sortedPartitions);
+        dataSourceProperties.put("currentKafkaPartitions", Joiner.on(",").join(sortedPartitions));
+        Gson gson = new GsonBuilder().disableHtmlEscaping().create();
         return gson.toJson(dataSourceProperties);
     }
 

@@ -60,6 +60,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -494,7 +495,7 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
             long taskExecutionTime, boolean isReplay) {
         this.totalRows += numOfTotalRows;
         this.errorRows += numOfErrorRows;
-        this.unselectedRows = unselectedRows;
+        this.unselectedRows += unselectedRows;
         this.receivedBytes += receivedBytes;
         this.totalTaskExcutionTimeMs += taskExecutionTime;
 
@@ -977,14 +978,14 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
         Map<String, String> jobProperties = Maps.newHashMap();
         jobProperties.put("partitions", partitions == null ? STAR_STRING : Joiner.on(",").join(partitions));
         jobProperties.put("columnToColumnExpr", columnDescs == null ? STAR_STRING : Joiner.on(",").join(columnDescs));
-        jobProperties.put("whereExpr", whereExpr == null ? STAR_STRING : whereExpr.toString());
+        jobProperties.put("whereExpr", whereExpr == null ? STAR_STRING : whereExpr.toSql());
         jobProperties.put("columnSeparator", columnSeparator == null ? "\t" : columnSeparator.toString());
         jobProperties.put("maxErrorNum", String.valueOf(maxErrorNum));
         jobProperties.put("maxBatchIntervalS", String.valueOf(maxBatchIntervalS));
         jobProperties.put("maxBatchRows", String.valueOf(maxBatchRows));
         jobProperties.put("maxBatchSizeBytes", String.valueOf(maxBatchSizeBytes));
         jobProperties.put("currentTaskConcurrentNum", String.valueOf(currentTaskConcurrentNum));
-        Gson gson = new Gson();
+        Gson gson = new GsonBuilder().disableHtmlEscaping().create();
         return gson.toJson(jobProperties);
     }
 
