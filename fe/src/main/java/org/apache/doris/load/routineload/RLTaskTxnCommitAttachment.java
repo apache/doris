@@ -34,6 +34,7 @@ public class RLTaskTxnCommitAttachment extends TxnCommitAttachment {
     private TUniqueId taskId;
     private long filteredRows;
     private long loadedRows;
+    private long unselectedRows;
     private long receivedBytes;
     private long taskExecutionTimeMs;
     private RoutineLoadProgress progress;
@@ -48,6 +49,7 @@ public class RLTaskTxnCommitAttachment extends TxnCommitAttachment {
         this.taskId = rlTaskTxnCommitAttachment.getId();
         this.filteredRows = rlTaskTxnCommitAttachment.getFilteredRows();
         this.loadedRows = rlTaskTxnCommitAttachment.getLoadedRows();
+        this.unselectedRows = rlTaskTxnCommitAttachment.getUnselectedRows();
         this.receivedBytes = rlTaskTxnCommitAttachment.getReceivedBytes();
         this.taskExecutionTimeMs = rlTaskTxnCommitAttachment.getLoadCostMs();
 
@@ -71,6 +73,14 @@ public class RLTaskTxnCommitAttachment extends TxnCommitAttachment {
         return loadedRows;
     }
 
+    public long getUnselectedRows() {
+        return unselectedRows;
+    }
+
+    public long getTotalRows() {
+        return filteredRows + loadedRows + unselectedRows;
+    }
+
     public long getReceivedBytes() {
         return receivedBytes;
     }
@@ -88,6 +98,7 @@ public class RLTaskTxnCommitAttachment extends TxnCommitAttachment {
         return "RLTaskTxnCommitAttachment [filteredRows=" + filteredRows
                 + ", loadedRows=" + loadedRows
                 + ", receivedBytes=" + receivedBytes
+                + ", taskExecutionTimeMs=" + taskExecutionTimeMs
                 + ", taskId=" + taskId
                 + ", jobId=" + jobId
                 + ", progress=" + progress.toString() + "]";
@@ -98,7 +109,9 @@ public class RLTaskTxnCommitAttachment extends TxnCommitAttachment {
         super.write(out);
         out.writeLong(filteredRows);
         out.writeLong(loadedRows);
+        out.writeLong(unselectedRows);
         out.writeLong(receivedBytes);
+        out.writeLong(taskExecutionTimeMs);
         progress.write(out);
     }
 
@@ -107,7 +120,9 @@ public class RLTaskTxnCommitAttachment extends TxnCommitAttachment {
         super.readFields(in);
         filteredRows = in.readLong();
         loadedRows = in.readLong();
+        unselectedRows = in.readLong();
         receivedBytes = in.readLong();
+        taskExecutionTimeMs = in.readLong();
         progress = RoutineLoadProgress.read(in);
     }
 }

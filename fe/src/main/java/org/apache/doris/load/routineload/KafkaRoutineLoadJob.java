@@ -277,11 +277,13 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     protected String getStatistic() {
         Map<String, Object> summary = Maps.newHashMap();
         summary.put("totalRows", totalRows);
+        summary.put("loadedRows", totalRows - errorRows - unselectedRows);
         summary.put("errorRows", errorRows);
+        summary.put("unselectedRows", unselectedRows);
         summary.put("receivedBytes", receivedBytes);
         summary.put("taskExecuteTaskMs", totalTaskExcutionTimeMs);
-        summary.put("loadBytesRate", receivedBytes / totalTaskExcutionTimeMs * 1000);
-        summary.put("loadRowsRate", (totalRows - errorRows) / totalTaskExcutionTimeMs * 1000);
+        summary.put("receivedBytesRate", receivedBytes / totalTaskExcutionTimeMs * 1000);
+        summary.put("loadRowsRate", (totalRows - errorRows - unselectedRows) / totalTaskExcutionTimeMs * 1000);
         Gson gson = new Gson();
         return gson.toJson(summary);
     }

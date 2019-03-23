@@ -177,8 +177,11 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
     protected long currentTotalRows;
     protected long errorRows;
     protected long totalRows;
+    protected long unselectedRows;
     protected long receivedBytes;
     protected long totalTaskExcutionTimeMs = 1; // init as 1 to avoid division by zero
+    protected long committedTaskNum = 0;
+    protected long abortedTaskNum = 0;
 
     // The tasks belong to this job
     protected List<RoutineLoadTaskInfo> routineLoadTaskInfoList = Lists.newArrayList();
@@ -482,14 +485,16 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
 
     // if rate of error data is more then max_filter_ratio, pause job
     protected void updateProgress(RLTaskTxnCommitAttachment attachment) {
-        updateNumOfData(attachment.getFilteredRows(), attachment.getLoadedRows() + attachment.getFilteredRows(),
-                attachment.getReceivedBytes(), attachment.getTaskExecutionTimeMs(), false /* not replay */);
+        updateNumOfData(attachment.getFilteredRows(), attachment.getTotalRows(), attachment.getUnselectedRows(),
+                attachment.getReceivedBytes(), attachment.getTaskExecutionTimeMs(),
+                false /* not replay */);
     }
 
-    private void updateNumOfData(long numOfErrorRows, long numOfTotalRows, long receivedBytes,
+    private void updateNumOfData(long numOfErrorRows, long numOfTotalRows, long unselectedRows, long receivedBytes,
             long taskExecutionTime, boolean isReplay) {
         this.totalRows += numOfTotalRows;
         this.errorRows += numOfErrorRows;
+        this.unselectedRows = unselectedRows;
         this.receivedBytes += receivedBytes;
         this.totalTaskExcutionTimeMs += taskExecutionTime;
 
@@ -551,7 +556,8 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
 
     protected void replayUpdateProgress(RLTaskTxnCommitAttachment attachment) {
         updateNumOfData(attachment.getFilteredRows(), attachment.getLoadedRows() + attachment.getFilteredRows(),
-                attachment.getReceivedBytes(), attachment.getTaskExecutionTimeMs(), true /* is replay */);
+                attachment.getUnselectedRows(), attachment.getReceivedBytes(), attachment.getTaskExecutionTimeMs(),
+                true /* is replay */);
     }
 
     abstract RoutineLoadTaskInfo unprotectRenewTask(RoutineLoadTaskInfo routineLoadTaskInfo) throws AnalysisException,
@@ -627,6 +633,7 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
                 RoutineLoadTaskInfo routineLoadTaskInfo = routineLoadTaskInfoOptional.get();
                 taskBeId = routineLoadTaskInfo.getBeId();
                 executeCommitTask(routineLoadTaskInfo, txnState);
+                ++committedTaskNum;
                 result = ListenResult.CHANGED;
             } else {
                 LOG.debug(new LogBuilder(LogKey.ROUINTE_LOAD_TASK, txnState.getLabel()).add("txn_id",
@@ -653,6 +660,7 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
     public void replayOnCommitted(TransactionState txnState) {
         Preconditions.checkNotNull(txnState.getTxnCommitAttachment(), txnState);
         replayUpdateProgress((RLTaskTxnCommitAttachment) txnState.getTxnCommitAttachment());
+        this.committedTaskNum++;
         LOG.debug("replay on committed: {}", txnState);
     }
 
@@ -696,6 +704,7 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
                 }
                 // step2: commit task , update progress, maybe create a new task
                 executeCommitTask(routineLoadTaskInfo, txnState);
+                ++abortedTaskNum;
                 result = ListenResult.CHANGED;
             }
         } catch (Exception e) {
@@ -717,6 +726,7 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
         if (txnState.getTxnCommitAttachment() != null) {
             replayUpdateProgress((RLTaskTxnCommitAttachment) txnState.getTxnCommitAttachment());
         }
+        this.abortedTaskNum++;
         LOG.debug("replay on aborted: {}, has attachment: {}", txnState, txnState.getTxnCommitAttachment() == null);
     }
 
@@ -731,7 +741,7 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
                               .add("job_id", routineLoadTaskInfo.getJobId())
                               .add("txn_id", routineLoadTaskInfo.getTxnId())
                               .add("msg", "commit task will be ignore when attachment txn of task is null,"
-                                      + " maybe task was committed by master when timeout")
+                                      + " maybe task was aborted by master when timeout")
                               .build());
         } else if (checkCommitInfo(rlTaskTxnCommitAttachment)) {
             // step2: update job progress
@@ -1029,8 +1039,11 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
         out.writeLong(currentTotalRows);
         out.writeLong(errorRows);
         out.writeLong(totalRows);
+        out.writeLong(unselectedRows);
         out.writeLong(receivedBytes);
         out.writeLong(totalTaskExcutionTimeMs);
+        out.writeLong(committedTaskNum);
+        out.writeLong(abortedTaskNum);
 
         Text.writeString(out, origStmt);
     }
@@ -1070,8 +1083,11 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
         currentTotalRows = in.readLong();
         errorRows = in.readLong();
         totalRows = in.readLong();
+        unselectedRows = in.readLong();
         receivedBytes = in.readLong();
         totalTaskExcutionTimeMs = in.readLong();
+        committedTaskNum = in.readLong();
+        abortedTaskNum = in.readLong();
 
         origStmt = Text.readString(in);
 
