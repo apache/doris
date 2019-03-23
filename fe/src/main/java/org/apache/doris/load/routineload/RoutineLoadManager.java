@@ -58,7 +58,7 @@ import java.util.stream.Collectors;
 
 public class RoutineLoadManager implements Writable {
     private static final Logger LOG = LogManager.getLogger(RoutineLoadManager.class);
-    private static final int DEFAULT_BE_CONCURRENT_TASK_NUM = 100;
+    private static final int DEFAULT_BE_CONCURRENT_TASK_NUM = 10;
 
     // Long is beId, integer is the size of tasks in be
     private Map<Long, Integer> beIdToMaxConcurrentTasks = Maps.newHashMap();
