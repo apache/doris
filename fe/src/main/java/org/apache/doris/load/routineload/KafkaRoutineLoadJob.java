@@ -278,17 +278,17 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     @Override
     protected String getStatistic() {
         Map<String, Object> summary = Maps.newHashMap();
-        summary.put("totalRows", totalRows);
-        summary.put("loadedRows", totalRows - errorRows - unselectedRows);
-        summary.put("errorRows", errorRows);
-        summary.put("unselectedRows", unselectedRows);
-        summary.put("receivedBytes", receivedBytes);
-        summary.put("taskExecuteTaskMs", totalTaskExcutionTimeMs);
-        summary.put("receivedBytesRate", receivedBytes / totalTaskExcutionTimeMs * 1000);
-        summary.put("loadRowsRate", (totalRows - errorRows - unselectedRows) / totalTaskExcutionTimeMs * 1000);
-        summary.put("committedTaskNum", committedTaskNum);
-        summary.put("abortedTaskNum", abortedTaskNum);
-        Gson gson = new Gson();
+        summary.put("totalRows", Long.valueOf(totalRows));
+        summary.put("loadedRows", Long.valueOf(totalRows - errorRows - unselectedRows));
+        summary.put("errorRows", Long.valueOf(errorRows));
+        summary.put("unselectedRows", Long.valueOf(unselectedRows));
+        summary.put("receivedBytes", Long.valueOf(receivedBytes));
+        summary.put("taskExecuteTaskMs", Long.valueOf(totalTaskExcutionTimeMs));
+        summary.put("receivedBytesRate", Long.valueOf(receivedBytes / totalTaskExcutionTimeMs * 1000));
+        summary.put("loadRowsRate", Long.valueOf((totalRows - errorRows - unselectedRows) / totalTaskExcutionTimeMs * 1000));
+        summary.put("committedTaskNum", Long.valueOf(committedTaskNum));
+        summary.put("abortedTaskNum", Long.valueOf(abortedTaskNum));
+        Gson gson = new GsonBuilder().disableHtmlEscaping().create();
         return gson.toJson(summary);
     }
 

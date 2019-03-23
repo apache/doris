@@ -174,12 +174,12 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
      * errorRows/totalRows/receivedBytes: cumulative measurement
      * totalTaskExcutorTimeMs: cumulative execution time of tasks
      */
-    protected long currentErrorRows;
-    protected long currentTotalRows;
-    protected long errorRows;
-    protected long totalRows;
-    protected long unselectedRows;
-    protected long receivedBytes;
+    protected long currentErrorRows = 0;
+    protected long currentTotalRows = 0;
+    protected long errorRows = 0;
+    protected long totalRows = 0;
+    protected long unselectedRows = 0;
+    protected long receivedBytes = 0;
     protected long totalTaskExcutionTimeMs = 1; // init as 1 to avoid division by zero
     protected long committedTaskNum = 0;
     protected long abortedTaskNum = 0;
@@ -486,12 +486,12 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
 
     // if rate of error data is more then max_filter_ratio, pause job
     protected void updateProgress(RLTaskTxnCommitAttachment attachment) {
-        updateNumOfData(attachment.getFilteredRows(), attachment.getTotalRows(), attachment.getUnselectedRows(),
+        updateNumOfData(attachment.getTotalRows(), attachment.getFilteredRows(), attachment.getUnselectedRows(),
                 attachment.getReceivedBytes(), attachment.getTaskExecutionTimeMs(),
                 false /* not replay */);
     }
 
-    private void updateNumOfData(long numOfErrorRows, long numOfTotalRows, long unselectedRows, long receivedBytes,
+    private void updateNumOfData(long numOfTotalRows, long numOfErrorRows, long unselectedRows, long receivedBytes,
             long taskExecutionTime, boolean isReplay) {
         this.totalRows += numOfTotalRows;
         this.errorRows += numOfErrorRows;
@@ -556,9 +556,8 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
     }
 
     protected void replayUpdateProgress(RLTaskTxnCommitAttachment attachment) {
-        updateNumOfData(attachment.getFilteredRows(), attachment.getLoadedRows() + attachment.getFilteredRows(),
-                attachment.getUnselectedRows(), attachment.getReceivedBytes(), attachment.getTaskExecutionTimeMs(),
-                true /* is replay */);
+        updateNumOfData(attachment.getTotalRows(), attachment.getFilteredRows(), attachment.getUnselectedRows(),
+                attachment.getReceivedBytes(), attachment.getTaskExecutionTimeMs(), true /* is replay */);
     }
 
     abstract RoutineLoadTaskInfo unprotectRenewTask(RoutineLoadTaskInfo routineLoadTaskInfo) throws AnalysisException,
@@ -941,13 +940,24 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
     protected abstract String getStatistic();
 
     public List<String> getShowInfo() {
+        Database db = Catalog.getCurrentCatalog().getDb(dbId);
+        Table tbl = null;
+        if (db != null) {
+            db.readLock();
+            try {
+                tbl = db.getTable(tableId);
+            } finally {
+                db.readUnlock();
+            }
+        }
+
         List<String> row = Lists.newArrayList();
         row.add(String.valueOf(id));
         row.add(name);
         row.add(TimeUtils.longToTimeString(createTimestamp));
         row.add(TimeUtils.longToTimeString(endTimestamp));
-        row.add(String.valueOf(dbId));
-        row.add(String.valueOf(tableId));
+        row.add(db == null ? String.valueOf(dbId) : db.getFullName());
+        row.add(tbl == null ? String.valueOf(tableId) : tbl.getName());
         row.add(getState().name());
         row.add(dataSourceType.name());
         row.add(String.valueOf(getSizeOfRoutineLoadTaskInfoList()));
