@@ -58,11 +58,15 @@ private:
 
     OLAPStatus _init_column_datas(RowsetReaderContext* read_context);
 
-    OLAPStatus _next_block_for_cumulative_rowset(RowBlock** block);
-    OLAPStatus _next_block_for_singleton_without_merge(RowBlock** block);
-    OLAPStatus _next_block_for_singleton_with_merge(RowBlock** block);
+    OLAPStatus _union_block(RowBlock** block);
+    OLAPStatus _merge_block(RowBlock** block);
     OLAPStatus _next_row_for_singleton_rowset(RowCursor** row);
     OLAPStatus _next_block_for_column_data(size_t pos, RowBlock** row_block);
+
+    // Doris will split query predicates to several scan keys
+    // This function is used to fetch block when advancing
+    // current scan key to next scan key.
+    OLAPStatus _fetch_first_block(size_t pos, RowBlock** row_block);
 
 private:
     int _num_key_columns;
@@ -87,6 +91,10 @@ private:
     RowsetSharedPtr _rowset;
     int _key_range_size;
     std::vector<int> _key_range_indices;
+
+    // Read data from ColumnData for the first time.
+    // ScanKey should be sought in this case.
+    std::vector<bool> _first_read_symbols;
 
     // Singleton Rowset is a rowset which start version
     // and end version of it is equal.
