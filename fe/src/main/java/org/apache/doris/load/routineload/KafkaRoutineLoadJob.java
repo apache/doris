@@ -127,7 +127,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 for (int i = 0; i < currentConcurrentTaskNum; i++) {
                     Map<Integer, Long> taskKafkaProgress = Maps.newHashMap();
                     for (int j = 0; j < currentKafkaPartitions.size(); j++) {
-                        if (j % currentConcurrentTaskNum == 0) {
+                        if (j % currentConcurrentTaskNum == i) {
                             int kafkaPartition = currentKafkaPartitions.get(j);
                             taskKafkaProgress.put(kafkaPartition,
                                                   ((KafkaProgress) progress).getPartitionIdToOffset().get(kafkaPartition));
