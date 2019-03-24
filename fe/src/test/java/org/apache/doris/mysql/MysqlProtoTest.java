@@ -17,6 +17,7 @@
 
 package org.apache.doris.mysql;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.common.DdlException;
@@ -40,6 +41,7 @@ import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
+import java.util.List;
 
 @RunWith(PowerMockRunner.class)
 @PowerMockIgnore({ "org.apache.log4j.*", "javax.management.*" })
@@ -56,9 +58,9 @@ public class MysqlProtoTest {
         // mock auth
         PaloAuth auth = EasyMock.createMock(PaloAuth.class);
         EasyMock.expect(auth.checkGlobalPriv(EasyMock.anyObject(ConnectContext.class),
-                                             EasyMock.anyObject(PrivPredicate.class))).andReturn(true).anyTimes();
+                EasyMock.anyObject(PrivPredicate.class))).andReturn(true).anyTimes();
         EasyMock.expect(auth.checkPassword(EasyMock.anyString(), EasyMock.anyString(), (byte[]) EasyMock.anyObject(),
-                                           (byte[]) EasyMock.anyObject())).andReturn(true).anyTimes();
+                (byte[]) EasyMock.anyObject(), (List<UserIdentity>) EasyMock.anyObject())).andReturn(true).anyTimes();
         EasyMock.replay(auth);
 
         // Mock catalog

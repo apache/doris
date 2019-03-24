@@ -17,6 +17,7 @@
 
 package org.apache.doris.mysql;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
@@ -28,12 +29,14 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.List;
 
 // MySQL protocol util
 public class MysqlProto {
@@ -92,12 +95,14 @@ public class MysqlProto {
         String qualifiedUser = ClusterNamespace.getFullName(clusterName, tmpUser);
         String remoteIp = context.getMysqlChannel().getRemoteIp();
 
+        List<UserIdentity> currentUserIdentity = Lists.newArrayList();
         if (!Catalog.getCurrentCatalog().getAuth().checkPassword(qualifiedUser, remoteIp,
-                                                                 scramble, randomString)) {
+                scramble, randomString, currentUserIdentity)) {
             ErrorReport.report(ErrorCode.ERR_ACCESS_DENIED_ERROR, qualifiedUser, usePasswd);
             return false;
         }
        
+        context.setCurrentUserIdentitfy(currentUserIdentity.get(0));
         context.setQualifiedUser(qualifiedUser);
         return true;
     }

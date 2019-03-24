@@ -57,12 +57,15 @@ public class SetPassVar extends SetVar {
         boolean isSelf = false;
         ConnectContext ctx = ConnectContext.get();
         if (userIdent == null) {
-            // set userIdent as itself
-            userIdent = new UserIdentity(ClusterNamespace.getNameFromFullName(analyzer.getQualifiedUser()),
-                    ctx.getRemoteIP());
+            // set userIdent as what current_user() returns
+            userIdent = ctx.getCurrentUserIdentity();
             isSelf = true;
+        } else {
+            userIdent.analyze(analyzer.getClusterName());
+            if (userIdent.equals(ctx.getCurrentUserIdentity())) {
+                isSelf = true;
+            }
         }
-        userIdent.analyze(analyzer.getClusterName());
 
         // Check password
         passwdBytes = MysqlPassword.checkPassword(passwdParam);
