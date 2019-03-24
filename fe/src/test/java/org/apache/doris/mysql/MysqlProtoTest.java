@@ -59,8 +59,19 @@ public class MysqlProtoTest {
         PaloAuth auth = EasyMock.createMock(PaloAuth.class);
         EasyMock.expect(auth.checkGlobalPriv(EasyMock.anyObject(ConnectContext.class),
                 EasyMock.anyObject(PrivPredicate.class))).andReturn(true).anyTimes();
+
         EasyMock.expect(auth.checkPassword(EasyMock.anyString(), EasyMock.anyString(), (byte[]) EasyMock.anyObject(),
-                (byte[]) EasyMock.anyObject(), (List<UserIdentity>) EasyMock.anyObject())).andReturn(true).anyTimes();
+                (byte[]) EasyMock.anyObject(), (List<UserIdentity>) EasyMock.anyObject())).andDelegateTo(
+                        new WrappedAuth() {
+                            @Override
+                            public boolean checkPassword(String remoteUser, String remoteHost, byte[] remotePasswd,
+                                    byte[] randomString,
+                                    List<UserIdentity> currentUser) {
+                                UserIdentity userIdentity = new UserIdentity("defaut_cluster:user", "192.168.1.1");
+                                currentUser.add(userIdentity);
+                                return true;
+                            }
+                        }).anyTimes();
         EasyMock.replay(auth);
 
         // Mock catalog
@@ -143,6 +154,7 @@ public class MysqlProtoTest {
         mockAccess();
         ConnectContext context = new ConnectContext(null);
         context.setCatalog(catalog);
+        context.setThreadLocalInfo();
         Assert.assertTrue(MysqlProto.negotiate(context));
     }
 
