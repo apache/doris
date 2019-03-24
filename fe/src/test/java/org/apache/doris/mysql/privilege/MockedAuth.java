@@ -17,6 +17,7 @@
 
 package org.apache.doris.mysql.privilege;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
 
@@ -53,6 +54,11 @@ public class MockedAuth {
 
                 ctx.getState();
                 result = new QueryState();
+
+                ctx.getCurrentUserIdentity();
+                UserIdentity userIdentity = new UserIdentity(user, ip);
+                userIdentity.setIsAnalyzed();
+                result = userIdentity;
             }
         };
     }

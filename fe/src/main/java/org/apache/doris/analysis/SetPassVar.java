@@ -95,6 +95,6 @@ public class SetPassVar extends SetVar {
 
     @Override
     public String toSql() {
-        return "SET PASSWORD FOR " + userIdent + " = '*XXX'";
+        return "SET PASSWORD FOR " + userIdent.toString() + " = '*XXX'";
     }
 }
