@@ -61,16 +61,6 @@ public:
         curl_easy_setopt(_curl, CURLOPT_HTTPHEADER, _header_list);
     }
     
-    // you must set CURLOPT_POSTFIELDSIZE before CURLOPT_COPYPOSTFIELDS options, otherwise will cause request hanging up
-    // note: set_content_type would reset the http headers
-    void set_content_type(const std::string content_type) {
-        std::string scratch_str = "Content-Type: " + content_type;
-        if (_header_list != nullptr) {
-            curl_slist_free_all(_header_list);
-        }
-        curl_easy_setopt(_curl, CURLOPT_HTTPHEADER, _header_list);
-    }
-    
     void set_payload(const std::string& post_body) {
         curl_easy_setopt(_curl, CURLOPT_POSTFIELDSIZE, (long)post_body.length());
         curl_easy_setopt(_curl, CURLOPT_COPYPOSTFIELDS, post_body.c_str());
