@@ -61,8 +61,7 @@ public:
         curl_easy_setopt(_curl, CURLOPT_HTTPHEADER, _header_list);
     }
     
-    // you must set CURLOPT_POSTFIELDSIZE before CURLOPT_COPYPOSTFIELDS options, otherwise will cause request hanging up
-    void set_post_body(const std::string& post_body) {
+    void set_payload(const std::string& post_body) {
         curl_easy_setopt(_curl, CURLOPT_POSTFIELDSIZE, (long)post_body.length());
         curl_easy_setopt(_curl, CURLOPT_COPYPOSTFIELDS, post_body.c_str());
     }
@@ -114,7 +113,9 @@ public:
     // a file to local_path 
     Status download(const std::string& local_path);
 
-    Status execute_post_request(const std::string& post_data, std::string* response);
+    Status execute_post_request(const std::string& payload, std::string* response);
+
+    Status execute_delete_request(const std::string& payload, std::string* response);
 
     // execute a simple method, and its response is saved in response argument
     Status execute(std::string* response);
