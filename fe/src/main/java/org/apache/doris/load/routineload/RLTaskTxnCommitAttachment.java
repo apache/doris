@@ -56,6 +56,7 @@ public class RLTaskTxnCommitAttachment extends TxnCommitAttachment {
         switch (rlTaskTxnCommitAttachment.getLoadSourceType()) {
             case KAFKA:
                 this.progress = new KafkaProgress(rlTaskTxnCommitAttachment.getKafkaRLTaskProgress());
+                break;
             default:
                 break;
         }
