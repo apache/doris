@@ -34,12 +34,12 @@ public:
     void set_batch_size(uint16_t batch_size) {
         _size = batch_size;
     }
-    void set_selected_fields(std::vector<std::string>& fields) {
+    void set_selected_fields(const std::vector<std::string>& fields) {
         _fields = fields;
     }
 
-    static std::string build_next_scroll_body(const std::string scroll_id, std::string scroll);
-    static std::string build_clear_scroll_body(const std::string scroll_id);
+    static std::string build_next_scroll_body(const std::string& scroll_id, std::string& scroll);
+    static std::string build_clear_scroll_body(const std::string& scroll_id);
 
 private:
     std::vector<std::string> _fields;

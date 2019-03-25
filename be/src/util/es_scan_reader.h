@@ -66,7 +66,7 @@ private:
     bool _eos;
     uint16_t _batch_size;
 
-    std::string *_cached_response = new std::string();
+    std::string _cached_response;
     ScrollParser _parser;
 };
 }

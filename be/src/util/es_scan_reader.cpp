@@ -56,10 +56,6 @@ ESScanReader::ESScanReader(const std::string& target, uint16_t size, const std::
 }
 
 ESScanReader::~ESScanReader() {
-    if (_cached_response != nullptr) {
-        free(_cached_response);
-        _cached_response = nullptr;
-    }
 }
 
 Status ESScanReader::open() {
@@ -68,14 +64,14 @@ Status ESScanReader::open() {
     _network_client.set_basic_auth(_user_name, _passwd);
     _network_client.set_content_type("application/json");
     // phase open, we cached the first response for `get_next` phase
-    _network_client.execute_post_request(_query, _cached_response);
+    _network_client.execute_post_request(_query, &_cached_response);
     long status = _network_client.get_http_status();
     if (status != 200) {
         LOG(WARNING) << "invalid response http status for open: " << status;
-        return Status(*_cached_response);
+        return Status(_cached_response);
     }
-    VLOG(1) << "open _cached response: " << *_cached_response;
-    RETURN_IF_ERROR(_parser.parse(*_cached_response));
+    VLOG(1) << "open _cached response: " << _cached_response;
+    RETURN_IF_ERROR(_parser.parse(_cached_response));
     _eos = _parser.has_next();
     return Status::OK;
 }
@@ -90,7 +86,7 @@ Status ESScanReader::get_next(bool* eos, std::string* response) {
         }
         _is_first = false;
         *eos = _eos;
-        *response = *_cached_response;
+        *response = _cached_response;
         return Status::OK;
     }
     RETURN_IF_ERROR(_network_client.init(_next_scroll_url));

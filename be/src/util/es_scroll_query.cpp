@@ -33,7 +33,7 @@ ESScrollQueryBuilder::~ESScrollQueryBuilder() {
     
 }
 
-std::string ESScrollQueryBuilder::build_next_scroll_body(const std::string scroll_id, std::string scroll) {
+std::string ESScrollQueryBuilder::build_next_scroll_body(const std::string& scroll_id, std::string& scroll) {
     rapidjson::Document scroll_dsl;
     rapidjson::Document::AllocatorType &allocator = scroll_dsl.GetAllocator();
     scroll_dsl.SetObject();
@@ -46,7 +46,7 @@ std::string ESScrollQueryBuilder::build_next_scroll_body(const std::string scrol
     scroll_dsl.Accept(writer);
     return buffer.GetString();
 }
-std::string ESScrollQueryBuilder::build_clear_scroll_body(const std::string scroll_id) {
+std::string ESScrollQueryBuilder::build_clear_scroll_body(const std::string& scroll_id) {
     rapidjson::Document delete_scroll_dsl;
     rapidjson::Document::AllocatorType &allocator = delete_scroll_dsl.GetAllocator();
     delete_scroll_dsl.SetObject();
