@@ -60,6 +60,8 @@ std::string StreamLoadContext::to_json() const {
     writer.Int64(number_loaded_rows);
     writer.Key("NumberFilteredRows");
     writer.Int64(number_filtered_rows);
+    writer.Key("NumberUnselectedRows");
+    writer.Int64(number_unselected_rows);
     writer.Key("LoadBytes");
     writer.Int64(receive_bytes);
     writer.Key("LoadTimeMs");

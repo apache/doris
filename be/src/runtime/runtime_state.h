@@ -419,6 +419,10 @@ public:
         return _num_rows_load_filtered.load();
     }
 
+    int64_t num_rows_load_unselected() {
+        return _num_rows_load_unselected.load();
+    }
+
     void update_num_rows_load_success(int64_t num_rows) {
         _num_rows_load_success.fetch_add(num_rows);
     }
@@ -426,6 +430,11 @@ public:
     void update_num_rows_load_filtered(int64_t num_rows) {
         _num_rows_load_filtered.fetch_add(num_rows);
     }
+
+    void update_num_rows_load_unselected(int64_t num_rows) {
+        _num_rows_load_unselected.fetch_add(num_rows);
+    }
+
     void export_load_error(const std::string& error_msg);
 
     void set_per_fragment_instance_idx(int idx) {
@@ -585,6 +594,7 @@ private:
     std::vector<std::string> _output_files;
     std::atomic<int64_t> _num_rows_load_success;
     std::atomic<int64_t> _num_rows_load_filtered;
+    std::atomic<int64_t> _num_rows_load_unselected;
     std::atomic<int64_t> _num_print_error_rows;
 
     std::vector<std::string> _export_output_files;

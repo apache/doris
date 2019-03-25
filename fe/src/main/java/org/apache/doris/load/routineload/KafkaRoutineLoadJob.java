@@ -41,6 +41,7 @@ import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.PartitionInfo;
@@ -52,6 +53,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
@@ -74,7 +76,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     private List<Integer> currentKafkaPartitions = Lists.newArrayList();
 
     // this is the kafka consumer which is used to fetch the number of partitions
-    private KafkaConsumer consumer;
+    private KafkaConsumer<String, String> consumer;
 
     public KafkaRoutineLoadJob() {
         // for serialization, id is dummy
@@ -125,7 +127,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 for (int i = 0; i < currentConcurrentTaskNum; i++) {
                     Map<Integer, Long> taskKafkaProgress = Maps.newHashMap();
                     for (int j = 0; j < currentKafkaPartitions.size(); j++) {
-                        if (j % currentConcurrentTaskNum == 0) {
+                        if (j % currentConcurrentTaskNum == i) {
                             int kafkaPartition = currentKafkaPartitions.get(j);
                             taskKafkaProgress.put(kafkaPartition,
                                                   ((KafkaProgress) progress).getPartitionIdToOffset().get(kafkaPartition));
@@ -161,7 +163,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         LOG.info("current concurrent task number is min "
                          + "(current size of partition {}, desire task concurrent num {}, alive be num {})",
                  partitionNum, desireTaskConcurrentNum, aliveBeNum);
-        currentTaskConcurrentNum =
+        currentTaskConcurrentNum = 
                 Math.min(Math.min(partitionNum, Math.min(desireTaskConcurrentNum, aliveBeNum)), DEFAULT_TASK_MAX_CONCURRENT_NUM);
         return currentTaskConcurrentNum;
     }
@@ -172,7 +174,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     //             this task should not be commit
     //             otherwise currentErrorNum and currentTotalNum is updated when progress is not updated
     @Override
-    boolean checkCommitInfo(RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment) {
+    protected boolean checkCommitInfo(RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment) {
         if (rlTaskTxnCommitAttachment.getLoadedRows() > 0
                 && ((KafkaProgress) rlTaskTxnCommitAttachment.getProgress()).getPartitionIdToOffset().isEmpty()) {
             LOG.warn(new LogBuilder(LogKey.ROUINTE_LOAD_TASK, DebugUtil.printId(rlTaskTxnCommitAttachment.getTaskId()))
@@ -273,6 +275,23 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         }
     }
 
+    @Override
+    protected String getStatistic() {
+        Map<String, Object> summary = Maps.newHashMap();
+        summary.put("totalRows", Long.valueOf(totalRows));
+        summary.put("loadedRows", Long.valueOf(totalRows - errorRows - unselectedRows));
+        summary.put("errorRows", Long.valueOf(errorRows));
+        summary.put("unselectedRows", Long.valueOf(unselectedRows));
+        summary.put("receivedBytes", Long.valueOf(receivedBytes));
+        summary.put("taskExecuteTaskMs", Long.valueOf(totalTaskExcutionTimeMs));
+        summary.put("receivedBytesRate", Long.valueOf(receivedBytes / totalTaskExcutionTimeMs * 1000));
+        summary.put("loadRowsRate", Long.valueOf((totalRows - errorRows - unselectedRows) / totalTaskExcutionTimeMs * 1000));
+        summary.put("committedTaskNum", Long.valueOf(committedTaskNum));
+        summary.put("abortedTaskNum", Long.valueOf(abortedTaskNum));
+        Gson gson = new GsonBuilder().disableHtmlEscaping().create();
+        return gson.toJson(summary);
+    }
+
     private List<Integer> getAllKafkaPartitions() {
         List<Integer> result = new ArrayList<>();
         List<PartitionInfo> partitionList = consumer.partitionsFor(topic,
@@ -358,8 +377,10 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         Map<String, String> dataSourceProperties = Maps.newHashMap();
         dataSourceProperties.put("brokerList", brokerList);
         dataSourceProperties.put("topic", topic);
-        dataSourceProperties.put("currentKafkaPartitions", Joiner.on(",").join(currentKafkaPartitions));
-        Gson gson = new Gson();
+        List<Integer> sortedPartitions = Lists.newArrayList(currentKafkaPartitions);
+        Collections.sort(sortedPartitions);
+        dataSourceProperties.put("currentKafkaPartitions", Joiner.on(",").join(sortedPartitions));
+        Gson gson = new GsonBuilder().disableHtmlEscaping().create();
         return gson.toJson(dataSourceProperties);
     }
 

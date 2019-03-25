@@ -18,7 +18,6 @@
 package org.apache.doris.load.routineload;
 
 
-import com.google.common.collect.Lists;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.LabelAlreadyUsedException;
@@ -29,6 +28,8 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.thrift.TRoutineLoadTask;
 import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.TransactionState;
+
+import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.UUID;
@@ -105,6 +106,10 @@ public abstract class RoutineLoadTaskInfo {
     
     public long getTxnId() {
         return txnId;
+    }
+
+    public boolean isRunning() {
+        return loadStartTimeMs > 0;
     }
 
     abstract TRoutineLoadTask createRoutineLoadTask() throws LoadException, UserException;

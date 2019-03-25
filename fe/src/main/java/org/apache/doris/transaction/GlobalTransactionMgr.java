@@ -39,6 +39,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.load.Load;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.PublishVersionTask;
@@ -156,6 +157,11 @@ public class GlobalTransactionMgr {
                     coordinator, listenerId);
             transactionState.setPrepareTime(System.currentTimeMillis());
             unprotectUpsertTransactionState(transactionState);
+
+            if (MetricRepo.isInit.get()) {
+                MetricRepo.COUNTER_TXN_SUCCESS.increase(1L);
+            }
+
             return tid;
         } finally {
             writeUnlock();
