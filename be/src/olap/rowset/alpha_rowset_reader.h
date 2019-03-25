@@ -103,6 +103,9 @@ private:
     // into consideration deliberately.
     bool _is_singleton_rowset;
 
+    // position of ColumnData upon reading
+    size_t _pos = 0;
+
     RowsetReaderContext* _current_read_context;
     OlapReaderStatistics _owned_stats;
     OlapReaderStatistics* _stats = &_owned_stats;

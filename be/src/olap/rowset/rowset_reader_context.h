@@ -31,8 +31,8 @@ namespace doris {
 
 struct RowsetReaderContext {
     ReaderType reader_type;
-	const TabletSchema* tablet_schema;
-	bool preaggregation;
+    const TabletSchema* tablet_schema;
+    bool preaggregation;
     // projection columns
     const std::vector<uint32_t>* return_columns;
     // columns to load bloom filter index
@@ -53,7 +53,9 @@ struct RowsetReaderContext {
     Cache* lru_cache;
     RuntimeState* runtime_state;
 
-    RowsetReaderContext() : tablet_schema(nullptr),
+    RowsetReaderContext() :
+        tablet_schema(nullptr),
+        preaggregation(false),
         return_columns(nullptr),
         load_bf_columns(nullptr),
         conditions(nullptr),
