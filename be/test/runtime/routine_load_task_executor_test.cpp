@@ -76,13 +76,13 @@ TEST_F(RoutineLoadTaskExecutorTest, exec_task) {
     task.__set_db("db1");
     task.__set_tbl("tbl1");
     task.__set_label("l1");
+    task.__set_max_interval_s(5);
+    task.__set_max_batch_rows(10);
+    task.__set_max_batch_size(2048);
     
     TKafkaLoadInfo k_info;
     k_info.brokers = "127.0.0.1:9092";
     k_info.topic = "test";
-    k_info.__set_max_interval_s(5);
-    k_info.__set_max_batch_rows(10);
-    k_info.__set_max_batch_size(2048);
     
     std::map<int32_t, int64_t> part_off;
     part_off[0] = 13L;
@@ -97,25 +97,25 @@ TEST_F(RoutineLoadTaskExecutorTest, exec_task) {
     st = executor.submit_task(task);
     ASSERT_TRUE(st.ok());
 
-    sleep(10);
+    sleep(2);
     k_info.brokers = "127.0.0.1:9092";
     task.__set_kafka_load_info(k_info);
     st = executor.submit_task(task);
     ASSERT_TRUE(st.ok());
 
-    sleep(10);
+    sleep(2);
     k_info.brokers = "192.0.0.2:9092";
     task.__set_kafka_load_info(k_info);
     st = executor.submit_task(task);
     ASSERT_TRUE(st.ok());
 
-    sleep(10);
+    sleep(2);
     k_info.brokers = "192.0.0.2:9092";
     task.__set_kafka_load_info(k_info);
     st = executor.submit_task(task);
     ASSERT_TRUE(st.ok());
 
-    sleep(10);
+    sleep(2);
 }
 
 } // end namespace
