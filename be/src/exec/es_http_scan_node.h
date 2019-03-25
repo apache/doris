@@ -29,6 +29,7 @@
 #include "common/status.h"
 #include "exec/scan_node.h"
 #include "exec/es_http_scanner.h"
+#include "exec/es_query_builder.h"
 #include "gen_cpp/PaloInternalService_types.h"
 
 namespace doris {
@@ -37,8 +38,7 @@ class RuntimeState;
 class PartRangeKey;
 class PartitionInfo;
 class EsHttpScanCounter;
-class EsQueryBuilder;
-class ExtPredicate;
+class EsPredicate;
 
 class EsHttpScanNode : public ScanNode {
 public:
@@ -84,9 +84,9 @@ private:
                 const std::vector<ExprContext*>& conjunct_ctxs, 
                 EsScanCounter* counter);
 
-    vector<ExtPredicate*> get_predicates();
-
 private:
+
+    void build_predicates();
 
     TupleId _tuple_id;
     RuntimeState* _runtime_state;
@@ -111,6 +111,9 @@ private:
     std::condition_variable _queue_reader_cond;
     std::condition_variable _queue_writer_cond;
     std::deque<std::shared_ptr<RowBatch>> _batch_queue;
+    std::vector<std::shared_ptr<EsPredicate>> _predicates;
+
+    std::vector<int> _predicate_to_conjunct;
 };
 
 }

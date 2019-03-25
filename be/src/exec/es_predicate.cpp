@@ -56,15 +56,11 @@ EsPredicate::~EsPredicate() {
 }
 
 bool EsPredicate::build_disjuncts() {
-    return build_disjuncts(_context[i]->root(), _disjuncts);
+    return build_disjuncts(_context->root(), _disjuncts);
 }
 
 vector<ExtPredicate> EsPredicate::get_predicate_list(){
     return _disjuncts;
-}
-
-bool EsPredicate::build_disjuncts() {
-    return build_disjuncts(_context[i]->root(), _disjuncts);
 }
 
 bool EsPredicate::build_disjuncts(Expr* conjunct, vector<ExtPredicate>& disjuncts) {
@@ -188,10 +184,10 @@ bool EsPredicate::build_disjuncts(Expr* conjunct, vector<ExtPredicate>& disjunct
             VLOG(1) << "get disjuncts fail: op is not COMPOUND_OR";
             return false;
         }
-        if (!build_disjuncts(_context, conjunct->get_child(0), disjuncts)) {
+        if (!build_disjuncts(conjunct->get_child(0), disjuncts)) {
             return false;
         }
-        if (!build_disjuncts(_context, conjunct->get_child(1), disjuncts)) {
+        if (!build_disjuncts(conjunct->get_child(1), disjuncts)) {
             return false;
         }
 

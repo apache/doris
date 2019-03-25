@@ -38,10 +38,6 @@ struct ExtPredicate {
     ExtPredicate(TExprNodeType::type node_type) : node_type(node_type) {
     }
 
-   //ExtBinaryPredicate* binary_predicate() {
-   //    return dynamic_cast<ExtBinaryPredicate*>(this);
-   //}
-
     TExprNodeType::type node_type;
 };
 
@@ -134,9 +130,9 @@ class EsPredicate {
         SlotDescriptor* get_slot_desc(SlotRef* slotRef);
 
         ExprContext* _context; 
+        int _disjuncts_num;
         const TupleDescriptor* _tuple_desc;
         vector<ExtPredicate> _disjuncts;
-        int _disjuncts_num;
 };
 
 }

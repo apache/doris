@@ -26,14 +26,16 @@
 
 namespace doris {
 
+class EsPredicate;
+
 class EsQueryBuilder {
 public:
     EsQueryBuilder() {};
     ~EsQueryBuilder() {};
 
     static std::string build(const std::map<std::string, std::string>& properties,
-                const std::vector<std::string>& columns
-                ) {
+                const std::vector<std::string>& columns,
+                std::vector<std::shared_ptr<EsPredicate>>) {
         return std::string("xxx");
     }
 };

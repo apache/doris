@@ -27,7 +27,6 @@
 #include "runtime/dpp_sink_internal.h"
 #include "service/backend_options.h"
 #include "util/runtime_profile.h"
-#include "exec/es_query_builder.h"
 #include "exec/es_scan_reader.h"
 #include "exec/es_predicate.h"
 
@@ -80,18 +79,15 @@ Status EsHttpScanNode::prepare(RuntimeState* state) {
     return Status::OK;
 }
 
-vector<ExtPredicate*> EsHttpScanNode::get_predicates() {
-    vector<ExtPredicate*> predicates;
+void EsHttpScanNode::build_predicates() {
     for (int i = 0; i < _conjunct_ctxs.size(); ++i) {
-        std::unique_ptr<ExtPredicate> predicate(
-                    new ExtPredicate(_conjunct_ctxs[i], _tuple_desc));
+        std::shared_ptr<EsPredicate> predicate(
+                    new EsPredicate(_conjunct_ctxs[i], _tuple_desc));
         if (predicate->build_disjuncts()) {
-            predicates.emplace_back(std::move(predicate));
-            predicate_to_conjunct.push_back(i);
+            _predicates.push_back(predicate);
+            _predicate_to_conjunct.push_back(i);
         }
     }
-
-    return predicates;
 }
 
 Status EsHttpScanNode::open(RuntimeState* state) {
@@ -109,6 +105,8 @@ Status EsHttpScanNode::open(RuntimeState* state) {
             }
         }
     }
+
+    build_predicates();
 
     RETURN_IF_ERROR(start_scanners());
 
@@ -377,8 +375,8 @@ void EsHttpScanNode::scanner_worker(int start_idx, int length) {
         _properties[EsScanReader::SHARD_ID] = std::to_string(es_scan_range.shard_id);
         _properties[EsScanReader::BATCH_SIZE] = std::to_string(_runtime_state->batch_size());
         _properties[EsScanReader::HOST] = get_host_port(es_scan_range.es_hosts);
-        _properties[EsScanReader::QUERY] = EsQueryBuilder::build(_properties, _column_names);
-
+        _properties[EsScanReader::QUERY] = EsQueryBuilder::build(_properties, _column_names, _predicates);
+        
         status = scanner_scan(_tuple_id, _properties, scanner_expr_ctxs, &counter);
         if (!status.ok()) {
             LOG(WARNING) << "Scanner[" << start_idx + i << "] prcess failed. status="
