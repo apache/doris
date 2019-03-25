@@ -513,10 +513,11 @@ struct TRLTaskTxnCommitAttachment {
     3: required i64 jobId
     4: optional i64 loadedRows
     5: optional i64 filteredRows
-    6: optional i64 receivedBytes
-    7: optional i64 loadedBytes
-    8: optional i64 loadCostMs
-    9: optional TKafkaRLTaskProgress kafkaRLTaskProgress
+    6: optional i64 unselectedRows
+    7: optional i64 receivedBytes
+    8: optional i64 loadedBytes
+    9: optional i64 loadCostMs
+    10: optional TKafkaRLTaskProgress kafkaRLTaskProgress
 }
 
 struct TTxnCommitAttachment {
