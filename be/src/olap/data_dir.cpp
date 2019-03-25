@@ -660,9 +660,14 @@ OLAPStatus DataDir::_remove_old_meta_and_files() {
             alpha_rowset_meta->init_from_pb(inc_rowset);
             AlphaRowset rowset(&tablet_schema, data_path_prefix, this, alpha_rowset_meta);
             rowset.init();
-            rowset.load();
+            rowset.load();  // check if the rowset is successfully converted
+            // incremental delta is saved in a seperate incremental folder
+            // create a mock rowset to delete its files
+            AlphaRowset inc_rowset(&tablet_schema, data_path_prefix + "/incremental_delta", 
+                this, alpha_rowset_meta);
+            inc_rowset.init();
             std::vector<std::string> old_files;
-            rowset.remove_old_files(&old_files);
+            inc_rowset.remove_old_files(&old_files);
         }
         return true;
     };
