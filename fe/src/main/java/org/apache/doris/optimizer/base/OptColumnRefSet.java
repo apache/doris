@@ -30,6 +30,11 @@ public class OptColumnRefSet implements Cloneable {
         bitSet = new BitSet(1024);
     }
 
+    public OptColumnRefSet(int id) {
+        bitSet = new BitSet(1024);
+        bitSet.set(id);
+    }
+
     public OptColumnRefSet(List<OptColumnRef> refs) {
         bitSet = new BitSet(1024);
         for (OptColumnRef ref : refs) {

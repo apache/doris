@@ -17,7 +17,9 @@
 
 package org.apache.doris.optimizer.operator;
 
+import org.apache.doris.optimizer.OptExpression;
 import org.apache.doris.optimizer.OptExpressionWapper;
+import org.apache.doris.optimizer.base.OptColumnRefSet;
 import org.apache.doris.optimizer.rule.OptRule;
 import org.apache.doris.optimizer.stat.Statistics;
 import org.apache.doris.optimizer.stat.StatisticsContext;
@@ -42,7 +44,14 @@ public class OptLogicalAggregate extends OptLogical {
     }
 
     @Override
+    public OptColumnRefSet getOutputColumns(OptExpression expression) {
+        return expression.getLogicalProperty().getOutputColumns();
+    }
+
+    @Override
     public Statistics deriveStat(OptExpressionWapper wapper, StatisticsContext context) {
         return null;
     }
+
+
 }

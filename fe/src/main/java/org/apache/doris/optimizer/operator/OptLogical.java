@@ -17,16 +17,15 @@
 
 package org.apache.doris.optimizer.operator;
 
-import com.google.common.collect.Lists;
 import org.apache.doris.optimizer.OptExpression;
 import org.apache.doris.optimizer.OptExpressionWapper;
-import org.apache.doris.optimizer.base.OptColumnRef;
-import org.apache.doris.optimizer.property.OptLogicalProperty;
+import org.apache.doris.optimizer.base.OptColumnRefSet;
+import org.apache.doris.optimizer.base.OptLogicalProperty;
+import org.apache.doris.optimizer.base.OptProperty;
 import org.apache.doris.optimizer.stat.Statistics;
 import org.apache.doris.optimizer.stat.StatisticsContext;
 
 import java.util.BitSet;
-import java.util.List;
 
 public abstract class OptLogical extends OptOperator {
 
@@ -38,17 +37,18 @@ public abstract class OptLogical extends OptOperator {
 
     public abstract BitSet getCandidateRulesForImplement();
 
-    public List<OptColumnRef> deriveOuput(OptExpressionWapper wapper) {
-        final List<OptColumnRef> results = Lists.newArrayList();
-        for (OptExpression expression : wapper.getExpression().getInputs()) {
-            final OptLogicalProperty property = (OptLogicalProperty)expression.getLogicalProperty();
-            results.addAll(property.getOutputs());
-        }
-        return results;
-    }
-
     public abstract Statistics deriveStat(OptExpressionWapper wapper, StatisticsContext context);
 
     @Override
     public boolean isLogical() { return true; }
+
+    @Override
+    public OptProperty createProperty() {
+        return new OptLogicalProperty();
+    }
+
+    // TODO(zc): returning null to make compiler happy
+    public OptColumnRefSet getOutputColumns(OptExpression expression) {
+        return null;
+    }
 }

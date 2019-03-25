@@ -18,7 +18,10 @@
 package org.apache.doris.optimizer.operator;
 
 import org.apache.doris.analysis.JoinOperator;
+import org.apache.doris.optimizer.OptExpression;
 import org.apache.doris.optimizer.OptExpressionWapper;
+import org.apache.doris.optimizer.base.OptColumnRefSet;
+import org.apache.doris.optimizer.base.OptLogicalProperty;
 import org.apache.doris.optimizer.rule.OptRuleType;
 import org.apache.doris.optimizer.stat.DefaultStatistics;
 import org.apache.doris.optimizer.stat.RowCountProvider;
@@ -48,6 +51,15 @@ public class OptLogicallJoin extends OptLogical {
         final BitSet set = new BitSet();
         set.set(OptRuleType.RULE_IMP_EQ_JOIN_TO_HASH_JOIN.ordinal());
         return set;
+    }
+
+    @Override
+    public OptColumnRefSet getOutputColumns(OptExpression expression) {
+        OptColumnRefSet columns = new OptColumnRefSet();
+        for (int i = 0; i < 2; ++i) {
+            columns.include(expression.getInput(i).getLogicalProperty().getOutputColumns());
+        }
+        return columns;
     }
 
     @Override

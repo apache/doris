@@ -20,7 +20,7 @@ package org.apache.doris.optimizer;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.apache.doris.optimizer.property.OptProperty;
+import org.apache.doris.optimizer.base.OptProperty;
 import org.apache.doris.optimizer.search.OptimizationContext;
 import org.apache.doris.optimizer.stat.Statistics;
 import org.apache.logging.log4j.LogManager;
@@ -39,12 +39,13 @@ public class OptGroup {
     private static int nextMExprId = 1;
     private GState status;
     private Map<OptimizationContext, OptimizationContext> optContextMap;
-    private OptProperty logicalProperty;
+    private OptProperty property;
     private Statistics statistics;
 
-    public OptGroup(int id) {
+    public OptGroup(int id, OptProperty property) {
         this.id = id;
         this.status = GState.Unimplemented;
+        this.property = property;
         this.optContextMap = Maps.newHashMap();
     }
 
@@ -99,9 +100,6 @@ public class OptGroup {
         return mExprs.get(0);
     }
 
-    public void deriveProperty() {
-    }
-
     public int getId() { return id; }
     public boolean isImplemented() { return status == GState.Implemented; }
     public boolean isOptimized() { return status == GState.Optimized; }
@@ -109,8 +107,7 @@ public class OptGroup {
     public OptimizationContext lookUp(OptimizationContext newContext) { return optContextMap.get(newContext); }
     public void setStatus(GState status) { this.status = status; }
     public GState getStatus() { return status; }
-    public OptProperty getLogicalProperty() { return logicalProperty; }
-    public void setLogicalProperty(OptProperty property) { this.logicalProperty = property; }
+    public OptProperty getProperty() { return property; }
     public Statistics getStatistics() { return statistics; }
     public void setStatistics(Statistics statistics) { this.statistics = statistics; }
 

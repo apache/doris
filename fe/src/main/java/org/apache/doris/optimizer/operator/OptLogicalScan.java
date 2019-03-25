@@ -22,8 +22,10 @@ import org.apache.doris.analysis.BaseTableRef;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.optimizer.OptExpression;
 import org.apache.doris.optimizer.OptExpressionWapper;
 import org.apache.doris.optimizer.base.OptColumnRef;
+import org.apache.doris.optimizer.base.OptColumnRefSet;
 import org.apache.doris.optimizer.rule.OptRuleType;
 import org.apache.doris.optimizer.stat.DefaultStatistics;
 import org.apache.doris.optimizer.stat.Statistics;
@@ -68,8 +70,8 @@ public class OptLogicalScan extends OptLogical {
     }
 
     @Override
-    public List<OptColumnRef> deriveOuput(OptExpressionWapper wapper) {
-        return outputs;
+    public OptColumnRefSet getOutputColumns(OptExpression expression) {
+        return new OptColumnRefSet(outputs);
     }
 
     @Override

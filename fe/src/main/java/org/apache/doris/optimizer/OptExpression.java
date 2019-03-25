@@ -18,10 +18,11 @@
 package org.apache.doris.optimizer;
 
 import com.google.common.collect.Lists;
+import org.apache.doris.optimizer.base.OptItemProperty;
+import org.apache.doris.optimizer.base.OptLogicalProperty;
+import org.apache.doris.optimizer.base.OptPhysicalProperty;
+import org.apache.doris.optimizer.base.OptProperty;
 import org.apache.doris.optimizer.operator.OptOperator;
-import org.apache.doris.optimizer.property.OptLogicalProperty;
-import org.apache.doris.optimizer.property.OptPhysicalProperty;
-import org.apache.doris.optimizer.property.OptProperty;
 import org.apache.doris.optimizer.stat.Statistics;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -44,11 +45,10 @@ public class OptExpression {
     private OptOperator op;
     private List<OptExpression> inputs;
 
-    // Store where this Expression has bound from, used to
+    // store where this Expression has bound from, used to
     private MultiExpression mExpr;
     // Store the logical property including schema ...
-    private OptProperty logicalProperty;
-    private OptProperty physicalProperty;
+    private OptProperty property;
     private Statistics statistics;
 
     private OptExpression(OptOperator op) {
@@ -78,7 +78,7 @@ public class OptExpression {
 
     private void copyPropertyAndStatistics() {
         this.op = mExpr.getOp();
-        this.logicalProperty = mExpr.getGroup().getLogicalProperty();
+        this.property = mExpr.getGroup().getLogicalProperty();
         this.statistics = mExpr.getGroup().getStatistics();
     }
 
@@ -103,8 +103,10 @@ public class OptExpression {
     public int arity() { return inputs.size(); }
     public OptExpression getInput(int idx) { return inputs.get(idx); }
     public MultiExpression getMExpr() { return mExpr; }
-    public OptProperty getLogicalProperty() { return logicalProperty; }
-    public void setLogicalProperty(OptProperty property) { this.logicalProperty = property; }
+    public OptProperty getProperty() { return property; }
+    public OptLogicalProperty getLogicalProperty() { return (OptLogicalProperty) property; }
+    public OptItemProperty getItemProperty() { return (OptItemProperty) property; }
+    public OptPhysicalProperty getPhysicalProperty() { return (OptPhysicalProperty) property; }
     public Statistics getStatistics() { return statistics; }
     public void setStatistics(Statistics statistics) { this.statistics = statistics; }
 
@@ -122,43 +124,6 @@ public class OptExpression {
             return false;
         }
         return arity() == mExpr.arity();
-    }
-
-    private OptProperty getRightProperty() {
-        if (getOp().isLogical()) {
-            return logicalProperty;
-        } else if (getOp().isPhysical()) {
-            return physicalProperty;
-        }
-        return null;
-    }
-
-    private OptProperty createRightProperty() {
-        if (getOp().isLogical()) {
-            logicalProperty = new OptLogicalProperty();
-            return logicalProperty;
-        } else if (getOp().isPhysical()) {
-            physicalProperty = new OptPhysicalProperty();
-            return physicalProperty;
-        }
-        return null;
-    }
-
-    public OptProperty deriveProperty() {
-        OptProperty property = getRightProperty();
-        if (property != null) {
-            return property;
-        }
-        // Derive children's property.
-        property = createRightProperty();
-        final List<OptProperty> childrenProperty = Lists.newArrayList();
-        for (OptExpression expr : inputs) {
-            childrenProperty.add(expr.deriveProperty());
-        }
-        // Derive current property.
-        final OptExpressionWapper wapper = new OptExpressionWapper(this);
-        property.derive(wapper, childrenProperty);
-        return property;
     }
 
     public void deriveStatistics() {
@@ -180,5 +145,18 @@ public class OptExpression {
             sb.append(input.getExplainString(childHeadlinePrefix, childDetailPrefix));
         }
         return sb.toString();
+    }
+
+    // This function will drive inputs' property first, then derive itself's
+    // property
+    public void deriveProperty() {
+        if (property != null) {
+            return;
+        }
+        for (OptExpression input : inputs) {
+            input.deriveProperty();
+        }
+        property = op.createProperty();
+        property.derive(this);
     }
 }

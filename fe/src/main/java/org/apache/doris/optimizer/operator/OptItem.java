@@ -18,6 +18,9 @@
 package org.apache.doris.optimizer.operator;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.optimizer.base.OptColumnRefSet;
+import org.apache.doris.optimizer.base.OptItemProperty;
+import org.apache.doris.optimizer.base.OptProperty;
 
 public abstract class OptItem extends OptOperator {
     protected OptItem(OptOperatorType type) {
@@ -27,10 +30,18 @@ public abstract class OptItem extends OptOperator {
     @Override
     public boolean isItem() { return true; }
 
+    @Override
+    public OptProperty createProperty() {
+        return new OptItemProperty();
+    }
+
     // Scalar return value's type, every scalar has a return value,
     // such as compare function would return a boolean type result
     public abstract Type getReturnType();
 
     public boolean isConstant() { return false; }
     public boolean isAlwaysTrue() { return false; }
+    public OptColumnRefSet getUsedColumns() {
+        return new OptColumnRefSet();
+    }
 }

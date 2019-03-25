@@ -15,16 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.optimizer.property;
+package org.apache.doris.optimizer.base;
 
-import org.apache.doris.optimizer.OptExpressionWapper;
+import org.apache.doris.optimizer.OptExpression;
 
-import java.util.List;
-
-public class OptPhysicalProperty extends OptProperty {
-
+public class OptPhysicalProperty implements OptProperty {
     @Override
-    public void derive(OptExpressionWapper wapper, List<OptProperty> childrenProperty) {
-
+    public void derive(OptExpression expression) {
     }
 }
