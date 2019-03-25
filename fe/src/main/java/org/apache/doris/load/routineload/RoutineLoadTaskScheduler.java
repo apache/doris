@@ -98,7 +98,7 @@ public class RoutineLoadTaskScheduler extends Daemon {
         LOG.info("There are {} tasks need to be scheduled in queue", needScheduleTasksQueue.size());
 
         int scheduledTaskNum = 0;
-        Map<Long, List<TRoutineLoadTask>> beIdTobatchTask = Maps.newHashMap();
+        Map<Long, List<TRoutineLoadTask>> beIdToBatchTask = Maps.newHashMap();
         while (needScheduleTaskNum-- > 0) {
             // allocate be to task and begin transaction for task
             RoutineLoadTaskInfo routineLoadTaskInfo = null;
@@ -110,14 +110,16 @@ public class RoutineLoadTaskScheduler extends Daemon {
                 return;
             }
             try {
+                if (!routineLoadManager.checkTaskInJob(routineLoadTaskInfo.getId())) {
+                    // task has been abandoned while renew task has been added in queue
+                    // or database has been deleted
+                    LOG.warn(new LogBuilder(LogKey.ROUINTE_LOAD_TASK, routineLoadTaskInfo.getId())
+                                     .add("error_msg", "task has been abandoned")
+                                     .build());
+                    continue;
+                }
                 allocateTaskToBe(routineLoadTaskInfo);
                 routineLoadTaskInfo.beginTxn();
-            } catch (MetaNotFoundException e) {
-                // task has been abandoned while renew task has been added in queue
-                // or database has been deleted
-                LOG.warn(new LogBuilder(LogKey.ROUINTE_LOAD_TASK, routineLoadTaskInfo.getId())
-                                 .add("error_msg", "task has been abandoned with error " + e.getMessage()).build(), e);
-                continue;
             } catch (LoadException e) {
                 needScheduleTasksQueue.put(routineLoadTaskInfo);
                 LOG.warn(new LogBuilder(LogKey.ROUINTE_LOAD_TASK, routineLoadTaskInfo.getId())
@@ -129,19 +131,19 @@ public class RoutineLoadTaskScheduler extends Daemon {
             // task to thrift
             TRoutineLoadTask tRoutineLoadTask = routineLoadTaskInfo.createRoutineLoadTask();
             // remove task for needScheduleTasksList in job
-            routineLoadTaskInfo.setLoadStartTimeMs(System.currentTimeMillis());
+            routineLoadTaskInfo.setExecuteStartTimeMs(System.currentTimeMillis());
             // add to batch task map
-            if (beIdTobatchTask.containsKey(routineLoadTaskInfo.getBeId())) {
-                beIdTobatchTask.get(routineLoadTaskInfo.getBeId()).add(tRoutineLoadTask);
+            if (beIdToBatchTask.containsKey(routineLoadTaskInfo.getBeId())) {
+                beIdToBatchTask.get(routineLoadTaskInfo.getBeId()).add(tRoutineLoadTask);
             } else {
                 List<TRoutineLoadTask> tRoutineLoadTaskList = Lists.newArrayList();
                 tRoutineLoadTaskList.add(tRoutineLoadTask);
-                beIdTobatchTask.put(routineLoadTaskInfo.getBeId(), tRoutineLoadTaskList);
+                beIdToBatchTask.put(routineLoadTaskInfo.getBeId(), tRoutineLoadTaskList);
             }
             // count
             scheduledTaskNum++;
         }
-        submitBatchTask(beIdTobatchTask);
+        submitBatchTask(beIdToBatchTask);
         LOG.info("{} tasks have been allocated to be.", scheduledTaskNum);
     }
 

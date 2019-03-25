@@ -92,23 +92,6 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         setConsumer();
     }
 
-    // TODO(ml): I will change it after ut.
-    @VisibleForTesting
-    public KafkaRoutineLoadJob(long id, String name, long dbId, long tableId,
-                               RoutineLoadDesc routineLoadDesc,
-                               int desireTaskConcurrentNum, int maxErrorNum,
-                               String brokerList, String topic, KafkaProgress kafkaProgress) {
-        super(id, name, dbId, tableId, routineLoadDesc,
-              desireTaskConcurrentNum, LoadDataSourceType.KAFKA,
-              maxErrorNum);
-        this.brokerList = brokerList;
-        this.topic = topic;
-        this.progress = kafkaProgress;
-        this.customKafkaPartitions = new ArrayList<>();
-        this.currentKafkaPartitions = new ArrayList<>();
-        setConsumer();
-    }
-
     public String getTopic() {
         return topic;
     }
@@ -317,6 +300,8 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         } finally {
             db.readUnlock();
         }
+
+        // TODO(ml): check partition
 
         // init kafka routine load job
         long id = Catalog.getInstance().getNextId();
