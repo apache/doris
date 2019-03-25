@@ -48,6 +48,22 @@
 
 namespace doris {
 
+struct TabletTxnInfo {
+    PUniqueId load_id;
+    RowsetSharedPtr rowset;
+    int64_t creation_time;
+
+    TabletTxnInfo(
+        PUniqueId load_id,
+        RowsetSharedPtr rowset) :
+        load_id(load_id),
+        rowset(rowset) {
+        creation_time = time(NULL);
+    }
+
+    TabletTxnInfo() {}
+};
+
 // txn manager is used to manage mapping between tablet and txns
 class TxnManager {
 public:
@@ -99,7 +115,7 @@ public:
     bool has_committed_txn(TPartitionId partition_id, TTransactionId transaction_id,
                            TTabletId tablet_id, SchemaHash schema_hash);
 
-    bool get_expire_txns(TTabletId tablet_id, std::vector<int64_t>* transaction_ids);
+    bool get_expire_txns(TTabletId tablet_id, SchemaHash schema_hash, std::vector<int64_t>* transaction_ids);
     
 private:
     RWMutex* _get_txn_lock(TTransactionId txn_id) {
@@ -109,7 +125,7 @@ private:
 private:
     RWMutex _txn_map_lock;
     using TxnKey = std::pair<int64_t, int64_t>; // partition_id, transaction_id;
-    std::map<TxnKey, std::map<TabletInfo, std::pair<PUniqueId, RowsetSharedPtr>>> _txn_tablet_map;
+    std::map<TxnKey, std::map<TabletInfo, TabletTxnInfo>> _txn_tablet_map;
 
     const int32_t _txn_lock_num = 100;
     std::map<int32_t, std::shared_ptr<RWMutex>> _txn_locks;
