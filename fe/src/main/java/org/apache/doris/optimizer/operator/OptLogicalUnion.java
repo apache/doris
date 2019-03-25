@@ -17,7 +17,9 @@
 
 package org.apache.doris.optimizer.operator;
 
+import org.apache.doris.optimizer.OptExpression;
 import org.apache.doris.optimizer.OptExpressionWapper;
+import org.apache.doris.optimizer.base.OptColumnRefSet;
 import org.apache.doris.optimizer.stat.Statistics;
 import org.apache.doris.optimizer.stat.StatisticsContext;
 
@@ -37,6 +39,15 @@ public class OptLogicalUnion extends OptLogical {
     @Override
     public BitSet getCandidateRulesForImplement() {
         return null;
+    }
+
+    @Override
+    public OptColumnRefSet getOutputColumns(OptExpression expression) {
+        OptColumnRefSet columns = new OptColumnRefSet();
+        for (OptExpression input : expression.getInputs()) {
+            columns.include(input.getLogicalProperty().getOutputColumns());
+        }
+        return columns;
     }
 
     @Override

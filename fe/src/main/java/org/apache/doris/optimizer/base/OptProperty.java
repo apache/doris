@@ -15,21 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.optimizer.operator;
+package org.apache.doris.optimizer.base;
 
-import org.apache.doris.optimizer.base.OptPhysicalProperty;
-import org.apache.doris.optimizer.base.OptProperty;
+import org.apache.doris.optimizer.OptExpression;
 
-public abstract class OptPhysical extends OptOperator {
-
-    protected OptPhysical(OptOperatorType type) {
-        super(type);
-    }
-
-    @Override
-    public boolean isPhysical() { return true; }
-    @Override
-    public OptProperty createProperty() {
-        return new OptPhysicalProperty();
-    }
+public interface OptProperty {
+    void derive(OptExpression expression);
 }

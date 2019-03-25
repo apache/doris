@@ -20,6 +20,7 @@ package org.apache.doris.optimizer.operator;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.optimizer.OptUtils;
 import org.apache.doris.optimizer.base.OptColumnRef;
+import org.apache.doris.optimizer.base.OptColumnRefSet;
 
 // Reference to a column
 public class OptItemColumnRef extends OptItem {
@@ -54,5 +55,10 @@ public class OptItemColumnRef extends OptItem {
         StringBuilder sb = new StringBuilder();
         sb.append(prefix).append("ItemColumnRef(ref=").append(ref).append(")");
         return sb.toString();
+    }
+
+    @Override
+    public OptColumnRefSet getUsedColumns() {
+        return new OptColumnRefSet(ref.getId());
     }
 }

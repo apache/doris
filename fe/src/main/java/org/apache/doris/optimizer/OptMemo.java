@@ -107,13 +107,14 @@ public class OptMemo {
             targetGroup.addMExpr(mExpr);
             return mExpr;
         }
+
         // targetGroup is null, we should create new OptGroup
-        OptGroup newGroup = new OptGroup(nextGroupId++);
+        // we should derive property first to make sure expression has property
+        expr.deriveProperty();
+
+        OptGroup newGroup = new OptGroup(nextGroupId++, expr.getProperty());
         newGroup.addMExpr(mExpr);
         groups.add(newGroup);
-        // Derive property
-        expr.deriveProperty();
-        newGroup.setLogicalProperty(expr.getLogicalProperty());
         return mExpr;
     }
 

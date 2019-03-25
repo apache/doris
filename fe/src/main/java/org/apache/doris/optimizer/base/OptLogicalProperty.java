@@ -15,14 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.optimizer.property;
+package org.apache.doris.optimizer.base;
 
-import org.apache.doris.optimizer.OptExpressionWapper;
+import org.apache.doris.optimizer.OptExpression;
+import org.apache.doris.optimizer.operator.OptLogical;
 
-import java.util.List;
+public class OptLogicalProperty implements OptProperty {
+    private OptColumnRefSet outputColumns;
 
-public abstract class OptProperty {
+    public OptColumnRefSet getOutputColumns() { return outputColumns; }
+    @Override
+    public void derive(OptExpression expression) {
+        OptLogical op = (OptLogical) expression.getOp();
 
-    public abstract void derive(OptExpressionWapper wapper, List<OptProperty> childrenProperty);
-
+        outputColumns = op.getOutputColumns(expression);
+    }
 }

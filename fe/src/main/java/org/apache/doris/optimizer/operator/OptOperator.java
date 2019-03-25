@@ -17,6 +17,9 @@
 
 package org.apache.doris.optimizer.operator;
 
+import com.google.common.base.Preconditions;
+import org.apache.doris.optimizer.base.OptProperty;
+
 // Base class for operation. Operation can be logical or physical
 // Pattern is a special kind of operation which is only used in rules to
 // match pattern and then do transform
@@ -54,6 +57,13 @@ public abstract class OptOperator {
     // except first line, new lines should be printed after prefix
     public String getExplainString(String prefix) {
         return type.getName();
+    }
+
+    // Create property for this operator. A item operator would create OptItemProperty
+    // and a logical operator would create OptLogicalProperty
+    public OptProperty createProperty() {
+        Preconditions.checkArgument(false, "this should not be called, op=" + this);
+        return null;
     }
 
     @Override
