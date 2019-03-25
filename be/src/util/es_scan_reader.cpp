@@ -31,10 +31,8 @@ const std::string REQUEST_SEARCH_SCROLL_PATH = "/_search/scroll";
 const std::string REQUEST_SEPARATOR = "/";
 const std::string REQUEST_SCROLL_TIME = "5m";
 
-ESScanReader::ESScanReader(const std::string& target, uint16_t size, const std::map<std::string, std::string>& props) {
-    LOG(INFO) << "ESScanReader ";
+ESScanReader::ESScanReader(const std::string& target, const std::map<std::string, std::string>& props) {
     _target = target;
-    _batch_size = size;
     _index = props.at(KEY_INDEX);
     _type = props.at(KEY_TYPE);
     if (props.find(KEY_USER_NAME) != props.end()) {
@@ -43,16 +41,18 @@ ESScanReader::ESScanReader(const std::string& target, uint16_t size, const std::
     if (props.find(KEY_PASS_WORD) != props.end()){
         _passwd = props.at(KEY_PASS_WORD);
     }
-    if (props.find(KEY_SHARDS) != props.end()) {
-        _shards = props.at(KEY_SHARDS);
+    if (props.find(KEY_SHARD) != props.end()) {
+        _shards = props.at(KEY_SHARD);
     }
     if (props.find(KEY_QUERY) != props.end()) {
         _query = props.at(KEY_QUERY);
     }
+    std::string batch_size_str = props.at(KEY_BATCH_SIZE);
+    _batch_size = atoi(batch_size_str.c_str());
     _init_scroll_url = _target + REQUEST_SEPARATOR + _index + REQUEST_SEPARATOR + _type + "/_search?scroll=" + REQUEST_SCROLL_TIME + REQUEST_PREFERENCE_PREFIX + _shards + "&" + REUQEST_SCROLL_FILTER_PATH;
     _next_scroll_url = _target + REQUEST_SEARCH_SCROLL_PATH + "?" + REUQEST_SCROLL_FILTER_PATH;
     _eos = false;
-    _parser.set_batch_size(size);
+    _parser.set_batch_size(_batch_size);
 }
 
 ESScanReader::~ESScanReader() {
