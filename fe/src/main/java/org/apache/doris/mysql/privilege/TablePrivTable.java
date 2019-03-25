@@ -25,6 +25,9 @@ import com.google.common.base.Preconditions;
 import java.io.DataOutput;
 import java.io.IOException;
 
+/*
+ * TablePrivTable saves all table level privs
+ */
 public class TablePrivTable extends PrivTable {
 
     public void getPrivs(String host, String db, String user, String tbl, PrivBitSet savedPrivs) {

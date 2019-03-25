@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.mysql.MysqlCapability;
@@ -63,8 +64,9 @@ public class ConnectContext {
     private volatile String currentDb = "";
     // cluster name
     private volatile String clusterName = "";
-    // User
+    // user
     private volatile String qualifiedUser;
+    private volatile UserIdentity currentUserIdentity;
     // Serializer used to pack MySQL packet.
     private volatile MysqlSerializer serializer;
     // Variables belong to this session.
@@ -162,6 +164,19 @@ public class ConnectContext {
 
     public void setQualifiedUser(String qualifiedUser) {
         this.qualifiedUser = qualifiedUser;
+    }
+
+    // for USER() function
+    public UserIdentity getUserIdentity() {
+        return new UserIdentity(qualifiedUser, remoteIP);
+    }
+
+    public UserIdentity getCurrentUserIdentity() {
+        return currentUserIdentity;
+    }
+
+    public void setCurrentUserIdentitfy(UserIdentity currentUserIdentity) {
+        this.currentUserIdentity = currentUserIdentity;
     }
 
     public SessionVariable getSessionVariable() {

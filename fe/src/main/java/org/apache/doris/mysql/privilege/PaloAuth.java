@@ -198,7 +198,8 @@ public class PaloAuth implements Writable {
         }
     }
 
-    public boolean checkPassword(String remoteUser, String remoteHost, byte[] remotePasswd, byte[] randomString) {
+    public boolean checkPassword(String remoteUser, String remoteHost, byte[] remotePasswd, byte[] randomString,
+            List<UserIdentity> currentUser) {
         if (!Config.enable_auth_check) {
             return true;
         }
@@ -209,7 +210,7 @@ public class PaloAuth implements Writable {
         
         readLock();
         try {
-            return userPrivTable.checkPassword(remoteUser, remoteHost, remotePasswd, randomString);
+            return userPrivTable.checkPassword(remoteUser, remoteHost, remotePasswd, randomString, currentUser);
         } finally {
             readUnlock();
         }
