@@ -32,9 +32,6 @@ AlphaRowsetReader::AlphaRowsetReader(
 }
 
 AlphaRowsetReader::~AlphaRowsetReader() {
-    for (auto& row_cursor : _row_cursors) {
-        delete row_cursor;
-    }
     delete _dst_cursor;
 }
 
@@ -49,7 +46,7 @@ OLAPStatus AlphaRowsetReader::init(RowsetReaderContext* read_context) {
 
     Version version = _alpha_rowset_meta->version();
     _is_singleton_rowset = (version.first == version.second);
-    _pos = 0;
+    _ordinal = 0;
     bool merge = false;
     /*
      * For singleton rowset, there exists three situations.
@@ -62,8 +59,8 @@ OLAPStatus AlphaRowsetReader::init(RowsetReaderContext* read_context) {
      *      row in advance.
      * For cumulative rowset, there are no necessities to merge row in advance.
      */
-    RETURN_NOT_OK(_init_column_datas(read_context));
-    if (_is_singleton_rowset && _column_datas.size() > 1) {
+    RETURN_NOT_OK(_init_merge_ctxs(read_context));
+    if (_is_singleton_rowset && _merge_ctxs.size() > 1) {
         if (_current_read_context->reader_type == READER_QUERY
                 && _current_read_context->preaggregation) {
             // 1. QUERY task which set pregaggregation to be true
@@ -93,15 +90,16 @@ OLAPStatus AlphaRowsetReader::init(RowsetReaderContext* read_context) {
         block_info.null_supported = true;
         _read_block->init(block_info);
         _dst_cursor = new (std::nothrow) RowCursor();
+        if (_dst_cursor == nullptr) {
+            LOG(WARNING) << "allocate memory for row cursor failed";
+            return OLAP_ERR_MALLOC_ERROR;
+        }
         _dst_cursor->init(*(_current_read_context->tablet_schema));
-        for (size_t i = 0; i < _column_datas.size(); ++i) {
-            RowCursor* row_cursor = new (std::nothrow) RowCursor();
-            row_cursor->init(*(_current_read_context->tablet_schema));
-            _row_cursors.push_back(row_cursor);
+        for (size_t i = 0; i < _merge_ctxs.size(); ++i) {
+            _merge_ctxs[i].row_cursor.reset(new (std::nothrow) RowCursor());
+            _merge_ctxs[i].row_cursor->init(*(_current_read_context->tablet_schema));
         }
     }
-    _row_blocks.resize(_column_datas.size(), nullptr);
-    _first_read_symbols.resize(_column_datas.size(), true);
     return OLAP_SUCCESS;
 }
 
@@ -122,7 +120,7 @@ VersionHash AlphaRowsetReader::version_hash() {
 }
 
 void AlphaRowsetReader::close() {
-    _column_datas.clear();
+    _merge_ctxs.clear();
 }
 
 int64_t AlphaRowsetReader::filtered_rows() {
@@ -130,20 +128,20 @@ int64_t AlphaRowsetReader::filtered_rows() {
 }
 
 OLAPStatus AlphaRowsetReader::_union_block(RowBlock** block) {
-    while (_pos < _column_datas.size()) {
+    while (_ordinal < _merge_ctxs.size()) {
         // union block only use one block to store
-        OLAPStatus status = _next_block_for_column_data(_pos, &_row_blocks[_pos]);
+        OLAPStatus status = _next_block_for_column_data(&(_merge_ctxs[_ordinal]));
         if (status == OLAP_ERR_DATA_EOF) {
-            _pos++;
+            _ordinal++;
             continue;
         } else if (status != OLAP_SUCCESS) {
             return status;
         } else {
-            (*block) = _row_blocks[_pos];
+            (*block) = _merge_ctxs[_ordinal].row_block;
             return OLAP_SUCCESS;
         }
     }
-    if (_pos == _column_datas.size()) {
+    if (_ordinal == _merge_ctxs.size()) {
         *block = nullptr;
         return OLAP_ERR_DATA_EOF;
     }
@@ -181,70 +179,76 @@ OLAPStatus AlphaRowsetReader::_merge_block(RowBlock** block) {
 OLAPStatus AlphaRowsetReader::_next_row_for_singleton_rowset(RowCursor** row) {
     RowCursor* min_row = nullptr;
     int min_index = -1;
-    for (int i = 0; i < _row_blocks.size(); i++) {
-        if (_row_blocks[i] == nullptr || !_row_blocks[i]->has_remaining()) {
-            OLAPStatus status = _next_block_for_column_data(i, &_row_blocks[i]);
+
+    size_t merge_ctx_size = _merge_ctxs.size();
+    size_t ordinal = 0;
+    while (ordinal < merge_ctx_size) {
+        MergeContext* merge_ctx = &(_merge_ctxs[ordinal]);
+        if (merge_ctx->row_block == nullptr || !merge_ctx->row_block->has_remaining()) {
+            OLAPStatus status = _next_block_for_column_data(merge_ctx);
             if (status == OLAP_ERR_DATA_EOF) {
+                _merge_ctxs.erase(_merge_ctxs.begin() + ordinal);
+                merge_ctx_size = _merge_ctxs.size();
                 continue;
             } else if (status != OLAP_SUCCESS) {
                 LOG(INFO) << "read next row of singleton rowset failed:" << status;
                 return status;
             }
         }
-        size_t pos = _row_blocks[i]->pos();
-        RowCursor* current_row = _row_cursors[i];
-        _row_blocks[i]->get_row(pos, current_row);
+        RowCursor* current_row = merge_ctx->row_cursor.get();
+        merge_ctx->row_block->get_row(merge_ctx->row_block->pos(), current_row);
         if (min_row == nullptr || min_row->cmp(*current_row) >  0) {
             min_row = current_row;
-            min_index = i;
+            min_index = ordinal;
         }
+        ordinal++;
     }
     if (min_row == nullptr || min_index == -1) {
         return OLAP_ERR_DATA_EOF;
     }
     *row = min_row;
-    _row_blocks[min_index]->pos_inc();
+    _merge_ctxs[min_index].row_block->pos_inc();
     return OLAP_SUCCESS;
 }
 
-OLAPStatus AlphaRowsetReader::_next_block_for_column_data(size_t pos, RowBlock** row_block) {
+OLAPStatus AlphaRowsetReader::_next_block_for_column_data(MergeContext* merge_ctx) {
     OLAPStatus status = OLAP_SUCCESS;
-    if (OLAP_UNLIKELY(_first_read_symbols[pos])) {
+    if (OLAP_UNLIKELY(merge_ctx->first_read_symbol)) {
         if (_key_range_size > 0) {
-            status = _fetch_first_block(pos, row_block);
+            status = _fetch_first_block(merge_ctx);
         } else {
-            status = _column_datas[pos]->get_first_row_block(row_block);
+            status = merge_ctx->column_data->get_first_row_block(&(merge_ctx->row_block));
             if (status != OLAP_SUCCESS && status != OLAP_ERR_DATA_EOF) {
                 LOG(WARNING) << "get first row block failed, status:" << status;
             }
         }
-        _first_read_symbols[pos] = false;
+        merge_ctx->first_read_symbol = false;
         return status;
     } else {
         // get next block
-        status = _column_datas[pos]->get_next_block(row_block);
+        status = merge_ctx->column_data->get_next_block(&(merge_ctx->row_block));
         if (status == OLAP_ERR_DATA_EOF && _key_range_size > 0) {
             // reach the end of one predicate
             // currently, SegmentReader can only support filter one key range a time
             // refresh the predicate and continue read
-            return _fetch_first_block(pos, row_block);
+            return _fetch_first_block(merge_ctx);
         }
     }
     return status;
 }
 
-OLAPStatus AlphaRowsetReader::_fetch_first_block(size_t pos, RowBlock** row_block) {
+OLAPStatus AlphaRowsetReader::_fetch_first_block(MergeContext* merge_ctx) {
     OLAPStatus status = OLAP_SUCCESS;
-    _key_range_indices[pos]++;
-    while (_key_range_indices[pos] < _key_range_size) {
-        status = _column_datas[pos]->prepare_block_read(
-                    _current_read_context->lower_bound_keys->at(_key_range_indices[pos]),
-                    _current_read_context->is_lower_keys_included->at(_key_range_indices[pos]),
-                    _current_read_context->upper_bound_keys->at(_key_range_indices[pos]),
-                    _current_read_context->is_upper_keys_included->at(_key_range_indices[pos]),
-                    row_block);
+    merge_ctx->key_range_index++;
+    while (merge_ctx->key_range_index < _key_range_size) {
+        status = merge_ctx->column_data->prepare_block_read(
+                    _current_read_context->lower_bound_keys->at(merge_ctx->key_range_index),
+                    _current_read_context->is_lower_keys_included->at(merge_ctx->key_range_index),
+                    _current_read_context->upper_bound_keys->at(merge_ctx->key_range_index),
+                    _current_read_context->is_upper_keys_included->at(merge_ctx->key_range_index),
+                    &(merge_ctx->row_block));
         if (status == OLAP_ERR_DATA_EOF) {
-            _key_range_indices[pos]++;
+            merge_ctx->key_range_index++;
             continue;
         } else if (status != OLAP_SUCCESS) {
             LOG(WARNING) << "prepare block read failed. status=" << status;
@@ -253,14 +257,14 @@ OLAPStatus AlphaRowsetReader::_fetch_first_block(size_t pos, RowBlock** row_bloc
             break;
         }
     }
-    if (_key_range_indices[pos] >= _key_range_size) {
-        *row_block = nullptr;
+    if (merge_ctx->key_range_index >= _key_range_size) {
+        merge_ctx->row_block = nullptr;
         return OLAP_ERR_DATA_EOF;
     }
     return status;
 }
 
-OLAPStatus AlphaRowsetReader::_init_column_datas(RowsetReaderContext* read_context) {
+OLAPStatus AlphaRowsetReader::_init_merge_ctxs(RowsetReaderContext* read_context) {
     if (read_context->reader_type == READER_QUERY) {
         if (read_context->lower_bound_keys->size() != read_context->is_lower_keys_included->size()
                 || read_context->lower_bound_keys->size() != read_context->upper_bound_keys->size()
@@ -297,7 +301,7 @@ OLAPStatus AlphaRowsetReader::_init_column_datas(RowsetReaderContext* read_conte
                     *read_context->upper_bound_keys,
                     read_context->is_using_cache,
                     read_context->runtime_state);
-            // filter 
+            // filter
             if (new_column_data->rowset_pruning_filter()) {
                 _stats->rows_stats_filtered += new_column_data->num_rows();
                 VLOG(3) << "filter segment group in query in condition. version="
@@ -322,15 +326,14 @@ OLAPStatus AlphaRowsetReader::_init_column_datas(RowsetReaderContext* read_conte
                     << new_column_data->version().first << ", " << new_column_data->version().second;
             new_column_data->set_delete_status(DEL_NOT_SATISFIED);
         }
-        _column_datas.emplace_back(new_column_data);
+        MergeContext merge_ctx;
+        merge_ctx.column_data = new_column_data;
+        _merge_ctxs.emplace_back(merge_ctx);
     }
 
-    if (_key_range_size > 0) {
-        _key_range_indices.resize(_column_datas.size(), -1);
-    }
-    if (!_is_singleton_rowset && _column_datas.size() > 1) {
+    if (!_is_singleton_rowset && _merge_ctxs.size() > 1) {
         LOG(WARNING) << "invalid column_datas for cumulative rowset. column_datas size:"
-                     << _column_datas.size();
+                     << _merge_ctxs.size();
         return OLAP_ERR_READER_READING_ERROR;
     }
     return OLAP_SUCCESS;
