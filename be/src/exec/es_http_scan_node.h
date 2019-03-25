@@ -38,6 +38,7 @@ class PartRangeKey;
 class PartitionInfo;
 class EsHttpScanCounter;
 class EsQueryBuilder;
+class ExtPredicate;
 
 class EsHttpScanNode : public ScanNode {
 public:
@@ -82,6 +83,9 @@ private:
                 std::map<std::string, std::string> properties,
                 const std::vector<ExprContext*>& conjunct_ctxs, 
                 EsScanCounter* counter);
+
+    vector<ExtPredicate*> get_predicates();
+
 private:
 
     TupleId _tuple_id;

@@ -65,6 +65,7 @@ set(EXEC_FILES
     es_scan_node.cpp
     es_http_scan_node.cpp
     es_http_scanner.cpp
+    es_predicate.cpp
     spill_sort_node.cc
     union_node.cpp
     union_node_ir.cpp

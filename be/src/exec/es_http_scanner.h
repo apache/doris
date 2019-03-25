@@ -83,7 +83,7 @@ private:
     std::unique_ptr<TextConverter> _text_converter;
 
     int _next_range;
-    bool _eof;
+    bool _line_eof;
 
     std::vector<SlotDescriptor*> _slot_descs;
     std::unique_ptr<RowDescriptor> _row_desc;

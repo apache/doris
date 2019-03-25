@@ -29,6 +29,7 @@
 #include "util/runtime_profile.h"
 #include "exec/es_query_builder.h"
 #include "exec/es_scan_reader.h"
+#include "exec/es_predicate.h"
 
 namespace doris {
 
@@ -77,6 +78,20 @@ Status EsHttpScanNode::prepare(RuntimeState* state) {
     _wait_scanner_timer = ADD_TIMER(runtime_profile(), "WaitScannerTime");
 
     return Status::OK;
+}
+
+vector<ExtPredicate*> EsHttpScanNode::get_predicates() {
+    vector<ExtPredicate*> predicates;
+    for (int i = 0; i < _conjunct_ctxs.size(); ++i) {
+        std::unique_ptr<ExtPredicate> predicate(
+                    new ExtPredicate(_conjunct_ctxs[i], _tuple_desc));
+        if (predicate->build_disjuncts()) {
+            predicates.emplace_back(std::move(predicate));
+            predicate_to_conjunct.push_back(i);
+        }
+    }
+
+    return predicates;
 }
 
 Status EsHttpScanNode::open(RuntimeState* state) {
@@ -344,7 +359,8 @@ static std::string get_host_port(const std::vector<TNetworkAddress>& es_hosts) {
 void EsHttpScanNode::scanner_worker(int start_idx, int length) {
     // Clone expr context
     std::vector<ExprContext*> scanner_expr_ctxs;
-    auto status = Expr::clone_if_not_exists(_conjunct_ctxs, _runtime_state, &scanner_expr_ctxs);
+    auto status = Expr::clone_if_not_exists(_conjunct_ctxs, _runtime_state, 
+                &scanner_expr_ctxs);
     if (!status.ok()) {
         LOG(WARNING) << "Clone conjuncts failed.";
     }

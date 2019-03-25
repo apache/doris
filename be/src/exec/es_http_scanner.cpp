@@ -45,7 +45,7 @@ EsHttpScanner::EsHttpScanner(
         _properties(properties),
         _conjunct_ctxs(conjunct_ctxs),
         _next_range(0),
-        _eof(false),
+        _line_eof(false),
 #if BE_TEST
         _mem_tracker(new MemTracker()),
         _mem_pool(_mem_tracker.get()),
@@ -104,15 +104,12 @@ Status EsHttpScanner::open() {
 
 Status EsHttpScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
     SCOPED_TIMER(_read_timer);
-    _eof = false;
-    while (!_eof) {
-        std::string* buffer = new std::string();
-        size_t size = 0;
-        RETURN_IF_ERROR(_es_reader->get_next(&_eof, buffer));
-        *eof = _eof;
-        if (size == 0) {
-            continue;
+    while (!eof) {
+        std::string batch_row_buffer;
+        if (_line_eof) {
+            //RETURN_IF_ERROR(_es_reader->get_next(&eof, &batch_row_buffer));
         }
+        //get_next_line(&batch_row_buffer);
         {
             COUNTER_UPDATE(_rows_read_counter, 1);
             SCOPED_TIMER(_materialize_timer);
