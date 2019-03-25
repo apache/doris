@@ -18,6 +18,7 @@
 #include <string>
 #include <sstream>
 #include "es_scan_reader.h"
+#include "es_scroll_query.h"
 #include "rapidjson/writer.h"
 #include "rapidjson/document.h"
 #include "rapidjson/stringbuffer.h"
@@ -33,13 +34,7 @@ const std::string REQUEST_SEARCH_SCROLL_PATH = "/_search/scroll";
 const std::string REQUEST_SEPARATOR = "/";
 const std::string REQUEST_SCROLL_TIME = "5m";
 
-const char* FIELD_SCROLL_ID = "_scroll_id";
-const char* FIELD_HITS = "hits";
-const char* FIELD_INNER_HITS = "hits";
-const char* FIELD_SOURCE = "_source";
-const char* FIELD_TOTAL = "total";
-
-ESScanReader::ESScanReader(const std::string& target, const uint16_t size,std::map<std::string, std::string>& props) {
+ESScanReader::ESScanReader(const std::string& target, uint16_t size, const std::map<std::string, std::string>& props) {
     LOG(INFO) << "ESScanReader ";
     _target = target;
     _batch_size = size;
@@ -60,6 +55,7 @@ ESScanReader::ESScanReader(const std::string& target, const uint16_t size,std::m
     _init_scroll_url = _target + REQUEST_SEPARATOR + _index + REQUEST_SEPARATOR + _type + "/_search?scroll=" + REQUEST_SCROLL_TIME + REQUEST_PREFERENCE_PREFIX + _shards + "&" + REUQEST_SCROLL_FILTER_PATH;
     _next_scroll_url = _target + REQUEST_SEARCH_SCROLL_PATH + "?" + REUQEST_SCROLL_FILTER_PATH;
     _eos = false;
+    _parser.set_batch_size(size);
 }
 
 ESScanReader::~ESScanReader() {
@@ -82,30 +78,8 @@ Status ESScanReader::open() {
         return Status(*_cached_response);
     }
     VLOG(1) << "open _cached response: " << *_cached_response;
-    rapidjson::Document document_node;
-    document_node.Parse<0>(_cached_response->c_str());
-    // empty index
-    if (!document_node.HasMember(FIELD_SCROLL_ID)) {
-        _eos = true;
-        return Status::OK;
-    }
-    rapidjson::Value &scroll_node = document_node[FIELD_SCROLL_ID];
-    _scroll_id = scroll_node.GetString();
-    // { hits: { total : 2, "hits" : [ {}, {}, {} ]}}
-    rapidjson::Value &outer_hits_node = document_node[FIELD_HITS];
-    rapidjson::Value &total = document_node[FIELD_TOTAL];
-    VLOG(1) << "es_scan_reader total hits: " << total.GetInt() << " documents";
-    if (outer_hits_node.HasMember("FIELD_INNER_HITS")) {
-        return Status("es_scan_reader invalid response from elasticsearch");
-    }
-    rapidjson::Value &inner_hits_node = outer_hits_node[FIELD_INNER_HITS];
-    if (!inner_hits_node.IsArray()) {
-        return Status("es_scan_reader invalid response from elasticsearch");
-    }
-    int size = inner_hits_node.Size();
-    if (size < _batch_size) {
-        _eos = true;
-    }
+    RETURN_IF_ERROR(_parser.parse(*_cached_response));
+    _eos = _parser.has_next();
     return Status::OK;
 }
 
@@ -126,18 +100,7 @@ Status ESScanReader::get_next(bool* eos, std::string* response) {
     _network_client.set_basic_auth(_user_name, _passwd);
     _network_client.set_content_type("application/json");
     _network_client.set_timeout_ms(5 * 1000);
-    rapidjson::Document scroll_dsl;
-    rapidjson::Document::AllocatorType &allocator = scroll_dsl.GetAllocator();
-    scroll_dsl.SetObject();
-    rapidjson::Value scroll_id_value(_scroll_id.c_str(), allocator);
-    scroll_dsl.AddMember("scroll_id", scroll_id_value, allocator);
-    rapidjson::Value scroll_value(REQUEST_SCROLL_TIME.c_str(), allocator);
-    scroll_dsl.AddMember("scroll", scroll_value, allocator);
-    rapidjson::StringBuffer buffer;
-    rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
-    scroll_dsl.Accept(writer);
-    std::string scroll_dsl_json = buffer.GetString();
-    RETURN_IF_ERROR(_network_client.execute_post_request(scroll_dsl_json, response));
+    RETURN_IF_ERROR(_network_client.execute_post_request(ESScrollQueryBuilder::build_next_scroll_body(_scroll_id, REQUEST_SCROLL_TIME), response));
     long status = _network_client.get_http_status();
     if (status == 404) {
         LOG(WARNING) << "request scroll search failure 404[" 
@@ -153,30 +116,8 @@ Status ESScanReader::get_next(bool* eos, std::string* response) {
             }
         return Status("request scroll search failure: " + (response->empty() ? "empty response" : *response));        
     }
-    rapidjson::Document document_node;
-    document_node.Parse<0>(response->c_str());
-    if (!document_node.HasMember(FIELD_SCROLL_ID)) {
-        return Status("Invalid _search/scroll request, please check !");
-    }
-    rapidjson::Value &scroll_node = document_node[FIELD_SCROLL_ID];
-    _scroll_id = scroll_node.GetString();
-    // { hits: { total : 2, "hits" : [ {}, {}, {} ]}}
-    rapidjson::Value &outer_hits_node = document_node[FIELD_HITS];
-    // rapidjson::Value &total = document_node[FIELD_TOTAL];
-   if (!outer_hits_node.HasMember(FIELD_INNER_HITS)) {
-        *eos = _eos = true;
-        return Status::OK;
-    }
-    rapidjson::Value &inner_hits_node = outer_hits_node[FIELD_INNER_HITS];
-    if (!inner_hits_node.IsArray()) {
-        return Status("invalid response from elasticsearch");
-    }
-    size_t size = inner_hits_node.Size();
-    if (size < _batch_size) {
-        *eos = _eos = true;
-    } else {
-        *eos = _eos = false;
-    }
+    RETURN_IF_ERROR(_parser.parse(*response));
+    *eos = _eos = _parser.has_next();
     return Status::OK;
 }
 
@@ -187,18 +128,8 @@ Status ESScanReader::close() {
     _network_client.set_method(DELETE);
     _network_client.set_content_type("application/json");
     _network_client.set_timeout_ms(5 * 1000);
-    rapidjson::Document delete_scroll_dsl;
-    rapidjson::Document::AllocatorType &allocator = delete_scroll_dsl.GetAllocator();
-    delete_scroll_dsl.SetObject();
-    rapidjson::Value scroll_id_value(_scroll_id.c_str(), allocator);
-    delete_scroll_dsl.AddMember("scroll_id", scroll_id_value, allocator);
-    rapidjson::StringBuffer buffer;  
-    rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
-    delete_scroll_dsl.Accept(writer);
-    //send DELETE scorll post request
-    std::string delete_scroll_dsl_json = buffer.GetString();
     std::string response;
-    RETURN_IF_ERROR(_network_client.execute_delete_request(delete_scroll_dsl_json, &response));
+    RETURN_IF_ERROR(_network_client.execute_delete_request(ESScrollQueryBuilder::build_clear_scroll_body(_scroll_id), &response));
     if (_network_client.get_http_status() == 200) {
         return Status::OK;
     } else {

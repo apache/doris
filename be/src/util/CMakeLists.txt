@@ -76,6 +76,7 @@ add_library(Util STATIC
   md5.cpp
   es_scan_reader.cpp
   es_scroll_query.cpp
+  es_scroll_parser.cpp
 )
 
 #ADD_BE_TEST(integer-array-test)

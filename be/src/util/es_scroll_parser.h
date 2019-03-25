@@ -14,35 +14,31 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-
-
 #pragma once
 #include<string>
-#include<vector>
 
 namespace doris {
 
-class ESScrollQueryBuilder {
+class Status;
+class ScrollParser {
 
 public:
-    ESScrollQueryBuilder();
-    ~ESScrollQueryBuilder();
-    // build the query DSL for elasticsearch
-    std::string build();
-    
-    
-    void set_batch_size(uint16_t batch_size) {
-        _size = batch_size;
+    ScrollParser();
+    ~ScrollParser();
+    std::string get_scroll_id();
+    bool count();
+    uint32_t total();
+    Status parse(std::string scroll_result);
+    bool has_next();
+    void set_batch_size(int batch_size) {
+        _batch_size = batch_size;
     }
-    void set_selected_fields(std::vector<std::string>& fields) {
-        _fields = fields;
-    }
-
-    static std::string build_next_scroll_body(std::string scroll_id, std::string scroll);
-    static std::string build_clear_scroll_body(std::string scroll_id);
 
 private:
-    std::vector<std::string> _fields;
-    uint16_t _size;
+    std::string _scroll_id;
+    bool _eos;
+    int _total;
+    int _size;
+    int _batch_size;
 };
 }
