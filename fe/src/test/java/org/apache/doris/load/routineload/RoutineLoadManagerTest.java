@@ -17,6 +17,7 @@
 
 package org.apache.doris.load.routineload;
 
+import com.sleepycat.je.tree.IN;
 import org.apache.doris.analysis.ColumnSeparator;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.LabelName;
@@ -29,6 +30,7 @@ import org.apache.doris.common.LoadException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TResourceInfo;
@@ -53,20 +55,22 @@ import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
 
+import static mockit.Deencapsulation.invoke;
+
 public class RoutineLoadManagerTest {
 
     private static final Logger LOG = LogManager.getLogger(RoutineLoadManagerTest.class);
 
-    private static final int DEFAULT_BE_CONCURRENT_TASK_NUM = 100;
+    private static final int DEFAULT_BE_CONCURRENT_TASK_NUM = 10;
 
     @Mocked
     private SystemInfoService systemInfoService;
 
     @Test
     public void testAddJobByStmt(@Injectable PaloAuth paloAuth,
-            @Injectable TResourceInfo tResourceInfo,
-            @Mocked ConnectContext connectContext,
-            @Mocked Catalog catalog) throws UserException {
+                                 @Injectable TResourceInfo tResourceInfo,
+                                 @Mocked ConnectContext connectContext,
+                                 @Mocked Catalog catalog) throws UserException {
         String jobName = "job1";
         String dbName = "db1";
         LabelName labelName = new LabelName(dbName, jobName);
@@ -101,7 +105,7 @@ public class RoutineLoadManagerTest {
             {
                 catalog.getAuth();
                 result = paloAuth;
-                paloAuth.checkTblPriv((ConnectContext) any, dbName, tableNameString, PrivPredicate.LOAD);
+                paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.LOAD);
                 result = true;
             }
         };
@@ -158,7 +162,7 @@ public class RoutineLoadManagerTest {
             {
                 catalog.getAuth();
                 result = paloAuth;
-                paloAuth.checkTblPriv((ConnectContext) any, dbName, tableNameString, PrivPredicate.LOAD);
+                paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.LOAD);
                 result = false;
             }
         };
@@ -205,7 +209,9 @@ public class RoutineLoadManagerTest {
     }
 
     @Test
-    public void testCreateWithSameNameOfStoppedJob(@Mocked ConnectContext connectContext) throws DdlException {
+    public void testCreateWithSameNameOfStoppedJob(@Mocked ConnectContext connectContext,
+                                                   @Mocked Catalog catalog,
+                                                   @Mocked EditLog editLog) throws DdlException {
         String jobName = "job1";
         String topicName = "topic1";
         String serverAddress = "http://127.0.0.1:8080";
@@ -213,6 +219,13 @@ public class RoutineLoadManagerTest {
                 serverAddress, topicName);
 
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
+
+        new Expectations() {
+            {
+                catalog.getEditLog();
+                result = editLog;
+            }
+        };
 
         Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newConcurrentMap();
         Map<String, List<RoutineLoadJob>> nameToRoutineLoadJob = Maps.newConcurrentMap();
@@ -251,13 +264,21 @@ public class RoutineLoadManagerTest {
             {
                 systemInfoService.getClusterBackendIds(anyString, true);
                 result = beIds;
+                systemInfoService.getBackendIds(true);
+                result = beIds;
                 Catalog.getCurrentSystemInfo();
                 result = systemInfoService;
             }
         };
 
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
-//        routineLoadManager.increaseNumOfConcurrentTasksByBeId(1L);
+        Map<Long, Integer> beIdToConcurrentTaskMap = Maps.newHashMap();
+        beIdToConcurrentTaskMap.put(1L, 1);
+
+        new Expectations(routineLoadManager) {{
+            invoke(routineLoadManager, "getBeIdConcurrentTaskMaps");
+            result = beIdToConcurrentTaskMap;
+        }};
         Assert.assertEquals(2L, routineLoadManager.getMinTaskBeId("default"));
     }
 
@@ -277,7 +298,12 @@ public class RoutineLoadManagerTest {
         };
 
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
-//        routineLoadManager.increaseNumOfConcurrentTasksByBeId(1L);
+        Map<Long, Integer> beIdToConcurrentTaskMap = Maps.newHashMap();
+        beIdToConcurrentTaskMap.put(1L, 1);
+        new Expectations(routineLoadManager) {{
+            invoke(routineLoadManager, "getBeIdConcurrentTaskMaps");
+            result = beIdToConcurrentTaskMap;
+        }};
         Assert.assertEquals(DEFAULT_BE_CONCURRENT_TASK_NUM * 2 - 1, routineLoadManager.getClusterIdleSlotNum());
     }
 
