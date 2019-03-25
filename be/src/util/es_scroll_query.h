@@ -38,8 +38,8 @@ public:
         _fields = fields;
     }
 
-    static std::string build_next_scroll_body(std::string scroll_id, std::string scroll);
-    static std::string build_clear_scroll_body(std::string scroll_id);
+    static std::string build_next_scroll_body(const std::string scroll_id, std::string scroll);
+    static std::string build_clear_scroll_body(const std::string scroll_id);
 
 private:
     std::vector<std::string> _fields;

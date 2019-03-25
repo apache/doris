@@ -28,7 +28,7 @@ public:
     std::string get_scroll_id();
     bool count();
     uint32_t total();
-    Status parse(std::string scroll_result);
+    Status parse(const std::string scroll_result);
     bool has_next();
     void set_batch_size(int batch_size) {
         _batch_size = batch_size;

@@ -36,7 +36,7 @@ ScrollParser::~ScrollParser() {
 }
 
 
-Status ScrollParser::parse(std::string scroll_result) {
+Status ScrollParser::parse(const std::string scroll_result) {
     rapidjson::Document document_node;
     document_node.Parse<0>(scroll_result.c_str());
     if (!document_node.HasMember(FIELD_SCROLL_ID)) {
