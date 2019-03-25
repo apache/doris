@@ -19,9 +19,6 @@
 #include <sstream>
 #include "es_scan_reader.h"
 #include "es_scroll_query.h"
-#include "rapidjson/writer.h"
-#include "rapidjson/document.h"
-#include "rapidjson/stringbuffer.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include <map>
