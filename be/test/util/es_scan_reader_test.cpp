@@ -213,18 +213,17 @@ public:
 
 TEST_F(MockESServerTest, workflow) {
     std::string target = "http://127.0.0.1:29386";
-    ESScrollQueryBuilder scroll_query_builder;
-    scroll_query_builder.set_batch_size(1);
     std::vector<std::string> fields = {"id", "value"};
-    scroll_query_builder.set_selected_fields(fields);
     std::map<std::string, std::string> props;
     props[ESScanReader::KEY_INDEX] = "tindex";
     props[ESScanReader::KEY_TYPE] = "doc";
     props[ESScanReader::KEY_USER_NAME] = "root";
     props[ESScanReader::KEY_PASS_WORD] = "root";
-    props[ESScanReader::KEY_SHARDS] = "0";
-    props[ESScanReader::KEY_QUERY] = scroll_query_builder.build();
-    ESScanReader reader(target, 1, props);
+    props[ESScanReader::KEY_SHARD] = "0";
+    props[ESScanReader::KEY_BATCH_SIZE] = "1";
+    std::vector<std::shared_ptr<EsPredicate>> predicates;
+    props[ESScanReader::KEY_QUERY] = ESScrollQueryBuilder::build(props, fields, predicates);
+    ESScanReader reader(target, props);
     auto st = reader.open();
     // ASSERT_TRUE(st.ok());
     bool eos = false;
