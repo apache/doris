@@ -41,20 +41,20 @@
 
             指定源数据中列的映射关系，以及定义衍生列的生成方式。
 
-            1. 列的映射关系：
+            1. 映射列：
 
                 按顺序指定，源数据中各个列，对应目的表中的哪些列。对于希望跳过的列，可以指定一个不存在的列名。
                 假设目的表有三列 k1, k2, v1。源数据有4列，其中第1、2、4列分别对应 k2, k1, v1。则书写如下：
 
                 COLUMNS (k2, k1, xxx, v1)
 
-                其中 xxx 为不存在的一列，用于跳过源数据中的第三列
+                其中 xxx 为不存在的一列，用于跳过源数据中的第三列。
 
             2. 衍生列：
 
-                以 col_name = expr 的形式表示的列，我们成为衍生列。即支持通过 expr 计算得出目的表中对应列的值。
-                衍生列通常排列在列映射关系之后，虽然这不是强制指定的，但是程序总是先解析列映射关系，再解析衍生列。
-                接上一个示例，假设目的表还有第4列 v2，v2 有 k1 和 k2 的和产生。则可以书写如下：
+                以 col_name = expr 的形式表示的列，我们称为衍生列。即支持通过 expr 计算得出目的表中对应列的值。
+                衍生列通常排列在映射列之后，虽然这不是强制的规定，但是 Doris 总是先解析映射列，再解析衍生列。
+                接上一个示例，假设目的表还有第4列 v2，v2 由 k1 和 k2 的和产生。则可以书写如下：
 
                 COLUMNS (k2, k1, xxx, v1, v2 = k1 + k2);
 
@@ -82,12 +82,12 @@
             "key2" = "val2"
         )
 
-        目前我们支持以下这些参数：
+        目前我们支持以下参数：
 
         1. desired_concurrent_number
 
             期望的并发度。一个例行导入作业会被分成多个子任务执行。这个参数指定一个作业最多有多少任务可以同时执行。必须大于0。默认为3。
-            这个并发度并不是实际的并发度，实际的并发度，会通过集群的节点数、负载情况，以及数据源的情况动态调整。
+            这个并发度并不是实际的并发度，实际的并发度，会通过集群的节点数、负载情况，以及数据源的情况综合考虑。
             例：
 
                 "desired_concurrent_number" = "3"
@@ -99,7 +99,7 @@
             2）每个子任务最多读取的行数。必须大于等于200000。默认是200000。
             3）每个子任务最多读取的字节数。单位是字节，范围是 100MB 到 1GB。默认是 100MB。
 
-            这三个参数，用于控制一个子任务的执行时间和处理量。
+            这三个参数，用于控制一个子任务的执行时间和处理量。当任意一个达到阈值，则任务结束。
             例：
     
                 "max_batch_interval" = "20",
@@ -110,6 +110,7 @@
 
             采样窗口内，允许的最大错误行数。必须大于等于0。默认是 0，即不允许有错误行。
             采样窗口为 max_batch_rows * 10。即如果在采样窗口内，错误行数大于 max_error_number，则会导致例行作业被暂停，需要人工介入检查数据质量问题。
+            被 where 条件过滤掉的行不算错误行。
 
     5. data_source
 
@@ -119,7 +120,7 @@
 
     6. data_source_properties
 
-        指定数据源相关的信息。、
+        指定数据源相关的信息。
         语法：
         
         (
@@ -145,7 +146,7 @@
 
             3. kafka_partitions/kafka_offsets
 
-                指定需要订阅的 kafka partition，以及对应的每个partition 的起始 offset。如果没有指定，则默认从 0 开始订阅 topic 下的所有 partition。
+                指定需要订阅的 kafka partition，以及对应的每个 partition 的起始 offset。如果没有指定，则默认从 0 开始订阅 topic 下的所有 partition。
                 示例：
 
                     "kafka_partitions" = "0,1,2,3",
@@ -157,8 +158,7 @@
         整型类（TINYINT/SMALLINT/INT/BIGINT/LARGEINT）：1, 1000, 1234
         浮点类（FLOAT/DOUBLE/DECIMAL）：1.1, 0.23, .356
         日期类（DATE/DATETIME）：2017-10-03, 2017-06-13 12:34:03。
-        （注：如果是其他日期格式，可以在导入命令中，使用 strftime 或者 time_format 函数进行转换）
-        字符串类（CHAR/VARCHAR）："I am a student", "a"
+        字符串类（CHAR/VARCHAR）（无引号）：I am a student, a
         NULL值：\N
 
 ## example
@@ -167,7 +167,7 @@
 
         CREATE ROUTINE LOAD example_db.test1 ON example_tbl
         COLUMNS(k1, k2, k3, v1, v2, v3 = k1 * 100),
-        WHERE k1 > 100
+        WHERE k1 > 100 and k2 like "%doris%"
         PROPERTIES
         (
             "desired_concurrent_number"="3",
@@ -188,7 +188,7 @@
 
 # PAUSE ROUTINE LOAD
 
-    该语句用于暂停一个指定的例行导入作业
+    该语句用于暂停一个指定的例行导入作业。
 
 语法：
 
@@ -196,7 +196,7 @@
 
 ## example
 
-1. 暂停名称为 test1 的例行导入作业：
+1. 暂停名称为 test1 的例行导入作业。
 
     PAUSE ROUTINE LOAD test1;
 
@@ -205,7 +205,7 @@
 
 # RESUME ROUTINE LOAD
 
-    该语句用于恢复一个被暂停的例行导入作业
+    该语句用于恢复一个被暂停的例行导入作业。
 
 语法：
 
@@ -213,7 +213,7 @@
 
 ## example
 
-1. 恢复名称为 test1 的例行导入作业：
+1. 恢复名称为 test1 的例行导入作业。
 
     RESUME ROUTINE LOAD test1;
 
@@ -222,7 +222,7 @@
 
 # STOP ROUTINE LOAD
 
-    该语句用于停止一个被暂停的例行导入作业
+    该语句用于停止一个被暂停的例行导入作业。
 
 语法：
 
@@ -232,7 +232,7 @@
 
 ## example
 
-1. 停止名称为 test1 的例行导入作业：
+1. 停止名称为 test1 的例行导入作业。
 
     STOP ROUTINE LOAD test1;
 
@@ -247,7 +247,7 @@
 
     SHOW [ALL] ROUTINE LOAD [[db.]name]
 
-展示结果包括如下信息
+展示结果包括如下信息：
 
     1. Id：作业id。
     2. Name：作业的名称。
@@ -268,7 +268,7 @@
         KAFKA
 
     9. CurrentTaskNum：当前子任务并发度。
-    10. JobProperties：作业相关配置信息，对应创建语句中的 load_properties。以 json 格式表示。
+    10. JobProperties：作业相关配置信息，对应创建语句中的 load_properties 和 job_properties。以 json 格式表示。
 
         {
             "partitions": "*",      // 目的表的分区，星号表示没有指定。
@@ -285,21 +285,21 @@
     11. Statistic：作业运行状态的统计信息。以 json 格式表示。
 
         {
-        	"errorRows": 0,                 // 总的错误行
-        	"loadedRows": 6584959,          // 导入的行数
+        	"errorRows": 0,                 // 总的错误行数
+        	"loadedRows": 6584959,          // 总导入的行数
         	"unselectedRows": 2392,         // 被 where 条件过滤的行数
-        	"totalRows": 6587351,           // 总消费的行数
+        	"totalRows": 6587351,           // 总消费的行数，totalRows = errorRows + loadedRows + unselectedRows
         	"loadRowsRate": 91000,          // 导入速率（rows/s）
         	"receivedBytes": 861626324,     // 总消费的字节数
         	"receivedBytesRate": 11915000,  // 消费速率 (Bytes/s)
         	"committedTaskNum": 33,         // 提交成功的子任务数
         	"abortedTaskNum": 2,            // 失败的子任务数
-        	"taskExecuteTaskMs": 72312      // 子任务执行时间
+        	"taskExecuteTaskMs": 72312      // 子任务执行时间，单位毫秒
         }
 
     12. Progress：作业进度。以 json 格式表示。
 
-        如果数据源是 Kafka，则显示每个分区，当前已经被消费的 offset。
+        如果数据源是 Kafka，则显示每个 kafka partition，当前已经被消费的 offset。
 
         {
         	"0": 2199288,
@@ -309,7 +309,7 @@
 
 ## example
 
-1. 展示名称为 test1 的所有例行导入作业（包括已停止或取消的作业）
+1. 展示名称为 test1 的所有例行导入作业（包括已停止或取消的作业）。结果为一行或多行。
 
     SHOW ALL ROUTINE LOAD test1;
 
@@ -317,7 +317,7 @@
 
     SHOW ROUTINE LOAD test1;
 
-3. 显示 example_db 下，所有的例行导入作业（包括已停止或取消的作业）
+3. 显示 example_db 下，所有的例行导入作业（包括已停止或取消的作业）。结果为一行或多行。
 
     use example_db;
     SHOW ALL ROUTINE LOAD;
@@ -331,7 +331,7 @@
 
     SHOW ROUTINE LOAD example_db.test1;
 
-6. 显示 example_db 下，名称为 test1 的所有例行导入作业（包括已停止或取消的作业）
+6. 显示 example_db 下，名称为 test1 的所有例行导入作业（包括已停止或取消的作业）。结果为一行或多行。
 
     SHOW ALL ROUTINE LOAD example_db.test1;
 
