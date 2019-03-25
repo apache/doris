@@ -19,10 +19,12 @@ package org.apache.doris.load.routineload;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.load.RoutineLoadDesc;
+import org.apache.doris.planner.StreamLoadPlanner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TResourceInfo;
@@ -30,10 +32,12 @@ import org.apache.doris.thrift.TResourceInfo;
 import com.google.common.collect.Lists;
 
 import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Queue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -55,9 +59,12 @@ public class RoutineLoadSchedulerTest {
                                       @Injectable RoutineLoadManager routineLoadManager,
                                       @Injectable SystemInfoService systemInfoService,
                                       @Injectable Database database,
-                                      @Injectable RoutineLoadDesc routineLoadDesc)
+                                      @Injectable RoutineLoadDesc routineLoadDesc,
+                                      @Injectable RoutineLoadTaskScheduler routineLoadTaskScheduler,
+                                      @Mocked StreamLoadPlanner planner,
+                                      @Injectable OlapTable olapTable)
             throws LoadException, MetaNotFoundException {
-        String clusterName = "cluster1";
+        String clusterName = "default";
         List<Long> beIds = Lists.newArrayList();
         beIds.add(1L);
         beIds.add(2L);
@@ -67,24 +74,15 @@ public class RoutineLoadSchedulerTest {
         partitions.add(200);
         partitions.add(300);
 
-        new Expectations(){
-            {
-                connectContext.toResourceCtx();
-                result = tResourceInfo;
-            }
-        };
-
-        RoutineLoadJob routineLoadJob =
-                new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
-                                        1L, routineLoadDesc ,3, 0,
-                                        "", "", new KafkaProgress());
-        Deencapsulation.setField(routineLoadJob,"state", RoutineLoadJob.JobState.NEED_SCHEDULE);
+        KafkaRoutineLoadJob kafkaRoutineLoadJob = new KafkaRoutineLoadJob(1L, "test", clusterName, 1L, 1L,
+                                                                          "xxx", "test");
+        Deencapsulation.setField(kafkaRoutineLoadJob,"state", RoutineLoadJob.JobState.NEED_SCHEDULE);
         List<RoutineLoadJob> routineLoadJobList = new ArrayList<>();
-        routineLoadJobList.add(routineLoadJob);
+        routineLoadJobList.add(kafkaRoutineLoadJob);
 
-        Deencapsulation.setField(routineLoadJob, "customKafkaPartitions", partitions);
-        Deencapsulation.setField(routineLoadJob, "desireTaskConcurrentNum", 3);
-        Deencapsulation.setField(routineLoadJob, "consumer", consumer);
+        Deencapsulation.setField(kafkaRoutineLoadJob, "customKafkaPartitions", partitions);
+        Deencapsulation.setField(kafkaRoutineLoadJob, "desireTaskConcurrentNum", 3);
+        Deencapsulation.setField(kafkaRoutineLoadJob, "consumer", consumer);
 
         new Expectations() {
             {
@@ -94,12 +92,16 @@ public class RoutineLoadSchedulerTest {
                 result = routineLoadJobList;
                 catalog.getDb(anyLong);
                 result = database;
-                systemInfoService.getBackendIds( true);
+                database.getTable(1L);
+                result = olapTable;
+                systemInfoService.getClusterBackendIds(clusterName, true);
                 result = beIds;
                 routineLoadManager.getSizeOfIdToRoutineLoadTask();
                 result = 1;
                 routineLoadManager.getTotalMaxConcurrentTaskNum();
                 result = 10;
+                catalog.getRoutineLoadTaskScheduler();
+                result = routineLoadTaskScheduler;
             }
         };
 
@@ -107,17 +109,17 @@ public class RoutineLoadSchedulerTest {
         Deencapsulation.setField(routineLoadScheduler, "routineLoadManager", routineLoadManager);
         routineLoadScheduler.runOneCycle();
 
-        // todo(ml): assert
-//        Assert.assertEquals(2, routineLoadJob.getNeedScheduleTaskInfoList().size());
-//        for (RoutineLoadTaskInfo routineLoadTaskInfo : routineLoadJob.getNeedScheduleTaskInfoList()) {
-//            KafkaTaskInfo kafkaTaskInfo = (KafkaTaskInfo) routineLoadTaskInfo;
-//            if (kafkaTaskInfo.getPartitions().size() == 2) {
-//                Assert.assertTrue(kafkaTaskInfo.getPartitions().contains(100));
-//                Assert.assertTrue(kafkaTaskInfo.getPartitions().contains(300));
-//            } else {
-//                Assert.assertTrue(kafkaTaskInfo.getPartitions().contains(200));
-//            }
-//        }
+        List<RoutineLoadTaskInfo> routineLoadTaskInfoList =
+                Deencapsulation.getField(kafkaRoutineLoadJob, "routineLoadTaskInfoList");
+        for (RoutineLoadTaskInfo routineLoadTaskInfo : routineLoadTaskInfoList) {
+            KafkaTaskInfo kafkaTaskInfo = (KafkaTaskInfo) routineLoadTaskInfo;
+            if (kafkaTaskInfo.getPartitions().size() == 2) {
+                Assert.assertTrue(kafkaTaskInfo.getPartitions().contains(100));
+                Assert.assertTrue(kafkaTaskInfo.getPartitions().contains(300));
+            } else {
+                Assert.assertTrue(kafkaTaskInfo.getPartitions().contains(200));
+            }
+        }
     }
 
     public void functionTest(@Mocked Catalog catalog,
@@ -159,7 +161,7 @@ public class RoutineLoadSchedulerTest {
         executorService.submit(routineLoadTaskScheduler);
 
         KafkaRoutineLoadJob kafkaRoutineLoadJob1 = new KafkaRoutineLoadJob(1L, "test_custom_partition",
-                "default_cluster", 1L, 1L, "10.74.167.16:8092", "test_1");
+                "default_cluster", 1L, 1L, "xxx", "test_1");
         List<Integer> customKafkaPartitions = new ArrayList<>();
         customKafkaPartitions.add(2);
         Deencapsulation.setField(kafkaRoutineLoadJob1, "customKafkaPartitions", customKafkaPartitions);

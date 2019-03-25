@@ -46,7 +46,7 @@ public class ShowRoutineLoadTaskStmt extends ShowStmt {
                     .add("TxnId")
                     .add("JobId")
                     .add("CreateTimeMs")
-                    .add("LoadStartTimeMs")
+                    .add("ExecuteStartTimeMs")
                     .add("BeId")
                     .add("DataSourceProperties")
                     .build();

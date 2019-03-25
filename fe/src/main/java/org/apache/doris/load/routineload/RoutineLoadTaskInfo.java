@@ -50,7 +50,7 @@ public abstract class RoutineLoadTaskInfo {
     protected String clusterName;
 
     private long createTimeMs;
-    private long loadStartTimeMs = -1L;
+    private long executeStartTimeMs = -1L;
     // the be id of previous task
     protected long previousBeId = -1L;
     // the be id of this task
@@ -80,8 +80,8 @@ public abstract class RoutineLoadTaskInfo {
         return clusterName;
     }
 
-    public void setLoadStartTimeMs(long loadStartTimeMs) {
-        this.loadStartTimeMs = loadStartTimeMs;
+    public void setExecuteStartTimeMs(long executeStartTimeMs) {
+        this.executeStartTimeMs = executeStartTimeMs;
     }
 
     public long getPreviousBeId() {
@@ -100,8 +100,8 @@ public abstract class RoutineLoadTaskInfo {
         return createTimeMs;
     }
 
-    public long getLoadStartTimeMs() {
-        return loadStartTimeMs;
+    public long getExecuteStartTimeMs() {
+        return executeStartTimeMs;
     }
     
     public long getTxnId() {
@@ -109,7 +109,7 @@ public abstract class RoutineLoadTaskInfo {
     }
 
     public boolean isRunning() {
-        return loadStartTimeMs > 0;
+        return executeStartTimeMs > 0;
     }
 
     abstract TRoutineLoadTask createRoutineLoadTask() throws LoadException, UserException;
@@ -128,7 +128,7 @@ public abstract class RoutineLoadTaskInfo {
         row.add(String.valueOf(txnId));
         row.add(String.valueOf(jobId));
         row.add(String.valueOf(TimeUtils.longToTimeString(createTimeMs)));
-        row.add(String.valueOf(TimeUtils.longToTimeString(loadStartTimeMs)));
+        row.add(String.valueOf(TimeUtils.longToTimeString(executeStartTimeMs)));
         row.add(String.valueOf(beId));
         row.add(getTaskDataSourceProperties());
         return row;
