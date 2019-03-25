@@ -17,21 +17,26 @@
 
 package org.apache.doris.load.routineload;
 
+import mockit.Verifications;
 import org.apache.doris.analysis.LoadColumnsInfo;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.task.AgentTaskExecutor;
+import org.apache.doris.thrift.BackendService;
 import org.apache.doris.transaction.BeginTransactionException;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
 
+import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.junit.Test;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Queue;
 import java.util.UUID;
@@ -40,6 +45,8 @@ import mockit.Deencapsulation;
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mocked;
+
+import static mockit.Deencapsulation.invoke;
 
 public class RoutineLoadTaskSchedulerTest {
 
@@ -54,7 +61,10 @@ public class RoutineLoadTaskSchedulerTest {
     public void testRunOneCycle(@Injectable KafkaRoutineLoadJob kafkaRoutineLoadJob1,
                                 @Injectable KafkaRoutineLoadJob routineLoadJob,
                                 @Injectable RoutineLoadDesc routineLoadDesc,
-                                @Injectable LoadColumnsInfo loadColumnsInfo) throws LoadException,
+                                @Injectable LoadColumnsInfo loadColumnsInfo,
+                                @Mocked GlobalTransactionMgr globalTransactionMgr,
+                                @Mocked BackendService.Client client,
+                                @Mocked ClientPool clientPool) throws LoadException,
             MetaNotFoundException, AnalysisException, LabelAlreadyUsedException, BeginTransactionException {
         long beId = 100L;
 
@@ -84,27 +94,19 @@ public class RoutineLoadTaskSchedulerTest {
                 result = routineLoadManager;
                 Catalog.getCurrentCatalog();
                 result = catalog;
-                catalog.getNextId();
-                result = 2L;
 
                 routineLoadManager.getClusterIdleSlotNum();
                 result = 1;
                 times = 1;
+                routineLoadManager.checkTaskInJob((UUID) any);
+                result = true;
 
                 kafkaRoutineLoadJob1.getDbId();
                 result = 1L;
                 kafkaRoutineLoadJob1.getTableId();
                 result = 1L;
-                routineLoadDesc.getColumnsInfo();
-                result = loadColumnsInfo;
-                routineLoadDesc.getColumnSeparator();
-                result = "";
-                kafkaRoutineLoadJob1.getProgress();
-                result = kafkaProgress;
                 routineLoadManager.getMinTaskBeId(anyString);
                 result = beId;
-                routineLoadManager.getJobByTaskId((UUID) any);
-                result = kafkaRoutineLoadJob1;
                 routineLoadManager.getJob(anyLong);
                 result = kafkaRoutineLoadJob1;
             }
