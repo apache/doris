@@ -39,7 +39,7 @@ std::string SearchRequestBuilder::build() {
     es_query_dsl.SetObject();
     if (_fields.size() > 0) {
         rapidjson::Value source_node(rapidjson::kArrayType);
-        for (auto iter = _fields.cbegin(); iter != _fields.cend(); iter++) {
+        for (auto iter = _fields.begin(); iter != _fields.end(); iter++) {
             rapidjson::Value field(iter->c_str(), allocator);
             source_node.PushBack(field, allocator);
         }

@@ -24,10 +24,6 @@ namespace doris {
 
 class SearchRequestBuilder {
 
-private:
-    std::vector<std::string> _fields;
-    uint16_t _size;
-
 public:
     SearchRequestBuilder();
     ~SearchRequestBuilder();
@@ -41,5 +37,9 @@ public:
     void set_selected_fields(std::vector<std::string>& fields) {
         _fields = fields;
     }
+
+private:
+    std::vector<std::string> _fields;
+    uint16_t _size;
 };
 }

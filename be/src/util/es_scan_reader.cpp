@@ -39,7 +39,7 @@ const char* FIELD_INNER_HITS = "hits";
 const char* FIELD_SOURCE = "_source";
 const char* FIELD_TOTAL = "total";
 
-ESScanReader::ESScanReader(const std::string& target, uint16_t size,std::map<std::string, std::string>& props) {
+ESScanReader::ESScanReader(const std::string& target, const uint16_t size,std::map<std::string, std::string>& props) {
     LOG(INFO) << "ESScanReader ";
     _target = target;
     _batch_size = size;

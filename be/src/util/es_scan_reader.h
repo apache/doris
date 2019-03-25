@@ -57,7 +57,7 @@ public:
     static constexpr const char* KEY_SHARDS = "shards";
     static constexpr const char* KEY_QUERY = "query";
     static constexpr const char* KEY_BATCH_SIZE = "batch_size";
-    ESScanReader(const std::string& target, uint16_t size, std::map<std::string, std::string>& props);
+    ESScanReader(const std::string& target, uint16_t size, const std::map<std::string, std::string>& props);
     ~ESScanReader();
 
     // launch the first scroll request, this method will cache the first scroll response, and return the this cached response when invoke get_next
