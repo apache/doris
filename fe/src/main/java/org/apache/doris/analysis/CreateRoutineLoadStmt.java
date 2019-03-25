@@ -138,7 +138,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     private static final Predicate<Long> DESIRED_CONCURRENT_NUMBER_PRED = (v) -> { return v > 0L; };
     private static final Predicate<Long> MAX_ERROR_NUMBER_PRED = (v) -> { return v >= 0L; };
     private static final Predicate<Long> MAX_BATCH_INTERVAL_PRED = (v) -> { return v >= 5 && v <= 60; };
-    private static final Predicate<Long> MAX_BATCH_ROWS_PRED = (v) -> { return v > 200000; };
+    private static final Predicate<Long> MAX_BATCH_ROWS_PRED = (v) -> { return v >= 200000; };
     private static final Predicate<Long> MAX_BATCH_SIZE_PRED = (v) -> { return v >= 100 * 1024 * 1024 && v <= 1024 * 1024 * 1024; };
 
     public CreateRoutineLoadStmt(LabelName labelName, String tableName, List<ParseNode> loadPropertyList,
