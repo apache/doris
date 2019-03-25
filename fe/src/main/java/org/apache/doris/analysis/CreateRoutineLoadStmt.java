@@ -21,8 +21,10 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.routineload.LoadDataSourceType;
+import org.apache.doris.load.routineload.RoutineLoadJob;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
@@ -32,6 +34,7 @@ import com.google.common.collect.Maps;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Predicate;
 import java.util.regex.Pattern;
 
 /*
@@ -79,9 +82,9 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     // max error number in ten thousand records
     public static final String MAX_ERROR_NUMBER_PROPERTY = "max_error_number";
     // the following 3 properties limit the time and batch size of a single routine load task
-    public static final String MAX_BATCH_INTERVAL_SECOND = "max_batch_interval";
-    public static final String MAX_BATCH_ROWS = "max_batch_rows";
-    public static final String MAX_BATCH_SIZE = "max_batch_size";
+    public static final String MAX_BATCH_INTERVAL_SEC_PROPERTY = "max_batch_interval";
+    public static final String MAX_BATCH_ROWS_PROPERTY = "max_batch_rows";
+    public static final String MAX_BATCH_SIZE_PROPERTY = "max_batch_size";
 
     // kafka type properties
     public static final String KAFKA_BROKER_LIST_PROPERTY = "kafka_broker_list";
@@ -96,9 +99,9 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     private static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
             .add(DESIRED_CONCURRENT_NUMBER_PROPERTY)
             .add(MAX_ERROR_NUMBER_PROPERTY)
-            .add(MAX_BATCH_INTERVAL_SECOND)
-            .add(MAX_BATCH_ROWS)
-            .add(MAX_BATCH_SIZE)
+            .add(MAX_BATCH_INTERVAL_SEC_PROPERTY)
+            .add(MAX_BATCH_ROWS_PROPERTY)
+            .add(MAX_BATCH_SIZE_PROPERTY)
             .build();
 
     private static final ImmutableSet<String> KAFKA_PROPERTIES_SET = new ImmutableSet.Builder<String>()
@@ -121,16 +124,22 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     private String dbName;
     private RoutineLoadDesc routineLoadDesc;
     private int desiredConcurrentNum = 1;
-    private int maxErrorNum = -1;
-    private int maxBatchIntervalS = -1;
-    private int maxBatchRows = -1;
-    private int maxBatchSizeBytes = -1;
+    private long maxErrorNum = -1;
+    private long maxBatchIntervalS = -1;
+    private long maxBatchRows = -1;
+    private long maxBatchSizeBytes = -1;
 
     // kafka related properties
     private String kafkaBrokerList;
     private String kafkaTopic;
     // pair<partition id, offset>
     private List<Pair<Integer, Long>> kafkaPartitionOffsets = Lists.newArrayList();
+
+    private static final Predicate<Long> DESIRED_CONCURRENT_NUMBER_PRED = (v) -> { return v > 0L; };
+    private static final Predicate<Long> MAX_ERROR_NUMBER_PRED = (v) -> { return v >= 0L; };
+    private static final Predicate<Long> MAX_BATCH_INTERVAL_PRED = (v) -> { return v >= 5 && v <= 60; };
+    private static final Predicate<Long> MAX_BATCH_ROWS_PRED = (v) -> { return v > 200000; };
+    private static final Predicate<Long> MAX_BATCH_SIZE_PRED = (v) -> { return v >= 100 * 1024 * 1024 && v <= 1024 * 1024 * 1024; };
 
     public CreateRoutineLoadStmt(LabelName labelName, String tableName, List<ParseNode> loadPropertyList,
                                  Map<String, String> jobProperties,
@@ -167,19 +176,19 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         return desiredConcurrentNum;
     }
 
-    public int getMaxErrorNum() {
+    public long getMaxErrorNum() {
         return maxErrorNum;
     }
 
-    public int getMaxBatchIntervalS() {
+    public long getMaxBatchIntervalS() {
         return maxBatchIntervalS;
     }
 
-    public int getMaxBatchRows() {
+    public long getMaxBatchRows() {
         return maxBatchRows;
     }
 
-    public int getMaxBatchSize() {
+    public long getMaxBatchSize() {
         return maxBatchSizeBytes;
     }
 
@@ -268,26 +277,25 @@ public class CreateRoutineLoadStmt extends DdlStmt {
             throw new AnalysisException(optional.get() + " is invalid property");
         }
 
-        desiredConcurrentNum = getIntegetPropertyOrDefault(DESIRED_CONCURRENT_NUMBER_PROPERTY,
-                "must be greater then 0", desiredConcurrentNum);
-        maxErrorNum = getIntegetPropertyOrDefault(MAX_ERROR_NUMBER_PROPERTY,
-                "must be greater then or equal to 0", maxErrorNum);
-        maxBatchIntervalS = getIntegetPropertyOrDefault(MAX_BATCH_INTERVAL_SECOND,
-                "must be greater then 0", maxBatchIntervalS);
-        maxBatchRows = getIntegetPropertyOrDefault(MAX_BATCH_ROWS, "must be greater then 0", maxBatchRows);
-        maxBatchSizeBytes = getIntegetPropertyOrDefault(MAX_BATCH_SIZE, "must be greater then 0", maxBatchSizeBytes);
-    }
-
-    private int getIntegetPropertyOrDefault(String propName, String hintMsg, int defaultVal) throws AnalysisException {
-        final String propVal = jobProperties.get(propName);
-        if (propVal != null) {
-            int intVal = getIntegerValueFromString(propVal, propName);
-            if (intVal <= 0) {
-                throw new AnalysisException(propName + " " + hintMsg);
-            }
-            return intVal;
-        }
-        return defaultVal;
+        desiredConcurrentNum = ((Long) Util.getLongPropertyOrDefault(jobProperties.get(DESIRED_CONCURRENT_NUMBER_PROPERTY),
+                RoutineLoadJob.DEFAULT_TASK_MAX_CONCURRENT_NUM, DESIRED_CONCURRENT_NUMBER_PRED,
+                DESIRED_CONCURRENT_NUMBER_PROPERTY + " should > 0")).intValue();
+        
+        maxErrorNum = Util.getLongPropertyOrDefault(jobProperties.get(MAX_ERROR_NUMBER_PROPERTY),
+                RoutineLoadJob.DEFAULT_MAX_ERROR_NUM, MAX_ERROR_NUMBER_PRED,
+                MAX_ERROR_NUMBER_PROPERTY + " should >= 0");
+        
+        maxBatchIntervalS = Util.getLongPropertyOrDefault(jobProperties.get(MAX_BATCH_INTERVAL_SEC_PROPERTY),
+                RoutineLoadJob.DEFAULT_MAX_INTERVAL_SECOND, MAX_BATCH_INTERVAL_PRED,
+                MAX_BATCH_INTERVAL_SEC_PROPERTY + " should between 5 and 60");
+        
+        maxBatchRows = Util.getLongPropertyOrDefault(jobProperties.get(MAX_BATCH_ROWS_PROPERTY),
+                RoutineLoadJob.DEFAULT_MAX_BATCH_ROWS, MAX_BATCH_ROWS_PRED,
+                MAX_BATCH_ROWS_PROPERTY + " should > 200000");
+        
+        maxBatchSizeBytes = Util.getLongPropertyOrDefault(jobProperties.get(MAX_BATCH_SIZE_PROPERTY),
+                RoutineLoadJob.DEFAULT_MAX_BATCH_SIZE, MAX_BATCH_SIZE_PRED,
+                MAX_BATCH_SIZE_PROPERTY + " should between 100MB and 1GB");
     }
 
     private void checkDataSourceProperties() throws AnalysisException {
