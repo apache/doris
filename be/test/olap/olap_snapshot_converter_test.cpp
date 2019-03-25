@@ -85,9 +85,9 @@ public:
         if (boost::filesystem::exists(_meta_path)) {
             ASSERT_TRUE(boost::filesystem::remove_all(_meta_path));
         }
-        //if (boost::filesystem::exists(_engine_data_path)) {
-        //    ASSERT_TRUE(boost::filesystem::remove_all(_engine_data_path));
-        //}
+        if (boost::filesystem::exists(_engine_data_path)) {
+            ASSERT_TRUE(boost::filesystem::remove_all(_engine_data_path));
+        }
     }
 
 private:
