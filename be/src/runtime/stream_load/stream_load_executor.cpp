@@ -53,6 +53,8 @@ Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx) {
             if (status.ok()) {
                 ctx->number_loaded_rows = executor->runtime_state()->num_rows_load_success();
                 ctx->number_filtered_rows = executor->runtime_state()->num_rows_load_filtered();
+                ctx->number_unselected_rows = executor->runtime_state()->num_rows_load_unselected();
+
                 int64_t num_total_rows =
                     ctx->number_loaded_rows + ctx->number_filtered_rows;
                 if ((0.0 + ctx->number_filtered_rows) / num_total_rows > ctx->max_filter_ratio) {
@@ -218,6 +220,7 @@ bool StreamLoadExecutor::collect_load_stat(StreamLoadContext* ctx, TTxnCommitAtt
             rl_attach.id = ctx->id.to_thrift();
             rl_attach.__set_loadedRows(ctx->number_loaded_rows);
             rl_attach.__set_filteredRows(ctx->number_filtered_rows);
+            rl_attach.__set_unselectedRows(ctx->number_unselected_rows);
             rl_attach.__set_receivedBytes(ctx->receive_bytes);
             rl_attach.__set_loadedBytes(ctx->loaded_bytes);
             rl_attach.__set_loadCostMs(ctx->load_cost_nanos / 1000 / 1000);
