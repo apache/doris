@@ -22,11 +22,11 @@
 
 namespace doris {
 
-class SearchRequestBuilder {
+class ESScrollQueryBuilder {
 
 public:
-    SearchRequestBuilder();
-    ~SearchRequestBuilder();
+    ESScrollQueryBuilder();
+    ~ESScrollQueryBuilder();
     // build the query DSL for elasticsearch
     std::string build();
     

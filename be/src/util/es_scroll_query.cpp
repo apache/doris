@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "es_search_builder.h"
+#include "es_scroll_query.h"
 #include<sstream>
 #include <boost/algorithm/string/join.hpp>
 #include "common/logging.h"
@@ -25,15 +25,15 @@
 
 namespace doris {
 
-SearchRequestBuilder::SearchRequestBuilder() {
+ESScrollQueryBuilder::ESScrollQueryBuilder() {
 
 }
 
-SearchRequestBuilder::~SearchRequestBuilder() {
+ESScrollQueryBuilder::~ESScrollQueryBuilder() {
     
 }
 
-std::string SearchRequestBuilder::build() {
+std::string ESScrollQueryBuilder::build() {
     rapidjson::Document es_query_dsl;
     rapidjson::Document::AllocatorType &allocator = es_query_dsl.GetAllocator();
     es_query_dsl.SetObject();

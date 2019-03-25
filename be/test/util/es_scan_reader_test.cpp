@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 #include "util/es_scan_reader.h"
-#include "util/es_search_builder.h"
+#include "util/es_scroll_query.h"
 #include <gtest/gtest.h>
 #include "common/logging.h"
 #include "http/ev_http_server.h"
@@ -193,10 +193,10 @@ static RestSearchScrollAction rest_search_scroll_action = RestSearchScrollAction
 static RestClearScrollAction rest_clear_scroll_action = RestClearScrollAction();
 static EvHttpServer* mock_es_server = nullptr;
 
-class HttpClientTest : public testing::Test {
+class MockESServerTest : public testing::Test {
 public:
-    HttpClientTest() { }
-    ~HttpClientTest() override { }
+    MockESServerTest() { }
+    ~MockESServerTest() override { }
 
     static void SetUpTestCase() {
         mock_es_server = new EvHttpServer(29386);
@@ -211,19 +211,19 @@ public:
     }
 };
 
-TEST_F(HttpClientTest, open) {
+TEST_F(MockESServerTest, workflow) {
     std::string target = "http://127.0.0.1:29386";
-    SearchRequestBuilder search_builder;
-    search_builder.set_batch_size(1);
+    ESScrollQueryBuilder scroll_query_builder;
+    scroll_query_builder.set_batch_size(1);
     std::vector<std::string> fields = {"id", "value"};
-    search_builder.set_selected_fields(fields);
+    scroll_query_builder.set_selected_fields(fields);
     std::map<std::string, std::string> props;
     props[ESScanReader::KEY_INDEX] = "tindex";
     props[ESScanReader::KEY_TYPE] = "doc";
     props[ESScanReader::KEY_USER_NAME] = "root";
     props[ESScanReader::KEY_PASS_WORD] = "root";
     props[ESScanReader::KEY_SHARDS] = "0";
-    props[ESScanReader::KEY_QUERY] = search_builder.build();
+    props[ESScanReader::KEY_QUERY] = scroll_query_builder.build();
     ESScanReader reader(target, 1, props);
     auto st = reader.open();
     // ASSERT_TRUE(st.ok());
