@@ -32,12 +32,13 @@ class ESScanReader {
 public:
     static constexpr const char* KEY_USER_NAME = "user";
     static constexpr const char* KEY_PASS_WORD = "passwd";
+    static constexpr const char* KEY_HOST_PORT = "host_port";
     static constexpr const char* KEY_INDEX = "index";
     static constexpr const char* KEY_TYPE = "type";
-    static constexpr const char* KEY_SHARDS = "shards";
+    static constexpr const char* KEY_SHARD = "shard_id";
     static constexpr const char* KEY_QUERY = "query";
     static constexpr const char* KEY_BATCH_SIZE = "batch_size";
-    ESScanReader(const std::string& target, uint16_t size, const std::map<std::string, std::string>& props);
+    ESScanReader(const std::string& target, const std::map<std::string, std::string>& props);
     ~ESScanReader();
 
     // launch the first scroll request, this method will cache the first scroll response, and return the this cached response when invoke get_next
@@ -64,7 +65,7 @@ private:
     std::string _init_scroll_url;
     std::string _next_scroll_url;
     bool _eos;
-    uint16_t _batch_size;
+    int _batch_size;
 
     std::string _cached_response;
     ScrollParser _parser;

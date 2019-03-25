@@ -19,6 +19,7 @@
 #pragma once
 #include<string>
 #include<vector>
+#include "exec/es_predicate.h"
 
 namespace doris {
 
@@ -28,21 +29,24 @@ public:
     ESScrollQueryBuilder();
     ~ESScrollQueryBuilder();
     // build the query DSL for elasticsearch
-    std::string build();
+    // std::string build();
     
     
-    void set_batch_size(uint16_t batch_size) {
-        _size = batch_size;
-    }
-    void set_selected_fields(const std::vector<std::string>& fields) {
-        _fields = fields;
-    }
+    // void set_batch_size(uint16_t batch_size) {
+    //     _size = batch_size;
+    // }
+    // void set_selected_fields(const std::vector<std::string>& fields) {
+    //     _fields = fields;
+    // }
 
     static std::string build_next_scroll_body(const std::string& scroll_id, const std::string& scroll);
     static std::string build_clear_scroll_body(const std::string& scroll_id);
-
-private:
-    std::vector<std::string> _fields;
-    uint16_t _size;
+    static std::string build(const std::map<std::string, std::string>& properties,
+                const std::vector<std::string>& fields,
+                std::vector<std::shared_ptr<EsPredicate>>);
+// private:
+//     std::vector<std::string> _fields;
+//     uint16_t _size;
+// };
 };
 }
