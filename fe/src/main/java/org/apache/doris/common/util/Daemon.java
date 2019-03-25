@@ -106,8 +106,8 @@ public class Daemon extends Thread {
         while (!isStop.get()) {
             try {
                 runOneCycle();
-            } catch (Exception e) {
-                LOG.error("exception: ", e);
+            } catch (Throwable e) {
+                LOG.error("daemon thread got exception: ", e);
             }
 
             try {
