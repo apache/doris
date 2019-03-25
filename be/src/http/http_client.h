@@ -54,49 +54,24 @@ public:
         curl_easy_setopt(_curl, CURLOPT_PASSWORD, passwd.c_str());
     }
 
-<<<<<<< HEAD
-<<<<<<< HEAD
     // content_type such as "application/json"
     void set_content_type(const std::string content_type) {
         std::string scratch_str = "Content-Type: " + content_type;
-<<<<<<< HEAD
-<<<<<<< HEAD
         _header_list = curl_slist_append(_header_list, scratch_str.c_str());
         curl_easy_setopt(_curl, CURLOPT_HTTPHEADER, _header_list);
-=======
-        header_list = curl_slist_append(NULL, scratch_str.c_str());
-        curl_easy_setopt(_curl, CURLOPT_HTTPHEADER, header_list);
->>>>>>> Change HttpClient to support http post
     }
     
     // you must set CURLOPT_POSTFIELDSIZE before CURLOPT_COPYPOSTFIELDS options, otherwise will cause request hanging up
-    void set_post_body(const std::string& post_body) {
-=======
-=======
     // note: set_content_type would reset the http headers
     void set_content_type(const std::string content_type) {
         std::string scratch_str = "Content-Type: " + content_type;
         if (_header_list != nullptr) {
             curl_slist_free_all(_header_list);
         }
->>>>>>> Add http post feature for HttpClient
-        _header_list = curl_slist_append(NULL, scratch_str.c_str());
-=======
-    // content_type such as "application/json"
-    void set_content_type(const std::string content_type) {
-        std::string scratch_str = "Content-Type: " + content_type;
-        _header_list = curl_slist_append(_header_list, scratch_str.c_str());
->>>>>>> Add http post feature for HttpClient
         curl_easy_setopt(_curl, CURLOPT_HTTPHEADER, _header_list);
     }
     
-    // you must set CURLOPT_POSTFIELDSIZE before CURLOPT_COPYPOSTFIELDS options, otherwise will cause request hanging up
-    void set_post_body(const std::string& post_body) {
-<<<<<<< HEAD
-        curl_easy_setopt(_curl, CURLOPT_POSTFIELDS, post_body.c_str());
->>>>>>> Change HttpClient to support http post
-=======
->>>>>>> Add http post feature for HttpClient
+    void set_payload(const std::string& post_body) {
         curl_easy_setopt(_curl, CURLOPT_POSTFIELDSIZE, (long)post_body.length());
         curl_easy_setopt(_curl, CURLOPT_COPYPOSTFIELDS, post_body.c_str());
     }
@@ -148,7 +123,9 @@ public:
     // a file to local_path 
     Status download(const std::string& local_path);
 
-    Status execute_post_request(const std::string& post_data, std::string* response);
+    Status execute_post_request(const std::string& payload, std::string* response);
+
+    Status execute_delete_request(const std::string& payload, std::string* response);
 
     // execute a simple method, and its response is saved in response argument
     Status execute(std::string* response);
@@ -166,15 +143,7 @@ private:
     using HttpCallback = std::function<bool(const void* data, size_t length)>;
     const HttpCallback* _callback = nullptr;
     char _error_buf[CURL_ERROR_SIZE];
-<<<<<<< HEAD
-<<<<<<< HEAD
     curl_slist *_header_list = nullptr;
-=======
-    curl_slist *header_list;
->>>>>>> Change HttpClient to support http post
-=======
-    curl_slist *_header_list = nullptr;
->>>>>>> Change HttpClient to support http post
 };
 
 }
