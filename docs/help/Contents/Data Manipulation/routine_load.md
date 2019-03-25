@@ -337,3 +337,36 @@
 
 ## keyword
     SHOW,ROUTINE,LOAD
+
+# SHOW ROUTINE LOAD TASK
+
+    该语句用于展示指定例行导入作业，当前正在运行的子任务信息。
+
+语法：
+
+    SHOW ROUTINE LOAD TASK [FROM db] WHERE JobName = "name";
+
+展示结果包括如下信息：
+
+    TaskId：task id。
+    TxnId：task 对应的事务id。
+    JobId：作业id。
+    CreateTimeMs：任务创建时间。
+    ExecuteStartTimeMs：任务开始执行的时间。
+    BeId：任务所在的 Backend id。
+    DataSourceProperties：
+        
+        任务的参数，以 json 格式展示。
+        当数据源为 Kafka 时，显示如下：
+
+        {
+            "2":2193732
+        }
+
+        表示该任务准备消费的 kafka partition 和起始 offset。
+ 
+## example
+
+1. 展示名为 test1 的例行导入任务的子任务信息。
+
+    SHOW ROUTINE LOAD TASK WHERE JobName = "test1";
