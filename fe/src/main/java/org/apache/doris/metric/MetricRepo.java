@@ -61,8 +61,13 @@ public final class MetricRepo {
     public static LongCounterMetric COUNTER_EDIT_LOG_SIZE_BYTES;
     public static LongCounterMetric COUNTER_IMAGE_WRITE;
     public static LongCounterMetric COUNTER_IMAGE_PUSH;
+    public static LongCounterMetric COUNTER_TXN_BEGIN;
     public static LongCounterMetric COUNTER_TXN_FAILED;
     public static LongCounterMetric COUNTER_TXN_SUCCESS;
+    public static LongCounterMetric COUNTER_ROUTINE_LOAD_ROWS;
+    public static LongCounterMetric COUNTER_ROUTINE_LOAD_RECEIVED_BYTES;
+    public static LongCounterMetric COUNTER_ROUTINE_LOAD_ERROR_ROWS;
+
     public static Histogram HISTO_QUERY_LATENCY;
     public static Histogram HISTO_EDIT_LOG_WRITE_LATENCY;
 
@@ -202,12 +207,23 @@ public final class MetricRepo {
         COUNTER_IMAGE_PUSH = new LongCounterMetric("image_push",
                 "counter of image succeeded in pushing to other frontends");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_IMAGE_PUSH);
-        COUNTER_TXN_SUCCESS = new LongCounterMetric("txn_success",
-                "counter of success transactions");
+
+        COUNTER_TXN_BEGIN = new LongCounterMetric("txn_begin", "counter of begining transactions");
+        PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_TXN_BEGIN);
+        COUNTER_TXN_FAILED = new LongCounterMetric("txn_failed", "counter of failed transactions");
+        COUNTER_TXN_SUCCESS = new LongCounterMetric("txn_success", "counter of success transactions");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_TXN_SUCCESS);
-        COUNTER_TXN_FAILED = new LongCounterMetric("txn_failed",
-                "counter of failed transactions");
+        COUNTER_TXN_FAILED = new LongCounterMetric("txn_failed", "counter of failed transactions");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_TXN_FAILED);
+
+        COUNTER_ROUTINE_LOAD_ROWS = new LongCounterMetric("routine_load_rows", "total rows of routine load");
+        PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_ROUTINE_LOAD_ROWS);
+        COUNTER_ROUTINE_LOAD_RECEIVED_BYTES = new LongCounterMetric("routine_load_receive_bytes",
+                "total received bytes of routine load");
+        PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_ROUTINE_LOAD_RECEIVED_BYTES);
+        COUNTER_ROUTINE_LOAD_ERROR_ROWS = new LongCounterMetric("routine_load_error_rows",
+                "total error rows of routine load");
+        PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_ROUTINE_LOAD_ERROR_ROWS);
 
         // 3. histogram
         HISTO_QUERY_LATENCY = METRIC_REGISTER.histogram(MetricRegistry.name("query", "latency", "ms"));
