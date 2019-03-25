@@ -37,8 +37,8 @@ import com.google.common.collect.ImmutableList;
       without ALL: only show job which is not final
       with ALL: show all of job include history job
 
-      without name: show all of routine load job with different name
-      with name: show all of job named ${name}
+      without name: show all of routine load job in database with different name
+      with name: show all of job named ${name} in database
 
       without on db: show all of job in connection db
          if user does not choose db before, return error

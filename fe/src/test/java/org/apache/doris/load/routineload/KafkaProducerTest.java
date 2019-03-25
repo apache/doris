@@ -35,7 +35,7 @@ public class KafkaProducerTest {
 
     public Producer<Long, String> createProducer() {
         Properties props = new Properties();
-        props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "10.74.167.16:8792");
+        props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "xxx");
         props.put(ProducerConfig.CLIENT_ID_CONFIG, "client1");
         props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, LongSerializer.class.getName());
         props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
@@ -54,7 +54,8 @@ public class KafkaProducerTest {
             ProducerRecord<Long, String> record = new ProducerRecord<>("miaoling", value);
             try {
                 RecordMetadata metadata = kafkaProducer.send(record).get();
-                System.out.println("Record send with value " + value + " to partition " + metadata.partition() + " with offset " + metadata.offset());
+                System.out.println("Record send with value " + value + " to partition " +
+                                           metadata.partition() + " with offset " + metadata.offset());
             } catch (ExecutionException e) {
                 System.out.println("Error in sending record " + value);
                 System.out.println(e);

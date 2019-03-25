@@ -94,29 +94,28 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
     public static final long DEFAULT_MAX_BATCH_SIZE = 100 * 1024 * 1024; // 100MB
 
     protected static final String STAR_STRING = "*";
-
-    /**
-     *                  +-----------------+
-     * fe schedule job  |  NEED_SCHEDULE  |  user resume job
-     * +--------------- +                 | <---------+
-     * |                |                 |           |
-     * v                +-----------------+           ^
-     * |                                              |
-     * +------------+   user pause job        +-------+----+
-     * |  RUNNING   |                         |  PAUSED    |
-     * |            +-----------------------> |            |
-     * +----+-------+                         +-------+----+
-     * |                                              |
-     * |                +---------------+             |
-     * |                | STOPPED       |             |
-     * +--------------> |               | <-----------+
-     * user stop job    +---------------+    user stop| job
-     * |                                              |
-     * |                                              |
-     * |                 +---------------+            |
-     * |                 | CANCELLED     |            |
-     * +---------------> |               | <----------+
-     * system error      +---------------+    system error
+     /*
+                      +-----------------+
+     fe schedule job  |  NEED_SCHEDULE  |  user resume job
+          +-----------+                 | <---------+
+          |           |                 |           |
+          v           +-----------------+           ^
+          |                                         |
+     +------------+   user(system)pause job +-------+----+
+     |  RUNNING   |                         |  PAUSED    |
+     |            +-----------------------> |            |
+     +----+-------+                         +-------+----+
+     |    |                                         |
+     |    |           +---------------+             |
+     |    |           | STOPPED       |             |
+     |    +---------> |               | <-----------+
+     |   user stop job+---------------+    user stop job
+     |
+     |
+     |               +---------------+
+     |               | CANCELLED     |
+     +-------------> |               |
+     system error    +---------------+
      */
     public enum JobState {
         NEED_SCHEDULE,
@@ -144,8 +143,8 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
     protected int desireTaskConcurrentNum; // optional
     protected JobState state = JobState.NEED_SCHEDULE;
     protected LoadDataSourceType dataSourceType;
-    // max number of error data in ten thousand data
-    // maxErrorNum / BASE_OF_ERROR_RATE = max error rate of routine load job
+    // max number of error data in max batch rows * 10
+    // maxErrorNum / (maxBatchRows * 10) = max error rate of routine load job
     // if current error rate is more then max error rate, the job will be paused
     protected long maxErrorNum = DEFAULT_MAX_ERROR_NUM; // optional
 
@@ -218,21 +217,6 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
         this.authCode = new StringBuilder().append(ConnectContext.get().getQualifiedUser())
                 .append(ConnectContext.get().getRemoteIP())
                 .append(id).append(System.currentTimeMillis()).toString().hashCode();
-    }
-
-    // TODO(ml): I will change it after ut.
-    @VisibleForTesting
-    public RoutineLoadJob(long id, String name, long dbId, long tableId,
-                          RoutineLoadDesc routineLoadDesc,
-                          int desireTaskConcurrentNum, LoadDataSourceType dataSourceType,
-                          int maxErrorNum) {
-        this.id = id;
-        this.name = name;
-        this.dbId = dbId;
-        this.tableId = tableId;
-        this.desireTaskConcurrentNum = desireTaskConcurrentNum;
-        this.dataSourceType = dataSourceType;
-        this.maxErrorNum = maxErrorNum;
     }
 
     protected void setOptional(CreateRoutineLoadStmt stmt) throws UserException {
@@ -404,8 +388,8 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
         try {
             List<RoutineLoadTaskInfo> runningTasks = new ArrayList<>(routineLoadTaskInfoList);
             for (RoutineLoadTaskInfo routineLoadTaskInfo : runningTasks) {
-                if (routineLoadTaskInfo.isRunning() 
-                        && ((System.currentTimeMillis() - routineLoadTaskInfo.getLoadStartTimeMs())
+                if (routineLoadTaskInfo.isRunning()
+                        && ((System.currentTimeMillis() - routineLoadTaskInfo.getExecuteStartTimeMs())
                         > maxBatchIntervalS * 2 * 1000)) {
                     timeoutTaskList.add(routineLoadTaskInfo);
                 }
