@@ -33,7 +33,7 @@ ESScrollQueryBuilder::~ESScrollQueryBuilder() {
     
 }
 
-std::string ESScrollQueryBuilder::build_next_scroll_body(const std::string& scroll_id, std::string& scroll) {
+std::string ESScrollQueryBuilder::build_next_scroll_body(const std::string& scroll_id, const std::string& scroll) {
     rapidjson::Document scroll_dsl;
     rapidjson::Document::AllocatorType &allocator = scroll_dsl.GetAllocator();
     scroll_dsl.SetObject();

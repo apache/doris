@@ -38,7 +38,7 @@ public:
         _fields = fields;
     }
 
-    static std::string build_next_scroll_body(const std::string& scroll_id, std::string& scroll);
+    static std::string build_next_scroll_body(const std::string& scroll_id, const std::string& scroll);
     static std::string build_clear_scroll_body(const std::string& scroll_id);
 
 private:
