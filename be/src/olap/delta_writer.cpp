@@ -106,19 +106,18 @@ OLAPStatus DeltaWriter::init() {
         LOG(WARNING) << "generate rowset id failed, status:" << status;
         return OLAP_ERR_ROWSET_GENERATE_ID_FAILED;
     }
-    RowsetWriterContextBuilder context_builder;
-    context_builder.set_rowset_id(rowset_id)
-            .set_tablet_id(_req.tablet_id)
-            .set_partition_id(_req.partition_id)
-            .set_tablet_schema_hash(_req.schema_hash)
-            .set_rowset_type(ALPHA_ROWSET)
-            .set_rowset_path_prefix(_tablet->tablet_path())
-            .set_tablet_schema(&(_tablet->tablet_schema()))
-            .set_rowset_state(PREPARED)
-            .set_data_dir(_tablet->data_dir())
-            .set_txn_id(_req.txn_id)
-            .set_load_id(_req.load_id);
-    RowsetWriterContext writer_context = context_builder.build();
+    RowsetWriterContext writer_context;
+    writer_context.rowset_id = rowset_id;
+    writer_context.tablet_id = _req.tablet_id;
+    writer_context.partition_id = _req.partition_id;
+    writer_context.tablet_schema_hash = _req.schema_hash;
+    writer_context.rowset_type = ALPHA_ROWSET;
+    writer_context.rowset_path_prefix = _tablet->tablet_path();
+    writer_context.tablet_schema = &(_tablet->tablet_schema());
+    writer_context.rowset_state = PREPARED;
+    writer_context.data_dir = _tablet->data_dir();
+    writer_context.txn_id = _req.txn_id;
+    writer_context.load_id = _req.load_id;
 
     // TODO: new RowsetBuilder according to tablet storage type
     _rowset_writer.reset(new AlphaRowsetWriter());

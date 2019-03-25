@@ -252,19 +252,18 @@ OLAPStatus TabletManager::create_inital_rowset(TTabletId tablet_id, SchemaHash s
         }
         RowsetId rowset_id = 0;
         RETURN_NOT_OK(tablet->next_rowset_id(&rowset_id));
-        RowsetWriterContextBuilder context_builder;
-        context_builder.set_rowset_id(rowset_id)
-                       .set_tablet_id(tablet->tablet_id())
-                       .set_partition_id(tablet->partition_id())
-                       .set_tablet_schema_hash(tablet->schema_hash())
-                       .set_rowset_type(ALPHA_ROWSET)
-                       .set_rowset_path_prefix(tablet->tablet_path())
-                       .set_tablet_schema(&(tablet->tablet_schema()))
-                       .set_data_dir(tablet->data_dir())
-                       .set_rowset_state(VISIBLE)
-                       .set_version(version)
-                       .set_version_hash(version_hash);
-        RowsetWriterContext context = context_builder.build();
+        RowsetWriterContext context;
+        context.rowset_id = rowset_id;
+        context.tablet_id = tablet->tablet_id();
+        context.partition_id = tablet->partition_id();
+        context.tablet_schema_hash = tablet->schema_hash();
+        context.rowset_type = ALPHA_ROWSET;
+        context.rowset_path_prefix = tablet->tablet_path();
+        context.tablet_schema = &(tablet->tablet_schema());
+        context.rowset_state = VISIBLE;
+        context.data_dir = tablet->data_dir();
+        context.version = version;
+        context.version_hash = version_hash;
         RowsetWriter* builder = new (std::nothrow)AlphaRowsetWriter(); 
         if (builder == nullptr) {
             LOG(WARNING) << "fail to new rowset.";
@@ -602,24 +601,20 @@ TabletSharedPtr TabletManager::get_tablet(TTabletId tablet_id, SchemaHash schema
     return tablet;
 } // get_tablet
 
-
 bool TabletManager::get_tablet_id_and_schema_hash_from_path(const std::string& path,
         TTabletId* tablet_id, TSchemaHash* schema_hash) {
     std::vector<DataDir*> data_dirs = StorageEngine::instance()->get_stores<true>();
     for (auto data_dir : data_dirs) {
         const std::string& data_dir_path = data_dir->path();
         if (path.find(data_dir_path) != std::string::npos) {
-            static std::string pattern = data_dir_path + "/data/\\d+/(\\d+)/?(\\d+)?";
-            static std::regex rgx (pattern.c_str());
+            std::string pattern = data_dir_path + "/data/\\d+/(\\d+)/?(\\d+)?";
+            std::regex rgx (pattern.c_str());
             std::smatch sm;
             bool ret = std::regex_search(path, sm, rgx);
             if (ret) {
                 if (sm.size() == 3) {
                     *tablet_id = std::strtoll(sm.str(1).c_str(), nullptr, 10);
                     *schema_hash = std::strtoll(sm.str(2).c_str(), nullptr, 10);
-                    return true;
-                } else if (sm.size() == 2) {
-                    *tablet_id = std::strtoll(sm.str(1).c_str(), nullptr, 10);
                     return true;
                 } else {
                     LOG(WARNING) << "invalid match. match size:" << sm.size();
@@ -632,8 +627,7 @@ bool TabletManager::get_tablet_id_and_schema_hash_from_path(const std::string& p
 }
 
 bool TabletManager::get_rowset_id_from_path(const std::string& path, RowsetId* rowset_id) {
-    static std::string pattern = "/data/\\d+/\\d+/\\d+/(\\d+)_.*";
-    static std::regex rgx (pattern.c_str());
+    static std::regex rgx ("/data/\\d+/\\d+/\\d+/(\\d+)_.*");
     std::smatch sm;
     bool ret = std::regex_search(path, sm, rgx);
     if (ret) {

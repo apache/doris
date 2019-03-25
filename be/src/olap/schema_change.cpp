@@ -1038,32 +1038,29 @@ bool SchemaChangeWithSorting::_internal_sorting(const vector<RowBlock*>& row_blo
     uint64_t merged_rows = 0;
     RowBlockMerger merger(_tablet);
 
-    RowsetWriterContextBuilder context_builder;
-    RowsetId rowset_id = 0;
-    OLAPStatus status = _tablet->next_rowset_id(&rowset_id);
-    LOG(INFO) << "rowset_id:" << rowset_id;
-    if (status != OLAP_SUCCESS) {
-        LOG(WARNING) << "get next rowset id failed";
-        return false;
-    }
-    context_builder.set_rowset_id(rowset_id)
-                   .set_tablet_id(_tablet->tablet_id())
-                   .set_partition_id(_tablet->partition_id())
-                   .set_tablet_schema_hash(_tablet->schema_hash())
-                   .set_rowset_type(ALPHA_ROWSET)
-                   .set_rowset_path_prefix(_tablet->tablet_path())
-                   .set_tablet_schema(&(_tablet->tablet_schema()))
-                   .set_data_dir(_tablet->data_dir())
-                   .set_rowset_state(VISIBLE)
-                   .set_version(version)
-                   .set_version_hash(version_hash);
-
-    RowsetWriterContext context = context_builder.build();
     RowsetWriterSharedPtr rowset_writer(new AlphaRowsetWriter());
     if (rowset_writer == nullptr) {
         LOG(WARNING) << "new rowset builder failed";
         return false;
     }
+    RowsetId rowset_id = 0;
+    OLAPStatus status = _tablet->next_rowset_id(&rowset_id);
+    if (status != OLAP_SUCCESS) {
+        LOG(WARNING) << "get next rowset id failed";
+        return false;
+    }
+    RowsetWriterContext context;
+    context.rowset_id = rowset_id;
+    context.tablet_id = _tablet->tablet_id();
+    context.partition_id = _tablet->partition_id();
+    context.tablet_schema_hash = _tablet->schema_hash();
+    context.rowset_type = ALPHA_ROWSET;
+    context.rowset_path_prefix = _tablet->tablet_path();
+    context.tablet_schema = &(_tablet->tablet_schema());
+    context.rowset_state = VISIBLE;
+    context.data_dir = _tablet->data_dir();
+    context.version = version;
+    context.version_hash = version_hash;
     VLOG(3) << "init rowset builder. tablet=" << _tablet->full_name()
             << ", block_row_size=" << _tablet->num_rows_per_row_block();
     rowset_writer->init(context);
@@ -1297,14 +1294,13 @@ OLAPStatus SchemaChangeHandler::process_alter_tablet(AlterTabletType type,
             break;
         }
 
-        RowsetReaderContextBuilder context_builder;
-        context_builder.set_reader_type(READER_ALTER_TABLE)
-                       .set_tablet_schema(&base_tablet->tablet_schema())
-                       .set_preaggregation(true)
-                       .set_delete_handler(&delete_handler)
-                       .set_is_using_cache(false)
-                       .set_lru_cache(StorageEngine::instance()->index_stream_lru_cache());
-        RowsetReaderContext context = context_builder.build();
+        RowsetReaderContext context;
+        context.reader_type = READER_ALTER_TABLE;
+        context.tablet_schema= &base_tablet->tablet_schema();
+        context.preaggregation = true;
+        context.delete_handler = &delete_handler;
+        context.is_using_cache = false;
+        context.lru_cache = StorageEngine::instance()->index_stream_lru_cache();
 
         for (auto& rs_reader : rs_readers) {
             rs_reader->init(&context);
@@ -1483,6 +1479,7 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
 
     // c. 转换数据
     DeleteHandler delete_handler;
+<<<<<<< HEAD
     RowsetReaderContextBuilder reader_context_builder;
     reader_context_builder.set_reader_type(READER_ALTER_TABLE)
                           .set_tablet_schema(&base_tablet->tablet_schema())
@@ -1491,24 +1488,30 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
                           .set_is_using_cache(false)
                           .set_lru_cache(StorageEngine::instance()->index_stream_lru_cache());
     RowsetReaderContext reader_context = reader_context_builder.build();
+=======
+    RowsetReaderContext reader_context;
+    reader_context.reader_type = READER_ALTER_TABLE;
+    reader_context.tablet_schema = &base_tablet->tablet_schema();
+    reader_context.delete_handler = &delete_handler;
+    reader_context.is_using_cache = false;
+    reader_context.lru_cache = StorageEngine::instance()->index_stream_lru_cache();
+>>>>>>> fix pr problems
     RowsetReaderSharedPtr rowset_reader = (*base_rowset)->create_reader();
     rowset_reader->init(&reader_context);
 
-    RowsetWriterContextBuilder writer_context_builder;
     RowsetId rowset_id = 0;
     RETURN_NOT_OK(new_tablet->next_rowset_id(&rowset_id));
-
-    writer_context_builder.set_rowset_id(rowset_id)
-                          .set_tablet_id(new_tablet->tablet_id())
-                          .set_partition_id(new_tablet->partition_id())
-                          .set_tablet_schema_hash(new_tablet->schema_hash())
-                          .set_rowset_type(ALPHA_ROWSET)
-                          .set_rowset_path_prefix(new_tablet->tablet_path())
-                          .set_tablet_schema(&(new_tablet->tablet_schema()))
-                          .set_rowset_state(PREPARED)
-                          .set_txn_id((*base_rowset)->txn_id())
-                          .set_load_id((*base_rowset)->load_id());
-    RowsetWriterContext writer_context = writer_context_builder.build();
+    RowsetWriterContext writer_context;
+    writer_context.rowset_id = rowset_id;
+    writer_context.tablet_id = new_tablet->tablet_id();
+    writer_context.partition_id = new_tablet->partition_id();
+    writer_context.tablet_schema_hash = new_tablet->schema_hash();
+    writer_context.rowset_type = ALPHA_ROWSET;
+    writer_context.rowset_path_prefix = new_tablet->tablet_path();
+    writer_context.tablet_schema = &(new_tablet->tablet_schema());
+    writer_context.rowset_state = PREPARED;
+    writer_context.load_id.set_hi((*base_rowset)->load_id().hi());
+    writer_context.load_id.set_lo((*base_rowset)->load_id().lo());
     RowsetWriterSharedPtr rowset_writer(new AlphaRowsetWriter());
     rowset_writer->init(writer_context);
 
@@ -1692,27 +1695,24 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
         RowsetId rowset_id = 0;
         TabletSharedPtr new_tablet = sc_params.new_tablet;
         res = sc_params.new_tablet->next_rowset_id(&rowset_id);
-        LOG(INFO) << "rowset_id:" << rowset_id;
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "generate next id failed";
             goto PROCESS_ALTER_EXIT;
         }
 
-        RowsetWriterContextBuilder context_builder;
-        context_builder.set_rowset_id(rowset_id)
-                       .set_tablet_id(new_tablet->tablet_id())
-                       .set_tablet_schema_hash(new_tablet->schema_hash())
-                       .set_partition_id(new_tablet->partition_id())
-                       .set_rowset_type(ALPHA_ROWSET)
-                       .set_rowset_path_prefix(new_tablet->tablet_path())
-                       .set_tablet_schema(&(new_tablet->tablet_schema()))
-                       .set_rowset_state(VISIBLE)
-                       .set_version(rs_reader->version())
-                       .set_version_hash(rs_reader->version_hash());
-        RowsetWriterContext builder_context = context_builder.build();
-
+        RowsetWriterContext writer_context;
+        writer_context.rowset_id = rowset_id;
+        writer_context.tablet_id = new_tablet->tablet_id();
+        writer_context.partition_id = new_tablet->partition_id();
+        writer_context.tablet_schema_hash = new_tablet->schema_hash();
+        writer_context.rowset_type = ALPHA_ROWSET;
+        writer_context.rowset_path_prefix = new_tablet->tablet_path();
+        writer_context.tablet_schema = &(new_tablet->tablet_schema());
+        writer_context.rowset_state = VISIBLE;
+        writer_context.version = rs_reader->version();
+        writer_context.version_hash = rs_reader->version_hash();
         RowsetWriterSharedPtr rowset_writer(new AlphaRowsetWriter());
-        OLAPStatus status = rowset_writer->init(builder_context);
+        OLAPStatus status = rowset_writer->init(writer_context);
         if (status != OLAP_SUCCESS) {
             res = OLAP_ERR_ROWSET_BUILDER_INIT;
             goto PROCESS_ALTER_EXIT;

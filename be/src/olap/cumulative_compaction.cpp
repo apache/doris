@@ -134,19 +134,18 @@ OLAPStatus CumulativeCompaction::run() {
         // 3. 生成新cumulative文件对应的olap index
         RowsetId rowset_id = 0;
         RETURN_NOT_OK(_tablet->next_rowset_id(&rowset_id));
-        RowsetWriterContextBuilder context_builder;
-        context_builder.set_rowset_id(rowset_id)
-                       .set_tablet_id(_tablet->tablet_id())
-                       .set_partition_id(_tablet->partition_id())
-                       .set_tablet_schema_hash(_tablet->schema_hash())
-                       .set_rowset_type(ALPHA_ROWSET)
-                       .set_rowset_path_prefix(_tablet->tablet_path())
-                       .set_tablet_schema(&(_tablet->tablet_schema()))
-                       .set_rowset_state(VISIBLE)
-                       .set_data_dir(_tablet->data_dir())
-                       .set_version(_cumulative_version)
-                       .set_version_hash(_cumulative_version_hash);
-        RowsetWriterContext context = context_builder.build();
+        RowsetWriterContext context;
+        context.rowset_id = rowset_id;
+        context.tablet_id = _tablet->tablet_id();
+        context.partition_id = _tablet->partition_id();
+        context.tablet_schema_hash = _tablet->schema_hash();
+        context.rowset_type = ALPHA_ROWSET;
+        context.rowset_path_prefix = _tablet->tablet_path();
+        context.tablet_schema = &(_tablet->tablet_schema());
+        context.rowset_state = VISIBLE;
+        context.data_dir = _tablet->data_dir();
+        context.version = _cumulative_version;
+        context.version_hash = _cumulative_version_hash;
         _rs_writer->init(context);
 
         // 4. 执行cumulative compaction合并过程

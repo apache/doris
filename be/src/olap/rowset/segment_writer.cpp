@@ -210,7 +210,7 @@ OLAPStatus SegmentWriter::finalize(uint32_t* segment_file_size) {
     FileHandler file_handle;
     FileHeader<ColumnDataHeaderMessage> file_header;
     boost::filesystem::path tablet_path(_segment_group->rowset_path_prefix());
-    boost::filesystem::path data_dir_path = tablet_path.parent_path().parent_path().parent_path();
+    boost::filesystem::path data_dir_path = tablet_path.parent_path().parent_path().parent_path().parent_path();
     std::string data_dir_string = data_dir_path.string();
     DataDir* data_dir = StorageEngine::instance()->get_store(data_dir_string);
     data_dir->add_pending_ids(ROWSET_ID_PREFIX + std::to_string(_segment_group->rowset_id()));

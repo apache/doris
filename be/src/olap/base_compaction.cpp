@@ -126,19 +126,18 @@ OLAPStatus BaseCompaction::run() {
     stage_watch.reset();
     RowsetId rowset_id = 0;
     RETURN_NOT_OK(_tablet->next_rowset_id(&rowset_id));
-    RowsetWriterContextBuilder context_builder;
-    context_builder.set_rowset_id(rowset_id)
-            .set_tablet_id(_tablet->tablet_id())
-            .set_partition_id(_tablet->partition_id())
-            .set_tablet_schema_hash(_tablet->schema_hash())
-            .set_rowset_type(ALPHA_ROWSET)
-            .set_rowset_path_prefix(_tablet->tablet_path())
-            .set_tablet_schema(&(_tablet->tablet_schema()))
-            .set_data_dir(_tablet->data_dir())
-            .set_rowset_state(VISIBLE)
-            .set_version(_new_base_version)
-            .set_version_hash(new_base_version_hash);
-    RowsetWriterContext context = context_builder.build();
+    RowsetWriterContext context;
+    context.rowset_id = rowset_id;
+    context.tablet_id = _tablet->tablet_id();
+    context.partition_id = _tablet->partition_id();
+    context.tablet_schema_hash = _tablet->schema_hash();
+    context.rowset_type = ALPHA_ROWSET;
+    context.rowset_path_prefix = _tablet->tablet_path();
+    context.tablet_schema = &(_tablet->tablet_schema());
+    context.rowset_state = VISIBLE;
+    context.data_dir = _tablet->data_dir();
+    context.version = _new_base_version;
+    context.version_hash = new_base_version_hash;
 
     RowsetWriterSharedPtr rs_writer(new (std::nothrow)AlphaRowsetWriter());
     if (rs_writer == nullptr) {

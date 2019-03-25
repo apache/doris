@@ -517,24 +517,23 @@ OLAPStatus Reader::_capture_rs_readers(const ReaderParams& read_params) {
 
     if (eof) { return OLAP_SUCCESS; }
 
-    RowsetReaderContextBuilder context_builder;
-    context_builder.set_reader_type(read_params.reader_type)
-                   .set_tablet_schema(&_tablet->tablet_schema())
-                   .set_preaggregation(_aggregation)
-                   .set_return_columns(&_return_columns)
-                   .set_load_bf_columns(&_load_bf_columns)
-                   .set_conditions(&_conditions)
-                   .set_predicates(&_col_predicates)
-                   .set_lower_bound_keys(&_keys_param.start_keys)
-                   .set_is_lower_keys_included(&_is_lower_keys_included)
-                   .set_upper_bound_keys(&_keys_param.end_keys)
-                   .set_is_upper_keys_included(&_is_upper_keys_included)
-                   .set_delete_handler(&_delete_handler)
-                   .set_stats(&_stats)
-                   .set_is_using_cache(is_using_cache)
-                   .set_lru_cache(StorageEngine::instance()->index_stream_lru_cache())
-                   .set_runtime_state(read_params.runtime_state);
-    RowsetReaderContext context = context_builder.build();
+    RowsetReaderContext context;
+    context.reader_type = read_params.reader_type;
+    context.tablet_schema = &_tablet->tablet_schema();
+    context.preaggregation = _aggregation;
+    context.return_columns = &_return_columns;
+    context.load_bf_columns = &_load_bf_columns;
+    context.conditions = &_conditions;
+    context.predicates = &_col_predicates;
+    context.lower_bound_keys = &_keys_param.start_keys;
+    context.is_lower_keys_included = &_is_lower_keys_included;
+    context.upper_bound_keys = &_keys_param.end_keys;
+    context.is_upper_keys_included = &_is_upper_keys_included;
+    context.delete_handler = &_delete_handler;
+    context.stats = &_stats;
+    context.is_using_cache = is_using_cache;
+    context.lru_cache = StorageEngine::instance()->index_stream_lru_cache();
+    context.runtime_state = read_params.runtime_state;
     for (auto& rs_reader : *rs_readers) {
         rs_reader->init(&context);
         _rs_readers.push_back(rs_reader);

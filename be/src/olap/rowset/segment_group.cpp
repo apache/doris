@@ -550,7 +550,7 @@ OLAPStatus SegmentGroup::add_short_key(const RowCursor& short_key, const uint32_
     if (!_new_segment_created) {
         string file_path = construct_index_file_path(_num_segments - 1);
         boost::filesystem::path tablet_path(_rowset_path_prefix);
-        boost::filesystem::path data_dir_path = tablet_path.parent_path().parent_path().parent_path();
+        boost::filesystem::path data_dir_path = tablet_path.parent_path().parent_path().parent_path().parent_path();
         std::string data_dir_string = data_dir_path.string();
         DataDir* data_dir = StorageEngine::instance()->get_store(data_dir_string);
         data_dir->add_pending_ids(ROWSET_ID_PREFIX + std::to_string(_rowset_id));

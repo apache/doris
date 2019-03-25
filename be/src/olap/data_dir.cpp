@@ -851,80 +851,58 @@ void DataDir::perform_path_gc() {
     _scanned = false;
     LOG(INFO) << "start to path gc.";
     int counter = 0;
-    for (int index = 0; index < _all_check_paths.size();) {
+    for (auto path_iter = _all_check_paths.begin(); path_iter != _all_check_paths.end(); ++path_iter) {
         ++counter;
         if (config::path_gc_check_step > 0 && counter % config::path_gc_check_step == 0) {
             usleep(config::path_gc_check_step_interval_ms * 1000);
-        }
-        auto path_iter = std::next(_all_check_paths.begin(), index);
-        if (path_iter == _all_check_paths.end()) {
-            break;
         }
         std::string path = *path_iter;
         TTabletId tablet_id = -1;
         TSchemaHash schema_hash = -1;
         bool is_valid = _tablet_manager->get_tablet_id_and_schema_hash_from_path(path,
                 &tablet_id, &schema_hash);
-        std::set<std::string> paths;
-        paths.insert(path);
         if (!is_valid) {
             LOG(WARNING) << "unknown path:" << path;
-            _remove_check_paths_no_lock(paths);
             continue;
-        } else {
-            if (tablet_id > 0 && schema_hash > 0) {
-                // tablet schema hash path or rowset file path
-                TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id, schema_hash);
-                if (tablet == nullptr) {
-                    std::string tablet_path_id = TABLET_ID_PREFIX + std::to_string(tablet_id);
-                    bool exist_in_pending = _check_pending_ids(tablet_path_id);
-                    if (!exist_in_pending) {
-                        _process_garbage_path(path);
-                        _remove_check_paths_no_lock(paths);
-                        continue;
-                    }
-                } else {
-                    bool valid = tablet->check_path(path);
-                    if (!valid) {
-                        RowsetId rowset_id = -1;
-                        bool is_rowset_file = _tablet_manager
-                                ->get_rowset_id_from_path(path, &rowset_id);
-                        if (is_rowset_file) {
-                            std::string rowset_path_id = ROWSET_ID_PREFIX + std::to_string(rowset_id);
-                            bool exist_in_pending = _check_pending_ids(rowset_path_id);
-                            if (!exist_in_pending) {
-                                _process_garbage_path(path);
-                                _remove_check_paths_no_lock(paths);
-                                continue;
-                            }
-                        }
-                    }
-                }
-            } else if (tablet_id > 0 && schema_hash <= 0) {
-                // tablet id path
-                if (FileUtils::is_dir(path)) {
-                    bool exist = _tablet_manager->check_tablet_id_exist(tablet_id);
-                    if (!exist) {
-                        std::string tablet_path_id = TABLET_ID_PREFIX + std::to_string(tablet_id);
-                        bool exist_in_pending = _check_pending_ids(tablet_path_id);
-                        if (!exist_in_pending) {
-                            _process_garbage_path(path);
-                            _remove_check_paths_no_lock(paths);
-                            continue;
-                        }
-                    }
-                } else {
-                    LOG(WARNING) << "unknown path:" << path;
-                    _remove_check_paths_no_lock(paths);
-                    continue;
+        }
+        if (tablet_id > 0 && schema_hash > 0) {
+            // tablet schema hash path or rowset file path
+            TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id, schema_hash);
+            if (tablet == nullptr) {
+                std::string tablet_path_id = TABLET_ID_PREFIX + std::to_string(tablet_id);
+                bool exist_in_pending = _check_pending_ids(tablet_path_id);
+                if (!exist_in_pending) {
+                    _process_garbage_path(path);
                 }
             } else {
+                bool valid = tablet->check_path(path);
+                if (!valid) {
+                    RowsetId rowset_id = -1;
+                    bool is_rowset_file = _tablet_manager->get_rowset_id_from_path(path, &rowset_id);
+                    if (is_rowset_file) {
+                        std::string rowset_path_id = ROWSET_ID_PREFIX + std::to_string(rowset_id);
+                        bool exist_in_pending = _check_pending_ids(rowset_path_id);
+                        if (!exist_in_pending) {
+                            _process_garbage_path(path);
+                        }
+                    }
+                }
+            }
+        } else if (tablet_id > 0 && schema_hash <= 0) {
+            // tablet id path
+            if (!FileUtils::is_dir(path)) {
                 LOG(WARNING) << "unknown path:" << path;
-                _remove_check_paths_no_lock(paths);
                 continue;
             }
+            bool exist = _tablet_manager->check_tablet_id_exist(tablet_id);
+            if (!exist) {
+                std::string tablet_path_id = TABLET_ID_PREFIX + std::to_string(tablet_id);
+                bool exist_in_pending = _check_pending_ids(tablet_path_id);
+                if (!exist_in_pending) {
+                    _process_garbage_path(path);
+                }
+            }
         }
-        ++index;
     }
     _all_check_paths.clear();
     LOG(INFO) << "finished one time path gc.";
@@ -932,6 +910,7 @@ void DataDir::perform_path_gc() {
 
 // path producer
 void DataDir::perform_path_scan() {
+    {
     std::unique_lock<std::mutex> lck(_check_path_mutex);
     _scanned = true;
     LOG(INFO) << "start to scan data dir path:" << _path;
@@ -939,8 +918,6 @@ void DataDir::perform_path_scan() {
     std::string data_path = _path + DATA_PREFIX;
     if (dir_walk(data_path, &shards, nullptr) != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to walk dir. [path=" << data_path << "]";
-        lck.unlock();
-        cv.notify_one();
         return;
     }
     for (const auto& shard : shards) {
@@ -974,7 +951,7 @@ void DataDir::perform_path_scan() {
         }
     }
     LOG(INFO) << "scan data dir path:" << _path << " finished. path size:" << _all_check_paths.size();
-    lck.unlock();
+    }
     cv.notify_one();
 }
 
