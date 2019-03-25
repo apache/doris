@@ -17,15 +17,13 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TInfoFunc;
 
-/**
- */
 public class InformationFunction extends Expr {
     private final String funcType;
     private long intValue;
@@ -55,10 +53,10 @@ public class InformationFunction extends Expr {
             strValue = analyzer.getDefaultDb();
         } else if (funcType.equalsIgnoreCase("USER")) {
             type = Type.VARCHAR;
-            strValue = analyzer.getQualifiedUser();
+            strValue = ConnectContext.get().getUserIdentity().toString();
         } else if (funcType.equalsIgnoreCase("CURRENT_USER")) {
             type = Type.VARCHAR;
-            strValue = analyzer.getQualifiedUser();
+            strValue = ConnectContext.get().getCurrentUserIdentity().toString();
         } else if (funcType.equalsIgnoreCase("CONNECTION_ID")) {
             type = Type.BIGINT;
             intValue = analyzer.getConnectId();

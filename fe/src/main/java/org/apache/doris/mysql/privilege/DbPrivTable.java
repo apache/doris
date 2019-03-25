@@ -26,6 +26,9 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataOutput;
 import java.io.IOException;
 
+/*
+ * DbPrivTable saves all database level privs
+ */
 public class DbPrivTable extends PrivTable {
     private static final Logger LOG = LogManager.getLogger(DbPrivTable.class);
 

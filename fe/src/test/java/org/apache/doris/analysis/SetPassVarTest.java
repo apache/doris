@@ -47,6 +47,9 @@ public class SetPassVarTest {
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
         MockedAuth.mockedAuth(auth);
         MockedAuth.mockedConnectContext(ctx, "root", "192.168.1.1");
+        UserIdentity currentUser = new UserIdentity("root", "192.168.1.1");
+        currentUser.setIsAnalyzed();
+        ctx.setCurrentUserIdentitfy(currentUser);
     }
 
     @Test
@@ -70,7 +73,7 @@ public class SetPassVarTest {
         // empty password
         stmt = new SetPassVar(null, null);
         stmt.analyze(analyzer);
-        Assert.assertEquals("SET PASSWORD FOR 'testCluster:testUser'@'192.168.1.1' = '*XXX'", stmt.toString());
+        Assert.assertEquals("SET PASSWORD FOR 'root'@'192.168.1.1' = '*XXX'", stmt.toString());
     }
 
     @Test(expected = AnalysisException.class)

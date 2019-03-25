@@ -60,6 +60,10 @@ public class SetExecutorTest {
         ctx.setCatalog(AccessTestUtil.fetchAdminCatalog());
         ctx.setQualifiedUser("root");
         ctx.setRemoteIP("192.168.1.1");
+        UserIdentity currentUser = new UserIdentity("root", "192.168.1.1");
+        currentUser.setIsAnalyzed();
+        ctx.setCurrentUserIdentitfy(currentUser);
+        ctx.setThreadLocalInfo();
 
         new NonStrictExpectations() {
             {
