@@ -128,7 +128,7 @@ public class EsScanNode extends ScanNode {
 
     @Override
     protected void toThrift(TPlanNode msg) {
-        msg.node_type = TPlanNodeType.ES_SCAN_NODE;
+        msg.node_type = TPlanNodeType.ES_HTTP_SCAN_NODE;
         Map<String, String> properties = Maps.newHashMap();
         properties.put(EsTable.USER, table.getUserName());
         properties.put(EsTable.PASSWORD, table.getPasswd());
