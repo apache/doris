@@ -57,9 +57,8 @@ struct TabletTxnInfo {
         PUniqueId load_id,
         RowsetSharedPtr rowset) :
         load_id(load_id),
-        rowset(rowset) {
-        creation_time = time(NULL);
-    }
+        rowset(rowset),
+        creation_time(time(nullptr)) {}
 
     TabletTxnInfo() {}
 };
