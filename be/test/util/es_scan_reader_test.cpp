@@ -94,7 +94,6 @@ public:
             std::string post_body = req->get_request_body();
             rapidjson::Document post_doc;
             post_doc.Parse<0>(post_body.c_str());
-            int size = 1;
             std::string scroll_id;
             if (!post_doc.HasMember("scroll_id")) {
                 HttpChannel::send_reply(req,HttpStatus::NOT_FOUND, "invalid scroll request");
@@ -166,7 +165,6 @@ public:
             std::string post_body = req->get_request_body();
             rapidjson::Document post_doc;
             post_doc.Parse<0>(post_body.c_str());
-            int size = 1;
             std::string scroll_id;
             if (!post_doc.HasMember("scroll_id")) {
                 HttpChannel::send_reply(req,HttpStatus::NOT_FOUND, "invalid scroll request");
