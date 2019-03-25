@@ -86,6 +86,7 @@ public:
 
         if (kafka_info != nullptr) {
             delete kafka_info;
+            kafka_info = nullptr;
         }
     }
 
