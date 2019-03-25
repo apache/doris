@@ -135,14 +135,14 @@ Status KafkaDataConsumer::start(StreamLoadContext* ctx) {
     
     _last_visit_time = time(nullptr);
 
-    int64_t left_time = ctx->max_interval_s;
+    int64_t left_time = ctx->max_interval_s * 1000;
     int64_t left_rows = ctx->max_batch_rows;
     int64_t left_bytes = ctx->max_batch_size;
 
     std::shared_ptr<KafkaConsumerPipe> kakfa_pipe = std::static_pointer_cast<KafkaConsumerPipe>(ctx->body_sink);
 
     LOG(INFO) << "start consumer"
-        << ". max time(s): " << left_time
+        << ". max time(ms): " << left_time
         << ", batch rows: " << left_rows
         << ", batch size: " << left_bytes
         << ". " << ctx->brief();
@@ -168,10 +168,11 @@ Status KafkaDataConsumer::start(StreamLoadContext* ctx) {
 
         if (left_time <= 0 || left_rows <= 0 || left_bytes <=0) {
             LOG(INFO) << "kafka consume batch done"
-                    << ". left time=" << left_time
-                    << ", left rows=" << left_rows
-                    << ", left bytes=" << left_bytes
-                    << ", consumer time(ms)=" << consumer_watch.elapsed_time() / 1000 / 1000;
+                    << ". consume time(ms)=" << ctx->max_interval_s * 1000 - left_time
+                    << ", received rows=" << ctx->max_batch_rows - left_rows
+                    << ", received bytes=" << ctx->max_batch_size - left_bytes
+                    << ", kafka consume time(ms)=" << consumer_watch.elapsed_time() / 1000 / 1000;
+
 
             if (left_bytes == ctx->max_batch_size) {
                 // nothing to be consumed, cancel it
@@ -230,7 +231,7 @@ Status KafkaDataConsumer::start(StreamLoadContext* ctx) {
             return st;
         }
 
-        left_time = ctx->max_interval_s - watch.elapsed_time() / 1000 / 1000 / 1000; 
+        left_time = ctx->max_interval_s * 1000 - watch.elapsed_time() / 1000 / 1000;
     }
 
     return Status::OK;
