@@ -135,23 +135,6 @@ TEST_F(HttpClientTest, get_failed) {
     std::string response;
     st = client.execute(&response);
     ASSERT_FALSE(!st.ok());
-<<<<<<< HEAD
-}
-
-TEST_F(HttpClientTest, post_normal) {
-    HttpClient client;
-    auto st = client.init("http://127.0.0.1:29386/simple_post");
-    ASSERT_TRUE(st.ok());
-    client.set_method(POST);
-    client.set_basic_auth("test1", "");
-    std::string response;
-    std::string request_body = "simple post body query";
-    st = client.execute_post_request(request_body, &response);
-    ASSERT_TRUE(st.ok());
-    ASSERT_EQ(response.length(), request_body.length());
-    ASSERT_STREQ(response.c_str(), request_body.c_str());
-=======
->>>>>>> Add http post feature for HttpClient
 }
 
 TEST_F(HttpClientTest, post_normal) {
