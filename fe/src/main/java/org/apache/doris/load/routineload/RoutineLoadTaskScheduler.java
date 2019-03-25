@@ -59,7 +59,7 @@ public class RoutineLoadTaskScheduler extends Daemon {
     private static final long BACKEND_SLOT_UPDATE_INTERVAL_MS = 10000; // 10s
 
     private RoutineLoadManager routineLoadManager;
-    private LinkedBlockingQueue<RoutineLoadTaskInfo> needScheduleTasksQueue;
+    private LinkedBlockingQueue<RoutineLoadTaskInfo> needScheduleTasksQueue = Queues.newLinkedBlockingQueue();
 
     private long lastBackendSlotUpdateTime = -1;
 
@@ -67,13 +67,11 @@ public class RoutineLoadTaskScheduler extends Daemon {
     public RoutineLoadTaskScheduler() {
         super("routine load task", 0);
         this.routineLoadManager = Catalog.getInstance().getRoutineLoadManager();
-        this.needScheduleTasksQueue = Queues.newLinkedBlockingQueue();
     }
 
     public RoutineLoadTaskScheduler(RoutineLoadManager routineLoadManager) {
         super("routine load task", 0);
         this.routineLoadManager = routineLoadManager;
-        this.needScheduleTasksQueue = Queues.newLinkedBlockingQueue();
     }
 
     @Override
@@ -155,10 +153,6 @@ public class RoutineLoadTaskScheduler extends Daemon {
             lastBackendSlotUpdateTime = currentTime;
             LOG.debug("update backend max slot for routine load task scheduling");
         }
-    }
-
-    public void addTaskInQueue(RoutineLoadTaskInfo routineLoadTaskInfo) {
-        needScheduleTasksQueue.add(routineLoadTaskInfo);
     }
 
     public void addTaskInQueue(List<RoutineLoadTaskInfo> routineLoadTaskInfoList) {

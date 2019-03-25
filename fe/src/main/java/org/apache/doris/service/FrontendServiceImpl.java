@@ -331,7 +331,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TFeResult miniLoad(TMiniLoadRequest request) throws TException {
-        LOG.info("mini load request is {}", request);
+        LOG.info("receive mini load request: label: {}, db: {}, tbl: {}, backend: {}",
+                request.getLabel(), request.getDb(), request.getTbl(), request.getBackend());
 
         ConnectContext context = new ConnectContext(null);
         String cluster = SystemInfoService.DEFAULT_CLUSTER;
@@ -508,7 +509,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TFeResult loadCheck(TLoadCheckRequest request) throws TException {
-        LOG.info("load check request. label: {}, user: {}, ip: {}",
+        LOG.info("receive load check request. label: {}, user: {}, ip: {}",
                  request.getLabel(), request.getUser(), request.getUser_ip());
 
         TStatus status = new TStatus(TStatusCode.OK);
@@ -539,9 +540,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TLoadTxnBeginResult loadTxnBegin(TLoadTxnBeginRequest request) throws TException {
         TNetworkAddress clientAddr = getClientAddr();
 
-        LOG.info("receive loadTxnBegin request, db: {}, tbl: {}, label: {}, backend: {}",
+        LOG.info("receive txn begin request, db: {}, tbl: {}, label: {}, backend: {}",
                 request.getDb(), request.getTbl(), request.getLabel(),
                 clientAddr == null ? "unknown" : clientAddr.getHostname());
+
         LOG.debug("txn begin request: {}", request);
 
         TLoadTxnBeginResult result = new TLoadTxnBeginResult();
@@ -598,7 +600,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TLoadTxnCommitResult loadTxnCommit(TLoadTxnCommitRequest request) throws TException {
-        LOG.info("receive loadTxnCommit request, request={}", request);
+        LOG.info("receive txn commit request. db: {}, tbl: {}, txn id: {}",
+                request.getDb(), request.getTbl(), request.getTxnId());
+        LOG.debug("txn commit request: {}", request);
+
         TLoadTxnCommitResult result = new TLoadTxnCommitResult();
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
@@ -654,7 +659,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TLoadTxnRollbackResult loadTxnRollback(TLoadTxnRollbackRequest request) throws TException {
-        LOG.info("receive loadTxnRollback request, request={}", request);
+        LOG.info("receive txn rollback request. db: {}, tbl: {}, txn id: {}, reason: {}",
+                request.getDb(), request.getTbl(), request.getTxnId(), request.getReason());
+        LOG.debug("txn rollback request: {}", request);
 
         TLoadTxnRollbackResult result = new TLoadTxnRollbackResult();
         TStatus status = new TStatus(TStatusCode.OK);
@@ -694,7 +701,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TStreamLoadPutResult streamLoadPut(TStreamLoadPutRequest request) throws TException {
-        LOG.info("receive streamLoadPut request, request={}", request);
+        LOG.info("receive stream load put request. db:{}, tbl: {}, txn id: {}",
+                request.getDb(), request.getTbl(), request.getTxnId());
+        LOG.debug("stream load put request: {}", request);
 
         TStreamLoadPutResult result = new TStreamLoadPutResult();
         TStatus status = new TStatus(TStatusCode.OK);

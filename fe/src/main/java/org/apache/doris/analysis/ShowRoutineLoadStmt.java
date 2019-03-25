@@ -18,14 +18,15 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.base.Strings;
-import com.google.common.collect.ImmutableList;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ShowResultSetMetaData;
+
+import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
 
 /*
   Show routine load progress by routine load name
@@ -63,15 +64,16 @@ public class ShowRoutineLoadStmt extends ShowStmt {
             new ImmutableList.Builder<String>()
                     .add("Id")
                     .add("Name")
+                    .add("CreateTime")
+                    .add("EndTime")
                     .add("DBId")
                     .add("TableId")
                     .add("State")
                     .add("DataSourceType")
+                    .add("CurrentTaskNum")
                     .add("JobProperties")
                     .add("DataSourceProperties")
-                    .add("CurrentTaskConcurrentNumber")
-                    .add("TotalRows")
-                    .add("TotalErrorRows")
+                    .add("Statistic")
                     .add("Progress")
                     .add("ReasonOfStateChanged")
                     .build();
