@@ -337,6 +337,7 @@ public class RoutineLoadManager implements Writable {
             updateBeIdToMaxConcurrentTasks();
             Map<Long, Integer> beIdToConcurrentTasks = getBeIdConcurrentTaskMaps();
             for (Long beId : beIdsInCluster) {
+                if (beIdToMaxConcurrentTasks.containsKey(beId)) {
                     int idleTaskNum = 0;
                     if (beIdToConcurrentTasks.containsKey(beId)) {
                         idleTaskNum = beIdToMaxConcurrentTasks.get(beId) - beIdToConcurrentTasks.get(beId);
@@ -347,6 +348,7 @@ public class RoutineLoadManager implements Writable {
                               beIdToConcurrentTasks.get(beId), beIdToMaxConcurrentTasks.get(beId));
                     result = maxIdleSlotNum < idleTaskNum ? beId : result;
                     maxIdleSlotNum = Math.max(maxIdleSlotNum, idleTaskNum);
+                }
             }
             if (result < 0) {
                 throw new LoadException("There is no empty slot in cluster");
@@ -439,13 +441,13 @@ public class RoutineLoadManager implements Writable {
         return result;
     }
 
-    public RoutineLoadJob getJobByTaskId(UUID taskId) throws MetaNotFoundException {
+    public boolean checkTaskInJob(UUID taskId) {
         for (RoutineLoadJob routineLoadJob : idToRoutineLoadJob.values()) {
             if (routineLoadJob.containsTask(taskId)) {
-                return routineLoadJob;
+                return true;
             }
         }
-        throw new MetaNotFoundException("could not found task by id " + taskId);
+        return false;
     }
 
     public List<RoutineLoadJob> getRoutineLoadJobByState(RoutineLoadJob.JobState jobState) {
