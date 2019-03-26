@@ -467,6 +467,12 @@ bool EsScanNode::get_disjuncts(ExprContext* context, Expr* conjunct,
         disjuncts.push_back(std::move(predicate));
         return true;
     } else if (TExprNodeType::IN_PRED == conjunct->node_type()) {
+        // the op code maybe FILTER_NEW_IN, it means there is function in list
+        // like col_a in (abs(1))
+        if (TExprOpcode::FILTER_IN != conjunct->op() 
+            && TExprOpcode::FILTER_NOT_IN != conjunct->op()) {
+            return false;
+        }
         TExtInPredicate ext_in_predicate;
         vector<TExtLiteral> in_pred_values;
         InPredicate* pred = dynamic_cast<InPredicate*>(conjunct);
