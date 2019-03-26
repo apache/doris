@@ -507,6 +507,11 @@ public class ScalarType extends Type {
         if (isDecimalV2() && scalarType.isDecimalV2()) {
             return true;
         }
+        if ((type.isFixedPointType() || isBoolean()) 
+               && (scalarType.isFixedPointType() || scalarType.isBoolean()) 
+               && type.ordinal() >= scalarType.getPrimitiveType().ordinal()) {
+            return true;
+        }
         return false;
     }
 
