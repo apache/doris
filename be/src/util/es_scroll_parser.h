@@ -14,31 +14,45 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 #pragma once
+
 #include<string>
+
+#include "rapidjson/document.h"
+#include "runtime/descriptors.h"
+#include "runtime/tuple.h"
 
 namespace doris {
 
 class Status;
+
 class ScrollParser {
 
 public:
-    ScrollParser();
+    ScrollParser(const std::string& scroll_id, int total, int size = 0);
     ~ScrollParser();
-    std::string get_scroll_id();
-    bool count();
-    uint32_t total();
-    Status parse(const std::string& scroll_result);
-    bool has_next();
-    void set_batch_size(int batch_size) {
-        _batch_size = batch_size;
+
+    static ScrollParser* parse_from_string(const std::string& scroll_result);
+
+    Status fill_tuple(const TupleDescriptor* _tuple_desc, Tuple* tuple, 
+                MemPool* mem_pool, bool* line_eof);
+
+    void set_inner_hits_node(rapidjson::Value& inner_hits_node) {
+        _inner_hits_node = inner_hits_node;
     }
 
+    const std::string& get_scroll_id();
+    int get_total();
+    int get_size();
+
 private:
-    std::string _scroll_id;
-    bool _eos;
+
+    const std::string& _scroll_id;
     int _total;
     int _size;
-    int _batch_size;
+    rapidjson::SizeType _line_index;
+
+    rapidjson::Value _inner_hits_node;
 };
 }

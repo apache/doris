@@ -89,11 +89,6 @@ Status EsHttpScanner::open() {
 
     _es_reader->open();
 
-   //_text_converter.reset(new(std::nothrow) TextConverter('\\'));
-   //if (_text_converter == nullptr) {
-   //    return Status("No memory error.");
-   //}
-
     _rows_read_counter = ADD_COUNTER(_profile, "RowsRead", TUnit::UNIT);
     _read_timer = ADD_TIMER(_profile, "TotalRawReadTime(*)");
     _materialize_timer = ADD_TIMER(_profile, "MaterializeTupleTime(*)");
@@ -104,18 +99,15 @@ Status EsHttpScanner::open() {
 Status EsHttpScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
     SCOPED_TIMER(_read_timer);
     while (!eof) {
-        std::string batch_row_buffer;
+        ScrollParser* parser = nullptr;
         if (_line_eof) {
-            //RETURN_IF_ERROR(_es_reader->get_next(&eof, &batch_row_buffer));
+            RETURN_IF_ERROR(_es_reader->get_next(eof, &parser));
         }
-        //get_next_line(&batch_row_buffer);
-        {
-            COUNTER_UPDATE(_rows_read_counter, 1);
-            SCOPED_TIMER(_materialize_timer);
-           //if (convert_one_row(Slice(ptr, size), tuple, tuple_pool)) {
-           //    break;
-           //}
-        }
+
+        COUNTER_UPDATE(_rows_read_counter, 1);
+        SCOPED_TIMER(_materialize_timer);
+        RETURN_IF_ERROR(
+                    parser->fill_tuple(_tuple_desc, tuple, tuple_pool, &_line_eof));
     }
     return Status::OK;
 }

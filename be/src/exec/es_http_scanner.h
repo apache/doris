@@ -29,7 +29,6 @@
 #include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/Types_types.h"
 #include "runtime/mem_pool.h"
-#include "util/slice.h"
 #include "util/es_scan_reader.h"
 #include "util/runtime_profile.h"
 
@@ -37,7 +36,6 @@ namespace doris {
 
 class Tuple;
 class SlotDescriptor;
-class Slice;
 class RuntimeState;
 class ExprContext;
 class TextConverter;
