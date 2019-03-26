@@ -52,7 +52,6 @@ ESScanReader::ESScanReader(const std::string& target, const std::map<std::string
     _init_scroll_url = _target + REQUEST_SEPARATOR + _index + REQUEST_SEPARATOR + _type + "/_search?scroll=" + REQUEST_SCROLL_TIME + REQUEST_PREFERENCE_PREFIX + _shards + "&" + REUQEST_SCROLL_FILTER_PATH;
     _next_scroll_url = _target + REQUEST_SEARCH_SCROLL_PATH + "?" + REUQEST_SCROLL_FILTER_PATH;
     _eos = false;
-    _parser.set_batch_size(_batch_size);
 }
 
 ESScanReader::~ESScanReader() {
@@ -71,46 +70,63 @@ Status ESScanReader::open() {
         return Status(_cached_response);
     }
     VLOG(1) << "open _cached response: " << _cached_response;
-    RETURN_IF_ERROR(_parser.parse(_cached_response));
-    _eos = _parser.has_next();
     return Status::OK;
 }
 
-Status ESScanReader::get_next(bool* eos, std::string* response) {
+Status ESScanReader::get_next(bool* scan_eos, ScrollParser** parser) {
+    std::string response;
+    ScrollParser* scroll_parser = nullptr;
     // if is first scroll request, should return the cached response
-    if (_is_first) {
-        // maybe the index or shard is empty
-        if (_eos) {
-            *eos = true;
-            return Status::OK;
-        }
-        _is_first = false;
-        *eos = _eos;
-        *response = _cached_response;
+    if (_eos) {
+        *parser = nullptr;
+        *scan_eos = true;
         return Status::OK;
     }
-    RETURN_IF_ERROR(_network_client.init(_next_scroll_url));
-    _network_client.set_basic_auth(_user_name, _passwd);
-    _network_client.set_content_type("application/json");
-    _network_client.set_timeout_ms(5 * 1000);
-    RETURN_IF_ERROR(_network_client.execute_post_request(ESScrollQueryBuilder::build_next_scroll_body(_scroll_id, REQUEST_SCROLL_TIME), response));
-    long status = _network_client.get_http_status();
-    if (status == 404) {
-        LOG(WARNING) << "request scroll search failure 404[" 
-                     << ", response: " << (response->empty() ? "empty response" : *response);
-        return Status("No search context found for " + _scroll_id);
-    }
-    if (status != 200) {
-        LOG(WARNING) << "request scroll search failure[" 
-                     << "http status" << status
-                     << ", response: " << (response->empty() ? "empty response" : *response);
+
+    if (_is_first) {
+        response = _cached_response;
+        _is_first = false;
+    } else {
+        RETURN_IF_ERROR(_network_client.init(_next_scroll_url));
+        _network_client.set_basic_auth(_user_name, _passwd);
+        _network_client.set_content_type("application/json");
+        _network_client.set_timeout_ms(5 * 1000);
+        RETURN_IF_ERROR(_network_client.execute_post_request(
+                        ESScrollQueryBuilder::build_next_scroll_body(_scroll_id, REQUEST_SCROLL_TIME), &response));
+        long status = _network_client.get_http_status();
         if (status == 404) {
-                return Status("No search context found for " + _scroll_id);
-            }
-        return Status("request scroll search failure: " + (response->empty() ? "empty response" : *response));        
+            LOG(WARNING) << "request scroll search failure 404[" 
+                         << ", response: " << (response.empty() ? "empty response" : response);
+            return Status("No search context found for " + _scroll_id);
+        }
+        if (status != 200) {
+            LOG(WARNING) << "request scroll search failure[" 
+                         << "http status" << status
+                         << ", response: " << (response.empty() ? "empty response" : response);
+            if (status == 404) {
+                    return Status("No search context found for " + _scroll_id);
+                }
+            return Status("request scroll search failure: " + (response.empty() ? "empty response" : response));        
+        }
     }
-    RETURN_IF_ERROR(_parser.parse(*response));
-    *eos = _eos = _parser.has_next();
+
+    scroll_parser = ScrollParser::parse_from_string(response);
+
+    // maybe the index or shard is empty
+    if (scroll_parser == nullptr || scroll_parser->get_total() == 0) {
+        _eos = *scan_eos = true;
+        *parser = nullptr;
+        return Status::OK;
+    }
+
+    if (scroll_parser->get_size() < _batch_size) {
+        _eos = true;
+        *scan_eos = false;
+    } else {
+        _eos = *scan_eos = false;
+    }
+
+    *parser = scroll_parser;
     return Status::OK;
 }
 

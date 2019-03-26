@@ -14,8 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 #include "es_scroll_parser.h"
-#include "rapidjson/document.h"
+
 #include "common/logging.h"
 #include "common/status.h"
 
@@ -27,52 +28,65 @@ const char* FIELD_INNER_HITS = "hits";
 const char* FIELD_SOURCE = "_source";
 const char* FIELD_TOTAL = "total";
 
-ScrollParser::ScrollParser() {
-    _eos = false;
-    _total = 0;
+ScrollParser::ScrollParser(const std::string& scroll_id, int total, int size) :
+    _scroll_id(scroll_id),
+    _total(total),
+    _size(size) {
 }
 
 ScrollParser::~ScrollParser() {
 }
 
 
-Status ScrollParser::parse(const std::string& scroll_result) {
+ScrollParser* ScrollParser::parse_from_string(const std::string& scroll_result) {
+    ScrollParser* scroll_parser = nullptr;
     rapidjson::Document document_node;
     document_node.Parse<0>(scroll_result.c_str());
+
     if (!document_node.HasMember(FIELD_SCROLL_ID)) {
-        return Status("maybe not a scroll request");
+        LOG(ERROR) << "maybe not a scroll request";
+        return nullptr;
     }
+
     rapidjson::Value &scroll_node = document_node[FIELD_SCROLL_ID];
-    _scroll_id = scroll_node.GetString();
+    std::string scroll_id = scroll_node.GetString();
     // { hits: { total : 2, "hits" : [ {}, {}, {} ]}}
     rapidjson::Value &outer_hits_node = document_node[FIELD_HITS];
-    rapidjson::Value &total = document_node[FIELD_TOTAL];
-    _total = total.GetInt();
-    if (_total == 0) {
-        _eos = true;
-        return Status::OK;
+    rapidjson::Value &field_total = document_node[FIELD_TOTAL];
+    int total = field_total.GetInt();
+    if (total == 0) {
+        scroll_parser = new ScrollParser(scroll_id, total, 0);
+        return scroll_parser;
     }
-    VLOG(1) << "es_scan_reader total hits: " << _total << " documents";
+
+    VLOG(1) << "es_scan_reader total hits: " << total << " documents";
     rapidjson::Value &inner_hits_node = outer_hits_node[FIELD_INNER_HITS];
     if (!inner_hits_node.IsArray()) {
-        return Status("invalid response from elasticsearch");
+        LOG(ERROR) << "maybe not a scroll request";
+        return nullptr;
     }
-    _size = inner_hits_node.Size();
-    if (_size < _batch_size) {
-        _eos = true;
-    }
-    return Status::OK;
+
+    int size = inner_hits_node.Size();
+    scroll_parser = new ScrollParser(scroll_id, total, size);
+    return scroll_parser;
 }
 
-bool ScrollParser::has_next() {
-    return _eos;
-}
-
-bool ScrollParser::count() {
+int ScrollParser::get_size() {
     return _size;
 }
 
-std::string ScrollParser::get_scroll_id() {
+const std::string& ScrollParser::get_scroll_id() {
     return _scroll_id;
 }
+
+int ScrollParser::get_total() {
+    return _total;
+}
+
+
+Status ScrollParser::read_next_line(const char** ptr, size_t* size, bool* line_eof) {
+    *line_eof = true;
+    return Status::OK;
+}
+
 }
