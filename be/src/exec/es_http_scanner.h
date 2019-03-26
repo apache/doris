@@ -29,7 +29,6 @@
 #include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/Types_types.h"
 #include "runtime/mem_pool.h"
-#include "util/slice.h"
 #include "util/es_scan_reader.h"
 #include "util/runtime_profile.h"
 
@@ -37,7 +36,6 @@ namespace doris {
 
 class Tuple;
 class SlotDescriptor;
-class Slice;
 class RuntimeState;
 class ExprContext;
 class TextConverter;
@@ -74,6 +72,9 @@ public:
 
 private:
 
+    bool fill_tuple(const char* ptr, size_t size, 
+            Tuple* tuple, MemPool* mem_pool);
+
     RuntimeState* _state;
     RuntimeProfile* _profile;
     TupleId _tuple_id;
@@ -95,6 +96,7 @@ private:
     EsScanCounter* _counter;
     std::unique_ptr<ESScanReader> _es_reader;
     std::map<std::string, SlotDescriptor*> _slots_map;
+    TupleRow* _tuple_row;
 
     // Profile
     RuntimeProfile::Counter* _rows_read_counter;
