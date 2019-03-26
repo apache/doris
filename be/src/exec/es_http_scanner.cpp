@@ -26,7 +26,6 @@
 #include "runtime/raw_value.h"
 #include "runtime/tuple.h"
 #include "exprs/expr.h"
-#include "exec/es_scan_reader.h"
 #include "exec/text_converter.h"
 #include "exec/text_converter.hpp"
 
@@ -82,8 +81,8 @@ Status EsHttpScanner::open() {
         }
     }
 
-    const std::string& host = _properties.at(EsScanReader::HOST);
-    _es_reader.reset(new EsScanReader(host, _properties));
+    const std::string& host = _properties.at(ESScanReader::KEY_HOST_PORT);
+    _es_reader.reset(new ESScanReader(host, _properties));
     if (_es_reader == nullptr) {
         return Status("Es reader construct failed.");
     }
