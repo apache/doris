@@ -30,6 +30,7 @@
 #include "gen_cpp/Types_types.h"
 #include "runtime/mem_pool.h"
 #include "util/slice.h"
+#include "util/es_scan_reader.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
@@ -45,7 +46,6 @@ class TupleRow;
 class RowDescriptor;
 class MemTracker;
 class RuntimeProfile;
-class EsScanReader;
 
 struct EsScanCounter {
     EsScanCounter() : num_rows_returned(0), num_rows_filtered(0) {
@@ -93,7 +93,7 @@ private:
 
     const TupleDescriptor* _tuple_desc;
     EsScanCounter* _counter;
-    std::unique_ptr<EsScanReader> _es_reader;
+    std::unique_ptr<ESScanReader> _es_reader;
     std::map<std::string, SlotDescriptor*> _slots_map;
 
     // Profile
