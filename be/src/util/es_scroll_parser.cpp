@@ -17,21 +17,34 @@
 
 #include "es_scroll_parser.h"
 
+#include <string>
+#include <boost/algorithm/string.hpp>
+#include <gutil/strings/substitute.h>
+
 #include "common/logging.h"
 #include "common/status.h"
+#include "runtime/mem_pool.h"
+#include "runtime/mem_tracker.h"
 
 namespace doris {
 
-const char* FIELD_SCROLL_ID = "_scroll_id";
-const char* FIELD_HITS = "hits";
-const char* FIELD_INNER_HITS = "hits";
-const char* FIELD_SOURCE = "_source";
-const char* FIELD_TOTAL = "total";
+static const char* FIELD_SCROLL_ID = "_scroll_id";
+static const char* FIELD_HITS = "hits";
+static const char* FIELD_INNER_HITS = "hits";
+static const char* FIELD_SOURCE = "_source";
+static const char* FIELD_TOTAL = "total";
+
+static const string ERROR_INVALID_COL_DATA = "Data source returned inconsistent column data. "
+    "Expected value of type $0 based on column metadata. This likely indicates a "
+    "problem with the data source library.";
+static const string ERROR_MEM_LIMIT_EXCEEDED = "DataSourceScanNode::$0() failed to allocate "
+    "$1 bytes for $2.";
 
 ScrollParser::ScrollParser(const std::string& scroll_id, int total, int size) :
     _scroll_id(scroll_id),
     _total(total),
-    _size(size) {
+    _size(size),
+    _line_index(0) {
 }
 
 ScrollParser::~ScrollParser() {
@@ -55,7 +68,7 @@ ScrollParser* ScrollParser::parse_from_string(const std::string& scroll_result) 
     rapidjson::Value &field_total = document_node[FIELD_TOTAL];
     int total = field_total.GetInt();
     if (total == 0) {
-        scroll_parser = new ScrollParser(scroll_id, total, 0);
+        scroll_parser = new ScrollParser(scroll_id, total);
         return scroll_parser;
     }
 
@@ -68,6 +81,7 @@ ScrollParser* ScrollParser::parse_from_string(const std::string& scroll_result) 
 
     int size = inner_hits_node.Size();
     scroll_parser = new ScrollParser(scroll_id, total, size);
+    scroll_parser->set_inner_hits_node(inner_hits_node);
     return scroll_parser;
 }
 
@@ -83,10 +97,147 @@ int ScrollParser::get_total() {
     return _total;
 }
 
+Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc, 
+            Tuple* tuple, MemPool* tuple_pool, bool* line_eof) {
+    if (_size <= 0 || _line_index >= _size) {
+        *line_eof = true;
+        return Status::OK;
+    }
 
-Status ScrollParser::read_next_line(const char** ptr, size_t* size, bool* line_eof) {
-    *line_eof = true;
+    rapidjson::Value& obj = _inner_hits_node[_line_index++];
+    rapidjson::Value& line = obj[FIELD_SOURCE];
+    if (!line.IsObject()) {
+        *line_eof = true;
+        return Status("Parse inner hits failed");
+    }
+
+    tuple->init(tuple_desc->byte_size());
+    for (int i = 0; i < tuple_desc->slots().size(); ++i) {
+        const SlotDescriptor* slot_desc = tuple_desc->slots()[i];
+
+        if (!slot_desc->is_materialized()) {
+            continue;
+        }
+
+        const char* col_name = slot_desc->col_name().c_str();
+        rapidjson::Value::ConstMemberIterator itr = line.FindMember(col_name);
+        if (itr == line.MemberEnd()) {
+            tuple->set_null(slot_desc->null_indicator_offset());
+            continue;
+        }
+
+        tuple->set_not_null(slot_desc->null_indicator_offset());
+        rapidjson::Value &col = line[col_name];
+
+        void* slot = tuple->get_slot(slot_desc->tuple_offset());
+        switch (slot_desc->type().type) {
+            case TYPE_CHAR:
+            case TYPE_VARCHAR: {
+                if (!col.IsString()) {
+                    return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "STRING"));
+                }
+                const std::string& val = col.GetString();
+                size_t val_size = col.GetStringLength();
+                char* buffer = reinterpret_cast<char*>(tuple_pool->try_allocate_unaligned(val_size));
+                if (UNLIKELY(buffer == NULL)) {
+                    string details = strings::Substitute(ERROR_MEM_LIMIT_EXCEEDED, "MaterializeNextRow",
+                                val_size, "string slot");
+                    return tuple_pool->mem_tracker()->MemLimitExceeded(NULL, details, val_size);
+                }
+                memcpy(buffer, val.data(), val_size);
+                reinterpret_cast<StringValue*>(slot)->ptr = buffer;
+                reinterpret_cast<StringValue*>(slot)->len = val_size;
+                break;
+            }
+
+            case TYPE_TINYINT: {
+                if (!col.IsNumber()) {
+                    return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "TINYINT"));
+                }
+                *reinterpret_cast<int8_t*>(slot) = (int8_t)col.GetInt();
+                break;
+            }
+
+            case TYPE_SMALLINT: {
+                if (!col.IsNumber()) {
+                    return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "SMALLINT"));
+                }
+                *reinterpret_cast<int16_t*>(slot) = (int16_t)col.GetInt();
+                break;
+            }
+
+            case TYPE_INT: {
+                if (!col.IsNumber()) {
+                    return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "INT"));
+                }
+                *reinterpret_cast<int32_t*>(slot) = (int32_t)col.GetInt();
+                break;
+            }
+
+            case TYPE_BIGINT: {
+                if (!col.IsNumber()) {
+                    return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "BIGINT"));
+                }
+                *reinterpret_cast<int64_t*>(slot) = col.GetInt64();
+                break;
+            }
+
+            case TYPE_LARGEINT: {
+                if (!col.IsNumber()) {
+                   return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "LARGEINT"));
+                }
+                *reinterpret_cast<int128_t*>(slot) = col.GetInt64();
+                break;
+            }
+
+            case TYPE_DOUBLE: {
+                if (!col.IsNumber()) {
+                    return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "DOUBLE"));
+                }
+                *reinterpret_cast<double*>(slot) = col.GetDouble();
+                break;
+            }
+
+            case TYPE_FLOAT: {
+                if (!col.IsNumber()) {
+                    return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "FLOAT"));
+                }
+                *reinterpret_cast<float*>(slot) = col.GetDouble();
+                break;
+            }
+
+            case TYPE_BOOLEAN: {
+                if (!col.IsBool()) {
+                    return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "BOOLEAN"));
+                }
+                *reinterpret_cast<int8_t*>(slot) = col.GetBool();
+                break;
+            }
+
+            case TYPE_DATE: {
+                if (!col.IsNumber() || 
+                  !reinterpret_cast<DateTimeValue*>(slot)->from_unixtime(col.GetInt64())) {
+                    return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "TYPE_DATE"));
+                }
+                reinterpret_cast<DateTimeValue*>(slot)->cast_to_date();
+                break;
+            }
+
+            case TYPE_DATETIME: {
+                if (!col.IsNumber() || 
+                  !reinterpret_cast<DateTimeValue*>(slot)->from_unixtime(col.GetInt64())) {
+                    return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "TYPE_DATETIME"));
+                }
+                reinterpret_cast<DateTimeValue*>(slot)->set_type(TIME_DATETIME);
+                break;
+            }
+
+            default:
+                DCHECK(false);
+                break;
+        }
+    }
+
     return Status::OK;
 }
-
 }
