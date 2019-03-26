@@ -55,15 +55,15 @@ EsPredicate::EsPredicate(ExprContext* conjunct_ctx,
 EsPredicate::~EsPredicate() {
 }
 
-bool EsPredicate::build_disjuncts() {
-    return build_disjuncts(_context->root(), _disjuncts);
+bool EsPredicate::build_disjuncts_list() {
+    return build_disjuncts_list(_context->root(), _disjuncts);
 }
 
 vector<ExtPredicate> EsPredicate::get_predicate_list(){
     return _disjuncts;
 }
 
-bool EsPredicate::build_disjuncts(Expr* conjunct, vector<ExtPredicate>& disjuncts) {
+bool EsPredicate::build_disjuncts_list(Expr* conjunct, vector<ExtPredicate>& disjuncts) {
     if (TExprNodeType::BINARY_PRED == conjunct->node_type()) {
         if (conjunct->children().size() != 2) {
             VLOG(1) << "get disjuncts fail: number of childs is not 2";
@@ -92,34 +92,28 @@ bool EsPredicate::build_disjuncts(Expr* conjunct, vector<ExtPredicate>& disjunct
             return false;
         }
 
-        TExtLiteral literal;
-        if (!to_ext_literal(_context, expr, &literal)) {
-            VLOG(1) << "get disjuncts fail: can't get literal, node_type="
-                    << expr->node_type();
-            return false;
-        }
 
+        std::shared_ptr<ExtLiteral> literal(new ExtLiteral(expr->node_type()));
+        literal->value = _context->get_value(expr, NULL);
         std::unique_ptr<ExtPredicate> predicate(new ExtBinaryPredicate(
                     TExprNodeType::BINARY_PRED,
                     slot_desc->col_name(),
                     slot_desc->type(),
                     op,
-                    literal));
+                    *literal));
 
         disjuncts.emplace_back(std::move(*predicate));
         return true;
     }
     
     if (is_match_func(conjunct)) {
-        TExtLiteral literal;
-        if (!to_ext_literal(_context, conjunct->get_child(1), &literal)) {
-            VLOG(1) << "get disjuncts fail: can't get literal, node_type="
-                    << conjunct->get_child(1)->node_type();
-            return false;
-        }
 
-        vector<TExtLiteral> query_conditions;
-        query_conditions.push_back(std::move(literal));
+        Expr* expr = conjunct->get_child(1);
+        std::shared_ptr<ExtLiteral> literal(new ExtLiteral(expr->node_type()));
+        literal->value = _context->get_value(expr, NULL);
+
+        vector<ExtLiteral> query_conditions;
+        query_conditions.push_back(std::move(*literal));
         vector<ExtColumnDesc> cols; //TODO
 
         std::unique_ptr<ExtPredicate> predicate(new ExtFunction(
@@ -134,7 +128,7 @@ bool EsPredicate::build_disjuncts(Expr* conjunct, vector<ExtPredicate>& disjunct
       
     if (TExprNodeType::IN_PRED == conjunct->node_type()) {
         TExtInPredicate ext_in_predicate;
-        vector<TExtLiteral> in_pred_values;
+        vector<ExtLiteral> in_pred_values;
         InPredicate* pred = dynamic_cast<InPredicate*>(conjunct);
         ext_in_predicate.__set_is_not_in(pred->is_not_in());
         if (Expr::type_without_cast(pred->get_child(0)) != TExprNodeType::SLOT_REF) {
@@ -159,13 +153,11 @@ bool EsPredicate::build_disjuncts(Expr* conjunct, vector<ExtPredicate>& disjunct
                     return false;
                 }
             }
-            TExtLiteral literal;
-            if (!to_ext_literal(_context, pred->get_child(i), &literal)) {
-                VLOG(1) << "get disjuncts fail: can't get literal, node_type="
-                        << pred->get_child(i)->node_type();
-                return false;
-            }
-            in_pred_values.push_back(literal);
+
+            Expr* expr = conjunct->get_child(i);
+            std::shared_ptr<ExtLiteral> literal(new ExtLiteral(expr->node_type()));
+            literal->value = _context->get_value(expr, NULL);
+            in_pred_values.push_back(*literal);
         }
 
         std::unique_ptr<ExtPredicate> predicate(new ExtInPredicate(
@@ -184,10 +176,10 @@ bool EsPredicate::build_disjuncts(Expr* conjunct, vector<ExtPredicate>& disjunct
             VLOG(1) << "get disjuncts fail: op is not COMPOUND_OR";
             return false;
         }
-        if (!build_disjuncts(conjunct->get_child(0), disjuncts)) {
+        if (!build_disjuncts_list(conjunct->get_child(0), disjuncts)) {
             return false;
         }
-        if (!build_disjuncts(conjunct->get_child(1), disjuncts)) {
+        if (!build_disjuncts_list(conjunct->get_child(1), disjuncts)) {
             return false;
         }
 
@@ -219,69 +211,6 @@ SlotDescriptor* EsPredicate::get_slot_desc(SlotRef* slotRef) {
         }
     }
     return slot_desc;
-}
-
-bool EsPredicate::to_ext_literal(ExprContext* _context, Expr* expr, TExtLiteral* literal) {
-    literal->__set_node_type(expr->node_type());
-    switch (expr->node_type()) {
-    case TExprNodeType::BOOL_LITERAL: {
-        TBoolLiteral bool_literal;
-        void* value = _context->get_value(expr, NULL);
-        bool_literal.__set_value(*reinterpret_cast<bool*>(value));
-        literal->__set_bool_literal(bool_literal);
-        return true;
-    }
-    case TExprNodeType::DATE_LITERAL: {
-        void* value = _context->get_value(expr, NULL);
-        DateTimeValue date_value = *reinterpret_cast<DateTimeValue*>(value);
-        char str[MAX_DTVALUE_STR_LEN];
-        date_value.to_string(str);
-        TDateLiteral date_literal;
-        date_literal.__set_value(str);
-        literal->__set_date_literal(date_literal);
-        return true;
-    }
-    case TExprNodeType::FLOAT_LITERAL: {
-        TFloatLiteral float_literal;
-        void* value = _context->get_value(expr, NULL);
-        float_literal.__set_value(*reinterpret_cast<float*>(value));
-        literal->__set_float_literal(float_literal);
-        return true;
-    }
-    case TExprNodeType::INT_LITERAL: {
-        TIntLiteral int_literal;
-        void* value = _context->get_value(expr, NULL);
-        int_literal.__set_value(*reinterpret_cast<int32_t*>(value));
-        literal->__set_int_literal(int_literal);
-        return true;
-    }
-    case TExprNodeType::STRING_LITERAL: {
-        TStringLiteral string_literal;
-        void* value = _context->get_value(expr, NULL);
-        string_literal.__set_value(*reinterpret_cast<string*>(value));
-        literal->__set_string_literal(string_literal);
-        return true;
-    }
-    case TExprNodeType::DECIMAL_LITERAL: {
-        TDecimalLiteral decimal_literal;
-        void* value = _context->get_value(expr, NULL);
-        decimal_literal.__set_value(reinterpret_cast<DecimalValue*>(value)->to_string());
-        literal->__set_decimal_literal(decimal_literal);
-        return true;
-    }
-    case TExprNodeType::LARGE_INT_LITERAL: {
-        char buf[48];
-        int len = 48;
-        void* value = _context->get_value(expr, NULL);
-        char* v = LargeIntValue::to_string(*reinterpret_cast<__int128*>(value), buf, &len);
-        TLargeIntLiteral large_int_literal;
-        large_int_literal.__set_value(v);
-        literal->__set_large_int_literal(large_int_literal);
-        return true;
-    }
-    default:
-        return false;
-    }
 }
 
 }

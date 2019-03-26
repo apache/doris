@@ -29,7 +29,6 @@
 #include "common/status.h"
 #include "exec/scan_node.h"
 #include "exec/es_http_scanner.h"
-#include "exec/es_query_builder.h"
 #include "gen_cpp/PaloInternalService_types.h"
 
 namespace doris {
@@ -86,12 +85,11 @@ private:
 
 private:
 
-    void build_predicates();
+    void build_conjuncts_list();
 
     TupleId _tuple_id;
     RuntimeState* _runtime_state;
     TupleDescriptor* _tuple_desc;
-    std::unique_ptr<EsQueryBuilder> _query_builder;
 
     int _num_running_scanners;
     std::atomic<bool> _scan_finished;
