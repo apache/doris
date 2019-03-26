@@ -72,9 +72,6 @@ public:
 
 private:
 
-    bool fill_tuple(const char* ptr, size_t size, 
-            Tuple* tuple, MemPool* mem_pool);
-
     RuntimeState* _state;
     RuntimeProfile* _profile;
     TupleId _tuple_id;
@@ -96,7 +93,6 @@ private:
     EsScanCounter* _counter;
     std::unique_ptr<ESScanReader> _es_reader;
     std::map<std::string, SlotDescriptor*> _slots_map;
-    TupleRow* _tuple_row;
 
     // Profile
     RuntimeProfile::Counter* _rows_read_counter;

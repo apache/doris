@@ -55,7 +55,6 @@ EsHttpScanner::EsHttpScanner(
         _tuple_desc(nullptr),
         _counter(counter),
         _es_reader(nullptr),
-        _tuple_row(nullptr),
         _rows_read_counter(nullptr),
         _read_timer(nullptr),
         _materialize_timer(nullptr) {
@@ -82,10 +81,6 @@ Status EsHttpScanner::open() {
         }
     }
 
-    Tuple* tuple = (Tuple*) _mem_pool.allocate(_tuple_desc->byte_size());
-    _tuple_row = (TupleRow*) _mem_pool.allocate(sizeof(Tuple*));
-    _tuple_row->set_tuple(0, tuple);
-
     const std::string& host = _properties.at(ESScanReader::KEY_HOST_PORT);
     _es_reader.reset(new ESScanReader(host, _properties));
     if (_es_reader == nullptr) {
@@ -94,45 +89,11 @@ Status EsHttpScanner::open() {
 
     _es_reader->open();
 
-   //_text_converter.reset(new(std::nothrow) TextConverter('\\'));
-   //if (_text_converter == nullptr) {
-   //    return Status("No memory error.");
-   //}
-
     _rows_read_counter = ADD_COUNTER(_profile, "RowsRead", TUnit::UNIT);
     _read_timer = ADD_TIMER(_profile, "TotalRawReadTime(*)");
     _materialize_timer = ADD_TIMER(_profile, "MaterializeTupleTime(*)");
 
     return Status::OK;
-}
-
-bool EsHttpScanner::fill_tuple(const char* ptr, size_t size, 
-            Tuple* tuple, MemPool* mem_pool) {
-    //int ctx_idx = 0;
-    for (auto slot_desc : _tuple_desc->slots()) {
-        if (!slot_desc->is_materialized()) {
-            continue;
-        }
-      // ExprContext* ctx = _dest_expr_ctx[ctx_idx++];
-      // void* value = ctx->get_value(_tuple_row);
-      // if (value == nullptr) {
-      //     if (slot_desc->is_nullable()) {
-      //         tuple->set_null(slot_desc->null_indicator_offset());
-      //         continue;
-      //     } else {
-      //         std::stringstream error_msg;
-      //         error_msg << "column(" << slot_desc->col_name() << ") value is null";
-      //         _state->append_error_msg_to_file(
-      //             std::string(ptr, size), error_msg.str());
-      //         _counter->num_rows_filtered++;
-      //         return false;
-      //     }
-      // }
-      // tuple->set_not_null(slot_desc->null_indicator_offset());
-      // void* slot = tuple->get_slot(slot_desc->tuple_offset());
-      // RawValue::write(value, slot, slot_desc->type(), mem_pool);
-    }
-    return true;
 }
 
 Status EsHttpScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
@@ -142,19 +103,11 @@ Status EsHttpScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
         if (_line_eof) {
             RETURN_IF_ERROR(_es_reader->get_next(eof, &parser));
         }
-        const char* ptr = nullptr;
-        size_t size = 0;
-        RETURN_IF_ERROR(parser->read_next_line(&ptr, &size, &_line_eof));
-        if (size == 0) {
-            continue;
-        }
-        {
-            COUNTER_UPDATE(_rows_read_counter, 1);
-            SCOPED_TIMER(_materialize_timer);
-            if (fill_tuple(ptr, size, tuple, tuple_pool)) {
-                break;
-            }
-        }
+
+        COUNTER_UPDATE(_rows_read_counter, 1);
+        SCOPED_TIMER(_materialize_timer);
+        RETURN_IF_ERROR(
+                    parser->fill_tuple(_tuple_desc, tuple, tuple_pool, &_line_eof));
     }
     return Status::OK;
 }
