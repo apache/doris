@@ -34,11 +34,20 @@ class Status;
 class ExprContext;
 class ExtBinaryPredicate;
 
+
 struct ExtPredicate {
     ExtPredicate(TExprNodeType::type node_type) : node_type(node_type) {
     }
 
     TExprNodeType::type node_type;
+};
+
+struct ExtLiteral : public ExtPredicate {
+    ExtLiteral(TExprNodeType::type node_type) : 
+        ExtPredicate(node_type) {
+    }
+
+    void *value;
 };
 
 struct ExtColumnDesc {
@@ -57,7 +66,7 @@ struct ExtBinaryPredicate : public ExtPredicate {
                 std::string name, 
                 TypeDescriptor type,
                 TExprOpcode::type op,
-                TExtLiteral value) :
+                ExtLiteral value) :
         ExtPredicate(node_type),
         col(name, type),
         op(op),
@@ -66,7 +75,7 @@ struct ExtBinaryPredicate : public ExtPredicate {
 
     ExtColumnDesc col;
     TExprOpcode::type op;
-    TExtLiteral value;
+    ExtLiteral value;
 };
 
 struct ExtInPredicate : public ExtPredicate {
@@ -74,7 +83,7 @@ struct ExtInPredicate : public ExtPredicate {
                 TExprNodeType::type node_type,
                 std::string name, 
                 TypeDescriptor type,
-                vector<TExtLiteral> values) :
+                vector<ExtLiteral> values) :
         ExtPredicate(node_type),
         is_not_in(false),
         col(name, type),
@@ -83,12 +92,12 @@ struct ExtInPredicate : public ExtPredicate {
 
     bool is_not_in;
     ExtColumnDesc col;
-    vector<TExtLiteral> values;
+    vector<ExtLiteral> values;
 };
 
 struct ExtLikePredicate : public ExtPredicate {
     ExtColumnDesc col;
-    TExtLiteral value;
+    ExtLiteral value;
 };
 
 struct ExtIsNullPredicate : public ExtPredicate {
@@ -101,7 +110,7 @@ struct ExtFunction : public ExtPredicate {
                 TExprNodeType::type node_type,
                 string func_name, 
                 vector<ExtColumnDesc> cols,
-                vector<TExtLiteral> values) :
+                vector<ExtLiteral> values) :
         ExtPredicate(node_type),
         func_name(func_name),
         cols(cols),
@@ -110,7 +119,7 @@ struct ExtFunction : public ExtPredicate {
 
     string func_name;
     vector<ExtColumnDesc> cols;
-    vector<TExtLiteral> values;
+    vector<ExtLiteral> values;
 };
 
 class EsPredicate {
@@ -120,12 +129,11 @@ class EsPredicate {
                     const TupleDescriptor* tuple_desc);
         ~EsPredicate();
         vector<ExtPredicate> get_predicate_list();
-        bool build_disjuncts();
+        bool build_disjuncts_list();
 
     private:
 
-        bool build_disjuncts(Expr* conjunct, vector<ExtPredicate>& disjuncts);
-        bool to_ext_literal(ExprContext* context, Expr* expr, TExtLiteral* literal);
+        bool build_disjuncts_list(Expr* conjunct, vector<ExtPredicate>& disjuncts);
         bool is_match_func(Expr* conjunct);
         SlotDescriptor* get_slot_desc(SlotRef* slotRef);
 
