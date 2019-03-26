@@ -48,6 +48,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -198,7 +199,7 @@ public class RoutineLoadManager implements Writable {
 
     public void pauseRoutineLoadJob(PauseRoutineLoadStmt pauseRoutineLoadStmt)
             throws DdlException, AnalysisException, MetaNotFoundException {
-        RoutineLoadJob routineLoadJob = getJobByName(pauseRoutineLoadStmt.getDbFullName(), pauseRoutineLoadStmt.getName());
+        RoutineLoadJob routineLoadJob = getJob(pauseRoutineLoadStmt.getDbFullName(), pauseRoutineLoadStmt.getName());
         if (routineLoadJob == null) {
             throw new DdlException("There is not operable routine load job with name " + pauseRoutineLoadStmt.getName());
         }
@@ -233,7 +234,7 @@ public class RoutineLoadManager implements Writable {
 
     public void resumeRoutineLoadJob(ResumeRoutineLoadStmt resumeRoutineLoadStmt) throws DdlException,
             AnalysisException, MetaNotFoundException {
-        RoutineLoadJob routineLoadJob = getJobByName(resumeRoutineLoadStmt.getDBFullName(), resumeRoutineLoadStmt.getName());
+        RoutineLoadJob routineLoadJob = getJob(resumeRoutineLoadStmt.getDBFullName(), resumeRoutineLoadStmt.getName());
         if (routineLoadJob == null) {
             throw new DdlException("There is not operable routine load job with name " + resumeRoutineLoadStmt.getName() + ".");
         }
@@ -265,7 +266,7 @@ public class RoutineLoadManager implements Writable {
 
     public void stopRoutineLoadJob(StopRoutineLoadStmt stopRoutineLoadStmt)
             throws DdlException, AnalysisException, MetaNotFoundException {
-        RoutineLoadJob routineLoadJob = getJobByName(stopRoutineLoadStmt.getDBFullName(), stopRoutineLoadStmt.getName());
+        RoutineLoadJob routineLoadJob = getJob(stopRoutineLoadStmt.getDBFullName(), stopRoutineLoadStmt.getName());
         if (routineLoadJob == null) {
             throw new DdlException("There is not operable routine load job with name " + stopRoutineLoadStmt.getName());
         }
@@ -360,7 +361,7 @@ public class RoutineLoadManager implements Writable {
     }
 
     public boolean checkBeToTask(long beId, String clusterName) throws LoadException {
-        List<Long> beIdsInCluster = Catalog.getCurrentSystemInfo().getClusterBackendIds(clusterName);
+        List<Long> beIdsInCluster = Catalog.getCurrentSystemInfo().getClusterBackendIds(clusterName, true);
         if (beIdsInCluster == null) {
             throw new LoadException("The " + clusterName + " has been deleted");
         }
@@ -393,8 +394,8 @@ public class RoutineLoadManager implements Writable {
         return idToRoutineLoadJob.get(jobId);
     }
 
-    public RoutineLoadJob getJobByName(String dbFullName, String jobName) throws MetaNotFoundException {
-        List<RoutineLoadJob> routineLoadJobList = getJobByName(dbFullName, jobName, false);
+    public RoutineLoadJob getJob(String dbFullName, String jobName) throws MetaNotFoundException {
+        List<RoutineLoadJob> routineLoadJobList = getJob(dbFullName, jobName, false);
         if (routineLoadJobList == null || routineLoadJobList.size() == 0) {
             return null;
         } else {
@@ -402,7 +403,14 @@ public class RoutineLoadManager implements Writable {
         }
     }
 
-    public List<RoutineLoadJob> getJobByName(String dbFullName, String jobName, boolean includeHistory)
+    /*
+      if dbFullName is null, result = all of routine load job in all of db
+      else if jobName is null, result =  all of routine load job in dbFullName
+
+      if includeHistory is false, filter not running job in result
+      else return all of result
+     */
+    public List<RoutineLoadJob> getJob(String dbFullName, String jobName, boolean includeHistory)
             throws MetaNotFoundException {
         // return all of routine load job
         List<RoutineLoadJob> result;
@@ -410,6 +418,7 @@ public class RoutineLoadManager implements Writable {
         {
             if (dbFullName == null) {
                 result = new ArrayList<>(idToRoutineLoadJob.values());
+                sortRoutineLoadJob(result);
                 break RESULT;
             }
 
@@ -424,12 +433,17 @@ public class RoutineLoadManager implements Writable {
                 break RESULT;
             }
             if (jobName == null) {
-                result = dbToNameToRoutineLoadJob.get(dbId).values().stream().flatMap(x -> x.stream())
-                        .collect(Collectors.toList());
+                result = Lists.newArrayList();
+                for (List<RoutineLoadJob> nameToRoutineLoadJob : dbToNameToRoutineLoadJob.get(dbId).values()) {
+                    List<RoutineLoadJob> routineLoadJobList = new ArrayList<>(nameToRoutineLoadJob);
+                    sortRoutineLoadJob(routineLoadJobList);
+                    result.addAll(routineLoadJobList);
+                }
                 break RESULT;
             }
             if (dbToNameToRoutineLoadJob.get(dbId).containsKey(jobName)) {
                 result = new ArrayList<>(dbToNameToRoutineLoadJob.get(dbId).get(jobName));
+                sortRoutineLoadJob(result);
                 break RESULT;
             }
             return null;
@@ -439,6 +453,39 @@ public class RoutineLoadManager implements Writable {
             result = result.stream().filter(entity -> !entity.getState().isFinalState()).collect(Collectors.toList());
         }
         return result;
+    }
+
+    // return all of routine load job named jobName in all of db
+    public List<RoutineLoadJob> getJobByName(String jobName) {
+        List<RoutineLoadJob> result = Lists.newArrayList();
+        for (Map<String, List<RoutineLoadJob>> nameToRoutineLoadJob : dbToNameToRoutineLoadJob.values()) {
+            if (nameToRoutineLoadJob.containsKey(jobName)) {
+                List<RoutineLoadJob> routineLoadJobList = new ArrayList<>(nameToRoutineLoadJob.get(jobName));
+                sortRoutineLoadJob(routineLoadJobList);
+                result.addAll(routineLoadJobList);
+            }
+        }
+        return result;
+    }
+
+    // put history job in the end
+    private void sortRoutineLoadJob(List<RoutineLoadJob> routineLoadJobList) {
+        if (routineLoadJobList == null) {
+            return;
+        }
+        int i = 0;
+        int j = routineLoadJobList.size() - 1;
+        while (i < j) {
+            while (!routineLoadJobList.get(i).isFinal() && (i < j))
+                i++;
+            while (routineLoadJobList.get(j).isFinal() && (i < j))
+                j--;
+            if (i < j) {
+                RoutineLoadJob routineLoadJob = routineLoadJobList.get(i);
+                routineLoadJobList.set(i, routineLoadJobList.get(j));
+                routineLoadJobList.set(j, routineLoadJob);
+            }
+        }
     }
 
     public boolean checkTaskInJob(UUID taskId) {
