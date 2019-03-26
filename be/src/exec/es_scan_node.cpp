@@ -558,7 +558,18 @@ SlotDescriptor* EsScanNode::get_slot_desc(SlotRef* slotRef) {
 }
 
 bool EsScanNode::to_ext_literal(ExprContext* context, Expr* expr, TExtLiteral* literal) {
-    return to_ext_literal(expr->type().type, context->get_value(expr, NULL), literal);
+    switch (expr->node_type()) {
+    case TExprNodeType::BOOL_LITERAL:
+    case TExprNodeType::INT_LITERAL:
+    case TExprNodeType::LARGE_INT_LITERAL:
+    case TExprNodeType::FLOAT_LITERAL:
+    case TExprNodeType::DECIMAL_LITERAL:
+    case TExprNodeType::STRING_LITERAL:
+    case TExprNodeType::DATE_LITERAL:
+        return to_ext_literal(expr->type().type, context->get_value(expr, NULL), literal);
+    default:
+        return false;
+    }
 }
 
 bool EsScanNode::to_ext_literal(PrimitiveType slot_type, void* value, TExtLiteral* literal) {
