@@ -136,6 +136,8 @@ class ExtLiteral {
         std::string to_decimalv2_string();
         std::string to_largeint_string();
 
+        std::string value_to_string();
+
     private:
 
         PrimitiveType _type;
