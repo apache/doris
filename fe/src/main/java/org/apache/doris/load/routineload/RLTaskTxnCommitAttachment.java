@@ -98,6 +98,7 @@ public class RLTaskTxnCommitAttachment extends TxnCommitAttachment {
     public String toString() {
         return "RLTaskTxnCommitAttachment [filteredRows=" + filteredRows
                 + ", loadedRows=" + loadedRows
+                + ", unselectedRows=" + unselectedRows
                 + ", receivedBytes=" + receivedBytes
                 + ", taskExecutionTimeMs=" + taskExecutionTimeMs
                 + ", taskId=" + taskId
