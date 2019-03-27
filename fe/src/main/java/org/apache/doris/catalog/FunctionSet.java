@@ -17,17 +17,11 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.ArithmeticExpr;
-import org.apache.doris.analysis.BinaryPredicate;
-import org.apache.doris.analysis.CastExpr;
-import org.apache.doris.analysis.InPredicate;
-import org.apache.doris.analysis.IsNullPredicate;
-import org.apache.doris.analysis.LikePredicate;
-import org.apache.doris.builtins.ScalarBuiltins;
-
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.doris.analysis.*;
+import org.apache.doris.builtins.ScalarBuiltins;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -810,7 +804,9 @@ public class FunctionSet {
                     prefix + "19hll_union_agg_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
                     null,
                     prefix + "22hll_union_agg_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
-                    true, false, true));
+                    null,
+                    prefix + "22hll_union_agg_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                    true, true, true));
 
             if (STDDEV_UPDATE_SYMBOL.containsKey(t)) {
                 addBuiltin(AggregateFunction.createBuiltin("stddev",
