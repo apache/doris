@@ -34,6 +34,8 @@
 #include "runtime/client_cache.h"
 #include "runtime/runtime_state.h"
 #include "runtime/row_batch.h"
+#include "runtime/datetime_value.h"
+#include "runtime/large_int_value.h"
 #include "runtime/string_value.h"
 #include "runtime/tuple_row.h"
 
@@ -44,6 +46,72 @@
 namespace doris {
 
 using namespace std;
+
+ExtLiteral::~ExtLiteral(){
+}
+
+int8_t ExtLiteral::to_byte() {
+    DCHECK(_type != TYPE_TINYINT);
+    return *(reinterpret_cast<int8_t*>(_value));
+}
+
+int16_t ExtLiteral::to_short() {
+    DCHECK(_type != TYPE_SMALLINT);
+    return *(reinterpret_cast<int16_t*>(_value));
+}
+
+int32_t ExtLiteral::to_int() {
+    DCHECK(_type != TYPE_INT);
+    return *(reinterpret_cast<int32_t*>(_value));
+}
+
+int64_t ExtLiteral::to_long() {
+    DCHECK(_type != TYPE_BIGINT);
+    return *(reinterpret_cast<int64_t*>(_value));
+}
+
+float ExtLiteral::to_float() {
+    DCHECK(_type != TYPE_FLOAT);
+    return *(reinterpret_cast<float*>(_value));
+}
+
+double ExtLiteral::to_double() {
+    DCHECK(_type != TYPE_DOUBLE);
+    return *(reinterpret_cast<double*>(_value));
+}
+
+std::string ExtLiteral::to_string() {
+    DCHECK(_type != TYPE_VARCHAR && _type != TYPE_CHAR);
+    return (reinterpret_cast<StringValue*>(_value))->to_string();
+}
+
+std::string ExtLiteral::to_date_string() {
+    DCHECK(_type != TYPE_DATE && _type != TYPE_DATETIME);
+    DateTimeValue date_value = *reinterpret_cast<DateTimeValue*>(_value);
+    char str[MAX_DTVALUE_STR_LEN];
+    date_value.to_string(str);
+    return std::string(str, strlen(str)); 
+}
+
+bool ExtLiteral::to_bool() {
+    DCHECK(_type != TYPE_BOOLEAN);
+    return *(reinterpret_cast<bool*>(_value));
+}
+
+std::string ExtLiteral::to_decimal_string() {
+    DCHECK(_type != TYPE_DECIMAL);
+    return reinterpret_cast<DecimalValue*>(_value)->to_string();
+}
+
+std::string ExtLiteral::to_decimalv2_string() {
+    DCHECK(_type != TYPE_DECIMALV2);
+    return reinterpret_cast<DecimalV2Value*>(_value)->to_string();
+}
+
+std::string ExtLiteral::to_largeint_string() {
+    DCHECK(_type != TYPE_LARGEINT);
+    return LargeIntValue::to_string(*reinterpret_cast<__int128*>(_value));
+}
 
 EsPredicate::EsPredicate(ExprContext* conjunct_ctx,
             const TupleDescriptor* tuple_desc) :
@@ -93,14 +161,14 @@ bool EsPredicate::build_disjuncts_list(Expr* conjunct, vector<ExtPredicate>& dis
         }
 
 
-        std::shared_ptr<ExtLiteral> literal(new ExtLiteral(expr->node_type()));
-        literal->value = _context->get_value(expr, NULL);
+        std::shared_ptr<ExtLiteral> literal(new ExtLiteral(
+                        expr->type().type, _context->get_value(expr, NULL)));
         std::unique_ptr<ExtPredicate> predicate(new ExtBinaryPredicate(
                     TExprNodeType::BINARY_PRED,
                     slot_desc->col_name(),
                     slot_desc->type(),
                     op,
-                    *literal));
+                    literal));
 
         disjuncts.emplace_back(std::move(*predicate));
         return true;
@@ -109,11 +177,11 @@ bool EsPredicate::build_disjuncts_list(Expr* conjunct, vector<ExtPredicate>& dis
     if (is_match_func(conjunct)) {
 
         Expr* expr = conjunct->get_child(1);
-        std::shared_ptr<ExtLiteral> literal(new ExtLiteral(expr->node_type()));
-        literal->value = _context->get_value(expr, NULL);
+        std::shared_ptr<ExtLiteral> literal(new ExtLiteral(
+                        expr->type().type, _context->get_value(expr, NULL)));
 
-        vector<ExtLiteral> query_conditions;
-        query_conditions.push_back(std::move(*literal));
+        vector<std::shared_ptr<ExtLiteral>> query_conditions;
+        query_conditions.push_back(literal);
         vector<ExtColumnDesc> cols; //TODO
 
         std::unique_ptr<ExtPredicate> predicate(new ExtFunction(
@@ -128,7 +196,7 @@ bool EsPredicate::build_disjuncts_list(Expr* conjunct, vector<ExtPredicate>& dis
       
     if (TExprNodeType::IN_PRED == conjunct->node_type()) {
         TExtInPredicate ext_in_predicate;
-        vector<ExtLiteral> in_pred_values;
+        vector<std::shared_ptr<ExtLiteral>> in_pred_values;
         InPredicate* pred = dynamic_cast<InPredicate*>(conjunct);
         ext_in_predicate.__set_is_not_in(pred->is_not_in());
         if (Expr::type_without_cast(pred->get_child(0)) != TExprNodeType::SLOT_REF) {
@@ -155,9 +223,9 @@ bool EsPredicate::build_disjuncts_list(Expr* conjunct, vector<ExtPredicate>& dis
             }
 
             Expr* expr = conjunct->get_child(i);
-            std::shared_ptr<ExtLiteral> literal(new ExtLiteral(expr->node_type()));
-            literal->value = _context->get_value(expr, NULL);
-            in_pred_values.push_back(*literal);
+            std::shared_ptr<ExtLiteral> literal(new ExtLiteral(
+                        expr->type().type, _context->get_value(expr, NULL)));
+            in_pred_values.push_back(literal);
         }
 
         std::unique_ptr<ExtPredicate> predicate(new ExtInPredicate(

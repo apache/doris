@@ -27,27 +27,20 @@
 #include "gen_cpp/PaloExternalDataSourceService_types.h"
 #include "runtime/descriptors.h"
 #include "runtime/tuple.h"
+#include "runtime/primitive_type.h"
 
 namespace doris {
 
 class Status;
 class ExprContext;
 class ExtBinaryPredicate;
-
+class ExtLiteral;
 
 struct ExtPredicate {
     ExtPredicate(TExprNodeType::type node_type) : node_type(node_type) {
     }
 
     TExprNodeType::type node_type;
-};
-
-struct ExtLiteral : public ExtPredicate {
-    ExtLiteral(TExprNodeType::type node_type) : 
-        ExtPredicate(node_type) {
-    }
-
-    void *value;
 };
 
 struct ExtColumnDesc {
@@ -66,7 +59,7 @@ struct ExtBinaryPredicate : public ExtPredicate {
                 std::string name, 
                 TypeDescriptor type,
                 TExprOpcode::type op,
-                ExtLiteral value) :
+                std::shared_ptr<ExtLiteral> value) :
         ExtPredicate(node_type),
         col(name, type),
         op(op),
@@ -75,7 +68,7 @@ struct ExtBinaryPredicate : public ExtPredicate {
 
     ExtColumnDesc col;
     TExprOpcode::type op;
-    ExtLiteral value;
+    std::shared_ptr<ExtLiteral> value;
 };
 
 struct ExtInPredicate : public ExtPredicate {
@@ -83,7 +76,7 @@ struct ExtInPredicate : public ExtPredicate {
                 TExprNodeType::type node_type,
                 std::string name, 
                 TypeDescriptor type,
-                vector<ExtLiteral> values) :
+                vector<std::shared_ptr<ExtLiteral>> values) :
         ExtPredicate(node_type),
         is_not_in(false),
         col(name, type),
@@ -92,12 +85,12 @@ struct ExtInPredicate : public ExtPredicate {
 
     bool is_not_in;
     ExtColumnDesc col;
-    vector<ExtLiteral> values;
+    vector<std::shared_ptr<ExtLiteral>> values;
 };
 
 struct ExtLikePredicate : public ExtPredicate {
     ExtColumnDesc col;
-    ExtLiteral value;
+    std::shared_ptr<ExtLiteral> value;
 };
 
 struct ExtIsNullPredicate : public ExtPredicate {
@@ -110,7 +103,7 @@ struct ExtFunction : public ExtPredicate {
                 TExprNodeType::type node_type,
                 string func_name, 
                 vector<ExtColumnDesc> cols,
-                vector<ExtLiteral> values) :
+                vector<std::shared_ptr<ExtLiteral>> values) :
         ExtPredicate(node_type),
         func_name(func_name),
         cols(cols),
@@ -119,7 +112,34 @@ struct ExtFunction : public ExtPredicate {
 
     string func_name;
     vector<ExtColumnDesc> cols;
-    vector<ExtLiteral> values;
+    vector<std::shared_ptr<ExtLiteral>> values;
+};
+
+class ExtLiteral {
+    public:
+        ExtLiteral(PrimitiveType type, void *value) : 
+            _type(type),
+            _value(value) {
+        }
+        ~ExtLiteral();
+
+        int8_t to_byte();
+        int16_t to_short();
+        int32_t to_int();
+        int64_t to_long();
+        float to_float();
+        double to_double();
+        std::string to_string();
+        std::string to_date_string();
+        bool to_bool();
+        std::string to_decimal_string();
+        std::string to_decimalv2_string();
+        std::string to_largeint_string();
+
+    private:
+
+        PrimitiveType _type;
+        void *_value;
 };
 
 class EsPredicate {
