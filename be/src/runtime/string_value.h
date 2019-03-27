@@ -105,6 +105,8 @@ struct StringValue {
 
     std::string debug_string() const;
 
+    std::string to_string() const;
+
     // Returns the substring starting at start_pos until the end of string.
     StringValue substring(int start_pos) const;
 
