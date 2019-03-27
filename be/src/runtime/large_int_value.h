@@ -52,6 +52,13 @@ public:
         *len = (buffer + *len) - d;
         return d;
     }
+
+    static std::string to_string(__int128 value) {
+        char buf[64] = {0};
+        int len = 64;
+        char *str = to_string(value, buf, &len); 
+        return std::string(str, len);
+    }
 };
 
 std::ostream& operator<<(std::ostream& os, __int128 const& value);
