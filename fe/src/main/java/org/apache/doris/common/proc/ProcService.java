@@ -48,6 +48,7 @@ public final class ProcService {
         root.register("current_queries", new CurrentQueryStatisticsProcDir());
         root.register("current_backend_instances", new CurrentQueryBackendInstanceProcDir());
         root.register("cluster_balance", new ClusterBalanceProcDir());
+        root.register("routine_loads", new RoutineLoadsProcDir());
     }
 
     // 通过指定的路径获得对应的PROC Node
