@@ -936,8 +936,8 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
         }
 
         List<String> row = Lists.newArrayList();
-        row.add(String.valueOf(id));
         row.add(name);
+        row.add(String.valueOf(id));
         row.add(TimeUtils.longToTimeString(createTimestamp));
         row.add(TimeUtils.longToTimeString(endTimestamp));
         row.add(db == null ? String.valueOf(dbId) : db.getFullName());
@@ -968,6 +968,28 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
         return rows;
     }
 
+    public List<String> getShowStatistic() {
+        Database db = Catalog.getCurrentCatalog().getDb(dbId);
+
+        List<String> row = Lists.newArrayList();
+        row.add(name);
+        row.add(String.valueOf(id));
+        row.add(db == null ? String.valueOf(dbId) : db.getFullName());
+        row.add(getStatistic());
+        row.add(getTaskStatistic());
+        return row;
+    }
+
+    private String getTaskStatistic() {
+        Map<String, String> result = Maps.newHashMap();
+        result.put("running_task",
+                   String.valueOf(routineLoadTaskInfoList.stream().filter(entity -> entity.isRunning()).count()));
+        result.put("waiting_task",
+                   String.valueOf(routineLoadTaskInfoList.stream().filter(entity -> !entity.isRunning()).count()));
+        Gson gson = new GsonBuilder().disableHtmlEscaping().create();
+        return gson.toJson(result);
+    }
+
     private String jobPropertiesToJsonString() {
         Map<String, String> jobProperties = Maps.newHashMap();
         jobProperties.put("partitions", partitions == null ? STAR_STRING : Joiner.on(",").join(partitions));
@@ -985,6 +1007,22 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
 
     abstract String dataSourcePropertiesJsonToString();
 
+
+    public boolean needRemove() {
+        if (!isFinal()) {
+            return false;
+        }
+        Preconditions.checkState(endTimestamp != -1, endTimestamp);
+        if ((System.currentTimeMillis() - endTimestamp) > Config.label_clean_interval_second * 1000) {
+            return true;
+        }
+        return false;
+    }
+
+    public boolean isFinal() {
+        return state.isFinalState();
+    }
+
     public static RoutineLoadJob read(DataInput in) throws IOException {
         RoutineLoadJob job = null;
         LoadDataSourceType type = LoadDataSourceType.valueOf(Text.readString(in));
@@ -997,17 +1035,6 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
         job.setTypeRead(true);
         job.readFields(in);
         return job;
-    }
-
-    public boolean needRemove() {
-        if (state != JobState.CANCELLED && state != JobState.STOPPED) {
-            return false;
-        }
-        Preconditions.checkState(endTimestamp != -1, endTimestamp);
-        if ((System.currentTimeMillis() - endTimestamp) > Config.label_clean_interval_second * 1000) {
-            return true;
-        }
-        return false;
     }
 
     @Override
