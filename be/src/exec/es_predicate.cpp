@@ -176,11 +176,11 @@ bool EsPredicate::build_disjuncts_list() {
     return build_disjuncts_list(_context->root(), _disjuncts);
 }
 
-vector<ExtPredicate> EsPredicate::get_predicate_list(){
+vector<std::shared_ptr<ExtPredicate>> EsPredicate::get_predicate_list(){
     return _disjuncts;
 }
 
-bool EsPredicate::build_disjuncts_list(Expr* conjunct, vector<ExtPredicate>& disjuncts) {
+bool EsPredicate::build_disjuncts_list(Expr* conjunct, vector<std::shared_ptr<ExtPredicate>>& disjuncts) {
     if (TExprNodeType::BINARY_PRED == conjunct->node_type()) {
         if (conjunct->children().size() != 2) {
             VLOG(1) << "get disjuncts fail: number of childs is not 2";
@@ -212,14 +212,14 @@ bool EsPredicate::build_disjuncts_list(Expr* conjunct, vector<ExtPredicate>& dis
 
         std::shared_ptr<ExtLiteral> literal(new ExtLiteral(
                         expr->type().type, _context->get_value(expr, NULL)));
-        std::unique_ptr<ExtPredicate> predicate(new ExtBinaryPredicate(
+        std::shared_ptr<ExtPredicate> predicate(new ExtBinaryPredicate(
                     TExprNodeType::BINARY_PRED,
                     slot_desc->col_name(),
                     slot_desc->type(),
                     op,
                     literal));
 
-        disjuncts.emplace_back(std::move(*predicate));
+        disjuncts.push_back(predicate);
         return true;
     }
     
@@ -233,12 +233,12 @@ bool EsPredicate::build_disjuncts_list(Expr* conjunct, vector<ExtPredicate>& dis
         query_conditions.push_back(literal);
         vector<ExtColumnDesc> cols; //TODO
 
-        std::unique_ptr<ExtPredicate> predicate(new ExtFunction(
+        std::shared_ptr<ExtPredicate> predicate(new ExtFunction(
                         TExprNodeType::FUNCTION_CALL,
                         conjunct->fn().name.function_name,
                         cols,
                         query_conditions));
-        disjuncts.emplace_back(std::move(*predicate));
+        disjuncts.push_back(predicate);
 
         return true;
     } 
@@ -277,13 +277,13 @@ bool EsPredicate::build_disjuncts_list(Expr* conjunct, vector<ExtPredicate>& dis
             in_pred_values.push_back(literal);
         }
 
-        std::unique_ptr<ExtPredicate> predicate(new ExtInPredicate(
+        std::shared_ptr<ExtPredicate> predicate(new ExtInPredicate(
                     TExprNodeType::IN_PRED,
                     slot_desc->col_name(),
                     slot_desc->type(),
                     in_pred_values));
 
-        disjuncts.emplace_back(std::move(*predicate));
+        disjuncts.push_back(predicate);
 
         return true;
     } 
