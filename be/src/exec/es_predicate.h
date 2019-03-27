@@ -150,19 +150,20 @@ class EsPredicate {
         EsPredicate(ExprContext* conjunct_ctx, 
                     const TupleDescriptor* tuple_desc);
         ~EsPredicate();
-        vector<ExtPredicate> get_predicate_list();
+        vector<std::shared_ptr<ExtPredicate>> get_predicate_list();
         bool build_disjuncts_list();
 
     private:
 
-        bool build_disjuncts_list(Expr* conjunct, vector<ExtPredicate>& disjuncts);
+        bool build_disjuncts_list(Expr* conjunct, 
+                    vector<std::shared_ptr<ExtPredicate>>& disjuncts);
         bool is_match_func(Expr* conjunct);
         SlotDescriptor* get_slot_desc(SlotRef* slotRef);
 
         ExprContext* _context; 
         int _disjuncts_num;
         const TupleDescriptor* _tuple_desc;
-        vector<ExtPredicate> _disjuncts;
+        vector<std::shared_ptr<ExtPredicate>> _disjuncts;
 };
 
 }

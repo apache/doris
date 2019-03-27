@@ -31,7 +31,7 @@ class ESScanReader {
 
 public:
     static constexpr const char* KEY_USER_NAME = "user";
-    static constexpr const char* KEY_PASS_WORD = "passwd";
+    static constexpr const char* KEY_PASS_WORD = "password";
     static constexpr const char* KEY_HOST_PORT = "host_port";
     static constexpr const char* KEY_INDEX = "index";
     static constexpr const char* KEY_TYPE = "type";

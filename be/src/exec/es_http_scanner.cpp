@@ -98,16 +98,20 @@ Status EsHttpScanner::open() {
 
 Status EsHttpScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
     SCOPED_TIMER(_read_timer);
-    while (!eof) {
+    do {
         ScrollParser* parser = nullptr;
-        if (_line_eof) {
+        if (!_line_eof) {
             RETURN_IF_ERROR(_es_reader->get_next(eof, &parser));
+            if (*eof) break;
         }
 
-        COUNTER_UPDATE(_rows_read_counter, 1);
-        SCOPED_TIMER(_materialize_timer);
-        RETURN_IF_ERROR(parser->fill_tuple(_tuple_desc, tuple, tuple_pool, &_line_eof));
-    }
+        if (parser != nullptr) {
+            COUNTER_UPDATE(_rows_read_counter, 1);
+            SCOPED_TIMER(_materialize_timer);
+            RETURN_IF_ERROR(parser->fill_tuple(_tuple_desc, tuple, tuple_pool, &_line_eof));
+        }
+    } while (!*eof);
+
     return Status::OK;
 }
 
