@@ -19,6 +19,7 @@
 
 #include <stdint.h>
 #include <map>
+#include <sstream>
 #include <boost/algorithm/string.hpp>
 #include <gutil/strings/substitute.h>
 
@@ -111,6 +112,54 @@ std::string ExtLiteral::to_decimalv2_string() {
 std::string ExtLiteral::to_largeint_string() {
     DCHECK(_type != TYPE_LARGEINT);
     return LargeIntValue::to_string(*reinterpret_cast<__int128*>(_value));
+}
+
+std::string ExtLiteral::value_to_string() {
+    std::stringstream ss;
+    switch (_type) {
+        case TYPE_TINYINT:
+            ss << to_byte();
+            break;
+        case TYPE_SMALLINT:
+            ss << to_short();
+            break;
+        case TYPE_INT:
+            ss << to_int();
+            break;
+        case TYPE_BIGINT:
+            ss << to_long();
+            break;
+        case TYPE_FLOAT:
+            ss << to_float();
+            break;
+        case TYPE_DOUBLE:
+            ss << to_double();
+            break;
+        case TYPE_CHAR:
+        case TYPE_VARCHAR:
+            ss << to_string();
+            break;
+        case TYPE_DATE:
+        case TYPE_DATETIME:
+            ss << to_date_string();
+            break;
+        case TYPE_BOOLEAN:
+            ss << to_bool();
+            break;
+        case TYPE_DECIMAL:
+            ss << to_decimal_string();
+            break;
+        case TYPE_DECIMALV2:
+            ss << to_decimalv2_string();
+            break;
+        case TYPE_LARGEINT:
+            ss << to_largeint_string();
+            break;
+        default:
+            DCHECK(false);
+            break;
+    }
+    return ss.str();
 }
 
 EsPredicate::EsPredicate(ExprContext* conjunct_ctx,
