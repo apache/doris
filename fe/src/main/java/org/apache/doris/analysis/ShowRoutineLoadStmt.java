@@ -28,6 +28,8 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 
+import java.util.List;
+
 /*
   Show routine load progress by routine load name
 
@@ -62,12 +64,12 @@ public class ShowRoutineLoadStmt extends ShowStmt {
 
     private static final ImmutableList<String> TITLE_NAMES =
             new ImmutableList.Builder<String>()
-                    .add("Id")
                     .add("Name")
+                    .add("Id")
                     .add("CreateTime")
                     .add("EndTime")
-                    .add("DBId")
-                    .add("TableId")
+                    .add("DbName")
+                    .add("TableName")
                     .add("State")
                     .add("DataSourceType")
                     .add("CurrentTaskNum")
@@ -130,5 +132,9 @@ public class ShowRoutineLoadStmt extends ShowStmt {
             builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
         }
         return builder.build();
+    }
+
+    public static List<String> getTitleNames() {
+        return TITLE_NAMES;
     }
 }
