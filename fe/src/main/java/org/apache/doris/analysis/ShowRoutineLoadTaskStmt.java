@@ -39,7 +39,7 @@ import java.util.List;
     where expr: JobName=xxx
  */
 public class ShowRoutineLoadTaskStmt extends ShowStmt {
-    private static final List<String> supportColumn = Arrays.asList("JobName");
+    private static final List<String> supportColumn = Arrays.asList("jobname");
     private static final ImmutableList<String> TITLE_NAMES =
             new ImmutableList.Builder<String>()
                     .add("TaskId")
@@ -113,7 +113,7 @@ public class ShowRoutineLoadTaskStmt extends ShowStmt {
                 break CHECK;
             }
             SlotRef slotRef = (SlotRef) binaryPredicate.getChild(0);
-            if (!supportColumn.stream().anyMatch(entity -> entity.equals(slotRef.getColumnName()))) {
+            if (!supportColumn.stream().anyMatch(entity -> entity.equals(slotRef.getColumnName().toLowerCase()))) {
                 valid = false;
                 break CHECK;
             }
@@ -124,11 +124,11 @@ public class ShowRoutineLoadTaskStmt extends ShowStmt {
                 break CHECK;
             }
             StringLiteral stringLiteral = (StringLiteral) binaryPredicate.getChild(1);
-            jobName = stringLiteral.getValue();
+            jobName = stringLiteral.getValue().toLowerCase();
         }
 
         if (!valid) {
-            throw new AnalysisException("show routine load job only support one equal expr which is sames like JobName=xxx");
+            throw new AnalysisException("show routine load job only support one equal expr which is sames like JobName=\"ILoveDoris\"");
         }
     }
 
@@ -140,5 +140,9 @@ public class ShowRoutineLoadTaskStmt extends ShowStmt {
             builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
         }
         return builder.build();
+    }
+
+    public static List<String> getTitleNames() {
+        return TITLE_NAMES;
     }
 }
