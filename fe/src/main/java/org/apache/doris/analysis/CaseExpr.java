@@ -174,7 +174,7 @@ public class CaseExpr extends Expr {
                             + " is not of type boolean and not castable to type boolean.");
                 }
                 // Add a cast if necessary.
-                if (whenExpr.getType().isBoolean()) {
+                if (!whenExpr.getType().isBoolean()) {
                     castChild(Type.BOOLEAN, i);
                 }
             }

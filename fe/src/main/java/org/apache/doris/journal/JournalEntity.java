@@ -26,6 +26,8 @@ import org.apache.doris.backup.RestoreJob;
 import org.apache.doris.backup.RestoreJob_D;
 import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.FunctionSearchDesc;
 import org.apache.doris.cluster.BaseParam;
 import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.io.Text;
@@ -41,6 +43,7 @@ import org.apache.doris.master.Checkpoint;
 import org.apache.doris.mysql.privilege.UserProperty;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
 import org.apache.doris.persist.BackendIdsUpdateInfo;
+import org.apache.doris.persist.BackendTabletsInfo;
 import org.apache.doris.persist.CloneInfo;
 import org.apache.doris.persist.ClusterInfo;
 import org.apache.doris.persist.ColocatePersistInfo;
@@ -178,10 +181,6 @@ public class JournalEntity implements Writable {
                 needRead = false;
                 break;
             }
-            case OperationType.OP_CLEAR_ROLLUP_INFO: {
-                data = new ReplicaPersistInfo();
-                break;
-            }
             case OperationType.OP_DROP_ROLLUP: {
                 data = new DropInfo();
                 break;
@@ -246,8 +245,11 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_ADD_REPLICA:
-            case OperationType.OP_DELETE_REPLICA: {
-                data = new ReplicaPersistInfo();
+            case OperationType.OP_UPDATE_REPLICA:
+            case OperationType.OP_DELETE_REPLICA:
+            case OperationType.OP_CLEAR_ROLLUP_INFO: {
+                data = ReplicaPersistInfo.read(in);
+                needRead = false;
                 break;
             }
             case OperationType.OP_ADD_BACKEND:
@@ -262,7 +264,7 @@ public class JournalEntity implements Writable {
                 data = new Frontend();
                 break;
             }
-            case OperationType.OP_SET_LOAD_ERROR_URL: {
+            case OperationType.OP_SET_LOAD_ERROR_HUB: {
                 data = new LoadErrorHub.Param();
                 break;
             }
@@ -391,6 +393,21 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_HEARTBEAT: {
                 data = HbPackage.read(in);
+                needRead = false;
+                break;
+            }
+            case OperationType.OP_ADD_FUNCTION: {
+                data = Function.read(in);
+                needRead = false;
+                break;
+            }
+            case OperationType.OP_DROP_FUNCTION: {
+                data = FunctionSearchDesc.read(in);
+                needRead = false;
+                break;
+            }
+            case OperationType.OP_BACKEND_TABLETS_INFO: {
+                data = BackendTabletsInfo.read(in);
                 needRead = false;
                 break;
             }

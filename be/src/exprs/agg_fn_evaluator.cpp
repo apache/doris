@@ -43,6 +43,7 @@ using doris_udf::LargeIntVal;
 using doris_udf::FloatVal;
 using doris_udf::DoubleVal;
 using doris_udf::DecimalVal;
+using doris_udf::DecimalV2Val;
 using doris_udf::DateTimeVal;
 using doris_udf::StringVal;
 using doris_udf::AnyVal;
@@ -208,36 +209,42 @@ Status AggFnEvaluator::prepare(
 
     // Load the function pointers.
     RETURN_IF_ERROR(UserFunctionCache::instance()->get_function_ptr(
-            _fn.id, _fn.aggregate_fn.init_fn_symbol, _hdfs_location, "", &_init_fn, NULL));
+            _fn.id, _fn.aggregate_fn.init_fn_symbol,
+            _hdfs_location, _fn.checksum, &_init_fn, NULL));
 
     RETURN_IF_ERROR(UserFunctionCache::instance()->get_function_ptr(
-            _fn.id, _fn.aggregate_fn.update_fn_symbol, _hdfs_location, "", &_update_fn, NULL));
+            _fn.id, _fn.aggregate_fn.update_fn_symbol,
+            _hdfs_location, _fn.checksum, &_update_fn, NULL));
 
     // Merge() is not loaded if evaluating the agg fn as an analytic function.
     if (!_is_analytic_fn) {
     RETURN_IF_ERROR(UserFunctionCache::instance()->get_function_ptr(
-            _fn.id, _fn.aggregate_fn.merge_fn_symbol, _hdfs_location, "", &_merge_fn, NULL));
+            _fn.id, _fn.aggregate_fn.merge_fn_symbol,
+            _hdfs_location, _fn.checksum, &_merge_fn, NULL));
     }
 
     // Serialize and Finalize are optional
     if (!_fn.aggregate_fn.serialize_fn_symbol.empty()) {
         RETURN_IF_ERROR(UserFunctionCache::instance()->get_function_ptr(
-                _fn.id, _fn.aggregate_fn.serialize_fn_symbol, _hdfs_location,
-                "", &_serialize_fn, NULL));
+                _fn.id, _fn.aggregate_fn.serialize_fn_symbol,
+                _hdfs_location, _fn.checksum, &_serialize_fn, NULL));
     }
     if (!_fn.aggregate_fn.finalize_fn_symbol.empty()) {
         RETURN_IF_ERROR(UserFunctionCache::instance()->get_function_ptr(
-                _fn.id, _fn.aggregate_fn.finalize_fn_symbol, _hdfs_location, "", &_finalize_fn, NULL));
+                _fn.id, _fn.aggregate_fn.finalize_fn_symbol,
+                _hdfs_location, _fn.checksum, &_finalize_fn, NULL));
     }
 
     if (!_fn.aggregate_fn.get_value_fn_symbol.empty()) {
         RETURN_IF_ERROR(UserFunctionCache::instance()->get_function_ptr(
-                _fn.id, _fn.aggregate_fn.get_value_fn_symbol, _hdfs_location, "", &_get_value_fn,
+                _fn.id, _fn.aggregate_fn.get_value_fn_symbol,
+                _hdfs_location, _fn.checksum, &_get_value_fn,
                 NULL));
     }
     if (!_fn.aggregate_fn.remove_fn_symbol.empty()) {
         RETURN_IF_ERROR(UserFunctionCache::instance()->get_function_ptr(
-                _fn.id, _fn.aggregate_fn.remove_fn_symbol, _hdfs_location, "", &_remove_fn,
+                _fn.id, _fn.aggregate_fn.remove_fn_symbol,
+                _hdfs_location, _fn.checksum, &_remove_fn,
                 NULL));
     }
 
@@ -338,6 +345,11 @@ inline void AggFnEvaluator::set_any_val(
                 reinterpret_cast<DecimalVal*>(dst));
         return;
 
+    case TYPE_DECIMALV2:
+        reinterpret_cast<DecimalV2Val*>(dst)->val 
+            = reinterpret_cast<const PackedInt128*>(slot)->value;
+        return;
+
     case TYPE_LARGEINT:
         memcpy(&reinterpret_cast<LargeIntVal*>(dst)->val, slot, sizeof(__int128));
         return;
@@ -405,6 +417,11 @@ inline void AggFnEvaluator::set_output_slot(const AnyVal* src,
     case TYPE_DECIMAL:
         *reinterpret_cast<DecimalValue*>(slot) = DecimalValue::from_decimal_val(
                     *reinterpret_cast<const DecimalVal*>(src));
+        return;
+
+    case TYPE_DECIMALV2:
+        *reinterpret_cast<PackedInt128*>(slot) = 
+            reinterpret_cast<const DecimalV2Val*>(src)->val;
         return;
 
     case TYPE_LARGEINT: {
@@ -572,6 +589,13 @@ bool AggFnEvaluator::count_distinct_data_filter(TupleRow* row, Tuple* dst) {
             break;
         }
 
+        case TYPE_DECIMALV2: {
+            DecimalV2Val* value = reinterpret_cast<DecimalV2Val*>(_staging_input_vals[i]);
+            memcpy(begin, value, sizeof(DecimalV2Val));
+            begin += sizeof(DecimalV2Val);
+            break;
+        }
+
         case TYPE_CHAR:
         case TYPE_VARCHAR:
         case TYPE_HLL:  {
@@ -647,6 +671,14 @@ bool AggFnEvaluator::sum_distinct_data_filter(TupleRow* row, Tuple* dst) {
         DecimalValue temp_value = DecimalValue::from_decimal_val(*value);
         is_filter = is_in_hybirdmap((void*) & (temp_value), dst, &is_add_buckets);
         update_mem_trackers(is_filter, is_add_buckets, DECIMAL_SIZE);
+        return is_filter;
+    }
+
+    case TYPE_DECIMALV2: {
+        const DecimalV2Val* value = reinterpret_cast<DecimalV2Val*>(_staging_input_vals[0]);
+        DecimalV2Value temp_value = DecimalV2Value::from_decimal_val(*value);
+        is_filter = is_in_hybirdmap((void*) & (temp_value), dst, &is_add_buckets);
+        update_mem_trackers(is_filter, is_add_buckets, DECIMALV2_SIZE);
         return is_filter;
     }
 
@@ -926,6 +958,13 @@ void AggFnEvaluator::serialize_or_finalize(FunctionContext* agg_fn_ctx, Tuple* s
     case TYPE_DECIMAL: {
         typedef DecimalVal(*Fn)(FunctionContext*, AnyVal*);
         DecimalVal v = reinterpret_cast<Fn>(fn)(agg_fn_ctx, _staging_intermediate_val);
+        set_output_slot(&v, dst_slot_desc, dst);
+        break;
+    }
+
+    case TYPE_DECIMALV2: {
+        typedef DecimalV2Val(*Fn)(FunctionContext*, AnyVal*);
+        DecimalV2Val v = reinterpret_cast<Fn>(fn)(agg_fn_ctx, _staging_intermediate_val);
         set_output_slot(&v, dst_slot_desc, dst);
         break;
     }

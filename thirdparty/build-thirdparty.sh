@@ -179,6 +179,20 @@ build_openssl() {
         ln -s $TP_INSTALL_DIR/lib64/libcrypto.a $TP_INSTALL_DIR/lib/libcrypto.a && \
         ln -s $TP_INSTALL_DIR/lib64/libssl.a $TP_INSTALL_DIR/lib/libssl.a
     fi
+    # NOTE(zc): remove this dynamic library files to make libcurl static link.
+    # If I don't remove this files, I don't known how to make libcurl link static library
+    if [ -f $TP_INSTALL_DIR/lib64/libcrypto.so ]; then
+        rm -rf $TP_INSTALL_DIR/lib64/libcrypto.so*
+    fi
+    if [ -f $TP_INSTALL_DIR/lib64/libssl.so ]; then
+        rm -rf $TP_INSTALL_DIR/lib64/libssl.so*
+    fi
+    if [ -f $TP_INSTALL_DIR/lib/libcrypto.so ]; then
+        rm -rf $TP_INSTALL_DIR/lib/libcrypto.so*
+    fi
+    if [ -f $TP_INSTALL_DIR/lib/libssl.so ]; then
+        rm -rf $TP_INSTALL_DIR/lib/libssl.so*
+    fi
 }
 
 # thrift
@@ -377,10 +391,10 @@ build_curl() {
     cd $TP_SOURCE_DIR/$CURL_SOURCE
     
     CPPFLAGS="-I${TP_INCLUDE_DIR}" \
-    LDFLAGS="-L${TP_LIB_DIR}" \
+    LDFLAGS="-L${TP_LIB_DIR}" LIBS="-lcrypto -lssl -lcrypto -ldl" \
     CFLAGS="-fPIC" \
     ./configure --prefix=$TP_INSTALL_DIR --disable-shared --enable-static \
-    --without-ssl --without-libidn2 --disable-ldap
+    --with-ssl=${TP_INSTALL_DIR} --without-libidn2 --disable-ldap --enable-ipv6
     make -j$PARALLEL && make install
 }
 
@@ -398,8 +412,9 @@ build_boost() {
     check_if_source_exist $BOOST_SOURCE
     cd $TP_SOURCE_DIR/$BOOST_SOURCE
 
+    echo "using gcc : doris : ${CXX} ; " > tools/build/src/user-config.jam
     ./bootstrap.sh --prefix=$TP_INSTALL_DIR 
-    ./b2 link=static -d0 -j$PARALLEL --without-mpi --without-graph --without-graph_parallel --without-python cxxflags="-std=c++11 -fPIC -I$TP_INCLUDE_DIR -L$TP_LIB_DIR" install
+    ./b2 --toolset=gcc-doris link=static -d0 -j$PARALLEL --without-mpi --without-graph --without-graph_parallel --without-python cxxflags="-std=c++11 -fPIC -I$TP_INCLUDE_DIR -L$TP_LIB_DIR" install
 }
 
 # mysql
@@ -478,7 +493,7 @@ build_rocksdb() {
     cd $TP_SOURCE_DIR/$ROCKSDB_SOURCE
 
     CFLAGS="-I ${TP_INCLUDE_DIR} -I ${TP_INCLUDE_DIR}/snappy -I ${TP_INCLUDE_DIR}/lz4" CXXFLAGS="-fPIC" LDFLAGS="-static-libstdc++ -static-libgcc" \
-        make USE_RTTI=1 -j$PARALLEL static_lib
+        PORTABLE=1 make USE_RTTI=1 -j$PARALLEL static_lib
     cp librocksdb.a ../../installed/lib/librocksdb.a
     cp -r include/rocksdb ../../installed/include/
 }

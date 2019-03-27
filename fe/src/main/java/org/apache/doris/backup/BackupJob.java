@@ -418,7 +418,7 @@ public class BackupJob extends AbstractJob {
             for (TableRef tableRef : tableRefs) {
                 String tblName = tableRef.getName().getTbl();
                 OlapTable tbl = (OlapTable) db.getTable(tblName);
-                OlapTable copiedTbl = tbl.selectiveCopy(tableRef.getPartitions());
+                OlapTable copiedTbl = tbl.selectiveCopy(tableRef.getPartitions(), true);
                 if (copiedTbl == null) {
                     status = new Status(ErrCode.COMMON_ERROR, "faild to copy table: " + tblName);
                     return;
@@ -515,7 +515,7 @@ public class BackupJob extends AbstractJob {
         state = BackupJobState.UPLOADING;
 
         // DO NOT write log here, upload tasks will be resend after FE crashed.
-        LOG.info("finished to send update tasks. {}", this);
+        LOG.info("finished to send upload tasks. {}", this);
     }
 
     private void waitingAllUploadingFinished() {
@@ -644,7 +644,7 @@ public class BackupJob extends AbstractJob {
         Collections.sort(replicaIds);
         for (Long replicaId : replicaIds) {
             Replica replica = tablet.getReplicaById(replicaId);
-            if (replica.getLastFailedVersion() <= 0 && (replica.getVersion() > visibleVersion
+            if (replica.getLastFailedVersion() < 0 && (replica.getVersion() > visibleVersion
                     || (replica.getVersion() == visibleVersion && replica.getVersionHash() == visibleVersionHash))) {
                 return replica;
             }

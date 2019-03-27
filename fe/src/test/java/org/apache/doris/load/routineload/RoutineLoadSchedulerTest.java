@@ -21,36 +21,40 @@ import com.google.common.collect.Lists;
 import mockit.Deencapsulation;
 import mockit.Expectations;
 import mockit.Injectable;
-import mockit.Mock;
-import mockit.MockUp;
 import mockit.Mocked;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TResourceInfo;
 
-import com.google.common.collect.Lists;
-
+import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.ArrayList;
 import java.util.List;
-
-import mockit.Deencapsulation;
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mocked;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class RoutineLoadSchedulerTest {
 
+    @Mocked
+    ConnectContext connectContext;
+    @Mocked
+    TResourceInfo tResourceInfo;
+
     @Test
-    public void testNormalRunOneCycle(@Mocked Catalog catalog,
+    public void testNormalRunOneCycle(@Mocked KafkaConsumer consumer,
+                                      @Mocked Catalog catalog,
                                       @Injectable RoutineLoadManager routineLoadManager,
                                       @Injectable SystemInfoService systemInfoService,
-                                      @Injectable Database database)
+                                      @Injectable Database database,
+                                      @Injectable RoutineLoadDesc routineLoadDesc)
             throws LoadException, MetaNotFoundException {
         String clusterName = "cluster1";
         List<Long> beIds = Lists.newArrayList();
@@ -61,28 +65,35 @@ public class RoutineLoadSchedulerTest {
         partitions.add(100);
         partitions.add(200);
         partitions.add(300);
-        RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob("1", "kafka_routine_load_job", "miaoling", 1L,
-                1L, "1L", "v1", "", "", 3,
-                RoutineLoadJob.JobState.NEED_SCHEDULER, RoutineLoadJob.DataSourceType.KAFKA, 0, new TResourceInfo(),
-                "", "", null);
-        routineLoadJob.setState(RoutineLoadJob.JobState.NEED_SCHEDULER);
+
+        new Expectations(){
+            {
+                connectContext.toResourceCtx();
+                result = tResourceInfo;
+            }
+        };
+
+        RoutineLoadJob routineLoadJob =
+                new KafkaRoutineLoadJob("1", "kafka_routine_load_job", 1L,
+                                        1L, routineLoadDesc ,3, 0,
+                                        "", "", new KafkaProgress());
+        routineLoadJob.setState(RoutineLoadJob.JobState.NEED_SCHEDULE);
         List<RoutineLoadJob> routineLoadJobList = new ArrayList<>();
         routineLoadJobList.add(routineLoadJob);
 
-        Deencapsulation.setField(routineLoadJob, "kafkaPartitions", partitions);
+        Deencapsulation.setField(routineLoadJob, "customKafkaPartitions", partitions);
         Deencapsulation.setField(routineLoadJob, "desireTaskConcurrentNum", 3);
+        Deencapsulation.setField(routineLoadJob, "consumer", consumer);
 
         new Expectations() {
             {
-                catalog.getRoutineLoadInstance();
+                catalog.getRoutineLoadManager();
                 result = routineLoadManager;
-                routineLoadManager.getRoutineLoadJobByState(RoutineLoadJob.JobState.NEED_SCHEDULER);
+                routineLoadManager.getRoutineLoadJobByState(RoutineLoadJob.JobState.NEED_SCHEDULE);
                 result = routineLoadJobList;
                 catalog.getDb(anyLong);
                 result = database;
-                database.getClusterName();
-                result = clusterName;
-                systemInfoService.getClusterBackendIds(clusterName, true);
+                systemInfoService.getBackendIds( true);
                 result = beIds;
                 routineLoadManager.getSizeOfIdToRoutineLoadTask();
                 result = 1;
@@ -95,8 +106,8 @@ public class RoutineLoadSchedulerTest {
         Deencapsulation.setField(routineLoadScheduler, "routineLoadManager", routineLoadManager);
         routineLoadScheduler.runOneCycle();
 
-        Assert.assertEquals(2, routineLoadJob.getNeedSchedulerTaskInfoList().size());
-        for (RoutineLoadTaskInfo routineLoadTaskInfo : routineLoadJob.getNeedSchedulerTaskInfoList()) {
+        Assert.assertEquals(2, routineLoadJob.getNeedScheduleTaskInfoList().size());
+        for (RoutineLoadTaskInfo routineLoadTaskInfo : routineLoadJob.getNeedScheduleTaskInfoList()) {
             KafkaTaskInfo kafkaTaskInfo = (KafkaTaskInfo) routineLoadTaskInfo;
             if (kafkaTaskInfo.getPartitions().size() == 2) {
                 Assert.assertTrue(kafkaTaskInfo.getPartitions().contains(100));
@@ -105,5 +116,54 @@ public class RoutineLoadSchedulerTest {
                 Assert.assertTrue(kafkaTaskInfo.getPartitions().contains(200));
             }
         }
+    }
+
+
+    public void functionTest(@Mocked Catalog catalog,
+                             @Mocked SystemInfoService systemInfoService,
+                             @Injectable Database database) throws DdlException, InterruptedException {
+        new Expectations(){
+            {
+                connectContext.toResourceCtx();
+                result = tResourceInfo;
+            }
+        };
+
+        KafkaRoutineLoadJob kafkaRoutineLoadJob = new KafkaRoutineLoadJob("test", 1L, 1L, "10.74.167.16:8092", "test");
+        RoutineLoadManager routineLoadManager = new RoutineLoadManager();
+        routineLoadManager.addRoutineLoadJob(kafkaRoutineLoadJob);
+
+        List<Long> backendIds = new ArrayList<>();
+        backendIds.add(1L);
+
+        new Expectations(){
+            {
+                catalog.getRoutineLoadManager();
+                result = routineLoadManager;
+                catalog.getDb(anyLong);
+                result = database;
+                systemInfoService.getBackendIds(true);
+                result = backendIds;
+            }
+        };
+
+        RoutineLoadScheduler routineLoadScheduler = new RoutineLoadScheduler();
+
+        RoutineLoadTaskScheduler routineLoadTaskScheduler = new RoutineLoadTaskScheduler();
+        routineLoadTaskScheduler.setInterval(5000);
+
+        ExecutorService executorService = Executors.newFixedThreadPool(2);
+        executorService.submit(routineLoadScheduler);
+        executorService.submit(routineLoadTaskScheduler);
+
+
+
+        KafkaRoutineLoadJob kafkaRoutineLoadJob1 = new KafkaRoutineLoadJob("test_custom_partition", 1L, 1L, "10.74.167.16:8092", "test_1");
+        List<Integer> customKafkaPartitions = new ArrayList<>();
+        customKafkaPartitions.add(2);
+        Deencapsulation.setField(kafkaRoutineLoadJob1, "customKafkaPartitions", customKafkaPartitions);
+        routineLoadManager.addRoutineLoadJob(kafkaRoutineLoadJob1);
+
+        Thread.sleep(10000);
     }
 }

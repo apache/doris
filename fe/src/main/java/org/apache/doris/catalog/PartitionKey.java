@@ -134,7 +134,27 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         int other_key_len = other.keys.size();
         int min_len = Math.min(this_key_len, other_key_len);
         for (int i = 0; i < min_len; ++i) {
-            int ret = keys.get(i).compareLiteral(other.keys.get(i));
+            final LiteralExpr oldKey = this.getKeys().get(i);
+            final LiteralExpr otherOldKey = other.getKeys().get(i);
+            int ret = 0;
+            if (oldKey instanceof MaxLiteral || otherOldKey instanceof MaxLiteral) {
+                ret = oldKey.compareLiteral(otherOldKey);
+            } else {
+                final Type destType = Type.getAssignmentCompatibleType(oldKey.getType(), otherOldKey.getType(), false);
+                try {
+                    LiteralExpr newKey = oldKey;
+                    if (oldKey.getType() != destType) {
+                        newKey = (LiteralExpr) oldKey.castTo(destType);
+                    }
+                    LiteralExpr newOtherKey = otherOldKey;
+                    if (otherOldKey.getType() != destType) {
+                        newOtherKey = (LiteralExpr) otherOldKey.castTo(destType);
+                    }
+                    ret = newKey.compareLiteral(newOtherKey);
+                } catch (AnalysisException e) {
+                    throw new RuntimeException("Cast error in partition");
+                }
+            }
             if (0 != ret) {
                 return ret;
             }

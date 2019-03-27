@@ -19,28 +19,32 @@ package org.apache.doris.load.routineload;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.LabelAlreadyUsedException;
+import org.apache.doris.common.LoadException;
 import org.apache.doris.task.KafkaRoutineLoadTask;
 import org.apache.doris.task.RoutineLoadTask;
 import org.apache.doris.transaction.BeginTransactionException;
-import org.apache.doris.transaction.LabelAlreadyExistsException;
+
+import com.google.common.collect.Maps;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 public class KafkaTaskInfo extends RoutineLoadTaskInfo {
 
-    private RoutineLoadManager routineLoadManager = Catalog.getCurrentCatalog().getRoutineLoadInstance();
+    private RoutineLoadManager routineLoadManager = Catalog.getCurrentCatalog().getRoutineLoadManager();
 
     private List<Integer> partitions;
 
-    public KafkaTaskInfo(String id, String jobId) throws LabelAlreadyExistsException,
+    public KafkaTaskInfo(String id, String jobId) throws LabelAlreadyUsedException,
             BeginTransactionException, AnalysisException {
         super(id, jobId);
         this.partitions = new ArrayList<>();
     }
 
-    public KafkaTaskInfo(KafkaTaskInfo kafkaTaskInfo) throws LabelAlreadyExistsException,
+    public KafkaTaskInfo(KafkaTaskInfo kafkaTaskInfo) throws LabelAlreadyUsedException,
             BeginTransactionException, AnalysisException {
         super(UUID.randomUUID().toString(), kafkaTaskInfo.getJobId());
         this.partitions = kafkaTaskInfo.getPartitions();
@@ -55,12 +59,23 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
     }
 
     @Override
-    public RoutineLoadTask createStreamLoadTask(long beId) {
+    public RoutineLoadTask createStreamLoadTask(long beId) throws LoadException {
         RoutineLoadJob routineLoadJob = routineLoadManager.getJob(jobId);
-        return new KafkaRoutineLoadTask(routineLoadJob.getResourceInfo(),
-                beId, routineLoadJob.getDbId(), routineLoadJob.getTableId(),
-                0L, 0L, 0L, routineLoadJob.getColumns(), routineLoadJob.getWhere(),
-                routineLoadJob.getColumnSeparator(), this, (KafkaProgress) routineLoadJob.getProgress(),
-                txnId);
+        Map<Integer, Long> partitionIdToOffset = Maps.newHashMap();
+        for (Integer partitionId : partitions) {
+            KafkaProgress kafkaProgress = (KafkaProgress) routineLoadJob.getProgress();
+            if (!kafkaProgress.getPartitionIdToOffset().containsKey(partitionId)) {
+                kafkaProgress.getPartitionIdToOffset().put(partitionId, 0L);
+            }
+            partitionIdToOffset.put(partitionId, kafkaProgress.getPartitionIdToOffset().get(partitionId));
+        }
+        RoutineLoadTask routineLoadTask = new KafkaRoutineLoadTask(routineLoadJob.getResourceInfo(),
+                                                                   beId, routineLoadJob.getDbId(),
+                                                                   routineLoadJob.getTableId(),
+                                                                   id, txnId, partitionIdToOffset);
+        if (routineLoadJob.getRoutineLoadDesc() != null) {
+            routineLoadTask.setRoutineLoadDesc(routineLoadJob.getRoutineLoadDesc());
+        }
+        return routineLoadTask;
     }
 }

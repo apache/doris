@@ -347,8 +347,6 @@ public class LoadJob implements Writable {
                 default:
                     break;
             }
-        } else {
-            LOG.info("cmy debug: get load job: {}", toString());
         }
     }
 
@@ -912,8 +910,7 @@ public class LoadJob implements Writable {
             count = in.readInt();
             replicaPersistInfos = Maps.newHashMap();
             for (int i = 0; i < count; ++i) {
-                ReplicaPersistInfo info = new ReplicaPersistInfo();
-                info.readFields(in);
+                ReplicaPersistInfo info = ReplicaPersistInfo.read(in);
                 replicaPersistInfos.put(info.getReplicaId(), info);
             }
         }

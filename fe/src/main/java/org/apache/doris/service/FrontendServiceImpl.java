@@ -29,6 +29,7 @@ import org.apache.doris.common.AuditLog;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.ThriftServerContext;
 import org.apache.doris.common.ThriftServerEventProcessor;
@@ -88,7 +89,6 @@ import org.apache.doris.thrift.TTableStatus;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TUpdateExportTaskStatusRequest;
 import org.apache.doris.thrift.TUpdateMiniEtlTaskStatusRequest;
-import org.apache.doris.transaction.LabelAlreadyExistsException;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TxnCommitAttachment;
@@ -350,53 +350,21 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TStatus status = new TStatus(TStatusCode.OK);
         TFeResult result = new TFeResult(FrontendServiceVersion.V1, status);
         try {
-            if (request.isSetIs_retry() && request.isIs_retry()) {
-                // this may be a retry request from Backends,
-                // so we first check if load job has already been submitted.
-                // TODO(cmy):
-                // The Backend will retry the mini load request if it encounter timeout exception.
-                // So this code here is to avoid returning 'label already used' message to user
-                // because of the timeout retry.
-                // But this may still cause 'label already used' error if the timeout is set too short,
-                // because here is no lock to guarantee the atomic operation between 'isLabelUsed' and 'addLabel'
-                // method.
-                // But the default timeout is set to 3 seconds, so in common case, it will not be a problem.
-                if (request.isSetSubLabel()) {
-                    if (ExecuteEnv.getInstance().getMultiLoadMgr().isLabelUsed(fullDbName,
-                                                                               request.getLabel(),
-                                                                               request.getSubLabel(),
-                                                                               request.getTimestamp())) {
-                        LOG.info("multi mini load job has already been submitted. label: {}, sub label: {}, "
-                                         + "timestamp: {}",
-                                 request.getLabel(), request.getSubLabel(), request.getTimestamp());
-                        return result;
-                    }
-                } else {
-                    if (Catalog.getCurrentCatalog().getLoadInstance().isLabelUsed(fullDbName,
-                                                                                  request.getLabel(),
-                                                                                  request.getTimestamp())) {
-                        LOG.info("mini load job has already been submitted. label: {}, timestamp: {}",
-                                 request.getLabel(), request.getTimestamp());
-                        return result;
-                    }
-                }
-            }
-
             if (request.isSetSubLabel()) {
                 ExecuteEnv.getInstance().getMultiLoadMgr().load(request);
             } else {
                 // try to add load job, label will be checked here.
-                Catalog.getInstance().getLoadInstance().addLoadJob(request);
-
-                try {
-                    // gen mini load audit log
-                    logMiniLoadStmt(request);
-                } catch (Exception e) {
-                    LOG.warn("failed log mini load stmt", e);
+                if (Catalog.getInstance().getLoadInstance().addLoadJob(request)) {
+                    try {
+                        // generate mini load audit log
+                        logMiniLoadStmt(request);
+                    } catch (Exception e) {
+                        LOG.warn("failed log mini load stmt", e);
+                    }
                 }
             }
         } catch (UserException e) {
-            LOG.warn("add mini load error", e);
+            LOG.warn("add mini load error: {}", e.getMessage());
             status.setStatus_code(TStatusCode.ANALYSIS_ERROR);
             status.addToError_msgs(e.getMessage());
         } catch (Throwable e) {
@@ -407,6 +375,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             ConnectContext.remove();
         }
 
+        LOG.debug("mini load result: {}", result);
         return result;
     }
 
@@ -500,14 +469,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TMasterOpResult forward(TMasterOpRequest params) throws TException {
-        ThriftServerContext connectionContext = ThriftServerEventProcessor.getConnectionContext();
-        // For NonBlockingServer, we can not get client ip.
-        if (connectionContext != null) {
-            TNetworkAddress clientAddress = connectionContext.getClient();
-
-            Frontend fe = Catalog.getInstance().getFeByHost(clientAddress.getHostname());
+        TNetworkAddress clientAddr = getClientAddr();
+        if (clientAddr != null) {
+            Frontend fe = Catalog.getInstance().getFeByHost(clientAddr.getHostname());
             if (fe == null) {
-                LOG.warn("reject request from invalid host. client: {}", clientAddress);
+                LOG.warn("reject request from invalid host. client: {}", clientAddr);
                 throw new TException("request from invalid host was rejected.");
             }
         }
@@ -570,13 +536,19 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TLoadTxnBeginResult loadTxnBegin(TLoadTxnBeginRequest request) throws TException {
-        LOG.info("receive loadTxnBegin request, request={}", request);
+        TNetworkAddress clientAddr = getClientAddr();
+
+        LOG.info("receive loadTxnBegin request, db: {}, tbl: {}, label: {}, backend: {}",
+                request.getDb(), request.getTbl(), request.getLabel(),
+                clientAddr == null ? "unknown" : clientAddr.getHostname());
+        LOG.debug("txn begin request: {}", request);
+
         TLoadTxnBeginResult result = new TLoadTxnBeginResult();
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
         try {
             result.setTxnId(loadTxnBeginImpl(request));
-        } catch (LabelAlreadyExistsException e) {
+        } catch (LabelAlreadyUsedException e) {
             status.setStatus_code(TStatusCode.LABEL_ALREADY_EXISTS);
             status.addToError_msgs(e.getMessage());
         } catch (UserException e) {
@@ -617,9 +589,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             throw new UserException("unknown database, database=" + dbName);
         }
         // begin
+        long timestamp = request.isSetTimestamp() ? request.getTimestamp() : -1;
         return Catalog.getCurrentGlobalTransactionMgr().beginTransaction(
-                db.getId(), request.getLabel(), "streamLoad",
-                TransactionState.LoadJobSourceType.BACKEND_STREAMING);
+                db.getId(), request.getLabel(), timestamp, "streamLoad",
+                TransactionState.LoadJobSourceType.BACKEND_STREAMING, null);
     }
 
     @Override
@@ -769,6 +742,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return new TStatus(TStatusCode.OK);
         }
         return new TStatus(TStatusCode.CANCELLED);
+    }
+
+    private TNetworkAddress getClientAddr() {
+        ThriftServerContext connectionContext = ThriftServerEventProcessor.getConnectionContext();
+        // For NonBlockingServer, we can not get client ip.
+        if (connectionContext != null) {
+            return connectionContext.getClient();
+        }
+        return null;
     }
 }
 

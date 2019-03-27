@@ -38,6 +38,9 @@ DeltaWriter::~DeltaWriter() {
     if (!_delta_written_success) {
         _garbage_collection();
     }
+    for (SegmentGroup* segment_group : _segment_group_vec) {
+        segment_group->release();
+    }
     SAFE_DELETE(_writer);
     SAFE_DELETE(_mem_table);
     SAFE_DELETE(_schema);
@@ -47,14 +50,12 @@ void DeltaWriter::_garbage_collection() {
     OLAPEngine::get_instance()->delete_transaction(_req.partition_id, _req.transaction_id,
                                                    _req.tablet_id, _req.schema_hash);
     for (SegmentGroup* segment_group : _segment_group_vec) {
-        segment_group->release();
         OLAPEngine::get_instance()->add_unused_index(segment_group);
     }
     if (_new_table != nullptr) {
         OLAPEngine::get_instance()->delete_transaction(_req.partition_id, _req.transaction_id,
                                                        _new_table->tablet_id(), _new_table->schema_hash());
         for (SegmentGroup* segment_group : _new_segment_group_vec) {
-            segment_group->release();
             OLAPEngine::get_instance()->add_unused_index(segment_group);
         }
     }
@@ -67,7 +68,17 @@ OLAPStatus DeltaWriter::init() {
                      << "schema_hash: " << _req.schema_hash << " not found";
         return OLAP_ERR_TABLE_NOT_FOUND;
     }
+    OLAPStatus lock_status = _table->try_migration_rdlock();
+    if (lock_status != OLAP_SUCCESS) {
+        return lock_status;
+    } else {
+        OLAPStatus res = _init();
+        _table->release_migration_lock();
+        return res;
+    }
+}
 
+OLAPStatus DeltaWriter::_init() {
     {
         MutexLock push_lock(_table->get_push_lock());
         RETURN_NOT_OK(OLAPEngine::get_instance()->add_transaction(
@@ -172,15 +183,17 @@ OLAPStatus DeltaWriter::close(google::protobuf::RepeatedPtrField<PTabletInfo>* t
     }
     RETURN_NOT_OK(_mem_table->close(_writer));
 
-    OLAPStatus res = OLAP_SUCCESS;
+    OLAPStatus res = _table->add_pending_version(_req.partition_id, _req.transaction_id, nullptr);
+    if (res != OLAP_SUCCESS && res != OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
+        return res;
+    }
     //add pending data to tablet
-    RETURN_NOT_OK(_table->add_pending_version(_req.partition_id, _req.transaction_id, nullptr));
     for (SegmentGroup* segment_group : _segment_group_vec) {
         RETURN_NOT_OK(_table->add_pending_segment_group(segment_group));
         RETURN_NOT_OK(segment_group->load());
     }
     if (_new_table != nullptr) {
-        LOG(INFO) << "convert version for schema change";
+        LOG(INFO) << "convert version for schema change. txn id: " << _req.transaction_id;
         {
             MutexLock push_lock(_new_table->get_push_lock());
             // create pending data dir
@@ -198,7 +211,10 @@ OLAPStatus DeltaWriter::close(google::protobuf::RepeatedPtrField<PTabletInfo>* t
                 return res;
         }
 
-        RETURN_NOT_OK(_new_table->add_pending_version(_req.partition_id, _req.transaction_id, nullptr));
+        res = _new_table->add_pending_version(_req.partition_id, _req.transaction_id, nullptr);
+        if (res != OLAP_SUCCESS && res != OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
+            return res;
+        }
         for (SegmentGroup* segment_group : _new_segment_group_vec) {
             RETURN_NOT_OK(_new_table->add_pending_segment_group(segment_group));
             RETURN_NOT_OK(segment_group->load());

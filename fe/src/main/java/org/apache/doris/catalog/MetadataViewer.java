@@ -80,6 +80,7 @@ public class MetadataViewer {
                 short replicationNum = olapTable.getPartitionInfo().getReplicationNum(partition.getId());
 
                 for (MaterializedIndex index : partition.getMaterializedIndices()) {
+                    int schemaHash = olapTable.getSchemaHashByIndexId(index.getId());
                     for (Tablet tablet : index.getTablets()) {
                         long tabletId = tablet.getId();
                         int count = replicationNum;
@@ -89,13 +90,14 @@ public class MetadataViewer {
                             
                             ReplicaStatus status = ReplicaStatus.OK;
                             Backend be = infoService.getBackend(replica.getBackendId());
-                            if (be == null || !be.isAvailable()) {
+                            if (be == null || !be.isAvailable() || replica.isBad()) {
                                 status = ReplicaStatus.DEAD;
-                            } else {
-                                if (replica.getVersion() < visibleVersion
+                            } else if (replica.getVersion() < visibleVersion
                                         || replica.getLastFailedVersion() > 0) {
                                     status = ReplicaStatus.VERSION_ERROR;
-                                }
+
+                            } else if (replica.getSchemaHash() != -1 && replica.getSchemaHash() != schemaHash) {
+                                status = ReplicaStatus.SCHEMA_ERROR;
                             }
                             
                             if (filterReplica(status, statusFilter, op)) {
@@ -109,7 +111,9 @@ public class MetadataViewer {
                             row.add(String.valueOf(replica.getLastFailedVersion()));
                             row.add(String.valueOf(replica.getLastSuccessVersion()));
                             row.add(String.valueOf(visibleVersion));
+                            row.add(String.valueOf(replica.getSchemaHash()));
                             row.add(String.valueOf(replica.getVersionCount()));
+                            row.add(String.valueOf(replica.isBad()));
                             row.add(replica.getState().name());
                             row.add(status.name());
                             result.add(row);
@@ -130,6 +134,7 @@ public class MetadataViewer {
                             row.add("-1");
                             row.add("-1");
                             row.add("-1");
+                            row.add("N/A");
                             row.add("N/A");
                             row.add(ReplicaStatus.MISSING.name());
                             result.add(row);

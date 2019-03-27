@@ -26,6 +26,7 @@
 #include "runtime/string_value.h"
 #include "runtime/datetime_value.h"
 #include "runtime/decimal_value.h"
+#include "runtime/decimalv2_value.h"
 
 namespace doris {
 

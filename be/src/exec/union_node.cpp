@@ -77,7 +77,6 @@ Status UnionNode::prepare(RuntimeState* state) {
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
     DCHECK(_tuple_desc != nullptr);
     _codegend_union_materialize_batch_fns.resize(_child_expr_lists.size());
-
     // Prepare const expr lists.
     for (const vector<ExprContext*>& exprs : _const_expr_lists) {
         RETURN_IF_ERROR(Expr::prepare(exprs, state, row_desc(), expr_mem_tracker()));

@@ -281,7 +281,7 @@ public class SelectStmt extends QueryStmt {
             if (item.isStar()) {
                 TableName tblName = item.getTblName();
                 if (tblName == null) {
-                    expandStar();
+                    expandStar(analyzer);
                 } else {
                     expandStar(analyzer, tblName);
                 }
@@ -662,7 +662,7 @@ public class SelectStmt extends QueryStmt {
     /**
      * Expand "*" select list item.
      */
-    private void expandStar() throws AnalysisException {
+    private void expandStar(Analyzer analyzer) throws AnalysisException {
         if (fromClause_.isEmpty()) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_TABLES_USED);
         }
@@ -1269,7 +1269,7 @@ public class SelectStmt extends QueryStmt {
             if (item.isStar()) {
                 TableName tblName = item.getTblName();
                 if (tblName == null) {
-                    expandStar();
+                    expandStar(analyzer);
                 } else {
                     expandStar(analyzer, tblName);
                 }

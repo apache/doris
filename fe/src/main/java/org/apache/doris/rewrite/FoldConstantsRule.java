@@ -18,8 +18,6 @@
 package org.apache.doris.rewrite;
 
 
-import com.google.common.collect.ArrayListMultimap;
-import com.google.common.collect.Multimap;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.CastExpr;
@@ -32,6 +30,14 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 
+import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableMultimap;
+import com.google.common.collect.ImmutableSet;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
@@ -39,12 +45,6 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
-import java.util.Set;
-
-import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableMultimap;
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Sets;
 
 /**
  * This rule replaces a constant Expr with its equivalent LiteralExpr by evaluating the
@@ -62,6 +62,8 @@ import com.google.common.collect.Sets;
  * cast('2016-11-09' as timestamp) --> TIMESTAMP '2016-11-09 00:00:00'
  */
 public class FoldConstantsRule implements ExprRewriteRule {
+    private static final Logger LOG = LogManager.getLogger(FoldConstantsRule.class);
+
     public static ExprRewriteRule INSTANCE = new FoldConstantsRule();
 
     private ImmutableMultimap<String, FEFunctionInvoker> functions;
@@ -141,6 +143,7 @@ public class FoldConstantsRule implements ExprRewriteRule {
                 try {
                     return invoker.invoke(constExpr.getChildrenWithoutCast());
                 } catch (AnalysisException e) {
+                    LOG.debug("failed to invoke", e);
                     return constExpr;
                 }
             }
@@ -189,7 +192,7 @@ public class FoldConstantsRule implements ExprRewriteRule {
                 for (String type : annotation.argTypes()) {
                     argTypes.add(ScalarType.createType(type));
                 }
-                 FEFunctionSignature signature = new FEFunctionSignature(name,
+                FEFunctionSignature signature = new FEFunctionSignature(name,
                         argTypes.toArray(new ScalarType[argTypes.size()]), returnType);
                 mapBuilder.put(name, new FEFunctionInvoker(method, signature));
             }
@@ -225,10 +228,9 @@ public class FoldConstantsRule implements ExprRewriteRule {
             try {
                 return (LiteralExpr) method.invoke(null, args.toArray());
             } catch (InvocationTargetException | IllegalAccessException | IllegalArgumentException e) {
-                throw new AnalysisException(e.getLocalizedMessage());
+                throw new AnalysisException(e.getLocalizedMessage(), e);
             }
         }
-
     }
 
     public static class FEFunctionSignature {
@@ -252,6 +254,14 @@ public class FoldConstantsRule implements ExprRewriteRule {
 
         public String getName() {
             return name;
+        }
+
+        @Override
+        public String toString() {
+            StringBuilder sb = new StringBuilder();
+            sb.append("FEFunctionSignature. name: ").append(name).append(", return: ").append(returnType);
+            sb.append(", args: ").append(Joiner.on(",").join(argTypes));
+            return sb.toString();
         }
 
         @Override

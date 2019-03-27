@@ -293,22 +293,22 @@
     该语句用于按条件删除指定 table（base index） partition 中的数据。
     该操作会同时删除和此 base index 相关的 rollup index 的数据。
     语法：
-        DELETE FROM table_name PARTITION partition_name
+        DELETE FROM table_name [PARTITION partition_name]
         WHERE 
         column_name1 op value[ AND column_name2 op value ...];
         
     说明：
         1) op 的可选类型包括：=, >, <, >=, <=, !=
         2) 只能指定 key 列上的条件。
+        2) 当选定的 key 列不存在于某个 rollup 中时，无法进行 delete。
         3) 条件之间只能是“与”的关系。
-           若希望达成“或”的关系，需要将条件分写在两个 DELETE语句中。
-        4) 如果为单分区表，partition_name 同 table_name。
+           若希望达成“或”的关系，需要将条件分写在两个 DELETE 语句中。
+        4) 如果为RANGE分区表，则必须指定 PARTITION。如果是单分区表，可以不指定。
            
     注意：
         该语句可能会降低执行后一段时间内的查询效率。
         影响程度取决于语句中指定的删除条件的数量。
         指定的条件越多，影响越大。
-        
 
 ## example
 
@@ -612,6 +612,9 @@
         4) 如果指定了 STATE，则匹配 LOAD 状态
         5) 可以使用 ORDER BY 对任意列组合进行排序
         6) 如果指定了 LIMIT，则显示 limit 条匹配记录。否则全部显示
+        7) 如果是使用 broker/mini load，则 URL 列中的连接可以使用以下命令查看：
+
+            SHOW LOAD WARNINGS ON 'url'
 
 ## example
     1. 展示默认 db 的所有导入任务
@@ -713,8 +716,9 @@
         SHOW DATA [FROM db_name[.table_name]];
         
     说明：
-        如果不指定 FROM 子句，使用展示当前 db 下细分到各个 table 的数据量
-        如果指定 FROM 子句，则展示 table 下细分到各个 index 的数据量
+        1. 如果不指定 FROM 子句，使用展示当前 db 下细分到各个 table 的数据量
+        2. 如果指定 FROM 子句，则展示 table 下细分到各个 index 的数据量
+        3. 如果想查看各个 Partition 的大小，请参阅 help show partitions
 
 ## example
     1. 展示默认 db 的各个 table 的数据量及汇总数据量
@@ -740,7 +744,7 @@
         SHOW PARTITIONS FROM example_db.table_name PARTITION p1;
 
 ## keyword
-    SHOW,PARTITION
+    SHOW,PARTITIONS
     
 # SHOW TABLET
 ## description

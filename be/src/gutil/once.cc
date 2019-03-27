@@ -1,7 +1,6 @@
 // Copyright 2008 Google Inc. All Rights Reserved.
 
 #include <common/logging.h>
-#include "gutil/logging-inl.h"
 #include "gutil/once.h"
 #include "gutil/dynamic_annotations.h"
 #include "gutil/spinlock_internal.h"
@@ -13,17 +12,17 @@
 
 void GoogleOnceInternalInit(Atomic32 *control, void (*func)(),
                             void (*func_with_arg)(void*), void* arg) {
-  if (DEBUG_MODE) {
-    int32 old_control = base::subtle::Acquire_Load(control);
-    if (old_control != GOOGLE_ONCE_INTERNAL_INIT &&
-        old_control != GOOGLE_ONCE_INTERNAL_RUNNING &&
-        old_control != GOOGLE_ONCE_INTERNAL_WAITER &&
-        old_control != GOOGLE_ONCE_INTERNAL_DONE) {
-      LOG(FATAL) << "Either GoogleOnceType is used in non-static storage "
-                    "(where GoogleOnceDynamic might be appropriate), "
-                    "or there's a memory corruption.";
-    }
-  }
+// if (DEBUG_MODE) {
+//   int32 old_control = base::subtle::Acquire_Load(control);
+//   if (old_control != GOOGLE_ONCE_INTERNAL_INIT &&
+//       old_control != GOOGLE_ONCE_INTERNAL_RUNNING &&
+//       old_control != GOOGLE_ONCE_INTERNAL_WAITER &&
+//       old_control != GOOGLE_ONCE_INTERNAL_DONE) {
+//     LOG(FATAL) << "Either GoogleOnceType is used in non-static storage "
+//                   "(where GoogleOnceDynamic might be appropriate), "
+//                   "or there's a memory corruption.";
+//   }
+// }
   static const base::internal::SpinLockWaitTransition trans[] = {
     { GOOGLE_ONCE_INTERNAL_INIT, GOOGLE_ONCE_INTERNAL_RUNNING, true },
     { GOOGLE_ONCE_INTERNAL_RUNNING, GOOGLE_ONCE_INTERNAL_WAITER, false },

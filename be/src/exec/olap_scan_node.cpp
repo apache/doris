@@ -109,6 +109,7 @@ void OlapScanNode::_init_counter(RuntimeState* state) {
 #endif
     ADD_TIMER(_runtime_profile, "ShowHintsTime");
 
+    _reader_init_timer = ADD_TIMER(_runtime_profile, "ReaderInitTime");
     _read_compressed_counter =
         ADD_COUNTER(_runtime_profile, "CompressedBytesRead", TUnit::BYTES);
     _read_uncompressed_counter =
@@ -120,6 +121,8 @@ void OlapScanNode::_init_counter(RuntimeState* state) {
         ADD_TIMER(_runtime_profile, "BlockFetchTime");
     _raw_rows_counter =
         ADD_COUNTER(_runtime_profile, "RawRowsRead", TUnit::UNIT);
+    _block_convert_timer = ADD_TIMER(_runtime_profile, "BlockConvertTime");
+    _block_seek_timer = ADD_TIMER(_runtime_profile, "BlockSeekTime");
 
     _rows_vec_cond_counter =
         ADD_COUNTER(_runtime_profile, "RowsVectorPredFiltered", TUnit::UNIT);
@@ -240,7 +243,6 @@ Status OlapScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eo
     // wait for batch from queue
     RowBatch* materialized_batch = NULL;
     {
-        state->set_query_state_for_wait();
         boost::unique_lock<boost::mutex> l(_row_batches_lock);
         while (_materialized_row_batches.empty() && !_transfer_done) {
             if (state->is_cancelled()) {
@@ -255,7 +257,6 @@ Status OlapScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eo
             DCHECK(materialized_batch != NULL);
             _materialized_row_batches.pop_front();
         }
-        state->set_query_state_for_running();
     }
 
     // return batch
@@ -304,6 +305,13 @@ Status OlapScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eo
     *eos = true;
     boost::lock_guard<boost::mutex> guard(_status_mutex);
     return _status;
+}
+
+Status OlapScanNode::collect_query_statistics(QueryStatistics* statistics) {
+    RETURN_IF_ERROR(ExecNode::collect_query_statistics(statistics));
+    statistics->add_scan_bytes(_read_compressed_counter->value());
+    statistics->add_scan_rows(rows_returned());
+    return Status::OK;
 }
 
 Status OlapScanNode::close(RuntimeState* state) {
@@ -476,6 +484,17 @@ Status OlapScanNode::normalize_conjuncts() {
             DecimalValue min = DecimalValue::get_min_decimal();
             DecimalValue max = DecimalValue::get_max_decimal();
             ColumnValueRange<DecimalValue> range(slots[slot_idx]->col_name(),
+                                                 slots[slot_idx]->type().type,
+                                                 min,
+                                                 max);
+            normalize_predicate(range, slots[slot_idx]);
+            break;
+        }
+
+        case TYPE_DECIMALV2: {
+            DecimalV2Value min = DecimalV2Value::get_min_decimal();
+            DecimalV2Value max = DecimalV2Value::get_max_decimal();
+            ColumnValueRange<DecimalV2Value> range(slots[slot_idx]->col_name(),
                                                  slots[slot_idx]->type().type,
                                                  min,
                                                  max);
@@ -731,6 +750,7 @@ Status OlapScanNode::normalize_in_predicate(SlotDescriptor* slot, ColumnValueRan
                         break;
                     }
                     case TYPE_DECIMAL:
+                    case TYPE_DECIMALV2:
                     case TYPE_LARGEINT:
                     case TYPE_CHAR:
                     case TYPE_VARCHAR:
@@ -799,6 +819,7 @@ Status OlapScanNode::normalize_in_predicate(SlotDescriptor* slot, ColumnValueRan
                         break;
                     }
                     case TYPE_DECIMAL:
+                    case TYPE_DECIMALV2:
                     case TYPE_CHAR:
                     case TYPE_VARCHAR:
                     case TYPE_HLL:
@@ -911,6 +932,7 @@ Status OlapScanNode::normalize_binary_predicate(SlotDescriptor* slot, ColumnValu
                     break;
                 }
                 case TYPE_DECIMAL:
+                case TYPE_DECIMALV2:
                 case TYPE_CHAR:
                 case TYPE_VARCHAR:
 			    case TYPE_HLL:

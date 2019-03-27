@@ -160,6 +160,9 @@ public class UserIdentity implements Writable {
             return false;
         }
         UserIdentity other = (UserIdentity) obj;
+        if (this.isDomain != other.isDomain) {
+            return false;
+        }
         return user.equals(other.getQualifiedUser()) && host.equals(other.getHost());
     }
 
@@ -168,6 +171,7 @@ public class UserIdentity implements Writable {
         int result = 17;
         result = 31 * result + user.hashCode();
         result = 31 * result + host.hashCode();
+        result = 31 * result + Boolean.valueOf(isDomain).hashCode();
         return result;
     }
 

@@ -208,6 +208,7 @@ public class HeartbeatMgr extends Daemon {
             boolean ok = false;
             try {
                 client = ClientPool.heartbeatPool.borrowObject(beAddr);
+
                 TMasterInfo copiedMasterInfo = new TMasterInfo(masterInfo.get());
                 copiedMasterInfo.setBackend_ip(backend.getHost());
                 THeartbeatResult result = client.heartbeat(copiedMasterInfo);
@@ -229,6 +230,7 @@ public class HeartbeatMgr extends Daemon {
                             : result.getStatus().getError_msgs().get(0));
                 }
             } catch (Exception e) {
+                LOG.warn("backend heartbeat got exception", e);
                 return new BackendHbResponse(backendId,
                         Strings.isNullOrEmpty(e.getMessage()) ? "got exception" : e.getMessage());
             } finally {

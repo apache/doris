@@ -90,7 +90,7 @@ Status ScalarFnCall::prepare(
     if (_scalar_fn == NULL) {
         if (SymbolsUtil::is_mangled(_fn.scalar_fn.symbol)) {
             status = UserFunctionCache::instance()->get_function_ptr(
-                _fn.id, _fn.scalar_fn.symbol, _fn.hdfs_location, "", &_scalar_fn, &_cache_entry);
+                _fn.id, _fn.scalar_fn.symbol, _fn.hdfs_location, _fn.checksum, &_scalar_fn, &_cache_entry);
         } else {
             std::vector<TypeDescriptor> arg_types;
             for (auto& t_type : _fn.arg_types) {
@@ -101,7 +101,7 @@ Status ScalarFnCall::prepare(
             std::string symbol = SymbolsUtil::mangle_user_function(
                 _fn.scalar_fn.symbol, arg_types, _fn.has_var_args, NULL);
             status = UserFunctionCache::instance()->get_function_ptr(
-                _fn.id, symbol, _fn.hdfs_location, "", &_scalar_fn, &_cache_entry);
+                _fn.id, symbol, _fn.hdfs_location, _fn.checksum, &_scalar_fn, &_cache_entry);
         }
     }
 #if 0
@@ -426,7 +426,7 @@ Status ScalarFnCall::get_udf(RuntimeState* state, Function** udf) {
         // interface with the code in impalad.
         void* fn_ptr = NULL;
         Status status = UserFunctionCache::instance()->get_function_ptr(
-            _fn.id, _fn.scalar_fn.symbol, _fn.hdfs_location, "", &fn_ptr, &_cache_entry);
+            _fn.id, _fn.scalar_fn.symbol, _fn.hdfs_location, _fn.checksum, &fn_ptr, &_cache_entry);
         if (!status.ok() && _fn.binary_type == TFunctionBinaryType::BUILTIN) {
             // Builtins symbols should exist unless there is a version mismatch.
             // TODO(zc )
@@ -441,7 +441,7 @@ Status ScalarFnCall::get_udf(RuntimeState* state, Function** udf) {
         Type* return_type = CodegenAnyVal::get_lowered_type(codegen, type());
         std::vector<Type*> arg_types;
 
-        if (type().type == TYPE_DECIMAL) {
+        if (type().type == TYPE_DECIMAL || type().type == TYPE_DECIMALV2) {
             // Per the x64 ABI, DecimalVals are returned via a DecmialVal* output argument
             return_type = codegen->void_type();
             arg_types.push_back(
@@ -542,7 +542,7 @@ Status ScalarFnCall::get_function(RuntimeState* state, const std::string& symbol
     if (_fn.binary_type == TFunctionBinaryType::NATIVE 
             || _fn.binary_type == TFunctionBinaryType::BUILTIN) {
         return UserFunctionCache::instance()->get_function_ptr(
-            _fn.id, symbol, _fn.hdfs_location, "", fn, &_cache_entry);
+            _fn.id, symbol, _fn.hdfs_location, _fn.checksum, fn, &_cache_entry);
     } else {
 #if 0
         DCHECK_EQ(_fn.binary_type, TFunctionBinaryType::IR);
@@ -747,6 +747,7 @@ typedef DoubleVal (*DoubleWrapper)(ExprContext*, TupleRow*);
 typedef StringVal (*StringWrapper)(ExprContext*, TupleRow*);
 typedef DateTimeVal (*DatetimeWrapper)(ExprContext*, TupleRow*);
 typedef DecimalVal (*DecimalWrapper)(ExprContext*, TupleRow*);
+typedef DecimalV2Val (*DecimalV2Wrapper)(ExprContext*, TupleRow*);
 
 // TODO: macroify this?
 BooleanVal ScalarFnCall::get_boolean_val(ExprContext* context, TupleRow* row) {
@@ -859,6 +860,17 @@ DecimalVal ScalarFnCall::get_decimal_val(ExprContext* context, TupleRow* row) {
     DecimalWrapper fn = reinterpret_cast<DecimalWrapper>(_scalar_fn_wrapper);
     return fn(context, row);
 }
+
+DecimalV2Val ScalarFnCall::get_decimalv2_val(ExprContext* context, TupleRow* row) {
+    DCHECK_EQ(_type.type, TYPE_DECIMALV2);
+    DCHECK(context != NULL);
+    if (_scalar_fn_wrapper == NULL) {
+        return interpret_eval<DecimalV2Val>(context, row);
+    }
+    DecimalV2Wrapper fn = reinterpret_cast<DecimalV2Wrapper>(_scalar_fn_wrapper);
+    return fn(context, row);
+}
+
 
 std::string ScalarFnCall::debug_string() const {
     std::stringstream out;

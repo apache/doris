@@ -50,6 +50,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/snapshot_loader.h"
 #include "util/doris_metrics.h"
+#include "util/stopwatch.hpp"
 
 using std::deque;
 using std::list;
@@ -245,14 +246,14 @@ bool TaskWorkerPool::_record_task_info(
     EnumToString(TTaskType, task_type, task_name);
     if (signature_set.count(signature) > 0) {
         LOG(INFO) << "type: " << task_name
-                  << ", signature: " << signature << ", has been inserted."
-                  << ", queue size: " << signature_set.size();
+                  << ", signature: " << signature << ", already exist"
+                  << ". queue size: " << signature_set.size();
         ret = false;
     } else {
         signature_set.insert(signature);
         LOG(INFO) << "type: " << task_name
-                  << ", signature: " << signature << ", has been inserted."
-                  << ", queue size: " << signature_set.size();
+                  << ", signature: " << signature << ", has been inserted"
+                  << ". queue size: " << signature_set.size();
         if (task_type == TTaskType::PUSH) {
             _s_total_task_user_count[task_type][user] += 1;
             _s_total_task_count[task_type] += 1;
@@ -283,7 +284,7 @@ void TaskWorkerPool::_remove_task_info(
     std::string task_name;
     EnumToString(TTaskType, task_type, task_name);
     LOG(INFO) << "type: " << task_name
-              << ", signature: " << signature << ", has been erased."
+              << ", signature: " << signature << ", has been erased"
               << ", queue size: " << signature_set.size();
 }
 
@@ -1049,6 +1050,9 @@ void* TaskWorkerPool::_clone_worker_thread_callback(void* arg_this) {
         OLAPTablePtr tablet =
                 worker_pool_this->_env->olap_engine()->get_table(
                 clone_req.tablet_id, clone_req.schema_hash);
+
+        int64_t copy_size = 0;
+        int64_t copy_time_ms = 0;
         if (tablet.get() != NULL) {
             LOG(INFO) << "clone tablet exist yet, begin to incremental clone. "
                       << "signature:" << agent_task_req.signature
@@ -1069,7 +1073,9 @@ void* TaskWorkerPool::_clone_worker_thread_callback(void* arg_this) {
                                                    &src_file_path,
                                                    &error_msgs,
                                                    &missing_versions,
-                                                   &allow_incremental_clone);
+                                                   &allow_incremental_clone,
+                                                   &copy_size,
+                                                   &copy_time_ms);
             if (status == DORIS_SUCCESS) {
                 OLAPStatus olap_status = worker_pool_this->_env->olap_engine()->
                     finish_clone(tablet, local_data_path, clone_req.committed_version, allow_incremental_clone);
@@ -1088,7 +1094,9 @@ void* TaskWorkerPool::_clone_worker_thread_callback(void* arg_this) {
                                                        &src_host,
                                                        &src_file_path,
                                                        &error_msgs,
-                                                       NULL, NULL);
+                                                       NULL, NULL,
+                                                       &copy_size,
+                                                       &copy_time_ms);
                 if (status == DORIS_SUCCESS) {
                     LOG(INFO) << "download successfully when full clone. [table=" << tablet->full_name()
                               << " src_host=" << src_host.host << " src_file_path=" << src_file_path
@@ -1105,13 +1113,23 @@ void* TaskWorkerPool::_clone_worker_thread_callback(void* arg_this) {
                     }
                 }
             }
-        } else {
-
+        } else { // create a new tablet
             // Get local disk from olap
             string local_shard_root_path;
             OlapStore* store = nullptr;
-            OLAPStatus olap_status = worker_pool_this->_env->olap_engine()->obtain_shard_path(
-                clone_req.storage_medium, &local_shard_root_path, &store);
+            OLAPStatus olap_status = OLAP_ERR_OTHER_ERROR;
+            if (clone_req.__isset.task_version && clone_req.task_version == 2) {
+                // use path specified in clone request
+                olap_status = worker_pool_this->_env->olap_engine()->obtain_shard_path_by_hash(
+                        clone_req.dest_path_hash, &local_shard_root_path, &store);
+            }
+
+            // if failed to get path by hash, or path hash is not specified, get arbitrary one
+            if (olap_status != OLAP_SUCCESS || clone_req.task_version == 1) {
+                olap_status = worker_pool_this->_env->olap_engine()->obtain_shard_path(
+                        clone_req.storage_medium, &local_shard_root_path, &store);
+            }
+
             if (olap_status != OLAP_SUCCESS) {
                 OLAP_LOG_WARNING("clone get local root path failed. signature: %ld",
                                  agent_task_req.signature);
@@ -1130,7 +1148,9 @@ void* TaskWorkerPool::_clone_worker_thread_callback(void* arg_this) {
                                                        &src_host,
                                                        &src_file_path,
                                                        &error_msgs,
-                                                       NULL, NULL);
+                                                       NULL, NULL,
+                                                       &copy_size,
+                                                       &copy_time_ms);
             }
 
             if (status == DORIS_SUCCESS) {
@@ -1254,6 +1274,9 @@ void* TaskWorkerPool::_clone_worker_thread_callback(void* arg_this) {
         task_status.__set_error_msgs(error_msgs);
         finish_task_request.__set_task_status(task_status);
 
+        finish_task_request.__set_copy_size(copy_size);
+        finish_task_request.__set_copy_time_ms(copy_time_ms);
+
         worker_pool_this->_finish_task(finish_task_request);
         worker_pool_this->_remove_task_info(agent_task_req.task_type, agent_task_req.signature, "");
 #ifndef BE_TEST
@@ -1271,11 +1294,13 @@ AgentStatus TaskWorkerPool::_clone_copy(
         string* src_file_path,
         vector<string>* error_msgs,
         const vector<Version>* missing_versions,
-        bool* allow_incremental_clone) {
+        bool* allow_incremental_clone,
+        int64_t* copy_size,
+        int64_t* copy_time_ms) {
     AgentStatus status = DORIS_SUCCESS;
 
     std::string token = _master_info.token;
-    for (auto src_backend : clone_req.src_backends) {
+    for (auto& src_backend : clone_req.src_backends) {
         stringstream http_host_stream;
         http_host_stream << "http://" << src_backend.host << ":" << src_backend.http_port;
         string http_host = http_host_stream.str();
@@ -1421,6 +1446,9 @@ AgentStatus TaskWorkerPool::_clone_copy(
         }
 
         // Get copy from remote
+        uint64_t total_file_size = 0;
+        MonotonicStopWatch watch;
+        watch.start();
         for (auto& file_name : file_name_list) {
             remote_file_path = http_host + HTTP_REQUEST_PREFIX
                 + HTTP_REQUEST_TOKEN_PARAM + token
@@ -1445,19 +1473,20 @@ AgentStatus TaskWorkerPool::_clone_copy(
                 break;
             }
 
-            uint64_t estimate_time_out = file_size / config::download_low_speed_limit_kbps / 1024;
-            if (estimate_time_out < config::download_low_speed_time) {
-                estimate_time_out = config::download_low_speed_time;
+            total_file_size += file_size;
+            uint64_t estimate_timeout = file_size / config::download_low_speed_limit_kbps / 1024;
+            if (estimate_timeout < config::download_low_speed_time) {
+                estimate_timeout = config::download_low_speed_time;
             }
 
             std::string local_file_path = local_file_full_path + file_name;
 
             auto download_cb = [&remote_file_path,
-                                estimate_time_out,
+                                estimate_timeout,
                                 &local_file_path,
                                 file_size] (HttpClient* client) {
                 RETURN_IF_ERROR(client->init(remote_file_path));
-                client->set_timeout_ms(estimate_time_out * 1000);
+                client->set_timeout_ms(estimate_timeout * 1000);
                 RETURN_IF_ERROR(client->download(local_file_path));
 
                 // Check file length
@@ -1483,6 +1512,19 @@ AgentStatus TaskWorkerPool::_clone_copy(
                 break;
             }
         } // Clone files from remote backend
+
+        uint64_t total_time_ms = watch.elapsed_time() / 1000 / 1000;
+        total_time_ms = total_time_ms > 0 ? total_time_ms : 0;
+        double copy_rate = 0.0;
+        if (total_time_ms > 0) {
+            copy_rate = total_file_size / ((double) total_time_ms) / 1000;
+        }
+        *copy_size = (int64_t) total_file_size;
+        *copy_time_ms = (int64_t) total_time_ms;
+        LOG(INFO) << "succeed to copy tablet " << signature
+                  << ", total file size: " << total_file_size << " B"
+                  << ", cost: " << total_time_ms << " ms"
+                  << ", rate: " << copy_rate << " B/s";
 
         // Release snapshot, if failed, ignore it. OLAP engine will drop useless snapshot
         TAgentResult release_snapshot_result;
@@ -1735,10 +1777,11 @@ void* TaskWorkerPool::_report_disk_state_worker_thread_callback(void* arg_this) 
         worker_pool_this->_env->olap_engine()->get_all_root_path_info(&root_paths_info);
 
         map<string, TDisk> disks;
-        for (auto root_path_info : root_paths_info) {
+        for (auto& root_path_info : root_paths_info) {
             TDisk disk;
             disk.__set_root_path(root_path_info.path);
             disk.__set_path_hash(root_path_info.path_hash);
+            disk.__set_storage_medium(root_path_info.storage_medium);
             disk.__set_disk_total_capacity(static_cast<double>(root_path_info.capacity));
             disk.__set_data_used_capacity(static_cast<double>(root_path_info.data_used_capacity));
             disk.__set_disk_available_capacity(static_cast<double>(root_path_info.available));

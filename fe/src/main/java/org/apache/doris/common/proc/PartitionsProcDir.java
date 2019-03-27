@@ -35,6 +35,8 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
 
 import java.util.ArrayList;
@@ -50,7 +52,7 @@ public class PartitionsProcDir implements ProcDirInterface {
             .add("PartitionId").add("PartitionName").add("VisibleVersion").add("VisibleVersionHash")
             .add("State").add("PartitionKey").add("Range").add("DistributionKey")
             .add("Buckets").add("ReplicationNum").add("StorageMedium").add("CooldownTime")
-            .add("LastConsistencyCheckTime")
+            .add("LastConsistencyCheckTime").add("DataSize")
             .build();
 
     public static final int PARTITION_NAME_INDEX = 1;
@@ -127,6 +129,12 @@ public class PartitionsProcDir implements ProcDirInterface {
 
                     partitionInfo.add(TimeUtils.longToTimeString(partition.getLastCheckTime()));
 
+                    long dataSize = partition.getDataSize();
+                    Pair<Double, String> sizePair = DebugUtil.getByteUint(dataSize);
+                    String readableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(sizePair.first) + " "
+                            + sizePair.second;
+                    partitionInfo.add(readableSize);
+
                     partitionInfos.add(partitionInfo);
                 }
             } else {
@@ -171,6 +179,12 @@ public class PartitionsProcDir implements ProcDirInterface {
                     partitionInfo.add(TimeUtils.longToTimeString(dataProperty.getCooldownTimeMs()));
 
                     partitionInfo.add(TimeUtils.longToTimeString(partition.getLastCheckTime()));
+
+                    long dataSize = partition.getDataSize();
+                    Pair<Double, String> sizePair = DebugUtil.getByteUint(dataSize);
+                    String readableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(sizePair.first) + " "
+                            + sizePair.second;
+                    partitionInfo.add(readableSize);
 
                     partitionInfos.add(partitionInfo);
                 }

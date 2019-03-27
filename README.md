@@ -1,4 +1,5 @@
 # Apache Doris (incubating)
+[![Join the chat at https://gitter.im/apache-doris/Lobby](https://badges.gitter.im/apache-doris/Lobby.svg)](https://gitter.im/apache-doris/Lobby?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 
 Doris is an MPP-based interactive SQL data warehousing for reporting and analysis. It open-sourced by Baidu. 
 
@@ -20,75 +21,79 @@ The simplicity (of developing, deploying and using) and meeting many data servin
 
 ## 4. Compile and install
 
-Currently support Docker environment and Linux OS: 
-Docker (Linux / Windows / Mac), Ubuntu and CentOS.
+Currently only supports Docker environment and Linux OS, such as Ubuntu and CentOS.
 
-### 4.1 For Docker
+### 4.1 Compile in Docker environment (Recommended)
 
-#### Step 1: Install Docker
+We offer a docker images as a Doris compilation environment. You can compile Doris from source in it and run the output binaries in other Linux environment.
 
-Take CentOS as an example:
+Firstly, you must be install and start docker service.
 
-```
-yum -y install docker-io
-service docker start
-```
+And then you could build Doris as following steps:
 
-#### Step 2: Create Docker image for complilation
-
-Given your work space is /my/workspace, and you can download Doris docker file as following:
+#### Step1: Pull the docker image with Doris building environment
 
 ```
-wget https://github.com/apache/incubator-doris/blob/master/docker/Dockerfile -O /my/workspace/Dockerfile
+$ docker pull apachedoris/doris-dev:build-env
 ```
 
-Now build your image, and it may take a long time (40min to 1 hour)
+You can check it by listing images, for example:
 
 ```
-cd /my/workspace && docker build -t doris-dev:v1.0 .
+$ docker images
+REPOSITORY              TAG                 IMAGE ID            CREATED             SIZE
+apachedoris/doris-dev   build-env           f8bc5d4024e0        21 hours ago        3.28GB
 ```
 
-#### Step 3: Compile and install Doris
+#### Step2: Run the Docker image 
 
-Clone Doris source:
-
-```
-git clone https://github.com/apache/incubator-doris.git /path/to/incubator-doris/
-```
-
-Start a container named doris-dev-test, and map /path/to/incubator-doris/ to /var/local/incubator-doris/ in container.
+You can run the image directyly:
 
 ```
-docker run -it --name doris-dev-test -v /path/to/incubator-doris/:/var/local/incubator-doris/ doris-dev:v1.0
+$ docker run -it apachedoris/doris-dev:build-env
 ```
 
-Compile Doris source:
+Or if you want to compile the source located in your local host, you can map the local directory to the image by running:
 
 ```
-sh build.sh 
+$ docker run -it -v /your/local/path/incubator-doris-DORIS-x.x.x-release/:/root/incubator-doris-DORIS-x.x.x-release/ apachedoris/doris-dev:build-env
 ```
 
-After successfully building, it will install binary files in the directory output/.
+#### Step3: Download Doris source
 
-### 4.2 For Linux
+Now you should in docker environment.
+
+You can download Doris source by release package or by git clone in image.
+
+(If you already downloaded the source in your local host and map it to the image in Step2, you can skip this step.)
+
+```
+$ wget https://dist.apache.org/repos/dist/dev/incubator/doris/xxx.tar.gz
+or
+$ git clone https://github.com/apache/incubator-doris.git
+```
+
+#### Step4: Build Doris
+
+Enter Doris source path and build Doris.
+
+```
+$ sh build.sh
+```
+
+After successfully building, it will install binary files in the directory `output/`.
+
+### 4.2 For Linux OS
 
 #### Prerequisites
 
+You must be install following softwares:
+
+```
 GCC 5.3.1+, Oracle JDK 1.8+, Python 2.7+, Apache Maven 3.5+, CMake 3.4.3+
-
-* For Ubuntu: 
-
-```
-sudo apt-get install g++ cmake zip byacc flex automake libtool binutils-dev libiberty-dev bison python2.7 libncurses5-dev
-sudo updatedb
 ```
 
-* For CentOS:
-
-```
-sudo yum install gcc-c++ libstdc++-static cmake byacc flex automake libtool binutils-devel bison ncurses-devel
-sudo updatedb
-```
+After you installed above all, you also must be set them to environment variable PATH and set JAVA_HOME.
 
 If your GCC version is less than 5.3.1, you can run:
 
@@ -98,7 +103,6 @@ sudo yum install devtoolset-4-toolchain -y
 
 and then, set the path of GCC (e.g /opt/rh/devtoolset-4/root/usr/bin) to the environment variable PATH.
 
-
 #### Compile and install
 
 Run following script, it will compile thirdparty libraries and build whole Doris.
@@ -107,7 +111,7 @@ Run following script, it will compile thirdparty libraries and build whole Doris
 sh build.sh
 ```
 
-After successfully building, it will install binary files in the directory output/.
+After successfully building, it will install binary files in the directory `output/`.
 
 ## 5. Reporting Issues
 
@@ -125,3 +129,4 @@ If you find any bugs, please file a [GitHub issue](https://github.com/apache/inc
 * Deploy and Upgrade - <https://github.com/apache/incubator-doris/wiki/Doris-Deploy-%26-Upgrade>
 * User Manual - <https://github.com/apache/incubator-doris/wiki/Doris-Create%2C-Load-and-Delete>
 * FAQs - <https://github.com/apache/incubator-doris/wiki/Doris-FAQ>
+

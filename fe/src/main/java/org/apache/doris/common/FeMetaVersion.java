@@ -101,5 +101,10 @@ public final class FeMetaVersion {
     // colocate join
     public static final int VERSION_46 = 46;
 
+    // UDF
+    public static final int VERSION_47 = 47;
     // TODO(ml):VERSION_ROUTINE_LOAD add extra in transaction state for routine load
+
+    // replica schema hash
+    public static final int VERSION_48 = 48;
 }

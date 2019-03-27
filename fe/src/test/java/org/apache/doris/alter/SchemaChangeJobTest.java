@@ -18,7 +18,6 @@
 package org.apache.doris.alter;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNull;
 
 import org.apache.doris.alter.AlterJob.JobState;
 import org.apache.doris.analysis.AccessTestUtil;
@@ -201,20 +200,19 @@ public class SchemaChangeJobTest {
         // commit a transaction, backend 2 has errors
         TabletCommitInfo tabletCommitInfo1 = new TabletCommitInfo(CatalogTestUtil.testTabletId1,
                 CatalogTestUtil.testBackendId1);
-        // TabletCommitInfo tabletCommitInfo2 = new
-        // TabletCommitInfo(CatalogTestUtil.testTabletId1,
-        // CatalogTestUtil.testBackendId2);
+        TabletCommitInfo tabletCommitInfo2 = new TabletCommitInfo(CatalogTestUtil.testTabletId1,
+                CatalogTestUtil.testBackendId2);
         TabletCommitInfo tabletCommitInfo3 = new TabletCommitInfo(CatalogTestUtil.testTabletId1,
                 CatalogTestUtil.testBackendId3);
         List<TabletCommitInfo> transTablets = Lists.newArrayList();
         transTablets.add(tabletCommitInfo1);
-        // transTablets.add(tabletCommitInfo2);
+        transTablets.add(tabletCommitInfo2);
         transTablets.add(tabletCommitInfo3);
         masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, transactionId, transTablets);
         TransactionState transactionState = fakeEditLog.getTransaction(transactionId);
         assertEquals(TransactionStatus.COMMITTED, transactionState.getTransactionStatus());
         Set<Long> errorReplicaIds = Sets.newHashSet();
-        errorReplicaIds.add(CatalogTestUtil.testReplicaId2);
+        // errorReplicaIds.add(CatalogTestUtil.testReplicaId2);
         masterTransMgr.finishTransaction(transactionId, errorReplicaIds);
         transactionState = fakeEditLog.getTransaction(transactionId);
         assertEquals(TransactionStatus.VISIBLE, transactionState.getTransactionStatus());
@@ -240,17 +238,17 @@ public class SchemaChangeJobTest {
         assertEquals(3, baseTablet.getReplicas().size());
 
         assertEquals(ReplicaState.SCHEMA_CHANGE, replica1.getState());
-        assertEquals(ReplicaState.NORMAL, replica2.getState());
+        assertEquals(ReplicaState.SCHEMA_CHANGE, replica2.getState());
         assertEquals(ReplicaState.SCHEMA_CHANGE, replica3.getState());
 
         assertEquals(CatalogTestUtil.testStartVersion + 1, replica1.getVersion());
-        assertEquals(CatalogTestUtil.testStartVersion, replica2.getVersion());
+        assertEquals(CatalogTestUtil.testStartVersion + 1, replica2.getVersion());
         assertEquals(CatalogTestUtil.testStartVersion + 1, replica3.getVersion());
         assertEquals(-1, replica1.getLastFailedVersion());
-        assertEquals(CatalogTestUtil.testStartVersion + 1, replica2.getLastFailedVersion());
+        assertEquals(-1, replica2.getLastFailedVersion());
         assertEquals(-1, replica3.getLastFailedVersion());
         assertEquals(CatalogTestUtil.testStartVersion + 1, replica1.getLastSuccessVersion());
-        assertEquals(CatalogTestUtil.testStartVersion, replica2.getLastSuccessVersion());
+        assertEquals(CatalogTestUtil.testStartVersion + 1, replica2.getLastSuccessVersion());
         assertEquals(CatalogTestUtil.testStartVersion + 1, replica3.getLastSuccessVersion());
 
         // schemachange handler run one cycle, agent task is generated and send tasks
@@ -258,13 +256,13 @@ public class SchemaChangeJobTest {
         AgentTask task1 = AgentTaskQueue.getTask(replica1.getBackendId(), TTaskType.SCHEMA_CHANGE, baseTablet.getId());
         AgentTask task2 = AgentTaskQueue.getTask(replica2.getBackendId(), TTaskType.SCHEMA_CHANGE, baseTablet.getId());
         AgentTask task3 = AgentTaskQueue.getTask(replica3.getBackendId(), TTaskType.SCHEMA_CHANGE, baseTablet.getId());
-        assertNull(task2);
 
         // be report finish schema change success, report the new schema hash
         TTabletInfo tTabletInfo = new TTabletInfo(baseTablet.getId(),
                 schemaChangeJob.getSchemaHashByIndexId(CatalogTestUtil.testIndexId1), CatalogTestUtil.testStartVersion,
                 CatalogTestUtil.testStartVersionHash, 0, 0);
         schemaChangeHandler.handleFinishedReplica(task1, tTabletInfo, -1);
+        schemaChangeHandler.handleFinishedReplica(task2, tTabletInfo, -1);
         schemaChangeHandler.handleFinishedReplica(task3, tTabletInfo, -1);
 
         // rollup hander run one cycle again, the rollup job is finishing

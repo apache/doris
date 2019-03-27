@@ -17,8 +17,11 @@
 
 package org.apache.doris.clone;
 
+import org.apache.doris.catalog.DiskInfo.DiskState;
+import org.apache.doris.clone.BackendLoadStatistic.Classification;
 import org.apache.doris.clone.BalanceStatus.ErrCode;
 import org.apache.doris.common.Config;
+import org.apache.doris.thrift.TStorageMedium;
 
 public class RootPathLoadStatistic implements Comparable<RootPathLoadStatistic> {
     // Even if for tablet recovery, we can not exceed these 2 limitations.
@@ -27,16 +30,23 @@ public class RootPathLoadStatistic implements Comparable<RootPathLoadStatistic> 
 
     private long beId;
     private String path;
+    private Long pathHash;
+    private TStorageMedium storageMedium;
     private long capacityB;
     private long usedCapacityB;
+    private DiskState diskState;
 
-    private boolean hasTask = false;
+    private Classification clazz = Classification.INIT;
 
-    public RootPathLoadStatistic(long beId, String path, long capacityB, long usedCapacityB) {
+    public RootPathLoadStatistic(long beId, String path, Long pathHash, TStorageMedium storageMedium,
+            long capacityB, long usedCapacityB, DiskState diskState) {
         this.beId = beId;
         this.path = path;
+        this.pathHash = pathHash;
+        this.storageMedium = storageMedium;
         this.capacityB = capacityB <= 0 ? 1 : capacityB;
         this.usedCapacityB = usedCapacityB;
+        this.diskState = diskState;
     }
 
     public long getBeId() {
@@ -47,6 +57,14 @@ public class RootPathLoadStatistic implements Comparable<RootPathLoadStatistic> 
         return path;
     }
 
+    public long getPathHash() {
+        return pathHash;
+    }
+
+    public TStorageMedium getStorageMedium() {
+        return storageMedium;
+    }
+
     public long getCapacityB() {
         return capacityB;
     }
@@ -55,18 +73,31 @@ public class RootPathLoadStatistic implements Comparable<RootPathLoadStatistic> 
         return usedCapacityB;
     }
 
-    public void setHasTask(boolean hasTask) {
-        this.hasTask = hasTask;
+    public double getUsedPercent() {
+        return capacityB <= 0 ? 0.0 : usedCapacityB / (double) capacityB;
     }
 
-    public boolean hasTask() {
-        return hasTask;
+    public void setClazz(Classification clazz) {
+        this.clazz = clazz;
     }
 
-    public BalanceStatus isFit(long tabletSize, boolean isRecovery) {
-        if (isRecovery) {
-            if (usedCapacityB + tabletSize / (double) capacityB > MAX_USAGE_PERCENT_LIMIT
-                    || capacityB - usedCapacityB - tabletSize < MIN_LEFT_CAPACITY_BYTES_LIMIT) {
+    public Classification getClazz() {
+        return clazz;
+    }
+
+    public DiskState getDiskState() {
+        return diskState;
+    }
+
+    public BalanceStatus isFit(long tabletSize, boolean isSupplement) {
+        if (diskState == DiskState.OFFLINE) {
+            return new BalanceStatus(ErrCode.COMMON_ERROR,
+                    toString() + " does not fit tablet with size: " + tabletSize + ", offline");
+        }
+
+        if (isSupplement) {
+            if ((usedCapacityB + tabletSize) / (double) capacityB > MAX_USAGE_PERCENT_LIMIT
+                    && capacityB - usedCapacityB - tabletSize < MIN_LEFT_CAPACITY_BYTES_LIMIT) {
                 return new BalanceStatus(ErrCode.COMMON_ERROR,
                         toString() + " does not fit tablet with size: " + tabletSize + ", limitation reached");
             } else {
@@ -84,8 +115,8 @@ public class RootPathLoadStatistic implements Comparable<RootPathLoadStatistic> 
 
     @Override
     public int compareTo(RootPathLoadStatistic o) {
-        double myPercent = usedCapacityB / (double) capacityB;
-        double otherPercent = o.usedCapacityB / (double) capacityB;
+        double myPercent = getUsedPercent();
+        double otherPercent = o.getUsedPercent();
         if (myPercent < otherPercent) {
             return 1;
         } else if (myPercent > otherPercent) {
@@ -102,5 +133,4 @@ public class RootPathLoadStatistic implements Comparable<RootPathLoadStatistic> 
         sb.append(", used: ").append(usedCapacityB).append(", total: ").append(capacityB);
         return sb.toString();
     }
-
 }

@@ -502,7 +502,7 @@ public class RestoreJob extends AbstractJob {
                                                 + " in table " + localTbl.getName()
                                                 + " has different replication num '"
                                                 + localRangePartInfo.getReplicationNum(localPartition.getId())
-                                                + "' with parition in repository");
+                                                + "' with parition in repository, which is " + restoreReplicationNum);
                                         return;
                                     }
                                     genFileMapping(localOlapTbl, localPartition, tblInfo.id, backupPartInfo,
@@ -524,7 +524,7 @@ public class RestoreJob extends AbstractJob {
                                             + " in table " + localTbl.getName()
                                             + " has different replication num '"
                                             + localPartInfo.getReplicationNum(localPartition.getId())
-                                            + "' with parition in repository");
+                                            + "' with parition in repository, which is " + restoreReplicationNum);
                                     return;
                                 }
 
@@ -615,13 +615,13 @@ public class RestoreJob extends AbstractJob {
                     int schemaHash = localTbl.getSchemaHashByIndexId(restoredIdx.getId());
                     KeysType keysType = localTbl.getKeysType();
                     List<Column> columns = localTbl.getSchemaByIndexId(restoredIdx.getId());
+                    TabletMeta tabletMeta = new TabletMeta(db.getId(), localTbl.getId(), restorePart.getId(),
+                            restoredIdx.getId(), schemaHash, TStorageMedium.HDD);
                     for (Tablet restoreTablet : restoredIdx.getTablets()) {
-                        TabletMeta tabletMeta = new TabletMeta(db.getId(), localTbl.getId(),
-                                restorePart.getId(), restoredIdx.getId(), schemaHash);
                         Catalog.getCurrentInvertedIndex().addTablet(restoreTablet.getId(), tabletMeta);
                         for (Replica restoreReplica : restoreTablet.getReplicas()) {
                             Catalog.getCurrentInvertedIndex().addReplica(restoreTablet.getId(), restoreReplica);
-                            CreateReplicaTask task = new CreateReplicaTask(restoreReplica.getBackendId(), schemaHash,
+                            CreateReplicaTask task = new CreateReplicaTask(restoreReplica.getBackendId(), dbId,
                                     localTbl.getId(), restorePart.getId(), restoredIdx.getId(),
                                     restoreTablet.getId(), shortKeyColumnCount,
                                     schemaHash, restoreReplica.getVersion(), restoreReplica.getVersionHash(),
@@ -640,9 +640,7 @@ public class RestoreJob extends AbstractJob {
 
             // generate create replica task for all restored tables
             for (OlapTable restoreTbl : restoredTbls) {
-                PartitionInfo partInfo = restoreTbl.getPartitionInfo();
                 for (Partition restorePart : restoreTbl.getPartitions()) {
-                    TStorageMedium storageMedium = partInfo.getDataProperty(restorePart.getId()).getStorageMedium();
                     Set<String> bfColumns = restoreTbl.getCopiedBfColumns();
                     double bfFpp = restoreTbl.getBfFpp();
                     for (MaterializedIndex index : restorePart.getMaterializedIndices()) {
@@ -650,16 +648,16 @@ public class RestoreJob extends AbstractJob {
                         int schemaHash = restoreTbl.getSchemaHashByIndexId(index.getId());
                         KeysType keysType = restoreTbl.getKeysType();
                         List<Column> columns = restoreTbl.getSchemaByIndexId(index.getId());
+                        TabletMeta tabletMeta = new TabletMeta(db.getId(), restoreTbl.getId(), restorePart.getId(),
+                                index.getId(), schemaHash, TStorageMedium.HDD);
                         for (Tablet tablet : index.getTablets()) {
-                            TabletMeta tabletMeta = new TabletMeta(db.getId(), restoreTbl.getId(),
-                                    restorePart.getId(), index.getId(), schemaHash);
                             Catalog.getCurrentInvertedIndex().addTablet(tablet.getId(), tabletMeta);
                             for (Replica replica : tablet.getReplicas()) {
                                 Catalog.getCurrentInvertedIndex().addReplica(tablet.getId(), replica);
-                                CreateReplicaTask task = new CreateReplicaTask(replica.getBackendId(), schemaHash,
+                                CreateReplicaTask task = new CreateReplicaTask(replica.getBackendId(), dbId,
                                         restoreTbl.getId(), restorePart.getId(), index.getId(), tablet.getId(),
                                         shortKeyColumnCount, schemaHash, replica.getVersion(), replica.getVersionHash(),
-                                        keysType, TStorageType.COLUMN, storageMedium, columns,
+                                        keysType, TStorageType.COLUMN, TStorageMedium.HDD, columns,
                                         bfColumns, bfFpp, null);
                                 task.setInRestoreMode(true);
                                 batchTask.addTask(task);
@@ -723,7 +721,7 @@ public class RestoreJob extends AbstractJob {
                         Range<PartitionKey> remoteRange = remotePartitionInfo.getRange(remotePartId);
                         DataProperty remoteDataProperty = remotePartitionInfo.getDataProperty(remotePartId);
                         localPartitionInfo.addPartition(restoredPart.getId(), remoteRange,
-                                                                  remoteDataProperty, (short) restoreReplicationNum);
+                                remoteDataProperty, (short) restoreReplicationNum);
                         localTbl.addPartition(restoredPart);
                     }
 
@@ -829,6 +827,7 @@ public class RestoreJob extends AbstractJob {
 
         // tablets
         for (MaterializedIndex remoteIdx : remotePart.getMaterializedIndices()) {
+            int schemaHash = remoteTbl.getSchemaHashByIndexId(remoteIdx.getId());
             int remotetabletSize = remoteIdx.getTablets().size();
             remoteIdx.clearTabletsForRestore();
             for (int i = 0; i < remotetabletSize; i++) {
@@ -850,7 +849,7 @@ public class RestoreJob extends AbstractJob {
                 for (Long beId : beIds) {
                     long newReplicaId = catalog.getNextId();
                     Replica newReplica = new Replica(newReplicaId, beId, ReplicaState.NORMAL,
-                            visibleVersion, visibleVersionHash);
+                            visibleVersion, visibleVersionHash, schemaHash);
                     newTablet.addReplica(newReplica, true /* is restore */);
                 }
             }
@@ -920,15 +919,15 @@ public class RestoreJob extends AbstractJob {
                 Range<PartitionKey> remoteRange = remotePartitionInfo.getRange(remotePartId);
                 DataProperty remoteDataProperty = remotePartitionInfo.getDataProperty(remotePartId);
                 localPartitionInfo.addPartition(restorePart.getId(), remoteRange,
-                                                          remoteDataProperty, (short) restoreReplicationNum);
+                        remoteDataProperty, (short) restoreReplicationNum);
                 localTbl.addPartition(restorePart);
 
                 // modify tablet inverted index
                 for (MaterializedIndex restoreIdx : restorePart.getMaterializedIndices()) {
                     int schemaHash = localTbl.getSchemaHashByIndexId(restoreIdx.getId());
+                    TabletMeta tabletMeta = new TabletMeta(db.getId(), localTbl.getId(), restorePart.getId(),
+                            restoreIdx.getId(), schemaHash, TStorageMedium.HDD);
                     for (Tablet restoreTablet : restoreIdx.getTablets()) {
-                        TabletMeta tabletMeta = new TabletMeta(db.getId(), localTbl.getId(),
-                                restorePart.getId(), restoreIdx.getId(), schemaHash);
                         Catalog.getCurrentInvertedIndex().addTablet(restoreTablet.getId(), tabletMeta);
                         for (Replica restoreReplica : restoreTablet.getReplicas()) {
                             Catalog.getCurrentInvertedIndex().addReplica(restoreTablet.getId(), restoreReplica);
@@ -944,9 +943,9 @@ public class RestoreJob extends AbstractJob {
                 for (Partition restorePart : restoreTbl.getPartitions()) {
                     for (MaterializedIndex restoreIdx : restorePart.getMaterializedIndices()) {
                         int schemaHash = restoreTbl.getSchemaHashByIndexId(restoreIdx.getId());
+                        TabletMeta tabletMeta = new TabletMeta(db.getId(), restoreTbl.getId(), restorePart.getId(),
+                                restoreIdx.getId(), schemaHash, TStorageMedium.HDD);
                         for (Tablet restoreTablet : restoreIdx.getTablets()) {
-                            TabletMeta tabletMeta = new TabletMeta(db.getId(), restoreTbl.getId(),
-                                    restorePart.getId(), restoreIdx.getId(), schemaHash);
                             Catalog.getCurrentInvertedIndex().addTablet(restoreTablet.getId(), tabletMeta);
                             for (Replica restoreReplica : restoreTablet.getReplicas()) {
                                 Catalog.getCurrentInvertedIndex().addReplica(restoreTablet.getId(), restoreReplica);
@@ -1115,7 +1114,7 @@ public class RestoreJob extends AbstractJob {
 
         state = RestoreJobState.DOWNLOADING;
 
-        // No log here
+        // No edit log here
         LOG.info("finished to send download tasks to BE. num: {}. {}", batchTask.getTaskNum(), this);
         return;
     }
@@ -1204,8 +1203,8 @@ public class RestoreJob extends AbstractJob {
                         continue;
                     }
 
-                    // update partition committed version
-                    part.updateVisibleVersionAndVersionHash(entry.getValue().first, entry.getValue().second);
+                    // update partition visible version
+                    part.updateVersionForRestore(entry.getValue().first, entry.getValue().second);
 
                     // we also need to update the replica version of these overwritten restored partitions
                     for (MaterializedIndex idx : part.getMaterializedIndices()) {

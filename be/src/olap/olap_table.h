@@ -176,12 +176,15 @@ public:
 
     bool has_pending_data(int64_t transaction_id);
 
+    bool has_pending_data();
+
     void delete_pending_data(int64_t transaction_id);
 
     // check the pending data that still not publish version
     void get_expire_pending_data(std::vector<int64_t>* transaction_ids);
 
-    void delete_expire_incremental_data();
+    bool has_expired_incremental_data();
+    void delete_expired_incremental_data();
 
     // don't need header lock, because it occurs before loading tablet
     void load_pending_data();
@@ -261,6 +264,18 @@ public:
 
     RWMutex* get_header_lock_ptr() {
         return &_header_lock;
+    }
+    
+    OLAPStatus try_migration_rdlock() {
+        return _migration_lock.tryrdlock();
+    }
+    
+    OLAPStatus try_migration_wrlock() {
+        return _migration_lock.trywrlock();
+    }
+    
+    void release_migration_lock() {
+        _migration_lock.unlock();
     }
 
     // Prevent push operations execute concurrently.
@@ -528,19 +543,7 @@ public:
     }
 
     bool is_delete_data_version(Version version) {
-        if (version.first != version.second) {
-            return false;
-        }
-
-        google::protobuf::RepeatedPtrField<DeleteConditionMessage>::const_iterator it;
-        it = _header->delete_data_conditions().begin();
-        for (; it != _header->delete_data_conditions().end(); ++it) {
-            if (it->version() == version.first) {
-                return true;
-            }
-        }
-
-        return false;
+        return _header->is_delete_data_version(version);
     }
 
     bool is_load_delete_version(Version version);
@@ -562,6 +565,7 @@ public:
 
     // 在使用之前对header加锁
     void set_cumulative_layer_point(const int32_t new_point) {
+        LOG(INFO) << "cumulative_layer_point: " << new_point;
         _header->set_cumulative_layer_point(new_point);
     }
 
@@ -687,6 +691,8 @@ private:
     void _list_files_with_suffix(const std::string& file_suffix,
                                  std::set<std::string>* file_names) const;
 
+    OLAPStatus _publish_version(int64_t transaction_id, Version version, VersionHash version_hash);
+
     // 获取最大的index（只看大小）
     SegmentGroup* _get_largest_index();
 
@@ -700,7 +706,8 @@ private:
     OLAPStatus _add_incremental_data(std::vector<SegmentGroup*>& index_vec, int64_t transaction_id,
                                      const Version& version, const VersionHash& version_hash);
 
-    void _delete_incremental_data(const Version& version, const VersionHash& version_hash);
+    void _delete_incremental_data(const Version& version, const VersionHash& version_hash,
+                                  std::vector<std::string>* files_to_remove);
 
     OLAPStatus _create_hard_link(const std::string& from, const std::string& to,
                                  std::vector<std::string>* linked_success_files);
@@ -733,7 +740,8 @@ private:
     // A series of status
     SchemaChangeStatus _schema_change_status;
     // related locks to ensure that commands are executed correctly.
-    RWMutex _header_lock;
+    RWMutex _header_lock;    
+    RWMutex _migration_lock;
     Mutex _push_lock;
     Mutex _cumulative_lock;
     Mutex _base_compaction_lock;

@@ -36,6 +36,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+/*
+ * TabletStatMgr is for collecting tablet(replica) statistics from backends.
+ * Each FE will collect by itself.
+ */
 public class TabletStatMgr extends Daemon {
     private static final Logger LOG = LogManager.getLogger(TabletStatMgr.class);
 
@@ -80,7 +84,6 @@ public class TabletStatMgr extends Daemon {
                 TTabletStatResult result = client.get_tablet_stat();
 
                 LOG.info("get tablet stat from backend: {}, num: {}", backend.getId(), result.getTablets_statsSize());
-                // LOG.debug("get tablet stat from backend: {}, stat: {}", backend.getId(), result.getTablets_stats());
                 updateTabletStat(backend.getId(), result);
 
                 ok = true;

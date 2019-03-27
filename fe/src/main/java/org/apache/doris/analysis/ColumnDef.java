@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.base.Preconditions;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
@@ -25,6 +24,9 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeNameFormat;
+
+import com.google.common.base.Preconditions;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -81,10 +83,28 @@ public class ColumnDef {
             throw new AnalysisException("No column name or column type in column definition.");
         }
         FeNameFormat.checkColumnName(name);
+
+        // When string type length is not assigned, it need to be assigned to 1.
+        if (typeDef.getType().isScalarType()) {
+            final ScalarType targetType = (ScalarType) typeDef.getType();
+            if (targetType.getPrimitiveType().isStringType()
+                    && !targetType.isAssignedStrLenInColDefinition()) {
+                targetType.setLength(1);
+            }
+        }
+
         typeDef.analyze(null);
 
         Type type = typeDef.getType();
+
+        // A column is a key column if and only if isKey is true.
+        // aggregateType == null does not mean that this is a key column,
+        // because when creating a UNIQUE KEY table, aggregateType is implicit.
         if (aggregateType != null) {
+            if (isKey) {
+                throw new AnalysisException("Key column can not set aggregation type: " + name);
+            }
+
             // check if aggregate type is valid
             if (!aggregateType.checkCompatibility(type.getPrimitiveType())) {
                 throw new AnalysisException(String.format("Aggregate type %s is not compatible with primitive type %s",
@@ -138,6 +158,7 @@ public class ColumnDef {
                 FloatLiteral doubleLiteral = new FloatLiteral(defaultValue);
                 break;
             case DECIMAL:
+            case DECIMALV2:
                 DecimalLiteral decimalLiteral = new DecimalLiteral(defaultValue);
                 decimalLiteral.checkPrecisionAndScale(scalarType.getScalarPrecision(), scalarType.getScalarScale());
                 break;

@@ -19,7 +19,7 @@
 #include "exec/sort_exec_exprs.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
-// #include "runtime/sorted_run_merger.h"
+#include "util/runtime_profile.h"
 
 namespace doris {
 

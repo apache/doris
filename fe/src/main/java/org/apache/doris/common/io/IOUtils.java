@@ -17,8 +17,11 @@
 
 package org.apache.doris.common.io;
 
+import com.google.common.base.Strings;
 import org.apache.logging.log4j.Logger;
 
+import java.io.DataInput;
+import java.io.DataOutput;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -249,5 +252,19 @@ public class IOUtils {
             } catch (IOException ignored) {
             }
         }
+    }
+
+    public static void writeOptionString(DataOutput output, String value) throws IOException {
+        boolean hasValue = !Strings.isNullOrEmpty(value);
+        output.writeBoolean(hasValue);
+        if (hasValue) {
+            Text.writeString(output, value);
+        }
+    }
+    public static String readOptionStringOrNull(DataInput input) throws IOException {
+        if (input.readBoolean()) {
+            return Text.readString(input);
+        }
+        return null;
     }
 }

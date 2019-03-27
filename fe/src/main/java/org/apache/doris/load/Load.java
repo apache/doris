@@ -28,6 +28,8 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.Predicate;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.backup.BlobStorage;
+import org.apache.doris.backup.Status;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -37,6 +39,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Partition.PartitionState;
+import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
@@ -53,6 +56,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.FeNameFormat;
+import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Pair;
@@ -143,7 +147,7 @@ public class Load {
     private Set<Long> partitionUnderDelete; // save partitions which are running delete jobs
     private Map<Long, AsyncDeleteJob> idToQuorumFinishedDeleteJob;
 
-    private volatile LoadErrorHub.Param loadErrorHubInfo = new LoadErrorHub.Param();
+    private volatile LoadErrorHub.Param loadErrorHubParam = new LoadErrorHub.Param();
 
     // lock for load job
     // lock is private and must use after db lock
@@ -230,7 +234,9 @@ public class Load {
         lock.writeLock().unlock();
     }
 
-    public void addLoadJob(TMiniLoadRequest request) throws DdlException {
+    // return true if we truly add the load job
+    // return false otherwise (eg: a retry request)
+    public boolean addLoadJob(TMiniLoadRequest request) throws DdlException {
         // get params
         String fullDbName = request.getDb();
         String tableName = request.getTbl();
@@ -277,6 +283,9 @@ public class Load {
 
             String columnSeparatorStr = params.get(LoadStmt.KEY_IN_PARAM_COLUMN_SEPARATOR);
             if (columnSeparatorStr != null) {
+                if (columnSeparatorStr.isEmpty()) {
+                    columnSeparatorStr = "\t";
+                }
                 columnSeparator = new ColumnSeparator(columnSeparatorStr);
                 try {
                     columnSeparator.analyze();
@@ -327,11 +336,12 @@ public class Load {
 
         // try to register mini label
         if (!registerMiniLabel(fullDbName, label, timestamp)) {
-            throw new DdlException("Same data label[" + label + "] already used");
+            return false;
         }
 
         try {
             addLoadJob(stmt, EtlJobType.MINI, timestamp);
+            return true;
         } finally {
             deregisterMiniLabel(fullDbName, label);
         }
@@ -418,7 +428,7 @@ public class Load {
                 if (tbl != null && tbl.getType() == TableType.OLAP
                         && ((OlapTable) tbl).getState() == OlapTableState.RESTORE) {
                     throw new DdlException("Table " + tbl.getName() + " is in restore process. "
-                                                   + "Can not load into it");
+                            + "Can not load into it");
                 }
             }
         } finally {
@@ -623,6 +633,10 @@ public class Load {
             }
         } else if (etlJobType == EtlJobType.INSERT) {
             job.setPrority(TPriority.HIGH);
+            if (job.getTimeoutSecond() == 0) {
+                // set default timeout
+                job.setTimeoutSecond(Config.insert_load_default_timeout_second);
+            }
         }
 
         // job id
@@ -831,9 +845,7 @@ public class Load {
                 checkMini = false;
             }
 
-            if (isLabelUsed(dbId, label, -1, checkMini)) {
-                throw new DdlException("Same data label[" + label + "] already used");
-            }
+            isLabelUsed(dbId, label, -1, checkMini);
 
             // add job
             Map<String, List<LoadJob>> labelToLoadJobs = null;
@@ -952,8 +964,9 @@ public class Load {
         }
     }
 
-    public boolean registerMiniLabel(
-            String fullDbName, String label, long timestamp) throws DdlException {
+    // return true if we truly register a mini load label
+    // return false otherwise (eg: a retry request)
+    public boolean registerMiniLabel(String fullDbName, String label, long timestamp) throws DdlException {
         Database db = Catalog.getInstance().getDb(fullDbName);
         if (db == null) {
             throw new DdlException("Db does not exist. name: " + fullDbName);
@@ -962,7 +975,9 @@ public class Load {
         long dbId = db.getId();
         writeLock();
         try {
-            if (isLabelUsed(dbId, label, -1, true)) {
+            if (isLabelUsed(dbId, label, timestamp, true)) {
+                // label is used and this is a retry request.
+                // no need to do further operation, just return.
                 return false;
             }
 
@@ -974,11 +989,11 @@ public class Load {
                 dbToMiniLabels.put(dbId, miniLabels);
             }
             miniLabels.put(label, timestamp);
+
+            return true;
         } finally {
             writeUnlock();
         }
-
-        return true;
     }
 
     public void deregisterMiniLabel(String fullDbName, String label) throws DdlException {
@@ -1004,34 +1019,16 @@ public class Load {
         }
     }
 
-    public boolean isLabelUsed(String fullDbName, String label, long timestamp) throws DdlException {
-        Database db = Catalog.getInstance().getDb(fullDbName);
-        if (db == null) {
-            throw new DdlException("Db does not exist. name: " + fullDbName);
-        }
-
-        readLock();
-        try {
-            return isLabelUsed(db.getId(), label, timestamp, true);
-        } finally {
-            readUnlock();
-        }
-    }
-
     /*
-     * if timestamp does not equals to -1, this is a retry request:
-     * 1. if label has been used, and job's timestamp equals to the given one, return true.
-     * 2. if label has been used, but timestamp is not equal, return false. The caller will finally call
-     *    this method again will timestamp == -1, and return if label has been used or not.
-     * 3. if label does not exist, just return false, as usual.
-     * 
-     * if timestamp equals to -1, return true if label has been used, otherwise, return false. 
-     * 
-     * throw DdlException if encounter other exception.
+     * 1. if label is already used, and this is not a retry request,
+     *    throw exception ("Label already used")
+     * 2. if label is already used, but this is a retry request,
+     *    return true
+     * 3. if label is not used, return false
+     * 4. throw exception if encounter error.
      */
     private boolean isLabelUsed(long dbId, String label, long timestamp, boolean checkMini)
             throws DdlException {
-
         // check dbLabelToLoadJobs
         if (dbLabelToLoadJobs.containsKey(dbId)) {
             Map<String, List<LoadJob>> labelToLoadJobs = dbLabelToLoadJobs.get(dbId);
@@ -1041,15 +1038,18 @@ public class Load {
                     JobState oldJobState = oldJob.getState();
                     if (oldJobState != JobState.CANCELLED) {
                         if (timestamp == -1) {
-                            return true;
+                            // timestamp == -1 is for compatibility
+                            throw new LabelAlreadyUsedException(label);
                         } else {
                             if (timestamp == oldJob.getTimestamp()) {
                                 // this timestamp is used to verify if this label check is a retry request from backend.
                                 // if the timestamp in request is same as timestamp in existing load job,
                                 // which means this load job is already submitted
+                                LOG.info("get a retry request with label: {}, timestamp: {}. return ok",
+                                        label, timestamp);
                                 return true;
                             } else {
-                                return false;
+                                throw new LabelAlreadyUsedException(label);
                             }
                         }
                     }
@@ -1063,15 +1063,17 @@ public class Load {
                 Map<String, Long> uncommittedLabels = dbToMiniLabels.get(dbId);
                 if (uncommittedLabels.containsKey(label)) {
                     if (timestamp == -1) {
-                        return true;
+                        throw new LabelAlreadyUsedException(label);
                     } else {
                         if (timestamp == uncommittedLabels.get(label)) {
                             // this timestamp is used to verify if this label check is a retry request from backend.
                             // if the timestamp in request is same as timestamp in existing load job,
                             // which means this load job is already submitted
+                            LOG.info("get a retry mini load request with label: {}, timestamp: {}. return ok",
+                                    label, timestamp);
                             return true;
                         } else {
-                            return false;
+                            throw new LabelAlreadyUsedException(label);
                         }
                     }
                 }
@@ -1465,6 +1467,9 @@ public class Load {
                         break;
                 }
 
+                // type
+                jobInfo.add(loadJob.getEtlJobType().name());
+
                 // etl info
                 EtlStatus status = loadJob.getEtlJobStatus();
                 if (status == null || status.getState() == TEtlState.CANCELLED) {
@@ -1537,8 +1542,8 @@ public class Load {
     public long getLatestJobIdByLabel(long dbId, String labelValue) {
         LoadJob job = null;
         long jobId = 0;
+        readLock();
         try {
-            readLock();
             List<LoadJob> loadJobs = this.dbToLoadJobs.get(dbId);
             if (loadJobs == null) {
                 return 0;
@@ -1570,21 +1575,22 @@ public class Load {
     public List<List<Comparable>> getLoadJobUnfinishedInfo(long jobId) {
         LinkedList<List<Comparable>> infos = new LinkedList<List<Comparable>>();
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
-        readLock();
+
+        LoadJob loadJob = getLoadJob(jobId);
+        if (loadJob == null
+                || (loadJob.getState() != JobState.LOADING && loadJob.getState() != JobState.QUORUM_FINISHED)) {
+            return infos;
+        }
+
+        long dbId = loadJob.getDbId();
+        Database db = Catalog.getInstance().getDb(dbId);
+        if (db == null) {
+            return infos;
+        }
+
+        db.readLock();
         try {
-            LoadJob loadJob = getLoadJob(jobId);
-            if (loadJob == null
-                    || (loadJob.getState() != JobState.LOADING && loadJob.getState() != JobState.QUORUM_FINISHED)) {
-                return infos;
-            }
-
-            long dbId = loadJob.getDbId();
-            Database db = Catalog.getInstance().getDb(dbId);
-            if (db == null) {
-                return infos;
-            }
-
-            db.readLock();
+            readLock();
             try {
                 Map<Long, TabletLoadInfo> tabletMap = loadJob.getIdToTabletLoadInfo();
                 for (long tabletId : tabletMap.keySet()) {
@@ -1642,11 +1648,10 @@ public class Load {
                 } // end for tablet
 
             } finally {
-                db.readUnlock();
+                readUnlock();
             }
-
         } finally {
-            readUnlock();
+            db.readUnlock();
         }
 
         // sort by version, backendId
@@ -1657,23 +1662,80 @@ public class Load {
     }
 
     public LoadErrorHub.Param getLoadErrorHubInfo() {
-        return loadErrorHubInfo;
+        return loadErrorHubParam;
     }
 
     public void setLoadErrorHubInfo(LoadErrorHub.Param info) {
-        this.loadErrorHubInfo = info;
+        this.loadErrorHubParam = info;
     }
 
-    // Note: althrough this.loadErrorHubInfo is volatile, no need to lock.
-    //       but editlog need be locked
-    public void changeLoadErrorHubInfo(LoadErrorHub.Param info) {
-        writeLock();
-        try {
-            this.loadErrorHubInfo = info;
-            Catalog.getInstance().getEditLog().logSetLoadErrorHub(info);
-        } finally {
-            writeUnlock();
+    public void setLoadErrorHubInfo(Map<String, String> properties) throws DdlException {
+        String type = properties.get("type");
+        if (type.equalsIgnoreCase("MYSQL")) {
+            String host = properties.get("host");
+            if (Strings.isNullOrEmpty(host)) {
+                throw new DdlException("mysql host is missing");
+            }
+            
+            int port = -1;
+            try {
+                port = Integer.valueOf(properties.get("port"));
+            } catch (NumberFormatException e) {
+                throw new DdlException("invalid mysql port: " + properties.get("port"));
+            }
+            
+            String user = properties.get("user");
+            if (Strings.isNullOrEmpty(user)) {
+                throw new DdlException("mysql user name is missing");
+            }
+            
+            String db = properties.get("database");
+            if (Strings.isNullOrEmpty(db)) {
+                throw new DdlException("mysql database is missing");
+            }
+            
+            String tbl = properties.get("table");
+            if (Strings.isNullOrEmpty(tbl)) {
+                throw new DdlException("mysql table is missing");
+            }
+            
+            String pwd = Strings.nullToEmpty(properties.get("password"));
+
+            MysqlLoadErrorHub.MysqlParam param = new MysqlLoadErrorHub.MysqlParam(host, port, user, pwd, db, tbl);
+            loadErrorHubParam = LoadErrorHub.Param.createMysqlParam(param);
+        } else if (type.equalsIgnoreCase("BROKER")) {
+            String brokerName = properties.get("name");
+            if (Strings.isNullOrEmpty(brokerName)) {
+                throw new DdlException("broker name is missing");
+            }
+            properties.remove("name");
+
+            if (!Catalog.getCurrentCatalog().getBrokerMgr().contaisnBroker(brokerName)) {
+                throw new DdlException("broker does not exist: " + brokerName);
+            }
+
+            String path = properties.get("path");
+            if (Strings.isNullOrEmpty(path)) {
+                throw new DdlException("broker path is missing");
+            }
+            properties.remove("path");
+
+            // check if broker info is invalid
+            BlobStorage blobStorage = new BlobStorage(brokerName, properties);
+            Status st = blobStorage.checkPathExist(path);
+            if (!st.ok()) {
+                throw new DdlException("failed to visit path: " + path + ", err: " + st.getErrMsg());
+            }
+            
+            BrokerLoadErrorHub.BrokerParam param = new BrokerLoadErrorHub.BrokerParam(brokerName, path, properties);
+            loadErrorHubParam = LoadErrorHub.Param.createBrokerParam(param);
+        } else if (type.equalsIgnoreCase("null")) {
+            loadErrorHubParam = LoadErrorHub.Param.createNullParam();
         }
+        
+        Catalog.getInstance().getEditLog().logSetLoadErrorHub(loadErrorHubParam);
+        
+        LOG.info("set load error hub info: {}", loadErrorHubParam);
     }
 
     public static class JobInfo {
@@ -2949,12 +3011,12 @@ public class Load {
         }
     }
 
-    private void checkAndAddRunningSyncDeleteJob(long partitionId, String partitionName) throws DdlException {
+    private boolean checkAndAddRunningSyncDeleteJob(long partitionId, String partitionName) throws DdlException {
         // check if there are synchronized delete job under going
         writeLock();
         try {
             checkHasRunningSyncDeleteJob(partitionId, partitionName);
-            partitionUnderDelete.add(partitionId);
+            return partitionUnderDelete.add(partitionId);
         } finally {
             writeUnlock();
         }
@@ -3014,6 +3076,7 @@ public class Load {
         long tableId = -1;
         long partitionId = -1;
         LoadJob loadDeleteJob = null;
+        boolean addRunningPartition = false;
         db.readLock();
         try {
             Table table = db.getTable(tableName);
@@ -3031,6 +3094,16 @@ public class Load {
             }
 
             tableId = olapTable.getId();
+            if (partitionName == null) {
+                if (olapTable.getPartitionInfo().getType() == PartitionType.RANGE) {
+                    throw new DdlException("This is a range partitioned table."
+                            + " You should specify partition in delete stmt");
+                } else {
+                    // this is a unpartitioned table, use table name as partition name
+                    partitionName = olapTable.getName();
+                }
+            }
+            
             Partition partition = olapTable.getPartition(partitionName);
             if (partition == null) {
                 throw new DdlException("Partition does not exist. name: " + partitionName);
@@ -3041,7 +3114,7 @@ public class Load {
             // pre check
             checkDeleteV2(olapTable, partition, conditions,
                           deleteConditions, true);
-            checkAndAddRunningSyncDeleteJob(partitionId, partitionName);
+            addRunningPartition = checkAndAddRunningSyncDeleteJob(partitionId, partitionName);
             // do not use transaction id generator, or the id maybe duplicated
             long jobId = Catalog.getInstance().getNextId();
             String jobLabel = "delete_" + UUID.randomUUID();
@@ -3068,11 +3141,20 @@ public class Load {
             // the delete job will be persist in editLog
             addLoadJob(loadDeleteJob, db);
         } catch (Throwable t) {
-            LOG.debug("error occurred during prepare delete", t);
+            LOG.warn("error occurred during prepare delete", t);
             throw new DdlException(t.getMessage(), t);
         } finally {
+            if (addRunningPartition) {
+                writeLock();
+                try {
+                    partitionUnderDelete.remove(partitionId);
+                } finally {
+                    writeUnlock();
+                }
+            }
             db.readUnlock();
         }
+
         try {
             // TODO  wait loadDeleteJob to finished, using while true? or condition wait
             long startDeleteTime = System.currentTimeMillis();
@@ -3112,6 +3194,7 @@ public class Load {
         }
     }
 
+    @Deprecated
     public void deleteOld(DeleteStmt stmt) throws DdlException {
         String dbName = stmt.getDbName();
         String tableName = stmt.getTableName();
@@ -3264,16 +3347,17 @@ public class Load {
                         for (Replica replica : tablet.getReplicas()) {
                             ReplicaPersistInfo info =
                                     ReplicaPersistInfo.createForCondDelete(indexId,
-                                                                           tabletId,
-                                                                           replica.getId(),
-                                                                           replica.getVersion(),
-                                                                           replica.getVersionHash(),
-                                                                           replica.getDataSize(),
-                                                                           replica.getRowCount(),
-                                                                           replica.getLastFailedVersion(),
-                                                                           replica.getLastFailedVersionHash(),
-                                                                           replica.getLastSuccessVersion(),
-                                                                           replica.getLastSuccessVersionHash());
+                                            tabletId,
+                                            replica.getId(),
+                                            replica.getVersion(),
+                                            replica.getVersionHash(),
+                                            table.getSchemaHashByIndexId(indexId),
+                                            replica.getDataSize(),
+                                            replica.getRowCount(),
+                                            replica.getLastFailedVersion(),
+                                            replica.getLastFailedVersionHash(),
+                                            replica.getLastSuccessVersion(),
+                                            replica.getLastSuccessVersionHash());
                             deleteInfo.addReplicaPersistInfo(info);
                         }
                     }

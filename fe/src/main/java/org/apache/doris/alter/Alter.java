@@ -40,13 +40,11 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
-import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.load.Load;
 
 import com.google.common.base.Preconditions;
 
@@ -102,7 +100,7 @@ public class Alter {
         // check conflict alter ops first
         List<AlterClause> alterClauses = stmt.getOps();
         // check conflict alter ops first                 
-        // if all alterclause is DropPartitionClause, no call checkQuota.
+        // if all alter clauses are DropPartitionClause, no need to call checkQuota.
         boolean allDropPartitionClause = true;
         
         for (AlterClause alterClause : alterClauses) {
@@ -116,6 +114,7 @@ public class Alter {
             // check db quota
             db.checkQuota();
         }
+
         for (AlterClause alterClause : alterClauses) {
             if ((alterClause instanceof AddColumnClause
                     || alterClause instanceof AddColumnsClause
@@ -163,7 +162,7 @@ public class Alter {
             }
 
             if (table.getType() != TableType.OLAP) {
-                throw new DdlException("Donot support alter non-OLAP table[" + tableName + "]");
+                throw new DdlException("Do not support alter non-OLAP table[" + tableName + "]");
             }
 
             OlapTable olapTable = (OlapTable) table;
@@ -173,7 +172,6 @@ public class Alter {
             }
 
             if (olapTable.getState() == OlapTableState.SCHEMA_CHANGE
-                    || olapTable.getState() == OlapTableState.BACKUP
                     || olapTable.getState() == OlapTableState.RESTORE) {
                 throw new DdlException("Table[" + table.getName() + "]'s state[" + olapTable.getState()
                         + "] does not allow doing ALTER ops");
@@ -182,12 +180,16 @@ public class Alter {
                 // ROLLUP: we allow user DROP a rollup index when it's under ROLLUP
             }
             
-            if (!hasPartition) {
-                // partition op include add/drop/modify partition. these ops do not required no loading jobs.
-                // NOTICE: if adding other partition op, may change code path here.
-                Load load = Catalog.getInstance().getLoadInstance();
-                for (Partition partition : olapTable.getPartitions()) {
-                    load.checkHashRunningDeleteJob(partition.getId(), partition.getName());
+            if (hasSchemaChange || hasModifyProp || hasRollup) {
+                // check if all tablets are healthy, and no tablet is in tablet scheduler
+                boolean isStable = olapTable.isStable(Catalog.getCurrentSystemInfo(),
+                        Catalog.getCurrentCatalog().getTabletScheduler(),
+                        db.getClusterName());
+                if (!isStable) {
+                    throw new DdlException("table [" + olapTable.getName() + "] is not stable."
+                            + " Some tablets of this table may not be healthy or are being scheduled."
+                            + " You need to repair the table first"
+                            + " or stop cluster balance. See 'help admin;'.");
                 }
             }
 

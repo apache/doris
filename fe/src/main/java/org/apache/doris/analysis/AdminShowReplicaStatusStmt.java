@@ -20,8 +20,8 @@ package org.apache.doris.analysis;
 import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Replica.ReplicaStatus;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -40,8 +40,8 @@ import java.util.List;
 public class AdminShowReplicaStatusStmt extends ShowStmt {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("TabletId").add("ReplicaId").add("BackendId").add("Version").add("LastFailedVersion")
-            .add("LastSuccessVersion").add("CommittedVersion").add("VersionNum")
-            .add("State").add("Status")
+            .add("LastSuccessVersion").add("CommittedVersion").add("SchemaHash").add("VersionNum")
+            .add("IsBad").add("State").add("Status")
             .build();
 
     private TableRef tblRef;
@@ -83,7 +83,7 @@ public class AdminShowReplicaStatusStmt extends ShowStmt {
 
         if (!analyzeWhere()) {
             throw new AnalysisException(
-                    "Where clause should looks like: status =/!= 'OK/DEAD/VERSION_ERROR/MISSING'");
+                    "Where clause should looks like: status =/!= 'OK/DEAD/VERSION_ERROR/SCHEMA_ERROR/MISSING'");
         }
     }
 

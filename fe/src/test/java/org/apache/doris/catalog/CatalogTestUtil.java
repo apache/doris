@@ -26,6 +26,8 @@ import org.apache.doris.persist.EditLog;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TDisk;
+import org.apache.doris.thrift.TStorageMedium;
+
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -158,11 +160,11 @@ public class CatalogTestUtil {
 
         // replica
         long replicaId = 0;
-        Replica replica1 = new Replica(testReplicaId1, testBackendId1, version, versionHash, 0L, 0L,
+        Replica replica1 = new Replica(testReplicaId1, testBackendId1, version, versionHash, 0, 0L, 0L,
                 ReplicaState.NORMAL, -1, 0, 0, 0);
-        Replica replica2 = new Replica(testReplicaId2, testBackendId2, version, versionHash, 0L, 0L,
+        Replica replica2 = new Replica(testReplicaId2, testBackendId2, version, versionHash, 0, 0L, 0L,
                 ReplicaState.NORMAL, -1, 0, 0, 0);
-        Replica replica3 = new Replica(testReplicaId3, testBackendId3, version, versionHash, 0L, 0L,
+        Replica replica3 = new Replica(testReplicaId3, testBackendId3, version, versionHash, 0, 0L, 0L,
                 ReplicaState.NORMAL, -1, 0, 0, 0);
 
         // tablet
@@ -170,7 +172,7 @@ public class CatalogTestUtil {
 
         // index
         MaterializedIndex index = new MaterializedIndex(indexId, IndexState.NORMAL);
-        TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, 0);
+        TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, 0, TStorageMedium.HDD);
         index.addTablet(tablet, tabletMeta);
 
         tablet.addReplica(replica1);
@@ -279,7 +281,7 @@ public class CatalogTestUtil {
                                                                            .newArrayList("100")),
                                                                    null));
 
-        RangePartitionInfo partitionInfo = new RangePartitionInfo(partitionColumns);
+        SinglePartitionInfo partitionInfo = new SinglePartitionInfo();
         Map<String, String> properties = Maps.newHashMap();
         properties.put(EsTable.HOSTS, "xxx");
         properties.put(EsTable.INDEX, "indexa");

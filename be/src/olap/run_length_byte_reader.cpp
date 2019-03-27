@@ -80,7 +80,7 @@ OLAPStatus RunLengthByteReader::next(char* value) {
         res = _read_values();
         if (OLAP_SUCCESS != res) {
             OLAP_LOG_WARNING("fail to read values.[res = %d]", res);
-            return OLAP_ERR_DATA_EOF;
+            return res;
         }
     }
 

@@ -48,6 +48,7 @@
 #include "service/backend_options.h"
 #include "util/url_coding.h"
 #include "util/file_utils.h"
+#include "util/time.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/load_path_mgr.h"
@@ -93,7 +94,6 @@ const std::string LABEL_KEY = "label";
 const std::string SUB_LABEL_KEY = "sub_label";
 const std::string FILE_PATH_KEY = "file_path";
 const char* k_100_continue = "100-continue";
-const int64_t THRIFT_RPC_TIMEOUT_MS = 3000; // 3 sec
 
 MiniLoadAction::MiniLoadAction(ExecEnv* exec_env) :
         _exec_env(exec_env) {
@@ -155,7 +155,7 @@ Status MiniLoadAction::_load(
     const TNetworkAddress& master_address = _exec_env->master_info()->network_address;
     Status status;
     FrontendServiceConnection client(
-            _exec_env->frontend_client_cache(), master_address, THRIFT_RPC_TIMEOUT_MS, &status);
+            _exec_env->frontend_client_cache(), master_address, config::thrift_rpc_timeout_ms, &status);
     if (!status.ok()) {
         std::stringstream ss;
         ss << "Connect master failed, with address("
@@ -183,9 +183,7 @@ Status MiniLoadAction::_load(
         req.backend.__set_hostname(BackendOptions::get_localhost());
         req.backend.__set_port(config::be_port);
 
-        struct timeval tv;
-        gettimeofday(&tv, NULL);
-        req.__set_timestamp(tv.tv_sec * 1000 + tv.tv_usec / 1000);
+        req.__set_timestamp(GetCurrentTimeMicros());
 
         try {
             client->miniLoad(res, req);
@@ -193,36 +191,30 @@ Status MiniLoadAction::_load(
             LOG(WARNING) << "Retrying mini load from master("
                     << master_address.hostname << ":" << master_address.port
                     << ") because: " << e.what();
-            status = client.reopen(THRIFT_RPC_TIMEOUT_MS);
+            status = client.reopen(config::thrift_rpc_timeout_ms);
             if (!status.ok()) {
                 LOG(WARNING) << "Client repoen failed. with address("
                     << master_address.hostname << ":" << master_address.port << ")";
                 return status;
             }
-            // we may get timeout exception and the load job may already be summitted.
-            // set this request as 'retry', and Frontend will return success if job has been
-            // summitted.
-            req.__set_is_retry(true);
             client->miniLoad(res, req);
         } catch (apache::thrift::TApplicationException& e) {
             LOG(WARNING) << "mini load request from master("
                     << master_address.hostname << ":" << master_address.port
                     << ") got unknown result: " << e.what();
 
-            status = client.reopen(THRIFT_RPC_TIMEOUT_MS);
+            status = client.reopen(config::thrift_rpc_timeout_ms);
             if (!status.ok()) {
                 LOG(WARNING) << "Client repoen failed. with address("
                     << master_address.hostname << ":" << master_address.port << ")";
                 return status;
             }
-            // we may get timeout exception and the load job may already be summitted.
-            // set this request as 'retry', and Frontend will return success if job has been
-            // summitted.
-            req.__set_is_retry(true);
             client->miniLoad(res, req);
         }
     } catch (apache::thrift::TException& e) {
         // failed when retry.
+        // reopen to disable this connection
+        client.reopen(config::thrift_rpc_timeout_ms);
         std::stringstream ss;
         ss << "Request miniload from master("
             << master_address.hostname << ":" << master_address.port
@@ -262,7 +254,7 @@ Status MiniLoadAction::check_auth(
     const TNetworkAddress& master_address = _exec_env->master_info()->network_address;
     Status status;
     FrontendServiceConnection client(
-            _exec_env->frontend_client_cache(), master_address, THRIFT_RPC_TIMEOUT_MS, &status);
+            _exec_env->frontend_client_cache(), master_address, config::thrift_rpc_timeout_ms, &status);
     if (!status.ok()) {
         std::stringstream ss;
         ss << "Connect master failed, with address("
@@ -279,7 +271,7 @@ Status MiniLoadAction::check_auth(
             LOG(WARNING) << "Retrying mini load from master("
                     << master_address.hostname << ":" << master_address.port
                     << ") because: " << e.what();
-            status = client.reopen(THRIFT_RPC_TIMEOUT_MS);
+            status = client.reopen(config::thrift_rpc_timeout_ms);
             if (!status.ok()) {
                 LOG(WARNING) << "Client repoen failed. with address("
                     << master_address.hostname << ":" << master_address.port << ")";
@@ -291,7 +283,7 @@ Status MiniLoadAction::check_auth(
                     << master_address.hostname << ":" << master_address.port
                     << ") got unknown result: " << e.what();
 
-            status = client.reopen(THRIFT_RPC_TIMEOUT_MS);
+            status = client.reopen(config::thrift_rpc_timeout_ms);
             if (!status.ok()) {
                 LOG(WARNING) << "Client repoen failed. with address("
                     << master_address.hostname << ":" << master_address.port << ")";
@@ -301,6 +293,8 @@ Status MiniLoadAction::check_auth(
         }
     } catch (apache::thrift::TException& e) {
         // failed when retry.
+        // reopen to disable this connection
+        client.reopen(config::thrift_rpc_timeout_ms);
         std::stringstream ss;
         ss << "Request miniload from master("
             << master_address.hostname << ":" << master_address.port
@@ -488,10 +482,7 @@ Status MiniLoadAction::generate_check_load_req(
     check_load_req->__set_tbl(http_req->param(TABLE_KEY));
     if (http_req->param(SUB_LABEL_KEY).empty()) {
         check_load_req->__set_label(http_req->param(LABEL_KEY));
-
-        struct timeval tv;
-        gettimeofday(&tv, NULL);
-        check_load_req->__set_timestamp(tv.tv_sec * 1000 + tv.tv_usec / 1000);
+        check_load_req->__set_timestamp(GetCurrentTimeMicros());
     }
 
     if (http_req->remote_host() != nullptr) {

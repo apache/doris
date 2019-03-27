@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSet;
@@ -103,7 +104,8 @@ public class CastExpr extends Expr {
                     continue;
                 }
                 // Disable casting from boolean/timestamp to decimal
-                if ((fromType.isBoolean() || fromType.isDateType()) && toType == Type.DECIMAL) {
+                if ((fromType.isBoolean() || fromType.isDateType()) && 
+                        (toType == Type.DECIMAL || toType == Type.DECIMALV2)) {
                     continue;
                 }
 
@@ -111,7 +113,8 @@ public class CastExpr extends Expr {
                 if (fromType.equals(toType)) {
                     continue;
                 }
-                String beClass = toType.isDecimal() || fromType.isDecimal() ? "DecimalOperators" : "CastFunctions";
+                String beClass = toType.isDecimalV2() || fromType.isDecimalV2() ? "DecimalV2Operators" : "CastFunctions";
+                if (toType.isDecimal() || fromType.isDecimal()) beClass = "DecimalOperators";
                 String typeName = Function.getUdfTypeName(toType.getPrimitiveType());
                 if (toType.getPrimitiveType() == PrimitiveType.DATE) {
                     typeName = "date_val";
@@ -164,7 +167,7 @@ public class CastExpr extends Expr {
         return isImplicit;
     }
 
-    private void analyze() throws AnalysisException {
+    public void analyze() throws AnalysisException {
         // cast was asked for in the query, check for validity of cast
         Type childType = getChild(0).getType();
 
@@ -196,7 +199,17 @@ public class CastExpr extends Expr {
     @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         Preconditions.checkState(!isImplicit);
-        targetTypeDef.analyze(analyzer);
+        // When cast target type is string and it's length is default -1, the result length
+        // of cast is decided by child.
+        if (targetTypeDef.getType().isScalarType()) {
+            final ScalarType targetType = (ScalarType) targetTypeDef.getType();
+            if (!(targetType.getPrimitiveType().isStringType() 
+                    && !targetType.isAssignedStrLenInColDefinition())) {
+                targetTypeDef.analyze(analyzer);
+            }
+        } else {
+            targetTypeDef.analyze(analyzer);
+        }
         type = targetTypeDef.getType();
         analyze();
     }

@@ -21,9 +21,6 @@ MAINTAINER tangxiaoqing214445
 
 ENV DEFAULT_DIR /var/local
 
-# change .bashrc
-RUN echo -e "if [ ! -d "/var/local/incubator-doris/thirdparty/installed" ]; then\n\tmkdir /var/local/incubator-doris/thirdparty/installed\n\tcp -rf /var/local/thirdparty/installed/*  /var/local/incubator-doris/thirdparty/installed/\n\tln -s /var/local/incubator-doris/thirdparty/installed/bin/thrift /usr/bin/thrift \nfi" >> /root/.bashrc
-
 ARG GCC_VERSION=7.3.0
 ARG GCC_URL=https://mirrors.ustc.edu.cn/gnu/gcc/gcc-${GCC_VERSION}
 
@@ -75,7 +72,8 @@ RUN touch  ${DEFAULT_DIR}/install_jdk.sh \
     && echo 'echo "export JAVA_HOME=/usr/java/jdk" >> /root/.bashrc' >> ${DEFAULT_DIR}/install_jdk.sh \
     && chmod 777 ${DEFAULT_DIR}/install_jdk.sh \
     && /bin/bash ${DEFAULT_DIR}/install_jdk.sh \
-    && rm -rf *.rpm
+    && rm -rf *.rpm \
+    && rm ${DEFAULT_DIR}/install_jdk.sh
 
 ENV JAVA_HOME /usr/java/jdk
 
@@ -96,21 +94,18 @@ ENV MAVEN_HOME /usr/share/maven
 # build environment
 WORKDIR ${DEFAULT_DIR}
 
-# download third party, you should download latest third party if you build the latest code  
-ARG DORIS_THRIDPARTY_URL=http://doris-opensource.bj.bcebos.com/doris-thirdparty-20181102.tar.gz?authorization=bce-auth-v1/069fc2786e464e63a5f1183824ddb522/2018-11-02T09:27:57Z/-1/host/b30621ca2be77596cec9477f6cfb3608b681206d73084338d1b2f1204a3e3848
+# there is a repo which is included all of thirdparty
+ENV REPOSITORY_URL=https://doris-incubating-repo.bj.bcebos.com/thirdparty
 
-# clone source code and build third party
-RUN git clone https://github.com/apache/incubator-doris.git \
-    && mkdir -p ${DEFAULT_DIR}/incubator-doris/thirdparty/src ${DEFAULT_DIR}/doris-thirdparty \
-    && curl -fsSL -o ${DEFAULT_DIR}/doris-thirdparty.tar.gz ${DORIS_THRIDPARTY_URL} \
-    && tar -zxf ${DEFAULT_DIR}/doris-thirdparty.tar.gz -C ${DEFAULT_DIR}/doris-thirdparty --strip-components=1 \
-    && mv ${DEFAULT_DIR}/doris-thirdparty/*  ${DEFAULT_DIR}/incubator-doris/thirdparty/src/ \
-    && cd ${DEFAULT_DIR}/incubator-doris && /bin/bash thirdparty/build-thirdparty.sh \
+# clone lastest source code from local dir(please update local dir before docker build), download and build third party
+COPY incubator-doris ${DEFAULT_DIR}/incubator-doris
+RUN cd ${DEFAULT_DIR}/incubator-doris && /bin/bash thirdparty/build-thirdparty.sh \
     && rm -rf ${DEFAULT_DIR}/incubator-doris/thirdparty/src \
     && rm -rf ${DEFAULT_DIR}/doris-thirdparty.tar.gz \
     && rm -rf ${DEFAULT_DIR}/doris-thirdparty \
     && mkdir -p ${DEFAULT_DIR}/thirdparty \
-    && mv ${DEFAULT_DIR}/incubator-doris/thirdparty/installed ${DEFAULT_DIR}/thirdparty/
+    && mv ${DEFAULT_DIR}/incubator-doris/thirdparty/installed ${DEFAULT_DIR}/thirdparty/ \
+    && rm -rf ${DEFAULT_DIR}/incubator-doris
 
-WORKDIR ${DEFAULT_DIR}/incubator-doris
-
+ENV DORIS_THIRDPARTY /var/local/thirdparty
+WORKDIR /root

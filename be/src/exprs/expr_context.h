@@ -142,6 +142,7 @@ public:
     // ArrayVal GetArrayVal(TupleRow* row);
     DateTimeVal get_datetime_val(TupleRow* row);
     DecimalVal get_decimal_val(TupleRow* row);
+    DecimalV2Val get_decimalv2_val(TupleRow* row);
 
     /// Frees all local allocations made by fn_contexts_. This can be called when result
     /// data from this context is no longer needed.
@@ -174,6 +175,7 @@ private:
     friend class ScalarFnCall;
     friend class InPredicate;
     friend class OlapScanNode;
+    friend class EsScanNode;
 
     /// FunctionContexts for each registered expression. The FunctionContexts are created
     /// and owned by this ExprContext.

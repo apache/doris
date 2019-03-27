@@ -29,6 +29,8 @@ import org.apache.doris.backup.RestoreJob_D;
 import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.FunctionSearchDesc;
 import org.apache.doris.cluster.BaseParam;
 import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.Config;
@@ -394,6 +396,11 @@ public class EditLog {
                     catalog.replayAddReplica(info);
                     break;
                 }
+                case OperationType.OP_UPDATE_REPLICA: {
+                    ReplicaPersistInfo info = (ReplicaPersistInfo) journal.getData();
+                    catalog.replayUpdateReplica(info);
+                    break;
+                }
                 case OperationType.OP_DELETE_REPLICA: {
                     ReplicaPersistInfo info = (ReplicaPersistInfo) journal.getData();
                     catalog.replayDeleteReplica(info);
@@ -429,7 +436,7 @@ public class EditLog {
                 case OperationType.OP_ADD_FIRST_FRONTEND:
                 case OperationType.OP_ADD_FRONTEND: {
                     Frontend fe = (Frontend) journal.getData();
-                    catalog.addFrontendWithCheck(fe);
+                    catalog.replayAddFrontend(fe);
                     break;
                 }
                 case OperationType.OP_REMOVE_FRONTEND: {
@@ -569,7 +576,7 @@ public class EditLog {
                     catalog.getBrokerMgr().replayDropAllBroker(param);
                     break;
                 }
-                case OperationType.OP_SET_LOAD_ERROR_URL: {
+                case OperationType.OP_SET_LOAD_ERROR_HUB: {
                     final LoadErrorHub.Param param = (LoadErrorHub.Param) journal.getData();
                     catalog.getLoadInstance().setLoadErrorHubInfo(param);
                     break;
@@ -640,6 +647,21 @@ public class EditLog {
                 case OperationType.OP_HEARTBEAT: {
                     final HbPackage hbPackage = (HbPackage) journal.getData();
                     Catalog.getCurrentHeartbeatMgr().replayHearbeat(hbPackage);
+                    break;
+                }
+                case OperationType.OP_ADD_FUNCTION: {
+                    final Function function = (Function) journal.getData();
+                    Catalog.getCurrentCatalog().replayCreateFunction(function);
+                    break;
+                }
+                case OperationType.OP_DROP_FUNCTION: {
+                    FunctionSearchDesc function = (FunctionSearchDesc) journal.getData();
+                    Catalog.getCurrentCatalog().replayDropFunction(function);
+                    break;
+                }
+                case OperationType.OP_BACKEND_TABLETS_INFO: {
+                    BackendTabletsInfo backendTabletsInfo = (BackendTabletsInfo) journal.getData();
+                    Catalog.getCurrentCatalog().replayBackendTabletsInfo(backendTabletsInfo);
                     break;
                 }
                 default: {
@@ -901,6 +923,10 @@ public class EditLog {
         logEdit(OperationType.OP_ADD_REPLICA, info);
     }
 
+    public void logUpdateReplica(ReplicaPersistInfo info) {
+        logEdit(OperationType.OP_UPDATE_REPLICA, info);
+    }
+
     public void logDeleteReplica(ReplicaPersistInfo info) {
         logEdit(OperationType.OP_DELETE_REPLICA, info);
     }
@@ -1052,7 +1078,7 @@ public class EditLog {
     }
 
     public void logSetLoadErrorHub(LoadErrorHub.Param param) {
-        logEdit(OperationType.OP_SET_LOAD_ERROR_URL, param);
+        logEdit(OperationType.OP_SET_LOAD_ERROR_HUB, param);
     }
 
     public void logExportCreate(ExportJob job) {
@@ -1127,5 +1153,17 @@ public class EditLog {
 
     public void logHeartbeat(HbPackage hbPackage) {
         logEdit(OperationType.OP_HEARTBEAT, hbPackage);
+    }
+
+    public void logAddFunction(Function function) {
+        logEdit(OperationType.OP_ADD_FUNCTION, function);
+    }
+
+    public void logDropFunction(FunctionSearchDesc function) {
+        logEdit(OperationType.OP_DROP_FUNCTION, function);
+    }
+
+    public void logBackendTabletsInfo(BackendTabletsInfo backendTabletsInfo) {
+        logEdit(OperationType.OP_BACKEND_TABLETS_INFO, backendTabletsInfo);
     }
 }

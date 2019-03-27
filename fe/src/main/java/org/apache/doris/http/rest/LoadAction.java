@@ -136,7 +136,8 @@ public class LoadAction extends RestBaseAction {
             }
         }
 
-        LOG.info("redirect load action to destination={}", redirectAddr.toString());
+        LOG.info("redirect load action to destination={}, stream: {}, db: {}, tbl: {}, label: {}",
+                redirectAddr.toString(), isStreamLoad, dbName, tableName, label);
         redirectTo(request, response, redirectAddr);
     }
 }

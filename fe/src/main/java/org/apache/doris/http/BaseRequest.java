@@ -21,6 +21,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 
 import java.net.InetSocketAddress;
+import java.nio.charset.Charset;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -28,9 +29,11 @@ import java.util.Set;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.http.Cookie;
 import io.netty.handler.codec.http.CookieDecoder;
+import io.netty.handler.codec.http.FullHttpRequest;
 import io.netty.handler.codec.http.HttpHeaders;
 import io.netty.handler.codec.http.HttpRequest;
 import io.netty.handler.codec.http.QueryStringDecoder;
+import org.apache.doris.common.DdlException;
 
 public class BaseRequest {
     protected ChannelHandlerContext context;
@@ -114,6 +117,15 @@ public class BaseRequest {
         }
         
         return params.get(key);
+    }
+
+    public String getContent() throws DdlException {
+        if (request instanceof FullHttpRequest) {
+            FullHttpRequest fullHttpRequest = (FullHttpRequest)  request;
+            return fullHttpRequest.content().toString(Charset.forName("UTF-8"));
+        } else {
+            throw new DdlException("Invalid request");
+        }
     }
     
     // get an array parameter.

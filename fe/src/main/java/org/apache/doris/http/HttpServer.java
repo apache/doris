@@ -28,6 +28,8 @@ import org.apache.doris.http.action.SessionAction;
 import org.apache.doris.http.action.StaticResourceAction;
 import org.apache.doris.http.action.SystemAction;
 import org.apache.doris.http.action.VariableAction;
+import org.apache.doris.http.common.DorisHttpPostObjectAggregator;
+import org.apache.doris.http.meta.ColocateMetaService;
 import org.apache.doris.http.meta.MetaService.CheckAction;
 import org.apache.doris.http.meta.MetaService.DumpAction;
 import org.apache.doris.http.meta.MetaService.ImageAction;
@@ -140,6 +142,11 @@ public class HttpServer {
         RowCountAction.registerAction(controller);
         CheckDecommissionAction.registerAction(controller);
         MetaReplayerCheckAction.registerAction(controller);
+        ColocateMetaService.BucketSeqAction.registerAction(controller);
+        ColocateMetaService.ColocateMetaAction.registerAction(controller);
+        ColocateMetaService.BalancingGroupAction.registerAction(controller);
+        ColocateMetaService.TableAction.registerAction(controller);
+        ColocateMetaService.TableGroupAction.registerAction(controller);
 
         // meta service action
         File imageDir = MetaHelper.getMasterImageDir();
@@ -163,8 +170,8 @@ public class HttpServer {
     protected class PaloHttpServerInitializer extends ChannelInitializer<SocketChannel> {
         @Override
         protected void initChannel(SocketChannel ch) throws Exception {
-            ch.pipeline().addLast("codec", new HttpServerCodec());
-            // ch.pipeline().addLast("compressor", new HttpContentCompressor());
+            ch.pipeline().addLast(new HttpServerCodec());
+            ch.pipeline().addLast(new DorisHttpPostObjectAggregator(100 * 65536));
             ch.pipeline().addLast(new ChunkedWriteHandler());
             ch.pipeline().addLast(new HttpServerHandler(controller, qeService));
         }

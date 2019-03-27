@@ -26,6 +26,8 @@ import org.apache.doris.mysql.MysqlEofPacket;
 import org.apache.doris.mysql.MysqlErrPacket;
 import org.apache.doris.mysql.MysqlOkPacket;
 import org.apache.doris.mysql.MysqlSerializer;
+import org.apache.doris.rpc.PQueryStatistics;
+import org.apache.doris.thrift.TUniqueId;
 
 import org.easymock.EasyMock;
 import org.junit.Assert;
@@ -163,7 +165,7 @@ public class ConnectProcessorTest {
         context.setStmtId(EasyMock.anyLong());
         EasyMock.expectLastCall().anyTimes();
         EasyMock.expect(context.getStmtId()).andReturn(1L).anyTimes();
-
+        EasyMock.expect(context.queryId()).andReturn(new TUniqueId()).anyTimes();
         EasyMock.replay(context);
 
         return context;
@@ -231,6 +233,7 @@ public class ConnectProcessorTest {
         // Mock statement executor
         StmtExecutor qe = EasyMock.createNiceMock(StmtExecutor.class);
         qe.execute();
+        EasyMock.expect(qe.getQueryStatisticsForAuditLog()).andReturn(new PQueryStatistics());
         EasyMock.expectLastCall().anyTimes();
         EasyMock.replay(qe);
         PowerMock.expectNew(
@@ -254,11 +257,11 @@ public class ConnectProcessorTest {
         StmtExecutor qe = EasyMock.createNiceMock(StmtExecutor.class);
         qe.execute();
         EasyMock.expectLastCall().andThrow(new IOException("Fail")).anyTimes();
+        EasyMock.expect(qe.getQueryStatisticsForAuditLog()).andReturn(new PQueryStatistics());
         EasyMock.replay(qe);
         PowerMock.expectNew(StmtExecutor.class, EasyMock.isA(ConnectContext.class), EasyMock.isA(String.class))
                 .andReturn(qe).anyTimes();
         PowerMock.replay(StmtExecutor.class);
-
         processor.processOnce();
         Assert.assertEquals(MysqlCommand.COM_QUERY, myContext.getCommand());
     }
@@ -272,6 +275,7 @@ public class ConnectProcessorTest {
         // Mock statement executor
         StmtExecutor qe = EasyMock.createNiceMock(StmtExecutor.class);
         qe.execute();
+        EasyMock.expect(qe.getQueryStatisticsForAuditLog()).andReturn(new PQueryStatistics());
         EasyMock.expectLastCall().andThrow(new NullPointerException("Fail")).anyTimes();
         EasyMock.replay(qe);
         PowerMock.expectNew(StmtExecutor.class, EasyMock.isA(ConnectContext.class), EasyMock.isA(String.class))

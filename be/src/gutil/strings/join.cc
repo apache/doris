@@ -3,7 +3,6 @@
 #include "gutil/strings/join.h"
 
 #include <common/logging.h>
-#include "gutil/logging-inl.h"
 #include "gutil/gscoped_ptr.h"
 #include "gutil/strings/ascii_ctype.h"
 #include "gutil/strings/escaping.h"

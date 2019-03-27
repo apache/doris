@@ -63,9 +63,10 @@ public class Config extends ConfigBase {
      * Labels of finished or cancelled load jobs will be removed after *label_keep_max_second*
      * The removed labels can be reused.
      * Set a short time will lower the FE memory usage.
-     * (Because all load jobs' info is kept in memoery before being removed)
+     * (Because all load jobs' info is kept in memory before being removed)
      */
-    @ConfField public static int label_keep_max_second = 7 * 24 * 3600; // 7 days
+    @ConfField(mutable = true, masterOnly = true)
+    public static int label_keep_max_second = 7 * 24 * 3600; // 7 days
     /*
      * Load label cleaner will run every *label_clean_interval_second* to clean the outdated jobs.
      */
@@ -74,11 +75,6 @@ public class Config extends ConfigBase {
      * the transaction will be cleaned after transaction_clean_interval_second seconds if the transaction is visible or aborted
      */
     @ConfField public static int transaction_clean_interval_second = 1800; // 0.5 hours
-    /*
-     * If a load job stay in QUORUM_FINISHED state longer than *quorum_load_job_max_second*,
-     * a clone job will be triggered to help finishing this load job.
-     */
-    @ConfField public static int quorum_load_job_max_second = 24 * 3600; // 1 days
 
     // Configurations for meta data durability
     /*
@@ -110,7 +106,8 @@ public class Config extends ConfigBase {
     /*
      * Master FE will save image every *edit_log_roll_num* meta journals.
      */
-    @ConfField public static int edit_log_roll_num = 50000;
+    @ConfField(mutable = true, masterOnly = true)
+    public static int edit_log_roll_num = 50000;
     /*
      * Non-master FE will stop offering service
      * if meta data delay gap exceeds *meta_delay_toleration_second*
@@ -118,18 +115,25 @@ public class Config extends ConfigBase {
     @ConfField public static int meta_delay_toleration_second = 300;    // 5 min
     /*
      * Master FE sync policy of bdbje.
+     * If you only deploy one Follower FE, set this to 'SYNC'. If you deploy more than 3 Follower FE,
+     * you can set this and the following 'replica_sync_policy' to WRITE_NO_SYNC.
      * more info, see: http://docs.oracle.com/cd/E17277_02/html/java/com/sleepycat/je/Durability.SyncPolicy.html
      */
-    @ConfField public static String master_sync_policy = "WRITE_NO_SYNC"; // SYNC, NO_SYNC, WRITE_NO_SYNC
+    @ConfField public static String master_sync_policy = "SYNC"; // SYNC, NO_SYNC, WRITE_NO_SYNC
     /*
      * Follower FE sync policy of bdbje.
      */
-    @ConfField public static String replica_sync_policy = "WRITE_NO_SYNC"; // SYNC, NO_SYNC, WRITE_NO_SYNC
+    @ConfField public static String replica_sync_policy = "SYNC"; // SYNC, NO_SYNC, WRITE_NO_SYNC
     /*
      * Replica ack policy of bdbje.
      * more info, see: http://docs.oracle.com/cd/E17277_02/html/java/com/sleepycat/je/Durability.ReplicaAckPolicy.html
      */
     @ConfField public static String replica_ack_policy = "SIMPLE_MAJORITY"; // ALL, NONE, SIMPLE_MAJORITY
+    
+    /*
+     * the max txn number which bdbje can rollback when trying to rejoin the group
+     */
+    @ConfField public static int txn_rollback_limit = 100;
 
     /*
      * Specified an IP for frontend, instead of the ip get by *InetAddress.getByName*.
@@ -169,7 +173,8 @@ public class Config extends ConfigBase {
      * This is helpful when you try to stop the Master FE for a relatively long time for some reason,
      * but still wish the non-master FE can offer read service.
      */
-    @ConfField public static boolean ignore_meta_check = false;
+    @ConfField(mutable = true)
+    public static boolean ignore_meta_check = false;
 
     /*
      * Set the maximum acceptable clock skew between non-master FE to Master FE host.
@@ -214,23 +219,26 @@ public class Config extends ConfigBase {
      *      if you create a table with #m tablets and #n replicas for each tablet,
      *      the create table request will run at most (m * n * tablet_create_timeout_second) before timeout.
      */
-    @ConfField public static int tablet_create_timeout_second = 1;
+    @ConfField(mutable = true, masterOnly = true)
+    public static int tablet_create_timeout_second = 1;
     
     /*
      * Maximal waiting time for publish version message to backend
      */
-    @ConfField public static int publish_version_timeout_second = 3;
+    @ConfField(mutable = true, masterOnly = true)
+    public static int publish_version_timeout_second = 3;
     
     /*
      * minimal intervals between two publish version action
      */
-    @ConfField public static int publish_version_interval_millis = 100;
+    @ConfField public static int publish_version_interval_ms = 100;
     
     /*
      * maximun concurrent running txn num including prepare, commit txns under a single db
      * txn manager will reject coming txns
      */
-    @ConfField public static int max_running_txn_num_per_db = 100;
+    @ConfField(mutable = true, masterOnly = true)
+    public static int max_running_txn_num_per_db = 100;
 
     /*
      * Maximal wait seconds for straggler node in load
@@ -245,7 +253,8 @@ public class Config extends ConfigBase {
      * 
      * TODO this parameter is the default value for all job and the DBA could specify it for separate job
      */
-    @ConfField public static int load_straggler_wait_second = 300;
+    @ConfField(mutable = true, masterOnly = true)
+    public static int load_straggler_wait_second = 300;
     
     /*
      * Maximal memory layout length of a row. default is 100 KB.
@@ -261,7 +270,7 @@ public class Config extends ConfigBase {
      * If you want to increase this number to support more columns in a row, you also need to increase the 
      * max_unpacked_row_block_size in be.conf. But the performance impact is unknown.
      */
-    @ConfField
+    @ConfField(mutable = true, masterOnly = true)
     public static int max_layout_length_per_row = 100000; // 100k
 
     /*
@@ -299,35 +308,48 @@ public class Config extends ConfigBase {
     /*
      * Not available.
      */
-    @ConfField public static int load_input_size_limit_gb = 0; // GB, 0 is no limit
+    @ConfField(mutable = true, masterOnly = true)
+    public static int load_input_size_limit_gb = 0; // GB, 0 is no limit
     /*
      * Not available.
      */
-    @ConfField public static int load_running_job_num_limit = 0; // 0 is no limit
+    @ConfField(mutable = true, masterOnly = true)
+    public static int load_running_job_num_limit = 0; // 0 is no limit
     /*
      * Default pull load timeout
      */
-    @ConfField public static int pull_load_task_default_timeout_second = 14400; // 4 hour
+    @ConfField(mutable = true, masterOnly = true)
+    public static int pull_load_task_default_timeout_second = 14400; // 4 hour
 
     /*
      * Default mini load timeout
      */
-    @ConfField public static int mini_load_default_timeout_second = 3600; // 1 hour
+    @ConfField(mutable = true, masterOnly = true)
+    public static int mini_load_default_timeout_second = 3600; // 1 hour
+    
+    /*
+     * Default insert load timeout
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int insert_load_default_timeout_second = 3600; // 1 hour
     
     /*
      * Default stream load timeout
      */
-    @ConfField public static int stream_load_default_timeout_second = 300; // 300s
+    @ConfField(mutable = true, masterOnly = true)
+    public static int stream_load_default_timeout_second = 300; // 300s
 
     /*
      * Default hadoop load timeout
      */
-    @ConfField public static int hadoop_load_default_timeout_second = 86400 * 3; // 3 day
+    @ConfField(mutable = true, masterOnly = true)
+    public static int hadoop_load_default_timeout_second = 86400 * 3; // 3 day
 
     /*
      * Same meaning as *tablet_create_timeout_second*, but used when delete a tablet.
      */
-    @ConfField public static int tablet_delete_timeout_second = 2;
+    @ConfField(mutable = true, masterOnly = true)
+    public static int tablet_delete_timeout_second = 2;
     /*
      * Clone checker's running interval.
      */
@@ -336,12 +358,14 @@ public class Config extends ConfigBase {
      * Default timeout of a single clone job. Set long enough to fit your replica size.
      * The larger the replica data size is, the more time is will cost to finish clone.
      */
-    @ConfField public static int clone_job_timeout_second = 7200; // 2h
+    @ConfField(mutable = true, masterOnly = true)
+    public static int clone_job_timeout_second = 7200; // 2h
     /*
      * Concurrency of LOW priority clone jobs.
      * Concurrency of High priority clone jobs is currently unlimit.
      */
-    @ConfField public static int clone_max_job_num = 100;
+    @ConfField(mutable = true, masterOnly = true)
+    public static int clone_max_job_num = 100;
     /*
      * LOW priority clone job's delay trigger time.
      * A clone job contains a tablet which need to be cloned(recovery or migration).
@@ -352,19 +376,23 @@ public class Config extends ConfigBase {
      * NOTICE that this config(and *clone_normal_priority_delay_second* as well)
      * will not work if it's smaller then *clone_checker_interval_second*
      */
-    @ConfField public static int clone_low_priority_delay_second = 600;
+    @ConfField(mutable = true, masterOnly = true)
+    public static int clone_low_priority_delay_second = 600;
     /*
      * NORMAL priority clone job's delay trigger time.
      */
-    @ConfField public static int clone_normal_priority_delay_second = 300;
+    @ConfField(mutable = true, masterOnly = true)
+    public static int clone_normal_priority_delay_second = 300;
     /*
      * HIGH priority clone job's delay trigger time.
      */
-    @ConfField public static int clone_high_priority_delay_second = 0;
+    @ConfField(mutable = true, masterOnly = true)
+    public static int clone_high_priority_delay_second = 0;
     /*
      * the minimal delay seconds between a replica is failed and fe try to recovery it using clone.
      */
-    @ConfField public static int replica_delay_recovery_second = 0;
+    @ConfField(mutable = true, masterOnly = true)
+    public static int replica_delay_recovery_second = 0;
     /*
      * Balance threshold of data size in BE.
      * The balance algorithm is:
@@ -373,30 +401,30 @@ public class Config extends ConfigBase {
      * 3. The low water level is (AUC * (1 - clone_capacity_balance_threshold))
      * The Clone checker will try to move replica from high water level BE to low water level BE.
      */
-    @ConfField public static double clone_capacity_balance_threshold = 0.2;
+    @ConfField(mutable = true, masterOnly = true)
+    public static double clone_capacity_balance_threshold = 0.2;
     /*
      * Balance threshold of num of replicas in Backends.
      */
-    @ConfField public static double clone_distribution_balance_threshold = 0.2;
+    @ConfField(mutable = true, masterOnly = true)
+    public static double clone_distribution_balance_threshold = 0.2;
     /*
      * The high water of disk capacity used percent.
      * This is used for calculating load score of a backend.
      */
-    @ConfField public static double capacity_used_percent_high_water = 0.75;
+    @ConfField(mutable = true, masterOnly = true)
+    public static double capacity_used_percent_high_water = 0.75;
     /*
-     * Maximal timeout of ALTER TABEL request. Set long enough to fit your table data size.
+     * Maximal timeout of ALTER TABLE request. Set long enough to fit your table data size.
      */
-    @ConfField public static int alter_table_timeout_second = 86400; // 1day
-    /*
-     * After ALTER TABEL finished, deletion of the old schema replica is delayed,
-     * in case there are still some queries using the old schema replica.
-     */
-    @ConfField public static int alter_delete_base_delay_second = 600; // 10min
+    @ConfField(mutable = true, masterOnly = true)
+    public static int alter_table_timeout_second = 86400; // 1day
     /*
      * If a backend is down for *max_backend_down_time_second*, a BACKEND_DOWN event will be triggered.
      * Do not set this if you know what you are doing.
      */
-    @ConfField public static int max_backend_down_time_second = 3600; // 1h
+    @ConfField(mutable = true, masterOnly = true)
+    public static int max_backend_down_time_second = 3600; // 1h
     /*
      * When create a table(or partition), you can specify its storage media(HDD or SSD).
      * If set to SSD, this specifies the default duration that tablets will stay on SSD.
@@ -408,17 +436,20 @@ public class Config extends ConfigBase {
      * After dropping database(table/partition), you can recover it by using RECOVER stmt.
      * And this specifies the maximal data retention time. After time, the data will be deleted permanently.
      */
-    @ConfField public static long catalog_trash_expire_second = 86400L; // 1day
+    @ConfField(mutable = true, masterOnly = true)
+    public static long catalog_trash_expire_second = 86400L; // 1day
     /*
      * Maximal bytes that a single broker scanner will read.
      * Do not set this if you know what you are doing.
      */
-    @ConfField public static long min_bytes_per_broker_scanner = 67108864L; // 64MB
+    @ConfField(mutable = true, masterOnly = true)
+    public static long min_bytes_per_broker_scanner = 67108864L; // 64MB
     /*
      * Maximal concurrency of broker scanners.
      * Do not set this if you know what you are doing.
      */
-    @ConfField public static int max_broker_concurrency = 10;
+    @ConfField(mutable = true, masterOnly = true)
+    public static int max_broker_concurrency = 10;
 
     /*
      * Export checker's running interval.
@@ -436,32 +467,39 @@ public class Config extends ConfigBase {
      * Limitation of the concurrency of running export jobs.
      * Default is no limit.
      */
-    @ConfField public static int export_running_job_num_limit = 0; // 0 is no limit
+    @ConfField(mutable = true, masterOnly = true)
+    public static int export_running_job_num_limit = 0; // 0 is no limit
     /*
      * Default timeout of export jobs.
      */
-    @ConfField public static int export_task_default_timeout_second = 24 * 3600;    // 24h
+    @ConfField(mutable = true, masterOnly = true)
+    public static int export_task_default_timeout_second = 24 * 3600; // 24h
     /*
      * Concurrency of exporting tablets.
      */
-    @ConfField public static int export_parallel_tablet_num = 5;
+    @ConfField(mutable = true, masterOnly = true)
+    public static int export_parallel_tablet_num = 5;
     /*
      * Labels of finished or cancelled export jobs will be removed after *label_keep_max_second*.
      * The removed labels can be reused.
      */
-    @ConfField public static int export_keep_max_second = 7 * 24 * 3600; // 7 days
+    @ConfField(mutable = true, masterOnly = true)
+    public static int export_keep_max_second = 3 * 24 * 3600; // 3 days
 
     // Configurations for consistency check
     /*
      * Consistency checker will run from *consistency_check_start_time* to *consistency_check_end_time*.
      * Default is from 23:00 to 04:00
      */
-    @ConfField public static String consistency_check_start_time = "23";
-    @ConfField public static String consistency_check_end_time = "4";
+    @ConfField(mutable = true, masterOnly = true)
+    public static String consistency_check_start_time = "23";
+    @ConfField(mutable = true, masterOnly = true)
+    public static String consistency_check_end_time = "4";
     /*
      * Default timeout of a single consistency check task. Set long enough to fit your tablet size.
      */
-    @ConfField public static long check_consistency_default_timeout_second = 600; // 10 min
+    @ConfField(mutable = true, masterOnly = true)
+    public static long check_consistency_default_timeout_second = 600; // 10 min
 
     // Configurations for query engine
     /*
@@ -473,28 +511,25 @@ public class Config extends ConfigBase {
      */
     @ConfField public static int max_conn_per_user = 100;
     /*
-     * Default query timeout.
-     */
-    @ConfField public static int qe_query_timeout_second = 300;
-    /*
      * If the response time of a query exceed this threshold, it will be recored in audit log as slow_query.
      */
-    @ConfField public static long qe_slow_log_ms = 5000;
+    @ConfField(mutable = true)
+    public static long qe_slow_log_ms = 5000;
     /*
-    * The memory_limit for coloctae join PlanFragment instance =
+    * The memory_limit for colocote join PlanFragment instance =
     * exec_mem_limit / min (query_colocate_join_memory_limit_penalty_factor, instance_num)
     */
-    @ConfField
+    @ConfField(mutable = true)
     public static int query_colocate_join_memory_limit_penalty_factor = 8;
 
+    /*
+     * co-location join is an experimental feature now.
+     * Set to false if you know what it is and really want to use it.
+     * if set to false, 'use_new_tablet_scheduler' must be set to false, because the new TabletScheduler
+     * can not handle tablet repair for colocate tables.
+     */
     @ConfField
     public static boolean disable_colocate_join = true;
-
-    /*
-     * The interval of user resource publishing.
-     * User resource contains cgroup configurations of a user.
-     */
-    @ConfField public static int meta_resource_publish_interval_ms = 60000; // 1m
     /*
      * The default user resource publishing timeout.
      */
@@ -506,18 +541,21 @@ public class Config extends ConfigBase {
      * Exceed this limit may cause long analysis time while holding database read lock.
      * Do not set this if you know what you are doing.
      */
-    @ConfField public static int expr_children_limit = 10000;
+    @ConfField(mutable = true)
+    public static int expr_children_limit = 10000;
     /*
      * Limit on the depth of an expr tree.
      * Exceed this limit may cause long analysis time while holding db read lock.
      * Do not set this if you know what you are doing.
      */
-    @ConfField public static int expr_depth_limit = 3000;
+    @ConfField(mutable = true)
+    public static int expr_depth_limit = 3000;
 
     // Configurations for backup and restore
     /*
      * Plugins' path for BACKUP and RESTORE operations. Currently deprecated.
      */
+    @Deprecated
     @ConfField public static String backup_plugin_path = "/tools/trans_file_tool/trans_files.sh";
 
     // Configurations for hadoop dpp
@@ -566,14 +604,12 @@ public class Config extends ConfigBase {
     // If use k8s deploy manager locally, set this to true and prepare the certs files
     @ConfField public static boolean with_k8s_certs = false;
     
-    // white list limit
-    @ConfField public static int per_user_white_list_limit = 1024;
-    
     // Set runtime locale when exec some cmds
     @ConfField public static String locale = "zh_CN.UTF-8";
 
     // default timeout of backup job
-    @ConfField public static int backup_job_default_timeout_ms = 86400 * 1000; // 1 day
+    @ConfField(mutable = true, masterOnly = true)
+    public static int backup_job_default_timeout_ms = 86400 * 1000; // 1 day
     
     /*
      * storage_high_watermark_usage_percent limit the max capacity usage percent of a Backend storage path.
@@ -581,8 +617,10 @@ public class Config extends ConfigBase {
      * If both limitations are reached, this storage path can not be chose as tablet balance destination.
      * But for tablet recovery, we may exceed these limit for keeping data integrity as much as possible.
      */
-    @ConfField public static double storage_high_watermark_usage_percent = 0.85;
-    @ConfField public static double storage_min_left_capacity_bytes = 1000 * 1024 * 1024; // 1G
+    @ConfField(mutable = true, masterOnly = true)
+    public static double storage_high_watermark_usage_percent = 0.85;
+    @ConfField(mutable = true, masterOnly = true)
+    public static double storage_min_left_capacity_bytes = 1000 * 1024 * 1024; // 1G
 
     // update interval of tablet stat
     // All frontends will get tablet stat from all backends at each interval
@@ -604,13 +642,15 @@ public class Config extends ConfigBase {
      * Max bytes a broker scanner can process in one broker load job.
      * Commonly, each Backends has one broker scanner.
      */
-    @ConfField public static long max_bytes_per_broker_scanner = 3 * 1024 * 1024 * 1024L;  // 3G
+    @ConfField(mutable = true, masterOnly = true)
+    public static long max_bytes_per_broker_scanner = 3 * 1024 * 1024 * 1024L; // 3G
     
     /*
      * Max number of load jobs, include PENDING、ETL、LOADING、QUORUM_FINISHED.
      * If exceed this number, load job is not allowed to be submitted.
      */
-    @ConfField public static long max_unfinished_load_job = 1000;
+    @ConfField(mutable = true, masterOnly = true)
+    public static long max_unfinished_load_job = 1000;
     
     /*
      * If set to true, Planner will try to select replica of tablet on same host as this Frontend.
@@ -620,27 +660,31 @@ public class Config extends ConfigBase {
      * 3. High concurrency queries are sent to all Frontends evenly
      * In this case, all Frontends can only use local replicas to do the query.
      */
-    @ConfField public static boolean enable_local_replica_selection = false;
+    @ConfField(mutable = true)
+    public static boolean enable_local_replica_selection = false;
     
     /*
      * The timeout of executing async remote fragment.
      * In normal case, the async remote fragment will be executed in a short time. If system are under high load
      * condition，try to set this timeout longer.
      */
-    @ConfField public static long remote_fragment_exec_timeout_ms = 5000;   // 5 sec
+    @ConfField(mutable = true)
+    public static long remote_fragment_exec_timeout_ms = 5000; // 5 sec
     
     /*
      * The number of query retries. 
      * A query may retry if we encounter RPC exception and no result has been sent to user.
      * You may reduce this number to void Avalanche disaster.
      */
-    @ConfField public static int max_query_retry_time = 3;
+    @ConfField(mutable = true)
+    public static int max_query_retry_time = 3;
 
     /*
      * The tryLock timeout configuration of catalog lock.
      * Normally it does not need to change, unless you need to test something.
      */
-    @ConfField public static long catalog_try_lock_timeout_ms = 5000; // 5 sec
+    @ConfField(mutable = true)
+    public static long catalog_try_lock_timeout_ms = 5000; // 5 sec
     
     /*
      * if this is set to true
@@ -648,17 +692,57 @@ public class Config extends ConfigBase {
      *    all prepare load job will failed when call commit txn api
      *    all committed load job will waiting to be published
      */
-    @ConfField public static boolean disable_load_job = false;
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean disable_load_job = false;
     
     /*
      * Load using hadoop cluster will be deprecated in future.
      * Set to true to disable this kind of load.
      */
-    @ConfField public static boolean disable_hadoop_load = false;
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean disable_hadoop_load = false;
     
     /*
      * fe will call es api to get es index shard info every es_state_sync_interval_secs
      */
-    @ConfField public static long es_state_sync_interval_secs = 10;
+    @ConfField
+    public static long es_state_sync_interval_second = 10;
+    
+    /*
+     * the factor of delay time before deciding to repair tablet.
+     * if priority is VERY_HIGH, repair it immediately.
+     * HIGH, delay tablet_repair_delay_factor_second * 1;
+     * NORMAL: delay tablet_repair_delay_factor_second * 2;
+     * LOW: delay tablet_repair_delay_factor_second * 3;
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static long tablet_repair_delay_factor_second = 60;
+    
+    /*
+     * the default slot number per path in tablet scheduler
+     * TODO(cmy): remove this config and dynamically adjust it by clone task statistic
+     */
+    @ConfField public static int schedule_slot_num_per_path = 2;
+    
+    /*
+     * set to true to use the TabletScheduler instead of the old CloneChecker.
+     * if set to true, 'disable_colocate_join' must be set to true.
+     * Because the new TabeltScheduler can not handle tablet repair for colocate tables.
+     */
+    @ConfField public static boolean use_new_tablet_scheduler = true;
+
+    /*
+     * the threshold of cluster balance score, if a backend's load score is 10% lower than average score,
+     * this backend will be marked as LOW load, if load score is 10% higher than average score, HIGH load
+     * will be marked.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static double balance_load_score_threshold = 0.1; // 10%
+
+    /*
+     * if set to true, TabletScheduler will not do balance.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean disable_balance = false;
 }
 

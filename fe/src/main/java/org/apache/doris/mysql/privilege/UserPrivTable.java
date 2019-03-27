@@ -27,7 +27,11 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.List;
 
+/*
+ * UserPrivTable saves all global privs and also password for users
+ */
 public class UserPrivTable extends PrivTable {
     private static final Logger LOG = LogManager.getLogger(UserPrivTable.class);
 
@@ -61,7 +65,9 @@ public class UserPrivTable extends PrivTable {
 
     // validate the connection by host, user and password.
     // return true if this connection is valid, and 'savedPrivs' save all global privs got from user table.
-    public boolean checkPassword(String remoteUser, String remoteHost, byte[] remotePasswd, byte[] randomString) {
+    // if currentUser is not null, save the current user identity
+    public boolean checkPassword(String remoteUser, String remoteHost, byte[] remotePasswd, byte[] randomString,
+            List<UserIdentity> currentUser) {
         LOG.debug("check password for user: {} from {}, password: {}, random string: {}",
                   remoteUser, remoteHost, remotePasswd, randomString);
 
@@ -87,6 +93,9 @@ public class UserPrivTable extends PrivTable {
                     && (remotePasswd.length == 0
                             || MysqlPassword.checkScramble(remotePasswd, randomString, saltPassword))) {
                 // found the matched entry
+                if (currentUser != null) {
+                    currentUser.add(entry.getUserIdent());
+                }
                 return true;
             } else {
                 continue;

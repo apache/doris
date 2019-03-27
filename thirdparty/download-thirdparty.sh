@@ -48,10 +48,35 @@ fi
 
 mkdir -p ${TP_DIR}/src
 
-download() {
+md5sum_bin=md5sum
+if ! command -v ${md5sum_bin} >/dev/null 2>&1; then
+    echo "Warn: md5sum is not installed"
+    md5sum_bin=""
+fi
+
+md5sum_func() {
+    local FILENAME=$1
+    local DESC_DIR=$2
+    local MD5SUM=$3
+
+    if [ "$md5sum_bin" == "" ]; then
+       return 0
+    else
+       md5=`md5sum "$DESC_DIR/$FILENAME"`
+       if [ "$md5" != "$MD5SUM  $DESC_DIR/$FILENAME" ]; then
+           echo "$DESC_DIR/$FILENAME md5sum check failed!"
+           return 1
+       fi
+    fi
+
+    return 0
+}
+
+download_func() {
     local FILENAME=$1
     local DOWNLOAD_URL=$2
     local DESC_DIR=$3
+    local MD5SUM=$4
 
     if [ -z "$FILENAME" ]; then
         echo "Error: No file name specified to download"
@@ -70,16 +95,24 @@ download() {
     SUCCESS=0
     for attemp in 1 2; do
         if [ -r "$DESC_DIR/$FILENAME" ]; then
-            echo "Archive $FILENAME already exist."
-            SUCCESS=1
-            break;
+            if md5sum_func $FILENAME $DESC_DIR $MD5SUM; then
+                echo "Archive $FILENAME already exist."
+                SUCCESS=1
+                break;
+            fi
+            echo "Archive $FILENAME will be removed and download again."
+            rm -f "$DESC_DIR/$FILENAME"
         else
             echo "Downloading $FILENAME from $DOWNLOAD_URL to $DESC_DIR"
             wget --no-check-certificate $DOWNLOAD_URL -O $DESC_DIR/$FILENAME
             if [ "$?"x == "0"x ]; then
-                SUCCESS=1
-                echo "Success to download $FILENAME"
-                break;
+	        if md5sum_func $FILENAME $DESC_DIR $MD5SUM; then
+                    SUCCESS=1
+                    echo "Success to download $FILENAME"
+                    break;
+                fi
+                echo "Archive $FILENAME will be removed and download again."
+                rm -f "$DESC_DIR/$FILENAME"
             else
                 echo "Failed to download $FILENAME. attemp: $attemp"
             fi
@@ -97,12 +130,13 @@ echo "===== Downloading thirdparty archives..."
 for TP_ARCH in ${TP_ARCHIVES[*]}
 do
     NAME=$TP_ARCH"_NAME"
+    MD5SUM=$TP_ARCH"_MD5SUM"
     if test "x$REPOSITORY_URL" = x; then
         URL=$TP_ARCH"_DOWNLOAD"
-        download ${!NAME} ${!URL} $TP_SOURCE_DIR
+        download_func ${!NAME} ${!URL} $TP_SOURCE_DIR ${!MD5SUM}
     else
         URL="${REPOSITORY_URL}/${!NAME}"
-        download ${!NAME} ${URL} $TP_SOURCE_DIR
+        download_func ${!NAME} ${URL} $TP_SOURCE_DIR ${!MD5SUM}
     fi
 done
 echo "===== Downloading thirdparty archives...done"
@@ -218,7 +252,8 @@ echo "Finished patching $LIBEVENT_SOURCE"
 # cd -
 # echo "Finished patching $THRIFT_SOURCE"
 
-if test "x$REPOSITORY_URL" != x; then
+# this patch is only used inside Baidu
+if test "x$PATCH_COMPILER_RT" == "xtrue"; then
     cd $TP_SOURCE_DIR/$COMPILER_RT_SOURCE
     if [ ! -f $PATCHED_MARK ]; then
         patch -p0 < $TP_PATCH_DIR/compiler-rt.patch

@@ -121,6 +121,7 @@ Status OlapScanner::_prepare(
 
 Status OlapScanner::open() {
     RETURN_IF_ERROR(_ctor_status);
+    SCOPED_TIMER(_parent->_reader_init_timer);
 
     if (_conjunct_ctxs.size() > _direct_conjunct_size) {
         _use_pushdown_conjuncts = true;
@@ -384,6 +385,16 @@ void OlapScanner::_convert_row_to_tuple(Tuple* tuple) {
             *slot = DecimalValue(int_value, frac_value);
             break;
         }
+        case TYPE_DECIMALV2: {
+            DecimalV2Value *slot = tuple->get_decimalv2_slot(slot_desc->tuple_offset());
+
+            int64_t int_value = *(int64_t*)(ptr);
+            int32_t frac_value = *(int32_t*)(ptr + sizeof(int64_t));
+            if (!slot->from_olap_decimal(int_value, frac_value)) {
+                tuple->set_null(slot_desc->null_indicator_offset());
+            }
+            break;
+        }
         case TYPE_DATETIME: {
             DateTimeValue *slot = tuple->get_datetime_slot(slot_desc->tuple_offset());
             uint64_t value = *reinterpret_cast<uint64_t*>(ptr);
@@ -430,6 +441,8 @@ void OlapScanner::update_counter() {
     COUNTER_UPDATE(_parent->_block_load_timer, _reader->stats().block_load_ns);
     COUNTER_UPDATE(_parent->_block_load_counter, _reader->stats().blocks_load);
     COUNTER_UPDATE(_parent->_block_fetch_timer, _reader->stats().block_fetch_ns);
+    COUNTER_UPDATE(_parent->_block_seek_timer, _reader->stats().block_seek_ns);
+    COUNTER_UPDATE(_parent->_block_convert_timer, _reader->stats().block_convert_ns);
 
     COUNTER_UPDATE(_parent->_raw_rows_counter, _reader->stats().raw_rows_read);
     // COUNTER_UPDATE(_parent->_filtered_rows_counter, _reader->stats().num_rows_filtered);

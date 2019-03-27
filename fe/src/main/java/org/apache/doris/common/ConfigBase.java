@@ -17,22 +17,34 @@
 
 package org.apache.doris.common;
 
+import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.io.FileReader;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.reflect.Field;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-
 public class ConfigBase {
+    private static final Logger LOG = LogManager.getLogger(ConfigBase.class);
     
     @Retention(RetentionPolicy.RUNTIME)
     public static @interface ConfField {
         String value() default "";
+        boolean mutable() default false;
+        boolean masterOnly() default false;
+        String comment() default "";
     }   
     
     public static Properties props;
@@ -192,4 +204,81 @@ public class ConfigBase {
         }
     }
 
+    public static Map<String, Field> getAllMutableConfigs() {
+        Map<String, Field> mutableConfigs = Maps.newHashMap();
+        Field fields[] = ConfigBase.confClass.getFields();
+        for (Field field : fields) {
+            ConfField confField = field.getAnnotation(ConfField.class);
+            if (confField == null) {
+                continue;
+            }
+            if (!confField.mutable()) {
+                continue;
+            }
+            mutableConfigs.put(confField.value().equals("") ? field.getName() : confField.value(), field);
+        }
+
+        return mutableConfigs;
+    }
+
+    public synchronized static void setMutableConfig(String key, String value) throws DdlException {
+        Map<String, Field> mutableConfigs = getAllMutableConfigs();
+        Field field = mutableConfigs.get(key);
+        if (field == null) {
+            throw new DdlException("Config '" + key + "' does not exist or is not mutable");
+        }
+
+        try {
+            ConfigBase.setConfigField(field, value);
+        } catch (Exception e) {
+            throw new DdlException("Failed to set config '" + key + "'. err: " + e.getMessage());
+        }
+        
+        LOG.info("set config {} to {}", key, value);
+    }
+
+    public synchronized static List<List<String>> getConfigInfo() throws DdlException {
+        List<List<String>> configs = Lists.newArrayList();
+        Field[] fields = confClass.getFields();
+        for (Field f : fields) {
+            List<String> config = Lists.newArrayList();
+            ConfField anno = f.getAnnotation(ConfField.class);
+            if (anno == null) {
+                continue;
+            }
+
+            String confKey = anno.value().equals("") ? f.getName() : anno.value();
+            String confVal;
+            try {
+                confVal = String.valueOf(f.get(null));
+            } catch (IllegalArgumentException | IllegalAccessException e) {
+                throw new DdlException("Failed to get config '" + confKey + "'. err: " + e.getMessage());
+            }
+            
+            config.add(confKey);
+            config.add(Strings.nullToEmpty(confVal));
+            config.add(f.getType().getSimpleName());
+            config.add(String.valueOf(anno.mutable()));
+            config.add(String.valueOf(anno.masterOnly()));
+            config.add(anno.comment());
+            configs.add(config);
+        }
+
+        return configs;
+    }
+
+    public synchronized static boolean checkIsMasterOnly(String key) {
+        Map<String, Field> mutableConfigs = getAllMutableConfigs();
+        Field f = mutableConfigs.get(key);
+        if (f == null) {
+            return false;
+        }
+
+        ConfField anno = f.getAnnotation(ConfField.class);
+        if (anno == null) {
+            return false;
+        }
+
+        return anno.masterOnly();
+    }
 }

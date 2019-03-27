@@ -149,10 +149,10 @@ private:
     // get block from reader, just read vector batch from _current_segment.
     // The read batch return by got_batch.
     OLAPStatus _get_block_from_reader(
-        VectorizedRowBatch** got_batch, bool without_filter);
+        VectorizedRowBatch** got_batch, bool without_filter, int rows_read);
 
     // get block from segment reader. If this function returns OLAP_SUCCESS
-    OLAPStatus _get_block(bool without_filter);
+    OLAPStatus _get_block(bool without_filter, int rows_read = 0);
 
     const RowCursor* _current_row() {
         _read_block->get_row(_read_block->pos(), &_cursor);

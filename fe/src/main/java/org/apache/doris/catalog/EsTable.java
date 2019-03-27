@@ -50,10 +50,10 @@ public class EsTable extends Table {
 
     private String hosts;
     private String[] seeds;
-    private String userName;
-    private String passwd;
+    private String userName = "";
+    private String passwd = "";
     private String indexName;
-    private String mappingType = "doc";
+    private String mappingType = "_doc";
     // only save the partition definition, save the partition key,
     // partition list is got from es cluster dynamically and is saved in esTableState
     private PartitionInfo partitionInfo;
@@ -77,33 +77,34 @@ public class EsTable extends Table {
                     + "they are: hosts, user, password, index");
         }
 
-        hosts = properties.get(HOSTS);
-        if (Strings.isNullOrEmpty(hosts)) {
+        if (Strings.isNullOrEmpty(properties.get(HOSTS))
+                || Strings.isNullOrEmpty(properties.get(HOSTS).trim())) {
             throw new DdlException("Hosts of ES table is null. "
                     + "Please add properties('hosts'='xxx.xxx.xxx.xxx,xxx.xxx.xxx.xxx') when create table");
         }
+        hosts = properties.get(HOSTS).trim();
         seeds = hosts.split(",");
-        // TODO(ygl) validate the seeds? 
 
-        userName = properties.get(USER);
-        if (Strings.isNullOrEmpty(userName)) {
-            userName = "";
+        if (!Strings.isNullOrEmpty(properties.get(USER)) 
+                && !Strings.isNullOrEmpty(properties.get(USER).trim())) {
+            userName = properties.get(USER).trim();
         }
 
-        passwd = properties.get(PASSWORD);
-        if (passwd == null) {
-            passwd = "";
+        if (!Strings.isNullOrEmpty(properties.get(PASSWORD))
+                && !Strings.isNullOrEmpty(properties.get(PASSWORD).trim())) {
+            passwd = properties.get(PASSWORD).trim();
         }
 
-        indexName = properties.get(INDEX);
-        if (Strings.isNullOrEmpty(indexName)) {
+        if (Strings.isNullOrEmpty(properties.get(INDEX))
+                || Strings.isNullOrEmpty(properties.get(INDEX).trim())) {
             throw new DdlException("Index of ES table is null. "
                     + "Please add properties('index'='xxxx') when create table");
         }
+        indexName = properties.get(INDEX).trim();
 
-        mappingType = properties.get(TYPE);
-        if (Strings.isNullOrEmpty(mappingType)) {
-            mappingType = "docs";
+        if (!Strings.isNullOrEmpty(properties.get(TYPE))
+                && !Strings.isNullOrEmpty(properties.get(TYPE).trim())) {
+            mappingType = properties.get(TYPE).trim();
         }
     }
     
@@ -161,6 +162,7 @@ public class EsTable extends Table {
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         hosts = Text.readString(in);
+        seeds = hosts.split(",");
         userName = Text.readString(in);
         passwd = Text.readString(in);
         indexName = Text.readString(in);

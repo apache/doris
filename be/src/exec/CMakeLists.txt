@@ -62,6 +62,7 @@ set(EXEC_FILES
     mysql_scanner.cpp
     csv_scan_node.cpp
     csv_scanner.cpp
+    es_scan_node.cpp
     spill_sort_node.cc
     union_node.cpp
     union_node_ir.cpp

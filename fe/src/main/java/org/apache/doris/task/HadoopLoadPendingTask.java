@@ -35,6 +35,7 @@ import org.apache.doris.load.DppConfig;
 import org.apache.doris.load.DppScheduler;
 import org.apache.doris.load.EtlSubmitResult;
 import org.apache.doris.load.LoadErrorHub;
+import org.apache.doris.load.LoadErrorHub.HubType;
 import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.PartitionLoadInfo;
 import org.apache.doris.load.Source;
@@ -46,6 +47,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -79,7 +81,8 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
             taskConf.setEtlPartitions(etlPartitions);
     
             LoadErrorHub.Param info = load.getLoadErrorHubInfo();
-            if (info != null) {
+            // hadoop load only support mysql load error hub
+            if (info != null && info.getType() == HubType.MYSQL_TYPE) {
                 taskConf.setHubInfo(new EtlErrorHubInfo(this.job.getId(), info));
             }
     
@@ -529,6 +532,9 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
                 case DECIMAL:
                     columnType = "DECIMAL";
                     break;
+                case DECIMALV2:
+                    columnType = "DECIMAL";
+                    break;
                 default:
                     columnType = type.toString();
                     break;
@@ -555,7 +561,7 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
             }
 
             // decimal precision scale
-            if (type == PrimitiveType.DECIMAL) {
+            if (type == PrimitiveType.DECIMAL || type == PrimitiveType.DECIMALV2) {
                 dppColumn.put("precision", column.getPrecision());
                 dppColumn.put("scale", column.getScale());
             }

@@ -41,6 +41,7 @@ import com.google.common.collect.Range;
 
 import org.junit.Before;
 import org.junit.BeforeClass;
+import org.junit.Ignore;
 import org.junit.Test;
 
 import java.io.BufferedReader;
@@ -61,6 +62,8 @@ public class EsStateStoreTest {
     private static String clusterStateStr1 = "";
     private static String clusterStateStr2 = "";
     private static String clusterStateStr3 = "";
+    private static String clusterStateStr4 = "";
+    private static String clusterStateStr5 = "";
     private EsStateStore esStateStore;
     
     @BeforeClass
@@ -78,6 +81,8 @@ public class EsStateStoreTest {
         clusterStateStr1 = loadJsonFromFile("data/es/clusterstate1.json");
         clusterStateStr2 = loadJsonFromFile("data/es/clusterstate2.json");
         clusterStateStr3 = loadJsonFromFile("data/es/clusterstate3.json");
+        clusterStateStr4 = loadJsonFromFile("data/es/clusterstate4.json");
+        clusterStateStr5 = loadJsonFromFile("data/es/clusterstate5.json");
     }
     
     @Before
@@ -175,6 +180,75 @@ public class EsStateStoreTest {
         EsIndexState esIndexState2 = esTableState.getUnPartitionedIndexStates().get("index2");
         assertEquals("index2", esIndexState2.getIndexName());
         assertEquals(6, esIndexState2.getShardRoutings().size());
+    }
+    
+    /**
+     * partitioned es table schema: k1(date), k2(int), v(double)
+     * scenario desc:
+     * 2 indices, both of them does not contains partition desc and es table does not have partition info
+     * but cluster state have partition info
+     * @throws AnalysisException 
+     */
+    @Test
+    public void testParseUnPartitionedClusterStateTwoIndices() throws AnalysisException {
+        EsTable esTable = (EsTable) Catalog.getCurrentCatalog()
+                                            .getDb(CatalogTestUtil.testDb1)
+                                            .getTable(CatalogTestUtil.testUnPartitionedEsTableId1);
+        boolean hasException = false;
+        EsTableState esTableState = null;
+        try {
+            esTableState = esStateStore.parseClusterState55(clusterStateStr4, esTable);
+        } catch (Exception e) {
+            e.printStackTrace();
+            hasException = true;
+        }
+        assertFalse(hasException);
+        assertNotNull(esTableState);
+        
+        // check 
+        assertEquals(0, esTableState.getPartitionedIndexStates().size());
+        assertEquals(2, esTableState.getUnPartitionedIndexStates().size());
+        
+        // check index with no partition desc
+        EsIndexState esIndexState1 = esTableState.getUnPartitionedIndexStates().get("index1");
+        assertEquals("index1", esIndexState1.getIndexName());
+        EsIndexState esIndexState2 = esTableState.getUnPartitionedIndexStates().get("index2");
+        assertEquals("index2", esIndexState2.getIndexName());
+        assertEquals(6, esIndexState2.getShardRoutings().size());
+    }
+    
+    /**
+     * test node without thrift info, parse without error, but es index state is empty
+     * @throws AnalysisException 
+     */
+    @Test
+    public void testParseUnPartitionedWithoutThriftInfo() throws AnalysisException {
+        EsTable esTable = (EsTable) Catalog.getCurrentCatalog()
+                                            .getDb(CatalogTestUtil.testDb1)
+                                            .getTable(CatalogTestUtil.testUnPartitionedEsTableId1);
+        boolean hasException = false;
+        EsTableState esTableState = null;
+        try {
+            esTableState = esStateStore.parseClusterState55(clusterStateStr5, esTable);
+        } catch (Exception e) {
+            e.printStackTrace();
+            hasException = true;
+        }
+        assertFalse(hasException);
+        assertNotNull(esTableState);
+        
+        // check 
+        assertEquals(0, esTableState.getPartitionedIndexStates().size());
+        assertEquals(2, esTableState.getUnPartitionedIndexStates().size());
+        
+        // check index with no partition desc
+        EsIndexState esIndexState1 = esTableState.getUnPartitionedIndexStates().get("index1");
+        assertEquals("index1", esIndexState1.getIndexName());
+        EsIndexState esIndexState2 = esTableState.getUnPartitionedIndexStates().get("index2");
+        assertEquals("index2", esIndexState2.getIndexName());
+        assertEquals(6, esIndexState2.getShardRoutings().size());
+        
+        assertEquals(0, esIndexState1.getShardRoutings().get(1).size());
     }
     
     /**

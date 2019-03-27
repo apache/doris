@@ -360,13 +360,13 @@ public class DistributedPlanner {
             connectChildFragment(node, 1, leftChildFragment, rightChildFragment);
             leftChildFragment.setPlanRoot(node);
 
-            if (!node.getJoinOp().isOuterJoin() && !node.getJoinOp().isSemiAntiJoin()) {
+            // Push down the predicates constructed by the right child when the
+            // join op is inner join or left semi join.
+            if (node.getJoinOp().isInnerJoin() || node.getJoinOp().isLeftSemiJoin()) {
                 node.setIsPushDown(true);
-            }
-            // semi-join, only left semi join can pushDown
-            if (node.getJoinOp().isLeftSemiJoin()) {
-                node.setIsPushDown(true);
-            }
+            } else {
+                node.setIsPushDown(false);
+            }  
             return leftChildFragment;
         } else {
             node.setDistributionMode(HashJoinNode.DistributionMode.PARTITIONED);
@@ -455,17 +455,17 @@ public class DistributedPlanner {
         OlapTable leftTable = ((OlapScanNode) leftRoot).getOlapTable();
         OlapTable rightTable = ((OlapScanNode) rightRoot).getOlapTable();
 
+        ColocateTableIndex colocateIndex = Catalog.getCurrentColocateIndex();
+
         //1 the table must be colocate
-        if (leftTable.getColocateTable() == null
-                || !leftTable.getColocateTable().equalsIgnoreCase(rightTable.getColocateTable())) {
+        if (!colocateIndex.isSameGroup(leftTable.getId(), rightTable.getId())) {
             return false;
         }
 
         //2 the colocate group must be stable
-        ColocateTableIndex colocateIndex = Catalog.getCurrentColocateIndex();
         long groupId = colocateIndex.getGroup(leftTable.getId());
         if (colocateIndex.isGroupBalancing(groupId)) {
-            LOG.warn("colocate group {} is balancing", leftTable.getColocateTable());
+            LOG.info("colocate group {} is balancing", leftTable.getColocateTable());
             return false;
         }
 

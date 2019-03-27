@@ -129,9 +129,10 @@ public class MasterImpl {
         } else {
             if (taskStatus.getStatus_code() != TStatusCode.OK) {
                 task.failed();
-                // We start to let FE perceive the task's error msg, begin with these 4 types of task.
+                // We start to let FE perceive the task's error msg
                 if (taskType != TTaskType.MAKE_SNAPSHOT && taskType != TTaskType.UPLOAD
-                        && taskType != TTaskType.DOWNLOAD && taskType != TTaskType.MOVE) {
+                        && taskType != TTaskType.DOWNLOAD && taskType != TTaskType.MOVE
+                        && taskType != TTaskType.CLONE) {
                     return result;
                 }
             }
@@ -178,9 +179,7 @@ public class MasterImpl {
                     finishRollup(task, finishTabletInfos);
                     break;
                 case CLONE:
-                    checkHasTabletInfo(request);
-                    finishTabletInfos = request.getFinish_tablet_infos();
-                    finishClone(task, finishTabletInfos);
+                    finishClone(task, request);
                     break;
                 case CHECK_CONSISTENCY:
                     finishConsistenctCheck(task, request);
@@ -237,7 +236,8 @@ public class MasterImpl {
         Catalog.getCurrentSystemInfo().updateBackendReportVersion(task.getBackendId(), reportVersion, task.getDbId());
 
         createReplicaTask.countDownLatch(task.getBackendId(), task.getSignature());
-        LOG.debug("finish create replica. tablet id: {}", tabletId);
+        LOG.debug("finish create replica. tablet id: {}, be: {}, report version: {}",
+                tabletId, task.getBackendId(), reportVersion);
         AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.CREATE, task.getSignature());
     }
     
@@ -340,10 +340,14 @@ public class MasterImpl {
         int schemaHash = tTabletInfo.getSchema_hash();
         // during finishing stage, index's schema hash switched, when old schema hash finished
         // current index hash != old schema hash and alter job's new schema hash != old schema hash
-        // the check replcia will failed
+        // the check replica will failed
         // should use tabletid not pushTabletid because in rollup state, the push tabletid != tabletid
-        // and tabletmeta will not contain rollupindex's schema hash
+        // and tablet meta will not contain rollupindex's schema hash
         TabletMeta tabletMeta = Catalog.getCurrentInvertedIndex().getTabletMeta(tabletId);
+        if (tabletMeta == null) {
+            // rollup may be dropped
+            throw new MetaNotFoundException("tablet " + tabletId + " does not exist");
+        }
         if (!tabletMeta.containsSchemaHash(schemaHash)) {
             throw new MetaNotFoundException("tablet[" + tabletId
                     + "] schemaHash is not equal to index's switchSchemaHash. "
@@ -621,7 +625,7 @@ public class MasterImpl {
                             + ((SchemaChangeJob) alterJob).getSchemaHashByIndexId(pushIndexId) + " vs. " + schemaHash);
                 }
             } else {
-                // this should not happend. observe(cmy)
+                // this should not happen. observe(cmy)
                 throw new MetaNotFoundException("Diff tablet[" + tabletId + "] schemaHash. index[" + pushIndexId + "]: "
                         + currentSchemaHash + " vs. " + schemaHash);
             }
@@ -646,7 +650,7 @@ public class MasterImpl {
 
         LOG.debug("replica[{}] report schemaHash:{}", replica.getId(), schemaHash);
         return ReplicaPersistInfo.createForLoad(olapTable.getId(), partition.getId(), pushIndexId, tabletId,
-                                                replica.getId(), version, versionHash, dataSize, rowCount);
+                replica.getId(), version, versionHash, schemaHash, dataSize, rowCount);
     }
 
     private void finishDropReplica(AgentTask task) {
@@ -675,13 +679,25 @@ public class MasterImpl {
         AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.ROLLUP, task.getSignature());
     }
 
-    private void finishClone(AgentTask task, List<TTabletInfo> finishTabletInfos) {
-        Preconditions.checkArgument(finishTabletInfos != null && !finishTabletInfos.isEmpty());
-        Preconditions.checkArgument(finishTabletInfos.size() == 1);
-
+    private void finishClone(AgentTask task, TFinishTaskRequest request) {
         CloneTask cloneTask = (CloneTask) task;
-        Catalog.getInstance().getCloneInstance().finishCloneJob(cloneTask, finishTabletInfos.get(0));
+        if (cloneTask.getTaskVersion() == CloneTask.VERSION_1) {
+            if (request.getTask_status().getStatus_code() != TStatusCode.OK) {
+                // just return, like the old style
+                return;
+            }
+            
+            List<TTabletInfo> finishTabletInfos = request.getFinish_tablet_infos();
+            Preconditions.checkArgument(finishTabletInfos != null && !finishTabletInfos.isEmpty());
+            Preconditions.checkArgument(finishTabletInfos.size() == 1);
+            Catalog.getInstance().getCloneInstance().finishCloneJob(cloneTask, finishTabletInfos.get(0));
+
+        } else if (cloneTask.getTaskVersion() == CloneTask.VERSION_2) {
+            Catalog.getCurrentCatalog().getTabletScheduler().finishCloneTask(cloneTask, request);
+        }
+
         AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.CLONE, task.getSignature());
+
     }
 
     private void finishConsistenctCheck(AgentTask task, TFinishTaskRequest request) {

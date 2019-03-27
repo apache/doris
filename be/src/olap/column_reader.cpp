@@ -641,7 +641,6 @@ ColumnReader* ColumnReader::create(uint32_t column_id,
                         field_info.default_value, field_info.type, field_info.length);
             }
         } else if (field_info.is_allow_null) {
-            LOG(WARNING) << "create NullValueReader: " << field_info.name;
             return new(std::nothrow) NullValueReader(column_id, column_unique_id);
         } else {
             OLAP_LOG_WARNING("not null field has no default value");

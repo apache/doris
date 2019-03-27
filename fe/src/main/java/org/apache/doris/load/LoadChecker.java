@@ -267,8 +267,9 @@ public class LoadChecker extends Daemon {
             LOG.debug("job {} is already committed, just wait it to be visiable, transaction state {}", job, state);
             return;
         } else if (state.getTransactionStatus() == TransactionStatus.VISIBLE) {
-            // if job is committed and then fe restart, the progress is not persisted, so that set it here
-            load.updateLoadJobState(job, JobState.FINISHED);
+            if (load.updateLoadJobState(job, JobState.FINISHED)) {
+                load.clearJob(job, JobState.QUORUM_FINISHED);
+            }
             return;
         }
         

@@ -92,11 +92,11 @@ Status HashJoinNode::prepare(RuntimeState* state) {
         ADD_TIMER(runtime_profile(), "PushDownComputeTime");
     _probe_timer =
         ADD_TIMER(runtime_profile(), "ProbeTime");
-    _build_row_counter =
+    _build_rows_counter =
         ADD_COUNTER(runtime_profile(), "BuildRows", TUnit::UNIT);
     _build_buckets_counter =
         ADD_COUNTER(runtime_profile(), "BuildBuckets", TUnit::UNIT);
-    _probe_row_counter =
+    _probe_rows_counter =
         ADD_COUNTER(runtime_profile(), "ProbeRows", TUnit::UNIT);
     _hash_tbl_load_factor_counter =
         ADD_COUNTER(runtime_profile(), "LoadFactor", TUnit::DOUBLE_VALUE);
@@ -243,7 +243,7 @@ Status HashJoinNode::construct_hash_table(RuntimeState* state) {
 
         VLOG_ROW << _hash_tbl->debug_string(true, &child(1)->row_desc());
 
-        COUNTER_SET(_build_row_counter, _hash_tbl->size());
+        COUNTER_SET(_build_rows_counter, _hash_tbl->size());
         COUNTER_SET(_build_buckets_counter, _hash_tbl->num_buckets());
         COUNTER_SET(_hash_tbl_load_factor_counter, _hash_tbl->load_factor());
         build_batch.reset();
@@ -380,7 +380,7 @@ Status HashJoinNode::open(RuntimeState* state) {
     // seed probe batch and _current_probe_row, etc.
     while (true) {
         RETURN_IF_ERROR(child(0)->get_next(state, _probe_batch.get(), &_probe_eos));
-        COUNTER_UPDATE(_probe_row_counter, _probe_batch->num_rows());
+        COUNTER_UPDATE(_probe_rows_counter, _probe_batch->num_rows());
         _probe_batch_pos = 0;
 
         if (_probe_batch->num_rows() == 0) {
@@ -571,7 +571,7 @@ Status HashJoinNode::get_next(RuntimeState* state, RowBatch* out_batch, bool* eo
 
                         continue;
                     } else {
-                        COUNTER_UPDATE(_probe_row_counter, _probe_batch->num_rows());
+                        COUNTER_UPDATE(_probe_rows_counter, _probe_batch->num_rows());
                         break;
                     }
                 }
@@ -695,7 +695,7 @@ Status HashJoinNode::left_join_get_next(RuntimeState* state,
                 probe_timer.stop();
                 RETURN_IF_ERROR(child(0)->get_next(state, _probe_batch.get(), &_probe_eos));
                 probe_timer.start();
-                COUNTER_UPDATE(_probe_row_counter, _probe_batch->num_rows());
+                COUNTER_UPDATE(_probe_rows_counter, _probe_batch->num_rows());
             }
         }
     }

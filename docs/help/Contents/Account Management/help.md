@@ -8,9 +8,9 @@ Syntax:
     user_identity:
         'user_name'@'host'
         
-CREATE USER 命令用于创建一个 Palo 用户。在 Palo 中，一个 user_identity 唯一标识一个用户。user_identity 由两部分组成，user_name 和 host，其中 username 为用户名。host 标识用户端连接所在的主机地址。host 部分可以使用 % 进行模糊匹配。如果不指定 host，默认为 '%'，即表示该用户可以从任意 host 连接到 Palo。
+CREATE USER 命令用于创建一个 Doris 用户。在 Doris 中，一个 user_identity 唯一标识一个用户。user_identity 由两部分组成，user_name 和 host，其中 username 为用户名。host 标识用户端连接所在的主机地址。host 部分可以使用 % 进行模糊匹配。如果不指定 host，默认为 '%'，即表示该用户可以从任意 host 连接到 Doris。
     
-host 部分也可指定为 domain，语法为：'user_name'@['domain']，即使用中括号包围，则 Palo 会认为这个是一个 domain，并尝试解析其 ip 地址。目前仅支持百度内部的 BNS 解析。
+host 部分也可指定为 domain，语法为：'user_name'@['domain']，即使用中括号包围，则 Doris 会认为这个是一个 domain，并尝试解析其 ip 地址。目前仅支持百度内部的 BNS 解析。
     
 如果指定了角色（ROLE），则会自动将该角色所拥有的权限赋予新创建的这个用户。如果不指定，则该用户默认没有任何权限。指定的 ROLE 必须已经存在。
 
@@ -54,7 +54,7 @@ Syntax:
 
     DROP USER 'user_name'
 
-    DROP USER 命令会删除一个 palo 用户。这里 Palo 不支持删除指定的 user_identity。当删除一个指定用户后，该用户所对应的所有 user_identity 都会被删除。比如之前通过 CREATE USER 语句创建了 jack@'192.%' 以及 jack@['domain'] 两个用户，则在执行 DROP USER 'jack' 后，jack@'192.%' 以及 jack@['domain'] 都将被删除。
+    DROP USER 命令会删除一个 palo 用户。这里 Doris 不支持删除指定的 user_identity。当删除一个指定用户后，该用户所对应的所有 user_identity 都会被删除。比如之前通过 CREATE USER 语句创建了 jack@'192.%' 以及 jack@['domain'] 两个用户，则在执行 DROP USER 'jack' 后，jack@'192.%' 以及 jack@['domain'] 都将被删除。
 
 ## example
 
@@ -105,7 +105,7 @@ Syntax:
     GRANT privilege_list ON db_name[.tbl_name] TO user_identity [ROLE role_name]
 
 
-privilege_list 是需要赋予的权限列表，以逗号分隔。当前Palo支持如下权限：
+privilege_list 是需要赋予的权限列表，以逗号分隔。当前 Doris 支持如下权限：
 
     NODE_PRIV：集群节点操作权限，包括节点上下线等操作，只有 root 用户有该权限，不可赋予其他用户。
     ADMIN_PRIV：除 NODE_PRIV 以外的所有权限。

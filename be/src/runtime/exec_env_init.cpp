@@ -54,6 +54,7 @@
 #include "gen_cpp/BackendService.h"
 #include "gen_cpp/FrontendService.h"
 #include "gen_cpp/TPaloBrokerService.h"
+#include "gen_cpp/TExtDataSourceService.h"
 #include "gen_cpp/HeartbeatService_types.h"
 
 namespace doris {
@@ -71,6 +72,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _client_cache = new BackendServiceClientCache();
     _frontend_client_cache = new FrontendServiceClientCache();
     _broker_client_cache = new BrokerServiceClientCache();
+    _extdatasource_client_cache = new ExtDataSourceServiceClientCache();
     _mem_tracker = nullptr;
     _pool_mem_trackers = new PoolMemTrackerRegistry();
     _thread_mgr = new ThreadResourceMgr();
@@ -97,6 +99,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _client_cache->init_metrics(DorisMetrics::metrics(), "backend");
     _frontend_client_cache->init_metrics(DorisMetrics::metrics(), "frontend");
     _broker_client_cache->init_metrics(DorisMetrics::metrics(), "broker");
+    _extdatasource_client_cache->init_metrics(DorisMetrics::metrics(), "extdatasource");
     _result_mgr->init();
     _cgroups_mgr->init_cgroups();
     _etl_job_mgr->init();
@@ -111,7 +114,9 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
         exit(-1);
     }
     _broker_mgr->init();
-    return _init_mem_tracker();
+    _init_mem_tracker();
+    RETURN_IF_ERROR(_tablet_writer_mgr->start_bg_worker());
+    return Status::OK;
 }
 
 Status ExecEnv::_init_mem_tracker() {
@@ -198,6 +203,7 @@ void ExecEnv::_destory() {
     delete _pool_mem_trackers;
     delete _mem_tracker;
     delete _broker_client_cache;
+    delete _extdatasource_client_cache;
     delete _frontend_client_cache;
     delete _client_cache;
     delete _result_mgr;

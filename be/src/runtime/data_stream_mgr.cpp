@@ -26,7 +26,7 @@
 #include "runtime/data_stream_recvr.h"
 #include "runtime/raw_value.h"
 #include "runtime/runtime_state.h"
-#include "util/debug_util.h"
+#include "util/uid_util.h"
 
 #include "gen_cpp/types.pb.h" // PUniqueId
 #include "gen_cpp/BackendService.h"
@@ -51,14 +51,14 @@ inline uint32_t DataStreamMgr::get_hash_value(
 shared_ptr<DataStreamRecvr> DataStreamMgr::create_recvr(RuntimeState* state,
         const RowDescriptor& row_desc, const TUniqueId& fragment_instance_id,
         PlanNodeId dest_node_id, int num_senders, int buffer_size, RuntimeProfile* profile,
-        bool is_merging) {
+        bool is_merging, std::shared_ptr<QueryStatisticsRecvr> sub_plan_query_statistics_recvr) {
     DCHECK(profile != NULL);
     VLOG_FILE << "creating receiver for fragment="
             << fragment_instance_id << ", node=" << dest_node_id;
     shared_ptr<DataStreamRecvr> recvr(
             new DataStreamRecvr(this, state->instance_mem_tracker(), row_desc,
                 fragment_instance_id, dest_node_id, num_senders, is_merging, buffer_size,
-                profile));
+                profile, sub_plan_query_statistics_recvr));
     uint32_t hash_value = get_hash_value(fragment_instance_id, dest_node_id);
     lock_guard<mutex> l(_lock);
     _fragment_stream_set.insert(std::make_pair(fragment_instance_id, dest_node_id));
@@ -93,39 +93,14 @@ shared_ptr<DataStreamRecvr> DataStreamMgr::find_recvr(
     return shared_ptr<DataStreamRecvr>();
 }
 
-Status DataStreamMgr::add_data(
-        const PUniqueId& finst_id, int32_t node_id,
-        const PRowBatch& pb_batch, int32_t sender_id,
-        int be_number, int64_t packet_seq,
-        ::google::protobuf::Closure** done) {
-    VLOG_ROW << "add_data(): finst_id=" << print_id(finst_id)
-            << " node=" << node_id;
+Status DataStreamMgr::transmit_data(const PTransmitDataParams* request, ::google::protobuf::Closure** done) {
+    const PUniqueId& finst_id = request->finst_id();
     TUniqueId t_finst_id;
     t_finst_id.hi = finst_id.hi();
     t_finst_id.lo = finst_id.lo();
-    shared_ptr<DataStreamRecvr> recvr = find_recvr(t_finst_id, node_id);
-    if (recvr == NULL) {
-        // The receiver may remove itself from the receiver map via deregister_recvr()
-        // at any time without considering the remaining number of senders.
-        // As a consequence, find_recvr() may return an innocuous NULL if a thread
-        // calling deregister_recvr() beat the thread calling find_recvr()
-        // in acquiring _lock.
-        // TODO: Rethink the lifecycle of DataStreamRecvr to distinguish
-        // errors from receiver-initiated teardowns.
-        return Status::OK;
-    }
-    recvr->add_batch(pb_batch, sender_id, be_number, packet_seq, done);
-    return Status::OK;
-}
+    shared_ptr<DataStreamRecvr> recvr = find_recvr(t_finst_id, request->node_id());
 
-Status DataStreamMgr::close_sender(const TUniqueId& fragment_instance_id,
-                                   PlanNodeId dest_node_id,
-                                   int sender_id, 
-                                   int be_number) {
-    VLOG_FILE << "close_sender(): fragment_instance_id=" << fragment_instance_id
-        << ", node=" << dest_node_id;
-    shared_ptr<DataStreamRecvr> recvr = find_recvr(fragment_instance_id, dest_node_id);
-    if (recvr == NULL) {
+    if (recvr == nullptr) {
         // The receiver may remove itself from the receiver map via deregister_recvr()
         // at any time without considering the remaining number of senders.
         // As a consequence, find_recvr() may return an innocuous NULL if a thread
@@ -135,7 +110,20 @@ Status DataStreamMgr::close_sender(const TUniqueId& fragment_instance_id,
         // errors from receiver-initiated teardowns.
         return Status::OK;
     }
-    recvr->remove_sender(sender_id, be_number);
+
+    bool eos = request->eos();
+    if (request->has_row_batch()) {
+        recvr->add_batch(request->row_batch(), request->sender_id(), 
+                request->be_number(), request->packet_seq(), eos ? nullptr : done);
+    }
+
+    if (request->has_query_statistics()) {
+        recvr->add_sub_plan_statistics(request->query_statistics(), request->sender_id());
+    }
+
+    if (eos) {
+        recvr->remove_sender(request->sender_id(), request->be_number());            
+    } 
     return Status::OK;
 }
 

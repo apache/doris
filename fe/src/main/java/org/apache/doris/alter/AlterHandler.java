@@ -67,7 +67,7 @@ public abstract class AlterHandler extends Daemon {
     }
     
     public AlterHandler(String name) {
-        super(name);
+        super(name, 20000);
     }
 
     protected void addAlterJob(AlterJob alterJob) {
@@ -204,7 +204,7 @@ public abstract class AlterHandler extends Daemon {
             AlterJob alterJobRemoved  = removeAlterJob(alterJob.getTableId());
             // add to finishedOrCancelledAlterJobs
             if (alterJobRemoved != null) {
-                // add alterjob not alterJobRemoved, because the alterjob maybe a new object 
+                // add alterJob not alterJobRemoved, because the alterJob maybe a new object
                 // deserialized from journal, and the finished state is set to the new object
                 addFinishedOrCancelledAlterJob(alterJob);
             }

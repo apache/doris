@@ -1,0 +1,137 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.analysis;
+
+import com.google.common.base.Joiner;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import mockit.Injectable;
+import mockit.Mock;
+import mockit.MockUp;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.UserException;
+import org.apache.doris.load.routineload.LoadDataSourceType;
+import org.apache.log4j.LogManager;
+import org.apache.log4j.Logger;
+import org.junit.Assert;
+import org.junit.Test;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+
+public class CreateRoutineLoadStmtTest {
+
+    private static final Logger LOG = LogManager.getLogger(CreateRoutineLoadStmtTest.class);
+
+    @Test
+    public void testAnalyzeWithDuplicateProperty(@Injectable Analyzer analyzer) throws UserException {
+        String jobName = "job1";
+        String dbName = "db1";
+        String tableNameString = "table1";
+        String topicName = "topic1";
+        String serverAddress = "http://127.0.0.1:8080";
+        String kafkaPartitionString = "1,2,3";
+        List<String> partitionNameString = Lists.newArrayList();
+        partitionNameString.add("p1");
+        PartitionNames partitionNames = new PartitionNames(partitionNameString);
+        ColumnSeparator columnSeparator = new ColumnSeparator(",");
+
+        // duplicate load property
+        TableName tableName = new TableName(dbName, tableNameString);
+        List<ParseNode> loadPropertyList = new ArrayList<>();
+        loadPropertyList.add(columnSeparator);
+        loadPropertyList.add(columnSeparator);
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PROPERTY, "2");
+        String typeName = LoadDataSourceType.KAFKA.name();
+        Map<String, String> customProperties = Maps.newHashMap();
+
+        customProperties.put(CreateRoutineLoadStmt.KAFKA_TOPIC_PROPERTY, topicName);
+        customProperties.put(CreateRoutineLoadStmt.KAFKA_ENDPOINT_PROPERTY, serverAddress);
+        customProperties.put(CreateRoutineLoadStmt.KAFKA_PARTITIONS_PROPERTY, kafkaPartitionString);
+
+        CreateRoutineLoadStmt createRoutineLoadStmt = new CreateRoutineLoadStmt(jobName, tableName,
+                                                                                loadPropertyList, properties,
+                                                                                typeName, customProperties);
+
+        new MockUp<StatementBase>() {
+            @Mock
+            public void analyze(Analyzer analyzer1) {
+                return;
+            }
+        };
+
+        try {
+            createRoutineLoadStmt.analyze(analyzer);
+            Assert.fail();
+        } catch (AnalysisException e) {
+            LOG.info(e.getMessage());
+        }
+    }
+
+    @Test
+    public void testAnalyze(@Injectable Analyzer analyzer) throws UserException {
+        String jobName = "job1";
+        String dbName = "db1";
+        String tableNameString = "table1";
+        String topicName = "topic1";
+        String serverAddress = "127.0.0.1:8080";
+        String kafkaPartitionString = "1,2,3";
+        List<String> partitionNameString = Lists.newArrayList();
+        partitionNameString.add("p1");
+        PartitionNames partitionNames = new PartitionNames(partitionNameString);
+        ColumnSeparator columnSeparator = new ColumnSeparator(",");
+
+        // duplicate load property
+        TableName tableName = new TableName(dbName, tableNameString);
+        List<ParseNode> loadPropertyList = new ArrayList<>();
+        loadPropertyList.add(columnSeparator);
+        loadPropertyList.add(partitionNames);
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PROPERTY, "2");
+        String typeName = LoadDataSourceType.KAFKA.name();
+        Map<String, String> customProperties = Maps.newHashMap();
+
+        customProperties.put(CreateRoutineLoadStmt.KAFKA_TOPIC_PROPERTY, topicName);
+        customProperties.put(CreateRoutineLoadStmt.KAFKA_ENDPOINT_PROPERTY, serverAddress);
+        customProperties.put(CreateRoutineLoadStmt.KAFKA_PARTITIONS_PROPERTY, kafkaPartitionString);
+
+        CreateRoutineLoadStmt createRoutineLoadStmt = new CreateRoutineLoadStmt(jobName, tableName,
+                                                                                loadPropertyList, properties,
+                                                                                typeName, customProperties);
+        new MockUp<StatementBase>() {
+            @Mock
+            public void analyze(Analyzer analyzer1) {
+                return;
+            }
+        };
+
+        createRoutineLoadStmt.analyze(analyzer);
+
+        Assert.assertNotNull(createRoutineLoadStmt.getRoutineLoadDesc());
+        Assert.assertEquals(columnSeparator, createRoutineLoadStmt.getRoutineLoadDesc().getColumnSeparator());
+        Assert.assertEquals(partitionNames.getPartitionNames(), createRoutineLoadStmt.getRoutineLoadDesc().getPartitionNames());
+        Assert.assertEquals(2, createRoutineLoadStmt.getDesiredConcurrentNum());
+        Assert.assertEquals(0, createRoutineLoadStmt.getMaxErrorNum());
+        Assert.assertEquals(serverAddress, createRoutineLoadStmt.getKafkaEndpoint());
+        Assert.assertEquals(topicName, createRoutineLoadStmt.getKafkaTopic());
+        Assert.assertEquals(kafkaPartitionString, Joiner.on(",").join(createRoutineLoadStmt.getKafkaPartitions()));
+    }
+
+}

@@ -17,13 +17,9 @@
 
 package org.apache.doris.task;
 
-import org.apache.doris.load.routineload.KafkaProgress;
-import org.apache.doris.load.routineload.KafkaTaskInfo;
-import org.apache.doris.load.routineload.RoutineLoadJob;
+import org.apache.doris.load.routineload.LoadDataSourceType;
 import org.apache.doris.thrift.TResourceInfo;
-import org.apache.doris.thrift.TTaskType;
 
-import java.util.HashMap;
 import java.util.Map;
 
 
@@ -32,14 +28,10 @@ public class KafkaRoutineLoadTask extends RoutineLoadTask {
     private Map<Integer, Long> partitionIdToOffset;
 
     public KafkaRoutineLoadTask(TResourceInfo resourceInfo, long backendId,
-                                long dbId, long tableId, long partitionId, long indexId, long tabletId,
-                                String columns, String where, String columnSeparator,
-                                KafkaTaskInfo kafkaTaskInfo, KafkaProgress kafkaProgress, long txnId) {
-        super(resourceInfo, backendId, TTaskType.STREAM_LOAD, dbId, tableId, partitionId, indexId, tabletId,
-                kafkaTaskInfo.getId(), columns, where, columnSeparator, RoutineLoadJob.DataSourceType.KAFKA, txnId);
-        this.partitionIdToOffset = new HashMap<>();
-        kafkaTaskInfo.getPartitions().parallelStream().forEach(entity ->
-                partitionIdToOffset.put(entity, kafkaProgress.getPartitionIdToOffset().get(entity)));
+                                long dbId, long tableId, String taskId,
+                                long txnId, Map<Integer, Long> partitionIdToOffset) {
+        super(resourceInfo, backendId, dbId, tableId, taskId, LoadDataSourceType.KAFKA, txnId);
+        this.partitionIdToOffset = partitionIdToOffset;
     }
 
     public Map<Integer, Long> getPartitionIdToOffset() {

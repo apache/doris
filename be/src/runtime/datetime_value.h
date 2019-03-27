@@ -334,7 +334,7 @@ public:
 
     int unix_timestamp() const;
 
-    bool from_unixtime(int);
+    bool from_unixtime(int64_t);
 
     bool operator==(const DateTimeValue& other) const {
         // NOTE: This is not same with MySQL.

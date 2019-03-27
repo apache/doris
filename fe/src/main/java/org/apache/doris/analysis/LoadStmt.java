@@ -80,15 +80,12 @@ public class LoadStmt extends DdlStmt {
 
     // properties set
     private final static ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
-        .add(TIMEOUT_PROPERTY)
-        .add(MAX_FILTER_RATIO_PROPERTY)
-        .add(LOAD_DELETE_FLAG_PROPERTY)
-        .add(EXEC_MEM_LIMIT)
-        .add(CLUSTER_PROPERTY)
-        .add(BOS_ENDPOINT)
-        .add(BOS_ACCESSKEY)
-        .add(BOS_SECRET_ACCESSKEY)
-        .build();
+            .add(TIMEOUT_PROPERTY)
+            .add(MAX_FILTER_RATIO_PROPERTY)
+            .add(LOAD_DELETE_FLAG_PROPERTY)
+            .add(EXEC_MEM_LIMIT)
+            .add(CLUSTER_PROPERTY)
+            .build();
     
     public LoadStmt(LabelName label, List<DataDescription> dataDescriptions,
                     BrokerDesc brokerDesc, String cluster, Map<String, String> properties) {

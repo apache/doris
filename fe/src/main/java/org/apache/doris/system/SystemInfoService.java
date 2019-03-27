@@ -274,6 +274,16 @@ public class SystemInfoService {
         return null;
     }
 
+    public Backend getBackendWithHttpPort(String host, int httpPort) {
+        ImmutableMap<Long, Backend> idToBackend = idToBackendRef.get();
+        for (Backend backend : idToBackend.values()) {
+            if (backend.getHost().equals(host) && backend.getHttpPort() == httpPort) {
+                return backend;
+            }
+        }
+        return null;
+    }
+
     public List<Long> getBackendIds(boolean needAlive) {
         ImmutableMap<Long, Backend> idToBackend = idToBackendRef.get();
         List<Long> backendIds = Lists.newArrayList(idToBackend.keySet());
@@ -876,10 +886,16 @@ public class SystemInfoService {
                 db.readLock();
                 try {
                     atomicLong.set(newReportVersion);
+                    LOG.debug("update backend {} report version: {}, db: {}", backendId, newReportVersion, dbId);
+                    return;
                 } finally {
                     db.readUnlock();
                 }
+            } else {
+                LOG.warn("failed to update backend report version, db {} does not exist", dbId);
             }
+        } else {
+            LOG.warn("failed to update backend report version, backend {} does not exist", backendId);
         }
     }
 
@@ -1069,6 +1085,17 @@ public class SystemInfoService {
 
         Collections.shuffle(selectedBackends);
         return selectedBackends.get(0).getId();
+    }
+
+    public Set<String> getClusterNames() {
+        ImmutableMap<Long, Backend> idToBackend = idToBackendRef.get();
+        Set<String> clusterNames = Sets.newHashSet();
+        for (Backend backend : idToBackend.values()) {
+            if (!Strings.isNullOrEmpty(backend.getOwnerClusterName())) {
+                clusterNames.add(backend.getOwnerClusterName());
+            }
+        }
+        return clusterNames;
     }
 }
 

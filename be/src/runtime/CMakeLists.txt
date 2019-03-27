@@ -53,6 +53,7 @@ add_library(Runtime STATIC
   thread_resource_mgr.cpp
   #  timestamp_value.cpp
   decimal_value.cpp
+  decimalv2_value.cpp
   large_int_value.cpp
   tuple.cpp
   tuple_row.cpp
@@ -93,6 +94,7 @@ add_library(Runtime STATIC
   initial_reservations.cc
   snapshot_loader.cpp
   kafka_consumer_pipe.cpp
+  query_statistics.cpp 
 )
 
 # This test runs forever so should not be part of 'make test'
@@ -115,5 +117,6 @@ add_library(Runtime STATIC
 #ADD_BE_TEST(parallel_executor_test)
 #ADD_BE_TEST(datetime_value_test)
 #ADD_BE_TEST(decimal_value_test)
+#ADD_BE_TEST(decimalv2_value_test)
 #ADD_BE_TEST(string_value_test)
 #ADD_BE_TEST(thread_resource_mgr_test)

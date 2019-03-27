@@ -86,10 +86,17 @@ public class Planner {
                 for (Expr expr : outputExprs) {
                     List<SlotId> slotList = Lists.newArrayList();
                     expr.getIds(null, slotList);
-                    if (PrimitiveType.DECIMAL == expr.getType().getPrimitiveType()
-                            && slotList.contains(slotDesc.getId())
-                            && PrimitiveType.DECIMAL == slotDesc.getType().getPrimitiveType()
-                            && null != slotDesc.getColumn()) {
+                    if (PrimitiveType.DECIMAL != expr.getType().getPrimitiveType() && 
+                            PrimitiveType.DECIMALV2 != expr.getType().getPrimitiveType()) {
+                        continue;
+                            }
+
+                    if (PrimitiveType.DECIMAL != slotDesc.getType().getPrimitiveType() &&
+                            PrimitiveType.DECIMALV2 != slotDesc.getType().getPrimitiveType()) {
+                        continue;
+                            }
+
+                    if (slotList.contains(slotDesc.getId()) && null != slotDesc.getColumn()) {
                         // TODO output scale
                         // int outputScale = slotDesc.getColumn().getType().getScale();
                         int outputScale = 10;
@@ -176,7 +183,11 @@ public class Planner {
             fragments = distributedPlanner.createPlanFragments(singleNodePlan);
         }
 
+        // Optimize the transfer of query statistic when query does't contain limit.
         PlanFragment rootFragment = fragments.get(fragments.size() - 1);
+        QueryStatisticsTransferOptimizer queryStatisticTransferOptimizer = new QueryStatisticsTransferOptimizer(rootFragment);
+        queryStatisticTransferOptimizer.optimizeQueryStatisticsTransfer();
+
         if (statment instanceof InsertStmt) {
             InsertStmt insertStmt = (InsertStmt) statment;
             rootFragment = distributedPlanner.createInsertFragment(rootFragment, insertStmt, fragments);
@@ -229,5 +240,54 @@ public class Planner {
         selectNode.init(analyzer);
         Preconditions.checkState(selectNode.hasValidStats());
         return selectNode;
+    }
+
+    private static class QueryStatisticsTransferOptimizer {
+        private final PlanFragment root;
+        
+        public QueryStatisticsTransferOptimizer(PlanFragment root) {
+            Preconditions.checkNotNull(root);
+            this.root = root;
+        }
+
+        public void optimizeQueryStatisticsTransfer() {
+            optimizeQueryStatisticsTransfer(root, null);
+        }
+
+        private void optimizeQueryStatisticsTransfer(PlanFragment fragment, PlanFragment parent) {
+            if (parent != null && hasLimit(parent.getPlanRoot(), fragment.getPlanRoot())) {
+                fragment.setTransferQueryStatisticsWithEveryBatch(true);
+            }
+            for (PlanFragment child : fragment.getChildren()) {
+                optimizeQueryStatisticsTransfer(child, fragment);
+            }
+        }
+
+        // Check whether leaf node contains limit.
+        private boolean hasLimit(PlanNode ancestor, PlanNode successor) {
+            final List<PlanNode> exchangeNodes = Lists.newArrayList();
+            collectExchangeNode(ancestor, exchangeNodes);
+            for (PlanNode leaf : exchangeNodes) {
+                if (leaf.getChild(0) == successor
+                        && leaf.hasLimit()) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private void collectExchangeNode(PlanNode planNode, List<PlanNode> exchangeNodes) {
+            if (planNode instanceof ExchangeNode) {
+                exchangeNodes.add(planNode);
+            }
+
+            for (PlanNode child : planNode.getChildren()) {
+                if (child instanceof ExchangeNode) {
+                    exchangeNodes.add(child);
+                } else {
+                    collectExchangeNode(child, exchangeNodes);
+                }
+            }
+        }
     }
 }

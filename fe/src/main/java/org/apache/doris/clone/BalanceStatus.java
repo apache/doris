@@ -24,6 +24,8 @@ import java.util.List;
 public class BalanceStatus {
     public enum ErrCode {
         OK,
+        META_NOT_FOUND,
+        STATE_NOT_NORMAL,
         COMMON_ERROR
     }
     

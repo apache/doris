@@ -92,11 +92,10 @@ public class ColocateTableUtils {
         }
 
         for (int i = 0; i < parentColumnSize; i++) {
-            String parentColumnName = parentColumns.get(i).getName();
             Type parentColumnType = parentColumns.get(i).getType();
             if (!parentColumnType.equals(childColumns.get(i).getType())) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_SAME_DISTRIBUTED_COLUMNS_TYPE,
-                        parentColumnName, parentColumnType);
+                        childColumns.get(i).getName(), parentColumnType);
             }
         }
     }

@@ -39,26 +39,32 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+/**
+ * It is accessed by two kinds of thread, one is to create this RuntimeProfile
+ * , named 'query thread', the other is to call 
+ * {@link org.apache.doris.common.proc.CurrentQueryInfoProvider}.
+ */
 public class RuntimeProfile {
     private static final Logger LOG = LogManager.getLogger(RuntimeProfile.class);
     private static String ROOT_COUNTER = "";
     private Counter counterTotalTime;
     private double localTimePercent;
-    
+
     private Map<String, String> infoStrings = Maps.newHashMap();
     private List<String> infoStringsDisplayOrder = Lists.newArrayList();
 
-    private Map<String, Counter> counterMap = Maps.newHashMap();
-    private Map<String, Set<String> > childCounterMap = Maps.newHashMap();
+    // These will be hold by other thread.
+    private Map<String, Counter> counterMap = Maps.newConcurrentMap();
+    private Map<String, RuntimeProfile> childMap = Maps.newConcurrentMap();
 
-    private Map<String, RuntimeProfile> childMap = Maps.newHashMap();
+    private Map<String, Set<String> > childCounterMap = Maps.newHashMap();
     private List<Pair<RuntimeProfile, Boolean>> childList = Lists.newArrayList();
 
     private String name;
     
     public RuntimeProfile(String name) {
         this();
-        setName(name);
+        this.name = name;
     }
 
     public RuntimeProfile() {
@@ -77,6 +83,10 @@ public class RuntimeProfile {
 
     public List<Pair<RuntimeProfile, Boolean>> getChildList() {
         return childList;
+    }
+
+    public Map<String, RuntimeProfile> getChildMap () {
+        return childMap;
     }
 
     public Counter addCounter(String name, TUnit type, String parentCounterName) {
@@ -176,7 +186,7 @@ public class RuntimeProfile {
     //  2. Info Strings
     //  3. Counters
     //  4. Children
-    public void prettyPrint(StringBuilder builder, String prefix) {        
+    public void prettyPrint(StringBuilder builder, String prefix) {
         Counter counter = this.counterMap.get("TotalTime");
         Preconditions.checkState(counter != null);
         // 1. profile name
@@ -335,7 +345,7 @@ public class RuntimeProfile {
     }
     
     // from bigger to smaller
-    public void sortChildren() {    
+    public void sortChildren() {
         Collections.sort(this.childList, new Comparator<Pair<RuntimeProfile, Boolean>>() {
             @Override
             public int compare(Pair<RuntimeProfile, Boolean> profile1, Pair<RuntimeProfile, Boolean> profile2)
@@ -356,11 +366,12 @@ public class RuntimeProfile {
             this.infoStrings.put(key, value);
         }
     }
-    
+
     public void setName(String name) {
         this.name = name;
     }
-    
+
+
     // Returns the value to which the specified key is mapped;
     // or null if this map contains no mapping for the key.
     public String getInfoString(String key) {

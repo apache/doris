@@ -30,9 +30,9 @@ public class FsBroker implements Writable, Comparable<FsBroker> {
     public String ip;
     public int port;
     // msg for ping result
-    public String msg;
+    public String heartbeatErrMsg = "";
     public long lastUpdateTime;
-    public long lastStartTime;
+    public long lastStartTime = -1;
 
     public boolean isAlive;
 
@@ -55,15 +55,17 @@ public class FsBroker implements Writable, Comparable<FsBroker> {
                 isAlive = true;
                 isChanged = true;
                 lastStartTime = hbResponse.getHbTime();
+            } else if (lastStartTime == -1) {
+                lastStartTime = hbResponse.getHbTime();
             }
             lastUpdateTime = hbResponse.getHbTime();
-            msg = "";
+            heartbeatErrMsg = "";
         } else {
             if (isAlive) {
                 isAlive = false;
                 isChanged = true;
             }
-            msg = hbResponse.getMsg();
+            heartbeatErrMsg = hbResponse.getMsg() == null ? "Unknown error" : hbResponse.getMsg();
         }
 
         return isChanged;

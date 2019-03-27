@@ -332,6 +332,9 @@ void CaseExpr::get_child_val(int child_idx, ExprContext* ctx, TupleRow* row, Any
     case TYPE_DECIMAL:
         *reinterpret_cast<DecimalVal*>(dst) = _children[child_idx]->get_decimal_val(ctx, row);
         break;
+    case TYPE_DECIMALV2:
+        *reinterpret_cast<DecimalV2Val*>(dst) = _children[child_idx]->get_decimalv2_val(ctx, row);
+        break;
     case TYPE_LARGEINT:
         *reinterpret_cast<LargeIntVal*>(dst) = _children[child_idx]->get_large_int_val(ctx, row);
         break;
@@ -375,6 +378,9 @@ bool CaseExpr::any_val_eq(const TypeDescriptor& type, const AnyVal* v1, const An
     case TYPE_DECIMAL:
         return AnyValUtil::equals(type, *reinterpret_cast<const DecimalVal*>(v1),
                                   *reinterpret_cast<const DecimalVal*>(v2));
+    case TYPE_DECIMALV2:
+        return AnyValUtil::equals(type, *reinterpret_cast<const DecimalV2Val*>(v1),
+                                  *reinterpret_cast<const DecimalV2Val*>(v2));
     case TYPE_LARGEINT:
         return AnyValUtil::equals(type, *reinterpret_cast<const LargeIntVal*>(v1),
                                   *reinterpret_cast<const LargeIntVal*>(v2));
@@ -438,6 +444,7 @@ CASE_COMPUTE_FN_WAPPER(DoubleVal, double_val)
 CASE_COMPUTE_FN_WAPPER(StringVal, string_val)
 CASE_COMPUTE_FN_WAPPER(DateTimeVal, datetime_val)
 CASE_COMPUTE_FN_WAPPER(DecimalVal, decimal_val)
+CASE_COMPUTE_FN_WAPPER(DecimalV2Val, decimalv2_val)
 
 
 }

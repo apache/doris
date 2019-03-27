@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.Daemon;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -30,28 +31,29 @@ public class RoutineLoadScheduler extends Daemon {
 
     private static final Logger LOG = LogManager.getLogger(RoutineLoadScheduler.class);
 
-    private RoutineLoadManager routineLoadManager = Catalog.getInstance().getRoutineLoadInstance();
+    private RoutineLoadManager routineLoadManager = Catalog.getInstance().getRoutineLoadManager();
 
     @Override
     protected void runOneCycle() {
         try {
             process();
         } catch (Throwable e) {
-            LOG.error("failed to scheduler jobs with error massage {}", e.getMessage(), e);
+            LOG.error("failed to schedule jobs with error massage {}", e.getMessage(), e);
         }
     }
 
     private void process() {
         // update
-        // get need scheduler routine jobs
+        routineLoadManager.rescheduleRoutineLoadJob();
+        // get need schedule routine jobs
         List<RoutineLoadJob> routineLoadJobList = null;
         try {
-            routineLoadJobList = getNeedSchedulerRoutineJobs();
+            routineLoadJobList = getNeedScheduleRoutineJobs();
         } catch (LoadException e) {
-            LOG.error("failed to get need scheduler routine jobs");
+            LOG.error("failed to get need schedule routine jobs");
         }
 
-        LOG.debug("there are {} job need scheduler", routineLoadJobList.size());
+        LOG.debug("there are {} job need schedule", routineLoadJobList.size());
         for (RoutineLoadJob routineLoadJob : routineLoadJobList) {
             try {
                 // judge nums of tasks more then max concurrent tasks of cluster
@@ -60,17 +62,17 @@ public class RoutineLoadScheduler extends Daemon {
                 if (totalTaskNum > routineLoadManager.getTotalMaxConcurrentTaskNum()) {
                     LOG.info("job {} concurrent task num {}, current total task num {}. "
                                     + "desired total task num {} more then total max task num {}, "
-                                    + "skip this turn of scheduler",
+                                    + "skip this turn of job scheduler",
                             routineLoadJob.getId(), currentConcurrentTaskNum,
                             routineLoadManager.getSizeOfIdToRoutineLoadTask(),
                             totalTaskNum, routineLoadManager.getTotalMaxConcurrentTaskNum());
                     break;
                 }
                 // divide job into tasks
-                List<RoutineLoadTaskInfo> needSchedulerTasksList =
+                List<RoutineLoadTaskInfo> needScheduleTasksList =
                         routineLoadJob.divideRoutineLoadJob(currentConcurrentTaskNum);
-                // save task into queue of needSchedulerTasks
-                routineLoadManager.getNeedSchedulerTasksQueue().addAll(needSchedulerTasksList);
+                // save task into queue of needScheduleTasks
+                routineLoadManager.getNeedScheduleTasksQueue().addAll(needScheduleTasksList);
             } catch (MetaNotFoundException e) {
                 routineLoadJob.updateState(RoutineLoadJob.JobState.CANCELLED);
             }
@@ -78,12 +80,12 @@ public class RoutineLoadScheduler extends Daemon {
 
         LOG.debug("begin to check timeout tasks");
         // check timeout tasks
-        List<RoutineLoadTaskInfo> reSchedulerTasksList = routineLoadManager.processTimeoutTasks();
-        routineLoadManager.getNeedSchedulerTasksQueue().addAll(reSchedulerTasksList);
+        List<RoutineLoadTaskInfo> rescheduleTasksList = routineLoadManager.processTimeoutTasks();
+        routineLoadManager.getNeedScheduleTasksQueue().addAll(rescheduleTasksList);
     }
 
-    private List<RoutineLoadJob> getNeedSchedulerRoutineJobs() throws LoadException {
-        return routineLoadManager.getRoutineLoadJobByState(RoutineLoadJob.JobState.NEED_SCHEDULER);
+    private List<RoutineLoadJob> getNeedScheduleRoutineJobs() throws LoadException {
+        return routineLoadManager.getRoutineLoadJobByState(RoutineLoadJob.JobState.NEED_SCHEDULE);
     }
 
 

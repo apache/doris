@@ -57,9 +57,6 @@ public class HttpServerHandler extends ChannelInboundHandlerAdapter {
     @Override
     public void channelReadComplete(ChannelHandlerContext ctx) {
         ctx.flush();
-        if (action == null) {
-            ctx.close();
-        }
     }
     
     @Override
@@ -108,7 +105,7 @@ public class HttpServerHandler extends ChannelInboundHandlerAdapter {
         String uri = request.getRequest().uri();
         // ignore this request, which is a default request from client's browser.
         if (uri.endsWith("/favicon.ico")) {
-            return null;
+            return NotFoundAction.getNotFoundAction();
         } else if (uri.equals("/")) {
             return new IndexAction(controller);
         }

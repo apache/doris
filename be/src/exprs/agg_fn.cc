@@ -92,37 +92,40 @@ Status AggFn::Init(const RowDescriptor& row_desc, RuntimeState* state) {
   }
 
   RETURN_IF_ERROR(UserFunctionCache::instance()->get_function_ptr(
-          _fn.id, aggregate_fn.init_fn_symbol, _fn.hdfs_location, "", &init_fn_, &_cache_entry));
+          _fn.id, aggregate_fn.init_fn_symbol,
+          _fn.hdfs_location, _fn.checksum, &init_fn_, &_cache_entry));
   RETURN_IF_ERROR(UserFunctionCache::instance()->get_function_ptr(
-          _fn.id, aggregate_fn.update_fn_symbol, _fn.hdfs_location, "", &update_fn_, &_cache_entry));
+          _fn.id, aggregate_fn.update_fn_symbol,
+          _fn.hdfs_location, _fn.checksum, &update_fn_, &_cache_entry));
 
   // Merge() is not defined for purely analytic function.
   if (!aggregate_fn.is_analytic_only_fn) {
      RETURN_IF_ERROR(UserFunctionCache::instance()->get_function_ptr(
-             _fn.id, aggregate_fn.merge_fn_symbol, _fn.hdfs_location, "", &merge_fn_, &_cache_entry));
+             _fn.id, aggregate_fn.merge_fn_symbol,
+             _fn.hdfs_location, _fn.checksum, &merge_fn_, &_cache_entry));
   }
   // Serialize(), GetValue(), Remove() and Finalize() are optional
   if (!aggregate_fn.serialize_fn_symbol.empty()) {
     RETURN_IF_ERROR(UserFunctionCache::instance()->get_function_ptr(
             _fn.id, aggregate_fn.serialize_fn_symbol,
-            _fn.hdfs_location, "",
+            _fn.hdfs_location, _fn.checksum,
             &serialize_fn_, &_cache_entry));
   }
   if (!aggregate_fn.get_value_fn_symbol.empty()) {
     RETURN_IF_ERROR(UserFunctionCache::instance()->get_function_ptr(
-            _fn.id, aggregate_fn.get_value_fn_symbol, _fn.hdfs_location, "",
+            _fn.id, aggregate_fn.get_value_fn_symbol, _fn.hdfs_location, _fn.checksum,
             &get_value_fn_, &_cache_entry));
   }
   if (!aggregate_fn.remove_fn_symbol.empty()) {
     RETURN_IF_ERROR(UserFunctionCache::instance()->get_function_ptr(
             _fn.id, aggregate_fn.remove_fn_symbol,
-            _fn.hdfs_location, "",
+            _fn.hdfs_location, _fn.checksum,
             &remove_fn_, &_cache_entry));
   }
   if (!aggregate_fn.finalize_fn_symbol.empty()) {
     RETURN_IF_ERROR(UserFunctionCache::instance()->get_function_ptr(
             _fn.id, _fn.aggregate_fn.finalize_fn_symbol,
-            _fn.hdfs_location, "",
+            _fn.hdfs_location, _fn.checksum,
             &finalize_fn_, &_cache_entry));
   }
   return Status::OK;

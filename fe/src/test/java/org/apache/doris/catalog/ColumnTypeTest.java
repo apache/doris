@@ -158,6 +158,9 @@ public class ColumnTypeTest {
         ScalarType type3 = ScalarType.createDecimalType(1, 1);
         ColumnType.write(dos, type3);
 
+        ScalarType type4 = ScalarType.createDecimalV2Type(1, 1);
+        ColumnType.write(dos, type4);
+
         // 2. Read objects from file
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
         Type rType1 = ColumnType.read(dis);
@@ -167,7 +170,9 @@ public class ColumnTypeTest {
         Assert.assertTrue(rType2.equals(type2));
         
         Type rType3 = ColumnType.read(dis);
-        Assert.assertTrue(rType3.equals(type3));
+
+        // Change it when remove DecimalV2
+        Assert.assertTrue(rType3.equals(type3) || rType3.equals(type4));
 
         Assert.assertFalse(type1.equals(this));
         

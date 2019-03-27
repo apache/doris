@@ -547,6 +547,10 @@ Status PreAggregationNode::update_agg_row(TupleRow* agg_row, TupleRow* probe_row
                 UpdateMinSlot<DecimalValue>(slot, value);
                 break;
 
+            case TYPE_DECIMALV2:
+                UpdateMinSlot<DecimalV2Value>(slot, value);
+                break;
+
             default:
                 LOG(WARNING) << "invalid type: " << type_to_string(agg_expr->type());
                 return Status("unknown type");
@@ -593,6 +597,10 @@ Status PreAggregationNode::update_agg_row(TupleRow* agg_row, TupleRow* probe_row
                 UpdateMaxSlot<DecimalValue>(slot, value);
                 break;
 
+            case TYPE_DECIMALV2:
+                UpdateMaxSlot<DecimalV2Value>(slot, value);
+                break;
+
             default:
                 LOG(WARNING) << "invalid type: " << type_to_string(agg_expr->type());
                 return Status("unknown type");
@@ -612,6 +620,10 @@ Status PreAggregationNode::update_agg_row(TupleRow* agg_row, TupleRow* probe_row
 
             case TYPE_DECIMAL:
                 UpdateSumSlot<DecimalValue>(slot, value);
+                break;
+
+            case TYPE_DECIMALV2:
+                UpdateSumSlot<DecimalV2Value>(slot, value);
                 break;
 
             default:

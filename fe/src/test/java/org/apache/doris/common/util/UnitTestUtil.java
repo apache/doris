@@ -41,6 +41,7 @@ import org.apache.doris.load.DppConfig;
 import org.apache.doris.load.Load;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TDisk;
+import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.Maps;
@@ -66,16 +67,16 @@ public class UnitTestUtil {
 
         // replica
         long replicaId = 0;
-        Replica replica1 = new Replica(replicaId, backendId, ReplicaState.NORMAL, version, versionHash);
-        Replica replica2 = new Replica(replicaId + 1, backendId + 1, ReplicaState.NORMAL, version, versionHash);
-        Replica replica3 = new Replica(replicaId + 2, backendId + 2, ReplicaState.NORMAL, version, versionHash);
+        Replica replica1 = new Replica(replicaId, backendId, ReplicaState.NORMAL, version, versionHash, 0);
+        Replica replica2 = new Replica(replicaId + 1, backendId + 1, ReplicaState.NORMAL, version, versionHash, 0);
+        Replica replica3 = new Replica(replicaId + 2, backendId + 2, ReplicaState.NORMAL, version, versionHash, 0);
         
         // tablet
         Tablet tablet = new Tablet(tabletId);
 
         // index
         MaterializedIndex index = new MaterializedIndex(indexId, IndexState.NORMAL);
-        TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, 0);
+        TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, 0, TStorageMedium.HDD);
         index.addTablet(tablet, tabletMeta);
 
         tablet.addReplica(replica1);

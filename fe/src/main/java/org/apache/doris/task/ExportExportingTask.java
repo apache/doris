@@ -28,6 +28,7 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.common.Version;
 import org.apache.doris.load.ExportFailMsg;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.qe.Coordinator;
@@ -251,7 +252,7 @@ public class ExportExportingTask extends MasterTask {
 
         summaryProfile.addInfoString(ProfileManager.QUERY_TYPE, "Query");
         summaryProfile.addInfoString(ProfileManager.QUERY_STATE, job.getState().toString());
-        summaryProfile.addInfoString("Palo Version", "Palo version 2.0");
+        summaryProfile.addInfoString("Doris Version", Version.PALO_BUILD_VERSION);
         summaryProfile.addInfoString(ProfileManager.USER, "xxx");
         summaryProfile.addInfoString(ProfileManager.DEFAULT_DB, String.valueOf(job.getDbId()));
         summaryProfile.addInfoString(ProfileManager.SQL_STATEMENT, job.getSql());

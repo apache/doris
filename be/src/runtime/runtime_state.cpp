@@ -36,7 +36,7 @@
 #include "runtime/load_path_mgr.h"
 #include "util/cpu_info.h"
 #include "util/mem_info.h"
-#include "util/debug_util.h"
+#include "util/uid_util.h"
 #include "util/disk_info.h"
 #include "util/file_utils.h"
 #include "util/pretty_printer.h"
@@ -65,7 +65,6 @@ RuntimeState::RuntimeState(
             _normal_row_number(0),
             _error_row_number(0),
             _error_log_file(nullptr),
-            _is_running(true),
             _instance_buffer_reservation(new ReservationTracker) {
     Status status = init(fragment_instance_id, query_options, now, exec_env);
     DCHECK(status.ok());
@@ -376,7 +375,7 @@ Status RuntimeState::check_query_state() {
 }
 
 const std::string ERROR_FILE_NAME = "error_log";
-const int64_t MAX_ERROR_NUM = 1000;
+const int64_t MAX_ERROR_NUM = 50;
 
 Status RuntimeState::create_load_dir() {
     if (!_load_dir.empty()) {
@@ -456,9 +455,10 @@ void RuntimeState::append_error_msg_to_file(
         }
     }
 
-    (*_error_log_file) << out.str() << std::endl;
-
-    export_load_error(out.str());
+    if (!out.str().empty()) {
+        (*_error_log_file) << out.str() << std::endl;
+        export_load_error(out.str());
+    }
 }
 
 const int64_t HUB_MAX_ERROR_NUM = 10;
@@ -468,7 +468,8 @@ void RuntimeState::export_load_error(const std::string& err_msg) {
         if (_load_error_hub_info == nullptr) {
             return;
         }
-        LoadErrorHub::create_hub(_load_error_hub_info.get(), &_error_hub);
+        LoadErrorHub::create_hub(_exec_env, _load_error_hub_info.get(),
+                _error_log_file_path, &_error_hub);
     }
 
     if (_error_row_number <= HUB_MAX_ERROR_NUM) {

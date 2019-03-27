@@ -177,7 +177,9 @@ OLAPStatus ReadOnlyFileStream::skip(uint64_t skip_length) {
 
 OLAPStatus ReadOnlyFileStream::_fill_compressed(size_t length) {
     if (length > _compress_buffer_size) {
-        OLAP_LOG_WARNING("overflow when fill compressed.");
+        LOG(WARNING) << "overflow when fill compressed."
+                     << ", length=" << length
+                     << ", compress_size" << _compress_buffer_size;
         return OLAP_ERR_OUT_OF_BOUND;
     }
 
