@@ -27,6 +27,7 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LoadException;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -328,6 +329,77 @@ public class RoutineLoadManagerTest {
 
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
         routineLoadManager.updateBeIdToMaxConcurrentTasks();
+    }
+
+    @Test
+    public void testGetJobByName(@Injectable RoutineLoadJob routineLoadJob1,
+                                 @Injectable RoutineLoadJob routineLoadJob2,
+                                 @Injectable RoutineLoadJob routineLoadJob3) {
+        String jobName = "ilovedoris";
+        List<RoutineLoadJob> routineLoadJobList1 = Lists.newArrayList();
+        routineLoadJobList1.add(routineLoadJob1);
+        routineLoadJobList1.add(routineLoadJob2);
+        Map<String, List<RoutineLoadJob>> nameToRoutineLoadList1 = Maps.newHashMap();
+        nameToRoutineLoadList1.put(jobName, routineLoadJobList1);
+
+        List<RoutineLoadJob> routineLoadJobList2 = Lists.newArrayList();
+        routineLoadJobList2.add(routineLoadJob3);
+        Map<String, List<RoutineLoadJob>> nameToRoutineLoadList2 = Maps.newHashMap();
+        nameToRoutineLoadList2.put(jobName, routineLoadJobList2);
+
+        Map<String, Map<String, List<RoutineLoadJob>>> dbToNameRoutineLoadList = Maps.newHashMap();
+        dbToNameRoutineLoadList.put("db1", nameToRoutineLoadList1);
+        dbToNameRoutineLoadList.put("db2", nameToRoutineLoadList2);
+
+        new Expectations() {
+            {
+                routineLoadJob1.isFinal();
+                result = true;
+                routineLoadJob2.isFinal();
+                result = false;
+
+            }
+        };
+
+        RoutineLoadManager routineLoadManager = new RoutineLoadManager();
+        Deencapsulation.setField(routineLoadManager, "dbToNameToRoutineLoadJob", dbToNameRoutineLoadList);
+        List<RoutineLoadJob> result = routineLoadManager.getJobByName(jobName);
+
+        Assert.assertEquals(3, result.size());
+        Assert.assertEquals(routineLoadJob2, result.get(0));
+        Assert.assertEquals(routineLoadJob1, result.get(1));
+        Assert.assertEquals(routineLoadJob3, result.get(2));
+
+    }
+
+    @Test
+    public void testGetJob(@Injectable RoutineLoadJob routineLoadJob1,
+                           @Injectable RoutineLoadJob routineLoadJob2,
+                           @Injectable RoutineLoadJob routineLoadJob3) throws MetaNotFoundException {
+
+        new Expectations() {
+            {
+                routineLoadJob1.isFinal();
+                result = true;
+                routineLoadJob2.isFinal();
+                result = false;
+                routineLoadJob3.isFinal();
+                result = true;
+            }
+        };
+
+        RoutineLoadManager routineLoadManager = new RoutineLoadManager();
+        Map<Long, RoutineLoadJob> idToRoutineLoadJob = Maps.newHashMap();
+        idToRoutineLoadJob.put(1L, routineLoadJob1);
+        idToRoutineLoadJob.put(2L, routineLoadJob2);
+        idToRoutineLoadJob.put(3L, routineLoadJob3);
+        Deencapsulation.setField(routineLoadManager, "idToRoutineLoadJob", idToRoutineLoadJob);
+        List<RoutineLoadJob> result = routineLoadManager.getJob(null, null, true);
+
+        Assert.assertEquals(3, result.size());
+        Assert.assertEquals(routineLoadJob2, result.get(0));
+        Assert.assertEquals(routineLoadJob1, result.get(1));
+        Assert.assertEquals(routineLoadJob3, result.get(2));
     }
 
 }
