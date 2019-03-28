@@ -736,17 +736,13 @@ bool SchemaChangeDirectly::process(RowsetReaderSharedPtr rowset_reader, RowsetWr
     reset_merged_rows();
     reset_filtered_rows();
 
-    std::shared_ptr<RowBlock> ref_row_block(new RowBlock(&(base_tablet->tablet_schema())));
-    RowBlockInfo block_info;
-    block_info.row_num = base_tablet->tablet_schema().num_rows_per_row_block();
-    block_info.null_supported = true;
-    ref_row_block->init(block_info);
-    rowset_reader->next_block(ref_row_block);
-    while (ref_row_block->has_remaining()) {
+    RowBlock* ref_row_block = nullptr;
+    rowset_reader->next_block(&ref_row_block);
+    while (ref_row_block != nullptr && ref_row_block->has_remaining()) {
         // 注意这里强制分配和旧块等大的块(小了可能会存不下)
-        if (nullptr == new_row_block
+        if (new_row_block == nullptr
                 || new_row_block->capacity() < ref_row_block->row_block_info().row_num) {
-            if (nullptr != new_row_block) {
+            if (new_row_block != nullptr) {
                 _row_block_allocator->release(new_row_block);
                 new_row_block = nullptr;
             }
@@ -765,7 +761,7 @@ bool SchemaChangeDirectly::process(RowsetReaderSharedPtr rowset_reader, RowsetWr
 
         // 将ref改为new。这一步按道理来说确实需要等大的块，但理论上和writer无关。
         uint64_t filtered_rows = 0;
-        if (!_row_block_changer.change_row_block(ref_row_block.get(),
+        if (!_row_block_changer.change_row_block(ref_row_block,
                                                  rowset_reader->version().second,
                                                  new_row_block,
                                                  &filtered_rows)) {
@@ -781,7 +777,8 @@ bool SchemaChangeDirectly::process(RowsetReaderSharedPtr rowset_reader, RowsetWr
             goto DIRECTLY_PROCESS_ERR;
         }
 
-        rowset_reader->next_block(ref_row_block);
+        ref_row_block->clear();
+        rowset_reader->next_block(&ref_row_block);
     }
 
     if (OLAP_SUCCESS != rowset_writer->flush()) {
@@ -845,7 +842,7 @@ bool SchemaChangeWithSorting::process(
         TabletSharedPtr tablet,
         TabletSharedPtr base_tablet) {
     if (_row_block_allocator == nullptr) {
-        _row_block_allocator = new(nothrow) RowBlockAllocator(_tablet->tablet_schema(), _memory_limitation);
+        _row_block_allocator = new (nothrow) RowBlockAllocator(_tablet->tablet_schema(), _memory_limitation);
         if (_row_block_allocator == nullptr) {
             LOG(FATAL) << "failed to malloc RowBlockAllocator. size=" << sizeof(RowBlockAllocator);
             return false;
@@ -856,7 +853,8 @@ bool SchemaChangeWithSorting::process(
     OLAPStatus res = OLAP_SUCCESS;
     RowsetSharedPtr rowset = rowset_reader->rowset();
     if (!rowset->empty()) {
-        if (!rowset_reader->has_next()) {
+        int num_rows = rowset_reader->rowset()->num_rows();
+        if (num_rows == 0) {
             need_create_empty_version = true;
         }
     } else {
@@ -891,13 +889,9 @@ bool SchemaChangeWithSorting::process(
     reset_merged_rows();
     reset_filtered_rows();
 
-    std::shared_ptr<RowBlock> ref_row_block(new RowBlock(&(base_tablet->tablet_schema())));
-    RowBlockInfo block_info;
-    block_info.row_num = base_tablet->tablet_schema().num_rows_per_row_block();
-    block_info.null_supported = true;
-    ref_row_block->init(block_info);
-    rowset_reader->next_block(ref_row_block);
-    while (ref_row_block->has_remaining()) {
+    RowBlock* ref_row_block = nullptr;
+    rowset_reader->next_block(&ref_row_block);
+    while (ref_row_block != nullptr && ref_row_block->has_remaining()) {
         if (OLAP_SUCCESS != _row_block_allocator->allocate(
                     &new_row_block, ref_row_block->row_block_info().row_num, true)) {
             LOG(WARNING) << "failed to allocate RowBlock.";
@@ -939,7 +933,7 @@ bool SchemaChangeWithSorting::process(
         }
 
         uint64_t filtered_rows = 0;
-        if (!_row_block_changer.change_row_block(ref_row_block.get(),
+        if (!_row_block_changer.change_row_block(ref_row_block,
                                                  rowset_reader->version().second,
                                                  new_row_block, &filtered_rows)) {
             LOG(WARNING) << "failed to change data in row block.";
@@ -961,7 +955,8 @@ bool SchemaChangeWithSorting::process(
             new_row_block = nullptr;
         }
 
-        rowset_reader->next_block(ref_row_block);
+        ref_row_block->clear();
+        rowset_reader->next_block(&ref_row_block);
     }
 
     if (!row_block_arr.empty()) {
@@ -1305,6 +1300,7 @@ OLAPStatus SchemaChangeHandler::process_alter_tablet(AlterTabletType type,
         RowsetReaderContextBuilder context_builder;
         context_builder.set_reader_type(READER_ALTER_TABLE)
                        .set_tablet_schema(&base_tablet->tablet_schema())
+                       .set_preaggregation(true)
                        .set_delete_handler(&delete_handler)
                        .set_is_using_cache(false)
                        .set_lru_cache(StorageEngine::instance()->index_stream_lru_cache());
@@ -1462,14 +1458,14 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
     // 但由于历史数据在后续base/cumulative后还是会变成正常，故用directly也可以
     // b. 生成历史数据转换器
     SchemaChange* sc_procedure = nullptr;
-    if (true == sc_sorting) {
+    if (sc_sorting) {
         size_t memory_limitation = config::memory_limitation_per_thread_for_schema_change;
         LOG(INFO) << "doing schema change with sorting.";
         sc_procedure = new(nothrow) SchemaChangeWithSorting(
                                 new_tablet,
                                 rb_changer,
                                 memory_limitation * 1024 * 1024 * 1024);
-    } else if (true == sc_directly) {
+    } else if (sc_directly) {
         LOG(INFO) << "doing schema change directly.";
         sc_procedure = new(nothrow) SchemaChangeDirectly(
                                 new_tablet, rb_changer);
@@ -1480,7 +1476,7 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
                                 new_tablet);
     }
 
-    if (nullptr == sc_procedure) {
+    if (sc_procedure == nullptr) {
         LOG(FATAL) << "failed to malloc SchemaChange. size=" << sizeof(SchemaChangeWithSorting);
         return OLAP_ERR_MALLOC_ERROR;
     }
@@ -1490,6 +1486,7 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
     RowsetReaderContextBuilder reader_context_builder;
     reader_context_builder.set_reader_type(READER_ALTER_TABLE)
                           .set_tablet_schema(&base_tablet->tablet_schema())
+                          .set_preaggregation(true)
                           .set_delete_handler(&delete_handler)
                           .set_is_using_cache(false)
                           .set_lru_cache(StorageEngine::instance()->index_stream_lru_cache());
