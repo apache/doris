@@ -45,6 +45,7 @@ EsHttpScanner::EsHttpScanner(
         _conjunct_ctxs(conjunct_ctxs),
         _next_range(0),
         _line_eof(false),
+        _batch_eof(false),
 #if BE_TEST
         _mem_tracker(new MemTracker()),
         _mem_pool(_mem_tracker.get()),
@@ -55,6 +56,7 @@ EsHttpScanner::EsHttpScanner(
         _tuple_desc(nullptr),
         _counter(counter),
         _es_reader(nullptr),
+        _parser(nullptr),
         _rows_read_counter(nullptr),
         _read_timer(nullptr),
         _materialize_timer(nullptr) {
@@ -98,19 +100,31 @@ Status EsHttpScanner::open() {
 
 Status EsHttpScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
     SCOPED_TIMER(_read_timer);
-    do {
-        ScrollParser* parser = nullptr;
-        if (!_line_eof) {
-            RETURN_IF_ERROR(_es_reader->get_next(eof, &parser));
-            if (*eof) break;
+    if (_line_eof && _batch_eof) {
+        *eof = true;
+        return Status::OK;
+    }
+
+    while (!_batch_eof) {
+        if (_line_eof || _parser == nullptr) {
+            if (_parser != nullptr) {
+                delete _parser;
+                _parser = nullptr;
+            }
+            RETURN_IF_ERROR(_es_reader->get_next(&_batch_eof, &_parser));
+            if (_batch_eof || _parser == nullptr) {
+                *eof = true;
+                return Status::OK;
+            }
         }
 
-        if (parser != nullptr) {
-            COUNTER_UPDATE(_rows_read_counter, 1);
-            SCOPED_TIMER(_materialize_timer);
-            RETURN_IF_ERROR(parser->fill_tuple(_tuple_desc, tuple, tuple_pool, &_line_eof));
+        COUNTER_UPDATE(_rows_read_counter, 1);
+        SCOPED_TIMER(_materialize_timer);
+        RETURN_IF_ERROR(_parser->fill_tuple(_tuple_desc, tuple, tuple_pool, &_line_eof));
+        if (!_line_eof) {
+            break;
         }
-    } while (!*eof);
+    }
 
     return Status::OK;
 }
