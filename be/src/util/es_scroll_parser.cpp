@@ -40,7 +40,7 @@ static const string ERROR_INVALID_COL_DATA = "Data source returned inconsistent 
 static const string ERROR_MEM_LIMIT_EXCEEDED = "DataSourceScanNode::$0() failed to allocate "
     "$1 bytes for $2.";
 
-ScrollParser::ScrollParser(const std::string& scroll_id, int total, int size) :
+ScrollParser::ScrollParser(std::string scroll_id, int total, int size) :
     _scroll_id(scroll_id),
     _total(total),
     _size(size),
@@ -65,7 +65,7 @@ ScrollParser* ScrollParser::parse_from_string(const std::string& scroll_result) 
     std::string scroll_id = scroll_node.GetString();
     // { hits: { total : 2, "hits" : [ {}, {}, {} ]}}
     rapidjson::Value &outer_hits_node = document_node[FIELD_HITS];
-    rapidjson::Value &field_total = document_node[FIELD_TOTAL];
+    rapidjson::Value &field_total = outer_hits_node[FIELD_TOTAL];
     int total = field_total.GetInt();
     if (total == 0) {
         scroll_parser = new ScrollParser(scroll_id, total);
@@ -99,15 +99,14 @@ int ScrollParser::get_total() {
 
 Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc, 
             Tuple* tuple, MemPool* tuple_pool, bool* line_eof) {
+    *line_eof = true;
     if (_size <= 0 || _line_index >= _size) {
-        *line_eof = true;
         return Status::OK;
     }
 
     rapidjson::Value& obj = _inner_hits_node[_line_index++];
     rapidjson::Value& line = obj[FIELD_SOURCE];
     if (!line.IsObject()) {
-        *line_eof = true;
         return Status("Parse inner hits failed");
     }
 
@@ -232,12 +231,14 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
                 break;
             }
 
-            default:
+            default: {
                 DCHECK(false);
                 break;
+            }
         }
     }
 
+    *line_eof = false;
     return Status::OK;
 }
 }

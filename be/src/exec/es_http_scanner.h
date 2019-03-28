@@ -82,6 +82,7 @@ private:
 
     int _next_range;
     bool _line_eof;
+    bool _batch_eof;
 
     std::vector<SlotDescriptor*> _slot_descs;
     std::unique_ptr<RowDescriptor> _row_desc;
@@ -93,6 +94,7 @@ private:
     EsScanCounter* _counter;
     std::unique_ptr<ESScanReader> _es_reader;
     std::map<std::string, SlotDescriptor*> _slots_map;
+    ScrollParser* _parser;
 
     // Profile
     RuntimeProfile::Counter* _rows_read_counter;
