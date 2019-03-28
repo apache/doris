@@ -28,7 +28,7 @@
 namespace doris {
 
 struct MergeContext {
-    std::shared_ptr<ColumnData> column_data = nullptr;
+    std::unique_ptr<ColumnData> column_data = nullptr;
 
     int key_range_index = -1;
 
@@ -42,8 +42,7 @@ struct MergeContext {
 
     // For singleton Rowset, there are several SegmentGroups
     // Each of SegmentGroups correponds to a row_cursor
-    std::shared_ptr<RowCursor> row_cursor = nullptr;
-
+    std::unique_ptr<RowCursor> row_cursor = nullptr;
 };
 
 class AlphaRowsetReader : public RowsetReader {
@@ -79,13 +78,13 @@ private:
 
     OLAPStatus _union_block(RowBlock** block);
     OLAPStatus _merge_block(RowBlock** block);
-    OLAPStatus _next_row_for_singleton_rowset(RowCursor** row);
-    OLAPStatus _next_block_for_column_data(MergeContext* merge_ctx);
+    OLAPStatus _pull_next_row_for_merge_rowset(RowCursor** row);
+    OLAPStatus _pull_next_block(MergeContext* merge_ctx);
 
     // Doris will split query predicates to several scan keys
     // This function is used to fetch block when advancing
     // current scan key to next scan key.
-    OLAPStatus _fetch_first_block(MergeContext* merge_ctx);
+    OLAPStatus _pull_first_block(MergeContext* merge_ctx);
 
 private:
     int _num_rows_per_row_block;

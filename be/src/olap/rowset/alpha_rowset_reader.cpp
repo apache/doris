@@ -130,7 +130,7 @@ int64_t AlphaRowsetReader::filtered_rows() {
 OLAPStatus AlphaRowsetReader::_union_block(RowBlock** block) {
     while (_ordinal < _merge_ctxs.size()) {
         // union block only use one block to store
-        OLAPStatus status = _next_block_for_column_data(&(_merge_ctxs[_ordinal]));
+        OLAPStatus status = _pull_next_block(&(_merge_ctxs[_ordinal]));
         if (status == OLAP_ERR_DATA_EOF) {
             _ordinal++;
             continue;
@@ -157,7 +157,7 @@ OLAPStatus AlphaRowsetReader::_merge_block(RowBlock** block) {
     size_t num_rows_in_block = 0;
     while (_read_block->pos() < _num_rows_per_row_block) {
         RowCursor* row_cursor = nullptr;
-        status = _next_row_for_singleton_rowset(&row_cursor);
+        status = _pull_next_row_for_merge_rowset(&row_cursor);
         if (status == OLAP_ERR_DATA_EOF && _read_block->pos() > 0) {
             status = OLAP_SUCCESS;
             break;
@@ -176,22 +176,20 @@ OLAPStatus AlphaRowsetReader::_merge_block(RowBlock** block) {
     return status;
 }
 
-OLAPStatus AlphaRowsetReader::_next_row_for_singleton_rowset(RowCursor** row) {
+OLAPStatus AlphaRowsetReader::_pull_next_row_for_merge_rowset(RowCursor** row) {
     RowCursor* min_row = nullptr;
     int min_index = -1;
 
-    size_t merge_ctx_size = _merge_ctxs.size();
     size_t ordinal = 0;
-    while (ordinal < merge_ctx_size) {
+    while (ordinal < _merge_ctxs.size()) {
         MergeContext* merge_ctx = &(_merge_ctxs[ordinal]);
         if (merge_ctx->row_block == nullptr || !merge_ctx->row_block->has_remaining()) {
-            OLAPStatus status = _next_block_for_column_data(merge_ctx);
+            OLAPStatus status = _pull_next_block(merge_ctx);
             if (status == OLAP_ERR_DATA_EOF) {
                 _merge_ctxs.erase(_merge_ctxs.begin() + ordinal);
-                merge_ctx_size = _merge_ctxs.size();
                 continue;
             } else if (status != OLAP_SUCCESS) {
-                LOG(INFO) << "read next row of singleton rowset failed:" << status;
+                LOG(WARNING) << "read next row of singleton rowset failed:" << status;
                 return status;
             }
         }
@@ -211,11 +209,11 @@ OLAPStatus AlphaRowsetReader::_next_row_for_singleton_rowset(RowCursor** row) {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus AlphaRowsetReader::_next_block_for_column_data(MergeContext* merge_ctx) {
+OLAPStatus AlphaRowsetReader::_pull_next_block(MergeContext* merge_ctx) {
     OLAPStatus status = OLAP_SUCCESS;
     if (OLAP_UNLIKELY(merge_ctx->first_read_symbol)) {
         if (_key_range_size > 0) {
-            status = _fetch_first_block(merge_ctx);
+            status = _pull_first_block(merge_ctx);
         } else {
             status = merge_ctx->column_data->get_first_row_block(&(merge_ctx->row_block));
             if (status != OLAP_SUCCESS && status != OLAP_ERR_DATA_EOF) {
@@ -231,13 +229,13 @@ OLAPStatus AlphaRowsetReader::_next_block_for_column_data(MergeContext* merge_ct
             // reach the end of one predicate
             // currently, SegmentReader can only support filter one key range a time
             // refresh the predicate and continue read
-            return _fetch_first_block(merge_ctx);
+            return _pull_first_block(merge_ctx);
         }
     }
     return status;
 }
 
-OLAPStatus AlphaRowsetReader::_fetch_first_block(MergeContext* merge_ctx) {
+OLAPStatus AlphaRowsetReader::_pull_first_block(MergeContext* merge_ctx) {
     OLAPStatus status = OLAP_SUCCESS;
     merge_ctx->key_range_index++;
     while (merge_ctx->key_range_index < _key_range_size) {
@@ -277,7 +275,7 @@ OLAPStatus AlphaRowsetReader::_init_merge_ctxs(RowsetReaderContext* read_context
     }
 
     for (auto& segment_group : _segment_groups) {
-        std::shared_ptr<ColumnData> new_column_data(ColumnData::create(segment_group.get()));
+        std::unique_ptr<ColumnData> new_column_data(ColumnData::create(segment_group.get()));
         OLAPStatus status = new_column_data->init();
         if (status != OLAP_SUCCESS) {
             LOG(WARNING) << "init column data failed";
@@ -327,8 +325,8 @@ OLAPStatus AlphaRowsetReader::_init_merge_ctxs(RowsetReaderContext* read_context
             new_column_data->set_delete_status(DEL_NOT_SATISFIED);
         }
         MergeContext merge_ctx;
-        merge_ctx.column_data = new_column_data;
-        _merge_ctxs.emplace_back(merge_ctx);
+        merge_ctx.column_data = std::move(new_column_data);
+        _merge_ctxs.emplace_back(std::move(merge_ctx));
     }
 
     if (!_is_singleton_rowset && _merge_ctxs.size() > 1) {
