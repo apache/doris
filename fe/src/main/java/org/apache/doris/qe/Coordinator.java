@@ -26,6 +26,7 @@ import org.apache.doris.common.Reference;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.ListUtil;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.planner.DataPartition;
@@ -33,7 +34,6 @@ import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.DataStreamSink;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.HashJoinNode;
-import org.apache.doris.planner.MysqlScanNode;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
@@ -56,7 +56,6 @@ import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TLoadErrorHubInfo;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPaloScanRange;
-import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TPlanFragmentDestination;
 import org.apache.doris.thrift.TPlanFragmentExecParams;
 import org.apache.doris.thrift.TQueryGlobals;
@@ -78,7 +77,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -87,7 +85,6 @@ import org.apache.thrift.TException;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -182,6 +179,8 @@ public class Coordinator {
     private String clusterName;
     // paralle execute
     private final TUniqueId nextInstanceId;
+
+    private int parallelExecInstanceNum = -1;
 
     // Used for query
     public Coordinator(ConnectContext context, Analyzer analyzer, Planner planner) {
@@ -365,13 +364,7 @@ public class Coordinator {
         // compute Fragment Instance
         computeScanRangeAssignment();
 
-        // if mt_dop <= 1 
-        if (queryOptions.mt_dop <= 1) {
-            computeFragmentExecParams();
-        } else {
-            computeFragmentExecParamsForParallelExec();   
-            validate();
-        }
+        computeFragmentExecParams();
 
         traceInstance();
 
@@ -701,7 +694,7 @@ public class Coordinator {
         // assign instance ids
         numBackends = 0;
         for (FragmentExecParams params : fragmentExecParamsMap.values()) {
-            LOG.debug("parameter has instances.{}", params.instanceExecParams.size());
+            LOG.debug("fragment {} has instances {}", params.fragment.getFragmentId(), params.instanceExecParams.size());
             for (int j = 0; j < params.instanceExecParams.size(); ++j) {
                 // we add instance_num to query_id.lo to create a
                 // globally-unique instance id
@@ -856,15 +849,29 @@ public class Coordinator {
             } else {
                 //normat fragment
                 Iterator iter = fragmentExecParamsMap.get(fragment.getFragmentId()).scanRangeAssignment.entrySet().iterator();
+                boolean isParallel = needParallelInstance(leftMostNode);
                 while (iter.hasNext()) {
                     Map.Entry entry = (Map.Entry) iter.next();
                     TNetworkAddress key = (TNetworkAddress) entry.getKey();
                     Map<Integer, List<TScanRangeParams>> value = (Map<Integer, List<TScanRangeParams>>) entry.getValue();
-                    FInstanceExecParam instanceParam = new FInstanceExecParam(null, key, 0, params);
+
                     for (Integer planNodeId : value.keySet()) {
-                        instanceParam.perNodeScanRanges.put(planNodeId, value.get(planNodeId));
+                        List<TScanRangeParams> perNodeScanRanges = value.get(planNodeId);
+                        int expectedInstanceNum = 1;
+                        if (isParallel) {
+                            //the scan instance num should not larger than the tablets num
+                            expectedInstanceNum = Math.min(perNodeScanRanges.size(), getParallelExecInstanceNum());
+                        }
+
+                        List<List<TScanRangeParams>> perInstanceScanRanges = ListUtil.splitBySize(perNodeScanRanges,
+                                expectedInstanceNum);
+
+                        for (List<TScanRangeParams> scanRangeParams : perInstanceScanRanges) {
+                            FInstanceExecParam instanceParam = new FInstanceExecParam(null, key, 0, params);
+                            instanceParam.perNodeScanRanges.put(planNodeId, scanRangeParams);
+                            params.instanceExecParams.add(instanceParam);
+                        }
                     }
-                    params.instanceExecParams.add(instanceParam);
                 }
             }
 
@@ -882,12 +889,60 @@ public class Coordinator {
         }
     }
 
-    //One fragment could only have one HashJoinNode
-    private boolean isColocateJoin(PlanNode node) {
-        if (Config.disable_colocate_join) {
+    private boolean needParallelInstance(PlanNode leftMostNode) {
+        if (getParallelExecInstanceNum() <= SessionVariable.MIN_EXEC_INSTANCE_NUM) {
             return false;
         }
 
+        if (leftMostNode instanceof OlapScanNode) {
+            OlapScanNode olapScanNode = (OlapScanNode) leftMostNode;
+
+            //case 1: the small table of broadcast join need not parallel
+            PlanFragment destFragment =  olapScanNode.getFragment().getDestFragment();
+            if (destFragment != null)  {
+                PlanNode destRootNode = destFragment.getPlanRoot();
+                if (destRootNode instanceof HashJoinNode) {
+                    HashJoinNode joinNode = (HashJoinNode) destRootNode;
+                    if (!joinNode.isShuffleJoin()) {
+                        LOG.debug("ScanNode {} for fragment {} need not parallel because of broadcast join",
+                        olapScanNode.getOlapTable().getName(), olapScanNode.getFragmentId());
+                        return false;
+                    }
+                }
+            }
+
+            //case 2: the small table scan  need not parallel
+            long scanDataSize =  Math.round((double) olapScanNode.getCardinality() * olapScanNode.getAvgRowSize());
+            long smallScanSize = Config.parallel_scan_data_size_threshold;
+            if (scanDataSize <= smallScanSize) {
+                LOG.debug("ScanNode {} for fragment {} need not parallel because of data size {} is small",
+                olapScanNode.getOlapTable().getName(), olapScanNode.getFragmentId(), scanDataSize);
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    //get ParallelScanInstanceNum from session config or server config
+    private int getParallelExecInstanceNum() {
+        //cache the result. this method will call many times
+        if (parallelExecInstanceNum > 0) {
+            return parallelExecInstanceNum;
+        }
+
+        int sessionParallelExecInstanceNum = ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
+        //we prefer session config
+        if (sessionParallelExecInstanceNum > SessionVariable.MIN_EXEC_INSTANCE_NUM) {
+            parallelExecInstanceNum = sessionParallelExecInstanceNum;
+        } else {
+            parallelExecInstanceNum = Config.parallel_fragment_exec_instance_num;
+        }
+        return parallelExecInstanceNum;
+    }
+
+    //One fragment could only have one HashJoinNode
+    private boolean isColocateJoin(PlanNode node) {
         if (ConnectContext.get().getSessionVariable().isDisableColocateJoin()) {
             return false;
         }
@@ -910,296 +965,6 @@ public class Coordinator {
         }
 
         return false;
-    }
-    
-    private void computeFragmentExecParamsForParallelExec() throws Exception {
-        // create exec params and set instance_id, host, per_node_scan_ranges
-        computeFragmentInstances(fragmentExecParamsMap.get(fragments.get(0).getFragmentId()));
-        
-        // Set destinations, per_exch_num_senders, sender_id.
-        for (PlanFragment srcFragment : fragments) {
-            if (!(srcFragment.getSink() instanceof DataStreamSink)) {
-                continue;
-            }
-            final PlanFragmentId desFragmentId = srcFragment.getDestFragment().getFragmentId();
-            final FragmentExecParams srcParams = fragmentExecParamsMap.get(srcFragment.getFragmentId());
-            final FragmentExecParams destParams = fragmentExecParamsMap.get(desFragmentId);
-
-            // populate src_params->destinations
-            for (int i = 0; i < destParams.instanceExecParams.size(); i++) {
-                TPlanFragmentDestination dest = new TPlanFragmentDestination();
-                dest.setFragment_instance_id(destParams.instanceExecParams.get(i).instanceId);
-                dest.setServer(toRpcHost(destParams.instanceExecParams.get(i).host));
-                dest.setBrpc_server(toBrpcHost(destParams.instanceExecParams.get(i).host));
-                srcParams.destinations.add(dest);
-            }
-
-            final DataSink sinker = srcFragment.getSink();
-            Preconditions.checkState(
-                    sinker.getOutputPartition().getType() == TPartitionType.HASH_PARTITIONED
-                    || sinker.getOutputPartition().getType() == TPartitionType.UNPARTITIONED
-                    || sinker.getOutputPartition().getType() == TPartitionType.RANDOM);
-
-            PlanNodeId exchId = sinker.getExchNodeId();
-            Integer senderIdBase = destParams.perExchNumSenders.get(exchId);
-            if (senderIdBase == null) {
-                destParams.perExchNumSenders.put(exchId.asInt(), srcParams.instanceExecParams.size());
-                senderIdBase = 0;
-            } else {
-                destParams.perExchNumSenders.put(exchId.asInt(), 
-                        senderIdBase + srcParams.instanceExecParams.size());
-            }
-
-            for (int i = 0; i < srcParams.instanceExecParams.size(); i++) {
-                FInstanceExecParam srcInstanceParam = srcParams.instanceExecParams.get(i);
-                srcInstanceParam.senderId = senderIdBase + i;
-            }
-        }
-    }
-
-    // compute instances from fragment 
-    private void computeFragmentInstances(FragmentExecParams params) throws Exception {
-        // // traverse input fragments
-        for (PlanFragmentId fragmentId : params.inputFragments) {
-            computeFragmentInstances(fragmentExecParamsMap.get(fragmentId));
-        }
-       
-        // case 1: single instance executed at coordinator
-        final PlanFragment fragment = params.fragment;
-        if (fragment.getDataPartition() == DataPartition.UNPARTITIONED) {
-            Reference<Long> backendIdRef = new Reference<Long>();
-            TNetworkAddress execHostport = SimpleScheduler.getHost(this.idToBackend, backendIdRef);
-            if (execHostport == null) {
-                LOG.warn("DataPartition UNPARTITIONED, no scanNode Backend");
-                throw new UserException("there is no scanNode Backend");
-            }
-            TUniqueId instanceId = getNextInstanceId();
-            FInstanceExecParam instanceParam = new FInstanceExecParam(instanceId, execHostport, 
-                    0, params);
-            params.instanceExecParams.add(instanceParam);
-            this.addressToBackendID.put(execHostport, backendIdRef.getRef());
-            return;
-        }
-        
-        if (containsUnionNode(fragment.getPlanRoot())) {
-            createUnionInstance(params);
-            return;
-        }
-      
-        PlanNode leftPlanNode = findLeftmostNode(fragment.getPlanRoot());
-        if (leftPlanNode instanceof MysqlScanNode 
-                || leftPlanNode instanceof OlapScanNode) {
-            // case 2: leaf fragment with leftmost scan
-            // TODO: check that there's only one scan in this fragment
-            createScanInstance(leftPlanNode.getId(), params);
-        } else {
-            // case 3: interior fragment without leftmost scan
-            // we assign the same hosts as those of our leftmost input fragment (so that a
-            // merge aggregation fragment runs on the hosts that provide the input data)
-            createCollocatedInstance(params);
-        }
-    }
-
-    private List<PlanNodeId> findScanNodes(PlanNode plan) { 
-        List<PlanNodeId> result = Lists.newArrayList();
-        List<PlanNode> nodeList = Lists.newArrayList();
-        getAllNodes(plan, nodeList);
-        for (PlanNode node : nodeList) {
-            if (node instanceof MysqlScanNode 
-                    || node instanceof OlapScanNode) {
-                result.add(node.getId());
-            }
-        }
-        return result;
-    }
-
-    private void getAllNodes(PlanNode plan, List<PlanNode> nodeList) {
-        if (plan.getChildren().size() > 0) {
-            nodeList.addAll(plan.getChildren());
-            for (PlanNode child : plan.getChildren()) {
-                getAllNodes(child, nodeList);
-            }
-        }
-        nodeList.add(plan);
-    }
-
-    private Set<TNetworkAddress> getScanHosts(PlanNodeId id, FragmentExecParams fragmentExecParams) {
-        Set<TNetworkAddress> result = Sets.newHashSet();
-        for (TNetworkAddress host : fragmentExecParams.scanRangeAssignment.keySet()) {
-            Map<Integer, List<TScanRangeParams>> planNodeToScanRangeParams 
-                     = fragmentExecParams.scanRangeAssignment.get(host);
-            for (Integer planNodeId : planNodeToScanRangeParams.keySet()) {
-                if (id.asInt() == planNodeId) {
-                    result.add(host);
-                }    
-            }    
-        } 
-        
-        return result;
-    }
-
-    private void createScanInstance(PlanNodeId leftMostScanId, FragmentExecParams fragmentExecParams) 
-         throws UserException {
-        int maxNumInstance = queryOptions.mt_dop;
-        if (maxNumInstance == 0) {
-            maxNumInstance = 1;
-        }
-        
-        if (fragmentExecParams.scanRangeAssignment.isEmpty()) {
-            // this scan doesn't have any scan ranges: run a single instance on the random backend
-            Reference<Long> backendIdRef = new Reference<Long>();
-            TNetworkAddress execHostport = SimpleScheduler.getHost(this.idToBackend, backendIdRef);
-            if (execHostport == null) {
-                throw new UserException("there is no scanNode Backend");
-            }
-            FInstanceExecParam instanceParam = new FInstanceExecParam(getNextInstanceId(), execHostport, 0,
-                    fragmentExecParams);
-            fragmentExecParams.instanceExecParams.add(instanceParam);
-            return;
-        }
-
-        final int leftMostScanIdInt = leftMostScanId.asInt();
-        int perFragmentInstanceIdx = 0;
-        for (TNetworkAddress host : fragmentExecParams.scanRangeAssignment.keySet()) {
-            // evenly divide up the scan ranges of the leftmost scan between at most
-            // <dop> instances
-            final Map<Integer, List<TScanRangeParams>> scanMap = fragmentExecParams.scanRangeAssignment.get(host);
-            final List<TScanRangeParams> scanRangesList = scanMap.get(leftMostScanIdInt);
-            Preconditions.checkState(scanRangesList != null);
-            // try to load-balance scan ranges by assigning just beyond the average number of
-            // bytes to each instance
-            // TODO: fix shortcomings introduced by uneven split sizes,
-            // this could end up assigning 0 scan ranges to an instance
-            final int numInstance = Math.min(maxNumInstance, scanRangesList.size());
-            Preconditions.checkState(numInstance != 0);
-            final List<FInstanceExecParam> perHostInstanceExecParams = Lists.newArrayList();
-            // create FInstanceExecParam in one host
-            for (int i = 0; i < numInstance; i++) {
-                final FInstanceExecParam instanceParam = new FInstanceExecParam(getNextInstanceId(), 
-                        host, perFragmentInstanceIdx++, fragmentExecParams);
-                fragmentExecParams.instanceExecParams.add(instanceParam);
-                perHostInstanceExecParams.add(instanceParam);
-                List<TScanRangeParams> paramList = instanceParam.perNodeScanRanges.get(leftMostScanIdInt);
-                if (paramList == null) {
-                    paramList = Lists.newArrayList();
-                    instanceParam.perNodeScanRanges.put(leftMostScanIdInt, paramList);
-                }
-            }
-
-            // assign tablet
-            Collections.shuffle(scanRangesList);
-            for (int i = 0; i < scanRangesList.size(); i++) {
-                final TScanRangeParams scanRangeParams = scanRangesList.get(i);
-                final int position = i % numInstance;
-                perHostInstanceExecParams.get(position).perNodeScanRanges.get(leftMostScanIdInt).add(scanRangeParams);
-            }
-        }
-    }
-    
-    private void validate() {
-        int numFragments = 0;
-        for (PlanFragment fragment : fragments) {
-            // TODO chenhao fragment' id produced in palo may larger than fragment sizes, 
-            // need to update this after merge latest impala plan codes 
-            //Preconditions.checkState(fragment.getFragmentId().asInt() <= fragments.size());
-            Preconditions.checkState(fragment.getFragmentId() 
-                    == fragmentExecParamsMap.get(fragment.getFragmentId()).fragment.getFragmentId());
-            ++numFragments;
-        }
-        
-        Preconditions.checkState(numFragments == fragmentExecParamsMap.size());
- 
-        // we assigned the correct number of scan ranges per (host, node id):
-        // assemble a map from host -> (map from node id -> #scan ranges)
-        Map<TNetworkAddress, Map<Integer, Integer>> countMap = Maps.newHashMap();
-        for (FragmentExecParams fragmentExecParams : fragmentExecParamsMap.values()) {
-            for (FInstanceExecParam instanceExecParam : fragmentExecParams.instanceExecParams) {
-                Map<Integer, Integer> planNodeIdToCount = countMap.get(instanceExecParam.host);
-                if (planNodeIdToCount == null) {
-                    planNodeIdToCount = Maps.newHashMap();
-                    countMap.put(instanceExecParam.host, planNodeIdToCount);
-                }
-                
-                for (Integer planNodeId : instanceExecParam.perNodeScanRanges.keySet()) {
-                    Integer count = planNodeIdToCount.get(planNodeId);
-                    if (count == null) {
-                        planNodeIdToCount.put(planNodeId, 0);
-                        count = 0;
-                    }
-                    int lastCount = planNodeIdToCount.get(planNodeId);
-                    planNodeIdToCount.put(planNodeId, lastCount + 
-                            instanceExecParam.perNodeScanRanges.get(planNodeId).size());
-                }
-            }
-        }
-        
-        for (FragmentExecParams fragmentExecParams : fragmentExecParamsMap.values()) {
-            for (TNetworkAddress host : fragmentExecParams.scanRangeAssignment.keySet()) {
-                Preconditions.checkState(countMap.get(host).size() != 0);
-                final Map<Integer, Integer> nodeCountMap = countMap.get(host);
-                Map<Integer, List<TScanRangeParams>> planNodeIdToScanRangeList
-                    = fragmentExecParams.scanRangeAssignment.get(host);
-                for (Integer planNodeId : planNodeIdToScanRangeList.keySet()) {
-                    Preconditions.checkState(nodeCountMap.get(planNodeId) > 0);
-                    Preconditions.checkState(nodeCountMap.get(planNodeId) 
-                            == planNodeIdToScanRangeList.get(planNodeId).size());
-                }
-            }
-        }
-        // TODO: add validation for BackendExecParams
-    }
-    
-    // create collocated instance according to inputFragments
-    private void createCollocatedInstance(FragmentExecParams fragmentExecParams) {
-        Preconditions.checkState(fragmentExecParams.inputFragments.size() >= 1);
-        final FragmentExecParams inputFragmentParams = fragmentExecParamsMap.get(fragmentExecParams.
-                inputFragments.get(0));
-        int perFragmentInstanceIdx = 0;
-        for (FInstanceExecParam inputInstanceParams : inputFragmentParams.instanceExecParams) {
-            FInstanceExecParam instanceParam = new FInstanceExecParam(getNextInstanceId(), 
-                    inputInstanceParams.host, perFragmentInstanceIdx++, fragmentExecParams);
-            fragmentExecParams.instanceExecParams.add(instanceParam);
-        }
-    }
-    
-    private TUniqueId getNextInstanceId() {
-        TUniqueId result = nextInstanceId.deepCopy();
-        nextInstanceId.lo++;
-        return result;
-    }
-    
-    
-    private void createUnionInstance(FragmentExecParams fragmentExecParams) {
-        final PlanFragment fragment = fragmentExecParams.fragment;
-        // Add hosts of scan nodes
-        List<PlanNodeId> scanNodeIds = findScanNodes(fragment.getPlanRoot());
-        
-        Set<TNetworkAddress> hostsSets = Sets.newHashSet();
-        for(PlanNodeId id: scanNodeIds) {
-            hostsSets.addAll(getScanHosts(id, fragmentExecParams));
-        } 
-
-        // UnionNode's child is not ScanNode
-        for (PlanFragmentId inputFragmentId : fragmentExecParams.inputFragments) {
-            FragmentExecParams inputeExecParams = fragmentExecParamsMap.get(inputFragmentId);
-            for (FInstanceExecParam instanceParam : inputeExecParams.instanceExecParams) {
-                hostsSets.add(instanceParam.host);
-            }    
-        } 
-
-        // create a single instance per host
-        // TODO-MT: figure out how to parallelize Union
-        int perFragmentIdx = 0;
-        for (TNetworkAddress host : hostsSets) {
-            FInstanceExecParam instanceParam = new FInstanceExecParam(getNextInstanceId(), host, 
-                    perFragmentIdx++, fragmentExecParams);
-            // assign all scan ranges
-            fragmentExecParams.instanceExecParams.add(instanceParam);
-            if (fragmentExecParams.scanRangeAssignment.get(host) != null
-                  && fragmentExecParams.scanRangeAssignment.get(host).size() > 0) {
-                instanceParam.perNodeScanRanges = fragmentExecParams.scanRangeAssignment.get(host);
-            }
-        }
     }
     
     // Returns the id of the leftmost node of any of the gives types in 'plan_root',

@@ -158,15 +158,8 @@ public class SingleNodePlanner {
      * Throws a NotImplementedException if plan validation fails.
      */
     public void validatePlan(PlanNode planNode) throws NotImplementedException {
-      if (ctx_.getQueryOptions().isSetMt_dop() && ctx_.getQueryOptions().mt_dop > 0
-          && (planNode instanceof HashJoinNode || planNode instanceof CrossJoinNode)) {
-          throw new NotImplementedException(
-              "MT_DOP not supported for plans with base table joins or table sinks.");
-      }
-
       // As long as MT_DOP is unset or 0 any join can run in a single-node plan.
-      if (ctx_.isSingleNodeExec() &&
-          (!ctx_.getQueryOptions().isSetMt_dop() || ctx_.getQueryOptions().mt_dop == 0)) {
+      if (ctx_.isSingleNodeExec()) {
           return;
       }
 
