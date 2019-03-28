@@ -34,86 +34,6 @@ namespace doris {
 class Status;
 class ExprContext;
 class ExtBinaryPredicate;
-class ExtLiteral;
-
-struct ExtPredicate {
-    ExtPredicate(TExprNodeType::type node_type) : node_type(node_type) {
-    }
-
-    TExprNodeType::type node_type;
-};
-
-struct ExtColumnDesc {
-    ExtColumnDesc(std::string name, TypeDescriptor type) :
-        name(name),
-        type(type) {
-    }
-
-    std::string name;
-    TypeDescriptor type;
-};
-
-struct ExtBinaryPredicate : public ExtPredicate {
-    ExtBinaryPredicate(
-                TExprNodeType::type node_type,
-                std::string name, 
-                TypeDescriptor type,
-                TExprOpcode::type op,
-                std::shared_ptr<ExtLiteral> value) :
-        ExtPredicate(node_type),
-        col(name, type),
-        op(op),
-        value(value) {
-    }
-
-    ExtColumnDesc col;
-    TExprOpcode::type op;
-    std::shared_ptr<ExtLiteral> value;
-};
-
-struct ExtInPredicate : public ExtPredicate {
-    ExtInPredicate(
-                TExprNodeType::type node_type,
-                std::string name, 
-                TypeDescriptor type,
-                vector<std::shared_ptr<ExtLiteral>> values) :
-        ExtPredicate(node_type),
-        is_not_in(false),
-        col(name, type),
-        values(values) {
-    }
-
-    bool is_not_in;
-    ExtColumnDesc col;
-    vector<std::shared_ptr<ExtLiteral>> values;
-};
-
-struct ExtLikePredicate : public ExtPredicate {
-    ExtColumnDesc col;
-    std::shared_ptr<ExtLiteral> value;
-};
-
-struct ExtIsNullPredicate : public ExtPredicate {
-    bool is_not_null;
-    ExtColumnDesc col;
-};
-
-struct ExtFunction : public ExtPredicate {
-    ExtFunction(
-                TExprNodeType::type node_type,
-                string func_name, 
-                vector<ExtColumnDesc> cols,
-                vector<std::shared_ptr<ExtLiteral>> values) :
-        ExtPredicate(node_type),
-        func_name(func_name),
-        cols(cols),
-        values(values) {
-    }
-
-    string func_name;
-    vector<ExtColumnDesc> cols;
-    vector<std::shared_ptr<ExtLiteral>> values;
-};
 
 class ExtLiteral {
     public:
@@ -144,26 +64,123 @@ class ExtLiteral {
         void *_value;
 };
 
+struct ExtColumnDesc {
+    ExtColumnDesc(const std::string& name, const TypeDescriptor& type) :
+        name(name),
+        type(type) {
+    }
+
+    const std::string& name;
+    const TypeDescriptor& type;
+};
+
+struct ExtPredicate {
+    ExtPredicate(TExprNodeType::type node_type) : node_type(node_type) {
+    }
+
+    TExprNodeType::type node_type;
+};
+
+struct ExtBinaryPredicate : public ExtPredicate {
+    ExtBinaryPredicate(
+                TExprNodeType::type node_type,
+                const std::string& name, 
+                const TypeDescriptor& type,
+                TExprOpcode::type op,
+                const ExtLiteral& value) :
+        ExtPredicate(node_type),
+        col(name, type),
+        op(op),
+        value(value) {
+    }
+
+    ExtColumnDesc col;
+    TExprOpcode::type op;
+    const ExtLiteral& value;
+};
+
+struct ExtInPredicate : public ExtPredicate {
+    ExtInPredicate(
+                TExprNodeType::type node_type,
+                const std::string& name, 
+                const TypeDescriptor& type,
+                const std::vector<ExtLiteral>& values) :
+        ExtPredicate(node_type),
+        is_not_in(false),
+        col(name, type),
+        values(values) {
+    }
+
+    bool is_not_in;
+    ExtColumnDesc col;
+    std::vector<ExtLiteral> values;
+};
+
+struct ExtLikePredicate : public ExtPredicate {
+    ExtLikePredicate(
+                TExprNodeType::type node_type,
+                const std::string& name, 
+                const TypeDescriptor& type,
+                ExtLiteral value) :
+        ExtPredicate(node_type),
+        col(name, type),
+        value(value) {
+    }
+
+    ExtColumnDesc col;
+    ExtLiteral value;
+};
+
+struct ExtIsNullPredicate : public ExtPredicate {
+    ExtIsNullPredicate(
+                TExprNodeType::type node_type,
+                const std::string& name, 
+                const TypeDescriptor& type,
+                ExtLiteral value) :
+        ExtPredicate(node_type),
+        col(name, type),
+        is_not_null(false) {
+    }
+
+    ExtColumnDesc col;
+    bool is_not_null;
+};
+
+struct ExtFunction : public ExtPredicate {
+    ExtFunction(TExprNodeType::type node_type,
+                const std::string& func_name, 
+                std::vector<ExtColumnDesc> cols,
+                std::vector<ExtLiteral> values) :
+        ExtPredicate(node_type),
+        func_name(func_name),
+        cols(cols),
+        values(values) {
+    }
+
+    const std::string& func_name;
+    std::vector<ExtColumnDesc> cols;
+    std::vector<ExtLiteral> values;
+};
+
 class EsPredicate {
 
     public:
-        EsPredicate(ExprContext* conjunct_ctx, 
-                    const TupleDescriptor* tuple_desc);
+        EsPredicate(ExprContext* context, const TupleDescriptor* tuple_desc);
         ~EsPredicate();
-        vector<std::shared_ptr<ExtPredicate>> get_predicate_list();
+        std::vector<ExtPredicate*> get_predicate_list();
         bool build_disjuncts_list();
 
     private:
 
         bool build_disjuncts_list(Expr* conjunct, 
-                    vector<std::shared_ptr<ExtPredicate>>& disjuncts);
-        bool is_match_func(Expr* conjunct);
-        SlotDescriptor* get_slot_desc(SlotRef* slotRef);
+                    std::vector<ExtPredicate*>& disjuncts);
+        bool is_match_func(const Expr* conjunct);
+        const SlotDescriptor* get_slot_desc(SlotRef* slotRef);
 
         ExprContext* _context; 
         int _disjuncts_num;
         const TupleDescriptor* _tuple_desc;
-        vector<std::shared_ptr<ExtPredicate>> _disjuncts;
+        std::vector<ExtPredicate*> _disjuncts;
 };
 
 }
