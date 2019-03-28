@@ -32,6 +32,7 @@ namespace doris {
 struct RowsetReaderContext {
     RowsetReaderContext() : reader_type(READER_QUERY),
         tablet_schema(nullptr),
+        preaggregation(false),
         return_columns(nullptr),
         load_bf_columns(nullptr),
         conditions(nullptr),
