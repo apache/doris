@@ -39,7 +39,7 @@ public:
     ~ColumnDataWriter();
     OLAPStatus init();
     OLAPStatus write(RowCursor* row_cursor);
-    OLAPStatus write(const char* row);
+    OLAPStatus write(const char* row, const Schema* schema);
     void next(const RowCursor& row_cursor);
     void next(const char* row, const Schema* schema);
     OLAPStatus finalize();

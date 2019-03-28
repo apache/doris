@@ -77,7 +77,6 @@ OLAPStatus AlphaRowsetWriter::add_row(RowCursor* row) {
         LOG(WARNING) << error_msg;
         return status;
     }
-    _column_data_writer->next(*row);
     _num_rows_written++;
     return OLAP_SUCCESS;
 }
@@ -87,13 +86,12 @@ OLAPStatus AlphaRowsetWriter::add_row(const char* row, Schema* schema) {
         _init();
         _is_inited = true;
     }
-    OLAPStatus status = _column_data_writer->write(row);
+    OLAPStatus status = _column_data_writer->write(row, schema);
     if (status != OLAP_SUCCESS) {
         std::string error_msg = "add row failed";
         LOG(WARNING) << error_msg;
         return status;
     }
-    _column_data_writer->next(row, schema);
     _num_rows_written++;
     return OLAP_SUCCESS;
 }
