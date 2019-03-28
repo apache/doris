@@ -28,6 +28,22 @@ class RowsetWriterContextBuilder;
 using RowsetWriterContextBuilderSharedPtr = std::shared_ptr<RowsetWriterContextBuilder>;
 
 struct RowsetWriterContext {
+    RowsetWriterContext() :
+        rowset_id(0),
+        tablet_id(0),
+        tablet_schema_hash(0),
+        partition_id(0),
+        rowset_type(ALPHA_ROWSET),
+        rowset_path_prefix(""),
+        tablet_schema(nullptr),
+        rowset_state(PREPARED),
+        data_dir(nullptr),
+        version(Version(0, 0)),
+        version_hash(0),
+        txn_id(0) {
+        load_id.set_hi(0);
+        load_id.set_lo(0);
+    }
     int64_t rowset_id;
     int64_t tablet_id;
     int64_t tablet_schema_hash;
@@ -46,82 +62,6 @@ struct RowsetWriterContext {
     // properties for pending rowset
     int64_t txn_id;
     PUniqueId load_id;
-};
-
-class RowsetWriterContextBuilder {
-public:
-    RowsetWriterContextBuilder& set_rowset_id(int64_t rowset_id) {
-        _rowset_writer_context.rowset_id = rowset_id;
-        return *this;
-    }
-
-    RowsetWriterContextBuilder& set_tablet_id(int64_t tablet_id) {
-        _rowset_writer_context.tablet_id = tablet_id;
-        return *this;
-    }
-
-    RowsetWriterContextBuilder& set_tablet_schema_hash(int64_t tablet_schema_hash) {
-        _rowset_writer_context.tablet_schema_hash = tablet_schema_hash;
-        return *this;
-    }
-    
-    RowsetWriterContextBuilder& set_partition_id(int64_t partition_id) {
-        _rowset_writer_context.partition_id = partition_id;
-        return *this;
-    }
-
-    RowsetWriterContextBuilder& set_rowset_type(RowsetTypePB rowset_type) {
-        _rowset_writer_context.rowset_type = rowset_type;
-        return *this;
-    }
-
-    RowsetWriterContextBuilder& set_rowset_path_prefix(const std::string& rowset_path_prefix) {
-        _rowset_writer_context.rowset_path_prefix = rowset_path_prefix;
-        return *this;
-    }
-
-    RowsetWriterContextBuilder& set_tablet_schema(const TabletSchema* tablet_schema) {
-        _rowset_writer_context.tablet_schema = tablet_schema;
-        return *this;
-    }
-
-    RowsetWriterContextBuilder& set_rowset_state(RowsetStatePB rowset_state) {
-        _rowset_writer_context.rowset_state = rowset_state;
-        return *this;
-    }
-
-    RowsetWriterContextBuilder& set_data_dir(DataDir* data_dir) {
-        _rowset_writer_context.data_dir = data_dir;
-        return *this;
-    }
-
-    RowsetWriterContextBuilder& set_version(Version version) {
-        _rowset_writer_context.version = version;
-        return *this;
-    }
-
-    RowsetWriterContextBuilder& set_version_hash(VersionHash version_hash) {
-        _rowset_writer_context.version_hash = version_hash;
-        return *this;
-    }
-
-    RowsetWriterContextBuilder& set_txn_id(int64_t txn_id) {
-        _rowset_writer_context.txn_id = txn_id;
-        return *this;
-    }
-
-    RowsetWriterContextBuilder& set_load_id(PUniqueId load_id) {
-        _rowset_writer_context.load_id.set_hi(load_id.hi());
-        _rowset_writer_context.load_id.set_lo(load_id.lo());
-        return *this;
-    }
-
-    RowsetWriterContext build() {
-        return _rowset_writer_context;
-    }
-
-private:
-    RowsetWriterContext _rowset_writer_context;
 };
 
 } // namespace doris

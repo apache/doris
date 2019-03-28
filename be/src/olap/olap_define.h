@@ -371,6 +371,8 @@ static const std::string CONVERTED_FLAG = "true";
 static const std::string TABLET_CONVERT_FINISHED = "tablet_convert_finished";
 const std::string TABLET_ID_KEY = "tablet_id";
 const std::string TABLET_SCHEMA_HASH_KEY = "schema_hash";
+const std::string TABLET_ID_PREFIX = "t_";
+const std::string ROWSET_ID_PREFIX = "s_";
 
 #define RETURN_NOT_OK(s) do { \
     OLAPStatus _s = (s);      \

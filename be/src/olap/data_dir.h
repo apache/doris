@@ -21,6 +21,7 @@
 #include <set>
 #include <string>
 #include <mutex>
+#include <condition_variable>
 
 #include "common/status.h"
 #include "gen_cpp/Types_types.h"
@@ -34,7 +35,10 @@ namespace doris {
 // Now, After DataDir was created, it will never be deleted for easy implementation.
 class DataDir {
 public:
-    DataDir(const std::string& path, int64_t capacity_bytes = -1);
+    DataDir(const std::string& path,
+            int64_t capacity_bytes = -1,
+            TabletManager* tablet_manager = nullptr,
+            TxnManager* txn_manager = nullptr);
     ~DataDir();
 
     Status init();
@@ -93,6 +97,18 @@ public:
     // load data from meta and data files
     OLAPStatus load();
 
+    void add_pending_ids(const std::string& id);
+
+    void remove_pending_ids(const std::string& id);
+
+    // this function scans the paths in data dir to collect the paths to check
+    // this is a producer function. After scan, it will notify the perform_path_gc function to gc
+    void perform_path_scan();
+
+    // this function is a consumer function
+    // this function will collect garbage paths scaned by last function
+    void perform_path_gc();
+
 private:
     std::string _cluster_id_path() const { return _path + CLUSTER_ID_PREFIX; }
     Status _init_cluster_id();
@@ -109,14 +125,24 @@ private:
     OLAPStatus _convert_old_tablet();
     OLAPStatus _remove_old_meta_and_files();
 
+    void _remove_check_paths_no_lock(const std::set<std::string>& paths);
+
+    void _process_garbage_path(const std::string& path);
+
+    void _remove_check_paths(const std::set<std::string>& paths);
+
+    bool _check_pending_ids(const std::string& id);
+
 private:
     std::string _path;
     int64_t _path_hash;
-    int32_t _cluster_id;
     uint32_t _rand_seed;
 
     std::string _file_system;
     int64_t _capacity_bytes;
+    TabletManager* _tablet_manager;
+    TxnManager* _txn_manager;
+    int32_t _cluster_id;
     int64_t _available_bytes;
     int64_t _used_bytes;
     uint64_t _current_shard;
@@ -135,6 +161,13 @@ private:
     char* _test_file_write_buf;
     OlapMeta* _meta = nullptr;
     RowsetIdGenerator* _id_generator = nullptr;
+
+    std::set<std::string> _all_check_paths;
+    std::mutex _check_path_mutex;
+    std::condition_variable cv;
+
+    std::set<std::string> _pending_path_ids;
+    RWMutex _pending_path_mutex;
 };
 
 } // namespace doris

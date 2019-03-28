@@ -30,6 +30,23 @@
 namespace doris {
 
 struct RowsetReaderContext {
+    RowsetReaderContext() : reader_type(READER_QUERY),
+        tablet_schema(nullptr),
+        preaggregation(false),
+        return_columns(nullptr),
+        load_bf_columns(nullptr),
+        conditions(nullptr),
+        predicates(nullptr),
+        lower_bound_keys(nullptr),
+        is_lower_keys_included(nullptr),
+        upper_bound_keys(nullptr),
+        is_upper_keys_included(nullptr),
+        delete_handler(nullptr),
+        stats(nullptr),
+        is_using_cache(false),
+        lru_cache(nullptr),
+        runtime_state(nullptr) { }
+
     ReaderType reader_type;
     const TabletSchema* tablet_schema;
     bool preaggregation;
@@ -52,115 +69,6 @@ struct RowsetReaderContext {
     bool is_using_cache;
     Cache* lru_cache;
     RuntimeState* runtime_state;
-
-    RowsetReaderContext() :
-        tablet_schema(nullptr),
-        preaggregation(false),
-        return_columns(nullptr),
-        load_bf_columns(nullptr),
-        conditions(nullptr),
-        predicates(nullptr),
-        lower_bound_keys(nullptr),
-        is_lower_keys_included(nullptr),
-        upper_bound_keys(nullptr),
-        is_upper_keys_included(nullptr),
-        delete_handler(nullptr),
-        stats(nullptr),
-        is_using_cache(false),
-        lru_cache(nullptr),
-        runtime_state(nullptr) {
-    }
-};
-
-class RowsetReaderContextBuilder {
-public:
-    RowsetReaderContextBuilder& set_reader_type(const ReaderType& reader_type) {
-        _reader_context.reader_type = reader_type;
-        return *this;
-    }
-
-    RowsetReaderContextBuilder& set_tablet_schema(const TabletSchema* tablet_schema) {
-        _reader_context.tablet_schema = tablet_schema;
-        return *this;
-    }
-
-    RowsetReaderContextBuilder& set_preaggregation(const bool preaggregation) {
-        _reader_context.preaggregation = preaggregation;
-        return *this;
-    }
-
-    RowsetReaderContextBuilder& set_return_columns(const std::vector<uint32_t>* return_columns) {
-        _reader_context.return_columns = return_columns;
-        return *this;
-    }
-
-    RowsetReaderContextBuilder& set_load_bf_columns(const std::set<uint32_t>* load_bf_columns) {
-        _reader_context.load_bf_columns = load_bf_columns;
-        return *this;
-    }
-
-    RowsetReaderContextBuilder& set_conditions(const Conditions* conditions) {
-        _reader_context.conditions = conditions;
-        return *this;
-    }
-
-    RowsetReaderContextBuilder& set_predicates(
-            const std::vector<ColumnPredicate*>* predicates) {
-        _reader_context.predicates = predicates;
-        return *this;
-    }
-
-    RowsetReaderContextBuilder& set_lower_bound_keys(const std::vector<RowCursor*>* lower_bound_keys) {
-        _reader_context.lower_bound_keys = lower_bound_keys;
-        return *this;
-    }
-
-    RowsetReaderContextBuilder& set_is_lower_keys_included(const std::vector<bool>* is_lower_keys_included) {
-        _reader_context.is_lower_keys_included = is_lower_keys_included;
-        return *this;
-    }
-
-    RowsetReaderContextBuilder& set_upper_bound_keys(const std::vector<RowCursor*>* upper_bound_keys) {
-        _reader_context.upper_bound_keys = upper_bound_keys;
-        return *this;
-    }
-
-    RowsetReaderContextBuilder& set_is_upper_keys_included(const std::vector<bool>* is_upper_keys_included) {
-        _reader_context.is_upper_keys_included = is_upper_keys_included;
-        return *this;
-    }
-
-    RowsetReaderContextBuilder& set_delete_handler(const DeleteHandler* delete_handler) {
-        _reader_context.delete_handler = delete_handler;
-        return *this;
-    }
-
-    RowsetReaderContextBuilder& set_stats(OlapReaderStatistics* stats) {
-        _reader_context.stats = stats;
-        return *this;
-    }
-
-    RowsetReaderContextBuilder& set_is_using_cache(bool is_using_cache) {
-        _reader_context.is_using_cache = is_using_cache;
-        return *this;
-    }
-
-    RowsetReaderContextBuilder& set_lru_cache(Cache* lru_cache) {
-        _reader_context.lru_cache = lru_cache;
-        return *this;
-    }
-
-    RowsetReaderContextBuilder& set_runtime_state(RuntimeState* runtime_state) {
-        _reader_context.runtime_state = runtime_state;
-        return *this;
-    }
-
-    RowsetReaderContext build() {
-        return _reader_context;
-    }
-
-private:
-    RowsetReaderContext _reader_context;
 };
 
 } // namespace doris
