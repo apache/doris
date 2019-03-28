@@ -38,14 +38,8 @@ public:
     // reader init
     virtual OLAPStatus init(RowsetReaderContext* read_context) = 0;
 
-    // check whether rowset has more data
-    virtual bool has_next() = 0;
-
-    // read next row data
-    virtual OLAPStatus next(RowCursor** row) = 0;
-
     // read next block data
-    virtual OLAPStatus next_block(std::shared_ptr<RowBlock> block) = 0;
+    virtual OLAPStatus next_block(RowBlock** block) = 0;
 
     virtual bool delete_flag() = 0;
 

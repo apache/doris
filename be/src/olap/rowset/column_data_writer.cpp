@@ -125,6 +125,8 @@ OLAPStatus ColumnDataWriter::_init_segment() {
 }
 
 OLAPStatus ColumnDataWriter::write(RowCursor* row_cursor) {
+    _row_block->set_row(_row_index, *row_cursor);
+    next(*row_cursor);
     if (_row_index >= _segment_group->get_num_rows_per_row_block()) {
         if (OLAP_SUCCESS != _flush_row_block(false)) {
             LOG(WARNING) << "failed to flush data while attaching row cursor.";
@@ -132,11 +134,12 @@ OLAPStatus ColumnDataWriter::write(RowCursor* row_cursor) {
         }
         RETURN_NOT_OK(_flush_segment_with_verfication());
     }
-    _row_block->set_row(_row_index, *row_cursor);
     return OLAP_SUCCESS;
 }
 
-OLAPStatus ColumnDataWriter::write(const char* row) {
+OLAPStatus ColumnDataWriter::write(const char* row, const Schema* schema) {
+    _row_block->set_row(_row_index, row);
+    next(row, schema);
     if (_row_index >= _segment_group->get_num_rows_per_row_block()) {
         if (OLAP_SUCCESS != _flush_row_block(false)) {
             LOG(WARNING) << "failed to flush data while attaching row cursor.";
@@ -144,7 +147,6 @@ OLAPStatus ColumnDataWriter::write(const char* row) {
         }
         RETURN_NOT_OK(_flush_segment_with_verfication());
     }
-    _row_block->set_row(_row_index, row);
     return OLAP_SUCCESS;
 }
 

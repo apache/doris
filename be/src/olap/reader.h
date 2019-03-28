@@ -68,7 +68,7 @@ struct ReaderParams {
 
     ReaderParams() :
             reader_type(READER_QUERY),
-            aggregation(true),
+            aggregation(false),
             profile(NULL),
             runtime_state(NULL) {
         start_key.clear();
