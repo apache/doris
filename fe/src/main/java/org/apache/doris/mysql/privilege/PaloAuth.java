@@ -205,6 +205,11 @@ public class PaloAuth implements Writable {
         }
         if ((remoteUser.equals(ROOT_USER) || remoteUser.equals(ADMIN_USER)) && remoteHost.equals("127.0.0.1")) {
             // root and admin user is allowed to login from 127.0.0.1, in case user forget password.
+            if (remoteUser.equals(ROOT_USER)) {
+                currentUser.add(UserIdentity.ROOT);
+            } else {
+                currentUser.add(UserIdentity.ADMIN);
+            }
             return true;
         }
         

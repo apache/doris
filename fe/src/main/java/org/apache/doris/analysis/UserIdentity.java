@@ -45,6 +45,16 @@ public class UserIdentity implements Writable {
     private boolean isDomain;
     private boolean isAnalyzed = false;
 
+    public static final UserIdentity ROOT;
+    public static final UserIdentity ADMIN;
+
+    static {
+        ROOT = new UserIdentity(PaloAuth.ROOT_USER, "%");
+        ROOT.setIsAnalyzed();
+        ADMIN = new UserIdentity(PaloAuth.ADMIN_USER, "%");
+        ADMIN.setIsAnalyzed();
+    }
+
     private UserIdentity() {
     }
 
