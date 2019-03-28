@@ -413,8 +413,9 @@ namespace config {
     CONF_Bool(block_seek_position, "false");
 
     // path gc
+    CONF_Bool(path_gc_check, "true");
     CONF_Int32(path_gc_check_interval_second, "1800");
-    CONF_Int32(path_gc_check_step, "1000");
+    CONF_Int32(path_gc_check_step, "-1");
     CONF_Int32(path_gc_check_step_interval_ms, "10");
     CONF_Int32(path_scan_interval_second, "1800");
 } // namespace config

@@ -109,6 +109,9 @@ public:
     bool get_tablet_id_and_schema_hash_from_path(const std::string& path,
             TTabletId* tablet_id, TSchemaHash* schema_hash);
 
+    bool get_rowset_id_from_path(const std::string& path,
+            RowsetId* rowset_id);
+
     void get_tablet_stat(TTabletStatResult& result);
 
     // parse tablet header msg to generate tablet object

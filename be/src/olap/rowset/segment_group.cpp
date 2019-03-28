@@ -31,6 +31,7 @@
 #include "olap/schema.h"
 #include "util/stack_util.h"
 #include "olap/storage_engine.h"
+#include "olap/data_dir.h"
 
 using std::ifstream;
 using std::string;
@@ -548,9 +549,11 @@ OLAPStatus SegmentGroup::add_short_key(const RowCursor& short_key, const uint32_
     OLAPStatus res = OLAP_SUCCESS;
     if (!_new_segment_created) {
         string file_path = construct_index_file_path(_num_segments - 1);
-        std::set<std::string> pending_paths;
-        pending_paths.insert(file_path);
-        StorageEngine::instance()->add_pending_paths(_rowset_id, pending_paths);
+        boost::filesystem::path tablet_path(_rowset_path_prefix);
+        boost::filesystem::path data_dir_path = tablet_path.parent_path().parent_path().parent_path().parent_path();
+        std::string data_dir_string = data_dir_path.string();
+        DataDir* data_dir = StorageEngine::instance()->get_store(data_dir_string);
+        data_dir->add_pending_ids(ROWSET_ID_PREFIX + std::to_string(_rowset_id));
         res = _current_file_handler.open_with_mode(
                         file_path.c_str(), O_CREAT | O_EXCL | O_WRONLY, S_IRUSR | S_IWUSR);
         if (res != OLAP_SUCCESS) {
