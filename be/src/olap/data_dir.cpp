@@ -655,9 +655,9 @@ OLAPStatus DataDir::_remove_old_meta_and_files() {
         }
 
         // convert inc delta file to rowsets and remove old files
-        for (auto& inc_rowset : tablet_meta_pb.inc_rs_metas()) {
+        for (auto& inc_rs_meta : tablet_meta_pb.inc_rs_metas()) {
             RowsetMetaSharedPtr alpha_rowset_meta(new AlphaRowsetMeta());
-            alpha_rowset_meta->init_from_pb(inc_rowset);
+            alpha_rowset_meta->init_from_pb(inc_rs_meta);
             AlphaRowset rowset(&tablet_schema, data_path_prefix, this, alpha_rowset_meta);
             rowset.init();
             rowset.load();  // check if the rowset is successfully converted
