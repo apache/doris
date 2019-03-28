@@ -94,10 +94,12 @@ OLAPStatus AlphaRowsetReader::init(RowsetReaderContext* read_context) {
             LOG(WARNING) << "allocate memory for row cursor failed";
             return OLAP_ERR_MALLOC_ERROR;
         }
-        _dst_cursor->init(*(_current_read_context->tablet_schema));
+        _dst_cursor->init(*(_current_read_context->tablet_schema),
+                          *(_current_read_context->return_columns));
         for (size_t i = 0; i < _merge_ctxs.size(); ++i) {
             _merge_ctxs[i].row_cursor.reset(new (std::nothrow) RowCursor());
-            _merge_ctxs[i].row_cursor->init(*(_current_read_context->tablet_schema));
+            _merge_ctxs[i].row_cursor->init(*(_current_read_context->tablet_schema),
+                                            *(_current_read_context->return_columns));
         }
     }
     return OLAP_SUCCESS;
