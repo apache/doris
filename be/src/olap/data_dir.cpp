@@ -54,10 +54,13 @@ namespace doris {
 static const char* const kMtabPath = "/etc/mtab";
 static const char* const kTestFilePath = "/.testfile";
 
-DataDir::DataDir(const std::string& path, int64_t capacity_bytes)
+DataDir::DataDir(const std::string& path, int64_t capacity_bytes,
+        TabletManager* tablet_manager, TxnManager* txn_manager)
         : _path(path),
-        _cluster_id(-1),
         _capacity_bytes(capacity_bytes),
+        _tablet_manager(tablet_manager),
+        _txn_manager(txn_manager),
+        _cluster_id(-1),
         _available_bytes(0),
         _used_bytes(0),
         _current_shard(0),
@@ -65,7 +68,7 @@ DataDir::DataDir(const std::string& path, int64_t capacity_bytes)
         _to_be_deleted(false),
         _test_file_read_buf(nullptr),
         _test_file_write_buf(nullptr),
-        _meta((nullptr)) {
+        _meta(nullptr) {
 }
 
 DataDir::~DataDir() {
@@ -660,7 +663,8 @@ OLAPStatus DataDir::_remove_old_meta_and_files() {
             alpha_rowset_meta->init_from_pb(inc_rs_meta);
             AlphaRowset rowset(&tablet_schema, data_path_prefix, this, alpha_rowset_meta);
             rowset.init();
-            rowset.load();  // check if the rowset is successfully converted
+            rowset.load();
+            // check if the rowset is successfully converted
             // incremental delta is saved in a seperate incremental folder
             // create a mock rowset to delete its files
             AlphaRowset inc_rowset(&tablet_schema, data_path_prefix + "/incremental_delta", 
@@ -742,7 +746,7 @@ OLAPStatus DataDir::load() {
     LOG(INFO) << "begin loading tablet from meta";
     auto load_tablet_func = [this](long tablet_id,
         long schema_hash, const std::string& value) -> bool {
-        OLAPStatus status = StorageEngine::instance()->tablet_manager()->load_tablet_from_meta(
+        OLAPStatus status = _tablet_manager->load_tablet_from_meta(
                                 this, tablet_id, schema_hash, value);
         if (status != OLAP_SUCCESS) {
             LOG(WARNING) << "load tablet from header failed. status:" << status
@@ -762,7 +766,7 @@ OLAPStatus DataDir::load() {
     // 2. add visible rowset to tablet
     // ignore any errors when load tablet or rowset, because fe will repair them after report
     for (auto rowset_meta : dir_rowset_metas) {
-        TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
+        TabletSharedPtr tablet = _tablet_manager->get_tablet(
                                     rowset_meta->tablet_id(), rowset_meta->tablet_schema_hash());
         // tablet maybe dropped, but not drop related rowset meta
         if (tablet.get() == NULL) {
@@ -785,7 +789,7 @@ OLAPStatus DataDir::load() {
             continue;
         }
         if (rowset_meta->rowset_state() == RowsetStatePB::COMMITTED) {
-            OLAPStatus commit_txn_status = StorageEngine::instance()->txn_manager()->commit_txn(
+            OLAPStatus commit_txn_status = _txn_manager->commit_txn(
                 _meta,
                 rowset_meta->partition_id(), rowset_meta->txn_id(), 
                 rowset_meta->tablet_id(), rowset_meta->tablet_schema_hash(), 
@@ -826,6 +830,153 @@ OLAPStatus DataDir::load() {
         }
     }
     return OLAP_SUCCESS;
+}
+
+void DataDir::add_pending_ids(const std::string& id) {
+    WriteLock wr_lock(&_pending_path_mutex);
+    _pending_path_ids.insert(id);
+}
+
+void DataDir::remove_pending_ids(const std::string& id) {
+    WriteLock wr_lock(&_pending_path_mutex);
+    _pending_path_ids.erase(id);
+}
+
+// path consumer
+void DataDir::perform_path_gc() {
+    // init the set of valid path
+    // validate the path in data dir
+    std::unique_lock<std::mutex> lck(_check_path_mutex);
+    cv.wait(lck, [this]{return _all_check_paths.size() > 0;});
+    LOG(INFO) << "start to path gc.";
+    int counter = 0;
+    for (auto& path : _all_check_paths) {
+        ++counter;
+        if (config::path_gc_check_step > 0 && counter % config::path_gc_check_step == 0) {
+            usleep(config::path_gc_check_step_interval_ms * 1000);
+        }
+        TTabletId tablet_id = -1;
+        TSchemaHash schema_hash = -1;
+        bool is_valid = _tablet_manager->get_tablet_id_and_schema_hash_from_path(path,
+                &tablet_id, &schema_hash);
+        if (!is_valid) {
+            LOG(WARNING) << "unknown path:" << path;
+            continue;
+        }
+        if (tablet_id > 0 && schema_hash > 0) {
+            // tablet schema hash path or rowset file path
+            TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id, schema_hash);
+            if (tablet == nullptr) {
+                std::string tablet_path_id = TABLET_ID_PREFIX + std::to_string(tablet_id);
+                bool exist_in_pending = _check_pending_ids(tablet_path_id);
+                if (!exist_in_pending) {
+                    _process_garbage_path(path);
+                }
+            } else {
+                bool valid = tablet->check_path(path);
+                if (!valid) {
+                    RowsetId rowset_id = -1;
+                    bool is_rowset_file = _tablet_manager->get_rowset_id_from_path(path, &rowset_id);
+                    if (is_rowset_file) {
+                        std::string rowset_path_id = ROWSET_ID_PREFIX + std::to_string(rowset_id);
+                        bool exist_in_pending = _check_pending_ids(rowset_path_id);
+                        if (!exist_in_pending) {
+                            _process_garbage_path(path);
+                        }
+                    }
+                }
+            }
+        } else if (tablet_id > 0 && schema_hash <= 0) {
+            // tablet id path
+            if (!FileUtils::is_dir(path)) {
+                LOG(WARNING) << "unknown path:" << path;
+                continue;
+            }
+            bool exist = _tablet_manager->check_tablet_id_exist(tablet_id);
+            if (!exist) {
+                std::string tablet_path_id = TABLET_ID_PREFIX + std::to_string(tablet_id);
+                bool exist_in_pending = _check_pending_ids(tablet_path_id);
+                if (!exist_in_pending) {
+                    _process_garbage_path(path);
+                }
+            }
+        }
+    }
+    _all_check_paths.clear();
+    LOG(INFO) << "finished one time path gc.";
+}
+
+// path producer
+void DataDir::perform_path_scan() {
+    {
+        std::unique_lock<std::mutex> lck(_check_path_mutex);
+        if (_all_check_paths.size() > 0) {
+            return;
+        }
+        LOG(INFO) << "start to scan data dir path:" << _path;
+        std::set<std::string> shards;
+        std::string data_path = _path + DATA_PREFIX;
+        if (dir_walk(data_path, &shards, nullptr) != OLAP_SUCCESS) {
+            LOG(WARNING) << "fail to walk dir. [path=" << data_path << "]";
+            return;
+        }
+        for (const auto& shard : shards) {
+            std::string shard_path = data_path + "/" + shard;
+            std::set<std::string> tablet_ids;
+            if (dir_walk(shard_path, &tablet_ids, nullptr) != OLAP_SUCCESS) {
+                LOG(WARNING) << "fail to walk dir. [path=" << shard_path << "]";
+                continue;
+            }
+            for (const auto& tablet_id : tablet_ids) {
+                std::string tablet_id_path = shard_path + "/" + tablet_id;
+                _all_check_paths.insert(tablet_id_path);
+                std::set<std::string> schema_hashes;
+                if (dir_walk(tablet_id_path, &schema_hashes, nullptr) != OLAP_SUCCESS) {
+                    LOG(WARNING) << "fail to walk dir. [path=" << tablet_id_path << "]";
+                    continue;
+                }
+                for (const auto& schema_hash : schema_hashes) {
+                    std::string tablet_schema_hash_path = tablet_id_path + "/" + schema_hash;
+                    _all_check_paths.insert(tablet_schema_hash_path);
+                    std::set<std::string> rowset_files;
+                    if (dir_walk(tablet_schema_hash_path, nullptr, &rowset_files) != OLAP_SUCCESS) {
+                        LOG(WARNING) << "fail to walk dir. [path=" << tablet_schema_hash_path << "]";
+                        continue;
+                    }
+                    for (const auto& rowset_file : rowset_files) {
+                        std::string rowset_file_path = tablet_schema_hash_path + "/" + rowset_file;
+                        _all_check_paths.insert(rowset_file_path);
+                    }
+                }
+            }
+        }
+        LOG(INFO) << "scan data dir path:" << _path << " finished. path size:" << _all_check_paths.size();
+    }
+    cv.notify_one();
+}
+
+void DataDir::_process_garbage_path(const std::string& path) {
+    if (check_dir_existed(path)) {
+        LOG(INFO) << "collect garbage dir path:" << path;
+        OLAPStatus status = remove_all_dir(path);
+        if (status != OLAP_SUCCESS) {
+            LOG(WARNING) << "remove garbage dir path:" << path << " failed";
+        }
+    }
+}
+
+bool DataDir::_check_pending_ids(const std::string& id) {
+    ReadLock rd_lock(&_pending_path_mutex);
+    return _pending_path_ids.find(id) != _pending_path_ids.end();
+}
+
+void DataDir::_remove_check_paths_no_lock(const std::set<std::string>& paths) {
+    for (const auto& path : paths) {
+        auto path_iter = _all_check_paths.find(path);
+        if (path_iter != _all_check_paths.end()) {
+            _all_check_paths.erase(path_iter);
+        }
+    }
 }
 
 } // namespace doris

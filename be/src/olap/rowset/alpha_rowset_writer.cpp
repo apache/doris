@@ -225,6 +225,10 @@ OLAPStatus AlphaRowsetWriter::garbage_collection() {
     return OLAP_SUCCESS;
 }
 
+DataDir* AlphaRowsetWriter::data_dir() {
+    return _rowset_writer_context.data_dir;
+}
+
 void AlphaRowsetWriter::_init() {
     if (_is_pending_rowset) {
         _cur_segment_group.reset(new SegmentGroup(

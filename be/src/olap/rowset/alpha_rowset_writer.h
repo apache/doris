@@ -60,6 +60,8 @@ public:
 
     OLAPStatus garbage_collection() override;
 
+    DataDir* data_dir() override;
+
 private:
     void _init();
 

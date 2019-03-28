@@ -699,21 +699,20 @@ OLAPStatus EngineCloneTask::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb, co
     RETURN_NOT_OK(org_rowset->init());
     RETURN_NOT_OK(org_rowset->load());
     RowsetId rowset_id = 0;
-    data_dir.next_id(&rowset_id);
+    RETURN_NOT_OK(data_dir.next_id(&rowset_id));
     RowsetMetaSharedPtr org_rowset_meta = org_rowset->rowset_meta();
-    RowsetWriterContextBuilder context_builder;
-    context_builder.set_rowset_id(rowset_id)
-            .set_tablet_id(org_rowset_meta->tablet_id())
-            .set_partition_id(org_rowset_meta->partition_id())
-            .set_tablet_schema_hash(org_rowset_meta->tablet_schema_hash())
-            .set_rowset_type(org_rowset_meta->rowset_type())
-            .set_rowset_path_prefix(new_path)
-            .set_tablet_schema(&tablet_schema)
-            .set_data_dir(&data_dir)
-            .set_rowset_state(org_rowset_meta->rowset_state())
-            .set_version(org_rowset_meta->version())
-            .set_version_hash(org_rowset_meta->version_hash());
-    RowsetWriterContext context = context_builder.build();
+    RowsetWriterContext context;
+    context.rowset_id = rowset_id;
+    context.tablet_id = org_rowset_meta->tablet_id();
+    context.partition_id = org_rowset_meta->partition_id();
+    context.tablet_schema_hash = org_rowset_meta->tablet_schema_hash();
+    context.rowset_type = org_rowset_meta->rowset_type();
+    context.rowset_path_prefix = new_path;
+    context.tablet_schema = &tablet_schema;
+    context.rowset_state = org_rowset_meta->rowset_state();
+    context.data_dir = &data_dir;
+    context.version = org_rowset_meta->version();
+    context.version_hash = org_rowset_meta->version_hash();
     RowsetWriterSharedPtr rs_writer(new AlphaRowsetWriter());
     if (rs_writer == nullptr) {
         LOG(WARNING) << "fail to new rowset.";
