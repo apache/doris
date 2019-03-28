@@ -162,25 +162,29 @@ std::string ExtLiteral::value_to_string() {
     return ss.str();
 }
 
-EsPredicate::EsPredicate(ExprContext* conjunct_ctx,
+EsPredicate::EsPredicate(ExprContext* context,
             const TupleDescriptor* tuple_desc) :
-    _context(conjunct_ctx),
+    _context(context),
     _disjuncts_num(0),
     _tuple_desc(tuple_desc) {
 }
 
 EsPredicate::~EsPredicate() {
+    for(int i=0; i < _disjuncts.size(); i++) {
+        delete _disjuncts[i];
+    }
+    _disjuncts.clear();
 }
 
 bool EsPredicate::build_disjuncts_list() {
     return build_disjuncts_list(_context->root(), _disjuncts);
 }
 
-vector<std::shared_ptr<ExtPredicate>> EsPredicate::get_predicate_list(){
+vector<ExtPredicate*> EsPredicate::get_predicate_list(){
     return _disjuncts;
 }
 
-bool EsPredicate::build_disjuncts_list(Expr* conjunct, vector<std::shared_ptr<ExtPredicate>>& disjuncts) {
+bool EsPredicate::build_disjuncts_list(Expr* conjunct, vector<ExtPredicate*>& disjuncts) {
     if (TExprNodeType::BINARY_PRED == conjunct->node_type()) {
         if (conjunct->children().size() != 2) {
             VLOG(1) << "get disjuncts fail: number of childs is not 2";
@@ -203,21 +207,20 @@ bool EsPredicate::build_disjuncts_list(Expr* conjunct, vector<std::shared_ptr<Ex
             return false;
         }
 
-        SlotDescriptor* slot_desc = get_slot_desc(slotRef);
+        const SlotDescriptor* slot_desc = get_slot_desc(slotRef);
         if (slot_desc == nullptr) {
             VLOG(1) << "get disjuncts fail: slot_desc is null";
             return false;
         }
 
 
-        std::shared_ptr<ExtLiteral> literal(new ExtLiteral(
-                        expr->type().type, _context->get_value(expr, NULL)));
-        std::shared_ptr<ExtPredicate> predicate(new ExtBinaryPredicate(
+        ExtLiteral literal(expr->type().type, _context->get_value(expr, NULL));
+        ExtPredicate* predicate = new ExtBinaryPredicate(
                     TExprNodeType::BINARY_PRED,
                     slot_desc->col_name(),
                     slot_desc->type(),
                     op,
-                    literal));
+                    literal);
 
         disjuncts.push_back(predicate);
         return true;
@@ -226,18 +229,15 @@ bool EsPredicate::build_disjuncts_list(Expr* conjunct, vector<std::shared_ptr<Ex
     if (is_match_func(conjunct)) {
 
         Expr* expr = conjunct->get_child(1);
-        std::shared_ptr<ExtLiteral> literal(new ExtLiteral(
-                        expr->type().type, _context->get_value(expr, NULL)));
-
-        vector<std::shared_ptr<ExtLiteral>> query_conditions;
-        query_conditions.push_back(literal);
+        ExtLiteral literal(expr->type().type, _context->get_value(expr, NULL));
+        vector<ExtLiteral> query_conditions;
+        query_conditions.emplace_back(literal);
         vector<ExtColumnDesc> cols; //TODO
-
-        std::shared_ptr<ExtPredicate> predicate(new ExtFunction(
+        ExtPredicate* predicate = new ExtFunction(
                         TExprNodeType::FUNCTION_CALL,
                         conjunct->fn().name.function_name,
                         cols,
-                        query_conditions));
+                        query_conditions);
         disjuncts.push_back(predicate);
 
         return true;
@@ -245,7 +245,7 @@ bool EsPredicate::build_disjuncts_list(Expr* conjunct, vector<std::shared_ptr<Ex
       
     if (TExprNodeType::IN_PRED == conjunct->node_type()) {
         TExtInPredicate ext_in_predicate;
-        vector<std::shared_ptr<ExtLiteral>> in_pred_values;
+        vector<ExtLiteral> in_pred_values;
         InPredicate* pred = dynamic_cast<InPredicate*>(conjunct);
         ext_in_predicate.__set_is_not_in(pred->is_not_in());
         if (Expr::type_without_cast(pred->get_child(0)) != TExprNodeType::SLOT_REF) {
@@ -253,7 +253,7 @@ bool EsPredicate::build_disjuncts_list(Expr* conjunct, vector<std::shared_ptr<Ex
         }
 
         SlotRef* slot_ref = (SlotRef*)(conjunct->get_child(0));
-        SlotDescriptor* slot_desc = get_slot_desc(slot_ref);
+        const SlotDescriptor* slot_desc = get_slot_desc(slot_ref);
         if (slot_desc == nullptr) {
             return false;
         }
@@ -272,17 +272,15 @@ bool EsPredicate::build_disjuncts_list(Expr* conjunct, vector<std::shared_ptr<Ex
             }
 
             Expr* expr = conjunct->get_child(i);
-            std::shared_ptr<ExtLiteral> literal(new ExtLiteral(
-                        expr->type().type, _context->get_value(expr, NULL)));
-            in_pred_values.push_back(literal);
+            ExtLiteral literal(expr->type().type, _context->get_value(expr, NULL));
+            in_pred_values.emplace_back(literal);
         }
 
-        std::shared_ptr<ExtPredicate> predicate(new ExtInPredicate(
+        ExtPredicate* predicate = new ExtInPredicate(
                     TExprNodeType::IN_PRED,
                     slot_desc->col_name(),
                     slot_desc->type(),
-                    in_pred_values));
-
+                    in_pred_values);
         disjuncts.push_back(predicate);
 
         return true;
@@ -309,7 +307,7 @@ bool EsPredicate::build_disjuncts_list(Expr* conjunct, vector<std::shared_ptr<Ex
     return false;
 }
 
-bool EsPredicate::is_match_func(Expr* conjunct) {
+bool EsPredicate::is_match_func(const Expr* conjunct) {
     if (TExprNodeType::FUNCTION_CALL == conjunct->node_type()
         && conjunct->fn().name.function_name == "esquery") {
             return true;
@@ -317,10 +315,10 @@ bool EsPredicate::is_match_func(Expr* conjunct) {
     return false;
 }
 
-SlotDescriptor* EsPredicate::get_slot_desc(SlotRef* slotRef) {
+const SlotDescriptor* EsPredicate::get_slot_desc(SlotRef* slotRef) {
     std::vector<SlotId> slot_ids;
     slotRef->get_slot_ids(&slot_ids);
-    SlotDescriptor* slot_desc = nullptr;
+    const SlotDescriptor* slot_desc = nullptr;
     for (SlotDescriptor* slot : _tuple_desc->slots()) {
         if (slot->id() == slot_ids[0]) {
             slot_desc = slot;

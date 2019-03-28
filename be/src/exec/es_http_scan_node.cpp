@@ -239,17 +239,9 @@ void EsHttpScanNode::debug_string(int ident_level, std::stringstream* out) const
 }
 
 Status EsHttpScanNode::scanner_scan(
-            TupleId _tuple_id,
-            std::map<std::string, std::string> properties,
+            std::unique_ptr<EsHttpScanner> scanner,
             const std::vector<ExprContext*>& conjunct_ctxs, 
             EsScanCounter* counter) {
-    std::unique_ptr<EsHttpScanner> scanner(new EsHttpScanner(
-            _runtime_state, 
-            runtime_profile(),
-            _tuple_id,
-            properties,
-            conjunct_ctxs,
-            counter));
     RETURN_IF_ERROR(scanner->open());
     bool scanner_eof = false;
     
@@ -368,18 +360,21 @@ void EsHttpScanNode::scanner_worker(int start_idx, int length) {
         const TEsScanRange& es_scan_range = 
             _scan_ranges[start_idx + i].scan_range.es_scan_range;
 
-        _properties[ESScanReader::KEY_INDEX] = es_scan_range.index;
+        std::map<std::string, std::string> properties(_properties);
+        properties[ESScanReader::KEY_INDEX] = es_scan_range.index;
         if (es_scan_range.__isset.type) {
-            _properties[ESScanReader::KEY_TYPE] = es_scan_range.type;
+            properties[ESScanReader::KEY_TYPE] = es_scan_range.type;
         }
-
-        _properties[ESScanReader::KEY_SHARD] = std::to_string(es_scan_range.shard_id);
-        _properties[ESScanReader::KEY_BATCH_SIZE] = std::to_string(_runtime_state->batch_size());
-        _properties[ESScanReader::KEY_HOST_PORT] = get_host_port(es_scan_range.es_hosts);
-        _properties[ESScanReader::KEY_QUERY] 
-            = ESScrollQueryBuilder::build(_properties, _column_names, _predicates);
+        properties[ESScanReader::KEY_SHARD] = std::to_string(es_scan_range.shard_id);
+        properties[ESScanReader::KEY_BATCH_SIZE] = std::to_string(_runtime_state->batch_size());
+        properties[ESScanReader::KEY_HOST_PORT] = get_host_port(es_scan_range.es_hosts);
+        properties[ESScanReader::KEY_QUERY] 
+            = ESScrollQueryBuilder::build(properties, _column_names, _predicates);
         
-        status = scanner_scan(_tuple_id, _properties, scanner_expr_ctxs, &counter);
+        std::unique_ptr<EsHttpScanner> scanner(new EsHttpScanner(
+            _runtime_state, runtime_profile(), _tuple_id,
+            properties, scanner_expr_ctxs, &counter));
+        status = scanner_scan(std::move(scanner), scanner_expr_ctxs, &counter);
         if (!status.ok()) {
             LOG(WARNING) << "Scanner[" << start_idx + i << "] prcess failed. status="
                 << status.get_error_msg();
