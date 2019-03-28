@@ -68,8 +68,7 @@ DataDir::DataDir(const std::string& path, int64_t capacity_bytes,
         _to_be_deleted(false),
         _test_file_read_buf(nullptr),
         _test_file_write_buf(nullptr),
-        _meta(nullptr),
-        _scanned(false) {
+        _meta(nullptr) {
 }
 
 DataDir::~DataDir() {
@@ -664,7 +663,8 @@ OLAPStatus DataDir::_remove_old_meta_and_files() {
             alpha_rowset_meta->init_from_pb(inc_rs_meta);
             AlphaRowset rowset(&tablet_schema, data_path_prefix, this, alpha_rowset_meta);
             rowset.init();
-            rowset.load();  // check if the rowset is successfully converted
+            rowset.load();
+            // check if the rowset is successfully converted
             // incremental delta is saved in a seperate incremental folder
             // create a mock rowset to delete its files
             AlphaRowset inc_rowset(&tablet_schema, data_path_prefix + "/incremental_delta", 
@@ -847,16 +847,14 @@ void DataDir::perform_path_gc() {
     // init the set of valid path
     // validate the path in data dir
     std::unique_lock<std::mutex> lck(_check_path_mutex);
-    cv.wait(lck, [this]{return _scanned;});
-    _scanned = false;
+    cv.wait(lck, [this]{return _all_check_paths.size() > 0;});
     LOG(INFO) << "start to path gc.";
     int counter = 0;
-    for (auto path_iter = _all_check_paths.begin(); path_iter != _all_check_paths.end(); ++path_iter) {
+    for (auto& path : _all_check_paths) {
         ++counter;
         if (config::path_gc_check_step > 0 && counter % config::path_gc_check_step == 0) {
             usleep(config::path_gc_check_step_interval_ms * 1000);
         }
-        std::string path = *path_iter;
         TTabletId tablet_id = -1;
         TSchemaHash schema_hash = -1;
         bool is_valid = _tablet_manager->get_tablet_id_and_schema_hash_from_path(path,
@@ -912,7 +910,9 @@ void DataDir::perform_path_gc() {
 void DataDir::perform_path_scan() {
     {
         std::unique_lock<std::mutex> lck(_check_path_mutex);
-        _scanned = true;
+        if (_all_check_paths.size() > 0) {
+            return;
+        }
         LOG(INFO) << "start to scan data dir path:" << _path;
         std::set<std::string> shards;
         std::string data_path = _path + DATA_PREFIX;

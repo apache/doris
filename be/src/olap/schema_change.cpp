@@ -1479,23 +1479,13 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
 
     // c. 转换数据
     DeleteHandler delete_handler;
-<<<<<<< HEAD
-    RowsetReaderContextBuilder reader_context_builder;
-    reader_context_builder.set_reader_type(READER_ALTER_TABLE)
-                          .set_tablet_schema(&base_tablet->tablet_schema())
-                          .set_preaggregation(true)
-                          .set_delete_handler(&delete_handler)
-                          .set_is_using_cache(false)
-                          .set_lru_cache(StorageEngine::instance()->index_stream_lru_cache());
-    RowsetReaderContext reader_context = reader_context_builder.build();
-=======
     RowsetReaderContext reader_context;
     reader_context.reader_type = READER_ALTER_TABLE;
     reader_context.tablet_schema = &base_tablet->tablet_schema();
+    reader_context.preaggregation = true;
     reader_context.delete_handler = &delete_handler;
     reader_context.is_using_cache = false;
     reader_context.lru_cache = StorageEngine::instance()->index_stream_lru_cache();
->>>>>>> fix pr problems
     RowsetReaderSharedPtr rowset_reader = (*base_rowset)->create_reader();
     rowset_reader->init(&reader_context);
 

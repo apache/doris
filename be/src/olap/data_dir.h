@@ -165,7 +165,6 @@ private:
     std::set<std::string> _all_check_paths;
     std::mutex _check_path_mutex;
     std::condition_variable cv;
-    bool _scanned;
 
     std::set<std::string> _pending_path_ids;
     RWMutex _pending_path_mutex;
