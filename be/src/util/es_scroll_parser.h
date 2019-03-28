@@ -30,7 +30,7 @@ class Status;
 class ScrollParser {
 
 public:
-    ScrollParser(const std::string& scroll_id, int total, int size = 0);
+    ScrollParser(std::string scroll_id, int total, int size = 0);
     ~ScrollParser();
 
     static ScrollParser* parse_from_string(const std::string& scroll_result);
@@ -48,7 +48,7 @@ public:
 
 private:
 
-    const std::string& _scroll_id;
+    std::string _scroll_id;
     int _total;
     int _size;
     rapidjson::SizeType _line_index;

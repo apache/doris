@@ -77,9 +77,9 @@ Status ESScanReader::get_next(bool* scan_eos, ScrollParser** parser) {
     std::string response;
     ScrollParser* scroll_parser = nullptr;
     // if is first scroll request, should return the cached response
+    *parser = nullptr;
+    *scan_eos = true;
     if (_eos) {
-        *parser = nullptr;
-        *scan_eos = true;
         return Status::OK;
     }
 
@@ -111,22 +111,22 @@ Status ESScanReader::get_next(bool* scan_eos, ScrollParser** parser) {
     }
 
     scroll_parser = ScrollParser::parse_from_string(response);
+    _scroll_id = scroll_parser->get_scroll_id();
 
     // maybe the index or shard is empty
     if (scroll_parser == nullptr || scroll_parser->get_total() == 0) {
-        _eos = *scan_eos = true;
-        *parser = nullptr;
+        _eos = true;
         return Status::OK;
     }
 
     if (scroll_parser->get_size() < _batch_size) {
         _eos = true;
-        *scan_eos = false;
     } else {
-        _eos = *scan_eos = false;
+        _eos = false;
     }
 
     *parser = scroll_parser;
+    *scan_eos = false;
     return Status::OK;
 }
 
