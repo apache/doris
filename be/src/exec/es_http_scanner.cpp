@@ -35,7 +35,7 @@ EsHttpScanner::EsHttpScanner(
             RuntimeState* state,
             RuntimeProfile* profile,
             TupleId tuple_id,
-            std::map<std::string, std::string> properties,
+            const std::map<std::string, std::string>& properties,
             const std::vector<ExprContext*>& conjunct_ctxs,
             EsScanCounter* counter) :
         _state(state),

@@ -78,8 +78,7 @@ private:
     void scanner_worker(int start_idx, int length);
 
     // Scan one range
-    Status scanner_scan(TupleId _tuple_id,
-                std::map<std::string, std::string> properties,
+    Status scanner_scan(std::unique_ptr<EsHttpScanner> scanner,
                 const std::vector<ExprContext*>& conjunct_ctxs, 
                 EsScanCounter* counter);
 
