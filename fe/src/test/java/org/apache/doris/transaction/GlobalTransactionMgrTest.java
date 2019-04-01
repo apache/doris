@@ -360,17 +360,6 @@ public class GlobalTransactionMgrTest {
         // Assert.assertNotEquals("label", routineLoadManager.getNeedScheduleTasksQueue().peek().getId());
     }
 
-    // @Test
-    // public void testCommitRoutineLoadTransactionWithErrorMax(@Injectable TabletCommitInfo tabletCommitInfo,
-    // @Injectable Database database,
-    // @Injectable KafkaTaskInfo routineLoadTaskInfo,
-    // @Injectable TResourceInfo tResourceInfo,
-    // @Injectable OlapTable olapTable,
-    // @Mocked Catalog catalog,
-    // @Mocked ConnectContext connectContext,
-    // @Mocked KafkaConsumer kafkaConsumer)
-    // throws TransactionException, MetaNotFoundException, DdlException {
-
     @Test
     public void testCommitRoutineLoadTransactionWithErrorMax(@Injectable TabletCommitInfo tabletCommitInfo,
             @Mocked EditLog editLog,
