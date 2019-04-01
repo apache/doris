@@ -54,7 +54,6 @@ import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TxnStateChangeListener;
 
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -936,8 +935,8 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
         }
 
         List<String> row = Lists.newArrayList();
-        row.add(name);
         row.add(String.valueOf(id));
+        row.add(name);
         row.add(TimeUtils.longToTimeString(createTimestamp));
         row.add(TimeUtils.longToTimeString(endTimestamp));
         row.add(db == null ? String.valueOf(dbId) : db.getFullName());
