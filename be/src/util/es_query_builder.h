@@ -105,7 +105,7 @@ public:
     void must(QueryBuilder* filter);
     void must_not(QueryBuilder* filter);
     // class method for transfer predicate to es query value, invoker should enclose this value with `query`
-    static rapidjson::Value to_query(const std::vector<EsPredicate*>& predicates);
+    static rapidjson::Value to_query(const std::vector<EsPredicate*>& predicates, rapidjson::Document& root);
 
 private:
     std::vector<QueryBuilder*> _must_clauses;
