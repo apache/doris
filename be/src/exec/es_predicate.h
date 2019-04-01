@@ -169,6 +169,11 @@ class EsPredicate {
         ~EsPredicate();
         std::vector<ExtPredicate*> get_predicate_list();
         bool build_disjuncts_list();
+        // public for tests
+        EsPredicate(std::vector<ExtPredicate*>& all_predicates) {
+            _disjuncts = all_predicates;
+        };
+
 
     private:
 

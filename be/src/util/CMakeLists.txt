@@ -77,6 +77,7 @@ add_library(Util STATIC
   es_scan_reader.cpp
   es_scroll_query.cpp
   es_scroll_parser.cpp
+  es_query_builder.cpp
 )
 
 #ADD_BE_TEST(integer-array-test)
