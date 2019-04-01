@@ -219,7 +219,7 @@ TEST_F(MockESServerTest, workflow) {
     props[ESScanReader::KEY_PASS_WORD] = "root";
     props[ESScanReader::KEY_SHARD] = "0";
     props[ESScanReader::KEY_BATCH_SIZE] = "1";
-    std::vector<std::shared_ptr<EsPredicate>> predicates;
+    std::vector<EsPredicate*> predicates;
     props[ESScanReader::KEY_QUERY] = ESScrollQueryBuilder::build(props, fields, predicates);
     ESScanReader reader(target, props);
     auto st = reader.open();
