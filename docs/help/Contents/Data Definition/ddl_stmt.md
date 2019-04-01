@@ -925,8 +925,11 @@
       相关函数:
     
       HLL_UNION_AGG(hll)
-      此函数为聚合函数，用于计算满足条件的所有数据的基数估算。
+      此函数为聚合函数，用于计算满足条件的所有数据的基数估算。此函数还可用于分析函数，只支持默认窗口，不支持window从句。
     
+      HLL_RAW_AGG(hll)
+      此函数为聚合函数，用于聚合hll类型字段，并且返回的还是hll类型。
+
       HLL_CARDINALITY(hll)
       此函数用于计算单条hll列的基数估算
     
@@ -936,7 +939,7 @@
 ## example
     1. 首先创建一张含有hll列的表
         create table test(
-        time date, 
+        dt date,
         id int, 
         name char(10), 
         province char(10),
@@ -952,30 +955,30 @@
 
       b. 使用数据中的某一列生成hll列
         curl --location-trusted -uname:password -T data http://host/api/test_db/test/_load?label=load_1\&hll=set1,cuid:set2,os
-            \&columns=time,id,name,province,sex,cuid,os
+            \&columns=dt,id,name,province,sex,cuid,os
 
     3. 聚合数据，常用方式3种：（如果不聚合直接对base表查询，速度可能跟直接使用ndv速度差不多）
 
       a. 创建一个rollup，让hll列产生聚合，
-        alter table test add rollup test_rollup(date, set1);
+        alter table test add rollup test_rollup(dt, set1);
         
       b. 创建另外一张专门计算uv的表，然后insert数据）
     
         create table test_uv(
-        time date,
+        dt date,
         uv_set hll hll_union)
         distributed by hash(id) buckets 32;
 
-        insert into test_uv select date, set1 from test;
+        insert into test_uv select dt, set1 from test;
         
       c. 创建另外一张专门计算uv的表，然后insert并通过hll_hash根据test其它非hll列生成hll列
       
         create table test_uv(
-        time date,
+        dt date,
         id_set hll hll_union)
         distributed by hash(id) buckets 32;
         
-        insert into test_uv select date, hll_hash(id) from test;
+        insert into test_uv select dt, hll_hash(id) from test;
             
     4. 查询，hll列不允许直接查询它的原始值，可以通过配套的函数进行查询
     
@@ -983,7 +986,11 @@
         select HLL_UNION_AGG(uv_set) from test_uv;
             
       b. 求每一天的uv
-        select HLL_CARDINALITY(uv_set) from test_uv;
+        select dt, HLL_CARDINALITY(uv_set) from test_uv;
+
+      c. 求test表中set1的聚合值
+        select dt, HLL_CARDINALITY(uv) from (select dt, HLL_RAW_AGG(set1) as uv from test group by dt) tmp;
+        select dt, HLL_UNION_AGG(set1) as uv from test group by dt;
 
 ## keyword
     HLL
