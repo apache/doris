@@ -15,14 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "es_scroll_query.h"
 #include<sstream>
 #include <boost/algorithm/string/join.hpp>
 #include "common/logging.h"
+#include "es_scroll_query.h"
 #include "rapidjson/document.h"
 #include "rapidjson/stringbuffer.h"
 #include "rapidjson/writer.h"
 #include "util/es_scan_reader.h"
+#include "util/es_query_builder.h"
+
 namespace doris {
 
 ESScrollQueryBuilder::ESScrollQueryBuilder() {
@@ -60,10 +62,15 @@ std::string ESScrollQueryBuilder::build_clear_scroll_body(const std::string& scr
 
 std::string ESScrollQueryBuilder::build(const std::map<std::string, std::string>& properties,
                 const std::vector<std::string>& fields,
-                std::vector<std::shared_ptr<EsPredicate>> predicates) {
+                std::vector<EsPredicate*>& predicates) {
     rapidjson::Document es_query_dsl;
     rapidjson::Document::AllocatorType &allocator = es_query_dsl.GetAllocator();
     es_query_dsl.SetObject();
+    // generate the filter caluse
+    rapidjson::Value query_node = BooleanQueryBuilder::to_query(predicates);
+    // note: add `query` for this value....
+    es_query_dsl.AddMember("query", query_node, allocator);
+    // just filter the selected fields for reducing the network cost
     if (fields.size() > 0) {
         rapidjson::Value source_node(rapidjson::kArrayType);
         for (auto iter = fields.begin(); iter != fields.end(); iter++) {
@@ -74,12 +81,12 @@ std::string ESScrollQueryBuilder::build(const std::map<std::string, std::string>
     }
     int size = atoi(properties.at(ESScanReader::KEY_BATCH_SIZE).c_str());
     rapidjson::Value sort_node(rapidjson::kArrayType);
+    // use the scroll-scan mode for scan index documents
     rapidjson::Value field("_doc", allocator);
     sort_node.PushBack(field, allocator);
     es_query_dsl.AddMember("sort", sort_node, allocator);
-
+    // number of docuements returned
     es_query_dsl.AddMember("size", size, allocator);
-
     rapidjson::StringBuffer buffer;
     rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
     es_query_dsl.Accept(writer);
@@ -87,31 +94,4 @@ std::string ESScrollQueryBuilder::build(const std::map<std::string, std::string>
     return es_query_dsl_json;                
 
 }
-// std::string ESScrollQueryBuilder::build() {
-//     rapidjson::Document es_query_dsl;
-//     rapidjson::Document::AllocatorType &allocator = es_query_dsl.GetAllocator();
-//     es_query_dsl.SetObject();
-//     if (_fields.size() > 0) {
-//         rapidjson::Value source_node(rapidjson::kArrayType);
-//         for (auto iter = _fields.begin(); iter != _fields.end(); iter++) {
-//             rapidjson::Value field(iter->c_str(), allocator);
-//             source_node.PushBack(field, allocator);
-//         }
-//         es_query_dsl.AddMember("_source", source_node, allocator);
-//     }
-    
-//     rapidjson::Value sort_node(rapidjson::kArrayType);
-//     rapidjson::Value field("_doc", allocator);
-//     sort_node.PushBack(field, allocator);
-//     es_query_dsl.AddMember("sort", sort_node, allocator);
-
-//     es_query_dsl.AddMember("size", _size, allocator);
-
-//     rapidjson::StringBuffer buffer;
-//     rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
-//     es_query_dsl.Accept(writer);
-//     std::string es_query_dsl_json = buffer.GetString();
-//     return es_query_dsl_json;
-// }
-
 }
