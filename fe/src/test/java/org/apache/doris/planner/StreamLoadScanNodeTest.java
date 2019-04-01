@@ -37,6 +37,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.task.StreamLoadTask;
 import org.apache.doris.thrift.TExplainLevel;
+import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
@@ -72,6 +73,7 @@ public class StreamLoadScanNodeTest {
     TStreamLoadPutRequest getBaseRequest() {
         TStreamLoadPutRequest request = new TStreamLoadPutRequest();
         request.setFileType(TFileType.FILE_STREAM);
+        request.setFormatType(TFileFormatType.FORMAT_CSV_PLAIN);
         return request;
     }
 
@@ -251,7 +253,6 @@ public class StreamLoadScanNodeTest {
         };
 
         TStreamLoadPutRequest request = getBaseRequest();
-        request.setFileType(TFileType.FILE_LOCAL);
         request.setColumns("k1,k2,v1, v2=k2");
         StreamLoadScanNode scanNode = new StreamLoadScanNode(new PlanNodeId(1), dstDesc, dstTable,
                                                              StreamLoadTask.fromTStreamLoadPutRequest(request));
@@ -300,7 +301,7 @@ public class StreamLoadScanNodeTest {
         };
 
         TStreamLoadPutRequest request = getBaseRequest();
-        request.setFileType(TFileType.FILE_LOCAL);
+        request.setFileType(TFileType.FILE_STREAM);
         request.setColumns("k1,k2, v1=hll_hash(k2)");
         StreamLoadScanNode scanNode = new StreamLoadScanNode(new PlanNodeId(1), dstDesc, dstTable,
                                                              StreamLoadTask.fromTStreamLoadPutRequest(request));
@@ -330,21 +331,27 @@ public class StreamLoadScanNodeTest {
             }
         }
 
-        new Expectations() {{
-            catalog.getFunction((Function) any, (Function.CompareMode) any);
-            result = new ScalarFunction(new FunctionName("hll_hash1"), Lists.newArrayList(), Type.BIGINT, false);
-        }};
+        new Expectations() {
+            {
+                catalog.getFunction((Function) any, (Function.CompareMode) any);
+                result = new ScalarFunction(new FunctionName("hll_hash1"), Lists.newArrayList(), Type.BIGINT, false);
+                minTimes = 0;
+            }
+        };
 
         new Expectations() {
             {
                 dstTable.getColumn("k1");
                 result = columns.stream().filter(c -> c.getName().equals("k1")).findFirst().get();
+                minTimes = 0;
 
                 dstTable.getColumn("k2");
                 result = null;
+                minTimes = 0;
 
                 dstTable.getColumn("v1");
                 result = columns.stream().filter(c -> c.getName().equals("v1")).findFirst().get();
+                minTimes = 0;
             }
         };
 
@@ -522,15 +529,19 @@ public class StreamLoadScanNodeTest {
             {
                 dstTable.getColumn("k1");
                 result = columns.stream().filter(c -> c.getName().equals("k1")).findFirst().get();
+                minTimes = 0;
 
                 dstTable.getColumn("k2");
                 result = columns.stream().filter(c -> c.getName().equals("k2")).findFirst().get();
+                minTimes = 0;
 
                 dstTable.getColumn("v1");
                 result = columns.stream().filter(c -> c.getName().equals("v1")).findFirst().get();
+                minTimes = 0;
 
                 dstTable.getColumn("v2");
                 result = columns.stream().filter(c -> c.getName().equals("v2")).findFirst().get();
+                minTimes = 0;
             }
         };
 

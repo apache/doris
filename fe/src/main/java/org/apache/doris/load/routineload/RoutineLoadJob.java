@@ -45,7 +45,6 @@ import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.planner.StreamLoadPlanner;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.task.StreamLoadTask;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.transaction.AbortTransactionException;
@@ -213,9 +212,7 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
         this.clusterName = clusterName;
         this.dbId = dbId;
         this.tableId = tableId;
-        this.authCode = new StringBuilder().append(ConnectContext.get().getQualifiedUser())
-                .append(ConnectContext.get().getRemoteIP())
-                .append(id).append(System.currentTimeMillis()).toString().hashCode();
+        this.authCode = 0;
     }
 
     protected void setOptional(CreateRoutineLoadStmt stmt) throws UserException {
@@ -595,7 +592,7 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
                             .filter(entity -> entity.getTxnId() == txnState.getTransactionId()).findFirst();
             if (!routineLoadTaskInfoOptional.isPresent()) {
                 throw new TransactionException("txn " + txnState.getTransactionId() + " could not be committed"
-                        + " while task " + txnState.getLabel() + "has been aborted ");
+                        + " while task " + txnState.getLabel() + " has been aborted ");
             }
         } finally {
             readUnlock();
