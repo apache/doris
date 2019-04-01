@@ -243,7 +243,7 @@ BooleanQueryBuilder::BooleanQueryBuilder(const std::vector<ExtPredicate*>& predi
             }
             case TExprNodeType::FUNCTION_CALL: {
                 ExtFunction* function_predicate = (ExtFunction *)predicate;
-                if ("es_query" == function_predicate->func_name ) {
+                if ("esquery" == function_predicate->func_name ) {
                     ESQueryBuilder* es_query = new ESQueryBuilder(function_predicate);
                     _should_clauses.push_back(es_query);
                 };
@@ -300,8 +300,7 @@ void BooleanQueryBuilder::must_not(QueryBuilder* filter) {
     _must_not_clauses.push_back(filter);
 }
 
-rapidjson::Value BooleanQueryBuilder::to_query(const std::vector<EsPredicate*>& predicates) {
-    rapidjson::Document root;
+rapidjson::Value BooleanQueryBuilder::to_query(const std::vector<EsPredicate*>& predicates, rapidjson::Document& root) {
     if (predicates.size() == 0) {
         MatchAllQueryBuilder match_all_query;
         return match_all_query.to_json(root)
