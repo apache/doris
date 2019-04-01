@@ -108,7 +108,7 @@ private:
     std::condition_variable _queue_reader_cond;
     std::condition_variable _queue_writer_cond;
     std::deque<std::shared_ptr<RowBatch>> _batch_queue;
-    std::vector<std::shared_ptr<EsPredicate>> _predicates;
+    std::vector<EsPredicate*> _predicates;
 
     std::vector<int> _predicate_to_conjunct;
 };

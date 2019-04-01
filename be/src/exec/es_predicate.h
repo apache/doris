@@ -70,8 +70,8 @@ struct ExtColumnDesc {
         type(type) {
     }
 
-    const std::string& name;
-    const TypeDescriptor& type;
+    std::string name;
+    TypeDescriptor type;
 };
 
 struct ExtPredicate {
@@ -96,7 +96,7 @@ struct ExtBinaryPredicate : public ExtPredicate {
 
     ExtColumnDesc col;
     TExprOpcode::type op;
-    const ExtLiteral& value;
+    ExtLiteral value;
 };
 
 struct ExtInPredicate : public ExtPredicate {
@@ -167,7 +167,7 @@ class EsPredicate {
     public:
         EsPredicate(ExprContext* context, const TupleDescriptor* tuple_desc);
         ~EsPredicate();
-        std::vector<ExtPredicate*> get_predicate_list();
+        const std::vector<ExtPredicate*>& get_predicate_list();
         bool build_disjuncts_list();
         // public for tests
         EsPredicate(std::vector<ExtPredicate*>& all_predicates) {
