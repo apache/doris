@@ -64,8 +64,8 @@ public class ShowRoutineLoadStmt extends ShowStmt {
 
     private static final ImmutableList<String> TITLE_NAMES =
             new ImmutableList.Builder<String>()
-                    .add("Name")
                     .add("Id")
+                    .add("Name")
                     .add("CreateTime")
                     .add("EndTime")
                     .add("DbName")
