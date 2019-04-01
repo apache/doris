@@ -560,9 +560,8 @@ visible_functions = [
         '15FunctionContextERKNS1_9StringValES6_'],
 
     #hll function
-    [['hll_cardinality'], 'VARCHAR', ['VARCHAR'],
-        '_ZN5doris16HllHashFunctions15hll_cardinalityEPN9doris_udf'
-        '15FunctionContextERKNS1_9StringValE'],
+    [['hll_cardinality'], 'BIGINT', ['HLL'],
+        '_ZN5doris16HllHashFunctions15hll_cardinalityEPN9doris_udf15FunctionContextERKNS1_6HllValE'],
     [['hll_hash'], 'VARCHAR', ['VARCHAR'],
         '_ZN5doris16HllHashFunctions8hll_hashEPN9doris_udf15FunctionContextERKNS1_9StringValE'],
     

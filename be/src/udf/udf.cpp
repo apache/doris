@@ -28,7 +28,6 @@
 // binary. For example, it would be unfortunate if they had a random dependency
 // on libhdfs.
 #include "udf/udf_internal.h"
-#include "common/logging.h"
 #include "util/debug_util.h"
 
 #if DORIS_UDF_SDK_BUILD
@@ -428,6 +427,61 @@ const FunctionContext::TypeDesc* FunctionContext::get_arg_type(int arg_idx) cons
         return NULL;
     }
     return &_impl->_arg_types[arg_idx];
+}
+
+void HllVal::init(FunctionContext* ctx) {
+    len = doris::HLL_COLUMN_DEFAULT_LEN;
+    ptr = ctx->allocate(len);
+    memset(ptr, 0, len);
+    // the HLL type is HLL_DATA_FULL in UDF or UDAF
+    ptr[0] = doris::HllDataType::HLL_DATA_FULL;
+
+    is_null = false;
+}
+
+void HllVal::agg_parse_and_cal(const HllVal &other) {
+    doris::HllSetResolver resolver;
+    resolver.init((char*)other.ptr, other.len);
+    resolver.parse();
+
+    if (resolver.get_hll_data_type() == doris::HLL_DATA_EMPTY) {
+        return;
+    }
+
+    uint8_t* pdata = ptr + 1;
+    int data_len = doris::HLL_REGISTERS_COUNT;
+
+    if (resolver.get_hll_data_type() == doris::HLL_DATA_EXPLICIT) {
+        for (int i = 0; i < resolver.get_explicit_count(); i++) {
+            uint64_t hash_value = resolver.get_explicit_value(i);
+            int idx = hash_value % data_len;
+            uint8_t first_one_bit = __builtin_ctzl(hash_value >> doris::HLL_COLUMN_PRECISION) + 1;
+            pdata[idx] = std::max(pdata[idx], first_one_bit);
+        }
+    } else if (resolver.get_hll_data_type() == doris::HLL_DATA_SPRASE) {
+        std::map<doris::HllSetResolver::SparseIndexType,
+                 doris::HllSetResolver::SparseValueType>&
+                     sparse_map = resolver.get_sparse_map();
+        for (std::map<doris::HllSetResolver::SparseIndexType,
+                doris::HllSetResolver::SparseValueType>::iterator iter = sparse_map.begin();
+                                    iter != sparse_map.end(); iter++) {
+            pdata[iter->first] = std::max(pdata[iter->first], (uint8_t)iter->second);
+        }
+    } else if (resolver.get_hll_data_type() == doris::HLL_DATA_FULL) {
+        char* full_value = resolver.get_full_value();
+        for (int i = 0; i < doris::HLL_REGISTERS_COUNT; i++) {
+            pdata[i] = std::max(pdata[i], (uint8_t)full_value[i]);
+        }
+    }
+}
+
+void HllVal::agg_merge(const HllVal &other) {
+    uint8_t* pdata = ptr + 1;
+    uint8_t* pdata_other = other.ptr + 1;
+
+    for (int i = 0; i < doris::HLL_REGISTERS_COUNT; ++i) {
+        pdata[i] = std::max(pdata[i], pdata_other[i]);
+    }
 }
 
 }

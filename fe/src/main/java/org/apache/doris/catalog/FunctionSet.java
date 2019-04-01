@@ -292,9 +292,9 @@ public class FunctionSet {
     private static final Map<Type, String> HLL_UNION_AGG_UPDATE_SYMBOL =
         ImmutableMap.<Type, String>builder()
                 .put(Type.VARCHAR,
-                    "20hll_union_agg_updateEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_")
+                        "20hll_union_agg_updateEPN9doris_udf15FunctionContextERKNS1_6HllValEPS4_")
                 .put(Type.HLL,
-                    "20hll_union_agg_updateEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_")
+                        "20hll_union_agg_updateEPN9doris_udf15FunctionContextERKNS1_6HllValEPS4_")
                 .build();
  
     private static final Map<Type, String> OFFSET_FN_INIT_SYMBOL =
@@ -798,15 +798,25 @@ public class FunctionSet {
 
             // HLL_UNION_AGG
             addBuiltin(AggregateFunction.createBuiltin("hll_union_agg",
-                    Lists.newArrayList(t), Type.VARCHAR, Type.VARCHAR,
-                    prefix + "18hll_union_agg_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
+                    Lists.newArrayList(t), Type.BIGINT, Type.VARCHAR,
+                    prefix + "18hll_union_agg_initEPN9doris_udf15FunctionContextEPNS1_6HllValE",
                     prefix + HLL_UNION_AGG_UPDATE_SYMBOL.get(t),
-                    prefix + "19hll_union_agg_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                    prefix + "19hll_union_agg_mergeEPN9doris_udf15FunctionContextERKNS1_6HllValEPS4_",
                     null,
-                    prefix + "22hll_union_agg_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                    prefix + "22hll_union_agg_finalizeEPN9doris_udf15FunctionContextERKNS1_6HllValE",
                     null,
-                    prefix + "22hll_union_agg_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                    prefix + "22hll_union_agg_finalizeEPN9doris_udf15FunctionContextERKNS1_6HllValE",
                     true, true, true));
+
+            // HLL_RAW_AGG
+            addBuiltin(AggregateFunction.createBuiltin("hll_raw_agg",
+                    Lists.newArrayList(t), Type.HLL, Type.HLL,
+                    prefix + "16hll_raw_agg_initEPN9doris_udf15FunctionContextEPNS1_6HllValE",
+                    prefix + "18hll_raw_agg_updateEPN9doris_udf15FunctionContextERKNS1_6HllValEPS4_",
+                    prefix + "17hll_raw_agg_mergeEPN9doris_udf15FunctionContextERKNS1_6HllValEPS4_",
+                    null,
+                    prefix + "20hll_raw_agg_finalizeEPN9doris_udf15FunctionContextERKNS1_6HllValE",
+                    true, false, true));
 
             if (STDDEV_UPDATE_SYMBOL.containsKey(t)) {
                 addBuiltin(AggregateFunction.createBuiltin("stddev",
