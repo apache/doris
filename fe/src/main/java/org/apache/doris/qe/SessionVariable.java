@@ -69,6 +69,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String DISABLE_COLOCATE_JOIN = "disable_colocate_join";
     public static final String PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM = "parallel_fragment_exec_instance_num";
     public static final int MIN_EXEC_INSTANCE_NUM = 1;
+    public static final int MAX_EXEC_INSTANCE_NUM = 32;
 
     // max memory used on every backend.
     @VariableMgr.VarAttr(name = EXEC_MEM_LIMIT)
@@ -420,7 +421,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setParallelExecInstanceNum(int parallelExecInstanceNum) {
         if (parallelExecInstanceNum < MIN_EXEC_INSTANCE_NUM) {
-            this.parallelExecInstanceNum = 1;
+            this.parallelExecInstanceNum = MIN_EXEC_INSTANCE_NUM;
+        } else if (parallelExecInstanceNum > MAX_EXEC_INSTANCE_NUM) {
+            this.parallelExecInstanceNum = MAX_EXEC_INSTANCE_NUM;
         } else {
             this.parallelExecInstanceNum = parallelExecInstanceNum;
         }

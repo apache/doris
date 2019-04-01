@@ -890,7 +890,7 @@ public class Coordinator {
     }
 
     private boolean needParallelInstance(PlanNode leftMostNode) {
-        if (getParallelExecInstanceNum() <= SessionVariable.MIN_EXEC_INSTANCE_NUM) {
+        if (getParallelExecInstanceNum() <= 1) {
             return false;
         }
 

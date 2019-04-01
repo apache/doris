@@ -151,24 +151,6 @@ public class SingleNodePlanner {
     }
 
     /**
-     * Checks that the given single-node plan is executable:
-     * - It may not contain right or full outer joins with no equi-join conjuncts that
-     *   are not inside the right child of a SubplanNode.
-     * - MT_DOP > 0 is not supported for plans with base table joins or table sinks.
-     * Throws a NotImplementedException if plan validation fails.
-     */
-    public void validatePlan(PlanNode planNode) throws NotImplementedException {
-      // As long as MT_DOP is unset or 0 any join can run in a single-node plan.
-      if (ctx_.isSingleNodeExec()) {
-          return;
-      }
-
-      for (PlanNode child : planNode.getChildren()) {
-          validatePlan(child);
-      }
-    }
-
-    /**
      * Creates an EmptyNode that 'materializes' the tuples of the given stmt.
      * Marks all collection-typed slots referenced in stmt as non-materialized because
      * they are never unnested, and therefore the corresponding parent scan should not
