@@ -124,7 +124,7 @@ public class StreamLoadTask {
             partitions = request.getPartitions();
         }
         switch (request.getFileType()) {
-            case FILE_LOCAL:
+            case FILE_STREAM:
                 path = request.getPath();
                 break;
             default:
