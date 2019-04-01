@@ -184,6 +184,16 @@ vector<ExtPredicate*> EsPredicate::get_predicate_list(){
     return _disjuncts;
 }
 
+static bool ignore_cast(const SlotDescriptor* slot, const Expr* expr) {
+    if (slot->type().is_date_type() && expr->type().is_date_type()) {
+        return true;
+    }
+    if (slot->type().is_string_type() && expr->type().is_string_type()) {
+        return true;
+    }
+    return false;
+}
+
 bool EsPredicate::build_disjuncts_list(Expr* conjunct, vector<ExtPredicate*>& disjuncts) {
     if (TExprNodeType::BINARY_PRED == conjunct->node_type()) {
         if (conjunct->children().size() != 2) {
@@ -244,6 +254,13 @@ bool EsPredicate::build_disjuncts_list(Expr* conjunct, vector<ExtPredicate*>& di
     } 
       
     if (TExprNodeType::IN_PRED == conjunct->node_type()) {
+        // the op code maybe FILTER_NEW_IN, it means there is function in list
+        // like col_a in (abs(1))
+        if (TExprOpcode::FILTER_IN != conjunct->op() 
+            && TExprOpcode::FILTER_NOT_IN != conjunct->op()) {
+            return false;
+        }
+
         TExtInPredicate ext_in_predicate;
         vector<ExtLiteral> in_pred_values;
         InPredicate* pred = dynamic_cast<InPredicate*>(conjunct);
@@ -258,22 +275,21 @@ bool EsPredicate::build_disjuncts_list(Expr* conjunct, vector<ExtPredicate*>& di
             return false;
         }
 
-        for (int i = 1; i < pred->children().size(); ++i) {
-            // varchar, string, all of them are string type, but varchar != string
-            // TODO add date, datetime support?
-            if (pred->get_child(0)->type().is_string_type()) {
-                if (!pred->get_child(i)->type().is_string_type()) {
-                    return false;
-                }
-            } else {
-                if (pred->get_child(i)->type().type != pred->get_child(0)->type().type) {
-                    return false;
-                }
+        if (pred->get_child(0)->type().type != slot_desc->type().type) {
+            if (!ignore_cast(slot_desc, pred->get_child(0))) {
+                return false;
+            }
+        }
+
+        HybirdSetBase::IteratorBase* iter = pred->hybird_set()->begin();
+        while (iter->has_next()) {
+            if (nullptr == iter->get_value()) {
+                return false;
             }
 
-            Expr* expr = conjunct->get_child(i);
-            ExtLiteral literal(expr->type().type, _context->get_value(expr, NULL));
+            ExtLiteral literal(slot_desc->type().type, const_cast<void *>(iter->get_value()));
             in_pred_values.emplace_back(literal);
+            iter->next();
         }
 
         ExtPredicate* predicate = new ExtInPredicate(
