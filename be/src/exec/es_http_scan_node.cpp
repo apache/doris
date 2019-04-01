@@ -85,8 +85,7 @@ Status EsHttpScanNode::prepare(RuntimeState* state) {
 // build predicate 
 void EsHttpScanNode::build_conjuncts_list() {
     for (int i = 0; i < _conjunct_ctxs.size(); ++i) {
-        std::shared_ptr<EsPredicate> predicate(
-                    new EsPredicate(_conjunct_ctxs[i], _tuple_desc));
+        EsPredicate* predicate = new EsPredicate(_conjunct_ctxs[i], _tuple_desc);
         if (predicate->build_disjuncts_list()) {
             _predicates.push_back(predicate);
             _predicate_to_conjunct.push_back(i);
@@ -228,6 +227,11 @@ Status EsHttpScanNode::close(RuntimeState* state) {
     }
 
     _batch_queue.clear();
+
+    for(int i=0; i < _predicates.size(); i++) {
+        delete _predicates[i];
+    }
+    _predicates.clear();
 
     return ExecNode::close(state);
 }

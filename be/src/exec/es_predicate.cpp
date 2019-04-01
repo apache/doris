@@ -52,42 +52,42 @@ ExtLiteral::~ExtLiteral(){
 }
 
 int8_t ExtLiteral::to_byte() {
-    DCHECK(_type != TYPE_TINYINT);
+    DCHECK(_type == TYPE_TINYINT);
     return *(reinterpret_cast<int8_t*>(_value));
 }
 
 int16_t ExtLiteral::to_short() {
-    DCHECK(_type != TYPE_SMALLINT);
+    DCHECK(_type == TYPE_SMALLINT);
     return *(reinterpret_cast<int16_t*>(_value));
 }
 
 int32_t ExtLiteral::to_int() {
-    DCHECK(_type != TYPE_INT);
+    DCHECK(_type == TYPE_INT);
     return *(reinterpret_cast<int32_t*>(_value));
 }
 
 int64_t ExtLiteral::to_long() {
-    DCHECK(_type != TYPE_BIGINT);
+    DCHECK(_type == TYPE_BIGINT);
     return *(reinterpret_cast<int64_t*>(_value));
 }
 
 float ExtLiteral::to_float() {
-    DCHECK(_type != TYPE_FLOAT);
+    DCHECK(_type == TYPE_FLOAT);
     return *(reinterpret_cast<float*>(_value));
 }
 
 double ExtLiteral::to_double() {
-    DCHECK(_type != TYPE_DOUBLE);
+    DCHECK(_type == TYPE_DOUBLE);
     return *(reinterpret_cast<double*>(_value));
 }
 
 std::string ExtLiteral::to_string() {
-    DCHECK(_type != TYPE_VARCHAR && _type != TYPE_CHAR);
+    DCHECK(_type == TYPE_VARCHAR || _type == TYPE_CHAR);
     return (reinterpret_cast<StringValue*>(_value))->to_string();
 }
 
 std::string ExtLiteral::to_date_string() {
-    DCHECK(_type != TYPE_DATE && _type != TYPE_DATETIME);
+    DCHECK(_type == TYPE_DATE || _type == TYPE_DATETIME);
     DateTimeValue date_value = *reinterpret_cast<DateTimeValue*>(_value);
     char str[MAX_DTVALUE_STR_LEN];
     date_value.to_string(str);
@@ -95,22 +95,22 @@ std::string ExtLiteral::to_date_string() {
 }
 
 bool ExtLiteral::to_bool() {
-    DCHECK(_type != TYPE_BOOLEAN);
+    DCHECK(_type == TYPE_BOOLEAN);
     return *(reinterpret_cast<bool*>(_value));
 }
 
 std::string ExtLiteral::to_decimal_string() {
-    DCHECK(_type != TYPE_DECIMAL);
+    DCHECK(_type == TYPE_DECIMAL);
     return reinterpret_cast<DecimalValue*>(_value)->to_string();
 }
 
 std::string ExtLiteral::to_decimalv2_string() {
-    DCHECK(_type != TYPE_DECIMALV2);
+    DCHECK(_type == TYPE_DECIMALV2);
     return reinterpret_cast<DecimalV2Value*>(_value)->to_string();
 }
 
 std::string ExtLiteral::to_largeint_string() {
-    DCHECK(_type != TYPE_LARGEINT);
+    DCHECK(_type == TYPE_LARGEINT);
     return LargeIntValue::to_string(*reinterpret_cast<__int128*>(_value));
 }
 
@@ -180,7 +180,7 @@ bool EsPredicate::build_disjuncts_list() {
     return build_disjuncts_list(_context->root(), _disjuncts);
 }
 
-vector<ExtPredicate*> EsPredicate::get_predicate_list(){
+const vector<ExtPredicate*>& EsPredicate::get_predicate_list(){
     return _disjuncts;
 }
 
