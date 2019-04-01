@@ -82,7 +82,7 @@ OLAPStatus CumulativeCompaction::init(TabletSharedPtr tablet) {
     _is_init = true;
     _cumulative_version = Version(_need_merged_versions.begin()->first,
                                   _need_merged_versions.rbegin()->first);
-    _rs_writer.reset(new AlphaRowsetWriter());
+    _rs_writer.reset(new (std::nothrow)AlphaRowsetWriter());
     return OLAP_SUCCESS;
 }
 

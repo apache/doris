@@ -139,14 +139,14 @@ OLAPStatus BaseCompaction::run() {
     context.version = _new_base_version;
     context.version_hash = new_base_version_hash;
 
-    RowsetWriterSharedPtr rs_writer(new (std::nothrow)AlphaRowsetWriter());
-    if (rs_writer == nullptr) {
+    _rs_writer.reset(new (std::nothrow)AlphaRowsetWriter());
+    if (_rs_writer == nullptr) {
         LOG(WARNING) << "fail to new rowset.";
         return OLAP_ERR_MALLOC_ERROR;
     }
-    RETURN_NOT_OK(rs_writer->init(context));
+    RETURN_NOT_OK(_rs_writer->init(context));
     res = _do_base_compaction(new_base_version_hash, rowsets);
-    _tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX + std::to_string(rs_writer->rowset_id()));
+    _tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX + std::to_string(_rs_writer->rowset_id()));
     // 释放不再使用的ColumnData对象
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to do base version. tablet=" << _tablet->full_name()
