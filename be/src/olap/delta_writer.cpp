@@ -41,9 +41,7 @@ DeltaWriter::~DeltaWriter() {
     if (!_delta_written_success) {
         _garbage_collection();
     }
-    for (SegmentGroup* segment_group : _segment_group_vec) {
-        segment_group->release();
-    }
+
     SAFE_DELETE(_mem_table);
     SAFE_DELETE(_schema);
     _rowset_writer->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX + std::to_string(_rowset_writer->rowset_id()));
