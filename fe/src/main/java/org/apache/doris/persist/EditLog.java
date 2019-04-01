@@ -719,7 +719,7 @@ public class EditLog {
      */
     private synchronized void logEdit(short op, Writable writable) {
         if (this.getNumEditStreams() == 0) {
-            LOG.error("Fatal Error : no editLog stream");
+            LOG.error("Fatal Error : no editLog stream", new Exception());
             throw new Error("Fatal Error : no editLog stream");
         }
 

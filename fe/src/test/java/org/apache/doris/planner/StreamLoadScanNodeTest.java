@@ -37,6 +37,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.task.StreamLoadTask;
 import org.apache.doris.thrift.TExplainLevel;
+import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
@@ -72,6 +73,7 @@ public class StreamLoadScanNodeTest {
     TStreamLoadPutRequest getBaseRequest() {
         TStreamLoadPutRequest request = new TStreamLoadPutRequest();
         request.setFileType(TFileType.FILE_STREAM);
+        request.setFormatType(TFileFormatType.FORMAT_CSV_PLAIN);
         return request;
     }
 
@@ -251,7 +253,6 @@ public class StreamLoadScanNodeTest {
         };
 
         TStreamLoadPutRequest request = getBaseRequest();
-        request.setFileType(TFileType.FILE_LOCAL);
         request.setColumns("k1,k2,v1, v2=k2");
         StreamLoadScanNode scanNode = new StreamLoadScanNode(new PlanNodeId(1), dstDesc, dstTable,
                                                              StreamLoadTask.fromTStreamLoadPutRequest(request));
