@@ -24,6 +24,8 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.UserException;
 import org.apache.doris.task.StreamLoadTask;
+import org.apache.doris.thrift.TFileFormatType;
+import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TUniqueId;
 
@@ -71,6 +73,8 @@ public class StreamLoadPlannerTest {
         TStreamLoadPutRequest request = new TStreamLoadPutRequest();
         request.setTxnId(1);
         request.setLoadId(new TUniqueId(2, 3));
+        request.setFileType(TFileType.FILE_STREAM);
+        request.setFormatType(TFileFormatType.FORMAT_CSV_PLAIN);
         StreamLoadPlanner planner = new StreamLoadPlanner(db, destTable,
                                                           StreamLoadTask.fromTStreamLoadPutRequest(request));
         planner.plan();
