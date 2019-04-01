@@ -40,10 +40,11 @@ rapidjson::Value ESQueryBuilder::to_json(rapidjson::Document& docuemnt) {
     //{ "term": { "dv": "2" } }
     if (!draft.HasParseError()) {
         for (rapidjson::Value::ConstMemberIterator itr = draft.MemberBegin(); itr != draft.MemberEnd(); itr++) {
+            // deep copy, reference http://rapidjson.org/md_doc_tutorial.html#DeepCopyValue
             query_key.CopyFrom(itr->name, draft_allocator);
             query_value.CopyFrom(itr->value, draft_allocator);
            if (query_key.IsString()) {
-               // if we found one key, then we should end loop
+               // if we found one key, then end loop as QueryDSL only support one `query` root
                break;
             }
         }
@@ -51,6 +52,7 @@ rapidjson::Value ESQueryBuilder::to_json(rapidjson::Document& docuemnt) {
     rapidjson::Document::AllocatorType& allocator = docuemnt.GetAllocator();
     rapidjson::Value es_query(rapidjson::kObjectType);
     es_query.SetObject();
+    // Move Semantics, reference http://rapidjson.org/md_doc_tutorial.html#MoveSemantics 
     es_query.AddMember(query_key, query_value, allocator);
     return es_query;
 }
