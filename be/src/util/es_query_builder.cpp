@@ -303,7 +303,7 @@ void BooleanQueryBuilder::must_not(QueryBuilder* filter) {
 rapidjson::Value BooleanQueryBuilder::to_query(const std::vector<EsPredicate*>& predicates, rapidjson::Document& root) {
     if (predicates.size() == 0) {
         MatchAllQueryBuilder match_all_query;
-        return match_all_query.to_json(root)
+        return match_all_query.to_json(root);
     }
     root.SetObject();
     BooleanQueryBuilder *bool_query = new BooleanQueryBuilder();
