@@ -44,7 +44,9 @@ DeltaWriter::~DeltaWriter() {
 
     SAFE_DELETE(_mem_table);
     SAFE_DELETE(_schema);
-    _rowset_writer->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX + std::to_string(_rowset_writer->rowset_id()));
+    if (_rowset_writer != nullptr) {
+        _rowset_writer->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX + std::to_string(_rowset_writer->rowset_id()));
+    }
 }
 
 void DeltaWriter::_garbage_collection() {
