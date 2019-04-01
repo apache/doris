@@ -78,8 +78,6 @@ private:
     const std::map<std::string, std::string>& _properties;
     const std::vector<ExprContext*>& _conjunct_ctxs; 
 
-    std::unique_ptr<TextConverter> _text_converter;
-
     int _next_range;
     bool _line_eof;
     bool _batch_eof;
@@ -93,8 +91,7 @@ private:
     const TupleDescriptor* _tuple_desc;
     EsScanCounter* _counter;
     std::unique_ptr<ESScanReader> _es_reader;
-    std::map<std::string, SlotDescriptor*> _slots_map;
-    ScrollParser* _parser;
+    ScrollParser* _es_scroll_parser;
 
     // Profile
     RuntimeProfile::Counter* _rows_read_counter;

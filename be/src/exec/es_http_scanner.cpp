@@ -24,10 +24,9 @@
 #include "runtime/exec_env.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/raw_value.h"
+#include "runtime/runtime_state.h"
 #include "runtime/tuple.h"
 #include "exprs/expr.h"
-#include "exec/text_converter.h"
-#include "exec/text_converter.hpp"
 
 namespace doris {
 
@@ -56,7 +55,7 @@ EsHttpScanner::EsHttpScanner(
         _tuple_desc(nullptr),
         _counter(counter),
         _es_reader(nullptr),
-        _parser(nullptr),
+        _es_scroll_parser(nullptr),
         _rows_read_counter(nullptr),
         _read_timer(nullptr),
         _materialize_timer(nullptr) {
@@ -72,15 +71,6 @@ Status EsHttpScanner::open() {
         std::stringstream ss;
         ss << "Unknown tuple descriptor, tuple_id=" << _tuple_id;
         return Status(ss.str());
-    }
-
-    for (auto slot : _tuple_desc->slots()) {
-        auto pair = _slots_map.emplace(slot->col_name(), slot);
-        if (!pair.second) {
-            std::stringstream ss;
-            ss << "Failed to insert slot, col_name=" << slot->col_name();
-            return Status(ss.str());
-        }
     }
 
     const std::string& host = _properties.at(ESScanReader::KEY_HOST_PORT);
@@ -106,13 +96,13 @@ Status EsHttpScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
     }
 
     while (!_batch_eof) {
-        if (_line_eof || _parser == nullptr) {
-            if (_parser != nullptr) {
-                delete _parser;
-                _parser = nullptr;
+        if (_line_eof || _es_scroll_parser == nullptr) {
+            if (_es_scroll_parser != nullptr) {
+                delete _es_scroll_parser;
+                _es_scroll_parser = nullptr;
             }
-            RETURN_IF_ERROR(_es_reader->get_next(&_batch_eof, &_parser));
-            if (_batch_eof || _parser == nullptr) {
+            RETURN_IF_ERROR(_es_reader->get_next(&_batch_eof, &_es_scroll_parser));
+            if (_batch_eof || _es_scroll_parser == nullptr) {
                 *eof = true;
                 return Status::OK;
             }
@@ -120,7 +110,8 @@ Status EsHttpScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
 
         COUNTER_UPDATE(_rows_read_counter, 1);
         SCOPED_TIMER(_materialize_timer);
-        RETURN_IF_ERROR(_parser->fill_tuple(_tuple_desc, tuple, tuple_pool, &_line_eof));
+        RETURN_IF_ERROR(_es_scroll_parser->fill_tuple(
+                        _tuple_desc, tuple, tuple_pool, &_line_eof));
         if (!_line_eof) {
             break;
         }

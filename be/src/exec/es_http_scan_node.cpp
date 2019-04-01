@@ -51,6 +51,8 @@ EsHttpScanNode::~EsHttpScanNode() {
 
 Status EsHttpScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ScanNode::init(tnode));
+
+    // use TEsScanNode
     _properties = tnode.es_scan_node.properties;
     return Status::OK;
 }
@@ -67,6 +69,7 @@ Status EsHttpScanNode::prepare(RuntimeState* state) {
         return Status(ss.str());
     }
 
+    // set up column name vector for ESScrollQueryBuilder
     for (auto slot_desc : _tuple_desc->slots()) {
         if (!slot_desc->is_materialized()) {
             continue;
@@ -79,6 +82,7 @@ Status EsHttpScanNode::prepare(RuntimeState* state) {
     return Status::OK;
 }
 
+// build predicate 
 void EsHttpScanNode::build_conjuncts_list() {
     for (int i = 0; i < _conjunct_ctxs.size(); ++i) {
         std::shared_ptr<EsPredicate> predicate(
@@ -96,8 +100,8 @@ Status EsHttpScanNode::open(RuntimeState* state) {
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::OPEN));
     RETURN_IF_CANCELLED(state);
 
+    // if conjunct is constant, compute direct and set eos = true
     for (int conj_idx = 0; conj_idx < _conjunct_ctxs.size(); ++conj_idx) {
-        // if conjunct is constant, compute direct and set eos = true
         if (_conjunct_ctxs[conj_idx]->root()->is_constant()) {
             void* value = _conjunct_ctxs[conj_idx]->get_value(NULL);
             if (value == NULL || *reinterpret_cast<bool*>(value) == false) {
@@ -284,6 +288,7 @@ Status EsHttpScanNode::scanner_scan(
             }
 
             // eval conjuncts of this row.
+            // TODO exclude those predicates which ES applied by _predicate_to_conjunct
             if (eval_conjuncts(&conjunct_ctxs[0], conjunct_ctxs.size(), row)) {
                 row_batch->commit_last_row();
                 char* new_tuple = reinterpret_cast<char*>(tuple);
@@ -327,6 +332,7 @@ Status EsHttpScanNode::scanner_scan(
     return Status::OK;
 }
 
+// Prefer to the local host
 static std::string get_host_port(const std::vector<TNetworkAddress>& es_hosts) {
 
     std::string host_port;
@@ -360,6 +366,7 @@ void EsHttpScanNode::scanner_worker(int start_idx, int length) {
         const TEsScanRange& es_scan_range = 
             _scan_ranges[start_idx + i].scan_range.es_scan_range;
 
+        // Collect the informations from scan range to perperties
         std::map<std::string, std::string> properties(_properties);
         properties[ESScanReader::KEY_INDEX] = es_scan_range.index;
         if (es_scan_range.__isset.type) {
@@ -371,6 +378,7 @@ void EsHttpScanNode::scanner_worker(int start_idx, int length) {
         properties[ESScanReader::KEY_QUERY] 
             = ESScrollQueryBuilder::build(properties, _column_names, _predicates);
         
+        // start scanner to scan
         std::unique_ptr<EsHttpScanner> scanner(new EsHttpScanner(
             _runtime_state, runtime_profile(), _tuple_id,
             properties, scanner_expr_ctxs, &counter));
