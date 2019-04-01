@@ -26,6 +26,8 @@ class QueryBuilder {
 
 public:
     virtual rapidjson::Value to_json(rapidjson::Document& allocator) = 0;
+    virtual ~QueryBuilder() {
+    };
 };
 
 // process esquery(fieldA, json dsl) function
