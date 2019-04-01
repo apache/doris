@@ -35,8 +35,8 @@ public:
     static void init();
     static StringVal hll_hash(doris_udf::FunctionContext* ctx, 
                               const doris_udf::StringVal& dest_base);
-    static StringVal hll_cardinality(doris_udf::FunctionContext* ctx, 
-                                     const doris_udf::StringVal& dest_base);
+    static BigIntVal hll_cardinality(doris_udf::FunctionContext* ctx,
+                                     const doris_udf::HllVal& dest_base);
     static StringVal create_string_result(doris_udf::FunctionContext* ctx, 
                                           const StringVal& str, const bool is_null);
 

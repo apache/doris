@@ -21,6 +21,9 @@
 #include <boost/cstdint.hpp>
 #include <string.h>
 
+#include "common/logging.h"
+#include "olap/hll.h"
+
 // This is the only Doris header required to develop UDFs and UDAs. This header
 // contains the types that need to be used and the FunctionContext object. The context
 // object serves as the interface object between the UDF/UDA and the doris process.
@@ -43,6 +46,7 @@ struct StringVal;
 struct DateTimeVal;
 struct DecimalVal;
 struct DecimalV2Val;
+struct HllVal;
 
 // The FunctionContext is passed to every UDF/UDA and is the interface for the UDF to the
 // rest of the system. It contains APIs to examine the system state, report errors
@@ -762,6 +766,17 @@ struct LargeIntVal : public AnyVal {
     }
 };
 
+struct HllVal : public StringVal {
+    HllVal() : StringVal() { }
+
+    void init(FunctionContext* ctx);
+
+    void agg_parse_and_cal(const HllVal &other);
+
+    void agg_merge(const HllVal &other);
+};
+
+
 typedef uint8_t* BufferVal;
 }
 
@@ -777,6 +792,7 @@ using doris_udf::StringVal;
 using doris_udf::DecimalVal;
 using doris_udf::DecimalV2Val;
 using doris_udf::DateTimeVal;
+using doris_udf::HllVal;
 using doris_udf::FunctionContext;
 
 #endif

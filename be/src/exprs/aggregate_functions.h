@@ -324,22 +324,44 @@ dst);
 
     //  HLL value type calculate
     //  init sets buffer
-    static void hll_union_agg_init(doris_udf::FunctionContext*, doris_udf::StringVal* slot);
+    static void hll_union_agg_init(doris_udf::FunctionContext*, doris_udf::HllVal* slot);
     // fill all register accroading to hll set type
-    static void hll_union_agg_update(doris_udf::FunctionContext*, const doris_udf::StringVal& src, 
-                                     doris_udf::StringVal* dst);
+    static void hll_union_agg_update(doris_udf::FunctionContext*, const doris_udf::HllVal& src,
+                                     doris_udf::HllVal* dst);
     // merge the register value
     static void hll_union_agg_merge(
                           doris_udf::FunctionContext*,
-                          const doris_udf::StringVal& src,
-                          doris_udf::StringVal* dst);
+                          const doris_udf::HllVal& src,
+                          doris_udf::HllVal* dst);
     // return result
-    static doris_udf::StringVal hll_union_agg_finalize(
+    static doris_udf::BigIntVal hll_union_agg_finalize(
                                             doris_udf::FunctionContext*,
-                                            const doris_udf::StringVal& src);
+                                            const doris_udf::HllVal& src);
     // calculate result
-    static int64_t hll_algorithm(const doris_udf::StringVal& src);
-    static void hll_union_parse_and_cal(HllSetResolver& resolver, StringVal* dst);
+    static int64_t hll_algorithm(uint8_t *pdata, int data_len);
+    static int64_t hll_algorithm(const StringVal &dst) {
+        return hll_algorithm(dst.ptr, dst.len);
+    }
+    static int64_t hll_algorithm(const HllVal &dst) {
+        return hll_algorithm(dst.ptr + 1, dst.len - 1);
+    }
+
+    //  HLL value type aggregate to HLL value type
+    static void hll_raw_agg_init(
+            doris_udf::FunctionContext*,
+            doris_udf::HllVal* slot);
+    static void hll_raw_agg_update(
+            doris_udf::FunctionContext*,
+            const doris_udf::HllVal& src,
+            doris_udf::HllVal* dst);
+    static void hll_raw_agg_merge(
+            doris_udf::FunctionContext*,
+            const doris_udf::HllVal& src,
+            doris_udf::HllVal* dst);
+    // return result which is HLL type
+    static doris_udf::HllVal hll_raw_agg_finalize(
+            doris_udf::FunctionContext*,
+            const doris_udf::HllVal& src);
 };
 
 }
