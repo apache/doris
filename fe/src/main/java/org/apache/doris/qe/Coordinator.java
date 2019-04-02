@@ -857,8 +857,11 @@ public class Coordinator {
 
                     for (Integer planNodeId : value.keySet()) {
                         List<TScanRangeParams> perNodeScanRanges = value.get(planNodeId);
-                        //the scan instance num should not larger than the tablets num
-                        int expectedInstanceNum = Math.min(perNodeScanRanges.size(), parallelExecInstanceNum);
+                        int expectedInstanceNum = 1;
+                        if (parallelExecInstanceNum > 1) {
+                            //the scan instance num should not larger than the tablets num
+                            expectedInstanceNum = Math.min(perNodeScanRanges.size(), parallelExecInstanceNum);
+                        }
                         List<List<TScanRangeParams>> perInstanceScanRanges = ListUtil.splitBySize(perNodeScanRanges,
                                 expectedInstanceNum);
 
