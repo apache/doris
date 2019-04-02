@@ -315,6 +315,8 @@ private:
     static OLAPStatus _init_column_mapping(ColumnMapping* column_mapping,
                                            const TabletColumn& column_schema,
                                            const std::string& value);
+private:
+    RowsetReaderContext _reader_context;
 
     DISALLOW_COPY_AND_ASSIGN(SchemaChangeHandler);
 };
