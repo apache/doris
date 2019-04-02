@@ -167,9 +167,6 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = CODEGEN_LEVEL)
     private int codegenLevel = 0;
 
-    @Deprecated
-    private int mtDop = 0; //keep this for compatibility
-
     @VariableMgr.VarAttr(name = BATCH_SIZE)
     private int batchSize = 1024;
 

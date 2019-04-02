@@ -180,8 +180,6 @@ public class Coordinator {
     // paralle execute
     private final TUniqueId nextInstanceId;
 
-    private int parallelExecInstanceNum = -1;
-
     // Used for query
     public Coordinator(ConnectContext context, Analyzer analyzer, Planner planner) {
         this.isBlockQuery = planner.isBlockQuery();
@@ -890,6 +888,10 @@ public class Coordinator {
 
     //One fragment could only have one HashJoinNode
     private boolean isColocateJoin(PlanNode node) {
+        if (Config.disable_colocate_join) {
+            return false;
+        }
+
         if (ConnectContext.get().getSessionVariable().isDisableColocateJoin()) {
             return false;
         }
