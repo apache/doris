@@ -312,5 +312,10 @@ public final class MetricRepo {
 
         return sb.toString();
     }
+
+    public static void addMetric(Metric<?> metric) {
+        init();
+        PALO_METRIC_REGISTER.addPaloMetrics(metric);
+    }
 }
 
