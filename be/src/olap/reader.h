@@ -207,6 +207,7 @@ private:
     // release these when reader closing
     std::vector<RowsetReaderSharedPtr> _own_rs_readers;
     std::vector<RowsetReaderSharedPtr> _rs_readers;
+    RowsetReaderContext _reader_context;
 
     KeysParam _keys_param;
     std::vector<bool> _is_lower_keys_included;
