@@ -86,19 +86,6 @@ public class ReportHandler extends Daemon {
 
     private BlockingQueue<ReportTask> reportQueue = Queues.newLinkedBlockingQueue();
 
-    // This threshold is to avoid piling up too many report task in FE, which may cause OOM exception.
-    // In some large Doris cluster, eg: 100 Backends with ten million replicas, a tablet report may cost
-    // several seconds after some modification of metadata(drop partition, etc..).
-    // And one Backend will report tablets info every 1 min, so unlimited receiving reports is unacceptable.
-    // TODO(cmy): we will optimize the processing speed of tablet report in future, but now, just discard
-    // the report if queue size exceeding limit.
-    // Some online time cost:
-    // 1. disk report: 0-1 ms
-    // 2. task report: 0-1 ms
-    // 3. tablet report 
-    //      10000 replicas: 200ms
-    private final static int MAX_QUEUE_SIZE = 100;
-
     private GaugeMetric<Long> gaugeQueueSize;
 
     public ReportHandler() {
@@ -182,10 +169,10 @@ public class ReportHandler extends Daemon {
 
     private void putToQueue(ReportTask reportTask) throws Exception {
         int currentSize = reportQueue.size();
-        if (currentSize > MAX_QUEUE_SIZE) {
-            LOG.warn("the report queue size exceeds the limit: {}. current: {}", MAX_QUEUE_SIZE, currentSize);
+        if (currentSize > Config.report_queue_size) {
+            LOG.warn("the report queue size exceeds the limit: {}. current: {}",  Config.report_queue_size, currentSize);
             throw new Exception(
-                    "the report queue size exceeds the limit: " + MAX_QUEUE_SIZE + ". current: " + currentSize);
+                    "the report queue size exceeds the limit: " +  Config.report_queue_size + ". current: " + currentSize);
         }
         reportQueue.put(reportTask);
     }
