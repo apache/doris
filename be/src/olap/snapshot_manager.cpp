@@ -275,6 +275,8 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
                 version = request.version;
             }
             // get shortest version path
+            // it very important!!!!
+            // it means 0-version has to be a readable version graph
             res = ref_tablet->capture_consistent_rowsets(Version(0, version), &consistent_rowsets);
             if (res != OLAP_SUCCESS) {
                 LOG(WARNING) << "fail to select versions to span. res=" << res;
