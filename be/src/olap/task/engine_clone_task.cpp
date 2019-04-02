@@ -89,7 +89,7 @@ OLAPStatus EngineCloneTask::execute() {
                             &missed_versions,
                             &allow_incremental_clone, 
                             &snapshot_version);
-        if (status == DORIS_SUCCESS) {
+        if (status == DORIS_SUCCESS && allow_incremental_clone) {
             OLAPStatus olap_status = _finish_clone(tablet, local_data_path, _clone_req.committed_version, allow_incremental_clone, snapshot_version);
             if (olap_status != OLAP_SUCCESS) {
                 LOG(WARNING) << "failed to finish incremental clone. [table=" << tablet->full_name()
@@ -678,7 +678,7 @@ OLAPStatus EngineCloneTask::_convert_rowset_ids(DataDir& data_dir, const string&
     }
 
     for (auto& inc_rowset : cloned_tablet_meta_pb.inc_rs_metas()) {
-        RowsetMetaPB* rowset_meta = new_tablet_meta_pb.add_rs_metas();
+        RowsetMetaPB* rowset_meta = new_tablet_meta_pb.add_inc_rs_metas();
         RETURN_NOT_OK(_rename_rowset_id(inc_rowset, clone_dir, data_dir, tablet_schema, rowset_meta));
     }
 
@@ -700,6 +700,13 @@ OLAPStatus EngineCloneTask::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb, co
     RETURN_NOT_OK(org_rowset->load());
     RowsetId rowset_id = 0;
     RETURN_NOT_OK(data_dir.next_id(&rowset_id));
+    if (rs_meta_pb.rowset_id() == rowset_id) {
+        // if generated rowsetid == cloned rowset id then skip link files
+        // because after link files, it will try to delete old files
+        // but src is same with dst during link
+        *new_rs_meta_pb = rs_meta_pb;
+        return OLAP_SUCCESS;
+    }
     RowsetMetaSharedPtr org_rowset_meta = org_rowset->rowset_meta();
     RowsetWriterContext context;
     context.rowset_id = rowset_id;
@@ -731,6 +738,7 @@ OLAPStatus EngineCloneTask::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb, co
     return OLAP_SUCCESS;
 }
 
+// only incremental clone use this method
 OLAPStatus EngineCloneTask::_finish_clone(TabletSharedPtr tablet, const string& clone_dir,
                                          int64_t committed_version, bool is_incremental_clone, 
                                          int32_t snapshot_version) {
@@ -759,6 +767,8 @@ OLAPStatus EngineCloneTask::_finish_clone(TabletSharedPtr tablet, const string& 
                          << ", cloned_tablet_meta_file=" << cloned_tablet_meta_file;
             break;
         }
+        // remove the cloned meta file
+        remove_dir(cloned_tablet_meta_file);
 
         // TODO(ygl): convert old format file into rowset
         // check all files in /clone and /tablet
