@@ -1294,16 +1294,15 @@ OLAPStatus SchemaChangeHandler::process_alter_tablet(AlterTabletType type,
             break;
         }
 
-        RowsetReaderContext context;
-        context.reader_type = READER_ALTER_TABLE;
-        context.tablet_schema= &base_tablet->tablet_schema();
-        context.preaggregation = true;
-        context.delete_handler = &delete_handler;
-        context.is_using_cache = false;
-        context.lru_cache = StorageEngine::instance()->index_stream_lru_cache();
+        _reader_context.reader_type = READER_ALTER_TABLE;
+        _reader_context.tablet_schema= &base_tablet->tablet_schema();
+        _reader_context.preaggregation = true;
+        _reader_context.delete_handler = &delete_handler;
+        _reader_context.is_using_cache = false;
+        _reader_context.lru_cache = StorageEngine::instance()->index_stream_lru_cache();
 
         for (auto& rs_reader : rs_readers) {
-            rs_reader->init(&context);
+            rs_reader->init(&_reader_context);
         }
 
     } while (0);
@@ -1479,15 +1478,15 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
 
     // c. 转换数据
     DeleteHandler delete_handler;
-    RowsetReaderContext reader_context;
-    reader_context.reader_type = READER_ALTER_TABLE;
-    reader_context.tablet_schema = &base_tablet->tablet_schema();
-    reader_context.preaggregation = true;
-    reader_context.delete_handler = &delete_handler;
-    reader_context.is_using_cache = false;
-    reader_context.lru_cache = StorageEngine::instance()->index_stream_lru_cache();
+    _reader_context.reader_type = READER_ALTER_TABLE;
+    _reader_context.tablet_schema = &base_tablet->tablet_schema();
+    _reader_context.preaggregation = true;
+    _reader_context.delete_handler = &delete_handler;
+    _reader_context.is_using_cache = false;
+    _reader_context.lru_cache = StorageEngine::instance()->index_stream_lru_cache();
+
     RowsetReaderSharedPtr rowset_reader = (*base_rowset)->create_reader();
-    rowset_reader->init(&reader_context);
+    rowset_reader->init(&_reader_context);
 
     RowsetId rowset_id = 0;
     RETURN_NOT_OK(new_tablet->next_rowset_id(&rowset_id));
