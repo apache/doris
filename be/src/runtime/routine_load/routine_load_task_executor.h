@@ -38,7 +38,6 @@ class TRoutineLoadTask;
 // to FE finally.
 class RoutineLoadTaskExecutor {
 public:
-    // paramater: task id
     typedef std::function<void (StreamLoadContext*)> ExecFinishCallback; 
 
     RoutineLoadTaskExecutor(ExecEnv* exec_env):

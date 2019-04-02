@@ -19,7 +19,7 @@
 
 #include "common/status.h"
 #include "runtime/exec_env.h"
-#include "runtime/routine_load/data_consumer.h"
+#include "runtime/routine_load/data_consumer_group.h"
 #include "runtime/routine_load/kafka_consumer_pipe.h"
 #include "runtime/stream_load/stream_load_context.h"
 #include "runtime/stream_load/stream_load_executor.h"
@@ -109,7 +109,6 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
             delete ctx;
         }
         return Status("failed to submit routine load task");
-
     } else {
         LOG(INFO) << "submit a new routine load task: " << ctx->brief()
                   << ", current tasks num: " << _task_map.size();
@@ -134,23 +133,30 @@ void RoutineLoadTaskExecutor::exec_task(
 
     VLOG(1) << "begin to execute routine load task: " << ctx->brief();
 
-    // get or create data consumer
-    std::shared_ptr<DataConsumer> consumer;
-    HANDLE_ERROR(consumer_pool->get_consumer(ctx, &consumer), "failed to get consumer");    
+    // create data consumer group
+    std::shared_ptr<DataConsumerGroup> consumer_grp;
+    HANDLE_ERROR(consumer_pool->get_consumer_grp(ctx, &consumer_grp), "failed to get consumers");    
 
     // create and set pipe
     std::shared_ptr<StreamLoadPipe> pipe;
     switch (ctx->load_src_type) {
-        case TLoadSourceType::KAFKA:
+        case TLoadSourceType::KAFKA: {
             pipe = std::make_shared<KafkaConsumerPipe>();
-            std::static_pointer_cast<KafkaDataConsumer>(consumer)->assign_topic_partitions(ctx);
+            Status st = std::static_pointer_cast<KafkaDataConsumerGroup>(consumer_grp)->assign_topic_partitions(ctx);
+            if (!st.ok()) {
+                err_handler(ctx, st, st.get_error_msg());
+                cb(ctx);
+                return;
+            }
             break;
-        default:
+        }
+        default: {
             std::stringstream ss;
             ss << "unknown routine load task type: " << ctx->load_type;
             err_handler(ctx, Status::CANCELLED, ss.str());
             cb(ctx);
             return;
+        }
     }
     ctx->body_sink = pipe;
 
@@ -167,16 +173,16 @@ void RoutineLoadTaskExecutor::exec_task(
 #endif
     
     // start to consume, this may block a while
-    HANDLE_ERROR(consumer->start(ctx), "consuming failed");
+    HANDLE_ERROR(consumer_grp->start_all(ctx), "consuming failed");
 
-    // wait for consumer finished
+    // wait for all consumers finished
     HANDLE_ERROR(ctx->future.get(), "consume failed");
 
     ctx->load_cost_nanos = MonotonicNanos() - ctx->start_nanos;
     
     // return the consumer back to pool
     // call this before commit txn, in case the next task can come very fast
-    consumer_pool->return_consumer(consumer);    
+    consumer_pool->return_consumers(consumer_grp.get()); 
 
     // commit txn
     HANDLE_ERROR(_exec_env->stream_load_executor()->commit_txn(ctx), "commit failed");

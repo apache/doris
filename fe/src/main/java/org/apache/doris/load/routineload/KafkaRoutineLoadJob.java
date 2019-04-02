@@ -32,11 +32,9 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
-import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.transaction.BeginTransactionException;
 
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -139,15 +137,18 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         SystemInfoService systemInfoService = Catalog.getCurrentSystemInfo();
         int aliveBeNum = systemInfoService.getClusterBackendIds(clusterName, true).size();
         int partitionNum = currentKafkaPartitions.size();
+        // 3 partitions one tasks
+        int maxPartitionDivision = (int) Math.ceil(partitionNum / 3.0);
         if (desireTaskConcurrentNum == 0) {
-            desireTaskConcurrentNum = partitionNum;
+            desireTaskConcurrentNum = maxPartitionDivision;
         }
 
-        LOG.info("current concurrent task number is min "
-                         + "(current size of partition {}, desire task concurrent num {}, alive be num {})",
-                 partitionNum, desireTaskConcurrentNum, aliveBeNum);
+        LOG.info("current concurrent task number is min"
+                         + "(max partition division {}, desire task concurrent num {}, alive be num {})",
+                maxPartitionDivision, desireTaskConcurrentNum, aliveBeNum);
         currentTaskConcurrentNum = 
-                Math.min(Math.min(partitionNum, Math.min(desireTaskConcurrentNum, aliveBeNum)), DEFAULT_TASK_MAX_CONCURRENT_NUM);
+                Math.min(Math.min(maxPartitionDivision, Math.min(desireTaskConcurrentNum, aliveBeNum)),
+                        DEFAULT_TASK_MAX_CONCURRENT_NUM);
         return currentTaskConcurrentNum;
     }
 

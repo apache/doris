@@ -23,8 +23,6 @@
 #include <vector>
 
 #include "common/status.h"
-#include "runtime/stream_load/stream_load_pipe.h"
-#include "runtime/routine_load/kafka_consumer_pipe.h"
 #include "service/backend_options.h"
 #include "util/defer_op.h"
 #include "util/stopwatch.hpp"
@@ -92,20 +90,23 @@ Status KafkaDataConsumer::init(StreamLoadContext* ctx) {
     return Status::OK;
 }
 
-Status KafkaDataConsumer::assign_topic_partitions(StreamLoadContext* ctx) {
+Status KafkaDataConsumer::assign_topic_partitions(
+        const std::map<int32_t, int64_t>& begin_partition_offset,
+        const std::string& topic,
+        StreamLoadContext* ctx) {
+
     DCHECK(_k_consumer);
     // create TopicPartitions
     std::stringstream ss;
     std::vector<RdKafka::TopicPartition*> topic_partitions;
-    for (auto& entry : ctx->kafka_info->begin_offset) {
+    for (auto& entry : begin_partition_offset) {
         RdKafka::TopicPartition* tp1 = RdKafka::TopicPartition::create(
-                ctx->kafka_info->topic, entry.first, entry.second);
+                topic, entry.first, entry.second);
         topic_partitions.push_back(tp1);
         ss << "partition[" << entry.first << "-" << entry.second << "] ";
     }
 
-    VLOG(1) << "assign topic partitions: " << ctx->kafka_info->topic
-        << ", " << ss.str();
+    VLOG(1) << "assign topic partitions: " << topic << ", " << ss.str();
 
     // delete TopicPartition finally
     auto tp_deleter = [&topic_partitions] () {
@@ -125,70 +126,21 @@ Status KafkaDataConsumer::assign_topic_partitions(StreamLoadContext* ctx) {
     return Status::OK;
 }
 
-Status KafkaDataConsumer::start(StreamLoadContext* ctx) {
-    {
-        std::unique_lock<std::mutex> l(_lock);
-        if (!_init) {
-            return Status("consumer is not initialized");
-        }
-    }
-    
+void KafkaDataConsumer::group_consume(
+        BlockingQueue<RdKafka::Message*>* queue,
+        int64_t max_running_time_ms) {
     _last_visit_time = time(nullptr);
+    int64_t left_time = max_running_time_ms;
+    LOG(INFO) << "start kafka consumer: " << _id << ", grp: " << _grp_id
+            << ", max running time(ms): " << left_time;
 
-    int64_t left_time = ctx->max_interval_s * 1000;
-    int64_t left_rows = ctx->max_batch_rows;
-    int64_t left_bytes = ctx->max_batch_size;
-
-    std::shared_ptr<KafkaConsumerPipe> kakfa_pipe = std::static_pointer_cast<KafkaConsumerPipe>(ctx->body_sink);
-
-    LOG(INFO) << "start consumer"
-        << ". max time(ms): " << left_time
-        << ", batch rows: " << left_rows
-        << ", batch size: " << left_bytes
-        << ". " << ctx->brief();
-
-    // copy one
-    std::map<int32_t, int64_t> cmt_offset = ctx->kafka_info->cmt_offset;
     MonotonicStopWatch consumer_watch;
     MonotonicStopWatch watch;
     watch.start();
-    Status st;
     while (true) {
         std::unique_lock<std::mutex> l(_lock);
-        if (_cancelled) {
-            kakfa_pipe ->cancel();
-            return Status::CANCELLED;
-        }
-
-        if (_finished) {
-            kakfa_pipe ->finish();
-            ctx->kafka_info->cmt_offset = std::move(cmt_offset); 
-            return Status::OK;
-        }
-
-        if (left_time <= 0 || left_rows <= 0 || left_bytes <=0) {
-            LOG(INFO) << "kafka consume batch done"
-                    << ". consume time(ms)=" << ctx->max_interval_s * 1000 - left_time
-                    << ", received rows=" << ctx->max_batch_rows - left_rows
-                    << ", received bytes=" << ctx->max_batch_size - left_bytes
-                    << ", kafka consume time(ms)=" << consumer_watch.elapsed_time() / 1000 / 1000;
-
-
-            if (left_bytes == ctx->max_batch_size) {
-                // nothing to be consumed, cancel it
-                // we do not allow finishing stream load pipe without data
-                kakfa_pipe->cancel();
-                _cancelled = true;
-                return Status::CANCELLED;
-            } else {
-                DCHECK(left_bytes < ctx->max_batch_size);
-                DCHECK(left_rows < ctx->max_batch_rows);
-                kakfa_pipe->finish();
-                ctx->kafka_info->cmt_offset = std::move(cmt_offset); 
-                ctx->receive_bytes = ctx->max_batch_size - left_bytes;
-                _finished = true;
-                return Status::OK;
-            }
+        if (_cancelled || left_time <= 0) {
+            break;
         }
 
         // consume 1 message at a time
@@ -197,44 +149,33 @@ Status KafkaDataConsumer::start(StreamLoadContext* ctx) {
         consumer_watch.stop();
         switch (msg->err()) {
             case RdKafka::ERR_NO_ERROR:
-                VLOG(3) << "get kafka message"
-                        << ", partition: " << msg->partition()
-                        << ", offset: " << msg->offset()
-                        << ", len: " << msg->len();
-
-                st = kakfa_pipe ->append_with_line_delimiter(
-                        static_cast<const char *>(msg->payload()),
-                        static_cast<size_t>(msg->len()));
-                if (st.ok()) {
-                    left_rows--;
-                    left_bytes -= msg->len();
-                    cmt_offset[msg->partition()] = msg->offset();
-                    VLOG(3) << "consume partition[" << msg->partition()
-                            << " - " << msg->offset() << "]";
+                if (!queue->blocking_put(msg)) {
+                    // queue is shutdown
+                    _cancelled = true;
                 }
-
                 break;
             case RdKafka::ERR__TIMED_OUT:
                 // leave the status as OK, because this may happend
                 // if there is no data in kafka.
-                LOG(WARNING) << "kafka consume timeout";
+                LOG(WARNING) << "kafka consume timeout: " << _id;
                 break;
             default:
-                LOG(WARNING) << "kafka consume failed: " << msg->errstr();
-                st = Status(msg->errstr());
+                LOG(WARNING) << "kafka consume failed: " << _id
+                        << ", msg: " << msg->errstr();
+                _cancelled = true;
                 break;
         }
-        delete msg; 
 
-        if (!st.ok()) {
-            kakfa_pipe ->cancel();
-            return st;
-        }
-
-        left_time = ctx->max_interval_s * 1000 - watch.elapsed_time() / 1000 / 1000;
+        left_time = max_running_time_ms - watch.elapsed_time() / 1000 / 1000;
     }
 
-    return Status::OK;
+    LOG(INFO) << "kafka conumer done: " << _id << ", grp: " << _grp_id
+            << ". cancelled: " << _cancelled
+            << ", left time(ms): " << left_time
+            << ", total cost(ms): " << watch.elapsed_time() / 1000 / 1000
+            << ", consume cost(ms): " << consumer_watch.elapsed_time() / 1000 / 1000;
+
+    return;
 }
 
 Status KafkaDataConsumer::cancel(StreamLoadContext* ctx) {
@@ -243,17 +184,12 @@ Status KafkaDataConsumer::cancel(StreamLoadContext* ctx) {
         return Status("consumer is not initialized");
     }
 
-    if (_finished) {
-        return Status("consumer is already finished");
-    }
-
     _cancelled = true;
     return Status::OK;
 }
 
 Status KafkaDataConsumer::reset() {
     std::unique_lock<std::mutex> l(_lock);
-    _finished = false;
     _cancelled = false;
     return Status::OK;
 }

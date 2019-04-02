@@ -23,6 +23,7 @@
 #include "librdkafka/rdkafkacpp.h"
 
 #include "runtime/stream_load/stream_load_context.h"
+#include "util/blocking_queue.hpp"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -34,8 +35,8 @@ class StreamLoadPipe;
 class DataConsumer {
 public:
     DataConsumer(StreamLoadContext* ctx):
+        _has_grp(false),
         _init(false),
-        _finished(false),
         _cancelled(false),
         _last_visit_time(0) {
     }
@@ -46,7 +47,7 @@ public:
     // init the consumer with the given parameters
     virtual Status init(StreamLoadContext* ctx) = 0;
     // start consuming
-    virtual Status start(StreamLoadContext* ctx) = 0;
+    virtual Status consume(StreamLoadContext* ctx) = 0;
     // cancel the consuming process.
     // if the consumer is not initialized, or the consuming
     // process is already finished, call cancel() will
@@ -59,14 +60,19 @@ public:
 
     const UniqueId& id() { return _id; }
     time_t last_visit_time() { return _last_visit_time; }
+    void set_grp(const UniqueId& grp_id) {
+        _grp_id = grp_id;
+        _has_grp = true;
+    }
     
 protected:
     UniqueId _id;
+    UniqueId _grp_id;
+    bool _has_grp;
 
     // lock to protect the following bools
     std::mutex _lock;
     bool _init;
-    bool _finished;
     bool _cancelled;
     time_t _last_visit_time;
 };
@@ -120,13 +126,20 @@ public:
     }
 
     virtual Status init(StreamLoadContext* ctx) override;
-    virtual Status start(StreamLoadContext* ctx) override;
+    // TODO(cmy): currently do not implement single consumer start method, using group_consume
+    virtual Status consume(StreamLoadContext* ctx) override { return Status::OK; }
     virtual Status cancel(StreamLoadContext* ctx) override;
     // reassign partition topics
     virtual Status reset() override;
     virtual bool match(StreamLoadContext* ctx) override;
 
-    Status assign_topic_partitions(StreamLoadContext* ctx);
+    Status assign_topic_partitions(
+            const std::map<int32_t, int64_t>& begin_partition_offset,
+            const std::string& topic,
+            StreamLoadContext* ctx);
+
+    // start the consumer and put msgs to queue
+    void group_consume(BlockingQueue<RdKafka::Message*>* queue, int64_t max_running_time_ms);
 
 private:
     std::string _brokers;
