@@ -523,20 +523,6 @@ public class Config extends ConfigBase {
     public static int query_colocate_join_memory_limit_penalty_factor = 8;
 
     /*
-     * the parallel exec instance num for one Fragment in one BE
-     * 1 means disable this feature
-     */
-    @ConfField(mutable = true)
-    public static int parallel_fragment_exec_instance_num = 1;
-
-    /*
-     * if table scan data size larger than parallel_scan_data_size_threshold
-     * we will parallel the fragment exec instance
-     */
-    @ConfField(mutable = true)
-    public static long parallel_scan_data_size_threshold = 500 * 1024 * 1024L; //500M
-
-    /*
      * co-location join is an experimental feature now.
      * Set to false if you know what it is and really want to use it.
      * if set to false, 'use_new_tablet_scheduler' must be set to false, because the new TabletScheduler

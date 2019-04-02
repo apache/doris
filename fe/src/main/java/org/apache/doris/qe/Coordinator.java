@@ -849,7 +849,7 @@ public class Coordinator {
             } else {
                 //normat fragment
                 Iterator iter = fragmentExecParamsMap.get(fragment.getFragmentId()).scanRangeAssignment.entrySet().iterator();
-                boolean isParallel = needParallelInstance(leftMostNode);
+                int parallelExecInstanceNum = ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
                 while (iter.hasNext()) {
                     Map.Entry entry = (Map.Entry) iter.next();
                     TNetworkAddress key = (TNetworkAddress) entry.getKey();
@@ -857,12 +857,8 @@ public class Coordinator {
 
                     for (Integer planNodeId : value.keySet()) {
                         List<TScanRangeParams> perNodeScanRanges = value.get(planNodeId);
-                        int expectedInstanceNum = 1;
-                        if (isParallel) {
-                            //the scan instance num should not larger than the tablets num
-                            expectedInstanceNum = Math.min(perNodeScanRanges.size(), getParallelExecInstanceNum());
-                        }
-
+                        //the scan instance num should not larger than the tablets num
+                        int expectedInstanceNum = Math.min(perNodeScanRanges.size(), parallelExecInstanceNum);
                         List<List<TScanRangeParams>> perInstanceScanRanges = ListUtil.splitBySize(perNodeScanRanges,
                                 expectedInstanceNum);
 
@@ -887,58 +883,6 @@ public class Coordinator {
                 params.instanceExecParams.add(instanceParam);
             }
         }
-    }
-
-    private boolean needParallelInstance(PlanNode leftMostNode) {
-        if (getParallelExecInstanceNum() <= 1) {
-            return false;
-        }
-
-        if (leftMostNode instanceof OlapScanNode) {
-            OlapScanNode olapScanNode = (OlapScanNode) leftMostNode;
-
-            //case 1: the small table of broadcast join need not parallel
-            PlanFragment destFragment =  olapScanNode.getFragment().getDestFragment();
-            if (destFragment != null)  {
-                PlanNode destRootNode = destFragment.getPlanRoot();
-                if (destRootNode instanceof HashJoinNode) {
-                    HashJoinNode joinNode = (HashJoinNode) destRootNode;
-                    if (!joinNode.isShuffleJoin()) {
-                        LOG.debug("ScanNode {} for fragment {} need not parallel because of broadcast join",
-                        olapScanNode.getOlapTable().getName(), olapScanNode.getFragmentId());
-                        return false;
-                    }
-                }
-            }
-
-            //case 2: the small table scan  need not parallel
-            long scanDataSize =  Math.round((double) olapScanNode.getCardinality() * olapScanNode.getAvgRowSize());
-            long smallScanSize = Config.parallel_scan_data_size_threshold;
-            if (scanDataSize <= smallScanSize) {
-                LOG.debug("ScanNode {} for fragment {} need not parallel because of data size {} is small",
-                olapScanNode.getOlapTable().getName(), olapScanNode.getFragmentId(), scanDataSize);
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    //get ParallelScanInstanceNum from session config or server config
-    private int getParallelExecInstanceNum() {
-        //cache the result. this method will call many times
-        if (parallelExecInstanceNum > 0) {
-            return parallelExecInstanceNum;
-        }
-
-        int sessionParallelExecInstanceNum = ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
-        //we prefer session config
-        if (sessionParallelExecInstanceNum > SessionVariable.MIN_EXEC_INSTANCE_NUM) {
-            parallelExecInstanceNum = sessionParallelExecInstanceNum;
-        } else {
-            parallelExecInstanceNum = Config.parallel_fragment_exec_instance_num;
-        }
-        return parallelExecInstanceNum;
     }
 
     //One fragment could only have one HashJoinNode

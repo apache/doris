@@ -179,7 +179,10 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = DISABLE_COLOCATE_JOIN)
     private boolean disableColocateJoin = false;
 
-    //the meaning is same as Config.parallel_fragment_exec_instance_num
+    /*
+     * the parallel exec instance num for one Fragment in one BE
+     * 1 means disable this feature
+     */
     @VariableMgr.VarAttr(name = PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM)
     private int parallelExecInstanceNum = 1;
 
@@ -446,7 +449,6 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setBatch_size(batchSize);
         tResult.setDisable_stream_preaggregations(disableStreamPreaggregations);
-        tResult.setMt_dop(mtDop);
         return tResult;
     }
 
@@ -481,7 +483,7 @@ public class SessionVariable implements Serializable, Writable {
         Text.writeString(out, collationServer);
         out.writeInt(batchSize);
         out.writeBoolean(disableStreamPreaggregations); 
-        out.writeInt(mtDop);
+        out.writeInt(parallelExecInstanceNum);
     }
 
     @Override
@@ -518,7 +520,7 @@ public class SessionVariable implements Serializable, Writable {
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_38) {
             batchSize = in.readInt();
             disableStreamPreaggregations = in.readBoolean();
-            mtDop = in.readInt();
+            parallelExecInstanceNum = in.readInt();
         }
     }
 }
