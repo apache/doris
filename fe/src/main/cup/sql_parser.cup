@@ -3978,26 +3978,36 @@ keyword ::=
     | KW_WORK:id
     {: RESULT = id; :}
     | KW_CLUSTER:id
-	{: RESULT = id; :}
- 	| KW_CLUSTERS:id
-	{: RESULT = id; :} 
+    {: RESULT = id; :}
+    | KW_CLUSTERS:id
+    {: RESULT = id; :}
     | KW_LINK:id
-	{: RESULT = id; :}
+    {: RESULT = id; :}
     | KW_MIGRATE:id
-	{: RESULT = id; :}
-	| KW_MIGRATIONS:id
-	{: RESULT = id; :}
-	| KW_COUNT:id
-	{: RESULT = id; :}
-	| KW_SUM:id
-	{: RESULT = id; :}
-	| KW_MIN:id
-	{: RESULT = id; :}
-	| KW_MAX:id
-	{: RESULT = id; :}
-	| KW_FREE:id
-	{: RESULT = id; :}
-	;
+    {: RESULT = id; :}
+    | KW_MIGRATIONS:id
+    {: RESULT = id; :}
+    | KW_COUNT:id
+    {: RESULT = id; :}
+    | KW_SUM:id
+    {: RESULT = id; :}
+    | KW_MIN:id
+    {: RESULT = id; :}
+    | KW_MAX:id
+    {: RESULT = id; :}
+    | KW_FREE:id
+    {: RESULT = id; :}
+    | KW_TASK:id
+    {: RESULT = id; :}
+    | KW_ROUTINE:id
+    {: RESULT = id; :}
+    | KW_PAUSE:id
+    {: RESULT = id; :}
+    | KW_RESUME:id
+    {: RESULT = id; :}
+    | KW_STOP:id
+    {: RESULT = id; :}
+    ;
 
 // Identifier that contain keyword
 ident ::=
