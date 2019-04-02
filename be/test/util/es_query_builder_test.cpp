@@ -82,7 +82,7 @@ TEST_F(BooleanQueryBuilderTest, es_query) {
     StringValue value(str, length);
     ExtLiteral term_literal(TYPE_VARCHAR, &value);
     std::vector<ExtLiteral> values = {term_literal};
-    std::string function_name = "es_query";
+    std::string function_name = "esquery";
     ExtFunction* function_predicate = new ExtFunction(TExprNodeType::FUNCTION_CALL, function_name, cols, values);
     ESQueryBuilder es_query(function_predicate);
     rapidjson::Document document;
@@ -184,7 +184,7 @@ TEST_F(BooleanQueryBuilderTest, bool_query) {
     StringValue es_query_value(es_query_str, es_query_length);
     ExtLiteral es_query_term_literal(TYPE_VARCHAR, &es_query_value);
     std::vector<ExtLiteral> es_query_values = {es_query_term_literal};
-    std::string function_name = "es_query";
+    std::string function_name = "esquery";
     ExtFunction* function_predicate = new ExtFunction(TExprNodeType::FUNCTION_CALL, function_name, es_query_cols, es_query_values);
     // k >= a
     char range_value_str[] = "a";
@@ -237,7 +237,7 @@ TEST_F(BooleanQueryBuilderTest, compound_bool_query) {
     StringValue es_query_value(es_query_str, es_query_length);
     ExtLiteral es_query_term_literal(TYPE_VARCHAR, &es_query_value);
     std::vector<ExtLiteral> es_query_values = {es_query_term_literal};
-    std::string function_name = "es_query";
+    std::string function_name = "esquery";
     ExtFunction* function_predicate = new ExtFunction(TExprNodeType::FUNCTION_CALL, function_name, es_query_cols, es_query_values);
     std::vector<ExtPredicate*> bool_predicates_1 = {like_predicate, function_predicate};
     EsPredicate* bool_predicate_1 = new EsPredicate(bool_predicates_1);
