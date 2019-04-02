@@ -38,12 +38,16 @@ AlphaRowsetWriter::~AlphaRowsetWriter() {
     if (!_rowset_build) {
         garbage_collection();
     }
+    for (auto& segment_group : _segment_groups) {
+        segment_group->release();
+        delete segment_group;
+    }
     _segment_groups.clear();
 }
 
 OLAPStatus AlphaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) {
     _rowset_writer_context = rowset_writer_context;
-    _current_rowset_meta.reset(new AlphaRowsetMeta());
+    _current_rowset_meta.reset(new(std::nothrow) AlphaRowsetMeta());
     _current_rowset_meta->set_rowset_id(_rowset_writer_context.rowset_id);
     _current_rowset_meta->set_tablet_id(_rowset_writer_context.tablet_id);
     _current_rowset_meta->set_tablet_schema_hash(_rowset_writer_context.tablet_schema_hash);
@@ -180,7 +184,7 @@ RowsetSharedPtr AlphaRowsetWriter::build() {
 
     _current_rowset_meta->set_empty(_num_rows_written == 0);
     _current_rowset_meta->set_num_rows(_num_rows_written);
-    _current_rowset_meta->set_creation_time(time(NULL));
+    _current_rowset_meta->set_creation_time(time(nullptr));
 
     RowsetSharedPtr rowset(new(std::nothrow) AlphaRowset(_rowset_writer_context.tablet_schema,
                                     _rowset_writer_context.rowset_path_prefix,
@@ -213,7 +217,7 @@ int32_t AlphaRowsetWriter::num_rows() {
 }
 
 OLAPStatus AlphaRowsetWriter::garbage_collection() {
-    for (auto segment_group : _segment_groups) {
+    for (auto& segment_group : _segment_groups) {
         bool ret = segment_group->delete_all_files();
         if (!ret) {
             LOG(WARNING) << "delete segment group files failed."
@@ -231,29 +235,29 @@ DataDir* AlphaRowsetWriter::data_dir() {
 
 void AlphaRowsetWriter::_init() {
     if (_is_pending_rowset) {
-        _cur_segment_group.reset(new SegmentGroup(
+        _cur_segment_group = new(std::nothrow) SegmentGroup(
                 _rowset_writer_context.tablet_id,
                 _rowset_writer_context.rowset_id,
                 _rowset_writer_context.tablet_schema,
                 _rowset_writer_context.rowset_path_prefix,
                 false, _segment_group_id, 0, true,
-                _rowset_writer_context.partition_id, _rowset_writer_context.txn_id));
+                _rowset_writer_context.partition_id, _rowset_writer_context.txn_id);
     } else {
-        _cur_segment_group.reset(new SegmentGroup(
+        _cur_segment_group = new(std::nothrow) SegmentGroup(
                 _rowset_writer_context.tablet_id,
                 _rowset_writer_context.rowset_id,
                 _rowset_writer_context.tablet_schema,
                 _rowset_writer_context.rowset_path_prefix,
                 _rowset_writer_context.version,
                 _rowset_writer_context.version_hash,
-                false, _segment_group_id, 0));
+                false, _segment_group_id, 0);
     }
     DCHECK(_cur_segment_group != nullptr) << "failed to malloc SegmentGroup";
     _cur_segment_group->acquire();
     //_cur_segment_group->set_load_id(_rowset_writer_context.load_id);
     _segment_groups.push_back(_cur_segment_group);
 
-    _column_data_writer = ColumnDataWriter::create(_cur_segment_group.get(), true,
+    _column_data_writer = ColumnDataWriter::create(_cur_segment_group, true,
                                                    _rowset_writer_context.tablet_schema->compress_kind(),
                                                    _rowset_writer_context.tablet_schema->bloom_filter_fpp());
     DCHECK(_column_data_writer != nullptr) << "memory error occurs when creating writer";

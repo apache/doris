@@ -67,14 +67,14 @@ private:
 
 private:
     int32_t _segment_group_id;
-    std::shared_ptr<SegmentGroup> _cur_segment_group;
+    SegmentGroup* _cur_segment_group;
     ColumnDataWriter* _column_data_writer;
     std::shared_ptr<RowsetMeta> _current_rowset_meta;
     bool _is_pending_rowset;
     int _num_rows_written;
     bool _is_inited;
     RowsetWriterContext _rowset_writer_context;
-    std::vector<std::shared_ptr<SegmentGroup>> _segment_groups;
+    std::vector<SegmentGroup*> _segment_groups;
     bool _rowset_build;
 };
 
