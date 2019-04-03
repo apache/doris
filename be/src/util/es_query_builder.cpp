@@ -14,8 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-#include <boost/algorithm/string/replace.hpp>
 #include "util/es_query_builder.h"
+
+#include <boost/algorithm/string/replace.hpp>
 #include "rapidjson/rapidjson.h"
 #include "rapidjson/stringbuffer.h"
 #include "rapidjson/writer.h"
@@ -42,18 +43,18 @@ rapidjson::Value ESQueryBuilder::to_json(rapidjson::Document& document) {
         for (rapidjson::Value::ConstMemberIterator itr = draft.MemberBegin(); itr != draft.MemberEnd(); itr++) {
             // deep copy, reference http://rapidjson.org/md_doc_tutorial.html#DeepCopyValue
             query_key.CopyFrom(itr->name, allocator);
-            query_value.CopyFrom(itr->value, allocator);
            if (query_key.IsString()) {
                // if we found one key, then end loop as QueryDSL only support one `query` root
-               break;
+               query_value.CopyFrom(itr->value, allocator);
+               rapidjson::Value es_query(rapidjson::kObjectType);
+               es_query.SetObject();
+               // Move Semantics, reference http://rapidjson.org/md_doc_tutorial.html#MoveSemantics 
+               es_query.AddMember(query_key, query_value, allocator);
+               return es_query;
             }
         }
     }
-    rapidjson::Value es_query(rapidjson::kObjectType);
-    es_query.SetObject();
-    // Move Semantics, reference http://rapidjson.org/md_doc_tutorial.html#MoveSemantics 
-    es_query.AddMember(query_key, query_value, allocator);
-    return es_query;
+    return nullptr;  
 }
 rapidjson::Value WildCardQueryBuilder::to_json(rapidjson::Document& document) {
     rapidjson::Document::AllocatorType& allocator = document.GetAllocator();
@@ -307,13 +308,13 @@ rapidjson::Value BooleanQueryBuilder::to_query(const std::vector<EsPredicate*>& 
         return match_all_query.to_json(root);
     }
     root.SetObject();
-    BooleanQueryBuilder *bool_query = new BooleanQueryBuilder();
+    BooleanQueryBuilder bool_query;
     for (auto es_predicate : predicates) {
         vector<ExtPredicate*> or_predicates = es_predicate->get_predicate_list();
         BooleanQueryBuilder* inner_bool_query = new BooleanQueryBuilder(or_predicates);
-        bool_query->must(inner_bool_query);
+        bool_query.must(inner_bool_query);
     }
-    rapidjson::Value root_value_node = bool_query->to_json(root);
+    rapidjson::Value root_value_node = bool_query.to_json(root);
     // root.AddMember("query", root_value_node, allocator);
     // rapidjson::StringBuffer buffer;
     // rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
