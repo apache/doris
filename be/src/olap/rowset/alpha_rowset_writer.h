@@ -26,6 +26,12 @@
 
 namespace doris {
 
+enum WriterState {
+    WRITER_CREATED,
+    WRITER_INITED,
+    WRITER_FLUSHED
+};
+
 class AlphaRowsetWriter : public RowsetWriter {
 public:
     AlphaRowsetWriter();
@@ -72,11 +78,10 @@ private:
     std::shared_ptr<RowsetMeta> _current_rowset_meta;
     bool _is_pending_rowset;
     int _num_rows_written;
-    int _segment_num_rows;
-    bool _is_inited;
     RowsetWriterContext _rowset_writer_context;
     std::vector<SegmentGroup*> _segment_groups;
     bool _rowset_build;
+    WriterState _writer_state;
 };
 
 } // namespace doris
