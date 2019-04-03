@@ -17,6 +17,7 @@
 
 #include "runtime/routine_load/data_consumer_pool.h"
 #include "runtime/routine_load/data_consumer_group.h"
+#include "common/config.h"
 
 namespace doris {
 
@@ -71,8 +72,9 @@ Status DataConsumerPool::get_consumer_grp(
 
     std::shared_ptr<KafkaDataConsumerGroup> grp = std::make_shared<KafkaDataConsumerGroup>();
 
-    // one data consumer group contains at most 3 data consumers.
-    size_t consumer_num = std::min((size_t) 3, ctx->kafka_info->begin_offset.size());
+    // one data consumer group contains at least one data consumers.
+    int max_consumer_num = config::max_consumer_num_per_group;
+    size_t consumer_num = std::min((size_t) max_consumer_num, ctx->kafka_info->begin_offset.size());
     for (int i = 0; i < consumer_num; ++i) {
         std::shared_ptr<DataConsumer> consumer;
         RETURN_IF_ERROR(get_consumer(ctx, &consumer));

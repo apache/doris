@@ -103,10 +103,11 @@ Status KafkaDataConsumer::assign_topic_partitions(
         RdKafka::TopicPartition* tp1 = RdKafka::TopicPartition::create(
                 topic, entry.first, entry.second);
         topic_partitions.push_back(tp1);
-        ss << "partition[" << entry.first << ": " << entry.second << "] ";
+        ss << "[" << entry.first << ": " << entry.second << "] ";
     }
 
-    VLOG(1) << "assign topic partitions: " << topic << ", " << ss.str();
+    LOG(INFO) << "consumer: " << _id << ", grp: " << _grp_id
+            << " assign topic partitions: " << topic << ", " << ss.str();
 
     // delete TopicPartition finally
     auto tp_deleter = [&topic_partitions] () {
@@ -134,6 +135,7 @@ Status KafkaDataConsumer::group_consume(
     LOG(INFO) << "start kafka consumer: " << _id << ", grp: " << _grp_id
             << ", max running time(ms): " << left_time;
 
+    int64_t received_rows = 0;
     Status st = Status::OK;
     MonotonicStopWatch consumer_watch;
     MonotonicStopWatch watch;
@@ -154,6 +156,7 @@ Status KafkaDataConsumer::group_consume(
                     // queue is shutdown
                     _cancelled = true;
                 }
+                ++received_rows;
                 break;
             case RdKafka::ERR__TIMED_OUT:
                 // leave the status as OK, because this may happend
@@ -175,7 +178,8 @@ Status KafkaDataConsumer::group_consume(
             << ". cancelled: " << _cancelled
             << ", left time(ms): " << left_time
             << ", total cost(ms): " << watch.elapsed_time() / 1000 / 1000
-            << ", consume cost(ms): " << consumer_watch.elapsed_time() / 1000 / 1000;
+            << ", consume cost(ms): " << consumer_watch.elapsed_time() / 1000 / 1000
+            << ", received rows: " << received_rows;
 
     return st;
 }
