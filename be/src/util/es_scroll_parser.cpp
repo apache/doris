@@ -40,49 +40,45 @@ static const string ERROR_INVALID_COL_DATA = "Data source returned inconsistent 
 static const string ERROR_MEM_LIMIT_EXCEEDED = "DataSourceScanNode::$0() failed to allocate "
     "$1 bytes for $2.";
 
-ScrollParser::ScrollParser(std::string scroll_id, int total, int size) :
-    _scroll_id(scroll_id),
-    _total(total),
-    _size(size),
+ScrollParser::ScrollParser(const std::string& scroll_result) :
+    _scroll_id(""),
+    _total(0),
+    _size(0),
     _line_index(0) {
+        parsing(scroll_result);
 }
 
 ScrollParser::~ScrollParser() {
 }
 
+void ScrollParser::parsing(const std::string scroll_result) {
+    _document_node.Parse(scroll_result.c_str());
 
-ScrollParser* ScrollParser::parse_from_string(const std::string& scroll_result) {
-    ScrollParser* scroll_parser = nullptr;
-    rapidjson::Document document_node;
-    document_node.Parse<0>(scroll_result.c_str());
-
-    if (!document_node.HasMember(FIELD_SCROLL_ID)) {
+    if (!_document_node.HasMember(FIELD_SCROLL_ID)) {
         LOG(ERROR) << "maybe not a scroll request";
-        return nullptr;
+        return;
     }
 
-    rapidjson::Value &scroll_node = document_node[FIELD_SCROLL_ID];
-    std::string scroll_id = scroll_node.GetString();
+    const rapidjson::Value &scroll_node = _document_node[FIELD_SCROLL_ID];
+    _scroll_id = scroll_node.GetString();
     // { hits: { total : 2, "hits" : [ {}, {}, {} ]}}
-    rapidjson::Value &outer_hits_node = document_node[FIELD_HITS];
-    rapidjson::Value &field_total = outer_hits_node[FIELD_TOTAL];
-    int total = field_total.GetInt();
-    if (total == 0) {
-        scroll_parser = new ScrollParser(scroll_id, total);
-        return scroll_parser;
+    const rapidjson::Value &outer_hits_node = _document_node[FIELD_HITS];
+    const rapidjson::Value &field_total = outer_hits_node[FIELD_TOTAL];
+    _total = field_total.GetInt();
+    if (_total == 0) {
+        return;
     }
 
-    VLOG(1) << "es_scan_reader total hits: " << total << " documents";
-    rapidjson::Value &inner_hits_node = outer_hits_node[FIELD_INNER_HITS];
+    VLOG(1) << "es_scan_reader total hits: " << _total << " documents";
+    const rapidjson::Value &inner_hits_node = outer_hits_node[FIELD_INNER_HITS];
     if (!inner_hits_node.IsArray()) {
         LOG(ERROR) << "maybe not a scroll request";
-        return nullptr;
+        return;
     }
 
-    int size = inner_hits_node.Size();
-    scroll_parser = new ScrollParser(scroll_id, total, size);
-    scroll_parser->set_inner_hits_node(inner_hits_node);
-    return scroll_parser;
+    rapidjson::Document::AllocatorType& a = _document_node.GetAllocator();
+    _inner_hits_node.CopyFrom(inner_hits_node, a);
+    _size = _inner_hits_node.Size();
 }
 
 int ScrollParser::get_size() {
@@ -104,8 +100,8 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
         return Status::OK;
     }
 
-    rapidjson::Value& obj = _inner_hits_node[_line_index++];
-    rapidjson::Value& line = obj[FIELD_SOURCE];
+    const rapidjson::Value& obj = _inner_hits_node[_line_index++];
+    const rapidjson::Value& line = obj[FIELD_SOURCE];
     if (!line.IsObject()) {
         return Status("Parse inner hits failed");
     }
@@ -118,7 +114,8 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
             continue;
         }
 
-        const char* col_name = slot_desc->col_name().c_str();
+        std::string s(slot_desc->col_name());
+        const char* col_name = s.c_str();
         rapidjson::Value::ConstMemberIterator itr = line.FindMember(col_name);
         if (itr == line.MemberEnd()) {
             tuple->set_null(slot_desc->null_indicator_offset());
@@ -126,7 +123,7 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
         }
 
         tuple->set_not_null(slot_desc->null_indicator_offset());
-        rapidjson::Value &col = line[col_name];
+        const rapidjson::Value &col = line[col_name];
 
         void* slot = tuple->get_slot(slot_desc->tuple_offset());
         switch (slot_desc->type().type) {

@@ -30,29 +30,25 @@ class Status;
 class ScrollParser {
 
 public:
-    ScrollParser(std::string scroll_id, int total, int size = 0);
+    ScrollParser(const std::string& scroll_result);
     ~ScrollParser();
-
-    static ScrollParser* parse_from_string(const std::string& scroll_result);
 
     Status fill_tuple(const TupleDescriptor* _tuple_desc, Tuple* tuple, 
                 MemPool* mem_pool, bool* line_eof);
-
-    void set_inner_hits_node(rapidjson::Value& inner_hits_node) {
-        _inner_hits_node = inner_hits_node;
-    }
 
     const std::string& get_scroll_id();
     int get_total();
     int get_size();
 
 private:
+    void parsing(const std::string scroll_result);
 
     std::string _scroll_id;
     int _total;
     int _size;
     rapidjson::SizeType _line_index;
 
+    rapidjson::Document _document_node;
     rapidjson::Value _inner_hits_node;
 };
 }

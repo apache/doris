@@ -290,7 +290,7 @@ TEST_F(BooleanQueryBuilderTest, compound_bool_query) {
     std::vector<EsPredicate*> and_bool_predicates = {bool_predicate_1, bool_predicate_2, bool_predicate_3, bool_predicate_4};
     
     rapidjson::Document document;
-    rapidjson::Value compound_bool_value = BooleanQueryBuilder::to_query(and_bool_predicates);
+    rapidjson::Value compound_bool_value = BooleanQueryBuilder::to_query(and_bool_predicates, document);
     rapidjson::StringBuffer buffer;
     rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
     compound_bool_value.Accept(writer);
