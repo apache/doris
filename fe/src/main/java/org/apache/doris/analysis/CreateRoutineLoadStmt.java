@@ -384,9 +384,9 @@ public class CreateRoutineLoadStmt extends DdlStmt {
                     }
                 } catch (AnalysisException e) {
                     if (kafkaOffsetsStringList[i].equalsIgnoreCase(KafkaProgress.OFFSET_BEGINNING)) {
-                        kafkaPartitionOffsets.get(i).second = -2L;
+                        kafkaPartitionOffsets.get(i).second = KafkaProgress.OFFSET_BEGINNING_VAL;
                     } else if (kafkaOffsetsStringList[i].equalsIgnoreCase(KafkaProgress.OFFSET_END)) {
-                        kafkaPartitionOffsets.get(i).second = -1L;
+                        kafkaPartitionOffsets.get(i).second = KafkaProgress.OFFSET_END_VAL;
                     } else {
                         throw e;
                     }

@@ -91,9 +91,7 @@ public class KafkaProgress extends RoutineLoadProgress {
     // OFFSET_END: user set offset = OFFSET_END, no committed msg
     // OFFSET_BEGINNING: user set offset = OFFSET_BEGINNING, no committed msg
     // other: current committed msg's offset
-    @Override
-    public String toString() {
-        Map<Integer, String> showPartitionIdToOffset = Maps.newHashMap();
+    private void getReadableProgress(Map<Integer, String> showPartitionIdToOffset) {
         for (Map.Entry<Integer, Long> entry : partitionIdToOffset.entrySet()) {
             if (entry.getValue() == 0) {
                 showPartitionIdToOffset.put(entry.getKey(), OFFSET_ZERO);
@@ -105,8 +103,22 @@ public class KafkaProgress extends RoutineLoadProgress {
                 showPartitionIdToOffset.put(entry.getKey(), "" + (entry.getValue() - 1));
             }
         }
+    }
+
+    @Override
+    public String toString() {
+        Map<Integer, String> showPartitionIdToOffset = Maps.newHashMap();
+        getReadableProgress(showPartitionIdToOffset);
         return "KafkaProgress [partitionIdToOffset="
                 + Joiner.on("|").withKeyValueSeparator("_").join(showPartitionIdToOffset) + "]";
+    }
+
+    @Override
+    public String toJsonString() {
+        Map<Integer, String> showPartitionIdToOffset = Maps.newHashMap();
+        getReadableProgress(showPartitionIdToOffset);
+        Gson gson = new Gson();
+        return gson.toJson(showPartitionIdToOffset);
     }
 
     @Override
@@ -115,16 +127,6 @@ public class KafkaProgress extends RoutineLoadProgress {
         // + 1 to point to the next msg offset to be consumed
         newProgress.partitionIdToOffset.entrySet().stream()
                 .forEach(entity -> this.partitionIdToOffset.put(entity.getKey(), entity.getValue() + 1));
-    }
-
-    @Override
-    public String toJsonString() {
-        Map<Integer, Long> showPartitionIdToOffset = new HashMap<>();
-        for (Map.Entry<Integer, Long> entry : partitionIdToOffset.entrySet()) {
-            showPartitionIdToOffset.put(entry.getKey(), entry.getValue() - 1);
-        }
-        Gson gson = new Gson();
-        return gson.toJson(showPartitionIdToOffset);
     }
 
     @Override

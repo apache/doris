@@ -103,7 +103,7 @@ Status KafkaDataConsumer::assign_topic_partitions(
         RdKafka::TopicPartition* tp1 = RdKafka::TopicPartition::create(
                 topic, entry.first, entry.second);
         topic_partitions.push_back(tp1);
-        ss << "partition[" << entry.first << "-" << entry.second << "] ";
+        ss << "partition[" << entry.first << ": " << entry.second << "] ";
     }
 
     VLOG(1) << "assign topic partitions: " << topic << ", " << ss.str();
