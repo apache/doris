@@ -30,6 +30,11 @@
 #include <boost/filesystem.hpp>
 
 #include "olap/olap_snapshot_converter.h"
+#include "olap/rowset/alpha_rowset.h"
+#include "olap/rowset/alpha_rowset_writer.h"
+#include "olap/rowset/rowset.h"
+#include "olap/rowset/rowset_id_generator.h"
+#include "olap/rowset/rowset_writer.h"
 
 using boost::filesystem::canonical;
 using boost::filesystem::copy_file;
@@ -111,6 +116,119 @@ OLAPStatus SnapshotManager::release_snapshot(const string& snapshot_path) {
 
     LOG(WARNING) << "released snapshot path illegal. [path='" << snapshot_path << "']";
     return OLAP_ERR_CE_CMD_PARAMS_ERROR;
+}
+
+
+OLAPStatus SnapshotManager::convert_rowset_ids(DataDir& data_dir, const string& clone_dir, int64_t tablet_id, const int32_t& schema_hash) {
+    OLAPStatus res = OLAP_SUCCESS;   
+    // check clone dir existed
+    if (!check_dir_existed(clone_dir)) {
+        res = OLAP_ERR_DIR_NOT_EXIST;
+        LOG(WARNING) << "clone dir not existed when convert rowsetids. clone_dir=" << clone_dir.c_str();
+        return res;
+    }
+
+    // load original tablet meta
+    string cloned_meta_file = clone_dir + "/" + std::to_string(tablet_id) + ".hdr";
+    TabletMeta cloned_tablet_meta;
+    if ((res = cloned_tablet_meta.create_from_file(cloned_meta_file)) != OLAP_SUCCESS) {
+        LOG(WARNING) << "fail to load original tablet meta after clone. "
+                     << ", cloned_meta_file=" << cloned_meta_file;
+        return res;
+    }
+    TabletMetaPB cloned_tablet_meta_pb;
+    res = cloned_tablet_meta.to_meta_pb(&cloned_tablet_meta_pb);
+    if (res != OLAP_SUCCESS) {
+        LOG(WARNING) << "fail to serialize tablet meta to pb object. " 
+                     << " , cloned_meta_file=" << cloned_meta_file;
+        return res;
+    }
+    
+    TabletMetaPB new_tablet_meta_pb;
+    new_tablet_meta_pb = cloned_tablet_meta_pb;
+    new_tablet_meta_pb.clear_rs_metas();
+    new_tablet_meta_pb.clear_inc_rs_metas();
+    // should modify tablet id because in restore process the tablet id is not
+    // equal to tablet id in meta
+    new_tablet_meta_pb.set_tablet_id(tablet_id);
+    TabletSchema tablet_schema;
+    RETURN_NOT_OK(tablet_schema.init_from_pb(new_tablet_meta_pb.schema()));
+    for (auto& visible_rowset : cloned_tablet_meta_pb.rs_metas()) {
+        RowsetMetaPB* rowset_meta = new_tablet_meta_pb.add_rs_metas();
+        RETURN_NOT_OK(_rename_rowset_id(visible_rowset, clone_dir, data_dir, tablet_schema, rowset_meta));
+        rowset_meta->set_tablet_id(tablet_id);
+        rowset_meta->set_tablet_schema_hash(schema_hash);
+    }
+
+    for (auto& inc_rowset : cloned_tablet_meta_pb.inc_rs_metas()) {
+        RowsetMetaPB* rowset_meta = new_tablet_meta_pb.add_inc_rs_metas();
+        RETURN_NOT_OK(_rename_rowset_id(inc_rowset, clone_dir, data_dir, tablet_schema, rowset_meta));
+        rowset_meta->set_tablet_id(tablet_id);
+        rowset_meta->set_tablet_schema_hash(schema_hash);
+    }
+
+    res = TabletMeta::save(cloned_meta_file, new_tablet_meta_pb);
+    if (res != OLAP_SUCCESS) {
+        LOG(WARNING) << "fail to save converted tablet meta to dir='" << clone_dir;
+        return res;
+    }
+
+    return OLAP_SUCCESS;
+}
+
+OLAPStatus SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb, const string& new_path, 
+    DataDir& data_dir, TabletSchema& tablet_schema, RowsetMetaPB* new_rs_meta_pb) {
+    OLAPStatus res = OLAP_SUCCESS;
+    RowsetMetaSharedPtr alpha_rowset_meta(new AlphaRowsetMeta());
+    alpha_rowset_meta->init_from_pb(rs_meta_pb);
+    RowsetSharedPtr org_rowset(new AlphaRowset(&tablet_schema, new_path, &data_dir, alpha_rowset_meta));
+    RETURN_NOT_OK(org_rowset->init());
+    RETURN_NOT_OK(org_rowset->load());
+    RowsetId rowset_id = 0;
+    RETURN_NOT_OK(data_dir.next_id(&rowset_id));
+    if (rs_meta_pb.rowset_id() == rowset_id) {
+        // if generated rowsetid == cloned rowset id then skip link files
+        // because after link files, it will try to delete old files
+        // but src is same with dst during link
+        *new_rs_meta_pb = rs_meta_pb;
+        return OLAP_SUCCESS;
+    }
+    RowsetMetaSharedPtr org_rowset_meta = org_rowset->rowset_meta();
+    RowsetWriterContext context;
+    context.rowset_id = rowset_id;
+    context.tablet_id = org_rowset_meta->tablet_id();
+    context.partition_id = org_rowset_meta->partition_id();
+    context.tablet_schema_hash = org_rowset_meta->tablet_schema_hash();
+    context.rowset_type = org_rowset_meta->rowset_type();
+    context.rowset_path_prefix = new_path;
+    context.tablet_schema = &tablet_schema;
+    context.rowset_state = org_rowset_meta->rowset_state();
+    context.data_dir = &data_dir;
+    context.version = org_rowset_meta->version();
+    context.version_hash = org_rowset_meta->version_hash();
+    RowsetWriterSharedPtr rs_writer(new AlphaRowsetWriter());
+    if (rs_writer == nullptr) {
+        LOG(WARNING) << "fail to new rowset.";
+        return OLAP_ERR_MALLOC_ERROR;
+    }
+    rs_writer->init(context);
+    res = rs_writer->add_rowset(org_rowset);
+    if (res != OLAP_SUCCESS) {
+        LOG(WARNING) << "failed to add rowset " 
+                     << " id = " << org_rowset->rowset_id()
+                     << " to rowset " << rowset_id;
+        return res;
+    }
+    RowsetSharedPtr new_rowset = rs_writer->build();
+    if (new_rowset == nullptr) {
+        LOG(WARNING) << "failed to build rowset when rename rowset id";
+        return OLAP_ERR_MALLOC_ERROR; 
+    }
+    RETURN_NOT_OK(new_rowset->init());
+    RETURN_NOT_OK(new_rowset->load());
+    new_rowset->rowset_meta()->to_rowset_pb(new_rs_meta_pb);
+    org_rowset->remove();
+    return OLAP_SUCCESS;
 }
 
 OLAPStatus SnapshotManager::_calc_snapshot_id_path(

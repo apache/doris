@@ -30,6 +30,7 @@
 #include "exec/broker_writer.h"
 #include "exec/schema_scanner/frontend_helper.h"
 #include "olap/file_helper.h"
+#include "olap/snapshot_manager.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
 #include "runtime/exec_env.h"
@@ -518,6 +519,15 @@ Status SnapshotLoader::move(
         return Status(ss.str());
     }
 
+
+    DataDir* store = StorageEngine::instance()->get_store(store_path);
+    if (store == nullptr) {
+        std::stringstream ss;
+        ss << "failed to get store by path: " << store_path;
+        LOG(WARNING) << ss.str();
+        return Status(ss.str());
+    }
+
     boost::filesystem::path tablet_dir(tablet_path);
     boost::filesystem::path snapshot_dir(snapshot_path);
     if (!boost::filesystem::exists(tablet_dir)) {
@@ -530,6 +540,17 @@ Status SnapshotLoader::move(
     if (!boost::filesystem::exists(snapshot_dir)) {
         std::stringstream ss;
         ss << "snapshot path does not exist: " << snapshot_path;
+        LOG(WARNING) << ss.str();
+        return Status(ss.str());
+    }
+
+    // rename the rowset ids and tabletid info in rowset meta
+    OLAPStatus convert_status = SnapshotManager::instance()->convert_rowset_ids(*store, 
+        snapshot_path, tablet_id, schema_hash);
+    if (convert_status != OLAP_SUCCESS) {
+        std::stringstream ss;
+        ss << "failed to convert rowsetids in snapshot: " << snapshot_path
+            << ", tablet path: " << tablet_path;
         LOG(WARNING) << ss.str();
         return Status(ss.str());
     }
@@ -702,13 +723,6 @@ Status SnapshotLoader::move(
 
     // fixme: there is no header now and can not call load_one_tablet here
     // reload header
-    DataDir* store = StorageEngine::instance()->get_store(store_path);
-    if (store == nullptr) {
-        std::stringstream ss;
-        ss << "failed to get store by path: " << store_path;
-        LOG(WARNING) << ss.str();
-        return Status(ss.str());
-    }
     OLAPStatus ost = StorageEngine::instance()->tablet_manager()->load_one_tablet(
             store, tablet_id, schema_hash, tablet_path, true);
     if (ost != OLAP_SUCCESS) {
@@ -951,15 +965,7 @@ Status SnapshotLoader::_replace_tablet_id(
         return Status::OK;
     } else if (_end_with(file_name, ".idx")
             || _end_with(file_name, ".dat")) {
-        size_t pos = file_name.find_first_of("_");
-        if (pos == std::string::npos) {
-            return Status("invalid tablet file name: " + file_name);
-        }
-
-        std::string suffix_part = file_name.substr(pos);
-        std::stringstream ss;
-        ss << tablet_id << suffix_part;
-        *new_file_name = ss.str();
+        *new_file_name = file_name;
         return Status::OK;
     } else {
         return Status("invalid tablet file name: " + file_name);

@@ -785,7 +785,7 @@ OLAPStatus SegmentGroup::remove_old_files(std::vector<std::string>* links_to_rem
 }
 
 OLAPStatus SegmentGroup::copy_segments_to_path(const std::string& dest_path, int64_t rowset_id) {
-    if (dest_path.empty() || dest_path == _rowset_path_prefix) {
+    if (dest_path.empty()) {
         return OLAP_SUCCESS;
     }
     for (int segment_id = 0; segment_id < _num_segments; segment_id++) {
