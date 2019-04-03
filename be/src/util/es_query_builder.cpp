@@ -28,28 +28,27 @@ ESQueryBuilder::ESQueryBuilder(const std::string& es_query_str) : _es_query_str(
 }
 ESQueryBuilder::ESQueryBuilder(ExtFunction* es_query) {
     auto first = es_query->values.front();
-    _es_query_str = first.value_to_string();
+    _es_query_str = first.to_string();
 }
 
-rapidjson::Value ESQueryBuilder::to_json(rapidjson::Document& docuemnt) {
+rapidjson::Value ESQueryBuilder::to_json(rapidjson::Document& document) {
     rapidjson::Document draft;
     draft.Parse<0>(_es_query_str.c_str());
-    rapidjson::Document::AllocatorType& draft_allocator = draft.GetAllocator();
+    rapidjson::Document::AllocatorType& allocator = document.GetAllocator();
     rapidjson::Value query_key;
     rapidjson::Value query_value;
     //{ "term": { "dv": "2" } }
     if (!draft.HasParseError()) {
         for (rapidjson::Value::ConstMemberIterator itr = draft.MemberBegin(); itr != draft.MemberEnd(); itr++) {
             // deep copy, reference http://rapidjson.org/md_doc_tutorial.html#DeepCopyValue
-            query_key.CopyFrom(itr->name, draft_allocator);
-            query_value.CopyFrom(itr->value, draft_allocator);
+            query_key.CopyFrom(itr->name, allocator);
+            query_value.CopyFrom(itr->value, allocator);
            if (query_key.IsString()) {
                // if we found one key, then end loop as QueryDSL only support one `query` root
                break;
             }
         }
     }
-    rapidjson::Document::AllocatorType& allocator = docuemnt.GetAllocator();
     rapidjson::Value es_query(rapidjson::kObjectType);
     es_query.SetObject();
     // Move Semantics, reference http://rapidjson.org/md_doc_tutorial.html#MoveSemantics 
@@ -70,7 +69,7 @@ rapidjson::Value WildCardQueryBuilder::to_json(rapidjson::Document& document) {
 
 }
 WildCardQueryBuilder::WildCardQueryBuilder(ExtLikePredicate* like_predicate) {
-    _like_value = like_predicate->value.value_to_string();
+    _like_value = like_predicate->value.to_string();
     std::replace(_like_value.begin(), _like_value.end(), '_', '?');
     std::replace(_like_value.begin(), _like_value.end(), '%', '*');
     _field = like_predicate->col.name;
@@ -83,11 +82,11 @@ TermQueryBuilder::TermQueryBuilder(const std::string& field, const std::string& 
 TermQueryBuilder::TermQueryBuilder(ExtBinaryPredicate* binary_predicate) {
     _field =  binary_predicate->col.name;
     ExtLiteral literal = binary_predicate->value;
-    _term = literal.value_to_string();
+    _term = literal.to_string();
 }
 
-rapidjson::Value TermQueryBuilder::to_json(rapidjson::Document& docuemnt) {
-    rapidjson::Document::AllocatorType& allocator = docuemnt.GetAllocator();
+rapidjson::Value TermQueryBuilder::to_json(rapidjson::Document& document) {
+    rapidjson::Document::AllocatorType& allocator = document.GetAllocator();
     rapidjson::Value term_node(rapidjson::kObjectType);
     term_node.SetObject();
     rapidjson::Value field_value(_field.c_str(), allocator);
@@ -105,7 +104,7 @@ rapidjson::Value TermsInSetQueryBuilder::to_json(rapidjson::Document& document) 
     rapidjson::Value terms_node(rapidjson::kObjectType);
     rapidjson::Value values_node(rapidjson::kArrayType);
     for (auto value : _in_predicate->values) {
-         rapidjson::Value value_value(value.value_to_string().c_str(), allocator);
+         rapidjson::Value value_value(value.to_string().c_str(), allocator);
         values_node.PushBack(value_value, allocator);
     }
     rapidjson::Value field_value(field.c_str(), allocator);
@@ -125,7 +124,7 @@ rapidjson::Value RangeQueryBuilder::to_json(rapidjson::Document& document) {
     rapidjson::Document::AllocatorType& allocator = document.GetAllocator();
     rapidjson::Value field_value(field.c_str(), allocator);
     ExtLiteral b_value = _range_predicate->value;
-    rapidjson::Value value(b_value.value_to_string().c_str(), allocator);
+    rapidjson::Value value(b_value.to_string().c_str(), allocator);
     rapidjson::Value op_node(rapidjson::kObjectType);
     op_node.SetObject();
     switch (_range_predicate->op)
@@ -257,13 +256,13 @@ BooleanQueryBuilder::BooleanQueryBuilder(const std::vector<ExtPredicate*>& predi
     }
 }
 
-rapidjson::Value BooleanQueryBuilder::to_json(rapidjson::Document& docuemnt) {
-    rapidjson::Document::AllocatorType &allocator = docuemnt.GetAllocator();
+rapidjson::Value BooleanQueryBuilder::to_json(rapidjson::Document& document) {
+    rapidjson::Document::AllocatorType &allocator = document.GetAllocator();
     rapidjson::Value root_node_object(rapidjson::kObjectType);
     if (_filter_clauses.size() > 0) {
         rapidjson::Value filter_node(rapidjson::kArrayType);
         for (auto must_clause : _filter_clauses) {
-            filter_node.PushBack(must_clause->to_json(docuemnt), allocator);
+            filter_node.PushBack(must_clause->to_json(document), allocator);
         }
         root_node_object.AddMember("filter", filter_node, allocator);
     }
@@ -271,7 +270,7 @@ rapidjson::Value BooleanQueryBuilder::to_json(rapidjson::Document& docuemnt) {
     if (_should_clauses.size() > 0) {
         rapidjson::Value should_node(rapidjson::kArrayType);
         for (auto should_clause : _should_clauses) {
-            should_node.PushBack(should_clause->to_json(docuemnt), allocator);
+            should_node.PushBack(should_clause->to_json(document), allocator);
         }
         root_node_object.AddMember("should", should_node, allocator);
     }
@@ -279,7 +278,7 @@ rapidjson::Value BooleanQueryBuilder::to_json(rapidjson::Document& docuemnt) {
     if (_must_not_clauses.size() > 0) {
         rapidjson::Value must_not_node(rapidjson::kArrayType);
         for (auto must_not_clause : _must_not_clauses) {
-            must_not_node.PushBack(must_not_clause->to_json(docuemnt), allocator);
+            must_not_node.PushBack(must_not_clause->to_json(document), allocator);
         }
         root_node_object.AddMember("must_not", must_not_node, allocator);
     }
