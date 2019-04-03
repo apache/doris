@@ -40,28 +40,32 @@ class ExtLiteral {
         ExtLiteral(PrimitiveType type, void *value) : 
             _type(type),
             _value(value) {
+                _str = value_to_string();
         }
         ~ExtLiteral();
+        const std::string& to_string() {
+            return _str;
+        }
 
-        int8_t to_byte();
-        int16_t to_short();
-        int32_t to_int();
-        int64_t to_long();
-        float to_float();
-        double to_double();
-        std::string to_string();
-        std::string to_date_string();
-        bool to_bool();
-        std::string to_decimal_string();
-        std::string to_decimalv2_string();
-        std::string to_largeint_string();
+    private:
+        int8_t get_byte();
+        int16_t get_short();
+        int32_t get_int();
+        int64_t get_long();
+        float get_float();
+        double get_double();
+        std::string get_string();
+        std::string get_date_string();
+        bool get_bool();
+        std::string get_decimal_string();
+        std::string get_decimalv2_string();
+        std::string get_largeint_string();
 
         std::string value_to_string();
 
-    private:
-
         PrimitiveType _type;
-        void *_value;
+        void* _value;
+        std::string _str;
 };
 
 struct ExtColumnDesc {

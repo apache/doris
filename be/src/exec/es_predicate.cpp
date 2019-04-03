@@ -48,45 +48,93 @@ namespace doris {
 
 using namespace std;
 
+std::string ExtLiteral::value_to_string() {
+    std::stringstream ss;
+    switch (_type) {
+        case TYPE_TINYINT:
+            ss << get_byte();
+            break;
+        case TYPE_SMALLINT:
+            ss << get_short();
+            break;
+        case TYPE_INT:
+            ss << get_int();
+            break;
+        case TYPE_BIGINT:
+            ss << get_long();
+            break;
+        case TYPE_FLOAT:
+            ss << get_float();
+            break;
+        case TYPE_DOUBLE:
+            ss << get_double();
+            break;
+        case TYPE_CHAR:
+        case TYPE_VARCHAR:
+            ss << get_string();
+            break;
+        case TYPE_DATE:
+        case TYPE_DATETIME:
+            ss << get_date_string();
+            break;
+        case TYPE_BOOLEAN:
+            ss << get_bool();
+            break;
+        case TYPE_DECIMAL:
+            ss << get_decimal_string();
+            break;
+        case TYPE_DECIMALV2:
+            ss << get_decimalv2_string();
+            break;
+        case TYPE_LARGEINT:
+            ss << get_largeint_string();
+            break;
+        default:
+            DCHECK(false);
+            break;
+    }
+    return ss.str();
+}
+
 ExtLiteral::~ExtLiteral(){
 }
 
-int8_t ExtLiteral::to_byte() {
+int8_t ExtLiteral::get_byte() {
     DCHECK(_type == TYPE_TINYINT);
     return *(reinterpret_cast<int8_t*>(_value));
 }
 
-int16_t ExtLiteral::to_short() {
+int16_t ExtLiteral::get_short() {
     DCHECK(_type == TYPE_SMALLINT);
     return *(reinterpret_cast<int16_t*>(_value));
 }
 
-int32_t ExtLiteral::to_int() {
+int32_t ExtLiteral::get_int() {
     DCHECK(_type == TYPE_INT);
     return *(reinterpret_cast<int32_t*>(_value));
 }
 
-int64_t ExtLiteral::to_long() {
+int64_t ExtLiteral::get_long() {
     DCHECK(_type == TYPE_BIGINT);
     return *(reinterpret_cast<int64_t*>(_value));
 }
 
-float ExtLiteral::to_float() {
+float ExtLiteral::get_float() {
     DCHECK(_type == TYPE_FLOAT);
     return *(reinterpret_cast<float*>(_value));
 }
 
-double ExtLiteral::to_double() {
+double ExtLiteral::get_double() {
     DCHECK(_type == TYPE_DOUBLE);
     return *(reinterpret_cast<double*>(_value));
 }
 
-std::string ExtLiteral::to_string() {
+std::string ExtLiteral::get_string() {
     DCHECK(_type == TYPE_VARCHAR || _type == TYPE_CHAR);
     return (reinterpret_cast<StringValue*>(_value))->to_string();
 }
 
-std::string ExtLiteral::to_date_string() {
+std::string ExtLiteral::get_date_string() {
     DCHECK(_type == TYPE_DATE || _type == TYPE_DATETIME);
     DateTimeValue date_value = *reinterpret_cast<DateTimeValue*>(_value);
     char str[MAX_DTVALUE_STR_LEN];
@@ -94,72 +142,24 @@ std::string ExtLiteral::to_date_string() {
     return std::string(str, strlen(str)); 
 }
 
-bool ExtLiteral::to_bool() {
+bool ExtLiteral::get_bool() {
     DCHECK(_type == TYPE_BOOLEAN);
     return *(reinterpret_cast<bool*>(_value));
 }
 
-std::string ExtLiteral::to_decimal_string() {
+std::string ExtLiteral::get_decimal_string() {
     DCHECK(_type == TYPE_DECIMAL);
     return reinterpret_cast<DecimalValue*>(_value)->to_string();
 }
 
-std::string ExtLiteral::to_decimalv2_string() {
+std::string ExtLiteral::get_decimalv2_string() {
     DCHECK(_type == TYPE_DECIMALV2);
     return reinterpret_cast<DecimalV2Value*>(_value)->to_string();
 }
 
-std::string ExtLiteral::to_largeint_string() {
+std::string ExtLiteral::get_largeint_string() {
     DCHECK(_type == TYPE_LARGEINT);
     return LargeIntValue::to_string(*reinterpret_cast<__int128*>(_value));
-}
-
-std::string ExtLiteral::value_to_string() {
-    std::stringstream ss;
-    switch (_type) {
-        case TYPE_TINYINT:
-            ss << to_byte();
-            break;
-        case TYPE_SMALLINT:
-            ss << to_short();
-            break;
-        case TYPE_INT:
-            ss << to_int();
-            break;
-        case TYPE_BIGINT:
-            ss << to_long();
-            break;
-        case TYPE_FLOAT:
-            ss << to_float();
-            break;
-        case TYPE_DOUBLE:
-            ss << to_double();
-            break;
-        case TYPE_CHAR:
-        case TYPE_VARCHAR:
-            ss << to_string();
-            break;
-        case TYPE_DATE:
-        case TYPE_DATETIME:
-            ss << to_date_string();
-            break;
-        case TYPE_BOOLEAN:
-            ss << to_bool();
-            break;
-        case TYPE_DECIMAL:
-            ss << to_decimal_string();
-            break;
-        case TYPE_DECIMALV2:
-            ss << to_decimalv2_string();
-            break;
-        case TYPE_LARGEINT:
-            ss << to_largeint_string();
-            break;
-        default:
-            DCHECK(false);
-            break;
-    }
-    return ss.str();
 }
 
 EsPredicate::EsPredicate(ExprContext* context,
