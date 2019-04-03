@@ -93,6 +93,9 @@ private:
     Status _init_return_columns();
     void _convert_row_to_tuple(Tuple* tuple);
 
+    // Update profile that need to be reported in realtime.
+    void _update_realtime_counter();
+
     RuntimeState* _runtime_state;
     OlapScanNode* _parent;
     const TupleDescriptor* _tuple_desc;      /**< tuple descripter */
