@@ -87,6 +87,12 @@ public class EsStateStore extends Daemon {
         for (EsTable esTable : esTables.values()) {
             try {
                 EsTableState esTableState = loadEsIndexMetadataV55(esTable);
+                if (EsTable.TRANSPORT.equals(esTable.getTransport())) {
+                    EsRestClient client = new EsRestClient(esTable.getSeeds(),
+                            esTable.getUserName(), esTable.getPasswd());
+                    Map<String, EsNodeInfo> nodesInfo = client.getHttpNodes();
+                    esTableState.addHttpAddress(nodesInfo);
+                }
                 if (esTableState != null) {
                     esTable.setEsTableState(esTableState);
                 }
