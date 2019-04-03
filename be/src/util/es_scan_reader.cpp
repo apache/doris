@@ -110,8 +110,7 @@ Status ESScanReader::get_next(bool* scan_eos, ScrollParser** parser) {
         }
     }
 
-    scroll_parser = ScrollParser::parse_from_string(response);
-    _scroll_id = scroll_parser->get_scroll_id();
+    scroll_parser = new ScrollParser(response);
 
     // maybe the index or shard is empty
     if (scroll_parser == nullptr || scroll_parser->get_total() == 0) {
@@ -125,6 +124,7 @@ Status ESScanReader::get_next(bool* scan_eos, ScrollParser** parser) {
         _eos = false;
     }
 
+    _scroll_id = scroll_parser->get_scroll_id();
     *parser = scroll_parser;
     *scan_eos = false;
     return Status::OK;
