@@ -120,13 +120,14 @@ OLAPStatus AlphaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
     // this is feasible because LinkedSchemaChange is done on the same disk
     AlphaRowsetSharedPtr alpha_rowset = std::dynamic_pointer_cast<AlphaRowset>(rowset);
     for (auto& segment_group : alpha_rowset->_segment_groups) {
+        _init();
         RETURN_NOT_OK(segment_group->copy_segments_to_path(_rowset_writer_context.rowset_path_prefix,
                                                            _rowset_writer_context.rowset_id));
         _cur_segment_group->set_empty(segment_group->empty());
         _cur_segment_group->set_num_segments(segment_group->num_segments());
         _cur_segment_group->add_zone_maps_for_linked_schema_change(segment_group->get_zone_maps());
-        RETURN_NOT_OK(_cur_segment_group->load());
         _num_rows_written += alpha_rowset->num_rows();
+        RETURN_NOT_OK(flush());
     }
     return OLAP_SUCCESS;
 }
