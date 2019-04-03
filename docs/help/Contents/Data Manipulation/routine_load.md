@@ -146,11 +146,17 @@
 
             3. kafka_partitions/kafka_offsets
 
-                指定需要订阅的 kafka partition，以及对应的每个 partition 的起始 offset。如果没有指定，则默认从 0 开始订阅 topic 下的所有 partition。
+                指定需要订阅的 kafka partition，以及对应的每个 partition 的起始 offset。
+
+                offset 可以指定从大于等于 0 的具体 offset，或者：
+                1) OFFSET_BEGINNING: 从有数据的位置开始订阅。
+                2) OFFSET_END: 从末尾开始订阅。
+
+                如果没有指定，则默认从 OFFSET_END 开始订阅 topic 下的所有 partition。
                 示例：
 
                     "kafka_partitions" = "0,1,2,3",
-                    "kafka_offsets" = "101,0,0,200"
+                    "kafka_offsets" = "101,0,OFFSET_BEGINNING,OFFSET_END"
 
 
     7. 导入数据格式样例

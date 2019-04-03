@@ -45,17 +45,21 @@ Status KafkaDataConsumerGroup::assign_topic_partitions(StreamLoadContext* ctx) {
 }
 
 Status KafkaDataConsumerGroup::start_all(StreamLoadContext* ctx) {
+    Status result_st = Status::OK;
     // start all consumers
     for(auto& consumer : _consumers) {
         if (!_thread_pool.offer(
             boost::bind<void>(&KafkaDataConsumerGroup::actual_consume, this, consumer, &_queue, ctx->max_interval_s * 1000,
-            [this] () { 
+            [this, &result_st] (const Status& st) { 
                 std::unique_lock<std::mutex> lock(_mutex);
                 _counter--;
                 if (_counter == 0) {
                     _queue.shutdown();
                     LOG(INFO) << "all consumers are finished. shutdown queue. group id: " << _grp_id;
                 } 
+                if (result_st.ok() && !st.ok()) {
+                    result_st = st;
+                }
             }))) {
 
             LOG(WARNING) << "failed to submit data consumer: " << consumer->id();
@@ -108,6 +112,11 @@ Status KafkaDataConsumerGroup::start_all(StreamLoadContext* ctx) {
                 }
             }
             DCHECK(_queue.get_size() == 0);
+
+            if (!result_st.ok()) {
+                // some of consumers encounter errors, cancel this task
+                return result_st;
+            }
 
             if (left_bytes == ctx->max_batch_size) {
                 // nothing to be consumed, we have to cancel it, because
@@ -163,8 +172,8 @@ void KafkaDataConsumerGroup::actual_consume(
         BlockingQueue<RdKafka::Message*>* queue,
         int64_t max_running_time_ms,
         ConsumeFinishCallback cb) {
-    std::static_pointer_cast<KafkaDataConsumer>(consumer)->group_consume(queue, max_running_time_ms);
-    cb();
+    Status st = std::static_pointer_cast<KafkaDataConsumer>(consumer)->group_consume(queue, max_running_time_ms);
+    cb(st);
 }
 
 } // end namespace

@@ -165,7 +165,7 @@ public class KafkaRoutineLoadJobTest {
                                          @Injectable RoutineLoadManager routineLoadManager,
                                          @Injectable RoutineLoadTaskScheduler routineLoadTaskScheduler,
                                          @Mocked RoutineLoadDesc routineLoadDesc)
-            throws BeginTransactionException, LabelAlreadyUsedException, AnalysisException {
+            throws UserException {
 
         RoutineLoadJob routineLoadJob =
                 new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", "default", 1L,

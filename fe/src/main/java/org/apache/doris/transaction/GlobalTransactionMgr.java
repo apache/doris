@@ -200,7 +200,7 @@ public class GlobalTransactionMgr {
     }
     
     public void commitTransaction(long dbId, long transactionId, List<TabletCommitInfo> tabletCommitInfos)
-            throws MetaNotFoundException, TransactionException {
+            throws UserException {
         commitTransaction(dbId, transactionId, tabletCommitInfos, null);
     }
     
@@ -216,14 +216,14 @@ public class GlobalTransactionMgr {
      * @param transactionId
      * @param tabletCommitInfos
      * @return
-     * @throws MetaNotFoundException
+     * @throws UserException
      * @throws TransactionCommitFailedException
      * @note it is necessary to optimize the `lock` mechanism and `lock` scope resulting from wait lock long time
      * @note callers should get db.write lock before call this api
      */
     public void commitTransaction(long dbId, long transactionId, List<TabletCommitInfo> tabletCommitInfos,
                                   TxnCommitAttachment txnCommitAttachment)
-            throws MetaNotFoundException, TransactionException {
+            throws UserException {
         if (Config.disable_load_job) {
             throw new TransactionCommitFailedException("disable_load_job is set to true, all load jobs are prevented");
         }
@@ -402,14 +402,14 @@ public class GlobalTransactionMgr {
     
     public boolean commitAndPublishTransaction(Database db, long transactionId,
                                                List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis)
-            throws MetaNotFoundException, TransactionException {
+            throws UserException {
         return commitAndPublishTransaction(db, transactionId, tabletCommitInfos, timeoutMillis, null);
     }
     
     public boolean commitAndPublishTransaction(Database db, long transactionId,
                                                List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis,
                                                TxnCommitAttachment txnCommitAttachment)
-            throws MetaNotFoundException, TransactionException {
+            throws UserException {
         db.writeLock();
         try {
             commitTransaction(db.getId(), transactionId, tabletCommitInfos, txnCommitAttachment);
@@ -483,7 +483,7 @@ public class GlobalTransactionMgr {
      * get all txns which is ready to publish
      * a ready-to-publish txn's partition's visible version should be ONE less than txn's commit version.
      */
-    public List<TransactionState> getReadyToPublishTransactions() {
+    public List<TransactionState> getReadyToPublishTransactions() throws UserException {
         List<TransactionState> readyPublishTransactionState = new ArrayList<>();
         List<TransactionState> allCommittedTransactionState = null;
         writeLock();
@@ -582,7 +582,7 @@ public class GlobalTransactionMgr {
                 LOG.warn("db is dropped during transaction, abort transaction {}", transactionState);
                 unprotectUpsertTransactionState(transactionState);
                 return;
-            } catch (TransactionException e) {
+            } catch (UserException e) {
                 LOG.warn("failed to change transaction {} status to aborted", transactionState.getTransactionId());
             } finally {
                 writeUnlock();
@@ -703,7 +703,7 @@ public class GlobalTransactionMgr {
                 transactionState.setFinishTime(System.currentTimeMillis());
                 transactionState.setTransactionStatus(TransactionStatus.VISIBLE);
                 unprotectUpsertTransactionState(transactionState);
-            } catch (TransactionException e) {
+            } catch (UserException e) {
                 LOG.warn("failed to change transaction {} status  to visible", transactionState.getTransactionId());
             } finally {
                 writeUnlock();
@@ -801,7 +801,7 @@ public class GlobalTransactionMgr {
                             try {
                                 transactionState.setTransactionStatus(TransactionStatus.ABORTED,
                                         TransactionState.TxnStatusChangeReason.TIMEOUT.name());
-                            } catch (TransactionException e) {
+                            } catch (UserException e) {
                                 LOG.warn("txn {} could not be aborted with error message {}",
                                          transactionState.getTransactionId(), e.getMessage());
                                 continue;

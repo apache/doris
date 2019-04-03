@@ -69,7 +69,7 @@ Status DataConsumerPool::get_consumer_grp(
     }
     DCHECK(ctx->kafka_info);
 
-    std::shared_ptr<KafkaDataConsumerGroup> grp = std::make_shared<KafkaDataConsumerGroup>(ctx);;
+    std::shared_ptr<KafkaDataConsumerGroup> grp = std::make_shared<KafkaDataConsumerGroup>();
 
     // one data consumer group contains at most 3 data consumers.
     size_t consumer_num = std::min((size_t) 3, ctx->kafka_info->begin_offset.size());

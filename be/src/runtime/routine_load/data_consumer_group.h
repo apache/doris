@@ -28,10 +28,10 @@ namespace doris {
 // This class is not thread safe.
 class DataConsumerGroup {
 public:
-    typedef std::function<void ()> ConsumeFinishCallback;
+    typedef std::function<void (const Status&)> ConsumeFinishCallback;
 
     DataConsumerGroup():
-        _thread_pool(3, 0) {}
+        _thread_pool(3, 10) {}
 
     virtual ~DataConsumerGroup() {
         _consumers.clear();

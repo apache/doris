@@ -221,6 +221,8 @@ public final class MetricRepo {
         final String DISK_STATE = "disk_state";
         // remove all previous 'capacity' metric
         PALO_METRIC_REGISTER.removeMetrics(CAPACITY);
+        PALO_METRIC_REGISTER.removeMetrics(TABLET_NUM);
+        PALO_METRIC_REGISTER.removeMetrics(DISK_STATE);
 
         LOG.info("begin to generate capacity metrics");
         SystemInfoService infoService = Catalog.getCurrentSystemInfo();

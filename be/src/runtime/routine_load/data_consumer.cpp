@@ -126,7 +126,7 @@ Status KafkaDataConsumer::assign_topic_partitions(
     return Status::OK;
 }
 
-void KafkaDataConsumer::group_consume(
+Status KafkaDataConsumer::group_consume(
         BlockingQueue<RdKafka::Message*>* queue,
         int64_t max_running_time_ms) {
     _last_visit_time = time(nullptr);
@@ -134,6 +134,7 @@ void KafkaDataConsumer::group_consume(
     LOG(INFO) << "start kafka consumer: " << _id << ", grp: " << _grp_id
             << ", max running time(ms): " << left_time;
 
+    Status st = Status::OK;
     MonotonicStopWatch consumer_watch;
     MonotonicStopWatch watch;
     watch.start();
@@ -163,6 +164,7 @@ void KafkaDataConsumer::group_consume(
                 LOG(WARNING) << "kafka consume failed: " << _id
                         << ", msg: " << msg->errstr();
                 _cancelled = true;
+                st = Status(msg->errstr());
                 break;
         }
 
@@ -175,7 +177,7 @@ void KafkaDataConsumer::group_consume(
             << ", total cost(ms): " << watch.elapsed_time() / 1000 / 1000
             << ", consume cost(ms): " << consumer_watch.elapsed_time() / 1000 / 1000;
 
-    return;
+    return st;
 }
 
 Status KafkaDataConsumer::cancel(StreamLoadContext* ctx) {

@@ -139,7 +139,7 @@ public:
             StreamLoadContext* ctx);
 
     // start the consumer and put msgs to queue
-    void group_consume(BlockingQueue<RdKafka::Message*>* queue, int64_t max_running_time_ms);
+    Status group_consume(BlockingQueue<RdKafka::Message*>* queue, int64_t max_running_time_ms);
 
 private:
     std::string _brokers;
