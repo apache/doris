@@ -141,11 +141,14 @@ Status KafkaDataConsumer::group_consume(
     MonotonicStopWatch watch;
     watch.start();
     while (true) {
-        std::unique_lock<std::mutex> l(_lock);
-        if (_cancelled || left_time <= 0) {
-            break;
+        {
+            std::unique_lock<std::mutex> l(_lock);
+            if (_cancelled) { break; }
         }
 
+        if (left_time <= 0) { break; }
+
+        bool done = false;
         // consume 1 message at a time
         consumer_watch.start();
         RdKafka::Message *msg = _k_consumer->consume(1000 /* timeout, ms */);
@@ -154,7 +157,7 @@ Status KafkaDataConsumer::group_consume(
             case RdKafka::ERR_NO_ERROR:
                 if (!queue->blocking_put(msg)) {
                     // queue is shutdown
-                    _cancelled = true;
+                    done = true;
                 }
                 ++received_rows;
                 break;
@@ -166,12 +169,13 @@ Status KafkaDataConsumer::group_consume(
             default:
                 LOG(WARNING) << "kafka consume failed: " << _id
                         << ", msg: " << msg->errstr();
-                _cancelled = true;
+                done = true;
                 st = Status(msg->errstr());
                 break;
         }
 
         left_time = max_running_time_ms - watch.elapsed_time() / 1000 / 1000;
+        if (done) { break; }
     }
 
     LOG(INFO) << "kafka conumer done: " << _id << ", grp: " << _grp_id
@@ -191,6 +195,7 @@ Status KafkaDataConsumer::cancel(StreamLoadContext* ctx) {
     }
 
     _cancelled = true;
+    LOG(INFO) << "kafka consumer cancelled. " << _id;
     return Status::OK;
 }
 

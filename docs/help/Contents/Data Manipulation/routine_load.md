@@ -33,7 +33,7 @@
 
             指定列分隔符，如：
 
-                COLUMN TERMINATED BY ","
+                COLUMNS TERMINATED BY ","
 
             默认为：\t
 

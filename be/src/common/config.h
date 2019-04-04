@@ -395,7 +395,7 @@ namespace config {
     CONF_Int32(txn_commit_rpc_timeout_ms, "10000");
 
     // max consumer num in one data consumer group, for routine load
-    CONF_Int32(max_consumer_num_per_group, "1");
+    CONF_Int32(max_consumer_num_per_group, "3");
 } // namespace config
 
 } // namespace doris
