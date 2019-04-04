@@ -19,6 +19,7 @@
 #include<vector>
 #include "rapidjson/document.h"
 #include "exec/es_predicate.h"
+#include "common/status.h"
 
 namespace doris {
 
@@ -106,6 +107,7 @@ public:
     void must_not(QueryBuilder* filter);
     // class method for transfer predicate to es query value, invoker should enclose this value with `query`
     static rapidjson::Value to_query(const std::vector<EsPredicate*>& predicates, rapidjson::Document& root);
+    static Status check_es_query(ExtFunction extFunction);
 
 private:
     std::vector<QueryBuilder*> _must_clauses;
