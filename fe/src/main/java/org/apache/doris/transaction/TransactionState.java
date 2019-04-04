@@ -20,6 +20,7 @@ package org.apache.doris.transaction;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.metric.MetricRepo;
@@ -268,12 +269,12 @@ public class TransactionState implements Writable {
     }
     
     public void setTransactionStatus(TransactionStatus transactionStatus)
-            throws TransactionException {
+            throws UserException {
         setTransactionStatus(transactionStatus, null);
     }
     
     public void setTransactionStatus(TransactionStatus transactionStatus, String txnStatusChangeReason)
-            throws TransactionException {
+            throws UserException {
         // before status changed
         TxnStateChangeListener listener = Catalog.getCurrentGlobalTransactionMgr().getListenerRegistry().getListener(listenerId);
         if (listener != null) {

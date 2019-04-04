@@ -396,6 +396,9 @@ namespace config {
 
     // If set to true, metric calculator will run
     CONF_Bool(enable_metric_calculator, "false");
+
+    // max consumer num in one data consumer group, for routine load
+    CONF_Int32(max_consumer_num_per_group, "3");
 } // namespace config
 
 } // namespace doris
