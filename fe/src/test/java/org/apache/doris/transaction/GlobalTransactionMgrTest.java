@@ -30,10 +30,9 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.LabelAlreadyUsedException;
-import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.load.routineload.KafkaProgress;
 import org.apache.doris.load.routineload.KafkaRoutineLoadJob;
 import org.apache.doris.load.routineload.KafkaTaskInfo;
@@ -151,10 +150,7 @@ public class GlobalTransactionMgrTest {
 
     // all replica committed success
     @Test
-    public void testCommitTransaction1() throws MetaNotFoundException,
-            TransactionException,
-            IllegalTransactionParameterException, LabelAlreadyUsedException,
-            AnalysisException, BeginTransactionException {
+    public void testCommitTransaction1() throws UserException {
         FakeCatalog.setCatalog(masterCatalog);
         long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
                 CatalogTestUtil.testTxnLable1,
@@ -194,10 +190,7 @@ public class GlobalTransactionMgrTest {
 
     // commit with only two replicas
     @Test
-    public void testCommitTransactionWithOneFailed() throws MetaNotFoundException,
-            TransactionException,
-            IllegalTransactionParameterException, LabelAlreadyUsedException,
-            AnalysisException, BeginTransactionException {
+    public void testCommitTransactionWithOneFailed() throws UserException {
         TransactionState transactionState = null;
         FakeCatalog.setCatalog(masterCatalog);
         long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
@@ -301,7 +294,7 @@ public class GlobalTransactionMgrTest {
     public void testCommitRoutineLoadTransaction(@Injectable TabletCommitInfo tabletCommitInfo,
             @Mocked KafkaConsumer kafkaConsumer,
             @Mocked EditLog editLog)
-            throws MetaNotFoundException, TransactionException, DdlException {
+            throws UserException {
         FakeCatalog.setCatalog(masterCatalog);
 
         TabletCommitInfo tabletCommitInfo1 = new TabletCommitInfo(CatalogTestUtil.testTabletId1, CatalogTestUtil.testBackendId1);
@@ -354,7 +347,7 @@ public class GlobalTransactionMgrTest {
 
         Assert.assertEquals(Long.valueOf(101), Deencapsulation.getField(routineLoadJob, "currentTotalRows"));
         Assert.assertEquals(Long.valueOf(1), Deencapsulation.getField(routineLoadJob, "currentErrorRows"));
-        Assert.assertEquals(Long.valueOf(11L), ((KafkaProgress) routineLoadJob.getProgress()).getPartitionIdToOffset().get(1));
+        Assert.assertEquals(Long.valueOf(11L), ((KafkaProgress) routineLoadJob.getProgress()).getOffsetByPartition(1));
         // todo(ml): change to assert queue
         // Assert.assertEquals(1, routineLoadManager.getNeedScheduleTasksQueue().size());
         // Assert.assertNotEquals("label", routineLoadManager.getNeedScheduleTasksQueue().peek().getId());
@@ -364,7 +357,7 @@ public class GlobalTransactionMgrTest {
     public void testCommitRoutineLoadTransactionWithErrorMax(@Injectable TabletCommitInfo tabletCommitInfo,
             @Mocked EditLog editLog,
             @Mocked KafkaConsumer kafkaConsumer)
-            throws TransactionException, MetaNotFoundException, DdlException {
+            throws UserException {
 
         FakeCatalog.setCatalog(masterCatalog);
         
@@ -418,16 +411,13 @@ public class GlobalTransactionMgrTest {
         Assert.assertEquals(Long.valueOf(0), Deencapsulation.getField(routineLoadJob, "currentTotalRows"));
         Assert.assertEquals(Long.valueOf(0), Deencapsulation.getField(routineLoadJob, "currentErrorRows"));
         Assert.assertEquals(Long.valueOf(11L),
-                ((KafkaProgress) routineLoadJob.getProgress()).getPartitionIdToOffset().get(1));
+                ((KafkaProgress) routineLoadJob.getProgress()).getOffsetByPartition(1));
         // todo(ml): change to assert queue
         // Assert.assertEquals(0, routineLoadManager.getNeedScheduleTasksQueue().size());
         Assert.assertEquals(RoutineLoadJob.JobState.PAUSED, routineLoadJob.getState());
     }
 
-
-    public void testFinishTransaction() throws MetaNotFoundException, TransactionException,
-            IllegalTransactionParameterException, LabelAlreadyUsedException,
-            AnalysisException, BeginTransactionException {
+    public void testFinishTransaction() throws UserException {
         long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
                 CatalogTestUtil.testTxnLable1,
                 transactionSource,
@@ -468,10 +458,7 @@ public class GlobalTransactionMgrTest {
     }
 
     @Test
-    public void testFinishTransactionWithOneFailed() throws MetaNotFoundException,
-            TransactionException,
-            IllegalTransactionParameterException, LabelAlreadyUsedException,
-            AnalysisException, BeginTransactionException {
+    public void testFinishTransactionWithOneFailed() throws UserException {
         TransactionState transactionState = null;
         Partition testPartition = masterCatalog.getDb(CatalogTestUtil.testDbId1).getTable(CatalogTestUtil.testTableId1)
                 .getPartition(CatalogTestUtil.testPartition1);

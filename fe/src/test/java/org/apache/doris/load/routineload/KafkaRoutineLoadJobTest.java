@@ -17,7 +17,6 @@
 
 package org.apache.doris.load.routineload;
 
-import com.sleepycat.je.tree.IN;
 import org.apache.doris.analysis.ColumnSeparator;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.LabelName;
@@ -33,7 +32,6 @@ import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.SystemIdGenerator;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.qe.ConnectContext;
@@ -41,7 +39,6 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.GlobalTransactionMgr;
-import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
@@ -60,14 +57,11 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
-import java.util.Queue;
 import java.util.UUID;
 
 import mockit.Deencapsulation;
 import mockit.Expectations;
 import mockit.Injectable;
-import mockit.Mock;
-import mockit.MockUp;
 import mockit.Mocked;
 import mockit.Verifications;
 
@@ -111,28 +105,56 @@ public class KafkaRoutineLoadJobTest {
                              @Mocked SystemInfoService systemInfoService,
                              @Mocked Database database,
                              @Mocked RoutineLoadDesc routineLoadDesc) throws MetaNotFoundException {
-        List<Integer> partitionList = new ArrayList<>();
-        partitionList.add(1);
-        partitionList.add(2);
-        List<Long> beIds = Lists.newArrayList(1L);
+        List<Integer> partitionList1 = Lists.newArrayList(1, 2);
+        List<Integer> partitionList2 = Lists.newArrayList(1, 2, 3);
+        List<Integer> partitionList3 = Lists.newArrayList(1, 2, 3, 4);
+        List<Integer> partitionList4 = Lists.newArrayList(1, 2, 3, 4, 5, 6, 7);
+        List<Long> beIds1 = Lists.newArrayList(1L);
+        List<Long> beIds2 = Lists.newArrayList(1L, 2L, 3L, 4L);
 
-        String clusterName = "default";
+        String clusterName1 = "default1";
+        String clusterName2 = "default2";
 
         new Expectations() {
             {
                 Catalog.getCurrentSystemInfo();
                 result = systemInfoService;
-                systemInfoService.getClusterBackendIds(clusterName, true);
-                result = beIds;
+                systemInfoService.getClusterBackendIds(clusterName1, true);
+                result = beIds1;
+                systemInfoService.getClusterBackendIds(clusterName2, true);
+                result = beIds2;
+                minTimes = 0;
             }
         };
 
+        // 2 partitions, 1 be
         RoutineLoadJob routineLoadJob =
-                new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", clusterName, 1L,
+                new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", clusterName1, 1L,
                                         1L, "127.0.0.1:9020", "topic1");
         Deencapsulation.setField(routineLoadJob, "consumer", kafkaConsumer);
-        Deencapsulation.setField(routineLoadJob, "currentKafkaPartitions", partitionList);
+        Deencapsulation.setField(routineLoadJob, "currentKafkaPartitions", partitionList1);
         Assert.assertEquals(1, routineLoadJob.calculateCurrentConcurrentTaskNum());
+
+        // 3 partitions, 4 be
+        routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", clusterName2, 1L,
+                1L, "127.0.0.1:9020", "topic1");
+        Deencapsulation.setField(routineLoadJob, "consumer", kafkaConsumer);
+        Deencapsulation.setField(routineLoadJob, "currentKafkaPartitions", partitionList2);
+        Assert.assertEquals(1, routineLoadJob.calculateCurrentConcurrentTaskNum());
+
+        // 4 partitions, 4 be
+        routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", clusterName2, 1L,
+                1L, "127.0.0.1:9020", "topic1");
+        Deencapsulation.setField(routineLoadJob, "consumer", kafkaConsumer);
+        Deencapsulation.setField(routineLoadJob, "currentKafkaPartitions", partitionList3);
+        Assert.assertEquals(2, routineLoadJob.calculateCurrentConcurrentTaskNum());
+
+        // 7 partitions, 4 be
+        routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", clusterName2, 1L,
+                1L, "127.0.0.1:9020", "topic1");
+        Deencapsulation.setField(routineLoadJob, "consumer", kafkaConsumer);
+        Deencapsulation.setField(routineLoadJob, "currentKafkaPartitions", partitionList4);
+        Assert.assertEquals(3, routineLoadJob.calculateCurrentConcurrentTaskNum());
     }
 
 
@@ -143,7 +165,7 @@ public class KafkaRoutineLoadJobTest {
                                          @Injectable RoutineLoadManager routineLoadManager,
                                          @Injectable RoutineLoadTaskScheduler routineLoadTaskScheduler,
                                          @Mocked RoutineLoadDesc routineLoadDesc)
-            throws BeginTransactionException, LabelAlreadyUsedException, AnalysisException {
+            throws UserException {
 
         RoutineLoadJob routineLoadJob =
                 new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", "default", 1L,
