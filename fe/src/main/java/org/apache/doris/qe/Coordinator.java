@@ -172,7 +172,7 @@ public class Coordinator {
     // for export
     private List<String> exportFiles;
 
-    private Map<Long, Set<TTabletCommitInfo>> allFragmentCommitInfos = Maps.newHashMap();
+    private List<TTabletCommitInfo> commitInfos = Lists.newArrayList();
 
     // Input parameter
     private TUniqueId queryId;
@@ -276,11 +276,7 @@ public class Coordinator {
     }
 
     public List<TTabletCommitInfo> getCommitInfos() {
-        List<TTabletCommitInfo> result = Lists.newArrayList();
-        for (Long tabletId : allFragmentCommitInfos.keySet()) {
-            result.addAll(allFragmentCommitInfos.get(tabletId));
-        }
-        return result;
+        return commitInfos;
     }
 
     // Initiate
@@ -546,32 +542,7 @@ public class Coordinator {
     private void updateCommitInfos(List<TTabletCommitInfo> commitInfos) {
         lock.lock();
         try {
-            // covert input commitInfos to map<tabletid, set<commitinfo>>
-            Map<Long, Set<TTabletCommitInfo>> inputCommitInfos = Maps.newHashMap();
-            for (TTabletCommitInfo commitInfo : commitInfos) {
-                if (!inputCommitInfos.containsKey(commitInfo.getTabletId())) {
-                    inputCommitInfos.put(commitInfo.getTabletId(), Sets.newHashSet());
-                }
-                inputCommitInfos.get(commitInfo.getTabletId()).add(commitInfo);
-            }
-            
-            for (Long tabletId : inputCommitInfos.keySet()) {
-                if (!allFragmentCommitInfos.containsKey(tabletId)) {
-                    allFragmentCommitInfos.put(tabletId, inputCommitInfos.get(tabletId));
-                } else {
-                    Set<TTabletCommitInfo> tabletCommitInfoSet = inputCommitInfos.get(tabletId);
-                    Set<TTabletCommitInfo> savedTabletCommitInfoSet = allFragmentCommitInfos.get(tabletId);
-                    List<TTabletCommitInfo> commitInfosToDelete = Lists.newArrayList();
-                    for (TTabletCommitInfo savedCommitInfo : savedTabletCommitInfoSet) {
-                        if (!tabletCommitInfoSet.contains(savedCommitInfo)) {
-                            commitInfosToDelete.add(savedCommitInfo);
-                        }
-                    }
-                    for (TTabletCommitInfo commitInfoToDelete : commitInfosToDelete) {
-                        savedTabletCommitInfoSet.remove(commitInfoToDelete);
-                    }
-                }
-            }
+            this.commitInfos.addAll(commitInfos);
         } finally {
             lock.unlock();
         }
