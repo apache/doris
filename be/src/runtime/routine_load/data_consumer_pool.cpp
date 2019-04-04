@@ -16,6 +16,8 @@
 // under the License.
 
 #include "runtime/routine_load/data_consumer_pool.h"
+#include "runtime/routine_load/data_consumer_group.h"
+#include "common/config.h"
 
 namespace doris {
 
@@ -60,6 +62,31 @@ Status DataConsumerPool::get_consumer(
     return Status::OK;
 }
 
+Status DataConsumerPool::get_consumer_grp(
+        StreamLoadContext* ctx,
+        std::shared_ptr<DataConsumerGroup>* ret) {
+    if (ctx->load_src_type != TLoadSourceType::KAFKA) {
+        return Status("Currently nly support consumer group for Kafka data source");
+    }
+    DCHECK(ctx->kafka_info);
+
+    std::shared_ptr<KafkaDataConsumerGroup> grp = std::make_shared<KafkaDataConsumerGroup>();
+
+    // one data consumer group contains at least one data consumers.
+    int max_consumer_num = config::max_consumer_num_per_group;
+    size_t consumer_num = std::min((size_t) max_consumer_num, ctx->kafka_info->begin_offset.size());
+    for (int i = 0; i < consumer_num; ++i) {
+        std::shared_ptr<DataConsumer> consumer;
+        RETURN_IF_ERROR(get_consumer(ctx, &consumer));
+        grp->add_consumer(consumer);
+    }
+
+    LOG(INFO) << "get consumer group " << grp->grp_id() << " with "
+            << consumer_num << " consumers";
+    *ret = grp;
+    return Status::OK; 
+}
+
 void DataConsumerPool::return_consumer(std::shared_ptr<DataConsumer> consumer) {
     std::unique_lock<std::mutex> l(_lock);
 
@@ -75,6 +102,12 @@ void DataConsumerPool::return_consumer(std::shared_ptr<DataConsumer> consumer) {
     VLOG(3) << "return the data consumer: " << consumer->id()
             << ", current pool size: " << _pool.size();
     return;
+}
+
+void DataConsumerPool::return_consumers(DataConsumerGroup* grp) {
+    for (std::shared_ptr<DataConsumer> consumer : grp->consumers()) {
+        return_consumer(consumer);
+    }
 }
 
 Status DataConsumerPool::start_bg_worker() {

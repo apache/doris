@@ -23,7 +23,6 @@ import org.apache.doris.analysis.ResumeRoutineLoadStmt;
 import org.apache.doris.analysis.StopRoutineLoadStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -48,7 +47,6 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -198,7 +196,7 @@ public class RoutineLoadManager implements Writable {
     }
 
     public void pauseRoutineLoadJob(PauseRoutineLoadStmt pauseRoutineLoadStmt)
-            throws DdlException, AnalysisException, MetaNotFoundException {
+            throws UserException {
         RoutineLoadJob routineLoadJob = getJob(pauseRoutineLoadStmt.getDbFullName(), pauseRoutineLoadStmt.getName());
         if (routineLoadJob == null) {
             throw new DdlException("There is not operable routine load job with name " + pauseRoutineLoadStmt.getName());
@@ -232,8 +230,7 @@ public class RoutineLoadManager implements Writable {
                          .build());
     }
 
-    public void resumeRoutineLoadJob(ResumeRoutineLoadStmt resumeRoutineLoadStmt) throws DdlException,
-            AnalysisException, MetaNotFoundException {
+    public void resumeRoutineLoadJob(ResumeRoutineLoadStmt resumeRoutineLoadStmt) throws UserException {
         RoutineLoadJob routineLoadJob = getJob(resumeRoutineLoadStmt.getDBFullName(), resumeRoutineLoadStmt.getName());
         if (routineLoadJob == null) {
             throw new DdlException("There is not operable routine load job with name " + resumeRoutineLoadStmt.getName() + ".");
@@ -265,7 +262,7 @@ public class RoutineLoadManager implements Writable {
     }
 
     public void stopRoutineLoadJob(StopRoutineLoadStmt stopRoutineLoadStmt)
-            throws DdlException, AnalysisException, MetaNotFoundException {
+            throws UserException {
         RoutineLoadJob routineLoadJob = getJob(stopRoutineLoadStmt.getDBFullName(), stopRoutineLoadStmt.getName());
         if (routineLoadJob == null) {
             throw new DdlException("There is not operable routine load job with name " + stopRoutineLoadStmt.getName());
@@ -554,7 +551,7 @@ public class RoutineLoadManager implements Writable {
         }
     }
 
-    public void updateRoutineLoadJob() {
+    public void updateRoutineLoadJob() throws UserException {
         for (RoutineLoadJob routineLoadJob : idToRoutineLoadJob.values()) {
             if (!routineLoadJob.state.isFinalState()) {
                 routineLoadJob.update();
@@ -571,7 +568,11 @@ public class RoutineLoadManager implements Writable {
 
     public void replayChangeRoutineLoadJob(RoutineLoadOperation operation) {
         RoutineLoadJob job = getJob(operation.getId());
-        job.updateState(operation.getJobState(), null, true /* is replay */);
+        try {
+            job.updateState(operation.getJobState(), null, true /* is replay */);
+        } catch (UserException e) {
+            LOG.error("should not happend", e);
+        }
         LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, operation.getId())
                  .add("current_state", operation.getJobState())
                  .add("msg", "replay change routine load job")
