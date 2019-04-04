@@ -19,6 +19,8 @@ package org.apache.doris.optimizer.search;
 
 import org.apache.doris.optimizer.MultiExpression;
 import org.apache.doris.optimizer.OptGroup;
+import org.apache.doris.optimizer.base.OptimizationContext;
+import org.apache.doris.optimizer.base.RequiredPhysicalProperty;
 
 /**
  * For searching the best plan rooted by the multi expression under the optimization context.
@@ -87,7 +89,7 @@ public class TaskMultiExpressionOptimization extends Task {
 
         @Override
         public void handle(SearchContext sContext) {
-            final RequestProperty requestProperty = optContext.getRequestProperty();
+            final RequiredPhysicalProperty requestProperty = optContext.getReqdPhyProp();
             if (checkProperty(requestProperty)) {
                 setFinished();
                 return;
@@ -99,7 +101,7 @@ public class TaskMultiExpressionOptimization extends Task {
             nextState = new OptimizingChildGroupState();
         }
 
-        private boolean checkProperty(RequestProperty requestProperty) {
+        private boolean checkProperty(RequiredPhysicalProperty reqdProp) {
             return false;
         }
 
@@ -130,7 +132,7 @@ public class TaskMultiExpressionOptimization extends Task {
         }
 
         private OptimizationContext deriveChildOptConext(MultiExpression parent, OptGroup child) {
-            return new OptimizationContext();
+            return new OptimizationContext(child, null);
         }
     }
 

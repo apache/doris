@@ -20,6 +20,7 @@ package org.apache.doris.optimizer.search;
 import org.apache.doris.optimizer.OptGroup;
 import org.apache.doris.optimizer.OptMemo;
 import org.apache.doris.optimizer.Optimizer;
+import org.apache.doris.optimizer.base.OptimizationContext;
 import org.apache.doris.optimizer.base.SearchVariable;
 import org.apache.doris.optimizer.rule.OptRule;
 
@@ -38,9 +39,9 @@ public class SearchContext {
         this.variables = variables;
     }
 
-    public static SearchContext create(Optimizer optimizer, OptGroup firstGroup,
+    public static SearchContext create(Optimizer engine, OptGroup firstGroup,
                                        OptimizationContext oContext, Scheduler scheduler, SearchVariable variables) {
-        final SearchContext sContext = new SearchContext(optimizer, scheduler, variables);
+        final SearchContext sContext = new SearchContext(engine, scheduler, variables);
         TaskGroupOptimization.schedule(sContext, firstGroup, oContext, null);
         return sContext;
     }

@@ -18,10 +18,13 @@
 package org.apache.doris.optimizer;
 
 import com.google.common.collect.Lists;
+import com.sun.javafx.binding.ExpressionHelper;
+import org.apache.doris.optimizer.base.OptCost;
 import org.apache.doris.optimizer.base.OptItemProperty;
 import org.apache.doris.optimizer.base.OptLogicalProperty;
 import org.apache.doris.optimizer.base.OptPhysicalProperty;
 import org.apache.doris.optimizer.base.OptProperty;
+import org.apache.doris.optimizer.operator.OptExpressionHandle;
 import org.apache.doris.optimizer.operator.OptOperator;
 import org.apache.doris.optimizer.stat.Statistics;
 import org.apache.logging.log4j.LogManager;
@@ -50,6 +53,7 @@ public class OptExpression {
     // Store the logical property including schema ...
     private OptProperty property;
     private Statistics statistics;
+    private OptCost cost;
 
     private OptExpression(OptOperator op) {
         this.op = op;
@@ -66,6 +70,16 @@ public class OptExpression {
         this.inputs = Lists.newArrayList(inputs);
     }
 
+    public OptExpression(OptOperator op, List<OptExpression> inputs,
+                          MultiExpression mExpr,
+                          OptCost cost, Statistics stats) {
+        this.op = op;
+        this.inputs = inputs;
+        this.mExpr = mExpr;
+        this.cost = cost;
+        this.statistics = stats;
+    }
+
     private OptExpression(MultiExpression mExpr) {
         this(mExpr, Lists.newArrayList());
     }
@@ -78,7 +92,7 @@ public class OptExpression {
 
     private void copyPropertyAndStatistics() {
         this.op = mExpr.getOp();
-        this.property = mExpr.getGroup().getLogicalProperty();
+        this.property = mExpr.getGroup().getProperty();
         this.statistics = mExpr.getGroup().getStatistics();
     }
 
@@ -157,6 +171,7 @@ public class OptExpression {
             input.deriveProperty();
         }
         property = op.createProperty();
-        property.derive(this);
+        OptExpressionHandle handle = new OptExpressionHandle(this);
+        property.derive(handle);
     }
 }

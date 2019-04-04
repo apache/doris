@@ -17,9 +17,42 @@
 
 package org.apache.doris.optimizer.operator;
 
+import com.google.common.base.Preconditions;
+import org.apache.doris.optimizer.base.EnforceOrderProperty;
+import org.apache.doris.optimizer.base.EnforceProperty;
+import org.apache.doris.optimizer.base.OptOrderSpec;
+
 public class OptPhysicalOlapScan extends OptPhysical {
 
     public OptPhysicalOlapScan() {
         super(OptOperatorType.OP_PHYSICAL_OLAP_SCAN);
+    }
+
+    //------------------------------------------------------------------------
+    // Used to compute required property for children
+    //------------------------------------------------------------------------
+    @Override
+    public EnforceOrderProperty getChildReqdOrder(
+            OptExpressionHandle handle, EnforceOrderProperty reqdOrder, int childIndex) {
+        Preconditions.checkArgument(false);
+        return null;
+    }
+
+    //------------------------------------------------------------------------
+    // Used to get operator's derived property
+    //------------------------------------------------------------------------
+    @Override
+    public OptOrderSpec getOrderSpec(OptExpressionHandle exprHandle) {
+        // now
+        return OptOrderSpec.createEmpty();
+    }
+
+    //------------------------------------------------------------------------
+    // Used to get enforce type for this operator
+    //------------------------------------------------------------------------
+    @Override
+    public EnforceProperty.EnforceType getOrderEnforceType(OptExpressionHandle exprHandle,
+                                                           EnforceOrderProperty enforceOrder) {
+        return EnforceProperty.EnforceType.REQUIRED;
     }
 }

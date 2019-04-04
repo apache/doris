@@ -26,6 +26,7 @@ public enum OptOperatorType {
     OP_PHYSICAL_OLAP_SCAN("PhysicalOlapScan"),
     OP_PHYSICAL_HASH_JOIN("PhysicalHashJoin"),
     OP_PHYSICAL_HASH_AGG("PhysicalHashAgg"),
+    OP_PHYSICAL_SORT("PhysicalSort"),
 
     OP_ITEM_ARITHMETIC("ItemArithmetic"),
     OP_ITEM_BINARY_PREDICATE("ItemBinaryPredicate"),

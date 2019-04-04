@@ -53,6 +53,21 @@ public class OptColumnRefSet implements Cloneable {
         }
     }
 
+    @Override
+    public int hashCode() {
+        return bitSet.hashCode();
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (obj == null || !(obj instanceof OptColumnRefSet)) {
+            return false;
+        }
+        OptColumnRefSet rhs = (OptColumnRefSet) obj;
+        return bitSet.equals(rhs.bitSet);
+    }
+
+    public void include(OptColumnRef ref) { bitSet.set(ref.getId()); }
     public void inlcude(List<OptColumnRef> refs) {
         include(new OptColumnRefSet(refs));
     }

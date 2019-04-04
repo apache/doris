@@ -15,25 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.optimizer.search;
+package org.apache.doris.optimizer.base;
 
-public class OptimizationContext {
-
-    private RequestProperty requestProperty;
-
-    public OptimizationContext() {
-    }
-
-    public void setRequestProperty(RequestProperty property) { this.requestProperty = property; }
-    public RequestProperty getRequestProperty() { return requestProperty; }
-
-    @Override
-    public int hashCode() {
-        return super.hashCode();
-    }
-
-    @Override
-    public boolean equals(Object obj) {
-        return super.equals(obj);
-    }
+public class RequiredProperty {
 }

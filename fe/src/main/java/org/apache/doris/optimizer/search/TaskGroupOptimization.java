@@ -19,6 +19,7 @@ package org.apache.doris.optimizer.search;
 
 import org.apache.doris.optimizer.MultiExpression;
 import org.apache.doris.optimizer.OptGroup;
+import org.apache.doris.optimizer.base.OptimizationContext;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 

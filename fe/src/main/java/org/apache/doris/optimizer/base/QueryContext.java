@@ -18,21 +18,23 @@
 package org.apache.doris.optimizer.base;
 
 import org.apache.doris.optimizer.OptExpression;
-import org.apache.doris.optimizer.operator.OptExpressionHandle;
-import org.apache.doris.optimizer.operator.OptPhysical;
 
-public class OptPhysicalProperty implements OptProperty {
-    private OptOrderSpec orderSpec;
+import java.util.List;
 
-    public OptPhysicalProperty() {
+public class QueryContext {
+    private OptExpression expression;
+    private RequiredPhysicalProperty reqdProp;
+    private List<OptColumnRef> outputColumns;
+
+    public QueryContext(OptExpression expression,
+                        RequiredPhysicalProperty reqdProp,
+                        List<OptColumnRef> outputColumns) {
+        this.expression = expression;
+        this.reqdProp = reqdProp;
+        this.outputColumns = outputColumns;
     }
 
-    public OptOrderSpec getOrderSpec() { return orderSpec; }
-
-    @Override
-    public void derive(OptExpressionHandle exprHandle) {
-        OptPhysical physicalOp = (OptPhysical) exprHandle.getOp();
-
-        orderSpec = physicalOp.getOrderSpec(exprHandle);
-    }
+    public OptExpression getExpression() { return expression; }
+    public RequiredPhysicalProperty getReqdProp() { return reqdProp; }
+    public List<OptColumnRef> getOutputColumns() { return outputColumns; }
 }
