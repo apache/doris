@@ -411,7 +411,7 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
         }
     }
 
-    abstract void divideRoutineLoadJob(int currentConcurrentTaskNum);
+    abstract void divideRoutineLoadJob(int currentConcurrentTaskNum) throws UserException;
 
     public int calculateCurrentConcurrentTaskNum() throws MetaNotFoundException {
         return 0;
@@ -448,31 +448,30 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
     }
 
     // All of private method could not be call without lock
-    private void checkStateTransform(RoutineLoadJob.JobState desireState)
-            throws UnsupportedOperationException {
+    private void checkStateTransform(RoutineLoadJob.JobState desireState) throws UserException {
         switch (state) {
             case PAUSED:
                 if (desireState == JobState.PAUSED) {
-                    throw new UnsupportedOperationException("Could not transform " + state + " to " + desireState);
+                    throw new DdlException("Could not transform " + state + " to " + desireState);
                 }
                 break;
             case STOPPED:
             case CANCELLED:
-                throw new UnsupportedOperationException("Could not transform " + state + " to " + desireState);
+                throw new DdlException("Could not transform " + state + " to " + desireState);
             default:
                 break;
         }
     }
 
     // if rate of error data is more then max_filter_ratio, pause job
-    protected void updateProgress(RLTaskTxnCommitAttachment attachment) {
+    protected void updateProgress(RLTaskTxnCommitAttachment attachment) throws UserException {
         updateNumOfData(attachment.getTotalRows(), attachment.getFilteredRows(), attachment.getUnselectedRows(),
                 attachment.getReceivedBytes(), attachment.getTaskExecutionTimeMs(),
                 false /* not replay */);
     }
 
     private void updateNumOfData(long numOfTotalRows, long numOfErrorRows, long unselectedRows, long receivedBytes,
-            long taskExecutionTime, boolean isReplay) {
+            long taskExecutionTime, boolean isReplay) throws UserException {
         this.totalRows += numOfTotalRows;
         this.errorRows += numOfErrorRows;
         this.unselectedRows += unselectedRows;
@@ -536,8 +535,12 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
     }
 
     protected void replayUpdateProgress(RLTaskTxnCommitAttachment attachment) {
-        updateNumOfData(attachment.getTotalRows(), attachment.getFilteredRows(), attachment.getUnselectedRows(),
-                attachment.getReceivedBytes(), attachment.getTaskExecutionTimeMs(), true /* is replay */);
+        try {
+            updateNumOfData(attachment.getTotalRows(), attachment.getFilteredRows(), attachment.getUnselectedRows(),
+                    attachment.getReceivedBytes(), attachment.getTaskExecutionTimeMs(), true /* is replay */);
+        } catch (UserException e) {
+            LOG.error("should not happen", e);
+        }
     }
 
     abstract RoutineLoadTaskInfo unprotectRenewTask(RoutineLoadTaskInfo routineLoadTaskInfo) throws AnalysisException,
@@ -601,7 +604,7 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
 
     // the task is committed when the correct number of rows is more then 0
     @Override
-    public ListenResult onCommitted(TransactionState txnState) throws TransactionException {
+    public ListenResult onCommitted(TransactionState txnState) throws UserException {
         ListenResult result = ListenResult.UNCHANGED;
         long taskBeId = -1L;
         writeLock();
@@ -649,7 +652,7 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
     // txn will be aborted but progress will be update
     // progress will be update otherwise the progress will be hung
     @Override
-    public ListenResult onAborted(TransactionState txnState, String txnStatusChangeReasonString) {
+    public ListenResult onAborted(TransactionState txnState, String txnStatusChangeReasonString) throws UserException {
         ListenResult result = ListenResult.UNCHANGED;
         long taskBeId = -1L;
         writeLock();
@@ -670,7 +673,7 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
                     if (txnStatusChangeReason != null) {
                         switch (txnStatusChangeReason) {
                             case OFFSET_OUT_OF_RANGE:
-                                updateState(JobState.CANCELLED, "be " + taskBeId + " abort task "
+                                updateState(JobState.PAUSED, "be " + taskBeId + " abort task "
                                         + "with reason " + txnStatusChangeReason.toString(), false /* not replay */);
                                 return result;
                             default:
@@ -712,7 +715,7 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
 
     // check task exists or not before call method
     private ListenResult executeCommitTask(RoutineLoadTaskInfo routineLoadTaskInfo, TransactionState txnState)
-            throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException {
+            throws UserException {
         ListenResult result = ListenResult.UNCHANGED;
         // step0: get progress from transaction state
         RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment = (RLTaskTxnCommitAttachment) txnState.getTxnCommitAttachment();
@@ -770,7 +773,7 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
         // columns will be checked when planing
     }
 
-    public void updateState(JobState jobState, String reason, boolean isReplay) {
+    public void updateState(JobState jobState, String reason, boolean isReplay) throws UserException {
         writeLock();
         try {
             unprotectUpdateState(jobState, reason, isReplay);
@@ -779,7 +782,7 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
         }
     }
 
-    protected void unprotectUpdateState(JobState jobState, String reason, boolean isReplay) {
+    protected void unprotectUpdateState(JobState jobState, String reason, boolean isReplay) throws UserException {
         LOG.debug(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
                           .add("current_job_state", getState())
                           .add("desire_job_state", jobState)
@@ -849,7 +852,7 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
         endTimestamp = System.currentTimeMillis();
     }
 
-    public void update() {
+    public void update() throws UserException {
         // check if db and table exist
         Database database = Catalog.getCurrentCatalog().getDb(dbId);
         if (database == null) {
@@ -906,7 +909,7 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
     protected void unprotectUpdateProgress() {
     }
 
-    protected boolean unprotectNeedReschedule() {
+    protected boolean unprotectNeedReschedule() throws UserException {
         return false;
     }
 

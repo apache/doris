@@ -17,8 +17,6 @@
 
 package org.apache.doris.load.routineload;
 
-import com.google.common.collect.Lists;
-import com.google.gson.Gson;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.common.AnalysisException;
@@ -34,7 +32,7 @@ import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.BeginTransactionException;
 
 import com.google.common.base.Joiner;
-import com.google.common.collect.Maps;
+import com.google.gson.Gson;
 
 import java.util.ArrayList;
 import java.util.List;

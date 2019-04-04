@@ -17,7 +17,8 @@
 
 package org.apache.doris.load.routineload;
 
-import com.sleepycat.je.tree.IN;
+import static mockit.Deencapsulation.invoke;
+
 import org.apache.doris.analysis.ColumnSeparator;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.LabelName;
@@ -55,8 +56,6 @@ import mockit.Injectable;
 import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
-
-import static mockit.Deencapsulation.invoke;
 
 public class RoutineLoadManagerTest {
 
