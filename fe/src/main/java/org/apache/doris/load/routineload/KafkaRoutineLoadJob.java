@@ -32,11 +32,9 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
-import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.transaction.BeginTransactionException;
 
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -101,7 +99,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     }
 
     @Override
-    public void divideRoutineLoadJob(int currentConcurrentTaskNum) {
+    public void divideRoutineLoadJob(int currentConcurrentTaskNum) throws UserException {
         List<RoutineLoadTaskInfo> result = new ArrayList<>();
         writeLock();
         try {
@@ -113,7 +111,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                         if (j % currentConcurrentTaskNum == i) {
                             int kafkaPartition = currentKafkaPartitions.get(j);
                             taskKafkaProgress.put(kafkaPartition,
-                                                  ((KafkaProgress) progress).getPartitionIdToOffset().get(kafkaPartition));
+                                    ((KafkaProgress) progress).getOffsetByPartition(kafkaPartition));
                         }
                     }
                     KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo(UUID.randomUUID(), id, clusterName, taskKafkaProgress);
@@ -139,15 +137,18 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         SystemInfoService systemInfoService = Catalog.getCurrentSystemInfo();
         int aliveBeNum = systemInfoService.getClusterBackendIds(clusterName, true).size();
         int partitionNum = currentKafkaPartitions.size();
+        // 3 partitions one tasks
+        int maxPartitionDivision = (int) Math.ceil(partitionNum / 3.0);
         if (desireTaskConcurrentNum == 0) {
-            desireTaskConcurrentNum = partitionNum;
+            desireTaskConcurrentNum = maxPartitionDivision;
         }
 
-        LOG.info("current concurrent task number is min "
-                         + "(current size of partition {}, desire task concurrent num {}, alive be num {})",
-                 partitionNum, desireTaskConcurrentNum, aliveBeNum);
+        LOG.info("current concurrent task number is min"
+                         + "(max partition division {}, desire task concurrent num {}, alive be num {})",
+                maxPartitionDivision, desireTaskConcurrentNum, aliveBeNum);
         currentTaskConcurrentNum = 
-                Math.min(Math.min(partitionNum, Math.min(desireTaskConcurrentNum, aliveBeNum)), DEFAULT_TASK_MAX_CONCURRENT_NUM);
+                Math.min(Math.min(maxPartitionDivision, Math.min(desireTaskConcurrentNum, aliveBeNum)),
+                        DEFAULT_TASK_MAX_CONCURRENT_NUM);
         return currentTaskConcurrentNum;
     }
 
@@ -159,7 +160,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     @Override
     protected boolean checkCommitInfo(RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment) {
         if (rlTaskTxnCommitAttachment.getLoadedRows() > 0
-                && ((KafkaProgress) rlTaskTxnCommitAttachment.getProgress()).getPartitionIdToOffset().isEmpty()) {
+                && ((KafkaProgress) rlTaskTxnCommitAttachment.getProgress()).hasPartition()) {
             LOG.warn(new LogBuilder(LogKey.ROUINTE_LOAD_TASK, DebugUtil.printId(rlTaskTxnCommitAttachment.getTaskId()))
                              .add("job_id", id)
                              .add("loaded_rows", rlTaskTxnCommitAttachment.getLoadedRows())
@@ -171,7 +172,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     }
 
     @Override
-    protected void updateProgress(RLTaskTxnCommitAttachment attachment) {
+    protected void updateProgress(RLTaskTxnCommitAttachment attachment) throws UserException {
         super.updateProgress(attachment);
         this.progress.update(attachment.getProgress());
     }
@@ -188,7 +189,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         KafkaTaskInfo oldKafkaTaskInfo = (KafkaTaskInfo) routineLoadTaskInfo;
         // add new task
         KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo(oldKafkaTaskInfo,
-                                                        ((KafkaProgress)progress).getPartitionIdToOffset(oldKafkaTaskInfo.getPartitions()));
+                ((KafkaProgress) progress).getPartitionIdToOffset(oldKafkaTaskInfo.getPartitions()));
         // remove old task
         routineLoadTaskInfoList.remove(routineLoadTaskInfo);
         // add new task
@@ -207,7 +208,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     // update current kafka partition at the same time
     // current kafka partitions = customKafkaPartitions == 0 ? all of partition of kafka topic : customKafkaPartitions
     @Override
-    protected boolean unprotectNeedReschedule() {
+    protected boolean unprotectNeedReschedule() throws UserException {
         // only running and need_schedule job need to be changed current kafka partitions
         if (this.state == JobState.RUNNING || this.state == JobState.NEED_SCHEDULE) {
             if (customKafkaPartitions != null && customKafkaPartitions.size() != 0) {
@@ -247,7 +248,6 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                                       .build());
                     return true;
                 }
-
             }
         } else {
             LOG.debug(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
@@ -266,7 +266,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         summary.put("errorRows", Long.valueOf(errorRows));
         summary.put("unselectedRows", Long.valueOf(unselectedRows));
         summary.put("receivedBytes", Long.valueOf(receivedBytes));
-        summary.put("taskExecuteTaskMs", Long.valueOf(totalTaskExcutionTimeMs));
+        summary.put("taskExecuteTimeMs", Long.valueOf(totalTaskExcutionTimeMs));
         summary.put("receivedBytesRate", Long.valueOf(receivedBytes / totalTaskExcutionTimeMs * 1000));
         summary.put("loadRowsRate", Long.valueOf((totalRows - errorRows - unselectedRows) / totalTaskExcutionTimeMs * 1000));
         summary.put("committedTaskNum", Long.valueOf(committedTaskNum));
@@ -315,12 +315,13 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     private void updateNewPartitionProgress() {
         // update the progress of new partitions
         for (Integer kafkaPartition : currentKafkaPartitions) {
-            if (!((KafkaProgress) progress).getPartitionIdToOffset().containsKey(kafkaPartition)) {
-                ((KafkaProgress) progress).getPartitionIdToOffset().put(kafkaPartition, 0L);
+            if (!((KafkaProgress) progress).containsPartition(kafkaPartition)) {
+                // if offset is not assigned, start from OFFSET_END
+                ((KafkaProgress) progress).addPartitionOffset(Pair.create(kafkaPartition, KafkaProgress.OFFSET_END_VAL));
                 LOG.debug(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
-                                  .add("kafka_partition_id", kafkaPartition)
-                                  .add("begin_offset", 0)
-                                  .add("msg", "The new partition has been added in job"));
+                        .add("kafka_partition_id", kafkaPartition)
+                        .add("begin_offset", KafkaProgress.OFFSET_END)
+                        .add("msg", "The new partition has been added in job"));
             }
         }
     }

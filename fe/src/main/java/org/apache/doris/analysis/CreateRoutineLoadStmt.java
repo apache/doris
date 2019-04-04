@@ -23,6 +23,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.load.RoutineLoadDesc;
+import org.apache.doris.load.routineload.KafkaProgress;
 import org.apache.doris.load.routineload.LoadDataSourceType;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 
@@ -372,8 +373,24 @@ public class CreateRoutineLoadStmt extends DdlStmt {
             }
 
             for (int i = 0; i < kafkaOffsetsStringList.length; i++) {
-                kafkaPartitionOffsets.get(i).second = getLongValueFromString(kafkaOffsetsStringList[i],
-                        KAFKA_OFFSETS_PROPERTY);
+                // defined in librdkafka/rdkafkacpp.h
+                // OFFSET_BEGINNING: -2
+                // OFFSET_END: -1
+                try {
+                    kafkaPartitionOffsets.get(i).second = getLongValueFromString(kafkaOffsetsStringList[i],
+                            KAFKA_OFFSETS_PROPERTY);
+                    if (kafkaPartitionOffsets.get(i).second < 0) {
+                        throw new AnalysisException("Cannot specify offset smaller than 0");
+                    }
+                } catch (AnalysisException e) {
+                    if (kafkaOffsetsStringList[i].equalsIgnoreCase(KafkaProgress.OFFSET_BEGINNING)) {
+                        kafkaPartitionOffsets.get(i).second = KafkaProgress.OFFSET_BEGINNING_VAL;
+                    } else if (kafkaOffsetsStringList[i].equalsIgnoreCase(KafkaProgress.OFFSET_END)) {
+                        kafkaPartitionOffsets.get(i).second = KafkaProgress.OFFSET_END_VAL;
+                    } else {
+                        throw e;
+                    }
+                }
             }
         }
     }

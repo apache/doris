@@ -17,6 +17,8 @@
 
 package org.apache.doris.transaction;
 
+import org.apache.doris.common.UserException;
+
 public interface TxnStateChangeListener {
 
     public enum ListenResult {
@@ -32,7 +34,7 @@ public interface TxnStateChangeListener {
      *
      * @param txnState
      */
-    public ListenResult onCommitted(TransactionState txnState) throws TransactionException;
+    public ListenResult onCommitted(TransactionState txnState) throws UserException;
 
     public void replayOnCommitted(TransactionState txnState);
 
@@ -55,7 +57,7 @@ public interface TxnStateChangeListener {
      *            maybe null
      * @return
      */
-    public ListenResult onAborted(TransactionState txnState, String txnStatusChangeReason);
+    public ListenResult onAborted(TransactionState txnState, String txnStatusChangeReason) throws UserException;
 
     public void replayOnAborted(TransactionState txnState);
 }
