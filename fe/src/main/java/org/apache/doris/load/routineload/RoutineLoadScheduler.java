@@ -20,6 +20,7 @@ package org.apache.doris.load.routineload;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Daemon;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
@@ -58,7 +59,7 @@ public class RoutineLoadScheduler extends Daemon {
         }
     }
 
-    private void process() {
+    private void process() throws UserException {
         // update
         routineLoadManager.updateRoutineLoadJob();
         // get need schedule routine jobs

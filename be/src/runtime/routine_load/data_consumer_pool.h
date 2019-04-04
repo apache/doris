@@ -28,6 +28,7 @@
 namespace doris {
 
 class DataConsumer;
+class DataConsumerGroup;
 class Status;
 
 // DataConsumerPool saves all available data consumer
@@ -47,8 +48,15 @@ public:
         StreamLoadContext* ctx,
         std::shared_ptr<DataConsumer>* ret);
 
-    // erase the specified cache
+    // get several consumers and put them into group
+    Status get_consumer_grp(
+        StreamLoadContext* ctx,
+        std::shared_ptr<DataConsumerGroup>* ret);
+
+    // return the consumer to the pool
     void return_consumer(std::shared_ptr<DataConsumer> consumer);
+    // return the consumers in consumer group to the pool
+    void return_consumers(DataConsumerGroup* grp);
 
     Status start_bg_worker();
 
