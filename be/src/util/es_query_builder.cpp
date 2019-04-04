@@ -14,8 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-#include <boost/algorithm/string/replace.hpp>
 #include "util/es_query_builder.h"
+
+#include <boost/algorithm/string/replace.hpp>
 #include "rapidjson/rapidjson.h"
 #include "rapidjson/stringbuffer.h"
 #include "rapidjson/writer.h"
@@ -31,25 +32,20 @@ ESQueryBuilder::ESQueryBuilder(ExtFunction* es_query) {
     _es_query_str = first.to_string();
 }
 
+// note: call this function must invoke BooleanQueryBuilder::check_es_query to check validation
 rapidjson::Value ESQueryBuilder::to_json(rapidjson::Document& document) {
-    rapidjson::Document draft;
-    draft.Parse<0>(_es_query_str.c_str());
+    rapidjson::Document scratch_document;
+    scratch_document.Parse(_es_query_str.c_str());
     rapidjson::Document::AllocatorType& allocator = document.GetAllocator();
     rapidjson::Value query_key;
     rapidjson::Value query_value;
     //{ "term": { "dv": "2" } }
-    if (!draft.HasParseError()) {
-        for (rapidjson::Value::ConstMemberIterator itr = draft.MemberBegin(); itr != draft.MemberEnd(); itr++) {
-            // deep copy, reference http://rapidjson.org/md_doc_tutorial.html#DeepCopyValue
-            query_key.CopyFrom(itr->name, allocator);
-            query_value.CopyFrom(itr->value, allocator);
-           if (query_key.IsString()) {
-               // if we found one key, then end loop as QueryDSL only support one `query` root
-               break;
-            }
-        }
-    }
     rapidjson::Value es_query(rapidjson::kObjectType);
+    rapidjson::Value::ConstMemberIterator first = scratch_document.MemberBegin();
+    // deep copy, reference http://rapidjson.org/md_doc_tutorial.html#DeepCopyValue
+    query_key.CopyFrom(first->name, allocator);
+    // if we found one key, then end loop as QueryDSL only support one `query` root
+    query_value.CopyFrom(first->value, allocator);
     es_query.SetObject();
     // Move Semantics, reference http://rapidjson.org/md_doc_tutorial.html#MoveSemantics 
     es_query.AddMember(query_key, query_value, allocator);
@@ -301,19 +297,45 @@ void BooleanQueryBuilder::must_not(QueryBuilder* filter) {
     _must_not_clauses.push_back(filter);
 }
 
+Status BooleanQueryBuilder::check_es_query(ExtFunction extFunction) {
+    std::string esquery_str = extFunction.values.front().to_string();
+    rapidjson::Document scratch_document;
+    scratch_document.Parse(esquery_str.c_str());
+    rapidjson::Document::AllocatorType& allocator = scratch_document.GetAllocator();
+    rapidjson::Value query_key;
+    //{ "term": { "dv": "2" } }
+    if (!scratch_document.HasParseError()) {
+        rapidjson::SizeType object_count = scratch_document.MemberCount();
+        if (object_count != 1) {
+            return Status("esquery must only one root");
+        }
+        // deep copy, reference http://rapidjson.org/md_doc_tutorial.html#DeepCopyValue
+        rapidjson::Value::ConstMemberIterator first = scratch_document.MemberBegin();
+        query_key.CopyFrom(first->name, allocator);
+        if (!query_key.IsString()) {
+            // if we found one key, then end loop as QueryDSL only support one `query` root
+            return Status("esquery root key must be string");
+        }
+    } else {
+        return Status("malformed esquery json");
+    }
+    return Status::OK;
+}
+
+
 rapidjson::Value BooleanQueryBuilder::to_query(const std::vector<EsPredicate*>& predicates, rapidjson::Document& root) {
     if (predicates.size() == 0) {
         MatchAllQueryBuilder match_all_query;
         return match_all_query.to_json(root);
     }
     root.SetObject();
-    BooleanQueryBuilder *bool_query = new BooleanQueryBuilder();
+    BooleanQueryBuilder bool_query;
     for (auto es_predicate : predicates) {
         vector<ExtPredicate*> or_predicates = es_predicate->get_predicate_list();
         BooleanQueryBuilder* inner_bool_query = new BooleanQueryBuilder(or_predicates);
-        bool_query->must(inner_bool_query);
+        bool_query.must(inner_bool_query);
     }
-    rapidjson::Value root_value_node = bool_query->to_json(root);
+    rapidjson::Value root_value_node = bool_query.to_json(root);
     // root.AddMember("query", root_value_node, allocator);
     // rapidjson::StringBuffer buffer;
     // rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
