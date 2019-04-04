@@ -297,14 +297,14 @@ void BooleanQueryBuilder::must_not(QueryBuilder* filter) {
     _must_not_clauses.push_back(filter);
 }
 
-static Status BooleanQueryBuilder::check_es_query(ExtFunction extFunction) {
+Status BooleanQueryBuilder::check_es_query(ExtFunction extFunction) {
     std::string esquery_str = extFunction.values.front().to_string();
     rapidjson::Document scratch_document;
-    draft.Parse(esquery_str.c_str());
+    scratch_document.Parse(esquery_str.c_str());
     rapidjson::Document::AllocatorType& allocator = scratch_document.GetAllocator();
     rapidjson::Value query_key;
     //{ "term": { "dv": "2" } }
-    if (!draft.HasParseError()) {
+    if (!scratch_document.HasParseError()) {
         rapidjson::SizeType object_count = scratch_document.MemberCount();
         if (object_count != 1) {
             return Status("esquery must only one root");
