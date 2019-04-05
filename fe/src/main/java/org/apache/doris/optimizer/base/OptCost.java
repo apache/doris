@@ -15,8 +15,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.optimizer.search;
+package org.apache.doris.optimizer.base;
 
-public class RequestProperty {
+public class OptCost implements Comparable<OptCost> {
+    private long cost;
 
+    public OptCost(long cost) {
+        this.cost = cost;
+    }
+
+    public void add(OptCost cost) {
+        this.cost += cost.cost;
+    }
+
+    @Override
+    public int compareTo(OptCost o) {
+        if (cost == o.cost) {
+            return 0;
+        } else if (cost < o.cost) {
+            return -1;
+        } else {
+            return 1;
+        }
+    }
 }

@@ -19,20 +19,18 @@ package org.apache.doris.optimizer.base;
 
 import org.apache.doris.optimizer.OptExpression;
 import org.apache.doris.optimizer.operator.OptExpressionHandle;
-import org.apache.doris.optimizer.operator.OptPhysical;
 
-public class OptPhysicalProperty implements OptProperty {
-    private OptOrderSpec orderSpec;
+import java.util.List;
 
-    public OptPhysicalProperty() {
-    }
+public interface OptPropertySpec {
+    // This function will add enforced Expression to 'expressions'.
+    // 'reqdProp' contains property need to be enforced
+    // 'child' is the expression that enforce will add on
+    // 'exprHandle' contains information for
+    void appendEnforcers(
+            RequiredPhysicalProperty reqdProp,
+            OptExpression child,
+            OptExpressionHandle exprHandle,
+            List<OptExpression> expressions);
 
-    public OptOrderSpec getOrderSpec() { return orderSpec; }
-
-    @Override
-    public void derive(OptExpressionHandle exprHandle) {
-        OptPhysical physicalOp = (OptPhysical) exprHandle.getOp();
-
-        orderSpec = physicalOp.getOrderSpec(exprHandle);
-    }
 }

@@ -17,51 +17,49 @@
 
 package org.apache.doris.optimizer.operator;
 
+import com.google.common.base.Preconditions;
 import org.apache.doris.optimizer.base.EnforceOrderProperty;
 import org.apache.doris.optimizer.base.EnforceProperty;
 import org.apache.doris.optimizer.base.OptOrderSpec;
-import org.apache.doris.optimizer.base.OptPhysicalProperty;
-import org.apache.doris.optimizer.base.OptProperty;
-import org.apache.doris.optimizer.base.RequiredPhysicalProperty;
 
-public abstract class OptPhysical extends OptOperator {
+public class OptPhysicalSort extends  OptPhysical {
+    private OptOrderSpec orderSpec;
 
-    protected OptPhysical(OptOperatorType type) {
-        super(type);
+    public OptPhysicalSort(OptOrderSpec spec) {
+        super(OptOperatorType.OP_PHYSICAL_SORT);
+        this.orderSpec = spec;
     }
-
-    @Override
-    public boolean isPhysical() { return true; }
-    @Override
-    public OptProperty createProperty() {
-        return new OptPhysicalProperty();
-    }
-
-    public RequiredPhysicalProperty getPhysicalProperty() { return null; }
 
     //------------------------------------------------------------------------
     // Used to compute required property for children
     //------------------------------------------------------------------------
-    // get required sort order of n-th child
-    public abstract EnforceOrderProperty getChildReqdOrder(
-            OptExpressionHandle handle,
-            EnforceOrderProperty reqdOrder,
-            int childIndex);
+    @Override
+    public EnforceOrderProperty getChildReqdOrder(
+            OptExpressionHandle handle, EnforceOrderProperty reqdOrder, int childIndex) {
+        Preconditions.checkArgument(childIndex == 0);
+        // Because sort will change the order, so child don't need any order property
+        return EnforceOrderProperty.createEmpty();
+    }
 
     //------------------------------------------------------------------------
     // Used to get operator's derived property
     //------------------------------------------------------------------------
-    // get derived order property for this operator
-    public abstract OptOrderSpec getOrderSpec(OptExpressionHandle exprHandle);
+    @Override
+    public OptOrderSpec getOrderSpec(OptExpressionHandle expr) {
+        return orderSpec;
+    }
 
     //------------------------------------------------------------------------
     // Used to get enforce type for this operator
     //------------------------------------------------------------------------
-    // get enforce type for sort order
-    public abstract EnforceProperty.EnforceType getOrderEnforceType(
-            OptExpressionHandle exprHandle, EnforceOrderProperty enforceOrder);
-
-    protected  OptOrderSpec getOrderSpecPassThrough(OptExpressionHandle exprHandle) {
-        return exprHandle.getChildPhysicalProperty(0).getOrderSpec();
+    @Override
+    public EnforceProperty.EnforceType getOrderEnforceType(
+            OptExpressionHandle exprHandle,
+            EnforceOrderProperty orderProperty) {
+        if (orderProperty.isSubset(orderSpec)) {
+            // required order is already established by sort operator
+            return EnforceProperty.EnforceType.UNNECESSARY;
+        }
+        return EnforceProperty.EnforceType.PROHIBITED;
     }
 }

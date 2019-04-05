@@ -21,7 +21,11 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.apache.doris.optimizer.base.OptCost;
+import org.apache.doris.optimizer.base.OptimizationContext;
+import org.apache.doris.optimizer.base.RequiredPhysicalProperty;
 import org.apache.doris.optimizer.rule.OptRuleType;
+import org.apache.doris.optimizer.stat.Statistics;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -248,5 +252,38 @@ public class OptMemo {
             }
         }
         LOG.info(strBuilder.toString());
+    }
+
+    public OptExpression extractExpression(OptGroup groupRoot, RequiredPhysicalProperty propertyInput) {
+        Statistics stats = null;
+        OptCost cost = null;
+        OptimizationContext optCtx = null;
+        MultiExpression bestMExpr = null;
+        if (groupRoot.isItem()) {
+            bestMExpr = groupRoot.getFirstMultiExpression();
+        } else {
+            optCtx = groupRoot.lookupBest(propertyInput);
+            bestMExpr = optCtx.getBestMultiExpr();
+            if (bestMExpr != null) {
+                cost = optCtx.getBestCostCtx().getCost();
+                stats = optCtx.getBestCostCtx().getStatistics();
+            }
+        }
+        if (bestMExpr == null) {
+            return null;
+        }
+        List<OptExpression> exprChildren = Lists.newArrayList();
+        for (int i = 0; i < bestMExpr.arity(); ++i) {
+            RequiredPhysicalProperty childProp = null;
+            OptGroup childGroup = bestMExpr.getInput(i);
+            if (!childGroup.isItem()) {
+                OptimizationContext childOptCtx = optCtx.getBestCostCtx().getInput(i);
+                childProp = childOptCtx.getReqdPhyProp();
+            }
+            OptExpression childExpr = extractExpression(childGroup, childProp);
+            exprChildren.add(childExpr);
+        }
+        OptExpression extractedExpr = new OptExpression(bestMExpr.getOp(), exprChildren, bestMExpr, cost, stats);
+        return extractedExpr;
     }
 }

@@ -21,7 +21,8 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.doris.optimizer.base.OptProperty;
-import org.apache.doris.optimizer.search.OptimizationContext;
+import org.apache.doris.optimizer.base.OptimizationContext;
+import org.apache.doris.optimizer.base.RequiredPhysicalProperty;
 import org.apache.doris.optimizer.stat.Statistics;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -35,6 +36,7 @@ public class OptGroup {
     private static final Logger LOG = LogManager.getLogger(OptGroup.class);
 
     private int id;
+    private boolean isItem;
     private List<MultiExpression> mExprs = Lists.newArrayList();
     private static int nextMExprId = 1;
     private GState status;
@@ -103,6 +105,7 @@ public class OptGroup {
     public int getId() { return id; }
     public boolean isImplemented() { return status == GState.Implemented; }
     public boolean isOptimized() { return status == GState.Optimized; }
+    public boolean isItem() { return isItem; }
     public List<MultiExpression> getMultiExpressions() { return mExprs; }
     public OptimizationContext lookUp(OptimizationContext newContext) { return optContextMap.get(newContext); }
     public void setStatus(GState status) { this.status = status; }
@@ -145,5 +148,10 @@ public class OptGroup {
         Implemented,
         Optimizing,
         Optimized
+    }
+
+    public OptimizationContext lookupBest(RequiredPhysicalProperty property) {
+        OptimizationContext optCtx = new OptimizationContext(this, property);
+        return optContextMap.get(optCtx);
     }
 }

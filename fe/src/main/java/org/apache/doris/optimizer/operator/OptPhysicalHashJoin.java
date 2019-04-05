@@ -17,9 +17,41 @@
 
 package org.apache.doris.optimizer.operator;
 
+import org.apache.doris.optimizer.base.EnforceOrderProperty;
+import org.apache.doris.optimizer.base.EnforceProperty;
+import org.apache.doris.optimizer.base.OptOrderSpec;
+
 public class OptPhysicalHashJoin extends OptPhysical {
 
     public OptPhysicalHashJoin() {
         super(OptOperatorType.OP_PHYSICAL_HASH_JOIN);
+    }
+
+    //------------------------------------------------------------------------
+    // Used to compute required property for children
+    //------------------------------------------------------------------------
+    @Override
+    public EnforceOrderProperty getChildReqdOrder(OptExpressionHandle handle,
+                                                  EnforceOrderProperty reqdOrder,
+                                                  int childIndex) {
+        // For outer or inner table, we don't require order property
+        return EnforceOrderProperty.createEmpty();
+    }
+
+    //------------------------------------------------------------------------
+    // Used to get operator's derived property
+    //------------------------------------------------------------------------
+    @Override
+    public OptOrderSpec getOrderSpec(OptExpressionHandle exprHandle) {
+        return OptOrderSpec.createEmpty();
+    }
+
+    //------------------------------------------------------------------------
+    // Used to get enforce type for this operator
+    //------------------------------------------------------------------------
+    @Override
+    public EnforceProperty.EnforceType getOrderEnforceType(
+            OptExpressionHandle exprHandle, EnforceOrderProperty enforceOrder) {
+        return EnforceProperty.EnforceType.REQUIRED;
     }
 }

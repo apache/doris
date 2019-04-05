@@ -18,7 +18,8 @@
 package org.apache.doris.optimizer.base;
 
 import org.apache.doris.optimizer.OptExpression;
+import org.apache.doris.optimizer.operator.OptExpressionHandle;
 
 public interface OptProperty {
-    void derive(OptExpression expression);
+    void derive(OptExpressionHandle exprHandle);
 }
