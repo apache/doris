@@ -814,19 +814,17 @@ public class ShowExecutor {
         }
 
         if (routineLoadJobList != null) {
-            // check auth
             String dbFullName = showRoutineLoadStmt.getDbFullName();
-            String tableName;
+            String tableName = null;
             for (RoutineLoadJob routineLoadJob : routineLoadJobList) {
+                // check auth
                 try {
                     tableName = routineLoadJob.getTableName();
                 } catch (MetaNotFoundException e) {
-                    // TODO(ml): how to show the cancelled job caused by deleted table
                     LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
                                      .add("error_msg", "The table metadata of job has been changed. "
                                              + "The job will be cancelled automatically")
                                      .build(), e);
-                    continue;
                 }
                 if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
                                                                         dbFullName,
