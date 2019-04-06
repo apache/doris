@@ -109,7 +109,6 @@ public class RoutineLoadManager implements Writable {
                 }
             }
         }
-        // LOG.debug("beIdToConcurrentTasks is {}", Joiner.on(",").withKeyValueSeparator(":").join(beIdToConcurrentTasks));
         return beIdToConcurrentTasks;
 
     }
@@ -342,8 +341,10 @@ public class RoutineLoadManager implements Writable {
                     } else {
                         idleTaskNum = DEFAULT_BE_CONCURRENT_TASK_NUM;
                     }
-                    LOG.debug("be {} has idle {}, concurrent task {}, max concurrent task {}", beId, idleTaskNum,
-                              beIdToConcurrentTasks.get(beId), beIdToMaxConcurrentTasks.get(beId));
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("be {} has idle {}, concurrent task {}, max concurrent task {}", beId, idleTaskNum,
+                                  beIdToConcurrentTasks.get(beId), beIdToMaxConcurrentTasks.get(beId));
+                    }
                     result = maxIdleSlotNum < idleTaskNum ? beId : result;
                     maxIdleSlotNum = Math.max(maxIdleSlotNum, idleTaskNum);
                 }
@@ -364,7 +365,6 @@ public class RoutineLoadManager implements Writable {
         }
 
         if (!beIdsInCluster.contains(beId)) {
-            LOG.debug("the previous be id {} does not belong to cluster name {}", beId, clusterName);
             return false;
         }
 
@@ -495,10 +495,8 @@ public class RoutineLoadManager implements Writable {
     }
 
     public List<RoutineLoadJob> getRoutineLoadJobByState(RoutineLoadJob.JobState jobState) {
-        // LOG.debug("begin to get routine load job by state {}", jobState.name());
         List<RoutineLoadJob> stateJobs = idToRoutineLoadJob.values().stream()
                 .filter(entity -> entity.getState() == jobState).collect(Collectors.toList());
-        // LOG.debug("got {} routine load jobs by state {}", stateJobs.size(), jobState.name());
         return stateJobs;
     }
 

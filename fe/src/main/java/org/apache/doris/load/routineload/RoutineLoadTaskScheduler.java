@@ -192,20 +192,24 @@ public class RoutineLoadTaskScheduler extends Daemon {
             throws MetaNotFoundException, LoadException {
         if (routineLoadTaskInfo.getPreviousBeId() != -1L) {
             if (routineLoadManager.checkBeToTask(routineLoadTaskInfo.getPreviousBeId(), routineLoadTaskInfo.getClusterName())) {
-                LOG.debug(new LogBuilder(LogKey.ROUINTE_LOAD_TASK, routineLoadTaskInfo.getId())
-                                  .add("job_id", routineLoadTaskInfo.getJobId())
-                                  .add("previous_be_id", routineLoadTaskInfo.getPreviousBeId())
-                                  .add("msg", "task use the previous be id")
-                                  .build());
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(new LogBuilder(LogKey.ROUINTE_LOAD_TASK, routineLoadTaskInfo.getId())
+                                      .add("job_id", routineLoadTaskInfo.getJobId())
+                                      .add("previous_be_id", routineLoadTaskInfo.getPreviousBeId())
+                                      .add("msg", "task use the previous be id")
+                                      .build());
+                }
                 routineLoadTaskInfo.setBeId(routineLoadTaskInfo.getPreviousBeId());
                 return;
             }
         }
         routineLoadTaskInfo.setBeId(routineLoadManager.getMinTaskBeId(routineLoadTaskInfo.getClusterName()));
-        LOG.debug(new LogBuilder(LogKey.ROUINTE_LOAD_TASK, routineLoadTaskInfo.getId())
-                          .add("job_id", routineLoadTaskInfo.getJobId())
-                          .add("be_id", routineLoadTaskInfo.getBeId())
-                          .add("msg", "task has been allocated to be")
-                          .build());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug(new LogBuilder(LogKey.ROUINTE_LOAD_TASK, routineLoadTaskInfo.getId())
+                              .add("job_id", routineLoadTaskInfo.getJobId())
+                              .add("be_id", routineLoadTaskInfo.getBeId())
+                              .add("msg", "task has been allocated to be")
+                              .build());
+        }
     }
 }

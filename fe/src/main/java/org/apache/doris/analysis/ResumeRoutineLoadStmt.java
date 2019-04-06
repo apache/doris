@@ -39,7 +39,7 @@ public class ResumeRoutineLoadStmt extends DdlStmt{
         return labelName.getLabelName();
     }
 
-    public String getDbFullName(){
+    public String getDbFullName() {
         return labelName.getDbName();
     }
 
