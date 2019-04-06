@@ -232,28 +232,28 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 if (currentKafkaPartitions.containsAll(newCurrentKafkaPartition)) {
                     if (currentKafkaPartitions.size() > newCurrentKafkaPartition.size()) {
                         currentKafkaPartitions = newCurrentKafkaPartition;
-                        LOG.debug(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
-                                          .add("current_kafka_partitions", Joiner.on(",").join(currentKafkaPartitions))
-                                          .add("msg", "current kafka partitions has been change")
-                                          .build());
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
+                                              .add("current_kafka_partitions", Joiner.on(",").join(currentKafkaPartitions))
+                                              .add("msg", "current kafka partitions has been change")
+                                              .build());
+                        }
                         return true;
                     } else {
                         return false;
                     }
                 } else {
                     currentKafkaPartitions = newCurrentKafkaPartition;
-                    LOG.debug(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
-                                      .add("current_kafka_partitions", Joiner.on(",").join(currentKafkaPartitions))
-                                      .add("msg", "current kafka partitions has been change")
-                                      .build());
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
+                                          .add("current_kafka_partitions", Joiner.on(",").join(currentKafkaPartitions))
+                                          .add("msg", "current kafka partitions has been change")
+                                          .build());
+                    }
                     return true;
                 }
             }
         } else {
-            LOG.debug(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
-                              .add("job_state", state)
-                              .add("msg", "ignore this turn of checking changed partition when job state is not running")
-                              .build());
             return false;
         }
     }
@@ -318,10 +318,12 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             if (!((KafkaProgress) progress).containsPartition(kafkaPartition)) {
                 // if offset is not assigned, start from OFFSET_END
                 ((KafkaProgress) progress).addPartitionOffset(Pair.create(kafkaPartition, KafkaProgress.OFFSET_END_VAL));
-                LOG.debug(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
-                        .add("kafka_partition_id", kafkaPartition)
-                        .add("begin_offset", KafkaProgress.OFFSET_END)
-                        .add("msg", "The new partition has been added in job"));
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
+                                      .add("kafka_partition_id", kafkaPartition)
+                                      .add("begin_offset", KafkaProgress.OFFSET_END)
+                                      .add("msg", "The new partition has been added in job"));
+                }
             }
         }
     }
