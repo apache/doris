@@ -109,7 +109,6 @@ public class RoutineLoadManager implements Writable {
                 }
             }
         }
-        // LOG.debug("beIdToConcurrentTasks is {}", Joiner.on(",").withKeyValueSeparator(":").join(beIdToConcurrentTasks));
         return beIdToConcurrentTasks;
 
     }
@@ -231,7 +230,7 @@ public class RoutineLoadManager implements Writable {
     }
 
     public void resumeRoutineLoadJob(ResumeRoutineLoadStmt resumeRoutineLoadStmt) throws UserException {
-        RoutineLoadJob routineLoadJob = getJob(resumeRoutineLoadStmt.getDBFullName(), resumeRoutineLoadStmt.getName());
+        RoutineLoadJob routineLoadJob = getJob(resumeRoutineLoadStmt.getDbFullName(), resumeRoutineLoadStmt.getName());
         if (routineLoadJob == null) {
             throw new DdlException("There is not operable routine load job with name " + resumeRoutineLoadStmt.getName() + ".");
         }
@@ -263,7 +262,7 @@ public class RoutineLoadManager implements Writable {
 
     public void stopRoutineLoadJob(StopRoutineLoadStmt stopRoutineLoadStmt)
             throws UserException {
-        RoutineLoadJob routineLoadJob = getJob(stopRoutineLoadStmt.getDBFullName(), stopRoutineLoadStmt.getName());
+        RoutineLoadJob routineLoadJob = getJob(stopRoutineLoadStmt.getDbFullName(), stopRoutineLoadStmt.getName());
         if (routineLoadJob == null) {
             throw new DdlException("There is not operable routine load job with name " + stopRoutineLoadStmt.getName());
         }
@@ -342,8 +341,10 @@ public class RoutineLoadManager implements Writable {
                     } else {
                         idleTaskNum = DEFAULT_BE_CONCURRENT_TASK_NUM;
                     }
-                    LOG.debug("be {} has idle {}, concurrent task {}, max concurrent task {}", beId, idleTaskNum,
-                              beIdToConcurrentTasks.get(beId), beIdToMaxConcurrentTasks.get(beId));
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("be {} has idle {}, concurrent task {}, max concurrent task {}", beId, idleTaskNum,
+                                  beIdToConcurrentTasks.get(beId), beIdToMaxConcurrentTasks.get(beId));
+                    }
                     result = maxIdleSlotNum < idleTaskNum ? beId : result;
                     maxIdleSlotNum = Math.max(maxIdleSlotNum, idleTaskNum);
                 }
@@ -364,7 +365,6 @@ public class RoutineLoadManager implements Writable {
         }
 
         if (!beIdsInCluster.contains(beId)) {
-            LOG.debug("the previous be id {} does not belong to cluster name {}", beId, clusterName);
             return false;
         }
 
@@ -495,10 +495,8 @@ public class RoutineLoadManager implements Writable {
     }
 
     public List<RoutineLoadJob> getRoutineLoadJobByState(RoutineLoadJob.JobState jobState) {
-        // LOG.debug("begin to get routine load job by state {}", jobState.name());
         List<RoutineLoadJob> stateJobs = idToRoutineLoadJob.values().stream()
                 .filter(entity -> entity.getState() == jobState).collect(Collectors.toList());
-        // LOG.debug("got {} routine load jobs by state {}", stateJobs.size(), jobState.name());
         return stateJobs;
     }
 
@@ -519,11 +517,11 @@ public class RoutineLoadManager implements Writable {
             while (iterator.hasNext()) {
                 RoutineLoadJob routineLoadJob = iterator.next().getValue();
                 if (routineLoadJob.needRemove()) {
-                    dbToNameToRoutineLoadJob.get(routineLoadJob.getDbId()).get(routineLoadJob.getName()).remove(routineLoadJob);
+                    unprotectedRemoveJobFromDb(routineLoadJob);
                     iterator.remove();
 
                     RoutineLoadOperation operation = new RoutineLoadOperation(routineLoadJob.getId(),
-                            JobState.CANCELLED);
+                                                                              routineLoadJob.getState());
                     Catalog.getInstance().getEditLog().logRemoveRoutineLoadJob(operation);
                     LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
                                      .add("end_timestamp", routineLoadJob.getEndTimestamp())
@@ -543,11 +541,21 @@ public class RoutineLoadManager implements Writable {
         try {
             RoutineLoadJob job = idToRoutineLoadJob.remove(operation.getId());
             if (job != null) {
-                dbToNameToRoutineLoadJob.get(job.getDbId()).get(job.getName()).remove(job);
+                unprotectedRemoveJobFromDb(job);
             }
             LOG.info("replay remove routine load job: {}", operation.getId());
         } finally {
             writeUnlock();
+        }
+    }
+
+    private void unprotectedRemoveJobFromDb(RoutineLoadJob routineLoadJob) {
+        dbToNameToRoutineLoadJob.get(routineLoadJob.getDbId()).get(routineLoadJob.getName()).remove(routineLoadJob);
+        if (dbToNameToRoutineLoadJob.get(routineLoadJob.getDbId()).get(routineLoadJob.getName()).isEmpty()) {
+            dbToNameToRoutineLoadJob.get(routineLoadJob.getDbId()).remove(routineLoadJob.getName());
+        }
+        if (dbToNameToRoutineLoadJob.get(routineLoadJob.getDbId()).isEmpty()) {
+            dbToNameToRoutineLoadJob.remove(routineLoadJob.getDbId());
         }
     }
 
