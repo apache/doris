@@ -186,7 +186,7 @@ private:
     uint32_t _capacity;
     RowBlockInfo _info;
     const TabletSchema* _schema;     // 内部保存的schema句柄
-
+    
     bool _null_supported;
 
     size_t _field_count = 0;

@@ -493,18 +493,26 @@ ColumnReader::ColumnReader(uint32_t column_id, uint32_t column_unique_id) :
         _present_reader(NULL) {
 }
 
-ColumnReader* ColumnReader::create(uint32_t column_id,
+ ColumnReader* ColumnReader::create(uint32_t column_id,
         const TabletSchema& schema,
         const UniqueIdToColumnIdMap& included,
         UniqueIdToColumnIdMap& segment_included,
         const UniqueIdEncodingMap& encodings) {
-    if (column_id >= schema.num_columns()) {
+    return create(column_id, schema.columns(), included, segment_included, encodings);
+}
+
+ColumnReader* ColumnReader::create(uint32_t column_id,
+        const std::vector<TabletColumn>& schema,
+        const UniqueIdToColumnIdMap& included,
+        UniqueIdToColumnIdMap& segment_included,
+        const UniqueIdEncodingMap& encodings) {
+    if (column_id >= schema.size()) {
         LOG(WARNING) << "invalid column_id, column_id=" << column_id
-                     << ", columns_size=" << schema.num_columns();
+                     << ", columns_size=" << schema.size();
         return NULL;
     }
 
-    const TabletColumn& column = schema.column(column_id);
+    const TabletColumn& column = schema[column_id];
     ColumnReader* reader = NULL;
     int32_t column_unique_id = column.unique_id();
 

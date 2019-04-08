@@ -151,7 +151,7 @@ ${DORIS_TEST_BINARY_DIR}/util/uid_util_test
 ${DORIS_TEST_BINARY_DIR}/util/aes_util_test
 ${DORIS_TEST_BINARY_DIR}/util/string_util_test
 
-## Running common Unittest
+# Running common Unittest
 ${DORIS_TEST_BINARY_DIR}/common/resource_tls_test
 
 ## Running exprs unit test
@@ -176,7 +176,7 @@ ${DORIS_TEST_BINARY_DIR}/exec/olap_table_sink_test
 ${DORIS_TEST_BINARY_DIR}/exec/tablet_info_test
 ${DORIS_TEST_BINARY_DIR}/exec/tablet_sink_test
 
-## Running runtime Unittest
+# Running runtime Unittest
 ${DORIS_TEST_BINARY_DIR}/runtime/fragment_mgr_test
 ${DORIS_TEST_BINARY_DIR}/runtime/decimal_value_test
 ${DORIS_TEST_BINARY_DIR}/runtime/datetime_value_test
@@ -188,7 +188,6 @@ ${DORIS_TEST_BINARY_DIR}/runtime/stream_load_pipe_test
 ${DORIS_TEST_BINARY_DIR}/runtime/tablet_writer_mgr_test
 ${DORIS_TEST_BINARY_DIR}/runtime/snapshot_loader_test
 ${DORIS_TEST_BINARY_DIR}/runtime/user_function_cache_test
-## Running expr Unittest
 
 # Running http
 ${DORIS_TEST_BINARY_DIR}/http/metrics_action_test
@@ -211,7 +210,7 @@ ${DORIS_TEST_BINARY_DIR}/olap/in_list_predicate_test
 ${DORIS_TEST_BINARY_DIR}/olap/null_predicate_test
 ${DORIS_TEST_BINARY_DIR}/olap/file_helper_test
 ${DORIS_TEST_BINARY_DIR}/olap/file_utils_test
-#${DORIS_TEST_BINARY_DIR}/olap/delete_handler_test
+${DORIS_TEST_BINARY_DIR}/olap/delete_handler_test
 ${DORIS_TEST_BINARY_DIR}/olap/column_reader_test
 ${DORIS_TEST_BINARY_DIR}/olap/row_cursor_test
 ${DORIS_TEST_BINARY_DIR}/olap/skiplist_test

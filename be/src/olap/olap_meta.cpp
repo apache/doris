@@ -55,10 +55,10 @@ OlapMeta::~OlapMeta() {
     for (auto handle : _handles) {
         delete handle;
     }
-    if (_db != NULL) {
+    if (_db != nullptr) {
         _db->Close();
         delete _db;
-        _db= NULL;
+        _db= nullptr;
     }
 }
 
@@ -79,7 +79,7 @@ OLAPStatus OlapMeta::init() {
     meta_column_family.prefix_extractor.reset(NewFixedPrefixTransform(PREFIX_LENGTH));
     column_families.emplace_back(META_COLUMN_FAMILY, meta_column_family);
     Status s = DB::Open(options, db_path, column_families, &_handles, &_db);
-    if (!s.ok() || _db == NULL) {
+    if (!s.ok() || _db == nullptr) {
         LOG(WARNING) << "rocks db open failed, reason:" << s.ToString();
         return OLAP_ERR_META_OPEN_DB;
     }

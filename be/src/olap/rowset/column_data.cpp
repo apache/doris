@@ -449,7 +449,7 @@ void ColumnData::set_read_params(
 
     auto res = _cursor.init(_segment_group->get_tablet_schema());
     if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to init row_cursor");
+        LOG(WARNING) << "fail to init row_cursor";
     }
 
     _read_vector_batch.reset(new VectorizedRowBatch(

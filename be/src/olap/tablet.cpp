@@ -96,7 +96,6 @@ Tablet::Tablet(TabletMeta* tablet_meta, DataDir* data_dir)
     _tablet_meta(tablet_meta),
     _schema(tablet_meta->tablet_schema()),
     _data_dir(data_dir) {
-    _is_dropped = false;
     _tablet_meta->set_data_dir(_data_dir);
 
     _tablet_path.append(_data_dir->path());
@@ -453,6 +452,10 @@ OLAPStatus Tablet::capture_rs_readers(const vector<Version>& version_path,
         rs_readers->push_back(rs_reader);
     }
     return OLAP_SUCCESS;
+}
+
+OLAPStatus Tablet::add_delete_predicate(const DeletePredicatePB& delete_predicate, int64_t version) {
+    return _tablet_meta->add_delete_predicate(delete_predicate, version);
 }
 
 bool Tablet::version_for_delete_predicate(const Version& version) {

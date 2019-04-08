@@ -46,7 +46,7 @@ OLAPStatus TabletColumn::init_from_pb(const ColumnPB& column) {
         _precision = column.precision();
     }
     if (column.has_frac()) {
-        _precision = column.frac();
+        _frac = column.frac();
     }
     _length = column.length();
     _index_length = column.length();

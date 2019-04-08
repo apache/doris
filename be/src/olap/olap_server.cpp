@@ -45,12 +45,13 @@ OLAPStatus StorageEngine::_start_bg_worker() {
         [this] {
             _garbage_sweeper_thread_callback(nullptr);
         });
-
+    _garbage_sweeper_thread.detach();
     // start thread for monitoring the tablet with io error
     _disk_stat_monitor_thread = std::thread(
         [this] {
             _disk_stat_monitor_thread_callback(nullptr);
         });
+    _disk_stat_monitor_thread.detach();
 
     // start thread for monitoring the unused index
     _unused_index_thread = std::thread(
@@ -72,6 +73,9 @@ OLAPStatus StorageEngine::_start_bg_worker() {
                 _base_compaction_thread_callback(nullptr, store_vec[i % store_num]);
             });
     }
+    for (auto& thread : _base_compaction_threads) {
+        thread.detach();
+    }
 
     int32_t cumulative_compaction_num_threads = config::cumulative_compaction_num_threads_per_disk * store_num;
     _cumulative_compaction_threads.reserve(cumulative_compaction_num_threads);
@@ -81,11 +85,15 @@ OLAPStatus StorageEngine::_start_bg_worker() {
                 _cumulative_compaction_thread_callback(nullptr, store_vec[i % store_num]);
             });
     }
+    for (auto& thread : _cumulative_compaction_threads) {
+        thread.detach();
+    }
 
     _fd_cache_clean_thread = std::thread(
         [this] {
             _fd_cache_clean_callback(nullptr);
         });
+    _fd_cache_clean_thread.detach();
 
     // path scan and gc thread
     if (config::path_gc_check) {
@@ -99,6 +107,12 @@ OLAPStatus StorageEngine::_start_bg_worker() {
             [this, data_dir] {
                 _path_gc_thread_callback((void*)data_dir);
             });
+        }
+        for (auto& thread : _path_scan_threads) {
+            thread.detach();
+        }
+        for (auto& thread : _path_gc_threads) {
+            thread.detach();
         }
     }
 

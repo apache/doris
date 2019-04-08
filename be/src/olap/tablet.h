@@ -69,7 +69,6 @@ public:
     // operation for TabletState
     TabletState tablet_state() const { return _state; }
     inline OLAPStatus set_tablet_state(TabletState state);
-    void mark_dropped() { _is_dropped = true; }
 
     // Property encapsulated in TabletMeta
     inline const TabletMeta& tablet_meta();
@@ -142,6 +141,7 @@ public:
                                   vector<RowsetReaderSharedPtr>* rs_readers) const;
 
     DelPredicateArray delete_predicates() { return _tablet_meta->delete_predicates(); }
+    OLAPStatus add_delete_predicate(const DeletePredicatePB& delete_predicate, int64_t version);
     bool version_for_delete_predicate(const Version& version);
     bool version_for_load_deletion(const Version& version);
 
@@ -232,7 +232,6 @@ private:
     std::string _tablet_path;
     RowsetGraph _rs_graph;
 
-    bool _is_dropped;
     DorisInitOnce _init_once;
     RWMutex _meta_lock;
     Mutex _ingest_lock;

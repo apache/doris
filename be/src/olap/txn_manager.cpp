@@ -175,7 +175,7 @@ OLAPStatus TxnManager::commit_txn(
     // it is under a single txn lock
     if (!is_recovery) {
         OLAPStatus save_status = RowsetMetaManager::save(meta, rowset_ptr->rowset_id(),
-            rowset_ptr->rowset_meta());
+            rowset_ptr->rowset_meta().get());
         if (save_status != OLAP_SUCCESS) {
             LOG(WARNING) << "save committed rowset failed. when commit txn rowset_id:"
                         << rowset_ptr->rowset_id()
@@ -226,7 +226,7 @@ OLAPStatus TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id, TT
         rowset_ptr->set_version_and_version_hash(version, version_hash);
         OLAPStatus save_status = RowsetMetaManager::save(meta,
             rowset_ptr->rowset_id(),
-            rowset_ptr->rowset_meta());
+            rowset_ptr->rowset_meta().get());
         if (save_status != OLAP_SUCCESS) {
             LOG(WARNING) << "save committed rowset failed. when publish txn rowset_id:"
                          << rowset_ptr->rowset_id()
@@ -378,7 +378,7 @@ void TxnManager::get_txn_related_tablets(const TTransactionId transaction_id,
     // each tablet
     for (auto& load_info : load_info_map) {
         const TabletInfo& tablet_info = load_info.first;
-	    tablet_infos->emplace(tablet_info,load_info.second.rowset);
+	    tablet_infos->emplace(tablet_info, load_info.second.rowset);
     }
 }
                                 
