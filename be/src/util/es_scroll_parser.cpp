@@ -327,20 +327,58 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
             }
 
             case TYPE_DATE: {
-                if (!col.IsNumber() || 
-                  !reinterpret_cast<DateTimeValue*>(slot)->from_unixtime(col.GetInt64())) {
+                if (col.IsNumber()) {
+                    if (!reinterpret_cast<DateTimeValue*>(slot)->from_unixtime(col.GetInt64())) {
+                        return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "TYPE_DATE"));
+                    }
+                    reinterpret_cast<DateTimeValue*>(slot)->cast_to_date();
+                    break;
+                }
+
+                if (!col.IsString()) {
+                    return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "TYPE_DATE"));
+                } 
+
+                DateTimeValue* ts_slot = reinterpret_cast<DateTimeValue*>(slot);
+                const std::string& val = col.GetString();
+                size_t val_size = col.GetStringLength();
+                if (!ts_slot->from_date_str(val.c_str(), val_size)) {
                     return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "TYPE_DATE"));
                 }
-                reinterpret_cast<DateTimeValue*>(slot)->cast_to_date();
+
+                if (ts_slot->year() < 1900) {
+                    return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "TYPE_DATE"));
+                }
+
+                ts_slot->cast_to_date();
                 break;
             }
 
             case TYPE_DATETIME: {
-                if (!col.IsNumber() || 
-                  !reinterpret_cast<DateTimeValue*>(slot)->from_unixtime(col.GetInt64())) {
+                if (col.IsNumber()) {
+                    if (!reinterpret_cast<DateTimeValue*>(slot)->from_unixtime(col.GetInt64())) {
+                        return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "TYPE_DATETIME"));
+                    }
+                    reinterpret_cast<DateTimeValue*>(slot)->set_type(TIME_DATETIME);
+                    break;
+                }
+
+                if (!col.IsString()) {
+                    return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "TYPE_DATETIME"));
+                } 
+
+                DateTimeValue* ts_slot = reinterpret_cast<DateTimeValue*>(slot);
+                const std::string& val = col.GetString();
+                size_t val_size = col.GetStringLength();
+                if (!ts_slot->from_date_str(val.c_str(), val_size)) {
                     return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "TYPE_DATETIME"));
                 }
-                reinterpret_cast<DateTimeValue*>(slot)->set_type(TIME_DATETIME);
+
+                if (ts_slot->year() < 1900) {
+                    return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "TYPE_DATETIME"));
+                }
+
+                ts_slot->to_datetime();
                 break;
             }
 
