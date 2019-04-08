@@ -39,15 +39,15 @@ public:
             TSchemaHash schema_hash, std::string* json_header);
 
     static OLAPStatus save(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash, 
-                           const TabletMeta* tablet_meta, string header_prefix = "tabletmeta_");
+                           const TabletMeta* tablet_meta, const string& header_prefix = "tabletmeta_");
     static OLAPStatus save(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash, 
-                           const std::string& meta_binary, string header_prefix = "tabletmeta_");
+                           const std::string& meta_binary, const string& header_prefix = "tabletmeta_");
 
     static OLAPStatus remove(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash, 
-                             string header_prefix = "tabletmeta_");
+                             const string& header_prefix = "tabletmeta_");
 
     static OLAPStatus traverse_headers(OlapMeta* meta,
-            std::function<bool(long, long, const std::string&)> const& func, string header_prefix = "tabletmeta_");
+            std::function<bool(long, long, const std::string&)> const& func, const string& header_prefix = "tabletmeta_");
 
     static OLAPStatus load_json_header(DataDir* store, const std::string& header_path);
 

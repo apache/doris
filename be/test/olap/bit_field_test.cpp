@@ -20,8 +20,8 @@
 #include "olap/byte_buffer.h"
 #include "olap/out_stream.h"
 #include "olap/in_stream.h"
-#include "olap/bit_field_reader.h"
-#include "olap/bit_field_writer.h"
+#include "olap/rowset/bit_field_reader.h"
+#include "olap/rowset/bit_field_writer.h"
 #include "util/logging.h"
 
 namespace doris {

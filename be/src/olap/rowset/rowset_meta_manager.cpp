@@ -55,13 +55,12 @@ OLAPStatus RowsetMetaManager::get_rowset_meta(OlapMeta* meta, int64_t rowset_id,
 }
 
 OLAPStatus RowsetMetaManager::get_json_rowset_meta(OlapMeta* meta, int64_t rowset_id, std::string* json_rowset_meta) {
-    RowsetMeta rowset_meta;
-    RowsetMetaSharedPtr rowset_meta_ptr(&rowset_meta);
+    RowsetMetaSharedPtr rowset_meta_ptr(new(std::nothrow) RowsetMeta());
     OLAPStatus status = get_rowset_meta(meta, rowset_id, rowset_meta_ptr);
     if (status != OLAP_SUCCESS) {
         return status;
     }
-    bool ret = rowset_meta.json_rowset_meta(json_rowset_meta);
+    bool ret = rowset_meta_ptr->json_rowset_meta(json_rowset_meta);
     if (!ret) {
         std::string error_msg = "get json rowset meta failed. rowset id:" + std::to_string(rowset_id);
         return OLAP_ERR_SERIALIZE_PROTOBUF_ERROR; 
@@ -69,7 +68,7 @@ OLAPStatus RowsetMetaManager::get_json_rowset_meta(OlapMeta* meta, int64_t rowse
     return OLAP_SUCCESS;
 }
 
-OLAPStatus RowsetMetaManager::save(OlapMeta* meta, int64_t rowset_id, RowsetMetaSharedPtr rowset_meta) {
+OLAPStatus RowsetMetaManager::save(OlapMeta* meta, int64_t rowset_id, RowsetMeta* rowset_meta) {
     std::string key = ROWSET_PREFIX + std::to_string(rowset_id);
     std::string value;
     bool ret = rowset_meta->serialize(&value);
@@ -130,8 +129,7 @@ OLAPStatus RowsetMetaManager::load_json_rowset_meta(OlapMeta* meta, const std::s
         return OLAP_ERR_SERIALIZE_PROTOBUF_ERROR;
     }
     uint64_t rowset_id = rowset_meta.rowset_id();
-    RowsetMetaSharedPtr rowset_meta_ptr(&rowset_meta);
-    OLAPStatus status = save(meta, rowset_id, rowset_meta_ptr);
+    OLAPStatus status = save(meta, rowset_id, &rowset_meta);
     return status;
 }
 

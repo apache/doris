@@ -57,6 +57,7 @@ public:
             OutStreamFactory* stream_factory,
             size_t num_rows_per_row_block,
             double bf_fpp);
+
     virtual ~ColumnWriter();
     virtual OLAPStatus init();
 

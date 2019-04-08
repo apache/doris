@@ -138,7 +138,6 @@ OLAPStatus TabletManager::add_tablet(TTabletId tablet_id, SchemaHash schema_hash
         _tablet_map[tablet_id].table_arr.sort(_sort_tablet_by_creation_time);
         _tablet_map_lock.unlock();
     } else {
-        tablet->mark_dropped();
         res = OLAP_ERR_ENGINE_INSERT_EXISTS_TABLE;
     }
     LOG(WARNING) << "add duplicated tablet. force=" << force << ", res=" << res
@@ -707,7 +706,6 @@ OLAPStatus TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tab
         LOG(WARNING) << "tablet not in schema change state without delta is invalid."
                      << "tablet=" << tablet->full_name();
         // tablet state is invalid, drop tablet
-        tablet->mark_dropped();
         return OLAP_ERR_TABLE_INDEX_VALIDATE_ERROR;
     }
 
@@ -1096,10 +1094,12 @@ OLAPStatus TabletManager::_drop_tablet_directly_unlocked(
     for (list<TabletSharedPtr>::iterator it = _tablet_map[tablet_id].table_arr.begin();
             it != _tablet_map[tablet_id].table_arr.end();) {
         if ((*it)->equal(tablet_id, schema_hash)) {
-            if (!keep_files) {
-                (*it)->mark_dropped();
-            }
+            TabletSharedPtr tablet = *it;
             it = _tablet_map[tablet_id].table_arr.erase(it);
+            if (!keep_files) {
+                LOG(INFO) << "remove tablet:" <<  tablet_id << " path:" << tablet->tablet_path();
+                boost::filesystem::remove_all(tablet->tablet_path());
+            }
         } else {
             ++it;
         }

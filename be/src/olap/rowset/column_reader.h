@@ -187,6 +187,12 @@ public:
             const UniqueIdToColumnIdMap& included,
             UniqueIdToColumnIdMap& segment_included,
             const UniqueIdEncodingMap& encodings);
+  
+    static ColumnReader* create(uint32_t column_id,
+            const std::vector<TabletColumn>& schema,
+            const UniqueIdToColumnIdMap& included,
+            UniqueIdToColumnIdMap& segment_included,
+            const UniqueIdEncodingMap& encodings);
 
     ColumnReader(uint32_t column_id, uint32_t column_unique_id);
     virtual ~ColumnReader();

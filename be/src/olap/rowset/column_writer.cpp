@@ -27,7 +27,7 @@ ColumnWriter* ColumnWriter::create(uint32_t column_id,
         OutStreamFactory* stream_factory,
         size_t num_rows_per_row_block,
         double bf_fpp) {
-    ColumnWriter* column_writer = NULL;
+    ColumnWriter* column_writer = nullptr;
     const TabletColumn& column = schema.column(column_id);
 
     switch (column.type()) {

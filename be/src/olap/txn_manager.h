@@ -86,7 +86,7 @@ public:
     // remove a txn from txn manager
     // not persist rowset meta because 
     OLAPStatus publish_txn(OlapMeta* meta, TPartitionId partition_id, TTransactionId transaction_id,
-                           TTabletId tablet_id, SchemaHash schema_hash, 
+                           TTabletId tablet_id, SchemaHash schema_hash,
                            Version& version, VersionHash& version_hash);
 
     // delete the txn from manager if it is not committed(not have a valid rowset)

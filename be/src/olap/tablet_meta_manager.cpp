@@ -76,7 +76,7 @@ OLAPStatus TabletMetaManager::get_json_header(DataDir* store,
 }
 
 OLAPStatus TabletMetaManager::save(DataDir* store,
-        TTabletId tablet_id, TSchemaHash schema_hash, const TabletMeta* tablet_meta, string header_prefix) {
+        TTabletId tablet_id, TSchemaHash schema_hash, const TabletMeta* tablet_meta, const string& header_prefix) {
     std::stringstream key_stream;
     key_stream << header_prefix << tablet_id << "_" << schema_hash;
     std::string key = key_stream.str();
@@ -87,7 +87,7 @@ OLAPStatus TabletMetaManager::save(DataDir* store,
 }
 
 OLAPStatus TabletMetaManager::save(DataDir* store,
-        TTabletId tablet_id, TSchemaHash schema_hash, const std::string& meta_binary, string header_prefix) {
+        TTabletId tablet_id, TSchemaHash schema_hash, const std::string& meta_binary, const string& header_prefix) {
     std::stringstream key_stream;
     key_stream << header_prefix << tablet_id << "_" << schema_hash;
     std::string key = key_stream.str();
@@ -96,7 +96,8 @@ OLAPStatus TabletMetaManager::save(DataDir* store,
     return meta->put(META_COLUMN_FAMILY_INDEX, key, meta_binary);
 }
 
-OLAPStatus TabletMetaManager::remove(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash, string header_prefix) {
+OLAPStatus TabletMetaManager::remove(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash,
+        const string& header_prefix) {
     std::stringstream key_stream;
     key_stream << header_prefix << tablet_id << "_" << schema_hash;
     std::string key = key_stream.str();
@@ -108,7 +109,7 @@ OLAPStatus TabletMetaManager::remove(DataDir* store, TTabletId tablet_id, TSchem
 }
 
 OLAPStatus TabletMetaManager::traverse_headers(OlapMeta* meta,
-        std::function<bool(long, long, const std::string&)> const& func, string header_prefix) {
+        std::function<bool(long, long, const std::string&)> const& func, const string& header_prefix) {
     auto traverse_header_func = [&func](const std::string& key, const std::string& value) -> bool {
         std::vector<std::string> parts;
         // key format: "hdr_" + tablet_id + "_" + schema_hash
@@ -117,8 +118,8 @@ OLAPStatus TabletMetaManager::traverse_headers(OlapMeta* meta,
             LOG(WARNING) << "invalid tablet_meta key:" << key << ", splitted size:" << parts.size();
             return true;
         }
-        TTabletId tablet_id = std::stol(parts[1].c_str(), NULL, 10);
-        TSchemaHash schema_hash = std::stol(parts[2].c_str(), NULL, 10);
+        TTabletId tablet_id = std::stol(parts[1].c_str(), nullptr, 10);
+        TSchemaHash schema_hash = std::stol(parts[2].c_str(), nullptr, 10);
         return func(tablet_id, schema_hash, value);
     };
     OLAPStatus status = meta->iterate(META_COLUMN_FAMILY_INDEX, header_prefix, traverse_header_func);

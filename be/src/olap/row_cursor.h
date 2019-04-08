@@ -78,13 +78,10 @@ public:
     OLAPStatus init_scan_key(const TabletSchema& schema,
                              const std::vector<std::string>& keys);
 
-    OLAPStatus init_scan_key(const TabletSchema& schema,
-                             const std::vector<size_t>& field_lengths);
-
     //allocate memory for string type, which include char, varchar, hyperloglog
     OLAPStatus allocate_memory_for_string_type(const TabletSchema& schema,
                                                MemPool* mem_pool = nullptr);
- 
+
     // 两个RowCurosr做比较，返回-1，0，1
     int cmp(const RowCursor& other) const;
 
