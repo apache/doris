@@ -270,6 +270,9 @@ OLAPStatus TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
     for (auto& it : tablet_meta_pb.inc_rs_metas()) {
         RowsetMetaSharedPtr rs_meta(new AlphaRowsetMeta());
         rs_meta->init_from_pb(it);
+        if (rs_meta->has_delete_predicate()) {
+            add_delete_predicate(rs_meta->delete_predicate(), rs_meta->version().first);	
+        }
         _inc_rs_metas.push_back(std::move(rs_meta));
     }
 

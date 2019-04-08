@@ -38,21 +38,9 @@ namespace doris {
 
 RowBlock::RowBlock(const TabletSchema* schema) :
         _capacity(0),
-        _schema(schema),
-        _columns(nullptr) {
-    if (_schema != nullptr) {
-        _columns = &_schema->columns();
-    }
+        _schema(schema) {
     _tracker.reset(new MemTracker(-1));
     _mem_pool.reset(new MemPool(_tracker.get()));
-}
-
-RowBlock::RowBlock(const std::vector<TabletColumn>& columns) :
-        _capacity(0),
-        _schema(nullptr),
-        _columns(&columns) {
-     _tracker.reset(new MemTracker(-1));
-     _mem_pool.reset(new MemPool(_tracker.get()));
 }
 
 RowBlock::~RowBlock() {
@@ -61,10 +49,7 @@ RowBlock::~RowBlock() {
 }
 
 OLAPStatus RowBlock::init(const RowBlockInfo& block_info) {
-    if (_columns == nullptr) {
-        return OLAP_ERR_INIT_FAILED;
-    }
-    _field_count = _columns->size();
+    _field_count = _schema->num_columns();
     _info = block_info;
     _null_supported = block_info.null_supported;
     _capacity = _info.row_num;
@@ -129,7 +114,7 @@ void RowBlock::_convert_storage_to_memory() {
     // some data file in history not suppored null
     size_t null_byte = has_nullbyte() ? 1 : 0;
     for (int col = 0; col < _field_count; ++col) {
-        const TabletColumn& column = _columns->at(col);
+        const TabletColumn& column = _schema->column(col);
         char* memory_ptr = _mem_buf + _field_offset_in_memory[col];
         if (column.type() == OLAP_FIELD_TYPE_VARCHAR ||
                 column.type() == OLAP_FIELD_TYPE_HLL) {
@@ -207,7 +192,7 @@ void RowBlock::_convert_memory_to_storage(uint32_t num_rows) {
     char* storage_variable_ptr = _storage_buf + num_rows * _storage_row_fixed_bytes;
     size_t null_byte = has_nullbyte() ? 1 : 0;
     for (int col = 0; col < _field_count; ++col) {
-        const TabletColumn& column = _columns->at(col);;
+        const TabletColumn& column = _schema->column(col);
         char* memory_ptr = _mem_buf + _field_offset_in_memory[col];
         if (column.type() == OLAP_FIELD_TYPE_VARCHAR ||
                 column.type() == OLAP_FIELD_TYPE_HLL) {
@@ -296,7 +281,7 @@ OLAPStatus RowBlock::find_row(const RowCursor& key,
 
     OLAPStatus res = OLAP_SUCCESS;
     RowCursor helper_cursor;
-    if ((res = helper_cursor.init(*_columns)) != OLAP_SUCCESS) {
+    if ((res = helper_cursor.init(*_schema)) != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("Init helper cursor fail. [res=%d]", res);
         return OLAP_ERR_INIT_FAILED;
     }
@@ -335,8 +320,8 @@ void RowBlock::_compute_layout() {
     size_t memory_size = 0;
     size_t storage_fixed_bytes = 0;
     size_t storage_variable_bytes = 0;
-    for (size_t col_id = 0; col_id < _columns->size(); ++col_id) {
-        const TabletColumn& column = _columns->at(col_id);
+    for (size_t col_id = 0; col_id < _schema->num_columns(); ++col_id) {
+        const TabletColumn& column = _schema->column(col_id);
         _field_offset_in_memory.push_back(memory_size);
 
         // All column has a nullbyte in memory

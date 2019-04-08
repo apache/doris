@@ -99,7 +99,7 @@ public:
         _length_buffers.clear();
     }
 
-    void CreateColumnWriter(const std::vector<TabletColumn>& tablet_schema) {
+    void CreateColumnWriter(const TabletSchema& tablet_schema) {
         _column_writer = ColumnWriter::create(
                 0, tablet_schema, _stream_factory, 1024, BLOOM_FILTER_DEFAULT_FPP);
         
@@ -107,7 +107,7 @@ public:
         ASSERT_EQ(_column_writer->init(), OLAP_SUCCESS);
     }
 
-    void CreateColumnReader(const std::vector<TabletColumn> &tablet_schema) {
+    void CreateColumnReader(const TabletSchema& tablet_schema) {
         UniqueIdEncodingMap encodings;
         encodings[0] = ColumnEncodingMessage();
         encodings[0].set_kind(ColumnEncodingMessage::DIRECT);
@@ -116,7 +116,7 @@ public:
     }
 
     void CreateColumnReader(
-            const std::vector<TabletColumn> &tablet_schema,
+            const TabletSchema& tablet_schema,
             UniqueIdEncodingMap &encodings) {
         UniqueIdToColumnIdMap included;
         included[0] = 0;
@@ -211,21 +211,20 @@ public:
                  std::string aggregation,
                  uint32_t length,
                  bool is_allow_null,
-                 bool is_key, std::vector<TabletColumn>* tablet_schema) {
-        ColumnPB column;
-        column.set_unique_id(0);
-        column.set_name(name);
-        column.set_type(type);
-        column.set_is_key(is_key);
-        column.set_is_nullable(is_allow_null);
-        column.set_length(length);
-        column.set_aggregation(aggregation);
-        column.set_precision(1000);
-        column.set_frac(1000);
-        column.set_is_bf_column(false);
-        TabletColumn tablet_column;
-        tablet_column.init_from_pb(column);
-        tablet_schema->push_back(tablet_column);
+                 bool is_key, TabletSchema* tablet_schema) {
+        TabletSchemaPB tablet_schema_pb;
+        ColumnPB* column = tablet_schema_pb.add_column();
+        column->set_unique_id(0);
+        column->set_name(name);
+        column->set_type(type);
+        column->set_is_key(is_key);
+        column->set_is_nullable(is_allow_null);
+        column->set_length(length);
+        column->set_aggregation(aggregation);
+        column->set_precision(1000);
+        column->set_frac(1000);
+        column->set_is_bf_column(false);
+        tablet_schema->init_from_pb(tablet_schema_pb);
     }
 
     void create_and_save_last_position() {
@@ -264,9 +263,9 @@ public:
 
 TEST_F(TestColumn, VectorizedTinyColumnWithoutPresent) {
     // write data
-    std::vector<TabletColumn> tablet_schema;
+    TabletSchema tablet_schema;
     SetTabletSchemaWithOneColumn(
-                "TinyColumn", 
+            "TinyColumn", 
             "TINYINT", 
             "REPLACE", 
             1, 
@@ -277,7 +276,7 @@ TEST_F(TestColumn, VectorizedTinyColumnWithoutPresent) {
     RowCursor write_row;
     write_row.init(tablet_schema);
 
-    RowBlock block(tablet_schema);
+    RowBlock block(&tablet_schema);
     RowBlockInfo block_info;
     block_info.row_num = 1024;
     block.init(block_info);
@@ -317,7 +316,7 @@ TEST_F(TestColumn, VectorizedTinyColumnWithoutPresent) {
 
 TEST_F(TestColumn, SeekTinyColumnWithoutPresent) {
     // write data
-    std::vector<TabletColumn> tablet_schema; 
+    TabletSchema tablet_schema;
     SetTabletSchemaWithOneColumn(
             "TinyColumn",
             "TINYINT",
@@ -332,7 +331,7 @@ TEST_F(TestColumn, SeekTinyColumnWithoutPresent) {
     RowCursor write_row;
     write_row.init(tablet_schema);
 
-    RowBlock block(tablet_schema);
+    RowBlock block(&tablet_schema);
     RowBlockInfo block_info;
     block_info.row_num = 1024;
     block.init(block_info);
@@ -403,7 +402,7 @@ TEST_F(TestColumn, SeekTinyColumnWithoutPresent) {
 
 TEST_F(TestColumn, SkipTinyColumnWithoutPresent) {
     // write data
-    std::vector<TabletColumn> tablet_schema;
+    TabletSchema tablet_schema;
     SetTabletSchemaWithOneColumn(
             "TinyColumn",
             "TINYINT",
@@ -418,7 +417,7 @@ TEST_F(TestColumn, SkipTinyColumnWithoutPresent) {
     RowCursor write_row;
     write_row.init(tablet_schema);
 
-    RowBlock block(tablet_schema);
+    RowBlock block(&tablet_schema);
     RowBlockInfo block_info;
     block_info.row_num = 1024;
     block.init(block_info);
@@ -458,7 +457,7 @@ TEST_F(TestColumn, SkipTinyColumnWithoutPresent) {
 
 TEST_F(TestColumn, VectorizedTinyColumnWithPresent) {
     // write data
-    std::vector<TabletColumn> tablet_schema;
+    TabletSchema tablet_schema;
     SetTabletSchemaWithOneColumn(
             "TinyColumn", 
             "TINYINT", 
@@ -472,7 +471,7 @@ TEST_F(TestColumn, VectorizedTinyColumnWithPresent) {
     RowCursor write_row;
     write_row.init(tablet_schema);
 
-    RowBlock block(tablet_schema);
+    RowBlock block(&tablet_schema);
     RowBlockInfo block_info;
     block_info.row_num = 1024;
     block.init(block_info);
@@ -510,7 +509,7 @@ TEST_F(TestColumn, VectorizedTinyColumnWithPresent) {
 
 TEST_F(TestColumn, TinyColumnIndex) {
     // write data
-    std::vector<TabletColumn> tablet_schema;
+    TabletSchema tablet_schema;
     SetTabletSchemaWithOneColumn(
             "TinyColumn", 
             "TINYINT", 
@@ -524,7 +523,7 @@ TEST_F(TestColumn, TinyColumnIndex) {
     RowCursor write_row;
     write_row.init(tablet_schema);
 
-    RowBlock block(tablet_schema);
+    RowBlock block(&tablet_schema);
     RowBlockInfo block_info;
     block_info.row_num = 1024;
     block.init(block_info);
@@ -562,7 +561,7 @@ TEST_F(TestColumn, TinyColumnIndex) {
 
 TEST_F(TestColumn, SeekTinyColumnWithPresent) {
     // write data
-    std::vector<TabletColumn> tablet_schema;
+    TabletSchema tablet_schema;
     SetTabletSchemaWithOneColumn(
             "TinyColumn", 
             "TINYINT", 
@@ -576,7 +575,7 @@ TEST_F(TestColumn, SeekTinyColumnWithPresent) {
     RowCursor write_row;
     write_row.init(tablet_schema);
 
-    RowBlock block(tablet_schema);
+    RowBlock block(&tablet_schema);
     RowBlockInfo block_info;
     block_info.row_num = 1024;
     block.init(block_info);
@@ -646,7 +645,7 @@ TEST_F(TestColumn, SeekTinyColumnWithPresent) {
 
 TEST_F(TestColumn, SkipTinyColumnWithPresent) {
     // write data
-    std::vector<TabletColumn> tablet_schema;
+    TabletSchema tablet_schema;
     SetTabletSchemaWithOneColumn(
             "TinyColumn", 
             "TINYINT", 
@@ -659,7 +658,7 @@ TEST_F(TestColumn, SkipTinyColumnWithPresent) {
     RowCursor write_row;
     write_row.init(tablet_schema);
 
-    RowBlock block(tablet_schema);
+    RowBlock block(&tablet_schema);
     RowBlockInfo block_info;
     block_info.row_num = 1024;
     block.init(block_info);
@@ -699,7 +698,7 @@ TEST_F(TestColumn, SkipTinyColumnWithPresent) {
 
 TEST_F(TestColumn, VectorizedShortColumnWithoutPresent) {
     // write data
-    std::vector<TabletColumn> tablet_schema;
+    TabletSchema tablet_schema;
     SetTabletSchemaWithOneColumn(
             "ShortColumn", 
             "SMALLINT", 
@@ -712,7 +711,7 @@ TEST_F(TestColumn, VectorizedShortColumnWithoutPresent) {
     RowCursor write_row;
     write_row.init(tablet_schema);
 
-    RowBlock block(tablet_schema);
+    RowBlock block(&tablet_schema);
     RowBlockInfo block_info;
     block_info.row_num = 1024;
     block.init(block_info);
@@ -750,7 +749,7 @@ TEST_F(TestColumn, VectorizedShortColumnWithoutPresent) {
 
 TEST_F(TestColumn, SeekShortColumnWithoutPresent) {
     // write data
-    std::vector<TabletColumn> tablet_schema;
+    TabletSchema tablet_schema;
     SetTabletSchemaWithOneColumn(
             "ShortColumn", 
             "SMALLINT", 
@@ -763,7 +762,7 @@ TEST_F(TestColumn, SeekShortColumnWithoutPresent) {
     RowCursor write_row;
     write_row.init(tablet_schema);
 
-    RowBlock block(tablet_schema);
+    RowBlock block(&tablet_schema);
     RowBlockInfo block_info;
     block_info.row_num = 1024;
     block.init(block_info);
@@ -832,7 +831,7 @@ TEST_F(TestColumn, SeekShortColumnWithoutPresent) {
 
 TEST_F(TestColumn, SkipShortColumnWithoutPresent) {
     // write data
-    std::vector<TabletColumn> tablet_schema;
+    TabletSchema tablet_schema;
     SetTabletSchemaWithOneColumn(
             "ShortColumn", 
             "SMALLINT", 
@@ -845,7 +844,7 @@ TEST_F(TestColumn, SkipShortColumnWithoutPresent) {
     RowCursor write_row;
     write_row.init(tablet_schema);
 
-    RowBlock block(tablet_schema);
+    RowBlock block(&tablet_schema);
     RowBlockInfo block_info;
     block_info.row_num = 1024;
     block.init(block_info);
@@ -885,7 +884,7 @@ TEST_F(TestColumn, SkipShortColumnWithoutPresent) {
 
 TEST_F(TestColumn, SeekShortColumnWithPresent) {
     // write data
-    std::vector<TabletColumn> tablet_schema;
+    TabletSchema tablet_schema;
     SetTabletSchemaWithOneColumn(
             "ShortColumn", 
             "SMALLINT", 
@@ -898,7 +897,7 @@ TEST_F(TestColumn, SeekShortColumnWithPresent) {
     RowCursor write_row;
     write_row.init(tablet_schema);
 
-    RowBlock block(tablet_schema);
+    RowBlock block(&tablet_schema);
     RowBlockInfo block_info;
     block_info.row_num = 1024;
     block.init(block_info);
@@ -964,7 +963,7 @@ TEST_F(TestColumn, SeekShortColumnWithPresent) {
 
 TEST_F(TestColumn, VectorizedShortColumnWithPresent) {
     // write data
-    std::vector<TabletColumn> tablet_schema;
+    TabletSchema tablet_schema;
     
     SetTabletSchemaWithOneColumn(
             "ShortColumn", 
@@ -978,7 +977,7 @@ TEST_F(TestColumn, VectorizedShortColumnWithPresent) {
     RowCursor write_row;
     write_row.init(tablet_schema);
 
-    RowBlock block(tablet_schema);
+    RowBlock block(&tablet_schema);
     RowBlockInfo block_info;
     block_info.row_num = 1024;
     block.init(block_info);
@@ -1018,7 +1017,7 @@ TEST_F(TestColumn, VectorizedShortColumnWithPresent) {
 
 TEST_F(TestColumn, SkipShortColumnWithPresent) {
     // write data
-    std::vector<TabletColumn> tablet_schema;
+    TabletSchema tablet_schema;
     SetTabletSchemaWithOneColumn(
             "ShortColumn", 
             "SMALLINT", 
@@ -1031,7 +1030,7 @@ TEST_F(TestColumn, SkipShortColumnWithPresent) {
     RowCursor write_row;
     write_row.init(tablet_schema);
 
-    RowBlock block(tablet_schema);
+    RowBlock block(&tablet_schema);
     RowBlockInfo block_info;
     block_info.row_num = 1024;
     block.init(block_info);
@@ -1070,7 +1069,7 @@ TEST_F(TestColumn, SkipShortColumnWithPresent) {
 
 TEST_F(TestColumn, VectorizedIntColumnWithoutPresent) {
     // write data
-    std::vector<TabletColumn> tablet_schema;
+    TabletSchema tablet_schema;
     SetTabletSchemaWithOneColumn(
             "IntColumn", 
             "INT", 
@@ -1083,7 +1082,7 @@ TEST_F(TestColumn, VectorizedIntColumnWithoutPresent) {
     RowCursor write_row;
     write_row.init(tablet_schema);
 
-    RowBlock block(tablet_schema);
+    RowBlock block(&tablet_schema);
     RowBlockInfo block_info;
     block_info.row_num = 1024;
     block.init(block_info);
@@ -1121,7 +1120,7 @@ TEST_F(TestColumn, VectorizedIntColumnWithoutPresent) {
 
 TEST_F(TestColumn, VectorizedIntColumnMassWithoutPresent) {
     // write data
-    std::vector<TabletColumn> tablet_schema;
+    TabletSchema tablet_schema;
     SetTabletSchemaWithOneColumn(
             "IntColumn", 
             "INT", 
@@ -1134,7 +1133,7 @@ TEST_F(TestColumn, VectorizedIntColumnMassWithoutPresent) {
     RowCursor write_row;
     write_row.init(tablet_schema);
 
-    RowBlock block(tablet_schema);
+    RowBlock block(&tablet_schema);
     RowBlockInfo block_info;
     block_info.row_num = 10000;
     block.init(block_info);
@@ -1174,7 +1173,7 @@ TEST_F(TestColumn, VectorizedIntColumnMassWithoutPresent) {
 
 TEST_F(TestColumn, VectorizedIntColumnWithPresent) {
     // write data
-    std::vector<TabletColumn> tablet_schema;
+    TabletSchema tablet_schema;
     SetTabletSchemaWithOneColumn(
             "IntColumn", 
             "INT", 
@@ -1187,7 +1186,7 @@ TEST_F(TestColumn, VectorizedIntColumnWithPresent) {
     RowCursor write_row;
     write_row.init(tablet_schema);
 
-    RowBlock block(tablet_schema);
+    RowBlock block(&tablet_schema);
     RowBlockInfo block_info;
     block_info.row_num = 10000;
     block.init(block_info);
@@ -1228,7 +1227,7 @@ TEST_F(TestColumn, VectorizedIntColumnWithPresent) {
 
 TEST_F(TestColumn, VectorizedLongColumnWithoutPresent) {
     // write data
-    std::vector<TabletColumn> tablet_schema;
+    TabletSchema tablet_schema;
     SetTabletSchemaWithOneColumn(
             "LongColumnWithoutPresent", 
             "BIGINT", 
@@ -1241,7 +1240,7 @@ TEST_F(TestColumn, VectorizedLongColumnWithoutPresent) {
     RowCursor write_row;
     write_row.init(tablet_schema);
 
-    RowBlock block(tablet_schema);
+    RowBlock block(&tablet_schema);
     RowBlockInfo block_info;
     block_info.row_num = 10000;
     block.init(block_info);
@@ -1280,7 +1279,7 @@ TEST_F(TestColumn, VectorizedLongColumnWithoutPresent) {
 
 TEST_F(TestColumn, VectorizedLongColumnWithPresent) {
     // write data
-    std::vector<TabletColumn> tablet_schema;
+    TabletSchema tablet_schema;
     SetTabletSchemaWithOneColumn(
             "LongColumnWithPresent", 
             "BIGINT", 
@@ -1293,7 +1292,7 @@ TEST_F(TestColumn, VectorizedLongColumnWithPresent) {
     RowCursor write_row;
     write_row.init(tablet_schema);
 
-    RowBlock block(tablet_schema);
+    RowBlock block(&tablet_schema);
     RowBlockInfo block_info;
     block_info.row_num = 10000;
     block.init(block_info);
@@ -1334,7 +1333,7 @@ TEST_F(TestColumn, VectorizedLongColumnWithPresent) {
 
 TEST_F(TestColumn, VectorizedFloatColumnWithoutPresent) {
     // write data
-    std::vector<TabletColumn> tablet_schema;
+    TabletSchema tablet_schema;
     SetTabletSchemaWithOneColumn(
             "FloatColumnWithoutPresent", 
             "FLOAT", 
@@ -1347,7 +1346,7 @@ TEST_F(TestColumn, VectorizedFloatColumnWithoutPresent) {
     RowCursor write_row;
     write_row.init(tablet_schema);
 
-    RowBlock block(tablet_schema);
+    RowBlock block(&tablet_schema);
     RowBlockInfo block_info;
     block_info.row_num = 10000;
     block.init(block_info);
@@ -1387,7 +1386,7 @@ TEST_F(TestColumn, VectorizedFloatColumnWithoutPresent) {
 
 TEST_F(TestColumn, VectorizedFloatColumnWithPresent) {
     // write data
-    std::vector<TabletColumn> tablet_schema;
+    TabletSchema tablet_schema;
     
     SetTabletSchemaWithOneColumn(
             "FloatColumnWithPresent", 
@@ -1401,7 +1400,7 @@ TEST_F(TestColumn, VectorizedFloatColumnWithPresent) {
     RowCursor write_row;
     write_row.init(tablet_schema);
 
-    RowBlock block(tablet_schema);
+    RowBlock block(&tablet_schema);
     RowBlockInfo block_info;
     block_info.row_num = 10000;
     block.init(block_info);
@@ -1442,7 +1441,7 @@ TEST_F(TestColumn, VectorizedFloatColumnWithPresent) {
 
 TEST_F(TestColumn, SeekFloatColumnWithPresent) {
     // write data
-    std::vector<TabletColumn> tablet_schema;
+    TabletSchema tablet_schema;
     
     SetTabletSchemaWithOneColumn(
             "FloatColumnWithPresent", 
@@ -1456,7 +1455,7 @@ TEST_F(TestColumn, SeekFloatColumnWithPresent) {
     RowCursor write_row;
     write_row.init(tablet_schema);
 
-    RowBlock block(tablet_schema);
+    RowBlock block(&tablet_schema);
     RowBlockInfo block_info;
     block_info.row_num = 10000;
     block.init(block_info);
@@ -1513,7 +1512,7 @@ TEST_F(TestColumn, SeekFloatColumnWithPresent) {
 
 TEST_F(TestColumn, SkipFloatColumnWithPresent) {
     // write data
-    std::vector<TabletColumn> tablet_schema;
+    TabletSchema tablet_schema;
     
     SetTabletSchemaWithOneColumn(
             "FloatColumnWithPresent", 
@@ -1527,7 +1526,7 @@ TEST_F(TestColumn, SkipFloatColumnWithPresent) {
     RowCursor write_row;
     write_row.init(tablet_schema);
 
-    RowBlock block(tablet_schema);
+    RowBlock block(&tablet_schema);
     RowBlockInfo block_info;
     block_info.row_num = 10000;
     block.init(block_info);
@@ -1564,7 +1563,7 @@ TEST_F(TestColumn, SkipFloatColumnWithPresent) {
 
 TEST_F(TestColumn, VectorizedDoubleColumnWithoutPresent) {
     // write data
-    std::vector<TabletColumn> tablet_schema;
+    TabletSchema tablet_schema;
     
     SetTabletSchemaWithOneColumn(
             "DoubleColumnWithoutPresent", 
@@ -1578,7 +1577,7 @@ TEST_F(TestColumn, VectorizedDoubleColumnWithoutPresent) {
     RowCursor write_row;
     write_row.init(tablet_schema);
 
-    RowBlock block(tablet_schema);
+    RowBlock block(&tablet_schema);
     RowBlockInfo block_info;
     block_info.row_num = 10000;
     block.init(block_info);
@@ -1618,7 +1617,7 @@ TEST_F(TestColumn, VectorizedDoubleColumnWithoutPresent) {
 
 TEST_F(TestColumn, VectorizedDoubleColumnWithPresent) {
     // write data
-    std::vector<TabletColumn> tablet_schema;
+    TabletSchema tablet_schema;
     
     SetTabletSchemaWithOneColumn(
             "DoubleColumnWithPresent", 
@@ -1632,7 +1631,7 @@ TEST_F(TestColumn, VectorizedDoubleColumnWithPresent) {
     RowCursor write_row;
     write_row.init(tablet_schema);
 
-    RowBlock block(tablet_schema);
+    RowBlock block(&tablet_schema);
     RowBlockInfo block_info;
     block_info.row_num = 10000;
     block.init(block_info);
@@ -1674,7 +1673,7 @@ TEST_F(TestColumn, VectorizedDoubleColumnWithPresent) {
 
 TEST_F(TestColumn, VectorizedDatetimeColumnWithoutPresent) {
     // write data
-    std::vector<TabletColumn> tablet_schema;
+    TabletSchema tablet_schema;
     
     SetTabletSchemaWithOneColumn(
             "DatetimeColumnWithoutPresent", 
@@ -1688,7 +1687,7 @@ TEST_F(TestColumn, VectorizedDatetimeColumnWithoutPresent) {
     RowCursor write_row;
     write_row.init(tablet_schema);
 
-    RowBlock block(tablet_schema);
+    RowBlock block(&tablet_schema);
     RowBlockInfo block_info;
     block_info.row_num = 10000;
     block.init(block_info);
@@ -1721,7 +1720,7 @@ TEST_F(TestColumn, VectorizedDatetimeColumnWithoutPresent) {
 
 TEST_F(TestColumn, VectorizedDatetimeColumnWithPresent) {
     // write data
-    std::vector<TabletColumn> tablet_schema;
+    TabletSchema tablet_schema;
     
     SetTabletSchemaWithOneColumn(
             "DatetimeColumnWithoutPresent", 
@@ -1735,7 +1734,7 @@ TEST_F(TestColumn, VectorizedDatetimeColumnWithPresent) {
     RowCursor write_row;
     write_row.init(tablet_schema);
 
-    RowBlock block(tablet_schema);
+    RowBlock block(&tablet_schema);
     RowBlockInfo block_info;
     block_info.row_num = 10000;
     block.init(block_info);
@@ -1783,7 +1782,7 @@ TEST_F(TestColumn, VectorizedDatetimeColumnWithPresent) {
 
 TEST_F(TestColumn, VectorizedDateColumnWithoutPresent) {
     // write data
-    std::vector<TabletColumn> tablet_schema;
+    TabletSchema tablet_schema;
     
     SetTabletSchemaWithOneColumn(
             "DateColumnWithoutoutPresent", 
@@ -1797,7 +1796,7 @@ TEST_F(TestColumn, VectorizedDateColumnWithoutPresent) {
     RowCursor write_row;
     write_row.init(tablet_schema);
 
-    RowBlock block(tablet_schema);
+    RowBlock block(&tablet_schema);
     RowBlockInfo block_info;
     block_info.row_num = 10000;
     block.init(block_info);
@@ -1829,7 +1828,7 @@ TEST_F(TestColumn, VectorizedDateColumnWithoutPresent) {
 
 TEST_F(TestColumn, VectorizedDateColumnWithPresent) {
     // write data
-    std::vector<TabletColumn> tablet_schema;
+    TabletSchema tablet_schema;
     
     SetTabletSchemaWithOneColumn(
             "DateColumnWithoutoutPresent", 
@@ -1843,7 +1842,7 @@ TEST_F(TestColumn, VectorizedDateColumnWithPresent) {
     RowCursor write_row;
     write_row.init(tablet_schema);
 
-    RowBlock block(tablet_schema);
+    RowBlock block(&tablet_schema);
     RowBlockInfo block_info;
     block_info.row_num = 10000;
     block.init(block_info);
@@ -1891,7 +1890,7 @@ TEST_F(TestColumn, VectorizedDateColumnWithPresent) {
 
 TEST_F(TestColumn, VectorizedDecimalColumnWithoutPresent) {
     // write data
-    std::vector<TabletColumn> tablet_schema;
+    TabletSchema tablet_schema;
     
     SetTabletSchemaWithOneColumn(
             "DecimalColumnWithoutoutPresent", 
@@ -1905,7 +1904,7 @@ TEST_F(TestColumn, VectorizedDecimalColumnWithoutPresent) {
     RowCursor write_row;
     write_row.init(tablet_schema);
 
-    RowBlock block(tablet_schema);
+    RowBlock block(&tablet_schema);
     RowBlockInfo block_info;
     block_info.row_num = 10000;
     block.init(block_info);
@@ -1950,7 +1949,7 @@ TEST_F(TestColumn, VectorizedDecimalColumnWithoutPresent) {
 
 TEST_F(TestColumn, VectorizedDecimalColumnWithPresent) {
     // write data
-    std::vector<TabletColumn> tablet_schema;
+    TabletSchema tablet_schema;
     
     SetTabletSchemaWithOneColumn(
             "DecimalColumnWithoutoutPresent", 
@@ -1964,7 +1963,7 @@ TEST_F(TestColumn, VectorizedDecimalColumnWithPresent) {
     RowCursor write_row;
     write_row.init(tablet_schema);
 
-    RowBlock block(tablet_schema);
+    RowBlock block(&tablet_schema);
     RowBlockInfo block_info;
     block_info.row_num = 10000;
     block.init(block_info);
@@ -2009,7 +2008,7 @@ TEST_F(TestColumn, VectorizedDecimalColumnWithPresent) {
 
 TEST_F(TestColumn, SkipDecimalColumnWithPresent) {
     // write data
-    std::vector<TabletColumn> tablet_schema;
+    TabletSchema tablet_schema;
     
     SetTabletSchemaWithOneColumn(
             "DecimalColumnWithPresent", 
@@ -2023,7 +2022,7 @@ TEST_F(TestColumn, SkipDecimalColumnWithPresent) {
     RowCursor write_row;
     write_row.init(tablet_schema);
 
-    RowBlock block(tablet_schema);
+    RowBlock block(&tablet_schema);
     RowBlockInfo block_info;
     block_info.row_num = 10000;
     block.init(block_info);
@@ -2064,7 +2063,7 @@ TEST_F(TestColumn, SkipDecimalColumnWithPresent) {
 
 TEST_F(TestColumn, SeekDecimalColumnWithPresent) {
     // write data
-    std::vector<TabletColumn> tablet_schema;
+    TabletSchema tablet_schema;
     SetTabletSchemaWithOneColumn(
             "DecimalColumnWithPresent", 
             "DECIMAL", 
@@ -2077,7 +2076,7 @@ TEST_F(TestColumn, SeekDecimalColumnWithPresent) {
     RowCursor write_row;
     write_row.init(tablet_schema);
 
-    RowBlock block(tablet_schema);
+    RowBlock block(&tablet_schema);
     RowBlockInfo block_info;
     block_info.row_num = 10000;
     block.init(block_info);
@@ -2145,7 +2144,7 @@ TEST_F(TestColumn, SeekDecimalColumnWithPresent) {
 
 TEST_F(TestColumn, VectorizedLargeIntColumnWithoutPresent) {
     // init tablet schema
-    std::vector<TabletColumn> tablet_schema;
+    TabletSchema tablet_schema;
     
     SetTabletSchemaWithOneColumn(
             "LargeIntColumnWithoutoutPresent", 
@@ -2163,7 +2162,7 @@ TEST_F(TestColumn, VectorizedLargeIntColumnWithoutPresent) {
     RowCursor write_row;
     write_row.init(tablet_schema);
 
-    RowBlock block(tablet_schema);
+    RowBlock block(&tablet_schema);
     RowBlockInfo block_info;
     block_info.row_num = 10000;
     block.init(block_info);
@@ -2207,7 +2206,7 @@ TEST_F(TestColumn, VectorizedLargeIntColumnWithoutPresent) {
 
 TEST_F(TestColumn, VectorizedLargeIntColumnWithPresent) {
     // init tablet schema
-    std::vector<TabletColumn> tablet_schema;
+    TabletSchema tablet_schema;
     
     SetTabletSchemaWithOneColumn(
             "LargeIntColumnWithoutoutPresent", 
@@ -2227,7 +2226,7 @@ TEST_F(TestColumn, VectorizedLargeIntColumnWithPresent) {
     RowCursor write_row;
     write_row.init(tablet_schema);
 
-    RowBlock block(tablet_schema);
+    RowBlock block(&tablet_schema);
     RowBlockInfo block_info;
     block_info.row_num = 10000;
     block.init(block_info);
@@ -2286,7 +2285,7 @@ TEST_F(TestColumn, VectorizedLargeIntColumnWithPresent) {
 
 TEST_F(TestColumn, SkipLargeIntColumnWithPresent) {
     // init tablet schema
-    std::vector<TabletColumn> tablet_schema;
+    TabletSchema tablet_schema;
     
     SetTabletSchemaWithOneColumn(
             "LargeIntColumnWithPresent", 
@@ -2304,7 +2303,7 @@ TEST_F(TestColumn, SkipLargeIntColumnWithPresent) {
     RowCursor write_row;
     write_row.init(tablet_schema);
 
-    RowBlock block(tablet_schema);
+    RowBlock block(&tablet_schema);
     RowBlockInfo block_info;
     block_info.row_num = 10000;
     block.init(block_info);
@@ -2345,7 +2344,7 @@ TEST_F(TestColumn, SkipLargeIntColumnWithPresent) {
 
 TEST_F(TestColumn, VectorizedDirectVarcharColumnWithoutPresent) {
     // write data
-    std::vector<TabletColumn> tablet_schema;
+    TabletSchema tablet_schema;
     
     SetTabletSchemaWithOneColumn(
             "DirectVarcharColumnWithoutoutPresent", 
@@ -2361,7 +2360,7 @@ TEST_F(TestColumn, VectorizedDirectVarcharColumnWithoutPresent) {
     write_row.init(tablet_schema);
     write_row.allocate_memory_for_string_type(tablet_schema);
 
-    RowBlock block(tablet_schema);
+    RowBlock block(&tablet_schema);
     RowBlockInfo block_info;
     block_info.row_num = 10000;
     block.init(block_info);
@@ -2418,7 +2417,7 @@ TEST_F(TestColumn, VectorizedDirectVarcharColumnWithoutPresent) {
 
 TEST_F(TestColumn, VectorizedDirectVarcharColumnWithPresent) {
     // write data
-    std::vector<TabletColumn> tablet_schema;
+    TabletSchema tablet_schema;
     SetTabletSchemaWithOneColumn(
             "DirectVarcharColumnWithoutoutPresent", 
             "VARCHAR", 
@@ -2432,7 +2431,7 @@ TEST_F(TestColumn, VectorizedDirectVarcharColumnWithPresent) {
     write_row.init(tablet_schema);
     write_row.allocate_memory_for_string_type(tablet_schema);
 
-    RowBlock block(tablet_schema);
+    RowBlock block(&tablet_schema);
     RowBlockInfo block_info;
     block_info.row_num = 10000;
     block.init(block_info);
@@ -2475,7 +2474,7 @@ TEST_F(TestColumn, VectorizedDirectVarcharColumnWithPresent) {
 
 TEST_F(TestColumn, SkipDirectVarcharColumnWithPresent) {
     // write data
-    std::vector<TabletColumn> tablet_schema;
+    TabletSchema tablet_schema;
     
     SetTabletSchemaWithOneColumn(
             "DirectVarcharColumnWithPresent", 
@@ -2490,7 +2489,7 @@ TEST_F(TestColumn, SkipDirectVarcharColumnWithPresent) {
     write_row.init(tablet_schema);
     write_row.allocate_memory_for_string_type(tablet_schema);
 
-    RowBlock block(tablet_schema);
+    RowBlock block(&tablet_schema);
     RowBlockInfo block_info;
     block_info.row_num = 10000;
     block.init(block_info);
@@ -2533,7 +2532,7 @@ TEST_F(TestColumn, SkipDirectVarcharColumnWithPresent) {
 
 TEST_F(TestColumn, SeekDirectVarcharColumnWithoutPresent) {
     // write data
-    std::vector<TabletColumn> tablet_schema;
+    TabletSchema tablet_schema;
     
     SetTabletSchemaWithOneColumn(
             "DirectVarcharColumnWithPresent", 
@@ -2548,7 +2547,7 @@ TEST_F(TestColumn, SeekDirectVarcharColumnWithoutPresent) {
     write_row.init(tablet_schema);
     write_row.allocate_memory_for_string_type(tablet_schema);
 
-    RowBlock block(tablet_schema);
+    RowBlock block(&tablet_schema);
     RowBlockInfo block_info;
     block_info.row_num = 10000;
     block.init(block_info);
@@ -2613,7 +2612,7 @@ TEST_F(TestColumn, SeekDirectVarcharColumnWithoutPresent) {
 
 TEST_F(TestColumn, SeekDirectVarcharColumnWithPresent) {
     // write data
-    std::vector<TabletColumn> tablet_schema;
+    TabletSchema tablet_schema;
     
     SetTabletSchemaWithOneColumn(
             "DirectVarcharColumnWithPresent", 
@@ -2628,7 +2627,7 @@ TEST_F(TestColumn, SeekDirectVarcharColumnWithPresent) {
     write_row.init(tablet_schema);
     write_row.allocate_memory_for_string_type(tablet_schema);
 
-    RowBlock block(tablet_schema);
+    RowBlock block(&tablet_schema);
     RowBlockInfo block_info;
     block_info.row_num = 10000;
     block.init(block_info);
@@ -2693,7 +2692,7 @@ TEST_F(TestColumn, SeekDirectVarcharColumnWithPresent) {
 
 TEST_F(TestColumn, VectorizedStringColumnWithoutPresent) {
     // write data
-    std::vector<TabletColumn> tablet_schema;
+    TabletSchema tablet_schema;
     SetTabletSchemaWithOneColumn(
             "VarcharColumnWithoutoutPresent", 
             "CHAR", 
@@ -2707,7 +2706,7 @@ TEST_F(TestColumn, VectorizedStringColumnWithoutPresent) {
     write_row.init(tablet_schema);
     write_row.allocate_memory_for_string_type(tablet_schema);
 
-    RowBlock block(tablet_schema);
+    RowBlock block(&tablet_schema);
     RowBlockInfo block_info;
     block_info.row_num = 10000;
     block.init(block_info);
@@ -2764,7 +2763,7 @@ TEST_F(TestColumn, VectorizedStringColumnWithoutPresent) {
 
 TEST_F(TestColumn, VectorizedStringColumnWithPresent) {
     // write data
-    std::vector<TabletColumn> tablet_schema;
+    TabletSchema tablet_schema;
     SetTabletSchemaWithOneColumn(
             "VarcharColumnWithoutoutPresent", 
             "CHAR", 
@@ -2778,7 +2777,7 @@ TEST_F(TestColumn, VectorizedStringColumnWithPresent) {
     write_row.init(tablet_schema);
     write_row.allocate_memory_for_string_type(tablet_schema);
 
-    RowBlock block(tablet_schema);
+    RowBlock block(&tablet_schema);
     RowBlockInfo block_info;
     block_info.row_num = 10000;
     block.init(block_info);
@@ -2819,7 +2818,7 @@ TEST_F(TestColumn, VectorizedStringColumnWithPresent) {
 
 TEST_F(TestColumn, VectorizedStringColumnWithoutoutPresent2) {
     // write data
-    std::vector<TabletColumn> tablet_schema;
+    TabletSchema tablet_schema;
     SetTabletSchemaWithOneColumn(
             "VarcharColumnWithoutoutPresent", 
             "CHAR", 
@@ -2833,7 +2832,7 @@ TEST_F(TestColumn, VectorizedStringColumnWithoutoutPresent2) {
     write_row.init(tablet_schema);
     write_row.allocate_memory_for_string_type(tablet_schema);
 
-    RowBlock block(tablet_schema);
+    RowBlock block(&tablet_schema);
     RowBlockInfo block_info;
     block_info.row_num = 10000;
     block.init(block_info);
@@ -2910,7 +2909,7 @@ TEST_F(TestColumn, VectorizedStringColumnWithoutoutPresent2) {
 
 TEST_F(TestColumn, VectorizedDirectVarcharColumnWith65533) {
     // write data
-    std::vector<TabletColumn> tablet_schema;
+    TabletSchema tablet_schema;
     SetTabletSchemaWithOneColumn(
             "DirectVarcharColumnWithoutoutPresent", 
             "VARCHAR", 
@@ -2924,7 +2923,7 @@ TEST_F(TestColumn, VectorizedDirectVarcharColumnWith65533) {
     write_row.init(tablet_schema);
     write_row.allocate_memory_for_string_type(tablet_schema);
 
-    RowBlock block(tablet_schema);
+    RowBlock block(&tablet_schema);
     RowBlockInfo block_info;
     block_info.row_num = 10000;
     block.init(block_info);

@@ -99,27 +99,28 @@ public: \
             delete _vectorized_batch; \
         } \
     } \
-    void SetTabletColumn(std::string name, \
-            std::string type, std::string aggregation, \
-            uint32_t length, bool is_allow_null, bool is_key, TabletColumn* tablet_column) { \
+    void SetTabletSchema(std::string name, \
+            const std::string& type, const std::string& aggregation, \
+            uint32_t length, bool is_allow_null, bool is_key, TabletSchema* tablet_schema) { \
+        TabletSchemaPB tablet_schema_pb; \
         static int id = 0; \
-        ColumnPB column; \
-        column.set_unique_id(++id); \
-        column.set_name(name); \
-        column.set_type(type); \
-        column.set_is_key(is_key); \
-        column.set_is_nullable(is_allow_null); \
-        column.set_length(length); \
-        column.set_aggregation(aggregation); \
-        column.set_precision(1000); \
-        column.set_frac(1000); \
-        column.set_is_bf_column(false); \
-        tablet_column->init_from_pb(column); \
+        ColumnPB* column = tablet_schema_pb.add_column(); \
+        column->set_unique_id(++id); \
+        column->set_name(name); \
+        column->set_type(type); \
+        column->set_is_key(is_key); \
+        column->set_is_nullable(is_allow_null); \
+        column->set_length(length); \
+        column->set_aggregation(aggregation); \
+        column->set_precision(1000); \
+        column->set_frac(1000); \
+        column->set_is_bf_column(false); \
+        tablet_schema->init_from_pb(tablet_schema_pb); \
     } \
-    void InitVectorizedBatch(const std::vector<TabletColumn>* schema, \
+    void InitVectorizedBatch(const TabletSchema* tablet_schema, \
                              const std::vector<uint32_t>&ids, \
                              int size) { \
-        _vectorized_batch = new VectorizedRowBatch(schema, ids, size); \
+        _vectorized_batch = new VectorizedRowBatch(tablet_schema, ids, size); \
         _vectorized_batch->set_size(size); \
     } \
     std::unique_ptr<MemTracker> _mem_tracker; \
@@ -132,17 +133,15 @@ TEST_PREDICATE_DEFINITION(TestLessPredicate)
 
 #define TEST_EQUAL_PREDICATE(TYPE, TYPE_NAME, FIELD_TYPE) \
 TEST_F(TestEqualPredicate, TYPE_NAME##_COLUMN) { \
-    std::vector<TabletColumn> schema; \
-    TabletColumn tablet_column; \
-    SetTabletColumn(std::string("TYPE_NAME##_COLUMN"), FIELD_TYPE, \
-                 "REPLACE", 1, false, true, &tablet_column); \
-    schema.push_back(tablet_column); \
+    TabletSchema tablet_schema; \
+    SetTabletSchema(std::string("TYPE_NAME##_COLUMN"), FIELD_TYPE, \
+                 "REPLACE", 1, false, true, &tablet_schema); \
     int size = 10; \
     std::vector<uint32_t> return_columns; \
-    for (int i = 0; i < schema.size(); ++i) { \
+    for (int i = 0; i < tablet_schema.num_columns(); ++i) { \
         return_columns.push_back(i); \
     } \
-    InitVectorizedBatch(&schema, return_columns, size); \
+    InitVectorizedBatch(&tablet_schema, return_columns, size); \
     ColumnVector* col_vector = _vectorized_batch->column(0); \
     \
     /* for no nulls */ \
@@ -186,17 +185,15 @@ TEST_EQUAL_PREDICATE(int64_t, BIGINT, "BIGINT")
 TEST_EQUAL_PREDICATE(int128_t, LARGEINT, "LARGEINT")
 
 TEST_F(TestEqualPredicate, FLOAT_COLUMN) {
-    std::vector<TabletColumn> schema;
-    TabletColumn tablet_column;
-    SetTabletColumn(std::string("FLOAT_COLUMN"), "FLOAT",
-                 "REPLACE", 1, false, true, &tablet_column);
-    schema.push_back(tablet_column);
+    TabletSchema tablet_schema;
+    SetTabletSchema(std::string("FLOAT_COLUMN"), "FLOAT",
+                 "REPLACE", 1, false, true, &tablet_schema);
     int size = 10;
     std::vector<uint32_t> return_columns;
-    for (int i = 0; i < schema.size(); ++i) {
+    for (int i = 0; i < tablet_schema.num_columns(); ++i) {
         return_columns.push_back(i);
     }
-    InitVectorizedBatch(&schema, return_columns, size);
+    InitVectorizedBatch(&tablet_schema, return_columns, size);
     ColumnVector* col_vector = _vectorized_batch->column(0);
 
     // for no nulls
@@ -234,17 +231,15 @@ TEST_F(TestEqualPredicate, FLOAT_COLUMN) {
 }
 
 TEST_F(TestEqualPredicate, DOUBLE_COLUMN) {
-    std::vector<TabletColumn> schema;
-    TabletColumn tablet_column;
-    SetTabletColumn(std::string("DOUBLE_COLUMN"), "DOUBLE",
-                 "REPLACE", 1, false, true, &tablet_column);
-    schema.push_back(tablet_column);
+    TabletSchema tablet_schema;
+    SetTabletSchema(std::string("DOUBLE_COLUMN"), "DOUBLE",
+                 "REPLACE", 1, false, true, &tablet_schema);
     int size = 10;
     std::vector<uint32_t> return_columns;
-    for (int i = 0; i < schema.size(); ++i) {
+    for (int i = 0; i < tablet_schema.num_columns(); ++i) {
         return_columns.push_back(i);
     }
-    InitVectorizedBatch(&schema, return_columns, size);
+    InitVectorizedBatch(&tablet_schema, return_columns, size);
     ColumnVector* col_vector = _vectorized_batch->column(0);
 
     // for no nulls
@@ -282,17 +277,15 @@ TEST_F(TestEqualPredicate, DOUBLE_COLUMN) {
 }
 
 TEST_F(TestEqualPredicate, DECIMAL_COLUMN) {
-    std::vector<TabletColumn> schema;
-    TabletColumn tablet_column;
-    SetTabletColumn(std::string("DECIMAL_COLUMN"), "DECIMAL",
-                 "REPLACE", 1, false, true, &tablet_column);
-    schema.push_back(tablet_column);
+    TabletSchema tablet_schema;
+    SetTabletSchema(std::string("DECIMAL_COLUMN"), "DECIMAL",
+                 "REPLACE", 1, false, true, &tablet_schema);
     int size = 10;
     std::vector<uint32_t> return_columns;
-    for (int i = 0; i < schema.size(); ++i) {
+    for (int i = 0; i < tablet_schema.num_columns(); ++i) {
         return_columns.push_back(i);
     }
-    InitVectorizedBatch(&schema, return_columns, size);
+    InitVectorizedBatch(&tablet_schema, return_columns, size);
     ColumnVector* col_vector = _vectorized_batch->column(0);
 
     // for no nulls
@@ -333,17 +326,15 @@ TEST_F(TestEqualPredicate, DECIMAL_COLUMN) {
 }
 
 TEST_F(TestEqualPredicate, STRING_COLUMN) {
-    std::vector<TabletColumn> schema;
-    TabletColumn tablet_column;
-    SetTabletColumn(std::string("STRING_COLUMN"), "VARCHAR",
-                 "REPLACE", 1, false, true, &tablet_column);
-    schema.push_back(tablet_column);
+    TabletSchema tablet_schema;
+    SetTabletSchema(std::string("STRING_COLUMN"), "VARCHAR",
+                 "REPLACE", 1, false, true, &tablet_schema);
     int size = 10;
     std::vector<uint32_t> return_columns;
-    for (int i = 0; i < schema.size(); ++i) {
+    for (int i = 0; i < tablet_schema.num_columns(); ++i) {
         return_columns.push_back(i);
     }
-    InitVectorizedBatch(&schema, return_columns, size);
+    InitVectorizedBatch(&tablet_schema, return_columns, size);
     ColumnVector* col_vector = _vectorized_batch->column(0);
 
     // for no nulls
@@ -401,17 +392,15 @@ TEST_F(TestEqualPredicate, STRING_COLUMN) {
 }
 
 TEST_F(TestEqualPredicate, DATE_COLUMN) {
-    std::vector<TabletColumn> schema;
-    TabletColumn tablet_column;
-    SetTabletColumn(std::string("DATE_COLUMN"), "DATA",
-                 "REPLACE", 1, false, true, &tablet_column);
-    schema.push_back(tablet_column);
+    TabletSchema tablet_schema;
+    SetTabletSchema(std::string("DATE_COLUMN"), "DATA",
+                 "REPLACE", 1, false, true, &tablet_schema);
     int size = 6;
     std::vector<uint32_t> return_columns;
-    for (int i = 0; i < schema.size(); ++i) {
+    for (int i = 0; i < tablet_schema.num_columns(); ++i) {
         return_columns.push_back(i);
     }
-    InitVectorizedBatch(&schema, return_columns, size);
+    InitVectorizedBatch(&tablet_schema, return_columns, size);
     ColumnVector* col_vector = _vectorized_batch->column(0);
 
     // for no nulls
@@ -464,17 +453,15 @@ TEST_F(TestEqualPredicate, DATE_COLUMN) {
 }
 
 TEST_F(TestEqualPredicate, DATETIME_COLUMN) {
-    std::vector<TabletColumn> schema;
-    TabletColumn tablet_column;
-    SetTabletColumn(std::string("DATETIME_COLUMN"), "DATETIME",
-                 "REPLACE", 1, false, true, &tablet_column);
-    schema.push_back(tablet_column);
+    TabletSchema tablet_schema;
+    SetTabletSchema(std::string("DATETIME_COLUMN"), "DATETIME",
+                 "REPLACE", 1, false, true, &tablet_schema);
     int size = 6;
     std::vector<uint32_t> return_columns;
-    for (int i = 0; i < schema.size(); ++i) {
+    for (int i = 0; i < tablet_schema.num_columns(); ++i) {
         return_columns.push_back(i);
     }
-    InitVectorizedBatch(&schema, return_columns, size);
+    InitVectorizedBatch(&tablet_schema, return_columns, size);
     ColumnVector* col_vector = _vectorized_batch->column(0);
 
     // for no nulls
@@ -528,17 +515,15 @@ TEST_F(TestEqualPredicate, DATETIME_COLUMN) {
 
 #define TEST_LESS_PREDICATE(TYPE, TYPE_NAME, FIELD_TYPE) \
 TEST_F(TestLessPredicate, TYPE_NAME##_COLUMN) { \
-    std::vector<TabletColumn> schema; \
-    TabletColumn tablet_column; \
-    SetTabletColumn(std::string("TYPE_NAME_COLUMN"), FIELD_TYPE, \
-                 "REPLACE", 1, false, true, &tablet_column); \
-    schema.push_back(tablet_column); \
+    TabletSchema tablet_schema; \
+    SetTabletSchema(std::string("TYPE_NAME_COLUMN"), FIELD_TYPE, \
+                 "REPLACE", 1, false, true, &tablet_schema); \
     int size = 10; \
     std::vector<uint32_t> return_columns; \
-    for (int i = 0; i < schema.size(); ++i) { \
+    for (int i = 0; i < tablet_schema.num_columns(); ++i) { \
         return_columns.push_back(i); \
     } \
-    InitVectorizedBatch(&schema, return_columns, size); \
+    InitVectorizedBatch(&tablet_schema, return_columns, size); \
     ColumnVector* col_vector = _vectorized_batch->column(0); \
     \
     /* for no nulls */ \
@@ -590,17 +575,15 @@ TEST_LESS_PREDICATE(int64_t, BIGINT, "BIGINT")
 TEST_LESS_PREDICATE(int128_t, LARGEINT, "LARGEINT")
 
 TEST_F(TestLessPredicate, FLOAT_COLUMN) {
-    std::vector<TabletColumn> schema;
-    TabletColumn tablet_column;
-    SetTabletColumn(std::string("FLOAT_COLUMN"), "FLOAT",
-                 "REPLACE", 1, false, true, &tablet_column);
-    schema.push_back(tablet_column);
+    TabletSchema tablet_schema;
+    SetTabletSchema(std::string("FLOAT_COLUMN"), "FLOAT",
+                 "REPLACE", 1, false, true, &tablet_schema);
     int size = 10;
     std::vector<uint32_t> return_columns;
-    for (int i = 0; i < schema.size(); ++i) {
+    for (int i = 0; i < tablet_schema.num_columns(); ++i) {
         return_columns.push_back(i);
     }
-    InitVectorizedBatch(&schema, return_columns, size);
+    InitVectorizedBatch(&tablet_schema, return_columns, size);
     ColumnVector* col_vector = _vectorized_batch->column(0);
 
     // for no nulls
@@ -647,17 +630,15 @@ TEST_F(TestLessPredicate, FLOAT_COLUMN) {
 }
 
 TEST_F(TestLessPredicate, DOUBLE_COLUMN) {
-    std::vector<TabletColumn> schema;
-    TabletColumn tablet_column;
-    SetTabletColumn(std::string("DOUBLE_COLUMN"), "DOUBLE",
-                 "REPLACE", 1, false, true, &tablet_column);
-    schema.push_back(tablet_column);
+    TabletSchema tablet_schema;
+    SetTabletSchema(std::string("DOUBLE_COLUMN"), "DOUBLE",
+                 "REPLACE", 1, false, true, &tablet_schema);
     int size = 10;
     std::vector<uint32_t> return_columns;
-    for (int i = 0; i < schema.size(); ++i) {
+    for (int i = 0; i < tablet_schema.num_columns(); ++i) {
         return_columns.push_back(i);
     }
-    InitVectorizedBatch(&schema, return_columns, size);
+    InitVectorizedBatch(&tablet_schema, return_columns, size);
     ColumnVector* col_vector = _vectorized_batch->column(0);
 
     // for no nulls
@@ -704,17 +685,15 @@ TEST_F(TestLessPredicate, DOUBLE_COLUMN) {
 }
 
 TEST_F(TestLessPredicate, DECIMAL_COLUMN) {
-    std::vector<TabletColumn> schema;
-    TabletColumn tablet_column;
-    SetTabletColumn(std::string("DECIMAL_COLUMN"), "DECIMAL",
-                 "REPLACE", 1, false, true, &tablet_column);
-    schema.push_back(tablet_column);
+    TabletSchema tablet_schema;
+    SetTabletSchema(std::string("DECIMAL_COLUMN"), "DECIMAL",
+                 "REPLACE", 1, false, true, &tablet_schema);
     int size = 10;
     std::vector<uint32_t> return_columns;
-    for (int i = 0; i < schema.size(); ++i) {
+    for (int i = 0; i < tablet_schema.num_columns(); ++i) {
         return_columns.push_back(i);
     }
-    InitVectorizedBatch(&schema, return_columns, size);
+    InitVectorizedBatch(&tablet_schema, return_columns, size);
     ColumnVector* col_vector = _vectorized_batch->column(0);
 
     // for no nulls
@@ -765,17 +744,15 @@ TEST_F(TestLessPredicate, DECIMAL_COLUMN) {
 }
 
 TEST_F(TestLessPredicate, STRING_COLUMN) {
-    std::vector<TabletColumn> schema;
-    TabletColumn tablet_column;
-    SetTabletColumn(std::string("STRING_COLUMN"), "VARCHAR",
-                 "REPLACE", 1, false, true, &tablet_column);
-    schema.push_back(tablet_column);
+    TabletSchema tablet_schema;
+    SetTabletSchema(std::string("STRING_COLUMN"), "VARCHAR",
+                 "REPLACE", 1, false, true, &tablet_schema);
     int size = 10;
     std::vector<uint32_t> return_columns;
-    for (int i = 0; i < schema.size(); ++i) {
+    for (int i = 0; i < tablet_schema.num_columns(); ++i) {
         return_columns.push_back(i);
     }
-    InitVectorizedBatch(&schema, return_columns, size);
+    InitVectorizedBatch(&tablet_schema, return_columns, size);
     ColumnVector* col_vector = _vectorized_batch->column(0);
 
     // for no nulls
@@ -831,17 +808,15 @@ TEST_F(TestLessPredicate, STRING_COLUMN) {
 }
 
 TEST_F(TestLessPredicate, DATE_COLUMN) {
-    std::vector<TabletColumn> schema;
-    TabletColumn tablet_column;
-    SetTabletColumn(std::string("DATE_COLUMN"), "DATE",
-                 "REPLACE", 1, false, true, &tablet_column);
-    schema.push_back(tablet_column);
+    TabletSchema tablet_schema;
+    SetTabletSchema(std::string("DATE_COLUMN"), "DATE",
+                 "REPLACE", 1, false, true, &tablet_schema);
     int size = 6;
     std::vector<uint32_t> return_columns;
-    for (int i = 0; i < schema.size(); ++i) {
+    for (int i = 0; i < tablet_schema.num_columns(); ++i) {
         return_columns.push_back(i);
     }
-    InitVectorizedBatch(&schema, return_columns, size);
+    InitVectorizedBatch(&tablet_schema, return_columns, size);
     ColumnVector* col_vector = _vectorized_batch->column(0);
 
     // for no nulls
@@ -891,17 +866,16 @@ TEST_F(TestLessPredicate, DATE_COLUMN) {
 }
 
 TEST_F(TestLessPredicate, DATETIME_COLUMN) {
-    std::vector<TabletColumn> schema;
+    TabletSchema tablet_schema;
     TabletColumn tablet_column;
-    SetTabletColumn(std::string("DATETIME_COLUMN"), "DATETIME",
-                 "REPLACE", 1, false, true, &tablet_column);
-    schema.push_back(tablet_column);
+    SetTabletSchema(std::string("DATETIME_COLUMN"), "DATETIME",
+                 "REPLACE", 1, false, true, &tablet_schema);
     int size = 6;
     std::vector<uint32_t> return_columns;
-    for (int i = 0; i < schema.size(); ++i) {
+    for (int i = 0; i < tablet_schema.num_columns(); ++i) {
         return_columns.push_back(i);
     }
-    InitVectorizedBatch(&schema, return_columns, size);
+    InitVectorizedBatch(&tablet_schema, return_columns, size);
     ColumnVector* col_vector = _vectorized_batch->column(0);
 
     // for no nulls

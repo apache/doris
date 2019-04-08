@@ -53,7 +53,7 @@ public:
     //    stream_factory: 用于创建输出流的工厂对象, 该对象的生命期由调用者所有
     static ColumnWriter* create(
             uint32_t column_id,
-            const std::vector<TabletColumn>& schema,
+            const TabletSchema& schema,
             OutStreamFactory* stream_factory,
             size_t num_rows_per_row_block,
             double bf_fpp);

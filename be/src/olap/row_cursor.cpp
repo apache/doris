@@ -162,24 +162,13 @@ OLAPStatus RowCursor::init(const TabletSchema& schema,
     return OLAP_SUCCESS;
 }
 
-OLAPStatus RowCursor::init(const std::vector<TabletColumn>& schema,
-                           const vector<uint32_t>& columns) {
-    RETURN_NOT_OK(_init(schema, columns));
-    return OLAP_SUCCESS;
-}
-
 OLAPStatus RowCursor::init_scan_key(const TabletSchema& schema,
                                     const std::vector<std::string>& scan_keys) {
-    return init_scan_key(schema.columns(), scan_keys);
-}
-
-OLAPStatus RowCursor::init_scan_key(const std::vector<TabletColumn>& schema,
-                                    const std::vector<std::string>& scan_keys) {
     size_t scan_key_size = scan_keys.size();
-    if (scan_key_size > schema.size()) {
+    if (scan_key_size > schema.num_columns()) {
         LOG(WARNING) << "Input param are invalid. Column count is bigger than num_columns of schema. "
                      << "column_count=" << scan_key_size
-                     << ", schema.num_columns=" << schema.size();
+                     << ", schema.num_columns=" << schema.num_columns();
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
@@ -188,13 +177,13 @@ OLAPStatus RowCursor::init_scan_key(const std::vector<TabletColumn>& schema,
         columns.push_back(i);
     }
 
-    RETURN_NOT_OK(_init(schema, columns));
+    RETURN_NOT_OK(_init(schema.columns(), columns));
 
     // NOTE: cid equal with column index
     // Hyperloglog cannot be key, no need to handle it
     _variable_len = 0;
     for (auto cid : _columns) {
-        const TabletColumn& column = schema[cid];
+        const TabletColumn& column = schema.column(cid);
         FieldType type = column.type();
         if (type == OLAP_FIELD_TYPE_VARCHAR) {
             _variable_len += scan_keys[cid].length();
@@ -205,7 +194,7 @@ OLAPStatus RowCursor::init_scan_key(const std::vector<TabletColumn>& schema,
     }
 
     // variable_len for null bytes
-    _variable_buf = new (nothrow) char[_variable_len];
+    _variable_buf = new(nothrow) char[_variable_len];
     if (_variable_buf == nullptr) {
         OLAP_LOG_WARNING("Fail to malloc _variable_buf.");
         return OLAP_ERR_MALLOC_ERROR;
@@ -214,7 +203,7 @@ OLAPStatus RowCursor::init_scan_key(const std::vector<TabletColumn>& schema,
     char* fixed_ptr = _fixed_buf;
     char* variable_ptr = _variable_buf;
     for (auto cid : _columns) {
-        const TabletColumn& column = schema[cid];
+        const TabletColumn& column = schema.column(cid);
         fixed_ptr = _fixed_buf + _field_array[cid]->get_offset();
         FieldType type = column.type();
         if (type == OLAP_FIELD_TYPE_VARCHAR) {
@@ -234,13 +223,7 @@ OLAPStatus RowCursor::init_scan_key(const std::vector<TabletColumn>& schema,
 }
 
 OLAPStatus RowCursor::allocate_memory_for_string_type(
-         const TabletSchema& schema,
-         MemPool* mem_pool) {
-    return allocate_memory_for_string_type(schema.columns(), mem_pool);
-}
-
-OLAPStatus RowCursor::allocate_memory_for_string_type(
-        const std::vector<TabletColumn>& schema,
+        const TabletSchema& schema,
         MemPool* mem_pool) {
     // allocate memory for string type(char, varchar, hll)
     // The memory allocated in this function is used in aggregate and copy function
@@ -264,7 +247,7 @@ OLAPStatus RowCursor::allocate_memory_for_string_type(
     char* fixed_ptr = _fixed_buf;
     char* variable_ptr = _variable_buf;
     for (auto cid : _columns) {
-        const TabletColumn& column = schema[cid];
+        const TabletColumn& column = schema.column(cid);
         fixed_ptr = _fixed_buf + _field_array[cid]->get_offset();
         FieldType type = column.type();
         if (type == OLAP_FIELD_TYPE_VARCHAR) {
