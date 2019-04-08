@@ -115,8 +115,8 @@ public class EsTable extends Table {
             mappingType = properties.get(TYPE).trim();
         }
         if (!Strings.isNullOrEmpty(properties.get(TRANSPORT))
-                && Strings.isNullOrEmpty(properties.get(TRANSPORT).trim())) {
-            transport = properties.get(TRANSPORT);
+                && !Strings.isNullOrEmpty(properties.get(TRANSPORT).trim())) {
+            transport = properties.get(TRANSPORT).trim();
             if (!(TRANSPORT_HTTP.equals(transport) || TRANSPORT_THRIFT.equals(transport))) {
                 throw new DdlException("transport of ES table must be http(recommend) or thrift(reserved inner usage),"
                         + " but value is " + transport);

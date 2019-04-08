@@ -3947,6 +3947,7 @@ public class Catalog {
             sb.append("\"password\" = \"").append(hidePassword ? "" : esTable.getPasswd()).append("\",\n");
             sb.append("\"index\" = \"").append(esTable.getIndexName()).append("\",\n");
             sb.append("\"type\" = \"").append(esTable.getMappingType()).append("\"\n");
+            sb.append("\"transport\" = \"").append(esTable.getTransport()).append("\"\n");
             sb.append(");");
         }
 
