@@ -79,7 +79,7 @@ Status EsHttpScanner::open() {
         return Status("Es reader construct failed.");
     }
 
-    _es_reader->open();
+    RETURN_IF_ERROR(_es_reader->open());
 
     _rows_read_counter = ADD_COUNTER(_profile, "RowsRead", TUnit::UNIT);
     _read_timer = ADD_TIMER(_profile, "TotalRawReadTime(*)");
