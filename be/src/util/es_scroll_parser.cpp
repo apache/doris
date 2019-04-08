@@ -301,10 +301,28 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
             }
 
             case TYPE_BOOLEAN: {
-                if (!col.IsBool()) {
+                if (col.IsBool()) {
+                    *reinterpret_cast<int8_t*>(slot) = col.GetBool();
+                    break;
+                }
+
+                if (col.IsNumber()) {
+                    *reinterpret_cast<int8_t*>(slot) = col.GetInt();
+                    break;
+                }
+
+                if (!col.IsString()) {
+                    return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "BOOLEAN"));
+                } 
+
+                const std::string& val = col.GetString();
+                size_t val_size = col.GetStringLength();
+                StringParser::ParseResult result;
+                bool b = StringParser::string_to_bool(val.c_str(), val_size, &result);
+                if (result != StringParser::PARSE_SUCCESS) {
                     return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "BOOLEAN"));
                 }
-                *reinterpret_cast<int8_t*>(slot) = col.GetBool();
+                *reinterpret_cast<int8_t*>(slot) = b;
                 break;
             }
 

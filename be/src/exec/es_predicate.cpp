@@ -41,8 +41,9 @@
 #include "runtime/tuple_row.h"
 
 #include "service/backend_options.h"
-#include "util/runtime_profile.h"
 #include "util/debug_util.h"
+#include "util/es_query_builder.h"
+#include "util/runtime_profile.h"
 
 namespace doris {
 
@@ -166,7 +167,8 @@ EsPredicate::EsPredicate(ExprContext* context,
             const TupleDescriptor* tuple_desc) :
     _context(context),
     _disjuncts_num(0),
-    _tuple_desc(tuple_desc) {
+    _tuple_desc(tuple_desc),
+    _es_query_status(Status::OK) {
 }
 
 EsPredicate::~EsPredicate() {
@@ -180,6 +182,7 @@ bool EsPredicate::build_disjuncts_list() {
     return build_disjuncts_list(_context->root(), _disjuncts);
 }
 
+// make sure to build by build_disjuncts_list
 const vector<ExtPredicate*>& EsPredicate::get_predicate_list(){
     return _disjuncts;
 }
@@ -248,6 +251,13 @@ bool EsPredicate::build_disjuncts_list(Expr* conjunct, vector<ExtPredicate*>& di
                         conjunct->fn().name.function_name,
                         cols,
                         query_conditions);
+        if (_es_query_status.ok()) {
+            _es_query_status 
+                = BooleanQueryBuilder::check_es_query(*(ExtFunction *)predicate); 
+            if (!_es_query_status.ok()) {
+                return false;
+            }
+        }
         disjuncts.push_back(predicate);
 
         return true;
@@ -255,7 +265,7 @@ bool EsPredicate::build_disjuncts_list(Expr* conjunct, vector<ExtPredicate*>& di
 
     if (TExprNodeType::LIKE_PRED == conjunct->node_type()) {
         //TODO
-        return true;
+        return false;
     }
       
     if (TExprNodeType::IN_PRED == conjunct->node_type()) {

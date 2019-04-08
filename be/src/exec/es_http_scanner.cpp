@@ -124,6 +124,8 @@ void EsHttpScanner::close() {
     if (_es_reader != nullptr) {
         _es_reader->close();
     }
+
+    Expr::close(_conjunct_ctxs, _state);
 }
 
 }
