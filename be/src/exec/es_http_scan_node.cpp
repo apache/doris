@@ -29,6 +29,7 @@
 #include "util/runtime_profile.h"
 #include "util/es_scan_reader.h"
 #include "util/es_scroll_query.h"
+#include "util/es_query_builder.h"
 #include "exec/es_predicate.h"
 
 namespace doris {
@@ -83,14 +84,20 @@ Status EsHttpScanNode::prepare(RuntimeState* state) {
 }
 
 // build predicate 
-void EsHttpScanNode::build_conjuncts_list() {
+Status EsHttpScanNode::build_conjuncts_list() {
+    Status status = Status::OK;
     for (int i = 0; i < _conjunct_ctxs.size(); ++i) {
-        EsPredicate* predicate = new EsPredicate(_conjunct_ctxs[i], _tuple_desc);
+        EsPredicate* predicate = _pool->add(
+                    new EsPredicate(_conjunct_ctxs[i], _tuple_desc));
         if (predicate->build_disjuncts_list()) {
             _predicates.push_back(predicate);
             _predicate_to_conjunct.push_back(i);
+        } else if (!predicate->get_es_query_status().ok()) {
+            return predicate->get_es_query_status();
         }
     }
+
+    return status;
 }
 
 Status EsHttpScanNode::open(RuntimeState* state) {
@@ -109,7 +116,24 @@ Status EsHttpScanNode::open(RuntimeState* state) {
         }
     }
 
-    build_conjuncts_list();
+    RETURN_IF_ERROR(build_conjuncts_list());
+
+    // remove those predicates which ES cannot support
+    std::vector<bool> list = BooleanQueryBuilder::validate(_predicates);
+    DCHECK(list.size() == _predicate_to_conjunct.size());
+    for(int i = list.size() - 1; i >= 0; i--) {
+        if(!list[i]) {
+            _predicate_to_conjunct.erase(_predicate_to_conjunct.begin() + i);
+            _predicates.erase(_predicates.begin() + i);
+        }
+    }
+
+    // filter the conjuncts and ES will process them later
+    for (int i = _predicate_to_conjunct.size() - 1; i >= 0; i--) {
+        int conjunct_index = _predicate_to_conjunct[i];
+        _conjunct_ctxs[conjunct_index]->close(_runtime_state);
+        _conjunct_ctxs.erase(_conjunct_ctxs.begin() + conjunct_index);
+    }
 
     RETURN_IF_ERROR(start_scanners());
 
@@ -227,11 +251,6 @@ Status EsHttpScanNode::close(RuntimeState* state) {
     }
 
     _batch_queue.clear();
-
-    for(int i=0; i < _predicates.size(); i++) {
-        delete _predicates[i];
-    }
-    _predicates.clear();
 
     return ExecNode::close(state);
 }
