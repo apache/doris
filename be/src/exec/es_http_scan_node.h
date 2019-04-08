@@ -84,7 +84,7 @@ private:
 
 private:
 
-    void build_conjuncts_list();
+    Status build_conjuncts_list();
 
     TupleId _tuple_id;
     RuntimeState* _runtime_state;
