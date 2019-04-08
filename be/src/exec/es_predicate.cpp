@@ -252,6 +252,11 @@ bool EsPredicate::build_disjuncts_list(Expr* conjunct, vector<ExtPredicate*>& di
 
         return true;
     } 
+
+    if (TExprNodeType::LIKE_PRED == conjunct->node_type()) {
+        //TODO
+        return true;
+    }
       
     if (TExprNodeType::IN_PRED == conjunct->node_type()) {
         // the op code maybe FILTER_NEW_IN, it means there is function in list
