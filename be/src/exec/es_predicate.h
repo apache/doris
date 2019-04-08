@@ -43,7 +43,7 @@ class ExtLiteral {
                 _str = value_to_string();
         }
         ~ExtLiteral();
-        const std::string& to_string() {
+        const std::string& to_string() const {
             return _str;
         }
 
@@ -163,7 +163,7 @@ struct ExtFunction : public ExtPredicate {
 
     const std::string& func_name;
     std::vector<ExtColumnDesc> cols;
-    std::vector<ExtLiteral> values;
+    const std::vector<ExtLiteral> values;
 };
 
 class EsPredicate {
@@ -178,6 +178,10 @@ class EsPredicate {
             _disjuncts = all_predicates;
         };
 
+        Status get_es_query_status() {
+            return _es_query_status;
+        }
+
 
     private:
 
@@ -190,6 +194,7 @@ class EsPredicate {
         int _disjuncts_num;
         const TupleDescriptor* _tuple_desc;
         std::vector<ExtPredicate*> _disjuncts;
+        Status _es_query_status;
 };
 
 }
