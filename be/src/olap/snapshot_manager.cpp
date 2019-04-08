@@ -124,7 +124,8 @@ OLAPStatus SnapshotManager::convert_rowset_ids(DataDir& data_dir, const string& 
     // check clone dir existed
     if (!check_dir_existed(clone_dir)) {
         res = OLAP_ERR_DIR_NOT_EXIST;
-        LOG(WARNING) << "clone dir not existed when convert rowsetids. clone_dir=" << clone_dir.c_str();
+        LOG(WARNING) << "clone dir not existed when convert rowsetids. clone_dir=" 
+                     << clone_dir;
         return res;
     }
 
