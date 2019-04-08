@@ -163,6 +163,8 @@ ${DORIS_TEST_BINARY_DIR}/exec/plain_text_line_reader_lzop_test
 ${DORIS_TEST_BINARY_DIR}/exec/broker_scanner_test
 ${DORIS_TEST_BINARY_DIR}/exec/broker_scan_node_test
 ${DORIS_TEST_BINARY_DIR}/exec/es_scan_node_test
+${DORIS_TEST_BINARY_DIR}/exec/es_http_scan_node_test
+${DORIS_TEST_BINARY_DIR}/exec/es_predicate_test
 ${DORIS_TEST_BINARY_DIR}/exec/olap_table_info_test
 ${DORIS_TEST_BINARY_DIR}/exec/olap_table_sink_test
 
