@@ -73,9 +73,15 @@ public:
     OLAPStatus init(const TabletSchema& schema,
                     const std::vector<uint32_t>& columns);
 
+    OLAPStatus init(const std::vector<TabletColumn>& schema,
+                    const std::vector<uint32_t>& columns);
+
     // 用传入的key的size来初始化
     // 目前仅用在拆分key区间的时候
     OLAPStatus init_scan_key(const TabletSchema& schema,
+                             const std::vector<std::string>& keys);
+
+    OLAPStatus init_scan_key(const std::vector<TabletColumn>& schema,
                              const std::vector<std::string>& keys);
 
     OLAPStatus init_scan_key(const TabletSchema& schema,
@@ -84,7 +90,10 @@ public:
     //allocate memory for string type, which include char, varchar, hyperloglog
     OLAPStatus allocate_memory_for_string_type(const TabletSchema& schema,
                                                MemPool* mem_pool = nullptr);
- 
+    
+    OLAPStatus allocate_memory_for_string_type(const std::vector<TabletColumn>& schema,
+                                               MemPool* mem_pool = nullptr);
+
     // 两个RowCurosr做比较，返回-1，0，1
     int cmp(const RowCursor& other) const;
 

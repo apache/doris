@@ -81,8 +81,8 @@ OLAPStatus RowCursor::_init(const std::vector<TabletColumn>& schema,
     for (auto cid : _columns) {
         const TabletColumn& column = schema[cid];
         _field_array[cid] = Field::create(column);
-        if (_field_array[cid] == NULL) {
-            OLAP_LOG_WARNING("Fail to create field.");
+        if (_field_array[cid] == nullptr) {
+            LOG(WARNING) << "Fail to create field.";
             return OLAP_ERR_INIT_FAILED;
         }
         _fixed_len += field_buf_lens[cid] + 1; //1 for null byte
@@ -99,7 +99,7 @@ OLAPStatus RowCursor::_init(const std::vector<TabletColumn>& schema,
 
     _fixed_buf = new (nothrow) char[_fixed_len];
     if (_fixed_buf == nullptr) {
-        OLAP_LOG_WARNING("Fail to malloc _fixed_buf.");
+        LOG(WARNING) <<  "Fail to malloc _fixed_buf.";
         return OLAP_ERR_MALLOC_ERROR;
     }
     _owned_fixed_buf = _fixed_buf;
@@ -162,13 +162,24 @@ OLAPStatus RowCursor::init(const TabletSchema& schema,
     return OLAP_SUCCESS;
 }
 
+OLAPStatus RowCursor::init(const std::vector<TabletColumn>& schema,
+                           const vector<uint32_t>& columns) {
+    RETURN_NOT_OK(_init(schema, columns));
+    return OLAP_SUCCESS;
+}
+
 OLAPStatus RowCursor::init_scan_key(const TabletSchema& schema,
                                     const std::vector<std::string>& scan_keys) {
+    return init_scan_key(schema.columns(), scan_keys);
+}
+
+OLAPStatus RowCursor::init_scan_key(const std::vector<TabletColumn>& schema,
+                                    const std::vector<std::string>& scan_keys) {
     size_t scan_key_size = scan_keys.size();
-    if (scan_key_size > schema.num_columns()) {
+    if (scan_key_size > schema.size()) {
         LOG(WARNING) << "Input param are invalid. Column count is bigger than num_columns of schema. "
                      << "column_count=" << scan_key_size
-                     << ", schema.num_columns=" << schema.num_columns();
+                     << ", schema.num_columns=" << schema.size();
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
@@ -177,13 +188,13 @@ OLAPStatus RowCursor::init_scan_key(const TabletSchema& schema,
         columns.push_back(i);
     }
 
-    RETURN_NOT_OK(_init(schema.columns(), columns));
+    RETURN_NOT_OK(_init(schema, columns));
 
     // NOTE: cid equal with column index
     // Hyperloglog cannot be key, no need to handle it
     _variable_len = 0;
     for (auto cid : _columns) {
-        const TabletColumn& column = schema.column(cid);
+        const TabletColumn& column = schema[cid];
         FieldType type = column.type();
         if (type == OLAP_FIELD_TYPE_VARCHAR) {
             _variable_len += scan_keys[cid].length();
@@ -195,7 +206,7 @@ OLAPStatus RowCursor::init_scan_key(const TabletSchema& schema,
 
     // variable_len for null bytes
     _variable_buf = new (nothrow) char[_variable_len];
-    if (_variable_buf == NULL) {
+    if (_variable_buf == nullptr) {
         OLAP_LOG_WARNING("Fail to malloc _variable_buf.");
         return OLAP_ERR_MALLOC_ERROR;
     }
@@ -203,7 +214,7 @@ OLAPStatus RowCursor::init_scan_key(const TabletSchema& schema,
     char* fixed_ptr = _fixed_buf;
     char* variable_ptr = _variable_buf;
     for (auto cid : _columns) {
-        const TabletColumn& column = schema.column(cid);
+        const TabletColumn& column = schema[cid];
         fixed_ptr = _fixed_buf + _field_array[cid]->get_offset();
         FieldType type = column.type();
         if (type == OLAP_FIELD_TYPE_VARCHAR) {
@@ -223,7 +234,13 @@ OLAPStatus RowCursor::init_scan_key(const TabletSchema& schema,
 }
 
 OLAPStatus RowCursor::allocate_memory_for_string_type(
-        const TabletSchema& schema,
+         const TabletSchema& schema,
+         MemPool* mem_pool) {
+    return allocate_memory_for_string_type(schema.columns(), mem_pool);
+}
+
+OLAPStatus RowCursor::allocate_memory_for_string_type(
+        const std::vector<TabletColumn>& schema,
         MemPool* mem_pool) {
     // allocate memory for string type(char, varchar, hll)
     // The memory allocated in this function is used in aggregate and copy function
@@ -247,7 +264,7 @@ OLAPStatus RowCursor::allocate_memory_for_string_type(
     char* fixed_ptr = _fixed_buf;
     char* variable_ptr = _variable_buf;
     for (auto cid : _columns) {
-        const TabletColumn& column = schema.column(cid);
+        const TabletColumn& column = schema[cid];
         fixed_ptr = _fixed_buf + _field_array[cid]->get_offset();
         FieldType type = column.type();
         if (type == OLAP_FIELD_TYPE_VARCHAR) {
@@ -304,7 +321,7 @@ int RowCursor::cmp(const RowCursor& other) const {
     size_t common_prefix_count = min(_key_column_num, other._key_column_num);
     // 只有key column才会参与比较
     for (size_t i = 0; i < common_prefix_count; ++i) {
-        if (_field_array[i] == NULL || other._field_array[i] == NULL) {
+        if (_field_array[i] == nullptr || other._field_array[i] == nullptr) {
             continue;
         }
 
@@ -325,7 +342,7 @@ int RowCursor::index_cmp(const RowCursor& other) const {
     size_t common_prefix_count = min(_columns.size(), other._key_column_num);
     // 只有key column才会参与比较
     for (size_t i = 0; i < common_prefix_count; ++i) {
-        if (_field_array[i] == NULL || other._field_array[i] == NULL) {
+        if (_field_array[i] == nullptr || other._field_array[i] == nullptr) {
             continue;
         }
         char* left = _field_array[i]->get_field_ptr(_fixed_buf);
@@ -343,7 +360,7 @@ bool RowCursor::equal(const RowCursor& other) const {
     // 按field顺序从后往前比较，有利于尽快发现不同，提升比较性能
     size_t common_prefix_count = min(_key_column_num, other._key_column_num);
     for (int i = common_prefix_count - 1; i >= 0; --i) {
-        if (_field_array[i] == NULL || other._field_array[i] == NULL) {
+        if (_field_array[i] == nullptr || other._field_array[i] == nullptr) {
             continue;
         }
         char* left = _field_array[i]->get_field_ptr(_fixed_buf);
@@ -357,7 +374,7 @@ bool RowCursor::equal(const RowCursor& other) const {
 
 void RowCursor::finalize_one_merge() {
     for (size_t i = _key_column_num; i < _field_array.size(); ++i) {
-        if (_field_array[i] == NULL) {
+        if (_field_array[i] == nullptr) {
             continue;
         }
         char* dest = _field_array[i]->get_ptr(_fixed_buf);
@@ -368,7 +385,7 @@ void RowCursor::finalize_one_merge() {
 void RowCursor::aggregate(const RowCursor& other) {
     // 只有value column才会参与aggregate
     for (size_t i = _key_column_num; i < _field_array.size(); ++i) {
-        if (_field_array[i] == NULL || other._field_array[i] == NULL) {
+        if (_field_array[i] == nullptr || other._field_array[i] == nullptr) {
             continue;
         }
 
@@ -429,7 +446,7 @@ OlapTuple RowCursor::to_tuple() const {
     OlapTuple tuple;
 
     for (auto cid : _columns) {
-        if (_field_array[cid] != NULL) {
+        if (_field_array[cid] != nullptr) {
             Field* field = _field_array[cid];
             char* src = field->get_ptr(_fixed_buf);
             if (field->is_null(_fixed_buf)) {
@@ -476,7 +493,7 @@ string RowCursor::to_string(string sep) const {
         }
 
         Field* field = _field_array[cid];
-        if (field != NULL) {
+        if (field != nullptr) {
             char* src = field->get_ptr(_fixed_buf);
             result.append(field->to_string(src));
         } else {
@@ -489,7 +506,7 @@ string RowCursor::to_string(string sep) const {
 
 OLAPStatus RowCursor::get_first_different_column_id(const RowCursor& other,
                                                 size_t* first_diff_id) const {
-    if (first_diff_id == NULL) {
+    if (first_diff_id == nullptr) {
         OLAP_LOG_WARNING("input parameter 'first_diff_id' is NULL.");
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
@@ -501,7 +518,7 @@ OLAPStatus RowCursor::get_first_different_column_id(const RowCursor& other,
 
     size_t i = 0;
     for (; i < _field_array.size(); ++i) {
-        if (_field_array[i] == NULL || other._field_array[i] == NULL) {
+        if (_field_array[i] == nullptr || other._field_array[i] == nullptr) {
             continue;
         }
 

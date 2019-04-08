@@ -61,6 +61,9 @@ class RowBlock {
 public:
     RowBlock(const TabletSchema* schema);
 
+    // this constructor is just for unit test
+    RowBlock(const std::vector<TabletColumn>& columns);
+
     // 注意回收内部buffer
     ~RowBlock();
 
@@ -186,7 +189,8 @@ private:
     uint32_t _capacity;
     RowBlockInfo _info;
     const TabletSchema* _schema;     // 内部保存的schema句柄
-
+    const std::vector<TabletColumn>* _columns;
+    
     bool _null_supported;
 
     size_t _field_count = 0;

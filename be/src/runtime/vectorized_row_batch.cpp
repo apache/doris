@@ -23,7 +23,7 @@
 namespace doris {
 
 VectorizedRowBatch::VectorizedRowBatch(
-        const TabletSchema* schema,
+        const std::vector<TabletColumn>* schema,
         const std::vector<uint32_t>& cols,
         int capacity)
             : _schema(schema), _cols(cols), _capacity(capacity), _limit(capacity) {
@@ -49,7 +49,7 @@ void VectorizedRowBatch::dump_to_row_block(RowBlock* row_block) {
             // pointer of this field in row block
             char* row_field_ptr =
                 row_block->_mem_buf + row_block->_field_offset_in_memory[column_id];
-            const TabletColumn& column = _schema->column(column_id);
+            const TabletColumn& column = _schema->at(column_id);
             size_t field_size = 0;
             if (column.type() == OLAP_FIELD_TYPE_CHAR ||
                 column.type() == OLAP_FIELD_TYPE_VARCHAR ||
@@ -93,7 +93,7 @@ void VectorizedRowBatch::dump_to_row_block(RowBlock* row_block) {
             char* row_field_ptr =
                 row_block->_mem_buf + row_block->_field_offset_in_memory[column_id];
 
-            const TabletColumn& column = _schema->column(column_id);
+            const TabletColumn& column = _schema->at(column_id);
             size_t field_size = 0;
             if (column.type() == OLAP_FIELD_TYPE_CHAR ||
                 column.type() == OLAP_FIELD_TYPE_VARCHAR ||

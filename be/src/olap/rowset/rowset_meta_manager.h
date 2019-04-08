@@ -35,7 +35,7 @@ public:
 
     static OLAPStatus get_json_rowset_meta(OlapMeta* meta, int64_t rowset_id, std::string* json_rowset_meta);
 
-    static OLAPStatus save(OlapMeta* meta, int64_t rowset_id, RowsetMetaSharedPtr rowset_meta);
+    static OLAPStatus save(OlapMeta* meta, int64_t rowset_id, RowsetMeta* rowset_meta);
 
     static OLAPStatus save(OlapMeta* meta, int64_t rowset_id, const string& meta_binary);
 

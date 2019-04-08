@@ -73,7 +73,7 @@ private:
 class VectorizedRowBatch {
 public:
     VectorizedRowBatch(
-        const TabletSchema* schema,
+        const std::vector<TabletColumn>* schema,
         const std::vector<uint32_t>& cols,
         int capacity);
 
@@ -139,7 +139,7 @@ public:
     void dump_to_row_block(RowBlock* row_block);
 
 private:
-    const TabletSchema* _schema;
+    const std::vector<TabletColumn>* _schema;
     const std::vector<uint32_t>& _cols;
     const uint16_t _capacity;
     uint16_t _size = 0;

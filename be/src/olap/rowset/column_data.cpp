@@ -449,14 +449,14 @@ void ColumnData::set_read_params(
 
     auto res = _cursor.init(_segment_group->get_tablet_schema());
     if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to init row_cursor");
+        LOG(WARNING) << "fail to init row_cursor";
     }
 
     _read_vector_batch.reset(new VectorizedRowBatch(
-            &(_segment_group->get_tablet_schema()), _return_columns, _num_rows_per_block));
+            &(_segment_group->get_tablet_schema().columns()), _return_columns, _num_rows_per_block));
 
     _seek_vector_batch.reset(new VectorizedRowBatch(
-            &(_segment_group->get_tablet_schema()), _seek_columns, _num_rows_per_block));
+            &(_segment_group->get_tablet_schema().columns()), _seek_columns, _num_rows_per_block));
 
     _read_block.reset(new RowBlock(&(_segment_group->get_tablet_schema())));
     RowBlockInfo block_info;
@@ -602,7 +602,7 @@ OLAPStatus ColumnData::schema_change_init() {
     }
 
     _read_vector_batch.reset(new VectorizedRowBatch(
-            &(_segment_group->get_tablet_schema()), _return_columns, _num_rows_per_block));
+            &(_segment_group->get_tablet_schema().columns()), _return_columns, _num_rows_per_block));
 
     _read_block.reset(new RowBlock(&(_segment_group->get_tablet_schema())));
 

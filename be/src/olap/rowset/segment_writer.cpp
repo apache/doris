@@ -63,7 +63,7 @@ OLAPStatus SegmentWriter::init(uint32_t write_mbytes_per_sec) {
 
     // 创建writer
     for (uint32_t i = 0; i < _segment_group->get_tablet_schema().num_columns(); i++) {
-        ColumnWriter* writer = ColumnWriter::create(i, _segment_group->get_tablet_schema(),
+        ColumnWriter* writer = ColumnWriter::create(i, _segment_group->get_tablet_schema().columns(),
                 _stream_factory,
                 _segment_group->get_num_rows_per_row_block(),
                 _bloom_filter_fpp);
