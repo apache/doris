@@ -305,23 +305,73 @@ Status BooleanQueryBuilder::check_es_query(ExtFunction extFunction) {
     rapidjson::Value query_key;
     //{ "term": { "dv": "2" } }
     if (!scratch_document.HasParseError()) {
+        if (!scratch_document.IsObject()) {
+            return Status(TStatusCode::ES_REQUEST_ERROR, "esquery must be a object");
+        }
         rapidjson::SizeType object_count = scratch_document.MemberCount();
         if (object_count != 1) {
-            return Status("esquery must only one root");
+            return Status(TStatusCode::ES_REQUEST_ERROR, "esquery must only one root");
         }
         // deep copy, reference http://rapidjson.org/md_doc_tutorial.html#DeepCopyValue
         rapidjson::Value::ConstMemberIterator first = scratch_document.MemberBegin();
         query_key.CopyFrom(first->name, allocator);
         if (!query_key.IsString()) {
             // if we found one key, then end loop as QueryDSL only support one `query` root
-            return Status("esquery root key must be string");
+            return Status(TStatusCode::ES_REQUEST_ERROR, "esquery root key must be string");
         }
     } else {
-        return Status("malformed esquery json");
+        return Status(TStatusCode::ES_REQUEST_ERROR, "malformed esquery json");
     }
     return Status::OK;
 }
 
+std::vector<bool> BooleanQueryBuilder::validate(const std::vector<EsPredicate*>& espredicates) {
+    int conjunct_size = espredicates.size();
+    std::vector<bool> result;
+    result.reserve(conjunct_size);
+    for (auto espredicate : espredicates) {
+        bool flag = true;
+        for (auto predicate : espredicate->get_predicate_list()) {
+            switch (predicate->node_type) {
+                case TExprNodeType::BINARY_PRED: {
+                    ExtBinaryPredicate* binary_predicate = (ExtBinaryPredicate*)predicate;
+                    TExprOpcode::type op = binary_predicate->op;
+                    if (op != TExprOpcode::EQ && op != TExprOpcode::NE 
+                        && op != TExprOpcode::LT && op != TExprOpcode::LE
+                        && op != TExprOpcode::GT && op != TExprOpcode::GE) {
+                        flag = false;
+                    }
+                    break;
+                }
+                case TExprNodeType::LIKE_PRED:
+                case TExprNodeType::IN_PRED: {
+                    break;
+                }
+                case TExprNodeType::FUNCTION_CALL: {
+                    ExtFunction* function_predicate = (ExtFunction *)predicate;
+                    if ("esquery" == function_predicate->func_name ) {
+                        Status st = check_es_query(*function_predicate);
+                        if (!st.ok()) {
+                            flag = false;
+                        }
+                    } else {
+                       flag = false;
+		    }
+                    break;
+                }
+                default: {
+                    flag = false;
+                    break;
+                }
+            }
+            if (!flag) {
+                break;
+            }
+        }
+        result.push_back(flag);
+    }
+    return result;
+}
 
 rapidjson::Value BooleanQueryBuilder::to_query(const std::vector<EsPredicate*>& predicates, rapidjson::Document& root) {
     if (predicates.size() == 0) {
