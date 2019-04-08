@@ -193,7 +193,6 @@ public class EsScanNode extends ScanNode {
                 int numBe = Math.min(3, backendMap.size());
                 List<TNetworkAddress> shardAllocations = new ArrayList<>();
                 for (EsShardRouting item : shardRouting) {
-                    LOG.info("shardRouting [{}]", shardRouting);
                     shardAllocations.add(EsTable.TRANSPORT_HTTP.equals(table.getTransport()) ? item.getHttpAddress() : item.getAddress());
                 }
 
