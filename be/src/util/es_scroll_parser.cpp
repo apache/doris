@@ -25,6 +25,7 @@
 #include "common/status.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
+#include "util/string_parser.hpp"
 
 namespace doris {
 
@@ -147,58 +148,155 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
             }
 
             case TYPE_TINYINT: {
-                if (!col.IsNumber()) {
+                if (col.IsNumber()) {
+                    *reinterpret_cast<int8_t*>(slot) = (int8_t)col.GetInt();
+                    break;
+                }
+
+                if (!col.IsString()) {
+                    return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "TINYINT"));
+                } 
+
+                const std::string& val = col.GetString();
+                const char* data = val.c_str();
+                size_t len = col.GetStringLength();
+                StringParser::ParseResult result;
+                int8_t v = StringParser::string_to_int<int8_t>(data, len, &result);
+                if (result != StringParser::PARSE_SUCCESS) {
                     return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "TINYINT"));
                 }
-                *reinterpret_cast<int8_t*>(slot) = (int8_t)col.GetInt();
+                *reinterpret_cast<int8_t*>(slot) = v;
                 break;
             }
 
             case TYPE_SMALLINT: {
-                if (!col.IsNumber()) {
+                if (col.IsNumber()) {
+                    *reinterpret_cast<int16_t*>(slot) = (int16_t)col.GetInt();
+                    break;
+                }
+
+                if (!col.IsString()) {
+                    return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "SMALLINT"));
+                } 
+                    
+                const std::string& val = col.GetString();
+                const char* data = val.c_str();
+                size_t len = col.GetStringLength();
+                StringParser::ParseResult result;
+                int16_t v = StringParser::string_to_int<int16_t>(data, len, &result);
+                if (result != StringParser::PARSE_SUCCESS) {
                     return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "SMALLINT"));
                 }
-                *reinterpret_cast<int16_t*>(slot) = (int16_t)col.GetInt();
+                *reinterpret_cast<int16_t*>(slot) = v;
                 break;
             }
 
             case TYPE_INT: {
-                if (!col.IsNumber()) {
+                if (col.IsNumber()) {
+                    *reinterpret_cast<int32_t*>(slot) = (int32_t)col.GetInt();
+                    break;
+                }
+
+                if (!col.IsString()) {
+                    return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "INT"));
+                } 
+
+                const std::string& val = col.GetString();
+                const char* data = val.c_str();
+                size_t len = col.GetStringLength();
+                StringParser::ParseResult result;
+                int32_t v = StringParser::string_to_int<int32_t>(data, len, &result);
+                if (result != StringParser::PARSE_SUCCESS) {
                     return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "INT"));
                 }
-                *reinterpret_cast<int32_t*>(slot) = (int32_t)col.GetInt();
+                *reinterpret_cast<int32_t*>(slot) = v;
                 break;
             }
 
             case TYPE_BIGINT: {
-                if (!col.IsNumber()) {
+                if (col.IsNumber()) {
+                    *reinterpret_cast<int64_t*>(slot) = col.GetInt64();
+                    break;
+                }
+
+                if (!col.IsString()) {
+                    return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "BIGINT"));
+                } 
+
+                const std::string& val = col.GetString();
+                const char* data = val.c_str();
+                size_t len = col.GetStringLength();
+                StringParser::ParseResult result;
+                int64_t v = StringParser::string_to_int<int64_t>(data, len, &result);
+                if (result != StringParser::PARSE_SUCCESS) {
                     return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "BIGINT"));
                 }
-                *reinterpret_cast<int64_t*>(slot) = col.GetInt64();
+                *reinterpret_cast<int64_t*>(slot) = v;
                 break;
             }
 
             case TYPE_LARGEINT: {
-                if (!col.IsNumber()) {
-                   return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "LARGEINT"));
+                if (col.IsNumber()) {
+                    *reinterpret_cast<int128_t*>(slot) = col.GetInt64();
+                    break;
                 }
-                *reinterpret_cast<int128_t*>(slot) = col.GetInt64();
+
+                if (!col.IsString()) {
+                    return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "LARGEINT"));
+                } 
+
+                const std::string& val = col.GetString();
+                const char* data = val.c_str();
+                size_t len = col.GetStringLength();
+                StringParser::ParseResult result;
+                __int128 v = StringParser::string_to_int<__int128>(data, len, &result);
+                if (result != StringParser::PARSE_SUCCESS) {
+                    return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "LARGEINT"));
+                }
+                memcpy(slot, &v, sizeof(v));
                 break;
             }
 
             case TYPE_DOUBLE: {
-                if (!col.IsNumber()) {
+                if (col.IsNumber()) {
+                    *reinterpret_cast<double*>(slot) = col.GetDouble();
+                    break;
+                }
+
+                if (!col.IsString()) {
+                    return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "DOUBLE"));
+                } 
+
+                const std::string& val = col.GetString();
+                size_t val_size = col.GetStringLength();
+                StringParser::ParseResult result;
+                double d = StringParser::string_to_float<double>(val.c_str(), 
+                            val_size, &result);
+                if (result != StringParser::PARSE_SUCCESS) {
                     return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "DOUBLE"));
                 }
-                *reinterpret_cast<double*>(slot) = col.GetDouble();
+                *reinterpret_cast<double*>(slot) = d;
                 break;
             }
 
             case TYPE_FLOAT: {
-                if (!col.IsNumber()) {
+                if (col.IsNumber()) {
+                    *reinterpret_cast<float*>(slot) = col.GetFloat();
+                    break;
+                }
+
+                if (!col.IsString()) {
+                    return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "FLOAT"));
+                } 
+
+                const std::string& val = col.GetString();
+                size_t val_size = col.GetStringLength();
+                StringParser::ParseResult result;
+                float f = StringParser::string_to_float<float>(val.c_str(), val_size, &result);
+                if (result != StringParser::PARSE_SUCCESS) {
                     return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "FLOAT"));
                 }
-                *reinterpret_cast<float*>(slot) = col.GetDouble();
+                *reinterpret_cast<float*>(slot) = f;
                 break;
             }
 

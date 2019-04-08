@@ -388,7 +388,7 @@ void EsHttpScanNode::scanner_worker(int start_idx, int length) {
             properties, scanner_expr_ctxs, &counter));
         status = scanner_scan(std::move(scanner), scanner_expr_ctxs, &counter);
         if (!status.ok()) {
-            LOG(WARNING) << "Scanner[" << start_idx + i << "] prcess failed. status="
+            LOG(WARNING) << "Scanner[" << start_idx + i << "] process failed. status="
                 << status.get_error_msg();
         }
     }
