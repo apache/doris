@@ -80,4 +80,16 @@ public class EsShardRouting {
     public String getNodeId() {
         return nodeId;
     }
+
+    @Override
+    public String toString() {
+        return "EsShardRouting{" +
+                "indexName='" + indexName + '\'' +
+                ", shardId=" + shardId +
+                ", isPrimary=" + isPrimary +
+                ", address=" + address +
+                ", httpAddress=" + httpAddress +
+                ", nodeId='" + nodeId + '\'' +
+                '}';
+    }
 }

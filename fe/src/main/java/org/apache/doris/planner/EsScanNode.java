@@ -129,9 +129,9 @@ public class EsScanNode extends ScanNode {
     @Override
     protected void toThrift(TPlanNode msg) {
         if (EsTable.TRANSPORT_HTTP.equals(table.getTransport())) {
-            msg.node_type = TPlanNodeType.ES_SCAN_NODE;
-        } else {
             msg.node_type = TPlanNodeType.ES_HTTP_SCAN_NODE;
+        } else {
+            msg.node_type = TPlanNodeType.ES_SCAN_NODE;
         }
         Map<String, String> properties = Maps.newHashMap();
         properties.put(EsTable.USER, table.getUserName());
@@ -191,13 +191,11 @@ public class EsScanNode extends ScanNode {
                 // get backends
                 Set<Backend> colocatedBes = Sets.newHashSet();
                 int numBe = Math.min(3, backendMap.size());
-                List<TNetworkAddress> shardAllocations = shardRouting.stream().map(e -> {
-                    if (EsTable.TRANSPORT_HTTP.equals(table.getTransport())) {
-                        return e.getHttpAddress();
-                    } else {
-                        return e.getAddress();
-                    }
-                }).collect(Collectors.toList());
+                List<TNetworkAddress> shardAllocations = new ArrayList<>();
+                for (EsShardRouting item : shardRouting) {
+                    shardAllocations.add(EsTable.TRANSPORT_HTTP.equals(table.getTransport()) ? item.getHttpAddress() : item.getAddress());
+                }
+
                 Collections.shuffle(shardAllocations, random);
                 for (TNetworkAddress address : shardAllocations) {
                     colocatedBes.addAll(backendMap.get(address.getHostname()));
