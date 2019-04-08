@@ -280,7 +280,7 @@ public:
         //ASSERT_EQ(OLAP_SUCCESS, remove_all_dir(config::storage_root_path));
     }
 };
-/*
+
 TEST_F(TestDeltaWriter, open) {
     TCreateTabletReq request;
     create_tablet_request(10003, 270068375, &request);
@@ -311,7 +311,7 @@ TEST_F(TestDeltaWriter, open) {
     res = k_engine->tablet_manager()->drop_tablet(tablet_id, schema_hash);
     ASSERT_EQ(OLAP_SUCCESS, res);
 }
-*/
+
 TEST_F(TestDeltaWriter, write) {
     TCreateTabletReq request;
     create_tablet_request(10004, 270068376, &request);
