@@ -430,6 +430,5 @@ void EsHttpScanNode::scanner_worker(int start_idx, int length) {
     if (!status.ok()) {
         _queue_writer_cond.notify_all();
     }
-    Expr::close(scanner_expr_ctxs, _runtime_state);
 }
 }

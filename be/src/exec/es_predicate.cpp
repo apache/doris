@@ -263,9 +263,46 @@ bool EsPredicate::build_disjuncts_list(Expr* conjunct, vector<ExtPredicate*>& di
         return true;
     } 
 
-    if (TExprNodeType::LIKE_PRED == conjunct->node_type()) {
-        //TODO
-        return false;
+    if (TExprNodeType::FUNCTION_CALL == conjunct->node_type()) {
+        std::string fname = conjunct->fn().name.function_name;
+        if (fname != "like") {
+            return false;
+        }
+
+        SlotRef* slotRef = nullptr;
+        Expr* expr = nullptr;
+        if (TExprNodeType::SLOT_REF == conjunct->get_child(0)->node_type()) {
+            expr = conjunct->get_child(1);
+            slotRef = (SlotRef*)(conjunct->get_child(0));
+        } else if (TExprNodeType::SLOT_REF == conjunct->get_child(1)->node_type()) {
+            expr = conjunct->get_child(0);
+            slotRef = (SlotRef*)(conjunct->get_child(1));
+        } else {
+            VLOG(1) << "get disjuncts fail: no SLOT_REF child";
+            return false;
+        }
+
+        const SlotDescriptor* slot_desc = get_slot_desc(slotRef);
+        if (slot_desc == nullptr) {
+            VLOG(1) << "get disjuncts fail: slot_desc is null";
+            return false;
+        }
+
+        PrimitiveType type = expr->type().type;
+        if (type != TYPE_VARCHAR && type != TYPE_CHAR) {
+            VLOG(1) << "get disjuncts fail: like value is not a string";
+            return false;
+        }
+
+        ExtLiteral literal(type, _context->get_value(expr, NULL));
+        ExtPredicate* predicate = new ExtLikePredicate(
+                    TExprNodeType::LIKE_PRED,
+                    slot_desc->col_name(),
+                    slot_desc->type(),
+                    literal);
+
+        disjuncts.push_back(predicate);
+        return true;
     }
       
     if (TExprNodeType::IN_PRED == conjunct->node_type()) {
