@@ -297,7 +297,7 @@ void BooleanQueryBuilder::must_not(QueryBuilder* filter) {
     _must_not_clauses.push_back(filter);
 }
 
-Status BooleanQueryBuilder::check_es_query(ExtFunction extFunction) {
+Status BooleanQueryBuilder::check_es_query(const ExtFunction& extFunction) {
     std::string esquery_str = extFunction.values.front().to_string();
     rapidjson::Document scratch_document;
     scratch_document.Parse(esquery_str.c_str());
