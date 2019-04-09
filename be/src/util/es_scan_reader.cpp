@@ -26,7 +26,7 @@
 namespace doris {
 const std::string REUQEST_SCROLL_FILTER_PATH = "filter_path=_scroll_id,hits.hits._source,hits.total,_id,hits.hits._source.fields";
 const std::string REQUEST_SCROLL_PATH = "_scroll";
-const std::string REQUEST_PREFERENCE_PREFIX = "&preference=shards:";
+const std::string REQUEST_PREFERENCE_PREFIX = "&preference=_shards:";
 const std::string REQUEST_SEARCH_SCROLL_PATH = "/_search/scroll";
 const std::string REQUEST_SEPARATOR = "/";
 const std::string REQUEST_SCROLL_TIME = "5m";
