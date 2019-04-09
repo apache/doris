@@ -82,8 +82,6 @@ private:
                 const std::vector<ExprContext*>& conjunct_ctxs, 
                 EsScanCounter* counter);
 
-private:
-
     Status build_conjuncts_list();
 
     TupleId _tuple_id;
