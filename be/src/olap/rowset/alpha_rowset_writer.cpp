@@ -134,7 +134,6 @@ OLAPStatus AlphaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
 
 OLAPStatus AlphaRowsetWriter::flush() {
     if (_writer_state == WRITER_FLUSHED) {
-        LOG(WARNING) << "writer already flushed.";
         return OLAP_SUCCESS;
     }
     DCHECK(_writer_state == WRITER_INITED);
