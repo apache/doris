@@ -23,8 +23,20 @@
 namespace doris {
 
 OLAPStatus OlapSnapshotConverter::to_olap_header(const TabletMetaPB& tablet_meta_pb, OLAPHeaderMessage* olap_header) {
+    if (!tablet_meta_pb.schema().has_num_rows_per_row_block()) {
+        LOG(FATAL) << "tablet schema does not have num_rows_per_row_block."
+                   << " tablet id = " << tablet_meta_pb.tablet_id();
+    }
     olap_header->set_num_rows_per_data_block(tablet_meta_pb.schema().num_rows_per_row_block());
+    if (!tablet_meta_pb.has_cumulative_layer_point()) {
+        LOG(FATAL) << "tablet schema does not have cumulative_layer_point."
+                   << " tablet id = " << tablet_meta_pb.tablet_id();
+    }
     olap_header->set_cumulative_layer_point(tablet_meta_pb.cumulative_layer_point());
+    if (!tablet_meta_pb.schema().has_num_short_key_columns()) {
+        LOG(FATAL) << "tablet schema does not have num_short_key_columns."
+                   << " tablet id = " << tablet_meta_pb.tablet_id();
+    }
     olap_header->set_num_short_key_fields(tablet_meta_pb.schema().num_short_key_columns());
 
     for (auto& column : tablet_meta_pb.schema().column()) {
@@ -32,13 +44,24 @@ OLAPStatus OlapSnapshotConverter::to_olap_header(const TabletMetaPB& tablet_meta
         to_column_msg(column, column_msg);
     }
 
+    if (!tablet_meta_pb.has_creation_time()) {
+        LOG(FATAL) << "tablet schema does not have creation_time."
+                   << " tablet id = " << tablet_meta_pb.tablet_id();
+    }
     olap_header->set_creation_time(tablet_meta_pb.creation_time());
     olap_header->set_data_file_type(DataFileType::COLUMN_ORIENTED_FILE);
-    olap_header->set_next_column_unique_id(tablet_meta_pb.schema().next_column_unique_id());
-    olap_header->set_compress_kind(tablet_meta_pb.schema().compress_kind());
-   
-    olap_header->set_bf_fpp(tablet_meta_pb.schema().bf_fpp());
-    olap_header->set_keys_type(tablet_meta_pb.schema().keys_type());
+    if (tablet_meta_pb.schema().has_next_column_unique_id()) {
+        olap_header->set_next_column_unique_id(tablet_meta_pb.schema().next_column_unique_id());
+    }
+    if (tablet_meta_pb.schema().has_compress_kind()) {
+        olap_header->set_compress_kind(tablet_meta_pb.schema().compress_kind());
+    }
+    if (tablet_meta_pb.schema().has_bf_fpp()) {
+        olap_header->set_bf_fpp(tablet_meta_pb.schema().bf_fpp());
+    }
+    if (tablet_meta_pb.schema().has_keys_type()) {
+        olap_header->set_keys_type(tablet_meta_pb.schema().keys_type());
+    }
 
     for (auto& rs_meta : tablet_meta_pb.rs_metas()) {
         PDelta* pdelta = olap_header->add_delta();
@@ -49,19 +72,32 @@ OLAPStatus OlapSnapshotConverter::to_olap_header(const TabletMetaPB& tablet_meta
         PDelta* pdelta = olap_header->add_incremental_delta();
         convert_to_pdelta(inc_rs_meta, pdelta);
     }
-
-    olap_header->set_in_restore_mode(tablet_meta_pb.in_restore_mode());
-    olap_header->set_tablet_id(tablet_meta_pb.tablet_id());
-    olap_header->set_schema_hash(tablet_meta_pb.schema_hash());
-    olap_header->set_shard(tablet_meta_pb.shard_id());
+    if (tablet_meta_pb.has_in_restore_mode()) {
+        olap_header->set_in_restore_mode(tablet_meta_pb.in_restore_mode());
+    }
+    if (tablet_meta_pb.has_tablet_id()) {
+        olap_header->set_tablet_id(tablet_meta_pb.tablet_id());
+    }
+    if (tablet_meta_pb.has_schema_hash()) {
+        olap_header->set_schema_hash(tablet_meta_pb.schema_hash());
+    }
+    if (tablet_meta_pb.has_shard_id()) {
+        olap_header->set_shard(tablet_meta_pb.shard_id());
+    }
     return OLAP_SUCCESS;
 }
 
 OLAPStatus OlapSnapshotConverter::to_tablet_meta_pb(const OLAPHeaderMessage& olap_header,
         TabletMetaPB* tablet_meta_pb, vector<RowsetMetaPB>* pending_rowsets, DataDir* data_dir) {
-    tablet_meta_pb->set_tablet_id(olap_header.tablet_id());
-    tablet_meta_pb->set_schema_hash(olap_header.schema_hash());
-    tablet_meta_pb->set_shard_id(olap_header.shard());
+    if (olap_header.has_tablet_id()) {
+        tablet_meta_pb->set_tablet_id(olap_header.tablet_id());
+    }
+    if (olap_header.has_schema_hash()) {
+        tablet_meta_pb->set_schema_hash(olap_header.schema_hash());
+    }
+    if (olap_header.has_shard()) {
+        tablet_meta_pb->set_shard_id(olap_header.shard());
+    }
     tablet_meta_pb->set_creation_time(olap_header.creation_time());
     tablet_meta_pb->set_cumulative_layer_point(olap_header.cumulative_layer_point());
 
@@ -70,12 +106,18 @@ OLAPStatus OlapSnapshotConverter::to_tablet_meta_pb(const OLAPHeaderMessage& ola
         ColumnPB* column_pb = schema->add_column();
         to_column_pb(column_msg, column_pb);
     }
-    schema->set_keys_type(olap_header.keys_type());
+    if (olap_header.has_keys_type()) {
+        schema->set_keys_type(olap_header.keys_type());
+    }
     schema->set_num_short_key_columns(olap_header.num_short_key_fields());
     schema->set_num_rows_per_row_block(olap_header.num_rows_per_data_block());
     schema->set_compress_kind(olap_header.compress_kind());
-    schema->set_bf_fpp(olap_header.bf_fpp());
-    schema->set_next_column_unique_id(olap_header.next_column_unique_id());
+    if (olap_header.has_bf_fpp()) {
+        schema->set_bf_fpp(olap_header.bf_fpp());
+    }
+    if (olap_header.has_next_column_unique_id()) {
+        schema->set_next_column_unique_id(olap_header.next_column_unique_id());
+    }
 
     std::unordered_map<Version, RowsetMetaPB*, HashOfVersion> _rs_version_map;
     for (auto& delta : olap_header.delta()) {
@@ -113,7 +155,9 @@ OLAPStatus OlapSnapshotConverter::to_tablet_meta_pb(const OLAPHeaderMessage& ola
         AlterTabletPB* alter_tablet_pb = tablet_meta_pb->mutable_alter_tablet_task();
         to_alter_tablet_pb(olap_header.schema_change_status(), alter_tablet_pb);
     }
-    tablet_meta_pb->set_in_restore_mode(olap_header.in_restore_mode());
+    if (olap_header.has_in_restore_mode()) {
+        tablet_meta_pb->set_in_restore_mode(olap_header.in_restore_mode());
+    }
     tablet_meta_pb->set_tablet_state(TabletStatePB::PB_RUNNING);
     VLOG(3) << "convert tablet meta tablet id = " << olap_header.tablet_id()
             << " schema hash = " << olap_header.schema_hash() << " successfully.";
@@ -121,9 +165,25 @@ OLAPStatus OlapSnapshotConverter::to_tablet_meta_pb(const OLAPHeaderMessage& ola
 }
 
 OLAPStatus OlapSnapshotConverter::convert_to_pdelta(const RowsetMetaPB& rowset_meta_pb, PDelta* delta) {
+    if (!rowset_meta_pb.has_start_version()) {
+        LOG(FATAL) << "rowset does not have start_version."
+                   << " rowset id = " << rowset_meta_pb.rowset_id();
+    }
     delta->set_start_version(rowset_meta_pb.start_version());
+    if (!rowset_meta_pb.has_end_version()) {
+        LOG(FATAL) << "rowset does not have end_version."
+                   << " rowset id = " << rowset_meta_pb.rowset_id();
+    }
     delta->set_end_version(rowset_meta_pb.end_version());
+    if (!rowset_meta_pb.has_version_hash()) {
+        LOG(FATAL) << "rowset does not have version_hash."
+                   << " rowset id = " << rowset_meta_pb.rowset_id();
+    }
     delta->set_version_hash(rowset_meta_pb.version_hash());
+    if (!rowset_meta_pb.has_creation_time()) {
+        LOG(FATAL) << "rowset does not have creation_time."
+                   << " rowset id = " << rowset_meta_pb.rowset_id();
+    }
     delta->set_creation_time(rowset_meta_pb.creation_time());
     AlphaRowsetExtraMetaPB extra_meta_pb;
     extra_meta_pb.ParseFromString(rowset_meta_pb.extra_properties());
@@ -243,38 +303,85 @@ OLAPStatus OlapSnapshotConverter::convert_to_rowset_meta(const PPendingDelta& pe
 }
 
 OLAPStatus OlapSnapshotConverter::to_column_pb(const ColumnMessage& column_msg, ColumnPB* column_pb) {
-    column_pb->set_unique_id(column_msg.unique_id());
+    if (column_msg.has_unique_id()) {
+        column_pb->set_unique_id(column_msg.unique_id());
+    }
     column_pb->set_name(column_msg.name());
     column_pb->set_type(column_msg.type());
     column_pb->set_is_key(column_msg.is_key());
     column_pb->set_aggregation(column_msg.aggregation());
-    column_pb->set_is_nullable(column_msg.is_allow_null());
-    column_pb->set_default_value(column_msg.default_value());
-    column_pb->set_precision(column_msg.precision());
-    column_pb->set_frac(column_msg.frac());
+    if (column_msg.has_is_allow_null()) {
+        column_pb->set_is_nullable(column_msg.is_allow_null());
+    }
+    if (column_msg.has_default_value()) {
+        column_pb->set_default_value(column_msg.default_value());
+    }
+    if (column_msg.has_precision()) {
+        column_pb->set_precision(column_msg.precision());
+    }
+    if (column_msg.has_frac()) {
+        column_pb->set_frac(column_msg.frac());
+    }
     column_pb->set_length(column_msg.length());
-    column_pb->set_index_length(column_msg.index_length());
-    column_pb->set_is_bf_column(column_msg.is_bf_column());
+    if (column_msg.has_index_length()) {
+        column_pb->set_index_length(column_msg.index_length());
+    }
+    if (column_msg.has_is_bf_column()) {
+        column_pb->set_is_bf_column(column_msg.is_bf_column());
+    }
     // TODO(ygl) calculate column id from column list
     // column_pb->set_referenced_column_id(column_msg.());
-    column_pb->set_referenced_column(column_msg.referenced_column());
+
+    if (column_msg.has_referenced_column()) {
+        column_pb->set_referenced_column(column_msg.referenced_column());
+    }
     return OLAP_SUCCESS;
 }
 
 OLAPStatus OlapSnapshotConverter::to_column_msg(const ColumnPB& column_pb, ColumnMessage* column_msg) {
+    if (!column_pb.has_name()) {
+        LOG(FATAL) << "column pb does not have name"
+                   << " column id " << column_pb.unique_id();
+    }
     column_msg->set_name(column_pb.name());
     column_msg->set_type(column_pb.type());
+    if (!column_pb.has_aggregation()) {
+        LOG(FATAL) << "column pb does not have aggregation"
+                   << " column id " << column_pb.unique_id();
+    }
     column_msg->set_aggregation(column_pb.aggregation());
+    if (!column_pb.has_length()) {
+        LOG(FATAL) << "column pb does not have length"
+                   << " column id " << column_pb.unique_id();
+    }
     column_msg->set_length(column_pb.length());
+    if (!column_pb.has_is_key()) {
+        LOG(FATAL) << "column pb does not have is_key"
+                   << " column id " << column_pb.unique_id();
+    }
     column_msg->set_is_key(column_pb.is_key());
-    column_msg->set_default_value(column_pb.default_value());
-    column_msg->set_referenced_column(column_pb.referenced_column());
-    column_msg->set_index_length(column_pb.index_length());
-    column_msg->set_precision(column_pb.precision());
-    column_msg->set_frac(column_pb.frac());
-    column_msg->set_is_allow_null(column_pb.is_nullable());
+    if (column_pb.has_default_value()) {
+        column_msg->set_default_value(column_pb.default_value());
+    }
+    if (column_pb.has_referenced_column()) {
+        column_msg->set_referenced_column(column_pb.referenced_column());
+    }
+    if (column_pb.has_index_length()) {
+        column_msg->set_index_length(column_pb.index_length());
+    }
+    if (column_pb.has_precision()) {
+        column_msg->set_precision(column_pb.precision());
+    }
+    if (column_pb.has_frac()) {
+        column_msg->set_frac(column_pb.frac());
+    }
+    if (column_pb.has_is_nullable()) {
+        column_msg->set_is_allow_null(column_pb.is_nullable());
+    }
     column_msg->set_unique_id(column_pb.unique_id());
-    column_msg->set_is_bf_column(column_pb.is_bf_column());
+    if (column_pb.has_is_bf_column()) {
+        column_msg->set_is_bf_column(column_pb.is_bf_column());
+    }
     column_msg->set_is_root_column(true);
     return OLAP_SUCCESS;
 }
