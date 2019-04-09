@@ -182,7 +182,7 @@ OLAPStatus Tablet::revise_tablet_meta(const TabletMeta& tablet_meta,
 
         // delete versions from new local tablet_meta
         for (const Version& version : versions_to_delete) {
-            res = new_tablet_meta.delete_rs_meta_by_version(version);
+            res = new_tablet_meta.delete_rs_meta_by_version(version, nullptr);
             if (res != OLAP_SUCCESS) {
                 LOG(WARNING) << "failed to delete version from new local tablet meta. tablet=" << full_name()
                              << ", version=" << version.first << "-" << version.second;

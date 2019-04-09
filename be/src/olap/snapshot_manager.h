@@ -70,6 +70,8 @@ public:
                 
     static SnapshotManager* instance();
 
+    OLAPStatus convert_rowset_ids(DataDir& data_dir, const string& clone_dir, int64_t tablet_id, const int32_t& schema_hash);
+
 private:
     SnapshotManager()
         : _snapshot_base_id(0) {}
@@ -99,6 +101,9 @@ private:
     OLAPStatus _append_single_delta(
             const TSnapshotRequest& request,
             DataDir* store);
+    
+    OLAPStatus _rename_rowset_id(const RowsetMetaPB& rs_meta_pb, const string& new_path, 
+        DataDir& data_dir, TabletSchema& tablet_schema, RowsetMetaPB* new_rs_meta_pb);
 
 private:
     static SnapshotManager* _s_instance;
