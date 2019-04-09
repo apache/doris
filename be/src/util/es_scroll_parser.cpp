@@ -40,6 +40,8 @@ static const string ERROR_INVALID_COL_DATA = "Data source returned inconsistent 
     "problem with the data source library.";
 static const string ERROR_MEM_LIMIT_EXCEEDED = "DataSourceScanNode::$0() failed to allocate "
     "$1 bytes for $2.";
+static const string ERROR_COL_DATA_IS_ARRAY = "Data source returned an array for the type $0"
+    "based on column metadata.";
 
 ScrollParser::ScrollParser(const std::string& scroll_result) :
     _scroll_id(""),
@@ -130,6 +132,9 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
         switch (slot_desc->type().type) {
             case TYPE_CHAR:
             case TYPE_VARCHAR: {
+                if (col.IsArray()) {
+                    return Status(strings::Substitute(ERROR_COL_DATA_IS_ARRAY, "STRING"));
+                }
                 if (!col.IsString()) {
                     return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "STRING"));
                 }
@@ -151,6 +156,10 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
                 if (col.IsNumber()) {
                     *reinterpret_cast<int8_t*>(slot) = (int8_t)col.GetInt();
                     break;
+                }
+
+                if (col.IsArray()) {
+                    return Status(strings::Substitute(ERROR_COL_DATA_IS_ARRAY, "TINYINT"));
                 }
 
                 if (!col.IsString()) {
@@ -175,6 +184,10 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
                     break;
                 }
 
+                if (col.IsArray()) {
+                    return Status(strings::Substitute(ERROR_COL_DATA_IS_ARRAY, "SMALLINT"));
+                }
+
                 if (!col.IsString()) {
                     return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "SMALLINT"));
                 } 
@@ -195,6 +208,10 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
                 if (col.IsNumber()) {
                     *reinterpret_cast<int32_t*>(slot) = (int32_t)col.GetInt();
                     break;
+                }
+
+                if (col.IsArray()) {
+                    return Status(strings::Substitute(ERROR_COL_DATA_IS_ARRAY, "INT"));
                 }
 
                 if (!col.IsString()) {
@@ -219,6 +236,10 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
                     break;
                 }
 
+                if (col.IsArray()) {
+                    return Status(strings::Substitute(ERROR_COL_DATA_IS_ARRAY, "BIGINT"));
+                }
+
                 if (!col.IsString()) {
                     return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "BIGINT"));
                 } 
@@ -239,6 +260,10 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
                 if (col.IsNumber()) {
                     *reinterpret_cast<int128_t*>(slot) = col.GetInt64();
                     break;
+                }
+
+                if (col.IsArray()) {
+                    return Status(strings::Substitute(ERROR_COL_DATA_IS_ARRAY, "LARGEINT"));
                 }
 
                 if (!col.IsString()) {
@@ -263,6 +288,10 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
                     break;
                 }
 
+                if (col.IsArray()) {
+                    return Status(strings::Substitute(ERROR_COL_DATA_IS_ARRAY, "DOUBLE"));
+                }
+
                 if (!col.IsString()) {
                     return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "DOUBLE"));
                 } 
@@ -283,6 +312,10 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
                 if (col.IsNumber()) {
                     *reinterpret_cast<float*>(slot) = col.GetFloat();
                     break;
+                }
+
+                if (col.IsArray()) {
+                    return Status(strings::Substitute(ERROR_COL_DATA_IS_ARRAY, "FLOAT"));
                 }
 
                 if (!col.IsString()) {
@@ -311,6 +344,10 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
                     break;
                 }
 
+                if (col.IsArray()) {
+                    return Status(strings::Substitute(ERROR_COL_DATA_IS_ARRAY, "BOOLEAN"));
+                }
+
                 if (!col.IsString()) {
                     return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "BOOLEAN"));
                 } 
@@ -333,6 +370,10 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
                     }
                     reinterpret_cast<DateTimeValue*>(slot)->cast_to_date();
                     break;
+                }
+
+                if (col.IsArray()) {
+                    return Status(strings::Substitute(ERROR_COL_DATA_IS_ARRAY, "TYPE_DATE"));
                 }
 
                 if (!col.IsString()) {
@@ -361,6 +402,10 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
                     }
                     reinterpret_cast<DateTimeValue*>(slot)->set_type(TIME_DATETIME);
                     break;
+                }
+
+                if (col.IsArray()) {
+                    return Status(strings::Substitute(ERROR_COL_DATA_IS_ARRAY, "TYPE_DATETIME"));
                 }
 
                 if (!col.IsString()) {
