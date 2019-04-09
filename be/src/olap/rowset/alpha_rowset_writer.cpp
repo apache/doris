@@ -147,6 +147,7 @@ OLAPStatus AlphaRowsetWriter::flush() {
 }
 
 RowsetSharedPtr AlphaRowsetWriter::build() {
+    DCHECK(_writer_state == WRITER_FLUSHED);
     for (auto& segment_group : _segment_groups) {
         _current_rowset_meta->set_data_disk_size(_current_rowset_meta->data_disk_size() + segment_group->data_size());
         _current_rowset_meta->set_index_disk_size(_current_rowset_meta->index_disk_size() + segment_group->index_size());
