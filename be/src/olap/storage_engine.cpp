@@ -329,7 +329,7 @@ void StorageEngine::start_disk_stat_monitor() {
         it.second->health_check();
     }
     _update_storage_medium_type_count();
-    _delete_tables_on_unused_root_path();
+    _delete_tablets_on_unused_root_path();
     
     // if drop tables
     // notify disk_state_worker_thread and tablet_worker_thread until they received
@@ -424,7 +424,7 @@ DataDir* StorageEngine::get_store(const std::string& path) {
     return it->second;
 }
 
-void StorageEngine::_delete_tables_on_unused_root_path() {
+void StorageEngine::_delete_tablets_on_unused_root_path() {
     vector<TabletInfo> tablet_info_vec;
     uint32_t unused_root_path_num = 0;
     uint32_t total_root_path_num = 0;
