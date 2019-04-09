@@ -138,11 +138,11 @@ OLAPStatus AlphaRowsetWriter::flush() {
     }
     DCHECK(_writer_state == WRITER_INITED);
     // column_data_writer finalize will call segment_group->set_empty()
-    OLAPStatus status = _column_data_writer->finalize();
+    RETURN_NOT_OK(_column_data_writer->finalize());
     SAFE_DELETE(_column_data_writer);
-    _cur_segment_group->load();
+    RETURN_NOT_OK(_cur_segment_group->load());
     _writer_state = WRITER_FLUSHED;
-    return status;
+    return OLAP_SUCCESS;
 }
 
 RowsetSharedPtr AlphaRowsetWriter::build() {
