@@ -137,8 +137,8 @@ void create_tablet_schema(KeysType keys_type, TabletSchema* tablet_schema) {
     ColumnPB* column_2 = tablet_schema_pb.add_column();
     column_2->set_unique_id(2);
     column_2->set_name("k2");
-    column_2->set_type("INT");
-    //column_2->set_length(20);
+    column_2->set_type("VARCHAR");
+    column_2->set_length(20);
     column_2->set_is_key(true);
     column_2->set_is_nullable(true);
     column_2->set_is_bf_column(false);
@@ -178,8 +178,8 @@ private:
     std::unique_ptr<MemTracker> _mem_tracker;
     std::unique_ptr<MemPool> _mem_pool;
 };
-
-TEST_F(AlphaRowsetTest, TestAlphaRowsetWriterAndReader) {
+/*
+TEST_F(AlphaRowsetTest, TestAlphaRowsetWriter) {
     TabletSchema tablet_schema;
     create_tablet_schema(AGG_KEYS, &tablet_schema);
     RowsetWriterContext rowset_writer_context;
@@ -191,7 +191,31 @@ TEST_F(AlphaRowsetTest, TestAlphaRowsetWriterAndReader) {
     
     int32_t field_0 = 10;
     row.set_field_content(0, reinterpret_cast<char*>(&field_0), _mem_pool.get());
-    int32_t field_1 = 100;
+    Slice field_1("well");
+    row.set_field_content(1, reinterpret_cast<char*>(&field_1), _mem_pool.get());
+    int32_t field_2 = 100;
+    row.set_field_content(2, reinterpret_cast<char*>(&field_2), _mem_pool.get());
+    _alpha_rowset_writer->add_row(&row);
+    _alpha_rowset_writer->flush();
+    RowsetSharedPtr alpha_rowset = _alpha_rowset_writer->build();
+    ASSERT_TRUE(alpha_rowset != nullptr);
+    ASSERT_EQ(10000, alpha_rowset->rowset_id());
+    ASSERT_EQ(1, alpha_rowset->num_rows());
+}
+*/
+TEST_F(AlphaRowsetTest, TestAlphaRowsetReader) {
+    TabletSchema tablet_schema;
+    create_tablet_schema(AGG_KEYS, &tablet_schema);
+    RowsetWriterContext rowset_writer_context;
+    create_rowset_writer_context(&tablet_schema, _data_dir, &rowset_writer_context);
+    _alpha_rowset_writer->init(rowset_writer_context);
+    RowCursor row;
+    OLAPStatus res = row.init(tablet_schema);
+    ASSERT_EQ(OLAP_SUCCESS, res);
+    
+    int32_t field_0 = 10;
+    row.set_field_content(0, reinterpret_cast<char*>(&field_0), _mem_pool.get());
+    Slice field_1("well");
     row.set_field_content(1, reinterpret_cast<char*>(&field_1), _mem_pool.get());
     int32_t field_2 = 100;
     row.set_field_content(2, reinterpret_cast<char*>(&field_2), _mem_pool.get());
@@ -212,7 +236,7 @@ TEST_F(AlphaRowsetTest, TestAlphaRowsetWriterAndReader) {
     res = delete_handler.init(tablet_schema, predicate_array, 4);
     ASSERT_EQ(OLAP_SUCCESS, res);
     RowsetReaderContext rowset_reader_context;
-    
+
     std::set<uint32_t> load_bf_columns;
     std::vector<ColumnPredicate*> predicates;
     Conditions conditions;
