@@ -210,6 +210,9 @@ void HllSetHelper::set_max_register(char* registers, int registers_len,
 void HllSetHelper::fill_set(const char* data, HllContext* context) {
     HllSetResolver resolver;
     const Slice* slice = reinterpret_cast<const Slice*>(data);
+    if (OLAP_UNLIKELY(slice->data == nullptr)) {
+        return;
+    }
     resolver.init(slice->data, slice->size);
     resolver.parse();
     if (resolver.get_hll_data_type() == HLL_DATA_EXPLICIT) {
