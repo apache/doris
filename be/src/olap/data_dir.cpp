@@ -27,6 +27,7 @@
 #include <utime.h>
 
 #include <fstream>
+#include <set>
 #include <sstream>
 
 #include <boost/algorithm/string/classification.hpp>
@@ -543,7 +544,7 @@ OLAPStatus DataDir::_clean_unfinished_converting_data() {
         clean_unifinished_rowset_meta_func);
     if (clean_unfinished_rowset_meta_status != OLAP_SUCCESS) {
         // If failed to clean meta just skip the error, there will be useless metas in rocksdb column family
-        LOG(WARNING) << "fail to clean temp rowset meta from data dir=" << _path;
+        LOG(FATAL) << "fail to clean temp rowset meta from data dir=" << _path;
     } else {
         LOG(INFO) << "success to clean temp rowset meta from data dir=" << _path;
     }
@@ -562,7 +563,7 @@ OLAPStatus DataDir::_convert_old_tablet() {
         vector<RowsetMetaPB> pending_rowsets;
         bool parsed = olap_header_msg.ParseFromString(value);
         if (!parsed) {
-            LOG(WARNING) << "convert olap header to tablet meta failed when load olap header tablet="
+            LOG(FATAL) << "convert olap header to tablet meta failed when load olap header tablet="
                          << tablet_id << "." << schema_hash;
             return false;
         }
@@ -570,7 +571,7 @@ OLAPStatus DataDir::_convert_old_tablet() {
         OLAPStatus status = converter.to_new_snapshot(olap_header_msg, old_data_path_prefix,
             old_data_path_prefix, *this, &tablet_meta_pb, &pending_rowsets);
         if (status != OLAP_SUCCESS) {
-            LOG(WARNING) << "convert olap header to tablet meta failed when convert header and files tablet=" 
+            LOG(FATAL) << "convert olap header to tablet meta failed when convert header and files tablet=" 
                          << tablet_id << "." << schema_hash;
             return false;
         }
@@ -581,7 +582,7 @@ OLAPStatus DataDir::_convert_old_tablet() {
             rowset_pb.SerializeToString(&meta_binary);
             status = RowsetMetaManager::save(_meta, rowset_pb.rowset_id() , meta_binary);
             if (status != OLAP_SUCCESS) {
-                LOG(WARNING) << "convert olap header to tablet meta failed when save rowset meta tablet=" 
+                LOG(FATAL) << "convert olap header to tablet meta failed when save rowset meta tablet=" 
                              << tablet_id << "." << schema_hash;
                 return false;
             }
@@ -592,7 +593,7 @@ OLAPStatus DataDir::_convert_old_tablet() {
         tablet_meta_pb.SerializeToString(&meta_binary);
         status = TabletMetaManager::save(this, tablet_meta_pb.tablet_id(), tablet_meta_pb.schema_hash(), meta_binary);
         if (status != OLAP_SUCCESS) {
-            LOG(WARNING) << "convert olap header to tablet meta failed when save tablet meta tablet=" 
+            LOG(FATAL) << "convert olap header to tablet meta failed when save tablet meta tablet=" 
                          << tablet_id << "." << schema_hash;
             return false;
         } else {
@@ -604,7 +605,7 @@ OLAPStatus DataDir::_convert_old_tablet() {
     OLAPStatus convert_tablet_status = TabletMetaManager::traverse_headers(_meta, 
         convert_tablet_func, OLD_HEADER_PREFIX);
     if (convert_tablet_status != OLAP_SUCCESS) {
-        LOG(WARNING) << "there is failure when convert old tablet, data dir:" << _path;
+        LOG(FATAL) << "there is failure when convert old tablet, data dir:" << _path;
         return convert_tablet_status;
     } else {
         LOG(INFO) << "successfully convert old tablet, data dir: " << _path;
@@ -612,10 +613,16 @@ OLAPStatus DataDir::_convert_old_tablet() {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus DataDir::_remove_old_meta_and_files() {
+OLAPStatus DataDir::_remove_old_meta_and_files(std::set<int64_t>& tablet_ids) {
     // clean old meta(olap header message) 
-    auto clean_old_meta_func = [this](long tablet_id,
+    auto clean_old_meta_func = [this, &tablet_ids](long tablet_id,
         long schema_hash, const std::string& value) -> bool {
+        if (tablet_ids.count(tablet_id) == 0) {
+            LOG(WARNING) << "tablet not load successfully, skip clean meta for tablet=" 
+                      << tablet_id << "." << schema_hash
+                      << " from data dir: " << _path;
+            return true;
+        }
         TabletMetaManager::remove(this, tablet_id, schema_hash, OLD_HEADER_PREFIX);
         LOG(INFO) << "successfully clean old tablet meta(olap header) for tablet=" 
                   << tablet_id << "." << schema_hash
@@ -632,8 +639,14 @@ OLAPStatus DataDir::_remove_old_meta_and_files() {
     }
 
     // clean old files because they have hard links in new file name format
-    auto clean_old_files_func = [this](long tablet_id,
+    auto clean_old_files_func = [this, &tablet_ids](long tablet_id,
         long schema_hash, const std::string& value) -> bool {
+        if (tablet_ids.count(tablet_id) == 0) {
+            LOG(WARNING) << "tablet not load successfully, skip clean files for tablet=" 
+                  << tablet_id << "." << schema_hash
+                  << "from data dir: " << _path;
+            return true;
+        }
         TabletMetaPB tablet_meta_pb;
         bool parsed = tablet_meta_pb.ParseFromString(value);
         if (!parsed) {
@@ -744,14 +757,17 @@ OLAPStatus DataDir::load() {
     // load tablet
     // create tablet from tablet meta and add it to tablet mgr
     LOG(INFO) << "begin loading tablet from meta";
-    auto load_tablet_func = [this](long tablet_id,
+    std::set<int64_t> tablet_ids;
+    auto load_tablet_func = [this, &tablet_ids](long tablet_id,
         long schema_hash, const std::string& value) -> bool {
         OLAPStatus status = _tablet_manager->load_tablet_from_meta(
                                 this, tablet_id, schema_hash, value);
         if (status != OLAP_SUCCESS) {
             LOG(WARNING) << "load tablet from header failed. status:" << status
                 << ", tablet=" << tablet_id << "." << schema_hash;
-        };
+        } else {
+            tablet_ids.insert(tablet_id);
+        }
         return true;
     };
     OLAPStatus load_tablet_status = TabletMetaManager::traverse_headers(_meta, load_tablet_func);
@@ -816,6 +832,8 @@ OLAPStatus DataDir::load() {
                              << " start_version: " << rowset_meta->version().first
                              << " end_version: " << rowset_meta->version().second;
             } else {
+                // it is added into tablet meta, then remove it from meta
+                RowsetMetaManager::remove(tablet->data_dir()->get_meta(), rowset->rowset_id());
                 LOG(INFO) << "successfully to add visible rowset: " << rowset_meta->rowset_id()
                           << " to tablet: " << rowset_meta->tablet_id()
                           << " txn id:" << rowset_meta->txn_id()
@@ -829,6 +847,7 @@ OLAPStatus DataDir::load() {
                          << " txn: " << rowset_meta->txn_id();
         }
     }
+    _remove_old_meta_and_files(tablet_ids);
     return OLAP_SUCCESS;
 }
 

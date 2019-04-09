@@ -55,6 +55,10 @@ OLAPStatus AlphaRowset::init() {
 }
 
 OLAPStatus AlphaRowset::load() {
+    // load is depend on init, so that check if init here and do init if not
+    if (!is_inited()) {
+        RETURN_IF_ERROR(init());
+    }
     if (is_loaded()) {
         return OLAP_SUCCESS;
     }
