@@ -97,7 +97,7 @@ OLAPStatus TabletManager::add_tablet(TTabletId tablet_id, SchemaHash schema_hash
         }
     }
 
-    if (table_item.get() == NULL) {
+    if (table_item == nullptr) {
         _tablet_map[tablet_id].table_arr.push_back(tablet);
         _tablet_map[tablet_id].table_arr.sort(_sort_tablet_by_creation_time);
         _tablet_map_lock.unlock();
@@ -245,7 +245,7 @@ OLAPStatus TabletManager::create_inital_rowset(TTabletId tablet_id, SchemaHash s
 
         // Get tablet and generate new index
         tablet = get_tablet(tablet_id, schema_hash);
-        if (tablet.get() == NULL) {
+        if (tablet == nullptr) {
             LOG(WARNING) << "fail to find tablet. tablet=" << tablet_id;
             res = OLAP_ERR_TABLE_NOT_FOUND;
             break;
@@ -309,7 +309,7 @@ OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request,
     if (check_tablet_id_exist(request.tablet_id)) {
         TabletSharedPtr tablet = get_tablet(
                 request.tablet_id, request.tablet_schema.schema_hash);
-        if (tablet.get() != NULL) {
+        if (tablet != nullptr) {
             LOG(INFO) << "create tablet success for tablet already exist.";
             return OLAP_SUCCESS;
         } else {
@@ -473,7 +473,7 @@ OLAPStatus TabletManager::drop_tablet(
     _tablet_map_lock.rdlock();
     TabletSharedPtr dropped_tablet = _get_tablet_with_no_lock(tablet_id, schema_hash);
     _tablet_map_lock.unlock();
-    if (dropped_tablet.get() == NULL) {
+    if (dropped_tablet == nullptr) {
         LOG(WARNING) << "tablet to drop does not exist already."
                      << " tablet_id=" << tablet_id
                      << ", schema_hash=" << schema_hash;
@@ -508,7 +508,7 @@ OLAPStatus TabletManager::drop_tablet(
     TabletSharedPtr related_tablet = _get_tablet_with_no_lock(
             related_tablet_id, related_schema_hash);
     _tablet_map_lock.unlock();
-    if (related_tablet.get() == NULL) {
+    if (related_tablet == nullptr) {
         LOG(WARNING) << "drop tablet directly when related tablet not found. "
                      << " tablet_id=" << related_tablet_id
                      << " schema_hash=" << related_schema_hash;
@@ -560,7 +560,7 @@ OLAPStatus TabletManager::drop_tablets_on_error_root_path(
         VLOG(3) << "drop_tablet begin. tablet_id=" << tablet_id
                 << ", schema_hash=" << schema_hash;
         TabletSharedPtr dropped_tablet = _get_tablet_with_no_lock(tablet_id, schema_hash);
-        if (dropped_tablet.get() == NULL) {
+        if (dropped_tablet == nullptr) {
             LOG(WARNING) << "dropping tablet not exist. " 
                          << " tablet=" << tablet_id
                          << " schema_hash=" << schema_hash;
@@ -767,7 +767,7 @@ OLAPStatus TabletManager::load_one_tablet(
                      << " header path = " << header_path;
         return res;
     }
-    if (tablet->rowset_with_max_version() == NULL && !tablet->has_alter_task()) {
+    if (tablet->rowset_with_max_version() == nullptr && !tablet->has_alter_task()) {
         LOG(WARNING) << "tablet not in schema change state without delta is invalid. "
                      << "header_path=" << header_path;
         move_to_trash(boost_schema_hash_path, boost_schema_hash_path);
@@ -845,7 +845,7 @@ OLAPStatus TabletManager::report_all_tablets_info(std::map<TTabletId, TTablet>* 
     LOG(INFO) << "begin to process report all tablets info.";
     DorisMetrics::report_all_tablets_requests_total.increment(1);
 
-    if (tablets_info == NULL) {
+    if (tablets_info == nullptr) {
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
@@ -857,7 +857,7 @@ OLAPStatus TabletManager::report_all_tablets_info(std::map<TTabletId, TTablet>* 
 
         TTablet tablet;
         for (TabletSharedPtr tablet_ptr : item.second.table_arr) {
-            if (tablet_ptr == NULL) {
+            if (tablet_ptr == nullptr) {
                 continue;
             }
 
@@ -968,7 +968,7 @@ void TabletManager::_build_tablet_stat() {
         TTabletStat stat;
         stat.tablet_id = item.first;
         for (TabletSharedPtr tablet : item.second.table_arr) {
-            if (tablet.get() == NULL) {
+            if (tablet == nullptr) {
                 continue;
             }
             // we only get base tablet's stat
@@ -1089,7 +1089,7 @@ OLAPStatus TabletManager::_drop_tablet_directly_unlocked(
     OLAPStatus res = OLAP_SUCCESS;
 
     TabletSharedPtr dropped_tablet = _get_tablet_with_no_lock(tablet_id, schema_hash);
-    if (dropped_tablet.get() == NULL) {
+    if (dropped_tablet == nullptr) {
         LOG(WARNING) << "fail to drop not existed tablet. " 
                      << " tablet_id=" << tablet_id
                      << " schema_hash=" << schema_hash;

@@ -613,7 +613,7 @@ OLAPStatus DataDir::_convert_old_tablet() {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus DataDir::_remove_old_meta_and_files(std::set<int64_t>& tablet_ids) {
+OLAPStatus DataDir::_remove_old_meta_and_files(const std::set<int64_t>& tablet_ids) {
     // clean old meta(olap header message) 
     auto clean_old_meta_func = [this, &tablet_ids](long tablet_id,
         long schema_hash, const std::string& value) -> bool {
