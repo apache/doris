@@ -202,7 +202,9 @@ void StorageEngine::_update_storage_medium_type_count() {
     }
 
     _available_storage_medium_type_count = available_storage_medium_types.size();
-    StorageEngine::instance()->tablet_manager()->update_storage_medium_type_count(_available_storage_medium_type_count);
+    if (_tablet_manager != nullptr) {
+        _tablet_manager->update_storage_medium_type_count(_available_storage_medium_type_count);
+    }
 }
 
 
@@ -327,7 +329,7 @@ void StorageEngine::start_disk_stat_monitor() {
         it.second->health_check();
     }
     _update_storage_medium_type_count();
-    _delete_tables_on_unused_root_path();
+    _delete_tablets_on_unused_root_path();
     
     // if drop tables
     // notify disk_state_worker_thread and tablet_worker_thread until they received
@@ -422,12 +424,15 @@ DataDir* StorageEngine::get_store(const std::string& path) {
     return it->second;
 }
 
-void StorageEngine::_delete_tables_on_unused_root_path() {
+void StorageEngine::_delete_tablets_on_unused_root_path() {
     vector<TabletInfo> tablet_info_vec;
     uint32_t unused_root_path_num = 0;
     uint32_t total_root_path_num = 0;
 
     std::lock_guard<std::mutex> l(_store_lock);
+    if (_store_map.size() == 0) {
+        return;
+    }
 
     for (auto& it : _store_map) {
         total_root_path_num++;
@@ -435,6 +440,7 @@ void StorageEngine::_delete_tables_on_unused_root_path() {
             continue;
         }
         it.second->clear_tablets(&tablet_info_vec);
+        ++unused_root_path_num;
     }
 
     if (_used_disk_not_enough(unused_root_path_num, total_root_path_num)) {
@@ -473,7 +479,12 @@ OLAPStatus StorageEngine::clear() {
     delete FileHandler::get_fd_cache();
     FileHandler::set_fd_cache(nullptr);
     SAFE_DELETE(_index_stream_lru_cache);
-
+    std::lock_guard<std::mutex> l(_store_lock);
+    for (auto& store_pair : _store_map) {
+        delete store_pair.second;
+        store_pair.second = nullptr;
+    }
+    _store_map.clear();
     return OLAP_SUCCESS;
 }
 
