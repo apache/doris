@@ -293,6 +293,10 @@ OLAPStatus SegmentGroup::add_zone_maps(
 
 OLAPStatus SegmentGroup::load() {
     if (_empty) {
+        if (_num_segments > 0) {
+            LOG(WARNING) << "invalid num segments for empty segment group, _num_segments:" << _num_segments;
+            return OLAP_ERR_INDEX_LOAD_ERROR;
+        }
         _index_loaded = true;
         return OLAP_SUCCESS;
     }
@@ -304,13 +308,13 @@ OLAPStatus SegmentGroup::load() {
     }
 
     if (_num_segments == 0) {
-        OLAP_LOG_WARNING("fail to load index, segments number is 0.");
+        LOG(WARNING) << "fail to load index, segments number is 0.";
         return res;
     }
 
     if (_index.init(_short_key_length, _new_short_key_length,
                     _schema->num_short_key_columns(), &_short_key_columns) != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to create MemIndex. [num_segment=%d]", _num_segments);
+        LOG(WARNING) << "fail to create MemIndex. num_segment=" << _num_segments;
         return res;
     }
 
@@ -336,6 +340,10 @@ OLAPStatus SegmentGroup::load() {
     _delete_flag = _index.delete_flag();
     _index_loaded = true;
     _file_created = true;
+    if (zero_num_rows()) {
+        LOG(WARNING) << "invalid segment group because num rows is 0";
+        return OLAP_ERR_INDEX_LOAD_ERROR;
+    }
 
     return OLAP_SUCCESS;
 }
