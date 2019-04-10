@@ -57,7 +57,12 @@ OLAPStatus AlphaRowset::init() {
 OLAPStatus AlphaRowset::load() {
     // load is depend on init, so that check if init here and do init if not
     if (!is_inited()) {
-        RETURN_IF_ERROR(init());
+        OLAPStatus res = init();
+        if (res != OLAP_SUCCESS) {
+            LOG(WARNING) << "failed to init rowset before load"
+                         << " rowset id " << rowset_id();
+            return res;
+        }
     }
     if (is_loaded()) {
         return OLAP_SUCCESS;
