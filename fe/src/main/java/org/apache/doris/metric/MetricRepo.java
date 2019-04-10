@@ -250,9 +250,8 @@ public final class MetricRepo {
                 }
             };
 
-            tabletNum.addLabel(new MetricLabel("backend", be.getHost() + ":" + be.getHttpPort()));
+            tabletNum.addLabel(new MetricLabel("backend", be.getHost() + ":" + be.getHeartbeatPort()));
             PALO_METRIC_REGISTER.addPaloMetrics(tabletNum);
-
         } // end for backends
     }
 
