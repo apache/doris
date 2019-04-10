@@ -41,6 +41,29 @@ private:
     std::stringstream _ss;
 };
 
+// eg:
+// palo_be_process_fd_num_used LONG 43
+// palo_be_process_thread_num LONG 240
+class SimpleCoreMetricsVisitor : public MetricsVisitor {
+public:
+    virtual ~SimpleCoreMetricsVisitor() {}
+    void visit(const std::string& prefix, const std::string& name,
+               MetricCollector* collector) override;
+    std::string to_string() const { return _ss.str(); }
+
+private:
+    std::stringstream _ss;
+    static const std::string PROCESS_FD_NUM_USED;
+    static const std::string PROCESS_THREAD_NUM;
+    static const std::string PUSH_REQUEST_WRITE_BYTES_PER_SECOND;
+    static const std::string QUERY_SCAN_BYTES_PER_SECOND;
+};
+
+const std::string SimpleCoreMetricsVisitor::PROCESS_FD_NUM_USED = "process_fd_num_used";
+const std::string SimpleCoreMetricsVisitor::PROCESS_THREAD_NUM = "process_thread_num";
+const std::string SimpleCoreMetricsVisitor::PUSH_REQUEST_WRITE_BYTES_PER_SECOND = "push_request_write_bytes_per_second";
+const std::string SimpleCoreMetricsVisitor::QUERY_SCAN_BYTES_PER_SECOND = "query_scan_bytes_per_second";
+
 void PrometheusMetricsVisitor::visit(const std::string& prefix,
                                      const std::string& name,
                                      MetricCollector* collector) {
@@ -85,10 +108,44 @@ void PrometheusMetricsVisitor::_visit_simple_metric(
     _ss << " " << metric->to_string() << "\n";
 }
 
+void SimpleCoreMetricsVisitor::visit(const std::string& prefix,
+                                     const std::string& name,
+                                     MetricCollector* collector) {
+    if (collector->empty() || name.empty()) {
+        return;
+    }
+
+    if (name != PROCESS_FD_NUM_USED && name != PROCESS_THREAD_NUM
+        && name != PUSH_REQUEST_WRITE_BYTES_PER_SECOND
+        && name != QUERY_SCAN_BYTES_PER_SECOND) {
+        return;
+    }
+
+    std::string metric_name;
+    if (prefix.empty()) {
+        metric_name = name;
+    } else {
+        metric_name = prefix + "_" + name;
+    }
+
+    for (auto& it : collector->metrics()) {
+        _ss << metric_name << " LONG " << ((SimpleMetric*) it.second)->to_string()
+            << "\n";
+    }
+}
+
 void MetricsAction::handle(HttpRequest* req) {
-    PrometheusMetricsVisitor visitor;
-    _metrics->collect(&visitor);
-    std::string str = visitor.to_string();
+    const std::string& type = req->param("type");
+    std::string str;
+    if (type != "core") {
+        PrometheusMetricsVisitor visitor;
+        _metrics->collect(&visitor);
+        str.assign(visitor.to_string());
+    } else {
+        SimpleCoreMetricsVisitor visitor;
+        _metrics->collect(&visitor);
+        str.assign(visitor.to_string());
+    }
 
     req->add_output_header(HttpHeaders::CONTENT_TYPE, "text/plain; version=0.0.4");
     HttpChannel::send_reply(req, str);
