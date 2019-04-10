@@ -24,7 +24,6 @@ import org.apache.doris.catalog.DiskInfo.DiskState;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
 import org.apache.doris.thrift.TDisk;
 
@@ -385,8 +384,6 @@ public class Backend implements Writable {
             disksRef.set(ImmutableMap.copyOf(newDisks));
             // log disk changing
             Catalog.getInstance().getEditLog().logBackendStateChange(this);
-            // disks is changed, regenerated capacity metrics
-            MetricRepo.generateCapacityMetrics();
         }
     }
 

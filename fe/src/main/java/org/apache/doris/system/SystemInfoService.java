@@ -164,7 +164,8 @@ public class SystemInfoService {
         Catalog.getInstance().getEditLog().logAddBackend(newBackend);
         LOG.info("finished to add {} ", newBackend);
 
-        // We update capacity metrics when disk report, not here
+        // backends is changed, regenerated tablet number metrics
+        MetricRepo.generateTabletNumMetrics();
     }
 
     public void checkBackendsExist(List<Pair<String, Integer>> hostPortPairs) throws DdlException {
@@ -230,8 +231,8 @@ public class SystemInfoService {
         Catalog.getInstance().getEditLog().logDropBackend(droppedBackend);
         LOG.info("finished to drop {}", droppedBackend);
 
-        // backends is changed, regenerated capacity metrics
-        MetricRepo.generateCapacityMetrics();
+        // backends is changed, regenerated tablet number metrics
+        MetricRepo.generateTabletNumMetrics();
     }
 
     // only for test

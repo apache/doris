@@ -34,9 +34,9 @@ import java.util.stream.Collectors;
 
 /*
  * Like this:
- * # HELP palo_fe_job_load_broker_cost_ms palo_fe_job_load_broker_cost_ms 
- * # TYPE palo_fe_job_load_broker_cost_ms gauge 
- * palo_fe_job{job="load", type="mini", state="pending"} 0
+ * # HELP doris_fe_job_load_broker_cost_ms doris_fe_job_load_broker_cost_ms 
+ * # TYPE doris_fe_job_load_broker_cost_ms gauge 
+ * doris_fe_job{job="load", type="mini", state="pending"} 0
  */
 public class PrometheusMetricVisitor extends MetricVisitor {
     // jvm
@@ -57,8 +57,7 @@ public class PrometheusMetricVisitor extends MetricVisitor {
     }
 
     @Override
-    public String visitJvm(JvmStats jvmStats) {
-        StringBuilder sb = new StringBuilder();
+    public void visitJvm(StringBuilder sb, JvmStats jvmStats) {
         // heap
         sb.append(Joiner.on(" ").join(HELP, JVM_HEAP_SIZE_BYTES, "jvm heap stat\n"));
         sb.append(Joiner.on(" ").join(TYPE, JVM_HEAP_SIZE_BYTES, "gauge\n"));
@@ -127,14 +126,13 @@ public class PrometheusMetricVisitor extends MetricVisitor {
         sb.append(Joiner.on(" ").join(TYPE, JVM_THREAD, "gauge\n"));
         sb.append(JVM_THREAD).append("{type=\"count\"} ").append(threads.getCount()).append("\n");
         sb.append(JVM_THREAD).append("{type=\"peak_count\"} ").append(threads.getPeakCount()).append("\n");
-        return sb.toString();
+        return;
     }
 
     @Override
-    public String visit(@SuppressWarnings("rawtypes") Metric metric) {
+    public void visit(StringBuilder sb, @SuppressWarnings("rawtypes") Metric metric) {
         // title
         final String fullName = prefix + "_" + metric.getName();
-        StringBuilder sb = new StringBuilder();
         sb.append(HELP).append(fullName).append(" ").append(metric.getDescription()).append("\n");
         sb.append(TYPE).append(fullName).append(" ").append(metric.getType().name().toLowerCase()).append("\n");
         sb.append(fullName);
@@ -151,13 +149,12 @@ public class PrometheusMetricVisitor extends MetricVisitor {
         }
 
         // value
-        sb.append(" ").append(metric.getValue().toString());
-        return sb.toString();
+        sb.append(" ").append(metric.getValue().toString()).append("\n");
+        return;
     }
 
     @Override
-    public String visitHistogram(String name, Histogram histogram) {
-        StringBuilder sb = new StringBuilder();
+    public void visitHistogram(StringBuilder sb, String name, Histogram histogram) {
         final String fullName = prefix + "_" + name.replaceAll("\\.", "_");
         sb.append(HELP).append(fullName).append(" ").append("\n");
         sb.append(TYPE).append(fullName).append(" ").append("summary\n");
@@ -170,23 +167,22 @@ public class PrometheusMetricVisitor extends MetricVisitor {
         sb.append(fullName).append("{quantile=\"0.999\"} ").append(snapshot.get999thPercentile()).append("\n");
         sb.append(fullName).append("_sum ").append(histogram.getCount() * snapshot.getMean()).append("\n");
         sb.append(fullName).append("_count ").append(histogram.getCount()).append("\n");
-        return sb.toString();
+        return;
     }
 
     @Override
-    public String getPaloNodeInfo() {
-        final String PALO_NODE_INFO = "palo_node_info";
-        StringBuilder sb = new StringBuilder();
-        sb.append(Joiner.on(" ").join(TYPE, PALO_NODE_INFO, "gauge\n"));
-        sb.append(PALO_NODE_INFO).append("{type=\"fe_node_num\", state=\"total\"} ")
+    public void getNodeInfo(StringBuilder sb) {
+        final String NODE_INFO = "node_info";
+        sb.append(Joiner.on(" ").join(TYPE, NODE_INFO, "gauge\n"));
+        sb.append(NODE_INFO).append("{type=\"fe_node_num\", state=\"total\"} ")
                 .append(Catalog.getInstance().getFrontends(null).size()).append("\n");
-        sb.append(PALO_NODE_INFO).append("{type=\"be_node_num\", state=\"total\"} ")
+        sb.append(NODE_INFO).append("{type=\"be_node_num\", state=\"total\"} ")
                 .append(Catalog.getCurrentSystemInfo().getBackendIds(false).size()).append("\n");
-        sb.append(PALO_NODE_INFO).append("{type=\"be_node_num\", state=\"alive\"} ")
+        sb.append(NODE_INFO).append("{type=\"be_node_num\", state=\"alive\"} ")
                 .append(Catalog.getCurrentSystemInfo().getBackendIds(true).size()).append("\n");
-        sb.append(PALO_NODE_INFO).append("{type=\"be_node_num\", state=\"decommissioned\"} ")
+        sb.append(NODE_INFO).append("{type=\"be_node_num\", state=\"decommissioned\"} ")
                 .append(Catalog.getCurrentSystemInfo().getDecommissionedBackendIds().size()).append("\n");
-        return sb.toString();
+        return;
     }
 }
 
