@@ -24,6 +24,7 @@ import org.apache.doris.http.IllegalArgException;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.metric.MetricVisitor;
 import org.apache.doris.metric.PrometheusMetricVisitor;
+import org.apache.doris.metric.SimpleCoreMetricVisitor;
 
 import com.google.common.base.Strings;
 
@@ -48,9 +49,9 @@ public class MetricsAction extends RestBaseAction {
         String type = request.getSingleParameter(TYPE_PARAM);
         MetricVisitor visitor = null;
         if (!Strings.isNullOrEmpty(type) && type.equalsIgnoreCase("core")) {
-            visitor = new SimpleCoreMetricVisitor("palo_fe");
+            visitor = new SimpleCoreMetricVisitor("doris_fe");
         } else {
-            visitor = new PrometheusMetricVisitor("palo_fe");
+            visitor = new PrometheusMetricVisitor("doris_fe");
         }
 
         response.setContentType("text/plain");

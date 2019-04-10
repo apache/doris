@@ -92,8 +92,8 @@ IntGauge DorisMetrics::process_fd_num_used;
 IntGauge DorisMetrics::process_fd_num_limit_soft;
 IntGauge DorisMetrics::process_fd_num_limit_hard;
 
-IntGauge PaloMetrics::push_request_write_bytes_per_second;
-IntGauge PaloMetrics::query_scan_bytes_per_second;
+IntGauge DorisMetrics::push_request_write_bytes_per_second;
+IntGauge DorisMetrics::query_scan_bytes_per_second;
 
 DorisMetrics::DorisMetrics() : _metrics(nullptr), _system_metrics(nullptr) {
 }

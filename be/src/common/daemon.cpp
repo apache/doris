@@ -50,7 +50,7 @@
 #include "exprs/json_functions.h"
 #include "exprs/hll_hash_function.h"
 #include "olap/options.h"
-#include "gutil/walltime.h"
+#include "util/time.h"
 
 namespace doris {
 

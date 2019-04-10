@@ -39,6 +39,20 @@ private:
         const std::string& name, const MetricLabels& labels, SimpleMetric* metric);
 private:
     std::stringstream _ss;
+};
+
+// eg:
+// palo_be_process_fd_num_used LONG 43
+// palo_be_process_thread_num LONG 240
+class SimpleCoreMetricsVisitor : public MetricsVisitor {
+public:
+    virtual ~SimpleCoreMetricsVisitor() {}
+    void visit(const std::string& prefix, const std::string& name,
+               MetricCollector* collector) override;
+    std::string to_string() const { return _ss.str(); }
+
+private:
+    std::stringstream _ss;
     static const std::string PROCESS_FD_NUM_USED;
     static const std::string PROCESS_THREAD_NUM;
     static const std::string PUSH_REQUEST_WRITE_BYTES_PER_SECOND;

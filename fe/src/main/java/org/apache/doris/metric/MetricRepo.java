@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.DiskInfo.DiskState;
 import org.apache.doris.catalog.TabletInvertedIndex;
+import org.apache.doris.common.Config;
 import org.apache.doris.load.Load;
 import org.apache.doris.load.LoadJob.EtlJobType;
 import org.apache.doris.load.LoadJob.JobState;
@@ -216,6 +217,10 @@ public final class MetricRepo {
                                                                                      "ms"));
 
         isInit.set(true);
+
+        if (Config.enable_metric_calculator) {
+            metricTimer.scheduleAtFixedRate(metricCalculator, 0, 15 * 1000 /* 15s */);
+        }
     }
 
     // this metric is reentrant, so that we can add or remove metric along with the backend add or remove
