@@ -235,6 +235,10 @@ OLAPStatus Tablet::register_tablet_into_dir() {
     return _data_dir->register_tablet(this);
 }
 
+OLAPStatus Tablet::deregister_tablet_from_dir() {
+    return _data_dir->deregister_tablet(this);
+}
+
 OLAPStatus Tablet::add_rowset(RowsetSharedPtr rowset) {
     WriteLock wrlock(&_meta_lock);
     return add_rowset_unlock(rowset);

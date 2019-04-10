@@ -123,7 +123,7 @@ private:
     Status _write_cluster_id_to_path(const std::string& path, int32_t cluster_id); 
     OLAPStatus _clean_unfinished_converting_data();
     OLAPStatus _convert_old_tablet();
-    OLAPStatus _remove_old_meta_and_files();
+    OLAPStatus _remove_old_meta_and_files(const std::set<int64_t>& tablet_ids);
 
     void _remove_check_paths_no_lock(const std::set<std::string>& paths);
 

@@ -64,6 +64,7 @@ public:
     bool is_used();
     inline DataDir* data_dir() const;
     OLAPStatus register_tablet_into_dir();
+    OLAPStatus deregister_tablet_from_dir();
     std::string tablet_path() const;
 
     // operation for TabletState
