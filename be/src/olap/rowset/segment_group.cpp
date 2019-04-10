@@ -398,7 +398,7 @@ OLAPStatus SegmentGroup::validate() {
 }
 
 bool SegmentGroup::check() {
-    if (_empty && (_num_segments > 0 || !zero_num_rows()) {
+    if (_empty && (_num_segments > 0 || !zero_num_rows())) {
         LOG(WARNING) << "invalid num segments for empty segment group, _num_segments:" << _num_segments
                 << ",num rows:" << num_rows();
         return false;
