@@ -142,6 +142,7 @@ OLAPStatus BaseCompaction::run() {
     _rs_writer.reset(new (std::nothrow)AlphaRowsetWriter());
     if (_rs_writer == nullptr) {
         LOG(WARNING) << "fail to new rowset.";
+        _garbage_collection();
         return OLAP_ERR_MALLOC_ERROR;
     }
     RETURN_NOT_OK(_rs_writer->init(context));
