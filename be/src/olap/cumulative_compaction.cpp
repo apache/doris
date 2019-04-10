@@ -153,6 +153,7 @@ OLAPStatus CumulativeCompaction::run() {
             RowsetReaderSharedPtr rs_reader(rowset->create_reader());
             if (rs_reader == nullptr) {
                 LOG(WARNING) << "rowset create reader failed. rowset:" <<  rowset->rowset_id();
+                _tablet->release_cumulative_lock();
                 return OLAP_ERR_ROWSET_CREATE_READER;
             }
             _rs_readers.push_back(rs_reader);
