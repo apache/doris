@@ -211,7 +211,7 @@ private:
             const std::string& root_path,
             std::string* unused_flag_file);
 
-    void _delete_tables_on_unused_root_path();
+    void _delete_tablets_on_unused_root_path();
 
     void _update_storage_medium_type_count();
 
