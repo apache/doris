@@ -293,10 +293,6 @@ OLAPStatus SegmentGroup::add_zone_maps(
 
 OLAPStatus SegmentGroup::load() {
     if (_empty) {
-        if (_num_segments > 0) {
-            LOG(WARNING) << "invalid num segments for empty segment group, _num_segments:" << _num_segments;
-            return OLAP_ERR_INDEX_LOAD_ERROR;
-        }
         _index_loaded = true;
         return OLAP_SUCCESS;
     }
@@ -340,10 +336,6 @@ OLAPStatus SegmentGroup::load() {
     _delete_flag = _index.delete_flag();
     _index_loaded = true;
     _file_created = true;
-    if (zero_num_rows()) {
-        LOG(WARNING) << "invalid segment group because num rows is 0";
-        return OLAP_ERR_INDEX_LOAD_ERROR;
-    }
 
     return OLAP_SUCCESS;
 }
@@ -403,6 +395,15 @@ OLAPStatus SegmentGroup::validate() {
     }
 
     return OLAP_SUCCESS;
+}
+
+bool SegmentGroup::check() {
+    if (_empty && (_num_segments > 0 || !zero_num_rows()) {
+        LOG(WARNING) << "invalid num segments for empty segment group, _num_segments:" << _num_segments
+                << ",num rows:" << num_rows();
+        return false;
+    }
+    return true;
 }
 
 OLAPStatus SegmentGroup::find_short_key(const RowCursor& key,
