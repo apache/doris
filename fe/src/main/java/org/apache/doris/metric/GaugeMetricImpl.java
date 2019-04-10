@@ -17,23 +17,25 @@
 
 package org.apache.doris.metric;
 
-import org.apache.doris.monitor.jvm.JvmStats;
+/*
+ * Author: Chenmingyu
+ * Date: Jan 30, 2019
+ */
 
-import com.codahale.metrics.Histogram;
+public class GaugeMetricImpl<T> extends GaugeMetric<T> {
 
-public abstract class MetricVisitor {
-
-    protected String prefix;
-
-    public MetricVisitor(String prefix) {
-        this.prefix = prefix;
+    public GaugeMetricImpl(String name, String description) {
+        super(name, description);
     }
 
-    public abstract void visitJvm(StringBuilder sb, JvmStats jvmStats);
+    private T value;
 
-    public abstract void visit(StringBuilder sb, Metric metric);
+    public void setValue(T v) {
+        this.value = v;
+    }
 
-    public abstract void visitHistogram(StringBuilder sb, String name, Histogram histogram);
-
-    public abstract void getNodeInfo(StringBuilder sb);
+    @Override
+    public T getValue() {
+        return value;
+    }
 }

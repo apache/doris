@@ -96,6 +96,11 @@ public:
     static IntGauge process_fd_num_limit_soft;
     static IntGauge process_fd_num_limit_hard;
 
+    // The following metrics will be calculated
+    // by metric calculator
+    static IntGauge push_request_write_bytes_per_second;
+    static IntGauge query_scan_bytes_per_second;
+
     ~DorisMetrics();
     // call before calling metrics
     void initialize(

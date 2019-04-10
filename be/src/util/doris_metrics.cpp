@@ -92,6 +92,9 @@ IntGauge DorisMetrics::process_fd_num_used;
 IntGauge DorisMetrics::process_fd_num_limit_soft;
 IntGauge DorisMetrics::process_fd_num_limit_hard;
 
+IntGauge PaloMetrics::push_request_write_bytes_per_second;
+IntGauge PaloMetrics::query_scan_bytes_per_second;
+
 DorisMetrics::DorisMetrics() : _metrics(nullptr), _system_metrics(nullptr) {
 }
 
@@ -196,6 +199,9 @@ void DorisMetrics::initialize(const std::string& name,
     REGISTER_DORIS_METRIC(process_fd_num_used);
     REGISTER_DORIS_METRIC(process_fd_num_limit_soft);
     REGISTER_DORIS_METRIC(process_fd_num_limit_hard);
+
+    REGISTER_DORIS_METRIC(push_request_write_bytes_per_second);
+    REGISTER_DORIS_METRIC(query_scan_bytes_per_second);
 
     _metrics->register_hook(_s_hook_name, std::bind(&DorisMetrics::update, this));
 

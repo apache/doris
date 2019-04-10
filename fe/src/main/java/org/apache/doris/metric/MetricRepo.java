@@ -41,6 +41,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
 import java.util.SortedMap;
+import java.util.Timer;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class MetricRepo {
@@ -65,6 +66,14 @@ public final class MetricRepo {
     public static LongCounterMetric COUNTER_TXN_SUCCESS;
     public static Histogram HISTO_QUERY_LATENCY;
     public static Histogram HISTO_EDIT_LOG_WRITE_LATENCY;
+
+    // following metrics will be updated by metric calculator
+    public static GaugeMetricImpl<Double> GAUGE_QUERY_PER_SECOND;
+    public static GaugeMetricImpl<Double> GAUGE_REQUEST_PER_SECOND;
+    public static GaugeMetricImpl<Double> GAUGE_QUERY_ERR_RATE;
+
+    private static Timer metricTimer = new Timer();
+    private static MetricCalculator metricCalculator = new MetricCalculator();
 
     public static synchronized void init() {
         if (isInit.get()) {
@@ -160,6 +169,18 @@ public final class MetricRepo {
         };
         PALO_METRIC_REGISTER.addPaloMetrics(scheduledTabletNum);
 
+        // qps, rps and error rate
+        // these metrics should be set an init value, in case that metric calculator is not running
+        GAUGE_QUERY_PER_SECOND = new GaugeMetricImpl<>("qps", "query per second");
+        GAUGE_QUERY_PER_SECOND.setValue(0.0);
+        PALO_METRIC_REGISTER.addPaloMetrics(GAUGE_QUERY_PER_SECOND);
+        GAUGE_REQUEST_PER_SECOND = new GaugeMetricImpl<>("rps", "request per second");
+        GAUGE_REQUEST_PER_SECOND.setValue(0.0);
+        PALO_METRIC_REGISTER.addPaloMetrics(GAUGE_REQUEST_PER_SECOND);
+        GAUGE_QUERY_ERR_RATE = new GaugeMetricImpl<>("query_err_rate", "query_error_rate");
+        PALO_METRIC_REGISTER.addPaloMetrics(GAUGE_QUERY_ERR_RATE);
+        GAUGE_QUERY_ERR_RATE.setValue(0.0);
+
         // 2. counter
         COUNTER_REQUEST_ALL = new LongCounterMetric("request_total", "total request");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_REQUEST_ALL);
@@ -205,6 +226,8 @@ public final class MetricRepo {
         final String DISK_STATE = "disk_state";
         // remove all previous 'capacity' metric
         PALO_METRIC_REGISTER.removeMetrics(CAPACITY);
+        PALO_METRIC_REGISTER.removeMetrics(TABLET_NUM);
+        PALO_METRIC_REGISTER.removeMetrics(DISK_STATE);
 
         LOG.info("begin to generate capacity metrics");
         SystemInfoService infoService = Catalog.getCurrentSystemInfo();
@@ -292,22 +315,22 @@ public final class MetricRepo {
         // jvm
         JvmService jvmService = new JvmService();
         JvmStats jvmStats = jvmService.stats();
-        sb.append(visitor.visitJvm(jvmStats)).append("\n");
+        visitor.visitJvm(sb, jvmStats);
 
-        // palo metrics
+        // doris metrics
         for (Metric metric : PALO_METRIC_REGISTER.getPaloMetrics()) {
-            sb.append(visitor.visit(metric)).append("\n");
+            visitor.visit(sb, metric);
         }
 
         // histogram
         SortedMap<String, Histogram> histograms = METRIC_REGISTER.getHistograms();
         for (Map.Entry<String, Histogram> entry : histograms.entrySet()) {
-            sb.append(visitor.visitHistogram(entry.getKey(), entry.getValue())).append("\n");
+            visitor.visitHistogram(sb, entry.getKey(), entry.getValue());
         }
         
         // master info
         if (Catalog.getInstance().isMaster()) {
-            sb.append(visitor.getPaloNodeInfo()).append("\n");
+            visitor.getNodeInfo(sb);
         }
 
         return sb.toString();

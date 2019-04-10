@@ -758,5 +758,10 @@ public class Config extends ConfigBase {
     //      10000 replicas: 200ms
     @ConfField(mutable = true, masterOnly = true)
     public static int report_queue_size = 100;
+    
+    /*
+     * If set to true, metric collector will be run as a daemon timer to collect metrics at fix interval
+     */
+    @ConfField public static boolean enable_metric_calculator = false;
 }
 
