@@ -152,11 +152,11 @@ static void init_doris_metrics(const std::vector<StorePath>& store_paths) {
     bool init_system_metrics = config::enable_system_metrics;
     std::set<std::string> disk_devices;
     std::vector<std::string> network_interfaces;
+    std::vector<std::string> paths;
+    for (auto& store_path : store_paths) {
+        paths.emplace_back(store_path.path);
+    }
     if (init_system_metrics) {
-        std::vector<std::string> paths;
-        for (auto& store_path : store_paths) {
-            paths.emplace_back(store_path.path);
-        }
         auto st = DiskInfo::get_disk_devices(paths, &disk_devices);
         if (!st.ok()) {
             LOG(WARNING) << "get disk devices failed, stauts=" << st.get_error_msg();
@@ -169,7 +169,7 @@ static void init_doris_metrics(const std::vector<StorePath>& store_paths) {
         }
     }
     DorisMetrics::instance()->initialize(
-        "doris_be", init_system_metrics, disk_devices, network_interfaces);
+        "doris_be", paths, init_system_metrics, disk_devices, network_interfaces);
 
     if (config::enable_metric_calculator) {
         pthread_t calculator_pid;

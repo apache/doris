@@ -20,8 +20,6 @@ package org.apache.doris.metric;
 import org.apache.doris.alter.Alter;
 import org.apache.doris.alter.AlterJob.JobType;
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.DiskInfo;
-import org.apache.doris.catalog.DiskInfo.DiskState;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.Config;
 import org.apache.doris.load.Load;
@@ -131,7 +129,7 @@ public final class MetricRepo {
         }
 
         // capacity
-        generateCapacityMetrics();
+        generateTabletNumMetrics();
 
         // connections
         GaugeMetric<Integer> conections = (GaugeMetric<Integer>) new GaugeMetric<Integer>(
@@ -225,14 +223,10 @@ public final class MetricRepo {
 
     // this metric is reentrant, so that we can add or remove metric along with the backend add or remove
     // at runtime.
-    public static void generateCapacityMetrics() {
-        final String CAPACITY = "capacity";
+    public static void generateTabletNumMetrics() {
         final String TABLET_NUM = "tablet_num";
-        final String DISK_STATE = "disk_state";
-        // remove all previous 'capacity' metric
-        PALO_METRIC_REGISTER.removeMetrics(CAPACITY);
+        // remove all previous 'tablet_num' metric
         PALO_METRIC_REGISTER.removeMetrics(TABLET_NUM);
-        PALO_METRIC_REGISTER.removeMetrics(DISK_STATE);
 
         LOG.info("begin to generate capacity metrics");
         SystemInfoService infoService = Catalog.getCurrentSystemInfo();
@@ -242,56 +236,6 @@ public final class MetricRepo {
             Backend be = infoService.getBackend(beId);
             if (be == null) {
                 continue;
-            }
-
-            for (DiskInfo diskInfo : be.getDisks().values()) {
-                GaugeMetric<Long> total = (GaugeMetric<Long>) new GaugeMetric<Long>(CAPACITY,
-                        "disk capacity") {
-                    @Override
-                    public Long getValue() {
-                        if (!Catalog.getInstance().isMaster()) {
-                            return 0L;
-                        }
-                        return diskInfo.getTotalCapacityB();
-                    }
-                };
-                total.addLabel(new MetricLabel("backend", be.getHost() + ":" + be.getHttpPort()))
-                        .addLabel(new MetricLabel("path", diskInfo.getRootPath()))
-                        .addLabel(new MetricLabel("type", "total"));
-                PALO_METRIC_REGISTER.addPaloMetrics(total);
-                
-                GaugeMetric<Long> used = (GaugeMetric<Long>) new GaugeMetric<Long>(CAPACITY,
-                        "disk capacity") {
-                    @Override
-                    public Long getValue() {
-                        if (!Catalog.getInstance().isMaster()) {
-                            return 0L;
-                        }
-                        return diskInfo.getDataUsedCapacityB();
-                    }
-                };
-
-                used.addLabel(new MetricLabel("backend", be.getHost() + ":" + be.getHttpPort()))
-                        .addLabel(new MetricLabel("path", diskInfo.getRootPath()))
-                        .addLabel(new MetricLabel("type", "used"));
-                PALO_METRIC_REGISTER.addPaloMetrics(used);
-
-                // disk state
-                // ONLINE: 1, OFFLINE: 0
-                GaugeMetric<Long> diskState = (GaugeMetric<Long>) new GaugeMetric<Long>(DISK_STATE,
-                        "disk state") {
-                    @Override
-                    public Long getValue() {
-                        if (!Catalog.getInstance().isMaster()) {
-                            return 0L;
-                        }
-                        return diskInfo.getState() == DiskState.ONLINE ? 1L : 0L;
-                    }
-                };
-
-                diskState.addLabel(new MetricLabel("backend", be.getHost() + ":" + be.getHttpPort()))
-                    .addLabel(new MetricLabel("path", diskInfo.getRootPath()));
-                PALO_METRIC_REGISTER.addPaloMetrics(diskState);
             }
 
             // tablet number of each backends
