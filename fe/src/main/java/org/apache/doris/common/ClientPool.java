@@ -30,7 +30,7 @@ public class ClientPool {
     static int heartbeatTimeoutMs = FeConstants.heartbeat_interval_second * 1000;
 
     static GenericKeyedObjectPoolConfig backendConfig = new GenericKeyedObjectPoolConfig();
-    static int backendTimeoutMs = 5000; // 5sec
+    static int backendTimeoutMs = 60000; // 1min
 
     static {
         heartbeatConfig.setLifo(true);            // set Last In First Out strategy

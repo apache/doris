@@ -21,12 +21,31 @@
 #include <set>
 #include <string>
 #include <vector>
+#include <unordered_map>
 
 #include "util/metrics.h"
 
 namespace doris {
 
 class SystemMetrics;
+
+class IntGaugeMetricsMap {
+public:
+    void set_metric(const std::string& key, int64_t val) {
+        auto metric = metrics.find(key);
+        if (metric != metrics.end()) {
+            metric->second.set_value(val);
+        }
+    }   
+
+    IntGauge* set_key(const std::string& key) {
+        metrics.emplace(key, IntGauge());
+        return &metrics.find(key)->second;
+    }
+
+private:
+    std::unordered_map<std::string, IntGauge> metrics;
+};
 
 class DorisMetrics {
 public:
@@ -95,11 +114,21 @@ public:
     static IntGauge process_fd_num_used;
     static IntGauge process_fd_num_limit_soft;
     static IntGauge process_fd_num_limit_hard;
+    static IntGaugeMetricsMap disks_total_capacity;
+    static IntGaugeMetricsMap disks_avail_capacity;
+    static IntGaugeMetricsMap disks_data_used_capacity;
+    static IntGaugeMetricsMap disks_state;
+
+    // The following metrics will be calculated
+    // by metric calculator
+    static IntGauge push_request_write_bytes_per_second;
+    static IntGauge query_scan_bytes_per_second;
 
     ~DorisMetrics();
     // call before calling metrics
     void initialize(
         const std::string& name,
+        const std::vector<std::string>& paths = std::vector<std::string>(),
         bool init_system_metrics = false,
         const std::set<std::string>& disk_devices = std::set<std::string>(),
         const std::vector<std::string>& network_interfaces = std::vector<std::string>());
