@@ -97,7 +97,7 @@ OLAPStatus TabletManager::add_tablet(TTabletId tablet_id, SchemaHash schema_hash
         }
     }
 
-    if (table_item.get() == NULL) {
+    if (table_item == nullptr) {
         _tablet_map[tablet_id].table_arr.push_back(tablet);
         _tablet_map[tablet_id].table_arr.sort(_sort_tablet_by_creation_time);
         _tablet_map_lock.unlock();
@@ -236,16 +236,17 @@ OLAPStatus TabletManager::create_inital_rowset(TTabletId tablet_id, SchemaHash s
     OLAPStatus res = OLAP_SUCCESS;
     do {
         if (version.first > version.second) {
-            OLAP_LOG_WARNING("begin should not larger than end. [begin=%d end=%d]",
-                             version.first, version.second);
+            LOG(WARNING) << "begin should not larger than end." 
+                         << " begin=" << version.first
+                         << " end=" << version.second;
             res = OLAP_ERR_INPUT_PARAMETER_ERROR;
             break;
         }
 
         // Get tablet and generate new index
         tablet = get_tablet(tablet_id, schema_hash);
-        if (tablet.get() == NULL) {
-            OLAP_LOG_WARNING("fail to find tablet. [tablet=%ld]", tablet_id);
+        if (tablet == nullptr) {
+            LOG(WARNING) << "fail to find tablet. tablet=" << tablet_id;
             res = OLAP_ERR_TABLE_NOT_FOUND;
             break;
         }
@@ -308,11 +309,11 @@ OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request,
     if (check_tablet_id_exist(request.tablet_id)) {
         TabletSharedPtr tablet = get_tablet(
                 request.tablet_id, request.tablet_schema.schema_hash);
-        if (tablet.get() != NULL) {
+        if (tablet != nullptr) {
             LOG(INFO) << "create tablet success for tablet already exist.";
             return OLAP_SUCCESS;
         } else {
-            OLAP_LOG_WARNING("tablet with different schema hash already exists.");
+            LOG(WARNING) << "tablet with different schema hash already exists.";
             return OLAP_ERR_CE_TABLET_ID_EXIST;
         }
     }
@@ -472,7 +473,7 @@ OLAPStatus TabletManager::drop_tablet(
     _tablet_map_lock.rdlock();
     TabletSharedPtr dropped_tablet = _get_tablet_with_no_lock(tablet_id, schema_hash);
     _tablet_map_lock.unlock();
-    if (dropped_tablet.get() == NULL) {
+    if (dropped_tablet == nullptr) {
         LOG(WARNING) << "tablet to drop does not exist already."
                      << " tablet_id=" << tablet_id
                      << ", schema_hash=" << schema_hash;
@@ -507,10 +508,10 @@ OLAPStatus TabletManager::drop_tablet(
     TabletSharedPtr related_tablet = _get_tablet_with_no_lock(
             related_tablet_id, related_schema_hash);
     _tablet_map_lock.unlock();
-    if (related_tablet.get() == NULL) {
-        OLAP_LOG_WARNING("drop tablet directly when related tablet not found. "
-                         "[tablet_id=%ld schema_hash=%d]",
-                         related_tablet_id, related_schema_hash);
+    if (related_tablet == nullptr) {
+        LOG(WARNING) << "drop tablet directly when related tablet not found. "
+                     << " tablet_id=" << related_tablet_id
+                     << " schema_hash=" << related_schema_hash;
         return _drop_tablet_directly(tablet_id, schema_hash, keep_files);
     }
 
@@ -519,8 +520,8 @@ OLAPStatus TabletManager::drop_tablet(
     }
 
     if (is_drop_base_tablet && !is_schema_change_finished) {
-        OLAP_LOG_WARNING("base tablet in schema change cannot be droped. [tablet=%s]",
-                         dropped_tablet->full_name().c_str());
+        LOG(WARNING) << "base tablet in schema change cannot be droped. tablet="
+                     << dropped_tablet->full_name();
         return OLAP_ERR_PREVIOUS_SCHEMA_CHANGE_NOT_FINISHED;
     }
 
@@ -538,8 +539,8 @@ OLAPStatus TabletManager::drop_tablet(
     related_tablet->release_header_lock();
     _tablet_map_lock.unlock();
     if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to drop tablet which in schema change. [tablet=%s]",
-                         dropped_tablet->full_name().c_str());
+        LOG(WARNING) << "fail to drop tablet which in schema change. tablet="
+                     << dropped_tablet->full_name();
         return res;
     }
 
@@ -559,9 +560,10 @@ OLAPStatus TabletManager::drop_tablets_on_error_root_path(
         VLOG(3) << "drop_tablet begin. tablet_id=" << tablet_id
                 << ", schema_hash=" << schema_hash;
         TabletSharedPtr dropped_tablet = _get_tablet_with_no_lock(tablet_id, schema_hash);
-        if (dropped_tablet.get() == NULL) {
-            OLAP_LOG_WARNING("dropping tablet not exist. [tablet=%ld schema_hash=%d]",
-                             tablet_id, schema_hash);
+        if (dropped_tablet == nullptr) {
+            LOG(WARNING) << "dropping tablet not exist. " 
+                         << " tablet=" << tablet_id
+                         << " schema_hash=" << schema_hash;
             continue;
         } else {
             for (list<TabletSharedPtr>::iterator it = _tablet_map[tablet_id].table_arr.begin();
@@ -765,7 +767,7 @@ OLAPStatus TabletManager::load_one_tablet(
                      << " header path = " << header_path;
         return res;
     }
-    if (tablet->rowset_with_max_version() == NULL && !tablet->has_alter_task()) {
+    if (tablet->rowset_with_max_version() == nullptr && !tablet->has_alter_task()) {
         LOG(WARNING) << "tablet not in schema change state without delta is invalid. "
                      << "header_path=" << header_path;
         move_to_trash(boost_schema_hash_path, boost_schema_hash_path);
@@ -785,13 +787,13 @@ OLAPStatus TabletManager::load_one_tablet(
     }
 
     if (tablet->register_tablet_into_dir() != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to register tablet into root path. [root_path=%s]",
-                         schema_hash_path.c_str());
+        LOG(WARNING) << "fail to register tablet into root path root_path="
+                     << schema_hash_path;
 
         if (drop_tablet(tablet_id, schema_hash) != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("fail to drop tablet when create tablet failed. "
-                             "[tablet=%ld schema_hash=%d]",
-                             tablet_id, schema_hash);
+            LOG(WARNING) << "fail to drop tablet when create tablet failed. "
+                         << " tablet=" << tablet_id
+                         << " schema_hash=" << schema_hash;
         }
 
         return OLAP_ERR_ENGINE_LOAD_INDEX_TABLE_ERROR;
@@ -828,8 +830,9 @@ OLAPStatus TabletManager::report_tablet_info(TTabletInfo* tablet_info) {
     TabletSharedPtr tablet = get_tablet(
             tablet_info->tablet_id, tablet_info->schema_hash);
     if (tablet == nullptr) {
-        OLAP_LOG_WARNING("can't find tablet. [tablet=%ld schema_hash=%d]",
-                         tablet_info->tablet_id, tablet_info->schema_hash);
+        LOG(WARNING) << "can't find tablet. " 
+                     << " tablet=" << tablet_info->tablet_id
+                     << " schema_hash=" << tablet_info->schema_hash;
         return OLAP_ERR_TABLE_NOT_FOUND;
     }
 
@@ -842,7 +845,7 @@ OLAPStatus TabletManager::report_all_tablets_info(std::map<TTabletId, TTablet>* 
     LOG(INFO) << "begin to process report all tablets info.";
     DorisMetrics::report_all_tablets_requests_total.increment(1);
 
-    if (tablets_info == NULL) {
+    if (tablets_info == nullptr) {
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
@@ -854,7 +857,7 @@ OLAPStatus TabletManager::report_all_tablets_info(std::map<TTabletId, TTablet>* 
 
         TTablet tablet;
         for (TabletSharedPtr tablet_ptr : item.second.table_arr) {
-            if (tablet_ptr == NULL) {
+            if (tablet_ptr == nullptr) {
                 continue;
             }
 
@@ -965,7 +968,7 @@ void TabletManager::_build_tablet_stat() {
         TTabletStat stat;
         stat.tablet_id = item.first;
         for (TabletSharedPtr tablet : item.second.table_arr) {
-            if (tablet.get() == NULL) {
+            if (tablet == nullptr) {
                 continue;
             }
             // we only get base tablet's stat
@@ -988,7 +991,7 @@ OLAPStatus TabletManager::_create_inital_rowset(
     OLAPStatus res = OLAP_SUCCESS;
 
     if (request.version < 1) {
-        OLAP_LOG_WARNING("init version of tablet should at least 1.");
+        LOG(WARNING) << "init version of tablet should at least 1.";
         return OLAP_ERR_CE_CMD_PARAMS_ERROR;
     } else {
         Version init_base_version(0, request.version);
@@ -996,8 +999,9 @@ OLAPStatus TabletManager::_create_inital_rowset(
                 request.tablet_id, request.tablet_schema.schema_hash,
                 init_base_version, request.version_hash);
         if (res != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("fail to create init base version. [res=%d version=%ld]",
-                    res, request.version);
+            LOG(WARNING) << "fail to create init base version. " 
+                         << " res=" << res 
+                         << " version=" << request.version;
             return res;
         }
     }
@@ -1085,9 +1089,10 @@ OLAPStatus TabletManager::_drop_tablet_directly_unlocked(
     OLAPStatus res = OLAP_SUCCESS;
 
     TabletSharedPtr dropped_tablet = _get_tablet_with_no_lock(tablet_id, schema_hash);
-    if (dropped_tablet.get() == NULL) {
-        OLAP_LOG_WARNING("fail to drop not existed tablet. [tablet_id=%ld schema_hash=%d]",
-                         tablet_id, schema_hash);
+    if (dropped_tablet == nullptr) {
+        LOG(WARNING) << "fail to drop not existed tablet. " 
+                     << " tablet_id=" << tablet_id
+                     << " schema_hash=" << schema_hash;
         return OLAP_ERR_TABLE_NOT_FOUND;
     }
 
@@ -1109,10 +1114,11 @@ OLAPStatus TabletManager::_drop_tablet_directly_unlocked(
         _tablet_map.erase(tablet_id);
     }
 
-    res = dropped_tablet->data_dir()->deregister_tablet(dropped_tablet.get());
+    res = dropped_tablet->deregister_tablet_from_dir();
     if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to unregister from root path. [res=%d tablet=%ld]",
-                         res, tablet_id);
+        LOG(WARNING) << "fail to unregister from root path. " 
+                     << " res= " << res
+                     << " tablet=" << tablet_id;
     }
 
     return res;
