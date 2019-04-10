@@ -847,7 +847,7 @@ public class Coordinator {
             } else {
                 //normat fragment
                 Iterator iter = fragmentExecParamsMap.get(fragment.getFragmentId()).scanRangeAssignment.entrySet().iterator();
-                int parallelExecInstanceNum = ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
+                int parallelExecInstanceNum = fragment.getParallel_exec_num();
                 while (iter.hasNext()) {
                     Map.Entry entry = (Map.Entry) iter.next();
                     TNetworkAddress key = (TNetworkAddress) entry.getKey();
