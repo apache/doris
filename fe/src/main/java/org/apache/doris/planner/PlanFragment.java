@@ -22,6 +22,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.TreeNode;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TPlanFragment;
@@ -105,6 +106,10 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     // substitution map to remap exprs onto the output of this fragment, to be applied
     // at destination fragment
 
+    // specification of the number of parallel when fragment is executed
+    // default value is 1
+    private int parallel_exec_num = 1;
+
     /**
      * C'tor for fragment with specific partition; the output is by default broadcast.
      */
@@ -114,6 +119,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         this.dataPartition = partition;
         this.outputPartition = DataPartition.UNPARTITIONED;
         this.transferQueryStatisticsWithEveryBatch = false;
+        setParallelExecNumIfExists();
         setFragmentInPlanTree(planRoot);
     }
 
@@ -127,6 +133,16 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         node.setFragment(this);
         if (node instanceof ExchangeNode) return;
         for (PlanNode child : node.getChildren()) setFragmentInPlanTree(child);
+    }
+
+    /**
+     * Assign ParallelExecNum by PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM in SessionVariable for synchronous request
+     * Assign ParallelExecNum by default value for Asynchronous request
+     */
+    public void setParallelExecNumIfExists() {
+        if (ConnectContext.get() != null) {
+            parallel_exec_num = ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
+        }
     }
 
     public void setOutputExprs(List<Expr> outputExprs) {
@@ -168,6 +184,10 @@ public class PlanFragment extends TreeNode<PlanFragment> {
      */
     public int getNumNodes() {
         return dataPartition == DataPartition.UNPARTITIONED ? 1 : planRoot.getNumNodes();
+    }
+
+    public int getParallel_exec_num() {
+        return parallel_exec_num;
     }
 
     public TPlanFragment toThrift() {
