@@ -245,6 +245,7 @@ Status OlapScanner::get_batch(
         while (true) {
             // Batch is full, break
             if (batch->is_full()) {
+                _update_realtime_counter();
                 break;
             }
             // Read one row from reader
@@ -254,6 +255,7 @@ Status OlapScanner::get_batch(
             }
             // If we reach end of this scanner, break
             if (UNLIKELY(*eof)) {
+                _update_realtime_counter();
                 break;
             }
 
@@ -459,6 +461,10 @@ void OlapScanner::update_counter() {
     DorisMetrics::query_scan_rows.increment(_reader->stats().raw_rows_read);
 
     _has_update_counter = true;
+}
+
+void OlapScanner::_update_realtime_counter() {
+    COUNTER_UPDATE(_parent->bytes_read_counter(), _reader->stats().bytes_read);
 }
 
 Status OlapScanner::close(RuntimeState* state) {

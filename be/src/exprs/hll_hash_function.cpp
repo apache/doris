@@ -63,12 +63,12 @@ StringVal HllHashFunctions::hll_hash(doris_udf::FunctionContext* ctx,
     return create_string_result(ctx, input, input.is_null);
 }
     
-StringVal HllHashFunctions::hll_cardinality(doris_udf::FunctionContext* ctx, 
-                                            const StringVal& input) {
+BigIntVal HllHashFunctions::hll_cardinality(doris_udf::FunctionContext* ctx,
+                                            const HllVal& input) {
     if (input.is_null) {
-        return StringVal::null();
+        return BigIntVal::null();
     }
-    StringVal dst;
+    HllVal dst;
     AggregateFunctions::hll_union_agg_init(ctx, &dst);
     AggregateFunctions::hll_union_agg_update(ctx, input, &dst);
     return AggregateFunctions::hll_union_agg_finalize(ctx, dst);

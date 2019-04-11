@@ -50,17 +50,19 @@ Status ResultBufferMgr::init() {
 Status ResultBufferMgr::create_sender(
     const TUniqueId& query_id, int buffer_size,
     boost::shared_ptr<BufferControlBlock>* sender) {
-    if (find_control_block(query_id).get() != NULL) {
+    *sender = find_control_block(query_id);
+    if (*sender != nullptr) {
         LOG(WARNING) << "already have buffer control block for this instance "
                      << query_id;
-        *sender = find_control_block(query_id);
         return Status::OK;
     }
 
     boost::shared_ptr<BufferControlBlock> control_block(
         new BufferControlBlock(query_id, buffer_size));
-    boost::lock_guard<boost::mutex> l(_lock);
-    _buffer_map.insert(std::make_pair(query_id, control_block));
+    {
+        boost::lock_guard<boost::mutex> l(_lock);
+        _buffer_map.insert(std::make_pair(query_id, control_block));
+    }
     *sender = control_block;
     return Status::OK;
 }

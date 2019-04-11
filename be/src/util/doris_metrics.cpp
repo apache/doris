@@ -91,6 +91,13 @@ IntGauge DorisMetrics::process_thread_num;
 IntGauge DorisMetrics::process_fd_num_used;
 IntGauge DorisMetrics::process_fd_num_limit_soft;
 IntGauge DorisMetrics::process_fd_num_limit_hard;
+IntGaugeMetricsMap DorisMetrics::disks_total_capacity;
+IntGaugeMetricsMap DorisMetrics::disks_avail_capacity;
+IntGaugeMetricsMap DorisMetrics::disks_data_used_capacity;
+IntGaugeMetricsMap DorisMetrics::disks_state;
+
+IntGauge DorisMetrics::push_request_write_bytes_per_second;
+IntGauge DorisMetrics::query_scan_bytes_per_second;
 
 DorisMetrics::DorisMetrics() : _metrics(nullptr), _system_metrics(nullptr) {
 }
@@ -100,10 +107,12 @@ DorisMetrics::~DorisMetrics() {
     delete _metrics;
 }
 
-void DorisMetrics::initialize(const std::string& name,
-                             bool init_system_metrics,
-                             const std::set<std::string>& disk_devices,
-                             const std::vector<std::string>& network_interfaces) {
+void DorisMetrics::initialize(
+        const std::string& name,
+        const std::vector<std::string>& paths,
+        bool init_system_metrics,
+        const std::set<std::string>& disk_devices,
+        const std::vector<std::string>& network_interfaces) {
     _metrics = new MetricRegistry(name);
 #define REGISTER_DORIS_METRIC(name) _metrics->register_metric(#name, &name)
 
@@ -196,6 +205,21 @@ void DorisMetrics::initialize(const std::string& name,
     REGISTER_DORIS_METRIC(process_fd_num_used);
     REGISTER_DORIS_METRIC(process_fd_num_limit_soft);
     REGISTER_DORIS_METRIC(process_fd_num_limit_hard);
+
+    // disk usage
+    for (auto& path : paths) {
+        IntGauge* gauge = disks_total_capacity.set_key(path);
+        _metrics->register_metric("disks_total_capacity", MetricLabels().add("path", path), gauge);
+        gauge = disks_avail_capacity.set_key(path);
+        _metrics->register_metric("disks_avail_capacity", MetricLabels().add("path", path), gauge);
+        gauge = disks_data_used_capacity.set_key(path);
+        _metrics->register_metric("disks_data_used_capacity", MetricLabels().add("path", path), gauge);
+        gauge = disks_state.set_key(path);
+        _metrics->register_metric("disks_state", MetricLabels().add("path", path), gauge);
+    } 
+
+    REGISTER_DORIS_METRIC(push_request_write_bytes_per_second);
+    REGISTER_DORIS_METRIC(query_scan_bytes_per_second);
 
     _metrics->register_hook(_s_hook_name, std::bind(&DorisMetrics::update, this));
 

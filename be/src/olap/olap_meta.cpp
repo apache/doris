@@ -171,6 +171,10 @@ OLAPStatus OlapMeta::iterate(const int column_family_index, const std::string& p
             break;
         }
     }
+    if (!it->status().ok()) {
+        LOG(WARNING) << "rocksdb iterator failed. reason:" << status.ToString();
+        return OLAP_ERR_META_ITERATOR;
+    }
     return OLAP_SUCCESS;
 }
 
