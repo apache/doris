@@ -257,6 +257,7 @@ public class PropertyAnalyzer {
             String[] bfColumnArr = bfColumnsStr.split(COMMA_SEPARATOR);
             Set<String> bfColumnSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
             for (String bfColumn : bfColumnArr) {
+                bfColumn = bfColumn.trim();
                 boolean found = false;
                 for (Column column : columns) {
                     if (column.getName().equalsIgnoreCase(bfColumn)) {
