@@ -170,7 +170,7 @@ OLAPStatus CumulativeCompaction::run() {
     } while (0);
 
     // 5. 如果出现错误，执行清理工作
-    if (res != OLAP_SUCCESS && _rowset != NULL) {
+    if (res != OLAP_SUCCESS) {
         StorageEngine::instance()->add_unused_rowset(_rowset);
     }
 

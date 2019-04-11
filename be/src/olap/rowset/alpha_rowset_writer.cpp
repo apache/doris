@@ -154,7 +154,7 @@ RowsetSharedPtr AlphaRowsetWriter::build() {
         return nullptr;
     }
     for (auto& segment_group : _segment_groups) {
-        RETURN_NOT_OK(segment_group->load());
+        segment_group->load();
         bool checked = segment_group->check();
         if (!checked) {
             return nullptr;

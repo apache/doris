@@ -84,45 +84,6 @@ private:
     struct timeval _begin_time;    // 起始时间戳
 };
 
-// 解决notice log buffer不够长的问题, 原生的notice log的buffer只有2048大小
-class OLAPNoticeLog {
-public:
-    static void push(const char* key, const char* fmt, ...) \
-    __attribute__((__format__(__printf__, 2, 3)));
-
-    static void log(const char* msg);
-
-private:
-    static const int BUF_SIZE = 128 * 1024; // buffer大小
-    static __thread char _buf[BUF_SIZE];
-    static __thread int _len;
-};
-
-// 用于在notice log中输出索引定位次数以及平均定位时间
-// 如果还需要在notice log中输出需要聚合计算的其他信息，可以参考这个来实现。
-class OLAPNoticeInfo {
-public:
-    static void add_seek_count();
-    static void add_seek_time_us(uint64_t time_us);
-    static void add_scan_rows(uint64_t rows);
-    static void add_filter_rows(uint64_t rows);
-    static uint64_t seek_count();
-    static uint64_t seek_time_us();
-    static uint64_t avg_seek_time_us();
-    static uint64_t scan_rows();
-    static uint64_t filter_rows();
-    static void clear();
-
-private:
-    static __thread uint64_t _seek_count;
-    static __thread uint64_t _seek_time_us;
-    static __thread uint64_t _scan_rows;
-    static __thread uint64_t _filter_rows;
-};
-
-#define OLAP_LOG_NOTICE_SOCK(message) OLAPNoticeLog::log(message)
-#define OLAP_LOG_NOTICE_PUSH(key, fmt, arg...) OLAPNoticeLog::push(key, fmt, ##arg)
-
 // @brief 切分字符串
 // @param base 原串
 // @param separator 分隔符

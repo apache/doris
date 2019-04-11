@@ -1115,12 +1115,9 @@ OLAPStatus SchemaChangeHandler::_check_and_clear_schema_change_info(
     // so, there is no relation between A & B any more
     // including: alter_tablet, split_tablet, rollup_tablet
 
-    tablet->obtain_header_rdlock();
-    bool has_alter_task = tablet->has_alter_task();
-    AlterTabletState alter_state = tablet->alter_task().alter_state();
-    tablet->release_header_lock();
+    AlterTabletTaskSharedPtr alter_task = tablet->alter_task();
 
-    if (has_alter_task && alter_state != ALTER_FAILED) {
+    if (alter_task != nullptr && alter_task->alter_state() != ALTER_FAILED) {
         LOG(WARNING) << "schema change is not allowed now, "
                      << "until previous schema change is done";
         return OLAP_ERR_PREVIOUS_SCHEMA_CHANGE_NOT_FINISHED;
@@ -1128,7 +1125,7 @@ OLAPStatus SchemaChangeHandler::_check_and_clear_schema_change_info(
 
     OLAPStatus res = OLAP_SUCCESS;
     // Alter task has been failed. Should drop invalid tablet.
-    if (has_alter_task && alter_state == ALTER_FAILED) {
+    if (alter_task != nullptr && alter_task->alter_state() != ALTER_FAILED) {
         res = StorageEngine::instance()->tablet_manager()->drop_tablet(request.new_tablet_req.tablet_id, 
                                                                        request.new_tablet_req.tablet_schema.schema_hash);
         if (res != OLAP_SUCCESS) {

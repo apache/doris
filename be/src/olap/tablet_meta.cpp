@@ -277,11 +277,10 @@ OLAPStatus TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
     }
 
     // generate AlterTabletTask
-    if (tablet_meta_pb.has_alter_tablet_task()) {
-        _has_alter_task = true;
-        RETURN_NOT_OK(_alter_task.init_from_pb(tablet_meta_pb.alter_tablet_task()));
-    } else {
-        _has_alter_task = false;
+    if (tablet_meta_pb.has_alter_task()) {
+        AlterTabletTask* alter_tablet_task = new AlterTabletTask();
+        RETURN_NOT_OK(alter_tablet_task->init_from_pb(tablet_meta_pb.alter_tablet_task()));
+        _alter_task.reset(alter_tablet_task);
     }
     return OLAP_SUCCESS;
 }
@@ -406,9 +405,10 @@ OLAPStatus TabletMeta::modify_rs_metas(const vector<RowsetMetaSharedPtr>& to_add
 }
 
 OLAPStatus TabletMeta::revise_rs_metas(const std::vector<RowsetMetaSharedPtr>& rs_metas) {
+    WriteLock wrlock(&_meta_lock);
     // delete alter task
-    _tablet_meta_pb.clear_alter_tablet_task();
-    _has_alter_task = false;
+    _alter_task.reset();
+    _tablet_meta_pb.clear_alter_task();
 
     // remove all old rs_meta and add new rs_meta
     _tablet_meta_pb.clear_rs_metas();
@@ -426,9 +426,10 @@ OLAPStatus TabletMeta::revise_rs_metas(const std::vector<RowsetMetaSharedPtr>& r
 }
 
 OLAPStatus TabletMeta::revise_inc_rs_metas(const std::vector<RowsetMetaSharedPtr>& rs_metas) {
+    WriteLock wrlock(&_meta_lock);
     // delete alter task
-    _tablet_meta_pb.clear_alter_tablet_task();
-    _has_alter_task = false;
+    _tablet_meta_pb.clear_alter_task();
+    _alter_task.reset();
 
     // remove all old rs_meta and add new rs_meta
     _tablet_meta_pb.clear_inc_rs_metas();
@@ -580,16 +581,27 @@ bool TabletMeta::version_for_delete_predicate(const Version& version) {
 }
 
 OLAPStatus TabletMeta::add_alter_task(const AlterTabletTask& alter_task) {
-    _alter_task = alter_task;
-    RETURN_NOT_OK(_alter_task.to_alter_pb(_tablet_meta_pb.mutable_alter_tablet_task()));
-    _has_alter_task = true;
+    WriteLock wrlock(&_meta_lock);
+    AlterTabletTask* alter_task = new AlterTabletTask();
+    *alter_task = alter_task;
+    RETURN_NOT_OK(alter_task->to_alter_pb(_tablet_meta_pb.mutable_alter_task()));
+    _alter_task.reset(alter_tablet_task);
     return OLAP_SUCCESS;
 }
 
 OLAPStatus TabletMeta::delete_alter_task() {
-    _tablet_meta_pb.clear_alter_tablet_task();
-    _has_alter_task = false;
+    WriteLock wrlock(&_meta_lock);
+    _alter_task.reset();
+    _tablet_meta_pb.clear_alter_task();
     return OLAP_SUCCESS;
+}
+
+void TabletMeta::set_alter_state(AlterTabletState alter_state) {
+    WriteLock wrlock(&_meta_lock);
+    AlterTabletTask* alter_tablet_task = new AlterTabletTask();
+    *alter_tablet_task = *_alter_task;
+    alter_tablet_task->set_alter_state(alter_state);
+    _alter_task.reset(alter_tablet_task);
 }
 
 }  // namespace doris

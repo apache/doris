@@ -97,6 +97,9 @@ private:
     vector<RowsetMetaSharedPtr> _rowsets_to_alter;
 };
 
+
+typedef std::shared_ptr<AlterTabletTask> AlterTabletTaskSharedPtr;
+
 // Class encapsulates meta of tablet.
 // The concurrency control is handled in Tablet Class, not in this class.
 class TabletMeta {
@@ -171,12 +174,10 @@ public:
     OLAPStatus remove_delete_predicate_by_version(const Version& version);
     DelPredicateArray delete_predicates() const;
     bool version_for_delete_predicate(const Version& version);
-
-    inline bool has_alter_task() const;
-    inline const AlterTabletTask& alter_task() const;
-    inline AlterTabletTask* mutable_alter_task();
+    AlterTabletTaskSharedPtr alter_task() const;
     OLAPStatus add_alter_task(const AlterTabletTask& alter_task);
     OLAPStatus delete_alter_task();
+    void set_alter_state(AlterTabletState alter_state);
 
 private:
     TabletState _tablet_state;
@@ -186,11 +187,12 @@ private:
     vector<RowsetMetaSharedPtr> _inc_rs_metas;
     DelPredicateArray _del_pred_array;
 
-    bool _has_alter_task;
-    AlterTabletTask _alter_task;
+    AlterTabletTaskSharedPtr _alter_task;
 
     DataDir* _data_dir;
     TabletMetaPB _tablet_meta_pb;
+
+    RWMutex _meta_lock;
 };
 
 inline void TabletMeta::set_data_dir(DataDir* data_dir) {
@@ -285,16 +287,10 @@ inline const vector<RowsetMetaSharedPtr>& TabletMeta::all_inc_rs_metas() const {
     return _inc_rs_metas;
 }
 
-inline bool TabletMeta::has_alter_task() const {
-    return _has_alter_task;
-}
-
-inline const AlterTabletTask& TabletMeta::alter_task() const {
+// return value not reference
+// MVCC modification for alter task, upper application get a alter task mirror
+inline AlterTabletTaskSharedPtr TabletMeta::alter_task() const {
     return _alter_task;
-}
-
-inline AlterTabletTask* TabletMeta::mutable_alter_task() {
-    return &_alter_task;
 }
 
 }  // namespace doris

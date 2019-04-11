@@ -63,7 +63,7 @@ private:
     // Convert local data file to internal formatted delta,
     // return new delta's SegmentGroup
     OLAPStatus _convert(
-            TabletSharedPtr curr_tablet,
+            TabletSharedPtr cur_tablet,
             TabletSharedPtr new_tablet_vec,
             RowsetSharedPtr* cur_rowset,
             RowsetSharedPtr* new_rowset);

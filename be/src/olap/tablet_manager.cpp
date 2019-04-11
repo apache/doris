@@ -166,13 +166,13 @@ void TabletManager::cancel_unfinished_schema_change() {
                 LOG(WARNING) << "tablet does not exist. tablet_id=" << tablet_instance.first;
                 continue;
             }
-
-            if (!tablet->has_alter_task()) {
+            AlterTabletTaskSharedPtr alter_task = tablet->alter_task();
+            if (alter_task == nullptr) {
                 continue;
             }
 
-            tablet_id = tablet->alter_task().related_tablet_id();
-            schema_hash = tablet->alter_task().related_schema_hash();
+            tablet_id = alter_task->related_tablet_id();
+            schema_hash = alter_task->related_schema_hash();
             TabletSharedPtr new_tablet = get_tablet(tablet_id, schema_hash);
             if (new_tablet == nullptr) {
                 LOG(WARNING) << "new tablet created by alter tablet does not exist. "
@@ -180,9 +180,11 @@ void TabletManager::cancel_unfinished_schema_change() {
                 continue;
             }
 
+            AlterTabletTaskSharedPtr new_alter_task = new_tablet->alter_task();
             // DORIS-3741. Upon restart, it should not clear schema change request.
-            if (tablet->alter_state() == ALTER_FINISHED
-                && new_tablet->alter_state() == ALTER_FINISHED) {
+            if (alter_task->alter_state() == ALTER_FINISHED
+                && new_alter_task != nullptr 
+                && new_alter_task->alter_state() == ALTER_FINISHED) {
                 continue;
             }
 
@@ -481,21 +483,16 @@ OLAPStatus TabletManager::drop_tablet(
     }
 
     // Try to get schema change info
-    dropped_tablet->obtain_header_rdlock();
-    bool has_alter_task = dropped_tablet->has_alter_task();
-    dropped_tablet->release_header_lock();
+    AlterTabletTaskSharedPtr alter_task = dropped_tablet->alter_task();
 
     // Drop tablet directly when not in schema change
-    if (!has_alter_task) {
+    if (alter_task == nullptr) {
         return _drop_tablet_directly(tablet_id, schema_hash, keep_files);
     }
 
-    dropped_tablet->obtain_header_rdlock();
-    const AlterTabletTask& alter_task = dropped_tablet->alter_task();
-    AlterTabletState alter_state = alter_task.alter_state();
-    TTabletId related_tablet_id = alter_task.related_tablet_id();
-    TSchemaHash related_schema_hash = alter_task.related_schema_hash();;
-    dropped_tablet->release_header_lock();
+    AlterTabletState alter_state = alter_task->alter_state();
+    TTabletId related_tablet_id = alter_task->related_tablet_id();
+    TSchemaHash related_schema_hash = alter_task->related_schema_hash();;
 
     // Check tablet is in schema change or not, is base tablet or not
     bool is_schema_change_finished = true;
@@ -704,7 +701,7 @@ OLAPStatus TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tab
         return OLAP_ERR_TABLE_CREATE_FROM_HEADER_ERROR;
     }
 
-    if (tablet->max_version().first == -1 && !tablet->has_alter_task()) {
+    if (tablet->max_version().first == -1 && tablet->alter_task() == nullptr) {
         LOG(WARNING) << "tablet not in schema change state without delta is invalid."
                      << "tablet=" << tablet->full_name();
         // tablet state is invalid, drop tablet
@@ -767,7 +764,7 @@ OLAPStatus TabletManager::load_one_tablet(
                      << " header path = " << header_path;
         return res;
     }
-    if (tablet->rowset_with_max_version() == nullptr && !tablet->has_alter_task()) {
+    if (tablet->rowset_with_max_version() == nullptr && tablet->alter_task() == nullptr) {
         LOG(WARNING) << "tablet not in schema change state without delta is invalid. "
                      << "header_path=" << header_path;
         move_to_trash(boost_schema_hash_path, boost_schema_hash_path);
