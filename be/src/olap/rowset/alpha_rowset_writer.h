@@ -69,7 +69,7 @@ public:
     DataDir* data_dir() override;
 
 private:
-    void _init();
+    OLAPStatus _init();
 
 private:
     int32_t _segment_group_id;
@@ -82,6 +82,8 @@ private:
     std::vector<SegmentGroup*> _segment_groups;
     bool _rowset_build;
     WriterState _writer_state;
+    // add_rowset does not need to call column_data_writer.finalize()
+    bool _need_column_data_writer;
 };
 
 } // namespace doris

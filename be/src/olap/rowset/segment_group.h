@@ -85,6 +85,9 @@ public:
     // 检查index文件和data文件的有效性
     OLAPStatus validate();
 
+    // this function should be called after load
+    bool check();
+
     // Finds position of first row block contain the smallest key equal
     // to or greater than 'key'. Returns true on success.
     OLAPStatus find_short_key(const RowCursor& key,

@@ -304,13 +304,13 @@ OLAPStatus SegmentGroup::load() {
     }
 
     if (_num_segments == 0) {
-        OLAP_LOG_WARNING("fail to load index, segments number is 0.");
+        LOG(WARNING) << "fail to load index, segments number is 0.";
         return res;
     }
 
     if (_index.init(_short_key_length, _new_short_key_length,
                     _schema->num_short_key_columns(), &_short_key_columns) != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to create MemIndex. [num_segment=%d]", _num_segments);
+        LOG(WARNING) << "fail to create MemIndex. num_segment=" << _num_segments;
         return res;
     }
 
@@ -395,6 +395,15 @@ OLAPStatus SegmentGroup::validate() {
     }
 
     return OLAP_SUCCESS;
+}
+
+bool SegmentGroup::check() {
+    if (_empty && (_num_segments > 0 || !zero_num_rows())) {
+        LOG(WARNING) << "invalid num segments for empty segment group, _num_segments:" << _num_segments
+                << ",num rows:" << num_rows();
+        return false;
+    }
+    return true;
 }
 
 OLAPStatus SegmentGroup::find_short_key(const RowCursor& key,
