@@ -144,7 +144,6 @@ OLAPStatus AlphaRowsetWriter::flush() {
         RETURN_NOT_OK(_column_data_writer->finalize());
     }
     SAFE_DELETE(_column_data_writer);
-    RETURN_NOT_OK(_cur_segment_group->load());
     _writer_state = WRITER_FLUSHED;
     return OLAP_SUCCESS;
 }
@@ -155,6 +154,7 @@ RowsetSharedPtr AlphaRowsetWriter::build() {
         return nullptr;
     }
     for (auto& segment_group : _segment_groups) {
+        RETURN_NOT_OK(segment_group->load());
         bool checked = segment_group->check();
         if (!checked) {
             return nullptr;
