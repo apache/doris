@@ -279,7 +279,7 @@ string SnapshotManager::_get_header_full_path(
 
 void SnapshotManager::update_header_file_info(
         const vector<RowsetSharedPtr>& consistent_rowsets,
-        TabletMeta* tablet_meta) {
+        TabletMetaSharedPtr tablet_meta) {
     vector<RowsetMetaSharedPtr> rs_metas;
     for (auto& rs : consistent_rowsets) {
         rs_metas.push_back(rs->rowset_meta());
@@ -335,7 +335,7 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
     string snapshot_id = canonical(boost_path).string();
     do {
         DataDir* data_dir = ref_tablet->data_dir();
-        std::unique_ptr<TabletMeta> new_tablet_meta(new(nothrow) TabletMeta(data_dir));
+        TabletMetaSharedPtr new_tablet_meta(new(nothrow) TabletMeta(data_dir));
         if (new_tablet_meta == nullptr) {
             LOG(WARNING) << "fail to malloc TabletMeta.";
             res = OLAP_ERR_MALLOC_ERROR;
@@ -358,8 +358,8 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
                     break;
                 }
             }
-            res = TabletMetaManager::get_header(data_dir, ref_tablet->tablet_id(), ref_tablet->schema_hash(), 
-                new_tablet_meta.get());
+            res = TabletMetaManager::get_header(data_dir, ref_tablet->tablet_id(),
+                                                ref_tablet->schema_hash(), new_tablet_meta);
             if (res != OLAP_SUCCESS) {
                 LOG(WARNING) << "fail to load header. res=" << res
                              << " tablet_id=" << ref_tablet->tablet_id() 
@@ -402,8 +402,8 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
                 break;
             }
 
-            res = TabletMetaManager::get_header(data_dir, ref_tablet->tablet_id(), ref_tablet->schema_hash(), 
-                new_tablet_meta.get());
+            res = TabletMetaManager::get_header(data_dir, ref_tablet->tablet_id(),
+                                                ref_tablet->schema_hash(), new_tablet_meta);
             if (res != OLAP_SUCCESS) {
                 LOG(WARNING) << "fail to load header. res=" << res
                              << " tablet_id=" << ref_tablet->tablet_id() 
@@ -497,7 +497,7 @@ OLAPStatus SnapshotManager::_append_single_delta(
         const TSnapshotRequest& request, DataDir* store) {
     OLAPStatus res = OLAP_SUCCESS;
     string root_path = store->path();
-    TabletMeta* new_tablet_meta = new(nothrow) TabletMeta(store);
+    TabletMetaSharedPtr new_tablet_meta(new(nothrow) TabletMeta(store));
     if (new_tablet_meta == nullptr) {
         LOG(WARNING) << "fail to malloc TabletMeta.";
         return OLAP_ERR_MALLOC_ERROR;

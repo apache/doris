@@ -152,7 +152,7 @@ OLAPStatus OlapSnapshotConverter::to_tablet_meta_pb(const OLAPHeaderMessage& ola
         pending_rowsets->emplace_back(std::move(rowset_meta));
     }
     if (olap_header.has_schema_change_status()) {
-        AlterTabletPB* alter_tablet_pb = tablet_meta_pb->mutable_alter_tablet_task();
+        AlterTabletPB* alter_tablet_pb = tablet_meta_pb->mutable_alter_task();
         to_alter_tablet_pb(olap_header.schema_change_status(), alter_tablet_pb);
     }
     if (olap_header.has_in_restore_mode()) {

@@ -164,7 +164,7 @@ message OLAPHeaderMessage {
     repeated ColumnMessage column = 5;  // TabletSchemaPB.column
     required int64 creation_time = 6;   // TabletMetaPB.creation_time
     repeated int32 selectivity = 7; // Deprecated.
-    optional SchemaChangeStatusMessage schema_change_status = 8;    // TabletMetaPB.alter_tablet_task
+    optional SchemaChangeStatusMessage schema_change_status = 8;    // TabletMetaPB.alter_task
     optional DataFileType data_file_type = 9 [default = OLAP_DATA_FILE];    // ? only column oriented
     optional uint32 next_column_unique_id = 10 [default = 0];   // TabletSchemaPB.next_column_unique_id
     optional CompressKind compress_kind = 11 [default = COMPRESS_LZO];  // TabletSchemaPB.compress_kind
@@ -270,7 +270,7 @@ message TabletMetaPB {
     optional TabletSchemaPB schema = 9;
     repeated RowsetMetaPB rs_metas = 10;
     repeated RowsetMetaPB inc_rs_metas = 11;
-    optional AlterTabletPB alter_tablet_task = 12;
+    optional AlterTabletPB alter_task = 12;
     // if true, this tablet will not do compaction,
     // and does not create init version
     optional bool in_restore_mode = 13 [default = false];   // OlapHeaderMessage.in_restore_mode

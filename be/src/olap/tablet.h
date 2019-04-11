@@ -51,10 +51,10 @@ public:
             const std::string& header_file,
             DataDir* data_dir = nullptr);
     static TabletSharedPtr create_tablet_from_meta(
-            TabletMeta* meta,
+            TabletMetaSharedPtr tablet_meta,
             DataDir* data_dir  = nullptr);
 
-    Tablet(TabletMeta* tablet_meta, DataDir* data_dir);
+    Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir);
     ~Tablet();
 
     OLAPStatus init_once();
@@ -72,7 +72,7 @@ public:
     inline OLAPStatus set_tablet_state(TabletState state);
 
     // Property encapsulated in TabletMeta
-    inline const TabletMeta& tablet_meta();
+    inline const TabletMetaSharedPtr tablet_meta();
     OLAPStatus save_meta();
     OLAPStatus merge_tablet_meta(const TabletMeta& hdr, int to_version);
     OLAPStatus revise_tablet_meta(const TabletMeta& tablet_meta,
@@ -214,7 +214,7 @@ public:
 
 private:
     TabletState _state;
-    TabletMeta* _tablet_meta;
+    std::shared_ptr<TabletMeta> _tablet_meta;
     TabletSchema _schema;
 
     DataDir* _data_dir;
@@ -244,8 +244,8 @@ inline OLAPStatus Tablet::set_tablet_state(TabletState state) {
     _state = state;
 }
 
-inline const TabletMeta& Tablet::tablet_meta() {
-    return *_tablet_meta;
+inline const TabletMetaSharedPtr Tablet::tablet_meta() {
+    return _tablet_meta;
 }
 
 inline int64_t Tablet::table_id() const {

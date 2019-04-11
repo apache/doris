@@ -66,6 +66,8 @@ enum TabletState {
 class RowsetMeta;
 class Rowset;
 class DataDir;
+class TabletMeta;
+using TabletMetaSharedPtr = std::shared_ptr<TabletMeta>;
 
 class AlterTabletTask {
 public:
@@ -109,7 +111,7 @@ public:
                              uint64_t shard_id, const TTabletSchema& tablet_schema,
                              uint32_t next_unique_id,
                              const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
-                             TabletMeta** tablet_meta);
+                             TabletMetaSharedPtr* tablet_meta);
     TabletMeta();
     TabletMeta(DataDir* data_dir);
     TabletMeta(int64_t table_id, int64_t partition_id,

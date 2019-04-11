@@ -154,9 +154,10 @@ RowsetSharedPtr AlphaRowsetWriter::build() {
         return nullptr;
     }
     for (auto& segment_group : _segment_groups) {
-        RETURN_NOT_OK(segment_group->load());
-        bool checked = segment_group->check();
-        if (!checked) {
+        if (segment_group->load() != OLAP_SUCCESS) {
+            return nullptr;
+        }
+        if (!segment_group->check()) {
             return nullptr;
         }
         _current_rowset_meta->set_data_disk_size(_current_rowset_meta->data_disk_size() + segment_group->data_size());
