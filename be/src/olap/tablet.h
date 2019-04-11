@@ -147,13 +147,11 @@ public:
     bool version_for_load_deletion(const Version& version);
 
     // message for alter task
-    bool has_alter_task() const;
-    const AlterTabletTask& alter_task();
+    AlterTabletTaskSharedPtr alter_task();
     void add_alter_task(int64_t tablet_id, int64_t schema_hash,
                         const vector<Version>& versions_to_alter,
                         const AlterTabletType alter_type);
     OLAPStatus delete_alter_task();
-    AlterTabletState alter_state();
     OLAPStatus set_alter_state(AlterTabletState state);
     OLAPStatus protected_delete_alter_task();
 

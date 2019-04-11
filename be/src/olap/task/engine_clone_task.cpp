@@ -60,8 +60,9 @@ OLAPStatus EngineCloneTask::execute() {
     TabletSharedPtr tablet =
             StorageEngine::instance()->tablet_manager()->get_tablet(
             _clone_req.tablet_id, _clone_req.schema_hash);
+    bool is_new_tablet = tablet == nullptr;
     // try to repair a tablet with missing version
-    if (tablet.get() != NULL) {
+    if (tablet != nullptr) {
         LOG(INFO) << "clone tablet exist yet, begin to incremental clone. "
                     << "signature:" << _signature
                     << ", tablet_id:" << _clone_req.tablet_id
@@ -170,8 +171,6 @@ OLAPStatus EngineCloneTask::execute() {
             string cloned_meta_file = tablet_dir_stream.str() + "/" + std::to_string(_clone_req.tablet_id) + ".hdr";
             remove_dir(cloned_meta_file);
         }
-
-#ifndef BE_TEST
         // Clean useless dir, if failed, ignore it.
         if (status != DORIS_SUCCESS && status != DORIS_CREATE_TABLE_EXIST) {
             stringstream local_data_path_stream;
@@ -193,7 +192,6 @@ OLAPStatus EngineCloneTask::execute() {
                              << " signature: " << _signature;
             }
         }
-#endif
     }
 
     // Get clone tablet info
@@ -215,22 +213,25 @@ OLAPStatus EngineCloneTask::execute() {
                     && (tablet_info.version < _clone_req.committed_version ||
                         (tablet_info.version == _clone_req.committed_version
                         && tablet_info.version_hash != _clone_req.committed_version_hash))) {
-
-            // we need to check if this cloned table's version is what we expect.
-            // if not, maybe this is a stale remaining table which is waiting for drop.
-            // we drop it.
-            LOG(INFO) << "begin to drop the stale table. tablet_id:" << _clone_req.tablet_id
-                        << ", schema_hash:" << _clone_req.schema_hash
-                        << ", signature:" << _signature
-                        << ", version:" << tablet_info.version
-                        << ", version_hash:" << tablet_info.version_hash
-                        << ", expected_version: " << _clone_req.committed_version
-                        << ", version_hash:" << _clone_req.committed_version_hash;
-            // TODO(ygl): if it is incremental clone, should not drop the tablet?
-            OLAPStatus drop_status = StorageEngine::instance()->tablet_manager()->drop_tablet(_clone_req.tablet_id, _clone_req.schema_hash);
-            if (drop_status != OLAP_SUCCESS && drop_status != OLAP_ERR_TABLE_NOT_FOUND) {
-                // just log
-                LOG(WARNING) << "drop stale cloned table failed! tabelt id: " << _clone_req.tablet_id;
+            // if it is a new tablet and clone failed, then remove the tablet
+            // if it is incremental clone, then must not drop the tablet
+            if (is_new_tablet) {
+                // we need to check if this cloned table's version is what we expect.
+                // if not, maybe this is a stale remaining table which is waiting for drop.
+                // we drop it.
+                LOG(INFO) << "begin to drop the stale table. tablet_id:" << _clone_req.tablet_id
+                            << ", schema_hash:" << _clone_req.schema_hash
+                            << ", signature:" << _signature
+                            << ", version:" << tablet_info.version
+                            << ", version_hash:" << tablet_info.version_hash
+                            << ", expected_version: " << _clone_req.committed_version
+                            << ", version_hash:" << _clone_req.committed_version_hash;
+                OLAPStatus drop_status = StorageEngine::instance()->tablet_manager()->drop_tablet(_clone_req.tablet_id, 
+                    _clone_req.schema_hash);
+                if (drop_status != OLAP_SUCCESS && drop_status != OLAP_ERR_TABLE_NOT_FOUND) {
+                    // just log
+                    LOG(WARNING) << "drop stale cloned table failed! tabelt id: " << _clone_req.tablet_id;
+                }
             }
             status = DORIS_ERROR;
         } else {

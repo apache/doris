@@ -159,8 +159,9 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
                              tablet_id, schema_hash);
             return OLAP_ERR_TABLE_NOT_FOUND;
         }
-        if (tablet->has_alter_task()) {
-            if (tablet->alter_state() == ALTER_FINISHED) {
+        AlterTabletTaskSharedPtr alter_task = tablet->alter_task();
+        if (alter_task != nullptr) {
+            if (alter_task->alter_state() == ALTER_FINISHED) {
                 new_tablet->set_alter_state(ALTER_FINISHED);
             } else {
                 new_tablet->delete_alter_task();
