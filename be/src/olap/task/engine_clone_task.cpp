@@ -791,7 +791,7 @@ OLAPStatus EngineCloneTask::_clone_full_data(TabletSharedPtr tablet, TabletMeta*
     vector<Version> versions_to_delete;
     vector<RowsetMetaSharedPtr> rs_metas_found_in_src;
     // check local versions
-    for (auto& rs_meta : tablet->tablet_meta().all_rs_metas()) {
+    for (auto& rs_meta : tablet->tablet_meta()->all_rs_metas()) {
         Version local_version(rs_meta->start_version(), rs_meta->end_version());
         VersionHash local_version_hash = rs_meta->version_hash();
         LOG(INFO) << "check local delta when full clone."
@@ -855,7 +855,7 @@ OLAPStatus EngineCloneTask::_clone_full_data(TabletSharedPtr tablet, TabletMeta*
     for (auto& rs_meta : cloned_tablet_meta->all_rs_metas()) {
         rowsets_to_clone.push_back(rs_meta);
         LOG(INFO) << "Delta to clone."
-                  << "tablet=" << tablet->full_name() << ","
+                  << "tablet=" << tablet->full_name()
                   << ", version=" << rs_meta->version().first << "-"
                   << rs_meta->version().second
                   << ", version_hash=" << rs_meta->version_hash();

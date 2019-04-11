@@ -404,7 +404,7 @@ TabletSharedPtr TabletManager::create_tablet(
     TabletSharedPtr tablet;
     // Try to create tablet on each of all_available_root_path, util success
     for (auto& data_dir : data_dirs) {
-        TabletMeta* tablet_meta = nullptr;
+        TabletMetaSharedPtr tablet_meta;
         OLAPStatus res = _create_tablet_meta(request, data_dir, is_schema_change_tablet, ref_tablet, &tablet_meta);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to create tablet meta. res=" << res << ", root=" << data_dir->path();
@@ -686,7 +686,7 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(CompactionType com
 
 OLAPStatus TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_id,
         TSchemaHash schema_hash, const std::string& meta_binary) {
-    std::unique_ptr<TabletMeta> tablet_meta(new TabletMeta());
+    TabletMetaSharedPtr tablet_meta(new TabletMeta());
     OLAPStatus status = tablet_meta->deserialize(meta_binary);
     if (status != OLAP_SUCCESS) {
         LOG(WARNING) << "parse meta_binary string failed for tablet_id:" << tablet_id << ", schema_hash:" << schema_hash;
@@ -694,8 +694,7 @@ OLAPStatus TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tab
     }
 
     // init must be called
-    TabletSharedPtr tablet =
-        Tablet::create_tablet_from_meta(tablet_meta.release(), data_dir);
+    TabletSharedPtr tablet = Tablet::create_tablet_from_meta(tablet_meta, data_dir);
     if (tablet == nullptr) {
         LOG(WARNING) << "fail to new tablet. tablet_id=" << tablet_id << ", schema_hash:" << schema_hash;
         return OLAP_ERR_TABLE_CREATE_FROM_HEADER_ERROR;
@@ -1019,7 +1018,7 @@ OLAPStatus TabletManager::_create_tablet_meta(
         DataDir* store,
         const bool is_schema_change_tablet,
         const TabletSharedPtr ref_tablet,
-        TabletMeta** tablet_meta) {
+        TabletMetaSharedPtr* tablet_meta) {
     uint64_t shard_id = 0;
     OLAPStatus res = store->get_shard(&shard_id);
     if (res != OLAP_SUCCESS) {

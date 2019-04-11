@@ -127,8 +127,8 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
         }
 
         // generate new header file from the old
-        TabletMeta* new_tablet_meta = new(std::nothrow) TabletMeta();
-        if (new_tablet_meta == NULL) {
+        TabletMetaSharedPtr new_tablet_meta(new(std::nothrow) TabletMeta());
+        if (new_tablet_meta == nullptr) {
             OLAP_LOG_WARNING("new olap header failed");
             return OLAP_ERR_BUFFER_OVERFLOW;
         }
@@ -175,18 +175,17 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
 }
 
 OLAPStatus EngineStorageMigrationTask::_generate_new_header(
-        DataDir* store,
-        const uint64_t new_shard,
+        DataDir* store, const uint64_t new_shard,
         const TabletSharedPtr& tablet,
-        const std::vector<RowsetSharedPtr>& consistent_rowsets, TabletMeta* new_tablet_meta) {
+        const std::vector<RowsetSharedPtr>& consistent_rowsets,
+        TabletMetaSharedPtr new_tablet_meta) {
     if (store == nullptr) {
         LOG(WARNING) << "fail to generate new header for store is null";
         return OLAP_ERR_HEADER_INIT_FAILED;
     }
     OLAPStatus res = OLAP_SUCCESS;
 
-    DataDir* ref_store =
-            StorageEngine::instance()->get_store(tablet->data_dir()->path());
+    DataDir* ref_store = StorageEngine::instance()->get_store(tablet->data_dir()->path());
     TabletMetaManager::get_header(ref_store, tablet->tablet_id(), tablet->schema_hash(), new_tablet_meta);
     SnapshotManager::instance()->update_header_file_info(consistent_rowsets, new_tablet_meta);
     new_tablet_meta->set_shard_id(new_shard);

@@ -54,11 +54,11 @@ OLAPStatus TabletMeta::create(int64_t table_id, int64_t partition_id,
                               uint64_t shard_id, const TTabletSchema& tablet_schema,
                               uint32_t next_unique_id,
                               const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
-                              TabletMeta** tablet_meta) {
-    *tablet_meta = new TabletMeta(table_id, partition_id,
-                                  tablet_id, schema_hash,
-                                  shard_id, tablet_schema,
-                                  next_unique_id, col_ordinal_to_unique_id);
+                              TabletMetaSharedPtr* tablet_meta) {
+    tablet_meta->reset(new TabletMeta(table_id, partition_id,
+                                tablet_id, schema_hash,
+                                shard_id, tablet_schema,
+                                next_unique_id, col_ordinal_to_unique_id));
     return OLAP_SUCCESS;
 }
 
@@ -279,7 +279,7 @@ OLAPStatus TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
     // generate AlterTabletTask
     if (tablet_meta_pb.has_alter_task()) {
         AlterTabletTask* alter_tablet_task = new AlterTabletTask();
-        RETURN_NOT_OK(alter_tablet_task->init_from_pb(tablet_meta_pb.alter_tablet_task()));
+        RETURN_NOT_OK(alter_tablet_task->init_from_pb(tablet_meta_pb.alter_task()));
         _alter_task.reset(alter_tablet_task);
     }
     return OLAP_SUCCESS;
@@ -582,10 +582,10 @@ bool TabletMeta::version_for_delete_predicate(const Version& version) {
 
 OLAPStatus TabletMeta::add_alter_task(const AlterTabletTask& alter_task) {
     WriteLock wrlock(&_meta_lock);
-    AlterTabletTask* alter_task = new AlterTabletTask();
-    *alter_task = alter_task;
-    RETURN_NOT_OK(alter_task->to_alter_pb(_tablet_meta_pb.mutable_alter_task()));
-    _alter_task.reset(alter_tablet_task);
+    AlterTabletTask* new_alter_task = new AlterTabletTask();
+    *new_alter_task = alter_task;
+    RETURN_NOT_OK(new_alter_task->to_alter_pb(_tablet_meta_pb.mutable_alter_task()));
+    _alter_task.reset(new_alter_task);
     return OLAP_SUCCESS;
 }
 
