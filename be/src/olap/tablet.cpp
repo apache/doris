@@ -47,8 +47,7 @@ using std::vector;
 
 TabletSharedPtr Tablet::create_tablet_from_meta_file(
             const string& file_path, DataDir* data_dir) {
-    TabletMeta* tablet_meta = NULL;
-    tablet_meta = new(nothrow) TabletMeta();
+    TabletMetaSharedPtr tablet_meta(new(nothrow) TabletMeta());
     if (tablet_meta == nullptr) {
         LOG(WARNING) << "fail to malloc TabletMeta.";
         return NULL;
@@ -56,7 +55,6 @@ TabletSharedPtr Tablet::create_tablet_from_meta_file(
 
     if (tablet_meta->create_from_file(file_path) != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to load tablet_meta. file_path=" << file_path;
-        delete tablet_meta;
         return nullptr;
     }
 
@@ -73,14 +71,13 @@ TabletSharedPtr Tablet::create_tablet_from_meta_file(
                                              tablet_meta->schema_hash(), tablet_meta);
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to save tablet_meta to db. file_path=" << file_path;
-        delete tablet_meta;
         return nullptr;
     }
     return create_tablet_from_meta(tablet_meta, data_dir);
 }
 
 TabletSharedPtr Tablet::create_tablet_from_meta(
-        TabletMeta* tablet_meta,
+        TabletMetaSharedPtr tablet_meta,
         DataDir* data_dir) {
     TabletSharedPtr tablet = std::make_shared<Tablet>(tablet_meta, data_dir);
     if (tablet == nullptr) {
@@ -91,7 +88,7 @@ TabletSharedPtr Tablet::create_tablet_from_meta(
     return tablet;
 }
 
-Tablet::Tablet(TabletMeta* tablet_meta, DataDir* data_dir)
+Tablet::Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir)
   : _state(tablet_meta->tablet_state()),
     _tablet_meta(tablet_meta),
     _schema(tablet_meta->tablet_schema()),
@@ -117,10 +114,9 @@ Tablet::~Tablet() {
 
 OLAPStatus Tablet::init_once() {
     OLAPStatus res = OLAP_SUCCESS;
-    TabletMeta* tablet_meta = _tablet_meta;
     VLOG(3) << "begin to load tablet. tablet=" << full_name()
-            << ", version_size=" << tablet_meta->version_count();
-    for (auto& rs_meta :  tablet_meta->all_rs_metas()) {
+            << ", version_size=" << _tablet_meta->version_count();
+    for (auto& rs_meta :  _tablet_meta->all_rs_metas()) {
         Version version = { rs_meta->start_version(), rs_meta->end_version() };
         RowsetSharedPtr rowset(new AlphaRowset(&_schema, _tablet_path, _data_dir, rs_meta));
         _rs_version_map[version] = rowset;
@@ -177,19 +173,19 @@ OLAPStatus Tablet::revise_tablet_meta(const TabletMeta& tablet_meta,
     OLAPStatus res = OLAP_SUCCESS;
     do {
         // load new local tablet_meta to operate on
-        TabletMeta new_tablet_meta;
-        TabletMetaManager::get_header(_data_dir, tablet_id(), schema_hash(), &new_tablet_meta);
+        TabletMetaSharedPtr new_tablet_meta(new TabletMeta());
+        TabletMetaManager::get_header(_data_dir, tablet_id(), schema_hash(), new_tablet_meta);
 
         // delete versions from new local tablet_meta
         for (const Version& version : versions_to_delete) {
-            res = new_tablet_meta.delete_rs_meta_by_version(version, nullptr);
+            res = new_tablet_meta->delete_rs_meta_by_version(version, nullptr);
             if (res != OLAP_SUCCESS) {
                 LOG(WARNING) << "failed to delete version from new local tablet meta. tablet=" << full_name()
                              << ", version=" << version.first << "-" << version.second;
                 break;
             }
-            if (new_tablet_meta.version_for_delete_predicate(version)) {
-                new_tablet_meta.remove_delete_predicate_by_version(version);
+            if (new_tablet_meta->version_for_delete_predicate(version)) {
+                new_tablet_meta->remove_delete_predicate_by_version(version);
             }
             LOG(INFO) << "delete version from new local tablet_meta when clone. [table='" << full_name()
                       << "', version=" << version.first << "-" << version.second << "]";
@@ -200,8 +196,7 @@ OLAPStatus Tablet::revise_tablet_meta(const TabletMeta& tablet_meta,
         }
 
         for (auto& rs_meta : rowsets_to_clone) {
-            Version version(rs_meta->start_version(), rs_meta->end_version());
-            new_tablet_meta.add_rs_meta(rs_meta);
+            new_tablet_meta->add_rs_meta(rs_meta);
         }
 
         if (res != OLAP_SUCCESS) {
@@ -211,18 +206,12 @@ OLAPStatus Tablet::revise_tablet_meta(const TabletMeta& tablet_meta,
        VLOG(3) << "load rowsets successfully when clone. tablet=" << full_name()
                 << ", added rowset size=" << rowsets_to_clone.size();
         // save and reload tablet_meta
-        res = TabletMetaManager::save(_data_dir, tablet_id(), schema_hash(), &new_tablet_meta);
+        res = TabletMetaManager::save(_data_dir, tablet_id(), schema_hash(), new_tablet_meta);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "failed to save new local tablet_meta when clone. res:" << res;
             break;
         }
-        res = TabletMetaManager::get_header(_data_dir, tablet_id(), schema_hash(), _tablet_meta);
-        if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "failed to reload original tablet_meta when clone. tablet=" << full_name()
-                         << ", res=" << res;
-            break;
-        }
-
+        _tablet_meta = new_tablet_meta;
     } while (0);
 
     LOG(INFO) << "finish to clone data to tablet. res=" << res << ", "

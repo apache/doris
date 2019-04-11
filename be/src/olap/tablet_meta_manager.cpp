@@ -44,8 +44,10 @@ using rocksdb::kDefaultColumnFamilyName;
 
 namespace doris {
 
-OLAPStatus TabletMetaManager::get_header(DataDir* store,
-        TTabletId tablet_id, TSchemaHash schema_hash, TabletMeta* tablet_meta) {
+OLAPStatus TabletMetaManager::get_header(
+        DataDir* store, TTabletId tablet_id,
+        TSchemaHash schema_hash,
+        TabletMetaSharedPtr tablet_meta) {
     OlapMeta* meta = store->get_meta();
     std::stringstream key_stream;
     key_stream << HEADER_PREFIX << tablet_id << "_" << schema_hash;
@@ -64,19 +66,20 @@ OLAPStatus TabletMetaManager::get_header(DataDir* store,
 
 OLAPStatus TabletMetaManager::get_json_header(DataDir* store,
         TTabletId tablet_id, TSchemaHash schema_hash, std::string* json_header) {
-    TabletMeta tablet_meta;
-    OLAPStatus s = get_header(store, tablet_id, schema_hash, &tablet_meta);
+    TabletMetaSharedPtr tablet_meta(new TabletMeta());
+    OLAPStatus s = get_header(store, tablet_id, schema_hash, tablet_meta);
     if (s != OLAP_SUCCESS) {
         return s;
     }
     json2pb::Pb2JsonOptions json_options;
     json_options.pretty_json = true;
-    tablet_meta.to_json(json_header, json_options);
+    tablet_meta->to_json(json_header, json_options);
     return OLAP_SUCCESS;
 }
 
 OLAPStatus TabletMetaManager::save(DataDir* store,
-        TTabletId tablet_id, TSchemaHash schema_hash, const TabletMeta* tablet_meta, const string& header_prefix) {
+        TTabletId tablet_id, TSchemaHash schema_hash,
+        TabletMetaSharedPtr tablet_meta, const string& header_prefix) {
     std::stringstream key_stream;
     key_stream << header_prefix << tablet_id << "_" << schema_hash;
     std::string key = key_stream.str();
@@ -149,12 +152,12 @@ OLAPStatus TabletMetaManager::load_json_header(DataDir* store, const std::string
 
 OLAPStatus TabletMetaManager::dump_header(DataDir* store, TTabletId tablet_id,
         TSchemaHash schema_hash, const std::string& dump_path) {
-    TabletMeta tablet_meta;
-    OLAPStatus res = TabletMetaManager::get_header(store, tablet_id, schema_hash, &tablet_meta);
+    TabletMetaSharedPtr tablet_meta(new TabletMeta());
+    OLAPStatus res = TabletMetaManager::get_header(store, tablet_id, schema_hash, tablet_meta);
     if (res != OLAP_SUCCESS) {
         return res;
     }
-    return tablet_meta.save(dump_path);
+    return tablet_meta->save(dump_path);
 }
 
 }

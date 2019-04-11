@@ -77,10 +77,10 @@ TEST_F(TabletMetaManagerTest, TestSaveAndGetAndRemove) {
     TabletMetaPB tablet_meta_pb;
     bool ret = json2pb::JsonToProtoMessage(_json_header, &tablet_meta_pb);
     ASSERT_TRUE(ret);
-    TabletMeta tablet_meta;
-    OLAPStatus s = tablet_meta.init_from_pb(tablet_meta_pb);
+    TabletMetaSharedPtr tablet_meta(new TabletMeta());
+    OLAPStatus s = tablet_meta->init_from_pb(tablet_meta_pb);
     ASSERT_EQ(OLAP_SUCCESS, s);
-    s = TabletMetaManager::save(_data_dir, tablet_id, schema_hash, &tablet_meta);
+    s = TabletMetaManager::save(_data_dir, tablet_id, schema_hash, tablet_meta);
     ASSERT_EQ(OLAP_SUCCESS, s);
     std::string json_header_read;
     s = TabletMetaManager::get_json_header(_data_dir, tablet_id, schema_hash, &json_header_read);
@@ -88,8 +88,8 @@ TEST_F(TabletMetaManagerTest, TestSaveAndGetAndRemove) {
     ASSERT_EQ(_json_header, json_header_read);
     s = TabletMetaManager::remove(_data_dir, tablet_id, schema_hash);
     ASSERT_EQ(OLAP_SUCCESS, s);
-    TabletMeta header_read;
-    s = TabletMetaManager::get_header(_data_dir, tablet_id, schema_hash, &header_read);
+    TabletMetaSharedPtr header_read(new TabletMeta());
+    s = TabletMetaManager::get_header(_data_dir, tablet_id, schema_hash, header_read);
     ASSERT_EQ(OLAP_ERR_META_KEY_NOT_FOUND, s);
 }
 

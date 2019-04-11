@@ -58,7 +58,7 @@ public:
     // TODO(ygl) move it to a utility class
     void update_header_file_info(
             const std::vector<RowsetSharedPtr>& consistent_rowsets,
-            TabletMeta* header);
+            TabletMetaSharedPtr tablet_meta);
 
     std::string get_schema_hash_full_path(
             const TabletSharedPtr& ref_tablet,

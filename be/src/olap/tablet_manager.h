@@ -154,7 +154,7 @@ private:
                                    DataDir* store,
                                    const bool is_schema_change_tablet,
                                    const TabletSharedPtr ref_tablet,
-                                   TabletMeta** tablet_meta);
+                                   TabletMetaSharedPtr* tablet_meta);
 
     // Drop tablet directly with check schema change info.
     OLAPStatus _drop_tablet_directly(TTabletId tablet_id, TSchemaHash schema_hash, bool keep_files = false);

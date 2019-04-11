@@ -55,13 +55,13 @@ void DeltaWriter::_garbage_collection() {
     // has to check rollback status, because the rowset maybe committed in this thread and
     // published in another thread, then rollback will failed
     // when rollback failed should not delete rowset
-    if (rollback_status == OLAP_SUCCESS && _cur_rowset != nullptr) {
+    if (rollback_status == OLAP_SUCCESS) {
         StorageEngine::instance()->add_unused_rowset(_cur_rowset);
     }
     if (_new_tablet != nullptr) {
         rollback_status = StorageEngine::instance()->txn_manager()->rollback_txn(_req.partition_id, _req.txn_id,
             _new_tablet->tablet_id(), _new_tablet->schema_hash());
-        if (rollback_status == OLAP_SUCCESS && _new_rowset != nullptr) {
+        if (rollback_status == OLAP_SUCCESS) {
             StorageEngine::instance()->add_unused_rowset(_new_rowset);
         }
     }

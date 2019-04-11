@@ -770,6 +770,7 @@ void StorageEngine::start_delete_unused_rowset() {
 }
 
 void StorageEngine::add_unused_rowset(RowsetSharedPtr rowset) {
+    if (rowset == nullptr) { return; }
     _gc_mutex.lock();
     auto it = _unused_rowsets.find(rowset->rowset_id());
     if (it == _unused_rowsets.end()) {

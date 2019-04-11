@@ -85,7 +85,7 @@ OLAPStatus EnginePublishVersionTask::finish() {
             // add visible rowset to tablet
             publish_status = tablet->add_inc_rowset(rowset);
             if (publish_status != OLAP_SUCCESS) {
-                LOG(WARNING) << "add visilbe rowset to tablet failed rowset_id:" << rowset->rowset_id()
+                LOG(WARNING) << "add visible rowset to tablet failed rowset_id:" << rowset->rowset_id()
                              << "tablet id: " << tablet_info.tablet_id
                              << "txn id:" << transaction_id;
                 _error_tablet_ids->push_back(tablet_info.tablet_id);
