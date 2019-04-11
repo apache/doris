@@ -471,11 +471,8 @@ bool Tablet::version_for_load_deletion(const Version& version) {
     return rowset->delete_flag();
 }
 
-bool Tablet::has_alter_task() const {
-    return _tablet_meta->has_alter_task();
-}
 
-const AlterTabletTask& Tablet::alter_task() {
+AlterTabletTaskSharedPtr Tablet::alter_task() {
     return _tablet_meta->alter_task();
 }
 
@@ -501,12 +498,8 @@ OLAPStatus Tablet::delete_alter_task() {
     return _tablet_meta->delete_alter_task();
 }
 
-AlterTabletState Tablet::alter_state() {
-    return _tablet_meta->alter_task().alter_state();
-}
-
 OLAPStatus Tablet::set_alter_state(AlterTabletState state) {
-    _tablet_meta->mutable_alter_task()->set_alter_state(state);
+    _tablet_meta->set_alter_state(state);
     return OLAP_SUCCESS;
 }
 

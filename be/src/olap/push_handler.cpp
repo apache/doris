@@ -101,17 +101,10 @@ OLAPStatus PushHandler::_do_streaming_ingestion(
     VLOG(3) << "push req specify schema changing is true. "
             << "tablet=" << tablet->full_name()
             << ", transaction_id=" << request.transaction_id;
-
-    tablet->obtain_header_rdlock();
-    bool has_alter_task = tablet->has_alter_task();
-    const AlterTabletTask& alter_task = tablet->alter_task();
-    AlterTabletState alter_state = alter_task.alter_state();
-    TTabletId related_tablet_id = alter_task.related_tablet_id();
-    TSchemaHash related_schema_hash = alter_task.related_schema_hash();
-    ;
-    tablet->release_header_lock();
-
-    if (has_alter_task && alter_state != ALTER_FAILED) {
+    AlterTabletTaskSharedPtr alter_task = tablet->alter_task();
+    if (alter_task != nullptr && alter_task->alter_state() != ALTER_FAILED) {
+      TTabletId related_tablet_id = alter_task->related_tablet_id();
+      TSchemaHash related_schema_hash = alter_task->related_schema_hash();
       LOG(INFO) << "find schema_change status when realtime push. "
                 << "tablet=" << tablet->full_name()
                 << ", related_tablet_id=" << related_tablet_id
