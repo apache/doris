@@ -39,20 +39,13 @@ OLAPStatus EngineClearAlterTask::_clear_alter_task(const TTabletId tablet_id,
     }
 
     // get schema change info
-    tablet->obtain_header_rdlock();
-    bool has_alter_task = tablet->has_alter_task();
-    tablet->release_header_lock();
-
-    if (!has_alter_task) {
+    AlterTabletTaskSharedPtr alter_task = tablet->alter_task();
+    if (alter_task == nullptr) {
         return OLAP_SUCCESS;
     }
-
-    tablet->obtain_header_rdlock();
-    const AlterTabletTask& alter_task = tablet->alter_task();
-    AlterTabletState alter_state = alter_task.alter_state();
-    TTabletId related_tablet_id = alter_task.related_tablet_id();
-    TSchemaHash related_schema_hash = alter_task.related_schema_hash();
-    tablet->release_header_lock();
+    AlterTabletState alter_state = alter_task->alter_state();
+    TTabletId related_tablet_id = alter_task->related_tablet_id();
+    TSchemaHash related_schema_hash = alter_task->related_schema_hash();
 
     if (alter_state == ALTER_PREPARED || alter_state == ALTER_RUNNING) {
         LOG(WARNING) << "Alter task is not finished when processing clear alter task. "
