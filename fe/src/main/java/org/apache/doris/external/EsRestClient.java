@@ -16,6 +16,7 @@ import java.io.IOException;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 public class EsRestClient {
     private static final Logger LOG = LogManager.getLogger(EsRestClient.class);
@@ -27,19 +28,26 @@ public class EsRestClient {
         mapper.configure(SerializationConfig.Feature.USE_ANNOTATIONS, false);
     }
 
+    private static OkHttpClient networkClient = new OkHttpClient.Builder()
+            .readTimeout(10, TimeUnit.SECONDS)
+            .build();
+
+    private String basicAuth;
+
     private int nextClient = 0;
-    private OkHttpClient networkClient;
+    //    private OkHttpClient networkClient;
     private String[] nodes;
     private String currentNode;
 
     public EsRestClient(String[] nodes, String authUser, String authPassword) {
         this.nodes = nodes;
         if (!Strings.isEmpty(authUser) && !Strings.isEmpty(authPassword)) {
-            networkClient = new OkHttpClient.Builder().authenticator((route, response) -> {
-                        String credential = Credentials.basic(authUser, authPassword);
-                        return response.request().newBuilder().header("Authorization", credential).build();
-                    }
-            ).build();
+//            networkClient = new OkHttpClient.Builder().authenticator((route, response) -> {
+//                        String credential = Credentials.basic(authUser, authPassword);
+//                        return response.request().newBuilder().header("Authorization", credential).build();
+//                    }
+//            ).build();
+            basicAuth = Credentials.basic(authUser, authPassword);
         }
         selectNextNode();
     }
@@ -67,12 +75,25 @@ public class EsRestClient {
         return nodes;
     }
 
+    public String getIndexMetaData(String indexName) {
+        String path = "_cluster/state?indices=" + indexName
+                + "&metric=routing_table,nodes,metadata&expand_wildcards=open";
+        return execute(path);
+
+    }
+
+    /**
+     * execute request for specific path
+     * @param path the path must not leading with '/'
+     * @return
+     */
     private String execute(String path) {
         selectNextNode();
         boolean nextNode;
         do {
             Request request = new Request.Builder()
                     .get()
+                    .addHeader("Authorization", basicAuth)
                     .url(currentNode + "/" + path)
                     .build();
             try {
