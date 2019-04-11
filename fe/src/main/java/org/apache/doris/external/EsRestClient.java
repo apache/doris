@@ -35,18 +35,12 @@ public class EsRestClient {
     private String basicAuth;
 
     private int nextClient = 0;
-    //    private OkHttpClient networkClient;
     private String[] nodes;
     private String currentNode;
 
     public EsRestClient(String[] nodes, String authUser, String authPassword) {
         this.nodes = nodes;
         if (!Strings.isEmpty(authUser) && !Strings.isEmpty(authPassword)) {
-//            networkClient = new OkHttpClient.Builder().authenticator((route, response) -> {
-//                        String credential = Credentials.basic(authUser, authPassword);
-//                        return response.request().newBuilder().header("Authorization", credential).build();
-//                    }
-//            ).build();
             basicAuth = Credentials.basic(authUser, authPassword);
         }
         selectNextNode();
