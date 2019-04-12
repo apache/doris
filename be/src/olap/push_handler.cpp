@@ -286,7 +286,8 @@ OLAPStatus PushHandler::_convert(TabletSharedPtr cur_tablet,
             if (_request.__isset.need_decompress && _request.need_decompress) {
                 need_decompress = true;
             }
-            if (NULL == (reader = IBinaryReader::create(need_decompress))) {
+            reader = IBinaryReader::create(need_decompress);
+            if (reader == nullptr) {
                 LOG(WARNING) << "fail to create reader. tablet=" << cur_tablet->full_name()
                              << ", file=" << _request.http_file_path;
                 res = OLAP_ERR_MALLOC_ERROR;
@@ -399,13 +400,13 @@ OLAPStatus PushHandler::_convert(TabletSharedPtr cur_tablet,
 OLAPStatus BinaryFile::init(const char* path) {
     // open file
     if (OLAP_SUCCESS != open(path, "rb")) {
-        OLAP_LOG_WARNING("fail to open file. [file='%s']", path);
+        LOG(WARNING) << "fail to open file. file=" << path;
         return OLAP_ERR_IO_ERROR;
     }
 
     // load header
     if (OLAP_SUCCESS != _header.unserialize(this)) {
-        OLAP_LOG_WARNING("fail to read file header. [file='%s']", path);
+        LOG(WARNING) << "fail to read file header. file=" << path;
         close();
         return OLAP_ERR_PUSH_INIT_ERROR;
     }
@@ -434,14 +435,15 @@ OLAPStatus BinaryReader::init(TabletSharedPtr tablet, BinaryFile* file) {
     _content_len = _file->file_length() - _file->header_size();
     _row_buf_size = tablet->row_size();
 
-    if (NULL == (_row_buf = new (std::nothrow) char[_row_buf_size])) {
-      OLAP_LOG_WARNING("fail to malloc one row buf. [size=%zu]", _row_buf_size);
+    _row_buf = new (std::nothrow) char[_row_buf_size];
+    if (_row_buf == nullptr) {
+      LOG(WARNING) << "fail to malloc one row buf. size=" << _row_buf_size;
       res = OLAP_ERR_MALLOC_ERROR;
       break;
     }
 
     if (-1 == _file->seek(_file->header_size(), SEEK_SET)) {
-      OLAP_LOG_WARNING("skip header, seek fail.");
+      LOG(WARNING) << "skip header, seek fail.";
       res = OLAP_ERR_IO_ERROR;
       break;
     }
@@ -476,7 +478,7 @@ OLAPStatus BinaryReader::next(RowCursor* row, MemPool* mem_pool) {
   size_t num_null_bytes = (_tablet->num_null_columns() + 7) / 8;
 
   if (OLAP_SUCCESS != (res = _file->read(_row_buf + offset, num_null_bytes))) {
-    OLAP_LOG_WARNING("read file for one row fail. [res=%d]", res);
+    LOG(WARNING) << "read file for one row fail. res=" << res;
     return res;
   }
 
@@ -504,7 +506,7 @@ OLAPStatus BinaryReader::next(RowCursor* row, MemPool* mem_pool) {
       // Read varchar length buffer first
       if (OLAP_SUCCESS !=
           (res = _file->read(_row_buf + offset, sizeof(StringLengthType)))) {
-        OLAP_LOG_WARNING("read file for one row fail. [res=%d]", res);
+        LOG(WARNING) << "read file for one row fail. res=" << res;
         return res;
       }
 
@@ -523,7 +525,7 @@ OLAPStatus BinaryReader::next(RowCursor* row, MemPool* mem_pool) {
 
     // Read field content according to field size
     if (OLAP_SUCCESS != (res = _file->read(_row_buf + offset, field_size))) {
-      OLAP_LOG_WARNING("read file for one row fail. [res=%d]", res);
+      LOG(WARNING) << "read file for one row fail. res=" << res;
       return res;
     }
 
@@ -563,15 +565,15 @@ OLAPStatus LzoBinaryReader::init(TabletSharedPtr tablet, BinaryFile* file) {
     _content_len = _file->file_length() - _file->header_size();
 
     size_t row_info_buf_size = sizeof(RowNumType) + sizeof(CompressedSizeType);
-    if (NULL == (_row_info_buf = new (std::nothrow) char[row_info_buf_size])) {
-      OLAP_LOG_WARNING("fail to malloc rows info buf. [size=%zu]",
-                       row_info_buf_size);
+    _row_info_buf = new (std::nothrow) char[row_info_buf_size];
+    if (_row_info_buf == nullptr) {
+      LOG(WARNING) << "fail to malloc rows info buf. size=" << row_info_buf_size;
       res = OLAP_ERR_MALLOC_ERROR;
       break;
     }
 
     if (-1 == _file->seek(_file->header_size(), SEEK_SET)) {
-      OLAP_LOG_WARNING("skip header, seek fail.");
+      LOG(WARNING) << "skip header, seek fail.";
       res = OLAP_ERR_IO_ERROR;
       break;
     }
@@ -680,7 +682,7 @@ OLAPStatus LzoBinaryReader::_next_block() {
   // Get row num and compressed data size
   size_t row_info_buf_size = sizeof(RowNumType) + sizeof(CompressedSizeType);
   if (OLAP_SUCCESS != (res = _file->read(_row_info_buf, row_info_buf_size))) {
-    OLAP_LOG_WARNING("read rows info fail. [res=%d]", res);
+    LOG(WARNING) << "read rows info fail. res=" << res;
     return res;
   }
 
@@ -696,9 +698,9 @@ OLAPStatus LzoBinaryReader::_next_block() {
 
     _max_row_num = _row_num;
     _max_row_buf_size = _max_row_num * _tablet->row_size();
-    if (NULL == (_row_buf = new (std::nothrow) char[_max_row_buf_size])) {
-      OLAP_LOG_WARNING("fail to malloc rows buf. [size=%zu]",
-                       _max_row_buf_size);
+    _row_buf = new (std::nothrow) char[_max_row_buf_size];
+    if (_row_buf == nullptr) {
+      LOG(WARNING) << "fail to malloc rows buf. size=" << _max_row_buf_size;
       res = OLAP_ERR_MALLOC_ERROR;
       return res;
     }
@@ -709,10 +711,9 @@ OLAPStatus LzoBinaryReader::_next_block() {
     SAFE_DELETE_ARRAY(_row_compressed_buf);
 
     _max_compressed_buf_size = compressed_size;
-    if (NULL == (_row_compressed_buf =
-                     new (std::nothrow) char[_max_compressed_buf_size])) {
-      OLAP_LOG_WARNING("fail to malloc rows compressed buf. [size=%zu]",
-                       _max_compressed_buf_size);
+    _row_compressed_buf = new (std::nothrow) char[_max_compressed_buf_size];
+    if (_row_compressed_buf == nullptr) {
+      LOG(WARNING) << "fail to malloc rows compressed buf. size=" << _max_compressed_buf_size;
       res = OLAP_ERR_MALLOC_ERROR;
       return res;
     }
@@ -720,7 +721,7 @@ OLAPStatus LzoBinaryReader::_next_block() {
 
   if (OLAP_SUCCESS !=
       (res = _file->read(_row_compressed_buf, compressed_size))) {
-    OLAP_LOG_WARNING("read compressed rows fail. [res=%d]", res);
+    LOG(WARNING) << "read compressed rows fail. res=" << res;
     return res;
   }
 
@@ -733,7 +734,7 @@ OLAPStatus LzoBinaryReader::_next_block() {
                              compressed_size - block_header_size, _row_buf,
                              _max_row_buf_size, &written_len,
                              OLAP_COMP_TRANSPORT))) {
-    OLAP_LOG_WARNING("olap decompress fail. [res=%d]", res);
+    LOG(WARNING) << "olap decompress fail. res=" << res; 
     return res;
   }
 
