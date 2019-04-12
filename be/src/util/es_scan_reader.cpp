@@ -113,7 +113,13 @@ Status ESScanReader::get_next(bool* scan_eos, ScrollParser** parser) {
     scroll_parser = new ScrollParser(response);
 
     // maybe the index or shard is empty
-    if (scroll_parser == nullptr || scroll_parser->get_total() == 0) {
+    if (scroll_parser == nullptr) {
+        _eos = true;
+        return Status::OK;
+    }
+
+    _scroll_id = scroll_parser->get_scroll_id();
+    if (scroll_parser->get_total() == 0) {
         _eos = true;
         return Status::OK;
     }
@@ -124,13 +130,16 @@ Status ESScanReader::get_next(bool* scan_eos, ScrollParser** parser) {
         _eos = false;
     }
 
-    _scroll_id = scroll_parser->get_scroll_id();
     *parser = scroll_parser;
     *scan_eos = false;
     return Status::OK;
 }
 
 Status ESScanReader::close() {
+    if (_scroll_id.empty()) {
+        return Status::OK;
+    }
+
     std::string scratch_target = _target + REQUEST_SEARCH_SCROLL_PATH;
     RETURN_IF_ERROR(_network_client.init(scratch_target));
     _network_client.set_basic_auth(_user_name, _passwd);
