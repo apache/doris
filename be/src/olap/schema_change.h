@@ -288,11 +288,6 @@ private:
         DeleteHandler delete_handler;
     };
 
-    // create new tablet for alter_tablet
-    OLAPStatus _create_new_tablet(const TabletSharedPtr base_tablet,
-                                  const TCreateTabletReq& create_tablet_req,
-                                  TabletSharedPtr* new_tablet);
-
     // add alter task to base_tablet and new_tablet.
     // add A->(B|C|...) relation chain to all of them.
     OLAPStatus _add_alter_task(AlterTabletType alter_tablet_type,

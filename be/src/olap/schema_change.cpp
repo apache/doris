@@ -1185,7 +1185,7 @@ OLAPStatus SchemaChangeHandler::process_alter_tablet(AlterTabletType type,
     LOG(INFO) << "finish to validate alter tablet request. base_tablet=" << base_tablet->full_name();
 
     // 5. Create new tablet and register into StorageEngine
-    res = _create_new_tablet(base_tablet, request.new_tablet_req, &new_tablet);
+    new_tablet = StorageEngine::instance()->create_tablet(request.new_tablet_req, true, base_tablet);
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to create new tablet. new_tablet_id=" << request.new_tablet_req.tablet_id
                      << ", new_tablet_hash=" << request.new_tablet_req.tablet_schema.schema_hash;
@@ -1338,86 +1338,6 @@ OLAPStatus SchemaChangeHandler::process_alter_tablet(AlterTabletType type,
     _save_alter_state(ALTER_FINISHED, base_tablet, new_tablet);
     StorageEngine::instance()->tablet_manager()->release_schema_change_lock(request.base_tablet_id);
 
-    return res;
-}
-
-OLAPStatus SchemaChangeHandler::_create_new_tablet(
-        const TabletSharedPtr base_tablet,
-        const TCreateTabletReq& request,
-        TabletSharedPtr* new_tablet) {
-    OLAPStatus res = OLAP_SUCCESS;
-    bool is_tablet_added = false;
-    TabletSharedPtr tablet_to_create;
-
-    // 1. Lock to ensure that all _create_new_tablet operation execute in serial
-    static Mutex create_tablet_lock;
-    create_tablet_lock.lock();
-
-    do {
-        // 2. Create tablet with only header, no deltas
-        TabletSharedPtr tablet_to_create = StorageEngine::instance()->create_tablet(request, true, base_tablet);
-        if (tablet_to_create == nullptr) {
-            LOG(WARNING) << "failed to create tablet. tablet=" << request.tablet_id
-                         << ", schema_hash=" << request.tablet_schema.schema_hash;
-            res = OLAP_ERR_INPUT_PARAMETER_ERROR;
-            break;
-        }
-
-        // 有可能出现以下2种特殊情况：
-        // 1. 因为操作系统时间跳变，导致新生成的表的creation_time小于旧表的creation_time时间
-        // 2. 因为olap engine代码中统一以秒为单位，所以如果2个操作(比如create一个表,
-        //    然后立即alter该表)之间的时间间隔小于1s，则alter得到的新表和旧表的creation_time会相同
-        //
-        // 当出现以上2种情况时，为了能够区分alter得到的新表和旧表，这里把新表的creation_time设置为
-        // 旧表的creation_time加1
-        if (tablet_to_create->creation_time() <= base_tablet->creation_time()) {
-            LOG(WARNING) << "new tablet's creation time is less than or equal to old tablet"
-                         << "new_tablet_creation_time=" << tablet_to_create->creation_time()
-                         << ", base_tablet_creation_time=" << base_tablet->creation_time();
-            int64_t new_creation_time = base_tablet->creation_time() + 1;
-            tablet_to_create->set_creation_time(new_creation_time);
-        }
-
-        // 3. Add tablet to StorageEngine will make it visiable to user
-        res = StorageEngine::instance()->tablet_manager()->add_tablet(request.tablet_id,
-                                                    request.tablet_schema.schema_hash,
-                                                    tablet_to_create, false);
-        if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "failed to add tablet to StorageEngine. res=" << res
-                         << ", tablet=" << tablet_to_create->full_name();
-            break;
-        }
-        is_tablet_added = true;
-
-        // 4. Register tablet into store, so that we can manage tablet from
-        // the perspective of root path.
-        // Example: unregister all tables when a bad disk found.
-        res = tablet_to_create->register_tablet_into_dir();
-        if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "fail to register tablet into data dir. "
-                         << "root_path=" << tablet_to_create->data_dir()->path()
-                         << ", tablet=" << tablet_to_create->full_name();
-            break;
-        }
-
-        *new_tablet = tablet_to_create;
-    } while (0);
-
-    if (res != OLAP_SUCCESS) {
-        if (is_tablet_added) {
-            res = StorageEngine::instance()->tablet_manager()->drop_tablet(
-                    request.tablet_id, request.tablet_schema.schema_hash);
-            if (res != OLAP_SUCCESS) {
-                LOG(WARNING) << "fail to drop tablet when create tablet failed. res=" << res
-                    << ", tablet=" << request.tablet_id
-                    << ":" << request.tablet_schema.schema_hash;
-            }
-        } else if (tablet_to_create != nullptr) {
-            tablet_to_create->delete_all_files();
-        }
-    }
-
-    create_tablet_lock.unlock();
     return res;
 }
 
@@ -1716,44 +1636,31 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
         // 将新版本的数据加入header
         // 为了防止死锁的出现，一定要先锁住旧表，再锁住新表
         sc_params.new_tablet->obtain_push_lock();
-        sc_params.base_tablet->obtain_header_wrlock();
-        sc_params.new_tablet->obtain_header_wrlock();
-
-        if (!sc_params.new_tablet->check_version_exist(rs_reader->version())) {
-            // register version
-            RowsetSharedPtr new_rowset = rowset_writer->build();
-            res = sc_params.new_tablet->add_rowset_unlock(new_rowset);
-            if (OLAP_SUCCESS != res) {
-                LOG(WARNING) << "failed to register new version. "
-                             << " tablet=" << sc_params.new_tablet->full_name()
-                             << ", version=" << rs_reader->version().first
-                             << "-" << rs_reader->version().second;
-                new_rowset->remove();
-
-                sc_params.new_tablet->release_header_lock();
-                sc_params.base_tablet->release_header_lock();
-
-                goto PROCESS_ALTER_EXIT;
-            }
-
-            VLOG(3) << "register new version. tablet=" << sc_params.new_tablet->full_name()
-                    << ", version=" << rs_reader->version().first
-                    << "-" << rs_reader->version().second;
-        } else {
+        RowsetSharedPtr new_rowset = rowset_writer->build();
+        if (new_rowset == nullptr) {
+            LOG(WARNING) << "failed to build rowset, exit alter process";
+            goto PROCESS_ALTER_EXIT;
+        }
+        res = sc_params.new_tablet->add_rowset(new_rowset);
+        if (res == OLAP_ERR_PUSH_VERSION_ALREADY_EXIST) {
             LOG(WARNING) << "version already exist, version revert occured. "
                          << "tablet=" << sc_params.new_tablet->full_name()
                          << ", version='" << rs_reader->version().first
                          << "-" << rs_reader->version().second;
+            new_rowset->remove();
+            res = OLAP_SUCCESS;
+        } else if (res != OLAP_SUCCESS) {
+            LOG(WARNING) << "failed to register new version. "
+                         << " tablet=" << sc_params.new_tablet->full_name()
+                         << ", version=" << rs_reader->version().first
+                         << "-" << rs_reader->version().second;
+            new_rowset->remove();
+            goto PROCESS_ALTER_EXIT;
+        } else {
+            VLOG(3) << "register new version. tablet=" << sc_params.new_tablet->full_name()
+                    << ", version=" << rs_reader->version().first
+                    << "-" << rs_reader->version().second;
         }
-
-        // 保存header
-        if (OLAP_SUCCESS != sc_params.new_tablet->save_meta()) {
-            LOG(FATAL) << "fail to save header. res=" << res
-                       << ", tablet=" << sc_params.new_tablet->full_name();
-        }
-
-        sc_params.new_tablet->release_header_lock();
-        sc_params.base_tablet->release_header_lock();
         sc_params.new_tablet->release_push_lock();
 
         VLOG(10) << "succeed to convert a history version."
@@ -1763,9 +1670,7 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
         // 释放RowsetReader
         rs_reader->close();
     }
-
     // XXX: 此时应该不取消SchemaChange状态，因为新Delta还要转换成新旧Schema的版本
-
 PROCESS_ALTER_EXIT:
     if (res == OLAP_SUCCESS) {
         Version test_version(0, end_version);
