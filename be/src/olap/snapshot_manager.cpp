@@ -335,7 +335,7 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
     string snapshot_id = canonical(boost_path).string();
     do {
         DataDir* data_dir = ref_tablet->data_dir();
-        TabletMetaSharedPtr new_tablet_meta(new(nothrow) TabletMeta(data_dir));
+        TabletMetaSharedPtr new_tablet_meta(new (nothrow) TabletMeta());
         if (new_tablet_meta == nullptr) {
             LOG(WARNING) << "fail to malloc TabletMeta.";
             res = OLAP_ERR_MALLOC_ERROR;
@@ -497,7 +497,7 @@ OLAPStatus SnapshotManager::_append_single_delta(
         const TSnapshotRequest& request, DataDir* store) {
     OLAPStatus res = OLAP_SUCCESS;
     string root_path = store->path();
-    TabletMetaSharedPtr new_tablet_meta(new(nothrow) TabletMeta(store));
+    TabletMetaSharedPtr new_tablet_meta(new (nothrow) TabletMeta());
     if (new_tablet_meta == nullptr) {
         LOG(WARNING) << "fail to malloc TabletMeta.";
         return OLAP_ERR_MALLOC_ERROR;

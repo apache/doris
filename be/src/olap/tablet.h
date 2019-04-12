@@ -214,7 +214,7 @@ public:
 
 private:
     TabletState _state;
-    std::shared_ptr<TabletMeta> _tablet_meta;
+    TabletMetaSharedPtr _tablet_meta;
     TabletSchema _schema;
 
     DataDir* _data_dir;

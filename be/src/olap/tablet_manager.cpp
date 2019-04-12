@@ -686,7 +686,7 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(CompactionType com
 
 OLAPStatus TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_id,
         TSchemaHash schema_hash, const std::string& meta_binary) {
-    TabletMetaSharedPtr tablet_meta(new TabletMeta());
+    TabletMetaSharedPtr tablet_meta(new (nothrow) TabletMeta());
     OLAPStatus status = tablet_meta->deserialize(meta_binary);
     if (status != OLAP_SUCCESS) {
         LOG(WARNING) << "parse meta_binary string failed for tablet_id:" << tablet_id << ", schema_hash:" << schema_hash;

@@ -64,10 +64,6 @@ OLAPStatus TabletMeta::create(int64_t table_id, int64_t partition_id,
 
 TabletMeta::TabletMeta() {}
 
-TabletMeta::TabletMeta(DataDir* data_dir) {
-    _data_dir = data_dir;
-}
-
 TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id,
                        int64_t tablet_id, int64_t schema_hash,
                        uint64_t shard_id, const TTabletSchema& tablet_schema,
@@ -212,10 +208,10 @@ OLAPStatus TabletMeta::save(const string& file_path, TabletMetaPB& tablet_meta_p
     return OLAP_SUCCESS;
 }
 
-OLAPStatus TabletMeta::save_meta() {
+OLAPStatus TabletMeta::save_meta(DataDir* data_dir) {
     string meta_binary;
     serialize(&meta_binary);
-    OLAPStatus status = TabletMetaManager::save(_data_dir, tablet_id(), schema_hash(), meta_binary);
+    OLAPStatus status = TabletMetaManager::save(data_dir, tablet_id(), schema_hash(), meta_binary);
     if (status != OLAP_SUCCESS) {
        LOG(FATAL) << "fail to save tablet_meta. status=" << status
                   << ", tablet_id=" << tablet_id()
