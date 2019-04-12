@@ -340,8 +340,15 @@ OLAPStatus TabletMeta::add_rs_meta(const RowsetMetaSharedPtr& rs_meta) {
     for (auto& rs : _rs_metas) {
         if (rs->start_version() == rs_meta->start_version()
             && rs->end_version() == rs_meta->end_version()) {
-            LOG(WARNING) << "rowset already exist. rowset_id=" << rs->rowset_id();
-            return OLAP_ERR_ROWSET_ALREADY_EXIST;
+            if (rs->rowset_id() != rs_meta->rowset_id()) {
+                LOG(WARNING) << "version already exist. rowset_id=" << rs->rowset_id()
+                            << " start version = " << rs_meta->start_version()
+                            << " end version = " << rs_meta->end_version();
+                return OLAP_ERR_PUSH_VERSION_ALREADY_EXIST;
+            } else {
+                // rowsetid,version is equal, it is a duplicate req, skip it
+                return OLAP_SUCCESS;
+            }
         }
     }
 

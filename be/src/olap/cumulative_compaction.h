@@ -37,7 +37,6 @@ class CumulativeCompaction {
 public:
     CumulativeCompaction() :
             _is_init(false),
-            _header_locked(false),
             _old_cumulative_layer_point(0),
             _new_cumulative_layer_point(0),
             _max_delta_file_size(0),

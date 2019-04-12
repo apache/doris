@@ -59,7 +59,9 @@ OLAPStatus EnginePublishVersionTask::finish() {
                     << ", version=" << version.first
                     << ", version_hash=" << version_hash
                     << ", transaction_id=" << transaction_id;
-            
+            // if rowset is null, it means this be received write task, but failed during write
+            // and receive fe's publish version task
+            // this be must return as an error tablet
             if (rowset == nullptr) {
                 LOG(WARNING) << "could not find related rowset for tablet " << tablet_info.tablet_id
                              << " txn id " << transaction_id;

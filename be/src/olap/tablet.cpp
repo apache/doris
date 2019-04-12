@@ -229,6 +229,9 @@ OLAPStatus Tablet::deregister_tablet_from_dir() {
 }
 
 OLAPStatus Tablet::add_rowset(RowsetSharedPtr rowset) {
+    if (rowset == nullptr) {
+        return OLAP_ERR_ROWSET_INVALID;
+    }
     WriteLock wrlock(&_meta_lock);
     RETURN_NOT_OK(_tablet_meta->add_rs_meta(rowset->rowset_meta()));
     _rs_version_map[rowset->version()] = rowset;

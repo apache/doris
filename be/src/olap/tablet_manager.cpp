@@ -229,85 +229,18 @@ void TabletManager::clear() {
     _tablet_map.clear();
 } // clear
 
-OLAPStatus TabletManager::create_inital_rowset(TTabletId tablet_id, SchemaHash schema_hash,
-                                           Version version, VersionHash version_hash) {
-    VLOG(3) << "begin to create init version. "
-            << "begin=" << version.first << ", end=" << version.second;
-    TabletSharedPtr tablet;
-    RowsetSharedPtr new_rowset;
-    OLAPStatus res = OLAP_SUCCESS;
-    do {
-        if (version.first > version.second) {
-            LOG(WARNING) << "begin should not larger than end." 
-                         << " begin=" << version.first
-                         << " end=" << version.second;
-            res = OLAP_ERR_INPUT_PARAMETER_ERROR;
-            break;
-        }
-
-        // Get tablet and generate new index
-        tablet = get_tablet(tablet_id, schema_hash);
-        if (tablet == nullptr) {
-            LOG(WARNING) << "fail to find tablet. tablet=" << tablet_id;
-            res = OLAP_ERR_TABLE_NOT_FOUND;
-            break;
-        }
-        RowsetId rowset_id = 0;
-        RETURN_NOT_OK(tablet->next_rowset_id(&rowset_id));
-        RowsetWriterContext context;
-        context.rowset_id = rowset_id;
-        context.tablet_id = tablet->tablet_id();
-        context.partition_id = tablet->partition_id();
-        context.tablet_schema_hash = tablet->schema_hash();
-        context.rowset_type = ALPHA_ROWSET;
-        context.rowset_path_prefix = tablet->tablet_path();
-        context.tablet_schema = &(tablet->tablet_schema());
-        context.rowset_state = VISIBLE;
-        context.data_dir = tablet->data_dir();
-        context.version = version;
-        context.version_hash = version_hash;
-        RowsetWriter* builder = new (std::nothrow)AlphaRowsetWriter(); 
-        if (builder == nullptr) {
-            LOG(WARNING) << "fail to new rowset.";
-            return OLAP_ERR_MALLOC_ERROR;
-        }
-        builder->init(context);
-        if (OLAP_SUCCESS != builder->flush()) {
-            LOG(WARNING) << "fail to finalize writer. tablet=" << tablet->full_name();
-            break;
-        }
-
-        new_rowset = builder->build();
-        res = tablet->add_rowset(new_rowset);
-        if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "fail to add rowset to tablet. "
-                         << "tablet=" << tablet->full_name();
-            break;
-        }
-    } while (0);
-
-    // Unregister index and delete files(index and data) if failed
-    if (res != OLAP_SUCCESS && tablet != nullptr) {
-        StorageEngine::instance()->add_unused_rowset(new_rowset);
-    }
-
-    VLOG(3) << "create init version end. res=" << res;
-    return res;
-} // create_inital_rowset
 
 OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request,
     std::vector<DataDir*> stores) {
-    OLAPStatus res = OLAP_SUCCESS;
-    bool is_tablet_added = false;
-
+    WriteLock wrlock(&_create_tablet_lock);
     LOG(INFO) << "begin to process create tablet. tablet=" << request.tablet_id
               << ", schema_hash=" << request.tablet_schema.schema_hash;
-
+    OLAPStatus res = OLAP_SUCCESS;
     DorisMetrics::create_tablet_requests_total.increment(1);
-
-    // 1. Make sure create_tablet operation is idempotent:
+    // Make sure create_tablet operation is idempotent:
     //    return success if tablet with same tablet_id and schema_hash exist,
     //           false if tablet with same tablet_id but different schema_hash exist
+    // why??????
     if (check_tablet_id_exist(request.tablet_id)) {
         TabletSharedPtr tablet = get_tablet(
                 request.tablet_id, request.tablet_schema.schema_hash);
@@ -320,34 +253,77 @@ OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request,
         }
     }
 
-    // 2. Lock to ensure that all create_tablet operation execute in serial
-    static Mutex create_tablet_lock;
-    MutexLock auto_lock(&create_tablet_lock);
+    TabletSharedPtr tablet = _internal_create_tablet(request, false, nullptr, stores);
+    if (tablet == nullptr) {
+        res = OLAP_ERR_CE_CMD_PARAMS_ERROR;
+        LOG(WARNING) << "fail to create tablet. res=" << res;
+    }
 
-    TabletSharedPtr tablet;
+    LOG(INFO) << "finish to process create tablet. res=" << res;
+    return res;
+} // create_tablet
+
+
+TabletSharedPtr TabletManager::create_tablet(
+        const TCreateTabletReq& request, const bool is_schema_change_tablet,
+        const TabletSharedPtr ref_tablet, std::vector<DataDir*> data_dirs) {
+    WriteLock wrlock(&_create_tablet_lock);
+    return _internal_create_tablet(request, is_schema_change_tablet,
+        ref_tablet, data_dirs);
+}
+
+TabletSharedPtr TabletManager::_internal_create_tablet(
+        const TCreateTabletReq& request, const bool is_schema_change_tablet,
+        const TabletSharedPtr ref_tablet, std::vector<DataDir*> data_dirs) {
+    DCHECK((is_schema_change_tablet && ref_tablet != nullptr) || (!is_schema_change_tablet && ref_tablet == nullptr));
+    bool is_tablet_added = false;
+    TabletSharedPtr tablet = _create_tablet_meta_and_dir(request, is_schema_change_tablet, 
+        ref_tablet, data_dirs);
+    if (tablet == nullptr) {
+        return nullptr;
+    }
+
+    OLAPStatus res = OLAP_SUCCESS;
     do {
-        // 3. Create tablet with only header, no deltas
-        tablet = create_tablet(request, false, nullptr, stores);
-        if (tablet == nullptr) {
-            res = OLAP_ERR_CE_CMD_PARAMS_ERROR;
-            LOG(WARNING) << "fail to create tablet. res=" << res;
-            break;
-        }
-
         res = tablet->init();
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "tablet init failed. tablet:" << tablet->full_name();
             break;
         }
+        if (!is_schema_change_tablet) {
+            // Create init version if this is not a restore mode replica and request.version is set
+            // bool in_restore_mode = request.__isset.in_restore_mode && request.in_restore_mode;
+            // if (!in_restore_mode && request.__isset.version) {
+            // create inital rowset before add it to storage engine could omit many locks
+            res = _create_inital_rowset(tablet, request);
+            if (res != OLAP_SUCCESS) {
+                LOG(WARNING) << "fail to create initial version for tablet. res=" << res;
+                break;
+            }
+        } else {
+            // 有可能出现以下2种特殊情况：
+            // 1. 因为操作系统时间跳变，导致新生成的表的creation_time小于旧表的creation_time时间
+            // 2. 因为olap engine代码中统一以秒为单位，所以如果2个操作(比如create一个表,
+            //    然后立即alter该表)之间的时间间隔小于1s，则alter得到的新表和旧表的creation_time会相同
+            //
+            // 当出现以上2种情况时，为了能够区分alter得到的新表和旧表，这里把新表的creation_time设置为
+            // 旧表的creation_time加1
+            if (tablet->creation_time() <= ref_tablet->creation_time()) {
+                LOG(WARNING) << "new tablet's creation time is less than or equal to old tablet"
+                            << "new_tablet_creation_time=" << tablet->creation_time()
+                            << ", ref_tablet_creation_time=" << ref_tablet->creation_time();
+                int64_t new_creation_time = ref_tablet->creation_time() + 1;
+                tablet->set_creation_time(new_creation_time);
+            }
+        }
 
-        // 4. Add tablet to StorageEngine will make it visiable to user
+        // Add tablet to StorageEngine will make it visiable to user
         res = add_tablet(request.tablet_id, request.tablet_schema.schema_hash, tablet, false);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to add tablet to StorageEngine. res=" << res;
             break;
         }
         is_tablet_added = true;
-
         TabletSharedPtr tablet_ptr = get_tablet(request.tablet_id, request.tablet_schema.schema_hash);
         if (tablet_ptr == nullptr) {
             res = OLAP_ERR_TABLE_NOT_FOUND;
@@ -355,7 +331,7 @@ OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request,
             break;
         }
 
-        // 5. Register tablet into StorageEngine, so that we can manage tablet from
+        // Register tablet into StorageEngine, so that we can manage tablet from
         // the perspective of root path.
         // Example: unregister all tables when a bad disk found.
         res = tablet_ptr->register_tablet_into_dir();
@@ -364,22 +340,12 @@ OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request,
                          << ", data_dir=" << tablet_ptr->data_dir()->path();
             break;
         }
-
-        // 6. Create init version if this is not a restore mode replica and request.version is set
-        // bool in_restore_mode = request.__isset.in_restore_mode && request.in_restore_mode;
-        // if (!in_restore_mode && request.__isset.version) {
-        res = _create_inital_rowset(tablet_ptr, request);
-        if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "fail to create initial version for tablet. res=" << res;
-        }
-        // }
     } while (0);
-    // should remove the pending path of tablet id no matter create tablet success or not
-    if (tablet != nullptr) {
-        tablet->data_dir()->remove_pending_ids(TABLET_ID_PREFIX + std::to_string(request.tablet_id));
-    }
 
-    // 7. clear environment
+    // should remove the pending path of tablet id no matter create tablet success or not
+    tablet->data_dir()->remove_pending_ids(TABLET_ID_PREFIX + std::to_string(request.tablet_id));
+
+    // clear environment
     if (res != OLAP_SUCCESS) {
         DorisMetrics::create_tablet_requests_failed.increment(1);
         if (is_tablet_added) {
@@ -388,23 +354,31 @@ OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request,
             if (status != OLAP_SUCCESS) {
                 LOG(WARNING) << "fail to drop tablet when create tablet failed. res=" << res;
             }
-        } else if (tablet != nullptr) {
+        } else {
             tablet->delete_all_files();
+            TabletMetaManager::remove(tablet->data_dir(), request.tablet_id, request.tablet_schema.schema_hash);
         }
+        return nullptr;
+    } else {
+        LOG(INFO) << "finish to process create tablet. res=" << res;
+        return tablet;
     }
-
-    LOG(INFO) << "finish to process create tablet. res=" << res;
-    return res;
 } // create_tablet
 
-TabletSharedPtr TabletManager::create_tablet(
+TabletSharedPtr TabletManager::_create_tablet_meta_and_dir(
         const TCreateTabletReq& request, const bool is_schema_change_tablet,
         const TabletSharedPtr ref_tablet, std::vector<DataDir*> data_dirs) {
-
     TabletSharedPtr tablet;
     // Try to create tablet on each of all_available_root_path, util success
+    DataDir* last_dir = nullptr; 
     for (auto& data_dir : data_dirs) {
+        if (last_dir != nullptr) {
+            // if last dir != null, it means preivous create tablet retry failed
+            last_dir->remove_pending_ids(TABLET_ID_PREFIX + std::to_string(request.tablet_id));
+        }
+        last_dir = data_dir;
         TabletMetaSharedPtr tablet_meta;
+        // if create meta faild, do not need to clean dir, because it is only in memory
         OLAPStatus res = _create_tablet_meta(request, data_dir, is_schema_change_tablet, ref_tablet, &tablet_meta);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to create tablet meta. res=" << res << ", root=" << data_dir->path();
@@ -453,7 +427,8 @@ TabletSharedPtr TabletManager::create_tablet(
         break;
     }
     return tablet;
-} // create_tablet
+}
+
 
 // Drop tablet specified, the main logical is as follows:
 // 1. tablet not in schema change:
@@ -990,22 +965,65 @@ OLAPStatus TabletManager::_create_inital_rowset(
         LOG(WARNING) << "init version of tablet should at least 1.";
         return OLAP_ERR_CE_CMD_PARAMS_ERROR;
     } else {
-        Version init_base_version(0, request.version);
-        res = create_inital_rowset(
-                request.tablet_id, request.tablet_schema.schema_hash,
-                init_base_version, request.version_hash);
+        Version version(0, request.version);
+        VLOG(3) << "begin to create init version. "
+                << "begin=" << version.first << ", end=" << version.second;
+        RowsetSharedPtr new_rowset;
+        do {
+            if (version.first > version.second) {
+                LOG(WARNING) << "begin should not larger than end." 
+                            << " begin=" << version.first
+                            << " end=" << version.second;
+                res = OLAP_ERR_INPUT_PARAMETER_ERROR;
+                break;
+            }
+            RowsetId rowset_id = 0;
+            RETURN_NOT_OK(tablet->next_rowset_id(&rowset_id));
+            RowsetWriterContext context;
+            context.rowset_id = rowset_id;
+            context.tablet_id = tablet->tablet_id();
+            context.partition_id = tablet->partition_id();
+            context.tablet_schema_hash = tablet->schema_hash();
+            context.rowset_type = ALPHA_ROWSET;
+            context.rowset_path_prefix = tablet->tablet_path();
+            context.tablet_schema = &(tablet->tablet_schema());
+            context.rowset_state = VISIBLE;
+            context.data_dir = tablet->data_dir();
+            context.version = version;
+            context.version_hash = request.version_hash;
+            RowsetWriter* builder = new (std::nothrow)AlphaRowsetWriter(); 
+            if (builder == nullptr) {
+                LOG(WARNING) << "fail to new rowset.";
+                res = OLAP_ERR_MALLOC_ERROR;
+                break;
+            }
+            builder->init(context);
+            res = builder->flush();
+            if (OLAP_SUCCESS != res) {
+                LOG(WARNING) << "fail to finalize writer. tablet=" << tablet->full_name();
+                break;
+            }
+
+            new_rowset = builder->build();
+            res = tablet->add_rowset(new_rowset);
+            if (res != OLAP_SUCCESS) {
+                LOG(WARNING) << "fail to add rowset to tablet. "
+                            << "tablet=" << tablet->full_name();
+                break;
+            }
+        } while (0);
+
+        // Unregister index and delete files(index and data) if failed
         if (res != OLAP_SUCCESS) {
+            StorageEngine::instance()->add_unused_rowset(new_rowset);
             LOG(WARNING) << "fail to create init base version. " 
                          << " res=" << res 
                          << " version=" << request.version;
             return res;
         }
     }
-
-    tablet->obtain_header_wrlock();
     tablet->set_cumulative_layer_point(request.version + 1);
     res = tablet->save_meta();
-    tablet->release_header_lock();
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to save header. [tablet=" << tablet->full_name() << "]";
     }
