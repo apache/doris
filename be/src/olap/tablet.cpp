@@ -230,13 +230,10 @@ OLAPStatus Tablet::deregister_tablet_from_dir() {
 
 OLAPStatus Tablet::add_rowset(RowsetSharedPtr rowset) {
     WriteLock wrlock(&_meta_lock);
-    return add_rowset_unlock(rowset);
-}
-
-OLAPStatus Tablet::add_rowset_unlock(RowsetSharedPtr rowset) {
     RETURN_NOT_OK(_tablet_meta->add_rs_meta(rowset->rowset_meta()));
     _rs_version_map[rowset->version()] = rowset;
     RETURN_NOT_OK(_rs_graph.add_version_to_graph(rowset->version()));
+    RETURN_NOT_OK(save_meta());
     return OLAP_SUCCESS;
 }
 

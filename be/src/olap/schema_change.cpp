@@ -1716,44 +1716,31 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
         // 将新版本的数据加入header
         // 为了防止死锁的出现，一定要先锁住旧表，再锁住新表
         sc_params.new_tablet->obtain_push_lock();
-        sc_params.base_tablet->obtain_header_wrlock();
-        sc_params.new_tablet->obtain_header_wrlock();
-
-        if (!sc_params.new_tablet->check_version_exist(rs_reader->version())) {
-            // register version
-            RowsetSharedPtr new_rowset = rowset_writer->build();
-            res = sc_params.new_tablet->add_rowset_unlock(new_rowset);
-            if (OLAP_SUCCESS != res) {
-                LOG(WARNING) << "failed to register new version. "
-                             << " tablet=" << sc_params.new_tablet->full_name()
-                             << ", version=" << rs_reader->version().first
-                             << "-" << rs_reader->version().second;
-                new_rowset->remove();
-
-                sc_params.new_tablet->release_header_lock();
-                sc_params.base_tablet->release_header_lock();
-
-                goto PROCESS_ALTER_EXIT;
-            }
-
-            VLOG(3) << "register new version. tablet=" << sc_params.new_tablet->full_name()
-                    << ", version=" << rs_reader->version().first
-                    << "-" << rs_reader->version().second;
-        } else {
+        RowsetSharedPtr new_rowset = rowset_writer->build();
+        if (new_rowset == nullptr) {
+            LOG(WARNING) << "failed to build rowset, exit alter process";
+            goto PROCESS_ALTER_EXIT;
+        }
+        res = sc_params.new_tablet->add_rowset(new_rowset);
+        if (res == OLAP_ERR_ROWSET_ALREADY_EXIST) {
             LOG(WARNING) << "version already exist, version revert occured. "
                          << "tablet=" << sc_params.new_tablet->full_name()
                          << ", version='" << rs_reader->version().first
                          << "-" << rs_reader->version().second;
+            new_rowset->remove();
+            res = OLAP_SUCCESS;
+        } else if (res != OLAP_SUCCESS) {
+            LOG(WARNING) << "failed to register new version. "
+                         << " tablet=" << sc_params.new_tablet->full_name()
+                         << ", version=" << rs_reader->version().first
+                         << "-" << rs_reader->version().second;
+            new_rowset->remove();
+            goto PROCESS_ALTER_EXIT;
+        } else {
+            VLOG(3) << "register new version. tablet=" << sc_params.new_tablet->full_name()
+                    << ", version=" << rs_reader->version().first
+                    << "-" << rs_reader->version().second;
         }
-
-        // 保存header
-        if (OLAP_SUCCESS != sc_params.new_tablet->save_meta()) {
-            LOG(FATAL) << "fail to save header. res=" << res
-                       << ", tablet=" << sc_params.new_tablet->full_name();
-        }
-
-        sc_params.new_tablet->release_header_lock();
-        sc_params.base_tablet->release_header_lock();
         sc_params.new_tablet->release_push_lock();
 
         VLOG(10) << "succeed to convert a history version."
@@ -1763,9 +1750,7 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
         // 释放RowsetReader
         rs_reader->close();
     }
-
     // XXX: 此时应该不取消SchemaChange状态，因为新Delta还要转换成新旧Schema的版本
-
 PROCESS_ALTER_EXIT:
     if (res == OLAP_SUCCESS) {
         Version test_version(0, end_version);

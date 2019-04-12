@@ -137,27 +137,8 @@ private:
     // 恢复header头文件的文件版本和table的data source
     OLAPStatus _roll_back(std::vector<RowsetSharedPtr>& old_olap_indices);
 
-    void _obtain_header_rdlock() {
-        _tablet->obtain_header_rdlock();
-        _header_locked = true;
-    }
-
-    void _obtain_header_wrlock() {
-        _tablet->obtain_header_wrlock();
-        _header_locked = true;
-    }
-
-    void _release_header_lock() {
-        if (_header_locked) {
-            _tablet->release_header_lock();
-            _header_locked = false;
-        }
-    }
-
     // CumulativeCompaction对象是否初始化
     bool _is_init;
-    // header文件是否加锁
-    bool _header_locked;
     // table现有的cumulative层的标识点
     int32_t _old_cumulative_layer_point;
     // 待cumulative compaction完成之后，新的cumulative层的标识点

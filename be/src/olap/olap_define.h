@@ -243,6 +243,7 @@ enum OLAPStatus {
     // only support realtime push api, batch process is deprecated and is removed
     OLAP_ERR_PUSH_BATCH_PROCESS_REMOVED = -912, 
     OLAP_ERR_PUSH_COMMIT_ROWSET = -913, 
+    OLAP_ERR_PUSH_ROWSET_NOT_FOUND = -914, 
 
     // SegmentGroup
     // [-1000, -1100)

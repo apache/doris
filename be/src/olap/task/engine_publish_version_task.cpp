@@ -59,9 +59,17 @@ OLAPStatus EnginePublishVersionTask::finish() {
                     << ", version=" << version.first
                     << ", version_hash=" << version_hash
                     << ", transaction_id=" << transaction_id;
+            
+            if (rowset == nullptr) {
+                LOG(WARNING) << "could not find related rowset for tablet " << tablet_info.tablet_id
+                             << " txn id " << transaction_id;
+                _error_tablet_ids->push_back(tablet_info.tablet_id);
+                res = OLAP_ERR_PUSH_ROWSET_NOT_FOUND;
+                continue;
+            }
             TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_info.tablet_id, tablet_info.schema_hash);
 
-            if (tablet.get() == NULL) {
+            if (tablet == nullptr) {
                 LOG(WARNING) << "can't get tablet when publish version. tablet_id=" << tablet_info.tablet_id
                              << "schema_hash=" << tablet_info.schema_hash;
                 _error_tablet_ids->push_back(tablet_info.tablet_id);
