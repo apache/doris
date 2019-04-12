@@ -197,6 +197,21 @@ static bool ignore_cast(const SlotDescriptor* slot, const Expr* expr) {
     return false;
 }
 
+static bool is_literal_node(const Expr* expr) {
+    switch (expr->node_type()) {
+        case TExprNodeType::BOOL_LITERAL:
+        case TExprNodeType::INT_LITERAL:
+        case TExprNodeType::LARGE_INT_LITERAL:
+        case TExprNodeType::FLOAT_LITERAL:
+        case TExprNodeType::DECIMAL_LITERAL:
+        case TExprNodeType::STRING_LITERAL:
+        case TExprNodeType::DATE_LITERAL:
+            return true;
+        default:
+            return false;
+    }
+}
+
 bool EsPredicate::build_disjuncts_list(Expr* conjunct, vector<ExtPredicate*>& disjuncts) {
     if (TExprNodeType::BINARY_PRED == conjunct->node_type()) {
         if (conjunct->children().size() != 2) {
@@ -226,6 +241,10 @@ bool EsPredicate::build_disjuncts_list(Expr* conjunct, vector<ExtPredicate*>& di
             return false;
         }
 
+        if (!is_literal_node(expr)) {
+            VLOG(1) << "get disjuncts fail: expr is not literal type";
+            return false;
+        }
 
         ExtLiteral literal(expr->type().type, _context->get_value(expr, NULL));
         ExtPredicate* predicate = new ExtBinaryPredicate(
