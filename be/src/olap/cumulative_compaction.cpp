@@ -52,9 +52,9 @@ OLAPStatus CumulativeCompaction::init(TabletSharedPtr tablet) {
         return OLAP_ERR_CE_TRY_CE_LOCK_ERROR;
     }
 
-    _obtain_header_rdlock();
+    _tablet->obtain_header_rdlock();
     _old_cumulative_layer_point = _tablet->cumulative_layer_point();
-    _release_header_lock();
+    _tablet->release_header_lock();
     // 如果为-1，则该table之前没有设置过cumulative layer point
     // 我们在这里设置一下
     if (_old_cumulative_layer_point == -1) {
@@ -64,9 +64,9 @@ OLAPStatus CumulativeCompaction::init(TabletSharedPtr tablet) {
         return OLAP_ERR_CUMULATIVE_INVALID_PARAMETERS;
     }
 
-    _obtain_header_wrlock();
+    _tablet->obtain_header_wrlock();
     OLAPStatus res = _calculate_need_merged_versions();
-    _release_header_lock();
+    _tablet->release_header_lock();
     if (res != OLAP_SUCCESS) {
         _tablet->release_cumulative_lock();
         LOG(INFO) << "no suitable delta versions. don't do cumulative compaction now.";
@@ -422,13 +422,13 @@ OLAPStatus CumulativeCompaction::_do_cumulative_compaction() {
 
     // 3. add new cumulative file into tablet
     vector<RowsetSharedPtr> unused_rowsets;
-    _obtain_header_wrlock();
+    _tablet->obtain_header_wrlock();
     res = _tablet->capture_consistent_rowsets(_need_merged_versions, &unused_rowsets);
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to capture consistent rowsets. tablet=" << _tablet->full_name()
                      << ", version=" << _cumulative_version.first
                      << "-" << _cumulative_version.second;
-        _release_header_lock();
+        _tablet->release_header_lock();
         return res;
     }
     res = _update_header(unused_rowsets);
@@ -437,7 +437,7 @@ OLAPStatus CumulativeCompaction::_do_cumulative_compaction() {
                      << "tablet=" << _tablet->full_name()
                      << ", cumulative_version=" << _cumulative_version.first
                      << "-" << _cumulative_version.second;
-        _release_header_lock();
+        _tablet->release_header_lock();
         return res;
     }
 
@@ -454,13 +454,13 @@ OLAPStatus CumulativeCompaction::_do_cumulative_compaction() {
             LOG(FATAL) << "roll back failed. [tablet=" <<  _tablet->full_name() << "]";
         }
 
-        _release_header_lock();
+        _tablet->release_header_lock();
         return res;
     }
     // 5. 如果合并成功，设置新的cumulative_layer_point
     _tablet->set_cumulative_layer_point(_new_cumulative_layer_point);
     _tablet->save_meta();
-    _release_header_lock();
+    _tablet->release_header_lock();
 
     // 6. delete delta files which have been merged into new cumulative file
     _delete_unused_rowsets(&unused_rowsets);

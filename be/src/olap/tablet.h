@@ -112,7 +112,6 @@ public:
 
     // operation in rowsets
     OLAPStatus add_rowset(RowsetSharedPtr rowset);
-    OLAPStatus add_rowset_unlock(RowsetSharedPtr rowset);
     OLAPStatus modify_rowsets(const vector<RowsetSharedPtr>& to_add,
                               const vector<RowsetSharedPtr>& to_delete);
     const RowsetSharedPtr get_rowset_by_version(const Version& version) const;

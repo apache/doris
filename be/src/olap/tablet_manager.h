@@ -72,13 +72,6 @@ public:
     bool check_tablet_id_exist(TTabletId tablet_id);
 
     void clear();
-    
-    // Add empty data for Tablet
-    //
-    // Return OLAP_SUCCESS, if run ok
-    OLAPStatus create_inital_rowset(
-            TTabletId tablet_id, SchemaHash schema_hash,
-            Version version, VersionHash version_hash);
 
     OLAPStatus create_tablet(const TCreateTabletReq& request, 
                              std::vector<DataDir*> stores);
@@ -163,6 +156,12 @@ private:
 
     TabletSharedPtr _get_tablet_with_no_lock(TTabletId tablet_id, SchemaHash schema_hash);
 
+    TabletSharedPtr _internal_create_tablet(const TCreateTabletReq& request, const bool is_schema_change_tablet,
+        const TabletSharedPtr ref_tablet, std::vector<DataDir*> data_dirs);
+    
+    TabletSharedPtr _create_tablet_meta_and_dir(const TCreateTabletReq& request, const bool is_schema_change_tablet,
+        const TabletSharedPtr ref_tablet, std::vector<DataDir*> data_dirs);
+
 private:
     struct TableInstances {
         Mutex schema_change_lock;
@@ -170,6 +169,7 @@ private:
     };
     typedef std::map<int64_t, TableInstances> tablet_map_t;
     RWMutex _tablet_map_lock;
+    RWMutex _create_tablet_lock;
     tablet_map_t _tablet_map;
     std::map<std::string, DataDir*> _store_map;
 
