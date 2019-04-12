@@ -93,8 +93,6 @@ Tablet::Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir)
     _tablet_meta(tablet_meta),
     _schema(tablet_meta->tablet_schema()),
     _data_dir(data_dir) {
-    _tablet_meta->set_data_dir(_data_dir);
-
     _tablet_path.append(_data_dir->path());
     _tablet_path.append(DATA_PREFIX);
     _tablet_path.append("/");
@@ -154,7 +152,7 @@ string Tablet::tablet_path() const {
 }
 
 OLAPStatus Tablet::save_meta() {
-    OLAPStatus res = _tablet_meta->save_meta();
+    OLAPStatus res = _tablet_meta->save_meta(_data_dir);
     if (res != OLAP_SUCCESS) {
        LOG(WARNING) << "fail to save tablet_meta. res=" << res
                     << ", root=" << _data_dir->path();
@@ -173,7 +171,7 @@ OLAPStatus Tablet::revise_tablet_meta(const TabletMeta& tablet_meta,
     OLAPStatus res = OLAP_SUCCESS;
     do {
         // load new local tablet_meta to operate on
-        TabletMetaSharedPtr new_tablet_meta(new TabletMeta());
+        TabletMetaSharedPtr new_tablet_meta(new (nothrow) TabletMeta());
         TabletMetaManager::get_header(_data_dir, tablet_id(), schema_hash(), new_tablet_meta);
 
         // delete versions from new local tablet_meta
@@ -306,7 +304,7 @@ OLAPStatus Tablet::add_inc_rowset(const RowsetSharedPtr& rowset) {
     _rs_version_map[rowset->version()] = rowset;
     RETURN_NOT_OK(_rs_graph.add_version_to_graph(rowset->version()));
     RETURN_NOT_OK(_tablet_meta->add_inc_rs_meta(rowset->rowset_meta()));
-    RETURN_NOT_OK(_tablet_meta->save_meta());
+    RETURN_NOT_OK(_tablet_meta->save_meta(_data_dir));
     return OLAP_SUCCESS;
 }
 

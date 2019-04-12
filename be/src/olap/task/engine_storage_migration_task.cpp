@@ -48,9 +48,9 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
 
     OLAPStatus res = OLAP_SUCCESS;
     TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash);
-    if (tablet.get() == NULL) {
-        OLAP_LOG_WARNING("can't find tablet. [tablet_id=%ld schema_hash=%d]",
-                tablet_id, schema_hash);
+    if (tablet == nullptr) {
+        LOG(WARNING) << "can't find tablet. tablet_id=" << tablet_id
+                     << ", schema_hash=" << schema_hash;
         return OLAP_ERR_TABLE_NOT_FOUND;
     }
 
@@ -78,7 +78,7 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
         if (lastest_version == NULL) {
             tablet->release_header_lock();
             res = OLAP_ERR_VERSION_NOT_EXIST;
-            OLAP_LOG_WARNING("tablet has not any version.");
+            LOG(WARNING) << "tablet has not any version.";
             break;
         }
 
@@ -98,14 +98,14 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
         auto stores = StorageEngine::instance()->get_stores_for_create_tablet(storage_medium);
         if (stores.empty()) {
             res = OLAP_ERR_INVALID_ROOT_PATH;
-            OLAP_LOG_WARNING("fail to get root path for create tablet.");
+            LOG(WARNING) << "fail to get root path for create tablet.";
             break;
         }
 
         uint64_t shard = 0;
         res = stores[0]->get_shard(&shard);
         if (res != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("fail to get root path shard. [res=%d]", res);
+            LOG(WARNING) << "fail to get root path shard. res=" << res;
             break;
         }
 
@@ -122,41 +122,41 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
         // migrate all index and data files but header file
         res = _copy_index_and_data_files(schema_hash_path, tablet, consistent_rowsets);
         if (res != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("fail to copy index and data files when migrate. [res=%d]", res);
+            LOG(WARNING) << "fail to copy index and data files when migrate. res=" << res;
             break;
         }
 
         // generate new header file from the old
         TabletMetaSharedPtr new_tablet_meta(new(std::nothrow) TabletMeta());
         if (new_tablet_meta == nullptr) {
-            OLAP_LOG_WARNING("new olap header failed");
+            LOG(WARNING) << "new olap header failed";
             return OLAP_ERR_BUFFER_OVERFLOW;
         }
         res = _generate_new_header(stores[0], shard, tablet, consistent_rowsets, new_tablet_meta);
         if (res != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("fail to generate new header file from the old. [res=%d]", res);
+            LOG(WARNING) << "fail to generate new header file from the old. res=" << res;
             break;
         }
 
         // load the new tablet into OLAPEngine
         auto tablet = Tablet::create_tablet_from_meta(new_tablet_meta, stores[0]);
         if (tablet == NULL) {
-            OLAP_LOG_WARNING("failed to create from header");
+            LOG(WARNING) << "failed to create from header";
             res = OLAP_ERR_TABLE_CREATE_FROM_HEADER_ERROR;
             break;
         }
         res = StorageEngine::instance()->tablet_manager()->add_tablet(tablet_id, schema_hash, tablet, false);
         if (res != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("fail to add tablet to StorageEngine. [res=%d]", res);
+            LOG(WARNING) << "fail to add tablet to StorageEngine. res=" << res;
             break;
         }
 
         // if old tablet finished schema change, then the schema change status of the new tablet is DONE
         // else the schema change status of the new tablet is FAILED
         TabletSharedPtr new_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash);
-        if (new_tablet.get() == NULL) {
-            OLAP_LOG_WARNING("get null tablet. [tablet_id=%ld schema_hash=%d]",
-                             tablet_id, schema_hash);
+        if (new_tablet == nullptr) {
+            LOG(WARNING) << "get tablet failed. tablet_id=" << tablet_id
+                         << ", schema_hash=" << schema_hash;
             return OLAP_ERR_TABLE_NOT_FOUND;
         }
         AlterTabletTaskSharedPtr alter_task = tablet->alter_task();
@@ -192,7 +192,7 @@ OLAPStatus EngineStorageMigrationTask::_generate_new_header(
 
     res = TabletMetaManager::save(store, tablet->tablet_id(), tablet->schema_hash(), new_tablet_meta);
     if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to save olap header to new db. [res=%d]", res);
+        LOG(WARNING) << "fail to save olap header to new db. res=" << res;
         return res;
     }
 

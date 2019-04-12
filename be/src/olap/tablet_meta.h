@@ -113,7 +113,6 @@ public:
                              const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
                              TabletMetaSharedPtr* tablet_meta);
     TabletMeta();
-    TabletMeta(DataDir* data_dir);
     TabletMeta(int64_t table_id, int64_t partition_id,
                int64_t tablet_id, int64_t schema_hash,
                uint64_t shard_id, const TTabletSchema& tablet_schema,
@@ -125,7 +124,7 @@ public:
     OLAPStatus create_from_file(const std::string& file_path);
     OLAPStatus save(const std::string& file_path);
     static OLAPStatus save(const string& file_path, TabletMetaPB& tablet_meta_pb);
-    OLAPStatus save_meta();
+    OLAPStatus save_meta(DataDir* data_dir);
 
     OLAPStatus serialize(string* meta_binary) const;
     OLAPStatus deserialize(const string& meta_binary);
@@ -133,8 +132,6 @@ public:
 
     OLAPStatus to_meta_pb(TabletMetaPB* tablet_meta_pb);
     OLAPStatus to_json(std::string* json_string, json2pb::Pb2JsonOptions& options);
-
-    inline void set_data_dir(DataDir* data_dir);
 
     inline const int64_t table_id() const;
     inline const int64_t partition_id() const;
@@ -191,15 +188,10 @@ private:
 
     AlterTabletTaskSharedPtr _alter_task;
 
-    DataDir* _data_dir;
     TabletMetaPB _tablet_meta_pb;
 
     RWMutex _meta_lock;
 };
-
-inline void TabletMeta::set_data_dir(DataDir* data_dir) {
-    _data_dir = data_dir;
-}
 
 inline const int64_t TabletMeta::table_id() const {
     return _tablet_meta_pb.table_id();
