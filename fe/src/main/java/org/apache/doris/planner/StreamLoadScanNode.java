@@ -131,7 +131,7 @@ public class StreamLoadScanNode extends ScanNode {
                     slotDesc.setIsMaterialized(true);
                     // ISSUE A: src slot should be nullable even if the column is not nullable.
                     // because src slot is what we read from file, not represent to real column value.
-                    // If column is nullable, error will be thrown when filling the dest slot,
+                    // If column is not nullable, error will be thrown when filling the dest slot,
                     // which is not nullable
                     slotDesc.setIsNullable(true);
                     params.addToSrc_slot_ids(slotDesc.getId().asInt());
