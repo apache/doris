@@ -81,6 +81,10 @@ public abstract class OptLogical extends OptOperator {
     public boolean isLogical() { return true; }
     public boolean isSelectOp() { return false; }
 
+    //------------------------------------------------------------------------
+    // Used to get operator's derived property
+    //------------------------------------------------------------------------
+
     @Override
     public OptProperty createProperty() {
         return new OptLogicalProperty();
@@ -156,6 +160,17 @@ public abstract class OptLogical extends OptOperator {
 
     public OptMaxcard getMaxcard(OptExpressionHandle exprHandle) {
         return new OptMaxcard();
+    }
+
+    public int getJoinDepth(OptExpressionHandle exprHandle) {
+        int joinDepth = 0;
+        for (int i = 0; i < exprHandle.arity(); ++i) {
+            if (exprHandle.isItemChild(i)) {
+                continue;
+            }
+            joinDepth += exprHandle.getLogicalProperty().getJoinDepth();
+        }
+        return joinDepth;
     }
 
     public OptExpression pushThrough(OptExpression expr, OptExpression conj) {

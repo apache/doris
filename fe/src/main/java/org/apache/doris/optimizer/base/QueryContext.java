@@ -18,6 +18,7 @@
 package org.apache.doris.optimizer.base;
 
 import org.apache.doris.optimizer.OptExpression;
+import org.apache.doris.optimizer.operator.ExpressionPreprocessor;
 
 import java.util.List;
 
@@ -35,6 +36,12 @@ public class QueryContext {
         this.reqdProp = reqdProp;
         this.outputColumns = outputColumns;
         this.variables = variables;
+
+        OptColumnRefSet columnRefs = new OptColumnRefSet();
+        columnRefs.include(outputColumns);
+        columnRefs.include(reqdProp.getReqdOrder().getPropertySpec().getUsedColumns());
+
+        this.expression = ExpressionPreprocessor.preprocess(expression, columnRefs);
     }
 
     public OptExpression getExpression() { return expression; }
