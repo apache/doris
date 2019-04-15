@@ -53,7 +53,7 @@ std::string ExtLiteral::value_to_string() {
     std::stringstream ss;
     switch (_type) {
         case TYPE_TINYINT:
-            ss << get_byte();
+            ss << (int)get_byte();
             break;
         case TYPE_SMALLINT:
             ss << get_short();
