@@ -23,6 +23,8 @@ import org.apache.doris.optimizer.OptExpression;
 import org.apache.doris.optimizer.OptGroup;
 import org.apache.doris.optimizer.base.OptCost;
 import org.apache.doris.optimizer.base.OptCostContext;
+import org.apache.doris.optimizer.base.OptItemProperty;
+import org.apache.doris.optimizer.base.OptLogicalProperty;
 import org.apache.doris.optimizer.base.OptPhysicalProperty;
 import org.apache.doris.optimizer.base.OptProperty;
 import org.apache.doris.optimizer.base.OptimizationContext;
@@ -79,6 +81,8 @@ public class OptExpressionHandle {
 
     public OptProperty getChildProperty(int idx) { return childrenProperty.get(idx); }
     public OptPhysicalProperty getChildPhysicalProperty(int idx) { return (OptPhysicalProperty) childrenProperty.get(idx); }
+    public OptLogicalProperty getChildLogicalProperty(int idx) { return (OptLogicalProperty) childrenProperty.get(idx); }
+    public OptItemProperty getChildItemProperty(int idx) { return (OptItemProperty) childrenProperty.get(idx); }
 
     private boolean isStatsDerived() {
         Statistics stats;
@@ -166,4 +170,13 @@ public class OptExpressionHandle {
         property.derive(this);
     }
 
+    public OptExpression getItemChild(int idx) {
+        if (multiExpr != null) {
+            return multiExpr.getInput(idx).getItemExpression();
+        }
+        if (expression != null && expression.getInput(idx).getMExpr() != null) {
+            return expression.getInput(idx).getMExpr().getGroup().getItemExpression();
+        }
+        return expression.getInput(idx);
+    }
 }

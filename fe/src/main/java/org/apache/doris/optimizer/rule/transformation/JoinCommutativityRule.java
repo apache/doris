@@ -19,7 +19,7 @@ package org.apache.doris.optimizer.rule.transformation;
 
 import com.google.common.base.Preconditions;
 import org.apache.doris.optimizer.OptExpression;
-import org.apache.doris.optimizer.operator.OptLogicallJoin;
+import org.apache.doris.optimizer.operator.OptLogicalJoin;
 import org.apache.doris.optimizer.operator.OptPatternLeaf;
 import org.apache.doris.optimizer.rule.OptRuleType;
 
@@ -31,7 +31,7 @@ public class JoinCommutativityRule extends ExplorationRule {
 
     private JoinCommutativityRule() {
         super(OptRuleType.RULE_EXP_JOIN_COMMUTATIVITY,
-                OptExpression.create(new OptLogicallJoin(),
+                OptExpression.create(new OptLogicalJoin(),
                         OptExpression.create(new OptPatternLeaf()),
                         OptExpression.create(new OptPatternLeaf())));
     }
@@ -51,7 +51,7 @@ public class JoinCommutativityRule extends ExplorationRule {
         Preconditions.checkNotNull(rightChild);
 
         // TODO children's tuple need to exchange.
-        final OptExpression newJoinExpr = OptExpression.create(new OptLogicallJoin(),
+        final OptExpression newJoinExpr = OptExpression.create(new OptLogicalJoin(),
                 rightChild, leftChild);
         newExprs.add(newJoinExpr);
     }

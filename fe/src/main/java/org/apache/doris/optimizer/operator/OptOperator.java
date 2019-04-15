@@ -43,6 +43,7 @@ public abstract class OptOperator {
     public boolean isPattern() { return false; }
     // If this operator is pattern and is leaf
     public boolean isPatternAndLeaf() { return false; }
+    public boolean isSubquery() { return false; }
 
     // If this operator care about its inputs' order. For join operator (A join B) is
     // not equal with (B join A), so it is order sensitive. And for union operator,

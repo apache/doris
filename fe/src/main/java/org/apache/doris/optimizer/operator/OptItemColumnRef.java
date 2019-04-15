@@ -30,6 +30,7 @@ public class OptItemColumnRef extends OptItem {
         super(OptOperatorType.OP_ITEM_COLUMN_REF);
         this.ref = ref;
     }
+    public OptColumnRef getRef() { return ref; }
 
     @Override
     public Type getReturnType() {

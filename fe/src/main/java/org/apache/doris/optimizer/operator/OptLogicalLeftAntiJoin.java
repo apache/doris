@@ -17,35 +17,24 @@
 
 package org.apache.doris.optimizer.operator;
 
-import org.apache.doris.optimizer.OptExpression;
-import org.apache.doris.optimizer.OptExpressionWapper;
 import org.apache.doris.optimizer.base.OptColumnRefSet;
-import org.apache.doris.optimizer.rule.OptRule;
-import org.apache.doris.optimizer.stat.Statistics;
-import org.apache.doris.optimizer.stat.StatisticsContext;
+import org.apache.doris.optimizer.base.OptMaxcard;
 
-import java.util.BitSet;
-import java.util.List;
+public class OptLogicalLeftAntiJoin extends OptLogicalJoin {
+    public OptLogicalLeftAntiJoin() {
+        super(OptOperatorType.OP_LOGICAL_LEFT_ANTI_JOIN);
+    }
 
-public class OptLogicalAggregate extends OptLogical {
-
-    public OptLogicalAggregate() {
-        super(OptOperatorType.OP_LOGICAL_AGGREGATE);
+    //------------------------------------------------------------------------
+    // Used to get operator's derived property
+    //------------------------------------------------------------------------
+    @Override
+    public OptColumnRefSet getOutputColumns(OptExpressionHandle exprHandle) {
+        return getOutputColumnPassThrough(exprHandle);
     }
 
     @Override
-    public BitSet getCandidateRulesForExplore() {
-        return null;
+    public OptMaxcard getMaxcard(OptExpressionHandle exprHandle) {
+        return exprHandle.getChildLogicalProperty(0).getMaxcard();
     }
-
-    @Override
-    public BitSet getCandidateRulesForImplement() {
-        return null;
-    }
-
-    @Override
-    public Statistics deriveStat(OptExpressionWapper wapper, StatisticsContext context) {
-        return null;
-    }
-
 }

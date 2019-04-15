@@ -18,27 +18,34 @@
 package org.apache.doris.optimizer.base;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 import org.apache.doris.optimizer.OptExpression;
+import org.apache.doris.optimizer.operator.OptExpressionHandle;
 import org.apache.doris.optimizer.operator.OptItem;
 
 public class OptItemProperty implements OptProperty {
     private OptColumnRefSet usedColumns;
+    private OptColumnRefSet definedColumns;
 
     public OptColumnRefSet getUsedColumns() { return usedColumns; }
+    public OptColumnRefSet getDefinedColumns() { return definedColumns; }
 
     @Override
-    public void derive(OptExpression expression) {
-        Preconditions.checkArgument(expression.getOp() instanceof OptItem,
-                "op is not item, op=" + expression.getOp());
-        OptItem item = (OptItem) expression.getOp();
+    public void derive(OptExpressionHandle exprHandle) {
+        Preconditions.checkArgument(exprHandle.getOp() instanceof OptItem,
+                "op is not item, op=" + exprHandle.getOp());
+        OptItem item = (OptItem) exprHandle.getOp();
         usedColumns = item.getUsedColumns();
-        for (OptExpression input : expression.getInputs()) {
+        for (int i = 0; i < exprHandle.arity(); ++i) {
+            // TODO(zc)
+            /*
             if (!input.getOp().isItem()) {
                 continue;
             }
             OptItemProperty property = (OptItemProperty) input.getProperty();
             // Include input's used columns
             usedColumns.include(property.getUsedColumns());
+            */
         }
     }
 }

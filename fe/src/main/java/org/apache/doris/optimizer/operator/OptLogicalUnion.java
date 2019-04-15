@@ -42,10 +42,10 @@ public class OptLogicalUnion extends OptLogical {
     }
 
     @Override
-    public OptColumnRefSet getOutputColumns(OptExpression expression) {
+    public OptColumnRefSet getOutputColumns(OptExpressionHandle exprHandle) {
         OptColumnRefSet columns = new OptColumnRefSet();
-        for (OptExpression input : expression.getInputs()) {
-            columns.include(input.getLogicalProperty().getOutputColumns());
+        for (int i = 0; i < exprHandle.arity(); ++i) {
+            columns.include(exprHandle.getChildLogicalProperty(i).getOutputColumns());
         }
         return columns;
     }
