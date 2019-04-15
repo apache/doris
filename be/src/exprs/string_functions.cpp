@@ -516,17 +516,17 @@ StringVal StringFunctions::concat_ws(
         return strs[0];
     }
 
-    if (strs[0].is_null) {
+    if (strs[0].is_null && 0 == sep.len) {
         return StringVal::null();
     }
-    int32_t total_size = strs[0].len;
+    int32_t total_size = strs[0].is_null ? 0 : strs[0].len;
 
     // Loop once to compute the final size and reserve space.
     for (int32_t i = 1; i < num_children; ++i) {
-        if (strs[i].is_null) {
+        if (strs[i].is_null && 0 == sep.len) {
             return StringVal::null();
         }
-        total_size += sep.len + strs[i].len;
+        total_size += strs[i].is_null ? 0 : (sep.len + strs[i].len);
     }
 
     // TODO pengyubing
@@ -535,11 +535,18 @@ StringVal StringFunctions::concat_ws(
     uint8_t* ptr = result.ptr;
 
     // Loop again to append the data.
-    memcpy(ptr, strs[0].ptr, strs[0].len);
-    ptr += strs[0].len;
+    if(!strs[0].is_null) {
+        memcpy(ptr, strs[0].ptr, strs[0].len);
+        ptr += strs[0].len;
+    }
     for (int32_t i = 1; i < num_children; ++i) {
-        memcpy(ptr, sep.ptr, sep.len);
-        ptr += sep.len;
+        if(strs[i].is_null) {
+            continue;
+        }
+        if(!(strs[0].is_null && 1 == i)) {
+            memcpy(ptr, sep.ptr, sep.len);
+            ptr += sep.len;
+        }
         memcpy(ptr, strs[i].ptr, strs[i].len);
         ptr += strs[i].len;
     }
