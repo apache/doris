@@ -147,8 +147,12 @@ Status EsHttpScanNode::start_scanners() {
     }
 
     for (int i = 0; i < _scan_ranges.size(); i++) {
+        std::promise<Status> p;
+        std::future<Status> f = p.get_future();
         _scanner_threads.emplace_back(&EsHttpScanNode::scanner_worker, this, i,
-                    _scan_ranges.size());
+                    _scan_ranges.size(), std::ref(p));
+        Status status = f.get();
+        if (!status.ok()) return status;
     }
     return Status::OK;
 }
@@ -378,7 +382,7 @@ static std::string get_host_port(const std::vector<TNetworkAddress>& es_hosts) {
     return host_port;
 }
 
-void EsHttpScanNode::scanner_worker(int start_idx, int length) {
+void EsHttpScanNode::scanner_worker(int start_idx, int length, std::promise<Status>& p_status) {
     // Clone expr context
     std::vector<ExprContext*> scanner_expr_ctxs;
     DCHECK(start_idx < length);
@@ -432,5 +436,7 @@ void EsHttpScanNode::scanner_worker(int start_idx, int length) {
     if (!status.ok()) {
         _queue_writer_cond.notify_all();
     }
+
+    p_status.set_value(status);
 }
 }
