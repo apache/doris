@@ -17,28 +17,28 @@
 
 package org.apache.doris.optimizer.operator;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.apache.doris.analysis.BaseTableRef;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.optimizer.OptExpression;
-import org.apache.doris.optimizer.OptExpressionWapper;
 import org.apache.doris.optimizer.base.OptColumnRef;
 import org.apache.doris.optimizer.base.OptColumnRefSet;
+import org.apache.doris.optimizer.base.RequiredLogicalProperty;
 import org.apache.doris.optimizer.rule.OptRuleType;
-import org.apache.doris.optimizer.stat.DefaultStatistics;
 import org.apache.doris.optimizer.stat.Statistics;
-import org.apache.doris.optimizer.stat.StatisticsContext;
 
 import java.util.BitSet;
 import java.util.List;
+import java.util.Map;
 
 public class OptLogicalScan extends OptLogical {
 
     private List<OptColumnRef> outputs;
+    private Map<Integer, SlotDescriptor> idSlotMap;
     private BaseTableRef table;
-    private int idCounter;
 
     public OptLogicalScan() {
         this(null);
@@ -47,20 +47,18 @@ public class OptLogicalScan extends OptLogical {
     public OptLogicalScan(BaseTableRef table) {
         super(OptOperatorType.OP_LOGICAL_SCAN);
         this.outputs = Lists.newArrayList();
-        this.idCounter = 0;
         this.table = table;
+        this.idSlotMap = Maps.newHashMap();
         createOutputColumns();
     }
 
     private void createOutputColumns() {
         for (SlotDescriptor slot : table.getDesc().getMaterializedSlots()) {
-            final OptColumnRef columnRef = new OptColumnRef(idCounter++, slot.getType(), slot.getColumn().getName());
+            final OptColumnRef columnRef = new OptColumnRef(slot.getId().asInt(), slot.getType(), slot.getColumn().getName());
             outputs.add(columnRef);
+            idSlotMap.put(slot.getId().asInt(), slot);
         }
     }
-
-    @Override
-    public BitSet getCandidateRulesForExplore() { return new BitSet(); }
 
     @Override
     public BitSet getCandidateRulesForImplement() {
@@ -75,12 +73,26 @@ public class OptLogicalScan extends OptLogical {
     }
 
     @Override
-    public Statistics deriveStat(OptExpressionWapper wapper, StatisticsContext context) {
+    public Statistics deriveStat(OptExpressionHandle expressionHandle, RequiredLogicalProperty property) {
         Statistics statistics = null;
         if (table.getTable().getType() == Table.TableType.OLAP) {
-            final OlapTable olapTable = (OlapTable)table.getTable();
-            statistics = new DefaultStatistics(olapTable.getRowCount());
+            statistics = new Statistics();
+            final OlapTable olapTable = (OlapTable) table.getTable();
+            for (int id : property.getColumns().getColumnIds()) {
+                final SlotDescriptor slot = idSlotMap.get(id);
+                Preconditions.checkNotNull(slot);
+                statistics.addRow(id, estimateCardinalityWithRows(olapTable.getRowCount()));
+            }
+            statistics.setRowCount(olapTable.getRowCount());
         }
         return statistics;
+    }
+
+    @Override
+    public OptColumnRefSet requiredStatForChild(
+            OptExpressionHandle expressionHandle,
+            RequiredLogicalProperty property, int childIndex) {
+        Preconditions.checkState(false, "Scan does't have children.");
+        return null;
     }
 }

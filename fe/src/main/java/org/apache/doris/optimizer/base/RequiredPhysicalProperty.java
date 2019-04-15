@@ -17,48 +17,77 @@
 
 package org.apache.doris.optimizer.base;
 
+import com.google.common.base.Preconditions;
 import org.apache.doris.optimizer.OptUtils;
 import org.apache.doris.optimizer.operator.OptExpressionHandle;
 import org.apache.doris.optimizer.operator.OptPhysical;
 
-public class RequiredPhysicalProperty {
-    private OptColumnRefSet reqdColumns;
-    private EnforceOrderProperty reqdOrder;
+public class RequiredPhysicalProperty extends RequiredProperty {
+    private OrderEnforcerProperty orderProperty;
+    private DistributionEnforcerProperty distributionProperty;
 
-    public RequiredPhysicalProperty(
-            OptColumnRefSet reqdColumns,
-            EnforceOrderProperty reqdOrder) {
-        this.reqdColumns = reqdColumns;
-        this.reqdOrder = reqdOrder;
+    public RequiredPhysicalProperty() {
     }
 
-    public OptColumnRefSet getReqdColumns() { return reqdColumns; }
-    public EnforceOrderProperty getReqdOrder() { return reqdOrder; }
+    public static RequiredPhysicalProperty createTestProperty() {
+        final RequiredPhysicalProperty property = new RequiredPhysicalProperty();
+        property.orderProperty = OrderEnforcerProperty.EMPTY;
+        property.distributionProperty = DistributionEnforcerProperty.ANY;
+        return property;
+    }
 
-    // compute given child's required physical property, this can push down required property
-    // such as we can push reqdOrder by through a limit node
-    public void compute(OptExpressionHandle handle,
-                        RequiredPhysicalProperty reqdProp,
-                        int childIndex) {
-        OptPhysical phy = null;
-        reqdOrder = phy.getChildReqdOrder(handle, reqdProp.getReqdOrder(), childIndex);
+    @Override
+    public void compute(OptExpressionHandle exprHandle, RequiredProperty parentProperty, int childIndex) {
+        Preconditions.checkArgument(parentProperty instanceof RequiredPhysicalProperty,
+                "parentProperty can only be physical property.");
+        final RequiredPhysicalProperty parentPhysicalProperty =
+                (RequiredPhysicalProperty) parentProperty;
+        final OptPhysical physical = (OptPhysical) exprHandle.getOp();
+        columns = physical.getChildReqdColumns(exprHandle, parentPhysicalProperty, childIndex);
+        orderProperty = physical.getChildReqdOrder(exprHandle,
+                parentPhysicalProperty.getOrderProperty(),
+                        childIndex);
+        distributionProperty = physical.getChildReqdDistribution(
+                        exprHandle,
+                parentPhysicalProperty.getDistributionProperty(),
+                        childIndex);
+    }
+
+    public OrderEnforcerProperty getOrderProperty() { return orderProperty; }
+    public DistributionEnforcerProperty getDistributionProperty() { return distributionProperty; }
+
+    public EnforcerProperty.EnforceType getEnforcerOrderType(
+            OptPhysical operator, OptExpressionHandle exprHandle) {
+        Preconditions.checkNotNull(orderProperty);
+        return operator.getOrderEnforceType(exprHandle, orderProperty);
+    }
+
+    public EnforcerProperty.EnforceType getEnforcerDistributionType(
+            OptPhysical operator, OptExpressionHandle exprHandle) {
+        Preconditions.checkNotNull(distributionProperty);
+        return operator.getDistributionEnforcerType(exprHandle, distributionProperty);
     }
 
     @Override
     public int hashCode() {
-        int code = reqdColumns.hashCode();
-        return OptUtils.combineHash(code, reqdOrder.hashCode());
+        int code = columns.hashCode();
+        code = OptUtils.combineHash(code, orderProperty.hashCode());
+        return OptUtils.combineHash(code, distributionProperty.hashCode());
     }
 
     @Override
     public boolean equals(Object obj) {
-        if (!(obj instanceof RequiredPhysicalProperty)) {
+        if (obj == null || !(obj instanceof RequiredPhysicalProperty)) {
             return false;
         }
+
         if (this == obj) {
-            return false;
+            return true;
         }
-        RequiredPhysicalProperty rhs = (RequiredPhysicalProperty) obj;
-        return reqdColumns.equals(rhs.reqdColumns) && reqdOrder.equals(rhs.reqdOrder);
+
+        final RequiredPhysicalProperty rhs = (RequiredPhysicalProperty) obj;
+        return columns.equals(rhs.columns)
+                && orderProperty.equals(rhs.orderProperty)
+                && distributionProperty.equals(rhs.distributionProperty);
     }
 }

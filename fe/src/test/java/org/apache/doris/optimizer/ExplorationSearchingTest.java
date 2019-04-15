@@ -18,6 +18,8 @@
 package org.apache.doris.optimizer;
 
 import com.google.common.collect.Lists;
+import org.apache.doris.optimizer.base.QueryContext;
+import org.apache.doris.optimizer.base.RequiredPhysicalProperty;
 import org.apache.doris.optimizer.base.SearchVariable;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -37,7 +39,9 @@ public class ExplorationSearchingTest {
         LOG.info("init expr=\n{}", topJoin.getExplainString());
         final SearchVariable variable = new SearchVariable();
         variable.setExecuteOptimization(false);
-        final Optimizer optimizer = new Optimizer(topJoin, variable);
+        final QueryContext queryContext = new QueryContext(topJoin,
+                RequiredPhysicalProperty.createTestProperty(), null, variable);
+        final Optimizer optimizer = new Optimizer(queryContext);
         optimizer.addRule(OptUTInternalCommutativityRule.INSTANCE);
         optimizer.addRule(OptUTInternalAssociativityRule.INSTANCE);
         optimizer.optimize();
@@ -66,7 +70,9 @@ public class ExplorationSearchingTest {
 
         final SearchVariable variable = new SearchVariable();
         variable.setExecuteOptimization(false);
-        final Optimizer optimizer = new Optimizer(topJoin, variable);
+        final QueryContext queryContext = new QueryContext(topJoin,
+                RequiredPhysicalProperty.createTestProperty(), null, variable);
+        final Optimizer optimizer = new Optimizer(queryContext);
         optimizer.addRule(OptUTInternalCommutativityRule.INSTANCE);
         optimizer.addRule(OptUTInternalAssociativityRule.INSTANCE);
         optimizer.optimize();
@@ -101,7 +107,8 @@ public class ExplorationSearchingTest {
 
         final SearchVariable variable = new SearchVariable();
         variable.setExecuteOptimization(false);
-        final Optimizer optimizer = new Optimizer(topJoin, variable);
+        final QueryContext queryContext = new QueryContext(topJoin, null, null, variable);
+        final Optimizer optimizer = new Optimizer(queryContext);
         optimizer.addRule(OptUTInternalCommutativityRule.INSTANCE);
         optimizer.addRule(OptUTInternalAssociativityRule.INSTANCE);
         optimizer.optimize();
@@ -132,7 +139,8 @@ public class ExplorationSearchingTest {
 
         final SearchVariable variable = new SearchVariable();
         variable.setExecuteOptimization(false);
-        final Optimizer optimizer = new Optimizer(topJoin, variable);
+        final QueryContext queryContext = new QueryContext(topJoin, null, null, variable);
+        final Optimizer optimizer = new Optimizer(queryContext);
         optimizer.addRule(OptUTInternalCommutativityRule.INSTANCE);
         optimizer.addRule(OptUTInternalAssociativityRule.INSTANCE);
         optimizer.optimize();
@@ -175,7 +183,8 @@ public class ExplorationSearchingTest {
 
         final SearchVariable variable = new SearchVariable();
         variable.setExecuteOptimization(false);
-        final Optimizer optimizer = new Optimizer(topJoin, variable);
+        final QueryContext queryContext = new QueryContext(topJoin, null, null, variable);
+        final Optimizer optimizer = new Optimizer(queryContext);
         optimizer.addRule(OptUTInternalCommutativityRule.INSTANCE);
         optimizer.addRule(OptUTInternalAssociativityRule.INSTANCE);
         optimizer.optimize();
@@ -221,7 +230,8 @@ public class ExplorationSearchingTest {
 
         final SearchVariable variable = new SearchVariable();
         variable.setExecuteOptimization(false);
-        final Optimizer optimizer = new Optimizer(topJoin, variable);
+        final QueryContext queryContext = new QueryContext(topJoin, null, null, variable);
+        final Optimizer optimizer = new Optimizer(queryContext);
         optimizer.addRule(OptUTInternalCommutativityRule.INSTANCE);
         optimizer.addRule(OptUTInternalAssociativityRule.INSTANCE);
         optimizer.optimize();
@@ -244,7 +254,7 @@ public class ExplorationSearchingTest {
                 unoptimizedGroups.add(group);
             }
             for (MultiExpression mExpr : group.getMultiExpressions()) {
-                if (!mExpr.isImplemented()) {
+                if (!mExpr.isOptimized()) {
                     unimplementedMExprs.add(mExpr);
                 }
             }
@@ -260,7 +270,7 @@ public class ExplorationSearchingTest {
         }
         LOG.info(unoptimizedGroupsLog);
 
-        final StringBuilder unimplementedMExprLog = new StringBuilder("Unimplemented MultiExpression ids:");
+        final StringBuilder unimplementedMExprLog = new StringBuilder("Unoptimized MultiExpression ids:");
         for (MultiExpression mExpr : unimplementedMExprs) {
             unimplementedMExprLog.append(mExpr.getOp()).append(" ").append(mExpr.getId()).append(", ");
         }

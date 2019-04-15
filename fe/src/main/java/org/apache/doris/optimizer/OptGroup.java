@@ -20,15 +20,17 @@ package org.apache.doris.optimizer;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.apache.doris.optimizer.base.OptProperty;
-import org.apache.doris.optimizer.base.OptimizationContext;
-import org.apache.doris.optimizer.base.RequiredPhysicalProperty;
+import com.google.common.collect.Sets;
+import org.apache.doris.optimizer.base.*;
+import org.apache.doris.optimizer.operator.OptExpressionHandle;
 import org.apache.doris.optimizer.stat.Statistics;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 // A Group contains all logical equivalent logical MultiExpressions
 // and physical MultiExpressions
@@ -44,12 +46,14 @@ public class OptGroup {
     private OptProperty property;
     private Statistics statistics;
     private OptExpression itemExpression;
+    private boolean isItemGroup;
 
     public OptGroup(int id, OptProperty property) {
         this.id = id;
         this.status = GState.Unimplemented;
         this.property = property;
         this.optContextMap = Maps.newHashMap();
+        this.isItemGroup = false;
     }
 
     // Add a new MultiExpression which haven't been added to other group.
@@ -112,6 +116,7 @@ public class OptGroup {
     public void setStatus(GState status) { this.status = status; }
     public GState getStatus() { return status; }
     public OptProperty getProperty() { return property; }
+    public void setProperty(OptProperty property) { this.property = property; }
     public Statistics getStatistics() { return statistics; }
     public void setStatistics(Statistics statistics) { this.statistics = statistics; }
     public OptExpression getItemExpression() { return itemExpression; }
@@ -135,13 +140,49 @@ public class OptGroup {
     }
 
     public void removeMExpr(MultiExpression removeMExpr) {
-        for (MultiExpression mExpr : mExprs) {
-            if (mExpr.next() == removeMExpr) {
-                mExpr.setNext(removeMExpr.next());
+        final Set<MultiExpression> allRemovedMExpr = Sets.newHashSet();
+        allRemovedMExpr.add(removeMExpr);
+        // The physical MultiExpression from the removeMExpr
+        for (MultiExpression mExpr : removeMExpr.getImplementedMExprs()) {
+            allRemovedMExpr.add(mExpr);
+        }
+
+        final Iterator<MultiExpression> iterator = mExprs.iterator();
+        MultiExpression lastMExpr = null;
+        while (iterator.hasNext()) {
+            final MultiExpression mExpr = iterator.next();
+            if (allRemovedMExpr.remove(mExpr)) {
+                iterator.remove();
+                mExpr.setInvalid();
+                if (lastMExpr != null) {
+                    lastMExpr.setNext(mExpr.next());
+                }
+            }
+            if (lastMExpr == null || lastMExpr.next() == mExpr) {
+                lastMExpr = mExpr;
             }
         }
-        mExprs.remove(removeMExpr);
-        removeMExpr.setInvalid();
+    }
+
+    public void deriveStat(RequiredLogicalProperty reqLogicalProperty) {
+        if (isItemGroup) {
+            return;
+        }
+
+        if (statistics != null && reqLogicalProperty != null) {
+            if (statistics.getStatColumns().contains(reqLogicalProperty.getColumns())) {
+                return;
+            }
+        }
+
+        final MultiExpression bestMExpr = getBestPromiseMExpr();
+        final OptExpressionHandle exprHandle = new OptExpressionHandle(bestMExpr);
+        exprHandle.deriveStat(reqLogicalProperty);
+        statistics = exprHandle.getStatistics();
+    }
+
+    private MultiExpression getBestPromiseMExpr() {
+        return mExprs.get(0);
     }
 
     public enum GState {
@@ -150,6 +191,19 @@ public class OptGroup {
         Implemented,
         Optimizing,
         Optimized
+    }
+
+    public void updateBestCost(OptimizationContext optContext, OptCostContext costContext) {
+        final OptimizationContext existOptContext = optContextMap.get(optContext);
+        if (existOptContext != null) {
+            final OptCostContext existCostContext = existOptContext.getBestCostCtx();
+            if (costContext.isBetterThan(existCostContext)) {
+                existOptContext.setBestCostCtx(costContext);
+            }
+        } else {
+            optContext.setBestCostCtx(costContext);
+            optContextMap.put(optContext, optContext);
+        }
     }
 
     public OptimizationContext lookupBest(RequiredPhysicalProperty property) {

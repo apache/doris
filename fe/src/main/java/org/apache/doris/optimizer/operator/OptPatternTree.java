@@ -15,21 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.optimizer;
+package org.apache.doris.optimizer.operator;
 
-/**
- * For deriving property or statistics when object derived is
- * MultiExpression and handling OptExpression.
- */
-public class OptExpressionWapper {
+public class OptPatternTree extends OptPattern {
 
-    private final OptExpression expression;
-
-    public OptExpressionWapper(OptExpression expression) {
-        this.expression = expression;
+    public OptPatternTree() {
+        super(OptOperatorType.OP_PATTERN_TREE);
     }
 
-    public OptExpression getExpression() {
-        return expression;
-    }
+    @Override
+    public boolean isPatternAndTree() { return true; }
 }

@@ -36,6 +36,8 @@ public enum OptOperatorType {
     OP_PHYSICAL_HASH_JOIN("PhysicalHashJoin"),
     OP_PHYSICAL_HASH_AGG("PhysicalHashAgg"),
     OP_PHYSICAL_SORT("PhysicalSort"),
+    OP_PHYSICAL_UNION("PhysicalUnion"),
+    OP_PHYSICAL_DISTRIBUTION("PhysicalDistribution"),
 
     OP_ITEM_AGG_FUNC("ItemAggregateFunction"),
     OP_ITEM_ARITHMETIC("ItemArithmetic"),
@@ -57,6 +59,9 @@ public enum OptOperatorType {
     OP_ITEM_SUBQUERY_NOT_EXISTS("ItemSubqueryNotExists"),
 
     OP_PATTERN_LEAF("PatternLeaf"),
+    OP_PATTERN_TREE("PatternTree"),
+    OP_PATTERN_MULTI_LEAF("PatternMultiLeaf"),
+    OP_PATTERN_MULTI_TREE("PatternMultiTree"),
 
     // The following is only used in unit test
     OP_LOGICAL_UNIT_TEST_INTERNAL("LogicalUnitTestInternalNode"),

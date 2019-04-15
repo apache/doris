@@ -22,12 +22,17 @@ public enum OptRuleType {
     RULE_NONE(0, "none"),
     RULE_IMP_OLAP_LSCAN_TO_PSCAN(1, "OlapLogicalScanToPhysicalScan"),
     RULE_IMP_EQ_JOIN_TO_HASH_JOIN(2, "EqualJoinToHashJoin"),
-    RULE_EXP_JOIN_COMMUTATIVITY(3, "JoinCommutativity"),
-    RULE_EXP_JOIN_ASSOCIATIVITY(4, "JoinAssociativity"),
-    RULE_EXP_UT_COMMUTATIVITY(5, "UtCommutatitivity"),
-    RULE_EXP_UT_ASSOCIATIVITY(6, "UtAssocivity"),
-    RULE_IMP_UT_INTERNAL(7, "UtInternal"),
-    RULE_IMP_UT_LEAF(8, "UtLeaf");
+    RULE_IMP_AGG_TO_HASH_AGG(3,"AggToHashAgg"),
+    RULE_IMP_DUPLICATE_AGG_TO_HASH_AGG(4, "DuplicateAggToHashAgg"),
+    RULE_IMP_UNION(4,"UnionToUnion"),
+
+    RULE_EXP_JOIN_COMMUTATIVITY(5, "JoinCommutativity"),
+    RULE_EXP_JOIN_ASSOCIATIVITY(6, "JoinAssociativity"),
+
+    RULE_EXP_UT_COMMUTATIVITY(7, "UtCommutatitivity"),
+    RULE_EXP_UT_ASSOCIATIVITY(8, "UtAssocivity"),
+    RULE_IMP_UT_INTERNAL(9, "UtInternal"),
+    RULE_IMP_UT_LEAF(10, "UtLeaf");
 
     private int code;
     private String name;

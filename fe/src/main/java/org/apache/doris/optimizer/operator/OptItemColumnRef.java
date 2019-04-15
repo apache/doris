@@ -32,6 +32,8 @@ public class OptItemColumnRef extends OptItem {
     }
     public OptColumnRef getRef() { return ref; }
 
+    public OptColumnRef getColumnRef() { return ref; }
+
     @Override
     public Type getReturnType() {
         return ref.getType();

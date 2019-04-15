@@ -42,19 +42,6 @@ public class OptOrderSpec implements OptPropertySpec {
     public List<OptOrderItem> getOrderItems() { return orderItems; }
     public boolean isEmpty() { return orderItems.isEmpty(); }
 
-    // check if this order specification satisfies given one
-    public boolean contains(OptOrderSpec rhs) {
-        if (orderItems.size() < rhs.orderItems.size()) {
-            return false;
-        }
-        for (int i = 0; i < rhs.orderItems.size(); ++i) {
-            if (!orderItems.get(i).matches(rhs.orderItems.get(i))) {
-                return false;
-            }
-        }
-        return true;
-    }
-
     public OptColumnRefSet getUsedColumns() {
         OptColumnRefSet set = new OptColumnRefSet();
         for (OptOrderItem item : orderItems) {
@@ -71,6 +58,20 @@ public class OptOrderSpec implements OptPropertySpec {
             List<OptExpression> expressions) {
         OptExpression expr = OptExpression.create(new OptPhysicalSort(this), child);
         expressions.add(expr);
+    }
+
+    @Override
+    public boolean isSatisfy(OptPropertySpec spec) {
+        final OptOrderSpec rhs = (OptOrderSpec)spec;
+        if (orderItems.size() < rhs.orderItems.size()) {
+            return false;
+        }
+        for (int i = 0; i < rhs.orderItems.size(); ++i) {
+            if (!orderItems.get(i).matches(rhs.orderItems.get(i))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     @Override

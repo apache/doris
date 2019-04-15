@@ -23,14 +23,24 @@ import org.apache.doris.optimizer.operator.OptExpressionHandle;
 import java.util.List;
 
 public interface OptPropertySpec {
-    // This function will add enforced Expression to 'expressions'.
-    // 'reqdProp' contains property need to be enforced
-    // 'child' is the expression that enforce will add on
-    // 'exprHandle' contains information for
+
+    /**
+     * This function will add enforced Expression to 'expressions'.
+     * @param reqdProp contains property need to be enforced
+     * @param child is the expression that enforce will add on
+     * @param exprHandle contains information for
+     * @param expressions
+     */
     void appendEnforcers(
             RequiredPhysicalProperty reqdProp,
             OptExpression child,
             OptExpressionHandle exprHandle,
             List<OptExpression> expressions);
 
+    /**
+     * Whether this object is satisfied with spec.
+     * @param spec
+     * @return
+     */
+    boolean isSatisfy(OptPropertySpec spec);
 }

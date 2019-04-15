@@ -17,9 +17,9 @@
 
 package org.apache.doris.optimizer.operator;
 
-import org.apache.doris.optimizer.OptExpressionWapper;
+import org.apache.doris.optimizer.base.OptColumnRefSet;
+import org.apache.doris.optimizer.base.RequiredLogicalProperty;
 import org.apache.doris.optimizer.stat.Statistics;
-import org.apache.doris.optimizer.stat.StatisticsContext;
 
 import java.util.BitSet;
 
@@ -39,7 +39,14 @@ public class OptLogicalSelect extends OptLogical {
     }
 
     @Override
-    public Statistics deriveStat(OptExpressionWapper wapper, StatisticsContext context) {
+    public Statistics deriveStat(
+            OptExpressionHandle expressionHandle, RequiredLogicalProperty property) {
+        return null;
+    }
+
+    @Override
+    public OptColumnRefSet requiredStatForChild(
+            OptExpressionHandle expressionHandle, RequiredLogicalProperty property, int childIndex) {
         return null;
     }
 }

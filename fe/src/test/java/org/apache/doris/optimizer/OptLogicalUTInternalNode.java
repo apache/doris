@@ -17,12 +17,13 @@
 
 package org.apache.doris.optimizer;
 
-import org.apache.doris.optimizer.OptExpressionWapper;
+import org.apache.doris.optimizer.base.OptColumnRefSet;
+import org.apache.doris.optimizer.base.RequiredLogicalProperty;
+import org.apache.doris.optimizer.operator.OptExpressionHandle;
 import org.apache.doris.optimizer.operator.OptLogical;
 import org.apache.doris.optimizer.operator.OptOperatorType;
 import org.apache.doris.optimizer.rule.OptRuleType;
 import org.apache.doris.optimizer.stat.Statistics;
-import org.apache.doris.optimizer.stat.StatisticsContext;
 
 import java.util.BitSet;
 
@@ -60,7 +61,19 @@ public class OptLogicalUTInternalNode extends OptLogical {
     }
 
     @Override
-    public Statistics deriveStat(OptExpressionWapper wapper, StatisticsContext context) {
-        return null;
+    public OptColumnRefSet getOutputColumns(OptExpressionHandle exprHandle) {
+        return new OptColumnRefSet();
     }
+
+    @Override
+    public Statistics deriveStat(OptExpressionHandle expressionHandle, RequiredLogicalProperty property) {
+        return new Statistics();
+    }
+
+    @Override
+    public OptColumnRefSet requiredStatForChild(
+            OptExpressionHandle expressionHandle, RequiredLogicalProperty property, int childIndex) {
+        return new OptColumnRefSet();
+    }
+
 }

@@ -18,7 +18,6 @@
 package org.apache.doris.optimizer;
 
 import com.google.common.collect.Lists;
-import com.sun.javafx.binding.ExpressionHelper;
 import org.apache.doris.optimizer.base.OptCost;
 import org.apache.doris.optimizer.base.OptItemProperty;
 import org.apache.doris.optimizer.base.OptLogicalProperty;
@@ -66,11 +65,11 @@ public class OptExpression {
     }
 
     private OptExpression(OptOperator op, OptExpression... inputs) {
-        this.op = op;
+        this.op =  op;
         this.inputs = Lists.newArrayList(inputs);
     }
 
-    public OptExpression(OptOperator op, List<OptExpression> inputs,
+    private OptExpression(OptOperator op, List<OptExpression> inputs,
                           MultiExpression mExpr,
                           OptCost cost, Statistics stats) {
         this.op = op;
@@ -103,6 +102,12 @@ public class OptExpression {
         return new OptExpression(op, inputs);
     }
 
+    public static OptExpression create(OptOperator op, List<OptExpression> inputs,
+                                       MultiExpression mExpr,
+                                       OptCost cost, Statistics stats) {
+        return new OptExpression(op, inputs, mExpr, cost, stats);
+    }
+
     public static OptExpression createBindingLeafExpression(MultiExpression source) {
         return new OptExpression(source);
     }
@@ -119,10 +124,12 @@ public class OptExpression {
     public MultiExpression getMExpr() { return mExpr; }
     public OptProperty getProperty() { return property; }
     public OptLogicalProperty getLogicalProperty() { return (OptLogicalProperty) property; }
+    public void setProperty(OptProperty property) { this.property = property; };
     public OptItemProperty getItemProperty() { return (OptItemProperty) property; }
     public OptPhysicalProperty getPhysicalProperty() { return (OptPhysicalProperty) property; }
     public Statistics getStatistics() { return statistics; }
     public void setStatistics(Statistics statistics) { this.statistics = statistics; }
+
 
     // It's only used when this object is part of pattern. this function check if
     // MultiExpression can match this Expression
@@ -138,10 +145,6 @@ public class OptExpression {
             return false;
         }
         return arity() == mExpr.arity();
-    }
-
-    public void deriveStatistics() {
-
     }
 
     public String debugString() { return getExplainString("", ""); }
@@ -163,15 +166,13 @@ public class OptExpression {
 
     // This function will drive inputs' property first, then derive itself's
     // property
-    public void deriveProperty() {
+    public OptProperty deriveProperty() {
         if (property != null) {
-            return;
+            return property;
         }
-        for (OptExpression input : inputs) {
-            input.deriveProperty();
-        }
-        property = op.createProperty();
-        OptExpressionHandle handle = new OptExpressionHandle(this);
-        property.derive(handle);
+
+        final OptExpressionHandle exprHandle = new OptExpressionHandle(this);
+        exprHandle.deriveProperty();
+        return property;
     }
 }

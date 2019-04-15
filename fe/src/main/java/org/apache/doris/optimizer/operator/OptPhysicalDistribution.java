@@ -17,32 +17,34 @@
 
 package org.apache.doris.optimizer.operator;
 
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 import org.apache.doris.optimizer.base.*;
 
-public class OptPhysicalSort extends OptPhysical {
+public class OptPhysicalDistribution extends OptPhysical {
 
-    public OptPhysicalSort(OptOrderSpec spec) {
-        super(OptOperatorType.OP_PHYSICAL_SORT, spec);
+    public OptPhysicalDistribution(OptDistributionSpec spec) {
+        super(OptOperatorType.OP_PHYSICAL_DISTRIBUTION, spec);
+        this.columnsRequiredForChildrenCache = Lists.newArrayList();
     }
 
     @Override
     public OrderEnforcerProperty getChildReqdOrder(OptExpressionHandle handle,
                                                    OrderEnforcerProperty reqdOrder, int childIndex) {
-        return OrderEnforcerProperty.EMPTY;
+        // Distribution does't impact the children's order.
+        return reqdOrder;
     }
 
     @Override
     public DistributionEnforcerProperty getChildReqdDistribution(
             OptExpressionHandle handle, DistributionEnforcerProperty reqdDistribution, int childIndex) {
-        return reqdDistribution;
+        return DistributionEnforcerProperty.ANY;
     }
 
     @Override
-    public EnforcerProperty.EnforceType getOrderEnforceType(
-            OptExpressionHandle exprHandle,
-            OrderEnforcerProperty orderProperty) {
-        if (orderProperty.isSatisfy(orderSpec)) {
-            // required order is already established by sort operator
+    public EnforcerProperty.EnforceType getDistributionEnforcerType(
+            OptExpressionHandle exprHandle, DistributionEnforcerProperty property) {
+        if (distributionSpec.isSatisfy(property.getPropertySpec())) {
             return EnforcerProperty.EnforceType.UNNECESSARY;
         }
         return EnforcerProperty.EnforceType.PROHIBITED;
@@ -50,14 +52,16 @@ public class OptPhysicalSort extends OptPhysical {
 
     @Override
     protected OptColumnRefSet deriveChildReqdColumns(OptExpressionHandle exprHandle,
-                                                     RequiredPhysicalProperty property, int childIndex) {
+                                                  RequiredPhysicalProperty property, int childIndex) {
+        Preconditions.checkArgument(exprHandle.getChildPropertySize() == 1 && childIndex == 0,
+                " Distribution can only have one child.");
         final OptColumnRefSet columns = new OptColumnRefSet();
         columns.include(property.getColumns());
-        for (OptOrderItem item : orderSpec.getOrderItems()) {
-            columns.intersects(item.getColumnRef());
-        }
+        final OptHashDistributionItem item = distributionSpec.getHashItem();
+        columns.include(item.getColumns());
         final OptLogicalProperty logicalProperty = exprHandle.getChildLogicalProperty(childIndex);
         columns.intersects(logicalProperty.getOutputColumns());
         return columns;
     }
+
 }

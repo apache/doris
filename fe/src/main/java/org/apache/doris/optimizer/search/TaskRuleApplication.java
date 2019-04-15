@@ -21,9 +21,7 @@ import com.google.common.collect.Lists;
 import org.apache.doris.optimizer.MultiExpression;
 import org.apache.doris.optimizer.OptBinding;
 import org.apache.doris.optimizer.OptExpression;
-import org.apache.doris.optimizer.OptGroup;
 import org.apache.doris.optimizer.rule.OptRule;
-import org.apache.doris.optimizer.rule.OptRuleType;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -85,7 +83,11 @@ public class TaskRuleApplication extends Task {
 
             // Insert into memo
             for (OptExpression expr : newExprs) {
-                sContext.getMemo().copyIn(mExpr.getGroup(), expr, rule.getType(), mExpr.getId());
+                final MultiExpression newMExpr =
+                        sContext.getMemo().copyIn(mExpr.getGroup(), expr, rule.getType(), mExpr.getId());
+                if (rule.isImplementation()) {
+                    mExpr.addImplementedMExpr(newMExpr);
+                }
             }
             setFinished();
         }

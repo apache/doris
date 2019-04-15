@@ -17,9 +17,11 @@
 
 package org.apache.doris.optimizer.operator;
 
-import org.apache.doris.optimizer.base.EnforceOrderProperty;
-import org.apache.doris.optimizer.base.EnforceProperty;
-import org.apache.doris.optimizer.base.OptOrderSpec;
+import com.google.common.base.Preconditions;
+import org.apache.doris.optimizer.OptExpression;
+import org.apache.doris.optimizer.base.*;
+
+import java.util.List;
 
 public class OptPhysicalHashJoin extends OptPhysical {
 
@@ -27,31 +29,44 @@ public class OptPhysicalHashJoin extends OptPhysical {
         super(OptOperatorType.OP_PHYSICAL_HASH_JOIN);
     }
 
-    //------------------------------------------------------------------------
-    // Used to compute required property for children
-    //------------------------------------------------------------------------
     @Override
-    public EnforceOrderProperty getChildReqdOrder(OptExpressionHandle handle,
-                                                  EnforceOrderProperty reqdOrder,
-                                                  int childIndex) {
-        // For outer or inner table, we don't require order property
-        return EnforceOrderProperty.createEmpty();
+    public OrderEnforcerProperty getChildReqdOrder(
+            OptExpressionHandle handle, OrderEnforcerProperty reqdOrder, int childIndex) {
+        if (childIndex == 0) {
+            return reqdOrder;
+        }
+        return OrderEnforcerProperty.EMPTY;
     }
 
-    //------------------------------------------------------------------------
-    // Used to get operator's derived property
-    //------------------------------------------------------------------------
     @Override
-    public OptOrderSpec getOrderSpec(OptExpressionHandle exprHandle) {
-        return OptOrderSpec.createEmpty();
+    public DistributionEnforcerProperty getChildReqdDistribution(
+            OptExpressionHandle exprHandle, DistributionEnforcerProperty reqdDistribution, int childIndex) {
+        // TODO ch, cache it.
+        final OptLogicalProperty childProperty = exprHandle.getChildLogicalProperty(childIndex);
+        final OptColumnRefSet columns = new OptColumnRefSet();
+        columns.intersects(childProperty.getOutputColumns());
+        Preconditions.checkArgument(columns.cardinality() > 0);
+
+        final OptHashDistributionItem item = new OptHashDistributionItem(columns);
+        return new DistributionEnforcerProperty(OptDistributionSpec.createHashDistributionSpec(item));
     }
 
-    //------------------------------------------------------------------------
-    // Used to get enforce type for this operator
-    //------------------------------------------------------------------------
     @Override
-    public EnforceProperty.EnforceType getOrderEnforceType(
-            OptExpressionHandle exprHandle, EnforceOrderProperty enforceOrder) {
-        return EnforceProperty.EnforceType.REQUIRED;
+    protected OptColumnRefSet deriveChildReqdColumns(
+            OptExpressionHandle exprHandle, RequiredPhysicalProperty property, int childIndex) {
+        final OptColumnRefSet columns = new OptColumnRefSet();
+        columns.include(property.getColumns());
+
+        // Join's predicates
+        for (int conjunctIndex = 2; exprHandle.getChildItemProperty(conjunctIndex) != null; conjunctIndex++) {
+            final OptItemProperty itemProperty = exprHandle.getChildItemProperty(conjunctIndex);
+            columns.include(itemProperty.getUsedColumns());
+        }
+
+        // Join's outer or inner child.
+        final OptLogicalProperty childProperty = exprHandle.getChildLogicalProperty(childIndex);
+        columns.intersects(childProperty.getOutputColumns());
+
+        return columns;
     }
 }

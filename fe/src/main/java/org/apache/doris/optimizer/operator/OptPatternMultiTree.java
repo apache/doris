@@ -15,18 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.optimizer.stat;
+package org.apache.doris.optimizer.operator;
 
-public class DefaultStatistics implements Statistics {
+public class OptPatternMultiTree extends OptPattern {
 
-    private final long rowCount;
-
-    public DefaultStatistics(long rowCount) {
-        this.rowCount = rowCount;
+    public OptPatternMultiTree() {
+        super(OptOperatorType.OP_PATTERN_MULTI_TREE);
     }
 
-    @Override
-    public long getRowCount() {
-        return rowCount;
-    }
+    public boolean isPatternAndMultiTree() { return true; }
 }

@@ -17,43 +17,38 @@
 
 package org.apache.doris.optimizer.base;
 
-public class EnforceOrderProperty extends EnforceProperty {
-    private OptOrderSpec spec;
+import com.google.common.base.Preconditions;
+import org.apache.doris.optimizer.operator.OptExpressionHandle;
+import org.apache.doris.optimizer.operator.OptLogical;
 
-    public EnforceOrderProperty(OptOrderSpec spec) {
-    }
+public class RequiredLogicalProperty extends RequiredProperty {
 
-    public static EnforceOrderProperty createEmpty() {
-        return new EnforceOrderProperty(OptOrderSpec.createEmpty());
+    public RequiredLogicalProperty() {
     }
 
     @Override
-    public OptOrderSpec getPropertySpec() { return spec; }
-
-    // check if this property contains the given one
-    public boolean contains(OptOrderSpec otherSpec) {
-        return spec.contains(otherSpec);
-    }
-
-    // check if this property is a subset of the given OrderSpec
-    public boolean isSubset(OptOrderSpec optOrderSpec) {
-        return optOrderSpec.contains(spec);
+    public void compute(OptExpressionHandle exprHandle, RequiredProperty parent, int childIndex) {
+        Preconditions.checkArgument(parent instanceof RequiredLogicalProperty,
+                "parent can only be logical property.");
+        final OptLogical logical = (OptLogical) exprHandle.getOp();
+        columns = logical.requiredStatForChild(exprHandle, (RequiredLogicalProperty)parent, childIndex);
     }
 
     @Override
     public int hashCode() {
-        return spec.hashCode();
+        return columns.hashCode();
     }
 
     @Override
     public boolean equals(Object obj) {
-        if (!(obj instanceof EnforceOrderProperty)) {
+        if (obj == null || !(obj instanceof RequiredLogicalProperty)) {
             return false;
         }
-        if (this == obj) {
+
+        if (obj == this) {
             return true;
         }
-        EnforceOrderProperty rhs = (EnforceOrderProperty) obj;
-        return spec.equals(rhs.spec);
+        final RequiredLogicalProperty other = (RequiredLogicalProperty) obj;
+        return columns.equals(other.columns);
     }
 }

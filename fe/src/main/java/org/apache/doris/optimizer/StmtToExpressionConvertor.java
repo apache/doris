@@ -38,23 +38,11 @@ import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.UnionStmt;
+import org.apache.doris.optimizer.base.ItemUtils;
 import org.apache.doris.optimizer.base.OptColumnRef;
 import org.apache.doris.optimizer.base.OptColumnRefFactory;
-import org.apache.doris.optimizer.operator.OptItemArithmetic;
-import org.apache.doris.optimizer.operator.OptItemCase;
-import org.apache.doris.optimizer.operator.OptItemCast;
-import org.apache.doris.optimizer.operator.OptItemColumnRef;
-import org.apache.doris.optimizer.operator.OptItemCompoundPredicate;
-import org.apache.doris.optimizer.operator.OptItemConst;
-import org.apache.doris.optimizer.operator.OptItemFunctionCall;
-import org.apache.doris.optimizer.operator.OptItemInPredicate;
-import org.apache.doris.optimizer.operator.OptItemIsNullPredicate;
-import org.apache.doris.optimizer.operator.OptItemLikePredicate;
-import org.apache.doris.optimizer.operator.OptLogicalAggregate;
-import org.apache.doris.optimizer.operator.OptLogicalScan;
-import org.apache.doris.optimizer.operator.OptLogicalUnion;
-import org.apache.doris.optimizer.operator.OptLogicalJoin;
-import org.apache.doris.optimizer.operator.OptItemBinaryPredicate;
+import org.apache.doris.optimizer.base.OptColumnRefSet;
+import org.apache.doris.optimizer.operator.*;
 
 import java.util.List;
 import java.util.Map;
@@ -76,13 +64,17 @@ public class StmtToExpressionConvertor {
     }
 
     public OptExpression convertUnion(UnionStmt stmt) {
-        OptLogicalUnion unionOp = new OptLogicalUnion();
         List<OptExpression> inputs = Lists.newArrayList();
         for (UnionStmt.UnionOperand operand : stmt.getOperands()) {
             OptExpression input = convertQuery(operand.getQueryStmt());
             inputs.add(input);
         }
-        return OptExpression.create(unionOp, inputs);
+        final OptColumnRefSet groupBy = new OptColumnRefSet();
+        for (Expr expr : stmt.getDistinctAggInfo().getGroupingExprs()) {
+            ItemUtils.collectSlotId(expr, groupBy, true);
+        }
+        final OptLogicalUnion op = new OptLogicalUnion(groupBy, !stmt.hasDistinctOps());
+        return OptExpression.create(op, inputs);
     }
 
     public OptExpression convertSelect(SelectStmt stmt) {
@@ -91,7 +83,7 @@ public class StmtToExpressionConvertor {
         for (TableRef tableRef : stmt.getTableRefs()) {
             OptExpression rhsExpression = convertTableRef(tableRef);
             if (root != null) {
-                root = convertJoin(root, rhsExpression);
+                root = convertJoin(root, rhsExpression, tableRef);
             } else {
                 root = rhsExpression;
             }
@@ -104,12 +96,33 @@ public class StmtToExpressionConvertor {
     }
 
     public OptExpression convertAggregation(OptExpression root, AggregateInfo aggInfo) {
-        OptLogicalAggregate aggregate = new OptLogicalAggregate();
-        return OptExpression.create(aggregate, root);
+        // TODO chenhao, replace it with Projection .
+        final List<OptExpression> aggregateInputs = Lists.newArrayList();
+        aggregateInputs.add(root);
+        for (FunctionCallExpr expr : aggInfo.getAggregateExprs()) {
+            aggregateInputs.add(convertExpr(expr));
+        }
+        final OptColumnRefSet aggregateGroupBy = new OptColumnRefSet();
+        for (Expr expr : aggInfo.getGroupingExprs()) {
+            ItemUtils.collectSlotId(expr, aggregateGroupBy, true);
+        }
+        final OptLogicalAggregate aggregate = new OptLogicalAggregate(aggregateGroupBy, aggInfo);
+        return OptExpression.create(aggregate, aggregateInputs);
     }
 
-    public OptExpression convertJoin(OptExpression outerExpression, OptExpression innerExpression) {
-        OptLogicalJoin joinOp = new OptLogicalJoin();
+    public OptExpression convertJoin(OptExpression outerExpression, OptExpression innerExpression, TableRef tableRef) {
+        OptLogicalJoin joinOp = null;
+        if (tableRef.getJoinOp().isInnerJoin()) {
+            joinOp = new OptLogicalInnerJoin();
+        } else if (tableRef.getJoinOp().isLeftOuterJoin()) {
+            joinOp = new OptLogicalLeftOuterJoin();
+        } else if (tableRef.getJoinOp().isLeftSemiJoin()) {
+            joinOp = new OptLogicalLeftSemiJoin();
+        } else if (tableRef.getJoinOp().isLeftAntiJoin()) {
+            joinOp = new OptLogicalLeftAntiJoin();
+        } else {
+            Preconditions.checkArgument(false, "Wrong join op:" + tableRef.getJoinOp());
+        }
         return OptExpression.create(joinOp, outerExpression, innerExpression);
     }
 

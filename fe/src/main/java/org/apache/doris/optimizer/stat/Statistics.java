@@ -17,7 +17,43 @@
 
 package org.apache.doris.optimizer.stat;
 
-public interface Statistics {
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Maps;
+import org.apache.doris.optimizer.base.OptColumnRef;
+import org.apache.doris.optimizer.base.OptColumnRefSet;
 
-    long getRowCount();
+import java.util.Map;
+
+public class Statistics {
+
+    private long rowCount;
+    private OptColumnRefSet statColumns;
+    private Map<Integer, Long> columnsCardinalityMap;
+
+    public Statistics() {
+        this.rowCount = 0;
+        this.statColumns = new OptColumnRefSet();
+        this.columnsCardinalityMap = Maps.newHashMap();
+    }
+
+    public void addRow(int id, long cardinality) {
+        this.columnsCardinalityMap.put(id, cardinality);
+        this.statColumns.include(id);
+    }
+
+    public long getRowCount() {
+        return rowCount;
+    }
+
+    public long getCardinality(int id) {
+        return columnsCardinalityMap.get(id);
+    }
+
+    public void setRowCount(long rowCount) {
+        this.rowCount = rowCount;
+    }
+
+    public OptColumnRefSet getStatColumns() {
+        return statColumns;
+    }
 }
