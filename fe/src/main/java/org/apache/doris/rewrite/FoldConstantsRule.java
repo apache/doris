@@ -204,6 +204,7 @@ public class FoldConstantsRule implements ExprRewriteRule {
                         new ImmutableSet.Builder<String>();
         setBuilder.add("if");
         setBuilder.add("hll_hash");
+        setBuilder.add("concat_ws");
         this.nonNullResultWithNullParamFunctions = setBuilder.build();
     }
 
