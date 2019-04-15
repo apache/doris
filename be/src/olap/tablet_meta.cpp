@@ -601,10 +601,17 @@ OLAPStatus TabletMeta::delete_alter_task() {
 
 void TabletMeta::set_alter_state(AlterTabletState alter_state) {
     WriteLock wrlock(&_meta_lock);
-    AlterTabletTask* alter_tablet_task = new AlterTabletTask();
-    *alter_tablet_task = *_alter_task;
-    alter_tablet_task->set_alter_state(alter_state);
-    _alter_task.reset(alter_tablet_task);
+    if (_alter_task == nullptr) {
+        // alter state should be set to ALTER_PREPARED when starting to 
+        // alter tablet. In this scenario, _alter_task is null pointer.
+        _alter_task.reset(new AlterTabletTask());
+        _alter_task->set_alter_state(alter_state);
+    } else {
+        AlterTabletTask* alter_tablet_task = new AlterTabletTask();
+        *alter_tablet_task = *_alter_task;
+        alter_tablet_task->set_alter_state(alter_state);
+        _alter_task.reset(alter_tablet_task);
+    }
 }
 
 }  // namespace doris
