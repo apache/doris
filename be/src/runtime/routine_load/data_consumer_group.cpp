@@ -62,10 +62,10 @@ Status KafkaDataConsumerGroup::start_all(StreamLoadContext* ctx) {
                 }
             }))) {
 
-            LOG(WARNING) << "failed to submit data consumer: " << consumer->id();
+            LOG(WARNING) << "failed to submit data consumer: " << consumer->id() << ", group id: " << _grp_id;
             return Status("failed to submit data consumer");
         } else {
-            VLOG(1) << "submit a data consumer: " << consumer->id();
+            VLOG(1) << "submit a data consumer: " << consumer->id() << ", group id: " << _grp_id;
         }
     }
 
