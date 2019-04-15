@@ -539,15 +539,23 @@ StringVal StringFunctions::concat_ws(
 
     // Loop once to compute the final size and reserve space.
     int32_t total_size = 0;
+    bool not_first = false;
     for (int32_t i = 0; i < num_children; ++i) {
-        total_size += strs[i].is_null ? 0 : (sep.len + strs[i].len);
+        if (strs[i].is_null) {
+            continue;
+        }
+        if (not_first) {
+            total_size += sep.len;
+        }
+        total_size += strs[i].len;
+        not_first = true;
     }
 
     // TODO pengyubing
     // StringVal result = StringVal::create_temp_string_val(context, total_size);
     StringVal result(context, total_size);
     uint8_t* ptr = result.ptr;
-    bool not_first = false;
+    not_first = false;
     // Loop again to append the data.
     for (int32_t i = 0; i < num_children; ++i) {
         if (strs[i].is_null) {
