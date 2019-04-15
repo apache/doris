@@ -26,7 +26,7 @@ Documentations will be written once, and will be converted to other format accor
 > Documentation：Text contents which is written by human. And this is the only place for documentation. 
 > Doc Builder: Tools that convert documentations to other format, such as PDF, HTML. There could be many tools, and we can use different tools to convert documentation to different formats. 
 
-## Organize
+## Organization
 
 > `docs/documentation`: Root directory for documentation. And for different languages, there is a root directory for it. For example, `docs/documentation/cn` is the Chinese documentation's root directory.
 > `docs/scripts`: Place of `Doc Builder`.
