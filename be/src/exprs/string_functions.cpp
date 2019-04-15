@@ -541,11 +541,6 @@ StringVal StringFunctions::concat_ws(
         return StringVal::null();
     }
 
-    // Pass through if there's only one argument
-    if (num_children == 1) {
-        return strs[0];
-    }
-
     int32_t total_size = strs[0].is_null ? 0 : strs[0].len;
     // Loop once to compute the final size and reserve space.
     for (int32_t i = 1; i < num_children; ++i) {
