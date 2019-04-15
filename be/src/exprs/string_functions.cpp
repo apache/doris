@@ -516,8 +516,6 @@ StringVal StringFunctions::concat(
         total_size += strs[i].len;
     }
 
-    // TODO pengyubing
-    // StringVal result = StringVal::create_temp_string_val(context, total_size);
     StringVal result(context, total_size);
     uint8_t* ptr = result.ptr;
 
@@ -551,8 +549,6 @@ StringVal StringFunctions::concat_ws(
         not_first = true;
     }
 
-    // TODO pengyubing
-    // StringVal result = StringVal::create_temp_string_val(context, total_size);
     StringVal result(context, total_size);
     uint8_t* ptr = result.ptr;
     not_first = false;
