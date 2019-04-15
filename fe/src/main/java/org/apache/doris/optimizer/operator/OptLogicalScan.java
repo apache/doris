@@ -70,7 +70,7 @@ public class OptLogicalScan extends OptLogical {
     }
 
     @Override
-    public OptColumnRefSet getOutputColumns(OptExpression expression) {
+    public OptColumnRefSet getOutputColumns(OptExpressionHandle expr) {
         return new OptColumnRefSet(outputs);
     }
 

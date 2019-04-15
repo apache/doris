@@ -83,6 +83,24 @@ public class BinaryPredicate extends Predicate implements Writable {
             return opcode;
         }
 
+        public Operator inverse() {
+            switch (this) {
+                case EQ:
+                    return NE;
+                case NE:
+                    return EQ;
+                case LT:
+                    return GE;
+                case LE:
+                    return GT;
+                case GE:
+                    return LT;
+                case GT:
+                    return LE;
+            }
+            return null;
+        }
+
         public Operator commutative() {
             switch (this) {
                 case EQ:

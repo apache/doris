@@ -17,6 +17,7 @@
 
 package org.apache.doris.optimizer.operator;
 
+import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.optimizer.OptUtils;
@@ -24,11 +25,26 @@ import org.apache.doris.optimizer.OptUtils;
 public class OptItemConst extends OptItem {
     // now use this
     private LiteralExpr literal;
+    private boolean isNull = false;
 
     public OptItemConst(LiteralExpr literal) {
         super(OptOperatorType.OP_ITEM_CONST);
         this.literal = literal;
+        this.isNull = false;
     }
+    public OptItemConst(LiteralExpr literal, boolean isNull) {
+        super(OptOperatorType.OP_ITEM_CONST);
+        this.literal = literal;
+        this.isNull = isNull;
+    }
+
+    public static OptItemConst createBool(boolean value) {
+        return new OptItemConst(new BoolLiteral(value));
+    }
+    public static OptItemConst createBool(boolean value, boolean isNull) {
+        return new OptItemConst(new BoolLiteral(value), isNull);
+    }
+    public LiteralExpr getLiteral() { return literal; }
 
     @Override
     public Type getReturnType() {

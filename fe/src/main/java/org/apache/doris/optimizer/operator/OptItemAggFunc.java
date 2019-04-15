@@ -17,35 +17,22 @@
 
 package org.apache.doris.optimizer.operator;
 
-import org.apache.doris.optimizer.OptExpression;
-import org.apache.doris.optimizer.OptExpressionWapper;
-import org.apache.doris.optimizer.base.OptColumnRefSet;
-import org.apache.doris.optimizer.rule.OptRule;
-import org.apache.doris.optimizer.stat.Statistics;
-import org.apache.doris.optimizer.stat.StatisticsContext;
+import org.apache.doris.catalog.Type;
 
-import java.util.BitSet;
-import java.util.List;
+public class OptItemAggFunc extends OptItem {
+    private boolean isDistinct;
+    private Type type;
 
-public class OptLogicalAggregate extends OptLogical {
-
-    public OptLogicalAggregate() {
-        super(OptOperatorType.OP_LOGICAL_AGGREGATE);
+    protected OptItemAggFunc(OptOperatorType type) {
+        super(OptOperatorType.OP_ITEM_AGG_FUNC);
     }
+
+    public boolean isDistinct() { return isDistinct; }
+    public void setDistinct(boolean isDistinct) { this.isDistinct = isDistinct; }
+    public boolean isMinMax() { return false; }
 
     @Override
-    public BitSet getCandidateRulesForExplore() {
-        return null;
+    public Type getReturnType() {
+        return type;
     }
-
-    @Override
-    public BitSet getCandidateRulesForImplement() {
-        return null;
-    }
-
-    @Override
-    public Statistics deriveStat(OptExpressionWapper wapper, StatisticsContext context) {
-        return null;
-    }
-
 }

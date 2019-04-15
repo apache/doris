@@ -19,7 +19,7 @@ package org.apache.doris.optimizer.rule.transformation;
 
 import com.google.common.base.Preconditions;
 import org.apache.doris.optimizer.OptExpression;
-import org.apache.doris.optimizer.operator.OptLogicallJoin;
+import org.apache.doris.optimizer.operator.OptLogicalJoin;
 import org.apache.doris.optimizer.operator.OptPatternLeaf;
 import org.apache.doris.optimizer.rule.OptRuleType;
 
@@ -31,8 +31,8 @@ public class JoinAssociativityRule extends ExplorationRule {
 
     private JoinAssociativityRule() {
         super(OptRuleType.RULE_EXP_JOIN_ASSOCIATIVITY,
-                OptExpression.create(new OptLogicallJoin(),
-                        OptExpression.create(new OptLogicallJoin(),
+                OptExpression.create(new OptLogicalJoin(),
+                        OptExpression.create(new OptLogicalJoin(),
                                 OptExpression.create(new OptPatternLeaf()),
                                 OptExpression.create(new OptPatternLeaf())),
                         OptExpression.create(new OptPatternLeaf())));
@@ -59,11 +59,11 @@ public class JoinAssociativityRule extends ExplorationRule {
 
         //TODO predicates.....
         final OptExpression newLeftChildJoin = OptExpression.create(
-                new OptLogicallJoin(),
+                new OptLogicalJoin(),
                 leftChildJoinLeftChild,
                 rightChild);
         final OptExpression newTopJoin = OptExpression.create(
-                new OptLogicallJoin(),
+                new OptLogicalJoin(),
                 newLeftChildJoin,
                 leftChildJoinRightChild);
         newExprs.add(newTopJoin);

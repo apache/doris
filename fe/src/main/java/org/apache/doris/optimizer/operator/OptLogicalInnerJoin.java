@@ -17,35 +17,20 @@
 
 package org.apache.doris.optimizer.operator;
 
-import org.apache.doris.optimizer.OptExpression;
-import org.apache.doris.optimizer.OptExpressionWapper;
-import org.apache.doris.optimizer.base.OptColumnRefSet;
-import org.apache.doris.optimizer.rule.OptRule;
-import org.apache.doris.optimizer.stat.Statistics;
-import org.apache.doris.optimizer.stat.StatisticsContext;
+import org.apache.doris.optimizer.base.OptMaxcard;
 
-import java.util.BitSet;
-import java.util.List;
-
-public class OptLogicalAggregate extends OptLogical {
-
-    public OptLogicalAggregate() {
-        super(OptOperatorType.OP_LOGICAL_AGGREGATE);
+public class OptLogicalInnerJoin extends OptLogicalJoin {
+    public OptLogicalInnerJoin() {
+        super(OptOperatorType.OP_LOGICAL_INNER_JOIN);
     }
 
+    //------------------------------------------------------------------------
+    // Used to get operator's derived property
+    //------------------------------------------------------------------------
     @Override
-    public BitSet getCandidateRulesForExplore() {
-        return null;
+    public OptMaxcard getMaxcard(OptExpressionHandle exprHandle) {
+        return getMaxcard(exprHandle, 2, getDefaultMaxcard(exprHandle));
     }
 
-    @Override
-    public BitSet getCandidateRulesForImplement() {
-        return null;
-    }
-
-    @Override
-    public Statistics deriveStat(OptExpressionWapper wapper, StatisticsContext context) {
-        return null;
-    }
 
 }

@@ -19,7 +19,7 @@ package org.apache.doris.optimizer.rule.implementation;
 
 import com.google.common.base.Preconditions;
 import org.apache.doris.optimizer.OptExpression;
-import org.apache.doris.optimizer.operator.OptLogicallJoin;
+import org.apache.doris.optimizer.operator.OptLogicalJoin;
 import org.apache.doris.optimizer.operator.OptPatternLeaf;
 import org.apache.doris.optimizer.operator.OptPhysicalHashJoin;
 import org.apache.doris.optimizer.rule.OptRuleType;
@@ -33,7 +33,7 @@ public class HashJoinRule extends ImplemetationRule {
     private HashJoinRule() {
         super(OptRuleType.RULE_IMP_EQ_JOIN_TO_HASH_JOIN,
                 OptExpression.create(
-                        new OptLogicallJoin(),
+                        new OptLogicalJoin(),
                         OptExpression.create(new OptPatternLeaf()),
                         OptExpression.create(new OptPatternLeaf())
                 ));

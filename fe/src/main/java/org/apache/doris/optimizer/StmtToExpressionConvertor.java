@@ -53,7 +53,7 @@ import org.apache.doris.optimizer.operator.OptItemLikePredicate;
 import org.apache.doris.optimizer.operator.OptLogicalAggregate;
 import org.apache.doris.optimizer.operator.OptLogicalScan;
 import org.apache.doris.optimizer.operator.OptLogicalUnion;
-import org.apache.doris.optimizer.operator.OptLogicallJoin;
+import org.apache.doris.optimizer.operator.OptLogicalJoin;
 import org.apache.doris.optimizer.operator.OptItemBinaryPredicate;
 
 import java.util.List;
@@ -109,7 +109,7 @@ public class StmtToExpressionConvertor {
     }
 
     public OptExpression convertJoin(OptExpression outerExpression, OptExpression innerExpression) {
-        OptLogicallJoin joinOp = new OptLogicallJoin();
+        OptLogicalJoin joinOp = new OptLogicalJoin();
         return OptExpression.create(joinOp, outerExpression, innerExpression);
     }
 

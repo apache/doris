@@ -30,11 +30,15 @@ import org.apache.doris.optimizer.stat.StatisticsContext;
 
 import java.util.BitSet;
 
-public class OptLogicallJoin extends OptLogical {
+public class OptLogicalJoin extends OptLogical {
 
     private JoinOperator operator;
 
-    public OptLogicallJoin() {
+    protected OptLogicalJoin(OptOperatorType type) {
+        super(type);
+    }
+
+    public OptLogicalJoin() {
         super(OptOperatorType.OP_LOGICAL_JOIN);
     }
 
@@ -53,11 +57,12 @@ public class OptLogicallJoin extends OptLogical {
         return set;
     }
 
+    // Common case of output derivation by combining the schemas of all
     @Override
-    public OptColumnRefSet getOutputColumns(OptExpression expression) {
+    public OptColumnRefSet getOutputColumns(OptExpressionHandle exprHandle) {
         OptColumnRefSet columns = new OptColumnRefSet();
-        for (int i = 0; i < 2; ++i) {
-            columns.include(expression.getInput(i).getLogicalProperty().getOutputColumns());
+        for (int i = 0; i < exprHandle.arity() - 1; ++i) {
+            columns.include(exprHandle.getChildLogicalProperty(i).getOutputColumns());
         }
         return columns;
     }

@@ -18,9 +18,18 @@
 package org.apache.doris.optimizer.operator;
 
 public enum OptOperatorType {
-    OP_LOGICAL_SCAN("LogicalScan"),
-    OP_LOGICAL_JOIN("LogicalEqJoin"),
     OP_LOGICAL_AGGREGATE("LogicalAggregate"),
+    OP_LOGICAL_GB_AGG("LogicalGroupByAggregate"),
+    OP_LOGICAL_JOIN("LogicalEqJoin"),
+    OP_LOGICAL_INNER_JOIN("LogicalInnerJoin"),
+    OP_LOGICAL_NARY_JOIN("LogicalNAryJoin"),
+    OP_LOGICAL_LEFT_OUTER_JOIN("LogicalLeftOuterJoin"),
+    OP_LOGICAL_LEFT_SEMI_JOIN("LogicalLeftSemiJoin"),
+    OP_LOGICAL_LEFT_ANTI_JOIN("LogicalLeftAntiJoin"),
+    OP_LOGICAL_FULL_OUTER_JOIN("LogicalFullOuterJoin"),
+    OP_LOGICAL_PROJECT("LogicalProject"),
+    OP_LOGICAL_SCAN("LogicalScan"),
+    OP_LOGICAL_SELECT("LogicalSelect"),
     OP_LOGICAL_UNION("LogicalUnion"),
 
     OP_PHYSICAL_OLAP_SCAN("PhysicalOlapScan"),
@@ -28,6 +37,7 @@ public enum OptOperatorType {
     OP_PHYSICAL_HASH_AGG("PhysicalHashAgg"),
     OP_PHYSICAL_SORT("PhysicalSort"),
 
+    OP_ITEM_AGG_FUNC("ItemAggregateFunction"),
     OP_ITEM_ARITHMETIC("ItemArithmetic"),
     OP_ITEM_BINARY_PREDICATE("ItemBinaryPredicate"),
     OP_ITEM_CASE("ItemCase"),
@@ -39,6 +49,12 @@ public enum OptOperatorType {
     OP_ITEM_IN_PREDICATE("ItemInPredicate"),
     OP_ITEM_IS_NULL_PREDICATE("ItemIsNullPredicate"),
     OP_ITEM_LIKE_PREDICATE("ItemLikePredicate"),
+    OP_ITEM_PROJECT_ELEMENT("ItemProjectElement"),
+    OP_ITEM_PROJECT_LIST("ItemProjectList"),
+    OP_ITEM_SUBQUERY_ALL("ItemSubqueryAll"),
+    OP_ITEM_SUBQUERY_ANY("ItemSubqueryAny"),
+    OP_ITEM_SUBQUERY_EXISTS("ItemSubqueryExists"),
+    OP_ITEM_SUBQUERY_NOT_EXISTS("ItemSubqueryNotExists"),
 
     OP_PATTERN_LEAF("PatternLeaf"),
 

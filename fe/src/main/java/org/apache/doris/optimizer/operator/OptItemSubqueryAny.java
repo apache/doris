@@ -17,35 +17,8 @@
 
 package org.apache.doris.optimizer.operator;
 
-import org.apache.doris.optimizer.OptExpression;
-import org.apache.doris.optimizer.OptExpressionWapper;
-import org.apache.doris.optimizer.base.OptColumnRefSet;
-import org.apache.doris.optimizer.rule.OptRule;
-import org.apache.doris.optimizer.stat.Statistics;
-import org.apache.doris.optimizer.stat.StatisticsContext;
-
-import java.util.BitSet;
-import java.util.List;
-
-public class OptLogicalAggregate extends OptLogical {
-
-    public OptLogicalAggregate() {
-        super(OptOperatorType.OP_LOGICAL_AGGREGATE);
+public class OptItemSubqueryAny extends OptItemSubqueryQuantified {
+    protected OptItemSubqueryAny() {
+        super(OptOperatorType.OP_ITEM_SUBQUERY_ANY);
     }
-
-    @Override
-    public BitSet getCandidateRulesForExplore() {
-        return null;
-    }
-
-    @Override
-    public BitSet getCandidateRulesForImplement() {
-        return null;
-    }
-
-    @Override
-    public Statistics deriveStat(OptExpressionWapper wapper, StatisticsContext context) {
-        return null;
-    }
-
 }

@@ -92,6 +92,13 @@ public class OptColumnRefSet implements Cloneable {
         return bitSet.intersects(set.bitSet);
     }
 
+    public boolean contains(OptColumnRef ref) {
+        return bitSet.get(ref.getId());
+    }
+    public boolean contains(OptColumnRefSet rhs) {
+        return rhs.bitSet.stream().allMatch(bit -> bitSet.get(bit));
+    }
+
     public List<OptColumnRef> getColumnRefs(Map<Integer, OptColumnRef> columnRefMap) {
         return bitSet.stream().mapToObj(columnRefMap::get).collect(Collectors.toList());
     }

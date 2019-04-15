@@ -43,6 +43,7 @@ public class OptGroup {
     private Map<OptimizationContext, OptimizationContext> optContextMap;
     private OptProperty property;
     private Statistics statistics;
+    private OptExpression itemExpression;
 
     public OptGroup(int id, OptProperty property) {
         this.id = id;
@@ -113,6 +114,7 @@ public class OptGroup {
     public OptProperty getProperty() { return property; }
     public Statistics getStatistics() { return statistics; }
     public void setStatistics(Statistics statistics) { this.statistics = statistics; }
+    public OptExpression getItemExpression() { return itemExpression; }
 
     public void mergeGroup(OptGroup other) {
         if (other == this) {
@@ -154,4 +156,5 @@ public class OptGroup {
         OptimizationContext optCtx = new OptimizationContext(this, property);
         return optContextMap.get(optCtx);
     }
+
 }

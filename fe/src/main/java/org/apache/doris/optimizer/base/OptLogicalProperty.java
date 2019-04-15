@@ -17,17 +17,34 @@
 
 package org.apache.doris.optimizer.base;
 
-import org.apache.doris.optimizer.OptExpression;
+import org.apache.doris.optimizer.operator.OptExpressionHandle;
 import org.apache.doris.optimizer.operator.OptLogical;
 
 public class OptLogicalProperty implements OptProperty {
+    // Operator's output columns
     private OptColumnRefSet outputColumns;
+    // Columns not defined in the underlying operator tree
+    private OptColumnRefSet outerColumns;
+    private OptMaxcard maxcard = new OptMaxcard();
 
-    public OptColumnRefSet getOutputColumns() { return outputColumns; }
+    public OptColumnRefSet getOutputColumns() {
+        return outputColumns;
+    }
+
+    public OptColumnRefSet getOuterColumns() {
+        return outerColumns;
+    }
+
+    public OptMaxcard getMaxcard() {
+        return maxcard;
+    }
+
     @Override
-    public void derive(OptExpression expression) {
-        OptLogical op = (OptLogical) expression.getOp();
+    public void derive(OptExpressionHandle exprHandle) {
+        OptLogical op = (OptLogical) exprHandle.getOp();
 
-        outputColumns = op.getOutputColumns(expression);
+        outputColumns = op.getOutputColumns(exprHandle);
+        outerColumns = op.getOuterColumns(exprHandle);
+        maxcard = op.getMaxcard(exprHandle);
     }
 }
