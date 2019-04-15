@@ -66,8 +66,10 @@ Status ESScanReader::open() {
     _network_client.execute_post_request(_query, &_cached_response);
     long status = _network_client.get_http_status();
     if (status != 200) {
-        LOG(WARNING) << "invalid response http status for open: " << status;
-        return Status(_cached_response);
+        std::stringstream ss;
+        ss << "invalid response http status for open: " << status;
+        LOG(WARNING) << ss.str();
+        return Status(ss.str());
     }
     VLOG(1) << "open _cached response: " << _cached_response;
     return Status::OK;
