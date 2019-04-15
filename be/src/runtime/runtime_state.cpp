@@ -450,7 +450,7 @@ void RuntimeState::append_error_msg_to_file(
         if (_error_row_number < MAX_ERROR_NUM) {
             // Note: export reason first in case src line too long and be truncated.
             out << "Reason: " << error_msg;
-            out << "src line: [" << line << "]; ";
+            out << ". src line: [" << line << "]; ";
         } else if (_error_row_number == MAX_ERROR_NUM) {
             out << "TOO MUCH ERROR! already reach " << MAX_ERROR_NUM << "."
                     << " no more show next error.";
