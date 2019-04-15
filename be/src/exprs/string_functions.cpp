@@ -500,7 +500,37 @@ StringVal StringFunctions::regexp_replace(
 
 StringVal StringFunctions::concat(
         FunctionContext* context, int num_children, const StringVal* strs) {
-    return concat_ws(context, StringVal(), num_children, strs);
+    DCHECK_GE(num_children, 1);
+
+    // Pass through if there's only one argument
+    if (num_children == 1) {
+        return strs[0];
+    }
+
+    if (strs[0].is_null) {
+        return StringVal::null();
+    }
+
+    int32_t total_size = strs[0].len;
+    // Loop once to compute the final size and reserve space.
+    for (int32_t i = 1; i < num_children; ++i) {
+        if (strs[i].is_null) {
+            return StringVal::null();
+        }
+        total_size += strs[i].is_null ? 0 : strs[i].len;
+    }
+
+    // TODO pengyubing
+    // StringVal result = StringVal::create_temp_string_val(context, total_size);
+    StringVal result(context, total_size);
+    uint8_t* ptr = result.ptr;
+
+    // Loop again to append the data.
+    for (int32_t i = 0; i < num_children; ++i) {
+        memcpy(ptr, strs[i].ptr, strs[i].len);
+        ptr += strs[i].len;
+    }
+    return result;
 }
 
 StringVal StringFunctions::concat_ws(
@@ -516,16 +546,9 @@ StringVal StringFunctions::concat_ws(
         return strs[0];
     }
 
-    if (strs[0].is_null && sep.is_null) {
-        return StringVal::null();
-    }
     int32_t total_size = strs[0].is_null ? 0 : strs[0].len;
-
     // Loop once to compute the final size and reserve space.
     for (int32_t i = 1; i < num_children; ++i) {
-        if (strs[i].is_null && sep.is_null) {
-            return StringVal::null();
-        }
         total_size += strs[i].is_null ? 0 : (sep.len + strs[i].len);
     }
 
@@ -533,22 +556,18 @@ StringVal StringFunctions::concat_ws(
     // StringVal result = StringVal::create_temp_string_val(context, total_size);
     StringVal result(context, total_size);
     uint8_t* ptr = result.ptr;
-
+    bool not_first = false;
     // Loop again to append the data.
-    if (!strs[0].is_null) {
-        memcpy(ptr, strs[0].ptr, strs[0].len);
-        ptr += strs[0].len;
-    }
-    for (int32_t i = 1; i < num_children; ++i) {
-        if (strs[i].is_null) {
-            continue;
+    for (int32_t i = 0; i < num_children; ++i) {
+        if (!strs[i].is_null) {
+            if (not_first) {
+                memcpy(ptr, sep.ptr, sep.len);
+                ptr += sep.len;
+            }
+            memcpy(ptr, strs[i].ptr, strs[i].len);
+            ptr += strs[i].len;
+            not_first = true;
         }
-        if (!(strs[0].is_null && 1 == i)) {
-            memcpy(ptr, sep.ptr, sep.len);
-            ptr += sep.len;
-        }
-        memcpy(ptr, strs[i].ptr, strs[i].len);
-        ptr += strs[i].len;
     }
     return result;
 }
