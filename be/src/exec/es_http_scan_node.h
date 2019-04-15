@@ -25,6 +25,7 @@
 #include <vector>
 #include <mutex>
 #include <thread>
+#include <future>
 
 #include "common/status.h"
 #include "exec/scan_node.h"
@@ -75,7 +76,7 @@ private:
     Status start_scanners();
 
     // One scanner worker, This scanner will hanle 'length' ranges start from start_idx
-    void scanner_worker(int start_idx, int length);
+    void scanner_worker(int start_idx, int length, std::promise<Status>& p_status);
 
     // Scan one range
     Status scanner_scan(std::unique_ptr<EsHttpScanner> scanner,
