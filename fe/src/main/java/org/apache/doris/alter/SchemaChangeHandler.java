@@ -615,8 +615,11 @@ public class SchemaChangeHandler extends AlterHandler {
                 if (!col.equals(newColumn)) {
                     throw new DdlException("Repeatedly add same column[" + newColName + "] with different definition");
                 }
-                continue;
+
+                // column already exist, return
+                return;
             }
+
             if (hasPos) {
                 // after the field
                 if (col.getName().equalsIgnoreCase(columnPos.getLastCol())) {
