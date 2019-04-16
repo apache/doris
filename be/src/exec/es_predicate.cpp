@@ -332,10 +332,8 @@ bool EsPredicate::build_disjuncts_list(Expr* conjunct, vector<ExtPredicate*>& di
             return false;
         }
 
-        TExtInPredicate ext_in_predicate;
         vector<ExtLiteral> in_pred_values;
         InPredicate* pred = dynamic_cast<InPredicate*>(conjunct);
-        ext_in_predicate.__set_is_not_in(pred->is_not_in());
         if (Expr::type_without_cast(pred->get_child(0)) != TExprNodeType::SLOT_REF) {
             return false;
         }
@@ -365,6 +363,7 @@ bool EsPredicate::build_disjuncts_list(Expr* conjunct, vector<ExtPredicate*>& di
 
         ExtPredicate* predicate = new ExtInPredicate(
                     TExprNodeType::IN_PRED,
+                    pred->is_not_in(),
                     slot_desc->col_name(),
                     slot_desc->type(),
                     in_pred_values);
