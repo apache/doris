@@ -539,11 +539,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TLoadTxnBeginResult loadTxnBegin(TLoadTxnBeginRequest request) throws TException {
         TNetworkAddress clientAddr = getClientAddr();
-
         LOG.info("receive txn begin request, db: {}, tbl: {}, label: {}, backend: {}",
                 request.getDb(), request.getTbl(), request.getLabel(),
                 clientAddr == null ? "unknown" : clientAddr.getHostname());
-
         LOG.debug("txn begin request: {}", request);
 
         TLoadTxnBeginResult result = new TLoadTxnBeginResult();
@@ -600,8 +598,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TLoadTxnCommitResult loadTxnCommit(TLoadTxnCommitRequest request) throws TException {
-        LOG.info("receive txn commit request. db: {}, tbl: {}, txn id: {}",
-                request.getDb(), request.getTbl(), request.getTxnId());
+        TNetworkAddress clientAddr = getClientAddr();
+        LOG.info("receive txn commit request. db: {}, tbl: {}, txn id: {}, backend: {}",
+                request.getDb(), request.getTbl(), request.getTxnId(),
+                clientAddr == null ? "unknown" : clientAddr.getHostname());
         LOG.debug("txn commit request: {}", request);
 
         TLoadTxnCommitResult result = new TLoadTxnCommitResult();
@@ -659,8 +659,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TLoadTxnRollbackResult loadTxnRollback(TLoadTxnRollbackRequest request) throws TException {
-        LOG.info("receive txn rollback request. db: {}, tbl: {}, txn id: {}, reason: {}",
-                request.getDb(), request.getTbl(), request.getTxnId(), request.getReason());
+        TNetworkAddress clientAddr = getClientAddr();
+        LOG.info("receive txn rollback request. db: {}, tbl: {}, txn id: {}, reason: {}, backend: {}",
+                request.getDb(), request.getTbl(), request.getTxnId(), request.getReason(),
+                clientAddr == null ? "unknown" : clientAddr.getHostname());
         LOG.debug("txn rollback request: {}", request);
 
         TLoadTxnRollbackResult result = new TLoadTxnRollbackResult();
