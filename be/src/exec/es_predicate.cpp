@@ -53,22 +53,22 @@ std::string ExtLiteral::value_to_string() {
     std::stringstream ss;
     switch (_type) {
         case TYPE_TINYINT:
-            ss << (int)get_byte();
+            ss << std::to_string(get_byte());
             break;
         case TYPE_SMALLINT:
-            ss << get_short();
+            ss << std::to_string(get_short());
             break;
         case TYPE_INT:
-            ss << get_int();
+            ss << std::to_string(get_int());
             break;
         case TYPE_BIGINT:
-            ss << get_long();
+            ss << std::to_string(get_long());
             break;
         case TYPE_FLOAT:
-            ss << get_float();
+            ss << std::to_string(get_float());
             break;
         case TYPE_DOUBLE:
-            ss << get_double();
+            ss << std::to_string(get_double());
             break;
         case TYPE_CHAR:
         case TYPE_VARCHAR:
@@ -79,7 +79,7 @@ std::string ExtLiteral::value_to_string() {
             ss << get_date_string();
             break;
         case TYPE_BOOLEAN:
-            ss << get_bool();
+            ss << std::to_string(get_bool());
             break;
         case TYPE_DECIMAL:
             ss << get_decimal_string();
