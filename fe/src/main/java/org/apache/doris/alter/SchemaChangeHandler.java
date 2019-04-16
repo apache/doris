@@ -533,8 +533,6 @@ public class SchemaChangeHandler extends AlterHandler {
         if (KeysType.UNIQUE_KEYS == olapTable.getKeysType()) {
             // check if has default value. this should be done in Analyze phase
             // 1. add to base index first
-            // List<Column> modIndexSchema = indexSchemaMap.get(baseIndexId);
-            // checkAndAddColumn(modIndexSchema, newColumn, columnPos);
             List<Column> modIndexSchema;
             if (newColumn.isKey()) {
                 // add key column to unique key table, should add to all rollups
@@ -542,32 +540,33 @@ public class SchemaChangeHandler extends AlterHandler {
                 // add to all table including base and rollup
                 for (Map.Entry<Long, LinkedList<Column>> entry : indexSchemaMap.entrySet()) {
                     modIndexSchema = entry.getValue();
-                    checkAndAddColumn(modIndexSchema, newColumn, columnPos);
+                    boolean isBaseIdex = entry.getKey() == baseIndexId;
+                    checkAndAddColumn(modIndexSchema, newColumn, columnPos, isBaseIdex);
                 }
             } else {
                 // 1. add to base table
                 modIndexSchema = indexSchemaMap.get(baseIndexId);
-                checkAndAddColumn(modIndexSchema, newColumn, columnPos);
+                checkAndAddColumn(modIndexSchema, newColumn, columnPos, true);
                 if (targetIndexId == -1L) {
                     return;
                 }
 
                 // 2. add to rollup
                 modIndexSchema = indexSchemaMap.get(targetIndexId);
-                checkAndAddColumn(modIndexSchema, newColumn, columnPos); 
+                checkAndAddColumn(modIndexSchema, newColumn, columnPos, false);
             } 
         } else if (KeysType.DUP_KEYS == olapTable.getKeysType()) {
             if (targetIndexId == -1L) {
                 // check if has default value. this should be done in Analyze phase
                 // 1. add to base index first
                 List<Column> modIndexSchema = indexSchemaMap.get(baseIndexId);
-                checkAndAddColumn(modIndexSchema, newColumn, columnPos);
+                checkAndAddColumn(modIndexSchema, newColumn, columnPos, true);
                 // no specified target index. return
                 return;
             } else {
                 // 2. add to rollup index
                 List<Column> modIndexSchema = indexSchemaMap.get(targetIndexId);
-                checkAndAddColumn(modIndexSchema, newColumn, columnPos);
+                checkAndAddColumn(modIndexSchema, newColumn, columnPos, false);
 
                 if (newColumn.isKey()) {
                     /*
@@ -575,17 +574,17 @@ public class SchemaChangeHandler extends AlterHandler {
                      * then put the column in base table as end key
                      */
                     modIndexSchema = indexSchemaMap.get(baseIndexId);
-                    checkAndAddColumn(modIndexSchema, newColumn, null);
+                    checkAndAddColumn(modIndexSchema, newColumn, null, true);
                 } else {
                     modIndexSchema = indexSchemaMap.get(baseIndexId);
-                    checkAndAddColumn(modIndexSchema, newColumn, columnPos);
+                    checkAndAddColumn(modIndexSchema, newColumn, columnPos, true);
                 }
             }
         } else {
             // check if has default value. this should be done in Analyze phase
             // 1. add to base index first
             List<Column> modIndexSchema = indexSchemaMap.get(baseIndexId);
-            checkAndAddColumn(modIndexSchema, newColumn, columnPos);
+            checkAndAddColumn(modIndexSchema, newColumn, columnPos, true);
             
             if (targetIndexId == -1L) {
                 // no specified target index. return
@@ -594,20 +593,29 @@ public class SchemaChangeHandler extends AlterHandler {
 
             // 2. add to rollup index
             modIndexSchema = indexSchemaMap.get(targetIndexId);
-            checkAndAddColumn(modIndexSchema, newColumn, columnPos);
+            checkAndAddColumn(modIndexSchema, newColumn, columnPos, false);
         }
     }
 
-    private void checkAndAddColumn(List<Column> modIndexSchema, Column newColumn, ColumnPosition columnPos)
-            throws DdlException {
+    private void checkAndAddColumn(List<Column> modIndexSchema, Column newColumn, ColumnPosition columnPos,
+            boolean isBaseIndex) throws DdlException {
         int posIndex = -1;
         String newColName = newColumn.getName();
         boolean hasPos = (columnPos != null && !columnPos.isFirst());
         for (int i = 0; i < modIndexSchema.size(); i++) {
             Column col = modIndexSchema.get(i);
             if (col.getName().equalsIgnoreCase(newColName)) {
-                // already add
-                throw new DdlException("Duplicately add column[" + newColName + "]");
+                if (!isBaseIndex || !col.isFromAddColumnOperation()) {
+                    // if this is not a base index, we should check if user repeatedly add columns
+                    throw new DdlException("Repeatedly add column[" + newColName + "]");
+                }
+                // this is a base index, and the column we check here is added by previous 'add column clause'
+                // in same ALTER stmt.
+                // so here we will check if the 2 columns is exactly same. if not, throw exception
+                if (!col.equals(newColumn)) {
+                    throw new DdlException("Repeatedly add same column[" + newColName + "] with different definition");
+                }
+                continue;
             }
             if (hasPos) {
                 // after the field

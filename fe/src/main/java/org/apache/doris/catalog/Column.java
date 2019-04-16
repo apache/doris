@@ -51,6 +51,10 @@ public class Column implements Writable {
 
     private ColumnStats stats;     // cardinality and selectivity etc.
 
+    // This variable is used to represent if this column instance is generated from ALTER TABLE ADD COLUMN stmt.
+    // And it does not need to persist
+    private boolean isFromAddColumnOperation = false;
+
     public Column() {
         this.name = "";
         this.type = Type.NULL;
@@ -175,6 +179,14 @@ public class Column implements Writable {
 
     public String getComment() {
         return comment;
+    }
+
+    public void setFromAddColumnOperation(boolean isFromAddColumnOperation) {
+        this.isFromAddColumnOperation = isFromAddColumnOperation;
+    }
+
+    public boolean isFromAddColumnOperation() {
+        return isFromAddColumnOperation;
     }
 
     public int getOlapColumnIndexSize() {
@@ -324,6 +336,11 @@ public class Column implements Writable {
         if (this.getScale() != other.getScale()) {
             return false;
         }
+
+        if (!comment.equals(other.getComment())) {
+            return false;
+        }
+
         return true;
     }
 

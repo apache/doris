@@ -17,13 +17,13 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.collect.Lists;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Map;
@@ -69,7 +69,9 @@ public class AddColumnsClause extends AlterClause {
 
         columns = Lists.newArrayList();
         for (ColumnDef columnDef : columnDefs) {
-            columns.add(columnDef.toColumn());
+            Column col = columnDef.toColumn();
+            col.setFromAddColumnOperation(true);
+            columns.add(col);
         }
     }
 
