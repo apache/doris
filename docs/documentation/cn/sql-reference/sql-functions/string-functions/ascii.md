@@ -1,12 +1,12 @@
 # ascii
 
-## Description
-
-返回字符串第一个字符串对应的ascii 码
-
 ## Syntax
 
-`INT ascii(VARCHAR)`
+`INT ascii(VARCHAR str)`
+
+## Description
+
+返回字符串第一个字符对应的 ascii 码
 
 ## Examples
 
