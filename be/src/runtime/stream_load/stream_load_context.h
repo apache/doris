@@ -154,7 +154,7 @@ public:
     int64_t loaded_bytes = 0;
     int64_t start_nanos = 0;
     int64_t load_cost_nanos = 0;
-    std::string error_url;
+    std::string error_url = "";
 
     KafkaLoadInfo* kafka_info = nullptr;
 

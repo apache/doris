@@ -25,7 +25,6 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.task.PublishVersionTask;
-import org.apache.doris.transaction.TxnStateChangeListener.ListenResult;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Maps;
@@ -141,6 +140,8 @@ public class TransactionState implements Writable {
     // optional
     private TxnCommitAttachment txnCommitAttachment;
     
+    private String errorLogUrl = null;
+
     public TransactionState() {
         this.dbId = -1;
         this.transactionId = -1;
@@ -270,6 +271,14 @@ public class TransactionState implements Writable {
 
     public void removeListenerId() {
         listenerId = -1;
+    }
+
+    public void setErrorLogUrl(String errorLogUrl) {
+        this.errorLogUrl = errorLogUrl;
+    }
+
+    public String getErrorLogUrl() {
+        return errorLogUrl;
     }
 
     public void setTransactionStatus(TransactionStatus transactionStatus) {
