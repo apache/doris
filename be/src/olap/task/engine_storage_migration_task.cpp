@@ -123,7 +123,7 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
         // migrate all index and data files but header file
         res = _copy_index_and_data_files(schema_hash_path, tablet, consistent_rowsets);
         if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "fail to copy index and data files when migrate. res=" <<  res;
+            LOG(WARNING) << "fail to copy index and data files when migrate. res=" << res;
             break;
         }
 

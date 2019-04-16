@@ -88,7 +88,7 @@ OLAPStatus TabletManager::_add_tablet_unlock(TTabletId tablet_id, SchemaHash sch
             << "tablet_id=" << tablet_id << ", schema_hash=" << schema_hash
             << ", force=" << force;
 
-    TabletSharedPtr table_item;
+    TabletSharedPtr table_item = nullptr;
     for (TabletSharedPtr item : _tablet_map[tablet_id].table_arr) {
         if (item->equal(tablet_id, schema_hash)) {
             table_item = item;
@@ -108,10 +108,6 @@ OLAPStatus TabletManager::_add_tablet_unlock(TTabletId tablet_id, SchemaHash sch
                          << tablet_id << " schema_hash=" << tablet_id;
             return OLAP_ERR_ENGINE_INSERT_EXISTS_TABLE;
         }
-    }
-
-    // if not force, the data dir should not same
-    if (!force) {
         if (table_item->data_dir() == tablet->data_dir()) {
             LOG(WARNING) << "add tablet with same data dir twice! tablet_id="
                          << tablet_id << " schema_hash=" << tablet_id;
@@ -911,6 +907,8 @@ OLAPStatus TabletManager::start_trash_sweep() {
                 // take snapshot of tablet meta
                 std::string meta_file = (*it)->tablet_path() + "/" + std::to_string((*it)->tablet_id()) + ".hdr";
                 (*it)->tablet_meta()->save(meta_file);
+                LOG(INFO) << "start to move path to trash" 
+                          << " tablet path = " << (*it)->tablet_path();
                 OLAPStatus rm_st = move_to_trash((*it)->tablet_path(), (*it)->tablet_path());
                 if (rm_st != OLAP_SUCCESS) {
                     LOG(WARNING) << "failed to move dir to trash"
