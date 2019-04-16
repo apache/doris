@@ -17,28 +17,67 @@
 
 package org.apache.doris.optimizer.operator;
 
-import org.apache.doris.optimizer.OptExpression;
-import org.apache.doris.optimizer.OptExpressionWapper;
+import com.google.common.base.Preconditions;
 import org.apache.doris.optimizer.base.OptColumnRefSet;
+import org.apache.doris.optimizer.base.OptLogicalProperty;
+import org.apache.doris.optimizer.base.RequiredLogicalProperty;
 import org.apache.doris.optimizer.stat.Statistics;
-import org.apache.doris.optimizer.stat.StatisticsContext;
 
 import java.util.BitSet;
 
 public class OptLogicalUnion extends OptLogical {
+    private final boolean isUnionAll;
+    private final OptColumnRefSet groupBy;
 
-    public OptLogicalUnion() {
+    public OptLogicalUnion(OptColumnRefSet groupBy, boolean isUnionAll) {
         super(OptOperatorType.OP_LOGICAL_UNION);
-    }
-
-    @Override
-    public BitSet getCandidateRulesForExplore() {
-        return null;
+        this.isUnionAll = isUnionAll;
+        this.groupBy = groupBy;
     }
 
     @Override
     public BitSet getCandidateRulesForImplement() {
         return null;
+    }
+
+    @Override
+    public Statistics deriveStat(OptExpressionHandle expressionHandle, RequiredLogicalProperty property) {
+        Preconditions.checkArgument(expressionHandle.getChildrenStatistics().size() == 2);
+        final Statistics leftChild = expressionHandle.getChildrenStatistics().get(0);
+        final Statistics rightChild = expressionHandle.getChildrenStatistics().get(1);
+        if (leftChild.getStatColumns().cardinality() != rightChild.getStatColumns().cardinality()
+                || !leftChild.getStatColumns().equals(rightChild.getStatColumns())) {
+            Preconditions.checkState(false,
+                    "Operator Union has wrong number children or it's " +
+                            "children have different columns.");
+        }
+        final Statistics leftGroupByStats = estimateAgg(groupBy, property, leftChild);
+        final Statistics rightGroupByStats = estimateAgg(groupBy, property, rightChild);
+        return estimateUnion(groupBy, leftGroupByStats, rightGroupByStats);
+    }
+
+    protected Statistics estimateUnion(OptColumnRefSet groupBy, Statistics leftChild, Statistics rightChild) {
+        final Statistics statistics = new Statistics();
+        for (int id : groupBy.getColumnIds()) {
+            statistics.addRow(id, estimateCardinalityWithCardinalities(
+                    leftChild.getCardinality(id),
+                    rightChild.getCardinality(id))
+            );
+        }
+        statistics.setRowCount(estimateCardinalityWithRows(
+                leftChild.getRowCount(), rightChild.getRowCount()));
+        return statistics;
+    }
+
+    @Override
+    public OptColumnRefSet requiredStatForChild(
+            OptExpressionHandle expressionHandle,
+            RequiredLogicalProperty property, int childIndex) {
+        final OptLogicalProperty logicalProperty = expressionHandle.getChildLogicalProperty(childIndex);
+        final OptColumnRefSet columns = new OptColumnRefSet();
+        columns.include(groupBy);
+        columns.intersects(logicalProperty.getOutputColumns());
+        return columns;
     }
 
     @Override
@@ -50,8 +89,11 @@ public class OptLogicalUnion extends OptLogical {
         return columns;
     }
 
-    @Override
-    public Statistics deriveStat(OptExpressionWapper wapper, StatisticsContext context) {
-        return null;
+    public boolean isUnionAll() {
+        return this.isUnionAll;
+    }
+
+    public OptColumnRefSet getGroupBy() {
+        return groupBy;
     }
 }

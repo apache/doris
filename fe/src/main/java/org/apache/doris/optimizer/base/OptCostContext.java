@@ -32,7 +32,8 @@ public class OptCostContext {
 
     private OptPhysicalProperty derivedPhysicalProperty;
 
-    public OptCostContext(MultiExpression multiExpr, OptimizationContext optCtx) {
+    public OptCostContext(MultiExpression multiExpr,
+                          OptimizationContext optCtx) {
         this.multiExpr = multiExpr;
         this.optCtx = optCtx;
     }
@@ -42,5 +43,12 @@ public class OptCostContext {
     public Statistics getStatistics() { return statistics; }
     public void setChildrenCtxs(List<OptimizationContext> childrenCtxs) { this.childrenCtxs = childrenCtxs; }
     public OptPhysicalProperty getDerivedPhysicalProperty() { return derivedPhysicalProperty; }
+    public void setDerivedPhysicalProperty(OptPhysicalProperty property) { this.derivedPhysicalProperty = property; };
     public OptimizationContext getInput(int idx) { return childrenCtxs.get(idx); }
+    public boolean isBetterThan(OptCostContext costContext) { return cost.compareTo(costContext.getCost()) == 1; }
+
+    public void compute() {
+        // TODO ch
+    }
+
 }

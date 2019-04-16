@@ -17,6 +17,8 @@
 
 package org.apache.doris.optimizer;
 
+import org.apache.doris.optimizer.base.*;
+import org.apache.doris.optimizer.operator.OptExpressionHandle;
 import org.apache.doris.optimizer.operator.OptOperatorType;
 import org.apache.doris.optimizer.operator.OptPhysical;
 
@@ -46,5 +48,29 @@ public class OptPhysicalUTLeafNode extends OptPhysical {
 
     @Override
     public String getExplainString(String prefix) { return type.getName() + " (value=" + value + ")";
+    }
+
+    @Override
+    public OrderEnforcerProperty getChildReqdOrder(
+            OptExpressionHandle handle, OrderEnforcerProperty reqdOrder, int childIndex) {
+        return null;
+    }
+
+    @Override
+    public DistributionEnforcerProperty getChildReqdDistribution(
+            OptExpressionHandle handle, DistributionEnforcerProperty reqdDistribution, int childIndex) {
+        return null;
+    }
+
+    @Override
+    public EnforcerProperty.EnforceType getOrderEnforceType(
+            OptExpressionHandle exprHandle, OrderEnforcerProperty enforceOrder) {
+        return null;
+    }
+
+    @Override
+    public OptColumnRefSet deriveChildReqdColumns(
+            OptExpressionHandle exprHandle, RequiredPhysicalProperty property, int childIndex) {
+        return null;
     }
 }

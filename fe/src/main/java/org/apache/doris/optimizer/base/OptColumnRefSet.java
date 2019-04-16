@@ -17,6 +17,8 @@
 
 package org.apache.doris.optimizer.base;
 
+import com.google.common.collect.Lists;
+
 import java.util.BitSet;
 import java.util.List;
 import java.util.Map;
@@ -40,6 +42,10 @@ public class OptColumnRefSet implements Cloneable {
         for (OptColumnRef ref : refs) {
             bitSet.set(ref.getId());
         }
+    }
+
+    public int[] getColumnIds() {
+        return bitSet.stream().toArray();
     }
 
     @Override
@@ -67,8 +73,9 @@ public class OptColumnRefSet implements Cloneable {
         return bitSet.equals(rhs.bitSet);
     }
 
+    public void include(int id) { bitSet.set(id);}
     public void include(OptColumnRef ref) { bitSet.set(ref.getId()); }
-    public void inlcude(List<OptColumnRef> refs) {
+    public void include(List<OptColumnRef> refs) {
         include(new OptColumnRefSet(refs));
     }
 
@@ -88,9 +95,18 @@ public class OptColumnRefSet implements Cloneable {
         return intersects(new OptColumnRefSet(refs));
     }
 
+    public boolean intersects(OptColumnRef column) {
+        return intersects(new OptColumnRefSet(column.getId()));
+    }
+
+    public boolean intersects(int id) {
+        return intersects(new OptColumnRefSet(id));
+    }
+
     public boolean intersects(OptColumnRefSet set) {
         return bitSet.intersects(set.bitSet);
     }
+    public int cardinality() { return bitSet.cardinality(); }
 
     public boolean contains(OptColumnRef ref) {
         return bitSet.get(ref.getId());

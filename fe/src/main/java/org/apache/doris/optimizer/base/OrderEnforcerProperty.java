@@ -17,23 +17,37 @@
 
 package org.apache.doris.optimizer.base;
 
-import org.apache.doris.optimizer.operator.OptExpressionHandle;
-import org.apache.doris.optimizer.operator.OptPhysical;
+public class OrderEnforcerProperty extends EnforcerProperty {
+    public static final OrderEnforcerProperty EMPTY =
+            new OrderEnforcerProperty(OptOrderSpec.createEmpty());
+    private OptOrderSpec spec;
 
-public class OptPhysicalProperty implements OptProperty {
-    private OptOrderSpec orderSpec;
-    private OptDistributionSpec distributionSpec;
-
-    public OptPhysicalProperty() {
+    public OrderEnforcerProperty(OptOrderSpec spec) {
+        this.spec = spec;
     }
 
-    public OptOrderSpec getOrderSpec() { return orderSpec; }
-    public OptDistributionSpec getDistributionSpec() { return distributionSpec; }
+    @Override
+    public OptOrderSpec getPropertySpec() { return spec; }
 
     @Override
-    public void derive(OptExpressionHandle exprHandle) {
-        OptPhysical physicalOp = (OptPhysical) exprHandle.getOp();
-        orderSpec = physicalOp.getOrderSpec(exprHandle);
-        distributionSpec = physicalOp.getDistributionSpec(exprHandle);
+    public boolean isSatisfy(OptPropertySpec spec) {
+        return spec.isSatisfy(spec);
+    }
+
+    @Override
+    public int hashCode() {
+        return spec.hashCode();
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (!(obj instanceof OrderEnforcerProperty)) {
+            return false;
+        }
+        if (this == obj) {
+            return true;
+        }
+        OrderEnforcerProperty rhs = (OrderEnforcerProperty) obj;
+        return spec.equals(rhs.spec);
     }
 }

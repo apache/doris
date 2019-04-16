@@ -34,6 +34,10 @@ public class RowCountProvider {
            return (long)getJoinRowCount(expr, context);
        } else if (type == OptOperatorType.OP_LOGICAL_SCAN) {
            return (long)getScanRowCount(expr);
+       } else if (type == OptOperatorType.OP_LOGICAL_UNION) {
+
+       } else if (type == OptOperatorType.OP_LOGICAL_AGGREGATE) {
+
        }
        return 0;
     }

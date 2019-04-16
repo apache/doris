@@ -20,6 +20,9 @@ package org.apache.doris.optimizer.search;
 import org.apache.doris.optimizer.MultiExpression;
 import org.apache.doris.optimizer.OptGroup;
 import org.apache.doris.optimizer.base.OptimizationContext;
+import org.apache.doris.optimizer.base.RequiredPhysicalProperty;
+import org.apache.doris.optimizer.operator.OptPhysicalDistribution;
+import org.apache.doris.optimizer.operator.OptPhysicalSort;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -89,7 +92,7 @@ public class TaskGroupOptimization extends Task {
 
         @Override
         public void handle(SearchContext sContext) {
-            boolean hasNew = false;
+            boolean isSchedulingMExprTask = false;
             for (; lastMexprIndex < group.getMultiExpressions().size(); lastMexprIndex++) {
                 final MultiExpression mExpr = group.getMultiExpressions().get(lastMexprIndex);
                 if (!mExpr.getOp().isPhysical() && sContext.getSearchVariables().isExecuteOptimization()
@@ -97,16 +100,38 @@ public class TaskGroupOptimization extends Task {
                     continue;
                 }
 
-                TaskMultiExpressionOptimization.schedule(sContext, mExpr,
-                        optContext,TaskGroupOptimization.this);
-                hasNew = true;
+                if (isSatifisyRequiredProperty(mExpr, sContext)) {
+                    TaskMultiExpressionOptimization.schedule(sContext, mExpr,
+                            optContext, TaskGroupOptimization.this);
+                    isSchedulingMExprTask = true;
+                }
             }
 
-            if (hasNew) {
+            if (isSchedulingMExprTask) {
                 return;
             }
 
             nextState = new CompletingState();
+        }
+
+
+        private boolean isSatifisyRequiredProperty(MultiExpression mExpr, SearchContext sContext) {
+            if (!sContext.getSearchVariables().isExecuteOptimization()) {
+                return true;
+            }
+
+            final RequiredPhysicalProperty requiredProperty = optContext.getReqdPhyProp();
+            if (mExpr.getOp() instanceof OptPhysicalDistribution) {
+                final OptPhysicalDistribution distribution = (OptPhysicalDistribution)mExpr.getOp();
+                return requiredProperty.getDistributionProperty()
+                        .isSatisfy(distribution.getDistributionSpec(null));
+            }
+
+            if (mExpr.getOp() instanceof OptPhysicalSort) {
+                final OptPhysicalSort sort = (OptPhysicalSort)mExpr.getOp();
+                return requiredProperty.getOrderProperty().isSatisfy(sort.getOrderSpec(null));
+            }
+            return true;
         }
     }
 

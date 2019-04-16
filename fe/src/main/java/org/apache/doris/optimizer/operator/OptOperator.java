@@ -41,9 +41,13 @@ public abstract class OptOperator {
     public boolean isItem() { return false; }
     // if this operator is pattern
     public boolean isPattern() { return false; }
-    // If this operator is pattern and is leaf
+    // If this operator is pattern and is leaf.
     public boolean isPatternAndLeaf() { return false; }
     public boolean isSubquery() { return false; }
+    // If this operator is pattern and is tree.
+    public boolean isPatternAndTree() { return false; }
+    // If this operator is pattern and is multi tree.
+    public boolean isPatternAndMultiTree() { return false; }
 
     // If this operator care about its inputs' order. For join operator (A join B) is
     // not equal with (B join A), so it is order sensitive. And for union operator,
@@ -83,4 +87,12 @@ public abstract class OptOperator {
 
     @Override
     public String toString() { return debugString(); }
+
+
+    public enum HashAggStage {
+        Agg,
+        Merge,
+        Intermediate,
+        None
+    }
 }

@@ -17,20 +17,30 @@
 
 package org.apache.doris.optimizer.operator;
 
+import com.google.common.base.Preconditions;
+import org.apache.doris.analysis.AggregateInfo;
 import org.apache.doris.optimizer.OptExpression;
-import org.apache.doris.optimizer.OptExpressionWapper;
 import org.apache.doris.optimizer.base.OptColumnRefSet;
-import org.apache.doris.optimizer.rule.OptRule;
+import org.apache.doris.optimizer.base.OptLogicalProperty;
+import org.apache.doris.optimizer.base.RequiredLogicalProperty;
+import org.apache.doris.optimizer.rule.OptRuleType;
 import org.apache.doris.optimizer.stat.Statistics;
-import org.apache.doris.optimizer.stat.StatisticsContext;
 
 import java.util.BitSet;
-import java.util.List;
 
 public class OptLogicalAggregate extends OptLogical {
+    // Original columns that GroupBy refer.
+    private OptColumnRefSet groupBy;
+    private AggregateInfo aggInfo;
 
     public OptLogicalAggregate() {
         super(OptOperatorType.OP_LOGICAL_AGGREGATE);
+    }
+
+    public OptLogicalAggregate(OptColumnRefSet groupBy, AggregateInfo aggInfo) {
+        super(OptOperatorType.OP_LOGICAL_AGGREGATE);
+        this.groupBy = groupBy;
+        this.aggInfo = aggInfo;
     }
 
     @Override
@@ -40,12 +50,44 @@ public class OptLogicalAggregate extends OptLogical {
 
     @Override
     public BitSet getCandidateRulesForImplement() {
+        final BitSet set = new BitSet();
+        set.set(OptRuleType.RULE_IMP_AGG_TO_HASH_AGG.ordinal());
         return null;
+    }
+
+    public Statistics deriveStat(OptExpressionHandle expressionHandle, RequiredLogicalProperty property) {
+        Preconditions.checkArgument(expressionHandle.getChildrenStatistics().size() == 1,
+                "Aggregate has wrong number of children.");
+        return estimateAgg(groupBy, property, expressionHandle.getChildrenStatistics().get(0));
     }
 
     @Override
-    public Statistics deriveStat(OptExpressionWapper wapper, StatisticsContext context) {
-        return null;
+    public OptColumnRefSet requiredStatForChild(OptExpressionHandle expressionHandle,
+                                                RequiredLogicalProperty property, int childIndex) {
+        final OptColumnRefSet columns = new OptColumnRefSet();
+        columns.include(property.getColumns());
+        columns.include(groupBy);
+
+        Preconditions.checkArgument(expressionHandle.getChildProperty(childIndex) instanceof OptLogicalProperty);
+        final OptLogicalProperty logical = (OptLogicalProperty) expressionHandle.getChildProperty(childIndex);
+        columns.intersects(logical.getOutputColumns());
+        return columns;
     }
 
+    @Override
+    public OptColumnRefSet getOutputColumns(OptExpressionHandle exprHandle) {
+        return exprHandle.getLogicalProperty().getOutputColumns();
+    }
+
+    public boolean isDuplicate() {
+        return aggInfo.isDistinctAgg();
+    }
+
+    public OptColumnRefSet getGroupBy() {
+        return groupBy;
+    }
+
+    public AggregateInfo getAggInfo() {
+        return aggInfo;
+    }
 }

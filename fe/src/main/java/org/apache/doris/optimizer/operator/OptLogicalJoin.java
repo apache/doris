@@ -17,16 +17,12 @@
 
 package org.apache.doris.optimizer.operator;
 
+import com.google.common.base.Preconditions;
 import org.apache.doris.analysis.JoinOperator;
-import org.apache.doris.optimizer.OptExpression;
-import org.apache.doris.optimizer.OptExpressionWapper;
 import org.apache.doris.optimizer.base.OptColumnRefSet;
-import org.apache.doris.optimizer.base.OptLogicalProperty;
+import org.apache.doris.optimizer.base.RequiredLogicalProperty;
 import org.apache.doris.optimizer.rule.OptRuleType;
-import org.apache.doris.optimizer.stat.DefaultStatistics;
-import org.apache.doris.optimizer.stat.RowCountProvider;
 import org.apache.doris.optimizer.stat.Statistics;
-import org.apache.doris.optimizer.stat.StatisticsContext;
 
 import java.util.BitSet;
 
@@ -34,30 +30,32 @@ public class OptLogicalJoin extends OptLogical {
 
     private JoinOperator operator;
 
-    protected OptLogicalJoin(OptOperatorType type) {
-        super(type);
-    }
-
     public OptLogicalJoin() {
         super(OptOperatorType.OP_LOGICAL_JOIN);
     }
 
-    @Override
-    public BitSet getCandidateRulesForExplore() {
-        final BitSet set = new BitSet();
-        set.set(OptRuleType.RULE_EXP_JOIN_COMMUTATIVITY.ordinal());
-        set.set(OptRuleType.RULE_EXP_JOIN_ASSOCIATIVITY.ordinal());
-        return set;
-    }
-
-    @Override
-    public BitSet getCandidateRulesForImplement() {
-        final BitSet set = new BitSet();
-        set.set(OptRuleType.RULE_IMP_EQ_JOIN_TO_HASH_JOIN.ordinal());
-        return set;
+    public OptLogicalJoin(OptOperatorType type) {
+        super(type);
     }
 
     // Common case of output derivation by combining the schemas of all
+    @Override
+    public Statistics deriveStat(OptExpressionHandle expressionHandle, RequiredLogicalProperty property) {
+        Preconditions.checkArgument(expressionHandle.getChildrenStatistics().size() == 2);
+        final Statistics outerChild = expressionHandle.getChildrenStatistics().get(0);
+        final Statistics innerChild = expressionHandle.getChildrenStatistics().get(1);
+        return new Statistics();
+    }
+
+    @Override
+    public OptColumnRefSet requiredStatForChild(
+            OptExpressionHandle expressionHandle, RequiredLogicalProperty property, int childIndex) {
+        final OptColumnRefSet columns = new OptColumnRefSet();
+        columns.include(property.getColumns());
+        columns.intersects(expressionHandle.getChildLogicalProperty(childIndex).getOutputColumns());
+        return columns;
+    }
+
     @Override
     public OptColumnRefSet getOutputColumns(OptExpressionHandle exprHandle) {
         OptColumnRefSet columns = new OptColumnRefSet();
@@ -67,10 +65,4 @@ public class OptLogicalJoin extends OptLogical {
         return columns;
     }
 
-    @Override
-    public Statistics deriveStat(OptExpressionWapper wapper, StatisticsContext context) {
-        final Statistics joinStatistics =
-                new DefaultStatistics(RowCountProvider.getRowCount(wapper.getExpression(), context));
-        return joinStatistics;
-    }
 }

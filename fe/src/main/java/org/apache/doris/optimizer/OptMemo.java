@@ -118,6 +118,7 @@ public class OptMemo {
 
         OptGroup newGroup = new OptGroup(nextGroupId++, expr.getProperty());
         newGroup.addMExpr(mExpr);
+        newGroup.setProperty(expr.getLogicalProperty());
         groups.add(newGroup);
         return mExpr;
     }
@@ -283,7 +284,7 @@ public class OptMemo {
             OptExpression childExpr = extractExpression(childGroup, childProp);
             exprChildren.add(childExpr);
         }
-        OptExpression extractedExpr = new OptExpression(bestMExpr.getOp(), exprChildren, bestMExpr, cost, stats);
+        OptExpression extractedExpr = OptExpression.create(bestMExpr.getOp(), exprChildren, bestMExpr, cost, stats);
         return extractedExpr;
     }
 }

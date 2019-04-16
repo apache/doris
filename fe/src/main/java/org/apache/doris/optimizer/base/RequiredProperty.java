@@ -17,5 +17,14 @@
 
 package org.apache.doris.optimizer.base;
 
-public class RequiredProperty {
+import org.apache.doris.optimizer.operator.OptExpressionHandle;
+
+/**
+ * Base class for property required when optimizing OptGroup.
+ */
+public abstract class RequiredProperty {
+    protected OptColumnRefSet columns;
+
+    public OptColumnRefSet getColumns() { return columns; }
+    public abstract void compute(OptExpressionHandle exprHandle, RequiredProperty parentProperty, int childIndex);
 }

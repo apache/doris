@@ -32,16 +32,15 @@ public class SearchContext {
     private final Scheduler scheduler;
     private final SearchVariable variables;
 
-
     private SearchContext(Optimizer optimizer, Scheduler scheduler, SearchVariable variables) {
         this.optimizer = optimizer;
         this.scheduler = scheduler;
         this.variables = variables;
     }
 
-    public static SearchContext create(Optimizer engine, OptGroup firstGroup,
+    public static SearchContext create(Optimizer optimizer, OptGroup firstGroup,
                                        OptimizationContext oContext, Scheduler scheduler, SearchVariable variables) {
-        final SearchContext sContext = new SearchContext(engine, scheduler, variables);
+        final SearchContext sContext = new SearchContext(optimizer, scheduler, variables);
         TaskGroupOptimization.schedule(sContext, firstGroup, oContext, null);
         return sContext;
     }

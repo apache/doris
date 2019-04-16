@@ -25,16 +25,20 @@ public class QueryContext {
     private OptExpression expression;
     private RequiredPhysicalProperty reqdProp;
     private List<OptColumnRef> outputColumns;
+    private SearchVariable variables;
 
     public QueryContext(OptExpression expression,
                         RequiredPhysicalProperty reqdProp,
-                        List<OptColumnRef> outputColumns) {
+                        List<OptColumnRef> outputColumns,
+                        SearchVariable variables) {
         this.expression = expression;
         this.reqdProp = reqdProp;
         this.outputColumns = outputColumns;
+        this.variables = variables;
     }
 
     public OptExpression getExpression() { return expression; }
     public RequiredPhysicalProperty getReqdProp() { return reqdProp; }
     public List<OptColumnRef> getOutputColumns() { return outputColumns; }
+    public SearchVariable getVariables() { return variables; }
 }

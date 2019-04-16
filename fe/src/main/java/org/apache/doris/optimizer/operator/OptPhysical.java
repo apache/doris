@@ -17,17 +17,36 @@
 
 package org.apache.doris.optimizer.operator;
 
-import org.apache.doris.optimizer.base.EnforceOrderProperty;
-import org.apache.doris.optimizer.base.EnforceProperty;
-import org.apache.doris.optimizer.base.OptOrderSpec;
-import org.apache.doris.optimizer.base.OptPhysicalProperty;
-import org.apache.doris.optimizer.base.OptProperty;
-import org.apache.doris.optimizer.base.RequiredPhysicalProperty;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import org.apache.doris.optimizer.OptExpression;
+import org.apache.doris.optimizer.base.*;
+
+import java.util.List;
+import java.util.Map;
 
 public abstract class OptPhysical extends OptOperator {
+    protected List<Map<RequiredPhysicalProperty, OptColumnRefSet>> columnsRequiredForChildrenCache;
+    protected OptDistributionSpec distributionSpec;
+    protected OptOrderSpec orderSpec;
 
     protected OptPhysical(OptOperatorType type) {
+        this(type, OptDistributionSpec.createAnyDistributionSpec(), OptOrderSpec.createEmpty());
+    }
+
+    protected OptPhysical(OptOperatorType type, OptDistributionSpec distributionSpec) {
+        this(type, distributionSpec, OptOrderSpec.createEmpty());
+    }
+
+    protected OptPhysical(OptOperatorType type, OptOrderSpec orderSpec) {
+        this(type, OptDistributionSpec.createAnyDistributionSpec(), orderSpec);
+    }
+
+    protected OptPhysical(OptOperatorType type, OptDistributionSpec distributionSpec,
+                          OptOrderSpec orderSpec) {
         super(type);
+        this.distributionSpec = distributionSpec;
+        this.orderSpec = orderSpec;
     }
 
     @Override
@@ -37,31 +56,55 @@ public abstract class OptPhysical extends OptOperator {
         return new OptPhysicalProperty();
     }
 
-    public RequiredPhysicalProperty getPhysicalProperty() { return null; }
+    /*-------------------------------------------------------------------------------------------*/
+    // These are called by RequiredPhysicalProperty for computing properties when optimizing children.
 
-    //------------------------------------------------------------------------
-    // Used to compute required property for children
-    //------------------------------------------------------------------------
-    // get required sort order of n-th child
-    public abstract EnforceOrderProperty getChildReqdOrder(
-            OptExpressionHandle handle,
-            EnforceOrderProperty reqdOrder,
-            int childIndex);
+    public abstract OrderEnforcerProperty getChildReqdOrder(
+            OptExpressionHandle handle, OrderEnforcerProperty reqdOrder, int childIndex);
+    public abstract DistributionEnforcerProperty getChildReqdDistribution(
+            OptExpressionHandle handle, DistributionEnforcerProperty reqdDistribution, int childIndex);
+    protected abstract OptColumnRefSet deriveChildReqdColumns(OptExpressionHandle exprHandle,
+                                                           RequiredPhysicalProperty property, int childIndex);
 
-    //------------------------------------------------------------------------
-    // Used to get operator's derived property
-    //------------------------------------------------------------------------
-    // get derived order property for this operator
-    public abstract OptOrderSpec getOrderSpec(OptExpressionHandle exprHandle);
+    public OptColumnRefSet getChildReqdColumns(OptExpressionHandle exprHandle,
+                                               RequiredPhysicalProperty property, int childIndex) {
+        Map<RequiredPhysicalProperty, OptColumnRefSet> requiredColumnsMap =
+                columnsRequiredForChildrenCache.get(childIndex);
+        if (requiredColumnsMap != null && requiredColumnsMap.get(property) != null) {
+            return requiredColumnsMap.get(property);
+        }
 
-    //------------------------------------------------------------------------
-    // Used to get enforce type for this operator
-    //------------------------------------------------------------------------
-    // get enforce type for sort order
-    public abstract EnforceProperty.EnforceType getOrderEnforceType(
-            OptExpressionHandle exprHandle, EnforceOrderProperty enforceOrder);
+        final OptColumnRefSet columns = deriveChildReqdColumns(exprHandle, property, childIndex);
+        if(requiredColumnsMap == null) {
+            requiredColumnsMap = Maps.newHashMap();
+            requiredColumnsMap.put(property, columns);
+        }
+        return columns;
+    }
+    /*-------------------------------------------------------------------------------------------*/
 
-    protected  OptOrderSpec getOrderSpecPassThrough(OptExpressionHandle exprHandle) {
+    public EnforcerProperty.EnforceType getOrderEnforceType(
+            OptExpressionHandle exprHandle,
+            OrderEnforcerProperty orderProperty) {
+        if (orderSpec.isSatisfy(orderProperty.getPropertySpec())) {
+            // required order is already established by sort operator
+            return EnforcerProperty.EnforceType.UNNECESSARY;
+        }
+        return EnforcerProperty.EnforceType.REQUIRED;
+    }
+
+    public EnforcerProperty.EnforceType getDistributionEnforcerType(
+            OptExpressionHandle exprHandle, DistributionEnforcerProperty property) {
+        if (distributionSpec.isSatisfy(property.getPropertySpec())) {
+            return EnforcerProperty.EnforceType.UNNECESSARY;
+        }
+        return EnforcerProperty.EnforceType.REQUIRED;
+    }
+
+    public OptOrderSpec getOrderSpec(OptExpressionHandle exprHandle) { return orderSpec; }
+    public OptDistributionSpec getDistributionSpec(OptExpressionHandle exprHandle) { return distributionSpec; }
+
+    protected final OptOrderSpec getOrderSpecPassThrough(OptExpressionHandle exprHandle) {
         return exprHandle.getChildPhysicalProperty(0).getOrderSpec();
     }
 }

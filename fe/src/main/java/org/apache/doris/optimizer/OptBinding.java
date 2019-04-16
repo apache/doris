@@ -73,7 +73,7 @@ public class OptBinding {
                 if (hasBound) {
                     boundInputs.add(inputLastExpr);
                 } else {
-                    OptExpression inputPattern = pattern.getInput(i);
+                    OptExpression inputPattern = extractPattern(pattern, i);
                     OptGroup inputGroup = mExpr.getInput(i);
                     OptExpression boundInput = bind(inputPattern, inputGroup, inputLastExpr);
                     LOG.debug("going to bind, patter={}, group={}, lastExpr={}, boundInput={}",
@@ -125,5 +125,13 @@ public class OptBinding {
             mExpr = mExpr.next();
         } while (mExpr != null);
         return null;
+    }
+
+    private static OptExpression extractPattern(OptExpression parentPattern, int index) {
+        if (parentPattern.getOp().isPatternAndTree()
+                || parentPattern.getOp().isPatternAndMultiTree()) {
+            return parentPattern;
+        }
+        return parentPattern.getInput(index);
     }
 }

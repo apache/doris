@@ -18,25 +18,56 @@
 package org.apache.doris.optimizer.base;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.optimizer.OptUtils;
 
 // Reference to one column
 public class OptColumnRef {
     // id is unique in one process of an optimization
     // Used in bit set to accelerate operation
-    private int id;
-    private Type type;
+    private final int id;
+    private final Type type;
     // used to debug
-    private String name;
+    private final String name;
+    private final int hashCode;
 
     public OptColumnRef(int id, Type type, String name) {
         this.id = id;
         this.type = type;
         this.name = name;
+        this.hashCode = generateHashCode();
+    }
+
+    // TODO ch
+    private int generateHashCode() {
+        int result = 16;
+        result = 31 * result + (id ^ (id >>> 32));
+        result = OptUtils.combineHash(result, type);
+        return OptUtils.combineHash(result, name);
     }
 
     public int getId() { return id; }
     public Type getType() { return type; }
     public String getName() { return name; }
+
+    @Override
+    public int hashCode() {
+        return hashCode;
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (obj == null ||
+                !(obj instanceof OptColumnRef)) {
+            return false;
+        }
+
+        if (obj == this) {
+            return true;
+        }
+
+        final OptColumnRef column = (OptColumnRef) obj;
+        return id == column.id && type == column.type && name == column.name;
+    }
 
     @Override
     public String toString() {

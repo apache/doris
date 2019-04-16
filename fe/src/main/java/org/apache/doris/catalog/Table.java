@@ -34,6 +34,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Collection;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -132,6 +133,10 @@ public class Table extends MetaObject implements Writable {
 
     public Column getColumn(String name) {
         return nameToColumn.get(name);
+    }
+
+    public Collection<Column> getColumns() {
+        return nameToColumn.values();
     }
 
     public TTableDescriptor toThrift() {

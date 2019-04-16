@@ -22,7 +22,7 @@ import org.apache.doris.optimizer.operator.OptExpressionHandle;
 
 import java.util.List;
 
-public abstract class EnforceProperty {
+public abstract class EnforcerProperty {
     // Definition of property enforcing type for a given operator.
     //
     // Each enforced property is queried in CEngine::FCheckEnfdProps() to
@@ -60,12 +60,20 @@ public abstract class EnforceProperty {
         return type == EnforceType.REQUIRED || type == EnforceType.OPTIONAL;
     }
 
-    // check if this type is already optimized. Return true means this is optimized, and we
-    public static boolean isOptimized(EnforceType type) {
-        return type == EnforceType.OPTIONAL || type == EnforceType.UNNECESSARY;
+    // Check if this type is already optimized. Return true means this is optimized, and we
+
+    public static boolean isOptimized(EnforceType orderEnforcerType,
+                                      EnforceType distributionEnforcerType) {
+        return isOptimized(orderEnforcerType) && isOptimized(distributionEnforcerType);
+    }
+
+    private static boolean isOptimized(EnforceType type) {
+        return (type == EnforceType.OPTIONAL || type == EnforceType.UNNECESSARY);
     }
 
     public abstract OptPropertySpec getPropertySpec();
+
+    public abstract boolean isSatisfy(OptPropertySpec spec);
 
     // append enforcers to an expression, new generated expressions will be added into expressions
     public void appendEnforcers(EnforceType type,

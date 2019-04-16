@@ -18,29 +18,64 @@
 package org.apache.doris.optimizer.operator;
 
 import org.apache.doris.optimizer.OptExpression;
-import org.apache.doris.optimizer.OptExpressionWapper;
 import org.apache.doris.optimizer.OptUtils;
-import org.apache.doris.optimizer.base.OptColumnRefSet;
-import org.apache.doris.optimizer.base.OptItemProperty;
-import org.apache.doris.optimizer.base.OptLogicalProperty;
-import org.apache.doris.optimizer.base.OptMaxcard;
-import org.apache.doris.optimizer.base.OptProperty;
+import org.apache.doris.optimizer.base.*;
 import org.apache.doris.optimizer.stat.Statistics;
-import org.apache.doris.optimizer.stat.StatisticsContext;
 
 import java.util.BitSet;
 
 public abstract class OptLogical extends OptOperator {
+    private static BitSet EMPTY_BITSET = new BitSet();
 
     protected OptLogical(OptOperatorType type) {
         super(type);
     }
 
-    public abstract BitSet getCandidateRulesForExplore();
+    public BitSet getCandidateRulesForExplore() {
+        return EMPTY_BITSET;
+    }
 
-    public abstract BitSet getCandidateRulesForImplement();
+    public BitSet getCandidateRulesForImplement() {
+        return EMPTY_BITSET;
+    }
 
-    public abstract Statistics deriveStat(OptExpressionWapper wapper, StatisticsContext context);
+    public abstract Statistics deriveStat(
+            OptExpressionHandle expressionHandle, RequiredLogicalProperty property);
+
+    public abstract OptColumnRefSet requiredStatForChild(
+            OptExpressionHandle expressionHandle, RequiredLogicalProperty property, int childIndex);
+
+    protected Statistics estimateAgg(OptColumnRefSet groupBy, RequiredLogicalProperty property, Statistics childStatistcs) {
+        final Statistics statistics = new Statistics();
+        long rowCount = 1;
+        final OptColumnRefSet set = new OptColumnRefSet();
+        set.include(property.getColumns());
+        set.intersects(groupBy);
+        for (int id : set.getColumnIds()) {
+            rowCount *= childStatistcs.getCardinality(id);
+        }
+        statistics.setRowCount(rowCount);
+        for (int id : property.getColumns().getColumnIds()) {
+            statistics.addRow(id, childStatistcs.getCardinality(id));
+        }
+        return statistics;
+    }
+
+    protected long estimateCardinalityWithRows(long c) {
+        return c / 10;
+    }
+
+    protected long estimateCardinalityWithRows(long c1, long c2) {
+        return (c1 + c2 - estimateDuplicateWithCardinality(c1, c2)) / 10;
+    }
+
+    protected long estimateDuplicateWithCardinality(long c1, long c2) {
+        return (c1 > c2  ? c2 : c1) / 4;
+    }
+
+    protected long estimateCardinalityWithCardinalities(long cardinality1, long cardinality2) {
+        return (cardinality1 + cardinality2) / 4;
+    }
 
     @Override
     public boolean isLogical() { return true; }

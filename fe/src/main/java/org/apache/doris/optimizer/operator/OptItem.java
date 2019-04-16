@@ -18,11 +18,14 @@
 package org.apache.doris.optimizer.operator;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.optimizer.base.OptColumnRef;
 import org.apache.doris.optimizer.base.OptColumnRefSet;
 import org.apache.doris.optimizer.base.OptItemProperty;
 import org.apache.doris.optimizer.base.OptProperty;
 
 public abstract class OptItem extends OptOperator {
+    private static OptColumnRefSet EMPTY_COLUMNS = new OptColumnRefSet();
+
     protected OptItem(OptOperatorType type) {
         super(type);
     }
@@ -41,7 +44,6 @@ public abstract class OptItem extends OptOperator {
 
     public boolean isConstant() { return false; }
     public boolean isAlwaysTrue() { return false; }
-    public OptColumnRefSet getUsedColumns() {
-        return new OptColumnRefSet();
-    }
+    public OptColumnRefSet getUsedColumns() { return EMPTY_COLUMNS; }
+    public OptColumnRefSet getGeneratedColumns() { return EMPTY_COLUMNS; }
 }

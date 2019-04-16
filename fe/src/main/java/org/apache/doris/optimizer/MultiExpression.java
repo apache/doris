@@ -19,13 +19,17 @@ package org.apache.doris.optimizer;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
+import org.apache.doris.optimizer.base.RequiredLogicalProperty;
+import org.apache.doris.optimizer.operator.OptExpressionHandle;
+import org.apache.doris.optimizer.operator.OptLogical;
 import org.apache.doris.optimizer.operator.OptOperator;
 import org.apache.doris.optimizer.rule.OptRuleType;
+import org.apache.doris.optimizer.stat.Statistics;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
-import java.util.Objects;
 import java.util.stream.Collectors;
 
 // MultiExpression is another way to represent OptExpression, which
@@ -40,6 +44,7 @@ public class MultiExpression {
     private OptOperator op;
     private List<OptGroup> inputs;
     private MEState status;
+    private List<MultiExpression> implementedMExprs;
 
     // OptGroup which this MultiExpression belongs to. Firstly it's null when object is created,
     // it will be assigned after it is inserted into OptMemo.
@@ -58,6 +63,7 @@ public class MultiExpression {
         this.ruleTypeDerivedFrom = OptRuleType.RULE_NONE;
         this.ruleTypeDerivedFrom = ruleTypeDerivedFrom;
         this.sourceMExprId = sourceMExprId;
+        this.implementedMExprs = Lists.newArrayList();
     }
 
     public MultiExpression(OptOperator op, List<OptGroup> inputs) {
@@ -76,11 +82,24 @@ public class MultiExpression {
     public void setStatus(MEState status) { this.status = status; }
     public MEState getStatus() { return status; }
     public boolean isImplemented() { return status == MEState.Implemented; }
+    public boolean isOptimized() { return status == MEState.Optimized; }
     public void setNext(MultiExpression next) { this.next = next; }
     public void setInvalid() { this.group = null; }
     public boolean isValid() { return this.group != null; }
     // get next MultiExpression in same group
     public MultiExpression next() { return next; }
+    public List<MultiExpression> getImplementedMExprs() { return implementedMExprs; }
+
+    public void addImplementedMExpr(MultiExpression mExpr) {
+        Preconditions.checkArgument(mExpr.getOp().isPhysical(),
+                "Add logical MultiExpression to implemented MultiExpression list.");
+        this.implementedMExprs.add(mExpr);
+    }
+
+    public Statistics deriveStat(OptExpressionHandle exprHandle, RequiredLogicalProperty property) {
+        final OptLogical logical = (OptLogical)op;
+        return logical.deriveStat(exprHandle, property);
+    }
 
     public String debugString() {
         StringBuilder sb = new StringBuilder();
@@ -147,6 +166,8 @@ public class MultiExpression {
     public enum MEState {
         UnImplemented,
         Implementing,
-        Implemented
+        Implemented,
+        Optimizing,
+        Optimized
     }
 }

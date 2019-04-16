@@ -17,8 +17,12 @@
 
 package org.apache.doris.optimizer.base;
 
+import com.google.common.collect.Lists;
 import org.apache.doris.optimizer.MultiExpression;
 import org.apache.doris.optimizer.OptGroup;
+import org.apache.doris.optimizer.Optimizer;
+
+import java.util.List;
 
 // Optimization context store information when optimizing a OptGroup
 public class OptimizationContext {
@@ -30,22 +34,25 @@ public class OptimizationContext {
     private RequiredPhysicalProperty reqdPhyProp;
     private OptCostContext bestCostCtx;
 
+    private List<OptimizationContext> childrenOptContext;
+
     public OptimizationContext(OptGroup group,
                                RequiredPhysicalProperty reqdPhyProp) {
         this.group = group;
         this.reqdPhyProp = reqdPhyProp;
+        this.childrenOptContext = Lists.newArrayList();
     }
 
+    public void setBestCostCtx(OptCostContext costContext) {
+        this.bestCostCtx = costContext;
+    }
     public OptGroup getGroup() { return group; }
     public RequiredPhysicalProperty getReqdPhyProp() { return reqdPhyProp; }
     public OptCostContext getBestCostCtx() { return bestCostCtx; }
+    public void addChildOptContext(OptimizationContext context) { this.childrenOptContext.add(context); };
+    public List<OptimizationContext> getChildrenOptContext() { return childrenOptContext; };
+    public MultiExpression getBestMultiExpr() { return bestCostCtx == null ? null : bestCostCtx.getMultiExpr(); }
 
-    public MultiExpression getBestMultiExpr() {
-        if (bestCostCtx == null) {
-            return null;
-        }
-        return bestCostCtx.getMultiExpr();
-    }
     @Override
     public int hashCode() {
         return reqdPhyProp.hashCode();

@@ -72,6 +72,8 @@ public enum JoinOperator {
         return this == LEFT_SEMI_JOIN;
     }
 
+    public boolean isLeftAntiJoin() { return this == LEFT_ANTI_JOIN; }
+
     public boolean isInnerJoin() {
         return this == INNER_JOIN;
     }

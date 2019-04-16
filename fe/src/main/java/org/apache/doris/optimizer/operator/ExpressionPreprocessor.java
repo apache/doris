@@ -119,9 +119,9 @@ public class ExpressionPreprocessor {
         OptOperator op = expr.getOp();
         if (OptUtils.isExistentialSubquery(op)) {
             OptExpression inner = expr.getInput(0);
-            if (inner.getOp() instanceof OptLogicalGbAgg) {
-                OptLogicalGbAgg gbAgg = (OptLogicalGbAgg) inner.getOp();
-                if (gbAgg.getGroupByColumns().isEmpty()) {
+            if (inner.getOp() instanceof OptLogicalAggregate) {
+                OptLogicalAggregate gbAgg = (OptLogicalAggregate) inner.getOp();
+                if (gbAgg.getGroupBy().cardinality() == 0) {
                     boolean value = true;
                     if (op instanceof OptItemSubqueryNotExists) {
                         value = false;
@@ -191,8 +191,8 @@ public class ExpressionPreprocessor {
                 childOp = child.getOp();
             }
 
-            boolean isGbAggWithoutGrpCols = (childOp instanceof OptLogicalGbAgg)
-                    && ((OptLogicalGbAgg) childOp).getGroupByColumns().isEmpty();
+            boolean isGbAggWithoutGrpCols = (childOp instanceof OptLogicalAggregate)
+                    && ((OptLogicalAggregate) childOp).getGroupBy().cardinality() == 0;
             // TODO(zc): support const table get
             boolean isOneRowConstTable = false;
             if (isGbAggWithoutGrpCols || isOneRowConstTable) {

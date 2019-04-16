@@ -17,11 +17,61 @@
 
 package org.apache.doris.optimizer.operator;
 
-import org.apache.doris.optimizer.base.OptMaxcard;
+import com.google.common.base.Preconditions;
+import org.apache.doris.optimizer.base.*;
+import org.apache.doris.optimizer.rule.OptRuleType;
+import org.apache.doris.optimizer.stat.Statistics;
+
+import java.util.BitSet;
 
 public class OptLogicalInnerJoin extends OptLogicalJoin {
+
     public OptLogicalInnerJoin() {
         super(OptOperatorType.OP_LOGICAL_INNER_JOIN);
+    }
+
+    @Override
+    public BitSet getCandidateRulesForExplore() {
+        final BitSet set = new BitSet();
+        set.set(OptRuleType.RULE_EXP_JOIN_COMMUTATIVITY.ordinal());
+        set.set(OptRuleType.RULE_EXP_JOIN_ASSOCIATIVITY.ordinal());
+        return set;
+    }
+
+    @Override
+    public BitSet getCandidateRulesForImplement() {
+        final BitSet set = new BitSet();
+        set.set(OptRuleType.RULE_IMP_EQ_JOIN_TO_HASH_JOIN.ordinal());
+        return set;
+    }
+
+    @Override
+    public Statistics deriveStat(OptExpressionHandle expressionHandle, RequiredLogicalProperty property) {
+        Preconditions.checkArgument(expressionHandle.getChildrenStatistics().size() == 2);
+        final Statistics outerChild = expressionHandle.getChildrenStatistics().get(0);
+        final Statistics innerChild = expressionHandle.getChildrenStatistics().get(1);
+        return new Statistics();
+    }
+
+    @Override
+    public OptColumnRefSet requiredStatForChild(
+            OptExpressionHandle expressionHandle, RequiredLogicalProperty property, int childIndex) {
+        final OptColumnRefSet columns = new OptColumnRefSet();
+        columns.include(property.getColumns());
+        final OptItemProperty conjunctProperty = expressionHandle.getChildItemProperty(2);
+        columns.include(conjunctProperty.getUsedColumns());
+        columns.include(conjunctProperty.getDefinedColumns());
+        columns.intersects(expressionHandle.getChildLogicalProperty(childIndex).getOutputColumns());
+        return columns;
+    }
+
+    @Override
+    public OptColumnRefSet getOutputColumns(OptExpressionHandle exprHandle) {
+        final OptColumnRefSet columns = new OptColumnRefSet();
+        for (int i = 0; i < exprHandle.arity() - 1; ++i) {
+            columns.include(exprHandle.getChildLogicalProperty(i).getOutputColumns());
+        }
+        return columns;
     }
 
     //------------------------------------------------------------------------

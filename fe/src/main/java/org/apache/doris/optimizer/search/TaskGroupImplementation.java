@@ -19,6 +19,7 @@ package org.apache.doris.optimizer.search;
 
 import org.apache.doris.optimizer.MultiExpression;
 import org.apache.doris.optimizer.OptGroup;
+import org.apache.doris.optimizer.base.RequiredLogicalProperty;
 
 /**
  * For creating physical implementations of all expressions in the group.
@@ -85,11 +86,15 @@ public class TaskGroupImplementation extends Task {
         @Override
         public void handle(SearchContext sContext) {
             group.setStatus(OptGroup.GState.Implemented);
-            deriveStatistics(group);
+            if (sContext.getMemo().getRoot() == group) {
+                deriveStatistics(group);
+            }
             setFinished();
         }
 
         public void deriveStatistics(OptGroup group) {
+            final RequiredLogicalProperty property = new RequiredLogicalProperty();
+            group.deriveStat(property);
         }
     }
 }

@@ -17,11 +17,14 @@
 
 package org.apache.doris.optimizer;
 
+import com.google.common.base.Preconditions;
+import org.apache.doris.optimizer.base.OptColumnRefSet;
+import org.apache.doris.optimizer.base.RequiredLogicalProperty;
+import org.apache.doris.optimizer.operator.OptExpressionHandle;
 import org.apache.doris.optimizer.operator.OptLogical;
 import org.apache.doris.optimizer.operator.OptOperatorType;
 import org.apache.doris.optimizer.rule.OptRuleType;
 import org.apache.doris.optimizer.stat.Statistics;
-import org.apache.doris.optimizer.stat.StatisticsContext;
 
 import java.util.BitSet;
 
@@ -66,7 +69,19 @@ public class OptLogicalUTLeafNode extends OptLogical {
     }
 
     @Override
-    public Statistics deriveStat(OptExpressionWapper wapper, StatisticsContext context) {
+    public Statistics deriveStat(OptExpressionHandle expressionHandle, RequiredLogicalProperty property) {
+        return new Statistics();
+    }
+
+    @Override
+    public OptColumnRefSet requiredStatForChild(
+            OptExpressionHandle expressionHandle, RequiredLogicalProperty property, int childIndex) {
+        Preconditions.checkState(false, "Scan does't have children.");
         return null;
+    }
+
+    @Override
+    public OptColumnRefSet getOutputColumns(OptExpressionHandle exprHandle) {
+        return new OptColumnRefSet();
     }
 }
