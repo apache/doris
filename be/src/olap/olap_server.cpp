@@ -40,6 +40,12 @@ namespace doris {
 volatile uint32_t g_schema_change_active_threads = 0;
 
 OLAPStatus StorageEngine::_start_bg_worker() {
+    _unused_rowset_monitor_thread =  std::thread(
+        [this] {
+            _unused_rowset_monitor_thread_callback(nullptr);
+        });
+    _unused_rowset_monitor_thread.detach();
+
     // start thread for monitoring the snapshot and trash folder
     _garbage_sweeper_thread = std::thread(
         [this] {
@@ -124,7 +130,7 @@ void* StorageEngine::_fd_cache_clean_callback(void* arg) {
         start_clean_fd_cache();
     }
 
-    return NULL;
+    return nullptr;
 }
 
 void* StorageEngine::_base_compaction_thread_callback(void* arg) {
@@ -150,7 +156,7 @@ void* StorageEngine::_base_compaction_thread_callback(void* arg) {
         usleep(interval * 1000000);
     }
 
-    return NULL;
+    return nullptr;
 }
 
 void* StorageEngine::_garbage_sweeper_thread_callback(void* arg) {
@@ -196,7 +202,7 @@ void* StorageEngine::_garbage_sweeper_thread_callback(void* arg) {
         }
     }
 
-    return NULL;
+    return nullptr;
 }
 
 void* StorageEngine::_disk_stat_monitor_thread_callback(void* arg) {
@@ -207,8 +213,8 @@ void* StorageEngine::_disk_stat_monitor_thread_callback(void* arg) {
     uint32_t interval = config::disk_stat_monitor_interval;
 
     if (interval <= 0) {
-        OLAP_LOG_WARNING("disk_stat_monitor_interval config is illegal: [%d], "
-                         "force set to 1", interval);
+        LOG(WARNING) << "disk_stat_monitor_interval config is illegal: " << interval
+                << ", force set to 1";
         interval = 1;
     }
 
@@ -217,7 +223,7 @@ void* StorageEngine::_disk_stat_monitor_thread_callback(void* arg) {
         sleep(interval);
     }
 
-    return NULL;
+    return nullptr;
 }
 
 void* StorageEngine::_cumulative_compaction_thread_callback(void* arg) {
@@ -241,7 +247,28 @@ void* StorageEngine::_cumulative_compaction_thread_callback(void* arg) {
         usleep(interval * 1000000);
     }
 
-    return NULL;
+    return nullptr;
+}
+
+void* StorageEngine::_unused_rowset_monitor_thread_callback(void* arg) {
+#ifdef GOOGLE_PROFILER
+    ProfilerRegisterThread();
+#endif
+
+    uint32_t interval = config::unused_rowset_monitor_interval;
+
+    if (interval <= 0) {
+        LOG(WARNING) << "unused_rowset_monitor_interval config is illegal: " << interval
+                << ", force set to 1";
+        interval = 1;
+    }
+
+    while (true) {
+        start_delete_unused_rowset();
+        sleep(interval);
+    }
+
+    return nullptr;
 }
 
 }  // namespace doris

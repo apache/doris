@@ -216,7 +216,7 @@ bool SegmentGroup::delete_all_files() {
             success = false;
         }
 
-        LOG(WARNING) << "delete data file. path=" << data_path;
+        LOG(INFO) << "delete data file. path=" << data_path;
         if (remove(data_path.c_str()) != 0) {
             char errmsg[64];
             LOG(WARNING) << "fail to delete data file. err=" << strerror_r(errno, errmsg, 64)
