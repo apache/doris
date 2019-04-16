@@ -27,27 +27,31 @@ public interface TxnStateChangeListener {
 
     public long getId();
 
+    /**
+     * this interface is executed before txn committed, it will check if txn could be commit
+     * @param txnState
+     * @throws TransactionException if transaction could not be commit or there are some exception before committed,
+     *                                  it will throw this exception. The txn will be committed failed.
+     */
     public void beforeCommitted(TransactionState txnState) throws TransactionException;
+
+    /**
+     * this interface is executed before txn aborted, it will check if txn could be abort
+     *
+     * @param txnState
+     * @throws TransactionException if transaction could not be abort or there are some exception before aborted,
+     *                                  it will throw this exception. The txn will be aborted failed.
+     */
+    public void beforeAborted(TransactionState txnState) throws TransactionException;
 
     /**
      * update catalog of job which has related txn after transaction has been committed
      *
      * @param txnState
      */
-    public ListenResult onCommitted(TransactionState txnState) throws UserException;
+    public void afterCommitted(TransactionState txnState, boolean txnOperated) throws UserException;
 
     public void replayOnCommitted(TransactionState txnState);
-
-    /**
-     * this interface is executed before txn aborted, you can check if txn could be abort in this stage
-     *
-     * @param txnState
-     * @param txnStatusChangeReason maybe null
-     * @throws AbortTransactionException if transaction could not be abort or there are some exception before aborted,
-     *                                   it will throw this exception
-     */
-    public void beforeAborted(TransactionState txnState, String txnStatusChangeReason)
-            throws AbortTransactionException;
 
     /**
      * this interface is executed when transaction has been aborted
@@ -57,7 +61,7 @@ public interface TxnStateChangeListener {
      *            maybe null
      * @return
      */
-    public ListenResult onAborted(TransactionState txnState, String txnStatusChangeReason) throws UserException;
+    public void afterAborted(TransactionState txnState, boolean txnOperated, String txnStatusChangeReason) throws UserException;
 
     public void replayOnAborted(TransactionState txnState);
 }
