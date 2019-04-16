@@ -138,10 +138,6 @@ public class TransactionState implements Writable {
     
     private long listenerId = -1;
 
-    // the result of calling txn state change listener.
-    // this is used for replaying
-    private ListenResult listenResult = ListenResult.UNCHANGED;
-
     // optional
     private TxnCommitAttachment txnCommitAttachment;
     
@@ -210,7 +206,7 @@ public class TransactionState implements Writable {
         this.hasSendTask = hasSendTask;
         this.publishVersionTime = System.currentTimeMillis();
     }
-    
+
     public void updateSendTaskTime() {
         this.publishVersionTime = System.currentTimeMillis();
     }
@@ -267,28 +263,16 @@ public class TransactionState implements Writable {
     public TxnCommitAttachment getTxnCommitAttachment() {
         return txnCommitAttachment;
     }
-    
-    public void setTransactionStatus(TransactionStatus transactionStatus)
-            throws UserException {
-        setTransactionStatus(transactionStatus, null);
-    }
-    
-    public void setTransactionStatus(TransactionStatus transactionStatus, String txnStatusChangeReason)
-            throws UserException {
-        // before status changed
-        TxnStateChangeListener listener = Catalog.getCurrentGlobalTransactionMgr().getListenerRegistry().getListener(listenerId);
-        if (listener != null) {
-            switch (transactionStatus) {
-                case ABORTED:
-                    listener.beforeAborted(this, txnStatusChangeReason);
-                    break;
-                case COMMITTED:
-                    listener.beforeCommitted(this);
-                default:
-                    break;
-            }
-        }
 
+    public long getListenerId() {
+        return listenerId;
+    }
+
+    public void removeListenerId() {
+        listenerId = -1;
+    }
+
+    public void setTransactionStatus(TransactionStatus transactionStatus) {
         // status changed
         this.preStatus = this.transactionStatus;
         this.transactionStatus = transactionStatus;
@@ -303,21 +287,49 @@ public class TransactionState implements Writable {
             if (MetricRepo.isInit.get()) {
                 MetricRepo.COUNTER_TXN_FAILED.increase(1L);
             }
-            if (listener != null) {
-                listenResult = listener.onAborted(this, txnStatusChangeReason);
+        }
+    }
+
+    public void beforeStateTransform(TransactionStatus transactionStatus) throws TransactionException {
+        // before status changed
+        TxnStateChangeListener listener = Catalog.getCurrentGlobalTransactionMgr()
+                .getListenerRegistry().getListener(listenerId);
+        if (listener != null) {
+            switch (transactionStatus) {
+                case ABORTED:
+                    listener.beforeAborted(this);
+                    break;
+                case COMMITTED:
+                    listener.beforeCommitted(this);
+                default:
+                    break;
             }
-        } else if (transactionStatus == TransactionStatus.COMMITTED && listener != null) {
-            listenResult = listener.onCommitted(this);
+        }
+    }
+
+    public void afterStateTransform(TransactionStatus transactionStatus, boolean txnOperated) throws UserException {
+        afterStateTransform(transactionStatus, txnOperated, null);
+    }
+
+    public void afterStateTransform(TransactionStatus transactionStatus, boolean txnOperated, String txnStatusChangeReason)
+            throws UserException {
+        // after status changed
+        TxnStateChangeListener listener = Catalog.getCurrentGlobalTransactionMgr()
+                .getListenerRegistry().getListener(listenerId);
+        if (listener != null) {
+            switch (transactionStatus) {
+                case ABORTED:
+                    listener.afterAborted(this, txnOperated, txnStatusChangeReason);
+                    break;
+                case COMMITTED:
+                    listener.afterCommitted(this, txnOperated);
+                default:
+                    break;
+            }
         }
     }
     
     public void replaySetTransactionStatus() {
-        // no need to set status, status is already set
-        // here we only care about listener callback
-        if (listenResult == ListenResult.UNCHANGED) {
-            return;
-        }
-
         TxnStateChangeListener listener = Catalog.getCurrentGlobalTransactionMgr().getListenerRegistry().getListener(
                 listenerId);
         if (listener != null) {
@@ -394,7 +406,6 @@ public class TransactionState implements Writable {
         if (txnCommitAttachment != null) {
             sb.append(" attactment: ").append(txnCommitAttachment);
         }
-        sb.append(", listen result: ").append(listenResult.name());
         return sb.toString();
     }
     
@@ -441,7 +452,6 @@ public class TransactionState implements Writable {
             out.writeBoolean(true);
             txnCommitAttachment.write(out);
         }
-        Text.writeString(out, listenResult.name());
         out.writeLong(listenerId);
     }
     
@@ -472,7 +482,6 @@ public class TransactionState implements Writable {
             if (in.readBoolean()) {
                 txnCommitAttachment = TxnCommitAttachment.read(in);
             }
-            listenResult = ListenResult.valueOf(Text.readString(in));
             listenerId = in.readLong();
         }
     }

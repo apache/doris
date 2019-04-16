@@ -351,8 +351,8 @@ public class CreateRoutineLoadStmt extends DdlStmt {
             String[] kafkaPartionsStringList = kafkaPartitionsString.split(",");
             for (String s : kafkaPartionsStringList) {
                 try {
-                    // TODO(ml): from begin offset of partition
-                    kafkaPartitionOffsets.add(Pair.create(getIntegerValueFromString(s, KAFKA_PARTITIONS_PROPERTY), 0L));
+                    kafkaPartitionOffsets.add(Pair.create(getIntegerValueFromString(s, KAFKA_PARTITIONS_PROPERTY),
+                                                          KafkaProgress.OFFSET_END_VAL));
                 } catch (AnalysisException e) {
                     throw new AnalysisException(KAFKA_PARTITIONS_PROPERTY
                                                         + " must be a number string with comma-separated");

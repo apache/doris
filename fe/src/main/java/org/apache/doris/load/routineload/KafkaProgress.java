@@ -83,7 +83,7 @@ public class KafkaProgress extends RoutineLoadProgress {
     }
 
     public boolean hasPartition() {
-        return partitionIdToOffset.isEmpty();
+        return !partitionIdToOffset.isEmpty();
     }
 
     // (partition id, end offset)
