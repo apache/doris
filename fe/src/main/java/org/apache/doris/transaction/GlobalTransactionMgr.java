@@ -370,6 +370,7 @@ public class GlobalTransactionMgr {
             unprotectedCommitTransaction(transactionState, errorReplicaIds, tableToPartition, totalInvolvedBackends,
                                          db);
         } catch (Throwable e) {
+            LOG.warn("unexpected exception", e);
             txnOperated = false;
             throw e;
         } finally {
@@ -866,7 +867,7 @@ public class GlobalTransactionMgr {
         if (transactionState.getTransactionStatus() != TransactionStatus.PREPARE) {
             return;
         }
-        // 4. update transaction state version
+        // update transaction state version
         transactionState.setCommitTime(System.currentTimeMillis());
         transactionState.setTransactionStatus(TransactionStatus.COMMITTED);
         transactionState.setErrorReplicas(errorReplicaIds);
@@ -882,7 +883,7 @@ public class GlobalTransactionMgr {
             }
             transactionState.putIdToTableCommitInfo(tableId, tableCommitInfo);
         }
-        // 5. persistent transactionState
+        // persist transactionState
         unprotectUpsertTransactionState(transactionState);
 
         // add publish version tasks. set task to null as a placeholder.
@@ -890,10 +891,6 @@ public class GlobalTransactionMgr {
         for (long backendId : totalInvolvedBackends) {
             transactionState.addPublishVersionTask(backendId, null);
         }
-    }
-    
-    private void unprotectAbortTransaction(long transactionId, String reason) throws UserException {
-        unprotectAbortTransaction(transactionId, reason, null);
     }
 
     private void unprotectAbortTransaction(long transactionId, String reason, TxnCommitAttachment txnCommitAttachment)

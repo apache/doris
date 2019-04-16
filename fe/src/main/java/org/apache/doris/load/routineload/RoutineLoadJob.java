@@ -53,6 +53,8 @@ import org.apache.doris.transaction.TxnStateChangeListener;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
+import com.google.common.collect.EvictingQueue;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
@@ -69,6 +71,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Queue;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -196,6 +199,9 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
     protected ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
     // TODO(ml): error sample
 
+    // save the latest 3 error log urls
+    private Queue<String> errorLogUrls = EvictingQueue.create(3);
+
     protected boolean isTypeRead = false;
 
     public void setTypeRead(boolean isTypeRead) {
@@ -280,8 +286,13 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
         lock.writeLock().unlock();
     }
 
-    public void tryWriteLock() throws InterruptedException {
-        lock.writeLock().tryLock(5, TimeUnit.SECONDS);
+    public boolean tryWriteLock(long timeout, TimeUnit unit) {
+        try {
+            return this.lock.writeLock().tryLock(timeout, unit);
+        } catch (InterruptedException e) {
+            LOG.warn("failed to try write lock at db[" + id + "]", e);
+            return false;
+        }
     }
 
     public String getName() {
@@ -431,7 +442,7 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
     public boolean containsTask(UUID taskId) {
         readLock();
         try {
-            return routineLoadTaskInfoList.parallelStream()
+            return routineLoadTaskInfoList.stream()
                     .anyMatch(entity -> entity.getId().equals(taskId));
         } finally {
             readUnlock();
@@ -549,7 +560,7 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
     }
 
     // if task not exists, before aborted will throw exception
-    // if task pass the checker, lock job will be locked
+    // if task pass the checker, job lock will be locked
     // if tryLock timeout, txn will be aborted by timeout progress.
     // *** Please do not call before individually. It must be combined use with after ***
     @Override
@@ -574,32 +585,38 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
         executeBeforeCheck(txnState, TransactionStatus.COMMITTED);
     }
 
+    /*
+     * try lock the write lock.
+     * Make sure lock is released if any exception being thrown
+     */
     private void executeBeforeCheck(TransactionState txnState, TransactionStatus transactionStatus)
             throws TransactionException {
+        if (!tryWriteLock(2000, TimeUnit.MILLISECONDS)) {
+            // The lock of job has been locked by another thread more then timeout seconds.
+            // The commit txn by thread2 will be failed after waiting for timeout seconds.
+            // Maybe thread1 hang on somewhere
+            LOG.warn(new LogBuilder(LogKey.ROUINTE_LOAD_TASK, txnState.getLabel()).add("job_id", id).add("txn_status",
+                    transactionStatus).add("error_msg",
+                            "txn could not be transformed while waiting for timeout of routine load job"));
+            throw new TransactionException("txn " + txnState.getTransactionId() + "could not be " + transactionStatus
+                    + "while waiting for timeout of routine load job.");
+        }
+
         // task already pass the checker
         try {
-            tryWriteLock();
             // check if task has been aborted
             Optional<RoutineLoadTaskInfo> routineLoadTaskInfoOptional =
-                    routineLoadTaskInfoList.parallelStream()
+                    routineLoadTaskInfoList.stream()
                             .filter(entity -> entity.getTxnId() == txnState.getTransactionId()).findFirst();
             if (!routineLoadTaskInfoOptional.isPresent()) {
-                writeUnlock();
+
                 throw new TransactionException("txn " + txnState.getTransactionId()
                                                        + " could not be " + transactionStatus
                                                        + " while task " + txnState.getLabel() + " has been aborted.");
             }
-        } catch (InterruptedException e) {
-            // The lock of job has been locked by thread1 more then timeout seconds.
-            // The commit txn by thread2 will be failed after waiting for timeout seconds.
-            // Maybe thread1 hang on somewhere
-            LOG.warn(new LogBuilder(LogKey.ROUINTE_LOAD_TASK, txnState.getLabel())
-                             .add("job_id", id)
-                             .add("txn_status", transactionStatus)
-                             .add("error_msg", "txn could not be transformed "
-                                     + "while waiting for timeout of routine load job"));
-            throw new TransactionException("txn " + txnState.getTransactionId() + "could not be " + transactionStatus
-                                                   + "while waiting for timeout of routine load job.", e);
+        } catch (TransactionException e) {
+            writeUnlock();
+            throw e;
         }
     }
 
@@ -614,7 +631,7 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
         try {
             if (txnOperated) {
                 // find task in job
-                Optional<RoutineLoadTaskInfo> routineLoadTaskInfoOptional = routineLoadTaskInfoList.parallelStream().filter(
+                Optional<RoutineLoadTaskInfo> routineLoadTaskInfoOptional = routineLoadTaskInfoList.stream().filter(
                         entity -> entity.getTxnId() == txnState.getTransactionId()).findFirst();
                 RoutineLoadTaskInfo routineLoadTaskInfo = routineLoadTaskInfoOptional.get();
                 taskBeId = routineLoadTaskInfo.getBeId();
@@ -622,7 +639,7 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
                 ++committedTaskNum;
             }
         } catch (Throwable e) {
-            LOG.warn(e.getMessage(), e);
+            LOG.warn("after committed failed", e);
             updateState(JobState.PAUSED, "be " + taskBeId + " commit task failed " + txnState.getLabel()
                     + " with error " + e.getMessage()
                     + " while transaction " + txnState.getTransactionId() + " has been committed", false /* not replay */);
@@ -676,7 +693,7 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
                                 break;
                         }
                     }
-                    // todo(ml): use previous be id depend on change reason
+                    // TODO(ml): use previous be id depend on change reason
                 }
                 // step2: commit task , update progress, maybe create a new task
                 executeCommitTask(routineLoadTaskInfo, txnState);
@@ -720,6 +737,10 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
         } else if (checkCommitInfo(rlTaskTxnCommitAttachment)) {
             // step2: update job progress
             updateProgress(rlTaskTxnCommitAttachment);
+        }
+
+        if (!Strings.isNullOrEmpty(rlTaskTxnCommitAttachment.getErrorLogUrl())) {
+            errorLogUrls.add(rlTaskTxnCommitAttachment.getErrorLogUrl());
         }
 
         if (state == JobState.RUNNING) {
@@ -925,31 +946,37 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
             }
         }
 
-        List<String> row = Lists.newArrayList();
-        row.add(String.valueOf(id));
-        row.add(name);
-        row.add(TimeUtils.longToTimeString(createTimestamp));
-        row.add(TimeUtils.longToTimeString(endTimestamp));
-        row.add(db == null ? String.valueOf(dbId) : db.getFullName());
-        row.add(tbl == null ? String.valueOf(tableId) : tbl.getName());
-        row.add(getState().name());
-        row.add(dataSourceType.name());
-        row.add(String.valueOf(getSizeOfRoutineLoadTaskInfoList()));
-        row.add(jobPropertiesToJsonString());
-        row.add(dataSourcePropertiesJsonToString());
-        row.add(getStatistic());
-        row.add(getProgress().toJsonString());
-        switch (state) {
-            case PAUSED:
-                row.add(pausedReason);
-                break;
-            case CANCELLED:
-                row.add(cancelReason);
-                break;
-            default:
-                row.add("");
+        readLock();
+        try {
+            List<String> row = Lists.newArrayList();
+            row.add(String.valueOf(id));
+            row.add(name);
+            row.add(TimeUtils.longToTimeString(createTimestamp));
+            row.add(TimeUtils.longToTimeString(endTimestamp));
+            row.add(db == null ? String.valueOf(dbId) : db.getFullName());
+            row.add(tbl == null ? String.valueOf(tableId) : tbl.getName());
+            row.add(getState().name());
+            row.add(dataSourceType.name());
+            row.add(String.valueOf(getSizeOfRoutineLoadTaskInfoList()));
+            row.add(jobPropertiesToJsonString());
+            row.add(dataSourcePropertiesJsonToString());
+            row.add(getStatistic());
+            row.add(getProgress().toJsonString());
+            switch (state) {
+                case PAUSED:
+                    row.add(pausedReason);
+                    break;
+                case CANCELLED:
+                    row.add(cancelReason);
+                    break;
+                default:
+                    row.add("");
+            }
+            row.add(Joiner.on(", ").join(errorLogUrls));
+            return row;
+        } finally {
+            readUnlock();
         }
-        return row;
     }
 
     public List<List<String>> getTasksShowInfo() {
