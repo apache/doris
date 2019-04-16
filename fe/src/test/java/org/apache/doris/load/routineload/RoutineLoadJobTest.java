@@ -34,7 +34,6 @@ import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-import com.sleepycat.je.tree.IN;
 
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.PartitionInfo;
@@ -45,6 +44,8 @@ import java.io.DataInput;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import java_cup.runtime.Symbol;
 
@@ -71,8 +72,9 @@ public class RoutineLoadJobTest {
     KafkaConsumer kafkaConsumer;
 
     @Test
-    public void testOnAbortedReasonOffsetOutOfRange(@Injectable TransactionState transactionState,
-                                                    @Injectable RoutineLoadTaskInfo routineLoadTaskInfo)
+    public void testAfterAbortedReasonOffsetOutOfRange(@Injectable TransactionState transactionState,
+                                                       @Injectable RoutineLoadTaskInfo routineLoadTaskInfo,
+                                                       @Injectable ReentrantReadWriteLock lock)
             throws UserException {
 
         List<RoutineLoadTaskInfo> routineLoadTaskInfoList = Lists.newArrayList();
@@ -91,15 +93,17 @@ public class RoutineLoadJobTest {
         String txnStatusChangeReasonString = TransactionState.TxnStatusChangeReason.OFFSET_OUT_OF_RANGE.toString();
         RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
         Deencapsulation.setField(routineLoadJob, "routineLoadTaskInfoList", routineLoadTaskInfoList);
-        routineLoadJob.onAborted(transactionState, txnStatusChangeReasonString);
+        Deencapsulation.setField(routineLoadJob, "lock", lock);
+        routineLoadJob.afterAborted(transactionState, txnStatusChangeReasonString);
 
         Assert.assertEquals(RoutineLoadJob.JobState.PAUSED, routineLoadJob.getState());
     }
 
     @Test
-    public void testOnAborted(@Injectable TransactionState transactionState,
-                              @Injectable KafkaTaskInfo routineLoadTaskInfo,
-                              @Injectable KafkaProgress progress) throws UserException {
+    public void testAfterAborted(@Injectable TransactionState transactionState,
+                                 @Injectable KafkaTaskInfo routineLoadTaskInfo,
+                                 @Injectable KafkaProgress progress,
+                                 @Injectable ReentrantReadWriteLock lock) throws UserException {
         List<RoutineLoadTaskInfo> routineLoadTaskInfoList = Lists.newArrayList();
         routineLoadTaskInfoList.add(routineLoadTaskInfo);
         long txnId = 1L;
@@ -122,15 +126,17 @@ public class RoutineLoadJobTest {
         Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.RUNNING);
         Deencapsulation.setField(routineLoadJob, "routineLoadTaskInfoList", routineLoadTaskInfoList);
         Deencapsulation.setField(routineLoadJob, "progress", progress);
-        routineLoadJob.onAborted(transactionState, txnStatusChangeReasonString);
+        Deencapsulation.setField(routineLoadJob, "lock", lock);
+        routineLoadJob.afterAborted(transactionState, txnStatusChangeReasonString);
 
         Assert.assertEquals(RoutineLoadJob.JobState.RUNNING, routineLoadJob.getState());
         Assert.assertEquals(new Long(1), Deencapsulation.getField(routineLoadJob, "abortedTaskNum"));
     }
 
     @Test
-    public void testOnCommittedWhileTaskAborted(@Injectable TransactionState transactionState,
-                                                @Injectable KafkaProgress progress) throws UserException {
+    public void testAfterCommittedWhileTaskAborted(@Injectable TransactionState transactionState,
+                                                   @Injectable KafkaProgress progress,
+                                                   @Injectable ReentrantReadWriteLock lock) throws UserException {
         List<RoutineLoadTaskInfo> routineLoadTaskInfoList = Lists.newArrayList();
         long txnId = 1L;
 
@@ -146,37 +152,13 @@ public class RoutineLoadJobTest {
         Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.RUNNING);
         Deencapsulation.setField(routineLoadJob, "routineLoadTaskInfoList", routineLoadTaskInfoList);
         Deencapsulation.setField(routineLoadJob, "progress", progress);
+        Deencapsulation.setField(routineLoadJob, "lock", lock);
         try {
-            routineLoadJob.onCommitted(transactionState);
-            Assert.fail();
+            routineLoadJob.afterCommitted(transactionState);
+            Assert.assertEquals(RoutineLoadJob.JobState.PAUSED, routineLoadJob.getState());
         } catch (TransactionException e) {
-            Assert.assertEquals(RoutineLoadJob.JobState.RUNNING, routineLoadJob.getState());
+            Assert.fail();
         }
-    }
-
-
-    @Test
-    public void readFileds(@Injectable DataInput input) throws Exception {
-
-        new MockUp<Text>() {
-            @Mock
-            public String readString(DataInput input1) {
-                return "KAFKA";
-            }
-        };
-
-        new Expectations() {
-            {
-                sqlParser.parse();
-                result = symbol;
-            }
-        };
-        Deencapsulation.setField(symbol, "value", createRoutineLoadStmt);
-
-        RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
-        routineLoadJob.readFields(input);
-
-        Assert.assertEquals(KafkaProgress.class, routineLoadJob.getProgress().getClass());
     }
 
     @Test

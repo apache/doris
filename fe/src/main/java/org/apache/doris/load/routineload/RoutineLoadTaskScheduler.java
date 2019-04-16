@@ -158,7 +158,11 @@ public class RoutineLoadTaskScheduler extends Daemon {
         }
     }
 
-    public void addTaskInQueue(List<RoutineLoadTaskInfo> routineLoadTaskInfoList) {
+    public void addTaskInQueue(RoutineLoadTaskInfo routineLoadTaskInfo) {
+        needScheduleTasksQueue.add(routineLoadTaskInfo);
+    }
+
+    public void addTasksInQueue(List<RoutineLoadTaskInfo> routineLoadTaskInfoList) {
         needScheduleTasksQueue.addAll(routineLoadTaskInfoList);
     }
 
