@@ -583,6 +583,7 @@ bool BrokerScanner::fill_dest_tuple(const Slice& line, Tuple* dest_tuple, MemPoo
         if (!slot_desc->is_materialized()) {
             continue;
         }
+
         ExprContext* ctx = _dest_expr_ctx[ctx_idx++];
         void* value = ctx->get_value(_src_tuple_row);
         if (value == nullptr) {

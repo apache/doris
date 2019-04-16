@@ -66,10 +66,10 @@ Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx) {
                 if (ctx->number_filtered_rows > 0 &&
                     !executor->runtime_state()->get_error_log_file_path().empty()) {
 
-                    if (ctx->load_type == TLoadType::MANUL_LOAD) {
+                    // if (ctx->load_type == TLoadType::MANUL_LOAD) {
                         ctx->error_url = to_load_error_http_path(
                             executor->runtime_state()->get_error_log_file_path());
-                    }
+                    // }
                 }
             } else {
                 LOG(WARNING) << "fragment execute failed"
@@ -180,7 +180,6 @@ void StreamLoadExecutor::rollback_txn(StreamLoadContext* ctx) {
     request.tbl = ctx->table;
     request.txnId = ctx->txn_id;
     request.__set_reason(ctx->status.get_error_msg());
-    TLoadTxnRollbackResult result;
 
     // set attachment if has
     TTxnCommitAttachment attachment;
@@ -189,6 +188,7 @@ void StreamLoadExecutor::rollback_txn(StreamLoadContext* ctx) {
         request.__isset.txnCommitAttachment = true;
     }
 
+    TLoadTxnRollbackResult result;
 #ifndef BE_TEST
     auto rpc_st = FrontendHelper::rpc(
         master_addr.hostname, master_addr.port,
@@ -229,6 +229,10 @@ bool StreamLoadExecutor::collect_load_stat(StreamLoadContext* ctx, TTxnCommitAtt
             kafka_progress.partitionCmtOffset = std::move(ctx->kafka_info->cmt_offset);
             rl_attach.kafkaRLTaskProgress = std::move(kafka_progress);
             rl_attach.__isset.kafkaRLTaskProgress = true;
+
+            if (!ctx->error_url.empty()) {
+                rl_attach.__set_errorLogUrl(ctx->error_url);
+            }
 
             attach->rlTaskTxnCommitAttachment = std::move(rl_attach);
             attach->__isset.rlTaskTxnCommitAttachment = true;           
