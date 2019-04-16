@@ -38,6 +38,7 @@ public class RLTaskTxnCommitAttachment extends TxnCommitAttachment {
     private long receivedBytes;
     private long taskExecutionTimeMs;
     private RoutineLoadProgress progress;
+    private String errorLogUrl;
 
     public RLTaskTxnCommitAttachment() {
         super(TransactionState.LoadJobSourceType.ROUTINE_LOAD_TASK);
@@ -59,6 +60,10 @@ public class RLTaskTxnCommitAttachment extends TxnCommitAttachment {
                 break;
             default:
                 break;
+        }
+
+        if (rlTaskTxnCommitAttachment.isSetErrorLogUrl()) {
+            this.errorLogUrl = rlTaskTxnCommitAttachment.getErrorLogUrl();
         }
     }
 
@@ -92,6 +97,10 @@ public class RLTaskTxnCommitAttachment extends TxnCommitAttachment {
 
     public RoutineLoadProgress getProgress() {
         return progress;
+    }
+
+    public String getErrorLogUrl() {
+        return errorLogUrl;
     }
 
     @Override
