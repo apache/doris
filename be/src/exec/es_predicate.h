@@ -106,11 +106,12 @@ struct ExtBinaryPredicate : public ExtPredicate {
 struct ExtInPredicate : public ExtPredicate {
     ExtInPredicate(
                 TExprNodeType::type node_type,
+                bool is_not_in,
                 const std::string& name, 
                 const TypeDescriptor& type,
                 const std::vector<ExtLiteral>& values) :
         ExtPredicate(node_type),
-        is_not_in(false),
+        is_not_in(is_not_in),
         col(name, type),
         values(values) {
     }
@@ -140,10 +141,11 @@ struct ExtIsNullPredicate : public ExtPredicate {
                 TExprNodeType::type node_type,
                 const std::string& name, 
                 const TypeDescriptor& type,
+                bool is_not_null,
                 ExtLiteral value) :
         ExtPredicate(node_type),
         col(name, type),
-        is_not_null(false) {
+        is_not_null(is_not_null) {
     }
 
     ExtColumnDesc col;

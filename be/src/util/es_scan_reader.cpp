@@ -67,7 +67,7 @@ Status ESScanReader::open() {
     long status = _network_client.get_http_status();
     if (status != 200) {
         std::stringstream ss;
-        ss << "invalid response http status for open: " << status;
+        ss << "invalid response http status for open: " << status << ", response:" << _cached_response;
         LOG(WARNING) << ss.str();
         return Status(ss.str());
     }
