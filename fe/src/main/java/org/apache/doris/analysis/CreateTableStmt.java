@@ -256,6 +256,10 @@ public class CreateTableStmt extends DdlStmt {
             }
 
             if (columnDef.getType().isHllType()) {
+                if (columnDef.isKey()) {
+                    throw new AnalysisException("HLL can't be used as keys, " +
+                            "please specify the aggregation type HLL_UNION");
+                }
                 hasHll = true;
             }
 
