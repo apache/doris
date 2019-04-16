@@ -123,6 +123,9 @@ public:
     }
 
     void set_need_delete_file(bool need_delete_file) {
+        if (_need_delete_file == true) {
+            return;
+        }
         _need_delete_file = need_delete_file;
     }
 
