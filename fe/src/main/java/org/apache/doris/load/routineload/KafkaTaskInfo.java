@@ -51,8 +51,7 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         this.partitionIdToOffset = partitionIdToOffset;
     }
 
-    public KafkaTaskInfo(KafkaTaskInfo kafkaTaskInfo, Map<Integer, Long> partitionIdToOffset) throws LabelAlreadyUsedException,
-            BeginTransactionException, AnalysisException {
+    public KafkaTaskInfo(KafkaTaskInfo kafkaTaskInfo, Map<Integer, Long> partitionIdToOffset) {
         super(UUID.randomUUID(), kafkaTaskInfo.getJobId(), kafkaTaskInfo.getClusterName(), kafkaTaskInfo.getBeId());
         this.partitionIdToOffset = partitionIdToOffset;
     }
