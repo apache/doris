@@ -47,6 +47,7 @@ public:
     virtual doris_udf::StringVal get_string_val(ExprContext*, TupleRow*);
     virtual doris_udf::DateTimeVal get_datetime_val(ExprContext*, TupleRow*);
     virtual doris_udf::DecimalVal get_decimal_val(ExprContext*, TupleRow*);
+    virtual doris_udf::DecimalV2Val get_decimalv2_val(ExprContext*, TupleRow*);
 
 protected:
     friend class Expr;

@@ -175,7 +175,11 @@ public class DateLiteral extends LiteralExpr {
 
     @Override
     protected Expr uncheckedCastTo(Type targetType) throws AnalysisException {
-        // programmer error, we should never reach this state
+        if (targetType.isDateType()) {
+            return this;
+        } else if (targetType.isStringType()) {
+            return new StringLiteral(date.toString()); 
+        }
         Preconditions.checkState(false);
         return this;
     }

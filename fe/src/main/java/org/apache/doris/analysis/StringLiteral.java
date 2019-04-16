@@ -186,6 +186,7 @@ public class StringLiteral extends LiteralExpr {
                     }
                     break;
                 case DECIMAL:
+                case DECIMALV2:
                     return new DecimalLiteral(value);
                 default:
                     break;

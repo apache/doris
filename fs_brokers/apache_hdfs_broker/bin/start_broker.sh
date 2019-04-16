@@ -19,6 +19,23 @@
 curdir=`dirname "$0"`
 curdir=`cd "$curdir"; pwd`
 
+OPTS=$(getopt \
+  -n $0 \
+  -o '' \
+  -l 'daemon' \
+  -- "$@")
+
+eval set -- "$OPTS"
+
+RUN_DAEMON=0
+while true; do
+    case "$1" in
+        --daemon) RUN_DAEMON=1 ; shift ;;
+        --) shift ;  break ;;
+        *) ehco "Internal error" ; exit 1 ;;
+    esac
+done
+
 export BROKER_HOME=`cd "$curdir/.."; pwd`
 export PID_DIR=`cd "$curdir"; pwd`
 
@@ -61,6 +78,11 @@ if [ ! -d $BROKER_LOG_DIR ]; then
 fi
 
 echo `date` >> $BROKER_LOG_DIR/apache_hdfs_broker.out
-nohup $LIMIT $JAVA $JAVA_OPTS org.apache.doris.broker.hdfs.BrokerBootstrap "$@" >> $BROKER_LOG_DIR/apache_hdfs_broker.out 2>&1 </dev/null &
+
+if [ ${RUN_DAEMON} -eq 1 ]; then
+    nohup $LIMIT $JAVA $JAVA_OPTS org.apache.doris.broker.hdfs.BrokerBootstrap "$@" >> $BROKER_LOG_DIR/apache_hdfs_broker.out 2>&1 </dev/null &
+else
+    $LIMIT $JAVA $JAVA_OPTS org.apache.doris.broker.hdfs.BrokerBootstrap "$@" >> $BROKER_LOG_DIR/apache_hdfs_broker.out 2>&1 </dev/null
+fi
 
 echo $! > $pidfile

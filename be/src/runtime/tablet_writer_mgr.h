@@ -22,6 +22,8 @@
 #include <mutex>
 #include <ostream>
 #include <sstream>
+#include <thread>
+#include <ctime>
 
 #include "common/status.h"
 #include "gen_cpp/Types_types.h"
@@ -80,6 +82,8 @@ public:
     // id: stream load's id
     Status cancel(const PTabletWriterCancelRequest& request);
 
+    Status start_bg_worker();
+
 private:
     ExecEnv* _exec_env;
     // lock protect the channel map
@@ -92,6 +96,11 @@ private:
         TabletsChannelKeyHasher> _tablets_channels;
 
     Cache* _lastest_success_channel = nullptr;
+
+    // thread to clean timeout tablets_channel
+    std::thread _tablets_channel_clean_thread;
+
+    Status _start_tablets_channel_clean();
 };
 
 std::ostream& operator<<(std::ostream& os, const TabletsChannelKey&);

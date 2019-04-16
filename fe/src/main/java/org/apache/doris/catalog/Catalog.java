@@ -141,6 +141,7 @@ import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.mysql.privilege.UserPropertyMgr;
 import org.apache.doris.persist.BackendIdsUpdateInfo;
+import org.apache.doris.persist.BackendTabletsInfo;
 import org.apache.doris.persist.ClusterInfo;
 import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.persist.DatabaseInfo;
@@ -1331,10 +1332,12 @@ public class Catalog {
                 long tableId = olapTable.getId();
                 for (Partition partition : olapTable.getPartitions()) {
                     long partitionId = partition.getId();
+                    TStorageMedium medium = olapTable.getPartitionInfo().getDataProperty(
+                            partitionId).getStorageMedium();
                     for (MaterializedIndex index : partition.getMaterializedIndices()) {
                         long indexId = index.getId();
                         int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
-                        TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, schemaHash);
+                        TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, schemaHash, medium);
                         for (Tablet tablet : index.getTablets()) {
                             long tabletId = tablet.getId();
                             invertedIndex.addTablet(tabletId, tabletMeta);
@@ -1694,7 +1697,6 @@ public class Catalog {
     public long loadRecycleBin(DataInputStream dis, long checksum) throws IOException {
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_10) {
             Catalog.getCurrentRecycleBin().readFields(dis);
-
             if (!isCheckpointThread()) {
                 // add tablet in Recycle bin to TabletInvertedIndex
                 Catalog.getCurrentRecycleBin().addTabletToInvertedIndex();
@@ -2466,6 +2468,7 @@ public class Catalog {
     public void unprotectDropDb(Database db) {
         for (Table table : db.getTables()) {
             unprotectDropTable(db, table.getId());
+            Catalog.getCurrentColocateIndex().removeTable(table.getId());
         }
     }
 
@@ -2531,7 +2534,7 @@ public class Catalog {
 
             // log
             RecoverInfo recoverInfo = new RecoverInfo(db.getId(), -1L, -1L);
-            Catalog.getInstance().getEditLog().logRecoverDb(recoverInfo);
+            editLog.logRecoverDb(recoverInfo);
         } finally {
             unlock();
         }
@@ -2998,7 +3001,7 @@ public class Catalog {
                     long indexId = index.getId();
                     int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
                     TabletMeta tabletMeta = new TabletMeta(info.getDbId(), info.getTableId(), partition.getId(),
-                            index.getId(), schemaHash);
+                            index.getId(), schemaHash, info.getDataProperty().getStorageMedium());
                     for (Tablet tablet : index.getTablets()) {
                         long tabletId = tablet.getId();
                         invertedIndex.addTablet(tabletId, tabletMeta);
@@ -3219,7 +3222,7 @@ public class Catalog {
 
             // create tablets
             int schemaHash = indexIdToSchemaHash.get(indexId);
-            TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, schemaHash);
+            TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, schemaHash, storageMedium);
             createTablets(clusterName, index, ReplicaState.NORMAL, distributionInfo, version, versionHash,
                     replicationNum, tabletMeta, tabletIdSet);
 
@@ -3544,7 +3547,7 @@ public class Catalog {
                     } else {
                         info = ColocatePersistInfo.CreateForAddTable(tableId, groupId, db.getId(), new ArrayList<>());
                     }
-                    Catalog.getInstance().getEditLog().logColocateAddTable(info);
+                    editLog.logColocateAddTable(info);
                 }
 
                 LOG.info("successfully create table[{};{}]", tableName, tableId);
@@ -3989,10 +3992,12 @@ public class Catalog {
                 long tableId = table.getId();
                 for (Partition partition : olapTable.getPartitions()) {
                     long partitionId = partition.getId();
+                    TStorageMedium medium = olapTable.getPartitionInfo().getDataProperty(
+                            partitionId).getStorageMedium();
                     for (MaterializedIndex mIndex : partition.getMaterializedIndices()) {
                         long indexId = mIndex.getId();
                         int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
-                        TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, schemaHash);
+                        TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, schemaHash, medium);
                         for (Tablet tablet : mIndex.getTablets()) {
                             long tabletId = tablet.getId();
                             invertedIndex.addTablet(tabletId, tabletMeta);
@@ -4122,11 +4127,11 @@ public class Catalog {
             unprotectDropTable(db, table.getId());
 
             DropInfo info = new DropInfo(db.getId(), table.getId(), -1L);
-            Catalog.getInstance().getEditLog().logDropTable(info);
+            editLog.logDropTable(info);
             
             if (Catalog.getCurrentColocateIndex().removeTable(table.getId())) {
                 ColocatePersistInfo colocateInfo = ColocatePersistInfo.CreateForRemoveTable(table.getId());
-                Catalog.getInstance().getEditLog().logColocateRemoveTable(colocateInfo);
+                editLog.logColocateRemoveTable(colocateInfo);
             }
         } finally {
             db.writeUnlock();
@@ -5981,11 +5986,13 @@ public class Catalog {
                 TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
                 for (Partition partition : info.getPartitions()) {
                     long partitionId = partition.getId();
+                    TStorageMedium medium = olapTable.getPartitionInfo().getDataProperty(
+                            partitionId).getStorageMedium();
                     for (MaterializedIndex mIndex : partition.getMaterializedIndices()) {
                         long indexId = mIndex.getId();
                         int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
                         TabletMeta tabletMeta = new TabletMeta(db.getId(), olapTable.getId(),
-                                partitionId, indexId, schemaHash);
+                                partitionId, indexId, schemaHash, medium);
                         for (Tablet tablet : mIndex.getTablets()) {
                             long tabletId = tablet.getId();
                             invertedIndex.addTablet(tabletId, tabletMeta);
@@ -6043,6 +6050,25 @@ public class Catalog {
 
         for (Map.Entry<String, String> entry : configs.entrySet()) {
             ConfigBase.setMutableConfig(entry.getKey(), entry.getValue());
+        }
+    }
+
+    public void replayBackendTabletsInfo(BackendTabletsInfo backendTabletsInfo) {
+        List<Pair<Long, Integer>> tabletsWithSchemaHash = backendTabletsInfo.getTabletSchemaHash();
+        for (Pair<Long, Integer> tabletInfo : tabletsWithSchemaHash) {
+            Replica replica = tabletInvertedIndex.getReplica(tabletInfo.first,
+                    backendTabletsInfo.getBackendId());
+            if (replica == null) {
+                LOG.warn("replica does not found when replay. tablet {}, backend {}",
+                        tabletInfo.first, backendTabletsInfo.getBackendId());
+                continue;
+            }
+
+            if (replica.getSchemaHash() != tabletInfo.second) {
+                continue;
+            }
+
+            replica.setBad(backendTabletsInfo.isBad());
         }
     }
 }

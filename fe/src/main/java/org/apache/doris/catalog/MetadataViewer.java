@@ -90,7 +90,7 @@ public class MetadataViewer {
                             
                             ReplicaStatus status = ReplicaStatus.OK;
                             Backend be = infoService.getBackend(replica.getBackendId());
-                            if (be == null || !be.isAvailable()) {
+                            if (be == null || !be.isAvailable() || replica.isBad()) {
                                 status = ReplicaStatus.DEAD;
                             } else if (replica.getVersion() < visibleVersion
                                         || replica.getLastFailedVersion() > 0) {
@@ -113,6 +113,7 @@ public class MetadataViewer {
                             row.add(String.valueOf(visibleVersion));
                             row.add(String.valueOf(replica.getSchemaHash()));
                             row.add(String.valueOf(replica.getVersionCount()));
+                            row.add(String.valueOf(replica.isBad()));
                             row.add(replica.getState().name());
                             row.add(status.name());
                             result.add(row);
@@ -133,6 +134,7 @@ public class MetadataViewer {
                             row.add("-1");
                             row.add("-1");
                             row.add("-1");
+                            row.add("N/A");
                             row.add("N/A");
                             row.add(ReplicaStatus.MISSING.name());
                             result.add(row);

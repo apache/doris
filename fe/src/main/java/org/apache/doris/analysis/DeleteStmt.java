@@ -23,7 +23,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -31,7 +30,6 @@ import com.google.common.base.Strings;
 
 import java.util.LinkedList;
 import java.util.List;
-import java.util.Map;
 
 public class DeleteStmt extends DdlStmt {
     private final TableName tbl;
@@ -39,15 +37,12 @@ public class DeleteStmt extends DdlStmt {
     private Expr wherePredicate;
 
     private List<Predicate> deleteConditions;
-    private Map<String, String> properties;
 
-    public DeleteStmt(TableName tableName, String partitionName, Expr wherePredicate, Map<String, String> properties) {
+    public DeleteStmt(TableName tableName, String partitionName, Expr wherePredicate) {
         this.tbl = tableName;
-        this.partitionName = partitionName;
+        this.partitionName = Strings.emptyToNull(partitionName);
         this.wherePredicate = wherePredicate;
         this.deleteConditions = new LinkedList<Predicate>();
-
-        this.properties = properties;
     }
     
     public String getTableName() {
@@ -66,10 +61,6 @@ public class DeleteStmt extends DdlStmt {
         return deleteConditions;
     }
 
-    public Map<String, String> getProperties() {
-        return properties;
-    }
-
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         super.analyze(analyzer);
@@ -79,10 +70,6 @@ public class DeleteStmt extends DdlStmt {
         }
 
         tbl.analyze(analyzer);
-        
-        if (Strings.isNullOrEmpty(partitionName)) {
-            throw new AnalysisException("Partition is not set");
-        }
 
         if (wherePredicate == null) {
             throw new AnalysisException("Where clause is not set");
@@ -136,13 +123,10 @@ public class DeleteStmt extends DdlStmt {
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("DELETE FROM ").append(tbl.toSql());
-        sb.append(" PARTITION ").append(partitionName);
-        sb.append(" WHERE ").append(wherePredicate.toSql());
-        if (properties != null && !properties.isEmpty()) {
-            sb.append("\nPROPERTIES (");
-            sb.append(new PrintableMap<String, String>(properties, "=", true, false));
-            sb.append(")");
+        if (!Strings.isNullOrEmpty(partitionName)) {
+            sb.append(" PARTITION ").append(partitionName);
         }
+        sb.append(" WHERE ").append(wherePredicate.toSql());
         return sb.toString();
     }
 

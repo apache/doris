@@ -94,13 +94,22 @@ dst);
 
     // Avg for decimals.
     static void decimal_avg_init(doris_udf::FunctionContext* ctx, doris_udf::StringVal* dst);
+    static void decimalv2_avg_init(doris_udf::FunctionContext* ctx, doris_udf::StringVal* dst);
     static void decimal_avg_update(doris_udf::FunctionContext* ctx,
             const doris_udf::DecimalVal& src,
             doris_udf::StringVal* dst);
+    static void decimalv2_avg_update(doris_udf::FunctionContext* ctx,
+            const doris_udf::DecimalV2Val& src,
+            doris_udf::StringVal* dst);
     static void decimal_avg_merge(FunctionContext* ctx, const doris_udf::StringVal& src,
+            doris_udf::StringVal* dst);
+    static void decimalv2_avg_merge(FunctionContext* ctx, const doris_udf::StringVal& src,
             doris_udf::StringVal* dst);
     static void decimal_avg_remove(doris_udf::FunctionContext* ctx,
             const doris_udf::DecimalVal& src,
+            doris_udf::StringVal* dst);
+    static void decimalv2_avg_remove(doris_udf::FunctionContext* ctx,
+            const doris_udf::DecimalV2Val& src,
             doris_udf::StringVal* dst);
 
     // static void decimal_avg_add_or_remove(doris_udf::FunctionContext* ctx,
@@ -113,9 +122,12 @@ dst);
     // }
     static doris_udf::DecimalVal decimal_avg_get_value(doris_udf::FunctionContext* ctx,
          const doris_udf::StringVal& val);
+    static doris_udf::DecimalV2Val decimalv2_avg_get_value(doris_udf::FunctionContext* ctx,
+         const doris_udf::StringVal& val);
     static doris_udf::DecimalVal decimal_avg_finalize(doris_udf::FunctionContext* ctx,
          const doris_udf::StringVal& val);
-
+    static doris_udf::DecimalV2Val decimalv2_avg_finalize(doris_udf::FunctionContext* ctx,
+         const doris_udf::StringVal& val);
     // SumUpdate, SumMerge
     template <typename SRC_VAL, typename DST_VAL>
     static void sum(doris_udf::FunctionContext*, const SRC_VAL& src, DST_VAL* dst);
@@ -206,11 +218,17 @@ dst);
  
     // count distinct in multi distinct for decimal
     static void count_or_sum_distinct_decimal_init(doris_udf::FunctionContext* ctx, doris_udf::StringVal* dst);
+    static void count_or_sum_distinct_decimalv2_init(doris_udf::FunctionContext* ctx, doris_udf::StringVal* dst);
     static void count_or_sum_distinct_decimal_update(FunctionContext* ctx, DecimalVal& src, StringVal* dst);
+    static void count_or_sum_distinct_decimalv2_update(FunctionContext* ctx, DecimalV2Val& src, StringVal* dst);
     static void count_or_sum_distinct_decimal_merge(FunctionContext* ctx, StringVal& src, StringVal* dst);
+    static void count_or_sum_distinct_decimalv2_merge(FunctionContext* ctx, StringVal& src, StringVal* dst);
     static StringVal count_or_sum_distinct_decimal_serialize(FunctionContext* ctx, const StringVal& state_sv);
+    static StringVal count_or_sum_distinct_decimalv2_serialize(FunctionContext* ctx, const StringVal& state_sv);
     static BigIntVal count_distinct_decimal_finalize(FunctionContext* ctx, const StringVal& state_sv);
+    static BigIntVal count_distinct_decimalv2_finalize(FunctionContext* ctx, const StringVal& state_sv);
     static DecimalVal sum_distinct_decimal_finalize(FunctionContext* ctx, const StringVal& state_sv);
+    static DecimalV2Val sum_distinct_decimalv2_finalize(FunctionContext* ctx, const StringVal& state_sv);
 
     // count distinct in multi disticnt for Date
     static void count_distinct_date_init(doris_udf::FunctionContext* ctx, doris_udf::StringVal* dst);
@@ -306,22 +324,44 @@ dst);
 
     //  HLL value type calculate
     //  init sets buffer
-    static void hll_union_agg_init(doris_udf::FunctionContext*, doris_udf::StringVal* slot);
+    static void hll_union_agg_init(doris_udf::FunctionContext*, doris_udf::HllVal* slot);
     // fill all register accroading to hll set type
-    static void hll_union_agg_update(doris_udf::FunctionContext*, const doris_udf::StringVal& src, 
-                                     doris_udf::StringVal* dst);
+    static void hll_union_agg_update(doris_udf::FunctionContext*, const doris_udf::HllVal& src,
+                                     doris_udf::HllVal* dst);
     // merge the register value
     static void hll_union_agg_merge(
                           doris_udf::FunctionContext*,
-                          const doris_udf::StringVal& src,
-                          doris_udf::StringVal* dst);
+                          const doris_udf::HllVal& src,
+                          doris_udf::HllVal* dst);
     // return result
-    static doris_udf::StringVal hll_union_agg_finalize(
+    static doris_udf::BigIntVal hll_union_agg_finalize(
                                             doris_udf::FunctionContext*,
-                                            const doris_udf::StringVal& src);
+                                            const doris_udf::HllVal& src);
     // calculate result
-    static int64_t hll_algorithm(const doris_udf::StringVal& src);
-    static void hll_union_parse_and_cal(HllSetResolver& resolver, StringVal* dst);
+    static int64_t hll_algorithm(uint8_t *pdata, int data_len);
+    static int64_t hll_algorithm(const StringVal &dst) {
+        return hll_algorithm(dst.ptr, dst.len);
+    }
+    static int64_t hll_algorithm(const HllVal &dst) {
+        return hll_algorithm(dst.ptr + 1, dst.len - 1);
+    }
+
+    //  HLL value type aggregate to HLL value type
+    static void hll_raw_agg_init(
+            doris_udf::FunctionContext*,
+            doris_udf::HllVal* slot);
+    static void hll_raw_agg_update(
+            doris_udf::FunctionContext*,
+            const doris_udf::HllVal& src,
+            doris_udf::HllVal* dst);
+    static void hll_raw_agg_merge(
+            doris_udf::FunctionContext*,
+            const doris_udf::HllVal& src,
+            doris_udf::HllVal* dst);
+    // return result which is HLL type
+    static doris_udf::HllVal hll_raw_agg_finalize(
+            doris_udf::FunctionContext*,
+            const doris_udf::HllVal& src);
 };
 
 }

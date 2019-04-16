@@ -67,7 +67,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String BATCH_SIZE = "batch_size";
     public static final String DISABLE_STREAMING_PREAGGREGATIONS = "disable_streaming_preaggregations";
     public static final String DISABLE_COLOCATE_JOIN = "disable_colocate_join";
-    public static final String MT_DOP = "mt_dop";
+    public static final String PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM = "parallel_fragment_exec_instance_num";
+    public static final int MIN_EXEC_INSTANCE_NUM = 1;
+    public static final int MAX_EXEC_INSTANCE_NUM = 32;
 
     // max memory used on every backend.
     @VariableMgr.VarAttr(name = EXEC_MEM_LIMIT)
@@ -163,11 +165,7 @@ public class SessionVariable implements Serializable, Writable {
 
     // if true, need report to coordinator when plan fragment execute successfully.
     @VariableMgr.VarAttr(name = CODEGEN_LEVEL)
-    private int codegenLevel = 0;   
-    
-    // multithreaded degree of intra-node parallelism
-    @VariableMgr.VarAttr(name = MT_DOP)
-    private int mtDop = 0;   
+    private int codegenLevel = 0;
 
     @VariableMgr.VarAttr(name = BATCH_SIZE)
     private int batchSize = 1024;
@@ -177,6 +175,13 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = DISABLE_COLOCATE_JOIN)
     private boolean disableColocateJoin = false;
+
+    /*
+     * the parallel exec instance num for one Fragment in one BE
+     * 1 means disable this feature
+     */
+    @VariableMgr.VarAttr(name = PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM)
+    private int parallelExecInstanceNum = 1;
 
     public long getMaxExecMemByte() {
         return maxExecMemByte;
@@ -402,14 +407,6 @@ public class SessionVariable implements Serializable, Writable {
         this.resourceGroup = resourceGroup;
     }
 
-    public int getMtDop() {
-        return this.mtDop;
-    }
-    
-    public void setMtDop(int mtDop) {
-        this.mtDop = mtDop;
-    }
-
     public boolean isDisableColocateJoin() {
         return disableColocateJoin;
     }
@@ -418,7 +415,21 @@ public class SessionVariable implements Serializable, Writable {
         this.disableColocateJoin = disableColocateJoin;
     }
 
-    // Serialize to thrift object
+    public int getParallelExecInstanceNum() {
+        return parallelExecInstanceNum;
+    }
+
+    public void setParallelExecInstanceNum(int parallelExecInstanceNum) {
+        if (parallelExecInstanceNum < MIN_EXEC_INSTANCE_NUM) {
+            this.parallelExecInstanceNum = MIN_EXEC_INSTANCE_NUM;
+        } else if (parallelExecInstanceNum > MAX_EXEC_INSTANCE_NUM) {
+            this.parallelExecInstanceNum = MAX_EXEC_INSTANCE_NUM;
+        } else {
+            this.parallelExecInstanceNum = parallelExecInstanceNum;
+        }
+    }
+    
+   // Serialize to thrift object
     TQueryOptions toThrift() {
         TQueryOptions tResult = new TQueryOptions();
         tResult.setMem_limit(maxExecMemByte);
@@ -435,7 +446,6 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setBatch_size(batchSize);
         tResult.setDisable_stream_preaggregations(disableStreamPreaggregations);
-        tResult.setMt_dop(mtDop);
         return tResult;
     }
 
@@ -470,7 +480,7 @@ public class SessionVariable implements Serializable, Writable {
         Text.writeString(out, collationServer);
         out.writeInt(batchSize);
         out.writeBoolean(disableStreamPreaggregations); 
-        out.writeInt(mtDop);
+        out.writeInt(parallelExecInstanceNum);
     }
 
     @Override
@@ -507,7 +517,7 @@ public class SessionVariable implements Serializable, Writable {
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_38) {
             batchSize = in.readInt();
             disableStreamPreaggregations = in.readBoolean();
-            mtDop = in.readInt();
+            parallelExecInstanceNum = in.readInt();
         }
     }
 }

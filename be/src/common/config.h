@@ -265,6 +265,7 @@ namespace config {
     CONF_Int32(number_tablet_writer_threads, "16");
 
     CONF_Int64(streaming_load_max_mb, "10240");
+    CONF_Int32(streaming_load_rpc_max_alive_time_sec, "600");
 
     // Fragment thread pool
     CONF_Int32(fragment_pool_thread_num, "64");
@@ -392,6 +393,9 @@ namespace config {
 
     // txn commit rpc timeout
     CONF_Int32(txn_commit_rpc_timeout_ms, "10000");
+
+    // If set to true, metric calculator will run
+    CONF_Bool(enable_metric_calculator, "false");
 } // namespace config
 
 } // namespace doris

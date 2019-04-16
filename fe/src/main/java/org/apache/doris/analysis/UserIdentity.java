@@ -45,6 +45,16 @@ public class UserIdentity implements Writable {
     private boolean isDomain;
     private boolean isAnalyzed = false;
 
+    public static final UserIdentity ROOT;
+    public static final UserIdentity ADMIN;
+
+    static {
+        ROOT = new UserIdentity(PaloAuth.ROOT_USER, "%");
+        ROOT.setIsAnalyzed();
+        ADMIN = new UserIdentity(PaloAuth.ADMIN_USER, "%");
+        ADMIN.setIsAnalyzed();
+    }
+
     private UserIdentity() {
     }
 
@@ -160,6 +170,9 @@ public class UserIdentity implements Writable {
             return false;
         }
         UserIdentity other = (UserIdentity) obj;
+        if (this.isDomain != other.isDomain) {
+            return false;
+        }
         return user.equals(other.getQualifiedUser()) && host.equals(other.getHost());
     }
 
@@ -168,6 +181,7 @@ public class UserIdentity implements Writable {
         int result = 17;
         result = 31 * result + user.hashCode();
         result = 31 * result + host.hashCode();
+        result = 31 * result + Boolean.valueOf(isDomain).hashCode();
         return result;
     }
 

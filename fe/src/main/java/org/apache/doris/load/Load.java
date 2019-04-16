@@ -39,6 +39,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Partition.PartitionState;
+import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
@@ -282,6 +283,9 @@ public class Load {
 
             String columnSeparatorStr = params.get(LoadStmt.KEY_IN_PARAM_COLUMN_SEPARATOR);
             if (columnSeparatorStr != null) {
+                if (columnSeparatorStr.isEmpty()) {
+                    columnSeparatorStr = "\t";
+                }
                 columnSeparator = new ColumnSeparator(columnSeparatorStr);
                 try {
                     columnSeparator.analyze();
@@ -3007,12 +3011,12 @@ public class Load {
         }
     }
 
-    private void checkAndAddRunningSyncDeleteJob(long partitionId, String partitionName) throws DdlException {
+    private boolean checkAndAddRunningSyncDeleteJob(long partitionId, String partitionName) throws DdlException {
         // check if there are synchronized delete job under going
         writeLock();
         try {
             checkHasRunningSyncDeleteJob(partitionId, partitionName);
-            partitionUnderDelete.add(partitionId);
+            return partitionUnderDelete.add(partitionId);
         } finally {
             writeUnlock();
         }
@@ -3072,6 +3076,7 @@ public class Load {
         long tableId = -1;
         long partitionId = -1;
         LoadJob loadDeleteJob = null;
+        boolean addRunningPartition = false;
         db.readLock();
         try {
             Table table = db.getTable(tableName);
@@ -3089,6 +3094,16 @@ public class Load {
             }
 
             tableId = olapTable.getId();
+            if (partitionName == null) {
+                if (olapTable.getPartitionInfo().getType() == PartitionType.RANGE) {
+                    throw new DdlException("This is a range partitioned table."
+                            + " You should specify partition in delete stmt");
+                } else {
+                    // this is a unpartitioned table, use table name as partition name
+                    partitionName = olapTable.getName();
+                }
+            }
+            
             Partition partition = olapTable.getPartition(partitionName);
             if (partition == null) {
                 throw new DdlException("Partition does not exist. name: " + partitionName);
@@ -3099,7 +3114,7 @@ public class Load {
             // pre check
             checkDeleteV2(olapTable, partition, conditions,
                           deleteConditions, true);
-            checkAndAddRunningSyncDeleteJob(partitionId, partitionName);
+            addRunningPartition = checkAndAddRunningSyncDeleteJob(partitionId, partitionName);
             // do not use transaction id generator, or the id maybe duplicated
             long jobId = Catalog.getInstance().getNextId();
             String jobLabel = "delete_" + UUID.randomUUID();
@@ -3126,11 +3141,20 @@ public class Load {
             // the delete job will be persist in editLog
             addLoadJob(loadDeleteJob, db);
         } catch (Throwable t) {
-            LOG.debug("error occurred during prepare delete", t);
+            LOG.warn("error occurred during prepare delete", t);
             throw new DdlException(t.getMessage(), t);
         } finally {
+            if (addRunningPartition) {
+                writeLock();
+                try {
+                    partitionUnderDelete.remove(partitionId);
+                } finally {
+                    writeUnlock();
+                }
+            }
             db.readUnlock();
         }
+
         try {
             // TODO  wait loadDeleteJob to finished, using while true? or condition wait
             long startDeleteTime = System.currentTimeMillis();
@@ -3170,6 +3194,7 @@ public class Load {
         }
     }
 
+    @Deprecated
     public void deleteOld(DeleteStmt stmt) throws DdlException {
         String dbName = stmt.getDbName();
         String tableName = stmt.getTableName();

@@ -17,35 +17,44 @@
 
 package org.apache.doris.common.proc;
 
-import org.apache.doris.clone.ClusterLoadStatistic;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 
-import java.util.List;
+/*
+ * Author: Chenmingyu
+ * Date: Mar 7, 2019
+ */
 
-public class BackendLoadStatisticProcNode implements ProcNodeInterface {
-    public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("Path").add("PathHash").add("UsedCapacity").add("Capacity").add("UsedPercent")
-            .build();
-
-    private ClusterLoadStatistic clusterStat;
-    private long beId;
-
-    public BackendLoadStatisticProcNode(ClusterLoadStatistic clusterStat, long beId) {
-        this.clusterStat = clusterStat;
-        this.beId = beId;
-    }
+public class ClusterLoadStatByMedium implements ProcDirInterface {
+    public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>().add(
+            "StorageMedium").build();
 
     @Override
     public ProcResult fetchResult() throws AnalysisException {
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
-
-        // get info
-        List<List<String>> statistics = clusterStat.getBackendStatistic(beId);
-        result.setRows(statistics);
+        for (TStorageMedium medium : TStorageMedium.values()) {
+            result.addRow(Lists.newArrayList(medium.name()));
+        }
         return result;
+    }
+
+    @Override
+    public boolean register(String name, ProcNodeInterface node) {
+        return false;
+    }
+
+    @Override
+    public ProcNodeInterface lookup(String name) throws AnalysisException {
+        for (TStorageMedium medium : TStorageMedium.values()) {
+            if (name.equalsIgnoreCase(medium.name())) {
+                return new ClusterLoadStatisticProcDir(medium);
+            }
+        }
+        throw new AnalysisException("no such storage medium: " + name);
     }
 
 }

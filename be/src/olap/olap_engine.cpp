@@ -1724,6 +1724,7 @@ OLAPStatus OLAPEngine::report_all_tablets_info(std::map<TTabletId, TTablet>* tab
 
             tablet_info.__set_version_count(olap_table->file_delta_size());
             tablet_info.__set_path_hash(olap_table->store()->path_hash());
+            tablet_info.__set_used(olap_table->is_used());
 
             tablet.tablet_infos.push_back(tablet_info);
         }
@@ -2093,7 +2094,7 @@ OLAPStatus OLAPEngine::_create_new_table_header(
         string data_type;
         EnumToString(TPrimitiveType, column.column_type.type, data_type);
         header->mutable_column(i)->set_type(data_type);
-        if (column.column_type.type == TPrimitiveType::DECIMAL) {
+        if (column.column_type.type == TPrimitiveType::DECIMAL || column.column_type.type == TPrimitiveType::DECIMALV2) {
             if (column.column_type.__isset.precision && column.column_type.__isset.scale) {
                 header->mutable_column(i)->set_precision(column.column_type.precision);
                 header->mutable_column(i)->set_frac(column.column_type.scale);

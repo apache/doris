@@ -26,7 +26,7 @@
 #include "http/http_headers.h"
 #include "http/http_method.h"
 #include "http/utils.h"
-
+#include "http/http_response.h"
 namespace doris {
 
 // Helper class to access HTTP resource
@@ -52,6 +52,19 @@ public:
         curl_easy_setopt(_curl, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
         curl_easy_setopt(_curl, CURLOPT_USERNAME, user.c_str());
         curl_easy_setopt(_curl, CURLOPT_PASSWORD, passwd.c_str());
+    }
+
+    // content_type such as "application/json"
+    void set_content_type(const std::string content_type) {
+        std::string scratch_str = "Content-Type: " + content_type;
+        _header_list = curl_slist_append(_header_list, scratch_str.c_str());
+        curl_easy_setopt(_curl, CURLOPT_HTTPHEADER, _header_list);
+    }
+    
+    // you must set CURLOPT_POSTFIELDSIZE before CURLOPT_COPYPOSTFIELDS options, otherwise will cause request hanging up
+    void set_post_body(const std::string& post_body) {
+        curl_easy_setopt(_curl, CURLOPT_POSTFIELDSIZE, (long)post_body.length());
+        curl_easy_setopt(_curl, CURLOPT_COPYPOSTFIELDS, post_body.c_str());
     }
 
     // TODO(zc): support set header
@@ -85,6 +98,12 @@ public:
         return cl;
     }
 
+    long get_http_status() const {
+        long code;
+        curl_easy_getinfo(_curl, CURLINFO_RESPONSE_CODE, &code);
+        return code;
+    }
+
     // execute a head method
     Status head() {
         set_method(HEAD);
@@ -94,6 +113,8 @@ public:
     // helper function to download a file, you can call this function to downlaod
     // a file to local_path 
     Status download(const std::string& local_path);
+
+    Status execute_post_request(const std::string& post_data, std::string* response);
 
     // execute a simple method, and its response is saved in response argument
     Status execute(std::string* response);
@@ -111,6 +132,7 @@ private:
     using HttpCallback = std::function<bool(const void* data, size_t length)>;
     const HttpCallback* _callback = nullptr;
     char _error_buf[CURL_ERROR_SIZE];
+    curl_slist *_header_list = nullptr;
 };
 
 }

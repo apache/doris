@@ -41,7 +41,7 @@ public class AdminShowReplicaStatusStmt extends ShowStmt {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("TabletId").add("ReplicaId").add("BackendId").add("Version").add("LastFailedVersion")
             .add("LastSuccessVersion").add("CommittedVersion").add("SchemaHash").add("VersionNum")
-            .add("State").add("Status")
+            .add("IsBad").add("State").add("Status")
             .build();
 
     private TableRef tblRef;

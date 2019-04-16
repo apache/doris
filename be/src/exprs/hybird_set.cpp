@@ -49,6 +49,9 @@ HybirdSetBase* HybirdSetBase::create_set(PrimitiveType type) {
     case TYPE_DECIMAL:
         return new(std::nothrow) HybirdSet<DecimalValue>();
 
+    case TYPE_DECIMALV2:
+        return new(std::nothrow) HybirdSet<DecimalV2Value>();
+
     case TYPE_LARGEINT:
         return new(std::nothrow) HybirdSet<__int128>();
 

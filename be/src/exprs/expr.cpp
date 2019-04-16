@@ -141,6 +141,7 @@ Expr::Expr(const TypeDescriptor& type) :
         break;
 
     case TYPE_DECIMAL:
+    case TYPE_DECIMALV2:
         _node_type = (TExprNodeType::DECIMAL_LITERAL);
         break;
 
@@ -198,6 +199,7 @@ Expr::Expr(const TypeDescriptor& type, bool is_slotref) :
             break;
 
         case TYPE_DECIMAL:
+        case TYPE_DECIMALV2:
             _node_type = (TExprNodeType::DECIMAL_LITERAL);
             break;
 
@@ -488,6 +490,11 @@ int Expr::compute_results_layout(
             data[i].variable_length = true;
         } else if (exprs[i]->type().type == TYPE_DECIMAL) {
             data[i].byte_size = get_byte_size(exprs[i]->type().type);
+
+            // Although the current decimal has a fix-length, for the 
+            // same value, it will work out different hash value due to the
+            // different memory represent if the variable_length here is set 
+            // to false, so we have to keep it.
             data[i].variable_length = true;
         } else {
             data[i].byte_size = get_byte_size(exprs[i]->type().type);
@@ -748,6 +755,10 @@ doris_udf::AnyVal* Expr::get_const_val(ExprContext* context) {
         _constant_val.reset(new DecimalVal(get_decimal_val(context, NULL)));
         break;
     }
+    case TYPE_DECIMALV2: {
+        _constant_val.reset(new DecimalV2Val(get_decimalv2_val(context, NULL)));
+        break;
+    }
     case TYPE_NULL: {
         _constant_val.reset(new AnyVal(true));
         break;
@@ -828,6 +839,11 @@ DateTimeVal Expr::get_datetime_val(ExprContext* context, TupleRow* row) {
 DecimalVal Expr::get_decimal_val(ExprContext* context, TupleRow* row) {
     DecimalVal val;
     // ((DecimalValue*)get_value(row))->to_decimal_val(&val);
+    return val;
+}
+
+DecimalV2Val Expr::get_decimalv2_val(ExprContext* context, TupleRow* row) {
+    DecimalV2Val val;
     return val;
 }
 

@@ -22,11 +22,19 @@ import org.apache.doris.http.BaseRequest;
 import org.apache.doris.http.BaseResponse;
 import org.apache.doris.http.IllegalArgException;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.metric.MetricVisitor;
 import org.apache.doris.metric.PrometheusMetricVisitor;
+import org.apache.doris.metric.SimpleCoreMetricVisitor;
+
+import com.google.common.base.Strings;
 
 import io.netty.handler.codec.http.HttpMethod;
 
+//fehost:port/metrics
+//fehost:port/metrics?type=core
 public class MetricsAction extends RestBaseAction {
+
+    private static final String TYPE_PARAM = "type";
 
     public MetricsAction(ActionController controller) {
         super(controller);
@@ -38,8 +46,16 @@ public class MetricsAction extends RestBaseAction {
 
     @Override
     public void execute(BaseRequest request, BaseResponse response) {
+        String type = request.getSingleParameter(TYPE_PARAM);
+        MetricVisitor visitor = null;
+        if (!Strings.isNullOrEmpty(type) && type.equalsIgnoreCase("core")) {
+            visitor = new SimpleCoreMetricVisitor("doris_fe");
+        } else {
+            visitor = new PrometheusMetricVisitor("doris_fe");
+        }
+
         response.setContentType("text/plain");
-        response.getContent().append(MetricRepo.getMetric(new PrometheusMetricVisitor("doris_fe")));
+        response.getContent().append(MetricRepo.getMetric(visitor));
         sendResult(request, response);
     }
 }

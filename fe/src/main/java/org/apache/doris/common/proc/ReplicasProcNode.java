@@ -35,7 +35,7 @@ public class ReplicasProcNode implements ProcNodeInterface {
             .add("LstSuccessVersion").add("LstSuccessVersionHash")
             .add("LstFailedVersion").add("LstFailedVersionHash")
             .add("LstFailedTime").add("SchemaHash").add("DataSize").add("RowCount").add("State")
-            .add("VersionCount").add("PathHash")
+            .add("IsBad").add("VersionCount").add("PathHash")
             .build();
     
     private List<Replica> replicas;
@@ -63,6 +63,7 @@ public class ReplicasProcNode implements ProcNodeInterface {
                                         String.valueOf(replica.getDataSize()),
                                         String.valueOf(replica.getRowCount()),
                                         String.valueOf(replica.getState()),
+                                        String.valueOf(replica.isBad()),
                                         String.valueOf(replica.getVersionCount()),
                                         String.valueOf(replica.getPathHash())));
         }

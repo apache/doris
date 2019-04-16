@@ -255,7 +255,8 @@ public class Column implements Writable {
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("`").append(name).append("` ");
-        sb.append(type.toSql()).append(" ");
+        String typeStr = type.toSql();
+        sb.append(typeStr).append(" ");
         if (aggregationType != null && aggregationType != AggregateType.NONE && !isAggregationTypeImplicit) {
             sb.append(aggregationType.name()).append(" ");
         }
@@ -323,6 +324,11 @@ public class Column implements Writable {
         if (this.getScale() != other.getScale()) {
             return false;
         }
+
+        if (!comment.equals(other.getComment())) {
+            return false;
+        }
+
         return true;
     }
 

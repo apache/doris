@@ -29,11 +29,11 @@ public abstract class MetricVisitor {
         this.prefix = prefix;
     }
 
-    public abstract String visitJvm(JvmStats jvmStats);
+    public abstract void visitJvm(StringBuilder sb, JvmStats jvmStats);
 
-    public abstract String visit(Metric metric);
+    public abstract void visit(StringBuilder sb, Metric metric);
 
-    public abstract String visitHistogram(String name, Histogram histogram);
+    public abstract void visitHistogram(StringBuilder sb, String name, Histogram histogram);
 
-    public abstract String getPaloNodeInfo();
+    public abstract void getNodeInfo(StringBuilder sb);
 }

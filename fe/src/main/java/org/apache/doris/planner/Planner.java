@@ -86,10 +86,17 @@ public class Planner {
                 for (Expr expr : outputExprs) {
                     List<SlotId> slotList = Lists.newArrayList();
                     expr.getIds(null, slotList);
-                    if (PrimitiveType.DECIMAL == expr.getType().getPrimitiveType()
-                            && slotList.contains(slotDesc.getId())
-                            && PrimitiveType.DECIMAL == slotDesc.getType().getPrimitiveType()
-                            && null != slotDesc.getColumn()) {
+                    if (PrimitiveType.DECIMAL != expr.getType().getPrimitiveType() && 
+                            PrimitiveType.DECIMALV2 != expr.getType().getPrimitiveType()) {
+                        continue;
+                            }
+
+                    if (PrimitiveType.DECIMAL != slotDesc.getType().getPrimitiveType() &&
+                            PrimitiveType.DECIMALV2 != slotDesc.getType().getPrimitiveType()) {
+                        continue;
+                            }
+
+                    if (slotList.contains(slotDesc.getId()) && null != slotDesc.getColumn()) {
                         // TODO output scale
                         // int outputScale = slotDesc.getColumn().getType().getScale();
                         int outputScale = 10;
@@ -138,15 +145,8 @@ public class Planner {
         singleNodePlanner = new SingleNodePlanner(plannerContext);
         PlanNode singleNodePlan = singleNodePlanner.createSingleNodePlan();
 
-        singleNodePlanner.validatePlan(singleNodePlan);
-
         List<Expr> resultExprs = queryStmt.getResultExprs();
         if (statment instanceof InsertStmt) {
-            if (queryOptions.isSetMt_dop() && queryOptions.mt_dop > 0) {
-                throw new NotImplementedException(
-                        "MT_DOP not supported for plans with insert.");
-            }
- 
             InsertStmt insertStmt = (InsertStmt) statment;
             if (insertStmt.getOlapTuple() != null && !insertStmt.isStreaming()) {
                 singleNodePlan = new OlapRewriteNode(plannerContext.getNextNodeId(), singleNodePlan, insertStmt);

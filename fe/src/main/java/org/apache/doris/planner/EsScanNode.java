@@ -100,15 +100,15 @@ public class EsScanNode extends ScanNode {
         
         assignBackends();
     }
+    
+    @Override
+    public int getNumInstances() {
+        return shardScanRanges.size();
+    }
 
     @Override
     public List<TScanRangeLocations> getScanRangeLocations(long maxScanRangeLength) {
-        try {
-            return getShardLocations();
-        } catch (UserException e) {
-            LOG.error("errors while get es shard locations", e);
-        }
-        return null;
+        return shardScanRanges;
     }
     
     @Override
@@ -156,6 +156,9 @@ public class EsScanNode extends ScanNode {
     // TODO (ygl) should not get all shards, prune unrelated shard 
     private List<TScanRangeLocations> getShardLocations() throws UserException {
         // has to get partition info from es state not from table because the partition info is generated from es cluster state dynamically
+        if (esTableState == null) {
+            throw new UserException("EsTable shard info has not been synced, wait some time or check log");
+        }
         Collection<Long> partitionIds = partitionPrune(esTableState.getPartitionInfo()); 
         List<EsIndexState> selectedIndex = Lists.newArrayList();
         ArrayList<String> unPartitionedIndices = Lists.newArrayList();

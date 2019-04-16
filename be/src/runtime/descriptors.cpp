@@ -152,6 +152,19 @@ std::string BrokerTableDescriptor::debug_string() const {
     return out.str();
 }
 
+EsTableDescriptor::EsTableDescriptor(const TTableDescriptor& tdesc)
+    : TableDescriptor(tdesc) {
+}
+
+EsTableDescriptor::~EsTableDescriptor() {
+}
+
+std::string EsTableDescriptor::debug_string() const {
+    std::stringstream out;
+    out << "EsTable(" << TableDescriptor::debug_string() << ")";
+    return out.str();
+}
+
 KuduTableDescriptor::KuduTableDescriptor(const TTableDescriptor& tdesc)
   : TableDescriptor(tdesc),
     table_name_(tdesc.kuduTable.table_name),
@@ -482,6 +495,9 @@ Status DescriptorTbl::create(ObjectPool* pool, const TDescriptorTable& thrift_tb
             break;
         case TTableType::BROKER_TABLE:
             desc = pool->add(new BrokerTableDescriptor(tdesc));
+            break;
+        case TTableType::ES_TABLE:
+            desc = pool->add(new EsTableDescriptor(tdesc));
             break;
         default:
             DCHECK(false) << "invalid table type: " << tdesc.tableType;

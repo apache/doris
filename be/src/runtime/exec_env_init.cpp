@@ -114,7 +114,9 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
         exit(-1);
     }
     _broker_mgr->init();
-    return _init_mem_tracker();
+    _init_mem_tracker();
+    RETURN_IF_ERROR(_tablet_writer_mgr->start_bg_worker());
+    return Status::OK;
 }
 
 Status ExecEnv::_init_mem_tracker() {

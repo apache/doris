@@ -245,6 +245,7 @@ Status OlapScanner::get_batch(
         while (true) {
             // Batch is full, break
             if (batch->is_full()) {
+                _update_realtime_counter();
                 break;
             }
             // Read one row from reader
@@ -254,6 +255,7 @@ Status OlapScanner::get_batch(
             }
             // If we reach end of this scanner, break
             if (UNLIKELY(*eof)) {
+                _update_realtime_counter();
                 break;
             }
 
@@ -385,6 +387,16 @@ void OlapScanner::_convert_row_to_tuple(Tuple* tuple) {
             *slot = DecimalValue(int_value, frac_value);
             break;
         }
+        case TYPE_DECIMALV2: {
+            DecimalV2Value *slot = tuple->get_decimalv2_slot(slot_desc->tuple_offset());
+
+            int64_t int_value = *(int64_t*)(ptr);
+            int32_t frac_value = *(int32_t*)(ptr + sizeof(int64_t));
+            if (!slot->from_olap_decimal(int_value, frac_value)) {
+                tuple->set_null(slot_desc->null_indicator_offset());
+            }
+            break;
+        }
         case TYPE_DATETIME: {
             DateTimeValue *slot = tuple->get_datetime_slot(slot_desc->tuple_offset());
             uint64_t value = *reinterpret_cast<uint64_t*>(ptr);
@@ -449,6 +461,10 @@ void OlapScanner::update_counter() {
     DorisMetrics::query_scan_rows.increment(_reader->stats().raw_rows_read);
 
     _has_update_counter = true;
+}
+
+void OlapScanner::_update_realtime_counter() {
+    COUNTER_UPDATE(_parent->bytes_read_counter(), _reader->stats().bytes_read);
 }
 
 Status OlapScanner::close(RuntimeState* state) {

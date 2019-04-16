@@ -84,6 +84,10 @@ void RawValue::print_value_as_bytes(const void* value, const TypeDescriptor& typ
         stream->write(chars, sizeof(DecimalValue));
         break;
 
+    case TYPE_DECIMALV2:
+        stream->write(chars, sizeof(DecimalV2Value));
+        break;
+
     case TYPE_LARGEINT:
         stream->write(chars, sizeof(__int128));
         break;
@@ -161,6 +165,10 @@ void RawValue::print_value(const void* value, const TypeDescriptor& type, int sc
         *stream << *reinterpret_cast<const DecimalValue*>(value);
         break;
 
+    case TYPE_DECIMALV2:
+        *stream << reinterpret_cast<const PackedInt128*>(value)->value;
+        break;
+
     case TYPE_LARGEINT:
         *stream << reinterpret_cast<const PackedInt128*>(value)->value;
         break;
@@ -200,8 +208,8 @@ void RawValue::print_value(const void* value, const TypeDescriptor& type, int sc
         string_val = reinterpret_cast<const StringValue*>(value);
         std::stringstream ss;
         ss << "ptr:" << (void*)string_val->ptr << " len" << string_val->len;
-        // tmp.assign(static_cast<char*>(string_val->ptr), string_val->len);
         tmp = ss.str();
+        //tmp.assign(static_cast<char*>(string_val->ptr), string_val->len);
         str->swap(tmp);
         return;
     }
@@ -268,6 +276,10 @@ void RawValue::write(const void* value, void* dst, const TypeDescriptor& type, M
     case TYPE_DECIMAL:
         *reinterpret_cast<DecimalValue*>(dst) =
                 *reinterpret_cast<const DecimalValue*>(value);
+        break;
+
+    case TYPE_DECIMALV2:
+        *reinterpret_cast<PackedInt128*>(dst) = *reinterpret_cast<const PackedInt128*>(value);
         break;
 
     case TYPE_HLL:
@@ -339,6 +351,11 @@ void RawValue::write(const void* value, const TypeDescriptor& type, void* dst, u
         case TYPE_DECIMAL:
             *reinterpret_cast<DecimalValue*>(dst) = *reinterpret_cast<const DecimalValue*>(value);
             break;
+
+        case TYPE_DECIMALV2:
+            *reinterpret_cast<PackedInt128*>(dst) = *reinterpret_cast<const PackedInt128*>(value);
+            break;
+
         default:
             DCHECK(false) << "RawValue::write(): bad type: " << type.debug_string();
     }

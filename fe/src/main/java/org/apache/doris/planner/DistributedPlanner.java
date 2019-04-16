@@ -360,13 +360,13 @@ public class DistributedPlanner {
             connectChildFragment(node, 1, leftChildFragment, rightChildFragment);
             leftChildFragment.setPlanRoot(node);
 
-            if (!node.getJoinOp().isOuterJoin() && !node.getJoinOp().isSemiAntiJoin()) {
+            // Push down the predicates constructed by the right child when the
+            // join op is inner join or left semi join.
+            if (node.getJoinOp().isInnerJoin() || node.getJoinOp().isLeftSemiJoin()) {
                 node.setIsPushDown(true);
-            }
-            // semi-join, only left semi join can pushDown
-            if (node.getJoinOp().isLeftSemiJoin()) {
-                node.setIsPushDown(true);
-            }
+            } else {
+                node.setIsPushDown(false);
+            }  
             return leftChildFragment;
         } else {
             node.setDistributionMode(HashJoinNode.DistributionMode.PARTITIONED);

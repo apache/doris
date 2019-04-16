@@ -61,6 +61,7 @@ native_types = {
   'DATE': 'Date',
   'DATETIME': 'DateTime',
   'DECIMAL': 'DecimalValue',
+  'DECIMALV2': 'DecimalV2Value',
 }
 
 thrift_preamble = '\

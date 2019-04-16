@@ -18,6 +18,9 @@
 package org.apache.doris.analysis;
 
 import com.google.common.base.Joiner;
+import com.google.common.base.Objects;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 import org.apache.doris.analysis.AnalyticWindow.Boundary;
 import org.apache.doris.analysis.AnalyticWindow.BoundaryType;
 import org.apache.doris.catalog.AggregateFunction;
@@ -27,11 +30,6 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.thrift.TExprNode;
-
-import com.google.common.base.Objects;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -90,6 +88,9 @@ public class AnalyticExpr extends Expr {
     // Internal function used to implement FIRST_VALUE with a window rewrite and
     // additional null handling in the backend.
     public static String FIRST_VALUE_REWRITE = "FIRST_VALUE_REWRITE";
+
+    // The function of HLL_UNION_AGG can't be used with a window by now.
+    public static String HLL_UNION_AGG = "HLL_UNION_AGG";
 
     public AnalyticExpr(FunctionCallExpr fnCall, List<Expr> partitionExprs,
                         List<OrderByElement> orderByElements, AnalyticWindow window) {
@@ -223,6 +224,14 @@ public class AnalyticExpr extends Expr {
         return fn.functionName().equalsIgnoreCase(RANK)
                || fn.functionName().equalsIgnoreCase(DENSERANK)
                || fn.functionName().equalsIgnoreCase(ROWNUMBER);
+    }
+
+    static private boolean isHllAggFn(Function fn) {
+        if (!isAnalyticFn(fn)) {
+            return false;
+        }
+
+        return fn.functionName().equalsIgnoreCase(HLL_UNION_AGG);
     }
 
     /**
@@ -365,11 +374,6 @@ public class AnalyticExpr extends Expr {
         fnCall.analyze(analyzer);
         type = getFnCall().getType();
 
-        if (partitionExprs == null || partitionExprs.size() == 0) {
-            throw new AnalysisException(
-                " Analytic function must contains  PARTITION in palo system.");
-        }
-
         for (Expr e : partitionExprs) {
             if (e.isConstant()) {
                 throw new AnalysisException(
@@ -413,7 +417,7 @@ public class AnalyticExpr extends Expr {
             //        "'" + getFnCall().toSql() + "' requires an ORDER BY clause");
             // }
 
-            if ((isRankingFn(fn) || isOffsetFn(fn)) && window != null) {
+            if ((isRankingFn(fn) || isOffsetFn(fn) || isHllAggFn(fn)) && window != null) {
                 throw new AnalysisException(
                     "Windowing clause not allowed with '" + getFnCall().toSql() + "'");
             }

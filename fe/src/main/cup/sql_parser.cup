@@ -2063,10 +2063,9 @@ cancel_param ::=
 
 // Delete stmt
 delete_stmt ::=
-    KW_DELETE KW_FROM table_name:table KW_PARTITION ident:partition where_clause:wherePredicate
-    opt_properties:properties
+    KW_DELETE KW_FROM table_name:table opt_partition_name:partition where_clause:wherePredicate
     {:
-        RESULT = new DeleteStmt(table, partition, wherePredicate, properties);
+        RESULT = new DeleteStmt(table, partition, wherePredicate);
     :}
     ;
 
@@ -3107,11 +3106,11 @@ type ::=
   | KW_CHAR
   {: RESULT = ScalarType.createCharType(-1); :}
   | KW_DECIMAL LPAREN INTEGER_LITERAL:precision RPAREN
-  {: RESULT = ScalarType.createDecimalType(precision.intValue()); :}
+  {: RESULT = ScalarType.createDecimalV2Type(precision.intValue()); :}
   | KW_DECIMAL LPAREN INTEGER_LITERAL:precision COMMA INTEGER_LITERAL:scale RPAREN
-  {: RESULT = ScalarType.createDecimalType(precision.intValue(), scale.intValue()); :}
+  {: RESULT = ScalarType.createDecimalV2Type(precision.intValue(), scale.intValue()); :}
   | KW_DECIMAL
-  {: RESULT = ScalarType.createDecimalType(); :}
+  {: RESULT = ScalarType.createDecimalV2Type(); :}
   | KW_HLL
   {: ScalarType type = ScalarType.createHllType(); 
      type.setAssignedStrLenInColDefinition();
@@ -3282,6 +3281,8 @@ non_pred_expr ::=
   {: RESULT = new FunctionCallExpr(new FunctionName(null, id), params); :}
   | KW_DATABASE LPAREN RPAREN
   {: RESULT = new InformationFunction("DATABASE"); :}
+  | KW_USER LPAREN RPAREN
+  {: RESULT = new InformationFunction("USER"); :}
   | KW_CURRENT_USER LPAREN RPAREN
   {: RESULT = new InformationFunction("CURRENT_USER"); :}
   | KW_CONNECTION_ID LPAREN RPAREN

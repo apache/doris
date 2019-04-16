@@ -17,51 +17,17 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.AggregateInfo;
-import org.apache.doris.analysis.AnalyticInfo;
-import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.BaseTableRef;
-import org.apache.doris.analysis.BinaryPredicate;
-import org.apache.doris.analysis.CaseExpr;
-import org.apache.doris.analysis.CastExpr;
-import org.apache.doris.analysis.DescriptorTable;
-import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.ExprSubstitutionMap;
-import org.apache.doris.analysis.FunctionCallExpr;
-import org.apache.doris.analysis.InPredicate;
-import org.apache.doris.analysis.InlineViewRef;
-import org.apache.doris.analysis.IsNullPredicate;
-import org.apache.doris.analysis.JoinOperator;
-import org.apache.doris.analysis.LiteralExpr;
-import org.apache.doris.analysis.NullLiteral;
-import org.apache.doris.analysis.QueryStmt;
-import org.apache.doris.analysis.SelectStmt;
-import org.apache.doris.analysis.SlotDescriptor;
-import org.apache.doris.analysis.SlotId;
-import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.analysis.TableRef;
-import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.analysis.TupleId;
-import org.apache.doris.analysis.TupleIsNullPredicate;
-import org.apache.doris.analysis.UnionStmt;
-import org.apache.doris.catalog.AggregateType;
-import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.MysqlTable;
-import org.apache.doris.catalog.Table;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.UserException;
-import org.apache.doris.common.NotImplementedException;
-import org.apache.doris.common.Pair;
-import org.apache.doris.common.Reference;
-
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
-import javassist.expr.NewArray;
-
+import org.apache.doris.analysis.*;
+import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.MysqlTable;
+import org.apache.doris.catalog.Table;
+import org.apache.doris.common.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -148,31 +114,6 @@ public class SingleNodePlanner {
                 ctx_.getQueryOptions().getDefault_order_by_limit());
         Preconditions.checkNotNull(singleNodePlan);
         return singleNodePlan;
-    }
-
-    /**
-     * Checks that the given single-node plan is executable:
-     * - It may not contain right or full outer joins with no equi-join conjuncts that
-     *   are not inside the right child of a SubplanNode.
-     * - MT_DOP > 0 is not supported for plans with base table joins or table sinks.
-     * Throws a NotImplementedException if plan validation fails.
-     */
-    public void validatePlan(PlanNode planNode) throws NotImplementedException {
-      if (ctx_.getQueryOptions().isSetMt_dop() && ctx_.getQueryOptions().mt_dop > 0
-          && (planNode instanceof HashJoinNode || planNode instanceof CrossJoinNode)) {
-          throw new NotImplementedException(
-              "MT_DOP not supported for plans with base table joins or table sinks.");
-      }
-
-      // As long as MT_DOP is unset or 0 any join can run in a single-node plan.
-      if (ctx_.isSingleNodeExec() &&
-          (!ctx_.getQueryOptions().isSetMt_dop() || ctx_.getQueryOptions().mt_dop == 0)) {
-          return;
-      }
-
-      for (PlanNode child : planNode.getChildren()) {
-          validatePlan(child);
-      }
     }
 
     /**
@@ -297,6 +238,7 @@ public class SingleNodePlanner {
         return root;
     }
 
+    
     /**
      * If there are unassigned conjuncts that are bound by tupleIds or if there are slot
      * equivalences for tupleIds that have not yet been enforced, returns a SelectNode on
@@ -554,6 +496,9 @@ public class SingleNodePlanner {
                             break;
                         }
                     } else if (aggExpr.getFnName().getFunction().equalsIgnoreCase("HLL_UNION_AGG")) {
+                        // do nothing
+                    } else if (aggExpr.getFnName().getFunction().equalsIgnoreCase("HLL_RAW_AGG")) {
+                        // do nothing
                     } else if (aggExpr.getFnName().getFunction().equalsIgnoreCase("NDV")) {
                         if ((!col.isKey())) {
                             turnOffReason = "NDV function with non-key column: " + col.getName();
@@ -567,7 +512,7 @@ public class SingleNodePlanner {
                             returnColumnValidate = false;
                             break;
                         }
-                   } else {
+                    } else {
                         turnOffReason = "Invalid Aggregate Operator: " + aggExpr.getFnName().getFunction();
                         returnColumnValidate = false;
                         break;
@@ -682,7 +627,7 @@ public class SingleNodePlanner {
             // Have the build side of a join copy data to a compact representation
             // in the tuple buffer.
             root.getChildren().get(1).setCompactData(true);
-            assignConjuncts(root, analyzer);
+            root.assignConjuncts(analyzer);
         }
 
         if (selectStmt.getSortInfo() != null && selectStmt.getLimit() == -1
@@ -785,57 +730,6 @@ public class SingleNodePlanner {
         }
         tupleDesc.computeMemLayout();
         return tupleDesc;
-    }
-
-    /**
-     * Assign all unassigned conjuncts to node which can be correctly evaluated by node. Ignores OJ conjuncts.
-     */
-    private void assignConjuncts(PlanNode node, Analyzer analyzer) {
-        List<Expr> conjuncts = getUnassignedConjuncts(node, analyzer);
-        node.addConjuncts(conjuncts);
-        analyzer.markConjunctsAssigned(conjuncts);
-    }
-
-    /**
-     * Return all unassigned conjuncts which can be correctly evaluated by node. Ignores OJ conjuncts.
-     */
-    private List<Expr> getUnassignedConjuncts(PlanNode node, Analyzer analyzer) {
-        List<Expr> conjuncts = Lists.newArrayList();
-        for (Expr e : analyzer.getAllUnassignedConjuncts(node.getTupleIds())) {
-            if (canEvalPredicate(node.getTupleIds(), e, analyzer)) {
-                conjuncts.add(e);
-            }
-        }
-        return conjuncts;
-    }
-
-    /**
-     * Returns true if predicate can be correctly evaluated by a tree materializing 'tupleIds', otherwise false: - the
-     * predicate needs to be bound by the materialized tuple ids - a Where clause predicate can only be correctly
-     * evaluated if for all outer-joined referenced tids the last join to outer-join this tid has been materialized
-     */
-    private boolean canEvalPredicate(List<TupleId> tupleIds, Expr e, Analyzer analyzer) {
-        if (!e.isBoundByTupleIds(tupleIds)) {
-            return false;
-        }
-        if (!analyzer.isWhereClauseConjunct(e)) {
-            return true;
-        }
-        ArrayList<TupleId> tids = Lists.newArrayList();
-        e.getIds(tids, null);
-        for (TupleId tid : tids) {
-            TableRef rhsRef = analyzer.getLastOjClause(tid);
-            if (rhsRef == null) {
-                // this is not outer-joined; ignore
-                continue;
-            }
-            if (!tupleIds.containsAll(rhsRef.getMaterializedTupleIds()) || !tupleIds.containsAll(
-                    rhsRef.getLeftTblRef().getMaterializedTupleIds())) {
-                // the last join to outer-join this tid hasn't been materialized yet
-                return false;
-            }
-        }
-        return true;
     }
 
     // no need to remove?

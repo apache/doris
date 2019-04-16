@@ -69,7 +69,7 @@ public class BackendTest {
         backend.updateOnce(bePort, httpPort, beRpcPort);
 
         PowerMock.mockStatic(MetricRepo.class);
-        MetricRepo.generateCapacityMetrics();
+        MetricRepo.generateTabletNumMetrics();
         EasyMock.expectLastCall().anyTimes();
         PowerMock.replay(MetricRepo.class);
     }

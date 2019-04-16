@@ -55,7 +55,7 @@ export TP_JAR_DIR=$TP_INSTALL_DIR/lib/jar
 # libevent
 # the last release version of libevent is 2.1.8, which was released on 26 Jan 2017, that is too old.
 # so we use the master version of libevent, which is downloaded on 22 Jun 2018, with commit 24236aed01798303745470e6c498bf606e88724a
-LIBEVENT_DOWNLOAD="http://palo-opensource.gz.bcebos.com/libevent-20180622-24236aed01798303745470e6c498bf606e88724a.zip?authorization=bce-auth-v1%2F069fc2786e464e63a5f1183824ddb522%2F2018-06-22T02%3A37%3A48Z%2F-1%2Fhost%2F031b0cc42ab83ca4e0ec3608cba963e95c1ddc46fc70a14457323e2d7960e6ef"
+LIBEVENT_DOWNLOAD="https://doris-incubating-repo.bj.bcebos.com/thirdparty/libevent-20180622-24236aed01798303745470e6c498bf606e88724a.zip"
 LIBEVENT_NAME=libevent-20180622-24236aed01798303745470e6c498bf606e88724a.zip
 LIBEVENT_SOURCE=libevent-master
 LIBEVENT_MD5SUM="e8b9ba50270ba3b520aec8ff1089f9d7"
@@ -158,10 +158,10 @@ RAPIDJSON_SOURCE=rapidjson-1.1.0
 RAPIDJSON_MD5SUM="badd12c511e081fec6c89c43a7027bce"
 
 # curl
-CURL_DOWNLOAD="https://curl.haxx.se/download/curl-7.54.0.tar.gz"
-CURL_NAME=curl-7.54.0.tar.gz
-CURL_SOURCE=curl-7.54.0
-CURL_MD5SUM="18091896d871982cc4c2b307885eacb3"
+CURL_DOWNLOAD="https://curl.haxx.se/download/curl-7.54.1.tar.gz"
+CURL_NAME=curl-7.54.1.tar.gz
+CURL_SOURCE=curl-7.54.1
+CURL_MD5SUM="21a6e5658fd55103a90b11de7b2a8a8c"
 
 # RE2
 RE2_DOWNLOAD="https://github.com/google/re2/archive/2017-05-01.tar.gz"
@@ -196,8 +196,8 @@ LEVELDB_MD5SUM="298b5bddf12c675d6345784261302252"
 # brpc
 BRPC_DOWNLOAD="https://github.com/brpc/brpc/archive/v0.9.0.tar.gz"
 BRPC_NAME=brpc-0.9.0.tar.gz
-BRPC_SOURCE=brpc-0.9.0
-BRPC_MD5SUM="2e79f413614b99d44083499a81c0db67"
+BRPC_SOURCE=incubator-brpc-0.9.0
+BRPC_MD5SUM="79dfdc8b6e2d7a08dc68f14c5fabe6b7"
 
 # rocksdb
 ROCKSDB_DOWNLOAD="https://github.com/facebook/rocksdb/archive/v5.14.2.tar.gz"

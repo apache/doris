@@ -659,6 +659,11 @@ public class EditLog {
                     Catalog.getCurrentCatalog().replayDropFunction(function);
                     break;
                 }
+                case OperationType.OP_BACKEND_TABLETS_INFO: {
+                    BackendTabletsInfo backendTabletsInfo = (BackendTabletsInfo) journal.getData();
+                    Catalog.getCurrentCatalog().replayBackendTabletsInfo(backendTabletsInfo);
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}", opCode, e);
@@ -1156,5 +1161,9 @@ public class EditLog {
 
     public void logDropFunction(FunctionSearchDesc function) {
         logEdit(OperationType.OP_DROP_FUNCTION, function);
+    }
+
+    public void logBackendTabletsInfo(BackendTabletsInfo backendTabletsInfo) {
+        logEdit(OperationType.OP_BACKEND_TABLETS_INFO, backendTabletsInfo);
     }
 }

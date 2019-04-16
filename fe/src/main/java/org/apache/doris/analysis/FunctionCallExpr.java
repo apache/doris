@@ -17,13 +17,13 @@
 
 package org.apache.doris.analysis;
 
+import com.google.common.base.Joiner;
+import com.google.common.base.Objects;
+import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
-import org.apache.doris.catalog.AggregateFunction;
-import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.Function;
-import org.apache.doris.catalog.ScalarFunction;
-import org.apache.doris.catalog.Type;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSortedSet;
+import org.apache.doris.catalog.*;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -32,13 +32,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TAggregateExpr;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
-
-import com.google.common.base.Joiner;
-import com.google.common.base.Objects;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.ImmutableSortedSet;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -353,8 +346,11 @@ public class FunctionCallExpr extends Expr {
             }
         }
 
-        // determine type
+        // Function's arg can't be null for the following functions.
         Expr arg = getChild(0);
+        if (arg == null) {
+            return;
+        }
 
         // SUM and AVG cannot be applied to non-numeric types
         if (fnName.getFunction().equalsIgnoreCase("sum")
@@ -377,9 +373,12 @@ public class FunctionCallExpr extends Expr {
                     "hll only use in HLL_UNION_AGG or HLL_CARDINALITY , HLL_HASH and so on.");
         }
 
-        if (fnName.getFunction().equalsIgnoreCase("HLL_UNION_AGG") && !arg.type.isHllType()) {
+        if ((fnName.getFunction().equalsIgnoreCase("HLL_UNION_AGG")
+                || fnName.getFunction().equalsIgnoreCase("HLL_CARDINALITY")
+                || fnName.getFunction().equalsIgnoreCase("HLL_RAW_AGG"))
+                && !arg.type.isHllType()) {
             throw new AnalysisException(
-                    "HLL_UNION_AGG and HLL_CARDINALITY , HLL_HASH's params must be hll column");        
+                    "HLL_UNION_AGG, HLL_RAW_AGG and HLL_CARDINALITY's params must be hll column");
         }
 
         if (fnName.getFunction().equalsIgnoreCase("min")

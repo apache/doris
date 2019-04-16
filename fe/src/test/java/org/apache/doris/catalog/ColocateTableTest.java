@@ -18,18 +18,22 @@
 package org.apache.doris.catalog;
 
 import com.google.common.collect.Lists;
+import mockit.Deencapsulation;
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mock;
 import mockit.MockUp;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ColumnDef;
+import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TypeDef;
+import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.PropertyAnalyzer;
@@ -39,6 +43,7 @@ import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentBatchTask;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
@@ -48,6 +53,7 @@ import org.junit.rules.ExpectedException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -55,6 +61,7 @@ public class ColocateTableTest {
     private TableName dbTableName1;
     private TableName dbTableName2;
     private TableName dbTableName3;
+    private String dbName = "default:testDb";
     private String tableName1 = "t1";
     private String tableName2 = "t2";
     private String tableName3 = "t3";
@@ -65,7 +72,7 @@ public class ColocateTableTest {
     private Map<String, String> properties = new HashMap<String, String>();
 
     private Catalog catalog;
-    private Database db = new Database();
+    private Database db;
     private Analyzer analyzer;
 
     @Injectable
@@ -82,7 +89,6 @@ public class ColocateTableTest {
 
     @Before
     public void setUp() throws Exception {
-        String dbName = "testDb";
         dbTableName1 = new TableName(dbName, tableName1);
         dbTableName2 = new TableName(dbName, tableName2);
         dbTableName3 = new TableName(dbName, tableName3);
@@ -117,11 +123,6 @@ public class ColocateTableTest {
 
         new Expectations(catalog) {
             {
-                catalog.getDb(anyString);
-                result = db;
-                catalog.getDb(anyLong);
-                result = db;
-
                 Catalog.getCurrentSystemInfo();
                 result = systemInfoService;
 
@@ -134,12 +135,18 @@ public class ColocateTableTest {
                 paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.CREATE);
                 result = true;
                 paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.DROP);
-                result = true;
-
-                catalog.getEditLog();
-                result = editLog;
+                result = true; minTimes = 0; maxTimes = 1;
             }
         };
+
+        new Expectations() {
+            {
+                Deencapsulation.setField(catalog, "editLog", editLog);
+            }
+        };
+
+        InitDataBase();
+        db = catalog.getDb(dbName);
 
         new MockUp<AgentBatchTask>() {
             @Mock
@@ -154,6 +161,31 @@ public class ColocateTableTest {
                 return true;
             }
         };
+    }
+
+    private void InitDataBase() throws Exception {
+        CreateDbStmt dbStmt = new CreateDbStmt(true, dbName);
+        new Expectations(dbStmt) {
+            {
+                dbStmt.getClusterName();
+                result = clusterName;
+            }
+        };
+
+        ConcurrentHashMap<String, Cluster> nameToCluster =  new ConcurrentHashMap<>();
+        nameToCluster.put(clusterName, new Cluster(clusterName, 1));
+        new Expectations() {
+            {
+                Deencapsulation.setField(catalog, "nameToCluster", nameToCluster);
+            }
+        };
+
+        catalog.createDb(dbStmt);
+    }
+
+    @After
+    public void tearDown() throws Exception {
+        catalog.clear();
     }
 
     private void CreateParentTable(int numBecket, Map<String, String> properties) throws Exception {
@@ -348,6 +380,28 @@ public class ColocateTableTest {
         Assert.assertFalse(index.isSameGroup(parentId, childId));
         Assert.assertTrue(index.isSameGroup(parentId, grandchildId));
         Assert.assertFalse(index.isSameGroup(childId, grandchildId));
+    }
+
+    @Test
+    public void testDropDbWithColocateTable() throws Exception {
+        int numBecket = 1;
+
+        CreateParentTable(numBecket, properties);
+
+        ColocateTableIndex index = Catalog.getCurrentColocateIndex();
+        long tableId = db.getTable(tableName1).getId();
+
+        Assert.assertEquals(1, index.getGroup2DB().size());
+        Assert.assertEquals(1, index.getAllGroupIds().size());
+
+        Long dbId = db.getId();
+        Assert.assertEquals(index.getDB(tableId), dbId);
+
+        DropDbStmt stmt = new DropDbStmt(false, dbName);
+        catalog.dropDb(stmt);
+
+        Assert.assertEquals(0, index.getGroup2DB().size());
+        Assert.assertEquals(0, index.getAllGroupIds().size());
     }
 
     @Test

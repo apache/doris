@@ -59,6 +59,8 @@ private:
 
     bool get_disjuncts(ExprContext* context, Expr* conjunct, vector<TExtPredicate>& disjuncts);
     bool to_ext_literal(ExprContext* context, Expr* expr, TExtLiteral* literal);
+    bool to_ext_literal(PrimitiveType node_type, void* value, TExtLiteral* literal);
+    bool ignore_cast(SlotDescriptor* slot, Expr* expr);
 
     bool is_match_func(Expr* conjunct);
 
@@ -82,6 +84,7 @@ private:
     std::vector<TNetworkAddress> _addresses;
     std::vector<std::string> _scan_handles;
     std::vector<int> _offsets;
+    std::vector<ExprContext*> _pushdown_conjunct_ctxs;
 };
 
 }

@@ -1440,6 +1440,14 @@ public class Analyzer {
         return globalState.context.getQualifiedUser();
     }
 
+    public String getUserIdentity(boolean currentUser) {
+        if (currentUser) {
+            return "";
+        } else {
+            return getQualifiedUser() + "@" + ConnectContext.get().getRemoteIP();
+        }
+    }
+
     public String getSchemaDb() {
         return schemaDb;
     }

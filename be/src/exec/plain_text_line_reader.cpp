@@ -247,9 +247,8 @@ Status PlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool* e
                     } else {
                         // last loop we meet stream end,
                         // and now we finished reading file, so we are finished
-                        *size = 0;
-                        *eof = true;
-                        return Status::OK;
+                        // break this loop to see if there is data in buffer
+                        break;
                     }
                 }
 

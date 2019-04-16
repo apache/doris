@@ -32,6 +32,8 @@ public:
                                    const doris_udf::DoubleVal& v);
     static doris_udf::DecimalVal decimal_abs(doris_udf::FunctionContext* context, 
                                   const doris_udf::DecimalVal& v);
+    static doris_udf::DecimalV2Val decimal_abs(doris_udf::FunctionContext* context, 
+                                  const doris_udf::DecimalV2Val& v);
     static doris_udf::BigIntVal add_two_number(
             doris_udf::FunctionContext* context,
             const doris_udf::BigIntVal& v1,

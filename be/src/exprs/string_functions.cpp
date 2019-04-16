@@ -500,7 +500,31 @@ StringVal StringFunctions::regexp_replace(
 
 StringVal StringFunctions::concat(
         FunctionContext* context, int num_children, const StringVal* strs) {
-    return concat_ws(context, StringVal(), num_children, strs);
+    DCHECK_GE(num_children, 1);
+
+    // Pass through if there's only one argument
+    if (num_children == 1) {
+        return strs[0];
+    }
+
+    // Loop once to compute the final size and reserve space.
+    int32_t total_size = 0;
+    for (int32_t i = 0; i < num_children; ++i) {
+        if (strs[i].is_null) {
+            return StringVal::null();
+        }
+        total_size += strs[i].len;
+    }
+
+    StringVal result(context, total_size);
+    uint8_t* ptr = result.ptr;
+
+    // Loop again to append the data.
+    for (int32_t i = 0; i < num_children; ++i) {
+        memcpy(ptr, strs[i].ptr, strs[i].len);
+        ptr += strs[i].len;
+    }
+    return result;
 }
 
 StringVal StringFunctions::concat_ws(
@@ -511,37 +535,35 @@ StringVal StringFunctions::concat_ws(
         return StringVal::null();
     }
 
-    // Pass through if there's only one argument
-    if (num_children == 1) {
-        return strs[0];
-    }
-
-    if (strs[0].is_null) {
-        return StringVal::null();
-    }
-    int32_t total_size = strs[0].len;
-
     // Loop once to compute the final size and reserve space.
-    for (int32_t i = 1; i < num_children; ++i) {
+    int32_t total_size = 0;
+    bool not_first = false;
+    for (int32_t i = 0; i < num_children; ++i) {
         if (strs[i].is_null) {
-            return StringVal::null();
+            continue;
         }
-        total_size += sep.len + strs[i].len;
+        if (not_first) {
+            total_size += sep.len;
+        }
+        total_size += strs[i].len;
+        not_first = true;
     }
 
-    // TODO pengyubing
-    // StringVal result = StringVal::create_temp_string_val(context, total_size);
     StringVal result(context, total_size);
     uint8_t* ptr = result.ptr;
-
+    not_first = false;
     // Loop again to append the data.
-    memcpy(ptr, strs[0].ptr, strs[0].len);
-    ptr += strs[0].len;
-    for (int32_t i = 1; i < num_children; ++i) {
-        memcpy(ptr, sep.ptr, sep.len);
-        ptr += sep.len;
+    for (int32_t i = 0; i < num_children; ++i) {
+        if (strs[i].is_null) {
+            continue;
+        }
+        if (not_first) {
+            memcpy(ptr, sep.ptr, sep.len);
+            ptr += sep.len;
+        }
         memcpy(ptr, strs[i].ptr, strs[i].len);
         ptr += strs[i].len;
+        not_first = true;
     }
     return result;
 }

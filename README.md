@@ -1,6 +1,7 @@
 # Apache Doris (incubating)
+[![Join the chat at https://gitter.im/apache-doris/Lobby](https://badges.gitter.im/apache-doris/Lobby.svg)](https://gitter.im/apache-doris/Lobby?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 
-Doris is an MPP-based interactive SQL data warehousing for reporting and analysis. It open-sourced by Baidu. 
+Doris is an MPP-based interactive SQL data warehousing for reporting and analysis. It is open-sourced by Baidu. 
 
 ## 1. License
 
@@ -22,7 +23,9 @@ The simplicity (of developing, deploying and using) and meeting many data servin
 
 Currently only supports Docker environment and Linux OS, such as Ubuntu and CentOS.
 
-### 4.1 For Docker 
+### 4.1 Compile in Docker environment (Recommended)
+
+We offer a docker images as a Doris compilation environment. You can compile Doris from source in it and run the output binaries in other Linux environment.
 
 Firstly, you must be install and start docker service.
 
@@ -44,15 +47,25 @@ apachedoris/doris-dev   build-env           f8bc5d4024e0        21 hours ago    
 
 #### Step2: Run the Docker image 
 
-You can run image directyly:
+You can run the image directyly:
 
 ```
 $ docker run -it apachedoris/doris-dev:build-env
 ```
 
+Or if you want to compile the source located in your local host, you can map the local directory to the image by running:
+
+```
+$ docker run -it -v /your/local/path/incubator-doris-DORIS-x.x.x-release/:/root/incubator-doris-DORIS-x.x.x-release/ apachedoris/doris-dev:build-env
+```
+
 #### Step3: Download Doris source
+
+Now you should in docker environment.
+
 You can download Doris source by release package or by git clone in image.
-(If you have downloaded source and it is not in image, you can map its path to image in Step2.)
+
+(If you already downloaded the source in your local host and map it to the image in Step2, you can skip this step.)
 
 ```
 $ wget https://dist.apache.org/repos/dist/dev/incubator/doris/xxx.tar.gz
@@ -61,13 +74,14 @@ $ git clone https://github.com/apache/incubator-doris.git
 ```
 
 #### Step4: Build Doris
-Now you should in docker environment, and you can enter Doris source path and build Doris.
+
+Enter Doris source path and build Doris.
 
 ```
 $ sh build.sh
 ```
 
-After successfully building, it will install binary files in the directory output/.
+After successfully building, it will install binary files in the directory `output/`.
 
 ### 4.2 For Linux OS
 
@@ -97,7 +111,7 @@ Run following script, it will compile thirdparty libraries and build whole Doris
 sh build.sh
 ```
 
-After successfully building, it will install binary files in the directory output/.
+After successfully building, it will install binary files in the directory `output/`.
 
 ## 5. Reporting Issues
 
@@ -115,3 +129,4 @@ If you find any bugs, please file a [GitHub issue](https://github.com/apache/inc
 * Deploy and Upgrade - <https://github.com/apache/incubator-doris/wiki/Doris-Deploy-%26-Upgrade>
 * User Manual - <https://github.com/apache/incubator-doris/wiki/Doris-Create%2C-Load-and-Delete>
 * FAQs - <https://github.com/apache/incubator-doris/wiki/Doris-FAQ>
+
