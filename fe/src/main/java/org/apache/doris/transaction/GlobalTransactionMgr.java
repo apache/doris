@@ -360,39 +360,22 @@ public class GlobalTransactionMgr {
                 }
             }
         }
-        
+
+        // before state transform
+        transactionState.beforeStateTransform(TransactionStatus.COMMITTED);
+        // transaction state transform
+        boolean txnOperated = true;
         writeLock();
         try {
-            // transaction state is modified during check if the transaction could committed
-            if (transactionState.getTransactionStatus() != TransactionStatus.PREPARE) {
-                return;
-            }
-            // 4. update transaction state version
-            transactionState.setCommitTime(System.currentTimeMillis());
-            transactionState.setTransactionStatus(TransactionStatus.COMMITTED);
-            transactionState.setErrorReplicas(errorReplicaIds);
-            for (long tableId : tableToPartition.keySet()) {
-                TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId);
-                for (long partitionId : tableToPartition.get(tableId)) {
-                    OlapTable table = (OlapTable) db.getTable(tableId);
-                    Partition partition = table.getPartition(partitionId);
-                    PartitionCommitInfo partitionCommitInfo = new PartitionCommitInfo(partitionId,
-                                                                                      partition.getNextVersion(),
-                                                                                      partition.getNextVersionHash());
-                    tableCommitInfo.addPartitionCommitInfo(partitionCommitInfo);
-                }
-                transactionState.putIdToTableCommitInfo(tableId, tableCommitInfo);
-            }
-            // 5. persistent transactionState
-            unprotectUpsertTransactionState(transactionState);
-            
-            // add publish version tasks. set task to null as a placeholder.
-            // tasks will be created when publishing version.
-            for (long backendId : totalInvolvedBackends) {
-                transactionState.addPublishVersionTask(backendId, null);
-            }
+            unprotectedCommitTransaction(transactionState, errorReplicaIds, tableToPartition, totalInvolvedBackends,
+                                         db);
+        } catch (Throwable e) {
+            txnOperated = false;
+            throw e;
         } finally {
             writeUnlock();
+            // after state transform
+            transactionState.afterStateTransform(TransactionStatus.COMMITTED, txnOperated);
         }
         
         // 6. update nextVersion because of the failure of persistent transaction resulting in error version
@@ -439,6 +422,25 @@ public class GlobalTransactionMgr {
         }
         return transactionState.getTransactionStatus() == TransactionStatus.VISIBLE;
     }
+
+    public void abortTransaction(Long dbId, String label, String reason) throws UserException {
+        Preconditions.checkNotNull(label);
+        Long transactionId = null;
+        writeLock();
+        try {
+            Map<String, Long> dbTxns = dbIdToTxnLabels.row(dbId);
+            if (dbTxns == null) {
+                throw new UserException("transaction not found, label=" + label);
+            }
+            transactionId = dbTxns.get(label);
+            if (transactionId == null) {
+                throw new UserException("transaction not found, label=" + label);
+            }
+        } finally {
+            writeUnlock();
+        }
+        abortTransaction(transactionId, reason);
+    }
     
     public void abortTransaction(long transactionId, String reason) throws UserException {
         abortTransaction(transactionId, reason, null);
@@ -449,34 +451,25 @@ public class GlobalTransactionMgr {
             LOG.info("transaction id is {}, less than 0, maybe this is an old type load job, ignore abort operation", transactionId);
             return;
         }
+        TransactionState transactionState = idToTransactionState.get(transactionId);
+        if (transactionState == null) {
+            throw new UserException("transaction not found");
+        }
+        // before state transform
+        transactionState.beforeStateTransform(TransactionStatus.ABORTED);
+        boolean txnOperated = true;
         writeLock();
         try {
             unprotectAbortTransaction(transactionId, reason, txnCommitAttachment);
-        } catch (Exception exception) {
-            LOG.info("transaction:[{}] reason:[{}] abort failure exception:{}", transactionId, reason, exception);
-            throw exception;
+        } catch (Throwable e) {
+            LOG.info("transaction:[{}] reason:[{}] abort failure exception:{}", transactionId, reason, e);
+            txnOperated = false;
+            throw e;
         } finally {
             writeUnlock();
+            transactionState.afterStateTransform(TransactionStatus.ABORTED, txnOperated, reason);
         }
         return;
-    }
-
-    public void abortTransaction(Long dbId, String label, String reason) throws UserException {
-        Preconditions.checkNotNull(label);
-        writeLock();
-        try {
-            Map<String, Long> dbTxns = dbIdToTxnLabels.row(dbId);
-            if (dbTxns == null) {
-                throw new UserException("transaction not found, label=" + label);
-            }
-            Long transactionId = dbTxns.get(label);
-            if (transactionId == null) {
-                throw new UserException("transaction not found, label=" + label);
-            }
-            unprotectAbortTransaction(transactionId, reason);
-        } finally {
-            writeUnlock();
-        }
     }
     
     /*
@@ -501,8 +494,6 @@ public class GlobalTransactionMgr {
                     continue;
                 }
             }
-        } catch (TransactionException e) {
-            LOG.warn("failed to update transaction {} status to aborted", e.getTransactionId());
         } finally {
             writeUnlock();
         }
@@ -582,8 +573,6 @@ public class GlobalTransactionMgr {
                 LOG.warn("db is dropped during transaction, abort transaction {}", transactionState);
                 unprotectUpsertTransactionState(transactionState);
                 return;
-            } catch (UserException e) {
-                LOG.warn("failed to change transaction {} status to aborted", transactionState.getTransactionId());
             } finally {
                 writeUnlock();
             }
@@ -703,8 +692,6 @@ public class GlobalTransactionMgr {
                 transactionState.setFinishTime(System.currentTimeMillis());
                 transactionState.setTransactionStatus(TransactionStatus.VISIBLE);
                 unprotectUpsertTransactionState(transactionState);
-            } catch (UserException e) {
-                LOG.warn("failed to change transaction {} status  to visible", transactionState.getTransactionId());
             } finally {
                 writeUnlock();
             }
@@ -796,16 +783,10 @@ public class GlobalTransactionMgr {
                     // recycle the timeout insert stmt load job
                     if (transactionState.getTransactionStatus() == TransactionStatus.PREPARE
                             && (currentMillis - transactionState.getPrepareTime()) / 1000 > Config.stream_load_default_timeout_second) {
-                        if (transactionState.getSourceType() != LoadJobSourceType.FRONTEND
-                                || !checkTxnHasRelatedJob(transactionState, dbIdToTxnIds)) {
-                            try {
-                                transactionState.setTransactionStatus(TransactionStatus.ABORTED,
-                                        TransactionState.TxnStatusChangeReason.TIMEOUT.name());
-                            } catch (UserException e) {
-                                LOG.warn("txn {} could not be aborted with error message {}",
-                                         transactionState.getTransactionId(), e.getMessage());
-                                continue;
-                            }
+                        if ((transactionState.getSourceType() != LoadJobSourceType.FRONTEND
+                                || !checkTxnHasRelatedJob(transactionState, dbIdToTxnIds))
+                                && (transactionState.getListenerId() == -1)) {
+                            transactionState.setTransactionStatus(TransactionStatus.ABORTED);
                             transactionState.setFinishTime(System.currentTimeMillis());
                             transactionState.setReason("transaction is timeout and is cancelled automatically");
                             unprotectUpsertTransactionState(transactionState);
@@ -877,6 +858,39 @@ public class GlobalTransactionMgr {
         updateTxnLabels(transactionState);
         updateDBRunningTxnNum(transactionState.getPreStatus(), transactionState);
     }
+
+    private void unprotectedCommitTransaction(TransactionState transactionState, Set<Long> errorReplicaIds,
+                                              Map<Long, Set<Long>> tableToPartition, Set<Long> totalInvolvedBackends,
+                                              Database db) {
+        // transaction state is modified during check if the transaction could committed
+        if (transactionState.getTransactionStatus() != TransactionStatus.PREPARE) {
+            return;
+        }
+        // 4. update transaction state version
+        transactionState.setCommitTime(System.currentTimeMillis());
+        transactionState.setTransactionStatus(TransactionStatus.COMMITTED);
+        transactionState.setErrorReplicas(errorReplicaIds);
+        for (long tableId : tableToPartition.keySet()) {
+            TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId);
+            for (long partitionId : tableToPartition.get(tableId)) {
+                OlapTable table = (OlapTable) db.getTable(tableId);
+                Partition partition = table.getPartition(partitionId);
+                PartitionCommitInfo partitionCommitInfo = new PartitionCommitInfo(partitionId,
+                                                                                  partition.getNextVersion(),
+                                                                                  partition.getNextVersionHash());
+                tableCommitInfo.addPartitionCommitInfo(partitionCommitInfo);
+            }
+            transactionState.putIdToTableCommitInfo(tableId, tableCommitInfo);
+        }
+        // 5. persistent transactionState
+        unprotectUpsertTransactionState(transactionState);
+
+        // add publish version tasks. set task to null as a placeholder.
+        // tasks will be created when publishing version.
+        for (long backendId : totalInvolvedBackends) {
+            transactionState.addPublishVersionTask(backendId, null);
+        }
+    }
     
     private void unprotectAbortTransaction(long transactionId, String reason) throws UserException {
         unprotectAbortTransaction(transactionId, reason, null);
@@ -901,7 +915,7 @@ public class GlobalTransactionMgr {
         }
         transactionState.setFinishTime(System.currentTimeMillis());
         transactionState.setReason(reason);
-        transactionState.setTransactionStatus(TransactionStatus.ABORTED, reason);
+        transactionState.setTransactionStatus(TransactionStatus.ABORTED);
         unprotectUpsertTransactionState(transactionState);
         for (PublishVersionTask task : transactionState.getPublishVersionTasks().values()) {
             AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.PUBLISH_VERSION, task.getSignature());
@@ -1045,7 +1059,7 @@ public class GlobalTransactionMgr {
                                     newVersion = replica.getVersion();
                                     newVersionHash = replica.getVersionHash();
                                 }
-                                
+
                                 // success version always move forward
                                 lastSucessVersion = newCommitVersion;
                                 lastSuccessVersionHash = newCommitVersionHash;
@@ -1080,7 +1094,7 @@ public class GlobalTransactionMgr {
                 partition.updateVisibleVersionAndVersionHash(version, versionHash);
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("transaction state {} set partition {}'s version to [{}] and version hash to [{}]",
-                            transactionState, partition.getId(), version, versionHash);
+                              transactionState, partition.getId(), version, versionHash);
                 }
             }
         }
@@ -1252,6 +1266,18 @@ public class GlobalTransactionMgr {
     
     public TransactionIdGenerator getTransactionIDGenerator() {
         return this.idGenerator;
+    }
+
+    public void removeRelatedJob(long txnId) {
+        writeLock();
+        try {
+            if (idToTransactionState.containsKey(txnId)) {
+                TransactionState transactionState = idToTransactionState.get(txnId);
+                transactionState.removeListenerId();
+            }
+        } finally {
+            writeUnlock();
+        }
     }
     
     // this two function used to read snapshot or write snapshot
