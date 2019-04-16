@@ -53,22 +53,22 @@ std::string ExtLiteral::value_to_string() {
     std::stringstream ss;
     switch (_type) {
         case TYPE_TINYINT:
-            ss << (int)get_byte();
+            ss << std::to_string(get_byte());
             break;
         case TYPE_SMALLINT:
-            ss << get_short();
+            ss << std::to_string(get_short());
             break;
         case TYPE_INT:
-            ss << get_int();
+            ss << std::to_string(get_int());
             break;
         case TYPE_BIGINT:
-            ss << get_long();
+            ss << std::to_string(get_long());
             break;
         case TYPE_FLOAT:
-            ss << get_float();
+            ss << std::to_string(get_float());
             break;
         case TYPE_DOUBLE:
-            ss << get_double();
+            ss << std::to_string(get_double());
             break;
         case TYPE_CHAR:
         case TYPE_VARCHAR:
@@ -79,7 +79,7 @@ std::string ExtLiteral::value_to_string() {
             ss << get_date_string();
             break;
         case TYPE_BOOLEAN:
-            ss << get_bool();
+            ss << std::to_string(get_bool());
             break;
         case TYPE_DECIMAL:
             ss << get_decimal_string();
@@ -332,10 +332,8 @@ bool EsPredicate::build_disjuncts_list(Expr* conjunct, vector<ExtPredicate*>& di
             return false;
         }
 
-        TExtInPredicate ext_in_predicate;
         vector<ExtLiteral> in_pred_values;
         InPredicate* pred = dynamic_cast<InPredicate*>(conjunct);
-        ext_in_predicate.__set_is_not_in(pred->is_not_in());
         if (Expr::type_without_cast(pred->get_child(0)) != TExprNodeType::SLOT_REF) {
             return false;
         }
@@ -365,6 +363,7 @@ bool EsPredicate::build_disjuncts_list(Expr* conjunct, vector<ExtPredicate*>& di
 
         ExtPredicate* predicate = new ExtInPredicate(
                     TExprNodeType::IN_PRED,
+                    pred->is_not_in(),
                     slot_desc->col_name(),
                     slot_desc->type(),
                     in_pred_values);
