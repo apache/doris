@@ -442,7 +442,7 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
     public boolean containsTask(UUID taskId) {
         readLock();
         try {
-            return routineLoadTaskInfoList.parallelStream()
+            return routineLoadTaskInfoList.stream()
                     .anyMatch(entity -> entity.getId().equals(taskId));
         } finally {
             readUnlock();
@@ -614,7 +614,7 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
                                                        + " could not be " + transactionStatus
                                                        + " while task " + txnState.getLabel() + " has been aborted.");
             }
-        } catch (Throwable e) {
+        } catch (TransactionException e) {
             writeUnlock();
             throw e;
         }
@@ -631,7 +631,7 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
         try {
             if (txnOperated) {
                 // find task in job
-                Optional<RoutineLoadTaskInfo> routineLoadTaskInfoOptional = routineLoadTaskInfoList.parallelStream().filter(
+                Optional<RoutineLoadTaskInfo> routineLoadTaskInfoOptional = routineLoadTaskInfoList.stream().filter(
                         entity -> entity.getTxnId() == txnState.getTransactionId()).findFirst();
                 RoutineLoadTaskInfo routineLoadTaskInfo = routineLoadTaskInfoOptional.get();
                 taskBeId = routineLoadTaskInfo.getBeId();

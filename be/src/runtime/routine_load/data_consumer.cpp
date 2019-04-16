@@ -136,6 +136,7 @@ Status KafkaDataConsumer::group_consume(
             << ", max running time(ms): " << left_time;
 
     int64_t received_rows = 0;
+    int64_t put_rows = 0;
     Status st = Status::OK;
     MonotonicStopWatch consumer_watch;
     MonotonicStopWatch watch;
@@ -158,6 +159,8 @@ Status KafkaDataConsumer::group_consume(
                 if (!queue->blocking_put(msg)) {
                     // queue is shutdown
                     done = true;
+                } else {
+                    ++put_rows;
                 }
                 ++received_rows;
                 break;
@@ -183,7 +186,8 @@ Status KafkaDataConsumer::group_consume(
             << ", left time(ms): " << left_time
             << ", total cost(ms): " << watch.elapsed_time() / 1000 / 1000
             << ", consume cost(ms): " << consumer_watch.elapsed_time() / 1000 / 1000
-            << ", received rows: " << received_rows;
+            << ", received rows: " << received_rows
+            << ", put rows: " << put_rows;
 
     return st;
 }
