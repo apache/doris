@@ -1,12 +1,12 @@
 # concat
 
-## Description
-
-将多个字符串连接起来, 如果参数中任意一个值是NULL，那么返回的结果就是NULL
-
 ## Syntax
 
 `VARCHAR concat(VARCHAR,...)`
+
+## Description
+
+将多个字符串连接起来, 如果参数中任意一个值是 NULL，那么返回的结果就是 NULL
 
 ## Examples
 
