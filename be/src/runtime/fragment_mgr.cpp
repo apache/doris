@@ -44,6 +44,9 @@
 namespace doris {
 
 std::string to_load_error_http_path(const std::string& file_name) {
+    if (file_name.empty()) {
+        return "";
+    }
     std::stringstream url;
     url << "http://" << BackendOptions::get_localhost() << ":" << config::webserver_port
         << "/api/_load_error_log?"
