@@ -519,7 +519,7 @@ std::string DataDir::get_root_path_from_schema_hash_path_in_trash(
 
 OLAPStatus DataDir::_clean_unfinished_converting_data() {
     auto clean_unifinished_tablet_meta_func = [this](int64_t tablet_id,
-        int64_t schema_hash, const std::string& value) -> bool {
+        int32_t schema_hash, const std::string& value) -> bool {
         TabletMetaManager::remove(this, tablet_id, schema_hash, HEADER_PREFIX);
         LOG(INFO) << "successfully clean temp tablet meta for tablet="
                   << tablet_id << "." << schema_hash
@@ -555,7 +555,7 @@ OLAPStatus DataDir::_clean_unfinished_converting_data() {
 // if any error occurred during converting, stop it and break.
 OLAPStatus DataDir::_convert_old_tablet() {
     auto convert_tablet_func = [this](int64_t tablet_id,
-        int64_t schema_hash, const std::string& value) -> bool {
+        int32_t schema_hash, const std::string& value) -> bool {
         OlapSnapshotConverter converter;
         // convert olap header and files
         OLAPHeaderMessage olap_header_msg;
@@ -616,7 +616,7 @@ OLAPStatus DataDir::_convert_old_tablet() {
 OLAPStatus DataDir::_remove_old_meta_and_files(const std::set<int64_t>& tablet_ids) {
     // clean old meta(olap header message) 
     auto clean_old_meta_func = [this, &tablet_ids](int64_t tablet_id,
-        int64_t schema_hash, const std::string& value) -> bool {
+        int32_t schema_hash, const std::string& value) -> bool {
         if (tablet_ids.find(tablet_id) == tablet_ids.end()) {
             LOG(WARNING) << "tablet not load successfully, skip clean meta for tablet=" 
                       << tablet_id << "." << schema_hash
@@ -640,7 +640,7 @@ OLAPStatus DataDir::_remove_old_meta_and_files(const std::set<int64_t>& tablet_i
 
     // clean old files because they have hard links in new file name format
     auto clean_old_files_func = [this, &tablet_ids](int64_t tablet_id,
-        int64_t schema_hash, const std::string& value) -> bool {
+        int32_t schema_hash, const std::string& value) -> bool {
         if (tablet_ids.find(tablet_id) == tablet_ids.end()) {
             LOG(WARNING) << "tablet not load successfully, skip clean files for tablet=" 
                   << tablet_id << "." << schema_hash
@@ -759,7 +759,7 @@ OLAPStatus DataDir::load() {
     LOG(INFO) << "begin loading tablet from meta";
     std::set<int64_t> tablet_ids;
     auto load_tablet_func = [this, &tablet_ids](int64_t tablet_id,
-        int64_t schema_hash, const std::string& value) -> bool {
+        int32_t schema_hash, const std::string& value) -> bool {
         OLAPStatus status = _tablet_manager->load_tablet_from_meta(
                                 this, tablet_id, schema_hash, value);
         if (status != OLAP_SUCCESS) {
