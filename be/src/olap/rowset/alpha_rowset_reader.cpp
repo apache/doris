@@ -16,19 +16,20 @@
 // under the License.
 
 #include "olap/rowset/alpha_rowset_reader.h"
+#include "olap/rowset/alpha_rowset.h"
 
 namespace doris {
 
 AlphaRowsetReader::AlphaRowsetReader(
-        int num_rows_per_row_block, RowsetMeta* rowset_meta,
-        std::vector<std::shared_ptr<SegmentGroup>> segment_groups,
+        int num_rows_per_row_block,
         RowsetSharedPtr rowset)
       : _num_rows_per_row_block(num_rows_per_row_block),
-        _alpha_rowset_meta(nullptr),
-        _segment_groups(segment_groups),
         _rowset(rowset),
+        _alpha_rowset_meta(nullptr),
+        _segment_groups(std::dynamic_pointer_cast<AlphaRowset>(rowset)->_segment_groups),
         _key_range_size(0) {
-    _alpha_rowset_meta = reinterpret_cast<AlphaRowsetMeta*>(rowset_meta);
+    RowsetMetaSharedPtr rowset_meta_ptr = (std::dynamic_pointer_cast<AlphaRowset>(rowset)->_rowset_meta);
+    _alpha_rowset_meta = reinterpret_cast<AlphaRowsetMeta*>(rowset_meta_ptr.get());
 }
 
 AlphaRowsetReader::~AlphaRowsetReader() {

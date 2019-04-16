@@ -98,8 +98,7 @@ std::shared_ptr<RowsetReader> AlphaRowset::create_reader() {
         set_loaded(true);
     }
     return std::shared_ptr<RowsetReader>(new AlphaRowsetReader(
-            _schema->num_rows_per_row_block(), _rowset_meta.get(),
-            _segment_groups, shared_from_this()));
+            _schema->num_rows_per_row_block(), shared_from_this()));
 }
 
 OLAPStatus AlphaRowset::remove() {
