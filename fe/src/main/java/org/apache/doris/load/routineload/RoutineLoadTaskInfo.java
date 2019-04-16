@@ -55,8 +55,6 @@ public abstract class RoutineLoadTaskInfo {
     protected long previousBeId = -1L;
     // the be id of this task
     protected long beId = -1L;
-    // it will be set to true when txn which belong to task is committing.
-    protected boolean isCommitting = false;
 
     public RoutineLoadTaskInfo(UUID id, long jobId, String clusterName) {
         this.id = id;

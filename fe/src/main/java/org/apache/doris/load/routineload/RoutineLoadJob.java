@@ -607,6 +607,7 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
     // the task will be committed
     // check currentErrorRows > maxErrorRows
     // paused job or renew task
+    // *** Please do not call after individually. It must be combined use with before ***
     @Override
     public void afterCommitted(TransactionState txnState, boolean txnOperated) throws UserException {
         long taskBeId = -1L;
@@ -642,6 +643,7 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
     // be will abort txn when all of kafka data is wrong or total consume data is 0
     // txn will be aborted but progress will be update
     // progress will be update otherwise the progress will be hung
+    // *** Please do not call after individually. It must be combined use with before ***
     @Override
     public void afterAborted(TransactionState txnState, boolean txnOperated, String txnStatusChangeReasonString)
             throws UserException {
