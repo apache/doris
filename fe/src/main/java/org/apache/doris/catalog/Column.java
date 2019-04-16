@@ -324,6 +324,11 @@ public class Column implements Writable {
         if (this.getScale() != other.getScale()) {
             return false;
         }
+
+        if (!comment.equals(other.getComment())) {
+            return false;
+        }
+
         return true;
     }
 

@@ -24,10 +24,10 @@ import org.apache.doris.common.ErrorReport;
 
 import com.google.common.base.Strings;
 
-import java.util.Map;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import java.util.Map;
 
 // clause which is used to add one column to
 public class AddColumnClause extends AlterClause {
