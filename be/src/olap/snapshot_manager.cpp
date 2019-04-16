@@ -277,16 +277,6 @@ string SnapshotManager::_get_header_full_path(
     return header_name_stream.str();
 }
 
-void SnapshotManager::update_header_file_info(
-        const vector<RowsetSharedPtr>& consistent_rowsets,
-        TabletMetaSharedPtr tablet_meta) {
-    vector<RowsetMetaSharedPtr> rs_metas;
-    for (auto& rs : consistent_rowsets) {
-        rs_metas.push_back(rs->rowset_meta());
-    }
-    tablet_meta->revise_rs_metas(rs_metas);
-}
-
 OLAPStatus SnapshotManager::_link_index_and_data_files(
         const string& schema_hash_path,
         const TabletSharedPtr& ref_tablet,

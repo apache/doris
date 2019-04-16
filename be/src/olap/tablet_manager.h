@@ -58,15 +58,6 @@ public:
         _tablet_map.clear();
     }
 
-    // Add a tablet pointer to StorageEngine
-    // If force, drop the existing tablet add this new one
-    //
-    // Return OLAP_SUCCESS, if run ok
-    //        OLAP_ERR_TABLE_INSERT_DUPLICATION_ERROR, if find duplication
-    //        OLAP_ERR_NOT_INITED, if not inited
-    OLAPStatus add_tablet(TTabletId tablet_id, SchemaHash schema_hash,
-                         const TabletSharedPtr& tablet, bool force);
-
     void cancel_unfinished_schema_change();
 
     bool check_tablet_id_exist(TTabletId tablet_id);
@@ -97,7 +88,7 @@ public:
     TabletSharedPtr find_best_tablet_to_compaction(CompactionType compaction_type);
 
     // Get tablet pointer
-    TabletSharedPtr get_tablet(TTabletId tablet_id, SchemaHash schema_hash);
+    TabletSharedPtr get_tablet(TTabletId tablet_id, SchemaHash schema_hash, bool include_deleted = false);
 
     bool get_tablet_id_and_schema_hash_from_path(const std::string& path,
             TTabletId* tablet_id, TSchemaHash* schema_hash);
@@ -109,9 +100,9 @@ public:
 
     // parse tablet header msg to generate tablet object
     OLAPStatus load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_id,
-                TSchemaHash schema_hash, const std::string& header);
+                TSchemaHash schema_hash, const std::string& header, bool force = false);
 
-    OLAPStatus load_one_tablet(DataDir* data_dir,
+    OLAPStatus load_tablet_from_dir(DataDir* data_dir,
                                TTabletId tablet_id,
                                SchemaHash schema_hash,
                                const std::string& schema_hash_path,
@@ -136,10 +127,19 @@ public:
     void update_storage_medium_type_count(uint32_t storage_medium_type_count);
 
 private:
+    // Add a tablet pointer to StorageEngine
+    // If force, drop the existing tablet add this new one
+    //
+    // Return OLAP_SUCCESS, if run ok
+    //        OLAP_ERR_TABLE_INSERT_DUPLICATION_ERROR, if find duplication
+    //        OLAP_ERR_NOT_INITED, if not inited
+    OLAPStatus _add_tablet_unlock(TTabletId tablet_id, SchemaHash schema_hash,
+                         const TabletSharedPtr& tablet, bool force);
+
     void _build_tablet_info(TabletSharedPtr tablet, TTabletInfo* tablet_info);
     
     void _build_tablet_stat();
-    
+    bool _check_tablet_id_exist_unlock(TTabletId tablet_id);
     OLAPStatus _create_inital_rowset(TabletSharedPtr tablet, const TCreateTabletReq& request);
     
 
@@ -148,11 +148,10 @@ private:
                                    const bool is_schema_change_tablet,
                                    const TabletSharedPtr ref_tablet,
                                    TabletMetaSharedPtr* tablet_meta);
-
-    // Drop tablet directly with check schema change info.
-    OLAPStatus _drop_tablet_directly(TTabletId tablet_id, TSchemaHash schema_hash, bool keep_files = false);
     
     OLAPStatus _drop_tablet_directly_unlocked(TTabletId tablet_id, TSchemaHash schema_hash, bool keep_files = false);
+
+    OLAPStatus _drop_tablet_unlock(TTabletId tablet_id, SchemaHash schema_hash, bool keep_files);
 
     TabletSharedPtr _get_tablet_with_no_lock(TTabletId tablet_id, SchemaHash schema_hash);
 
@@ -180,6 +179,8 @@ private:
     int64_t _tablet_stat_cache_update_time_ms;
 
     uint32_t _available_storage_medium_type_count;
+
+    std::vector<TabletSharedPtr> _shutdown_tablets;
 
     DISALLOW_COPY_AND_ASSIGN(TabletManager);
 };

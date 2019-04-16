@@ -884,7 +884,9 @@ void DataDir::perform_path_gc() {
         }
         if (tablet_id > 0 && schema_hash > 0) {
             // tablet schema hash path or rowset file path
-            TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id, schema_hash);
+            // gc thread should get tablet include deleted tablet
+            // or it will delete rowset file before tablet is garbage collected
+            TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id, schema_hash, true);
             if (tablet == nullptr) {
                 std::string tablet_path_id = TABLET_ID_PREFIX + std::to_string(tablet_id);
                 bool exist_in_pending = _check_pending_ids(tablet_path_id);

@@ -65,13 +65,6 @@ TEST(TaskWorkerPoolTest, TestStart) {
     task_worker_pool_create_tablet.start();
     EXPECT_EQ(task_worker_pool_create_tablet._worker_count, config::create_tablet_worker_count);
 
-    TaskWorkerPool task_worker_pool_drop_tablet(
-            TaskWorkerPool::TaskWorkerType::DROP_TABLE,
-            &env,
-            master_info);
-    task_worker_pool_drop_tablet.start();
-    EXPECT_EQ(task_worker_pool_create_tablet._worker_count, config::drop_tablet_worker_count);
-
     TaskWorkerPool task_worker_pool_push(
             TaskWorkerPool::TaskWorkerType::PUSH,
             &env,

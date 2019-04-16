@@ -50,7 +50,7 @@ OLAPStatus AlterTabletTask::to_alter_pb(AlterTabletPB* alter_task) {
 }
 
 OLAPStatus TabletMeta::create(int64_t table_id, int64_t partition_id,
-                              int64_t tablet_id, int64_t schema_hash,
+                              int64_t tablet_id, int32_t schema_hash,
                               uint64_t shard_id, const TTabletSchema& tablet_schema,
                               uint32_t next_unique_id,
                               const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
@@ -65,7 +65,7 @@ OLAPStatus TabletMeta::create(int64_t table_id, int64_t partition_id,
 TabletMeta::TabletMeta() {}
 
 TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id,
-                       int64_t tablet_id, int64_t schema_hash,
+                       int64_t tablet_id, int32_t schema_hash,
                        uint64_t shard_id, const TTabletSchema& tablet_schema,
                        uint32_t next_unique_id,
                        const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id) {

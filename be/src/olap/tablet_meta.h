@@ -79,9 +79,9 @@ public:
     inline void set_alter_state(AlterTabletState alter_state) { _alter_state = alter_state; }
 
     inline int64_t related_tablet_id() const { return _related_tablet_id; }
-    inline int64_t related_schema_hash() const { return _related_schema_hash; }
+    inline int32_t related_schema_hash() const { return _related_schema_hash; }
     inline void set_related_tablet_id(int64_t related_tablet_id) { _related_tablet_id = related_tablet_id; }
-    inline void set_related_schema_hash(int64_t schema_hash) { _related_schema_hash = schema_hash; }
+    inline void set_related_schema_hash(int32_t schema_hash) { _related_schema_hash = schema_hash; }
 
     inline const AlterTabletType& alter_type() const { return _alter_type; }
     inline void set_alter_type(AlterTabletType alter_type) { _alter_type = alter_type; }
@@ -94,7 +94,7 @@ public:
 private:
     AlterTabletState _alter_state;
     int64_t _related_tablet_id;
-    int64_t _related_schema_hash;
+    int32_t _related_schema_hash;
     AlterTabletType _alter_type;
     vector<RowsetMetaSharedPtr> _rowsets_to_alter;
 };
@@ -107,14 +107,14 @@ typedef std::shared_ptr<AlterTabletTask> AlterTabletTaskSharedPtr;
 class TabletMeta {
 public:
     static OLAPStatus create(int64_t table_id, int64_t partition_id,
-                             int64_t tablet_id, int64_t schema_hash,
+                             int64_t tablet_id, int32_t schema_hash,
                              uint64_t shard_id, const TTabletSchema& tablet_schema,
                              uint32_t next_unique_id,
                              const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
                              TabletMetaSharedPtr* tablet_meta);
     TabletMeta();
     TabletMeta(int64_t table_id, int64_t partition_id,
-               int64_t tablet_id, int64_t schema_hash,
+               int64_t tablet_id, int32_t schema_hash,
                uint64_t shard_id, const TTabletSchema& tablet_schema,
                uint32_t next_unique_id,
                const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id);
@@ -136,7 +136,7 @@ public:
     inline const int64_t table_id() const;
     inline const int64_t partition_id() const;
     inline const int64_t tablet_id() const;
-    inline const int64_t schema_hash() const;
+    inline const int32_t schema_hash() const;
     inline const int16_t shard_id() const;
     void set_shard_id(int32_t shard_id);
     inline int64_t creation_time() const;
@@ -205,7 +205,7 @@ inline const int64_t TabletMeta::tablet_id() const {
     return _tablet_meta_pb.tablet_id();
 }
 
-inline const int64_t TabletMeta::schema_hash() const {
+inline const int32_t TabletMeta::schema_hash() const {
     return _tablet_meta_pb.schema_hash();
 }
 
