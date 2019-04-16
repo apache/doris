@@ -34,7 +34,7 @@ class RowsetReader;
 
 class Rowset : public std::enable_shared_from_this<Rowset> {
 public:
-    Rowset() : _is_inited(false), _is_loaded(false) {
+    Rowset() : _is_inited(false), _is_loaded(false), _need_delete_file(false) {
     } 
 
     virtual ~Rowset() { }
@@ -113,13 +113,26 @@ public:
 
     virtual int64_t txn_id() const = 0;
     
+    // flag for push delete rowset
     virtual bool delete_flag() = 0;
 
     virtual bool check_path(const std::string& path) = 0;
 
+    bool need_delete_file() {
+        return _need_delete_file;
+    }
+
+    void set_need_delete_file(bool need_delete_file) {
+        if (_need_delete_file == true) {
+            return;
+        }
+        _need_delete_file = need_delete_file;
+    }
+
 private:
     bool _is_inited;
     bool _is_loaded;
+    bool _need_delete_file;
 };
 
 } // namespace doris

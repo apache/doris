@@ -1116,6 +1116,8 @@ OLAPStatus TabletManager::_drop_tablet_directly_unlocked(
             TabletSharedPtr tablet = *it;
             it = _tablet_map[tablet_id].table_arr.erase(it);
             if (!keep_files) {
+                // here use tablet delete process directly
+                // do not use rowset delete process
                 LOG(INFO) << "remove tablet:" <<  tablet_id << " path:" << tablet->tablet_path();
                 boost::filesystem::remove_all(tablet->tablet_path());
             }

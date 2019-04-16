@@ -47,9 +47,7 @@ struct MergeContext {
 
 class AlphaRowsetReader : public RowsetReader {
 public:
-    AlphaRowsetReader(int num_rows_per_row_block, RowsetMeta* rowset_meta,
-                      std::vector<std::shared_ptr<SegmentGroup>> segment_groups,
-                      RowsetSharedPtr rowset);
+    AlphaRowsetReader(int num_rows_per_row_block, RowsetSharedPtr rowset);
 
     ~AlphaRowsetReader();
 
@@ -88,10 +86,10 @@ private:
 
 private:
     int _num_rows_per_row_block;
+    RowsetSharedPtr _rowset;
     std::string _rowset_path;
     AlphaRowsetMeta* _alpha_rowset_meta;
-    std::vector<std::shared_ptr<SegmentGroup>> _segment_groups;
-    RowsetSharedPtr _rowset;
+    const std::vector<std::shared_ptr<SegmentGroup>>& _segment_groups;
 
     std::vector<MergeContext> _merge_ctxs;
     std::unique_ptr<RowBlock> _read_block;

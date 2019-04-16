@@ -108,6 +108,7 @@ Tablet::Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir)
 Tablet::~Tablet() {
     WriteLock wrlock(&_meta_lock);
     _rs_version_map.clear();
+    _inc_rs_version_map.clear();
 }
 
 OLAPStatus Tablet::init_once() {
@@ -302,6 +303,7 @@ OLAPStatus Tablet::add_inc_rowset(const RowsetSharedPtr& rowset) {
     WriteLock wrlock(&_meta_lock);
     RETURN_NOT_OK(_tablet_meta->add_rs_meta(rowset->rowset_meta()));
     _rs_version_map[rowset->version()] = rowset;
+    _inc_rs_version_map[rowset->version()] = rowset;
     RETURN_NOT_OK(_rs_graph.add_version_to_graph(rowset->version()));
     RETURN_NOT_OK(_tablet_meta->add_inc_rs_meta(rowset->rowset_meta()));
     RETURN_NOT_OK(_tablet_meta->save_meta(_data_dir));
@@ -323,10 +325,14 @@ bool Tablet::has_expired_inc_rowset() {
 }
 
 void Tablet::delete_inc_rowset_by_version(const Version& version,
-                                          const VersionHash& version_hash,
-                                          vector<string>* files_to_remove) {
-    RowsetMetaSharedPtr rowset = _tablet_meta->acquire_inc_rs_meta_by_version(version);
-    if (rowset == nullptr) { return; }
+                                          const VersionHash& version_hash) {
+    // delete incremental rowset from map
+    auto it = _inc_rs_version_map.find(version);
+    if (it != _inc_rs_version_map.end()) {
+        _inc_rs_version_map.erase(it);
+    }
+    RowsetMetaSharedPtr rowset_meta = _tablet_meta->acquire_inc_rs_meta_by_version(version);
+    if (rowset_meta == nullptr) { return; }
 
     _tablet_meta->delete_inc_rs_meta_by_version(version);
     VLOG(3) << "delete incremental rowset. tablet=" << full_name() << ", "
@@ -334,9 +340,8 @@ void Tablet::delete_inc_rowset_by_version(const Version& version,
 }
 
 void Tablet::delete_expired_inc_rowsets() {
-    time_t now = time(NULL);
+    time_t now = time(nullptr);
     vector<pair<Version, VersionHash>> expired_versions;
-    vector<string> files_to_remove;
     WriteLock wrlock(&_meta_lock);
     for (auto& rs_meta : _tablet_meta->all_inc_rs_metas()) {
         double diff = difftime(now, rs_meta->creation_time());
@@ -352,8 +357,8 @@ void Tablet::delete_expired_inc_rowsets() {
     if (expired_versions.empty()) { return; }
 
     for (auto& pair: expired_versions) {
-        delete_inc_rowset_by_version(pair.first, pair.second, &files_to_remove);
-        VLOG(3) << "delete expire incremental data. table=" << full_name() << ", "
+        delete_inc_rowset_by_version(pair.first, pair.second);
+        VLOG(3) << "delete expire incremental data. tablet=" << full_name() << ", "
                 << "version=" << pair.first.first << "-" << pair.first.second;
     }
 
@@ -361,7 +366,6 @@ void Tablet::delete_expired_inc_rowsets() {
         LOG(FATAL) << "fail to save tablet_meta when delete expire incremental data."
                    << "tablet=" << full_name();
     }
-    remove_files(files_to_remove);
 }
 
 OLAPStatus Tablet::capture_consistent_versions(

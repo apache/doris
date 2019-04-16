@@ -256,8 +256,8 @@ OLAPStatus TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id, TT
 
 // txn could be rollbacked if it does not have related rowset
 // if the txn has related rowset then could not rollback it, because it
-// may be committed in another thread and our current thread meets erros when writing to data file
-// be has to wait for fe call clear txn api
+// may be committed in another thread and our current thread meets errors when writing to data file
+// BE has to wait for fe call clear txn api
 OLAPStatus TxnManager::rollback_txn(TPartitionId partition_id, TTransactionId transaction_id,
                                     TTabletId tablet_id, SchemaHash schema_hash) {
     pair<int64_t, int64_t> key(partition_id, transaction_id);

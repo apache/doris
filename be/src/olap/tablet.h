@@ -122,8 +122,7 @@ public:
     OLAPStatus add_inc_rowset(const RowsetSharedPtr& rowset);
     bool has_expired_inc_rowset();
     void delete_inc_rowset_by_version(const Version& version,
-                                      const VersionHash& version_hash,
-                                      vector<string>* files_to_remove);
+                                      const VersionHash& version_hash);
     void delete_expired_inc_rowsets();
 
     OLAPStatus capture_consistent_versions(const Version& version, vector<Version>* span_versions) const;
@@ -236,6 +235,7 @@ private:
     Mutex _base_lock;
     Mutex _cumulative_lock;
     std::unordered_map<Version, RowsetSharedPtr, HashOfVersion> _rs_version_map;
+    std::unordered_map<Version, RowsetSharedPtr, HashOfVersion> _inc_rs_version_map;
 
     bool _table_for_check;
     std::atomic<bool> _is_bad;   // if this tablet is broken, set to true. default is false

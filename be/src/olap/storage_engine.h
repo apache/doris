@@ -225,6 +225,8 @@ private:
             const std::string& scan_root, const time_t& local_tm_now, const uint32_t expire);
 
     // Thread functions
+    // unused rowset monitor thread
+    void* _unused_rowset_monitor_thread_callback(void* arg);
 
     // base compaction thread process function
     void* _base_compaction_thread_callback(void* arg);
@@ -303,6 +305,8 @@ private:
     std::unordered_map<SegmentGroup*, std::vector<std::string>> _gc_files;
     std::unordered_map<int64_t, RowsetSharedPtr> _unused_rowsets;
     Mutex _gc_mutex;
+
+    std::thread _unused_rowset_monitor_thread;
 
     // thread to monitor snapshot expiry
     std::thread _garbage_sweeper_thread;

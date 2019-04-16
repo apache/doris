@@ -105,6 +105,7 @@ public:
 
     int64_t txn_id() const override;
 
+    // flag for push delete rowset
     bool delete_flag() override;
 
     OLAPStatus split_range(
@@ -126,6 +127,7 @@ private:
 
 private:
     friend class AlphaRowsetWriter;
+    friend class AlphaRowsetReader;
     const TabletSchema* _schema;
     std::string _rowset_path;
     DataDir* _data_dir;
