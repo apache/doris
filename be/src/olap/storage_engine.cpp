@@ -675,7 +675,6 @@ OLAPStatus StorageEngine::_do_sweep(
 
 void StorageEngine::start_delete_unused_rowset() {
     _gc_mutex.lock();
-    LOG(INFO) << "start to delete unused rowset.";
     for (auto it = _unused_rowsets.begin(); it != _unused_rowsets.end();) {
         if (it->second.use_count() != 1) {
             ++it;
@@ -687,7 +686,6 @@ void StorageEngine::start_delete_unused_rowset() {
             it = _unused_rowsets.erase(it);
         }
     }
-    LOG(INFO) << "finish delete unused rowset.";
     _gc_mutex.unlock();
 }
 
