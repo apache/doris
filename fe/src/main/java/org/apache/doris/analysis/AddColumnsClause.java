@@ -70,7 +70,6 @@ public class AddColumnsClause extends AlterClause {
         columns = Lists.newArrayList();
         for (ColumnDef columnDef : columnDefs) {
             Column col = columnDef.toColumn();
-            col.setFromAddColumnOperation(true);
             columns.add(col);
         }
     }

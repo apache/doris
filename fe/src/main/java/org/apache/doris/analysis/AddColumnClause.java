@@ -83,7 +83,6 @@ public class AddColumnClause extends AlterClause {
         }
 
         column = columnDef.toColumn();
-        column.setFromAddColumnOperation(true);
     }
 
     @Override
