@@ -448,6 +448,11 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
     // All of private method could not be call without lock
     private void checkStateTransform(RoutineLoadJob.JobState desireState) throws UserException {
         switch (state) {
+            case RUNNING:
+                if (desireState == JobState.NEED_SCHEDULE) {
+                    throw new DdlException("Could not transform " + state + " to " + desireState);
+                }
+                break;
             case PAUSED:
                 if (desireState == JobState.PAUSED) {
                     throw new DdlException("Could not transform " + state + " to " + desireState);
