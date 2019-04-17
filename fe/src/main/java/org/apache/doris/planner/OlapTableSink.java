@@ -52,6 +52,7 @@ import org.apache.doris.thrift.TTabletLocation;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
@@ -84,7 +85,7 @@ public class OlapTableSink extends DataSink {
     public OlapTableSink(OlapTable dstTable, TupleDescriptor tupleDescriptor, String partitions) {
         this.dstTable = dstTable;
         this.tupleDescriptor = tupleDescriptor;
-        this.partitions = partitions;
+        this.partitions = Strings.emptyToNull(partitions);
     }
 
     public void init(TUniqueId loadId, long txnId, long dbId) throws AnalysisException {

@@ -82,7 +82,7 @@ public abstract class AlterJob implements Writable {
     protected long tableId;
     protected long transactionId = -1;
     // not serialize it
-    protected boolean hasPreviousLoadFinished = false;
+    protected boolean isPreviousLoadFinished = false;
     protected AgentBatchTask batchClearAlterTask = null;
 
     protected long createTime;
@@ -285,13 +285,13 @@ public abstract class AlterJob implements Writable {
 
     public abstract void getJobInfo(List<List<Comparable>> jobInfos, OlapTable tbl);
 
-    public boolean checkPreviousLoadFinished() {
-        if (hasPreviousLoadFinished) {
+    public boolean isPreviousLoadFinished() {
+        if (isPreviousLoadFinished) {
             return true;
         } else {
-            hasPreviousLoadFinished = Catalog.getCurrentGlobalTransactionMgr()
-                    .hasPreviousTransactionsFinished(transactionId, dbId);
-            return hasPreviousLoadFinished;
+            isPreviousLoadFinished = Catalog.getCurrentGlobalTransactionMgr()
+                    .isPreviousTransactionsFinished(transactionId, dbId);
+            return isPreviousLoadFinished;
         }
     }
     

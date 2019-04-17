@@ -19,17 +19,15 @@ package org.apache.doris.load.routineload;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TKafkaLoadInfo;
 import org.apache.doris.thrift.TLoadSourceType;
 import org.apache.doris.thrift.TPlanFragment;
 import org.apache.doris.thrift.TRoutineLoadTask;
 import org.apache.doris.thrift.TUniqueId;
-import org.apache.doris.transaction.BeginTransactionException;
 
 import com.google.common.base.Joiner;
 import com.google.gson.Gson;
@@ -73,12 +71,8 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         Database database = Catalog.getCurrentCatalog().getDb(routineLoadJob.getDbId());
         tRoutineLoadTask.setDb(database.getFullName());
         tRoutineLoadTask.setTbl(database.getTable(routineLoadJob.getTableId()).getName());
-        StringBuilder stringBuilder = new StringBuilder();
-        // label = (serviceAddress_topic_partition1:offset_partition2:offset).hashcode()
-        String label = String.valueOf(stringBuilder.append(routineLoadJob.getBrokerList()).append("_")
-                                              .append(routineLoadJob.getTopic()).append("_")
-                                              .append(Joiner.on("_").withKeyValueSeparator(":")
-                                                              .join(partitionIdToOffset)).toString().hashCode());
+        // label = job_name+job_id+task_id+txn_id
+        String label = Joiner.on("-").join(routineLoadJob.getName(), routineLoadJob.getId(), DebugUtil.printId(id), txnId);
         tRoutineLoadTask.setLabel(label);
         tRoutineLoadTask.setAuth_code(routineLoadJob.getAuthCode());
         TKafkaLoadInfo tKafkaLoadInfo = new TKafkaLoadInfo();
@@ -101,11 +95,13 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
     }
 
     private TExecPlanFragmentParams updateTExecPlanFragmentParams(RoutineLoadJob routineLoadJob) throws UserException {
-        TExecPlanFragmentParams tExecPlanFragmentParams = routineLoadJob.gettExecPlanFragmentParams().deepCopy();
+        // plan for each task, in case table has change(rollup or schema change)
+        TExecPlanFragmentParams tExecPlanFragmentParams = routineLoadJob.plan();
         TPlanFragment tPlanFragment = tExecPlanFragmentParams.getFragment();
-        tPlanFragment.getOutput_sink().getOlap_table_sink().setTxn_id(this.txnId);
+        // we use task id as both query id(TPlanFragmentExecParams) and load id(olap table sink/scan range desc)
         TUniqueId queryId = new TUniqueId(id.getMostSignificantBits(), id.getLeastSignificantBits());
         tPlanFragment.getOutput_sink().getOlap_table_sink().setLoad_id(queryId);
+        tPlanFragment.getOutput_sink().getOlap_table_sink().setTxn_id(this.txnId);
         tExecPlanFragmentParams.getParams().setQuery_id(queryId);
         tExecPlanFragmentParams.getParams().getPer_node_scan_ranges().values().stream()
                 .forEach(entity -> entity.get(0).getScan_range().getBroker_scan_range().getRanges().get(0).setLoad_id(queryId));

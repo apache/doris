@@ -19,9 +19,10 @@ package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.ListComparator;
+import org.apache.doris.transaction.GlobalTransactionMgr;
+
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -51,7 +52,7 @@ public class TransDbProcDir implements ProcDirInterface {
         Preconditions.checkNotNull(catalog);
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
-        GlobalTransactionMgr transactionMgr = catalog.getCurrentGlobalTransactionMgr();
+        GlobalTransactionMgr transactionMgr = Catalog.getCurrentGlobalTransactionMgr();
         List<List<Comparable>> infos = transactionMgr.getDbInfo();
         // order by dbId, asc
         ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(0);
