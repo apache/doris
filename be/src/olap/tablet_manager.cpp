@@ -97,9 +97,10 @@ OLAPStatus TabletManager::_add_tablet_unlock(TTabletId tablet_id, SchemaHash sch
     }
 
     if (table_item == nullptr) {
-        _tablet_map[tablet_id].table_arr.push_back(tablet);
-        _tablet_map[tablet_id].table_arr.sort(_sort_tablet_by_creation_time);
-        return res;
+        LOG(INFO) << "not find exist tablet just add it to map"
+                  << " tablet_id = " << tablet_id
+                  << " schema_hash = " << schema_hash;
+        return _add_tablet_to_map(tablet_id, schema_hash, tablet, false, false);
     }
 
     if (!force) {
@@ -135,43 +136,7 @@ OLAPStatus TabletManager::_add_tablet_unlock(TTabletId tablet_id, SchemaHash sch
     if (force || (new_version > old_version
             || (new_version == old_version && new_time > old_time))) {
         // check if new tablet's meta is in store and add new tablet's meta to meta store
-        TabletMetaSharedPtr new_tablet_meta(new(nothrow) TabletMeta());
-        if (new_tablet_meta == nullptr) {
-            LOG(WARNING) << "fail to malloc TabletMeta.";
-            return OLAP_ERR_MALLOC_ERROR;
-        }
-        OLAPStatus check_st = TabletMetaManager::get_header(tablet->data_dir(), 
-            tablet->tablet_id(), tablet->schema_hash(), new_tablet_meta);
-        if (check_st == OLAP_ERR_META_KEY_NOT_FOUND) {
-            res = TabletMetaManager::save(tablet->data_dir(), 
-                tablet->tablet_id(), tablet->schema_hash(), tablet->tablet_meta());
-            if (res != OLAP_SUCCESS) {
-                LOG(WARNING) << "failed to save new tablet's meta to meta store" 
-                             << " tablet_id = " << tablet_id
-                             << " schema_hash = " << schema_hash;
-                return res;
-            }
-        }
-        // if the new tablet is fresher than current one
-        // then delete current one and add new one
-        res = _drop_tablet_unlock(tablet_id, schema_hash, keep_files);
-        if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "failed to drop old tablet when add new tablet"
-                         << " tablet_id = " << tablet_id
-                         << " schema_hash = " << schema_hash;
-            return res;
-        }
-        // Register tablet into StorageEngine, so that we can manage tablet from
-        // the perspective of root path.
-        // Example: unregister all tables when a bad disk found.
-        res = tablet->register_tablet_into_dir();
-        if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "fail to register tablet into StorageEngine. res=" << res
-                         << ", data_dir=" << tablet->data_dir()->path();
-            return res;
-        }
-        _tablet_map[tablet_id].table_arr.push_back(tablet);
-        _tablet_map[tablet_id].table_arr.sort(_sort_tablet_by_creation_time);
+        res = _add_tablet_to_map(tablet_id, schema_hash, tablet, keep_files, true);
     } else {
         res = OLAP_ERR_ENGINE_INSERT_EXISTS_TABLE;
     }
@@ -184,6 +149,55 @@ OLAPStatus TabletManager::_add_tablet_unlock(TTabletId tablet_id, SchemaHash sch
 
     return res;
 } // add_tablet
+
+OLAPStatus TabletManager::_add_tablet_to_map(TTabletId tablet_id, SchemaHash schema_hash,
+                                 const TabletSharedPtr& tablet, bool keep_files, bool drop_old) {
+     // check if new tablet's meta is in store and add new tablet's meta to meta store
+    OLAPStatus res = OLAP_SUCCESS;
+    TabletMetaSharedPtr new_tablet_meta(new(nothrow) TabletMeta());
+    if (new_tablet_meta == nullptr) {
+        LOG(WARNING) << "fail to malloc TabletMeta.";
+        return OLAP_ERR_MALLOC_ERROR;
+    }
+    OLAPStatus check_st = TabletMetaManager::get_header(tablet->data_dir(), 
+        tablet->tablet_id(), tablet->schema_hash(), new_tablet_meta);
+    if (check_st == OLAP_ERR_META_KEY_NOT_FOUND) {
+        res = TabletMetaManager::save(tablet->data_dir(), 
+            tablet->tablet_id(), tablet->schema_hash(), tablet->tablet_meta());
+        if (res != OLAP_SUCCESS) {
+            LOG(WARNING) << "failed to save new tablet's meta to meta store" 
+                            << " tablet_id = " << tablet_id
+                            << " schema_hash = " << schema_hash;
+            return res;
+        }
+    }
+    if (drop_old) {
+        // if the new tablet is fresher than current one
+        // then delete current one and add new one
+        res = _drop_tablet_unlock(tablet_id, schema_hash, keep_files);
+        if (res != OLAP_SUCCESS) {
+            LOG(WARNING) << "failed to drop old tablet when add new tablet"
+                            << " tablet_id = " << tablet_id
+                            << " schema_hash = " << schema_hash;
+            return res;
+        }
+    }
+    // Register tablet into StorageEngine, so that we can manage tablet from
+    // the perspective of root path.
+    // Example: unregister all tables when a bad disk found.
+    res = tablet->register_tablet_into_dir();
+    if (res != OLAP_SUCCESS) {
+        LOG(WARNING) << "fail to register tablet into StorageEngine. res=" << res
+                        << ", data_dir=" << tablet->data_dir()->path();
+        return res;
+    }
+    _tablet_map[tablet_id].table_arr.push_back(tablet);
+    _tablet_map[tablet_id].table_arr.sort(_sort_tablet_by_creation_time);
+    LOG(INFO) << "add tablet to map successfully" 
+                << " tablet_id = " << tablet_id
+                << " schema_hash = " << schema_hash;   
+    return res;                              
+}
 
 // this method is called when engine restarts so that not add any locks
 void TabletManager::cancel_unfinished_schema_change() {
