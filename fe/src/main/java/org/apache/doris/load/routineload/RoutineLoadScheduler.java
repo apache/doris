@@ -76,7 +76,7 @@ public class RoutineLoadScheduler extends Daemon {
             UserException userException = null;
             try {
                 // create plan of routine load job
-                routineLoadJob.plan();
+                routineLoadJob.initPlanner();
                 // judge nums of tasks more then max concurrent tasks of cluster
                 int desiredConcurrentTaskNum = routineLoadJob.calculateCurrentConcurrentTaskNum();
                 int currentTotalTaskNum = routineLoadManager.getSizeOfIdToRoutineLoadTask();

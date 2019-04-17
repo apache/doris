@@ -42,7 +42,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.StringReader;
 import java.util.List;
-import java.util.UUID;
 
 public class StreamLoadTask {
 
@@ -132,13 +131,10 @@ public class StreamLoadTask {
         }
     }
 
-    // the taskId and txnId is faked
     public static StreamLoadTask fromRoutineLoadJob(RoutineLoadJob routineLoadJob) {
-        UUID taskId = UUID.randomUUID();
-        TUniqueId queryId = new TUniqueId(taskId.getMostSignificantBits(),
-                                          taskId.getLeastSignificantBits());
-        StreamLoadTask streamLoadTask = new StreamLoadTask(queryId, -1L,
-                                                           TFileType.FILE_STREAM, TFileFormatType.FORMAT_CSV_PLAIN);
+        TUniqueId dummyId = new TUniqueId();
+        StreamLoadTask streamLoadTask = new StreamLoadTask(dummyId, -1L /* dummy txn id*/,
+                TFileType.FILE_STREAM, TFileFormatType.FORMAT_CSV_PLAIN);
         streamLoadTask.setOptionalFromRoutineLoadJob(routineLoadJob);
         return streamLoadTask;
     }

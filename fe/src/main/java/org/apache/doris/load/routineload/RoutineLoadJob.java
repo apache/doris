@@ -189,8 +189,8 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
     // The tasks belong to this job
     protected List<RoutineLoadTaskInfo> routineLoadTaskInfoList = Lists.newArrayList();
 
-    // plan fragment which will be initialized during job scheduler
-    protected TExecPlanFragmentParams tExecPlanFragmentParams;
+    // stream load planer be initialized during job scheduler
+    StreamLoadPlanner planner;
 
     // this is the origin stmt of CreateRoutineLoadStmt, we use it to persist the RoutineLoadJob,
     // because we can not serialize the Expressions contained in job.
@@ -390,10 +390,6 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
         }
     }
 
-    public TExecPlanFragmentParams gettExecPlanFragmentParams() {
-        return tExecPlanFragmentParams;
-    }
-
     // only check loading task
     public void processTimeoutTasks() {
         writeLock();
@@ -544,18 +540,26 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
 
     abstract RoutineLoadTaskInfo unprotectRenewTask(RoutineLoadTaskInfo routineLoadTaskInfo);
 
-    public void plan() throws UserException {
+    public void initPlanner() throws UserException {
         StreamLoadTask streamLoadTask = StreamLoadTask.fromRoutineLoadJob(this);
-        Database database = Catalog.getCurrentCatalog().getDb(this.getDbId());
+        Database db = Catalog.getCurrentCatalog().getDb(dbId);
+        if (db == null) {
+            throw new MetaNotFoundException("db " + dbId + " does not exist");
+        }
+        planner = new StreamLoadPlanner(db, (OlapTable) db.getTable(this.tableId), streamLoadTask);
+    }
 
-        database.readLock();
+    public TExecPlanFragmentParams plan() throws UserException {
+        Preconditions.checkNotNull(planner);
+        Database db = Catalog.getCurrentCatalog().getDb(dbId);
+        if (db == null) {
+            throw new MetaNotFoundException("db " + dbId + " does not exist");
+        }
+        db.readLock();
         try {
-            StreamLoadPlanner planner = new StreamLoadPlanner(database,
-                                                              (OlapTable) database.getTable(this.tableId),
-                                                              streamLoadTask);
-            tExecPlanFragmentParams = planner.plan();
+            return planner.plan();
         } finally {
-            database.readUnlock();
+            db.readUnlock();
         }
     }
 

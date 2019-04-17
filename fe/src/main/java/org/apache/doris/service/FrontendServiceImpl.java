@@ -538,17 +538,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TLoadTxnBeginResult loadTxnBegin(TLoadTxnBeginRequest request) throws TException {
-        TNetworkAddress clientAddr = getClientAddr();
+        String clientAddr = getClientAddrAsString();
         LOG.info("receive txn begin request, db: {}, tbl: {}, label: {}, backend: {}",
-                request.getDb(), request.getTbl(), request.getLabel(),
-                clientAddr == null ? "unknown" : clientAddr.getHostname());
+                request.getDb(), request.getTbl(), request.getLabel(), clientAddr);
         LOG.debug("txn begin request: {}", request);
 
         TLoadTxnBeginResult result = new TLoadTxnBeginResult();
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
         try {
-            result.setTxnId(loadTxnBeginImpl(request));
+            result.setTxnId(loadTxnBeginImpl(request, clientAddr));
         } catch (LabelAlreadyUsedException e) {
             status.setStatus_code(TStatusCode.LABEL_ALREADY_EXISTS);
             status.addToError_msgs(e.getMessage());
@@ -561,11 +560,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             status.addToError_msgs(Strings.nullToEmpty(e.getMessage()));
             return result;
         }
-
         return result;
     }
 
-    private long loadTxnBeginImpl(TLoadTxnBeginRequest request) throws UserException {
+    private long loadTxnBeginImpl(TLoadTxnBeginRequest request, String clientIp) throws UserException {
         String cluster = request.getCluster();
         if (Strings.isNullOrEmpty(cluster)) {
             cluster = SystemInfoService.DEFAULT_CLUSTER;
@@ -592,16 +590,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         // begin
         long timestamp = request.isSetTimestamp() ? request.getTimestamp() : -1;
         return Catalog.getCurrentGlobalTransactionMgr().beginTransaction(
-                db.getId(), request.getLabel(), timestamp, "streamLoad",
+                db.getId(), request.getLabel(), timestamp, "BE: " + clientIp,
                 TransactionState.LoadJobSourceType.BACKEND_STREAMING, -1);
     }
 
     @Override
     public TLoadTxnCommitResult loadTxnCommit(TLoadTxnCommitRequest request) throws TException {
-        TNetworkAddress clientAddr = getClientAddr();
+        String clientAddr = getClientAddrAsString();
         LOG.info("receive txn commit request. db: {}, tbl: {}, txn id: {}, backend: {}",
-                request.getDb(), request.getTbl(), request.getTxnId(),
-                clientAddr == null ? "unknown" : clientAddr.getHostname());
+                request.getDb(), request.getTbl(), request.getTxnId(), clientAddr);
         LOG.debug("txn commit request: {}", request);
 
         TLoadTxnCommitResult result = new TLoadTxnCommitResult();
@@ -659,10 +656,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TLoadTxnRollbackResult loadTxnRollback(TLoadTxnRollbackRequest request) throws TException {
-        TNetworkAddress clientAddr = getClientAddr();
+        String clientAddr = getClientAddrAsString();
         LOG.info("receive txn rollback request. db: {}, tbl: {}, txn id: {}, reason: {}, backend: {}",
-                request.getDb(), request.getTbl(), request.getTxnId(), request.getReason(),
-                clientAddr == null ? "unknown" : clientAddr.getHostname());
+                request.getDb(), request.getTbl(), request.getTxnId(), request.getReason(), clientAddr);
         LOG.debug("txn rollback request: {}", request);
 
         TLoadTxnRollbackResult result = new TLoadTxnRollbackResult();
@@ -773,6 +769,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return connectionContext.getClient();
         }
         return null;
+    }
+
+    private String getClientAddrAsString() {
+        TNetworkAddress addr = getClientAddr();
+        return addr == null ? "unknown" : addr.hostname + ":" + addr.port;
     }
 }
 
