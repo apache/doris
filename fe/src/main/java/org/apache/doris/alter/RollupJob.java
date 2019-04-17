@@ -1139,7 +1139,7 @@ public class RollupJob extends AlterJob {
                 + baseIndexName + ", rollupIndexName=" + rollupIndexName + ", rollupSchema=" + rollupSchema
                 + ", baseSchemaHash=" + baseSchemaHash + ", rollupSchemaHash=" + rollupSchemaHash + ", type=" + type
                 + ", state=" + state + ", dbId=" + dbId + ", tableId=" + tableId + ", transactionId=" + transactionId
-                + ", hasPreviousLoadFinished=" + isPreviousLoadFinished + ", createTime=" + createTime
+                + ", isPreviousLoadFinished=" + isPreviousLoadFinished + ", createTime=" + createTime
                 + ", finishedTime=" + finishedTime + "]";
     }
 }

@@ -189,7 +189,7 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
     // The tasks belong to this job
     protected List<RoutineLoadTaskInfo> routineLoadTaskInfoList = Lists.newArrayList();
 
-    // stream load planer be initialized during job scheduler
+    // stream load planer will be initialized during job schedule
     StreamLoadPlanner planner;
 
     // this is the origin stmt of CreateRoutineLoadStmt, we use it to persist the RoutineLoadJob,

@@ -1125,7 +1125,7 @@ public class SchemaChangeHandler extends AlterHandler {
                     break;
                 }
                 case FINISHING: {
-                    // check previous load job finished
+                    // check if previous load job finished
                     if (alterJob.isPreviousLoadFinished()) {
                         LOG.info("schema change job has finished, send clear tasks to all be {}", alterJob);
                         // if all previous load job finished, then send clear alter tasks to all related be
