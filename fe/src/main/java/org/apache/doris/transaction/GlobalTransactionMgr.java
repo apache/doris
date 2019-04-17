@@ -364,15 +364,12 @@ public class GlobalTransactionMgr {
         // before state transform
         transactionState.beforeStateTransform(TransactionStatus.COMMITTED);
         // transaction state transform
-        boolean txnOperated = true;
+        boolean txnOperated = false;
         writeLock();
         try {
             unprotectedCommitTransaction(transactionState, errorReplicaIds, tableToPartition, totalInvolvedBackends,
                                          db);
-        } catch (Throwable e) {
-            LOG.warn("unexpected exception", e);
-            txnOperated = false;
-            throw e;
+            txnOperated = true;
         } finally {
             writeUnlock();
             // after state transform
@@ -458,14 +455,11 @@ public class GlobalTransactionMgr {
         }
         // before state transform
         transactionState.beforeStateTransform(TransactionStatus.ABORTED);
-        boolean txnOperated = true;
+        boolean txnOperated = false;
         writeLock();
         try {
             unprotectAbortTransaction(transactionId, reason, txnCommitAttachment);
-        } catch (Throwable e) {
-            LOG.info("transaction:[{}] reason:[{}] abort failure exception:{}", transactionId, reason, e);
-            txnOperated = false;
-            throw e;
+            txnOperated = true;
         } finally {
             writeUnlock();
             transactionState.afterStateTransform(TransactionStatus.ABORTED, txnOperated, reason);
