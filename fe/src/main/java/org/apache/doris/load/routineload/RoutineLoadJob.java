@@ -1139,7 +1139,7 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
             stmt = (CreateRoutineLoadStmt) parser.parse().value;
             stmt.checkLoadProperties(null);
             setRoutineLoadDesc(stmt.getRoutineLoadDesc());
-        } catch (Throwable e) {
+        } catch (Exception e) {
             throw new IOException("error happens when parsing create routine load stmt: " + origStmt, e);
         }
     }
