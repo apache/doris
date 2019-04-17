@@ -71,11 +71,6 @@ public class TransactionState implements Writable {
                     return null;
             }
         }
-
-        @Override
-        public String toString() {
-            return this.name();
-        }
     }
     
     public enum TxnStatusChangeReason {
