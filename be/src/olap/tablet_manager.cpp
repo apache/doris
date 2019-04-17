@@ -710,7 +710,6 @@ OLAPStatus TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tab
         return OLAP_ERR_TABLE_CREATE_FROM_HEADER_ERROR;
     }
 
-
     if (tablet_meta->tablet_state() == TABLET_SHUTDOWN) {
         LOG(INFO) << "tablet is to be deleted, skip load it"
                   << " tablet id = " << tablet_meta->tablet_id()
