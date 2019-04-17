@@ -743,7 +743,7 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
             updateProgress(rlTaskTxnCommitAttachment);
         }
 
-        if (!Strings.isNullOrEmpty(rlTaskTxnCommitAttachment.getErrorLogUrl())) {
+        if (rlTaskTxnCommitAttachment != null && !Strings.isNullOrEmpty(rlTaskTxnCommitAttachment.getErrorLogUrl())) {
             errorLogUrls.add(rlTaskTxnCommitAttachment.getErrorLogUrl());
         }
 
