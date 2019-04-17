@@ -135,6 +135,9 @@ private:
     //        OLAP_ERR_NOT_INITED, if not inited
     OLAPStatus _add_tablet_unlock(TTabletId tablet_id, SchemaHash schema_hash,
                          const TabletSharedPtr& tablet, bool force);
+    
+    OLAPStatus _add_tablet_to_map(TTabletId tablet_id, SchemaHash schema_hash,
+                                 const TabletSharedPtr& tablet, bool keep_files, bool drop_old);
 
     void _build_tablet_info(TabletSharedPtr tablet, TTabletInfo* tablet_info);
     
