@@ -138,6 +138,10 @@ std::string ExtLiteral::get_string() {
 std::string ExtLiteral::get_date_string() {
     DCHECK(_type == TYPE_DATE || _type == TYPE_DATETIME);
     DateTimeValue date_value = *reinterpret_cast<DateTimeValue*>(_value);
+    if (_type == TYPE_DATE) {
+        date_value.cast_to_date();
+    }
+
     char str[MAX_DTVALUE_STR_LEN];
     date_value.to_string(str);
     return std::string(str, strlen(str)); 
