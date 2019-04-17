@@ -37,7 +37,6 @@ import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TScanRangeParams;
-import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
@@ -85,11 +84,7 @@ public class StreamLoadPlanner {
             SlotDescriptor slotDesc = descTable.addSlotDescriptor(tupleDesc);
             slotDesc.setIsMaterialized(true);
             slotDesc.setColumn(col);
-            if (col.isAllowNull()) {
-                slotDesc.setIsNullable(true);
-            } else {
-                slotDesc.setIsNullable(false);
-            }
+            slotDesc.setIsNullable(col.isAllowNull());
         }
 
         // create scan node

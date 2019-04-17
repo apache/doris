@@ -18,13 +18,10 @@
 package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Table;
-import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.ListComparator;
-import com.google.common.base.Preconditions;
+import org.apache.doris.transaction.GlobalTransactionMgr;
+
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 
@@ -40,19 +37,14 @@ import java.util.List;
 public class TransTablesProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("TableId")
-            .add("TableName")
-            .add("PartitionNum")
-            .add("State")
+            .add("CommittedPartitionIds")
             .build();
 
-    private Database db;
     private long tid;
 
-    public TransTablesProcDir(Database db, long tid) {
-        this.db = db;
+    public TransTablesProcDir(long tid) {
         this.tid = tid;
     }
-
 
     @Override
     public boolean register(String name, ProcNodeInterface node) {
@@ -60,40 +52,10 @@ public class TransTablesProcDir implements ProcDirInterface {
     }
 
     @Override
-    public ProcNodeInterface lookup(String tableIdStr) throws AnalysisException {
-        Preconditions.checkNotNull(db);
-        if (Strings.isNullOrEmpty(tableIdStr)) {
-            throw new AnalysisException("TableIdStr is null");
-        }
-
-        long tableId = -1L;
-        try {
-            tableId = Long.valueOf(tableIdStr);
-        } catch (NumberFormatException e) {
-            throw new AnalysisException("Invalid table id format: " + tableIdStr);
-        }
-
-        Table table = null;
-        db.readLock();
-        try {
-            table = db.getTable(tableId);
-        } finally {
-            db.readUnlock();
-        }
-        if (table == null) {
-            throw new AnalysisException("Table[" + tableId + "] does not exist");
-        }
-
-        return new TransPartitionProcNode(tid, db, (OlapTable) table);
-    }
-
-    @Override
     public ProcResult fetchResult() throws AnalysisException {
-        Preconditions.checkNotNull(db);
-
         // get info
         GlobalTransactionMgr transactionMgr = Catalog.getCurrentGlobalTransactionMgr();
-        List<List<Comparable>> tableInfos = transactionMgr.getTableTransInfo(tid, db);
+        List<List<Comparable>> tableInfos = transactionMgr.getTableTransInfo(tid);
         // sort by table id
         ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(0);
         Collections.sort(tableInfos, comparator);
@@ -111,5 +73,21 @@ public class TransTablesProcDir implements ProcDirInterface {
         }
 
         return result;
+    }
+
+    @Override
+    public ProcNodeInterface lookup(String tableIdStr) throws AnalysisException {
+        if (Strings.isNullOrEmpty(tableIdStr)) {
+            throw new AnalysisException("TableIdStr is null");
+        }
+
+        long tableId = -1L;
+        try {
+            tableId = Long.valueOf(tableIdStr);
+        } catch (NumberFormatException e) {
+            throw new AnalysisException("Invalid table id format: " + tableIdStr);
+        }
+
+        return new TransPartitionProcNode(tid, tableId);
     }
 }

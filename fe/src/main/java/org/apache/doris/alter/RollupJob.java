@@ -118,7 +118,7 @@ public class RollupJob extends AlterJob {
         this.finishedPartitionIds = new HashSet<Long>();
     }
 
-    // yiguolei: every job has a transactionid to identify the occurrent time, for example
+    // yiguolei: every job has a transactionid to identify the current time, for example
     // a load job's transactionid is 10 and a rollup job's transaction id is 12, then we could
     // find load job is occurred before rollup job
     public RollupJob(long dbId, long tableId, long baseIndexId, long rollupIndexId,
@@ -1139,7 +1139,7 @@ public class RollupJob extends AlterJob {
                 + baseIndexName + ", rollupIndexName=" + rollupIndexName + ", rollupSchema=" + rollupSchema
                 + ", baseSchemaHash=" + baseSchemaHash + ", rollupSchemaHash=" + rollupSchemaHash + ", type=" + type
                 + ", state=" + state + ", dbId=" + dbId + ", tableId=" + tableId + ", transactionId=" + transactionId
-                + ", hasPreviousLoadFinished=" + hasPreviousLoadFinished + ", createTime=" + createTime
+                + ", isPreviousLoadFinished=" + isPreviousLoadFinished + ", createTime=" + createTime
                 + ", finishedTime=" + finishedTime + "]";
     }
 }
