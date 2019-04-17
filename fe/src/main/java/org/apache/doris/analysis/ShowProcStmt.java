@@ -79,4 +79,9 @@ public class ShowProcStmt extends ShowStmt {
         }
         return builder.build();
     }
+
+    @Override
+    public RedirectStatus getRedirectStatus() {
+        return RedirectStatus.FORWARD_NO_SYNC;
+    }
 }
