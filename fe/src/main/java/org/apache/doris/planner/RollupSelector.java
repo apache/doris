@@ -20,6 +20,7 @@ package org.apache.doris.planner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.InPredicate;
@@ -42,8 +43,10 @@ public final class RollupSelector {
     // Rollup's table info.
     private final TupleDescriptor tupleDesc;
     private final OlapTable table;
+    private final Analyzer analyzer;
 
-    public RollupSelector(TupleDescriptor tupleDesc, OlapTable table) {
+    public RollupSelector(Analyzer analyzer, TupleDescriptor tupleDesc, OlapTable table) {
+        this.analyzer = analyzer;
         this.tupleDesc = tupleDesc;
         this.table = table;
     }
@@ -181,7 +184,24 @@ public final class RollupSelector {
             }
         }
 
-        // 2. Get materialized slot's columns by parent.
+        // 2. Equal join predicates when pushing inner child.
+        List<Expr> eqJoinPredicate = analyzer.getEqJoinConjuncts(tupleDesc.getId());
+        for (Expr expr : eqJoinPredicate) {
+            if (!isUsedForPrefixIndex(expr)) {
+                continue;
+            }
+            for (SlotDescriptor slot : tupleDesc.getSlots()) {
+                for (int i = 0; i < 2; i++) {
+                    if (expr.getChild(i).isBound(slot.getId())) {
+                        predicateColumns.add(slot.getColumn().getName());
+                        LOG.debug("Add eqJoinColumn: ColName=" + slot.getColumn().getName());
+                        break;
+                    }
+                }
+            }
+        }
+
+        // 3. Get materialized slot's columns by parent.
         for (SlotDescriptor slot : tupleDesc.getMaterializedSlots()) {
             Column col = slot.getColumn();
             outputColumns.add(col.getName());
@@ -191,6 +211,8 @@ public final class RollupSelector {
     private boolean isUsedForPrefixIndex(Expr expr) {
         if (expr.isConstant()) {
             return false;
+        } else if (expr.isAuxExpr()) {
+            return false;  
         } else if (expr instanceof InPredicate) {
             final InPredicate predicate = (InPredicate)expr;
             if (predicate.isNotIn()) {

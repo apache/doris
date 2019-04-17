@@ -334,7 +334,7 @@ public class OlapScanNode extends ScanNode {
             return;
         }
 
-        final RollupSelector rollupSelector = new RollupSelector(desc, olapTable);
+        final RollupSelector rollupSelector = new RollupSelector(analyzer, desc, olapTable);
         selectedIndexId = rollupSelector.selectBestRollup(partitionIds, conjuncts, isPreAggregation);
 
         long localBeId = -1;
