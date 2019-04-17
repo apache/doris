@@ -177,6 +177,7 @@ import org.apache.doris.common.util.SqlUtils;
         keywordMap.put("insert", new Integer(SqlParserSymbols.KW_INSERT));
         keywordMap.put("int", new Integer(SqlParserSymbols.KW_INT));
         keywordMap.put("integer", new Integer(SqlParserSymbols.KW_INT));
+        keywordMap.put("intermediate", new Integer(SqlParserSymbols.KW_INTERMEDIATE));
         keywordMap.put("interval", new Integer(SqlParserSymbols.KW_INTERVAL));
         keywordMap.put("into", new Integer(SqlParserSymbols.KW_INTO));
         keywordMap.put("is", new Integer(SqlParserSymbols.KW_IS));
