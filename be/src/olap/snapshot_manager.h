@@ -54,12 +54,6 @@ public:
             const TSnapshotRequest& request,
             std::string* snapshot_path);
 
-
-    // TODO(ygl) move it to a utility class
-    void update_header_file_info(
-            const std::vector<RowsetSharedPtr>& consistent_rowsets,
-            TabletMetaSharedPtr tablet_meta);
-
     std::string get_schema_hash_full_path(
             const TabletSharedPtr& ref_tablet,
             const std::string& location) const;

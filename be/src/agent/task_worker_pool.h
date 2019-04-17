@@ -120,8 +120,6 @@ private:
             const TTaskType::type task_type,
             TFinishTaskRequest* finish_task_request);
 
-    AgentStatus _drop_tablet(const TDropTabletReq& drop_tablet_req);
-
     AgentStatus _get_tablet_info(
             const TTabletId tablet_id,
             const TSchemaHash schema_hash,

@@ -130,13 +130,6 @@ OLAPStatus Tablet::init_once() {
         }
     }
 
-    if (res != OLAP_SUCCESS) {
-        LOG(FATAL) << "fail to load tablet. res=" << res
-                    << ", tablet='" << full_name();
-        StorageEngine::instance()->tablet_manager()->drop_tablet(tablet_id(), schema_hash());
-        return res;
-    }
-
     return res;
 }
 
@@ -468,7 +461,7 @@ AlterTabletTaskSharedPtr Tablet::alter_task() {
 }
 
 void Tablet::add_alter_task(int64_t tablet_id,
-                            int64_t schema_hash,
+                            int32_t schema_hash,
                             const vector<Version>& versions_to_alter,
                             const AlterTabletType alter_type) {
     AlterTabletTask alter_task;
