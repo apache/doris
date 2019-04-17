@@ -785,7 +785,7 @@ OLAPStatus EngineCloneTask::_clone_incremental_data(TabletSharedPtr tablet, cons
     }
 
     // clone_data to tablet
-    OLAPStatus clone_res = tablet->revise_tablet_meta(cloned_tablet_meta, rowsets_to_clone, versions_to_delete);
+    OLAPStatus clone_res = tablet->revise_tablet_meta(rowsets_to_clone, versions_to_delete);
     LOG(INFO) << "finish to incremental clone. [tablet=" << tablet->full_name() << " res=" << clone_res << "]";
     return clone_res;
 }
@@ -869,7 +869,7 @@ OLAPStatus EngineCloneTask::_clone_full_data(TabletSharedPtr tablet, TabletMeta*
     }
 
     // clone_data to tablet
-    OLAPStatus clone_res = tablet->revise_tablet_meta(*cloned_tablet_meta, rowsets_to_clone, versions_to_delete);
+    OLAPStatus clone_res = tablet->revise_tablet_meta(rowsets_to_clone, versions_to_delete);
     LOG(INFO) << "finish to full clone. tablet=" << tablet->full_name() << ", res=" << clone_res;
     // in previous step, copy all files from CLONE_DIR to tablet dir
     // but some rowset is useless, so that remove them here

@@ -75,8 +75,7 @@ public:
     inline const TabletMetaSharedPtr tablet_meta();
     OLAPStatus save_meta();
     OLAPStatus merge_tablet_meta(const TabletMeta& hdr, int to_version);
-    OLAPStatus revise_tablet_meta(const TabletMeta& tablet_meta,
-                                  const std::vector<RowsetMetaSharedPtr>& rowsets_to_clone,
+    OLAPStatus revise_tablet_meta(const std::vector<RowsetMetaSharedPtr>& rowsets_to_clone,
                                   const std::vector<Version>& versions_to_delete);
 
     inline int64_t table_id() const;
