@@ -156,9 +156,9 @@ OLAPStatus Tablet::save_meta() {
     return res;
 }
 
-OLAPStatus Tablet::revise_tablet_meta(const TabletMeta& tablet_meta,
-                              const vector<RowsetMetaSharedPtr>& rowsets_to_clone,
-                              const vector<Version>& versions_to_delete) {
+OLAPStatus Tablet::revise_tablet_meta(
+        const vector<RowsetMetaSharedPtr>& rowsets_to_clone,
+        const vector<Version>& versions_to_delete) {
     LOG(INFO) << "begin to clone data to tablet. tablet=" << full_name()
               << ", rowsets_to_clone=" << rowsets_to_clone.size()
               << ", versions_to_delete_size=" << versions_to_delete.size();
@@ -205,6 +205,29 @@ OLAPStatus Tablet::revise_tablet_meta(const TabletMeta& tablet_meta,
         }
         _tablet_meta = new_tablet_meta;
     } while (0);
+
+    for (auto& version : versions_to_delete) {
+        auto it = _rs_version_map.find(version);
+        StorageEngine::instance()->add_unused_rowset(it->second);
+        _rs_version_map.erase(it);
+    }
+    for (auto& it : _inc_rs_version_map) {
+        StorageEngine::instance()->add_unused_rowset(it.second);
+    }
+    _inc_rs_version_map.clear();
+
+    for (auto& rs_meta : rowsets_to_clone) {
+        Version version = { rs_meta->start_version(), rs_meta->end_version() };
+        RowsetSharedPtr rowset(new AlphaRowset(&_schema, _tablet_path, _data_dir, rs_meta));
+        res = rowset->init();
+        if (res != OLAP_SUCCESS) {
+            LOG(WARNING) << "fail to init rowset. version=" << version.first << "-" << version.second;
+            return res;
+        }
+        _rs_version_map[version] = rowset;
+    }
+
+    _rs_graph.reconstruct_rowset_graph(_tablet_meta->all_rs_metas());
 
     LOG(INFO) << "finish to clone data to tablet. res=" << res << ", "
               << "table=" << full_name() << ", "

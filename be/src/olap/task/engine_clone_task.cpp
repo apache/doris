@@ -213,6 +213,13 @@ OLAPStatus EngineCloneTask::execute() {
                     && (tablet_info.version < _clone_req.committed_version ||
                         (tablet_info.version == _clone_req.committed_version
                         && tablet_info.version_hash != _clone_req.committed_version_hash))) {
+            LOG(INFO) << "tablet to clone. tablet_id:" << _clone_req.tablet_id
+                      << ", schema_hash:" << _clone_req.schema_hash
+                      << ", signature:" << _signature
+                      << ", version:" << tablet_info.version
+                      << ", version_hash:" << tablet_info.version_hash
+                      << ", expected_version: " << _clone_req.committed_version
+                      << ", version_hash:" << _clone_req.committed_version_hash;
             // if it is a new tablet and clone failed, then remove the tablet
             // if it is incremental clone, then must not drop the tablet
             if (is_new_tablet) {
@@ -778,7 +785,7 @@ OLAPStatus EngineCloneTask::_clone_incremental_data(TabletSharedPtr tablet, cons
     }
 
     // clone_data to tablet
-    OLAPStatus clone_res = tablet->revise_tablet_meta(cloned_tablet_meta, rowsets_to_clone, versions_to_delete);
+    OLAPStatus clone_res = tablet->revise_tablet_meta(rowsets_to_clone, versions_to_delete);
     LOG(INFO) << "finish to incremental clone. [tablet=" << tablet->full_name() << " res=" << clone_res << "]";
     return clone_res;
 }
@@ -862,7 +869,7 @@ OLAPStatus EngineCloneTask::_clone_full_data(TabletSharedPtr tablet, TabletMeta*
     }
 
     // clone_data to tablet
-    OLAPStatus clone_res = tablet->revise_tablet_meta(*cloned_tablet_meta, rowsets_to_clone, versions_to_delete);
+    OLAPStatus clone_res = tablet->revise_tablet_meta(rowsets_to_clone, versions_to_delete);
     LOG(INFO) << "finish to full clone. tablet=" << tablet->full_name() << ", res=" << clone_res;
     // in previous step, copy all files from CLONE_DIR to tablet dir
     // but some rowset is useless, so that remove them here
