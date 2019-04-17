@@ -27,7 +27,6 @@ import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.Replica;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.AnalysisException;
@@ -46,6 +45,7 @@ import org.apache.doris.task.PublishVersionTask;
 import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 
+import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.Lists;
@@ -699,8 +699,8 @@ public class GlobalTransactionMgr {
     }
     
     // check if there exists a load job before the endTransactionId have all finished
-    // load job maybe started but could not know the affected tableid, so that we not check by table
-    public boolean hasPreviousTransactionsFinished(long endTransactionId, long dbId) {
+    // load job maybe started but could not know the affected table id, so that we not check by table
+    public boolean isPreviousTransactionsFinished(long endTransactionId, long dbId) {
         readLock();
         try {
             for (Map.Entry<Long, TransactionState> entry : idToTransactionState.entrySet()) {
@@ -708,6 +708,8 @@ public class GlobalTransactionMgr {
                     continue;
                 }
                 if (entry.getKey() <= endTransactionId) {
+                    LOG.info("txn is still running: {}, checking end txn id: {}",
+                            entry.getValue(), endTransactionId);
                     return false;
                 }
             }
@@ -1150,9 +1152,8 @@ public class GlobalTransactionMgr {
         return infos;
     }
     
-    public List<List<Comparable>> getDbTransInfo(long dbId) throws AnalysisException {
+    public List<List<Comparable>> getDbTransInfo(long dbId, int limit) throws AnalysisException {
         List<List<Comparable>> infos = new ArrayList<List<Comparable>>();
-        int limit = 2000;
         readLock();
         try {
             Database db = Catalog.getInstance().getDb(dbId);
@@ -1182,7 +1183,7 @@ public class GlobalTransactionMgr {
         return infos;
     }
     
-    public List<List<Comparable>> getTableTransInfo(long tid, Database db) throws AnalysisException {
+    public List<List<Comparable>> getTableTransInfo(long tid) throws AnalysisException {
         List<List<Comparable>> tableInfos = new ArrayList<List<Comparable>>();
         readLock();
         try {
@@ -1190,26 +1191,13 @@ public class GlobalTransactionMgr {
             if (null == transactionState) {
                 throw new AnalysisException("Transaction[" + tid + "] does not exist.");
             }
-            db.readLock();
-            try {
-                for (long tableId : transactionState.getIdToTableCommitInfos().keySet()) {
-                    List<Comparable> tableInfo = new ArrayList<Comparable>();
-                    Table table = db.getTable(tableId);
-                    if (null == table) {
-                        throw new AnalysisException("Table[" + tableId + "] does not exist.");
-                    }
-                    int partitionNum = 1;
-                    if (table.getType() == Table.TableType.OLAP) {
-                        OlapTable olapTable = (OlapTable) table;
-                        tableInfo.add(table.getId());
-                        tableInfo.add(table.getName());
-                        tableInfo.add(partitionNum);
-                        tableInfo.add(olapTable.getState());
-                        tableInfos.add(tableInfo);
-                    }
-                }
-            } finally {
-                db.readUnlock();
+
+            for (Map.Entry<Long, TableCommitInfo> entry : transactionState.getIdToTableCommitInfos().entrySet()) {
+                List<Comparable> tableInfo = new ArrayList<Comparable>();
+                tableInfo.add(entry.getKey());
+                tableInfo.add(Joiner.on(", ").join(entry.getValue().getIdToPartitionCommitInfo().values().stream().map(
+                        e -> e.getPartitionId()).collect(Collectors.toList())));
+                tableInfos.add(tableInfo);
             }
         } finally {
             readUnlock();
@@ -1217,7 +1205,7 @@ public class GlobalTransactionMgr {
         return tableInfos;
     }
     
-    public List<List<Comparable>> getPartitionTransInfo(long tid, Database db, OlapTable olapTable)
+    public List<List<Comparable>> getPartitionTransInfo(long tid, long tableId)
             throws AnalysisException {
         List<List<Comparable>> partitionInfos = new ArrayList<List<Comparable>>();
         readLock();
@@ -1226,24 +1214,14 @@ public class GlobalTransactionMgr {
             if (null == transactionState) {
                 throw new AnalysisException("Transaction[" + tid + "] does not exist.");
             }
-            TableCommitInfo tableCommitInfo = transactionState.getIdToTableCommitInfos().get(olapTable.getId());
-            db.readLock();
-            try {
-                Map<Long, PartitionCommitInfo> idToPartitionCommitInfo = tableCommitInfo.getIdToPartitionCommitInfo();
-                for (long partitionId : idToPartitionCommitInfo.keySet()) {
-                    Partition partition = olapTable.getPartition(partitionId);
-                    List<Comparable> partitionInfo = new ArrayList<Comparable>();
-                    String partitionName = partition.getName();
-                    partitionInfo.add(partitionId);
-                    partitionInfo.add(partitionName);
-                    PartitionCommitInfo partitionCommitInfo = idToPartitionCommitInfo.get(partitionId);
-                    partitionInfo.add(partitionCommitInfo.getVersion());
-                    partitionInfo.add(partitionCommitInfo.getVersionHash());
-                    partitionInfo.add(partition.getState());
-                    partitionInfos.add(partitionInfo);
-                }
-            } finally {
-                db.readUnlock();
+            TableCommitInfo tableCommitInfo = transactionState.getIdToTableCommitInfos().get(tableId);
+            Map<Long, PartitionCommitInfo> idToPartitionCommitInfo = tableCommitInfo.getIdToPartitionCommitInfo();
+            for (Map.Entry<Long, PartitionCommitInfo> entry : idToPartitionCommitInfo.entrySet()) {
+                List<Comparable> partitionInfo = new ArrayList<Comparable>();
+                partitionInfo.add(entry.getKey());
+                partitionInfo.add(entry.getValue().getVersion());
+                partitionInfo.add(entry.getValue().getVersionHash());
+                partitionInfos.add(partitionInfo);
             }
         } finally {
             readUnlock();

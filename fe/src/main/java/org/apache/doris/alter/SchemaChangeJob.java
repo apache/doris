@@ -1358,7 +1358,7 @@ public class SchemaChangeJob extends AlterJob {
     @Override
     public String toString() {
         return "SchemaChangeJob [tableName=" + tableName + ", type=" + type + ", state=" + state + ", dbId=" + dbId
-                + ", tableId=" + tableId + ", transactionId=" + transactionId + ", hasPreviousLoadFinished="
-                + hasPreviousLoadFinished + ", createTime=" + createTime + ", finishedTime=" + finishedTime + "]";
+                + ", tableId=" + tableId + ", transactionId=" + transactionId + ", isPreviousLoadFinished="
+                + isPreviousLoadFinished + ", createTime=" + createTime + ", finishedTime=" + finishedTime + "]";
     }
 }
