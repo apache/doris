@@ -598,9 +598,9 @@ public class RollupHandler extends AlterHandler {
                     break;
                 }
                 case FINISHING: {
-                    // check previous load job finished
-                    if (rollupJob.checkPreviousLoadFinished()) {
-                        // if all previous load job finished, then send clear alter tasks to all related be
+                    // check if previous load job finished
+                    if (rollupJob.isPreviousLoadFinished()) {
+                        // if all previous load jobs are finished, then send clear alter tasks to all related be
                         int res = rollupJob.checkOrResendClearTasks();
                         if (res != 0) {
                             if (res == -1) {
@@ -609,6 +609,9 @@ public class RollupHandler extends AlterHandler {
                             }
                             finishedJobs.add(rollupJob);
                         }
+                    } else {
+                        LOG.info("previous load jobs are not finished. can not finish rollup job: {}",
+                                rollupJob.getTableId());
                     }
                     break;
                 }

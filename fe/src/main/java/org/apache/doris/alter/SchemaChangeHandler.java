@@ -1140,8 +1140,8 @@ public class SchemaChangeHandler extends AlterHandler {
                     break;
                 }
                 case FINISHING: {
-                    // check previous load job finished
-                    if (alterJob.checkPreviousLoadFinished()) {
+                    // check if previous load job finished
+                    if (alterJob.isPreviousLoadFinished()) {
                         LOG.info("schema change job has finished, send clear tasks to all be {}", alterJob);
                         // if all previous load job finished, then send clear alter tasks to all related be
                         int res = schemaChangeJob.checkOrResendClearTasks();
@@ -1156,6 +1156,9 @@ public class SchemaChangeHandler extends AlterHandler {
                             
                             finishedJobs.add(alterJob);
                         }
+                    } else {
+                        LOG.info("previous load jobs are not finished. can not finish schema change job: {}",
+                                alterJob.getTableId());
                     }
                     break;
                 }
