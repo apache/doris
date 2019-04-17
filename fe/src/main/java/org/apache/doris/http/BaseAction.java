@@ -23,6 +23,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.QeService;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.TNetworkAddress;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -35,6 +36,8 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.io.UnsupportedEncodingException;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.Map;
@@ -351,5 +354,31 @@ public abstract class BaseAction implements IAction {
 
     protected long checkLongParam(String strParam) {
         return Long.parseLong(strParam);
+    }
+
+    public void redirectTo(BaseRequest request, BaseResponse response, TNetworkAddress addr)
+            throws DdlException {
+        String urlStr = request.getRequest().uri();
+        URI urlObj = null;
+        URI resultUriObj = null;
+        try {
+            urlObj = new URI(urlStr);
+            resultUriObj = new URI("http", null, addr.getHostname(),
+                    addr.getPort(), urlObj.getPath(), urlObj.getQuery(), null);
+        } catch (URISyntaxException e) {
+            LOG.warn(e.getMessage());
+            throw new DdlException(e.getMessage());
+        }
+        response.updateHeader(HttpHeaderNames.LOCATION.toString(), resultUriObj.toString());
+        writeResponse(request, response, HttpResponseStatus.TEMPORARY_REDIRECT);
+    }
+
+    public boolean redirectToMaster(BaseRequest request, BaseResponse response) throws DdlException {
+        Catalog catalog = Catalog.getInstance();
+        if (catalog.isMaster()) {
+            return false;
+        }
+        redirectTo(request, response, new TNetworkAddress(catalog.getMasterIp(), catalog.getMasterHttpPort()));
+        return true;
     }
 }
