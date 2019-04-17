@@ -71,19 +71,10 @@ public class TransactionState implements Writable {
                     return null;
             }
         }
-        
+
         @Override
         public String toString() {
-            switch (this) {
-                case FRONTEND:
-                    return "frontend";
-                case BACKEND_STREAMING:
-                    return "backend_streaming";
-                case INSERT_STREAMING:
-                    return "insert_streaming";
-                default:
-                    return null;
-            }
+            return this.name();
         }
     }
     

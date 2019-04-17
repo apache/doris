@@ -25,6 +25,7 @@ import org.apache.doris.common.LoadException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TRoutineLoadTask;
 import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.TransactionState;
@@ -118,7 +119,7 @@ public abstract class RoutineLoadTaskInfo {
         // begin a txn for task
         RoutineLoadJob routineLoadJob = routineLoadManager.getJob(jobId);
         txnId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(
-                routineLoadJob.getDbId(), DebugUtil.printId(id), -1, "FE",
+                routineLoadJob.getDbId(), DebugUtil.printId(id), -1, "FE: " + FrontendOptions.getHostname(),
                 TransactionState.LoadJobSourceType.ROUTINE_LOAD_TASK, routineLoadJob.getId());
     }
 
