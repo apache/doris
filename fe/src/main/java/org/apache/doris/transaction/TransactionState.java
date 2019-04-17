@@ -27,6 +27,7 @@ import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.task.PublishVersionTask;
 
 import com.google.common.base.Joiner;
+import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
@@ -70,20 +71,6 @@ public class TransactionState implements Writable {
                     return null;
             }
         }
-        
-        @Override
-        public String toString() {
-            switch (this) {
-                case FRONTEND:
-                    return "frontend";
-                case BACKEND_STREAMING:
-                    return "backend_streaming";
-                case INSERT_STREAMING:
-                    return "insert_streaming";
-                default:
-                    return null;
-            }
-        }
     }
     
     public enum TxnStatusChangeReason {
@@ -118,13 +105,14 @@ public class TransactionState implements Writable {
     // no need to persist it
     private long timestamp;
     private Map<Long, TableCommitInfo> idToTableCommitInfos;
+    // coordinator is show who begin this txn (FE, or one of BE, etc...)
     private String coordinator;
     private TransactionStatus transactionStatus;
     private LoadJobSourceType sourceType;
     private long prepareTime;
     private long commitTime;
     private long finishTime;
-    private String reason;
+    private String reason = "";
     // error replica ids
     private Set<Long> errorReplicas;
     private CountDownLatch latch;
@@ -162,7 +150,7 @@ public class TransactionState implements Writable {
     }
     
     public TransactionState(long dbId, long transactionId, String label, long timestamp,
-            LoadJobSourceType sourceType, String coordinator) {
+            LoadJobSourceType sourceType, String coordinator, long listenerId) {
         this.dbId = dbId;
         this.transactionId = transactionId;
         this.label = label;
@@ -179,11 +167,6 @@ public class TransactionState implements Writable {
         this.publishVersionTasks = Maps.newHashMap();
         this.hasSendTask = false;
         this.latch = new CountDownLatch(1);
-    }
-    
-    public TransactionState(long dbId, long transactionId, String label, long timestamp,
-            LoadJobSourceType sourceType, String coordinator, long listenerId) {
-        this(dbId, transactionId, label, timestamp, sourceType, coordinator);
         this.listenerId = listenerId;
     }
     
@@ -224,7 +207,6 @@ public class TransactionState implements Writable {
         return timestamp;
     }
 
-    
     public long getTransactionId() {
         return transactionId;
     }
@@ -367,7 +349,7 @@ public class TransactionState implements Writable {
     }
     
     public void setReason(String reason) {
-        this.reason = reason;
+        this.reason = Strings.nullToEmpty(reason);
     }
     
     public Set<Long> getErrorReplicas() {

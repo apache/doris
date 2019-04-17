@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.base.Preconditions;
 import org.apache.doris.catalog.BrokerTable;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
@@ -40,9 +39,11 @@ import org.apache.doris.planner.ExportSink;
 import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriter;
+import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -239,8 +240,7 @@ public class InsertStmt extends DdlStmt {
             LoadJobSourceType sourceType = isStreaming ? LoadJobSourceType.INSERT_STREAMING
                     : LoadJobSourceType.FRONTEND;
             transactionId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(db.getId(),
-                                                                                      jobLabel,
-                                                                                      "fe", sourceType);
+                    jobLabel, "FE: " + FrontendOptions.getLocalHostAddress(), sourceType);
             if (isStreaming) {
                 OlapTableSink sink = (OlapTableSink) dataSink;
                 TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
