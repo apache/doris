@@ -124,6 +124,9 @@ public class ShowRoutineLoadStmt extends ShowStmt {
         name = labelName == null ? null : labelName.getLabelName();
     }
 
+    public static List<String> getTitleNames() {
+        return TITLE_NAMES;
+    }
 
     @Override
     public ShowResultSetMetaData getMetaData() {
@@ -135,7 +138,8 @@ public class ShowRoutineLoadStmt extends ShowStmt {
         return builder.build();
     }
 
-    public static List<String> getTitleNames() {
-        return TITLE_NAMES;
+    @Override
+    public RedirectStatus getRedirectStatus() {
+        return RedirectStatus.FORWARD_NO_SYNC;
     }
 }
