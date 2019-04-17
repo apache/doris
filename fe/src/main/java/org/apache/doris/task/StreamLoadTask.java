@@ -169,7 +169,7 @@ public class StreamLoadTask {
             throw new UserException("parse columns header failed", e);
         }
 
-        if (columnsStmt.getColumns() != null || columnsStmt.getColumns().size() != 0) {
+        if (columnsStmt.getColumns() != null && !columnsStmt.getColumns().isEmpty()) {
             columnExprDesc = columnsStmt.getColumns();
         }
     }

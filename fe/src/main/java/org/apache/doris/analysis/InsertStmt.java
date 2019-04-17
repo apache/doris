@@ -240,7 +240,7 @@ public class InsertStmt extends DdlStmt {
             LoadJobSourceType sourceType = isStreaming ? LoadJobSourceType.INSERT_STREAMING
                     : LoadJobSourceType.FRONTEND;
             transactionId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(db.getId(),
-                    jobLabel, "FE: " + FrontendOptions.getHostname(), sourceType);
+                    jobLabel, "FE: " + FrontendOptions.getLocalHostAddress(), sourceType);
             if (isStreaming) {
                 OlapTableSink sink = (OlapTableSink) dataSink;
                 TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());

@@ -699,8 +699,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TStreamLoadPutResult streamLoadPut(TStreamLoadPutRequest request) throws TException {
-        LOG.info("receive stream load put request. db:{}, tbl: {}, txn id: {}",
-                request.getDb(), request.getTbl(), request.getTxnId());
+        String clientAddr = getClientAddrAsString();
+        LOG.info("receive stream load put request. db:{}, tbl: {}, txn id: {}, backend: {}",
+                request.getDb(), request.getTbl(), request.getTxnId(), clientAddr);
         LOG.debug("stream load put request: {}", request);
 
         TStreamLoadPutResult result = new TStreamLoadPutResult();

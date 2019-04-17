@@ -76,7 +76,7 @@ public abstract class LoadPendingTask extends MasterTask {
             // create etl request and make some guarantee for schema change and rollup
             if (job.getTransactionId() < 0) {
                 long transactionId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(dbId, 
-                        job.getLabel(), "FE: " + FrontendOptions.getHostname(), LoadJobSourceType.FRONTEND);
+                        job.getLabel(), "FE: " + FrontendOptions.getLocalHostAddress(), LoadJobSourceType.FRONTEND);
                 job.setTransactionId(transactionId);
             }
             createEtlRequest();
