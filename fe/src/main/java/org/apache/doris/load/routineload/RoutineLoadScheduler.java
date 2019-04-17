@@ -73,7 +73,7 @@ public class RoutineLoadScheduler extends Daemon {
         LOG.info("there are {} job need schedule", routineLoadJobList.size());
         for (RoutineLoadJob routineLoadJob : routineLoadJobList) {
             RoutineLoadJob.JobState errorJobState = null;
-            Throwable throwable = null;
+            UserException userException = null;
             try {
                 // create plan of routine load job
                 routineLoadJob.plan();
@@ -95,21 +95,21 @@ public class RoutineLoadScheduler extends Daemon {
                 routineLoadJob.divideRoutineLoadJob(desiredConcurrentTaskNum);
             } catch (MetaNotFoundException e) {
                 errorJobState = RoutineLoadJob.JobState.CANCELLED;
-                throwable = e;
-            } catch (Throwable e) {
+                userException = e;
+            } catch (UserException e) {
                 errorJobState = RoutineLoadJob.JobState.PAUSED;
-                throwable = e;
+                userException = e;
             }
 
             if (errorJobState != null) {
                 LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
                                  .add("current_state", routineLoadJob.getState())
                                  .add("desired_state", errorJobState)
-                                 .add("warn_msg", "failed to scheduler job, change job state to desired_state with error reason " + throwable.getMessage())
-                                 .build(), throwable);
+                                 .add("warn_msg", "failed to scheduler job, change job state to desired_state with error reason " + userException.getMessage())
+                                 .build(), userException);
                 try {
-                    routineLoadJob.updateState(errorJobState, throwable.getMessage(), false);
-                } catch (Throwable e) {
+                    routineLoadJob.updateState(errorJobState, userException.getMessage(), false);
+                } catch (UserException e) {
                     LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
                                      .add("current_state", routineLoadJob.getState())
                                      .add("desired_state", errorJobState)
