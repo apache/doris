@@ -83,14 +83,14 @@ public:
     inline const std::string full_name() const;
     inline int64_t partition_id() const;
     inline int64_t tablet_id() const;
-    inline int64_t schema_hash() const;
+    inline int32_t schema_hash() const;
     inline int16_t shard_id();
     inline const int64_t creation_time() const;
     inline void set_creation_time(int64_t creation_time);
     inline const int32_t cumulative_layer_point() const;
     inline void set_cumulative_layer_point(const int32_t new_point);
 
-    inline bool equal(int64_t tablet_id, int64_t schema_hash);
+    inline bool equal(int64_t tablet_id, int32_t schema_hash);
     inline size_t tablet_footprint(); // disk space occupied by tablet
     inline size_t num_rows();
     inline int version_count() const;
@@ -146,7 +146,7 @@ public:
 
     // message for alter task
     AlterTabletTaskSharedPtr alter_task();
-    void add_alter_task(int64_t tablet_id, int64_t schema_hash,
+    void add_alter_task(int64_t tablet_id, int32_t schema_hash,
                         const vector<Version>& versions_to_alter,
                         const AlterTabletType alter_type);
     OLAPStatus delete_alter_task();
@@ -255,6 +255,7 @@ inline DataDir* Tablet::data_dir() const {
 inline OLAPStatus Tablet::set_tablet_state(TabletState state) {
     RETURN_NOT_OK(_tablet_meta->set_tablet_state(state));
     _state = state;
+    return OLAP_SUCCESS;
 }
 
 inline const TabletMetaSharedPtr Tablet::tablet_meta() {
@@ -280,7 +281,7 @@ inline int64_t Tablet::tablet_id() const {
     return _tablet_meta->tablet_id();
 }
 
-inline int64_t Tablet::schema_hash() const {
+inline int32_t Tablet::schema_hash() const {
     return _tablet_meta->schema_hash();
 }
 
@@ -304,7 +305,7 @@ void inline Tablet::set_cumulative_layer_point(const int32_t new_point) {
     return _tablet_meta->set_cumulative_layer_point(new_point);
 }
 
-inline bool Tablet::equal(int64_t tablet_id, int64_t schema_hash) {
+inline bool Tablet::equal(int64_t tablet_id, int32_t schema_hash) {
     return (_tablet_meta->tablet_id() == tablet_id) && (_tablet_meta->schema_hash() == schema_hash);
 }
 

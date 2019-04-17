@@ -861,7 +861,7 @@ OLAPStatus StorageEngine::load_header(
     schema_hash_path_stream << shard_path
                             << "/" << request.tablet_id
                             << "/" << request.schema_hash;
-    res = _tablet_manager->load_one_tablet(
+    res = _tablet_manager->load_tablet_from_dir(
             store,
             request.tablet_id, request.schema_hash,
             schema_hash_path_stream.str(), false);
@@ -887,7 +887,7 @@ OLAPStatus StorageEngine::load_header(
     schema_hash_path_stream << shard_path
                             << "/" << tablet_id
                             << "/" << schema_hash;
-    res =  _tablet_manager->load_one_tablet(
+    res =  _tablet_manager->load_tablet_from_dir(
             store,
             tablet_id, schema_hash,
             schema_hash_path_stream.str(), 

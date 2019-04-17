@@ -589,7 +589,7 @@ Status SnapshotLoader::move(
 
     // fixme: there is no header now and can not call load_one_tablet here
     // reload header
-    OLAPStatus ost = StorageEngine::instance()->tablet_manager()->load_one_tablet(
+    OLAPStatus ost = StorageEngine::instance()->tablet_manager()->load_tablet_from_dir(
             store, tablet_id, schema_hash, tablet_path, true);
     if (ost != OLAP_SUCCESS) {
         std::stringstream ss;
