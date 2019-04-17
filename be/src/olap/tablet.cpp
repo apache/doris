@@ -206,6 +206,24 @@ OLAPStatus Tablet::revise_tablet_meta(const TabletMeta& tablet_meta,
         _tablet_meta = new_tablet_meta;
     } while (0);
 
+    for (auto& version : versions_to_delete) {
+        auto it = _rs_version_map.find(version);
+        _rs_version_map.erase(it);
+    }
+
+    for (auto& rs_meta : rowsets_to_clone) {
+        Version version = { rs_meta->start_version(), rs_meta->end_version() };
+        RowsetSharedPtr rowset(new AlphaRowset(&_schema, _tablet_path, _data_dir, rs_meta));
+        _rs_version_map[version] = rowset;
+        res = rowset->init();
+        if (res != OLAP_SUCCESS) {
+            LOG(WARNING) << "fail to init rowset. version=" << version.first << "-" << version.second;
+            break;
+        }
+    }
+
+    _rs_graph.reconstruct_rowset_graph(_tablet_meta->all_rs_metas());
+
     LOG(INFO) << "finish to clone data to tablet. res=" << res << ", "
               << "table=" << full_name() << ", "
               << "rowsets_to_clone=" << rowsets_to_clone.size();
