@@ -202,7 +202,7 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_A
     KW_GLOBAL, KW_GRANT, KW_GRANTS, KW_GROUP,
     KW_HASH, KW_HAVING, KW_HELP,KW_HLL, KW_HLL_UNION, KW_HUB,
     KW_IDENTIFIED, KW_IF, KW_IN, KW_INDEX, KW_INDEXES, KW_INFILE,
-    KW_INNER, KW_INSERT, KW_INT, KW_INTERVAL, KW_INTO, KW_IS, KW_ISNULL,  KW_ISOLATION,
+    KW_INNER, KW_INSERT, KW_INT, KW_INTERMEDIATE, KW_INTERVAL, KW_INTO, KW_IS, KW_ISNULL,  KW_ISOLATION,
     KW_JOIN,
     KW_KEY, KW_KILL,
     KW_LABEL, KW_LARGEINT, KW_LAST, KW_LEFT, KW_LESS, KW_LEVEL, KW_LIKE, KW_LIMIT, KW_LINK, KW_LOAD,
@@ -308,7 +308,7 @@ nonterminal OrderByElement order_by_element;
 nonterminal Boolean opt_order_param;
 nonterminal Boolean opt_nulls_order_param;
 nonterminal LimitElement limit_clause;
-nonterminal TypeDef type_def;
+nonterminal TypeDef type_def, opt_intermediate_type;
 nonterminal List<TypeDef> type_def_list;
 nonterminal FunctionArgsDef func_args_def;
 nonterminal Type type;
@@ -838,6 +838,16 @@ sync_stmt ::=
     :}
     ;
 
+opt_intermediate_type ::=
+    {:
+        RESULT = null;
+    :}
+    | KW_INTERMEDIATE type_def:intermediateType
+    {:
+        RESULT = intermediateType;
+    :}
+    ;
+
 // Create Statement
 create_stmt ::=
     /* Database */
@@ -852,9 +862,9 @@ create_stmt ::=
     :}*/
     /* Function */
     | KW_CREATE opt_aggregate:isAggregate KW_FUNCTION function_name:functionName LPAREN func_args_def:args RPAREN
-            KW_RETURNS type_def:retrunType opt_properties:properties
+            KW_RETURNS type_def:retrunType opt_intermediate_type:intermediateType opt_properties:properties
     {:
-        RESULT = new CreateFunctionStmt(isAggregate, functionName, args, retrunType, properties);
+        RESULT = new CreateFunctionStmt(isAggregate, functionName, args, retrunType, intermediateType, properties);
     :}
     /* Table */
     | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name
