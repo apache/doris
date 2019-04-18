@@ -105,8 +105,8 @@ public class GlobalTransactionMgr {
     }
 
     public long beginTransaction(long dbId, String label, String coordinator, LoadJobSourceType sourceType,
-            long timeoutMs) throws AnalysisException, LabelAlreadyUsedException, BeginTransactionException {
-        return beginTransaction(dbId, label, -1, coordinator, sourceType, -1, timeoutMs);
+            long timeoutSecond) throws AnalysisException, LabelAlreadyUsedException, BeginTransactionException {
+        return beginTransaction(dbId, label, -1, coordinator, sourceType, -1, timeoutSecond);
     }
     
     /**
@@ -122,15 +122,15 @@ public class GlobalTransactionMgr {
      * @throws IllegalTransactionParameterException
      */
     public long beginTransaction(long dbId, String label, long timestamp,
-            String coordinator, LoadJobSourceType sourceType, long listenerId, long timeoutMs)
+            String coordinator, LoadJobSourceType sourceType, long listenerId, long timeoutSecond)
             throws AnalysisException, LabelAlreadyUsedException, BeginTransactionException {
         
         if (Config.disable_load_job) {
             throw new BeginTransactionException("disable_load_job is set to true, all load jobs are prevented");
         }
         
-        if (timeoutMs > Config.max_stream_load_timeout_second * 1000 || 
-                timeoutMs < Config.min_stream_load_timeout_second * 1000) {
+        if (timeoutSecond > Config.max_stream_load_timeout_second ||
+                timeoutSecond < Config.min_stream_load_timeout_second) {
             throw new AnalysisException("Invalid timeout. Timeout should between "
                     + Config.min_stream_load_timeout_second + " and " + Config.max_stream_load_timeout_second
                     + " seconds");
@@ -161,7 +161,7 @@ public class GlobalTransactionMgr {
             long tid = idGenerator.getNextTransactionId();
             LOG.info("begin transaction: txn id {} with label {} from coordinator {}", tid, label, coordinator);
             TransactionState transactionState = new TransactionState(dbId, tid, label, timestamp, sourceType,
-                    coordinator, listenerId, timeoutMs);
+                    coordinator, listenerId, timeoutSecond * 1000);
             transactionState.setPrepareTime(System.currentTimeMillis());
             unprotectUpsertTransactionState(transactionState);
 

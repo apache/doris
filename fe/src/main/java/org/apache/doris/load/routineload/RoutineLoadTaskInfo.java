@@ -121,7 +121,7 @@ public abstract class RoutineLoadTaskInfo {
         txnId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(
                 routineLoadJob.getDbId(), DebugUtil.printId(id), -1, "FE: " + FrontendOptions.getLocalHostAddress(),
                 TransactionState.LoadJobSourceType.ROUTINE_LOAD_TASK, routineLoadJob.getId(),
-                routineLoadJob.getMaxBatchIntervalS() * 2 * 1000);
+                routineLoadJob.getMaxBatchIntervalS() * 2);
     }
 
     public List<String> getTaskShowInfo() {
