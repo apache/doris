@@ -46,15 +46,10 @@ public:
     virtual ~EsHttpScanNode();
 
     virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
-
     virtual Status prepare(RuntimeState* state) override;
-
     virtual Status open(RuntimeState* state) override;
-
     virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override;
-
     virtual Status close(RuntimeState* state) override;
-
     virtual Status set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override;
 
 protected:
