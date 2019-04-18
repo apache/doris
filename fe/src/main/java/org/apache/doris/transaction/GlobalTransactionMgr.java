@@ -129,6 +129,13 @@ public class GlobalTransactionMgr {
             throw new BeginTransactionException("disable_load_job is set to true, all load jobs are prevented");
         }
         
+        if (timeoutMs > Config.max_stream_load_timeout_second * 1000 || 
+                timeoutMs < Config.min_stream_load_timeout_second * 1000) {
+            throw new AnalysisException("Invalid timeout. Timeout should between "
+                    + Config.min_stream_load_timeout_second + " and " + Config.max_stream_load_timeout_second
+                    + " seconds");
+        }
+        
         writeLock();
         try {
             Preconditions.checkNotNull(coordinator);
