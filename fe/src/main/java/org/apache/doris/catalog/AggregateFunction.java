@@ -172,6 +172,121 @@ public class AggregateFunction extends Function {
         return fn;
     }
 
+    // Used to create UDAF
+    public AggregateFunction(FunctionName fnName, Type[] argTypes,
+                             Type retType, Type intermediateType, String location,
+                             String initFnSymbol, String updateFnSymbol, String mergeFnSymbol,
+                             String serializeFnSymbol, String finalizeFnSymbol,
+                             String getValueFnSymbol, String removeFnSymbol) {
+        super(fnName, argTypes, retType, false);
+        this.setLocation(new HdfsURI(location));
+        this.intermediateType = (intermediateType.equals(retType)) ? null : intermediateType;
+        this.updateFnSymbol = updateFnSymbol;
+        this.initFnSymbol = initFnSymbol;
+        this.serializeFnSymbol = serializeFnSymbol;
+        this.mergeFnSymbol = mergeFnSymbol;
+        this.getValueFnSymbol = getValueFnSymbol;
+        this.removeFnSymbol = removeFnSymbol;
+        this.finalizeFnSymbol = finalizeFnSymbol;
+        ignoresDistinct = false;
+        isAnalyticFn = true;
+        isAggregateFn = true;
+        returnsNonNullOnEmpty = false;
+    }
+
+    public static class AggregateFunctionBuilder {
+        TFunctionBinaryType binaryType;
+        FunctionName name;
+        Type[] argTypes;
+        Type retType;
+        Type intermediateType;
+        String objectFile;
+        String initFnSymbol;
+        String updateFnSymbol;
+        String serializeFnSymbol;
+        String finalizeFnSymbol;
+        String mergeFnSymbol;
+        String removeFnSymbol;
+        String getValueFnSymbol;
+
+        private AggregateFunctionBuilder(TFunctionBinaryType binaryType) {
+            this.binaryType = binaryType;
+        }
+
+        public static AggregateFunctionBuilder createUdfBuilder() {
+            return new AggregateFunctionBuilder(TFunctionBinaryType.HIVE);
+        }
+
+        public AggregateFunctionBuilder name(FunctionName name) {
+            this.name = name;
+            return this;
+        }
+
+        public AggregateFunctionBuilder argsType(Type[] argTypes) {
+            this.argTypes = argTypes;
+            return this;
+        }
+
+        public AggregateFunctionBuilder retType(Type type) {
+            this.retType = type;
+            return this;
+        }
+
+        public AggregateFunctionBuilder intermediateType(Type type) {
+            this.intermediateType = type;
+            return this;
+        }
+
+        public AggregateFunctionBuilder objectFile(String objectFile) {
+            this.objectFile = objectFile;
+            return this;
+        }
+
+        public AggregateFunctionBuilder initFnSymbol(String symbol) {
+            this.initFnSymbol = symbol;
+            return this;
+        }
+
+        public AggregateFunctionBuilder updateFnSymbol(String symbol) {
+            this.updateFnSymbol = symbol;
+            return this;
+        }
+
+        public AggregateFunctionBuilder mergeFnSymbol(String symbol) {
+            this.mergeFnSymbol = symbol;
+            return this;
+        }
+
+        public AggregateFunctionBuilder serializeFnSymbol(String symbol) {
+            this.serializeFnSymbol = symbol;
+            return this;
+        }
+
+        public AggregateFunctionBuilder finalizeFnSymbol(String symbol) {
+            this.finalizeFnSymbol = symbol;
+            return this;
+        }
+
+        public AggregateFunctionBuilder getValueFnSymbol(String symbol) {
+            this.getValueFnSymbol = symbol;
+            return this;
+        }
+
+        public AggregateFunctionBuilder removeFnSymbol(String symbol) {
+            this.removeFnSymbol = symbol;
+            return this;
+        }
+
+        public AggregateFunction build() {
+            AggregateFunction fn = new AggregateFunction(name, argTypes, retType, intermediateType, objectFile,
+                    initFnSymbol, updateFnSymbol, mergeFnSymbol,
+                    serializeFnSymbol, finalizeFnSymbol,
+                    getValueFnSymbol, removeFnSymbol);
+            fn.setBinaryType(binaryType);
+            return fn;
+        }
+    }
+
     public String getUpdateFnSymbol() { return updateFnSymbol; }
     public String getInitFnSymbol() { return initFnSymbol; }
     public String getSerializeFnSymbol() { return serializeFnSymbol; }
@@ -257,7 +372,7 @@ public class AggregateFunction extends Function {
         // 1. type
         FunctionType.AGGREGATE.write(output);
         // 2. parent
-        super.write(output);
+        super.writeFields(output);
         // 3. self's member
         boolean hasInterType = intermediateType != null;
         output.writeBoolean(hasInterType);
