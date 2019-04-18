@@ -283,18 +283,39 @@ OLAPStatus Tablet::modify_rowsets(const vector<RowsetSharedPtr>& to_add,
 }
 
 const RowsetSharedPtr Tablet::get_rowset_by_version(const Version& version) const {
-    RowsetSharedPtr rowset = _rs_version_map.at(version);
+    DCHECK(_rs_version_map.find(version) != _rs_version_map.end())
+            << "invalid version:" << version.first << "-" << version.second;
+    auto iter = _rs_version_map.find(version);
+    if (iter == _rs_version_map.end()) {
+        LOG(WARNING) << "no rowset for version:" << version.first << "-" << version.second;
+        return nullptr;
+    }
+    RowsetSharedPtr rowset = iter->second;
     return rowset;
 }
 
 size_t Tablet::get_rowset_size_by_version(const Version& version) {
-    RowsetSharedPtr rowset = _rs_version_map[version];
+    DCHECK(_rs_version_map.find(version) != _rs_version_map.end())
+            << "invalid version:" << version.first << "-" << version.second;
+    auto iter = _rs_version_map.find(version);
+    if (iter == _rs_version_map.end()) {
+        LOG(WARNING) << "no rowset for version:" << version.first << "-" << version.second;
+        return -1;
+    }
+    RowsetSharedPtr rowset = iter->second;
     return rowset->data_disk_size();
 }
 
 const RowsetSharedPtr Tablet::rowset_with_max_version() const {
     Version max_version = _tablet_meta->max_version();
-    RowsetSharedPtr rowset = _rs_version_map.at(max_version);
+    DCHECK(_rs_version_map.find(max_version) != _rs_version_map.end())
+            << "invalid version:" << max_version.first << "-" << max_version.second;
+    auto iter = _rs_version_map.find(max_version);
+    if (iter == _rs_version_map.end()) {
+        LOG(WARNING) << "no rowset for version:" << max_version.first << "-" << max_version.second;
+        return nullptr;
+    }
+    RowsetSharedPtr rowset = iter->second;
     return rowset;
 }
 
