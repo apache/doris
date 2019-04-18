@@ -26,6 +26,7 @@ public class OptLogicalProperty implements OptProperty {
     // Columns not defined in the underlying operator tree
     private OptColumnRefSet outerColumns;
     private OptMaxcard maxcard = new OptMaxcard();
+    private int joinDepth = 0;
 
     public OptColumnRefSet getOutputColumns() {
         return outputColumns;
@@ -38,6 +39,8 @@ public class OptLogicalProperty implements OptProperty {
     public OptMaxcard getMaxcard() {
         return maxcard;
     }
+
+    public int getJoinDepth() { return joinDepth; }
 
     @Override
     public void derive(OptExpressionHandle exprHandle) {

@@ -95,6 +95,10 @@ public class OptPredicateUtils {
         return createConjDisj(twoConjuncts, isConjunction);
     }
 
+    public static OptExpression createDisjunction(List<OptExpression> inputs) {
+        return createConjDisj(inputs, false);
+    }
+
     public static OptExpression createConjunction(List<OptExpression> inputs) {
         return createConjDisj(inputs, true);
     }

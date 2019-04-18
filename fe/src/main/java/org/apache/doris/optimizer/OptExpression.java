@@ -24,6 +24,7 @@ import org.apache.doris.optimizer.base.OptLogicalProperty;
 import org.apache.doris.optimizer.base.OptPhysicalProperty;
 import org.apache.doris.optimizer.base.OptProperty;
 import org.apache.doris.optimizer.operator.OptExpressionHandle;
+import org.apache.doris.optimizer.operator.OptLogicalProject;
 import org.apache.doris.optimizer.operator.OptOperator;
 import org.apache.doris.optimizer.stat.Statistics;
 import org.apache.logging.log4j.LogManager;
@@ -122,11 +123,11 @@ public class OptExpression {
     public int arity() { return inputs.size(); }
     public OptExpression getInput(int idx) { return inputs.get(idx); }
     public MultiExpression getMExpr() { return mExpr; }
-    public OptProperty getProperty() { return property; }
-    public OptLogicalProperty getLogicalProperty() { return (OptLogicalProperty) property; }
     public void setProperty(OptProperty property) { this.property = property; };
-    public OptItemProperty getItemProperty() { return (OptItemProperty) property; }
-    public OptPhysicalProperty getPhysicalProperty() { return (OptPhysicalProperty) property; }
+    public OptProperty getProperty() { return deriveProperty(); }
+    public OptLogicalProperty getLogicalProperty() { return (OptLogicalProperty) deriveProperty(); }
+    public OptItemProperty getItemProperty() { return (OptItemProperty) deriveProperty(); }
+    public OptPhysicalProperty getPhysicalProperty() { return (OptPhysicalProperty) deriveProperty(); }
     public Statistics getStatistics() { return statistics; }
     public void setStatistics(Statistics statistics) { this.statistics = statistics; }
 
@@ -170,9 +171,41 @@ public class OptExpression {
         if (property != null) {
             return property;
         }
-
-        final OptExpressionHandle exprHandle = new OptExpressionHandle(this);
-        exprHandle.deriveProperty();
+        for (OptExpression input : inputs) {
+            input.deriveProperty();
+        }
+        property = op.createProperty();
+        OptExpressionHandle handle = new OptExpressionHandle(this);
+        property.derive(handle);
         return property;
+    }
+
+    @Override
+    public int hashCode() {
+        int hash = op.hashCode();
+        for (OptExpression input : inputs) {
+            hash = OptUtils.combineHash(hash, input.hashCode());
+        }
+        return hash;
+    }
+
+    @Override
+    public boolean equals(Object object) {
+        if (object == null || !(object instanceof OptExpression)) {
+            return false;
+        }
+        OptExpression rhs = (OptExpression) object;
+        if (this == rhs) {
+            return true;
+        }
+        if (arity() != rhs.arity()) return false;
+        if (!op.equals(rhs.op)) return false;
+        // TODO(zc): support order and unorder
+        for (int i = 0; i < arity(); ++i) {
+            if (!inputs.get(i).equals(rhs.inputs.get(i))) {
+                return false;
+            }
+        }
+        return true;
     }
 }
