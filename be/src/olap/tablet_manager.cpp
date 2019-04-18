@@ -106,21 +106,34 @@ OLAPStatus TabletManager::_add_tablet_unlock(TTabletId tablet_id, SchemaHash sch
     if (!force) {
         if (table_item->tablet_path() == tablet->tablet_path()) {
             LOG(WARNING) << "add the same tablet twice! tablet_id="
-                         << tablet_id << " schema_hash=" << tablet_id;
+                         << tablet_id << " schema_hash=" << schema_hash;
             return OLAP_ERR_ENGINE_INSERT_EXISTS_TABLE;
         }
         if (table_item->data_dir() == tablet->data_dir()) {
             LOG(WARNING) << "add tablet with same data dir twice! tablet_id="
-                         << tablet_id << " schema_hash=" << tablet_id;
+                         << tablet_id << " schema_hash=" << schema_hash;
             return OLAP_ERR_ENGINE_INSERT_EXISTS_TABLE;
         }
     }
 
     table_item->obtain_header_rdlock();
-    int64_t old_time = table_item->rowset_with_max_version()->creation_time();
-    int64_t new_time = tablet->rowset_with_max_version()->creation_time();
-    int32_t old_version = table_item->rowset_with_max_version()->end_version();
-    int32_t new_version = tablet->rowset_with_max_version()->end_version();
+    const RowsetSharedPtr old_rowset = table_item->rowset_with_max_version();
+    const RowsetSharedPtr new_rowset = tablet->rowset_with_max_version();
+
+    // if new tablet is empty, it is a newly created schema change tablet
+    // the old tablet is dropped before add tablet. it should not exist old tablet
+    if (new_rowset == nullptr) {
+        table_item->release_header_lock();
+        // it seems useless to call unlock and return here.
+        // it could prevent error when log level is changed in the future.
+        LOG(FATAL) << "new tablet is empty and old tablet exists. it should not happen."
+                   << " tablet_id=" << tablet_id << " schema_hash=" << schema_hash;
+        return OLAP_ERR_ENGINE_INSERT_EXISTS_TABLE;
+    }
+    int64_t old_time = old_rowset == nullptr ? -1 : old_rowset->creation_time();
+    int64_t new_time = new_rowset->creation_time();
+    int32_t old_version = old_rowset == nullptr ? -1 : old_rowset->end_version();
+    int32_t new_version = new_rowset->end_version();
     table_item->release_header_lock();
 
     /*
