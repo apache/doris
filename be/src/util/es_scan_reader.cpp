@@ -63,11 +63,10 @@ Status ESScanReader::open() {
     _network_client.set_basic_auth(_user_name, _passwd);
     _network_client.set_content_type("application/json");
     // phase open, we cached the first response for `get_next` phase
-    _network_client.execute_post_request(_query, &_cached_response);
-    long status = _network_client.get_http_status();
-    if (status != 200) {
+    Status status = _network_client.execute_post_request(_query, &_cached_response);
+    if (!status.ok() || _network_client.get_http_status() != 200) {
         std::stringstream ss;
-        ss << "invalid response http status for open: " << status << ", response:" << _cached_response;
+        ss << "Failed to connect to ES server, errmsg is: " << status.get_error_msg();
         LOG(WARNING) << ss.str();
         return Status(ss.str());
     }
