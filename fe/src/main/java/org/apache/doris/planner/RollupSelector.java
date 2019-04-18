@@ -21,10 +21,13 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.InPredicate;
+import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -92,9 +95,11 @@ public final class RollupSelector {
     private List<Long> selectBestPrefixIndexRollup(
             Partition partition, List<Expr> conjuncts, boolean isPreAggregation) throws UserException {
 
-        final Set<String> predicateColumns = Sets.newHashSet();
         final List<String> outputColumns = Lists.newArrayList();
-        collectColumns(conjuncts, outputColumns, predicateColumns);
+        for (SlotDescriptor slot : tupleDesc.getMaterializedSlots()) {
+            Column col = slot.getColumn();
+            outputColumns.add(col.getName());
+        }
 
         final List<MaterializedIndex> rollups = Lists.newArrayList();
         rollups.add(partition.getBaseIndex());
@@ -130,11 +135,42 @@ public final class RollupSelector {
         Preconditions.checkArgument(rollupsContainsOutput.size() > 0,
                 "Can't find candicate rollup contains all output columns.");
 
+
         // 2. find all rollups which match the prefix most based on predicates column from containTupleIndices.
+        final  List<Set<String>> predicatesPrefixIndexsCombinations =
+                createCandidatePredicatePrefixIndex(conjuncts);
+        List<Long> rollupsMatchingBestPrefixIndex = null;
+        int lastMatchBestPrefixIndexSize = 0;
+        for (Set<String> predicatePrefixIndexs : predicatesPrefixIndexsCombinations) {
+            final List<Long> candicateRollupsMatchingBestPrefixIndex = Lists.newArrayList();
+            int matchBestPrefixIndexSize = matchPrefixIndex(rollupsContainsOutput,
+                    predicatePrefixIndexs, candicateRollupsMatchingBestPrefixIndex);
+            if (lastMatchBestPrefixIndexSize < matchBestPrefixIndexSize) {
+                rollupsMatchingBestPrefixIndex = candicateRollupsMatchingBestPrefixIndex;
+            }
+        }
+
+        if (rollupsMatchingBestPrefixIndex == null || rollupsMatchingBestPrefixIndex.isEmpty()) {
+            rollupsMatchingBestPrefixIndex =
+                    rollupsContainsOutput.stream().map(n -> n.getId()).collect(Collectors.toList());
+        }
+
+        // 3. sorted the final candidate indexes by index id
+        // this is to make sure that candidate indexes find in all partitions will be returned in same order
+        Collections.sort(rollupsMatchingBestPrefixIndex, new Comparator<Long>() {
+            @Override
+            public int compare(Long id1, Long id2) {
+                return (int) (id1 - id2);
+            }
+        });
+        return rollupsMatchingBestPrefixIndex;
+    }
+
+    private int matchPrefixIndex(List<MaterializedIndex> candidateRollups,
+                                 Set<String> predicateColumns, List<Long> rollupsMatchingBestPrefixIndex) {
         int maxPrefixMatchCount = 0;
         int prefixMatchCount = 0;
-        List<Long> rollupsMatchingBestPrefixIndex = Lists.newArrayList();
-        for (MaterializedIndex index : rollupsContainsOutput) {
+        for (MaterializedIndex index : candidateRollups) {
             prefixMatchCount = 0;
             for (Column col : table.getSchemaByIndexId(index.getId())) {
                 if (predicateColumns.contains(col.getName())) {
@@ -154,32 +190,32 @@ public final class RollupSelector {
                 rollupsMatchingBestPrefixIndex.add(index.getId());
             }
         }
-
-        if (rollupsMatchingBestPrefixIndex.isEmpty()) {
-            rollupsMatchingBestPrefixIndex =
-                    rollupsContainsOutput.stream().map(n -> n.getId()).collect(Collectors.toList());
-        }
-
-        // 3. sorted the final candidate indexes by index id
-        // this is to make sure that candidate indexes find in all partitions will be returned in same order
-        Collections.sort(rollupsMatchingBestPrefixIndex, new Comparator<Long>() {
-            @Override
-            public int compare(Long id1, Long id2) {
-                return (int) (id1 - id2);
-            }
-        });
-        return rollupsMatchingBestPrefixIndex;
+        return maxPrefixMatchCount;
     }
 
-    private void collectColumns(List<Expr> conjuncts, List<String> outputColumns, Set<String> predicateColumns) throws UserException {
+    /**
+     * Create candidate prefix index combinations with predicates columns.
+     * @param conjuncts
+     * @return prefix index combinations
+     */
+    private List<Set<String>> createCandidatePredicatePrefixIndex(List<Expr> conjuncts) {
+
+        final Set<String> equivalenceExprs = Sets.newHashSet();
+        final Set<String> unequivallenceExprs = Sets.newHashSet();
+
         // 1. Get columns which has predicate on it.
-        for (SlotDescriptor slot : tupleDesc.getSlots()) {
-            for (Expr expr : conjuncts) {
-                if (!isUsedForPrefixIndex(expr)) {
-                    continue;
-                }
+        for (Expr expr : conjuncts) {
+            if (!isPredicateUsedForPrefixIndex(expr)) {
+                continue;
+            }
+            for (SlotDescriptor slot : tupleDesc.getMaterializedSlots()) {
                 if (expr.isBound(slot.getId())) {
-                    predicateColumns.add(slot.getColumn().getName());
+                    if (!isEquivalenceExpr(expr)) {
+                        unequivallenceExprs.add(slot.getColumn().getName());
+                    } else {
+                        equivalenceExprs.add(slot.getColumn().getName());
+                    }
+                    break;
                 }
             }
         }
@@ -187,43 +223,91 @@ public final class RollupSelector {
         // 2. Equal join predicates when pushing inner child.
         List<Expr> eqJoinPredicate = analyzer.getEqJoinConjuncts(tupleDesc.getId());
         for (Expr expr : eqJoinPredicate) {
-            if (!isUsedForPrefixIndex(expr)) {
+            if (!isPredicateUsedForPrefixIndex(expr)) {
                 continue;
             }
-            for (SlotDescriptor slot : tupleDesc.getSlots()) {
+            for (SlotDescriptor slot : tupleDesc.getMaterializedSlots()) {
                 for (int i = 0; i < 2; i++) {
                     if (expr.getChild(i).isBound(slot.getId())) {
-                        predicateColumns.add(slot.getColumn().getName());
-                        LOG.debug("Add eqJoinColumn: ColName=" + slot.getColumn().getName());
+                        equivalenceExprs.add(slot.getColumn().getName());
                         break;
                     }
                 }
             }
         }
 
-        // 3. Get materialized slot's columns by parent.
-        for (SlotDescriptor slot : tupleDesc.getMaterializedSlots()) {
-            Column col = slot.getColumn();
-            outputColumns.add(col.getName());
+        final  List<Set<String>> predicatesPrefixIndexsColumns = Lists.newArrayList();
+        predicatesPrefixIndexsColumns.add(equivalenceExprs);
+        for (String str : unequivallenceExprs) {
+            predicatesPrefixIndexsColumns.add(Sets.newHashSet(str));
         }
+        return predicatesPrefixIndexsColumns;
     }
 
-    private boolean isUsedForPrefixIndex(Expr expr) {
-        if (expr.isConstant()) {
-            return false;
-        } else if (expr.isAuxExpr()) {
-            return false;  
-        } else if (expr instanceof InPredicate) {
-            final InPredicate predicate = (InPredicate)expr;
-            if (predicate.isNotIn()) {
-                return false;
+    private boolean isEquivalenceExpr(Expr expr) {
+        if (expr instanceof InPredicate) {
+            return true;
+        }
+        if (expr instanceof BinaryPredicate) {
+            final BinaryPredicate predicate = (BinaryPredicate) expr;
+            if (predicate.getOp().isEquivalence()) {
+                return true;
             }
+        }
+        return false;
+    }
+
+    private boolean isPredicateUsedForPrefixIndex(Expr expr) {
+        if (!(expr instanceof InPredicate)
+                && !(expr instanceof BinaryPredicate)) {
+            return false;
+        }
+        if (expr instanceof InPredicate) {
+            return isInPredicateUsedForPrefixIndex((InPredicate)expr);
         } else if (expr instanceof BinaryPredicate) {
-            final BinaryPredicate predicate = (BinaryPredicate)expr;
-            if (predicate.getOp().isUnequivalence()) {
-                return false;
+            return isBinaryPredicateUsedForPrefixIndex((BinaryPredicate)expr);
+        }
+        return true;
+    }
+
+    private boolean isBinaryPredicateUsedForPrefixIndex(BinaryPredicate expr) {
+        if (expr.isAuxExpr() || expr.getOp().isUnequivalence()) {
+            return false;
+        }
+        return  ((isSlotRefNested(expr.getChild(0)) && expr.getChild(1).isConstant())
+                || (isSlotRefNested(expr.getChild(1)) && expr.getChild(0).isConstant()))
+                || (expr.getChild(0) instanceof SlotRef && expr.getChild(1) instanceof SlotRef);
+    }
+
+    private boolean isInPredicateUsedForPrefixIndex(InPredicate expr) {
+        if (expr.isNotIn()) {
+            return false;
+        }
+        return isSlotRefNested(expr.getChild(0)) && isInPredicateExistLiteral(expr);
+    }
+
+    private boolean isSlotRefNested(Expr expr) {
+        if (!(expr instanceof SlotRef)
+                && !(expr instanceof CastExpr)) {
+            return false;
+        }
+        if (expr instanceof CastExpr) {
+            for (Expr child : expr.getChildren()) {
+                if (!isSlotRefNested(child)) {
+                    return false;
+                }
             }
         }
         return true;
     }
+
+    private boolean isInPredicateExistLiteral(Expr expr) {
+        for (Expr child : expr.getChildren()) {
+            if (child instanceof LiteralExpr) {
+                return true;
+            }
+        }
+        return false;
+    }
+
 }
