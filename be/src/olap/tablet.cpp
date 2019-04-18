@@ -282,9 +282,9 @@ OLAPStatus Tablet::modify_rowsets(const vector<RowsetSharedPtr>& to_add,
     return OLAP_SUCCESS;
 }
 
+// snapshot manager may call this api to check if version exists, so that 
+// the version maybe not exist
 const RowsetSharedPtr Tablet::get_rowset_by_version(const Version& version) const {
-    DCHECK(_rs_version_map.find(version) != _rs_version_map.end())
-            << "invalid version:" << version.first << "-" << version.second;
     auto iter = _rs_version_map.find(version);
     if (iter == _rs_version_map.end()) {
         LOG(WARNING) << "no rowset for version:" << version.first << "-" << version.second;
