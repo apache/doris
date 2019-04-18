@@ -15,7 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include<sstream>
+#include "util/es_query_builder.h"
+
+#include <sstream>
 #include <boost/algorithm/string/join.hpp>
 #include "common/logging.h"
 #include "es_scroll_query.h"
@@ -23,7 +25,6 @@
 #include "rapidjson/stringbuffer.h"
 #include "rapidjson/writer.h"
 #include "util/es_scan_reader.h"
-#include "util/es_query_builder.h"
 
 namespace doris {
 
