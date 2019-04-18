@@ -20,6 +20,8 @@ package org.apache.doris.optimizer.base;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.optimizer.OptUtils;
 
+import java.util.List;
+
 // Reference to one column
 public class OptColumnRef {
     // id is unique in one process of an optimization
@@ -48,6 +50,33 @@ public class OptColumnRef {
     public int getId() { return id; }
     public Type getType() { return type; }
     public String getName() { return name; }
+
+
+    public static boolean equals(List<OptColumnRef> lhs, List<OptColumnRef> rhs) {
+        if (lhs == null || rhs == null) {
+            return lhs == null && rhs == null;
+        }
+        if (lhs == rhs) return true;
+        if (lhs.size() != rhs.size()) return false;
+        for (int i = 0; i < lhs.size(); ++i) {
+            if (!lhs.get(i).equals(rhs.get(i))) {
+                return false;
+            }
+        }
+        return false;
+    }
+
+    public static String toString(List<OptColumnRef> columns) {
+        StringBuilder sb = new StringBuilder();
+        int i = 0;
+        for (OptColumnRef column : columns) {
+            if (i++ != 0) {
+                sb.append(",");
+            }
+            sb.append(column);
+        }
+        return sb.toString();
+    }
 
     @Override
     public int hashCode() {

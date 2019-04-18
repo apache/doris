@@ -108,6 +108,10 @@ public class OptColumnRefSet implements Cloneable {
     }
     public int cardinality() { return bitSet.cardinality(); }
 
+    public void and(OptColumnRefSet set) {
+        bitSet.and(set.bitSet);
+    }
+
     public boolean contains(OptColumnRef ref) {
         return bitSet.get(ref.getId());
     }
