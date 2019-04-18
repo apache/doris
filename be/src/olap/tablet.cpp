@@ -287,9 +287,10 @@ const RowsetSharedPtr Tablet::get_rowset_by_version(const Version& version) cons
             << "invalid version:" << version.first << "-" << version.second;
     auto iter = _rs_version_map.find(version);
     if (iter == _rs_version_map.end()) {
+        LOG(WARNING) << "no rowset for version:" << version.first << "-" << version.second;
         return nullptr;
     }
-    RowsetSharedPtr rowset = _rs_version_map.at(version);
+    RowsetSharedPtr rowset = iter->second;
     return rowset;
 }
 
@@ -298,9 +299,10 @@ size_t Tablet::get_rowset_size_by_version(const Version& version) {
             << "invalid version:" << version.first << "-" << version.second;
     auto iter = _rs_version_map.find(version);
     if (iter == _rs_version_map.end()) {
+        LOG(WARNING) << "no rowset for version:" << version.first << "-" << version.second;
         return -1;
     }
-    RowsetSharedPtr rowset = _rs_version_map.at(version);
+    RowsetSharedPtr rowset = iter->second;
     return rowset->data_disk_size();
 }
 
@@ -310,9 +312,10 @@ const RowsetSharedPtr Tablet::rowset_with_max_version() const {
             << "invalid version:" << max_version.first << "-" << max_version.second;
     auto iter = _rs_version_map.find(max_version);
     if (iter == _rs_version_map.end()) {
+        LOG(WARNING) << "no rowset for version:" << max_version.first << "-" << max_version.second;
         return nullptr;
     }
-    RowsetSharedPtr rowset = _rs_version_map.at(max_version);
+    RowsetSharedPtr rowset = iter->second;
     return rowset;
 }
 
