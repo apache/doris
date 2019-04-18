@@ -17,17 +17,22 @@
 
 package org.apache.doris.http.rest;
 
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.http.ActionController;
 import org.apache.doris.http.BaseAction;
 import org.apache.doris.http.BaseRequest;
 import org.apache.doris.http.BaseResponse;
 import org.apache.doris.http.UnauthorizedException;
+import org.apache.doris.thrift.TNetworkAddress;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import io.netty.handler.codec.http.HttpHeaderNames;
+import java.net.URI;
+import java.net.URISyntaxException;
+
+import io.netty.handler.codec.http.HttpHeaders;
 import io.netty.handler.codec.http.HttpResponseStatus;
 
 public class RestBaseAction extends BaseAction {
@@ -44,7 +49,7 @@ public class RestBaseAction extends BaseAction {
             execute(request, response);
         } catch (DdlException e) {
             if (e instanceof UnauthorizedException) {
-                response.updateHeader(HttpHeaderNames.WWW_AUTHENTICATE.toString(), "Basic realm=\"\"");
+                response.updateHeader(HttpHeaders.Names.WWW_AUTHENTICATE, "Basic realm=\"\"");
                 writeResponse(request, response, HttpResponseStatus.UNAUTHORIZED);
             } else {
                 sendResult(request, response, new RestBaseResult(e.getMessage()));
@@ -73,5 +78,31 @@ public class RestBaseAction extends BaseAction {
 
     public void sendResult(BaseRequest request, BaseResponse response) {
         writeResponse(request, response, HttpResponseStatus.OK);
+    }
+
+    public void redirectTo(BaseRequest request, BaseResponse response, TNetworkAddress addr)
+            throws DdlException {
+        String urlStr = request.getRequest().uri();
+        URI urlObj = null;
+        URI resultUriObj = null;
+        try {
+            urlObj = new URI(urlStr);
+            resultUriObj = new URI("http", null, addr.getHostname(),
+                                   addr.getPort(), urlObj.getPath(), urlObj.getQuery(), null);
+        } catch (URISyntaxException e) {
+            LOG.warn(e.getMessage());
+            throw new DdlException(e.getMessage());
+        }
+        response.updateHeader(HttpHeaders.Names.LOCATION, resultUriObj.toString());
+        writeResponse(request, response, HttpResponseStatus.TEMPORARY_REDIRECT);
+    }
+
+    public boolean redirectToMaster(BaseRequest request, BaseResponse response) throws DdlException {
+        Catalog catalog = Catalog.getInstance();
+        if (catalog.isMaster()) {
+            return false;
+        }
+        redirectTo(request, response, new TNetworkAddress(catalog.getMasterIp(), catalog.getMasterHttpPort()));
+        return true;
     }
 }
