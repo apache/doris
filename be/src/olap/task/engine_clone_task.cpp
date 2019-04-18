@@ -132,8 +132,6 @@ OLAPStatus EngineCloneTask::execute() {
             _error_msgs->push_back("clone get local root path failed.");
             status = DORIS_ERROR;
         }
-
-
         stringstream tablet_dir_stream;
         tablet_dir_stream << local_shard_root_path
                             << "/" << _clone_req.tablet_id

@@ -100,7 +100,8 @@ public:
 
     // parse tablet header msg to generate tablet object
     OLAPStatus load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_id,
-                TSchemaHash schema_hash, const std::string& header, bool force = false);
+                TSchemaHash schema_hash, const std::string& header, bool update_meta, 
+                bool force = false);
 
     OLAPStatus load_tablet_from_dir(DataDir* data_dir,
                                TTabletId tablet_id,
@@ -134,10 +135,11 @@ private:
     //        OLAP_ERR_TABLE_INSERT_DUPLICATION_ERROR, if find duplication
     //        OLAP_ERR_NOT_INITED, if not inited
     OLAPStatus _add_tablet_unlock(TTabletId tablet_id, SchemaHash schema_hash,
-                         const TabletSharedPtr& tablet, bool force);
+                         const TabletSharedPtr& tablet, bool update_meta, bool force);
     
     OLAPStatus _add_tablet_to_map(TTabletId tablet_id, SchemaHash schema_hash,
-                                 const TabletSharedPtr& tablet, bool keep_files, bool drop_old);
+                                 const TabletSharedPtr& tablet, bool update_meta, 
+                                 bool keep_files, bool drop_old);
 
     void _build_tablet_info(TabletSharedPtr tablet, TTabletInfo* tablet_info);
     
