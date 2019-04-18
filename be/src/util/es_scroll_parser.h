@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include<string>
+#include <string>
 
 #include "rapidjson/document.h"
 #include "runtime/descriptors.h"
