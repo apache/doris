@@ -162,9 +162,7 @@ Status HttpClient::execute(const std::function<bool(const void* data, size_t len
     auto code = curl_easy_perform(_curl);
     if (code != CURLE_OK) {
         LOG(WARNING) << "fail to execute HTTP client, errmsg=" << _to_errmsg(code);
-        int len = strlen(_error_buf);
-        (*_callback)(_error_buf, len);
-        return Status("fail to execute HTTP client");
+        return Status(_to_errmsg(code));
     }
     return Status::OK;
 }
