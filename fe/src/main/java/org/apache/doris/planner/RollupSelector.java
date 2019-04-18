@@ -205,7 +205,7 @@ public final class RollupSelector {
 
         // 1. Get columns which has predicate on it.
         for (Expr expr : conjuncts) {
-            if (!isPredicateUsedForPrefixIndex(expr)) {
+            if (!isPredicateUsedForPrefixIndex(expr, false)) {
                 continue;
             }
             for (SlotDescriptor slot : tupleDesc.getMaterializedSlots()) {
@@ -223,7 +223,7 @@ public final class RollupSelector {
         // 2. Equal join predicates when pushing inner child.
         List<Expr> eqJoinPredicate = analyzer.getEqJoinConjuncts(tupleDesc.getId());
         for (Expr expr : eqJoinPredicate) {
-            if (!isPredicateUsedForPrefixIndex(expr)) {
+            if (!isPredicateUsedForPrefixIndex(expr, true)) {
                 continue;
             }
             for (SlotDescriptor slot : tupleDesc.getMaterializedSlots()) {
@@ -257,7 +257,7 @@ public final class RollupSelector {
         return false;
     }
 
-    private boolean isPredicateUsedForPrefixIndex(Expr expr) {
+    private boolean isPredicateUsedForPrefixIndex(Expr expr, boolean isJoinConjunct) {
         if (!(expr instanceof InPredicate)
                 && !(expr instanceof BinaryPredicate)) {
             return false;
@@ -265,18 +265,36 @@ public final class RollupSelector {
         if (expr instanceof InPredicate) {
             return isInPredicateUsedForPrefixIndex((InPredicate)expr);
         } else if (expr instanceof BinaryPredicate) {
-            return isBinaryPredicateUsedForPrefixIndex((BinaryPredicate)expr);
+            if (isJoinConjunct) {
+                return isEqualJoinConjunctUsedForPrefixIndex((BinaryPredicate)expr);
+            } else {
+                return isBinaryPredicateUsedForPrefixIndex((BinaryPredicate)expr);
+            }
         }
         return true;
+    }
+
+    private boolean isEqualJoinConjunctUsedForPrefixIndex(BinaryPredicate expr) {
+        Preconditions.checkArgument(expr.getOp().isEquivalence());
+        if (expr.isAuxExpr()) {
+            return false;
+        }
+        for (Expr child : expr.getChildren()) {
+            for (SlotDescriptor slot : tupleDesc.getMaterializedSlots()) {
+                if (child.isBound(slot.getId()) && isSlotRefNested(child)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private boolean isBinaryPredicateUsedForPrefixIndex(BinaryPredicate expr) {
         if (expr.isAuxExpr() || expr.getOp().isUnequivalence()) {
             return false;
         }
-        return  ((isSlotRefNested(expr.getChild(0)) && expr.getChild(1).isConstant())
-                || (isSlotRefNested(expr.getChild(1)) && expr.getChild(0).isConstant()))
-                || (expr.getChild(0) instanceof SlotRef && expr.getChild(1) instanceof SlotRef);
+        return  (isSlotRefNested(expr.getChild(0)) && expr.getChild(1).isConstant())
+                || (isSlotRefNested(expr.getChild(1)) && expr.getChild(0).isConstant());
     }
 
     private boolean isInPredicateUsedForPrefixIndex(InPredicate expr) {
