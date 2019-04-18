@@ -587,11 +587,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
             throw new UserException("unknown database, database=" + dbName);
         }
+
         // begin
         long timestamp = request.isSetTimestamp() ? request.getTimestamp() : -1;
+        long timeoutMs = request.isSetTimeout() ? request.getTimeout() : Config.stream_load_default_timeout_second * 1000;
         return Catalog.getCurrentGlobalTransactionMgr().beginTransaction(
                 db.getId(), request.getLabel(), timestamp, "BE: " + clientIp,
-                TransactionState.LoadJobSourceType.BACKEND_STREAMING, -1);
+                TransactionState.LoadJobSourceType.BACKEND_STREAMING, -1, timeoutMs);
     }
 
     @Override

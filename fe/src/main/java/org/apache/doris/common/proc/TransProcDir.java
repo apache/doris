@@ -46,6 +46,8 @@ public class TransProcDir implements ProcDirInterface {
             .add("FinishTime")
             .add("Reason")
             .add("ErrorReplicasCount")
+            .add("ListenerId")
+            .add("TimeoutMs")
             .build();
 
     public static final int MAX_SHOW_ENTRIES = 2000;
