@@ -283,31 +283,13 @@ public final class RollupSelector {
         if (expr.isNotIn()) {
             return false;
         }
-        return isSlotRefNested(expr.getChild(0)) && isInPredicateExistLiteral(expr);
+        return isSlotRefNested(expr.getChild(0)) && expr.isLiteralChildren();
     }
 
     private boolean isSlotRefNested(Expr expr) {
-        if (!(expr instanceof SlotRef)
-                && !(expr instanceof CastExpr)) {
-            return false;
+        while (expr instanceof CastExpr) {
+            expr = expr.getChild(0);
         }
-        if (expr instanceof CastExpr) {
-            for (Expr child : expr.getChildren()) {
-                if (!isSlotRefNested(child)) {
-                    return false;
-                }
-            }
-        }
-        return true;
+        return expr instanceof SlotRef;
     }
-
-    private boolean isInPredicateExistLiteral(Expr expr) {
-        for (Expr child : expr.getChildren()) {
-            if (child instanceof LiteralExpr) {
-                return true;
-            }
-        }
-        return false;
-    }
-
 }
