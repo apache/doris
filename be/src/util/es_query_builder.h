@@ -14,9 +14,12 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 #pragma once
+
 #include<string>
 #include<vector>
+
 #include "rapidjson/document.h"
 #include "exec/es_predicate.h"
 #include "common/status.h"
