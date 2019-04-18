@@ -164,7 +164,7 @@ TEST_F(HttpClientTest, post_failed) {
     st = client.execute_post_request(request_body, &response);
     ASSERT_FALSE(st.ok());
     std::string not_found = "404";
-    ASSERT_TRUE(boost::algorithm::contains(response, not_found));
+    ASSERT_TRUE(boost::algorithm::contains(st.get_error_msg(), not_found));
 }
 
 }
