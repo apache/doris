@@ -761,7 +761,7 @@ OLAPStatus DataDir::load() {
     auto load_tablet_func = [this, &tablet_ids](int64_t tablet_id,
         int32_t schema_hash, const std::string& value) -> bool {
         OLAPStatus status = _tablet_manager->load_tablet_from_meta(
-                                this, tablet_id, schema_hash, value);
+                                this, tablet_id, schema_hash, value, false, false);
         if (status != OLAP_SUCCESS) {
             LOG(WARNING) << "load tablet from header failed. status:" << status
                 << ", tablet=" << tablet_id << "." << schema_hash;
