@@ -457,7 +457,7 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
                         // many codes in be assumes that the last version is a single delta
                         // both clone and backup restore depend on this logic
                         // TODO (yiguolei) fix it in the future
-                        res = _append_single_delta(request, data_dir);
+                        // res = _append_single_delta(request, data_dir);
                         if (res != OLAP_SUCCESS) {
                             LOG(WARNING) << "fail to append single delta. res=" << res;
                         }
