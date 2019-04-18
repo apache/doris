@@ -36,36 +36,36 @@ class ExprContext;
 class ExtBinaryPredicate;
 
 class ExtLiteral {
-    public:
-        ExtLiteral(PrimitiveType type, void *value) : 
-            _type(type),
-            _value(value) {
-                _str = value_to_string();
-        }
-        ~ExtLiteral();
-        const std::string& to_string() const {
-            return _str;
-        }
+public:
+    ExtLiteral(PrimitiveType type, void *value) : 
+        _type(type),
+        _value(value) {
+            _str = value_to_string();
+    }
+    ~ExtLiteral();
+    const std::string& to_string() const {
+        return _str;
+    }
 
-    private:
-        int8_t get_byte();
-        int16_t get_short();
-        int32_t get_int();
-        int64_t get_long();
-        float get_float();
-        double get_double();
-        std::string get_string();
-        std::string get_date_string();
-        bool get_bool();
-        std::string get_decimal_string();
-        std::string get_decimalv2_string();
-        std::string get_largeint_string();
+private:
+    int8_t get_byte();
+    int16_t get_short();
+    int32_t get_int();
+    int64_t get_long();
+    float get_float();
+    double get_double();
+    std::string get_string();
+    std::string get_date_string();
+    bool get_bool();
+    std::string get_decimal_string();
+    std::string get_decimalv2_string();
+    std::string get_largeint_string();
 
-        std::string value_to_string();
+    std::string value_to_string();
 
-        PrimitiveType _type;
-        void* _value;
-        std::string _str;
+    PrimitiveType _type;
+    void* _value;
+    std::string _str;
 };
 
 struct ExtColumnDesc {
@@ -169,34 +169,30 @@ struct ExtFunction : public ExtPredicate {
 };
 
 class EsPredicate {
+public:
+    EsPredicate(ExprContext* context, const TupleDescriptor* tuple_desc);
+    ~EsPredicate();
+    const std::vector<ExtPredicate*>& get_predicate_list();
+    bool build_disjuncts_list();
+    // public for tests
+    EsPredicate(std::vector<ExtPredicate*>& all_predicates) {
+        _disjuncts = all_predicates;
+    };
 
-    public:
-        EsPredicate(ExprContext* context, const TupleDescriptor* tuple_desc);
-        ~EsPredicate();
-        const std::vector<ExtPredicate*>& get_predicate_list();
-        bool build_disjuncts_list();
-        // public for tests
-        EsPredicate(std::vector<ExtPredicate*>& all_predicates) {
-            _disjuncts = all_predicates;
-        };
+    Status get_es_query_status() {
+        return _es_query_status;
+    }
 
-        Status get_es_query_status() {
-            return _es_query_status;
-        }
+private:
+    bool build_disjuncts_list(Expr* conjunct);
+    bool is_match_func(const Expr* conjunct);
+    const SlotDescriptor* get_slot_desc(SlotRef* slotRef);
 
-
-    private:
-
-        bool build_disjuncts_list(Expr* conjunct, 
-                    std::vector<ExtPredicate*>& disjuncts);
-        bool is_match_func(const Expr* conjunct);
-        const SlotDescriptor* get_slot_desc(SlotRef* slotRef);
-
-        ExprContext* _context; 
-        int _disjuncts_num;
-        const TupleDescriptor* _tuple_desc;
-        std::vector<ExtPredicate*> _disjuncts;
-        Status _es_query_status;
+    ExprContext* _context; 
+    int _disjuncts_num;
+    const TupleDescriptor* _tuple_desc;
+    std::vector<ExtPredicate*> _disjuncts;
+    Status _es_query_status;
 };
 
 }

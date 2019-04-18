@@ -17,7 +17,6 @@
 
 #include "http/http_client.h"
 
-
 #include <gtest/gtest.h>
 
 #include "boost/algorithm/string.hpp"

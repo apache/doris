@@ -26,6 +26,7 @@
 #include "rapidjson/stringbuffer.h"
 #include "rapidjson/writer.h"
 #include "runtime/string_value.h"
+
 namespace doris {
 
 class BooleanQueryBuilderTest : public testing::Test {
@@ -33,6 +34,7 @@ public:
     BooleanQueryBuilderTest() { }
     virtual ~BooleanQueryBuilderTest() { }
 };
+
 TEST_F(BooleanQueryBuilderTest, term_query) {
     // content = "wyf" 
     char str[] = "wyf";
@@ -430,7 +432,6 @@ TEST_F(BooleanQueryBuilderTest, validate_partial) {
     std::vector<bool> expected1 = {true, true, false};
     ASSERT_TRUE(result == expected1);
 }
-
 
 }
 
