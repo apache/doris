@@ -308,6 +308,9 @@ size_t Tablet::get_rowset_size_by_version(const Version& version) {
 
 const RowsetSharedPtr Tablet::rowset_with_max_version() const {
     Version max_version = _tablet_meta->max_version();
+    if (max_version.first == -1) {
+        return nullptr;
+    }
     DCHECK(_rs_version_map.find(max_version) != _rs_version_map.end())
             << "invalid version:" << max_version.first << "-" << max_version.second;
     auto iter = _rs_version_map.find(max_version);

@@ -502,6 +502,10 @@ OLAPStatus BaseCompaction::_validate_delete_file_action() {
     // 1. acquire the latest version to make sure all is right after deleting files
     ReadLock rdlock(_tablet->get_header_lock_ptr());
     const RowsetSharedPtr rowset = _tablet->rowset_with_max_version();
+    if (rowset == nullptr) {
+        LOG(INFO) << "version is -1 when validate_delete_file_action";
+        return OLAP_ERR_BE_ERROR_DELETE_ACTION;
+    }
     Version spec_version = Version(0, rowset->end_version());
     vector<RowsetReaderSharedPtr> rs_readers;
     _tablet->capture_rs_readers(spec_version, &rs_readers);
