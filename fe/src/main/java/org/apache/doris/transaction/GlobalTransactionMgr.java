@@ -731,7 +731,11 @@ public class GlobalTransactionMgr {
      */
     public void removeOldTransactions() {
         long currentMillis = System.currentTimeMillis();
-        
+
+        // TODO(cmy): the following 3 steps are no needed anymore, we can only use the last step to check
+        // the timeout txn. Because, now we set timeout for each txn same as timeout of their job's.
+        // But we keep the 1 and 2 step for compatibility. They should be deleted in 0.11.0
+
         // to avoid dead lock (transaction lock and load lock), we do this in 3 phases
         // 1. get all related db ids of txn in idToTransactionState
         Set<Long> dbIds = Sets.newHashSet();
@@ -756,7 +760,7 @@ public class GlobalTransactionMgr {
         } finally {
             readUnlock();
         }
-        
+
         // 2. get all load jobs' txn id of these databases
         Map<Long, Set<Long>> dbIdToTxnIds = Maps.newHashMap();
         Load loadInstance = Catalog.getCurrentCatalog().getLoadInstance();
@@ -764,7 +768,7 @@ public class GlobalTransactionMgr {
             Set<Long> txnIds = loadInstance.getTxnIdsByDb(dbId);
             dbIdToTxnIds.put(dbId, txnIds);
         }
-        
+
         // 3. use dbIdToTxnIds to remove old transactions, without holding load locks again
         writeLock();
         try {
@@ -787,8 +791,7 @@ public class GlobalTransactionMgr {
                     if (transactionState.getTransactionStatus() == TransactionStatus.PREPARE
                             && currentMillis - transactionState.getPrepareTime() > transactionState.getTimeoutMs()) {
                         if ((transactionState.getSourceType() != LoadJobSourceType.FRONTEND
-                                || !checkTxnHasRelatedJob(transactionState, dbIdToTxnIds))
-                                && (transactionState.getListenerId() == -1)) {
+                                || !checkTxnHasRelatedJob(transactionState, dbIdToTxnIds))) {
                             transactionState.setTransactionStatus(TransactionStatus.ABORTED);
                             transactionState.setFinishTime(System.currentTimeMillis());
                             transactionState.setReason("transaction is timeout and is cancelled automatically");
@@ -816,10 +819,10 @@ public class GlobalTransactionMgr {
             // So we return true to assume that we find a related load job, to avoid mistaken delete
             return true;
         }
-        
+
         return txnIds.contains(txnState.getTransactionId());
     }
-    
+
     public TransactionState getTransactionState(long transactionId) {
         readLock();
         try {
