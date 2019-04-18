@@ -183,7 +183,7 @@ EsPredicate::~EsPredicate() {
 }
 
 bool EsPredicate::build_disjuncts_list() {
-    return build_disjuncts_list(_context->root(), _disjuncts);
+    return build_disjuncts_list(_context->root());
 }
 
 // make sure to build by build_disjuncts_list
@@ -216,7 +216,7 @@ static bool is_literal_node(const Expr* expr) {
     }
 }
 
-bool EsPredicate::build_disjuncts_list(Expr* conjunct, vector<ExtPredicate*>& disjuncts) {
+bool EsPredicate::build_disjuncts_list(Expr* conjunct) {
     if (TExprNodeType::BINARY_PRED == conjunct->node_type()) {
         if (conjunct->children().size() != 2) {
             VLOG(1) << "get disjuncts fail: number of childs is not 2";
@@ -258,7 +258,7 @@ bool EsPredicate::build_disjuncts_list(Expr* conjunct, vector<ExtPredicate*>& di
                     op,
                     literal);
 
-        disjuncts.push_back(predicate);
+        _disjuncts.push_back(predicate);
         return true;
     }
     
@@ -281,7 +281,7 @@ bool EsPredicate::build_disjuncts_list(Expr* conjunct, vector<ExtPredicate*>& di
                 return false;
             }
         }
-        disjuncts.push_back(predicate);
+        _disjuncts.push_back(predicate);
 
         return true;
     } 
@@ -324,7 +324,7 @@ bool EsPredicate::build_disjuncts_list(Expr* conjunct, vector<ExtPredicate*>& di
                     slot_desc->type(),
                     literal);
 
-        disjuncts.push_back(predicate);
+        _disjuncts.push_back(predicate);
         return true;
     }
       
@@ -371,7 +371,7 @@ bool EsPredicate::build_disjuncts_list(Expr* conjunct, vector<ExtPredicate*>& di
                     slot_desc->col_name(),
                     slot_desc->type(),
                     in_pred_values);
-        disjuncts.push_back(predicate);
+        _disjuncts.push_back(predicate);
 
         return true;
     } 
@@ -381,10 +381,10 @@ bool EsPredicate::build_disjuncts_list(Expr* conjunct, vector<ExtPredicate*>& di
             VLOG(1) << "get disjuncts fail: op is not COMPOUND_OR";
             return false;
         }
-        if (!build_disjuncts_list(conjunct->get_child(0), disjuncts)) {
+        if (!build_disjuncts_list(conjunct->get_child(0))) {
             return false;
         }
-        if (!build_disjuncts_list(conjunct->get_child(1), disjuncts)) {
+        if (!build_disjuncts_list(conjunct->get_child(1))) {
             return false;
         }
 
