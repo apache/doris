@@ -138,7 +138,7 @@ TEST_F(BooleanQueryBuilderTest, terms_in_query) {
     ExtLiteral term_literal_3(TYPE_VARCHAR, &string_value_3);
 
     std::vector<ExtLiteral> terms_values = {term_literal_1, term_literal_2, term_literal_3};
-    ExtInPredicate* in_predicate = new ExtInPredicate(TExprNodeType::IN_PRED, terms_in_field, terms_in_col_type_desc, terms_values);
+    ExtInPredicate* in_predicate = new ExtInPredicate(TExprNodeType::IN_PRED, false, terms_in_field, terms_in_col_type_desc, terms_values);
     TermsInSetQueryBuilder terms_query(in_predicate);
     rapidjson::Document document;
     rapidjson::Value in_query_value = terms_query.to_json(document);
@@ -281,8 +281,7 @@ TEST_F(BooleanQueryBuilderTest, compound_bool_query) {
     ExtLiteral term_literal_2(TYPE_VARCHAR, &string_value_2);
 
     std::vector<ExtLiteral> terms_values = {term_literal_1, term_literal_2};
-    ExtInPredicate* in_predicate = new ExtInPredicate(TExprNodeType::IN_PRED, terms_in_field, terms_in_col_type_desc, terms_values);
-    in_predicate->is_not_in = true;
+    ExtInPredicate* in_predicate = new ExtInPredicate(TExprNodeType::IN_PRED, true, terms_in_field, terms_in_col_type_desc, terms_values);
     std::vector<ExtPredicate*> bool_predicates_4 = {in_predicate};
     EsPredicate* bool_predicate_4 = new EsPredicate(bool_predicates_4);
 
@@ -386,8 +385,7 @@ TEST_F(BooleanQueryBuilderTest, validate_partial) {
     ExtLiteral term_literal_2(TYPE_VARCHAR, &string_value_2);
 
     std::vector<ExtLiteral> terms_values = {term_literal_1, term_literal_2};
-    ExtInPredicate* in_predicate = new ExtInPredicate(TExprNodeType::IN_PRED, terms_in_field, terms_in_col_type_desc, terms_values);
-    in_predicate->is_not_in = true;
+    ExtInPredicate* in_predicate = new ExtInPredicate(TExprNodeType::IN_PRED, true, terms_in_field, terms_in_col_type_desc, terms_values);
     std::vector<ExtPredicate*> bool_predicates_2 = {in_predicate};
     EsPredicate* bool_predicate_2 = new EsPredicate(bool_predicates_2);
 
