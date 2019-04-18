@@ -56,6 +56,8 @@ std::string StreamLoadContext::to_json() const {
         writer.String(status.get_error_msg().c_str());
     }
     // number_load_rows
+    writer.Key("NumberTotalRows");
+    writer.Int64(number_total_rows);
     writer.Key("NumberLoadedRows");
     writer.Int64(number_loaded_rows);
     writer.Key("NumberFilteredRows");
