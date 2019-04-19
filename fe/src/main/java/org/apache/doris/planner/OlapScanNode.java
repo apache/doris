@@ -87,8 +87,6 @@ public class OlapScanNode extends ScanNode {
     private boolean canTurnOnPreAggr = true;
     private ArrayList<String> tupleColumns = new ArrayList<String>();
     private HashSet<String> predicateColumns = new HashSet<String>();
-    private HashSet<String> inPredicateColumns = new HashSet<String>();
-    private HashSet<String> eqJoinColumns = new HashSet<String>();
     private OlapTable olapTable = null;
     private long selectedTabletsNum = 0;
     private long totalTabletsNum = 0;
@@ -166,193 +164,6 @@ public class OlapScanNode extends ScanNode {
                 cardinality = Math.min(cardinality, limit);
             }
             numNodes = scanBackendIds.size();
-        }
-    }
-
-
-    // private void analyzeVectorizedConjuncts(Analyzer analyzer) throws InternalException {
-    //     for (SlotDescriptor slot : desc.getSlots()) {
-    //         for (Expr conjunct : conjuncts) {
-    //             if (expr.isConstant()) {
-    //                 continue;
-    //             }
-    //             if (analyzer.isWhereClauseConjunct(conjunct)
-    //                     && expr.isBound(slot.getId())
-    //                     && conjunct.isVectorized()
-    //                     && conjunct instanceof Predicate) {
-    //                 conjunct.computeOutputColumn(analyzer);
-    //             } else {
-    //                 Preconditions.checkState(false);
-    //             }
-    //         }
-    //     }
-    // }
-
-    private List<MaterializedIndex> selectRollupIndex(Partition partition) throws UserException {
-        if (olapTable.getKeysType() == KeysType.DUP_KEYS) {
-            isPreAggregation = true;
-        }
-
-        List<MaterializedIndex> allIndices = Lists.newArrayList();
-        allIndices.add(partition.getBaseIndex());
-        allIndices.addAll(partition.getRollupIndices());
-        LOG.debug("num of rollup(base included): {}, pre aggr: {}", allIndices.size(), isPreAggregation);
-
-        // 1. find all rollup indexes which contains all tuple columns
-        List<MaterializedIndex> containTupleIndexes = Lists.newArrayList();
-        List<Column> baseIndexKeyColumns = olapTable.getKeyColumnsByIndexId(partition.getBaseIndex().getId());
-        for (MaterializedIndex index : allIndices) {
-            Set<String> indexColNames = Sets.newHashSet();
-            for (Column col : olapTable.getSchemaByIndexId(index.getId())) {
-                indexColNames.add(col.getName());
-            }
-
-            if (indexColNames.containsAll(tupleColumns)) {
-                // If preAggregation is off, so that we only can use base table
-                // or those rollup tables which key columns is the same with base table
-                // (often in different order)
-                if (isPreAggregation) {
-                    LOG.debug("preAggregation is on. add index {} which contains all tuple columns", index.getId());
-                    containTupleIndexes.add(index);
-                } else if (olapTable.getKeyColumnsByIndexId(index.getId()).size() == baseIndexKeyColumns.size()) {
-                    LOG.debug("preAggregation is off, but index {} have same key columns with base index.",
-                              index.getId());
-                    containTupleIndexes.add(index);
-                }
-            } else {
-                LOG.debug("exclude index {} because it does not contain all tuple columns", index.getId());
-            }
-        }
-
-        if (containTupleIndexes.isEmpty()) {
-            throw new UserException("Failed to select index, no match index");
-        }
-
-        // 2. find all indexes which match the prefix most based on predicate/sort/in predicate columns
-        // from containTupleIndices.
-        List<MaterializedIndex> prefixMatchedIndexes = Lists.newArrayList();
-        int maxPrefixMatchCount = 0;
-        int prefixMatchCount = 0;
-        for (MaterializedIndex index : containTupleIndexes) {
-            prefixMatchCount = 0;
-            for (Column col : olapTable.getSchemaByIndexId(index.getId())) {
-                if (sortColumn != null) {
-                    if (inPredicateColumns.contains(col.getName())) {
-                        prefixMatchCount++;
-                    } else if (sortColumn.equals(col.getName())) {
-                        prefixMatchCount++;
-                        break;
-                    } else {
-                        break;
-                    }
-                } else {
-                    if (predicateColumns.contains(col.getName())) {
-                        break;
-                    }
-                }
-            }
-            if (prefixMatchCount == maxPrefixMatchCount) {
-                LOG.debug("s2: find a equal prefix match index {}. match count: {}", index.getId(), prefixMatchCount);
-                prefixMatchedIndexes.add(index);
-            } else if (prefixMatchCount > maxPrefixMatchCount) {
-                LOG.debug("s2: find a better prefix match index {}. match count: {}", index.getId(), prefixMatchCount);
-                maxPrefixMatchCount = prefixMatchCount;
-                prefixMatchedIndexes.clear();
-                prefixMatchedIndexes.add(index);
-            }
-        }
-
-        // 3. find all indexes which match the prefix most based on equal join columns
-        // from containTupleIndices.
-        List<MaterializedIndex> eqJoinPrefixMatchedIndexes = Lists.newArrayList();
-        maxPrefixMatchCount = 0;
-        for (MaterializedIndex index : containTupleIndexes) {
-            prefixMatchCount = 0;
-            for (Column col : olapTable.getSchemaByIndexId(index.getId())) {
-                if (eqJoinColumns.contains(col.getName()) || predicateColumns.contains(col.getName())) {
-                    prefixMatchCount++;
-                } else {
-                    break;
-                }
-            }
-            if (prefixMatchCount == maxPrefixMatchCount) {
-                LOG.debug("s3: find a equal prefix match index {}. match count: {}", index.getId(), prefixMatchCount);
-                eqJoinPrefixMatchedIndexes.add(index);
-            } else if (prefixMatchCount > maxPrefixMatchCount) {
-                LOG.debug("s3: find a better prefix match index {}. match count: {}", index.getId(), prefixMatchCount);
-                maxPrefixMatchCount = prefixMatchCount;
-                eqJoinPrefixMatchedIndexes.clear();
-                eqJoinPrefixMatchedIndexes.add(index);
-            }
-        }
-
-        // 4. find the intersection of prefixMatchIndices and eqJoinPrefixMatchIndices as candidate indexes
-        List<MaterializedIndex> finalCandidateIndexes = Lists.newArrayList();
-        for (MaterializedIndex index : prefixMatchedIndexes) {
-            for (MaterializedIndex oneIndex : eqJoinPrefixMatchedIndexes) {
-                if (oneIndex.getId() == index.getId()) {
-                    finalCandidateIndexes.add(index);
-                    LOG.debug("find a matched index {} in intersection of "
-                            + "prefixMatchIndices and eqJoinPrefixMatchIndices",
-                              index.getId());
-                }
-            }
-        }
-        // maybe there is no intersection between prefixMatchIndices and eqJoinPrefixMatchIndices.
-        // in this case, use prefixMatchIndices;
-        if (finalCandidateIndexes.isEmpty()) {
-            finalCandidateIndexes = prefixMatchedIndexes;
-        }
-
-        // 5. sorted the final candidate indexes by index id
-        // this is to make sure that candidate indexes find in all partitions will be returned in same order
-        Collections.sort(finalCandidateIndexes, new Comparator<MaterializedIndex>() {
-            @Override
-            public int compare(MaterializedIndex index1, MaterializedIndex index2)
-            {
-                return (int) (index1.getId() - index2.getId());
-            }
-        });
-        return finalCandidateIndexes;
-    }
-
-    private void normalizePredicate(Analyzer analyzer) throws UserException {
-        // 1. Get Columns which has eqJoin on it
-        List<Expr> eqJoinPredicate = analyzer.getEqJoinConjuncts(desc.getId());
-        for (Expr expr : eqJoinPredicate) {
-            for (SlotDescriptor slot : desc.getSlots()) {
-                for (int i = 0; i < 2; i++) {
-                    if (expr.getChild(i).isBound(slot.getId())) {
-                        eqJoinColumns.add(slot.getColumn().getName());
-                        LOG.debug("Add eqJoinColumn: ColName=" + slot.getColumn().getName());
-                        break;
-                    }
-                }
-            }
-        }
-
-        // 2. Get Columns which has predicate on it
-        for (SlotDescriptor slot : desc.getSlots()) {
-            for (Expr expr : conjuncts) {
-                if (expr.isConstant()) {
-                    continue;
-                }
-                if (expr.isBound(slot.getId())) {
-                    predicateColumns.add(slot.getColumn().getName());
-                    LOG.debug("Add predicateColumn: ColName=" + slot.getColumn().getName());
-                    if (expr instanceof InPredicate) {
-                        inPredicateColumns.add(slot.getColumn().getName());
-                        LOG.debug("Add inPredicateColumn: ColName=" + slot.getColumn().getName());
-                    }
-                }
-            }
-        }
-
-        // 3. Get Columns of this tuple
-        for (SlotDescriptor slot : desc.getSlots()) {
-            Column col = slot.getColumn();
-            tupleColumns.add(col.getName());
-            LOG.debug("Add tupleColumn: ColName=" + col.getName());
         }
     }
 
@@ -500,86 +311,42 @@ public class OlapScanNode extends ScanNode {
     }
 
     private void getScanRangeLocations(Analyzer analyzer) throws UserException, AnalysisException {
-        normalizePredicate(analyzer);
-
         long start = System.currentTimeMillis();
         Collection<Long> partitionIds = partitionPrune(olapTable.getPartitionInfo());
-
+       
         if (partitionIds == null) {
             partitionIds = new ArrayList<Long>();
             for (Partition partition : olapTable.getPartitions()) {
                 partitionIds.add(partition.getId());
             }
         }
+
         selectedPartitionNum = partitionIds.size();
         LOG.debug("partition prune cost: {} ms, partitions: {}", (System.currentTimeMillis() - start), partitionIds);
 
         start = System.currentTimeMillis();
 
-        // find all candidate rollups
-        int candidateTableSize = 0;
-        List<List<MaterializedIndex>> tables = Lists.newArrayList();
-        for (Long partitionId : partitionIds) {
-            Partition partition = olapTable.getPartition(partitionId);
-            List<MaterializedIndex> candidateTables = selectRollupIndex(partition);
-            if (candidateTableSize == 0) {
-                candidateTableSize = candidateTables.size();
-            } else {
-                if (candidateTableSize != candidateTables.size()) {
-                    String errMsg = "two partition's candidate_table_size not equal, one is " + candidateTableSize
-                            + ", the other is" + candidateTables.size();
-                    throw new AnalysisException(errMsg);
-                }
-            }
-            tables.add(candidateTables);
+        if (olapTable.getKeysType() == KeysType.DUP_KEYS) {
+            isPreAggregation = true;
         }
 
-        // chose one rollup from candidate rollups
-        long minRowCount = Long.MAX_VALUE;
-        int partitionPos = -1;
-        for (int i = 0; i < candidateTableSize; i++) {
-            MaterializedIndex candidateIndex = null;
-            long rowCount = 0;
-            for (List<MaterializedIndex> candidateTables : tables) {
-                if (candidateIndex == null) {
-                    candidateIndex = candidateTables.get(i);
-                } else {
-                    if (candidateIndex.getId() != candidateTables.get(i).getId()) {
-                        String errMsg = "two partition's candidate_table not equal, one is "
-                                + candidateIndex.getId() + ", the other is " + candidateTables.get(i).getId();
-                        throw new AnalysisException(errMsg);
-                    }
-                }
-                rowCount += candidateTables.get(i).getRowCount();
-            }
-            LOG.debug("rowCount={} for table={}", rowCount, candidateIndex.getId());
-            if (rowCount < minRowCount) {
-                minRowCount = rowCount;
-                selectedIndexId = tables.get(0).get(i).getId();
-                partitionPos = i;
-            } else if (rowCount == minRowCount) {
-                // check column number, select one minimum column number
-                int selectedColumnSize = olapTable.getIndexIdToSchema().get(selectedIndexId).size();
-                int currColumnSize = olapTable.getIndexIdToSchema().get(tables.get(0).get(i).getId()).size();
-                if (currColumnSize < selectedColumnSize) {
-                    selectedIndexId = tables.get(0).get(i).getId();
-                    partitionPos = i;
-                }
-            }
+        if (partitionIds.size() == 0) {
+            return;
         }
+
+        final RollupSelector rollupSelector = new RollupSelector(analyzer, desc, olapTable);
+        selectedIndexId = rollupSelector.selectBestRollup(partitionIds, conjuncts, isPreAggregation);
 
         long localBeId = -1;
         if (Config.enable_local_replica_selection) {
             localBeId = Catalog.getCurrentSystemInfo().getBackendIdByHost(FrontendOptions.getLocalHostAddress());
         }
-        MaterializedIndex selectedTable = null;
-        int j = 0;
+
         for (Long partitionId : partitionIds) {
-            Partition partition = olapTable.getPartition(partitionId);
-            LOG.debug("selected partition: " + partition.getName());
-            selectedTable = tables.get(j++).get(partitionPos);
-            List<Tablet> tablets = new ArrayList<Tablet>();
-            Collection<Long> tabletIds = distributionPrune(selectedTable, partition.getDistributionInfo());
+            final Partition partition = olapTable.getPartition(partitionId);
+            final MaterializedIndex selectedTable = partition.getIndex(selectedIndexId);
+            final List<Tablet> tablets = Lists.newArrayList();
+            final Collection<Long> tabletIds = distributionPrune(selectedTable, partition.getDistributionInfo());
             LOG.debug("distribution prune tablets: {}", tabletIds);
 
             List<Long> allTabletIds = selectedTable.getTabletIdsInOrder();
