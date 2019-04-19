@@ -3138,7 +3138,7 @@ public class Load {
             loadDeleteJob.setState(JobState.LOADING);
             long transactionId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(db.getId(), jobLabel,
                     "FE: " + FrontendOptions.getLocalHostAddress(), LoadJobSourceType.FRONTEND,
-                    Config.stream_load_default_timeout_second * 1000);
+                    Config.stream_load_default_timeout_second);
             loadDeleteJob.setTransactionId(transactionId);
             // the delete job will be persist in editLog
             addLoadJob(loadDeleteJob, db);

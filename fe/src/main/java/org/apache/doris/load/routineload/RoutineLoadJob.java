@@ -86,7 +86,6 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable {
     private static final Logger LOG = LogManager.getLogger(RoutineLoadJob.class);
 
-    public static final int DEFAULT_TASK_MAX_CONCURRENT_NUM = 3;
     public static final long DEFAULT_MAX_ERROR_NUM = 0;
 
     public static final long DEFAULT_MAX_INTERVAL_SECOND = 10;

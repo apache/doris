@@ -141,10 +141,7 @@ fi
 # Build docs, should be built before Frontend
 echo "Build docs"
 cd ${DORIS_HOME}/docs
-if [ ${CLEAN} -eq 1 ]; then
-    make clean
-fi
-make
+make clean && make
 cd ${DORIS_HOME}
 
 # Clean and build Frontend
