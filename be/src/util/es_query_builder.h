@@ -29,7 +29,7 @@ namespace doris {
 class QueryBuilder {
 
 public:
-    virtual rapidjson::Value to_json(rapidjson::Document& allocator) = 0;
+    virtual void to_json(rapidjson::Document* document, rapidjson::Value* query) = 0;
     virtual ~QueryBuilder() {
     };
 };
@@ -38,8 +38,8 @@ public:
 class ESQueryBuilder : public QueryBuilder {
 public:
     ESQueryBuilder(const std::string& es_query_str);
-    ESQueryBuilder(ExtFunction* es_query);
-    rapidjson::Value to_json(rapidjson::Document& allocator) override;
+    ESQueryBuilder(const ExtFunction& es_query);
+    void to_json(rapidjson::Document* document, rapidjson::Value* query) override;
 private:
     std::string _es_query_str;
 };
@@ -49,8 +49,8 @@ class TermQueryBuilder : public QueryBuilder {
 
 public:
     TermQueryBuilder(const std::string& field, const std::string& term);
-    TermQueryBuilder(ExtBinaryPredicate* binary_predicate);
-    rapidjson::Value to_json(rapidjson::Document& document) override;
+    TermQueryBuilder(const ExtBinaryPredicate& binary_predicate);
+    void to_json(rapidjson::Document* document, rapidjson::Value* query) override;
 
 private:
     std::string _field;
@@ -61,28 +61,31 @@ private:
 class RangeQueryBuilder : public QueryBuilder {
 
 public:
-    rapidjson::Value to_json(rapidjson::Document& document) override;
-    RangeQueryBuilder(ExtBinaryPredicate* range_predicate);
+    RangeQueryBuilder(const ExtBinaryPredicate& range_predicate);
+    void to_json(rapidjson::Document* document, rapidjson::Value* query) override;
 private:
-    ExtBinaryPredicate* _range_predicate;
+    std::string _field;
+    std::string _value;
+    TExprOpcode::type _op;
 };
 
 // process in predicate :  field in [value1, value2]
 class TermsInSetQueryBuilder : public QueryBuilder {
 
 public:
-    rapidjson::Value to_json(rapidjson::Document& document) override;
-    TermsInSetQueryBuilder(ExtInPredicate* in_predicate);
+    TermsInSetQueryBuilder(const ExtInPredicate& in_predicate);
+    void to_json(rapidjson::Document* document, rapidjson::Value* query) override;
 private:
-    ExtInPredicate* _in_predicate;
+    std::string _field;
+    std::vector<std::string> _values;
 };
 
 // process like predicate : field like "a%b%c_"
 class WildCardQueryBuilder : public QueryBuilder {
 
 public:
-    rapidjson::Value to_json(rapidjson::Document& document) override;
-    WildCardQueryBuilder(ExtLikePredicate* like_predicate);
+    WildCardQueryBuilder(const ExtLikePredicate& like_predicate);
+    void to_json(rapidjson::Document* document, rapidjson::Value* query) override;
 
 private:
     std::string _like_value;
@@ -93,7 +96,7 @@ private:
 class MatchAllQueryBuilder : public QueryBuilder {
 
 public:
-    rapidjson::Value to_json(rapidjson::Document& document) override;
+    void to_json(rapidjson::Document* document, rapidjson::Value* query) override;
 };
 
 // proccess bool compound query, and play the role of a bridge for transferring predicates to es native query
@@ -103,17 +106,21 @@ public:
     BooleanQueryBuilder(const std::vector<ExtPredicate*>& predicates);
     BooleanQueryBuilder();
     ~BooleanQueryBuilder();
-    rapidjson::Value to_json(rapidjson::Document& document) override;
+    // class method for transfer predicate to es query value, invoker should enclose this value with `query`
+    static void to_query(const std::vector<EsPredicate*>& predicates, rapidjson::Document* root, rapidjson::Value* query);
+    // validate esquery syntax
+    static Status check_es_query(const ExtFunction& extFunction);
+    // decide which predicate can process
+    static void validate(const std::vector<EsPredicate*>& espredicates, std::vector<bool>* result);
+
+private:
+    // add child query
     void should(QueryBuilder* filter);
     void filter(QueryBuilder* filter);
     void must(QueryBuilder* filter);
     void must_not(QueryBuilder* filter);
-    // class method for transfer predicate to es query value, invoker should enclose this value with `query`
-    static rapidjson::Value to_query(const std::vector<EsPredicate*>& predicates, rapidjson::Document& root);
-    static Status check_es_query(const ExtFunction& extFunction);
-    static std::vector<bool> validate(const std::vector<EsPredicate*>& espredicates);
+    void to_json(rapidjson::Document* document, rapidjson::Value* query) override;
 
-private:
     std::vector<QueryBuilder*> _must_clauses;
     std::vector<QueryBuilder*> _must_not_clauses;
     std::vector<QueryBuilder*> _filter_clauses;

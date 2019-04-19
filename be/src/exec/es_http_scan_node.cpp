@@ -119,7 +119,8 @@ Status EsHttpScanNode::open(RuntimeState* state) {
     RETURN_IF_ERROR(build_conjuncts_list());
 
     // remove those predicates which ES cannot support
-    std::vector<bool> list = BooleanQueryBuilder::validate(_predicates);
+    std::vector<bool> list;
+    BooleanQueryBuilder::validate(_predicates, &list);
     DCHECK(list.size() == _predicate_to_conjunct.size());
     for(int i = list.size() - 1; i >= 0; i--) {
         if(!list[i]) {

@@ -153,7 +153,9 @@ TEST_F(EsPredicateTest, normal) {
     }
 
     rapidjson::Document document;
-    rapidjson::Value compound_bool_value = BooleanQueryBuilder::to_query(predicates, document);
+    rapidjson::Value compound_bool_value(rapidjson::kObjectType);
+    compound_bool_value.SetObject();
+    BooleanQueryBuilder::to_query(predicates, &document, &compound_bool_value);
     rapidjson::StringBuffer buffer;
     rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
     compound_bool_value.Accept(writer);
