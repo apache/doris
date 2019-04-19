@@ -90,7 +90,7 @@ public class ShowRoutineLoadTaskStmt extends ShowStmt {
 
     private void checkJobNameExpr(Analyzer analyzer) throws AnalysisException {
         if (jobNameExpr == null) {
-            throw new AnalysisException("please designate a name in where expr such as name=xxx");
+            throw new AnalysisException("please designate a jobName in where expr such as JobName=\"ILoveDoris\"");
         }
 
         boolean valid = true;
