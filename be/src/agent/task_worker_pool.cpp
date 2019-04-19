@@ -480,18 +480,13 @@ void* TaskWorkerPool::_drop_tablet_worker_thread_callback(void* arg_this) {
         TStatusCode::type status_code = TStatusCode::OK;
         vector<string> error_msgs;
         TStatus task_status;
-        AgentStatus status = DORIS_SUCCESS;
         TabletSharedPtr dropped_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
             drop_tablet_req.tablet_id, drop_tablet_req.schema_hash);
         if (dropped_tablet != nullptr) {
             OLAPStatus drop_status = StorageEngine::instance()->tablet_manager()->drop_tablet(
                 drop_tablet_req.tablet_id, drop_tablet_req.schema_hash);
-            if (drop_status != OLAP_SUCCESS && drop_status != OLAP_ERR_TABLE_NOT_FOUND) {
-                status = DORIS_ERROR;
-            }
-            if (status != DORIS_SUCCESS) {
-                OLAP_LOG_WARNING(
-                    "drop table failed! signature: %ld", agent_task_req.signature);
+            if (drop_status != OLAP_SUCCESS ) {
+                LOG(WARNING) << "drop table failed! signature: " << agent_task_req.signature;
                 error_msgs.push_back("drop table failed!");
                 status_code = TStatusCode::RUNTIME_ERROR;
             }
