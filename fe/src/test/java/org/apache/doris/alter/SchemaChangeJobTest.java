@@ -45,6 +45,7 @@ import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.task.AgentTask;
@@ -196,7 +197,7 @@ public class SchemaChangeJobTest {
         long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1, 
                 CatalogTestUtil.testTxnLable1, 
                 transactionSource,
-                LoadJobSourceType.FRONTEND);
+                LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
         // commit a transaction, backend 2 has errors
         TabletCommitInfo tabletCommitInfo1 = new TabletCommitInfo(CatalogTestUtil.testTabletId1,
                 CatalogTestUtil.testBackendId1);

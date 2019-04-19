@@ -603,6 +603,7 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
         COUNTER_SET(_convert_batch_timer, _convert_batch_ns);
         COUNTER_SET(_validate_data_timer, _validate_data_ns);
         state->update_num_rows_load_filtered(_number_filtered_rows);
+        state->update_num_rows_load_success(_number_output_rows);
     } else {
         for (auto channel : _channels) {
             channel->cancel();
