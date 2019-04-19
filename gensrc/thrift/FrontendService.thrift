@@ -459,6 +459,7 @@ struct TLoadTxnBeginRequest {
     7: required string label
     8: optional i64 timestamp
     9: optional i64 auth_code
+    10: optional i64 timeout
 }
 
 struct TLoadTxnBeginResult {

@@ -95,6 +95,10 @@ public class AdminShowReplicaDistributionStmt extends ShowStmt {
 
     @Override
     public RedirectStatus getRedirectStatus() {
-        return RedirectStatus.FORWARD_NO_SYNC;
+        if (ConnectContext.get().getSessionVariable().getForwardToMaster()) {
+            return RedirectStatus.FORWARD_NO_SYNC;
+        } else {
+            return RedirectStatus.NO_FORWARD;
+        }
     }
 }

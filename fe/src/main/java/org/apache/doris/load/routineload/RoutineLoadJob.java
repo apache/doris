@@ -400,7 +400,6 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
                 if (routineLoadTaskInfo.isRunning()
                         && ((System.currentTimeMillis() - routineLoadTaskInfo.getExecuteStartTimeMs())
                         > maxBatchIntervalS * 2 * 1000)) {
-                    Catalog.getCurrentGlobalTransactionMgr().removeRelatedJob(routineLoadTaskInfo.getTxnId());
                     RoutineLoadTaskInfo newTask = unprotectRenewTask(routineLoadTaskInfo);
                     Catalog.getCurrentCatalog().getRoutineLoadTaskScheduler().addTaskInQueue(newTask);
                 }
@@ -619,7 +618,6 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
                     routineLoadTaskInfoList.stream()
                             .filter(entity -> entity.getTxnId() == txnState.getTransactionId()).findFirst();
             if (!routineLoadTaskInfoOptional.isPresent()) {
-
                 throw new TransactionException("txn " + txnState.getTransactionId()
                                                        + " could not be " + transactionStatus
                                                        + " while task " + txnState.getLabel() + " has been aborted.");

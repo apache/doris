@@ -30,6 +30,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.UserException;
@@ -107,7 +108,7 @@ public class GlobalTransactionMgrTest {
         long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
                 CatalogTestUtil.testTxnLable1,
                 transactionSource,
-                LoadJobSourceType.FRONTEND);
+                LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second * 1000);
         TransactionState transactionState = masterTransMgr.getTransactionState(transactionId);
         assertNotNull(transactionState);
         assertEquals(transactionId, transactionState.getTransactionId());
@@ -125,7 +126,7 @@ public class GlobalTransactionMgrTest {
             transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
                     CatalogTestUtil.testTxnLable1,
                     transactionSource,
-                    LoadJobSourceType.FRONTEND);
+                    LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second * 1000);
         } catch (AnalysisException e) {
             e.printStackTrace();
         } catch (LabelAlreadyUsedException e) {
@@ -142,7 +143,7 @@ public class GlobalTransactionMgrTest {
             transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
                     CatalogTestUtil.testTxnLable1,
                     transactionSource,
-                    LoadJobSourceType.FRONTEND);
+                    LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second * 1000);
         } catch (Exception e) {
             // TODO: handle exception
         }
@@ -155,7 +156,7 @@ public class GlobalTransactionMgrTest {
         long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
                 CatalogTestUtil.testTxnLable1,
                 transactionSource,
-                LoadJobSourceType.FRONTEND);
+                LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second * 1000);
         // commit a transaction
         TabletCommitInfo tabletCommitInfo1 = new TabletCommitInfo(CatalogTestUtil.testTabletId1,
                 CatalogTestUtil.testBackendId1);
@@ -196,7 +197,7 @@ public class GlobalTransactionMgrTest {
         long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
                 CatalogTestUtil.testTxnLable1,
                 transactionSource,
-                LoadJobSourceType.FRONTEND);
+                LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second * 1000);
         // commit a transaction with 1,2 success
         TabletCommitInfo tabletCommitInfo1 = new TabletCommitInfo(CatalogTestUtil.testTabletId1,
                 CatalogTestUtil.testBackendId1);
@@ -218,7 +219,7 @@ public class GlobalTransactionMgrTest {
         long transactionId2 = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
                 CatalogTestUtil.testTxnLable2,
                 transactionSource,
-                LoadJobSourceType.FRONTEND);
+                LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second * 1000);
         tabletCommitInfo1 = new TabletCommitInfo(CatalogTestUtil.testTabletId1, CatalogTestUtil.testBackendId1);
         TabletCommitInfo tabletCommitInfo3 = new TabletCommitInfo(CatalogTestUtil.testTabletId1,
                 CatalogTestUtil.testBackendId3);
@@ -312,7 +313,9 @@ public class GlobalTransactionMgrTest {
         KafkaTaskInfo routineLoadTaskInfo = new KafkaTaskInfo(UUID.randomUUID(), 1L, "defualt_cluster", partitionIdToOffset);
         Deencapsulation.setField(routineLoadTaskInfo, "txnId", 1L);
         routineLoadTaskInfoList.add(routineLoadTaskInfo);
-        TransactionState transactionState = new TransactionState(1L, 1L, "label", 1L, LoadJobSourceType.ROUTINE_LOAD_TASK, "be1", routineLoadJob.getId());
+        TransactionState transactionState = new TransactionState(1L, 1L, "label", 1L,
+                LoadJobSourceType.ROUTINE_LOAD_TASK, "be1", routineLoadJob.getId(),
+                Config.stream_load_default_timeout_second * 1000);
         transactionState.setTransactionStatus(TransactionStatus.PREPARE);
         masterTransMgr.getListenerRegistry().register(routineLoadJob);
         // Deencapsulation.setField(transactionState, "txnStateChangeListener", routineLoadJob);
@@ -376,7 +379,9 @@ public class GlobalTransactionMgrTest {
         KafkaTaskInfo routineLoadTaskInfo = new KafkaTaskInfo(UUID.randomUUID(), 1L, "defualt_cluster", partitionIdToOffset);
         Deencapsulation.setField(routineLoadTaskInfo, "txnId", 1L);
         routineLoadTaskInfoList.add(routineLoadTaskInfo);
-        TransactionState transactionState = new TransactionState(1L, 1L, "label", 1L, LoadJobSourceType.ROUTINE_LOAD_TASK, "be1", routineLoadJob.getId());
+        TransactionState transactionState = new TransactionState(1L, 1L, "label", 1L,
+                LoadJobSourceType.ROUTINE_LOAD_TASK, "be1", routineLoadJob.getId(),
+                Config.stream_load_default_timeout_second * 1000);
         transactionState.setTransactionStatus(TransactionStatus.PREPARE);
         masterTransMgr.getListenerRegistry().register(routineLoadJob);
         Map<Long, TransactionState> idToTransactionState = Maps.newHashMap();
@@ -421,7 +426,7 @@ public class GlobalTransactionMgrTest {
         long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
                 CatalogTestUtil.testTxnLable1,
                 transactionSource,
-                LoadJobSourceType.FRONTEND);
+                LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second * 1000);
         // commit a transaction
         TabletCommitInfo tabletCommitInfo1 = new TabletCommitInfo(CatalogTestUtil.testTabletId1,
                 CatalogTestUtil.testBackendId1);
@@ -467,7 +472,7 @@ public class GlobalTransactionMgrTest {
         long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
                 CatalogTestUtil.testTxnLable1,
                 transactionSource,
-                LoadJobSourceType.FRONTEND);
+                LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second * 1000);
         // commit a transaction with 1,2 success
         TabletCommitInfo tabletCommitInfo1 = new TabletCommitInfo(CatalogTestUtil.testTabletId1,
                 CatalogTestUtil.testBackendId1);
@@ -521,7 +526,7 @@ public class GlobalTransactionMgrTest {
         long transactionId2 = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
                 CatalogTestUtil.testTxnLable2,
                 transactionSource,
-                LoadJobSourceType.FRONTEND);
+                LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second * 1000);
         tabletCommitInfo1 = new TabletCommitInfo(CatalogTestUtil.testTabletId1, CatalogTestUtil.testBackendId1);
         TabletCommitInfo tabletCommitInfo3 = new TabletCommitInfo(CatalogTestUtil.testTabletId1,
                 CatalogTestUtil.testBackendId3);
@@ -589,7 +594,7 @@ public class GlobalTransactionMgrTest {
         long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
                 CatalogTestUtil.testTxnLable1,
                 transactionSource,
-                LoadJobSourceType.FRONTEND);
+                LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second * 1000);
         TransactionState transactionState = masterTransMgr.getTransactionState(transactionId);
         assertNotNull(transactionState);
         assertEquals(transactionId, transactionState.getTransactionId());

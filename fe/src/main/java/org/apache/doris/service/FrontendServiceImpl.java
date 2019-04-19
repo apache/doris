@@ -552,6 +552,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             status.setStatus_code(TStatusCode.LABEL_ALREADY_EXISTS);
             status.addToError_msgs(e.getMessage());
         } catch (UserException e) {
+            LOG.warn("failed to begin: {}", e.getMessage());
             status.setStatus_code(TStatusCode.ANALYSIS_ERROR);
             status.addToError_msgs(e.getMessage());
         } catch (Throwable e) {
@@ -587,11 +588,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
             throw new UserException("unknown database, database=" + dbName);
         }
+
         // begin
         long timestamp = request.isSetTimestamp() ? request.getTimestamp() : -1;
+        long timeoutSecond = request.isSetTimeout() ? request.getTimeout() : Config.stream_load_default_timeout_second;
         return Catalog.getCurrentGlobalTransactionMgr().beginTransaction(
                 db.getId(), request.getLabel(), timestamp, "BE: " + clientIp,
-                TransactionState.LoadJobSourceType.BACKEND_STREAMING, -1);
+                TransactionState.LoadJobSourceType.BACKEND_STREAMING, -1, timeoutSecond);
     }
 
     @Override
@@ -611,6 +614,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 status.addToError_msgs("transaction commit successfully, BUT data will be visible later");
             }
         } catch (UserException e) {
+            LOG.warn("failed to commit: {}", e.getMessage());
             status.setStatus_code(TStatusCode.ANALYSIS_ERROR);
             status.addToError_msgs(e.getMessage());
         } catch (Throwable e) {
@@ -667,6 +671,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         try {
             loadTxnRollbackImpl(request);
         } catch (UserException e) {
+            LOG.warn("failed to rollback: {}", e.getMessage());
             status.setStatus_code(TStatusCode.ANALYSIS_ERROR);
             status.addToError_msgs(e.getMessage());
         } catch (Throwable e) {
@@ -710,6 +715,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         try {
             result.setParams(streamLoadPutImpl(request));
         } catch (UserException e) {
+            LOG.warn("failed to get stream load plan: {}", e.getMessage());
             status.setStatus_code(TStatusCode.ANALYSIS_ERROR);
             status.addToError_msgs(e.getMessage());
         } catch (Throwable e) {
