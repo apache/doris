@@ -42,10 +42,12 @@ TEST_F(BooleanQueryBuilderTest, term_query) {
     ExtLiteral term_literal(TYPE_VARCHAR, &value);
     TypeDescriptor type_desc = TypeDescriptor::create_varchar_type(3);
     std::string name = "content";
-    ExtBinaryPredicate* term_predicate = new ExtBinaryPredicate(TExprNodeType::BINARY_PRED, name, type_desc, TExprOpcode::EQ, term_literal);
+    ExtBinaryPredicate term_predicate(TExprNodeType::BINARY_PRED, name, type_desc, TExprOpcode::EQ, term_literal);
     TermQueryBuilder term_query(term_predicate);
     rapidjson::Document document;
-    rapidjson::Value term_value = term_query.to_json(document);
+    rapidjson::Value term_value(rapidjson::kObjectType);
+    term_value.SetObject();
+    term_query.to_json(&document, &term_value);
     rapidjson::StringBuffer buffer;
     rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
     term_value.Accept(writer);
@@ -61,10 +63,12 @@ TEST_F(BooleanQueryBuilderTest, range_query) {
     ExtLiteral term_literal(TYPE_VARCHAR, &value);
     TypeDescriptor type_desc = TypeDescriptor::create_varchar_type(1);
     std::string name = "k";
-    ExtBinaryPredicate* range_predicate = new ExtBinaryPredicate(TExprNodeType::BINARY_PRED, name, type_desc, TExprOpcode::GE, term_literal);
+    ExtBinaryPredicate range_predicate(TExprNodeType::BINARY_PRED, name, type_desc, TExprOpcode::GE, term_literal);
     RangeQueryBuilder range_query(range_predicate);
     rapidjson::Document document;
-    rapidjson::Value range_value = range_query.to_json(document);
+    rapidjson::Value range_value(rapidjson::kObjectType);
+    range_value.SetObject();
+    range_query.to_json(&document, &range_value);
     rapidjson::StringBuffer buffer;
     rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
     range_value.Accept(writer);
@@ -85,10 +89,12 @@ TEST_F(BooleanQueryBuilderTest, es_query) {
     ExtLiteral term_literal(TYPE_VARCHAR, &value);
     std::vector<ExtLiteral> values = {term_literal};
     std::string function_name = "esquery";
-    ExtFunction* function_predicate = new ExtFunction(TExprNodeType::FUNCTION_CALL, function_name, cols, values);
+    ExtFunction function_predicate(TExprNodeType::FUNCTION_CALL, function_name, cols, values);
     ESQueryBuilder es_query(function_predicate);
     rapidjson::Document document;
-    rapidjson::Value es_query_value = es_query.to_json(document);
+    rapidjson::Value es_query_value(rapidjson::kObjectType);
+    es_query_value.SetObject();
+    es_query.to_json(&document, &es_query_value);
     rapidjson::StringBuffer buffer;
     rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
     es_query_value.Accept(writer);
@@ -106,10 +112,12 @@ TEST_F(BooleanQueryBuilderTest, like_query) {
     StringValue value(str, length);
     ExtLiteral like_literal(TYPE_VARCHAR, &value);
     std::string name = "content";
-    ExtLikePredicate* like_predicate = new ExtLikePredicate(TExprNodeType::LIKE_PRED, name, type_desc, like_literal);
+    ExtLikePredicate like_predicate(TExprNodeType::LIKE_PRED, name, type_desc, like_literal);
     WildCardQueryBuilder like_query(like_predicate);
     rapidjson::Document document;
-    rapidjson::Value like_query_value = like_query.to_json(document);
+    rapidjson::Value like_query_value(rapidjson::kObjectType);
+    like_query_value.SetObject();
+    like_query.to_json(&document, &like_query_value);
     rapidjson::StringBuffer buffer;
     rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
     like_query_value.Accept(writer);
@@ -140,10 +148,12 @@ TEST_F(BooleanQueryBuilderTest, terms_in_query) {
     ExtLiteral term_literal_3(TYPE_VARCHAR, &string_value_3);
 
     std::vector<ExtLiteral> terms_values = {term_literal_1, term_literal_2, term_literal_3};
-    ExtInPredicate* in_predicate = new ExtInPredicate(TExprNodeType::IN_PRED, false, terms_in_field, terms_in_col_type_desc, terms_values);
+    ExtInPredicate in_predicate(TExprNodeType::IN_PRED, false, terms_in_field, terms_in_col_type_desc, terms_values);
     TermsInSetQueryBuilder terms_query(in_predicate);
     rapidjson::Document document;
-    rapidjson::Value in_query_value = terms_query.to_json(document);
+    rapidjson::Value in_query_value(rapidjson::kObjectType);
+    in_query_value.SetObject();
+    terms_query.to_json(&document, &in_query_value);
     rapidjson::StringBuffer buffer;
     rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
     in_query_value.Accept(writer);
@@ -156,7 +166,9 @@ TEST_F(BooleanQueryBuilderTest, match_all_query) {
     // match all docs
     MatchAllQueryBuilder match_all_query;
     rapidjson::Document document;
-    rapidjson::Value match_all_query_value = match_all_query.to_json(document);
+    rapidjson::Value match_all_query_value(rapidjson::kObjectType);
+    match_all_query_value.SetObject();
+    match_all_query.to_json(&document, &match_all_query_value);
     rapidjson::StringBuffer buffer;
     rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
     match_all_query_value.Accept(writer);
@@ -209,7 +221,9 @@ TEST_F(BooleanQueryBuilderTest, bool_query) {
     std::vector<ExtPredicate*> or_predicates = {like_predicate, function_predicate, range_predicate, term_predicate};
     BooleanQueryBuilder bool_query(or_predicates);
     rapidjson::Document document;
-    rapidjson::Value bool_query_value = bool_query.to_json(document);
+    rapidjson::Value bool_query_value(rapidjson::kObjectType);
+    bool_query_value.SetObject();
+    bool_query.to_json(&document, &bool_query_value);
     rapidjson::StringBuffer buffer;
     rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
     bool_query_value.Accept(writer);
@@ -291,7 +305,9 @@ TEST_F(BooleanQueryBuilderTest, compound_bool_query) {
     std::vector<EsPredicate*> and_bool_predicates = {bool_predicate_1, bool_predicate_2, bool_predicate_3, bool_predicate_4};
     
     rapidjson::Document document;
-    rapidjson::Value compound_bool_value = BooleanQueryBuilder::to_query(and_bool_predicates, document);
+    rapidjson::Value compound_bool_value(rapidjson::kObjectType);
+    compound_bool_value.SetObject();
+    BooleanQueryBuilder::to_query(and_bool_predicates, &document, &compound_bool_value);
     rapidjson::StringBuffer buffer;
     rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
     compound_bool_value.Accept(writer);
@@ -416,7 +432,8 @@ TEST_F(BooleanQueryBuilderTest, validate_partial) {
     EsPredicate* bool_predicate_3 = new EsPredicate(bool_predicates_3);
     
     std::vector<EsPredicate*> and_bool_predicates = {bool_predicate_1, bool_predicate_2, bool_predicate_3};
-    std::vector<bool> result = BooleanQueryBuilder::validate(and_bool_predicates);
+    std::vector<bool> result;
+    BooleanQueryBuilder::validate(and_bool_predicates, &result);
     std::vector<bool> expected = {true, true, true};
     ASSERT_TRUE(result == expected);
     char illegal_query[] = "{\"term\": {\"k1\" : \"2\"},\"match\": {\"k1\": \"3\"}}";
@@ -428,11 +445,11 @@ TEST_F(BooleanQueryBuilderTest, validate_partial) {
     std::vector<ExtPredicate*> illegal_bool_predicates_3 = {term_ne_predicate, illegal_function_preficate};
     EsPredicate* illegal_bool_predicate_3 = new EsPredicate(illegal_bool_predicates_3);
     std::vector<EsPredicate*> and_bool_predicates_1 = {bool_predicate_1, bool_predicate_2, illegal_bool_predicate_3};
-    result = BooleanQueryBuilder::validate(and_bool_predicates_1);
+    std::vector<bool> result1;
+    BooleanQueryBuilder::validate(and_bool_predicates_1, &result1);
     std::vector<bool> expected1 = {true, true, false};
-    ASSERT_TRUE(result == expected1);
+    ASSERT_TRUE(result1 == expected1);
 }
-
 }
 
 int main(int argc, char* argv[]) {
