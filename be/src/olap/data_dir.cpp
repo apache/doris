@@ -785,7 +785,7 @@ OLAPStatus DataDir::load() {
         TabletSharedPtr tablet = _tablet_manager->get_tablet(
                                     rowset_meta->tablet_id(), rowset_meta->tablet_schema_hash());
         // tablet maybe dropped, but not drop related rowset meta
-        if (tablet.get() == NULL) {
+        if (tablet == nullptr) {
             LOG(WARNING) << "could not find tablet id: " << rowset_meta->tablet_id()
                          << ", schema hash: " << rowset_meta->tablet_schema_hash()
                          << ", for rowset: " << rowset_meta->rowset_id()
