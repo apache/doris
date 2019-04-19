@@ -216,7 +216,7 @@ static bool is_literal_node(const Expr* expr) {
     }
 }
 
-bool EsPredicate::build_disjuncts_list(Expr* conjunct) {
+bool EsPredicate::build_disjuncts_list(const Expr* conjunct) {
     if (TExprNodeType::BINARY_PRED == conjunct->node_type()) {
         if (conjunct->children().size() != 2) {
             VLOG(1) << "get disjuncts fail: number of childs is not 2";
@@ -337,7 +337,7 @@ bool EsPredicate::build_disjuncts_list(Expr* conjunct) {
         }
 
         vector<ExtLiteral> in_pred_values;
-        InPredicate* pred = dynamic_cast<InPredicate*>(conjunct);
+        const InPredicate* pred = dynamic_cast<const InPredicate*>(conjunct);
         if (Expr::type_without_cast(pred->get_child(0)) != TExprNodeType::SLOT_REF) {
             return false;
         }
@@ -405,7 +405,7 @@ bool EsPredicate::is_match_func(const Expr* conjunct) {
     return false;
 }
 
-const SlotDescriptor* EsPredicate::get_slot_desc(SlotRef* slotRef) {
+const SlotDescriptor* EsPredicate::get_slot_desc(const SlotRef* slotRef) {
     std::vector<SlotId> slot_ids;
     slotRef->get_slot_ids(&slot_ids);
     const SlotDescriptor* slot_desc = nullptr;

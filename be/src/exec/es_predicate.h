@@ -175,7 +175,7 @@ public:
     const std::vector<ExtPredicate*>& get_predicate_list();
     bool build_disjuncts_list();
     // public for tests
-    EsPredicate(std::vector<ExtPredicate*>& all_predicates) {
+    EsPredicate(const std::vector<ExtPredicate*>& all_predicates) {
         _disjuncts = all_predicates;
     };
 
@@ -184,9 +184,9 @@ public:
     }
 
 private:
-    bool build_disjuncts_list(Expr* conjunct);
+    bool build_disjuncts_list(const Expr* conjunct);
     bool is_match_func(const Expr* conjunct);
-    const SlotDescriptor* get_slot_desc(SlotRef* slotRef);
+    const SlotDescriptor* get_slot_desc(const SlotRef* slotRef);
 
     ExprContext* _context; 
     int _disjuncts_num;

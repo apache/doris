@@ -41,7 +41,7 @@ public:
     int get_size();
 
 private:
-    void parsing(const std::string scroll_result);
+    void parsing(const std::string& scroll_result);
 
     std::string _scroll_id;
     int _total;
