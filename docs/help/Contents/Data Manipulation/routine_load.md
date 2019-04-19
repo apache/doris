@@ -258,10 +258,11 @@
     1. Id：作业id。
     2. Name：作业的名称。
     3. CreateTime：作业创建时间。
-    4. EndTime：作业结束时间。
-    5. DdName：数据库名称。
-    6. TableName：目的表名称。
-    7. State：作业状态。
+    4. PauseTime：作业暂停时间。
+    5. EndTime：作业结束时间。
+    6. DdName：数据库名称。
+    7. TableName：目的表名称。
+    8. State：作业状态。
 
         NEED_SCHEDULE：等待被调度。
         RUNNING：运行中。
@@ -269,12 +270,12 @@
         STOPPED：作业由用户停止。
         CANCELLED：作业因失败停止。
 
-    8. DataSourceType：数据源类型。
+    9. DataSourceType：数据源类型。
 
         KAFKA
 
-    9. CurrentTaskNum：当前子任务并发度。
-    10. JobProperties：作业相关配置信息，对应创建语句中的 load_properties 和 job_properties。以 json 格式表示。
+    10. CurrentTaskNum：当前子任务并发度。
+    11. JobProperties：作业相关配置信息，对应创建语句中的 load_properties 和 job_properties。以 json 格式表示。
 
         {
             "partitions": "*",      // 目的表的分区，星号表示没有指定。
@@ -288,7 +289,7 @@
             "maxBatchRows": "200000"
         }
 
-    11. Statistic：作业运行状态的统计信息。以 json 格式表示。
+    12. Statistic：作业运行状态的统计信息。以 json 格式表示。
 
         {
         	"errorRows": 0,                 // 总的错误行数
@@ -303,7 +304,7 @@
         	"taskExecuteTaskMs": 72312      // 子任务执行时间，单位毫秒
         }
 
-    12. Progress：作业进度。以 json 格式表示。
+    13. Progress：作业进度。以 json 格式表示。
 
         如果数据源是 Kafka，则显示每个 kafka partition，当前已经被消费的 offset。
 
@@ -312,6 +313,10 @@
         	"1": 2194329,
         	"2": 2193731
         }
+
+        OFFSET_BEGINNING: 表示用户指定了从头开始消费，并且还未开始消费。
+        OFFSET_END: 表示用户指定了从末尾开始消费，并且还未开始消费。
+        OFFSET_ZERO: 表示用户指定了从 0 开始消费，并且还未开始消费。
 
 ## example
 
@@ -357,8 +362,8 @@
     TaskId：task id。
     TxnId：task 对应的事务id。
     JobId：作业id。
-    CreateTimeMs：任务创建时间。
-    ExecuteStartTimeMs：任务开始执行的时间。
+    CreateTime：任务创建时间。
+    ExecuteStartTime：任务开始执行的时间。
     BeId：任务所在的 Backend id。
     DataSourceProperties：
         
@@ -376,3 +381,6 @@
 1. 展示名为 test1 的例行导入任务的子任务信息。
 
     SHOW ROUTINE LOAD TASK WHERE JobName = "test1";
+
+# keyword
+    SHOW,ROUTINE,LOAD,TASK
