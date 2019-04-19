@@ -29,8 +29,8 @@ import org.apache.doris.common.io.Writable;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
-import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -44,7 +44,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
     private List<LiteralExpr> keys;
     private List<PrimitiveType> types;
 
-    // constuct for partition prune
+    // constructor for partition prune
     public PartitionKey() {
         keys = Lists.newArrayList();
         types = Lists.newArrayList();
