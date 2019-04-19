@@ -54,7 +54,7 @@ ScrollParser::ScrollParser(const std::string& scroll_result) :
 ScrollParser::~ScrollParser() {
 }
 
-void ScrollParser::parsing(const std::string scroll_result) {
+void ScrollParser::parsing(const std::string& scroll_result) {
     _document_node.Parse(scroll_result.c_str());
 
     if (!_document_node.HasMember(FIELD_SCROLL_ID)) {
