@@ -25,6 +25,7 @@
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/rowset/alpha_rowset.h"
 #include "olap/rowset/alpha_rowset_meta.h"
+#include "olap/tablet_meta_manager.h"
 #include "olap/txn_manager.h"
 #include "olap/new_status.h"
 #include "boost/filesystem.hpp"
@@ -129,6 +130,10 @@ TEST_F(TabletMgrTest, CreateTablet) {
     // check dir exist
     bool dir_exist = check_dir_existed(tablet->tablet_path());
     ASSERT_TRUE(dir_exist);
+    // check meta has this tablet
+    TabletMetaSharedPtr new_tablet_meta(new TabletMeta());
+    OLAPStatus check_meta_st = TabletMetaManager::get_header(_data_dir, 111, 3333, new_tablet_meta);
+    ASSERT_TRUE(check_meta_st == OLAP_SUCCESS);
 
     // retry create should be successfully
     create_st = _tablet_mgr.create_tablet(create_tablet_req, data_dirs);

@@ -554,6 +554,9 @@ OLAPStatus TabletManager::_drop_tablet_unlock(
     }
 
     // Drop specified tablet and clear schema change info
+    // must first break the link and then drop the tablet
+    // if drop tablet, then break link. the link maybe exists but the tablet 
+    // not exist when be restarts
     related_tablet->obtain_header_wrlock();
     related_tablet->delete_alter_task();
     res = related_tablet->save_meta();
@@ -1202,6 +1205,10 @@ OLAPStatus TabletManager::_drop_tablet_directly_unlocked(
                           << " tablet_id=" << tablet_id
                           << " schema_hash=" << schema_hash
                           << " tablet path=" << dropped_tablet->tablet_path();
+                // has to update tablet here, must not update tablet meta directly
+                // because other thread may hold the tablet object, they may save meta too
+                // if update meta directly here, other thread may override the meta
+                // and the tablet will be loaded at restart time.
                 tablet->set_tablet_state(TABLET_SHUTDOWN);
                 res = tablet->save_meta();
                 if (res != OLAP_SUCCESS) {
