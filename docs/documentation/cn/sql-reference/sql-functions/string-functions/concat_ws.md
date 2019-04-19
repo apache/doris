@@ -1,14 +1,14 @@
 # concat_ws
 
-## Description
-
-使用第一个参数作为连接符，将第二个参数以及后续所有参数拼接成一个字符串.
-如果分隔符是NULL，返回NULL。
-`concat_ws`函数不会跳过空字符串，会跳过NULL值
-
 ## Syntax
 
-`VARCHAR concat_ws(VARCHAR, VARCHAR,...)`
+`VARCHAR concat_ws(VARCHAR sep, VARCHAR str,...)`
+
+## Description
+
+使用第一个参数 sep 作为连接符，将第二个参数以及后续所有参数拼接成一个字符串.
+如果分隔符是 NULL，返回 NULL。
+`concat_ws`函数不会跳过空字符串，会跳过 NULL 值
 
 ## Examples
 
