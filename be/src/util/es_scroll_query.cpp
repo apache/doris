@@ -69,7 +69,9 @@ std::string ESScrollQueryBuilder::build(const std::map<std::string, std::string>
     es_query_dsl.SetObject();
     // generate the filter caluse
     rapidjson::Document scratch_document;
-    rapidjson::Value query_node = BooleanQueryBuilder::to_query(predicates, scratch_document);
+    rapidjson::Value query_node(rapidjson::kObjectType);
+    query_node.SetObject();
+    BooleanQueryBuilder::to_query(predicates, &scratch_document, &query_node);
     // note: add `query` for this value....
     es_query_dsl.AddMember("query", query_node, allocator);
     // just filter the selected fields for reducing the network cost
