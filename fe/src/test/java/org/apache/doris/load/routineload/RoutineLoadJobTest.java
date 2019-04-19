@@ -159,7 +159,7 @@ public class RoutineLoadJobTest {
     public void testGetShowInfo(@Mocked KafkaProgress kafkaProgress) {
         RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
         Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.PAUSED);
-        Deencapsulation.setField(routineLoadJob, "pausedReason",
+        Deencapsulation.setField(routineLoadJob, "pauseReason",
                                  TransactionState.TxnStatusChangeReason.OFFSET_OUT_OF_RANGE.toString());
         Deencapsulation.setField(routineLoadJob, "progress", kafkaProgress);
 

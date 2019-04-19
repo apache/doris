@@ -161,10 +161,11 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
     protected int currentTaskConcurrentNum;
     protected RoutineLoadProgress progress;
 
-    protected String pausedReason;
+    protected String pauseReason;
     protected String cancelReason;
 
     protected long createTimestamp = System.currentTimeMillis();
+    protected long pauseTimestamp = -1;
     protected long endTimestamp = -1;
 
     /*
@@ -848,13 +849,15 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
 
     private void executePause(String reason) {
         // remove all of task in jobs and change job state to paused
-        pausedReason = reason;
+        pauseReason = reason;
         state = JobState.PAUSED;
+        pauseTimestamp = System.currentTimeMillis();
         routineLoadTaskInfoList.clear();
     }
 
     private void executeNeedSchedule() {
         state = JobState.NEED_SCHEDULE;
+        pauseTimestamp = -1;
         routineLoadTaskInfoList.clear();
     }
 
@@ -961,6 +964,7 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
             row.add(String.valueOf(id));
             row.add(name);
             row.add(TimeUtils.longToTimeString(createTimestamp));
+            row.add(TimeUtils.longToTimeString(pauseTimestamp));
             row.add(TimeUtils.longToTimeString(endTimestamp));
             row.add(db == null ? String.valueOf(dbId) : db.getFullName());
             row.add(tbl == null ? String.valueOf(tableId) : tbl.getName());
@@ -973,7 +977,7 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
             row.add(getProgress().toJsonString());
             switch (state) {
                 case PAUSED:
-                    row.add(pausedReason);
+                    row.add(pauseReason);
                     break;
                 case CANCELLED:
                     row.add(cancelReason);
@@ -1082,6 +1086,7 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
         progress.write(out);
 
         out.writeLong(createTimestamp);
+        out.writeLong(pauseTimestamp);
         out.writeLong(endTimestamp);
 
         out.writeLong(currentErrorRows);
@@ -1127,6 +1132,7 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
         }
 
         createTimestamp = in.readLong();
+        pauseTimestamp = in.readLong();
         endTimestamp = in.readLong();
 
         currentErrorRows = in.readLong();
