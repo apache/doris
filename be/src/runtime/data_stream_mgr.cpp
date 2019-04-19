@@ -111,14 +111,15 @@ Status DataStreamMgr::transmit_data(const PTransmitDataParams* request, ::google
         return Status::OK;
     }
 
+
+    if (request->has_query_statistics()) {
+        recvr->add_sub_plan_statistics(request->query_statistics(), request->sender_id());
+    }
+
     bool eos = request->eos();
     if (request->has_row_batch()) {
         recvr->add_batch(request->row_batch(), request->sender_id(), 
                 request->be_number(), request->packet_seq(), eos ? nullptr : done);
-    }
-
-    if (request->has_query_statistics()) {
-        recvr->add_sub_plan_statistics(request->query_statistics(), request->sender_id());
     }
 
     if (eos) {
