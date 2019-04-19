@@ -340,6 +340,18 @@ public class Config extends ConfigBase {
     public static int stream_load_default_timeout_second = 300; // 300s
 
     /*
+     * Max stream load timeout
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int max_stream_load_timeout_second = 172800; // 2days
+
+    /*
+    * Min stream load timeout
+    */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int min_stream_load_timeout_second = 1; // 1s
+
+    /*
      * Default hadoop load timeout
      */
     @ConfField(mutable = true, masterOnly = true)

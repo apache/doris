@@ -35,7 +35,7 @@
         where: 用于抽取部分数据。用户如果有需要将不需要的数据过滤掉，那么可以通过设定这个选项来达到。
         例1: 只导入大于k1列等于20180601的数据，那么可以在导入时候指定-H "where: k1 = 20180601"
 
-        max_filter_ratio：最大容忍可过滤（数据不规范等原因）的数据比例。默认零容忍。
+        max_filter_ratio：最大容忍可过滤（数据不规范等原因）的数据比例。默认零容忍。数据不规范不包括通过 where 条件过滤掉的行。
 
         partitions: 用于指定这次导入所设计的partition。如果用户能够确定数据对应的partition，推荐指定该项。不满足这些分区的数据将被过滤掉。
         比如指定导入到p1, p2分区，-H "partitions: p1, p2"
@@ -49,8 +49,10 @@
             用户需要通过get label state命令来确定后续的操作
             其他：此次导入失败，用户可以指定Label重试此次作业
         Message: 导入状态详细的说明。失败时会返回具体的失败原因。
+        NumberTotalRows: 从数据流中读取到的总行数
         NumberLoadedRows: 此次导入的数据行数，只有在Success时有效
-        NumberFilteredRows: 此次导入过滤掉的行数
+        NumberFilteredRows: 此次导入过滤掉的行数，即数据质量不合格的行数
+        NumberUnselectedRows: 此次导入，通过 where 条件被过滤掉的行数
         LoadBytes: 此次导入的源文件数据量大小
         LoadTimeMs: 此次导入所用的时间
         ErrorURL: 被过滤数据的具体内容，仅保留前1000条

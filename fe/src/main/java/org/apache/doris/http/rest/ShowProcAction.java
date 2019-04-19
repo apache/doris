@@ -71,9 +71,14 @@ public class ShowProcAction extends RestBaseAction {
         }
 
         String path = request.getSingleParameter("path");
+        String forward = request.getSingleParameter("forward");
+        boolean isForward = false;
+        if (!Strings.isNullOrEmpty(forward) && forward.equals("true")) {
+            isForward = true;
+        }
 
         // forward to master if necessary
-        if (!Catalog.getCurrentCatalog().isMaster()) {
+        if (!Catalog.getCurrentCatalog().isMaster() && isForward) {
             String showProcStmt = "SHOW PROC \"" + path + "\"";
             ConnectContext context = new ConnectContext(null);
             context.setCatalog(Catalog.getCurrentCatalog());
