@@ -67,6 +67,7 @@ public class ShowRoutineLoadStmt extends ShowStmt {
                     .add("Id")
                     .add("Name")
                     .add("CreateTime")
+                    .add("PauseTime")
                     .add("EndTime")
                     .add("DbName")
                     .add("TableName")
