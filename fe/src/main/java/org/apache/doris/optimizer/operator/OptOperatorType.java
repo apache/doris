@@ -19,7 +19,6 @@ package org.apache.doris.optimizer.operator;
 
 public enum OptOperatorType {
     OP_LOGICAL_AGGREGATE("LogicalAggregate"),
-    OP_LOGICAL_GB_AGG("LogicalGroupByAggregate"),
     OP_LOGICAL_JOIN("LogicalEqJoin"),
     OP_LOGICAL_INNER_JOIN("LogicalInnerJoin"),
     OP_LOGICAL_NARY_JOIN("LogicalNAryJoin"),

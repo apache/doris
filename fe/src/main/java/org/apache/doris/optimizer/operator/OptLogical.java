@@ -23,6 +23,7 @@ import org.apache.doris.optimizer.base.*;
 import org.apache.doris.optimizer.stat.Statistics;
 
 import java.util.BitSet;
+import java.util.List;
 
 public abstract class OptLogical extends OptOperator {
     private static BitSet EMPTY_BITSET = new BitSet();
@@ -45,7 +46,7 @@ public abstract class OptLogical extends OptOperator {
     public abstract OptColumnRefSet requiredStatForChild(
             OptExpressionHandle expressionHandle, RequiredLogicalProperty property, int childIndex);
 
-    protected Statistics estimateAgg(OptColumnRefSet groupBy, RequiredLogicalProperty property, Statistics childStatistcs) {
+    protected Statistics estimateAgg(List<OptColumnRef> groupBy, RequiredLogicalProperty property, Statistics childStatistcs) {
         final Statistics statistics = new Statistics();
         long rowCount = 1;
         final OptColumnRefSet set = new OptColumnRefSet();
