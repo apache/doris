@@ -149,9 +149,10 @@ OLAPStatus SnapshotManager::convert_rowset_ids(DataDir& data_dir, const string& 
     new_tablet_meta_pb = cloned_tablet_meta_pb;
     new_tablet_meta_pb.clear_rs_metas();
     new_tablet_meta_pb.clear_inc_rs_metas();
-    // should modify tablet id because in restore process the tablet id is not
+    // should modify tablet id and schema hash because in restore process the tablet id is not
     // equal to tablet id in meta
     new_tablet_meta_pb.set_tablet_id(tablet_id);
+    new_tablet_meta_pb.set_schema_hash(schema_hash);
     TabletSchema tablet_schema;
     RETURN_NOT_OK(tablet_schema.init_from_pb(new_tablet_meta_pb.schema()));
     for (auto& visible_rowset : cloned_tablet_meta_pb.rs_metas()) {
@@ -417,6 +418,9 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
             LOG(WARNING) << "fail to create hard link. [path=" << snapshot_id_path << "]";
             break;
         }
+
+        // clear alter task info in snapshot files
+        new_tablet_meta->delete_alter_task();
 
         if (request.__isset.missing_version) {
             new_tablet_meta->revise_inc_rs_metas(rs_metas);
