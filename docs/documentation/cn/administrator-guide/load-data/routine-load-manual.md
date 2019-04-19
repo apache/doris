@@ -71,7 +71,8 @@
 
     desired_concurrent_number 用于指定一个例行作业期望的并发度。即一个作业，最多有多少 task 同时在执行。对于 Kafka 导入而言，当前的实际并发度计算如下：
     
-    `Min(partition num / 3, desired_concurrent_number, alive_backend_num)`
+    `Min(partition num / 3, desired_concurrent_number, alive_backend_num, DEFAULT_TASK_MAX_CONCURRENT_NUM)`
+    其中DEFAULT_TASK_MAX_CONCURRENT_NUM是系统的一个默认的最大并发数限制。
 
     其中 partition 值订阅的 Kafka topic 的 partition数量。`alive_backend_num` 是当前正常的 BE 节点数。
     
