@@ -117,7 +117,7 @@ OLAPStatus PushHandler::_do_streaming_ingestion(
       // if related tablet not exists, only push current tablet
       if (NULL == related_tablet.get()) {
         LOG(WARNING) << "can't find related tablet, only push current tablet. "
-                     << "[tablet=%s related_tablet_id=" << tablet->full_name()
+                     << "related_tablet_id=" << related_tablet_id
                      << ", related_schema_hash=" << related_schema_hash;
 
         // if current tablet is new tablet, only push current tablet

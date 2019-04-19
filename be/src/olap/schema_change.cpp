@@ -1213,7 +1213,9 @@ OLAPStatus SchemaChangeHandler::process_alter_tablet(AlterTabletType type,
     base_tablet->obtain_push_lock();
     base_tablet->obtain_header_wrlock();
     new_tablet->obtain_header_wrlock();
-    _save_alter_state(ALTER_PREPARED, base_tablet, new_tablet);
+    // store schema change information into tablet header
+    vector<Version> empty_version_list;
+    res = _add_alter_task(type, base_tablet, new_tablet, empty_version_list);
     new_tablet->release_header_lock();
     base_tablet->release_header_lock();
 

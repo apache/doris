@@ -982,7 +982,8 @@ void* StorageEngine::_path_gc_thread_callback(void* arg) {
 
     while (true) {
         LOG(INFO) << "try to perform path gc!";
-        ((DataDir*)arg)->perform_path_gc();
+        // TODO(ygl): stop gc temp because could not define all pending dirs currently
+        // ((DataDir*)arg)->perform_path_gc();
         usleep(interval * 1000000);
     }
 

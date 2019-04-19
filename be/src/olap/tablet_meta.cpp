@@ -599,6 +599,7 @@ OLAPStatus TabletMeta::delete_alter_task() {
     return OLAP_SUCCESS;
 }
 
+// TODO(ygl): if alter task is nullptr, return error?
 void TabletMeta::set_alter_state(AlterTabletState alter_state) {
     WriteLock wrlock(&_meta_lock);
     if (_alter_task == nullptr) {
