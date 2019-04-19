@@ -137,22 +137,15 @@ public final class RollupSelector {
 
 
         // 2. find all rollups which match the prefix most based on predicates column from containTupleIndices.
-        final  List<Set<String>> predicatesPrefixIndexsCombinations =
-                createCandidatePredicatePrefixIndex(conjuncts);
-        List<Long> rollupsMatchingBestPrefixIndex = null;
-        int lastMatchBestPrefixIndexSize = 0;
-        for (Set<String> predicatePrefixIndexs : predicatesPrefixIndexsCombinations) {
-            final List<Long> candicateRollupsMatchingBestPrefixIndex = Lists.newArrayList();
-            int matchBestPrefixIndexSize = matchPrefixIndex(rollupsContainsOutput,
-                    predicatePrefixIndexs, candicateRollupsMatchingBestPrefixIndex);
-            if (lastMatchBestPrefixIndexSize < matchBestPrefixIndexSize) {
-                rollupsMatchingBestPrefixIndex = candicateRollupsMatchingBestPrefixIndex;
-            }
-        }
+        final Set<String> equivalenceColumns = Sets.newHashSet();
+        final Set<String> unequivalenceColumns = Sets.newHashSet();
+        collectColumns(conjuncts, equivalenceColumns, unequivalenceColumns);
+        final List<Long> rollupsMatchingBestPrefixIndex = Lists.newArrayList();
+        matchPrefixIndex(rollupsContainsOutput, rollupsMatchingBestPrefixIndex,
+                         equivalenceColumns, unequivalenceColumns);
 
-        if (rollupsMatchingBestPrefixIndex == null || rollupsMatchingBestPrefixIndex.isEmpty()) {
-            rollupsMatchingBestPrefixIndex =
-                    rollupsContainsOutput.stream().map(n -> n.getId()).collect(Collectors.toList());
+        if (rollupsMatchingBestPrefixIndex.isEmpty()) {
+            rollupsContainsOutput.stream().forEach(n -> rollupsMatchingBestPrefixIndex.add(n.getId()));
         }
 
         // 3. sorted the final candidate indexes by index id
@@ -166,15 +159,24 @@ public final class RollupSelector {
         return rollupsMatchingBestPrefixIndex;
     }
 
-    private int matchPrefixIndex(List<MaterializedIndex> candidateRollups,
-                                 Set<String> predicateColumns, List<Long> rollupsMatchingBestPrefixIndex) {
+    private void matchPrefixIndex(List<MaterializedIndex> candidateRollups,
+                                 List<Long> rollupsMatchingBestPrefixIndex,
+                                 Set<String> equivalenceColumns,
+                                 Set<String> unequivalenceColumns) {
+        if (equivalenceColumns.size() == 0 && unequivalenceColumns.size() == 0) {
+            return;
+        }
         int maxPrefixMatchCount = 0;
-        int prefixMatchCount = 0;
+        int prefixMatchCount;
         for (MaterializedIndex index : candidateRollups) {
             prefixMatchCount = 0;
             for (Column col : table.getSchemaByIndexId(index.getId())) {
-                if (predicateColumns.contains(col.getName())) {
+                if (equivalenceColumns.contains(col.getName())) {
                     prefixMatchCount++;
+                } else if (unequivalenceColumns.contains(col.getName())) { 
+                    // Unequivalence predicate's columns can match only first column in rollup.
+                    prefixMatchCount++;
+                    break;
                 } else {
                     break;
                 }
@@ -190,18 +192,10 @@ public final class RollupSelector {
                 rollupsMatchingBestPrefixIndex.add(index.getId());
             }
         }
-        return maxPrefixMatchCount;
     }
 
-    /**
-     * Create candidate prefix index combinations with predicates columns.
-     * @param conjuncts
-     * @return prefix index combinations
-     */
-    private List<Set<String>> createCandidatePredicatePrefixIndex(List<Expr> conjuncts) {
-
-        final Set<String> equivalenceExprs = Sets.newHashSet();
-        final Set<String> unequivallenceExprs = Sets.newHashSet();
+    private void collectColumns(
+            List<Expr> conjuncts, Set<String> equivalenceColumns, Set<String> unequivalenceColumns) {
 
         // 1. Get columns which has predicate on it.
         for (Expr expr : conjuncts) {
@@ -211,9 +205,9 @@ public final class RollupSelector {
             for (SlotDescriptor slot : tupleDesc.getMaterializedSlots()) {
                 if (expr.isBound(slot.getId())) {
                     if (!isEquivalenceExpr(expr)) {
-                        unequivallenceExprs.add(slot.getColumn().getName());
+                        unequivalenceColumns.add(slot.getColumn().getName());
                     } else {
-                        equivalenceExprs.add(slot.getColumn().getName());
+                        equivalenceColumns.add(slot.getColumn().getName());
                     }
                     break;
                 }
@@ -229,19 +223,12 @@ public final class RollupSelector {
             for (SlotDescriptor slot : tupleDesc.getMaterializedSlots()) {
                 for (int i = 0; i < 2; i++) {
                     if (expr.getChild(i).isBound(slot.getId())) {
-                        equivalenceExprs.add(slot.getColumn().getName());
+                        equivalenceColumns.add(slot.getColumn().getName());
                         break;
                     }
                 }
             }
         }
-
-        final  List<Set<String>> predicatesPrefixIndexsColumns = Lists.newArrayList();
-        predicatesPrefixIndexsColumns.add(equivalenceExprs);
-        for (String str : unequivallenceExprs) {
-            predicatesPrefixIndexsColumns.add(Sets.newHashSet(str));
-        }
-        return predicatesPrefixIndexsColumns;
     }
 
     private boolean isEquivalenceExpr(Expr expr) {
