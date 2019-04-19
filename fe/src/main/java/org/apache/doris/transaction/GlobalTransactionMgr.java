@@ -104,9 +104,9 @@ public class GlobalTransactionMgr {
         return listenerRegistry;
     }
 
-    public long beginTransaction(long dbId, String label, String coordinator, LoadJobSourceType sourceType)
-            throws AnalysisException, LabelAlreadyUsedException, BeginTransactionException {
-        return beginTransaction(dbId, label, -1, coordinator, sourceType, -1);
+    public long beginTransaction(long dbId, String label, String coordinator, LoadJobSourceType sourceType,
+            long timeoutSecond) throws AnalysisException, LabelAlreadyUsedException, BeginTransactionException {
+        return beginTransaction(dbId, label, -1, coordinator, sourceType, -1, timeoutSecond);
     }
     
     /**
@@ -122,11 +122,18 @@ public class GlobalTransactionMgr {
      * @throws IllegalTransactionParameterException
      */
     public long beginTransaction(long dbId, String label, long timestamp,
-            String coordinator, LoadJobSourceType sourceType, long listenerId)
+            String coordinator, LoadJobSourceType sourceType, long listenerId, long timeoutSecond)
             throws AnalysisException, LabelAlreadyUsedException, BeginTransactionException {
         
         if (Config.disable_load_job) {
             throw new BeginTransactionException("disable_load_job is set to true, all load jobs are prevented");
+        }
+        
+        if (timeoutSecond > Config.max_stream_load_timeout_second ||
+                timeoutSecond < Config.min_stream_load_timeout_second) {
+            throw new AnalysisException("Invalid timeout. Timeout should between "
+                    + Config.min_stream_load_timeout_second + " and " + Config.max_stream_load_timeout_second
+                    + " seconds");
         }
         
         writeLock();
@@ -149,12 +156,12 @@ public class GlobalTransactionMgr {
             if (runningTxnNums.get(dbId) != null
                     && runningTxnNums.get(dbId) > Config.max_running_txn_num_per_db) {
                 throw new BeginTransactionException("current running txns on db " + dbId + " is "
-                                                            + runningTxnNums.get(dbId) + ", larger than limit " + Config.max_running_txn_num_per_db);
+                        + runningTxnNums.get(dbId) + ", larger than limit " + Config.max_running_txn_num_per_db);
             }
             long tid = idGenerator.getNextTransactionId();
             LOG.info("begin transaction: txn id {} with label {} from coordinator {}", tid, label, coordinator);
             TransactionState transactionState = new TransactionState(dbId, tid, label, timestamp, sourceType,
-                    coordinator, listenerId);
+                    coordinator, listenerId, timeoutSecond * 1000);
             transactionState.setPrepareTime(System.currentTimeMillis());
             unprotectUpsertTransactionState(transactionState);
 
@@ -724,7 +731,11 @@ public class GlobalTransactionMgr {
      */
     public void removeOldTransactions() {
         long currentMillis = System.currentTimeMillis();
-        
+
+        // TODO(cmy): the following 3 steps are no needed anymore, we can only use the last step to check
+        // the timeout txn. Because, now we set timeout for each txn same as timeout of their job's.
+        // But we keep the 1 and 2 step for compatibility. They should be deleted in 0.11.0
+
         // to avoid dead lock (transaction lock and load lock), we do this in 3 phases
         // 1. get all related db ids of txn in idToTransactionState
         Set<Long> dbIds = Sets.newHashSet();
@@ -741,8 +752,7 @@ public class GlobalTransactionMgr {
                     // streaming insert stmt not add to fe load job, should use this method to
                     // recycle the timeout insert stmt load job
                     if (transactionState.getTransactionStatus() == TransactionStatus.PREPARE
-                            && (currentMillis - transactionState.getPrepareTime())
-                            / 1000 > Config.stream_load_default_timeout_second) {
+                            && currentMillis - transactionState.getPrepareTime() > transactionState.getTimeoutMs()) {
                         dbIds.add(transactionState.getDbId());
                     }
                 }
@@ -750,7 +760,7 @@ public class GlobalTransactionMgr {
         } finally {
             readUnlock();
         }
-        
+
         // 2. get all load jobs' txn id of these databases
         Map<Long, Set<Long>> dbIdToTxnIds = Maps.newHashMap();
         Load loadInstance = Catalog.getCurrentCatalog().getLoadInstance();
@@ -758,7 +768,7 @@ public class GlobalTransactionMgr {
             Set<Long> txnIds = loadInstance.getTxnIdsByDb(dbId);
             dbIdToTxnIds.put(dbId, txnIds);
         }
-        
+
         // 3. use dbIdToTxnIds to remove old transactions, without holding load locks again
         writeLock();
         try {
@@ -779,10 +789,9 @@ public class GlobalTransactionMgr {
                     // streaming insert stmt not add to fe load job, should use this method to
                     // recycle the timeout insert stmt load job
                     if (transactionState.getTransactionStatus() == TransactionStatus.PREPARE
-                            && (currentMillis - transactionState.getPrepareTime()) / 1000 > Config.stream_load_default_timeout_second) {
+                            && currentMillis - transactionState.getPrepareTime() > transactionState.getTimeoutMs()) {
                         if ((transactionState.getSourceType() != LoadJobSourceType.FRONTEND
-                                || !checkTxnHasRelatedJob(transactionState, dbIdToTxnIds))
-                                && (transactionState.getListenerId() == -1)) {
+                                || !checkTxnHasRelatedJob(transactionState, dbIdToTxnIds))) {
                             transactionState.setTransactionStatus(TransactionStatus.ABORTED);
                             transactionState.setFinishTime(System.currentTimeMillis());
                             transactionState.setReason("transaction is timeout and is cancelled automatically");
@@ -810,10 +819,10 @@ public class GlobalTransactionMgr {
             // So we return true to assume that we find a related load job, to avoid mistaken delete
             return true;
         }
-        
+
         return txnIds.contains(txnState.getTransactionId());
     }
-    
+
     public TransactionState getTransactionState(long transactionId) {
         readLock();
         try {
@@ -846,9 +855,12 @@ public class GlobalTransactionMgr {
     
     // for add/update/delete TransactionState
     private void unprotectUpsertTransactionState(TransactionState transactionState) {
-        if (transactionState.getTransactionStatus() != TransactionStatus.PREPARE) {
-            // no need to persist prepare txn. if prepare txn lost, the following commit will just be failed.
+        if (transactionState.getTransactionStatus() != TransactionStatus.PREPARE
+                || transactionState.getSourceType() == LoadJobSourceType.FRONTEND) {
+            // if this is a prepare txn, and load source type is not FRONTEND
+            // no need to persist it. if prepare txn lost, the following commit will just be failed.
             // user only need to retry this txn.
+            // The FRONTEND type txn is committed and running asynchronously, so we have to persist it.
             editLog.logInsertTransactionState(transactionState);
         }
         idToTransactionState.put(transactionState.getTransactionId(), transactionState);
@@ -1175,6 +1187,8 @@ public class GlobalTransactionMgr {
                         info.add(TimeUtils.longToTimeString(t.getFinishTime()));
                         info.add(t.getReason());
                         info.add(t.getErrorReplicas().size());
+                        info.add(t.getListenerId());
+                        info.add(t.getTimeoutMs());
                         infos.add(info);
                     });
         } finally {
@@ -1235,18 +1249,6 @@ public class GlobalTransactionMgr {
     
     public TransactionIdGenerator getTransactionIDGenerator() {
         return this.idGenerator;
-    }
-
-    public void removeRelatedJob(long txnId) {
-        writeLock();
-        try {
-            if (idToTransactionState.containsKey(txnId)) {
-                TransactionState transactionState = idToTransactionState.get(txnId);
-                transactionState.removeListenerId();
-            }
-        } finally {
-            writeUnlock();
-        }
     }
     
     // this two function used to read snapshot or write snapshot

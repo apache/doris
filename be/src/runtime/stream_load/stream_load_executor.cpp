@@ -51,16 +51,17 @@ Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx) {
             ctx->commit_infos = std::move(executor->runtime_state()->tablet_commit_infos());
             Status status = executor->status();
             if (status.ok()) {
+                ctx->number_total_rows = executor->runtime_state()->num_rows_load_total();
                 ctx->number_loaded_rows = executor->runtime_state()->num_rows_load_success();
                 ctx->number_filtered_rows = executor->runtime_state()->num_rows_load_filtered();
                 ctx->number_unselected_rows = executor->runtime_state()->num_rows_load_unselected();
 
-                int64_t num_total_rows =
-                    ctx->number_loaded_rows + ctx->number_filtered_rows;
-                if ((0.0 + ctx->number_filtered_rows) / num_total_rows > ctx->max_filter_ratio) {
+                int64_t num_selected_rows =
+                    ctx->number_total_rows - ctx->number_unselected_rows;
+                if ((0.0 + ctx->number_filtered_rows) / num_selected_rows > ctx->max_filter_ratio) {
                     status = Status("too many filtered rows");
                 }
-                else if(ctx->number_loaded_rows==0){
+                else if(ctx->number_loaded_rows == 0){
                     status = Status("all partitions have no load data");
                 }
                 if (ctx->number_filtered_rows > 0 &&

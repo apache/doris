@@ -148,6 +148,7 @@ public:
 
     Status status;
 
+    int64_t number_total_rows = 0;
     int64_t number_loaded_rows = 0;
     int64_t number_filtered_rows = 0;
     int64_t number_unselected_rows = 0;

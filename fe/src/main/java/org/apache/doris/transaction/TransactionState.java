@@ -124,6 +124,7 @@ public class TransactionState implements Writable {
     private TransactionStatus preStatus = null;
     
     private long listenerId = -1;
+    private long timeoutMs = Config.stream_load_default_timeout_second;
 
     // optional
     private TxnCommitAttachment txnCommitAttachment;
@@ -150,7 +151,7 @@ public class TransactionState implements Writable {
     }
     
     public TransactionState(long dbId, long transactionId, String label, long timestamp,
-            LoadJobSourceType sourceType, String coordinator, long listenerId) {
+            LoadJobSourceType sourceType, String coordinator, long listenerId, long timeoutMs) {
         this.dbId = dbId;
         this.transactionId = transactionId;
         this.label = label;
@@ -168,6 +169,7 @@ public class TransactionState implements Writable {
         this.hasSendTask = false;
         this.latch = new CountDownLatch(1);
         this.listenerId = listenerId;
+        this.timeoutMs = timeoutMs;
     }
     
     public void setErrorReplicas(Set<Long> newErrorReplicas) {
@@ -251,8 +253,8 @@ public class TransactionState implements Writable {
         return listenerId;
     }
 
-    public void removeListenerId() {
-        listenerId = -1;
+    public long getTimeoutMs() {
+        return timeoutMs;
     }
 
     public void setErrorLogUrl(String errorLogUrl) {
@@ -292,6 +294,7 @@ public class TransactionState implements Writable {
                     break;
                 case COMMITTED:
                     listener.beforeCommitted(this);
+                    break;
                 default:
                     break;
             }
@@ -314,6 +317,7 @@ public class TransactionState implements Writable {
                     break;
                 case COMMITTED:
                     listener.afterCommitted(this, txnOperated);
+                    break;
                 default:
                     break;
             }
@@ -444,6 +448,7 @@ public class TransactionState implements Writable {
             txnCommitAttachment.write(out);
         }
         out.writeLong(listenerId);
+        out.writeLong(timeoutMs);
     }
     
     @Override
@@ -474,6 +479,7 @@ public class TransactionState implements Writable {
                 txnCommitAttachment = TxnCommitAttachment.read(in);
             }
             listenerId = in.readLong();
+            timeoutMs = in.readLong();
         }
     }
 }
