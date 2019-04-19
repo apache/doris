@@ -115,6 +115,8 @@ public:
                            TTabletId tablet_id, SchemaHash schema_hash);
 
     bool get_expire_txns(TTabletId tablet_id, SchemaHash schema_hash, std::vector<int64_t>* transaction_ids);
+
+    void force_rollback_tablet_related_txns(OlapMeta* meta, TTabletId tablet_id, SchemaHash schema_hash);
     
 private:
     RWMutex* _get_txn_lock(TTransactionId txn_id) {
