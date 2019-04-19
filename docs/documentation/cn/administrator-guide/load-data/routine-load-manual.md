@@ -122,7 +122,7 @@
 
 1. 例行导入作业和 ALTER TABLE 操作的关系
 
-    * 例行导入不会阻塞 SCHEMA CHANGE 和 ROLLUP 操作。但是注意如果 SCHEMA CHANGE 完成后，列映射关系无法匹配，则会导致例行作业暂定。建议通过在例行导入作业中显式指定列映射关系，以及通过增加 Nullable 列或带 Default 值的列来减少这类问题。
+    * 例行导入不会阻塞 SCHEMA CHANGE 和 ROLLUP 操作。但是注意如果 SCHEMA CHANGE 完成后，列映射关系无法匹配，则会导致作业的错误数据激增，最终导致作业暂定。建议通过在例行导入作业中显式指定列映射关系，以及通过增加 Nullable 列或带 Default 值的列来减少这类问题。
     * 删除表的 Partition 可能会导致导入数据无法找到对应的 Partition，作业进入暂定
 
 2. 例行导入作业和其他导入作业的关系（LOAD, DELETE, INSERT）
