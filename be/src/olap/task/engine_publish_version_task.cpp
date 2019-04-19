@@ -73,7 +73,7 @@ OLAPStatus EnginePublishVersionTask::finish() {
 
             if (tablet == nullptr) {
                 LOG(WARNING) << "can't get tablet when publish version. tablet_id=" << tablet_info.tablet_id
-                             << "schema_hash=" << tablet_info.schema_hash;
+                             << " schema_hash=" << tablet_info.schema_hash;
                 _error_tablet_ids->push_back(tablet_info.tablet_id);
                 res = OLAP_ERR_PUSH_TABLE_NOT_EXIST;
                 continue;

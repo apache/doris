@@ -1451,7 +1451,9 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
     }
 
     SAFE_DELETE(sc_procedure);
-
+    LOG(INFO) << "successfully convert historical rowsets. "
+              << " base_tablet=" << base_tablet->full_name()
+              << ", new_tablet=" << new_tablet->full_name();
     return res;
 
 SCHEMA_VERSION_CONVERT_ERR:
@@ -1460,6 +1462,10 @@ SCHEMA_VERSION_CONVERT_ERR:
     }
 
     SAFE_DELETE(sc_procedure);
+    LOG(WARNING) << "failed to convert historical rowsets. "
+              << " base_tablet=" << base_tablet->full_name()
+              << ", new_tablet=" << new_tablet->full_name()
+              << " res = " << res;
     return res;
 }
 

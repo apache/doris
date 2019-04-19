@@ -340,8 +340,8 @@ OLAPStatus TxnManager::delete_txn(OlapMeta* meta, TPartitionId partition_id, TTr
 
 void TxnManager::get_tablet_related_txns(TabletSharedPtr tablet, int64_t* partition_id,
                                          std::set<int64_t>* transaction_ids) {
-    if (tablet.get() == nullptr || partition_id == nullptr || transaction_ids == nullptr) {
-        OLAP_LOG_WARNING("parameter is null when get transactions by tablet");
+    if (tablet == nullptr || partition_id == nullptr || transaction_ids == nullptr) {
+        LOG(WARNING) << "parameter is null when get transactions by tablet";
         return;
     }
 
@@ -355,6 +355,33 @@ void TxnManager::get_tablet_related_txns(TabletSharedPtr tablet, int64_t* partit
                     << "partition_id: " << it.first.first
                     << ", transaction_id: " << it.first.second
                     << ", tablet: " << tablet_info.to_string();
+        }
+    }
+}
+
+// force drop all txns related with the tablet
+// maybe lock error, because not get txn lock before remove from meta
+void TxnManager::force_rollback_tablet_related_txns(OlapMeta* meta, TTabletId tablet_id, SchemaHash schema_hash) {
+    TabletInfo tablet_info(tablet_id, schema_hash);
+    WriteLock txn_wrlock(&_txn_map_lock);
+    for (auto& it : _txn_tablet_map) {
+        auto load_itr = it.second.find(tablet_info);
+        if (load_itr != it.second.end()) {
+            TabletTxnInfo& load_info = load_itr->second;
+            if (load_info.rowset != nullptr && meta != nullptr) {
+                LOG(INFO) << " delete transaction from engine "
+                          << ", tablet: " << tablet_info.to_string()
+                          << ", rowset id: " << load_info.rowset->rowset_id();
+                RowsetMetaManager::remove(meta, load_info.rowset->rowset_id());
+            }
+            it.second.erase(tablet_info);
+            LOG(INFO) << "remove tablet related txn."
+                    << " partition_id: " << it.first.first
+                    << ", transaction_id: " << it.first.second
+                    << ", tablet: " << tablet_info.to_string();
+        }
+        if (it.second.empty()) {
+            _txn_tablet_map.erase(it.first);
         }
     }
 }
