@@ -190,7 +190,7 @@
         );
 
 ## keyword
-    ROUTINE,LOAD
+    CREATE,ROUTINE,LOAD
 
 # PAUSE ROUTINE LOAD
 

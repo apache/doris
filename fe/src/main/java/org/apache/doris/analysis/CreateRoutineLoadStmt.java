@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
@@ -279,7 +280,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         }
 
         desiredConcurrentNum = ((Long) Util.getLongPropertyOrDefault(jobProperties.get(DESIRED_CONCURRENT_NUMBER_PROPERTY),
-                RoutineLoadJob.DEFAULT_TASK_MAX_CONCURRENT_NUM, DESIRED_CONCURRENT_NUMBER_PRED,
+                Config.max_routine_load_task_concurrent_num, DESIRED_CONCURRENT_NUMBER_PRED,
                 DESIRED_CONCURRENT_NUMBER_PROPERTY + " should > 0")).intValue();
         
         maxErrorNum = Util.getLongPropertyOrDefault(jobProperties.get(MAX_ERROR_NUMBER_PROPERTY),
