@@ -257,6 +257,14 @@ TEST_F(DecimalValueTest, mul) {
     std::cout << "mul_result2: " << mul_result2.get_debug_info() << std::endl;
     ASSERT_EQ(DecimalValue(std::string("0")), mul_result2);
 
+    {
+        // test when carry is needed
+        DecimalValue value1(std::string("3074062.5421333313"));
+        DecimalValue value2(std::string("2169.957745029689045693"));
+        DecimalValue mul_result = value1 * value2;
+        std::cout << "mul_result=" << mul_result.get_debug_info() << std::endl;
+        ASSERT_EQ(DecimalValue(std::string("6670585822.0078770603624547106640070909")), mul_result);
+    }
 }
 
 TEST_F(DecimalValueTest, div) {
