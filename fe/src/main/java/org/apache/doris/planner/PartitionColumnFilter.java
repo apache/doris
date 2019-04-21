@@ -22,12 +22,13 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.common.AnalysisException;
+
 import com.google.common.collect.BoundType;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Range;
 
-import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 
@@ -68,7 +69,7 @@ public class PartitionColumnFilter {
         }
     }
 
-    // selete the smaller bound
+    // select the smaller bound
     public void setUpperBound(LiteralExpr newUpperBound, boolean newUpperBoundInclusive) {
         if (null == upperBound) {
             upperBound = newUpperBound;
