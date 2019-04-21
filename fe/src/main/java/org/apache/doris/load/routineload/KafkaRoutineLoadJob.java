@@ -20,6 +20,7 @@ package org.apache.doris.load.routineload;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.LoadException;
@@ -141,11 +142,11 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         }
 
         LOG.info("current concurrent task number is min"
-                         + "(max partition division {}, desire task concurrent num {}, alive be num {})",
-                maxPartitionDivision, desireTaskConcurrentNum, aliveBeNum);
+                + "(max partition division {}, desire task concurrent num {}, alive be num {}, config: {})",
+                maxPartitionDivision, desireTaskConcurrentNum, aliveBeNum, Config.max_routine_load_task_concurrent_num);
         currentTaskConcurrentNum = 
                 Math.min(Math.min(maxPartitionDivision, Math.min(desireTaskConcurrentNum, aliveBeNum)),
-                        DEFAULT_TASK_MAX_CONCURRENT_NUM);
+                        Config.max_routine_load_task_concurrent_num);
         return currentTaskConcurrentNum;
     }
 
