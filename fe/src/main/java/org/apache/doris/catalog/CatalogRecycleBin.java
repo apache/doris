@@ -76,11 +76,11 @@ public class CatalogRecycleBin extends Daemon implements Writable {
         // erase db with same name
         eraseDatabaseWithSameName(db.getFullName());
 
-        // recylce db
+        // recycle db
         RecycleDatabaseInfo databaseInfo = new RecycleDatabaseInfo(db, tableNames);
         idToDatabase.put(db.getId(), databaseInfo);
         idToRecycleTime.put(db.getId(), System.currentTimeMillis());
-        LOG.info("recycle db[{}]", db.getId());
+        LOG.info("recycle db[{}-{}]", db.getId(), db.getFullName());
         return true;
     }
 
@@ -93,11 +93,11 @@ public class CatalogRecycleBin extends Daemon implements Writable {
         // erase table with same name
         eraseTableWithSameName(dbId, table.getName());
 
-        // recylce table
+        // recycle table
         RecycleTableInfo tableInfo = new RecycleTableInfo(dbId, table);
         idToRecycleTime.put(table.getId(), System.currentTimeMillis());
         idToTable.put(table.getId(), tableInfo);
-        LOG.info("recycle table[{}]", table.getId());
+        LOG.info("recycle table[{}-{}]", table.getId(), table.getName());
         return true;
     }
 
@@ -112,12 +112,12 @@ public class CatalogRecycleBin extends Daemon implements Writable {
         // erase partition with same name
         erasePartitionWithSameName(dbId, tableId, partition.getName());
 
-        // recylce partition
+        // recycle partition
         RecyclePartitionInfo partitionInfo = new RecyclePartitionInfo(dbId, tableId, partition,
                                                                       range, dataProperty, replicationNum);
         idToRecycleTime.put(partition.getId(), System.currentTimeMillis());
         idToPartition.put(partition.getId(), partitionInfo);
-        LOG.info("recycle partition[{}]", partition.getId());
+        LOG.info("recycle partition[{}-{}]", partition.getId(), partition.getName());
         return true;
     }
 

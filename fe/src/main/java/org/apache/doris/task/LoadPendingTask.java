@@ -77,7 +77,7 @@ public abstract class LoadPendingTask extends MasterTask {
             if (job.getTransactionId() < 0) {
                 long transactionId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(dbId, 
                         job.getLabel(), "FE: " + FrontendOptions.getLocalHostAddress(), LoadJobSourceType.FRONTEND,
-                        job.getTimeoutSecond() * 1000);
+                        job.getTimeoutSecond());
                 job.setTransactionId(transactionId);
             }
             createEtlRequest();
