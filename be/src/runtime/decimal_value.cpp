@@ -84,16 +84,20 @@ inline void sub(const int32_t value1, const int32_t value2, int32_t* to, int32_t
 // Note: the input carry may > 1, after the summation process of three number (value1, value2, *carry),
 //      the maximum value of carry may be 2, when sum() >= 2 * DIG_BASE.
 inline void add2(const int32_t value1, const int32_t value2, int32_t* to, int32_t* carry) {
-    int32_t sum = value1 + value2 + *carry;
+    // NOTE: When three int32_t integers (the maximum value of each number is 10 ^ 9 - 1) are added, 
+    // because the maximum value of int32_t is 2147483647, the result may overflow, so it is 
+    // necessary to convert int32_t to int64_t.
+    int64_t sum = (int64_t) value1 + value2 + *carry;
     *carry = (sum >= DIG_BASE) ? 1 : 0;
     if (*carry) {
         sum -= DIG_BASE;
     }
-    if (sum > DIG_BASE) {
+    if (sum >= DIG_BASE) {
         sum -= DIG_BASE;
         ++(*carry);
     }
-    *to = sum;
+    // the value of sum must small than DIG_BASE here
+    *to = (int32_t) sum;
 }
 
 // to = value1 - value2 ƒ
