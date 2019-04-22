@@ -91,25 +91,15 @@ public class StmtToExpressionConvertor {
         if (stmt.getAggInfo() != null) {
             root = convertAggregation(root, stmt.getAggInfo());
         }
-
         return root;
     }
 
     public OptExpression convertAggregation(OptExpression root, AggregateInfo aggInfo) {
-        // TODO chenhao, replace it with Projection .
         final List<OptExpression> aggregateInputs = Lists.newArrayList();
         aggregateInputs.add(root);
-        for (FunctionCallExpr expr : aggInfo.getAggregateExprs()) {
-            aggregateInputs.add(convertExpr(expr));
-        }
-        final OptColumnRefSet aggregateGroupBy = new OptColumnRefSet();
-        for (Expr expr : aggInfo.getGroupingExprs()) {
-            ItemUtils.collectSlotId(expr, aggregateGroupBy, true);
-        }
-        final OptLogicalAggregate aggregate = new OptLogicalAggregate(aggregateGroupBy, aggInfo);
-        return OptExpression.create(aggregate, aggregateInputs);
+        return OptExpression.create(null, aggregateInputs);
     }
-
+    
     public OptExpression convertJoin(OptExpression outerExpression, OptExpression innerExpression, TableRef tableRef) {
         OptLogicalJoin joinOp = null;
         if (tableRef.getJoinOp().isInnerJoin()) {

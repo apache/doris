@@ -36,12 +36,12 @@ public class JoinCommutativityRule extends ExplorationRule {
                         OptExpression.create(new OptPatternLeaf())));
     }
 
-//    public boolean isCompatible(OptRuleType type) {
-//        if (type == this.type()) {
-//            return false;
-//        }
-//        return true;
-//    }
+    public boolean isCompatible(OptRuleType type) {
+        if (type == this.type()) {
+            return false;
+        }
+        return true;
+    }
 
     @Override
     public void transform(OptExpression expr, List<OptExpression> newExprs) {
@@ -50,7 +50,6 @@ public class JoinCommutativityRule extends ExplorationRule {
         Preconditions.checkNotNull(leftChild);
         Preconditions.checkNotNull(rightChild);
 
-        // TODO children's tuple need to exchange.
         final OptExpression newJoinExpr = OptExpression.create(new OptLogicalJoin(),
                 rightChild, leftChild);
         newExprs.add(newJoinExpr);

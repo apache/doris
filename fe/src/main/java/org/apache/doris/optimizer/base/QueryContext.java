@@ -39,7 +39,7 @@ public class QueryContext {
 
         OptColumnRefSet columnRefs = new OptColumnRefSet();
         columnRefs.include(outputColumns);
-        columnRefs.include(reqdProp.getReqdOrder().getPropertySpec().getUsedColumns());
+        columnRefs.include(reqdProp.getOrderProperty().getPropertySpec().getUsedColumns());
 
         this.expression = ExpressionPreprocessor.preprocess(expression, columnRefs);
     }

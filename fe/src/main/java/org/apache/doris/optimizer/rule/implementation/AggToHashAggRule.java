@@ -48,42 +48,42 @@ public class AggToHashAggRule extends ImplemetationRule {
 
     @Override
     public void transform(OptExpression expr, List<OptExpression> newExprs) {
-        final OptLogicalAggregate operator = (OptLogicalAggregate) expr.getOp();
-        if (operator.isDuplicate()) {
-            return;
-        }
-
-        Preconditions.checkArgument(expr.getInput(0) != null
-                && expr.getInput(0).getOp() instanceof OptPhysical, "Aggregate does't have child," +
-                "it's not physical operator.");
-
-        final OptPhysicalHashAggregate aggregate = new OptPhysicalHashAggregate(operator.getGroupBy(),
-                OptPhysical.HashAggStage.Agg);
-        final OptExpression aggregateExpr = OptExpression.create(
-                aggregate,
-                expr.getInputs());
-        final OptPhysicalProperty childProperty = (OptPhysicalProperty) expr.getInput(0).getProperty();
-        if (childProperty.getDistributionSpec().isSingle()) {
-            newExprs.add(aggregateExpr);
-        } else {
-            final AggregateInfo mergeInfo = operator.getAggInfo().getMergeAggInfo();
-            final List<OptExpression> mergeInputs = Lists.newArrayList();
-            mergeInputs.add(aggregateExpr);
-            final StmtToExpressionConvertor convertor = new StmtToExpressionConvertor();
-            for (FunctionCallExpr func : mergeInfo.getAggregateExprs()) {
-                mergeInputs.add(convertor.convertExpr(func));
-            }
-            final OptColumnRefSet mergeGroupBy = new OptColumnRefSet();
-            for (Expr e : mergeInfo.getGroupingExprs()) {
-                ItemUtils.collectSlotId(e, mergeGroupBy, true);
-            }
-            final OptPhysicalHashAggregate merge =
-                    new OptPhysicalHashAggregate(mergeGroupBy, OptOperator.HashAggStage.Merge);
-            final OptExpression mergeExpr = OptExpression.create(
-                    merge,
-                    mergeInputs);
-            newExprs.add(mergeExpr);
-        }
+//        final OptLogicalAggregate operator = (OptLogicalAggregate) expr.getOp();
+//        if (operator.isDuplicate()) {
+//            return;
+//        }
+//
+//        Preconditions.checkArgument(expr.getInput(0) != null
+//                && expr.getInput(0).getOp() instanceof OptPhysical, "Aggregate does't have child," +
+//                "it's not physical operator.");
+//
+//        final OptPhysicalHashAggregate aggregate = new OptPhysicalHashAggregate(operator.getGroupBy(),
+//                OptPhysical.HashAggStage.Agg);
+//        final OptExpression aggregateExpr = OptExpression.create(
+//                aggregate,
+//                expr.getInputs());
+//        final OptPhysicalProperty childProperty = (OptPhysicalProperty) expr.getInput(0).getProperty();
+//        if (childProperty.getDistributionSpec().isSingle()) {
+//            newExprs.add(aggregateExpr);
+//        } else {
+//            final AggregateInfo mergeInfo = operator.getAggInfo().getMergeAggInfo();
+//            final List<OptExpression> mergeInputs = Lists.newArrayList();
+//            mergeInputs.add(aggregateExpr);
+//            final StmtToExpressionConvertor convertor = new StmtToExpressionConvertor();
+//            for (FunctionCallExpr func : mergeInfo.getAggregateExprs()) {
+//                mergeInputs.add(convertor.convertExpr(func));
+//            }
+//            final OptColumnRefSet mergeGroupBy = new OptColumnRefSet();
+//            for (Expr e : mergeInfo.getGroupingExprs()) {
+//                ItemUtils.collectSlotId(e, mergeGroupBy, true);
+//            }
+//            final OptPhysicalHashAggregate merge =
+//                    new OptPhysicalHashAggregate(mergeGroupBy, OptOperator.HashAggStage.Merge);
+//            final OptExpression mergeExpr = OptExpression.create(
+//                    merge,
+//                    mergeInputs);
+//            newExprs.add(mergeExpr);
+//        }
 
     }
 }

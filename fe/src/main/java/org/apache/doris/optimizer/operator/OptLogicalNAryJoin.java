@@ -20,9 +20,11 @@ package org.apache.doris.optimizer.operator;
 import org.apache.doris.optimizer.base.OptMaxcard;
 
 public class OptLogicalNAryJoin extends OptLogicalJoin {
+
     public OptLogicalNAryJoin() {
         super(OptOperatorType.OP_LOGICAL_NARY_JOIN);
     }
+
     //------------------------------------------------------------------------
     // Used to get operator's derived property
     //------------------------------------------------------------------------

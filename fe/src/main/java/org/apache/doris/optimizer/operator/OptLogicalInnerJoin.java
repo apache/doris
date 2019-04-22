@@ -17,10 +17,11 @@
 
 package org.apache.doris.optimizer.operator;
 
-import com.google.common.base.Preconditions;
-import org.apache.doris.optimizer.base.*;
+import org.apache.doris.optimizer.base.OptMaxcard;
+import org.apache.doris.optimizer.base.RequiredLogicalProperty;
 import org.apache.doris.optimizer.rule.OptRuleType;
 import org.apache.doris.optimizer.stat.Statistics;
+import org.apache.doris.optimizer.stat.StatisticsEstimator;
 
 import java.util.BitSet;
 
@@ -46,32 +47,8 @@ public class OptLogicalInnerJoin extends OptLogicalJoin {
     }
 
     @Override
-    public Statistics deriveStat(OptExpressionHandle expressionHandle, RequiredLogicalProperty property) {
-        Preconditions.checkArgument(expressionHandle.getChildrenStatistics().size() == 2);
-        final Statistics outerChild = expressionHandle.getChildrenStatistics().get(0);
-        final Statistics innerChild = expressionHandle.getChildrenStatistics().get(1);
-        return new Statistics();
-    }
-
-    @Override
-    public OptColumnRefSet requiredStatForChild(
-            OptExpressionHandle expressionHandle, RequiredLogicalProperty property, int childIndex) {
-        final OptColumnRefSet columns = new OptColumnRefSet();
-        columns.include(property.getColumns());
-        final OptItemProperty conjunctProperty = expressionHandle.getChildItemProperty(2);
-        columns.include(conjunctProperty.getUsedColumns());
-        columns.include(conjunctProperty.getDefinedColumns());
-        columns.intersects(expressionHandle.getChildLogicalProperty(childIndex).getOutputColumns());
-        return columns;
-    }
-
-    @Override
-    public OptColumnRefSet getOutputColumns(OptExpressionHandle exprHandle) {
-        final OptColumnRefSet columns = new OptColumnRefSet();
-        for (int i = 0; i < exprHandle.arity() - 1; ++i) {
-            columns.include(exprHandle.getChildLogicalProperty(i).getOutputColumns());
-        }
-        return columns;
+    public Statistics deriveStat(OptExpressionHandle exprHandle, RequiredLogicalProperty property) {
+        return StatisticsEstimator.estimateInnerJoin(exprHandle);
     }
 
     //------------------------------------------------------------------------

@@ -18,8 +18,11 @@
 package org.apache.doris.optimizer.operator;
 
 import org.apache.doris.optimizer.base.OptColumnRefSet;
+import org.apache.doris.optimizer.base.OptItemProperty;
+import org.apache.doris.optimizer.base.OptLogicalProperty;
 import org.apache.doris.optimizer.base.RequiredLogicalProperty;
 import org.apache.doris.optimizer.stat.Statistics;
+import org.apache.doris.optimizer.stat.StatisticsEstimator;
 
 import java.util.BitSet;
 
@@ -30,25 +33,35 @@ public class OptLogicalProject extends OptLogical {
     }
 
     @Override
-    public BitSet getCandidateRulesForExplore() {
-        return null;
-    }
-
-    @Override
     public BitSet getCandidateRulesForImplement() {
         return null;
     }
 
     @Override
     public Statistics deriveStat(
-            OptExpressionHandle expressionHandle, RequiredLogicalProperty property) {
-        return null;
+            OptExpressionHandle exprHandle, RequiredLogicalProperty property) {
+        return StatisticsEstimator.estimateProject(property, exprHandle);
     }
 
     @Override
     public OptColumnRefSet requiredStatForChild(
-            OptExpressionHandle expressionHandle, RequiredLogicalProperty property, int childIndex) {
-        return null;
+            OptExpressionHandle exprHandle, RequiredLogicalProperty property, int childIndex) {
+        final OptColumnRefSet columns = new OptColumnRefSet();
+        columns.include(property.getColumns());
+        final OptItemProperty project = exprHandle.getChildItemProperty(1);
+        columns.intersects(project.getUsedColumns());
+        return columns;
+    }
+
+    @Override
+    public OptColumnRefSet getOutputColumns(OptExpressionHandle exprHandle) {
+        final OptColumnRefSet columns = new OptColumnRefSet();
+        final OptLogicalProperty childProperty = exprHandle.getChildLogicalProperty(0);
+        final OptItemProperty project = exprHandle.getChildItemProperty(1);
+        columns.include(childProperty.getOutputColumns());
+        columns.intersects(project.getUsedColumns());
+        columns.include(project.getDefinedColumns());
+        return columns;
     }
 
 }

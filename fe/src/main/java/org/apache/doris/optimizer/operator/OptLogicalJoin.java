@@ -17,18 +17,12 @@
 
 package org.apache.doris.optimizer.operator;
 
-import com.google.common.base.Preconditions;
-import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.optimizer.base.OptColumnRefSet;
+import org.apache.doris.optimizer.base.OptItemProperty;
 import org.apache.doris.optimizer.base.RequiredLogicalProperty;
-import org.apache.doris.optimizer.rule.OptRuleType;
 import org.apache.doris.optimizer.stat.Statistics;
 
-import java.util.BitSet;
-
 public class OptLogicalJoin extends OptLogical {
-
-    private JoinOperator operator;
 
     public OptLogicalJoin() {
         super(OptOperatorType.OP_LOGICAL_JOIN);
@@ -38,21 +32,24 @@ public class OptLogicalJoin extends OptLogical {
         super(type);
     }
 
-    // Common case of output derivation by combining the schemas of all
     @Override
-    public Statistics deriveStat(OptExpressionHandle expressionHandle, RequiredLogicalProperty property) {
-        Preconditions.checkArgument(expressionHandle.getChildrenStatistics().size() == 2);
-        final Statistics outerChild = expressionHandle.getChildrenStatistics().get(0);
-        final Statistics innerChild = expressionHandle.getChildrenStatistics().get(1);
+    public Statistics deriveStat(OptExpressionHandle exprHandle, RequiredLogicalProperty property) {
         return new Statistics();
     }
 
     @Override
     public OptColumnRefSet requiredStatForChild(
-            OptExpressionHandle expressionHandle, RequiredLogicalProperty property, int childIndex) {
+            OptExpressionHandle exprHandle, RequiredLogicalProperty property, int childIndex) {
         final OptColumnRefSet columns = new OptColumnRefSet();
         columns.include(property.getColumns());
-        columns.intersects(expressionHandle.getChildLogicalProperty(childIndex).getOutputColumns());
+
+        // Join conjuncs.
+        for (int i = 2; i < exprHandle.arity() - 1; i++) {
+            final OptItemProperty childProperty = exprHandle.getChildItemProperty(i);
+            columns.include(childProperty.getUsedColumns());
+        }
+
+        columns.intersects(exprHandle.getChildLogicalProperty(childIndex).getOutputColumns());
         return columns;
     }
 

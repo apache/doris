@@ -29,6 +29,7 @@ import org.apache.doris.optimizer.base.OptColumnRefSet;
 import org.apache.doris.optimizer.base.RequiredLogicalProperty;
 import org.apache.doris.optimizer.rule.OptRuleType;
 import org.apache.doris.optimizer.stat.Statistics;
+import org.apache.doris.optimizer.stat.StatisticsEstimator;
 
 import java.util.BitSet;
 import java.util.List;
@@ -68,24 +69,13 @@ public class OptLogicalScan extends OptLogical {
     }
 
     @Override
-    public OptColumnRefSet getOutputColumns(OptExpressionHandle expr) {
+    public OptColumnRefSet getOutputColumns(OptExpressionHandle exprHandle) {
         return new OptColumnRefSet(outputs);
     }
 
     @Override
-    public Statistics deriveStat(OptExpressionHandle expressionHandle, RequiredLogicalProperty property) {
-        Statistics statistics = null;
-        if (table.getTable().getType() == Table.TableType.OLAP) {
-            statistics = new Statistics();
-            final OlapTable olapTable = (OlapTable) table.getTable();
-            for (int id : property.getColumns().getColumnIds()) {
-                final SlotDescriptor slot = idSlotMap.get(id);
-                Preconditions.checkNotNull(slot);
-                statistics.addRow(id, estimateCardinalityWithRows(olapTable.getRowCount()));
-            }
-            statistics.setRowCount(olapTable.getRowCount());
-        }
-        return statistics;
+    public Statistics deriveStat(OptExpressionHandle exprHandle, RequiredLogicalProperty property) {
+        return StatisticsEstimator.estimateOlapScan(table, property);
     }
 
     @Override

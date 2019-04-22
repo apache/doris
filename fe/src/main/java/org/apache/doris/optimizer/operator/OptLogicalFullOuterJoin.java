@@ -18,11 +18,20 @@
 package org.apache.doris.optimizer.operator;
 
 import org.apache.doris.optimizer.base.OptMaxcard;
+import org.apache.doris.optimizer.base.RequiredLogicalProperty;
+import org.apache.doris.optimizer.stat.Statistics;
+import org.apache.doris.optimizer.stat.StatisticsEstimator;
 
 public class OptLogicalFullOuterJoin extends OptLogicalJoin {
     public OptLogicalFullOuterJoin() {
         super(OptOperatorType.OP_LOGICAL_FULL_OUTER_JOIN);
     }
+
+    @Override
+    public Statistics deriveStat(OptExpressionHandle exprHandle, RequiredLogicalProperty property) {
+        return StatisticsEstimator.estimateFullOuterJoin(exprHandle);
+    }
+
     //------------------------------------------------------------------------
     // Used to get operator's derived property
     //------------------------------------------------------------------------

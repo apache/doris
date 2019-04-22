@@ -18,16 +18,11 @@
 package org.apache.doris.optimizer.operator;
 
 import com.google.common.base.Preconditions;
-import org.apache.doris.analysis.AggregateInfo;
-import org.apache.doris.optimizer.OptExpression;
 import org.apache.doris.optimizer.OptUtils;
-import org.apache.doris.optimizer.base.OptColumnRef;
-import org.apache.doris.optimizer.base.OptColumnRefSet;
-import org.apache.doris.optimizer.base.OptLogicalProperty;
-import org.apache.doris.optimizer.base.OptMaxcard;
-import org.apache.doris.optimizer.base.RequiredLogicalProperty;
+import org.apache.doris.optimizer.base.*;
 import org.apache.doris.optimizer.rule.OptRuleType;
 import org.apache.doris.optimizer.stat.Statistics;
+import org.apache.doris.optimizer.stat.StatisticsEstimator;
 
 import java.util.BitSet;
 import java.util.List;
@@ -41,28 +36,20 @@ import java.util.List;
 // |      |--- OptItemProjectElement
 // |      |    |--- OptItem
 public class OptLogicalAggregate extends OptLogical {
-    public enum AggType {
-        GB_LOCAL,
-        GB_GLOBAL,
-        GB_INTERMEDIATE
-    }
-
-    public enum AggStage {
-        TWO_STAGE_SCALAR_DQA,
-        THREE_STAGE_SCALAR_DQA,
-        OTHERS
-    }
-
+    // If this operator will generate duplicate values for same group
+    boolean generateDuplicate = false;
     private AggType aggType;
     private AggStage aggStage;
     private List<OptColumnRef> groupByColumns;
     // minimal grouping columns based on FD's
     private List<OptColumnRef> minimalGroupByColumns;
-    // If this operator will generate duplicate values for same group
-    boolean generateDuplicate = false;
     // array of columns used in distinct qualified aggregates (DQA)
     // used only in the case of intermediate aggregates
     private List<OptColumnRef> dqaColumns;
+
+    public OptLogicalAggregate() {
+        super(OptOperatorType.OP_LOGICAL_AGGREGATE);
+    }
 
     public OptLogicalAggregate(List<OptColumnRef> groupByColumns, AggType aggType) {
         super(OptOperatorType.OP_LOGICAL_AGGREGATE);
@@ -74,14 +61,11 @@ public class OptLogicalAggregate extends OptLogical {
         }
     }
 
-    //------------------------------------------------------------------------
-    // Used to get operator's derived property
-    //------------------------------------------------------------------------
-
     public Statistics deriveStat(OptExpressionHandle expressionHandle, RequiredLogicalProperty property) {
         Preconditions.checkArgument(expressionHandle.getChildrenStatistics().size() == 1,
                 "Aggregate has wrong number of children.");
-        return estimateAgg(groupByColumns, property, expressionHandle.getChildrenStatistics().get(0));
+        final OptColumnRefSet groupBy = new OptColumnRefSet(groupByColumns);
+        return StatisticsEstimator.estimateAgg(groupBy, property, expressionHandle);
     }
 
     @Override
@@ -91,20 +75,31 @@ public class OptLogicalAggregate extends OptLogical {
         columns.include(property.getColumns());
         columns.include(groupByColumns);
 
-        Preconditions.checkArgument(expressionHandle.getChildProperty(childIndex) instanceof OptLogicalProperty);
+        // Aggregation functions
+        final OptItemProperty itemProperty = expressionHandle.getChildItemProperty(1);
+        columns.include(itemProperty.getUsedColumns());
+
         final OptLogicalProperty logical = (OptLogicalProperty) expressionHandle.getChildProperty(childIndex);
         columns.intersects(logical.getOutputColumns());
         return columns;
     }
 
+    //------------------------------------------------------------------------
+    // Used to get operator's derived property
+    //------------------------------------------------------------------------
+
     @Override
     public OptColumnRefSet getOutputColumns(OptExpressionHandle exprHandle) {
-        OptColumnRefSet outputColumns = new OptColumnRefSet();
-        outputColumns.include(groupByColumns);
-        outputColumns.and(exprHandle.getChildLogicalProperty(0).getOutputColumns());
+        Preconditions.checkArgument(exprHandle.arity() == 2);
+        final OptColumnRefSet columns = new OptColumnRefSet();
+        columns.include(groupByColumns);
 
-        outputColumns.include(exprHandle.getChildItemProperty(1).getDefinedColumns());
-        return outputColumns;
+        final OptLogicalProperty childProperty = exprHandle.getChildLogicalProperty(0);
+        columns.include(childProperty.getOutputColumns());
+
+        final OptItemProperty itemProperty = exprHandle.getChildItemProperty(1);
+        columns.include(itemProperty.getDefinedColumns());
+        return columns;
     }
 
     @Override
@@ -123,10 +118,6 @@ public class OptLogicalAggregate extends OptLogical {
         return new OptMaxcard();
     }
 
-    //------------------------------------------------------------------------
-    // Transformations
-    //------------------------------------------------------------------------
-
     @Override
     public BitSet getCandidateRulesForExplore() {
         return null;
@@ -136,8 +127,12 @@ public class OptLogicalAggregate extends OptLogical {
     public BitSet getCandidateRulesForImplement() {
         final BitSet set = new BitSet();
         set.set(OptRuleType.RULE_IMP_AGG_TO_HASH_AGG.ordinal());
-        return null;
+        return set;
     }
+
+    //------------------------------------------------------------------------
+    // Transformations
+    //------------------------------------------------------------------------
 
     public List<OptColumnRef> getGroupByColumns() {
         return groupByColumns;
@@ -171,5 +166,19 @@ public class OptLogicalAggregate extends OptLogical {
         sb.append(type).append("(").append(aggType)
                 .append("), GroupBy[").append(OptColumnRef.toString(groupByColumns)).append("]");
         return sb.toString();
+    }
+
+    public List<OptColumnRef> getGroupBy() { return groupByColumns; }
+
+    public enum AggType {
+        GB_LOCAL,
+        GB_GLOBAL,
+        GB_INTERMEDIATE
+    }
+
+    public enum AggStage {
+        TWO_STAGE_SCALAR_DQA,
+        THREE_STAGE_SCALAR_DQA,
+        OTHERS
     }
 }
