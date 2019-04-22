@@ -55,7 +55,7 @@ public class RoutineLoadScheduler extends Daemon {
         try {
             process();
         } catch (Throwable e) {
-            LOG.warn("failed to schedule jobs with error massage {}", e.getMessage(), e);
+            LOG.warn("Failed to process one round of RoutineLoadScheduler with error message {}", e.getMessage(), e);
         }
     }
 

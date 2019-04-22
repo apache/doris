@@ -118,8 +118,8 @@ public class RoutineLoadTaskScheduler extends Daemon {
                                      .build());
                     continue;
                 }
-                allocateTaskToBe(routineLoadTaskInfo);
                 routineLoadTaskInfo.beginTxn();
+                allocateTaskToBe(routineLoadTaskInfo);
             } catch (LoadException e) {
                 // todo(ml): if cluster has been deleted, the job will be cancelled.
                 needScheduleTasksQueue.put(routineLoadTaskInfo);
@@ -131,7 +131,7 @@ public class RoutineLoadTaskScheduler extends Daemon {
 
             // task to thrift
             TRoutineLoadTask tRoutineLoadTask = routineLoadTaskInfo.createRoutineLoadTask();
-            // remove task for needScheduleTasksList in job
+            // set the executeStartTimeMs of task
             routineLoadTaskInfo.setExecuteStartTimeMs(System.currentTimeMillis());
             // add to batch task map
             if (beIdToBatchTask.containsKey(routineLoadTaskInfo.getBeId())) {
