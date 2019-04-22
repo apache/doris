@@ -580,8 +580,7 @@
         ORDER BY (k3,k1,k2,v2,v1) FROM example_rollup_index;
 
     11. 修改表的 bloom filter 列
-        ALTER TABLE example_db.my_table
-        PROPERTIES ("bloom_filter_columns"="k1,k2,k3");
+        ALTER TABLE example_db.my_table set ("bloom_filter_columns"="k1,k2,k3");
 
        也可以合并到上面的 schema change 操作中
         ALTER TABLE example_db.my_table
