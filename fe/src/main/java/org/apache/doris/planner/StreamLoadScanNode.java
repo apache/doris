@@ -280,7 +280,7 @@ public class StreamLoadScanNode extends ScanNode {
             brokerScanRange.params.putToExpr_of_dest_slot(dstSlotDesc.getId().asInt(), expr.treeToThrift());
         }
         brokerScanRange.params.setDest_tuple_id(desc.getId().asInt());
-        LOG.info("brokerScanRange is {}", brokerScanRange);
+        // LOG.info("brokerScanRange is {}", brokerScanRange);
 
         // Need re compute memory layout after set some slot descriptor to nullable
         srcTupleDesc.computeMemLayout();

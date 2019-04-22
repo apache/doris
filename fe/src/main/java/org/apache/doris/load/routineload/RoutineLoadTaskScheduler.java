@@ -25,13 +25,13 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Daemon;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
+import org.apache.doris.load.routineload.RoutineLoadJob.JobState;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TRoutineLoadTask;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
@@ -130,7 +130,15 @@ public class RoutineLoadTaskScheduler extends Daemon {
             }
 
             // task to thrift
-            TRoutineLoadTask tRoutineLoadTask = routineLoadTaskInfo.createRoutineLoadTask();
+            TRoutineLoadTask tRoutineLoadTask = null;
+            try {
+                tRoutineLoadTask = routineLoadTaskInfo.createRoutineLoadTask();
+            } catch (UserException e) {
+                routineLoadManager.getJob(routineLoadTaskInfo.getJobId()).updateState(JobState.PAUSED,
+                        "failed to create task: " + e.getMessage(), false);
+                throw e;
+            }
+
             // set the executeStartTimeMs of task
             routineLoadTaskInfo.setExecuteStartTimeMs(System.currentTimeMillis());
             // add to batch task map
@@ -175,7 +183,9 @@ public class RoutineLoadTaskScheduler extends Daemon {
             try {
                 client = ClientPool.backendPool.borrowObject(address);
                 client.submit_routine_load_task(entry.getValue());
-                LOG.debug("task {} sent to be {}", Joiner.on(";").join(entry.getValue()), entry.getKey());
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("{} tasks sent to be {}", entry.getValue().size(), entry.getKey());
+                }
                 ok = true;
             } catch (Exception e) {
                 LOG.warn("task exec error. backend[{}]", backend.getId(), e);
