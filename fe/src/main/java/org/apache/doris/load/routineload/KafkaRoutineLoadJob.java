@@ -272,12 +272,16 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         return gson.toJson(summary);
     }
 
-    private List<Integer> getAllKafkaPartitions() {
+    private List<Integer> getAllKafkaPartitions() throws LoadException {
         List<Integer> result = new ArrayList<>();
-        List<PartitionInfo> partitionList = consumer.partitionsFor(topic,
-                Duration.ofSeconds(FETCH_PARTITIONS_TIMEOUT_SECOND));
-        for (PartitionInfo partitionInfo : partitionList) {
-            result.add(partitionInfo.partition());
+        try {
+            List<PartitionInfo> partitionList = consumer.partitionsFor(topic,
+                    Duration.ofSeconds(FETCH_PARTITIONS_TIMEOUT_SECOND));
+            for (PartitionInfo partitionInfo : partitionList) {
+                result.add(partitionInfo.partition());
+            }
+        } catch (Exception e) {
+            throw new LoadException("failed to get partitions for topic: " + topic + ". " + e.getMessage());
         }
         return result;
     }
