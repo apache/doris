@@ -50,6 +50,13 @@ public:
         }
     }
 
+    void reset_offset() {
+        // reset the commit offset
+        for (auto& p : begin_offset) {
+            cmt_offset[p.first] = p.second -1;
+        }
+    }
+
 public:
     std::string brokers;
     std::string topic;

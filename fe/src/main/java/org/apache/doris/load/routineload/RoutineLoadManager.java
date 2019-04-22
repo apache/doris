@@ -32,6 +32,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
+import org.apache.doris.load.routineload.RoutineLoadJob.JobState;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.qe.ConnectContext;
