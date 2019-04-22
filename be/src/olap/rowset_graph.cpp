@@ -73,10 +73,10 @@ OLAPStatus RowsetGraph::construct_rowset_graph(const std::vector<RowsetMetaShare
 }
 
 OLAPStatus RowsetGraph::reconstruct_rowset_graph(const std::vector<RowsetMetaSharedPtr>& rs_metas) {
-    _version_graph.clear();
     for (auto& vertex : _version_graph) {
         SAFE_DELETE(vertex.edges);
     }
+    _version_graph.clear();
     _vertex_index_map.clear();
     return construct_rowset_graph(rs_metas);
 }
@@ -142,7 +142,7 @@ OLAPStatus RowsetGraph::_add_vertex_to_graph(int vertex_value) {
     }
 
     std::list<int>* edges = new std::list<int>();
-    if (edges == NULL) {
+    if (edges == nullptr) {
         LOG(WARNING) << "fail to malloc edge list.";
         return OLAP_ERR_OTHER_ERROR;
     }
@@ -162,8 +162,8 @@ OLAPStatus RowsetGraph::capture_consistent_versions(
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
-    if (version_path == NULL) {
-        LOG(WARNING) << "param version_path is NULL.";
+    if (version_path == nullptr) {
+        LOG(WARNING) << "param version_path is nullptr.";
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
@@ -210,7 +210,6 @@ OLAPStatus RowsetGraph::capture_consistent_versions(
     while (bfs_queue.empty() == false && visited[end_vertex_index] == false) {
         int top_vertex_index = bfs_queue.front();
         bfs_queue.pop();
-
         auto it = _version_graph[top_vertex_index].edges->begin();
         for (; it != _version_graph[top_vertex_index].edges->end(); ++it) {
             if (visited[*it] == false) {
@@ -226,7 +225,6 @@ OLAPStatus RowsetGraph::capture_consistent_versions(
             }
         }
     }
-
 
     if (!visited[end_vertex_index]) {
         LOG(WARNING) << "fail to find path in version_graph. "
