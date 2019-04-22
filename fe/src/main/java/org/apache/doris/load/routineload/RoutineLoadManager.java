@@ -137,16 +137,16 @@ public class RoutineLoadManager implements Writable {
         }
 
         routineLoadJob.setOrigStmt(origStmt);
-        addRoutineLoadJob(routineLoadJob);
+        addRoutineLoadJob(routineLoadJob, createRoutineLoadStmt.getDBName());
     }
 
-    public void addRoutineLoadJob(RoutineLoadJob routineLoadJob) throws DdlException {
+    public void addRoutineLoadJob(RoutineLoadJob routineLoadJob, String dbName) throws DdlException {
         writeLock();
         try {
             // check if db.routineLoadName has been used
             if (isNameUsed(routineLoadJob.getDbId(), routineLoadJob.getName())) {
                 throw new DdlException("Name " + routineLoadJob.getName() + " already used in db "
-                        + routineLoadJob.getDbId());
+                        + dbName);
             }
 
             unprotectedAddJob(routineLoadJob);

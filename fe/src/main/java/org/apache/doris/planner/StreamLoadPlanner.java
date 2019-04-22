@@ -146,7 +146,7 @@ public class StreamLoadPlanner {
             }
         }
 
-        LOG.debug("stream load txn id: {}, plan: {}", streamLoadTask.getTxnId(), params);
+        // LOG.debug("stream load txn id: {}, plan: {}", streamLoadTask.getTxnId(), params);
         return params;
     }
 }

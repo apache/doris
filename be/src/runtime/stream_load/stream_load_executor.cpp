@@ -81,6 +81,15 @@ Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx) {
                 if (ctx->body_sink != nullptr) {
                     ctx->body_sink->cancel();
                 }
+
+                switch(ctx->load_src_type) {
+                    // reset the stream load ctx's kafka commit offset
+                    case TLoadSourceType::KAFKA:
+                        ctx->kafka_info->reset_offset();
+                        break;
+                    default:
+                        break;
+                }
             }
             ctx->promise.set_value(status);
             if (ctx->unref()) {
