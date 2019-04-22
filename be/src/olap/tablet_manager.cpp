@@ -948,11 +948,11 @@ OLAPStatus TabletManager::start_trash_sweep() {
                 }
             }
             TabletMetaManager::remove((*it)->data_dir(), (*it)->tablet_id(), (*it)->schema_hash());
-            it = _shutdown_tablets.erase(it);
             LOG(INFO) << "successfully move tablet to trash." 
                         << " tablet id " << (*it)->tablet_id()
                         << " schema hash " << (*it)->schema_hash()
                         << " tablet path " << (*it)->tablet_path();
+            it = _shutdown_tablets.erase(it);
         } else {
             // if could not find tablet info in meta store, then check if dir existed
             if (check_dir_existed((*it)->tablet_path())) {
