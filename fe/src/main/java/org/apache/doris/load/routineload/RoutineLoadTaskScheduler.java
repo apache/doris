@@ -131,7 +131,7 @@ public class RoutineLoadTaskScheduler extends Daemon {
 
             // task to thrift
             TRoutineLoadTask tRoutineLoadTask = routineLoadTaskInfo.createRoutineLoadTask();
-            // set task execute start time
+            // set the executeStartTimeMs of task
             routineLoadTaskInfo.setExecuteStartTimeMs(System.currentTimeMillis());
             // add to batch task map
             if (beIdToBatchTask.containsKey(routineLoadTaskInfo.getBeId())) {
