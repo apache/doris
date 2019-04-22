@@ -319,7 +319,6 @@ Status EsHttpScanNode::scanner_scan(
             }
 
             // eval conjuncts of this row.
-            // TODO exclude those predicates which ES applied by _predicate_to_conjunct
             if (eval_conjuncts(&conjunct_ctxs[0], conjunct_ctxs.size(), row)) {
                 row_batch->commit_last_row();
                 char* new_tuple = reinterpret_cast<char*>(tuple);
