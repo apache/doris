@@ -171,8 +171,8 @@ public:
                 HttpChannel::send_reply(req,HttpStatus::NOT_FOUND, "invalid scroll request");
                 return;
             } else {
-		        rapidjson::Document clear_scroll_result;
-            	rapidjson::Document::AllocatorType &allocator = clear_scroll_result.GetAllocator();
+                rapidjson::Document clear_scroll_result;
+                rapidjson::Document::AllocatorType &allocator = clear_scroll_result.GetAllocator();
                 clear_scroll_result.SetObject();
                 clear_scroll_result.AddMember("succeeded", true, allocator);
                 clear_scroll_result.AddMember("num_freed", 1, allocator);
