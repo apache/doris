@@ -270,23 +270,23 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
         return id;
     }
 
-    public void readLock() {
+    protected void readLock() {
         lock.readLock().lock();
     }
 
-    public void readUnlock() {
+    protected void readUnlock() {
         lock.readLock().unlock();
     }
 
-    public void writeLock() {
+    protected void writeLock() {
         lock.writeLock().lock();
     }
 
-    public void writeUnlock() {
+    protected void writeUnlock() {
         lock.writeLock().unlock();
     }
 
-    public boolean tryWriteLock(long timeout, TimeUnit unit) {
+    protected boolean tryWriteLock(long timeout, TimeUnit unit) {
         try {
             return this.lock.writeLock().tryLock(timeout, unit);
         } catch (InterruptedException e) {
