@@ -274,7 +274,7 @@
 
         KAFKA
 
-    10. CurrentTaskNum：当前子任务并发度。
+    10. CurrentTaskNum：当前正在运行的子任务的个数
     11. JobProperties：作业相关配置信息，对应创建语句中的 load_properties 和 job_properties。以 json 格式表示。
 
         {
@@ -285,7 +285,7 @@
             "maxBatchSizeBytes": "104857600",
             "columnSeparator": "\t",
             "maxErrorNum": "0",
-            "currentTaskConcurrentNum": "3",
+            "currentTaskConcurrentNum": "3",   // 当前例行作业的子任务并发数
             "maxBatchRows": "200000"
         }
 
