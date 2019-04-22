@@ -119,10 +119,14 @@ public class BrokerMgr {
                 throw new AnalysisException("Unknown broker name(" + brokerName + ")");
             }
             List<FsBroker> brokers = brokerAddsMap.get(host);
-            if (brokers.isEmpty()) {
-                brokers = brokerListMap.get(brokerName);
+            for (FsBroker fsBroker : brokers) {
+                if (fsBroker.isAlive) {
+                    return fsBroker;
+                }
             }
 
+            // not find, get an arbitrary one
+            brokers = brokerListMap.get(brokerName);
             Collections.shuffle(brokers);
             for (FsBroker fsBroker : brokers) {
                 if (fsBroker.isAlive) {
@@ -130,7 +134,7 @@ public class BrokerMgr {
                 }
             }
 
-            throw new AnalysisException("failed to find alive broker");
+            throw new AnalysisException("failed to find alive broker: " + brokerName);
         } finally {
             lock.unlock();
         }
