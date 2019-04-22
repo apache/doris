@@ -41,42 +41,13 @@ public abstract class OptLogical extends OptOperator {
     }
 
     public abstract Statistics deriveStat(
-            OptExpressionHandle expressionHandle, RequiredLogicalProperty property);
+            OptExpressionHandle exprHandle, RequiredLogicalProperty property);
 
     public abstract OptColumnRefSet requiredStatForChild(
-            OptExpressionHandle expressionHandle, RequiredLogicalProperty property, int childIndex);
+            OptExpressionHandle exprHandle, RequiredLogicalProperty property, int childIndex);
 
-    protected Statistics estimateAgg(List<OptColumnRef> groupBy, RequiredLogicalProperty property, Statistics childStatistcs) {
-        final Statistics statistics = new Statistics();
-        long rowCount = 1;
-        final OptColumnRefSet set = new OptColumnRefSet();
-        set.include(property.getColumns());
-        set.intersects(groupBy);
-        for (int id : set.getColumnIds()) {
-            rowCount *= childStatistcs.getCardinality(id);
-        }
-        statistics.setRowCount(rowCount);
-        for (int id : property.getColumns().getColumnIds()) {
-            statistics.addRow(id, childStatistcs.getCardinality(id));
-        }
-        return statistics;
-    }
-
-    protected long estimateCardinalityWithRows(long c) {
-        return c / 10;
-    }
-
-    protected long estimateCardinalityWithRows(long c1, long c2) {
-        return (c1 + c2 - estimateDuplicateWithCardinality(c1, c2)) / 10;
-    }
-
-    protected long estimateDuplicateWithCardinality(long c1, long c2) {
-        return (c1 > c2  ? c2 : c1) / 4;
-    }
-
-    protected long estimateCardinalityWithCardinalities(long cardinality1, long cardinality2) {
-        return (cardinality1 + cardinality2) / 4;
-    }
+    // TODO(zc): returning null to make compiler happy
+    public abstract OptColumnRefSet getOutputColumns(OptExpressionHandle exprHandle);
 
     @Override
     public boolean isLogical() { return true; }
@@ -93,10 +64,6 @@ public abstract class OptLogical extends OptOperator {
 
     protected OptColumnRefSet getOutputColumnPassThrough(OptExpressionHandle exprHandle) {
         return exprHandle.getChildLogicalProperty(0).getOutputColumns();
-    }
-    // TODO(zc): returning null to make compiler happy
-    public OptColumnRefSet getOutputColumns(OptExpressionHandle exprHandle) {
-        return null;
     }
 
     public OptColumnRefSet getOuterColumns(OptExpressionHandle exprHandle,

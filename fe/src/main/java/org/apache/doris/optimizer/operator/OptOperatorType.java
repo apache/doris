@@ -30,6 +30,7 @@ public enum OptOperatorType {
     OP_LOGICAL_SCAN("LogicalScan"),
     OP_LOGICAL_SELECT("LogicalSelect"),
     OP_LOGICAL_UNION("LogicalUnion"),
+    OP_LOGICAL_LIMIT("LogicalLimit"),
 
     OP_PHYSICAL_OLAP_SCAN("PhysicalOlapScan"),
     OP_PHYSICAL_HASH_JOIN("PhysicalHashJoin"),

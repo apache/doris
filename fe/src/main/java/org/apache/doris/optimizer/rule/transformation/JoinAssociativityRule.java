@@ -57,7 +57,6 @@ public class JoinAssociativityRule extends ExplorationRule {
         Preconditions.checkNotNull(leftChildJoinLeftChild);
         Preconditions.checkNotNull(leftChildJoinRightChild);
 
-        //TODO predicates.....
         final OptExpression newLeftChildJoin = OptExpression.create(
                 new OptLogicalJoin(),
                 leftChildJoinLeftChild,

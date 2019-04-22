@@ -17,9 +17,7 @@
 
 package org.apache.doris.optimizer.stat;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
-import org.apache.doris.optimizer.base.OptColumnRef;
 import org.apache.doris.optimizer.base.OptColumnRefSet;
 
 import java.util.Map;
@@ -45,7 +43,7 @@ public class Statistics {
         return rowCount;
     }
 
-    public long getCardinality(int id) {
+    public Long getCardinality(int id) {
         return columnsCardinalityMap.get(id);
     }
 

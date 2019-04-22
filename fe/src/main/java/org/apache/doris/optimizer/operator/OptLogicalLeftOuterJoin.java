@@ -17,8 +17,17 @@
 
 package org.apache.doris.optimizer.operator;
 
+import org.apache.doris.optimizer.base.RequiredLogicalProperty;
+import org.apache.doris.optimizer.stat.Statistics;
+import org.apache.doris.optimizer.stat.StatisticsEstimator;
+
 public class OptLogicalLeftOuterJoin extends OptLogicalJoin {
     public OptLogicalLeftOuterJoin() {
         super(OptOperatorType.OP_LOGICAL_LEFT_OUTER_JOIN);
+    }
+
+    @Override
+    public Statistics deriveStat(OptExpressionHandle exprHandle, RequiredLogicalProperty property) {
+        return StatisticsEstimator.estimateLeftOuterJoin(exprHandle);
     }
 }
