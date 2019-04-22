@@ -44,7 +44,6 @@ import org.apache.doris.thrift.TResourceInfo;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.sleepycat.je.tree.IN;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -207,7 +206,7 @@ public class RoutineLoadManagerTest {
 
         Deencapsulation.setField(routineLoadManager, "dbToNameToRoutineLoadJob", dbToNameToRoutineLoadJob);
         try {
-            routineLoadManager.addRoutineLoadJob(kafkaRoutineLoadJob);
+            routineLoadManager.addRoutineLoadJob(kafkaRoutineLoadJob, "db");
             Assert.fail();
         } catch (DdlException e) {
             LOG.info(e.getMessage());
@@ -247,7 +246,7 @@ public class RoutineLoadManagerTest {
 
         Deencapsulation.setField(routineLoadManager, "dbToNameToRoutineLoadJob", dbToNameToRoutineLoadJob);
         Deencapsulation.setField(routineLoadManager, "idToRoutineLoadJob", idToRoutineLoadJob);
-        routineLoadManager.addRoutineLoadJob(kafkaRoutineLoadJob);
+        routineLoadManager.addRoutineLoadJob(kafkaRoutineLoadJob, "db");
 
         Map<Long, Map<String, List<RoutineLoadJob>>> result =
                 Deencapsulation.getField(routineLoadManager, "dbToNameToRoutineLoadJob");
