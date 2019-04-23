@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/es_predicate.h"
+#include "exec/es/es_predicate.h"
 
 #include <stdint.h>
 #include <map>
@@ -25,6 +25,7 @@
 
 #include "common/status.h"
 #include "common/logging.h"
+#include "exec/es/es_query_builder.h"
 #include "exprs/expr.h"
 #include "exprs/expr_context.h"
 #include "exprs/in_predicate.h"
@@ -42,7 +43,6 @@
 
 #include "service/backend_options.h"
 #include "util/debug_util.h"
-#include "util/es_query_builder.h"
 #include "util/runtime_profile.h"
 
 namespace doris {

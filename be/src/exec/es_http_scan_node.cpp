@@ -21,16 +21,16 @@
 #include <sstream>
 
 #include "common/object_pool.h"
+#include "exec/es/es_predicate.h"
+#include "exec/es/es_query_builder.h"
+#include "exec/es/es_scan_reader.h"
+#include "exec/es/es_scroll_query.h"
 #include "exprs/expr.h"
 #include "runtime/runtime_state.h"
 #include "runtime/row_batch.h"
 #include "runtime/dpp_sink_internal.h"
 #include "service/backend_options.h"
 #include "util/runtime_profile.h"
-#include "util/es_scan_reader.h"
-#include "util/es_scroll_query.h"
-#include "util/es_query_builder.h"
-#include "exec/es_predicate.h"
 
 namespace doris {
 
