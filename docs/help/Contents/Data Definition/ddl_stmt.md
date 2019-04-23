@@ -722,7 +722,7 @@
 
         ALTER DATABASE example_db SET DATA QUOTA 200M;
 
-    2. 将数据库额 example_db 重命名为 example_db2
+    2. 将数据库 example_db 重命名为 example_db2
         ALTER DATABASE example_db RENAME example_db2;
 
 ## keyword
