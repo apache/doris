@@ -20,6 +20,7 @@
 #include <boost/algorithm/string.hpp>
 #include <gutil/strings/substitute.h>
 #include <string>
+
 #include "common/logging.h"
 #include "common/status.h"
 #include "runtime/mem_pool.h"
@@ -42,6 +43,29 @@ static const string ERROR_MEM_LIMIT_EXCEEDED = "DataSourceScanNode::$0() failed 
 static const string ERROR_COL_DATA_IS_ARRAY = "Data source returned an array for the type $0"
     "based on column metadata.";
 
+#define RETURN_ERROR_IF_COL_IS_ARRAY(col, type) \
+    do { \
+        if (col.IsArray()) { \
+            return Status(strings::Substitute(ERROR_COL_DATA_IS_ARRAY, type_to_string(type))); \
+        } \
+    } while (false)
+
+
+#define RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type) \
+    do { \
+        if (!col.IsString()) { \
+            return Status(strings::Substitute(ERROR_INVALID_COL_DATA, type_to_string(type))); \
+        } \
+    } while (false)
+
+
+#define RETURN_ERROR_IF_PARSING_FAILED(result, type) \
+    do { \
+        if (result != StringParser::PARSE_SUCCESS) { \
+            return Status(strings::Substitute(ERROR_INVALID_COL_DATA, type_to_string(type))); \
+        } \
+    } while (false)
+
 ScrollParser::ScrollParser(const std::string& scroll_result) :
     _scroll_id(""),
     _total(0),
@@ -55,6 +79,10 @@ ScrollParser::~ScrollParser() {
 
 void ScrollParser::parsing(const std::string& scroll_result) {
     _document_node.Parse(scroll_result.c_str());
+    if (_document_node.HasParseError()) {
+        LOG(ERROR) << "Parsing json error, json is: " << scroll_result;
+        return;
+    }
 
     if (!_document_node.HasMember(FIELD_SCROLL_ID)) {
         LOG(ERROR) << "maybe not a scroll request";
@@ -116,8 +144,7 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
             continue;
         }
 
-        std::string s(slot_desc->col_name());
-        const char* col_name = s.c_str();
+        const char* col_name = slot_desc->col_name().c_str();
         rapidjson::Value::ConstMemberIterator itr = line.FindMember(col_name);
         if (itr == line.MemberEnd()) {
             tuple->set_null(slot_desc->null_indicator_offset());
@@ -128,15 +155,13 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
         const rapidjson::Value &col = line[col_name];
 
         void* slot = tuple->get_slot(slot_desc->tuple_offset());
-        switch (slot_desc->type().type) {
+        PrimitiveType type = slot_desc->type().type;
+        switch (type) {
             case TYPE_CHAR:
             case TYPE_VARCHAR: {
-                if (col.IsArray()) {
-                    return Status(strings::Substitute(ERROR_COL_DATA_IS_ARRAY, "STRING"));
-                }
-                if (!col.IsString()) {
-                    return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "STRING"));
-                }
+                RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
+                RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
+
                 const std::string& val = col.GetString();
                 size_t val_size = col.GetStringLength();
                 char* buffer = reinterpret_cast<char*>(tuple_pool->try_allocate_unaligned(val_size));
@@ -157,22 +182,15 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
                     break;
                 }
 
-                if (col.IsArray()) {
-                    return Status(strings::Substitute(ERROR_COL_DATA_IS_ARRAY, "TINYINT"));
-                }
+                RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
+                RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
 
-                if (!col.IsString()) {
-                    return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "TINYINT"));
-                } 
-
-                const std::string& val = col.GetString();
-                const char* data = val.c_str();
-                size_t len = col.GetStringLength();
                 StringParser::ParseResult result;
-                int8_t v = StringParser::string_to_int<int8_t>(data, len, &result);
-                if (result != StringParser::PARSE_SUCCESS) {
-                    return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "TINYINT"));
-                }
+                const std::string& val = col.GetString();
+                size_t len = col.GetStringLength();
+                int8_t v = 
+                    StringParser::string_to_int<int8_t>(val.c_str(), len, &result);
+                RETURN_ERROR_IF_PARSING_FAILED(result, type);
                 *reinterpret_cast<int8_t*>(slot) = v;
                 break;
             }
@@ -183,22 +201,15 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
                     break;
                 }
 
-                if (col.IsArray()) {
-                    return Status(strings::Substitute(ERROR_COL_DATA_IS_ARRAY, "SMALLINT"));
-                }
+                RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
+                RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
 
-                if (!col.IsString()) {
-                    return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "SMALLINT"));
-                } 
-                    
                 const std::string& val = col.GetString();
-                const char* data = val.c_str();
                 size_t len = col.GetStringLength();
                 StringParser::ParseResult result;
-                int16_t v = StringParser::string_to_int<int16_t>(data, len, &result);
-                if (result != StringParser::PARSE_SUCCESS) {
-                    return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "SMALLINT"));
-                }
+                int16_t v = 
+                    StringParser::string_to_int<int16_t>(val.c_str(), len, &result);
+                RETURN_ERROR_IF_PARSING_FAILED(result, type);
                 *reinterpret_cast<int16_t*>(slot) = v;
                 break;
             }
@@ -209,22 +220,15 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
                     break;
                 }
 
-                if (col.IsArray()) {
-                    return Status(strings::Substitute(ERROR_COL_DATA_IS_ARRAY, "INT"));
-                }
-
-                if (!col.IsString()) {
-                    return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "INT"));
-                } 
+                RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
+                RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
 
                 const std::string& val = col.GetString();
-                const char* data = val.c_str();
                 size_t len = col.GetStringLength();
                 StringParser::ParseResult result;
-                int32_t v = StringParser::string_to_int<int32_t>(data, len, &result);
-                if (result != StringParser::PARSE_SUCCESS) {
-                    return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "INT"));
-                }
+                int32_t v = 
+                    StringParser::string_to_int<int32_t>(val.c_str(), len, &result);
+                RETURN_ERROR_IF_PARSING_FAILED(result, type);
                 *reinterpret_cast<int32_t*>(slot) = v;
                 break;
             }
@@ -235,22 +239,15 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
                     break;
                 }
 
-                if (col.IsArray()) {
-                    return Status(strings::Substitute(ERROR_COL_DATA_IS_ARRAY, "BIGINT"));
-                }
-
-                if (!col.IsString()) {
-                    return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "BIGINT"));
-                } 
+                RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
+                RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
 
                 const std::string& val = col.GetString();
-                const char* data = val.c_str();
                 size_t len = col.GetStringLength();
                 StringParser::ParseResult result;
-                int64_t v = StringParser::string_to_int<int64_t>(data, len, &result);
-                if (result != StringParser::PARSE_SUCCESS) {
-                    return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "BIGINT"));
-                }
+                int64_t v = 
+                    StringParser::string_to_int<int64_t>(val.c_str(), len, &result);
+                RETURN_ERROR_IF_PARSING_FAILED(result, type);
                 *reinterpret_cast<int64_t*>(slot) = v;
                 break;
             }
@@ -261,22 +258,15 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
                     break;
                 }
 
-                if (col.IsArray()) {
-                    return Status(strings::Substitute(ERROR_COL_DATA_IS_ARRAY, "LARGEINT"));
-                }
-
-                if (!col.IsString()) {
-                    return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "LARGEINT"));
-                } 
+                RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
+                RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
 
                 const std::string& val = col.GetString();
-                const char* data = val.c_str();
                 size_t len = col.GetStringLength();
                 StringParser::ParseResult result;
-                __int128 v = StringParser::string_to_int<__int128>(data, len, &result);
-                if (result != StringParser::PARSE_SUCCESS) {
-                    return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "LARGEINT"));
-                }
+                __int128 v = 
+                    StringParser::string_to_int<__int128>(val.c_str(), len, &result);
+                RETURN_ERROR_IF_PARSING_FAILED(result, type);
                 memcpy(slot, &v, sizeof(v));
                 break;
             }
@@ -287,22 +277,15 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
                     break;
                 }
 
-                if (col.IsArray()) {
-                    return Status(strings::Substitute(ERROR_COL_DATA_IS_ARRAY, "DOUBLE"));
-                }
-
-                if (!col.IsString()) {
-                    return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "DOUBLE"));
-                } 
+                RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
+                RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
 
                 const std::string& val = col.GetString();
                 size_t val_size = col.GetStringLength();
                 StringParser::ParseResult result;
-                double d = StringParser::string_to_float<double>(val.c_str(), 
-                            val_size, &result);
-                if (result != StringParser::PARSE_SUCCESS) {
-                    return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "DOUBLE"));
-                }
+                double d = 
+                    StringParser::string_to_float<double>(val.c_str(), val_size, &result);
+                RETURN_ERROR_IF_PARSING_FAILED(result, type);
                 *reinterpret_cast<double*>(slot) = d;
                 break;
             }
@@ -313,21 +296,15 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
                     break;
                 }
 
-                if (col.IsArray()) {
-                    return Status(strings::Substitute(ERROR_COL_DATA_IS_ARRAY, "FLOAT"));
-                }
-
-                if (!col.IsString()) {
-                    return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "FLOAT"));
-                } 
+                RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
+                RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
 
                 const std::string& val = col.GetString();
                 size_t val_size = col.GetStringLength();
                 StringParser::ParseResult result;
-                float f = StringParser::string_to_float<float>(val.c_str(), val_size, &result);
-                if (result != StringParser::PARSE_SUCCESS) {
-                    return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "FLOAT"));
-                }
+                float f = 
+                    StringParser::string_to_float<float>(val.c_str(), val_size, &result);
+                RETURN_ERROR_IF_PARSING_FAILED(result, type);
                 *reinterpret_cast<float*>(slot) = f;
                 break;
             }
@@ -343,86 +320,53 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
                     break;
                 }
 
-                if (col.IsArray()) {
-                    return Status(strings::Substitute(ERROR_COL_DATA_IS_ARRAY, "BOOLEAN"));
-                }
-
-                if (!col.IsString()) {
-                    return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "BOOLEAN"));
-                } 
+                RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
+                RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
 
                 const std::string& val = col.GetString();
                 size_t val_size = col.GetStringLength();
                 StringParser::ParseResult result;
-                bool b = StringParser::string_to_bool(val.c_str(), val_size, &result);
-                if (result != StringParser::PARSE_SUCCESS) {
-                    return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "BOOLEAN"));
-                }
+                bool b = 
+                    StringParser::string_to_bool(val.c_str(), val_size, &result);
+                RETURN_ERROR_IF_PARSING_FAILED(result, type);
                 *reinterpret_cast<int8_t*>(slot) = b;
                 break;
             }
 
-            case TYPE_DATE: {
-                if (col.IsNumber()) {
-                    if (!reinterpret_cast<DateTimeValue*>(slot)->from_unixtime(col.GetInt64())) {
-                        return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "TYPE_DATE"));
-                    }
-                    reinterpret_cast<DateTimeValue*>(slot)->cast_to_date();
-                    break;
-                }
-
-                if (col.IsArray()) {
-                    return Status(strings::Substitute(ERROR_COL_DATA_IS_ARRAY, "TYPE_DATE"));
-                }
-
-                if (!col.IsString()) {
-                    return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "TYPE_DATE"));
-                } 
-
-                DateTimeValue* ts_slot = reinterpret_cast<DateTimeValue*>(slot);
-                const std::string& val = col.GetString();
-                size_t val_size = col.GetStringLength();
-                if (!ts_slot->from_date_str(val.c_str(), val_size)) {
-                    return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "TYPE_DATE"));
-                }
-
-                if (ts_slot->year() < 1900) {
-                    return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "TYPE_DATE"));
-                }
-
-                ts_slot->cast_to_date();
-                break;
-            }
-
+            case TYPE_DATE:
             case TYPE_DATETIME: {
                 if (col.IsNumber()) {
                     if (!reinterpret_cast<DateTimeValue*>(slot)->from_unixtime(col.GetInt64())) {
-                        return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "TYPE_DATETIME"));
+                        return Status(strings::Substitute(ERROR_INVALID_COL_DATA, type_to_string(type)));
                     }
-                    reinterpret_cast<DateTimeValue*>(slot)->set_type(TIME_DATETIME);
+
+                    if (type == TYPE_DATE) {
+                        reinterpret_cast<DateTimeValue*>(slot)->cast_to_date();
+                    } else {
+                        reinterpret_cast<DateTimeValue*>(slot)->set_type(TIME_DATETIME);
+                    }
                     break;
                 }
 
-                if (col.IsArray()) {
-                    return Status(strings::Substitute(ERROR_COL_DATA_IS_ARRAY, "TYPE_DATETIME"));
-                }
-
-                if (!col.IsString()) {
-                    return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "TYPE_DATETIME"));
-                } 
+                RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
+                RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
 
                 DateTimeValue* ts_slot = reinterpret_cast<DateTimeValue*>(slot);
                 const std::string& val = col.GetString();
                 size_t val_size = col.GetStringLength();
                 if (!ts_slot->from_date_str(val.c_str(), val_size)) {
-                    return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "TYPE_DATETIME"));
+                    return Status(strings::Substitute(ERROR_INVALID_COL_DATA, type_to_string(type)));
                 }
 
                 if (ts_slot->year() < 1900) {
-                    return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "TYPE_DATETIME"));
+                    return Status(strings::Substitute(ERROR_INVALID_COL_DATA, type_to_string(type)));
                 }
 
-                ts_slot->to_datetime();
+                if (type == TYPE_DATE) {
+                    ts_slot->cast_to_date();
+                } else {
+                    ts_slot->to_datetime();
+                }
                 break;
             }
 

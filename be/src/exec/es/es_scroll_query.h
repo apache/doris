@@ -16,9 +16,11 @@
 // under the License.
 
 #pragma once
-#include "exec/es_predicate.h"
+
 #include<string>
 #include<vector>
+
+#include "exec/es/es_predicate.h"
 
 namespace doris {
 

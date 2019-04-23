@@ -26,10 +26,10 @@
 
 #include "common/status.h"
 #include "common/global_types.h"
+#include "exec/es/es_scan_reader.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/Types_types.h"
 #include "runtime/mem_pool.h"
-#include "util/es_scan_reader.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
