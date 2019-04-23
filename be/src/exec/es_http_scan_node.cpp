@@ -92,8 +92,11 @@ Status EsHttpScanNode::build_conjuncts_list() {
         if (predicate->build_disjuncts_list()) {
             _predicates.push_back(predicate);
             _predicate_to_conjunct.push_back(i);
-        } else if (!predicate->get_es_query_status().ok()) {
-            return predicate->get_es_query_status();
+        } else {
+            status = predicate->get_es_query_status();
+            if (!status.ok()) {
+                LOG(WARNING) << "Build es_query failed: " << status.get_error_msg();
+            }
         }
     }
 
