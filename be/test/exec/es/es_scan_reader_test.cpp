@@ -21,6 +21,7 @@
 #include <string>
 
 #include "common/logging.h"
+#include "exec/es/es_scan_reader.h"
 #include "exec/es/es_scroll_query.h"
 #include "http/ev_http_server.h"
 #include "http/http_channel.h"
@@ -29,7 +30,6 @@
 #include "rapidjson/document.h"
 #include "rapidjson/writer.h"
 #include "rapidjson/stringbuffer.h"
-#include "util/es_scan_reader.h"
 
 namespace doris {
 

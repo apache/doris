@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/es_predicate.h"
+#include "exec/es/es_predicate.h"
 
 #include <gtest/gtest.h>
 #include <string>
@@ -24,7 +24,7 @@
 #include "common/status.h"
 #include "exprs/binary_predicate.h"
 #include "gen_cpp/Exprs_types.h"
-#include "util/es_query_builder.h"
+#include "exec/es/es_query_builder.h"
 #include "rapidjson/document.h"
 #include "rapidjson/rapidjson.h"
 #include "rapidjson/stringbuffer.h"
