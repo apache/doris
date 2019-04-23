@@ -162,7 +162,9 @@ public class RoutineLoadTaskScheduler extends Daemon {
                 && currentTime - lastBackendSlotUpdateTime > BACKEND_SLOT_UPDATE_INTERVAL_MS) {
             routineLoadManager.updateBeIdToMaxConcurrentTasks();
             lastBackendSlotUpdateTime = currentTime;
-            LOG.debug("update backend max slot for routine load task scheduling");
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("update backend max slot for routine load task scheduling");
+            }
         }
     }
 
@@ -188,7 +190,7 @@ public class RoutineLoadTaskScheduler extends Daemon {
                 }
                 ok = true;
             } catch (Exception e) {
-                LOG.warn("task exec error. backend[{}]", backend.getId(), e);
+                LOG.warn("task send error. backend[{}]", backend.getId(), e);
             } finally {
                 if (ok) {
                     ClientPool.backendPool.returnObject(address, client);
