@@ -18,10 +18,11 @@
 #include <gtest/gtest.h>
 #include <string>
 #include <vector>
+
 #include "common/logging.h"
-#include "util/es_query_builder.h"
-#include "rapidjson/document.h"
+#include "exec/es/es_query_builder.h"
 #include "exec/es_predicate.h"
+#include "rapidjson/document.h"
 #include "rapidjson/rapidjson.h"
 #include "rapidjson/stringbuffer.h"
 #include "rapidjson/writer.h"

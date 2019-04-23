@@ -15,12 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "es_scroll_parser.h"
+#include "exec/es/es_scroll_parser.h"
 
-#include <string>
 #include <boost/algorithm/string.hpp>
 #include <gutil/strings/substitute.h>
-
+#include <string>
 #include "common/logging.h"
 #include "common/status.h"
 #include "runtime/mem_pool.h"
