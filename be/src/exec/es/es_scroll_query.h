@@ -15,11 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-
 #pragma once
+#include "exec/es_predicate.h"
 #include<string>
 #include<vector>
-#include "exec/es_predicate.h"
 
 namespace doris {
 

@@ -15,10 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "util/es_query_builder.h"
+#include "exec/es/es_query_builder.h"
 
-#include <sstream>
 #include <boost/algorithm/string/join.hpp>
+#include <sstream>
 #include "common/logging.h"
 #include "es_scroll_query.h"
 #include "rapidjson/document.h"

@@ -15,13 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "exec/es/es_scan_reader.h"
+
 #include <string>
 #include <sstream>
-#include "es_scan_reader.h"
+#include <map>
 #include "es_scroll_query.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include <map>
 
 namespace doris {
 const std::string REUQEST_SCROLL_FILTER_PATH = "filter_path=_scroll_id,hits.hits._source,hits.total,_id,hits.hits._source.fields";

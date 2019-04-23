@@ -74,10 +74,6 @@ add_library(Util STATIC
   aes_util.cpp
   string_util.cpp
   md5.cpp
-  es_scan_reader.cpp
-  es_scroll_query.cpp
-  es_scroll_parser.cpp
-  es_query_builder.cpp
 )
 
 #ADD_BE_TEST(integer-array-test)

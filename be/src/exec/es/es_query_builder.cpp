@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "util/es_query_builder.h"
+#include "exec/es/es_query_builder.h"
 
 #include <boost/algorithm/string/replace.hpp>
 #include "rapidjson/rapidjson.h"
