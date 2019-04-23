@@ -48,7 +48,7 @@ OLAPStatus CumulativeCompaction::init(TabletSharedPtr tablet) {
     _max_delta_file_size = config::cumulative_compaction_budgeted_bytes;
 
     if (!_tablet->try_cumulative_lock()) {
-        LOG(WARNING) << "another cumulative is running. tablet=" << _tablet->full_name();
+        LOG(INFO) << "skip compaction, because another cumulative is running. tablet=" << _tablet->full_name();
         return OLAP_ERR_CE_TRY_CE_LOCK_ERROR;
     }
 
