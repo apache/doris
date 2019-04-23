@@ -17,11 +17,14 @@
 
 #include "olap/tablet_meta.h"
 
+#include <sstream>
+
 #include "olap/file_helper.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/alpha_rowset_meta.h"
 #include "olap/tablet_meta_manager.h"
+#include "util/uid_util.h"
 
 namespace doris {
 
@@ -56,11 +59,11 @@ OLAPStatus TabletMeta::create(int64_t table_id, int64_t partition_id,
                               uint64_t shard_id, const TTabletSchema& tablet_schema,
                               uint32_t next_unique_id,
                               const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
-                              TabletMetaSharedPtr* tablet_meta) {
+                              TabletMetaSharedPtr* tablet_meta, TabletUid& tablet_uid) {
     tablet_meta->reset(new TabletMeta(table_id, partition_id,
                                 tablet_id, schema_hash,
                                 shard_id, tablet_schema,
-                                next_unique_id, col_ordinal_to_unique_id));
+                                next_unique_id, col_ordinal_to_unique_id, tablet_uid));
     return OLAP_SUCCESS;
 }
 
@@ -70,7 +73,8 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id,
                        int64_t tablet_id, int32_t schema_hash,
                        uint64_t shard_id, const TTabletSchema& tablet_schema,
                        uint32_t next_unique_id,
-                       const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id) {
+                       const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id, 
+                       TabletUid tablet_uid) {
     TabletMetaPB tablet_meta_pb;
     tablet_meta_pb.set_table_id(table_id);
     tablet_meta_pb.set_partition_id(partition_id);
@@ -80,6 +84,7 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id,
     tablet_meta_pb.set_creation_time(time(NULL));
     tablet_meta_pb.set_cumulative_layer_point(-1);
     tablet_meta_pb.set_tablet_state(PB_RUNNING);
+    *(tablet_meta_pb.mutable_tablet_uid()) = tablet_uid.to_proto();
     TabletSchemaPB* schema = tablet_meta_pb.mutable_schema();
     schema->set_num_short_key_columns(tablet_schema.short_key_column_count);
     schema->set_num_rows_per_row_block(config::default_num_rows_per_column_file_block);
@@ -179,6 +184,41 @@ OLAPStatus TabletMeta::create_from_file(const std::string& file_path) {
     }
 
     return init_from_pb(tablet_meta_pb);
+}
+
+OLAPStatus TabletMeta::reset_tablet_uid(const std::string& file_path) {
+    OLAPStatus res = OLAP_SUCCESS;
+    TabletMeta tmp_tablet_meta;
+    if ((res = tmp_tablet_meta.create_from_file(file_path)) != OLAP_SUCCESS) {
+        LOG(WARNING) << "fail to load tablet meta from file"
+                     << ", meta_file=" << file_path;
+        return res;
+    }
+    TabletMetaPB tmp_tablet_meta_pb;
+    res = tmp_tablet_meta.to_meta_pb(&tmp_tablet_meta_pb);
+    if (res != OLAP_SUCCESS) {
+        LOG(WARNING) << "fail to serialize tablet meta to pb object. " 
+                     << " , meta_file=" << file_path;
+        return res;
+    }
+    *(tmp_tablet_meta_pb.mutable_tablet_uid()) = TabletUid().to_proto();
+    res = save(file_path, tmp_tablet_meta_pb);
+    if (res != OLAP_SUCCESS) {
+        LOG(WARNING) << "fail to save tablet meta pb to " 
+                     << " meta_file=" << file_path;
+        return res;
+    }
+    return res;
+}
+
+const TabletUid TabletMeta::tablet_uid() {
+    return TabletUid(_tablet_meta_pb.tablet_uid());
+}
+
+std::string TabletMeta::construct_header_file_path(const std::string& schema_hash_path, const int64_t tablet_id) {
+    std::stringstream header_name_stream;
+    header_name_stream << schema_hash_path << "/" << tablet_id << ".hdr";
+    return header_name_stream.str();
 }
 
 OLAPStatus TabletMeta::save(const string& file_path) {

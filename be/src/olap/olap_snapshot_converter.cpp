@@ -159,6 +159,7 @@ OLAPStatus OlapSnapshotConverter::to_tablet_meta_pb(const OLAPHeaderMessage& ola
         tablet_meta_pb->set_in_restore_mode(olap_header.in_restore_mode());
     }
     tablet_meta_pb->set_tablet_state(TabletStatePB::PB_RUNNING);
+    *(tablet_meta_pb->mutable_tablet_uid()) = TabletUid().to_proto();
     VLOG(3) << "convert tablet meta tablet id = " << olap_header.tablet_id()
             << " schema hash = " << olap_header.schema_hash() << " successfully.";
     return OLAP_SUCCESS;
@@ -410,6 +411,7 @@ OLAPStatus OlapSnapshotConverter::to_new_snapshot(const OLAPHeaderMessage& olap_
     // convert visible pdelta file to rowsets
     for (auto& visible_rowset : tablet_meta_pb->rs_metas()) {
         RowsetMetaSharedPtr alpha_rowset_meta(new AlphaRowsetMeta());
+        alpha_rowset_meta->set_tablet_uid(tablet_meta_pb->tablet_uid());
         alpha_rowset_meta->init_from_pb(visible_rowset);
         AlphaRowset rowset(&tablet_schema, new_data_path_prefix, &data_dir, alpha_rowset_meta);
         RETURN_NOT_OK(rowset.init());
@@ -420,6 +422,7 @@ OLAPStatus OlapSnapshotConverter::to_new_snapshot(const OLAPHeaderMessage& olap_
     // convert inc delta file to rowsets
     for (auto& inc_rowset : tablet_meta_pb->inc_rs_metas()) {
         RowsetMetaSharedPtr alpha_rowset_meta(new AlphaRowsetMeta());
+        alpha_rowset_meta->set_tablet_uid(tablet_meta_pb->tablet_uid());
         alpha_rowset_meta->init_from_pb(inc_rowset);
         AlphaRowset rowset(&tablet_schema, new_data_path_prefix, &data_dir, alpha_rowset_meta);
         RETURN_NOT_OK(rowset.init());
@@ -429,6 +432,7 @@ OLAPStatus OlapSnapshotConverter::to_new_snapshot(const OLAPHeaderMessage& olap_
 
     for (auto it = pending_rowsets->begin(); it != pending_rowsets->end(); ++it) {
         RowsetMetaSharedPtr alpha_rowset_meta(new AlphaRowsetMeta());
+        alpha_rowset_meta->set_tablet_uid(tablet_meta_pb->tablet_uid());
         alpha_rowset_meta->init_from_pb(*it);
         AlphaRowset rowset(&tablet_schema, new_data_path_prefix, &data_dir, alpha_rowset_meta);
         RETURN_NOT_OK(rowset.init());

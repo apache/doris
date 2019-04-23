@@ -33,6 +33,7 @@
 #include "gen_cpp/Types_types.h"
 #include "olap/olap_define.h"
 #include "util/hash_util.hpp"
+#include "util/uid_util.h"
 
 namespace doris {
 
@@ -40,6 +41,8 @@ typedef int32_t SchemaHash;
 typedef int64_t VersionHash;
 typedef __int128 int128_t;
 typedef unsigned __int128 uint128_t;
+
+typedef UniqueId TabletUid;
 
 enum CompactionType {
     BASE_COMPACTION = 1,
@@ -65,26 +68,31 @@ struct DataDirInfo {
 struct TabletInfo {
     TabletInfo(
             TTabletId in_tablet_id,
-            TSchemaHash in_schema_hash) :
+            TSchemaHash in_schema_hash, 
+            UniqueId in_uid) :
             tablet_id(in_tablet_id),
-            schema_hash(in_schema_hash) {}
+            schema_hash(in_schema_hash),
+            tablet_uid(in_uid) {}
 
     bool operator<(const TabletInfo& right) const {
         if (tablet_id != right.tablet_id) {
             return tablet_id < right.tablet_id;
-        } else {
+        } else if (schema_hash != right.schema_hash) {
             return schema_hash < right.schema_hash;
+        } else {
+            return tablet_uid < right.tablet_uid;
         }
     }
 
     std::string to_string() const {
         std::stringstream ss;
-        ss << tablet_id << "." << schema_hash;
+        ss << tablet_id << "." << schema_hash << "." << tablet_uid.to_string();
         return ss.str();
     }
 
     TTabletId tablet_id;
     TSchemaHash schema_hash;
+    UniqueId tablet_uid;
 };
 
 enum RangeCondition {

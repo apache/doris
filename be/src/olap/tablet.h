@@ -78,6 +78,8 @@ public:
     OLAPStatus revise_tablet_meta(const std::vector<RowsetMetaSharedPtr>& rowsets_to_clone,
                                   const std::vector<Version>& versions_to_delete);
 
+
+    TabletUid tablet_uid();
     inline int64_t table_id() const;
     inline const std::string full_name() const;
     inline int64_t partition_id() const;

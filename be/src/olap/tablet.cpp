@@ -158,6 +158,10 @@ bool Tablet::is_used() {
     return _data_dir->is_used();
 }
 
+TabletUid Tablet::tablet_uid() {
+    return _tablet_meta->tablet_uid();
+}
+
 string Tablet::tablet_path() const {
     return _tablet_path;
 }

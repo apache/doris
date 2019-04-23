@@ -145,6 +145,12 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
             break;
         }
 
+        res = TabletMeta::reset_tablet_uid(new_meta_file);
+        if (res != OLAP_SUCCESS) {
+            LOG(WARNING) << "errors while set tablet uid: '" << new_meta_file;
+            break;
+        } 
+
         res = SnapshotManager::instance()->convert_rowset_ids(*(stores[0]), schema_hash_path, tablet_id, schema_hash);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "failed to convert rowset id when do storage migration"
@@ -203,12 +209,7 @@ OLAPStatus EngineStorageMigrationTask::_generate_new_header(
     }
     new_tablet_meta->revise_rs_metas(rs_metas);
     new_tablet_meta->set_shard_id(new_shard);
-
-    res = TabletMetaManager::save(store, tablet->tablet_id(), tablet->schema_hash(), new_tablet_meta);
-    if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "fail to save olap header to new db. res=" << res;
-        return res;
-    }
+    // should not save new meta here, because new tablet may failed
     // should not remove the old meta here, because the new header maybe not valid
     // remove old meta after the new tablet is loaded successfully
     return res;

@@ -46,6 +46,7 @@
 #include "olap/schema_change.h"
 #include "olap/data_dir.h"
 #include "olap/utils.h"
+#include "olap/olap_common.h"
 #include "olap/rowset/column_data_writer.h"
 #include "olap/rowset/rowset_id_generator.h"
 #include "util/time.h"
@@ -454,6 +455,7 @@ TabletSharedPtr TabletManager::_create_tablet_meta_and_dir(
             LOG(WARNING) << "fail to create tablet meta. res=" << res << ", root=" << data_dir->path();
             continue;
         }
+        
 
         stringstream schema_hash_dir_stream;
         schema_hash_dir_stream << data_dir->path()
@@ -798,10 +800,12 @@ OLAPStatus TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tab
 OLAPStatus TabletManager::load_tablet_from_dir(
         DataDir* store, TTabletId tablet_id, SchemaHash schema_hash,
         const string& schema_hash_path, bool force) {
+    LOG(INFO) << "begin to load tablet from dir. " 
+                << " tablet_id=" << tablet_id
+                << " schema_hash=" << schema_hash
+                << " path = " << schema_hash_path;
     // not add lock here, because load_tablet_from_meta already add lock
-    stringstream header_name_stream;
-    header_name_stream << schema_hash_path << "/" << tablet_id << ".hdr";
-    string header_path = header_name_stream.str();
+    string header_path = TabletMeta::construct_header_file_path(schema_hash_path, tablet_id);
     // should change shard id before load tablet
     path boost_header_path(header_path);
     std::string shard_path = boost_header_path.parent_path().parent_path().parent_path().string();
@@ -903,7 +907,7 @@ OLAPStatus TabletManager::report_all_tablets_info(std::map<TTabletId, TTablet>* 
             vector<int64_t> transaction_ids;
             // TODO(ygl): tablet manager and txn manager may be dead lock
             StorageEngine::instance()->txn_manager()->get_expire_txns(tablet_ptr->tablet_id(), 
-                tablet_ptr->schema_hash(), &transaction_ids);
+                tablet_ptr->schema_hash(), tablet_ptr->tablet_uid(), &transaction_ids);
             tablet_info.__set_transaction_ids(transaction_ids);
 
             if (_available_storage_medium_type_count > 1) {
@@ -1119,6 +1123,7 @@ OLAPStatus TabletManager::_create_inital_rowset(
             RETURN_NOT_OK(tablet->next_rowset_id(&rowset_id));
             RowsetWriterContext context;
             context.rowset_id = rowset_id;
+            context.tablet_uid = tablet->tablet_uid();
             context.tablet_id = tablet->tablet_id();
             context.partition_id = tablet->partition_id();
             context.tablet_schema_hash = tablet->schema_hash();
@@ -1220,12 +1225,14 @@ OLAPStatus TabletManager::_create_tablet_meta(
     }
 
     LOG(INFO) << "next_unique_id:" << next_unique_id;
-    TabletMeta::create(request.table_id, request.partition_id,
+    // it is a new tablet meta obviously, should generate a new tablet id
+    TabletUid tablet_uid;
+    res = TabletMeta::create(request.table_id, request.partition_id,
                        request.tablet_id, request.tablet_schema.schema_hash,
                        shard_id, request.tablet_schema,
                        next_unique_id, col_ordinal_to_unique_id,
-                       tablet_meta);
-    return OLAP_SUCCESS;
+                       tablet_meta, tablet_uid);
+    return res;
 }
 
 OLAPStatus TabletManager::_drop_tablet_directly_unlocked(

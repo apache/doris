@@ -172,12 +172,6 @@ public:
     // @return OLAP_SUCCESS if load tablet success
     OLAPStatus load_header(
         const std::string& shard_path, const TCloneReq& request);
-        
-    OLAPStatus load_header(
-        DataDir* store,
-            const std::string& shard_path,
-            TTabletId tablet_id,
-            TSchemaHash schema_hash);
 
     // call this if you want to trigger a disk and tablet report
     void report_notify(bool is_all) {

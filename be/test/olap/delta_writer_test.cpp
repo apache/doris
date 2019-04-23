@@ -408,7 +408,7 @@ TEST_F(TestDeltaWriter, write) {
         std::cout << "start to publish txn" << std::endl;
         RowsetSharedPtr rowset = tablet_rs.second;
         res = k_engine->txn_manager()->publish_txn(meta, write_req.partition_id, write_req.txn_id,
-                                   write_req.tablet_id, write_req.schema_hash,
+                                   write_req.tablet_id, write_req.schema_hash, tablet_rs.first.tablet_uid, 
                                    version, version_hash);
         ASSERT_EQ(OLAP_SUCCESS, res);
         std::cout << "start to add inc rowset:" << rowset->rowset_id() << ", num rows:" << rowset->num_rows()

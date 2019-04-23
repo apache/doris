@@ -156,19 +156,27 @@ OLAPStatus EngineCloneTask::execute() {
         if (status == DORIS_SUCCESS) {
             LOG(INFO) << "clone copy done. src_host: " << src_host.host
                         << " src_file_path: " << src_file_path;
-            // Load header
-            OLAPStatus load_header_status =
-                StorageEngine::instance()->load_header(
-                    store,
-                    local_shard_root_path,
-                    _clone_req.tablet_id,
-                    _clone_req.schema_hash);
-            if (load_header_status != OLAP_SUCCESS) {
-                LOG(WARNING) << "load header failed. local_shard_root_path: '" << local_shard_root_path
-                             << "' schema_hash: " << _clone_req.schema_hash << ". status: " << load_header_status
-                             << ". signature: " << _signature;
-                _error_msgs->push_back("load header failed.");
+            stringstream schema_hash_path_stream;
+            schema_hash_path_stream << local_shard_root_path
+                                    << "/" << _clone_req.tablet_id
+                                    << "/" << _clone_req.schema_hash;
+            string header_path = TabletMeta::construct_header_file_path(schema_hash_path_stream.str(), 
+                _clone_req.tablet_id);
+            OLAPStatus reset_id_status = TabletMeta::reset_tablet_uid(header_path);
+            if (reset_id_status != OLAP_SUCCESS) {
+                LOG(WARNING) << "errors while set tablet uid: '" << header_path;
+                _error_msgs->push_back("errors while set tablet uid.");
                 status = DORIS_ERROR;
+            } else {
+                OLAPStatus load_header_status =  StorageEngine::instance()->tablet_manager()->load_tablet_from_dir(
+                    store, _clone_req.tablet_id, _clone_req.schema_hash, schema_hash_path_stream.str(), false);
+                if (load_header_status != OLAP_SUCCESS) {
+                    LOG(WARNING) << "load header failed. local_shard_root_path: '" << local_shard_root_path
+                                << "' schema_hash: " << _clone_req.schema_hash << ". status: " << load_header_status
+                                << ". signature: " << _signature;
+                    _error_msgs->push_back("load header failed.");
+                    status = DORIS_ERROR;
+                }
             }
             // clone success, delete .hdr file because tablet meta is stored in rocksdb
             string cloned_meta_file = tablet_dir_stream.str() + "/" + std::to_string(_clone_req.tablet_id) + ".hdr";

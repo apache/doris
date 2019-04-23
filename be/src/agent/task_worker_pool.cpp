@@ -491,7 +491,7 @@ void* TaskWorkerPool::_drop_tablet_worker_thread_callback(void* arg_this) {
             }
             // if tablet is dropped by fe, then the related txn should also be removed
             StorageEngine::instance()->txn_manager()->force_rollback_tablet_related_txns(dropped_tablet->data_dir()->get_meta(), 
-                drop_tablet_req.tablet_id, drop_tablet_req.schema_hash);
+                drop_tablet_req.tablet_id, drop_tablet_req.schema_hash, dropped_tablet->tablet_uid());
         }
         task_status.__set_status_code(status_code);
         task_status.__set_error_msgs(error_msgs);
