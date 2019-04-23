@@ -28,16 +28,21 @@ import org.apache.doris.analysis.CaseExpr;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.InPredicate;
+import org.apache.doris.analysis.InlineViewRef;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LikePredicate;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.SelectStmt;
+import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableRef;
+import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.UnionStmt;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.optimizer.base.ItemUtils;
 import org.apache.doris.optimizer.base.OptColumnRef;
 import org.apache.doris.optimizer.base.OptColumnRefFactory;
@@ -94,10 +99,32 @@ public class StmtToExpressionConvertor {
         return root;
     }
 
+    // Create OptLogicalAggregate and its children from AggregateInfo
     public OptExpression convertAggregation(OptExpression root, AggregateInfo aggInfo) {
-        final List<OptExpression> aggregateInputs = Lists.newArrayList();
-        aggregateInputs.add(root);
-        return OptExpression.create(null, aggregateInputs);
+        // 1. create projection from aggregateInfo
+        List<OptExpression> projectElements = Lists.newArrayList();
+
+        List<OptColumnRef> groupByColumns = Lists.newArrayList();
+        for (int i = 0; i < aggInfo.getOutputTupleDesc().getSlots().size(); ++i) {
+            SlotDescriptor slotDesc = aggInfo.getOutputTupleDesc().getSlots().get(i);
+            OptColumnRef col = columnRefFactory.create(slotDesc.getType());
+            Expr expr = null;
+            if (i < aggInfo.getGroupingExprs().size()) {
+                expr = aggInfo.getGroupingExprs().get(i);
+                groupByColumns.add(col);
+            } else {
+                expr = aggInfo.getAggregateExprs().get(i - aggInfo.getGroupingExprs().size());
+            }
+            OptExpression projItem = convertExpr(expr);
+            OptExpression projElement = OptExpression.create(new OptItemProjectElement(col), projItem);
+
+            projectElements.add(projElement);
+        }
+        OptExpression projection = OptExpression.create(new OptItemProjectList(), projectElements);
+
+
+        return OptExpression.create(
+                new OptLogicalAggregate(groupByColumns, OptLogicalAggregate.AggType.GB_GLOBAL), root, projection);
     }
     
     public OptExpression convertJoin(OptExpression outerExpression, OptExpression innerExpression, TableRef tableRef) {
@@ -120,14 +147,48 @@ public class StmtToExpressionConvertor {
         if (ref instanceof BaseTableRef) {
             return convertBaseTableRef((BaseTableRef) ref);
         } else {
-            // inline view
+            return convertInlineView((InlineViewRef) ref);
         }
-        return null;
     }
 
     public OptExpression convertBaseTableRef(BaseTableRef ref) {
-        OptLogicalScan scan = new OptLogicalScan(ref);
-        return OptExpression.create(scan);
+        List<OptColumnRef> columnRefs = convertTuple(ref.getDesc());
+        OptLogical op = null;
+        switch (ref.getTable().getType()) {
+            case OLAP:
+                op = new OptLogicalScan((OlapTable) ref.getTable(), columnRefs);
+                break;
+        }
+        return OptExpression.create(op);
+    }
+
+    private OptExpression convertInlineView(InlineViewRef ref) {
+        OptExpression childExpr = convertQuery(ref.getViewStmt());
+        // New a projection node
+
+        List<Expr> resultExprs = ref.getViewStmt().getResultExprs();
+
+        List<OptColumnRef> columnRefs = convertTuple(ref.getDesc());
+
+        List<OptExpression> projElements = Lists.newArrayList();
+        for (int i = 0 ; i < columnRefs.size(); ++i) {
+            OptExpression projItem = convertExpr(resultExprs.get(i));
+            projElements.add(OptExpression.create(new OptItemProjectElement(columnRefs.get(i)), projItem));
+        }
+        OptExpression projList = OptExpression.create(new OptItemProjectList(), projElements);
+
+        return OptExpression.create(new OptLogicalProject(), childExpr, projList);
+    }
+
+    private List<OptColumnRef> convertTuple(TupleDescriptor desc) {
+        List<OptColumnRef> refs = Lists.newArrayList();
+        for (SlotDescriptor slot : desc.getSlots())  {
+            OptColumnRef ref = columnRefFactory.create(slot.getLabel(), slot.getType());
+
+            slotIdToColumnRef.put(slot.getId().asInt(), ref);
+            refs.add(ref);
+        }
+        return refs;
     }
 
     public OptExpression convertExpr(Expr expr) {

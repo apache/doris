@@ -21,7 +21,7 @@ import org.apache.doris.catalog.Type;
 
 public class OptItemProjectList extends OptItem {
 
-    protected OptItemProjectList() {
+    public OptItemProjectList() {
         super(OptOperatorType.OP_ITEM_PROJECT_LIST);
     }
 

@@ -28,7 +28,7 @@ import java.util.BitSet;
 
 public class OptLogicalProject extends OptLogical {
 
-    protected OptLogicalProject() {
+    public OptLogicalProject() {
         super(OptOperatorType.OP_LOGICAL_PROJECT);
     }
 

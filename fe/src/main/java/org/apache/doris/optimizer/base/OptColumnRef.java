@@ -32,6 +32,14 @@ public class OptColumnRef {
     private final String name;
     private final int hashCode;
 
+    // temporary exists
+    public OptColumnRef() {
+        this.id = -1;
+        this.type = null;
+        this.name = "";
+        this.hashCode = generateHashCode();
+    }
+
     public OptColumnRef(int id, Type type, String name) {
         this.id = id;
         this.type = type;
