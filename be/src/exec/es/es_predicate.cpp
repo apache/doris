@@ -406,11 +406,9 @@ bool EsPredicate::is_match_func(const Expr* conjunct) {
 }
 
 const SlotDescriptor* EsPredicate::get_slot_desc(const SlotRef* slotRef) {
-    std::vector<SlotId> slot_ids;
-    slotRef->get_slot_ids(&slot_ids);
     const SlotDescriptor* slot_desc = nullptr;
     for (SlotDescriptor* slot : _tuple_desc->slots()) {
-        if (slot->id() == slot_ids[0]) {
+        if (slot->id() == slotRef->slot_id()) {
             slot_desc = slot;
             break;
         }
