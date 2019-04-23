@@ -16,9 +16,7 @@
 // under the License.
 
 #pragma once
-
 #include <string>
-
 #include "rapidjson/document.h"
 #include "runtime/descriptors.h"
 #include "runtime/tuple.h"

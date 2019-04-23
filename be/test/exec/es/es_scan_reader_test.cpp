@@ -15,10 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "util/es_scan_reader.h"
-#include "util/es_scroll_query.h"
+#include <vector>
+#include <map>
 #include <gtest/gtest.h>
+#include <string>
+
 #include "common/logging.h"
+#include "exec/es/es_scroll_query.h"
 #include "http/ev_http_server.h"
 #include "http/http_channel.h"
 #include "http/http_handler.h"
@@ -26,9 +29,7 @@
 #include "rapidjson/document.h"
 #include "rapidjson/writer.h"
 #include "rapidjson/stringbuffer.h"
-#include<vector>
-#include<map>
-#include<string>
+#include "util/es_scan_reader.h"
 
 namespace doris {
 
