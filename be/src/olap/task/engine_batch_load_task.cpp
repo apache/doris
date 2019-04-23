@@ -198,7 +198,7 @@ AgentStatus EngineBatchLoadTask::_download_file() {
         LOG(INFO) << "down load file success. local_file=" << _downloader_param.local_file_path
                   << ", remote_file=" << _downloader_param.remote_file_path
                   << ", tablet_id" << _push_req.tablet_id
-                  << ", cost=" << cost << ", file_size" << _push_req.http_file_size
+                  << ", cost=" << cost << ", file_size:" << _push_req.http_file_size
                   << ", download rage:" << rate << "KB/s";
     } else {
         LOG(WARNING) << "down load file failed. remote_file=" << _downloader_param.remote_file_path
@@ -301,10 +301,13 @@ AgentStatus EngineBatchLoadTask::_process() {
 
     if (status == DORIS_SUCCESS) {
         // Load delta file
-        time_t push_begin = time(NULL);
-        OLAPStatus push_status = _push(_push_req, _tablet_infos);
-        time_t push_finish = time(NULL);
-        LOG(INFO) << "Push finish, cost time: " << (push_finish - push_begin);
+        int64_t duration_ns = 0;
+        OLAPStatus push_status = OLAP_SUCCESS;
+        {
+            SCOPED_RAW_TIMER(&duration_ns);
+            push_status = _push(_push_req, _tablet_infos);
+        }
+        LOG(INFO) << "Push finish, cost time: " << duration_ns/1000 << " us";
         if (push_status == OLAPStatus::OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
             status = DORIS_PUSH_HAD_LOADED;
         } else if (push_status != OLAPStatus::OLAP_SUCCESS) {
@@ -340,9 +343,9 @@ OLAPStatus EngineBatchLoadTask::_push(const TPushReq& request,
 
     TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
             request.tablet_id, request.schema_hash);
-    if (NULL == tablet.get()) {
-        OLAP_LOG_WARNING("false to find tablet. [tablet=%ld schema_hash=%d]",
-                         request.tablet_id, request.schema_hash);
+    if (tablet == nullptr) {
+        LOG(WARNING) << "false to find tablet. tablet=" << request.tablet_id
+                     << ", schema_hash=" << request.schema_hash;
         DorisMetrics::push_requests_fail_total.increment(1);
         return OLAP_ERR_TABLE_NOT_FOUND;
     }

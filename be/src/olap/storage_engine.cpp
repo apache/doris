@@ -542,9 +542,8 @@ void StorageEngine::perform_cumulative_compaction() {
     CumulativeCompaction cumulative_compaction;
     OLAPStatus res = cumulative_compaction.init(best_tablet);
     if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "failed to init cumulative compaction."
-                     << " tablet=" << best_tablet->full_name()
-                     << " res=" << res;
+        LOG(INFO) << "failed to init cumulative compaction."
+                     << "tablet=" << best_tablet->full_name();
         return;
     }
 
