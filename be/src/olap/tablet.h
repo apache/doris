@@ -183,7 +183,7 @@ public:
     // operation for clone
     void calc_missed_versions(int64_t spec_version, vector<Version>* missed_versions);
 
-    void unprotect_calc_missed_versions(int64_t spec_version, vector<Version>* missed_versions);
+    void calc_missed_versions_unlock(int64_t spec_version, vector<Version>* missed_versions);
 
     // This function to find max continous version from the beginning.
     // There are 1, 2, 3, 5, 6, 7 versions belongs tablet.

@@ -585,6 +585,11 @@ bool Tablet::can_do_compaction() {
     vector<Version> path_versions;
     if (OLAP_SUCCESS != _rs_graph.capture_consistent_versions(test_version, &path_versions)) {
         LOG(WARNING) << "tablet has missed version. tablet=" << full_name();
+        vector<Version> missed_versions;
+        calc_missed_versions_unlock(lastest_delta->end_version(), &missed_versions);
+        for (auto& version : missed_versions) {
+            LOG(WARNING) << "missed version:" << version.first << "-" << version.second;
+        }
         return false;
     }
 
@@ -646,10 +651,10 @@ OLAPStatus Tablet::compute_all_versions_hash(const vector<Version>& versions,
 void Tablet::calc_missed_versions(int64_t spec_version,
                                   vector<Version>* missed_versions) {
     ReadLock rdlock(&_meta_lock);
-    unprotect_calc_missed_versions(spec_version, missed_versions);
+    calc_missed_versions_unlock(spec_version, missed_versions);
 }
 
-void Tablet::unprotect_calc_missed_versions(int64_t spec_version,
+void Tablet::calc_missed_versions_unlock(int64_t spec_version,
                                   vector<Version>* missed_versions) {
     DCHECK(spec_version > 0) << "invalid spec_version: " << spec_version;
     std::list<Version> existing_versions;
