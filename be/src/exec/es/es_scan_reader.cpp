@@ -17,12 +17,13 @@
 
 #include "exec/es/es_scan_reader.h"
 
+#include <map>
 #include <string>
 #include <sstream>
-#include <map>
-#include "es_scroll_query.h"
+
 #include "common/logging.h"
 #include "common/status.h"
+#include "exec/es/es_scroll_query.h"
 
 namespace doris {
 const std::string REUQEST_SCROLL_FILTER_PATH = "filter_path=_scroll_id,hits.hits._source,hits.total,_id,hits.hits._source.fields";

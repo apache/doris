@@ -21,7 +21,7 @@
 #include<vector>
 
 #include "rapidjson/document.h"
-#include "exec/es_predicate.h"
+#include "exec/es/es_predicate.h"
 #include "common/status.h"
 
 namespace doris {

@@ -65,7 +65,7 @@ set(EXEC_FILES
     es_scan_node.cpp
     es_http_scan_node.cpp
     es_http_scanner.cpp
-    es_predicate.cpp
+    es/es_predicate.cpp
     es/es_scan_reader.cpp
     es/es_scroll_query.cpp
     es/es_scroll_parser.cpp
