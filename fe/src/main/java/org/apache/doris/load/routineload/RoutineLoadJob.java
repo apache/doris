@@ -881,7 +881,7 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
             writeLock();
             try {
                 if (!state.isFinalState()) {
-                    unprotectUpdateState(JobState.CANCELLED, "db not exist", false /* not replay */);
+                    unprotectUpdateState(JobState.CANCELLED, "db " + dbId + "not exist", false /* not replay */);
                 }
                 return;
             } finally {
