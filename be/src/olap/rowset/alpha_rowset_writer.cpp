@@ -248,7 +248,6 @@ DataDir* AlphaRowsetWriter::data_dir() {
 
 OLAPStatus AlphaRowsetWriter::_init() {
     if (_writer_state == WRITER_INITED) {
-        LOG(WARNING) << "writer already inited.";
         return OLAP_SUCCESS;
     }
     if (_is_pending_rowset) {

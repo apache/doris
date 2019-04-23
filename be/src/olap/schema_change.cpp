@@ -1191,11 +1191,11 @@ OLAPStatus SchemaChangeHandler::process_alter_tablet(AlterTabletType type,
 
     // 5. Create new tablet and register into StorageEngine
     new_tablet = StorageEngine::instance()->create_tablet(request.new_tablet_req, true, base_tablet);
-    if (res != OLAP_SUCCESS) {
+    if (new_tablet == nullptr) {
         LOG(WARNING) << "fail to create new tablet. new_tablet_id=" << request.new_tablet_req.tablet_id
                      << ", new_tablet_hash=" << request.new_tablet_req.tablet_schema.schema_hash;
         StorageEngine::instance()->tablet_manager()->release_schema_change_lock(request.base_tablet_id);
-        return res;
+        return OLAP_ERR_TABLE_CREATE_META_ERROR;
     }
 
     base_tablet->obtain_push_lock();

@@ -226,13 +226,16 @@ OLAPStatus TabletMeta::serialize(string* meta_binary) const {
 };
 
 OLAPStatus TabletMeta::deserialize(const string& meta_binary) {
-    _tablet_meta_pb.ParseFromString(meta_binary);
+    bool parsed = _tablet_meta_pb.ParseFromString(meta_binary);
+    if (!parsed) {
+        LOG(WARNING) << "parse tablet meta failed";
+        return OLAP_ERR_INIT_FAILED;
+    }
     return init_from_pb(_tablet_meta_pb);
 }
 
 OLAPStatus TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
     // init _tablet_state
-    _tablet_meta_pb = tablet_meta_pb;
     switch (tablet_meta_pb.tablet_state()) {
         case PB_NOTREADY:
             _tablet_state = TabletState::TABLET_NOTREADY;
@@ -261,14 +264,14 @@ OLAPStatus TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
     for (auto& it : tablet_meta_pb.rs_metas()) {
         RowsetMetaSharedPtr rs_meta(new AlphaRowsetMeta());
         rs_meta->init_from_pb(it);
+        if (rs_meta->has_delete_predicate()) {
+            add_delete_predicate(rs_meta->delete_predicate(), rs_meta->version().first);	
+        }
         _rs_metas.push_back(std::move(rs_meta));
     }
     for (auto& it : tablet_meta_pb.inc_rs_metas()) {
         RowsetMetaSharedPtr rs_meta(new AlphaRowsetMeta());
         rs_meta->init_from_pb(it);
-        if (rs_meta->has_delete_predicate()) {
-            add_delete_predicate(rs_meta->delete_predicate(), rs_meta->version().first);	
-        }
         _inc_rs_metas.push_back(std::move(rs_meta));
     }
 
