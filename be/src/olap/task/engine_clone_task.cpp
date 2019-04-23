@@ -121,6 +121,11 @@ OLAPStatus EngineCloneTask::execute() {
             }
         }
     } else {
+        LOG(INFO) << "clone tablet not exist, begin clone a new tablet from remote be. "
+                    << "signature:" << _signature
+                    << ", tablet_id:" << _clone_req.tablet_id
+                    << ", schema_hash:" << _clone_req.schema_hash
+                    << ", committed_version:" << _clone_req.committed_version;
         // create a new tablet in this be
         // Get local disk from olap
         string local_shard_root_path;
@@ -760,7 +765,7 @@ OLAPStatus EngineCloneTask::_clone_incremental_data(TabletSharedPtr tablet, cons
               << ", committed_version=" << committed_version;
 
     vector<Version> missed_versions;
-    tablet->unprotect_calc_missed_versions(committed_version, &missed_versions);
+    tablet->calc_missed_versions_unlock(committed_version, &missed_versions);
     
     vector<Version> versions_to_delete;
     vector<RowsetMetaSharedPtr> rowsets_to_clone;

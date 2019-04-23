@@ -550,7 +550,8 @@ void StorageEngine::perform_cumulative_compaction() {
     res = cumulative_compaction.run();
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "failed to do cumulative compaction."
-                     << "tablet=" << best_tablet->full_name();
+                     << " tablet=" << best_tablet->full_name()
+                     << " res=" << res;
         return;
     }
 }
