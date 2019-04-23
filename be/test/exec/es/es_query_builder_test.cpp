@@ -21,7 +21,7 @@
 
 #include "common/logging.h"
 #include "exec/es/es_query_builder.h"
-#include "exec/es_predicate.h"
+#include "exec/es/es_predicate.h"
 #include "rapidjson/document.h"
 #include "rapidjson/rapidjson.h"
 #include "rapidjson/stringbuffer.h"
