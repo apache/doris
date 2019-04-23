@@ -644,7 +644,7 @@ OLAPStatus DataDir::_remove_old_meta_and_files(const std::set<int64_t>& tablet_i
         if (tablet_ids.find(tablet_id) == tablet_ids.end()) {
             LOG(WARNING) << "tablet not load successfully, skip clean files for tablet=" 
                   << tablet_id << "." << schema_hash
-                  << "from data dir: " << _path;
+                  << " from data dir: " << _path;
             return true;
         }
         TabletMetaPB tablet_meta_pb;
