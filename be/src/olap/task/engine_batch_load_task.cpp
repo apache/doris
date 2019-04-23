@@ -327,7 +327,9 @@ AgentStatus EngineBatchLoadTask::_process() {
 OLAPStatus EngineBatchLoadTask::_push(const TPushReq& request,
                         vector<TTabletInfo>* tablet_info_vec) {
     OLAPStatus res = OLAP_SUCCESS;
-    LOG(INFO) << "begin to process push. tablet_id=" << request.tablet_id
+    LOG(INFO) << "begin to process push. " 
+              << " transaction_id=" << request.transaction_id
+              << " tablet_id=" << request.tablet_id
               << ", version=" << request.version;
 
     if (tablet_info_vec == NULL) {
@@ -365,12 +367,16 @@ OLAPStatus EngineBatchLoadTask::_push(const TPushReq& request,
     }
 
     if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "fail to push delta, tablet=" << tablet->full_name().c_str()
-            << ",cost=" << PrettyPrinter::print(duration_ns, TUnit::TIME_NS);
+        LOG(WARNING) << "fail to push delta, " 
+                     << "transaction_id=" << request.transaction_id
+                     << " tablet=" << tablet->full_name()
+                     << ", cost=" << PrettyPrinter::print(duration_ns, TUnit::TIME_NS);
         DorisMetrics::push_requests_fail_total.increment(1);
     } else {
-        LOG(INFO) << "success to push delta, tablet=" << tablet->full_name().c_str()
-            << ",cost=" << PrettyPrinter::print(duration_ns, TUnit::TIME_NS);
+        LOG(INFO) << "success to push delta, " 
+            << "transaction_id=" << request.transaction_id
+            << " tablet=" << tablet->full_name()
+            << ", cost=" << PrettyPrinter::print(duration_ns, TUnit::TIME_NS);
         DorisMetrics::push_requests_success_total.increment(1);
         DorisMetrics::push_request_duration_us.increment(duration_ns / 1000);
         DorisMetrics::push_request_write_bytes.increment(push_handler.write_bytes());
