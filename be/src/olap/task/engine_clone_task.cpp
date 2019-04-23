@@ -765,7 +765,7 @@ OLAPStatus EngineCloneTask::_clone_incremental_data(TabletSharedPtr tablet, cons
               << ", committed_version=" << committed_version;
 
     vector<Version> missed_versions;
-    tablet->unprotect_calc_missed_versions(committed_version, &missed_versions);
+    tablet->calc_missed_versions_unlock(committed_version, &missed_versions);
     
     vector<Version> versions_to_delete;
     vector<RowsetMetaSharedPtr> rowsets_to_clone;
