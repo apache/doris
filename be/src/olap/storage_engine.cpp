@@ -543,14 +543,16 @@ void StorageEngine::perform_cumulative_compaction() {
     OLAPStatus res = cumulative_compaction.init(best_tablet);
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "failed to init cumulative compaction."
-                     << "tablet=" << best_tablet->full_name();
+                     << " tablet=" << best_tablet->full_name()
+                     << " res=" << res;
         return;
     }
 
     res = cumulative_compaction.run();
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "failed to do cumulative compaction."
-                     << "tablet=" << best_tablet->full_name();
+                     << " tablet=" << best_tablet->full_name()
+                     << " res=" << res;
         return;
     }
 }
