@@ -89,18 +89,21 @@ Status EsHttpScanNode::build_conjuncts_list() {
     for (int i = 0; i < _conjunct_ctxs.size(); ++i) {
         EsPredicate* predicate = _pool->add(
                     new EsPredicate(_conjunct_ctxs[i], _tuple_desc));
-        if (predicate->build_disjuncts_list()) {
+        status = predicate->build_disjuncts_list();
+        if (status.ok()) {
             _predicates.push_back(predicate);
             _predicate_to_conjunct.push_back(i);
         } else {
+            VLOG(1) << status.get_error_msg();
             status = predicate->get_es_query_status();
             if (!status.ok()) {
-                LOG(WARNING) << "Build es_query failed: " << status.get_error_msg();
+                LOG(WARNING) << status.get_error_msg();
+                return status;
             }
         }
     }
 
-    return status;
+    return Status::OK;
 }
 
 Status EsHttpScanNode::open(RuntimeState* state) {

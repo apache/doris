@@ -173,7 +173,7 @@ public:
     EsPredicate(ExprContext* context, const TupleDescriptor* tuple_desc);
     ~EsPredicate();
     const std::vector<ExtPredicate*>& get_predicate_list();
-    bool build_disjuncts_list();
+    Status build_disjuncts_list();
     // public for tests
     EsPredicate(const std::vector<ExtPredicate*>& all_predicates) {
         _disjuncts = all_predicates;
@@ -184,7 +184,7 @@ public:
     }
 
 private:
-    bool build_disjuncts_list(const Expr* conjunct);
+    Status build_disjuncts_list(const Expr* conjunct);
     bool is_match_func(const Expr* conjunct);
     const SlotDescriptor* get_slot_desc(const SlotRef* slotRef);
 

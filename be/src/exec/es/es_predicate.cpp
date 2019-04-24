@@ -182,7 +182,7 @@ EsPredicate::~EsPredicate() {
     _disjuncts.clear();
 }
 
-bool EsPredicate::build_disjuncts_list() {
+Status EsPredicate::build_disjuncts_list() {
     return build_disjuncts_list(_context->root());
 }
 
@@ -216,11 +216,10 @@ static bool is_literal_node(const Expr* expr) {
     }
 }
 
-bool EsPredicate::build_disjuncts_list(const Expr* conjunct) {
+Status EsPredicate::build_disjuncts_list(const Expr* conjunct) {
     if (TExprNodeType::BINARY_PRED == conjunct->node_type()) {
         if (conjunct->children().size() != 2) {
-            VLOG(1) << "get disjuncts fail: number of childs is not 2";
-            return false;
+            return Status("build disjuncts failed: number of childs is not 2");
         }
 
         SlotRef* slotRef = nullptr;
@@ -235,19 +234,16 @@ bool EsPredicate::build_disjuncts_list(const Expr* conjunct) {
             slotRef = (SlotRef*)(conjunct->get_child(1));
             op = conjunct->op();
         } else {
-            VLOG(1) << "get disjuncts fail: no SLOT_REF child";
-            return false;
+            return Status("build disjuncts failed: no SLOT_REF child");
         }
 
         const SlotDescriptor* slot_desc = get_slot_desc(slotRef);
         if (slot_desc == nullptr) {
-            VLOG(1) << "get disjuncts fail: slot_desc is null";
-            return false;
+            return Status("build disjuncts failed: slot_desc is null");
         }
 
         if (!is_literal_node(expr)) {
-            VLOG(1) << "get disjuncts fail: expr is not literal type";
-            return false;
+            return Status("build disjuncts failed: expr is not literal type");
         }
 
         ExtLiteral literal(expr->type().type, _context->get_value(expr, NULL));
@@ -259,11 +255,10 @@ bool EsPredicate::build_disjuncts_list(const Expr* conjunct) {
                     literal);
 
         _disjuncts.push_back(predicate);
-        return true;
+        return Status::OK;
     }
     
     if (is_match_func(conjunct)) {
-
         Expr* expr = conjunct->get_child(1);
         ExtLiteral literal(expr->type().type, _context->get_value(expr, NULL));
         vector<ExtLiteral> query_conditions;
@@ -278,18 +273,18 @@ bool EsPredicate::build_disjuncts_list(const Expr* conjunct) {
             _es_query_status 
                 = BooleanQueryBuilder::check_es_query(*(ExtFunction *)predicate); 
             if (!_es_query_status.ok()) {
-                return false;
+                return _es_query_status;
             }
         }
         _disjuncts.push_back(predicate);
 
-        return true;
+        return Status::OK;
     } 
 
     if (TExprNodeType::FUNCTION_CALL == conjunct->node_type()) {
         std::string fname = conjunct->fn().name.function_name;
         if (fname != "like") {
-            return false;
+            return Status("build disjuncts failed: function name is not like");
         }
 
         SlotRef* slotRef = nullptr;
@@ -301,20 +296,17 @@ bool EsPredicate::build_disjuncts_list(const Expr* conjunct) {
             expr = conjunct->get_child(0);
             slotRef = (SlotRef*)(conjunct->get_child(1));
         } else {
-            VLOG(1) << "get disjuncts fail: no SLOT_REF child";
-            return false;
+            return Status("build disjuncts failed: no SLOT_REF child");
         }
 
         const SlotDescriptor* slot_desc = get_slot_desc(slotRef);
         if (slot_desc == nullptr) {
-            VLOG(1) << "get disjuncts fail: slot_desc is null";
-            return false;
+            return Status("build disjuncts failed: slot_desc is null");
         }
 
         PrimitiveType type = expr->type().type;
         if (type != TYPE_VARCHAR && type != TYPE_CHAR) {
-            VLOG(1) << "get disjuncts fail: like value is not a string";
-            return false;
+            return Status("build disjuncts failed: like value is not a string");
         }
 
         ExtLiteral literal(type, _context->get_value(expr, NULL));
@@ -325,7 +317,7 @@ bool EsPredicate::build_disjuncts_list(const Expr* conjunct) {
                     literal);
 
         _disjuncts.push_back(predicate);
-        return true;
+        return Status::OK;
     }
       
     if (TExprNodeType::IN_PRED == conjunct->node_type()) {
@@ -333,31 +325,32 @@ bool EsPredicate::build_disjuncts_list(const Expr* conjunct) {
         // like col_a in (abs(1))
         if (TExprOpcode::FILTER_IN != conjunct->op() 
             && TExprOpcode::FILTER_NOT_IN != conjunct->op()) {
-            return false;
+            return Status("build disjuncts failed: "
+                        "opcode in IN_PRED is neither FILTER_IN nor FILTER_NOT_IN");
         }
 
         vector<ExtLiteral> in_pred_values;
         const InPredicate* pred = dynamic_cast<const InPredicate*>(conjunct);
         if (Expr::type_without_cast(pred->get_child(0)) != TExprNodeType::SLOT_REF) {
-            return false;
+            return Status("build disjuncts failed");
         }
 
         SlotRef* slot_ref = (SlotRef*)(conjunct->get_child(0));
         const SlotDescriptor* slot_desc = get_slot_desc(slot_ref);
         if (slot_desc == nullptr) {
-            return false;
+            return Status("build disjuncts failed: slot_desc is null");
         }
 
         if (pred->get_child(0)->type().type != slot_desc->type().type) {
             if (!ignore_cast(slot_desc, pred->get_child(0))) {
-                return false;
+                return Status("build disjuncts failed");
             }
         }
 
         HybirdSetBase::IteratorBase* iter = pred->hybird_set()->begin();
         while (iter->has_next()) {
             if (nullptr == iter->get_value()) {
-                return false;
+                return Status("build disjuncts failed: hybird set has a null value");
             }
 
             ExtLiteral literal(slot_desc->type().type, const_cast<void *>(iter->get_value()));
@@ -373,28 +366,30 @@ bool EsPredicate::build_disjuncts_list(const Expr* conjunct) {
                     in_pred_values);
         _disjuncts.push_back(predicate);
 
-        return true;
+        return Status::OK;
     } 
     
     if (TExprNodeType::COMPOUND_PRED == conjunct->node_type()) {
         if (TExprOpcode::COMPOUND_OR != conjunct->op()) {
-            VLOG(1) << "get disjuncts fail: op is not COMPOUND_OR";
-            return false;
+            return Status("build disjuncts failed: op is not COMPOUND_OR");
         }
-        if (!build_disjuncts_list(conjunct->get_child(0))) {
-            return false;
+        Status status = build_disjuncts_list(conjunct->get_child(0));
+        if (!status.ok()) {
+            return status;
         }
-        if (!build_disjuncts_list(conjunct->get_child(1))) {
-            return false;
+        status = build_disjuncts_list(conjunct->get_child(1));
+        if (!status.ok()) {
+            return status;
         }
 
-        return true;
+        return Status::OK;
     }
 
     // if go to here, report error
-    VLOG(1) << "get disjuncts fail: node type is " << conjunct->node_type()
+    std::stringstream ss;
+    ss << "build disjuncts failed: node type is " << conjunct->node_type()
         << ", should be BINARY_PRED or COMPOUND_PRED";
-    return false;
+    return Status(ss.str());
 }
 
 bool EsPredicate::is_match_func(const Expr* conjunct) {
