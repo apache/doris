@@ -216,7 +216,7 @@ OLAPStatus EngineCloneTask::execute() {
                     && (tablet_info.version < _clone_req.committed_version ||
                         (tablet_info.version == _clone_req.committed_version
                         && tablet_info.version_hash != _clone_req.committed_version_hash))) {
-            LOG(INFO) << "tablet to clone. tablet_id:" << _clone_req.tablet_id
+            LOG(WARNING) << "failed to clone tablet. tablet_id:" << _clone_req.tablet_id
                       << ", schema_hash:" << _clone_req.schema_hash
                       << ", signature:" << _signature
                       << ", version:" << tablet_info.version
@@ -229,7 +229,7 @@ OLAPStatus EngineCloneTask::execute() {
                 // we need to check if this cloned table's version is what we expect.
                 // if not, maybe this is a stale remaining table which is waiting for drop.
                 // we drop it.
-                LOG(INFO) << "begin to drop the stale table. tablet_id:" << _clone_req.tablet_id
+                LOG(WARNING) << "begin to drop the stale tablet. tablet_id:" << _clone_req.tablet_id
                             << ", schema_hash:" << _clone_req.schema_hash
                             << ", signature:" << _signature
                             << ", version:" << tablet_info.version
