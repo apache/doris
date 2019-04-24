@@ -804,10 +804,10 @@ public class ShowExecutor {
         // if job exists
         List<RoutineLoadJob> routineLoadJobList;
         try {
-            routineLoadJobList =
-                    Catalog.getCurrentCatalog().getRoutineLoadManager().getJob(showRoutineLoadStmt.getDbFullName(),
-                                                                               showRoutineLoadStmt.getName(),
-                                                                               showRoutineLoadStmt.isIncludeHistory());
+            routineLoadJobList = Catalog.getCurrentCatalog().getRoutineLoadManager()
+                    .getJob(showRoutineLoadStmt.getDbFullName(),
+                            showRoutineLoadStmt.getName(),
+                            showRoutineLoadStmt.isIncludeHistory());
         } catch (MetaNotFoundException e) {
             LOG.warn(e.getMessage(), e);
             throw new AnalysisException(e.getMessage());

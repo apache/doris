@@ -573,10 +573,12 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
     // *** Please do not call before individually. It must be combined use with after ***
     @Override
     public void beforeAborted(TransactionState txnState) throws TransactionException {
-        LOG.debug(new LogBuilder(LogKey.ROUINTE_LOAD_TASK, txnState.getLabel())
-                          .add("txn_state", txnState)
-                          .add("msg", "task before aborted")
-                          .build());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug(new LogBuilder(LogKey.ROUINTE_LOAD_TASK, txnState.getLabel())
+                              .add("txn_state", txnState)
+                              .add("msg", "task before aborted")
+                              .build());
+        }
         executeBeforeCheck(txnState, TransactionStatus.ABORTED);
     }
 
@@ -586,10 +588,12 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
     // *** Please do not call before individually. It must be combined use with after ***
     @Override
     public void beforeCommitted(TransactionState txnState) throws TransactionException {
-        LOG.debug(new LogBuilder(LogKey.ROUINTE_LOAD_TASK, txnState.getLabel())
-                          .add("txn_state", txnState)
-                          .add("msg", "task before committed")
-                          .build());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug(new LogBuilder(LogKey.ROUINTE_LOAD_TASK, txnState.getLabel())
+                              .add("txn_state", txnState)
+                              .add("msg", "task before committed")
+                              .build());
+        }
         executeBeforeCheck(txnState, TransactionStatus.COMMITTED);
     }
 
@@ -611,6 +615,7 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
         }
 
         // task already pass the checker
+        boolean passCheck = false;
         try {
             // check if task has been aborted
             Optional<RoutineLoadTaskInfo> routineLoadTaskInfoOptional =
@@ -621,9 +626,11 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
                                                        + " could not be " + transactionStatus
                                                        + " while task " + txnState.getLabel() + " has been aborted.");
             }
-        } catch (TransactionException e) {
-            writeUnlock();
-            throw e;
+            passCheck = true;
+        } finally {
+            if (!passCheck) {
+                writeUnlock();
+            }
         }
     }
 

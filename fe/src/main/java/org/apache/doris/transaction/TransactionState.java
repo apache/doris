@@ -298,6 +298,15 @@ public class TransactionState implements Writable {
                 default:
                     break;
             }
+        } else if (listener == null && listenerId > 0) {
+            listenerId = -1;
+            switch (transactionStatus) {
+                case COMMITTED:
+                    // Maybe listener has been deleted. The txn need to be aborted later.
+                    throw new TransactionException("Failed to commit txn when listener could not be found");
+                default:
+                    break;
+            }
         }
     }
 
