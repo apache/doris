@@ -66,27 +66,73 @@ static const string ERROR_COL_DATA_IS_ARRAY = "Data source returned an array for
         } \
     } while (false)
 
-ScrollParser::ScrollParser(const std::string& scroll_result) :
+template <typename T>
+static Status get_int_value(const rapidjson::Value &col, PrimitiveType type, void* slot) {
+    if (col.IsNumber()) {
+        *reinterpret_cast<T*>(slot) = (T)(sizeof(T) < 8 ? col.GetInt() : col.GetInt64());
+        return Status::OK;
+    }
+
+    RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
+    RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
+
+    StringParser::ParseResult result;
+    const std::string& val = col.GetString();
+    size_t len = col.GetStringLength();
+    T v = StringParser::string_to_int<T>(val.c_str(), len, &result);
+    RETURN_ERROR_IF_PARSING_FAILED(result, type);
+
+    if (sizeof(T) < 16) {
+        *reinterpret_cast<T*>(slot) = v;
+    } else {
+        DCHECK(sizeof(T) == 16);
+        memcpy(slot, &v, sizeof(v));
+    }
+
+    return Status::OK;
+}
+
+template <typename T>
+static Status get_float_value(const rapidjson::Value &col, PrimitiveType type, void* slot) {
+    DCHECK(sizeof(T) == 4 || sizeof(T) == 8);
+    if (col.IsNumber()) {
+        *reinterpret_cast<T*>(slot) = (T)(sizeof(T) == 4 ? col.GetFloat() : col.GetDouble());
+        return Status::OK;
+    }
+
+    RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
+    RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
+
+    StringParser::ParseResult result;
+    const std::string& val = col.GetString();
+    size_t len = col.GetStringLength();
+    T v = StringParser::string_to_float<T>(val.c_str(), len, &result);
+    RETURN_ERROR_IF_PARSING_FAILED(result, type);
+    *reinterpret_cast<T*>(slot) = v;
+
+    return Status::OK;
+}
+
+ScrollParser::ScrollParser() :
     _scroll_id(""),
     _total(0),
     _size(0),
     _line_index(0) {
-        parsing(scroll_result);
 }
 
 ScrollParser::~ScrollParser() {
 }
 
-void ScrollParser::parsing(const std::string& scroll_result) {
+Status ScrollParser::parse(const std::string& scroll_result) {
     _document_node.Parse(scroll_result.c_str());
     if (_document_node.HasParseError()) {
-        LOG(ERROR) << "Parsing json error, json is: " << scroll_result;
-        return;
+        std::stringstream ss;
+        ss << "Parsing json error, json is: " << scroll_result;
+        return Status(ss.str());
     }
 
     if (!_document_node.HasMember(FIELD_SCROLL_ID)) {
-        LOG(ERROR) << "maybe not a scroll request";
-        return;
+        return Status("Document has not a scroll id field");
     }
 
     const rapidjson::Value &scroll_node = _document_node[FIELD_SCROLL_ID];
@@ -96,19 +142,20 @@ void ScrollParser::parsing(const std::string& scroll_result) {
     const rapidjson::Value &field_total = outer_hits_node[FIELD_TOTAL];
     _total = field_total.GetInt();
     if (_total == 0) {
-        return;
+        return Status::OK;
     }
 
     VLOG(1) << "es_scan_reader total hits: " << _total << " documents";
     const rapidjson::Value &inner_hits_node = outer_hits_node[FIELD_INNER_HITS];
     if (!inner_hits_node.IsArray()) {
-        LOG(ERROR) << "maybe not a scroll request";
-        return;
+        return Status("inner hits node is not an array");
     }
 
     rapidjson::Document::AllocatorType& a = _document_node.GetAllocator();
     _inner_hits_node.CopyFrom(inner_hits_node, a);
     _size = _inner_hits_node.Size();
+
+    return Status::OK;
 }
 
 int ScrollParser::get_size() {
@@ -177,135 +224,58 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
             }
 
             case TYPE_TINYINT: {
-                if (col.IsNumber()) {
-                    *reinterpret_cast<int8_t*>(slot) = (int8_t)col.GetInt();
-                    break;
+                Status status = get_int_value<int8_t>(col, type, slot);
+                if (!status.ok()) {
+                    return status;
                 }
-
-                RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
-                RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
-
-                StringParser::ParseResult result;
-                const std::string& val = col.GetString();
-                size_t len = col.GetStringLength();
-                int8_t v = 
-                    StringParser::string_to_int<int8_t>(val.c_str(), len, &result);
-                RETURN_ERROR_IF_PARSING_FAILED(result, type);
-                *reinterpret_cast<int8_t*>(slot) = v;
                 break;
             }
 
             case TYPE_SMALLINT: {
-                if (col.IsNumber()) {
-                    *reinterpret_cast<int16_t*>(slot) = (int16_t)col.GetInt();
-                    break;
+                Status status = get_int_value<int16_t>(col, type, slot);
+                if (!status.ok()) {
+                    return status;
                 }
-
-                RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
-                RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
-
-                const std::string& val = col.GetString();
-                size_t len = col.GetStringLength();
-                StringParser::ParseResult result;
-                int16_t v = 
-                    StringParser::string_to_int<int16_t>(val.c_str(), len, &result);
-                RETURN_ERROR_IF_PARSING_FAILED(result, type);
-                *reinterpret_cast<int16_t*>(slot) = v;
                 break;
             }
 
             case TYPE_INT: {
-                if (col.IsNumber()) {
-                    *reinterpret_cast<int32_t*>(slot) = (int32_t)col.GetInt();
-                    break;
+                Status status = get_int_value<int32_t>(col, type, slot);
+                if (!status.ok()) {
+                    return status;
                 }
-
-                RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
-                RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
-
-                const std::string& val = col.GetString();
-                size_t len = col.GetStringLength();
-                StringParser::ParseResult result;
-                int32_t v = 
-                    StringParser::string_to_int<int32_t>(val.c_str(), len, &result);
-                RETURN_ERROR_IF_PARSING_FAILED(result, type);
-                *reinterpret_cast<int32_t*>(slot) = v;
                 break;
             }
 
             case TYPE_BIGINT: {
-                if (col.IsNumber()) {
-                    *reinterpret_cast<int64_t*>(slot) = col.GetInt64();
-                    break;
+                Status status = get_int_value<int64_t>(col, type, slot);
+                if (!status.ok()) {
+                    return status;
                 }
-
-                RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
-                RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
-
-                const std::string& val = col.GetString();
-                size_t len = col.GetStringLength();
-                StringParser::ParseResult result;
-                int64_t v = 
-                    StringParser::string_to_int<int64_t>(val.c_str(), len, &result);
-                RETURN_ERROR_IF_PARSING_FAILED(result, type);
-                *reinterpret_cast<int64_t*>(slot) = v;
                 break;
             }
 
             case TYPE_LARGEINT: {
-                if (col.IsNumber()) {
-                    *reinterpret_cast<int128_t*>(slot) = col.GetInt64();
-                    break;
+                Status status = get_int_value<__int128>(col, type, slot);
+                if (!status.ok()) {
+                    return status;
                 }
-
-                RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
-                RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
-
-                const std::string& val = col.GetString();
-                size_t len = col.GetStringLength();
-                StringParser::ParseResult result;
-                __int128 v = 
-                    StringParser::string_to_int<__int128>(val.c_str(), len, &result);
-                RETURN_ERROR_IF_PARSING_FAILED(result, type);
-                memcpy(slot, &v, sizeof(v));
                 break;
             }
 
             case TYPE_DOUBLE: {
-                if (col.IsNumber()) {
-                    *reinterpret_cast<double*>(slot) = col.GetDouble();
-                    break;
+                Status status = get_float_value<double>(col, type, slot);
+                if (!status.ok()) {
+                    return status;
                 }
-
-                RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
-                RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
-
-                const std::string& val = col.GetString();
-                size_t val_size = col.GetStringLength();
-                StringParser::ParseResult result;
-                double d = 
-                    StringParser::string_to_float<double>(val.c_str(), val_size, &result);
-                RETURN_ERROR_IF_PARSING_FAILED(result, type);
-                *reinterpret_cast<double*>(slot) = d;
                 break;
             }
 
             case TYPE_FLOAT: {
-                if (col.IsNumber()) {
-                    *reinterpret_cast<float*>(slot) = col.GetFloat();
-                    break;
+                Status status = get_float_value<float>(col, type, slot);
+                if (!status.ok()) {
+                    return status;
                 }
-
-                RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
-                RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
-
-                const std::string& val = col.GetString();
-                size_t val_size = col.GetStringLength();
-                StringParser::ParseResult result;
-                float f = 
-                    StringParser::string_to_float<float>(val.c_str(), val_size, &result);
-                RETURN_ERROR_IF_PARSING_FAILED(result, type);
-                *reinterpret_cast<float*>(slot) = f;
                 break;
             }
 
