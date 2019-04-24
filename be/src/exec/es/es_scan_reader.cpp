@@ -76,10 +76,9 @@ Status ESScanReader::open() {
     return Status::OK;
 }
 
-Status ESScanReader::get_next(bool* scan_eos, ScrollParser** parser) {
+Status ESScanReader::get_next(bool* scan_eos, std::unique_ptr<ScrollParser>& scroll_parser) {
     std::string response;
     // if is first scroll request, should return the cached response
-    *parser = nullptr;
     *scan_eos = true;
     if (_eos) {
         return Status::OK;
@@ -112,7 +111,7 @@ Status ESScanReader::get_next(bool* scan_eos, ScrollParser** parser) {
         }
     }
 
-    std::unique_ptr<ScrollParser> scroll_parser(new ScrollParser());
+    scroll_parser.reset(new ScrollParser());
     Status status = scroll_parser->parse(response);
     if (!status.ok()){
         _eos = true;
@@ -132,7 +131,6 @@ Status ESScanReader::get_next(bool* scan_eos, ScrollParser** parser) {
         _eos = false;
     }
 
-    *parser = std::move(scroll_parser.get());
     *scan_eos = false;
     return Status::OK;
 }
