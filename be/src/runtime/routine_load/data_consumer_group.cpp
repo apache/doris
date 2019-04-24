@@ -44,6 +44,21 @@ Status KafkaDataConsumerGroup::assign_topic_partitions(StreamLoadContext* ctx) {
     return Status::OK;
 }
 
+KafkaDataConsumerGroup::~KafkaDataConsumerGroup() {
+    // clean the msgs left in queue
+    _queue.shutdown();
+    while(true) {
+        RdKafka::Message* msg;
+        if (_queue.blocking_get(&msg)) {
+            delete msg;
+            msg = nullptr;
+        } else {
+            break;
+        }
+    }
+    DCHECK(_queue.get_size() == 0);
+}
+
 Status KafkaDataConsumerGroup::start_all(StreamLoadContext* ctx) {
     Status result_st = Status::OK;
     // start all consumers
@@ -103,17 +118,6 @@ Status KafkaDataConsumerGroup::start_all(StreamLoadContext* ctx) {
             _queue.shutdown();
             // cancel all consumers
             for(auto& consumer : _consumers) { consumer->cancel(ctx); }
-            // clean the msgs left in queue
-            while(true) {
-                RdKafka::Message* msg;
-                if (_queue.blocking_get(&msg)) {
-                    delete msg;
-                    msg = nullptr;
-                } else {
-                    break;
-                }
-            }
-            DCHECK(_queue.get_size() == 0);
 
             if (!result_st.ok()) {
                 // some of consumers encounter errors, cancel this task
