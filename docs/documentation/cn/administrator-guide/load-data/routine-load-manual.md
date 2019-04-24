@@ -153,3 +153,21 @@ FE 中的 JobScheduler 根据汇报结果，继续生成后续新的 Task，或�
     * 如果用户 kafka 集群的 broker 设置了 `auto.create.topics.enable = false`, 则 topic 不会被自动创建，例行作业会在没有读取任何数据之前就被暂停，状态为 `PAUSED`。
 
     所以，如果用户希望当 kafka topic 不存在的时候，被例行作业自动创建的话，只需要将**用户方的kafka集群**中的 broker 设置 `auto.create.topics.enable = true` 即可。 
+
+## 相关参数
+
+一些系统配置参数会影响例行导入的使用。
+
+1. max\_routine\_load\_task\_concurrent\_num
+
+    FE 配置项，默认为 5，可以运行时修改。该参数限制了一个例行导入最大的子任务并发数。建议维持默认值。设置过大，可能导致同时并发的任务数过多，占用集群资源。
+
+2. max\_consumer\_num\_per\_group
+
+    BE 配置项，默认为 3。该参数表示一个子任务中最多生成几个 consumer 进行数据消费。对于 Kafka 数据源，一个 consumer 可能消费一个或多个 kafka partition。建议维持默认值。
+
+3. push\_write\_mbytes\_per\_sec
+
+    BE 配置项。默认为 10，即 10MB/s。该参数为导入通用参数，不限于例行导入作业。该参数限制了导入数据写入磁盘的速度。对于 SSD 等高性能存储设备，可以适当增加这个限速。
+
+
