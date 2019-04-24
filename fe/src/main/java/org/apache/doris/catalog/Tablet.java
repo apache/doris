@@ -160,10 +160,22 @@ public class Tablet extends MetaObject implements Writable {
         return beIds;
     }
 
-    public List<Long> getBackendIdsList() {
+    public Set<Long> getAvailableBackendIds() {
+        Set<Long> beIds = Sets.newHashSet();
+        for (Replica replica : replicas) {
+            if (Catalog.getCurrentSystemInfo().checkBackendAvailable(replica.getBackendId())) {
+                beIds.add(replica.getBackendId());
+            }
+        }
+        return beIds;
+    }
+
+    public List<Long> getAvailableBackendIdsList() {
         List<Long> beIds = Lists.newArrayList();
         for (Replica replica : replicas) {
-            beIds.add(replica.getBackendId());
+            if (Catalog.getCurrentSystemInfo().checkBackendAvailable(replica.getBackendId())) {
+                beIds.add(replica.getBackendId());
+            }
         }
         return beIds;
     }
