@@ -91,7 +91,7 @@ private:
     const TupleDescriptor* _tuple_desc;
     EsScanCounter* _counter;
     std::unique_ptr<ESScanReader> _es_reader;
-    ScrollParser* _es_scroll_parser;
+    std::unique_ptr<ScrollParser> _es_scroll_parser;
 
     // Profile
     RuntimeProfile::Counter* _rows_read_counter;

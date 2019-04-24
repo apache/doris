@@ -45,7 +45,7 @@ public:
     // launch the first scroll request, this method will cache the first scroll response, and return the this cached response when invoke get_next
     Status open();
     // invoke get_next to get next batch documents from elasticsearch
-    Status get_next(bool *eos, ScrollParser** parser);
+    Status get_next(bool *eos, std::unique_ptr<ScrollParser>& parser);
     // clear scroll context from elasticsearch
     Status close();
     
