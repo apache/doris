@@ -73,7 +73,7 @@ public:
         DataConsumerGroup(),
         _queue(500) {}
 
-    virtual ~KafkaDataConsumerGroup() {}
+    virtual ~KafkaDataConsumerGroup();
 
     virtual Status start_all(StreamLoadContext* ctx) override;
     // assign topic partitions to all consumers equally

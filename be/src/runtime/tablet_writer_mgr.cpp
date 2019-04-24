@@ -28,6 +28,7 @@
 #include "runtime/row_batch.h"
 #include "runtime/tuple_row.h"
 #include "util/bitmap.h"
+#include "util/stopwatch.hpp"
 #include "olap/delta_writer.h"
 #include "olap/lru_cache.h"
 
@@ -165,7 +166,7 @@ Status TabletsChannel::close(int sender_id, bool* finished,
         google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec) {
     std::lock_guard<std::mutex> l(_lock);
     if (_closed_senders.Get(sender_id)) {
-        // Dobule close from one sender, just return OK
+        // Double close from one sender, just return OK
         *finished = (_num_remaining_senders == 0);
         return _close_status;
     }
