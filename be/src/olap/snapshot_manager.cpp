@@ -349,6 +349,9 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
                     break;
                 }
             }
+            if (res != OLAP_SUCCESS) {
+                break;
+            }
             res = TabletMetaManager::get_header(data_dir, ref_tablet->tablet_id(),
                                                 ref_tablet->schema_hash(), new_tablet_meta);
             if (res != OLAP_SUCCESS) {
