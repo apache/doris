@@ -30,9 +30,10 @@ class Status;
 class ScrollParser {
 
 public:
-    ScrollParser(const std::string& scroll_result);
+    ScrollParser();
     ~ScrollParser();
 
+    Status parse(const std::string& scroll_result);
     Status fill_tuple(const TupleDescriptor* _tuple_desc, Tuple* tuple, 
                 MemPool* mem_pool, bool* line_eof);
 
@@ -41,7 +42,6 @@ public:
     int get_size();
 
 private:
-    void parsing(const std::string& scroll_result);
 
     std::string _scroll_id;
     int _total;
