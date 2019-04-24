@@ -66,8 +66,10 @@ import org.apache.doris.planner.Planner;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rpc.PQueryStatistics;
 import org.apache.doris.rpc.RpcException;
+import org.apache.doris.task.LoadEtlTask;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TQueryOptions;
+import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TResultBatch;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TabletCommitInfo;
@@ -586,6 +588,7 @@ public class StmtExecutor {
         context.setQueryId(new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
 
         coord = new Coordinator(context, analyzer, planner);
+        coord.setQueryType(TQueryType.LOAD);
 
         QeProcessorImpl.INSTANCE.registerQuery(context.queryId(), coord);
 
@@ -610,6 +613,15 @@ public class StmtExecutor {
         }
 
         LOG.info("delta files is {}", coord.getDeltaUrls());
+
+        if (context.getSessionVariable().getEnableInsertStrict()) {
+            Map<String, String> counters = coord.getLoadCounters();
+            String strValue = counters.get(LoadEtlTask.DPP_ABNORMAL_ALL);
+            if (strValue != null && Long.valueOf(strValue) > 0) {
+                throw new UserException("Insert has filtered data in strict mode, tracking_url="
+                        + coord.getTrackingUrl());
+            }
+        }
 
         if (insertStmt.getTargetTable().getType() != TableType.OLAP) {
             // no need to add load job.

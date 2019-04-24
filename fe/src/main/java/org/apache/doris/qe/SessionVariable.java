@@ -68,6 +68,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String DISABLE_STREAMING_PREAGGREGATIONS = "disable_streaming_preaggregations";
     public static final String DISABLE_COLOCATE_JOIN = "disable_colocate_join";
     public static final String PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM = "parallel_fragment_exec_instance_num";
+    public static final String ENABLE_INSERT_STRICT = "enable_insert_strict";
     public static final int MIN_EXEC_INSTANCE_NUM = 1;
     public static final int MAX_EXEC_INSTANCE_NUM = 32;
 
@@ -182,6 +183,10 @@ public class SessionVariable implements Serializable, Writable {
      */
     @VariableMgr.VarAttr(name = PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM)
     private int parallelExecInstanceNum = 1;
+
+    @VariableMgr.VarAttr(name = ENABLE_INSERT_STRICT)
+    private boolean enableInsertStrict = false;
+
 
     public long getMaxExecMemByte() {
         return maxExecMemByte;
@@ -428,6 +433,10 @@ public class SessionVariable implements Serializable, Writable {
             this.parallelExecInstanceNum = parallelExecInstanceNum;
         }
     }
+
+    public boolean getEnableInsertStrict() { return enableInsertStrict; }
+    public void setEnableInsertStrict(boolean enableInsertStrict) { this.enableInsertStrict = enableInsertStrict; }
+
     
    // Serialize to thrift object
     TQueryOptions toThrift() {
