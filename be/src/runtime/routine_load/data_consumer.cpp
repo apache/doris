@@ -152,15 +152,16 @@ Status KafkaDataConsumer::group_consume(
         bool done = false;
         // consume 1 message at a time
         consumer_watch.start();
-        RdKafka::Message *msg = _k_consumer->consume(1000 /* timeout, ms */);
+        std::unique_ptr<RdKafka::Message> msg(_k_consumer->consume(1000 /* timeout, ms */));
         consumer_watch.stop();
         switch (msg->err()) {
             case RdKafka::ERR_NO_ERROR:
-                if (!queue->blocking_put(msg)) {
+                if (!queue->blocking_put(msg.get())) {
                     // queue is shutdown
                     done = true;
                 } else {
                     ++put_rows;
+                    msg.release(); // release the ownership, msg will be deleted after being processed
                 }
                 ++received_rows;
                 break;
