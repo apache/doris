@@ -97,12 +97,8 @@ Status EsHttpScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
 
     while (!_batch_eof) {
         if (_line_eof || _es_scroll_parser == nullptr) {
-            if (_es_scroll_parser != nullptr) {
-                delete _es_scroll_parser;
-                _es_scroll_parser = nullptr;
-            }
-            RETURN_IF_ERROR(_es_reader->get_next(&_batch_eof, &_es_scroll_parser));
-            if (_batch_eof || _es_scroll_parser == nullptr) {
+            RETURN_IF_ERROR(_es_reader->get_next(&_batch_eof, _es_scroll_parser));
+            if (_batch_eof) {
                 *eof = true;
                 return Status::OK;
             }

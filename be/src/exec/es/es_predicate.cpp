@@ -387,8 +387,7 @@ Status EsPredicate::build_disjuncts_list(const Expr* conjunct) {
 
     // if go to here, report error
     std::stringstream ss;
-    ss << "build disjuncts failed: node type is " << conjunct->node_type()
-        << ", should be BINARY_PRED or COMPOUND_PRED";
+    ss << "build disjuncts failed: node type " << conjunct->node_type() << " is not supported";
     return Status(ss.str());
 }
 
