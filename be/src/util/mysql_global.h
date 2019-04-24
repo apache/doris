@@ -47,9 +47,9 @@ typedef unsigned char uchar;
 #define MAX_DATETIME_WIDTH		19          /* YYYY-MM-DD HH:MM:SS */
 		
 /* -[digits].E+## */
-#define MAX_FLOAT_STR_LENGTH	(FLT_DIG + 6)
+#define MAX_FLOAT_STR_LENGTH	24  // see gutil/strings/numbers.h kFloatToBufferSize
 /* -[digits].E+### */
-#define MAX_DOUBLE_STR_LENGTH	(DBL_DIG + 7)
+#define MAX_DOUBLE_STR_LENGTH	32  // see gutil/strings/numbers.h kDoubleToBufferSize
 
 /* -[digits].[frac] */
 #define MAX_DECIMAL_STR_LENGTH   29
