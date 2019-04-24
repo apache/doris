@@ -147,7 +147,7 @@ TEST_F(EsPredicateTest, normal) {
     std::vector<EsPredicate*> predicates;
     for (int i = 0; i < conjunct_ctxs.size(); ++i) {
         EsPredicate* predicate = new EsPredicate(conjunct_ctxs[i], tuple_desc);
-        if (predicate->build_disjuncts_list()) {
+        if (predicate->build_disjuncts_list().ok()) {
             predicates.push_back(predicate);
         }
     }
