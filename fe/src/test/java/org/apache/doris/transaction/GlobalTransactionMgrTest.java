@@ -317,7 +317,7 @@ public class GlobalTransactionMgrTest {
                 LoadJobSourceType.ROUTINE_LOAD_TASK, "be1", routineLoadJob.getId(),
                 Config.stream_load_default_timeout_second);
         transactionState.setTransactionStatus(TransactionStatus.PREPARE);
-        masterTransMgr.getListenerRegistry().register(routineLoadJob);
+        masterTransMgr.getCallbackFactory().addCallback(routineLoadJob);
         // Deencapsulation.setField(transactionState, "txnStateChangeListener", routineLoadJob);
         Map<Long, TransactionState> idToTransactionState = Maps.newHashMap();
         idToTransactionState.put(1L, transactionState);
@@ -383,7 +383,7 @@ public class GlobalTransactionMgrTest {
                 LoadJobSourceType.ROUTINE_LOAD_TASK, "be1", routineLoadJob.getId(),
                 Config.stream_load_default_timeout_second);
         transactionState.setTransactionStatus(TransactionStatus.PREPARE);
-        masterTransMgr.getListenerRegistry().register(routineLoadJob);
+        masterTransMgr.getCallbackFactory().addCallback(routineLoadJob);
         Map<Long, TransactionState> idToTransactionState = Maps.newHashMap();
         idToTransactionState.put(1L, transactionState);
         Deencapsulation.setField(routineLoadJob, "maxErrorNum", 10);

@@ -49,7 +49,7 @@ import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
-import org.apache.doris.transaction.TxnStateChangeListener;
+import org.apache.doris.transaction.TxnStateChangeCallback;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -83,7 +83,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * The desireTaskConcurrentNum means that user expect the number of concurrent stream load
  * The routine load job support different streaming medium such as KAFKA
  */
-public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable {
+public abstract class RoutineLoadJob implements TxnStateChangeCallback, Writable {
     private static final Logger LOG = LogManager.getLogger(RoutineLoadJob.class);
 
     public static final long DEFAULT_MAX_ERROR_NUM = 0;
@@ -834,7 +834,7 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
         }
 
         if (state.isFinalState()) {
-            Catalog.getCurrentGlobalTransactionMgr().getListenerRegistry().unregister(id);
+            Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().removeCallback(id);
         }
 
         if (!isReplay && jobState != JobState.RUNNING) {
