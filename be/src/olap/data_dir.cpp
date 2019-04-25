@@ -707,7 +707,7 @@ OLAPStatus DataDir::load() {
         LOG(WARNING) << "get convert flag from meta failed dir=" << _path;
         return res;
     }
-
+    bool should_remove_old_files = false;
     if (!is_tablet_convert_finished) {
         _clean_unfinished_converting_data();
         res = _convert_old_tablet();
@@ -724,6 +724,7 @@ OLAPStatus DataDir::load() {
         // convert may be successfully, but crashed before remove old files
         // depend on gc thread to recycle the old files
         // _remove_old_meta_and_files(data_dir);
+        should_remove_old_files = true;
     } else {
         LOG(INFO) << "tablets have been converted, skip convert process";
     }
@@ -847,7 +848,9 @@ OLAPStatus DataDir::load() {
                          << " txn: " << rowset_meta->txn_id();
         }
     }
-    _remove_old_meta_and_files(tablet_ids);
+    if (should_remove_old_files) {
+        _remove_old_meta_and_files(tablet_ids);
+    }
     return OLAP_SUCCESS;
 }
 

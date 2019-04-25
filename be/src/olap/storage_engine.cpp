@@ -511,7 +511,8 @@ void StorageEngine::clear_transaction_task(const TTransactionId transaction_id,
     LOG(INFO) << "finish to clear transaction task. transaction_id=" << transaction_id;
 }
 
-TabletSharedPtr StorageEngine::create_tablet(const TCreateTabletReq& request,
+TabletSharedPtr StorageEngine::create_tablet(const AlterTabletType alter_type,
+                                             const TCreateTabletReq& request,
                                              const bool is_schema_change_tablet,
                                              const TabletSharedPtr ref_tablet) {
     // Get all available stores, use data_dir of ref_tablet when doing schema change
@@ -526,7 +527,7 @@ TabletSharedPtr StorageEngine::create_tablet(const TCreateTabletReq& request,
         stores.push_back(ref_tablet->data_dir());
     }
 
-    return _tablet_manager->create_tablet(request, is_schema_change_tablet, ref_tablet, stores);
+    return _tablet_manager->create_tablet(alter_type, request, is_schema_change_tablet, ref_tablet, stores);
 }
 
 void StorageEngine::start_clean_fd_cache() {

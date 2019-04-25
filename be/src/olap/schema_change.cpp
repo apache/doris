@@ -1182,15 +1182,22 @@ OLAPStatus SchemaChangeHandler::process_alter_tablet(AlterTabletType type,
     //    It means that the current request was already handled.
     TabletSharedPtr new_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
             request.new_tablet_req.tablet_id, request.new_tablet_req.tablet_schema.schema_hash);
+    LOG(INFO) << "find alter new tablet " << new_tablet->full_name();
     if (new_tablet != nullptr) {
-        StorageEngine::instance()->tablet_manager()->release_schema_change_lock(request.base_tablet_id);
-        return OLAP_SUCCESS;
+        // check if new tablet's alter task is finished
+        AlterTabletTaskSharedPtr new_tablet_alter_task = new_tablet->alter_task();
+        if (new_tablet_alter_task == nullptr || new_tablet_alter_task->alter_state() == ALTER_FINISHED) {
+            StorageEngine::instance()->tablet_manager()->release_schema_change_lock(request.base_tablet_id);
+            return OLAP_SUCCESS;
+        }
+        LOG(INFO) << "find new tablet from meta, but alter task state is invalid " << new_tablet_alter_task->alter_state()
+                  << " it indicates alter task is not finished, drop the tablet and do again";
     }
 
     LOG(INFO) << "finish to validate alter tablet request. base_tablet=" << base_tablet->full_name();
 
     // 5. Create new tablet and register into StorageEngine
-    new_tablet = StorageEngine::instance()->create_tablet(request.new_tablet_req, true, base_tablet);
+    new_tablet = StorageEngine::instance()->create_tablet(type, request.new_tablet_req, true, base_tablet);
     if (new_tablet == nullptr) {
         LOG(WARNING) << "fail to create new tablet. new_tablet_id=" << request.new_tablet_req.tablet_id
                      << ", new_tablet_hash=" << request.new_tablet_req.tablet_schema.schema_hash;
@@ -1334,7 +1341,10 @@ OLAPStatus SchemaChangeHandler::process_alter_tablet(AlterTabletType type,
         return res;
     }
 
-    _save_alter_state(ALTER_FINISHED, base_tablet, new_tablet);
+    OLAPStatus save_st = _save_alter_state(ALTER_FINISHED, base_tablet, new_tablet);
+    if (save_st != OLAP_SUCCESS) {
+        res = save_st;
+    }
     StorageEngine::instance()->tablet_manager()->release_schema_change_lock(request.base_tablet_id);
 
     return res;
@@ -1443,7 +1453,7 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
     }
 
     SAFE_DELETE(sc_procedure);
-    LOG(INFO) << "successfully convert historical rowsets. "
+    LOG(INFO) << "successfully convert rowsets. "
               << " base_tablet=" << base_tablet->full_name()
               << ", new_tablet=" << new_tablet->full_name();
     return res;
@@ -1454,7 +1464,7 @@ SCHEMA_VERSION_CONVERT_ERR:
     }
 
     SAFE_DELETE(sc_procedure);
-    LOG(WARNING) << "failed to convert historical rowsets. "
+    LOG(WARNING) << "failed to convert rowsets. "
               << " base_tablet=" << base_tablet->full_name()
               << ", new_tablet=" << new_tablet->full_name()
               << " res = " << res;
@@ -1516,7 +1526,7 @@ OLAPStatus SchemaChangeHandler::_add_alter_task(
                    << ", tablet=" << new_tablet->full_name();
         return res;
     }
-
+    LOG(INFO) << "successfully add alter task to both base and new";
     return res;
 }
 
