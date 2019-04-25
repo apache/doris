@@ -172,8 +172,8 @@ public class RoutineLoadManager implements Writable {
             nameToRoutineLoadJob.put(routineLoadJob.getName(), routineLoadJobList);
         }
         routineLoadJobList.add(routineLoadJob);
-        // register txn state listener
-        Catalog.getCurrentGlobalTransactionMgr().getListenerRegistry().register(routineLoadJob);
+        // add txn state callback in factory
+        Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback(routineLoadJob);
     }
 
     // TODO(ml): Idempotency
@@ -613,7 +613,7 @@ public class RoutineLoadManager implements Writable {
             }
             jobs.add(routineLoadJob);
             if (!routineLoadJob.getState().isFinalState()) {
-                Catalog.getCurrentGlobalTransactionMgr().getListenerRegistry().register(routineLoadJob);
+                Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback(routineLoadJob);
             }
         }
     }

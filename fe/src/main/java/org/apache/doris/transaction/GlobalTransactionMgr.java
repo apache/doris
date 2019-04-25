@@ -88,7 +88,7 @@ public class GlobalTransactionMgr {
     private com.google.common.collect.Table<Long, String, Long> dbIdToTxnLabels;
     private Map<Long, Integer> runningTxnNums;
     private TransactionIdGenerator idGenerator;
-    private TxnStateListenerRegistry listenerRegistry = new TxnStateListenerRegistry();
+    private TxnStateCallbackFactory callbackFactory = new TxnStateCallbackFactory();
     
     private Catalog catalog;
 
@@ -100,8 +100,8 @@ public class GlobalTransactionMgr {
         this.idGenerator = new TransactionIdGenerator();
     }
     
-    public TxnStateListenerRegistry getListenerRegistry() {
-        return listenerRegistry;
+    public TxnStateCallbackFactory getCallbackFactory() {
+        return callbackFactory;
     }
 
     public long beginTransaction(long dbId, String label, String coordinator, LoadJobSourceType sourceType,
@@ -1187,7 +1187,7 @@ public class GlobalTransactionMgr {
                         info.add(TimeUtils.longToTimeString(t.getFinishTime()));
                         info.add(t.getReason());
                         info.add(t.getErrorReplicas().size());
-                        info.add(t.getListenerId());
+                        info.add(t.getCallbackId());
                         info.add(t.getTimeoutMs());
                         infos.add(info);
                     });

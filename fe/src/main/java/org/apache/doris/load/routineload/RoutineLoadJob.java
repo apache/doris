@@ -49,7 +49,7 @@ import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
-import org.apache.doris.transaction.TxnStateChangeListener;
+import org.apache.doris.transaction.TxnStateChangeCallback;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -68,6 +68,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.io.StringReader;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -83,7 +84,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * The desireTaskConcurrentNum means that user expect the number of concurrent stream load
  * The routine load job support different streaming medium such as KAFKA
  */
-public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable {
+public abstract class RoutineLoadJob implements TxnStateChangeCallback, Writable {
     private static final Logger LOG = LogManager.getLogger(RoutineLoadJob.class);
 
     public static final long DEFAULT_MAX_ERROR_NUM = 0;
@@ -567,29 +568,31 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
         }
     }
 
-    // if task not exists, before aborted will throw exception
-    // if task pass the checker, job lock will be locked
-    // if tryLock timeout, txn will be aborted by timeout progress.
+    // if task not exists, before aborted will reset the txn attachment to null, task will not be updated
+    // if task pass the checker, task will be updated by attachment
     // *** Please do not call before individually. It must be combined use with after ***
     @Override
     public void beforeAborted(TransactionState txnState) throws TransactionException {
-        LOG.debug(new LogBuilder(LogKey.ROUINTE_LOAD_TASK, txnState.getLabel())
-                          .add("txn_state", txnState)
-                          .add("msg", "task before aborted")
-                          .build());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug(new LogBuilder(LogKey.ROUINTE_LOAD_TASK, txnState.getLabel())
+                              .add("txn_state", txnState)
+                              .add("msg", "task before aborted")
+                              .build());
+        }
         executeBeforeCheck(txnState, TransactionStatus.ABORTED);
     }
 
-    // if task not exists, before aborted will throw exception
+    // if task not exists, before committed will throw exception, commit txn will failed
     // if task pass the checker, lock job will be locked
-    // if tryLock timeout, txn will be aborted by timeout progress.
     // *** Please do not call before individually. It must be combined use with after ***
     @Override
     public void beforeCommitted(TransactionState txnState) throws TransactionException {
-        LOG.debug(new LogBuilder(LogKey.ROUINTE_LOAD_TASK, txnState.getLabel())
-                          .add("txn_state", txnState)
-                          .add("msg", "task before committed")
-                          .build());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug(new LogBuilder(LogKey.ROUINTE_LOAD_TASK, txnState.getLabel())
+                              .add("txn_state", txnState)
+                              .add("msg", "task before committed")
+                              .build());
+        }
         executeBeforeCheck(txnState, TransactionStatus.COMMITTED);
     }
 
@@ -599,31 +602,34 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
      */
     private void executeBeforeCheck(TransactionState txnState, TransactionStatus transactionStatus)
             throws TransactionException {
-        if (!tryWriteLock(2000, TimeUnit.MILLISECONDS)) {
-            // The lock of job has been locked by another thread more then timeout seconds.
-            // The commit txn by thread2 will be failed after waiting for timeout seconds.
-            // Maybe thread1 hang on somewhere
-            LOG.warn(new LogBuilder(LogKey.ROUINTE_LOAD_TASK, txnState.getLabel()).add("job_id", id).add("txn_status",
-                    transactionStatus).add("error_msg",
-                            "txn could not be transformed while waiting for timeout of routine load job"));
-            throw new TransactionException("txn " + txnState.getTransactionId() + "could not be " + transactionStatus
-                    + "while waiting for timeout of routine load job.");
-        }
+        writeLock();
 
         // task already pass the checker
+        boolean passCheck = false;
         try {
             // check if task has been aborted
             Optional<RoutineLoadTaskInfo> routineLoadTaskInfoOptional =
                     routineLoadTaskInfoList.stream()
                             .filter(entity -> entity.getTxnId() == txnState.getTransactionId()).findFirst();
             if (!routineLoadTaskInfoOptional.isPresent()) {
-                throw new TransactionException("txn " + txnState.getTransactionId()
-                                                       + " could not be " + transactionStatus
-                                                       + " while task " + txnState.getLabel() + " has been aborted.");
+                switch (transactionStatus) {
+                    case COMMITTED:
+                        throw new TransactionException("txn " + txnState.getTransactionId()
+                                                               + " could not be " + transactionStatus
+                                                               + " while task " + txnState.getLabel() + " has been aborted.");
+                    case ABORTED:
+                        // reset attachment in txn state
+                        // txn will be aborted normal but without attachment
+                        // task will not be update when attachment is null
+                        txnState.setTxnCommitAttachment(null);
+                        break;
+                }
             }
-        } catch (TransactionException e) {
-            writeUnlock();
-            throw e;
+            passCheck = true;
+        } finally {
+            if (!passCheck) {
+                writeUnlock();
+            }
         }
     }
 
@@ -674,6 +680,10 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
         long taskBeId = -1L;
         try {
             if (txnOperated) {
+                if (txnState.getTxnCommitAttachment() == null) {
+                    // this is a task which already has been aborted by fe
+                    return;
+                }
                 // step0: find task in job
                 Optional<RoutineLoadTaskInfo> routineLoadTaskInfoOptional = routineLoadTaskInfoList.stream().filter(
                         entity -> entity.getTxnId() == txnState.getTransactionId()).findFirst();
@@ -827,7 +837,7 @@ public abstract class RoutineLoadJob implements TxnStateChangeListener, Writable
         }
 
         if (state.isFinalState()) {
-            Catalog.getCurrentGlobalTransactionMgr().getListenerRegistry().unregister(id);
+            Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().removeCallback(id);
         }
 
         if (!isReplay && jobState != JobState.RUNNING) {

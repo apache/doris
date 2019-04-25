@@ -30,26 +30,26 @@ import java.util.Map;
  */
 
 // saves all TxnStateChangeListeners
-public class TxnStateListenerRegistry {
-    private static final Logger LOG = LogManager.getLogger(TxnStateListenerRegistry.class);
+public class TxnStateCallbackFactory {
+    private static final Logger LOG = LogManager.getLogger(TxnStateCallbackFactory.class);
 
-    private Map<Long, TxnStateChangeListener> listeners = Maps.newHashMap();
+    private Map<Long, TxnStateChangeCallback> callbacks = Maps.newHashMap();
 
-    public synchronized boolean register(TxnStateChangeListener listener) {
-        if (listeners.containsKey(listener.getId())) {
+    public synchronized boolean addCallback(TxnStateChangeCallback callback) {
+        if (callbacks.containsKey(callback.getId())) {
             return false;
         }
-        listeners.put(listener.getId(), listener);
-        LOG.info("register txn state listener: {}", listener.getId());
+        callbacks.put(callback.getId(), callback);
+        LOG.info("add callback of txn state : {}", callback.getId());
         return true;
     }
 
-    public synchronized void unregister(long id) {
-        listeners.remove(id);
-        LOG.info("unregister txn state listener: {}", id);
+    public synchronized void removeCallback(long id) {
+        callbacks.remove(id);
+        LOG.info("remove callback of txn state : {}", id);
     }
 
-    public synchronized TxnStateChangeListener getListener(long id) {
-        return listeners.get(id);
+    public synchronized TxnStateChangeCallback getCallback(long id) {
+        return callbacks.get(id);
     }
 }
