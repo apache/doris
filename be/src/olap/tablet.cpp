@@ -507,7 +507,7 @@ AlterTabletTaskSharedPtr Tablet::alter_task() {
     return _tablet_meta->alter_task();
 }
 
-void Tablet::add_alter_task(int64_t tablet_id,
+OLAPStatus Tablet::add_alter_task(int64_t tablet_id,
                             int32_t schema_hash,
                             const vector<Version>& versions_to_alter,
                             const AlterTabletType alter_type) {
@@ -521,7 +521,12 @@ void Tablet::add_alter_task(int64_t tablet_id,
     }
 
     alter_task.set_alter_type(alter_type);
-    _tablet_meta->add_alter_task(alter_task);
+    RETURN_NOT_OK(_tablet_meta->add_alter_task(alter_task));
+    LOG(INFO) << "successfully add alter task " 
+              << " related tablet id " << tablet_id
+              << " related schema hash " << schema_hash
+              << "alter type " << alter_type; 
+    return OLAP_SUCCESS;
 }
 
 OLAPStatus Tablet::delete_alter_task() {

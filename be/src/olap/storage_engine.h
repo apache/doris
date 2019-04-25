@@ -79,7 +79,8 @@ public:
     // Create new tablet for StorageEngine
     //
     // Return Tablet *  succeeded; Otherwise, return NULL if failed
-    TabletSharedPtr create_tablet(const TCreateTabletReq& request,
+    TabletSharedPtr create_tablet(const AlterTabletType alter_type,
+                                  const TCreateTabletReq& request,
                                   const bool is_schema_change_tablet,
                                   const TabletSharedPtr ref_tablet);
 
