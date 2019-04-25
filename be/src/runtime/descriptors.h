@@ -124,7 +124,7 @@ public:
         return _slot_size;
     }
 
-    std::string col_name() const {
+    const std::string& col_name() const {
         return _col_name;
     }
 
