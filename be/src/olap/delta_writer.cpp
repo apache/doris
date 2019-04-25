@@ -91,6 +91,11 @@ OLAPStatus DeltaWriter::init() {
                         << "new_schema_hash: " << new_schema_hash << ", "
                         << "transaction_id: " << _req.txn_id;
                 _new_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(new_tablet_id, new_schema_hash);
+                if (_new_tablet == nullptr) {
+                    LOG(WARNING) << "find alter task, but could not find new tablet tablet_id: " << new_tablet_id
+                                 << ", schema_hash: " << new_schema_hash;
+                    return OLAP_ERR_TABLE_NOT_FOUND;
+                }
                 StorageEngine::instance()->txn_manager()->prepare_txn(
                                     _req.partition_id, _req.txn_id,
                                     new_tablet_id, new_schema_hash, _req.load_id);
