@@ -19,28 +19,25 @@ package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-
 /**
- * author: wuyunfeng
- * date: 18/1/5 10:43
- * project: palo2
+ * author: chenmingyu
+ * date: 19/4/25 10:43
+ * project: doris
  */
-public class TransDbProcDir implements ProcDirInterface {
+public class TransStateProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("DbId")
-            .add("DbName")
+            .add("State").add("Number")
             .build();
 
-    public TransDbProcDir() {
+    private long dbId;
+
+    public TransStateProcDir(Long dbId) {
+        this.dbId = dbId;
     }
 
     @Override
@@ -48,19 +45,8 @@ public class TransDbProcDir implements ProcDirInterface {
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
         GlobalTransactionMgr transactionMgr = Catalog.getCurrentGlobalTransactionMgr();
-        List<List<Comparable>> infos = transactionMgr.getDbInfo();
-        // order by dbId, asc
-        ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(0);
-        Collections.sort(infos, comparator);
-        for (List<Comparable> info : infos) {
-            List<String> row = new ArrayList<String>(info.size());
-            for (Comparable comparable : info) {
-                row.add(comparable.toString());
-            }
-            result.addRow(row);
-        }
+        result.setRows(transactionMgr.getDbTransStateInfo(dbId));
         return result;
-
     }
 
     @Override
@@ -69,17 +55,15 @@ public class TransDbProcDir implements ProcDirInterface {
     }
 
     @Override
-    public ProcNodeInterface lookup(String dbIdStr) throws AnalysisException {
-        if (Strings.isNullOrEmpty(dbIdStr)) {
-            throw new AnalysisException("Db id is null");
+    public ProcNodeInterface lookup(String state) throws AnalysisException {
+        if (Strings.isNullOrEmpty(state)) {
+            throw new AnalysisException("State is not set");
         }
-        long dbId = -1L;
-        try {
-            dbId = Long.valueOf(dbIdStr);
-        } catch (NumberFormatException e) {
-            throw new AnalysisException("Invalid db id format: " + dbIdStr);
+        
+        if (!state.equals("running") && !state.equals("finished")) {
+            throw new AnalysisException("State is invalid");
         }
 
-        return new TransStateProcDir(dbId);
+        return new TransProcDir(dbId, state);
     }
 }

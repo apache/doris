@@ -1164,7 +1164,21 @@ public class GlobalTransactionMgr {
         return infos;
     }
     
-    public List<List<Comparable>> getDbTransInfo(long dbId, int limit) throws AnalysisException {
+    public List<List<String>> getDbTransStateInfo(long dbId) {
+        List<List<String>> infos = Lists.newArrayList();
+        readLock();
+        try {
+            infos.add(Lists.newArrayList("running", String.valueOf(runningTxnNums.getOrDefault(dbId, 0))));
+            long finishedNum = idToTransactionState.values().stream().filter(
+                    t -> (t.getDbId() == dbId && t.getTransactionStatus().isFinalStatus())).count();
+            infos.add(Lists.newArrayList("finished", String.valueOf(finishedNum)));
+        } finally {
+            readUnlock();
+        }
+        return infos;
+    }
+
+    public List<List<Comparable>> getDbTransInfo(long dbId, boolean running, int limit) throws AnalysisException {
         List<List<Comparable>> infos = new ArrayList<List<Comparable>>();
         readLock();
         try {
@@ -1172,8 +1186,10 @@ public class GlobalTransactionMgr {
             if (db == null) {
                 throw new AnalysisException("Database[" + dbId + "] does not exist");
             }
+
             idToTransactionState.values().stream()
-                    .filter(t -> t.getDbId() == dbId)
+                    .filter(t -> (t.getDbId() == dbId && (running ? !t.getTransactionStatus().isFinalStatus()
+                            : t.getTransactionStatus().isFinalStatus())))
                     .limit(limit)
                     .forEach(t -> {
                         List<Comparable> info = new ArrayList<Comparable>();
