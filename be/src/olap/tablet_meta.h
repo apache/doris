@@ -173,7 +173,7 @@ public:
     OLAPStatus remove_delete_predicate_by_version(const Version& version);
     DelPredicateArray delete_predicates() const;
     bool version_for_delete_predicate(const Version& version);
-    AlterTabletTaskSharedPtr alter_task() const;
+    AlterTabletTaskSharedPtr alter_task();
     OLAPStatus add_alter_task(const AlterTabletTask& alter_task);
     OLAPStatus delete_alter_task();
     OLAPStatus set_alter_state(AlterTabletState alter_state);
@@ -279,13 +279,6 @@ inline const vector<RowsetMetaSharedPtr>& TabletMeta::all_rs_metas() const {
 
 inline const vector<RowsetMetaSharedPtr>& TabletMeta::all_inc_rs_metas() const {
     return _inc_rs_metas;
-}
-
-// return value not reference
-// MVCC modification for alter task, upper application get a alter task mirror
-inline AlterTabletTaskSharedPtr TabletMeta::alter_task() const {
-    ReadLock rlock(&_meta_lock);
-    return _alter_task;
 }
 
 }  // namespace doris
