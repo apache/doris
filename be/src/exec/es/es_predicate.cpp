@@ -273,6 +273,7 @@ Status EsPredicate::build_disjuncts_list(const Expr* conjunct) {
             _es_query_status 
                 = BooleanQueryBuilder::check_es_query(*(ExtFunction *)predicate); 
             if (!_es_query_status.ok()) {
+                delete predicate;
                 return _es_query_status;
             }
         }
