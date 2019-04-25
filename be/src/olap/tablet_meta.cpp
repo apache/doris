@@ -49,6 +49,16 @@ OLAPStatus AlterTabletTask::to_alter_pb(AlterTabletPB* alter_task) {
     return OLAP_SUCCESS;
 }
 
+OLAPStatus AlterTabletTask::set_alter_state(AlterTabletState alter_state) { 
+    if (_alter_state == ALTER_FAILED && alter_state != ALTER_FAILED) {
+        return OLAP_ERR_ALTER_STATUS_ERR;
+    } else if (_alter_state == ALTER_FINISHED && alter_state != ALTER_FINISHED) {
+        return OLAP_ERR_ALTER_STATUS_ERR;
+    }
+    _alter_state = alter_state; 
+    return OLAP_SUCCESS;
+}
+
 OLAPStatus TabletMeta::create(int64_t table_id, int64_t partition_id,
                               int64_t tablet_id, int32_t schema_hash,
                               uint64_t shard_id, const TTabletSchema& tablet_schema,
@@ -602,19 +612,23 @@ OLAPStatus TabletMeta::delete_alter_task() {
     return OLAP_SUCCESS;
 }
 
-// TODO(ygl): if alter task is nullptr, return error?
-void TabletMeta::set_alter_state(AlterTabletState alter_state) {
+// if alter task is nullptr, return error?
+OLAPStatus TabletMeta::set_alter_state(AlterTabletState alter_state) {
     WriteLock wrlock(&_meta_lock);
     if (_alter_task == nullptr) {
         // alter state should be set to ALTER_PREPARED when starting to 
         // alter tablet. In this scenario, _alter_task is null pointer.
-        _alter_task.reset(new AlterTabletTask());
-        _alter_task->set_alter_state(alter_state);
+        LOG(WARNING) << "original alter task is null, could not set state";
+        return OLAP_ERR_ALTER_STATUS_ERR;
     } else {
         AlterTabletTask* alter_tablet_task = new AlterTabletTask();
         *alter_tablet_task = *_alter_task;
-        alter_tablet_task->set_alter_state(alter_state);
+        OLAPStatus reset_status = alter_tablet_task->set_alter_state(alter_state);
+        if (reset_status != OLAP_SUCCESS) {
+            return reset_status;
+        }
         _alter_task.reset(alter_tablet_task);
+        return OLAP_SUCCESS;
     }
 }
 
