@@ -51,6 +51,10 @@ public enum TransactionStatus {
         }
     }
     
+    public boolean isFinalStatus() {
+        return this == TransactionStatus.VISIBLE || this == TransactionStatus.ABORTED;
+    }
+
     @Override
     public String toString() {
         switch (this) {
