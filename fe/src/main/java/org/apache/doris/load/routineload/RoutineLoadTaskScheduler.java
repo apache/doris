@@ -79,8 +79,7 @@ public class RoutineLoadTaskScheduler extends Daemon {
         try {
             process();
         } catch (Throwable e) {
-            LOG.warn("Failed to process one round of RoutineLoadTaskScheduler with error message {}",
-                     e.getMessage(), e);
+            LOG.warn("Failed to process one round of RoutineLoadTaskScheduler", e);
         }
     }
 
@@ -105,8 +104,7 @@ public class RoutineLoadTaskScheduler extends Daemon {
             try {
                 routineLoadTaskInfo = needScheduleTasksQueue.take();
             } catch (InterruptedException e) {
-                LOG.warn("Taking routine load task from queue has been interrupted with error msg {}",
-                         e.getMessage(),e);
+                LOG.warn("Taking routine load task from queue has been interrupted", e);
                 return;
             }
             try {

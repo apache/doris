@@ -55,7 +55,7 @@ public class RoutineLoadScheduler extends Daemon {
         try {
             process();
         } catch (Throwable e) {
-            LOG.warn("Failed to process one round of RoutineLoadScheduler with error message {}", e.getMessage(), e);
+            LOG.warn("Failed to process one round of RoutineLoadScheduler", e);
         }
     }
 
@@ -79,6 +79,14 @@ public class RoutineLoadScheduler extends Daemon {
                 routineLoadJob.initPlanner();
                 // judge nums of tasks more then max concurrent tasks of cluster
                 int desiredConcurrentTaskNum = routineLoadJob.calculateCurrentConcurrentTaskNum();
+                if (desiredConcurrentTaskNum <= 0) {
+                    // the job will be rescheduled later.
+                    LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
+                                     .add("msg", "the current concurrent num is less then or equal to zero, "
+                                             + "job will be rescheduled later")
+                                     .build());
+                    continue;
+                }
                 int currentTotalTaskNum = routineLoadManager.getSizeOfIdToRoutineLoadTask();
                 int desiredTotalTaskNum = desiredConcurrentTaskNum + currentTotalTaskNum;
                 if (desiredTotalTaskNum > routineLoadManager.getTotalMaxConcurrentTaskNum()) {
