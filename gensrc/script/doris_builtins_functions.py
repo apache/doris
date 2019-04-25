@@ -469,9 +469,15 @@ visible_functions = [
     [['strleft'], 'VARCHAR', ['VARCHAR', 'INT'], 
         '_ZN5doris15StringFunctions4leftEPN9doris_udf'
         '15FunctionContextERKNS1_9StringValERKNS1_6IntValE'],
+    [['left'], 'VARCHAR', ['VARCHAR', 'INT'],
+     '_ZN5doris15StringFunctions4leftEPN9doris_udf'
+     '15FunctionContextERKNS1_9StringValERKNS1_6IntValE'],
     [['strright'], 'VARCHAR', ['VARCHAR', 'INT'], 
         '_ZN5doris15StringFunctions5rightEPN9doris_udf'
         '15FunctionContextERKNS1_9StringValERKNS1_6IntValE'],
+    [['right'], 'VARCHAR', ['VARCHAR', 'INT'],
+     '_ZN5doris15StringFunctions5rightEPN9doris_udf'
+     '15FunctionContextERKNS1_9StringValERKNS1_6IntValE'],
     [['space'], 'VARCHAR', ['INT'], 
         '_ZN5doris15StringFunctions5spaceEPN9doris_udf15FunctionContextERKNS1_6IntValE'],
     [['repeat'], 'VARCHAR', ['VARCHAR', 'INT'], 
