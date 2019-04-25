@@ -336,8 +336,7 @@ Status EsPredicate::build_disjuncts_list(const Expr* conjunct) {
             return Status("build disjuncts failed");
         }
 
-        SlotRef* slot_ref = (SlotRef*)(conjunct->get_child(0));
-        const SlotDescriptor* slot_desc = get_slot_desc(slot_ref);
+        const SlotDescriptor* slot_desc = get_slot_desc(conjunct->get_child(0));
         if (slot_desc == nullptr) {
             return Status("build disjuncts failed: slot_desc is null");
         }
@@ -400,10 +399,12 @@ bool EsPredicate::is_match_func(const Expr* conjunct) {
     return false;
 }
 
-const SlotDescriptor* EsPredicate::get_slot_desc(const SlotRef* slotRef) {
+const SlotDescriptor* EsPredicate::get_slot_desc(const Expr* expr) {
+    std::vector<SlotId> slot_ids;
+    expr->get_slot_ids(&slot_ids);
     const SlotDescriptor* slot_desc = nullptr;
     for (SlotDescriptor* slot : _tuple_desc->slots()) {
-        if (slot->id() == slotRef->slot_id()) {
+        if (slot->id() == slot_ids[0]) {
             slot_desc = slot;
             break;
         }
