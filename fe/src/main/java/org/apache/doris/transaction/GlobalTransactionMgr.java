@@ -1169,7 +1169,7 @@ public class GlobalTransactionMgr {
         readLock();
         try {
             infos.add(Lists.newArrayList("running", String.valueOf(runningTxnNums.getOrDefault(dbId, 0))));
-            long runningNum = idToTransactionState.values().stream().filter(
+            long finishedNum = idToTransactionState.values().stream().filter(
                     t -> (t.getDbId() == dbId && t.getTransactionStatus().isFinalStatus())).count();
             infos.add(Lists.newArrayList("finished", String.valueOf(finishedNum)));
         } finally {
