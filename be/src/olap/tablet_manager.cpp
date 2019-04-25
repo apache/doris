@@ -697,6 +697,16 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(CompactionType com
     TabletSharedPtr best_tablet;
     for (tablet_map_t::value_type& table_ins : _tablet_map){
         for (TabletSharedPtr& table_ptr : table_ins.second.table_arr) {
+            AlterTabletTaskSharedPtr cur_alter_task = table_ptr->alter_task();
+            if (cur_alter_task != nullptr && cur_alter_task->alter_state() != ALTER_FINISHED 
+                && cur_alter_task->alter_state() != ALTER_FAILED) {
+                    TabletSharedPtr related_tablet = _get_tablet_with_no_lock(cur_alter_task->related_tablet_id(), 
+                        cur_alter_task->related_schema_hash());
+                    if (related_tablet != nullptr && table_ptr->creation_time() > related_tablet->creation_time()) {
+                        // it means cur tablet is a new tablet during schema change or rollup, skip compaction
+                        continue;
+                    }
+            }
             if (!table_ptr->init_succeeded() || !table_ptr->can_do_compaction()) {
                 continue;
             }
