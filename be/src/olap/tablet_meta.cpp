@@ -596,6 +596,13 @@ bool TabletMeta::version_for_delete_predicate(const Version& version) {
     return false;
 }
 
+// return value not reference
+// MVCC modification for alter task, upper application get a alter task mirror
+AlterTabletTaskSharedPtr TabletMeta::TabletMeta::alter_task() {
+    ReadLock rlock(&_meta_lock);
+    return _alter_task;
+}
+
 OLAPStatus TabletMeta::add_alter_task(const AlterTabletTask& alter_task) {
     WriteLock wrlock(&_meta_lock);
     AlterTabletTask* new_alter_task = new AlterTabletTask();
