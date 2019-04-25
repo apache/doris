@@ -53,18 +53,19 @@ public class TransProcDir implements ProcDirInterface {
     public static final int MAX_SHOW_ENTRIES = 2000;
 
     private long dbId;
+    private String state;
 
-    public TransProcDir(long dbId) {
+    public TransProcDir(long dbId, String state) {
         this.dbId = dbId;
+        this.state = state;
     }
 
     @Override
     public ProcResult fetchResult() throws AnalysisException {
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
-        Catalog catalog = Catalog.getInstance();
         GlobalTransactionMgr transactionMgr = Catalog.getCurrentGlobalTransactionMgr();
-        List<List<Comparable>> infos = transactionMgr.getDbTransInfo(dbId, MAX_SHOW_ENTRIES);
+        List<List<Comparable>> infos = transactionMgr.getDbTransInfo(dbId, state.equals("running"), MAX_SHOW_ENTRIES);
         // order by transactionId, asc
         ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(0);
         Collections.sort(infos, comparator);
