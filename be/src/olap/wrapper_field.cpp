@@ -21,7 +21,9 @@ namespace doris {
 
 WrapperField* WrapperField::create(const FieldInfo& info, uint32_t len) {
     bool is_string_type =
-        (info.type == OLAP_FIELD_TYPE_CHAR || info.type == OLAP_FIELD_TYPE_VARCHAR);
+        (info.type == OLAP_FIELD_TYPE_CHAR 
+            || info.type == OLAP_FIELD_TYPE_VARCHAR 
+            || info.type == OLAP_FIELD_TYPE_HLL);
     if (is_string_type && len > OLAP_STRING_MAX_LENGTH) {
         OLAP_LOG_WARNING("length of string parameter is too long[len=%lu, max_len=%lu].",
                         len, OLAP_STRING_MAX_LENGTH);
@@ -36,7 +38,7 @@ WrapperField* WrapperField::create(const FieldInfo& info, uint32_t len) {
     size_t variable_len = 0;
     if (info.type == OLAP_FIELD_TYPE_CHAR) {
         variable_len = std::max(len, info.length);
-    } else if (info.type == OLAP_FIELD_TYPE_VARCHAR) {
+    } else if (info.type == OLAP_FIELD_TYPE_VARCHAR || info.type == OLAP_FIELD_TYPE_HLL) {
         variable_len = std::max(len,
                 static_cast<uint32_t>(info.length - sizeof(StringLengthType)));
     } else {
@@ -52,7 +54,9 @@ WrapperField* WrapperField::create_by_type(const FieldType& type) {
     if (rep == nullptr) {
         return nullptr;
     }
-    bool is_string_type = (type == OLAP_FIELD_TYPE_CHAR || type == OLAP_FIELD_TYPE_VARCHAR);
+    bool is_string_type = (type == OLAP_FIELD_TYPE_CHAR 
+                              || type == OLAP_FIELD_TYPE_VARCHAR 
+                              || type == OLAP_FIELD_TYPE_HLL);
     WrapperField* wrapper = new WrapperField(rep, 0, is_string_type);
     return wrapper;
 }
