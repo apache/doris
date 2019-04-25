@@ -70,7 +70,8 @@ public:
     // Create new tablet for StorageEngine
     //
     // Return Tablet *  succeeded; Otherwise, return NULL if failed
-    TabletSharedPtr create_tablet(const TCreateTabletReq& request,
+    TabletSharedPtr create_tablet(const AlterTabletType alter_type, 
+                                  const TCreateTabletReq& request,
                                   const bool is_schema_change_tablet,
                                   const TabletSharedPtr ref_tablet, 
                                   std::vector<DataDir*> stores);
@@ -160,8 +161,8 @@ private:
 
     TabletSharedPtr _get_tablet_with_no_lock(TTabletId tablet_id, SchemaHash schema_hash);
 
-    TabletSharedPtr _internal_create_tablet(const TCreateTabletReq& request, const bool is_schema_change_tablet,
-        const TabletSharedPtr ref_tablet, std::vector<DataDir*> data_dirs);
+    TabletSharedPtr _internal_create_tablet(const AlterTabletType alter_type, const TCreateTabletReq& request, 
+        const bool is_schema_change_tablet, const TabletSharedPtr ref_tablet, std::vector<DataDir*> data_dirs);
     
     TabletSharedPtr _create_tablet_meta_and_dir(const TCreateTabletReq& request, const bool is_schema_change_tablet,
         const TabletSharedPtr ref_tablet, std::vector<DataDir*> data_dirs);

@@ -245,15 +245,25 @@ void TabletManager::cancel_unfinished_schema_change() {
                 continue;
             }
 
-            tablet->set_alter_state(ALTER_FAILED);
-            OLAPStatus res = tablet->save_meta();
+            OLAPStatus res = tablet->set_alter_state(ALTER_FAILED);
+            if (res != OLAP_SUCCESS) {
+                LOG(FATAL) << "fail to set base tablet meta. res=" << res
+                           << ", base_tablet=" << tablet->full_name();
+                return;
+            }
+            res = tablet->save_meta();
             if (res != OLAP_SUCCESS) {
                 LOG(FATAL) << "fail to save base tablet meta. res=" << res
                            << ", base_tablet=" << tablet->full_name();
                 return;
             }
 
-            new_tablet->set_alter_state(ALTER_FAILED);
+            res = new_tablet->set_alter_state(ALTER_FAILED);
+            if (res != OLAP_SUCCESS) {
+                LOG(FATAL) << "fail to save new tablet meta. res=" << res
+                           << ", new_tablet=" << new_tablet->full_name();
+                return;
+            }
             res = new_tablet->save_meta();
             if (res != OLAP_SUCCESS) {
                 LOG(FATAL) << "fail to save new tablet meta. res=" << res
@@ -311,8 +321,8 @@ OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request,
             return OLAP_ERR_CE_TABLET_ID_EXIST;
         }
     }
-
-    TabletSharedPtr tablet = _internal_create_tablet(request, false, nullptr, stores);
+    // set alter type to schema change. it is useless
+    TabletSharedPtr tablet = _internal_create_tablet(AlterTabletType::SCHEMA_CHANGE, request, false, nullptr, stores);
     if (tablet == nullptr) {
         res = OLAP_ERR_CE_CMD_PARAMS_ERROR;
         LOG(WARNING) << "fail to create tablet. res=" << res;
@@ -322,16 +332,16 @@ OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request,
     return res;
 } // create_tablet
 
-TabletSharedPtr TabletManager::create_tablet(
+TabletSharedPtr TabletManager::create_tablet(const AlterTabletType alter_type, 
         const TCreateTabletReq& request, const bool is_schema_change_tablet,
         const TabletSharedPtr ref_tablet, std::vector<DataDir*> data_dirs) {
     DCHECK(is_schema_change_tablet && ref_tablet != nullptr);
     WriteLock wrlock(&_tablet_map_lock);
-    return _internal_create_tablet(request, is_schema_change_tablet,
+    return _internal_create_tablet(alter_type, request, is_schema_change_tablet,
         ref_tablet, data_dirs);
 }
 
-TabletSharedPtr TabletManager::_internal_create_tablet(
+TabletSharedPtr TabletManager::_internal_create_tablet(const AlterTabletType alter_type,
         const TCreateTabletReq& request, const bool is_schema_change_tablet,
         const TabletSharedPtr ref_tablet, std::vector<DataDir*> data_dirs) {
     DCHECK((is_schema_change_tablet && ref_tablet != nullptr) || (!is_schema_change_tablet && ref_tablet == nullptr));
@@ -368,6 +378,9 @@ TabletSharedPtr TabletManager::_internal_create_tablet(
                 break;
             }
         } else {
+            // add alter task to new tablet if it is a new tablet during schema change
+            tablet->add_alter_task(ref_tablet->tablet_id(), ref_tablet->schema_hash(), 
+                vector<Version>(), alter_type);
             // 有可能出现以下2种特殊情况：
             // 1. 因为操作系统时间跳变，导致新生成的表的creation_time小于旧表的creation_time时间
             // 2. 因为olap engine代码中统一以秒为单位，所以如果2个操作(比如create一个表,
