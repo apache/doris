@@ -18,12 +18,10 @@
 package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.Database;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 
-import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 
@@ -41,15 +39,12 @@ public class TransDbProcDir implements ProcDirInterface {
             .add("DbId")
             .add("DbName")
             .build();
-    private Catalog catalog;
 
-    public TransDbProcDir(Catalog catalog) {
-        this.catalog = catalog;
+    public TransDbProcDir() {
     }
 
     @Override
     public ProcResult fetchResult() throws AnalysisException {
-        Preconditions.checkNotNull(catalog);
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
         GlobalTransactionMgr transactionMgr = Catalog.getCurrentGlobalTransactionMgr();
@@ -75,7 +70,7 @@ public class TransDbProcDir implements ProcDirInterface {
 
     @Override
     public ProcNodeInterface lookup(String dbIdStr) throws AnalysisException {
-        if (catalog == null || Strings.isNullOrEmpty(dbIdStr)) {
+        if (Strings.isNullOrEmpty(dbIdStr)) {
             throw new AnalysisException("Db id is null");
         }
         long dbId = -1L;
@@ -85,11 +80,6 @@ public class TransDbProcDir implements ProcDirInterface {
             throw new AnalysisException("Invalid db id format: " + dbIdStr);
         }
 
-        Database db = catalog.getDb(dbId);
-        if (db == null) {
-            throw new AnalysisException("Database[" + dbId + "] does not exist.");
-        }
-
-        return new TransProcDir(dbId);
+        return new TransStateProcDir(dbId);
     }
 }

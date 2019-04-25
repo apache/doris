@@ -51,7 +51,8 @@ public class BackendsProcDir implements ProcDirInterface {
             .add("BackendId").add("Cluster").add("IP").add("HostName").add("HeartbeatPort")
             .add("BePort").add("HttpPort").add("BrpcPort").add("LastStartTime").add("LastHeartbeat").add("Alive")
             .add("SystemDecommissioned").add("ClusterDecommissioned").add("TabletNum")
-            .add("DataUsedCapacity").add("AvailCapacity").add("TotalCapacity").add("UsedPct").add("ErrMsg")
+            .add("DataUsedCapacity").add("AvailCapacity").add("TotalCapacity").add("UsedPct")
+            .add("MaxDiskUsedPct").add("ErrMsg")
             .build();
 
     public static final int IP_INDEX = 2;
@@ -165,6 +166,7 @@ public class BackendsProcDir implements ProcDirInterface {
                 used = (double) (totalB - availB) * 100 / totalB;
             }
             backendInfo.add(String.format("%.2f", used) + " %");
+            backendInfo.add(String.format("%.2f", backend.getMaxDiskUsedPct() * 100) + " %");
 
             backendInfo.add(backend.getHeartbeatErrMsg());
 
