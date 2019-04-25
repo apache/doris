@@ -1194,8 +1194,8 @@ OLAPStatus SchemaChangeHandler::process_alter_tablet(AlterTabletType type,
     //    It means that the current request was already handled.
     TabletSharedPtr new_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
             request.new_tablet_req.tablet_id, request.new_tablet_req.tablet_schema.schema_hash);
-    LOG(INFO) << "find alter new tablet " << new_tablet->full_name();
     if (new_tablet != nullptr) {
+        LOG(INFO) << "find alter new tablet " << new_tablet->full_name();
         // check if new tablet's alter task is finished
         AlterTabletTaskSharedPtr new_tablet_alter_task = new_tablet->alter_task();
         if (new_tablet_alter_task == nullptr || new_tablet_alter_task->alter_state() == ALTER_FINISHED) {
