@@ -99,12 +99,14 @@ public:
     OLAPStatus delete_txn(OlapMeta* meta, TPartitionId partition_id, TTransactionId transaction_id,
                           TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid);
 
-    void get_tablet_related_txns(TabletSharedPtr tablet, int64_t* partition_id,
+    void get_tablet_related_txns(TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid, int64_t* partition_id,
                                 std::set<int64_t>* transaction_ids);
 
     void get_txn_related_tablets(const TTransactionId transaction_id,
                                  TPartitionId partition_ids,
                                  std::map<TabletInfo, RowsetSharedPtr>* tablet_infos);
+    
+    void get_all_related_tablets(std::set<TabletInfo>* tablet_infos);
 
     // just check if the txn exists
     bool has_txn(TPartitionId partition_id, TTransactionId transaction_id,

@@ -346,14 +346,14 @@ OLAPStatus TxnManager::delete_txn(OlapMeta* meta, TPartitionId partition_id, TTr
     return OLAP_SUCCESS;
 }
 
-void TxnManager::get_tablet_related_txns(TabletSharedPtr tablet, int64_t* partition_id,
-                                         std::set<int64_t>* transaction_ids) {
-    if (tablet == nullptr || partition_id == nullptr || transaction_ids == nullptr) {
+void TxnManager::get_tablet_related_txns(TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid, 
+    int64_t* partition_id, std::set<int64_t>* transaction_ids) {
+    if (partition_id == nullptr || transaction_ids == nullptr) {
         LOG(WARNING) << "parameter is null when get transactions by tablet";
         return;
     }
 
-    TabletInfo tablet_info(tablet->tablet_id(), tablet->schema_hash(), tablet->tablet_uid());
+    TabletInfo tablet_info(tablet_id, schema_hash, tablet_uid);
     ReadLock txn_rdlock(&_txn_map_lock);
     for (auto& it : _txn_tablet_map) {
         if (it.second.find(tablet_info) != it.second.end()) {
@@ -414,10 +414,20 @@ void TxnManager::get_txn_related_tablets(const TTransactionId transaction_id,
     // each tablet
     for (auto& load_info : load_info_map) {
         const TabletInfo& tablet_info = load_info.first;
+        // must not check rowset == null here, because if rowset == null
+        // publish version should failed
 	    tablet_infos->emplace(tablet_info, load_info.second.rowset);
     }
 }
-                                
+
+void TxnManager::get_all_related_tablets(std::set<TabletInfo>* tablet_infos) {
+    ReadLock txn_rdlock(&_txn_map_lock);
+    for (auto& it : _txn_tablet_map) {
+        for (auto& tablet_load_it : it.second) {
+            tablet_infos->emplace(tablet_load_it.first);
+        }
+    }
+}                                
 
 bool TxnManager::has_txn(TPartitionId partition_id, TTransactionId transaction_id,
                          TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid) {

@@ -1196,7 +1196,8 @@ OLAPStatus SchemaChangeHandler::process_alter_tablet(AlterTabletType type,
     // get current transactions
     int64_t partition_id;
     std::set<int64_t> transaction_ids;
-    StorageEngine::instance()->txn_manager()->get_tablet_related_txns(base_tablet, &partition_id, &transaction_ids);
+    StorageEngine::instance()->txn_manager()->get_tablet_related_txns(base_tablet->tablet_id(), 
+        base_tablet->schema_hash(), base_tablet->tablet_uid(), &partition_id, &transaction_ids);
     base_tablet->release_push_lock();
 
     // wait transactions to publish version
