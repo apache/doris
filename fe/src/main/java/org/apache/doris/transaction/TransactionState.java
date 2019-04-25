@@ -123,7 +123,7 @@ public class TransactionState implements Writable {
     private long publishVersionTime;
     private TransactionStatus preStatus = null;
     
-    private long listenerId = -1;
+    private long callbackId = -1;
     private long timeoutMs = Config.stream_load_default_timeout_second;
 
     // optional
@@ -151,7 +151,7 @@ public class TransactionState implements Writable {
     }
     
     public TransactionState(long dbId, long transactionId, String label, long timestamp,
-            LoadJobSourceType sourceType, String coordinator, long listenerId, long timeoutMs) {
+                            LoadJobSourceType sourceType, String coordinator, long callbackId, long timeoutMs) {
         this.dbId = dbId;
         this.transactionId = transactionId;
         this.label = label;
@@ -168,7 +168,7 @@ public class TransactionState implements Writable {
         this.publishVersionTasks = Maps.newHashMap();
         this.hasSendTask = false;
         this.latch = new CountDownLatch(1);
-        this.listenerId = listenerId;
+        this.callbackId = callbackId;
         this.timeoutMs = timeoutMs;
     }
     
@@ -249,8 +249,8 @@ public class TransactionState implements Writable {
         return txnCommitAttachment;
     }
 
-    public long getListenerId() {
-        return listenerId;
+    public long getCallbackId() {
+        return callbackId;
     }
 
     public long getTimeoutMs() {
@@ -285,16 +285,24 @@ public class TransactionState implements Writable {
 
     public void beforeStateTransform(TransactionStatus transactionStatus) throws TransactionException {
         // before status changed
-        TxnStateChangeListener listener = Catalog.getCurrentGlobalTransactionMgr()
-                .getListenerRegistry().getListener(listenerId);
-        if (listener != null) {
+        TxnStateChangeCallback callback = Catalog.getCurrentGlobalTransactionMgr()
+                .getCallbackFactory().getCallback(callbackId);
+        if (callback != null) {
             switch (transactionStatus) {
                 case ABORTED:
-                    listener.beforeAborted(this);
+                    callback.beforeAborted(this);
                     break;
                 case COMMITTED:
-                    listener.beforeCommitted(this);
+                    callback.beforeCommitted(this);
                     break;
+                default:
+                    break;
+            }
+        } else if (callback == null && callbackId > 0) {
+            switch (transactionStatus) {
+                case COMMITTED:
+                    // Maybe listener has been deleted. The txn need to be aborted later.
+                    throw new TransactionException("Failed to commit txn when callback could not be found");
                 default:
                     break;
             }
@@ -308,15 +316,15 @@ public class TransactionState implements Writable {
     public void afterStateTransform(TransactionStatus transactionStatus, boolean txnOperated, String txnStatusChangeReason)
             throws UserException {
         // after status changed
-        TxnStateChangeListener listener = Catalog.getCurrentGlobalTransactionMgr()
-                .getListenerRegistry().getListener(listenerId);
-        if (listener != null) {
+        TxnStateChangeCallback callback = Catalog.getCurrentGlobalTransactionMgr()
+                .getCallbackFactory().getCallback(callbackId);
+        if (callback != null) {
             switch (transactionStatus) {
                 case ABORTED:
-                    listener.afterAborted(this, txnOperated, txnStatusChangeReason);
+                    callback.afterAborted(this, txnOperated, txnStatusChangeReason);
                     break;
                 case COMMITTED:
-                    listener.afterCommitted(this, txnOperated);
+                    callback.afterCommitted(this, txnOperated);
                     break;
                 default:
                     break;
@@ -325,13 +333,13 @@ public class TransactionState implements Writable {
     }
     
     public void replaySetTransactionStatus() {
-        TxnStateChangeListener listener = Catalog.getCurrentGlobalTransactionMgr().getListenerRegistry().getListener(
-                listenerId);
-        if (listener != null) {
+        TxnStateChangeCallback callback = Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().getCallback(
+                callbackId);
+        if (callback != null) {
             if (transactionStatus == TransactionStatus.ABORTED) {
-                listener.replayOnAborted(this);
+                callback.replayOnAborted(this);
             } else if (transactionStatus == TransactionStatus.COMMITTED) {
-                listener.replayOnCommitted(this);
+                callback.replayOnCommitted(this);
             }
         }
     }
@@ -447,7 +455,7 @@ public class TransactionState implements Writable {
             out.writeBoolean(true);
             txnCommitAttachment.write(out);
         }
-        out.writeLong(listenerId);
+        out.writeLong(callbackId);
         out.writeLong(timeoutMs);
     }
     
@@ -478,7 +486,7 @@ public class TransactionState implements Writable {
             if (in.readBoolean()) {
                 txnCommitAttachment = TxnCommitAttachment.read(in);
             }
-            listenerId = in.readLong();
+            callbackId = in.readLong();
             timeoutMs = in.readLong();
         }
     }

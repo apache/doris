@@ -19,11 +19,7 @@ package org.apache.doris.transaction;
 
 import org.apache.doris.common.UserException;
 
-public interface TxnStateChangeListener {
-
-    public enum ListenResult {
-        CHANGED, UNCHANGED
-    }
+public interface TxnStateChangeCallback {
 
     public long getId();
 
