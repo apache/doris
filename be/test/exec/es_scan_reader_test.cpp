@@ -227,15 +227,15 @@ TEST_F(MockESServerTest, workflow) {
     auto st = reader.open();
     // ASSERT_TRUE(st.ok());
     bool eos = false;
-     while(!eos){
-        ScrollParser* parser = nullptr;
-        st = reader.get_next(&eos, &parser);
+    std::unique_ptr<ScrollParser> parser = nullptr;
+    while(!eos){
+        st = reader.get_next(&eos, parser);
         if(eos) {
-           break;
+            break;
         }
-     }
-     auto cst = reader.close();
-     ASSERT_TRUE(cst.ok());
+    }
+    auto cst = reader.close();
+    ASSERT_TRUE(cst.ok());
 }
 }
 
