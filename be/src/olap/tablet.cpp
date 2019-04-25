@@ -530,8 +530,7 @@ OLAPStatus Tablet::delete_alter_task() {
 }
 
 OLAPStatus Tablet::set_alter_state(AlterTabletState state) {
-    _tablet_meta->set_alter_state(state);
-    return OLAP_SUCCESS;
+    return _tablet_meta->set_alter_state(state);
 }
 
 OLAPStatus Tablet::protected_delete_alter_task() {

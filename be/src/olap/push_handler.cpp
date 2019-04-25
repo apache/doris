@@ -82,6 +82,9 @@ OLAPStatus PushHandler::_do_streaming_ingestion(
     std::vector<TTabletInfo>* tablet_info_vec) {
   // add transaction in engine, then check sc status
   // lock, prevent sc handler checking transaction concurrently
+  if (tablet == nullptr) {
+    return OLAP_ERR_TABLE_NOT_FOUND;
+  }
   tablet->obtain_push_lock();
   PUniqueId load_id;
   load_id.set_hi(0);
@@ -115,14 +118,15 @@ OLAPStatus PushHandler::_do_streaming_ingestion(
               related_tablet_id, related_schema_hash);
 
       // if related tablet not exists, only push current tablet
-      if (NULL == related_tablet.get()) {
-        LOG(WARNING) << "can't find related tablet, only push current tablet. "
+      if (related_tablet == nullptr) {
+        LOG(WARNING) << "find alter task but not find related tablet, "
                      << "related_tablet_id=" << related_tablet_id
                      << ", related_schema_hash=" << related_schema_hash;
-
+        tablet->release_push_lock();
+        return OLAP_ERR_TABLE_NOT_FOUND;
         // if current tablet is new tablet, only push current tablet
       } else if (tablet->creation_time() > related_tablet->creation_time()) {
-        LOG(WARNING) << "current tablet is new, only push current tablet. "
+        LOG(INFO) << "current tablet is new, only push current tablet. "
                      << "tablet=" << tablet->full_name()
                      << " related_tablet=" << related_tablet->full_name();
       } else {

@@ -1275,13 +1275,6 @@ OLAPStatus SchemaChangeHandler::process_alter_tablet(AlterTabletType type,
             break;
         }
 
-        // store schema change information into tablet header
-        res = _add_alter_task(type, base_tablet, new_tablet, versions_to_be_changed);
-        if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "fail to save schema change info. res=" << res;
-            break;
-        }
-
         // init one delete handler
         int32_t end_version = -1;
         for (auto& version : versions_to_be_changed) {
@@ -1328,10 +1321,9 @@ OLAPStatus SchemaChangeHandler::process_alter_tablet(AlterTabletType type,
     base_tablet->release_push_lock();
 
     if (res != OLAP_SUCCESS) {
-        StorageEngine::instance()->tablet_manager()->release_schema_change_lock(request.base_tablet_id);
-
-        // Delete tablet when submit alter tablet failed.
         _save_alter_state(ALTER_FAILED, base_tablet, new_tablet);
+        StorageEngine::instance()->tablet_manager()->release_schema_change_lock(request.base_tablet_id);
+        // Delete tablet when submit alter tablet failed.
         StorageEngine::instance()->tablet_manager()->drop_tablet(new_tablet->tablet_id(), new_tablet->schema_hash());
         return res;
     }
@@ -1348,8 +1340,8 @@ OLAPStatus SchemaChangeHandler::process_alter_tablet(AlterTabletType type,
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "failed to alter tablet. base_tablet=" << base_tablet->full_name()
                      << ", new_tablet=" << new_tablet->full_name();
-        StorageEngine::instance()->tablet_manager()->release_schema_change_lock(request.base_tablet_id);
         _save_alter_state(ALTER_FAILED, base_tablet, new_tablet);
+        StorageEngine::instance()->tablet_manager()->release_schema_change_lock(request.base_tablet_id);
         StorageEngine::instance()->tablet_manager()->drop_tablet(new_tablet->tablet_id(), new_tablet->schema_hash());
         return res;
     }
@@ -1544,15 +1536,39 @@ OLAPStatus SchemaChangeHandler::_save_alter_state(
         AlterTabletState state,
         TabletSharedPtr base_tablet,
         TabletSharedPtr new_tablet) {
-    base_tablet->set_alter_state(state);
-    OLAPStatus res = base_tablet->save_meta();
+    WriteLock base_wlock(base_tablet->get_header_lock_ptr());
+    WriteLock new_wlock(new_tablet->get_header_lock_ptr());
+    AlterTabletTaskSharedPtr base_alter_task = base_tablet->alter_task();
+    if (base_alter_task == nullptr) {
+        LOG(INFO) << "could not find alter task info from base tablet " << base_tablet->full_name();
+        return OLAP_ERR_ALTER_STATUS_ERR;
+    }
+    OLAPStatus res = base_tablet->set_alter_state(state);
+    if (res != OLAP_SUCCESS) {
+        LOG(WARNING) << "failed to set alter state to " << state 
+                     << " tablet " <<  base_tablet->full_name() 
+                     << " res " << res;
+        return res;
+    }
+    res = base_tablet->save_meta();
     if (res != OLAP_SUCCESS) {
         LOG(FATAL) << "fail to save base tablet meta. res=" << res
                    << ", base_tablet=" << base_tablet->full_name();
         return res;
     }
 
-    new_tablet->set_alter_state(state);
+    AlterTabletTaskSharedPtr new_alter_task = new_tablet->alter_task();
+    if (new_alter_task == nullptr) {
+        LOG(INFO) << "could not find alter task info from new tablet " << new_tablet->full_name();
+        return OLAP_ERR_ALTER_STATUS_ERR;
+    }
+    res = new_tablet->set_alter_state(state);
+    if (res != OLAP_SUCCESS) {
+        LOG(WARNING) << "failed to set alter state to " << state 
+                     << " tablet " <<  new_tablet->full_name()
+                     << " res" << res;
+        return res;
+    }
     res = new_tablet->save_meta();
     if (res != OLAP_SUCCESS) {
         LOG(FATAL) << "fail to save new tablet meta. res=" << res
@@ -1664,6 +1680,7 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
         RowsetSharedPtr new_rowset = rowset_writer->build();
         if (new_rowset == nullptr) {
             LOG(WARNING) << "failed to build rowset, exit alter process";
+            sc_params.new_tablet->release_push_lock();
             goto PROCESS_ALTER_EXIT;
         }
         res = sc_params.new_tablet->add_rowset(new_rowset);
@@ -1680,6 +1697,7 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
                          << ", version=" << rs_reader->version().first
                          << "-" << rs_reader->version().second;
             new_rowset->remove();
+            sc_params.new_tablet->release_push_lock();
             goto PROCESS_ALTER_EXIT;
         } else {
             VLOG(3) << "register new version. tablet=" << sc_params.new_tablet->full_name()

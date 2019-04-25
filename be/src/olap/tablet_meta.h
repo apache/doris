@@ -76,7 +76,7 @@ public:
     OLAPStatus to_alter_pb(AlterTabletPB* alter_task);
 
     inline const AlterTabletState& alter_state() const { return _alter_state; }
-    inline void set_alter_state(AlterTabletState alter_state) { _alter_state = alter_state; }
+    OLAPStatus set_alter_state(AlterTabletState alter_state);
 
     inline int64_t related_tablet_id() const { return _related_tablet_id; }
     inline int32_t related_schema_hash() const { return _related_schema_hash; }
@@ -176,7 +176,7 @@ public:
     AlterTabletTaskSharedPtr alter_task() const;
     OLAPStatus add_alter_task(const AlterTabletTask& alter_task);
     OLAPStatus delete_alter_task();
-    void set_alter_state(AlterTabletState alter_state);
+    OLAPStatus set_alter_state(AlterTabletState alter_state);
 
 private:
     TabletState _tablet_state;
@@ -284,6 +284,7 @@ inline const vector<RowsetMetaSharedPtr>& TabletMeta::all_inc_rs_metas() const {
 // return value not reference
 // MVCC modification for alter task, upper application get a alter task mirror
 inline AlterTabletTaskSharedPtr TabletMeta::alter_task() const {
+    ReadLock rlock(&_meta_lock);
     return _alter_task;
 }
 
