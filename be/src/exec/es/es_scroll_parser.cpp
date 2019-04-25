@@ -191,7 +191,8 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
             continue;
         }
 
-        const char* col_name = slot_desc->col_name().c_str();
+        std::string s = slot_desc->col_name();
+        const char* col_name = s.c_str();
         rapidjson::Value::ConstMemberIterator itr = line.FindMember(col_name);
         if (itr == line.MemberEnd()) {
             tuple->set_null(slot_desc->null_indicator_offset());
