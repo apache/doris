@@ -524,11 +524,6 @@ OLAPStatus Tablet::add_alter_task(int64_t tablet_id,
     alter_task.set_alter_state(ALTER_RUNNING);
     alter_task.set_related_tablet_id(tablet_id);
     alter_task.set_related_schema_hash(schema_hash);
-    for (auto& version : versions_to_alter) {
-        RowsetMetaSharedPtr rs_meta = _tablet_meta->acquire_rs_meta_by_version(version);
-        alter_task.add_rowset_to_alter(rs_meta);
-    }
-
     alter_task.set_alter_type(alter_type);
     RETURN_NOT_OK(_tablet_meta->add_alter_task(alter_task));
     LOG(INFO) << "successfully add alter task " 

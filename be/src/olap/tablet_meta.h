@@ -86,17 +86,11 @@ public:
     inline const AlterTabletType& alter_type() const { return _alter_type; }
     inline void set_alter_type(AlterTabletType alter_type) { _alter_type = alter_type; }
 
-    const vector<RowsetMetaSharedPtr>& rowsets_to_alter() const { return _rowsets_to_alter; }
-    void add_rowset_to_alter(const RowsetMetaSharedPtr& rs_meta) {
-        return _rowsets_to_alter.push_back(rs_meta);
-    }
-
 private:
     AlterTabletState _alter_state;
     int64_t _related_tablet_id;
     int32_t _related_schema_hash;
     AlterTabletType _alter_type;
-    vector<RowsetMetaSharedPtr> _rowsets_to_alter;
 };
 
 

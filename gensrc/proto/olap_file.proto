@@ -202,7 +202,6 @@ message AlterTabletPB {
     required int64 related_tablet_id = 2;
     optional int32 related_schema_hash = 3;
     optional AlterTabletType alter_type = 4;
-    repeated RowsetMetaPB rowsets_to_alter = 5;
 }
 
 enum ColumnType {

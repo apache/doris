@@ -326,7 +326,7 @@ OLAPStatus TxnManager::delete_txn(OlapMeta* meta, TPartitionId partition_id, TTr
         }
         it->second.erase(tablet_info);
         LOG(INFO) << "delete transaction from engine successfully."
-                << ",partition_id: " << key.first
+                << " partition_id: " << key.first
                 << ", transaction_id: " << key.second
                 << ", tablet: " << tablet_info.to_string();
         if (it->second.empty()) {
@@ -395,9 +395,9 @@ void TxnManager::get_txn_related_tablets(const TTransactionId transaction_id,
     ReadLock txn_rdlock(&_txn_map_lock);
     auto it = _txn_tablet_map.find(key);
     if (it == _txn_tablet_map.end()) {
-        LOG(WARNING) << "could not find tablet for " 
+        LOG(WARNING) << "could not find tablet for"
                      << " partition_id=" << partition_id 
-                     << " transaction_id=" << transaction_id;
+                     << ", transaction_id=" << transaction_id;
         return;
     }
     std::map<TabletInfo, TabletTxnInfo>& load_info_map = it->second;

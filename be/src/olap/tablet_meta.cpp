@@ -30,11 +30,6 @@ OLAPStatus AlterTabletTask::init_from_pb(const AlterTabletPB& alter_task) {
     _related_tablet_id = alter_task.related_tablet_id();
     _related_schema_hash = alter_task.related_schema_hash();
     _alter_type = alter_task.alter_type();
-    for (auto& rs_meta_pb : alter_task.rowsets_to_alter()) {
-        RowsetMetaSharedPtr rs_meta(new AlphaRowsetMeta());
-        rs_meta->init_from_pb(rs_meta_pb);
-        _rowsets_to_alter.push_back(rs_meta);
-    }
     return OLAP_SUCCESS;
 }
 
@@ -43,9 +38,6 @@ OLAPStatus AlterTabletTask::to_alter_pb(AlterTabletPB* alter_task) {
     alter_task->set_related_tablet_id(_related_tablet_id);
     alter_task->set_related_schema_hash(_related_schema_hash);
     alter_task->set_alter_type(_alter_type);
-    for (auto& rs : _rowsets_to_alter) {
-        rs->to_rowset_pb(alter_task->add_rowsets_to_alter());
-    }
     return OLAP_SUCCESS;
 }
 
@@ -310,6 +302,9 @@ OLAPStatus TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
         rs->to_rowset_pb(tablet_meta_pb->add_inc_rs_metas());
     }
     _schema.to_schema_pb(tablet_meta_pb->mutable_schema());
+    if (_alter_task != nullptr) {
+        _alter_task->to_alter_pb(tablet_meta_pb->mutable_alter_task());
+    }
 
     return OLAP_SUCCESS;
 }
@@ -351,8 +346,8 @@ OLAPStatus TabletMeta::add_rs_meta(const RowsetMetaSharedPtr& rs_meta) {
             && rs->end_version() == rs_meta->end_version()) {
             if (rs->rowset_id() != rs_meta->rowset_id()) {
                 LOG(WARNING) << "version already exist. rowset_id=" << rs->rowset_id()
-                            << " start version = " << rs_meta->start_version()
-                            << " end version = " << rs_meta->end_version();
+                            << " start_version=" << rs_meta->start_version()
+                            << ", end_version=" << rs_meta->end_version();
                 return OLAP_ERR_PUSH_VERSION_ALREADY_EXIST;
             } else {
                 // rowsetid,version is equal, it is a duplicate req, skip it
