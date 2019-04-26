@@ -1437,6 +1437,7 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
     writer_context.rowset_path_prefix = new_tablet->tablet_path();
     writer_context.tablet_schema = &(new_tablet->tablet_schema());
     writer_context.rowset_state = PREPARED;
+    writer_context.txn_id = (*base_rowset)->txn_id();
     writer_context.load_id.set_hi((*base_rowset)->load_id().hi());
     writer_context.load_id.set_lo((*base_rowset)->load_id().lo());
     RowsetWriterSharedPtr rowset_writer(new AlphaRowsetWriter());
