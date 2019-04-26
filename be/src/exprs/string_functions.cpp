@@ -24,6 +24,7 @@
 #include "runtime/string_value.hpp"
 #include "runtime/tuple_row.h"
 #include "util/url_parser.h"
+#include "math_functions.h"
 
 // NOTE: be careful not to use string::append.  It is not performant.
 namespace doris {
@@ -705,6 +706,47 @@ StringVal StringFunctions::parse_url_key(
     StringVal result_sv;
     result.to_string_val(&result_sv);
     return result_sv;
+}
+
+StringVal StringFunctions::money_format(FunctionContext* context, const DoubleVal& v) {
+    if (v.is_null) {
+        return StringVal::null();
+    }
+
+    double v_cent= MathFunctions::my_double_round(v.val, 2, false, false) * 100;
+    return do_money_format(context, std::to_string(v_cent));
+}
+
+StringVal StringFunctions::money_format(FunctionContext *context, const DecimalVal &v) {
+    if (v.is_null) {
+        return StringVal::null();
+    }
+
+    DecimalValue rounded;
+    DecimalValue::from_decimal_val(v).round(&rounded, 2, HALF_UP);
+    DecimalValue tmp(std::string("100"));
+    DecimalValue result = rounded * tmp;
+    return do_money_format(context, result.to_string());
+}
+
+StringVal StringFunctions::money_format(FunctionContext *context, const BigIntVal &v) {
+    if (v.is_null) {
+        return StringVal::null();
+    }
+
+    std::string cent_money = std::to_string(v.val) + std::string("00");
+    return do_money_format(context, cent_money);
+}
+
+StringVal StringFunctions::money_format(FunctionContext *context, const LargeIntVal &v) {
+    if (v.is_null) {
+        return StringVal::null();
+    }
+
+    std::stringstream ss;
+    ss << v.val;
+    std::string cent_money = ss.str() + std::string("00");
+    return do_money_format(context, cent_money);
 }
 
 }
