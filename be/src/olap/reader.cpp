@@ -299,13 +299,21 @@ OLAPStatus Reader::init(const ReaderParams& read_params) {
 
     res = _init_params(read_params);
     if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to init reader when init params.[res=%d]", res);
+        LOG(WARNING) << "fail to init reader when init params.res" << res
+                     << ", tablet_id :" << read_params.tablet->tablet_id()
+                     << ", schema_hash:" << read_params.tablet->schema_hash()
+                     << ", reader type:" << read_params.reader_type
+                     << ", version:" << read_params.version.first << "-" << read_params.version.second;
         return res;
     }
 
     res = _capture_rs_readers(read_params);
     if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "fail to init reader when capture_rs_readers. res=" << res;
+        LOG(WARNING) << "fail to init reader when _capture_rs_readers.res" << res
+                     << ", tablet_id :" << read_params.tablet->tablet_id()
+                     << ", schema_hash:" << read_params.tablet->schema_hash()
+                     << ", reader_type:" << read_params.reader_type
+                     << ", version:" << read_params.version.first << "-" << read_params.version.second;
         return res;
     }
 

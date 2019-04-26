@@ -464,7 +464,16 @@ OLAPStatus Tablet::capture_consistent_rowsets(const vector<Version>& version_pat
 OLAPStatus Tablet::capture_rs_readers(const Version& spec_version,
                                       vector<RowsetReaderSharedPtr>* rs_readers) const {
     vector<Version> version_path;
-    RETURN_NOT_OK(_rs_graph.capture_consistent_versions(spec_version, &version_path));
+    OLAPStatus status = _rs_graph.capture_consistent_versions(spec_version, &version_path);
+    if (status != OLAP_SUCCESS) {
+        LOG(WARNING) << "tablet_id:" << tablet_id() << ", schema_hash:" << schema_hash()
+                << ", missed version for version:" << spec_version.first << "-" << spec_version.second
+                << ", status:" <<  status;
+        std::vector<Version> missed_version;
+        calc_missed_versions_unlock(spec_version.second, &missed_version);
+        _print_missed_versions(missed_version);
+        return status;
+    }
     RETURN_NOT_OK(capture_rs_readers(version_path, rs_readers));
     return OLAP_SUCCESS;
 }
@@ -572,9 +581,7 @@ bool Tablet::can_do_compaction() {
         LOG(WARNING) << "tablet has missed version. tablet=" << full_name();
         vector<Version> missed_versions;
         calc_missed_versions_unlock(lastest_delta->end_version(), &missed_versions);
-        for (auto& version : missed_versions) {
-            LOG(WARNING) << "missed version:" << version.first << "-" << version.second;
-        }
+        _print_missed_versions(missed_versions);
         return false;
     }
 
@@ -640,7 +647,7 @@ void Tablet::calc_missed_versions(int64_t spec_version,
 }
 
 void Tablet::calc_missed_versions_unlock(int64_t spec_version,
-                                  vector<Version>* missed_versions) {
+                                  vector<Version>* missed_versions) const {
     DCHECK(spec_version > 0) << "invalid spec_version: " << spec_version;
     std::list<Version> existing_versions;
     for (auto& rs : _tablet_meta->all_rs_metas()) {
@@ -813,6 +820,16 @@ bool Tablet::check_path(const std::string& path_to_check) {
 
 OLAPStatus Tablet::next_rowset_id(RowsetId* id) {
     return _data_dir->next_id(id);
+}
+
+void Tablet::_print_missed_versions(const std::vector<Version>& missed_versions) const {
+    std::stringstream ss;
+    ss << "missed version:";
+    // print at most 10 version
+    for (int i = 0; i < 10 && i < missed_versions.size(); ++i) {
+        ss << missed_versions[i].first << "-" << missed_versions[i].second << ",";
+    }
+    LOG(WARNING) << ss.str();
 }
 
 }  // namespace doris
