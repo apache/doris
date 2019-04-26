@@ -155,6 +155,28 @@ OLAPStatus SnapshotManager::convert_rowset_ids(DataDir& data_dir, const string& 
     new_tablet_meta_pb.set_schema_hash(schema_hash);
     TabletSchema tablet_schema;
     RETURN_NOT_OK(tablet_schema.init_from_pb(new_tablet_meta_pb.schema()));
+
+    RowsetId max_rowset_id = 0;
+    for (auto& visible_rowset : cloned_tablet_meta_pb.rs_metas()) {
+        if (visible_rowset.rowset_id() > max_rowset_id) {
+            max_rowset_id = visible_rowset.rowset_id();
+        }
+    }
+
+    for (auto& inc_rowset : cloned_tablet_meta_pb.inc_rs_metas()) {
+        if (inc_rowset.rowset_id() > max_rowset_id) {
+            max_rowset_id = inc_rowset.rowset_id();
+        }
+    }
+    RowsetId next_rowset_id = 0;
+    RETURN_NOT_OK(data_dir.next_id(&next_rowset_id));
+    if (next_rowset_id <= max_rowset_id) {
+        OLAPStatus set_id_st = data_dir.set_next_id(max_rowset_id + 1);
+        if (set_id_st != OLAP_SUCCESS) {
+            return set_id_st;
+        }
+    }
+
     for (auto& visible_rowset : cloned_tablet_meta_pb.rs_metas()) {
         RowsetMetaPB* rowset_meta = new_tablet_meta_pb.add_rs_metas();
         RETURN_NOT_OK(_rename_rowset_id(visible_rowset, clone_dir, data_dir, tablet_schema, rowset_meta));
