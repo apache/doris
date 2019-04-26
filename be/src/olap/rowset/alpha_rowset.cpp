@@ -102,6 +102,7 @@ std::shared_ptr<RowsetReader> AlphaRowset::create_reader() {
 }
 
 OLAPStatus AlphaRowset::remove() {
+    LOG(INFO) << "begin to remove rowset: " << rowset_id();
     for (auto segment_group : _segment_groups) {
         bool ret = segment_group->delete_all_files();
         if (!ret) {
