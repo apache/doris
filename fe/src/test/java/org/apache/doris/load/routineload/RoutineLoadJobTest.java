@@ -109,7 +109,7 @@ public class RoutineLoadJobTest {
                 routineLoadTaskInfo.getTxnId();
                 result = txnId;
                 transactionState.getTxnCommitAttachment();
-                result = null;
+                result = new RLTaskTxnCommitAttachment();
                 routineLoadTaskInfo.getPartitions();
                 result = Lists.newArrayList();
             }
