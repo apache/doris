@@ -53,7 +53,23 @@ OLAPStatus RowsetIdGenerator::get_next_id(RowsetId* gen_rowset_id) {
             return s;
         }
     }
-    *gen_rowset_id = _next_id++;
+    *gen_rowset_id = _next_id;
+    ++_next_id;
+    return OLAP_SUCCESS;
+}
+
+OLAPStatus RowsetIdGenerator::set_next_id(RowsetId new_rowset_id) {
+    std::lock_guard<std::mutex> l(_lock);
+    // must be < not <=
+    if (new_rowset_id < _next_id) {
+        return OLAP_SUCCESS;
+    }
+    if (new_rowset_id >= _id_batch_end) {
+        _id_batch_end = new_rowset_id + k_batch_interval;
+        auto s = _meta->put(DEFAULT_COLUMN_FAMILY_INDEX, END_ROWSET_ID, std::to_string(_id_batch_end));
+        RETURN_NOT_OK(s);
+    }
+    _next_id = new_rowset_id + 1;
     return OLAP_SUCCESS;
 }
 
