@@ -319,12 +319,16 @@ build_snappy() {
     check_if_source_exist $SNAPPY_SOURCE
     cd $TP_SOURCE_DIR/$SNAPPY_SOURCE
 
-    CPPFLAGS="-I${TP_INCLUDE_DIR}" \
-    LDFLAGS="-L${TP_LIB_DIR}" \
-    CFLAGS="-fPIC" \
-    ./configure --prefix=$TP_INSTALL_DIR --disable-shared --enable-static \
-    --includedir=$TP_INCLUDE_DIR/snappy
+    mkdir build -p && cd build
+    rm -rf CMakeCache.txt CMakeFiles/
+    $CMAKE_CMD -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR \
+    -DCMAKE_POSITION_INDEPENDENT_CODE=On \
+    -DCMAKE_INSTALL_INCLUDEDIR=$TP_INCLUDE_DIR/snappy \
+    -DSNAPPY_BUILD_TESTS=0 ../
     make -j$PARALLEL && make install
+    if [ -f $TP_INSTALL_DIR/lib64/libsnappy.a ]; then
+        mkdir -p $TP_INSTALL_DIR/lib && ln -s $TP_INSTALL_DIR/lib64/libsnappy.a $TP_INSTALL_DIR/lib/libsnappy.a
+    fi
 }
 
 # gperftools
@@ -336,6 +340,9 @@ build_gperftools() {
     fi
 
     CPPFLAGS="-I${TP_INCLUDE_DIR}" \
+    LDFLAGS="-L${TP_LIB_DIR}" \
+    LD_LIBRARY_PATH="${TP_LIB_DIR}" \
+    CFLAGS="-fPIC" \
     LDFLAGS="-L${TP_LIB_DIR}" \
     LD_LIBRARY_PATH="${TP_LIB_DIR}" \
     CFLAGS="-fPIC" \
@@ -456,7 +463,6 @@ build_mysql() {
 #leveldb
 build_leveldb() {
     check_if_source_exist $LEVELDB_SOURCE
-
     cd $TP_SOURCE_DIR/$LEVELDB_SOURCE
     CXXFLAGS="-fPIC" make -j$PARALLEL
     cp out-static/libleveldb.a ../../installed/lib/libleveldb.a
@@ -507,7 +513,7 @@ build_librdkafka() {
     CPPFLAGS="-I${TP_INCLUDE_DIR}" \
     LDFLAGS="-L${TP_LIB_DIR}"
     CFLAGS="-fPIC" \
-    ./configure --prefix=$TP_INSTALL_DIR --enable-static
+    ./configure --prefix=$TP_INSTALL_DIR --enable-static --disable-ssl --disable-sasl
     make -j$PARALLEL && make install
 }
 
@@ -521,8 +527,8 @@ build_openssl
 build_boost # must before thrift
 build_protobuf
 build_gflags
-build_glog
 build_gtest
+build_glog
 build_rapidjson
 build_snappy
 build_gperftools
