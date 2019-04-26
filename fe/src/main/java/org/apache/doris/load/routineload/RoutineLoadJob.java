@@ -68,7 +68,6 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.io.StringReader;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -481,7 +480,7 @@ public abstract class RoutineLoadJob implements TxnStateChangeCallback, Writable
         this.receivedBytes += receivedBytes;
         this.totalTaskExcutionTimeMs += taskExecutionTime;
 
-        if (MetricRepo.isInit.get()) {
+        if (MetricRepo.isInit.get() && !isReplay) {
             MetricRepo.COUNTER_ROUTINE_LOAD_ROWS.increase(numOfTotalRows);
             MetricRepo.COUNTER_ROUTINE_LOAD_ERROR_ROWS.increase(numOfErrorRows);
             MetricRepo.COUNTER_ROUTINE_LOAD_RECEIVED_BYTES.increase(receivedBytes);
