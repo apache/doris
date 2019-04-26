@@ -812,8 +812,10 @@ void* TaskWorkerPool::_publish_version_worker_thread_callback(void* arg_this) {
 
         TFinishTaskRequest finish_task_request;
         if (res != OLAP_SUCCESS) {
-            status_code = TStatusCode::RUNTIME_ERROR;
-            OLAP_LOG_WARNING("publish version failed. signature: %ld", agent_task_req.signature);
+            // if publish failed, should also set status to ok, or fe will not deal with
+            // partial successfully tablet
+            status_code = TStatusCode::OK;
+            LOG(WARNING) << "publish version failed. signature:" << agent_task_req.signature;
             error_msgs.push_back("publish version failed");
             finish_task_request.__set_error_tablet_ids(error_tablet_ids);
         } else {
