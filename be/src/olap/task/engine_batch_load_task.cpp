@@ -180,12 +180,12 @@ AgentStatus EngineBatchLoadTask::_get_tmp_file_dir(const string& root_path, stri
 
 AgentStatus EngineBatchLoadTask::_download_file() {
     LOG(INFO) << "begin download file. tablet_id=" << _push_req.tablet_id;
-    time_t start = time(NULL);
+    time_t start = time(nullptr);
     AgentStatus status = DORIS_SUCCESS;
 
     status = _file_downloader->download_file();
 
-    time_t cost = time(NULL) - start;
+    time_t cost = time(nullptr) - start;
     if (cost <= 0) {
         cost = 1;
     }
@@ -242,7 +242,7 @@ AgentStatus EngineBatchLoadTask::_process() {
         // Download file from hdfs
         for (uint32_t i = 0; i < MAX_RETRY; ++i) {
             // Check timeout and set timeout
-            time_t now = time(NULL);
+            time_t now = time(nullptr);
 
             if (_push_req.timeout > 0) {
                 VLOG(3) << "check time out. time_out:" << _push_req.timeout
@@ -267,9 +267,9 @@ AgentStatus EngineBatchLoadTask::_process() {
 #ifndef BE_TEST
             _file_downloader = new FileDownloader(_downloader_param);
             _download_status = _download_file();
-            if (_file_downloader != NULL) {
+            if (_file_downloader != nullptr) {
                 delete _file_downloader;
-                _file_downloader = NULL;
+                _file_downloader = nullptr;
             }
 #endif
 
@@ -335,8 +335,8 @@ OLAPStatus EngineBatchLoadTask::_push(const TPushReq& request,
               << " tablet_id=" << request.tablet_id
               << ", version=" << request.version;
 
-    if (tablet_info_vec == NULL) {
-        LOG(WARNING) << "invalid output parameter which is null pointer.";
+    if (tablet_info_vec == nullptr) {
+        LOG(WARNING) << "invalid output parameter which is nullptr pointer.";
         DorisMetrics::push_requests_fail_total.increment(1);
         return OLAP_ERR_CE_CMD_PARAMS_ERROR;
     }
@@ -396,16 +396,16 @@ OLAPStatus EngineBatchLoadTask::_delete_data(
 
     OLAPStatus res = OLAP_SUCCESS;
 
-    if (tablet_info_vec == NULL) {
-        OLAP_LOG_WARNING("invalid output parameter which is null pointer.");
+    if (tablet_info_vec == nullptr) {
+        LOG(WARNING) << "invalid tablet info parameter which is nullptr pointer.";
         return OLAP_ERR_CE_CMD_PARAMS_ERROR;
     }
 
     // 1. Get all tablets with same tablet_id
     TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(request.tablet_id, request.schema_hash);
-    if (tablet.get() == NULL) {
-        OLAP_LOG_WARNING("can't find tablet. [tablet=%ld schema_hash=%d]",
-                         request.tablet_id, request.schema_hash);
+    if (tablet == nullptr) {
+        LOG(WARNING) << "can't find tablet. tablet=" << request.tablet_id
+                     << ", schema_hash=" << request.schema_hash;
         return OLAP_ERR_TABLE_NOT_FOUND;
     }
 

@@ -183,7 +183,7 @@ public:
     // operation for clone
     void calc_missed_versions(int64_t spec_version, vector<Version>* missed_versions);
 
-    void calc_missed_versions_unlock(int64_t spec_version, vector<Version>* missed_versions);
+    void calc_missed_versions_unlock(int64_t spec_version, vector<Version>* missed_versions) const;
 
     // This function to find max continous version from the beginning.
     // There are 1, 2, 3, 5, 6, 7 versions belongs tablet.
@@ -208,6 +208,9 @@ public:
     bool check_path(const std::string& check_path);
 
     OLAPStatus next_rowset_id(RowsetId* id);
+
+private:
+    void _print_missed_versions(const std::vector<Version>& missed_versions) const;
 
 private:
     TabletState _state;
