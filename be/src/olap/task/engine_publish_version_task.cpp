@@ -32,7 +32,7 @@ EnginePublishVersionTask::EnginePublishVersionTask(TPublishVersionRequest& publi
 
 OLAPStatus EnginePublishVersionTask::finish() {
     LOG(INFO) << "begin to process publish version. transaction_id="
-        << _publish_version_req.transaction_id;
+              << _publish_version_req.transaction_id;
 
     int64_t transaction_id = _publish_version_req.transaction_id;
     OLAPStatus res = OLAP_SUCCESS;
