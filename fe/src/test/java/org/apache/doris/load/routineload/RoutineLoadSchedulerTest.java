@@ -97,10 +97,13 @@ public class RoutineLoadSchedulerTest {
                 result = beIds;
                 routineLoadManager.getSizeOfIdToRoutineLoadTask();
                 result = 1;
+                minTimes = 0;
                 routineLoadManager.getTotalMaxConcurrentTaskNum();
                 result = 10;
+                minTimes = 0;
                 catalog.getRoutineLoadTaskScheduler();
                 result = routineLoadTaskScheduler;
+                minTimes = 0;
             }
         };
 
