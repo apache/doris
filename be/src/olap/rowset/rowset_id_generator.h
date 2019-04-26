@@ -41,6 +41,8 @@ public:
     // it saves the batch end id into meta env
     OLAPStatus get_next_id(RowsetId* rowset_id); 
 
+    OLAPStatus set_next_id(RowsetId new_rowset_id);
+
 private:
     OlapMeta* _meta = nullptr;
 

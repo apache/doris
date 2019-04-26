@@ -94,6 +94,10 @@ public:
         return _id_generator->get_next_id(id);
     }
 
+    OLAPStatus set_next_id(RowsetId new_rowset_id) {
+        return _id_generator->set_next_id(new_rowset_id);
+    }
+
     // load data from meta and data files
     OLAPStatus load();
 

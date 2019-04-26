@@ -113,7 +113,7 @@ OLAPStatus TxnManager::prepare_txn(
     // case 2: loading txn from meta env
     TabletTxnInfo load_info(load_id, nullptr);
     _txn_tablet_map[key][tablet_info] = load_info;
-    VLOG(3) << "add transaction to engine successfully."
+    LOG(INFO) << "add transaction to engine successfully."
             << "partition_id: " << key.first
             << ", transaction_id: " << key.second
             << ", tablet: " << tablet_info.to_string();
@@ -189,7 +189,7 @@ OLAPStatus TxnManager::commit_txn(
         WriteLock wrlock(&_txn_map_lock);
         TabletTxnInfo load_info(load_id, rowset_ptr);
         _txn_tablet_map[key][tablet_info] = load_info;
-        VLOG(3) << "add transaction to engine successfully."
+        LOG(INFO) << "add transaction to engine successfully."
                 << "partition_id: " << key.first
                 << ", transaction_id: " << key.second
                 << ", tablet: " << tablet_info.to_string();
