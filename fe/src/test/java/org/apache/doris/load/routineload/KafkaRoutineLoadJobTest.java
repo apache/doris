@@ -140,21 +140,21 @@ public class KafkaRoutineLoadJobTest {
                 1L, "127.0.0.1:9020", "topic1");
         Deencapsulation.setField(routineLoadJob, "consumer", kafkaConsumer);
         Deencapsulation.setField(routineLoadJob, "currentKafkaPartitions", partitionList2);
-        Assert.assertEquals(1, routineLoadJob.calculateCurrentConcurrentTaskNum());
+        Assert.assertEquals(3, routineLoadJob.calculateCurrentConcurrentTaskNum());
 
         // 4 partitions, 4 be
         routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", clusterName2, 1L,
                 1L, "127.0.0.1:9020", "topic1");
         Deencapsulation.setField(routineLoadJob, "consumer", kafkaConsumer);
         Deencapsulation.setField(routineLoadJob, "currentKafkaPartitions", partitionList3);
-        Assert.assertEquals(2, routineLoadJob.calculateCurrentConcurrentTaskNum());
+        Assert.assertEquals(4, routineLoadJob.calculateCurrentConcurrentTaskNum());
 
         // 7 partitions, 4 be
         routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", clusterName2, 1L,
                 1L, "127.0.0.1:9020", "topic1");
         Deencapsulation.setField(routineLoadJob, "consumer", kafkaConsumer);
         Deencapsulation.setField(routineLoadJob, "currentKafkaPartitions", partitionList4);
-        Assert.assertEquals(3, routineLoadJob.calculateCurrentConcurrentTaskNum());
+        Assert.assertEquals(4, routineLoadJob.calculateCurrentConcurrentTaskNum());
     }
 
 
