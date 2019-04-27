@@ -135,17 +135,15 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         SystemInfoService systemInfoService = Catalog.getCurrentSystemInfo();
         int aliveBeNum = systemInfoService.getClusterBackendIds(clusterName, true).size();
         int partitionNum = currentKafkaPartitions.size();
-        // 3 partitions one tasks
-        int maxPartitionDivision = (int) Math.ceil(partitionNum / 3.0);
         if (desireTaskConcurrentNum == 0) {
-            desireTaskConcurrentNum = maxPartitionDivision;
+            desireTaskConcurrentNum = Config.max_routine_load_task_concurrent_num;
         }
 
         LOG.info("current concurrent task number is min"
-                + "(max partition division {}, desire task concurrent num {}, alive be num {}, config: {})",
-                maxPartitionDivision, desireTaskConcurrentNum, aliveBeNum, Config.max_routine_load_task_concurrent_num);
+                + "(partition num: {}, desire task concurrent num: {}, alive be num: {}, config: {})",
+                partitionNum, desireTaskConcurrentNum, aliveBeNum, Config.max_routine_load_task_concurrent_num);
         currentTaskConcurrentNum = 
-                Math.min(Math.min(maxPartitionDivision, Math.min(desireTaskConcurrentNum, aliveBeNum)),
+                Math.min(Math.min(partitionNum, Math.min(desireTaskConcurrentNum, aliveBeNum)),
                         Config.max_routine_load_task_concurrent_num);
         return currentTaskConcurrentNum;
     }
