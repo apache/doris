@@ -399,9 +399,9 @@ void TxnManager::get_txn_related_tablets(const TTransactionId transaction_id,
     ReadLock txn_rdlock(&_txn_map_lock);
     auto it = _txn_tablet_map.find(key);
     if (it == _txn_tablet_map.end()) {
-        LOG(WARNING) << "could not find tablet for " 
+        LOG(WARNING) << "could not find tablet for"
                      << " partition_id=" << partition_id 
-                     << " transaction_id=" << transaction_id;
+                     << ", transaction_id=" << transaction_id;
         return;
     }
     std::map<TabletInfo, TabletTxnInfo>& load_info_map = it->second;

@@ -1260,6 +1260,37 @@ OLAPStatus SchemaChangeHandler::process_alter_tablet(AlterTabletType type,
     // delete handlers for new tablet
     DeleteHandler delete_handler;
     do {
+        // before calculating version_to_be_changed,
+        // remove all data from new tablet, prevent to rewrite data(those double pushed when wait)
+        LOG(INFO) << "begin to remove all data from new tablet to prevent rewrite."
+                  << " new_tablet=" << new_tablet->full_name();
+        // only remove the version <= base_tablet's max version
+        RowsetSharedPtr max_rowset = base_tablet->rowset_with_max_version();
+        if (max_rowset != nullptr) {
+            vector<Version> new_tablet_versions;
+            new_tablet->list_versions(&new_tablet_versions);
+            std::vector<RowsetSharedPtr> rowsets;
+            for (auto& version : new_tablet_versions) {
+                if (version.second <= max_rowset->end_version()) {
+                    RowsetSharedPtr rowset = new_tablet->get_rowset_by_version(version);
+                    rowsets.push_back(rowset);
+                }
+            }
+            new_tablet->modify_rowsets(std::vector<RowsetSharedPtr>(), rowsets);
+            // save tablet meta
+            res = new_tablet->save_meta();
+            if (res != OLAP_SUCCESS) {
+                LOG(FATAL) << "fail to save tablet meta after remove rowset from new tablet"
+                    << new_tablet->full_name();
+            }
+            for (auto& rowset : rowsets) {
+                rowset->remove();
+            }
+        } else {
+            res = OLAP_ERR_VERSION_NOT_EXIST;
+            break;
+        }
+
         // inherit cumulative_layer_point from base_tablet
         new_tablet->set_cumulative_layer_point(base_tablet->cumulative_layer_point());
 
