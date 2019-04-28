@@ -28,12 +28,16 @@ public class EsShardRouting {
     private final int shardId;
     private final boolean isPrimary;
     private final TNetworkAddress address;
+
+    private TNetworkAddress httpAddress;
+    private final String nodeId;
     
-    public EsShardRouting(String indexName, int shardId, boolean isPrimary, TNetworkAddress address) {
+    public EsShardRouting(String indexName, int shardId, boolean isPrimary, TNetworkAddress address, String nodeId) {
         this.indexName = indexName;
         this.shardId = shardId;
         this.isPrimary = isPrimary;
         this.address = address;
+        this.nodeId = nodeId;
     }
     
     public static EsShardRouting parseShardRoutingV55(String indexName, String shardKey, 
@@ -45,8 +49,8 @@ public class EsShardRouting {
         String thriftPort = nodeInfo.getJSONObject("attributes").getString("thrift_port");
         TNetworkAddress addr = new TNetworkAddress(transportAddr[0], Integer.valueOf(thriftPort));
         boolean isPrimary = shardInfo.getBoolean("primary");
-        return new EsShardRouting(indexName, Integer.valueOf(shardKey), 
-                isPrimary, addr);
+        return new EsShardRouting(indexName, Integer.valueOf(shardKey),
+                isPrimary, addr, nodeId);
     }
     
     public int getShardId() {
@@ -63,5 +67,29 @@ public class EsShardRouting {
 
     public String getIndexName() {
         return indexName;
+    }
+
+    public TNetworkAddress getHttpAddress() {
+        return httpAddress;
+    }
+
+    public void setHttpAddress(TNetworkAddress httpAddress) {
+        this.httpAddress = httpAddress;
+    }
+
+    public String getNodeId() {
+        return nodeId;
+    }
+
+    @Override
+    public String toString() {
+        return "EsShardRouting{" +
+                "indexName='" + indexName + '\'' +
+                ", shardId=" + shardId +
+                ", isPrimary=" + isPrimary +
+                ", address=" + address +
+                ", httpAddress=" + httpAddress +
+                ", nodeId='" + nodeId + '\'' +
+                '}';
     }
 }

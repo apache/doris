@@ -145,10 +145,16 @@ size_t HttpClient::on_response_data(const void* data, size_t length) {
 //     return execute(callback);
 // }
 
-Status HttpClient::execute_post_request(const std::string& post_data, std::string* response) {
+Status HttpClient::execute_post_request(const std::string& payload, std::string* response) {
     set_method(POST);
-    set_post_body(post_data);
+    set_payload(payload);
     return execute(response);
+}
+
+Status HttpClient::execute_delete_request(const std::string& payload, std::string* response) {
+   set_method(DELETE);
+   set_payload(payload);
+   return execute(response);
 }
 
 Status HttpClient::execute(const std::function<bool(const void* data, size_t length)>& callback) {
@@ -156,7 +162,7 @@ Status HttpClient::execute(const std::function<bool(const void* data, size_t len
     auto code = curl_easy_perform(_curl);
     if (code != CURLE_OK) {
         LOG(WARNING) << "fail to execute HTTP client, errmsg=" << _to_errmsg(code);
-        return Status("fail to execute HTTP client");
+        return Status(_to_errmsg(code));
     }
     return Status::OK;
 }

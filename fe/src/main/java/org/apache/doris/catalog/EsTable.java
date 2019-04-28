@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.zip.Adler32;
 
+import org.apache.doris.external.EsNodeInfo;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -39,6 +40,8 @@ import org.apache.doris.thrift.TTableType;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 
+import javax.xml.soap.Node;
+
 public class EsTable extends Table {
     private static final Logger LOG = LogManager.getLogger(EsTable.class);
 
@@ -47,6 +50,10 @@ public class EsTable extends Table {
     public static final String PASSWORD = "password";
     public static final String INDEX = "index";
     public static final String TYPE = "type";
+    public static final String TRANSPORT = "transport";
+
+    public static final String TRANSPORT_HTTP = "http";
+    public static final String TRANSPORT_THRIFT = "thrift";
 
     private String hosts;
     private String[] seeds;
@@ -54,6 +61,7 @@ public class EsTable extends Table {
     private String passwd = "";
     private String indexName;
     private String mappingType = "_doc";
+    private String transport = "http";
     // only save the partition definition, save the partition key,
     // partition list is got from es cluster dynamically and is saved in esTableState
     private PartitionInfo partitionInfo;
@@ -63,7 +71,7 @@ public class EsTable extends Table {
         super(TableType.ELASTICSEARCH);
     }
 
-    public EsTable(long id, String name, List<Column> schema, 
+    public EsTable(long id, String name, List<Column> schema,
             Map<String, String> properties, PartitionInfo partitionInfo)
             throws DdlException {
         super(id, name, TableType.ELASTICSEARCH, schema);
@@ -85,7 +93,7 @@ public class EsTable extends Table {
         hosts = properties.get(HOSTS).trim();
         seeds = hosts.split(",");
 
-        if (!Strings.isNullOrEmpty(properties.get(USER)) 
+        if (!Strings.isNullOrEmpty(properties.get(USER))
                 && !Strings.isNullOrEmpty(properties.get(USER).trim())) {
             userName = properties.get(USER).trim();
         }
@@ -106,8 +114,16 @@ public class EsTable extends Table {
                 && !Strings.isNullOrEmpty(properties.get(TYPE).trim())) {
             mappingType = properties.get(TYPE).trim();
         }
+        if (!Strings.isNullOrEmpty(properties.get(TRANSPORT))
+                && !Strings.isNullOrEmpty(properties.get(TRANSPORT).trim())) {
+            transport = properties.get(TRANSPORT).trim();
+            if (!(TRANSPORT_HTTP.equals(transport) || TRANSPORT_THRIFT.equals(transport))) {
+                throw new DdlException("transport of ES table must be http(recommend) or thrift(reserved inner usage),"
+                        + " but value is " + transport);
+            }
+        }
     }
-    
+
     public TTableDescriptor toThrift() {
         TEsTable tEsTable = new TEsTable();
         TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.ES_TABLE,
@@ -137,7 +153,8 @@ public class EsTable extends Table {
             adler32.update(indexName.getBytes(charsetName));
             // mysql table
             adler32.update(mappingType.getBytes(charsetName));
-
+            // transport
+            adler32.update(transport.getBytes(charsetName));
         } catch (UnsupportedEncodingException e) {
             LOG.error("encoding error", e);
             return -1;
@@ -156,6 +173,7 @@ public class EsTable extends Table {
         Text.writeString(out, mappingType);
         Text.writeString(out, partitionInfo.getType().name());
         partitionInfo.write(out);
+        Text.writeString(out, transport);
     }
 
     @Override
@@ -175,12 +193,13 @@ public class EsTable extends Table {
         } else {
             throw new IOException("invalid partition type: " + partType);
         }
+        transport = Text.readString(in);
     }
 
     public String getHosts() {
         return hosts;
     }
-    
+
     public String[] getSeeds() {
         return seeds;
     }
@@ -199,6 +218,10 @@ public class EsTable extends Table {
 
     public String getMappingType() {
         return mappingType;
+    }
+
+    public String getTransport() {
+        return transport;
     }
 
     public PartitionInfo getPartitionInfo() {
