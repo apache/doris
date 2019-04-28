@@ -148,7 +148,7 @@ string Tablet::tablet_path() const {
 OLAPStatus Tablet::save_meta() {
     OLAPStatus res = _tablet_meta->save_meta(_data_dir);
     if (res != OLAP_SUCCESS) {
-       LOG(WARNING) << "fail to save tablet_meta. res=" << res
+       LOG(FATAL) << "fail to save tablet_meta. res=" << res
                     << ", root=" << _data_dir->path();
     }
     _schema = _tablet_meta->tablet_schema();

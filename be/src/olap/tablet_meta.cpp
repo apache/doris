@@ -78,6 +78,7 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id,
     _tablet_meta_pb.set_shard_id(shard_id);
     _tablet_meta_pb.set_creation_time(time(NULL));
     _tablet_meta_pb.set_cumulative_layer_point(-1);
+    _tablet_meta_pb.set_tablet_state(PB_RUNNING);
     TabletSchemaPB* schema = _tablet_meta_pb.mutable_schema();
     schema->set_num_short_key_columns(tablet_schema.short_key_column_count);
     schema->set_num_rows_per_row_block(config::default_num_rows_per_column_file_block);
@@ -96,6 +97,7 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id,
             break;
     }
     schema->set_compress_kind(COMPRESS_LZ4);
+    _tablet_meta_pb.set_in_restore_mode(false);
 
     // set column information
     uint32_t col_ordinal = 0;
@@ -294,6 +296,23 @@ OLAPStatus TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
     tablet_meta_pb->set_shard_id(shard_id());
     tablet_meta_pb->set_creation_time(creation_time());
     tablet_meta_pb->set_cumulative_layer_point(cumulative_layer_point());
+    switch (tablet_state()) {
+        case TABLET_NOTREADY:
+            tablet_meta_pb->set_tablet_state(PB_NOTREADY);
+            break;
+        case TABLET_RUNNING:
+            tablet_meta_pb->set_tablet_state(PB_RUNNING);
+            break;
+        case TABLET_TOMBSTONED:
+            tablet_meta_pb->set_tablet_state(PB_TOMBSTONED);
+            break;
+        case TABLET_STOPPED:
+            tablet_meta_pb->set_tablet_state(PB_STOPPED);
+            break;
+        case TABLET_SHUTDOWN:
+            tablet_meta_pb->set_tablet_state(PB_SHUTDOWN);
+            break;
+    }
 
     for (auto& rs : _rs_metas) {
         rs->to_rowset_pb(tablet_meta_pb->add_rs_metas());
@@ -306,6 +325,7 @@ OLAPStatus TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
         _alter_task->to_alter_pb(tablet_meta_pb->mutable_alter_task());
     }
 
+    tablet_meta_pb->set_in_restore_mode(in_restore_mode());
     return OLAP_SUCCESS;
 }
 

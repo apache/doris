@@ -147,6 +147,9 @@ public:
     inline const TabletState& tablet_state() const;
     inline OLAPStatus set_tablet_state(TabletState state);
 
+    inline const bool in_restore_mode() const;
+    inline OLAPStatus set_in_restore_mode(bool in_restore_mode);
+
     inline const TabletSchema& tablet_schema() const;
 
     inline const vector<RowsetMetaSharedPtr>& all_rs_metas() const;
@@ -181,6 +184,7 @@ private:
     DelPredicateArray _del_pred_array;
 
     AlterTabletTaskSharedPtr _alter_task;
+    bool _in_restore_mode;
 
     TabletMetaPB _tablet_meta_pb;
 
@@ -256,10 +260,16 @@ inline OLAPStatus TabletMeta::set_tablet_state(TabletState state) {
         case TABLET_SHUTDOWN:
             _tablet_meta_pb.set_tablet_state(PB_SHUTDOWN);
             break;
-        default:
-            LOG(WARNING) << "tablet has no state. tablet=" << tablet_id()
-                          << ", schema_hash=" << schema_hash();
     }
+    return OLAP_SUCCESS;
+}
+
+inline const bool TabletMeta::in_restore_mode() const {
+    return _in_restore_mode;
+}
+
+inline OLAPStatus TabletMeta::set_in_restore_mode(bool in_restore_mode) {
+    _in_restore_mode = in_restore_mode;
     return OLAP_SUCCESS;
 }
 
