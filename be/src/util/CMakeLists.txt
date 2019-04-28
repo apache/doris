@@ -74,6 +74,7 @@ add_library(Util STATIC
   aes_util.cpp
   string_util.cpp
   md5.cpp
+  frontend_helper.cpp
 )
 
 #ADD_BE_TEST(integer-array-test)
