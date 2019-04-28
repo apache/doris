@@ -285,6 +285,10 @@ OLAPStatus TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
         RETURN_NOT_OK(alter_tablet_task->init_from_pb(tablet_meta_pb.alter_task()));
         _alter_task.reset(alter_tablet_task);
     }
+
+    if (tablet_meta_pb.has_in_restore_mode()) {
+        _in_restore_mode = tablet_meta_pb.in_restore_mode();
+    }
     return OLAP_SUCCESS;
 }
 
