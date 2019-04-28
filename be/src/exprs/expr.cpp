@@ -700,6 +700,13 @@ TExprNodeType::type Expr::type_without_cast(const Expr* expr) {
     return expr->_node_type;
 }
 
+const Expr* Expr::expr_without_cast(const Expr* expr) {
+    if (expr->_opcode == TExprOpcode::CAST) {
+        return expr_without_cast(expr->_children[0]);
+    }
+    return expr;
+}
+
 doris_udf::AnyVal* Expr::get_const_val(ExprContext* context) {
     if (!is_constant()) {
         return NULL;
