@@ -292,8 +292,7 @@ Status DataDir::_init_file_system() {
 Status DataDir::_init_meta() {
     // init path hash
     _path_hash = hash_of_path(BackendOptions::get_localhost(), _path);
-    LOG(INFO) << "get hash of path: " << _path
-              << ": " << _path_hash;
+    LOG(INFO) << "path: " << _path << ", hash: " << _path_hash;
 
     // init meta
     _meta = new(std::nothrow) OlapMeta(_path);

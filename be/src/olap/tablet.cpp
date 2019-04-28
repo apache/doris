@@ -148,7 +148,7 @@ string Tablet::tablet_path() const {
 OLAPStatus Tablet::save_meta() {
     OLAPStatus res = _tablet_meta->save_meta(_data_dir);
     if (res != OLAP_SUCCESS) {
-       LOG(WARNING) << "fail to save tablet_meta. res=" << res
+       LOG(FATAL) << "fail to save tablet_meta. res=" << res
                     << ", root=" << _data_dir->path();
     }
     _schema = _tablet_meta->tablet_schema();
@@ -524,11 +524,6 @@ OLAPStatus Tablet::add_alter_task(int64_t tablet_id,
     alter_task.set_alter_state(ALTER_RUNNING);
     alter_task.set_related_tablet_id(tablet_id);
     alter_task.set_related_schema_hash(schema_hash);
-    for (auto& version : versions_to_alter) {
-        RowsetMetaSharedPtr rs_meta = _tablet_meta->acquire_rs_meta_by_version(version);
-        alter_task.add_rowset_to_alter(rs_meta);
-    }
-
     alter_task.set_alter_type(alter_type);
     RETURN_NOT_OK(_tablet_meta->add_alter_task(alter_task));
     LOG(INFO) << "successfully add alter task " 
