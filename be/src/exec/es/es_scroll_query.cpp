@@ -78,7 +78,7 @@ std::string ESScrollQueryBuilder::build(const std::map<std::string, std::string>
     // just filter the selected fields for reducing the network cost
     if (fields.size() > 0) {
         rapidjson::Value source_node(rapidjson::kArrayType);
-        for (auto& iter = fields.begin(); iter != fields.end(); iter++) {
+        for (auto iter = fields.begin(); iter != fields.end(); iter++) {
             rapidjson::Value field(iter->c_str(), allocator);
             source_node.PushBack(field, allocator);
         }

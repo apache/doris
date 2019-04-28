@@ -150,19 +150,19 @@ BooleanQueryBuilder::BooleanQueryBuilder() {
 
 }
 BooleanQueryBuilder::~BooleanQueryBuilder() {
-    for (auto& clause : _must_clauses) {
+    for (auto clause : _must_clauses) {
         delete clause;
         clause = nullptr;
     }
-    for (auto& clause : _must_not_clauses) {
+    for (auto clause : _must_not_clauses) {
         delete clause;
         clause = nullptr;
     }
-    for (auto& clause : _filter_clauses) {
+    for (auto clause : _filter_clauses) {
         delete clause;
         clause = nullptr;
     }
-    for (auto& clause : _should_clauses) {
+    for (auto clause : _should_clauses) {
         delete clause;
         clause = nullptr;
     }
@@ -238,7 +238,7 @@ void BooleanQueryBuilder::to_json(rapidjson::Document* document, rapidjson::Valu
     rapidjson::Value root_node_object(rapidjson::kObjectType);
     if (_filter_clauses.size() > 0) {
         rapidjson::Value filter_node(rapidjson::kArrayType);
-        for (auto& must_clause : _filter_clauses) {
+        for (auto must_clause : _filter_clauses) {
             rapidjson::Value must_clause_query(rapidjson::kObjectType);
             must_clause_query.SetObject();
             must_clause->to_json(document, &must_clause_query);
@@ -249,7 +249,7 @@ void BooleanQueryBuilder::to_json(rapidjson::Document* document, rapidjson::Valu
 
     if (_should_clauses.size() > 0) {
         rapidjson::Value should_node(rapidjson::kArrayType);
-        for (auto& should_clause : _should_clauses) {
+        for (auto should_clause : _should_clauses) {
             rapidjson::Value should_clause_query(rapidjson::kObjectType);
             should_clause_query.SetObject();
             should_clause->to_json(document, &should_clause_query);
@@ -260,7 +260,7 @@ void BooleanQueryBuilder::to_json(rapidjson::Document* document, rapidjson::Valu
 
     if (_must_not_clauses.size() > 0) {
         rapidjson::Value must_not_node(rapidjson::kArrayType);
-        for (auto& must_not_clause : _must_not_clauses) {
+        for (auto must_not_clause : _must_not_clauses) {
             rapidjson::Value must_not_clause_query(rapidjson::kObjectType);
             must_not_clause_query.SetObject();
             must_not_clause->to_json(document, &must_not_clause_query);
@@ -315,9 +315,9 @@ Status BooleanQueryBuilder::check_es_query(const ExtFunction& extFunction) {
 void BooleanQueryBuilder::validate(const std::vector<EsPredicate*>& espredicates, std::vector<bool>* result) {
     int conjunct_size = espredicates.size();
     result->reserve(conjunct_size);
-    for (auto& espredicate : espredicates) {
+    for (auto espredicate : espredicates) {
         bool flag = true;
-        for (auto& predicate : espredicate->get_predicate_list()) {
+        for (auto predicate : espredicate->get_predicate_list()) {
             switch (predicate->node_type) {
                 case TExprNodeType::BINARY_PRED: {
                     ExtBinaryPredicate* binary_predicate = (ExtBinaryPredicate*)predicate;
@@ -366,7 +366,7 @@ void BooleanQueryBuilder::to_query(const std::vector<EsPredicate*>& predicates, 
     }
     root->SetObject();
     BooleanQueryBuilder bool_query;
-    for (auto& es_predicate : predicates) {
+    for (auto es_predicate : predicates) {
         vector<ExtPredicate*> or_predicates = es_predicate->get_predicate_list();
         BooleanQueryBuilder* inner_bool_query = new BooleanQueryBuilder(or_predicates);
         bool_query.must(inner_bool_query);
