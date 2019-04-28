@@ -615,10 +615,6 @@ OLAPStatus TabletManager::drop_tablets_on_error_root_path(
                     ++it;
                 }
             }
-
-            if (_tablet_map[tablet_id].table_arr.empty()) {
-                _tablet_map.erase(tablet_id);
-            }
         }
     }
 
@@ -923,7 +919,18 @@ OLAPStatus TabletManager::report_all_tablets_info(std::map<TTabletId, TTablet>* 
 
 OLAPStatus TabletManager::start_trash_sweep() {
     ReadLock rlock(&_tablet_map_lock);
-    for (const auto& item : _tablet_map) {
+    std::vector<int64_t> tablets_to_clean;
+    for (auto& item : _tablet_map) {
+        // try to clean empty item
+        if (item.second.table_arr.empty()) {
+            // try to get schema change lock if could get schema change lock, then nobody 
+            // own the lock could remove the item
+            // it will core if schema change thread may hold the lock and this thread will deconstruct lock
+            if (item.second.schema_change_lock.trylock() == OLAP_SUCCESS) {
+                item.second.schema_change_lock.unlock();
+                tablets_to_clean.push_back(item.first);
+            }
+        }
         for (TabletSharedPtr tablet : item.second.table_arr) {
             if (tablet == nullptr) {
                 continue;
@@ -931,6 +938,13 @@ OLAPStatus TabletManager::start_trash_sweep() {
             tablet->delete_expired_inc_rowsets();
         }
     }
+    // clean empty tablet id item
+    for (const auto& tablet_id_to_clean : tablets_to_clean) {
+        if (_tablet_map[tablet_id_to_clean].table_arr.empty()) {
+            _tablet_map.erase(tablet_id_to_clean);
+        }
+    }
+
     auto it = _shutdown_tablets.begin();
     for (; it != _shutdown_tablets.end();) { 
         // check if the meta has the tablet info and its state is shutdown
@@ -1245,10 +1259,6 @@ OLAPStatus TabletManager::_drop_tablet_directly_unlocked(
         } else {
             ++it;
         }
-    }
-
-    if (_tablet_map[tablet_id].table_arr.empty()) {
-        _tablet_map.erase(tablet_id);
     }
 
     res = dropped_tablet->deregister_tablet_from_dir();
