@@ -92,12 +92,9 @@ public class RoutineLoadTaskSchedulerTest {
                 result = catalog;
                 catalog.getRoutineLoadManager();
                 result = routineLoadManager;
-                Catalog.getCurrentCatalog();
-                result = catalog;
 
                 routineLoadManager.getClusterIdleSlotNum();
                 result = 1;
-                times = 1;
                 routineLoadManager.checkTaskInJob((UUID) any);
                 result = true;
 
@@ -105,6 +102,8 @@ public class RoutineLoadTaskSchedulerTest {
                 result = 1L;
                 kafkaRoutineLoadJob1.getTableId();
                 result = 1L;
+                kafkaRoutineLoadJob1.getName();
+                result = "";
                 routineLoadManager.getMinTaskBeId(anyString);
                 result = beId;
                 routineLoadManager.getJob(anyLong);
