@@ -53,7 +53,7 @@ PlainTextLineReader::PlainTextLineReader(
             _output_buf_limit(0),
             _file_eof(false),
             _eof(false),
-            _stream_end(false),
+            _stream_end(true),
             _more_input_bytes(0),
             _more_output_bytes(0),
             _bytes_read_counter(nullptr),
