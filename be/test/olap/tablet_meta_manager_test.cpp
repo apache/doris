@@ -77,9 +77,13 @@ TEST_F(TabletMetaManagerTest, TestSaveAndGetAndRemove) {
     TabletMetaPB tablet_meta_pb;
     bool ret = json2pb::JsonToProtoMessage(_json_header, &tablet_meta_pb);
     ASSERT_TRUE(ret);
+
+    std::string meta_binary;
+    tablet_meta_pb.SerializeToString(&meta_binary);
     TabletMetaSharedPtr tablet_meta(new TabletMeta());
-    OLAPStatus s = tablet_meta->init_from_pb(tablet_meta_pb);
+    OLAPStatus s = tablet_meta->deserialize(meta_binary);
     ASSERT_EQ(OLAP_SUCCESS, s);
+
     s = TabletMetaManager::save(_data_dir, tablet_id, schema_hash, tablet_meta);
     ASSERT_EQ(OLAP_SUCCESS, s);
     std::string json_header_read;
