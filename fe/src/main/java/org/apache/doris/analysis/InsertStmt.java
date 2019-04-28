@@ -358,18 +358,66 @@ public class InsertStmt extends DdlStmt {
         // parse query statement
         queryStmt.setFromInsert(true);
         queryStmt.analyze(analyzer);
-        if (queryStmt instanceof SelectStmt && ((SelectStmt) queryStmt).getValueList() != null) {
-            SelectStmt selectStmt = (SelectStmt) queryStmt;
-            selectStmt.getValueList().analyzeForInsert(analyzer, targetColumns);
-            isStreaming = true;
-        } else {
-            // check if size of select item equal with columns mentioned in statement
-            if (mentionedColumns.size() != queryStmt.getResultExprs().size()) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_VALUE_COUNT);
-            }
+
+        // check if size of select item equal with columns mentioned in statement
+        if (mentionedColumns.size() != queryStmt.getResultExprs().size()) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_VALUE_COUNT);
         }
+
         // Check if all columns mentioned is enough
         checkColumnCoverage(mentionedColumns, targetTable.getBaseSchema()) ;
+        if (queryStmt instanceof SelectStmt && ((SelectStmt) queryStmt).getTableRefs().isEmpty()) {
+            SelectStmt selectStmt = (SelectStmt) queryStmt;
+            if (selectStmt.getValueList() != null) {
+                List<ArrayList<Expr>> rows = selectStmt.getValueList().getRows();
+                for (int rowIdx = 0; rowIdx < rows.size(); ++rowIdx) {
+                    analyzeRow(analyzer, targetColumns, rows.get(rowIdx), rowIdx + 1);
+                }
+                for (int i = 0; i < selectStmt.getResultExprs().size(); ++i) {
+                    selectStmt.getResultExprs().set(i, selectStmt.getValueList().getFirstRow().get(i));
+                    selectStmt.getBaseTblResultExprs().set(i, selectStmt.getValueList().getFirstRow().get(i));
+                }
+            } else {
+                analyzeRow(analyzer, targetColumns, selectStmt.getResultExprs(), 1);
+            }
+            isStreaming = true;
+        } else {
+            for (int i = 0; i < targetColumns.size(); ++i) {
+                Column column = targetColumns.get(i);
+                if (column.getType().isHllType()) {
+                    Expr expr = queryStmt.getResultExprs().get(i);
+                    checkHllCompatibility(column, expr);
+                }
+            }
+        }
+    }
+
+    private void analyzeRow(Analyzer analyzer, List<Column> targetColumns, ArrayList<Expr> row, int rowIdx)
+            throws AnalysisException {
+        // 1. check number of fields if equal with first row
+        if (row.size() != targetColumns.size()) {
+            throw new AnalysisException("Column count doesn't match value count at row " + rowIdx);
+        }
+        for (int i = 0; i < row.size(); ++i) {
+            Expr expr = row.get(i);
+            Column col = targetColumns.get(i);
+
+            // TargeTable's hll column must be hll_hash's result
+            if (col.getType().equals(Type.HLL)) {
+                checkHllCompatibility(col, expr);
+            }
+
+            if (expr instanceof DefaultValueExpr) {
+                if (targetColumns.get(i).getDefaultValue() == null) {
+                    throw new AnalysisException("Column has no default value, column=" + targetColumns.get(i).getName());
+                }
+                expr = new StringLiteral(targetColumns.get(i).getDefaultValue());
+            }
+
+            expr.analyze(analyzer);
+
+            row.set(i, checkTypeCompatibility(col, expr));
+        }
     }
 
     private void analyzePlanHints(Analyzer analyzer) throws AnalysisException {
@@ -400,29 +448,26 @@ public class InsertStmt extends DdlStmt {
             }
         }
     }
-
-    private Expr checkTypeCompatibility(Column col, Expr expr) throws AnalysisException {
-        // TargeTable's hll column must be hll_hash's result
-        if (col.getType().equals(Type.HLL)) {
-            final String hllMismatchLog = "Column's type is HLL,"
-                    + " SelectList must contains HLL or hll_hash function's result, column=" + col.getName();
-            if (expr instanceof SlotRef) {
-                final SlotRef slot = (SlotRef) expr;
-                if (!slot.getType().equals(Type.HLL)) {
-                    throw new AnalysisException(hllMismatchLog);
-                }
-            } else if (expr instanceof FunctionCallExpr) {
-                final FunctionCallExpr functionExpr = (FunctionCallExpr) expr;
-                if (!functionExpr.getFnName().getFunction().equalsIgnoreCase("hll_hash")) {
-                    throw new AnalysisException(hllMismatchLog);
-                }
-            } else {
+    private void checkHllCompatibility(Column col, Expr expr) throws AnalysisException {
+        final String hllMismatchLog = "Column's type is HLL,"
+                + " SelectList must contains HLL or hll_hash function's result, column=" + col.getName();
+        if (expr instanceof SlotRef) {
+            final SlotRef slot = (SlotRef) expr;
+            if (!slot.getType().equals(Type.HLL)) {
                 throw new AnalysisException(hllMismatchLog);
             }
-
+        } else if (expr instanceof FunctionCallExpr) {
+            final FunctionCallExpr functionExpr = (FunctionCallExpr) expr;
+            if (!functionExpr.getFnName().getFunction().equalsIgnoreCase("hll_hash")) {
+                throw new AnalysisException(hllMismatchLog);
+            }
+        } else {
+            throw new AnalysisException(hllMismatchLog);
         }
+    }
 
-        if (col.getDataType().equals(expr.getType())) {
+    private Expr checkTypeCompatibility(Column col, Expr expr) throws AnalysisException {
+        if (col.getDataType().equals(expr.getType().getPrimitiveType())) {
             return expr;
         }
         return expr.castTo(col.getType());

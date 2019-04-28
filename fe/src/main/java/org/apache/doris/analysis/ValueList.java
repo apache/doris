@@ -18,7 +18,6 @@
 package org.apache.doris.analysis;
 
 import com.google.common.collect.Lists;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 
@@ -67,36 +66,6 @@ public class ValueList {
             }
             if (firstRow == null) {
                 firstRow = row;
-            }
-        }
-    }
-
-    public void analyzeForInsert(Analyzer analyzer, List<Column> targetColumns) throws AnalysisException {
-        if (rows.isEmpty()) {
-            throw new AnalysisException("No row in value list");
-        }
-
-        int rowIdx = 0;
-        for (ArrayList<Expr> row : rows) {
-            rowIdx++;
-            // 1. check number of fields if equal with first row
-            if (row.size() != targetColumns.size()) {
-                throw new AnalysisException("Column count doesn't match value count at row " + rowIdx);
-            }
-            for (int i = 0; i < row.size(); ++i) {
-                Expr expr = row.get(i);
-                if (expr instanceof DefaultValueExpr) {
-                    if (targetColumns.get(i).getDefaultValue() == null) {
-                        throw new AnalysisException("Column has no default value, column=" + targetColumns.get(i).getName());
-                    }
-                    expr = new StringLiteral(targetColumns.get(i).getDefaultValue());
-                }
-                expr.analyze(analyzer);
-
-                Type dstType = targetColumns.get(i).getType();
-                if (!expr.getType().getPrimitiveType().equals(dstType.getPrimitiveType())) {
-                    row.set(i, expr.castTo(dstType));
-                }
             }
         }
     }
