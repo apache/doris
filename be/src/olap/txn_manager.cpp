@@ -377,12 +377,12 @@ void TxnManager::force_rollback_tablet_related_txns(OlapMeta* meta, TTabletId ta
                           << ", rowset id: " << load_info.rowset->rowset_id();
                 RowsetMetaManager::remove(meta, load_info.rowset->rowset_id());
             }
-            it.second.erase(tablet_info);
             LOG(INFO) << "remove tablet related txn."
                       << " partition_id: " << it.first.first
                       << ", transaction_id: " << it.first.second
                       << ", tablet: " << tablet_info.to_string()
-                      << ", rowset: " << (load_info.rowset != nullptr ?  load_info.rowset->rowset_id(): 0);;
+                      << ", rowset: " << (load_info.rowset != nullptr ?  load_info.rowset->rowset_id(): 0);
+            it.second.erase(tablet_info);
         }
         if (it.second.empty()) {
             _txn_tablet_map.erase(it.first);
