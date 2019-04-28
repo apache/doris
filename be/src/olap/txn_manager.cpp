@@ -190,8 +190,8 @@ OLAPStatus TxnManager::commit_txn(
         WriteLock wrlock(&_txn_map_lock);
         TabletTxnInfo load_info(load_id, rowset_ptr);
         _txn_tablet_map[key][tablet_info] = load_info;
-        LOG(INFO) << "add transaction to engine successfully."
-                << "partition_id: " << key.first
+        LOG(INFO) << "commit transaction to engine successfully."
+                << " partition_id: " << key.first
                 << ", transaction_id: " << key.second
                 << ", tablet: " << tablet_info.to_string()
                 << ", rowsetid: " << rowset_ptr->rowset_id();
