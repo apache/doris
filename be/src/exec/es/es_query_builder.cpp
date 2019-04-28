@@ -134,7 +134,7 @@ void TermsInSetQueryBuilder::to_json(rapidjson::Document* document, rapidjson::V
 
 TermsInSetQueryBuilder::TermsInSetQueryBuilder(const ExtInPredicate& in_predicate) {
     _field = in_predicate.col.name;
-    for (auto value : in_predicate.values) {
+    for (auto& value : in_predicate.values) {
         _values.push_back(value.to_string());
     }
 }
