@@ -573,7 +573,7 @@ public abstract class RoutineLoadJob implements TxnStateChangeCallback, Writable
     @Override
     public void beforeAborted(TransactionState txnState) throws TransactionException {
         if (LOG.isDebugEnabled()) {
-            LOG.debug(new LogBuilder(LogKey.ROUINTE_LOAD_TASK, txnState.getLabel())
+            LOG.debug(new LogBuilder(LogKey.ROUTINE_LOAD_TASK, txnState.getLabel())
                               .add("txn_state", txnState)
                               .add("msg", "task before aborted")
                               .build());
@@ -587,7 +587,7 @@ public abstract class RoutineLoadJob implements TxnStateChangeCallback, Writable
     @Override
     public void beforeCommitted(TransactionState txnState) throws TransactionException {
         if (LOG.isDebugEnabled()) {
-            LOG.debug(new LogBuilder(LogKey.ROUINTE_LOAD_TASK, txnState.getLabel())
+            LOG.debug(new LogBuilder(LogKey.ROUTINE_LOAD_TASK, txnState.getLabel())
                               .add("txn_state", txnState)
                               .add("msg", "task before committed")
                               .build());
@@ -690,7 +690,7 @@ public abstract class RoutineLoadJob implements TxnStateChangeCallback, Writable
                 taskBeId = routineLoadTaskInfo.getBeId();
                 // step1: job state will be changed depending on txnStatusChangeReasonString
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug(new LogBuilder(LogKey.ROUINTE_LOAD_TASK, txnState.getLabel())
+                    LOG.debug(new LogBuilder(LogKey.ROUTINE_LOAD_TASK, txnState.getLabel())
                                       .add("txn_id", txnState.getTransactionId())
                                       .add("msg", "txn abort with reason " + txnStatusChangeReasonString)
                                       .build());
@@ -743,7 +743,7 @@ public abstract class RoutineLoadJob implements TxnStateChangeCallback, Writable
         RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment = (RLTaskTxnCommitAttachment) txnState.getTxnCommitAttachment();
         if (rlTaskTxnCommitAttachment == null) {
             if (LOG.isDebugEnabled()) {
-                LOG.debug(new LogBuilder(LogKey.ROUINTE_LOAD_TASK, routineLoadTaskInfo.getId())
+                LOG.debug(new LogBuilder(LogKey.ROUTINE_LOAD_TASK, routineLoadTaskInfo.getId())
                                   .add("job_id", routineLoadTaskInfo.getJobId())
                                   .add("txn_id", routineLoadTaskInfo.getTxnId())
                                   .add("msg", "commit task will be ignore when attachment txn of task is null,"

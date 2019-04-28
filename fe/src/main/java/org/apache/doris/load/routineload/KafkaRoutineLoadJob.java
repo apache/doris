@@ -157,7 +157,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     protected boolean checkCommitInfo(RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment) {
         if (rlTaskTxnCommitAttachment.getLoadedRows() > 0
                 && (!((KafkaProgress) rlTaskTxnCommitAttachment.getProgress()).hasPartition())) {
-            LOG.warn(new LogBuilder(LogKey.ROUINTE_LOAD_TASK, DebugUtil.printId(rlTaskTxnCommitAttachment.getTaskId()))
+            LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_TASK, DebugUtil.printId(rlTaskTxnCommitAttachment.getTaskId()))
                              .add("job_id", id)
                              .add("loaded_rows", rlTaskTxnCommitAttachment.getLoadedRows())
                              .add("progress_partition_offset_size", 0)

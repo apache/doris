@@ -375,7 +375,6 @@ nonterminal AccessPrivilege privilege_type;
 nonterminal DataDescription data_desc;
 nonterminal List<DataDescription> data_desc_list;
 nonterminal LabelName job_label;
-nonterminal LabelName opt_job_label;
 nonterminal String opt_system;
 nonterminal String opt_cluster;
 nonterminal BrokerDesc opt_broker;
@@ -1015,17 +1014,6 @@ load_stmt ::=
     :}
     ;
 
-opt_job_label ::=
-    /* Empty */
-    {:
-        RESULT = null;
-    :}
-    | job_label:jobLabel
-    {:
-        RESULT = jobLabel;
-    :}
-    ;
-
 job_label ::=
     ident:label
     {:
@@ -1237,13 +1225,21 @@ stop_routine_load_stmt ::=
     ;
 
 show_routine_load_stmt ::=
-    KW_SHOW KW_ROUTINE KW_LOAD opt_job_label:jobLabel
+    KW_SHOW KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel
     {:
         RESULT = new ShowRoutineLoadStmt(jobLabel, false);
     :}
-    | KW_SHOW KW_ALL KW_ROUTINE KW_LOAD opt_job_label:jobLabel
+    | KW_SHOW KW_ALL KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel
     {:
         RESULT = new ShowRoutineLoadStmt(jobLabel, true);
+    :}
+    | KW_SHOW KW_ROUTINE KW_LOAD
+    {:
+        RESULT = new ShowRoutineLoadStmt(null, false);
+    :}
+    | KW_SHOW KW_ALL KW_ROUTINE KW_LOAD
+    {:
+        RESULT = new ShowRoutineLoadStmt(null, true);
     :}
     ;
 
