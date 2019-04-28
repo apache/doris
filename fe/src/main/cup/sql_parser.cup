@@ -225,7 +225,7 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_A
     KW_TABLE, KW_TABLES, KW_TABLET, KW_TERMINATED, KW_THAN, KW_THEN, KW_TIMESTAMP, KW_TINYINT,
     KW_TO, KW_TRANSACTION, KW_TRIGGERS, KW_TRIM, KW_TRUE, KW_TRUNCATE, KW_TYPE, KW_TYPES,
     KW_UNCOMMITTED, KW_UNBOUNDED, KW_UNION, KW_UNIQUE, KW_UNSIGNED, KW_USE, KW_USER, KW_USING,
-    KW_VALUES, KW_VARCHAR, KW_VARIABLES, KW_VIEW,
+    KW_VALUE, KW_VALUES, KW_VARCHAR, KW_VARIABLES, KW_VIEW,
     KW_WARNINGS, KW_WHEN, KW_WHITELIST, KW_WHERE, KW_WITH, KW_WORK, KW_WRITE;
 
 terminal COMMA, DOT, DOTDOTDOT, AT, STAR, LPAREN, RPAREN, SEMICOLON, LBRACKET, RBRACKET, DIVIDE, MOD, ADD, SUBTRACT;
@@ -257,6 +257,7 @@ nonterminal opt_with_consistent_snapshot, opt_work, opt_chain, opt_release;
 
 // Single select statement.
 nonterminal SelectStmt select_stmt;
+nonterminal ValueList value_clause;
 
 // No return.
 nonterminal describe_command, opt_full, opt_inner, opt_outer, from_or_in, keys_or_index, opt_storage, opt_wild_where,
@@ -288,9 +289,9 @@ nonterminal RestoreStmt restore_stmt;
 
 nonterminal SelectList select_clause, select_list, select_sublist;
 nonterminal SelectListItem select_list_item, star_expr;
-nonterminal Expr expr, non_pred_expr, arithmetic_expr, timestamp_arithmetic_expr;
+nonterminal Expr expr, non_pred_expr, arithmetic_expr, timestamp_arithmetic_expr, expr_or_default;
 nonterminal LiteralExpr set_expr_or_default;
-nonterminal ArrayList<Expr> expr_list;
+nonterminal ArrayList<Expr> expr_list, values, row_value, opt_values;
 nonterminal ArrayList<Expr> func_arg_list;
 nonterminal String select_alias, opt_table_alias;
 nonterminal ArrayList<String> ident_list, opt_using_partition;
@@ -403,7 +404,7 @@ nonterminal List<AlterClause> alter_table_clause_list;
 //
 nonterminal String keyword, ident, ident_or_text, variable_name, text_or_password,
         charset_name_or_default, old_or_new_charset_name_or_default, opt_collate,
-        collation_name_or_default;
+        collation_name_or_default, type_func_name_keyword, type_function_name;
 
 nonterminal String opt_db, opt_partition_name, procedure_or_function, opt_default_value, opt_comment, opt_engine;
 nonterminal Boolean opt_if_exists, opt_if_not_exists;
@@ -2690,7 +2691,64 @@ select_stmt ::=
                             groupingExprs, havingPredicate, orderByClause,
                             limitClause);
   :}
+  | value_clause:valueClause order_by_clause:orderByClause limit_clause:limitClause
+  {:
+      RESULT = new SelectStmt(valueClause, orderByClause, limitClause);
+  :}
   ;
+
+value_clause ::=
+    KW_VALUES row_value:value
+    {:
+        RESULT = new ValueList(value);
+    :}
+    | value_clause:valueClause COMMA row_value:value
+    {:
+        valueClause.addRow(value);
+        RESULT = valueClause;
+    :}
+    ;
+
+row_value ::= 
+    LPAREN opt_values:values RPAREN
+    {:
+        RESULT = values;
+    :}
+    ;
+
+opt_values ::=
+    values:valueList
+    {:
+        RESULT = valueList;
+    :}
+    |
+    {:
+        RESULT = Lists.newArrayList();
+    :}
+    ;
+
+values ::=
+    expr_or_default:value
+    {:
+        RESULT = Lists.newArrayList(value);
+    :}
+    | values:valueList COMMA expr_or_default:value
+    {:
+        valueList.add(value);
+        RESULT = valueList;
+    :}
+    ;
+
+expr_or_default ::=
+    expr:expr
+    {:
+        RESULT = expr;
+    :}
+    | KW_DEFAULT
+    {:
+        RESULT = new DefaultValueExpr();
+    :}
+    ;
 
 select_clause ::=
     KW_SELECT select_list:l
@@ -2803,10 +2861,17 @@ table_name ::=
     ;
 
 function_name ::=
-    ident:fn
+    type_function_name:fn
     {: RESULT = new FunctionName(null, fn); :}
-    | ident:db DOT ident:fn
+    | ident:db DOT type_function_name:fn
     {: RESULT = new FunctionName(db, fn); :}
+    ;
+
+type_function_name ::=
+    ident:id
+    {: RESULT = id; :}
+    | type_func_name_keyword:id
+    {: RESULT = id; :}
     ;
 
 from_clause ::=
@@ -3771,6 +3836,13 @@ opt_release ::=
     :}
     ;
 
+type_func_name_keyword ::= 
+    KW_LEFT:id
+    {: RESULT = id; :}
+    | KW_RIGHT:id
+    {: RESULT = id; :}
+    ;
+
 // Keyword that we allow for identifiers
 keyword ::=
     KW_AFTER:id
@@ -3859,8 +3931,6 @@ keyword ::=
     {: RESULT = id; :}
     | KW_LAST:id
     {: RESULT = id; :}
-    | KW_LEFT:id
-    {: RESULT = id; :}
     | KW_LESS:id
     {: RESULT = id; :}
     | KW_LEVEL:id
@@ -3925,8 +3995,6 @@ keyword ::=
     {: RESULT = id; :}
     | KW_RETURNS:id
     {: RESULT = id; :}
-    | KW_RIGHT:id
-    {: RESULT = id; :}
     | KW_ROLLBACK:id
     {: RESULT = id; :}
     | KW_ROLLUP:id
@@ -3970,6 +4038,8 @@ keyword ::=
     | KW_USER:id
     {: RESULT = id; :}
     | KW_VARIABLES:id
+    {: RESULT = id; :}
+    | KW_VALUE:id
     {: RESULT = id; :}
     | KW_VIEW:id
     {: RESULT = id; :}

@@ -92,6 +92,8 @@ public class InsertStmt extends DdlStmt {
     private DataSink dataSink;
     private DataPartition dataPartition;
 
+    List<Column> targetColumns = Lists.newArrayList();
+
     public InsertStmt(InsertTarget target, List<String> cols, InsertSource source, List<String> hints) {
         this.tblName = target.getTblName();
         List<String> tmpPartitions = target.getPartitions();
@@ -318,12 +320,8 @@ public class InsertStmt extends DdlStmt {
         }
     }
 
-    private void checkColumnCoverage(Set<String> mentionedCols, List<Column> baseColumns, List<Expr> selectList)
+    private void checkColumnCoverage(Set<String> mentionedCols, List<Column> baseColumns)
             throws AnalysisException {
-        // check if size of select item equal with columns mentioned in statement
-        if (mentionedCols.size() != selectList.size()) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_VALUE_COUNT);
-        }
 
         // check columns of target table
         for (Column col : baseColumns) {
@@ -337,14 +335,8 @@ public class InsertStmt extends DdlStmt {
     }
 
     public void analyzeSubquery(Analyzer analyzer) throws UserException {
-        queryStmt.setFromInsert(true);
-        // parse query statement
-        queryStmt.analyze(analyzer);
-        List<Expr> selectList = Expr.cloneList(queryStmt.getBaseTblResultExprs());
-
         // Analyze columns mentioned in the statement.
         Set<String> mentionedColumns = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
-        List<Column> targetColumns = Lists.newArrayList();
         if (targetColumnNames == null) {
             for (Column col : targetTable.getBaseSchema()) {
                 mentionedColumns.add(col.getName());
@@ -363,10 +355,21 @@ public class InsertStmt extends DdlStmt {
             }
         }
 
+        // parse query statement
+        queryStmt.setFromInsert(true);
+        queryStmt.analyze(analyzer);
+        if (queryStmt instanceof SelectStmt && ((SelectStmt) queryStmt).getValueList() != null) {
+            SelectStmt selectStmt = (SelectStmt) queryStmt;
+            selectStmt.getValueList().analyzeForInsert(analyzer, targetColumns);
+            isStreaming = true;
+        } else {
+            // check if size of select item equal with columns mentioned in statement
+            if (mentionedColumns.size() != queryStmt.getResultExprs().size()) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_VALUE_COUNT);
+            }
+        }
         // Check if all columns mentioned is enough
-        checkColumnCoverage(mentionedColumns, targetTable.getBaseSchema(), selectList);
-
-        prepareExpressions(targetColumns, selectList, analyzer);
+        checkColumnCoverage(mentionedColumns, targetTable.getBaseSchema()) ;
     }
 
     private void analyzePlanHints(Analyzer analyzer) throws AnalysisException {
@@ -425,12 +428,12 @@ public class InsertStmt extends DdlStmt {
         return expr.castTo(col.getType());
     }
 
-    private void prepareExpressions(List<Column> targetCols, List<Expr> selectList, Analyzer analyzer)
-            throws UserException {
+    public void prepareExpressions() throws UserException {
+        List<Expr> selectList = Expr.cloneList(queryStmt.getBaseTblResultExprs());
         // check type compatibility
-        int numCols = targetCols.size();
+        int numCols = targetColumns.size();
         for (int i = 0; i < numCols; ++i) {
-            Column col = targetCols.get(i);
+            Column col = targetColumns.get(i);
             Expr expr = checkTypeCompatibility(col, selectList.get(i));
             selectList.set(i, expr);
             exprByName.put(col.getName(), expr);

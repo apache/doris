@@ -306,6 +306,7 @@ import org.apache.doris.common.util.SqlUtils;
         keywordMap.put("use", new Integer(SqlParserSymbols.KW_USE));
         keywordMap.put("user", new Integer(SqlParserSymbols.KW_USER));
         keywordMap.put("using", new Integer(SqlParserSymbols.KW_USING));
+        keywordMap.put("value", new Integer(SqlParserSymbols.KW_VALUE));
         keywordMap.put("values", new Integer(SqlParserSymbols.KW_VALUES));
         keywordMap.put("varchar", new Integer(SqlParserSymbols.KW_VARCHAR));
         keywordMap.put("variables", new Integer(SqlParserSymbols.KW_VARIABLES));
