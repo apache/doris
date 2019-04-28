@@ -117,17 +117,34 @@ OLAPStatus Tablet::init_once() {
             << ", version_size=" << _tablet_meta->version_count();
     for (auto& rs_meta :  _tablet_meta->all_rs_metas()) {
         Version version = { rs_meta->start_version(), rs_meta->end_version() };
-        RowsetSharedPtr rowset(new AlphaRowset(&_schema, _tablet_path, _data_dir, rs_meta));
+        RowsetSharedPtr rowset(new(std::nothrow) AlphaRowset(&_schema, _tablet_path, _data_dir, rs_meta));
+        res = rowset->init();
+        if (res != OLAP_SUCCESS) {
+            LOG(WARNING) << "fail to init rowset. tablet_id:" << tablet_id()
+                         << ", schema_hash:" << schema_hash()
+                         << ", version=" << version.first << "-" << version.second
+                         << ", res:" << res;
+            return res;
+        }
         _rs_version_map[version] = rowset;
     }
 
-    for (auto& it : _rs_version_map) {
-        res = it.second->init();
-        if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "fail to init rowset. "
-                         << "version=" << it.first.first << "-" << it.first.second;
-            break;
+    // init incremental rowset
+    for (auto& inc_rs_meta : _tablet_meta->all_inc_rs_metas()) {
+        Version version = { inc_rs_meta->start_version(), inc_rs_meta->end_version() };
+        RowsetSharedPtr rowset = get_rowset_by_version(version);
+        if (rowset == nullptr) {
+            rowset.reset(new(std::nothrow) AlphaRowset(&_schema, _tablet_path, _data_dir, inc_rs_meta));
+            res = rowset->init();
+            if (res != OLAP_SUCCESS) {
+                LOG(WARNING) << "fail to init incremental rowset. tablet_id:" << tablet_id()
+                             << ", schema_hash:" << schema_hash()
+                             << ", version=" << version.first << "-" << version.second
+                             << ", res:" << res;
+                return res;
+            }
         }
+        _inc_rs_version_map[version] = rowset;
     }
 
     return res;
@@ -526,7 +543,8 @@ OLAPStatus Tablet::add_alter_task(int64_t tablet_id,
     alter_task.set_related_schema_hash(schema_hash);
     alter_task.set_alter_type(alter_type);
     RETURN_NOT_OK(_tablet_meta->add_alter_task(alter_task));
-    LOG(INFO) << "successfully add alter task " 
+    LOG(INFO) << "successfully add alter task for tablet_id:" << this->tablet_id()
+              << ", schema_hash:" << this->schema_hash()
               << " related tablet id " << tablet_id
               << " related schema hash " << schema_hash
               << "alter type " << alter_type; 
@@ -789,8 +807,12 @@ void Tablet::delete_all_files() {
     ReadLock rdlock(&_meta_lock);
     for (auto it = _rs_version_map.begin(); it != _rs_version_map.end(); ++it) {
         it->second->remove();
-        _rs_version_map.erase(it);
     }
+    _rs_version_map.clear();
+    for (auto it = _inc_rs_version_map.begin(); it != _inc_rs_version_map.end(); ++it) {
+        it->second->remove();
+    }
+    _inc_rs_version_map.clear();
 }
 
 bool Tablet::check_path(const std::string& path_to_check) {
