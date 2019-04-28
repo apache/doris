@@ -132,6 +132,7 @@ OLAPStatus TxnManager::commit_txn(
                      << "partition_id: " << key.first
                      << ", transaction_id: " << key.second
                      << ", tablet: " << tablet_info.to_string();
+        return OLAP_ERR_ROWSET_INVALID;
     }
     WriteLock wrlock(_get_txn_lock(transaction_id));
     {
@@ -192,7 +193,8 @@ OLAPStatus TxnManager::commit_txn(
         LOG(INFO) << "add transaction to engine successfully."
                 << "partition_id: " << key.first
                 << ", transaction_id: " << key.second
-                << ", tablet: " << tablet_info.to_string();
+                << ", tablet: " << tablet_info.to_string()
+                << ", rowsetid: " << rowset_ptr->rowset_id();
     }
     return OLAP_SUCCESS;
 }
@@ -245,7 +247,8 @@ OLAPStatus TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id, TT
             LOG(INFO) << "publish txn successfully."
                       << " partition_id: " << key.first
                       << ", txn_id: " << key.second
-                      << ", tablet: " << tablet_info.to_string();
+                      << ", tablet: " << tablet_info.to_string()
+                      << ", rowsetid: " << rowset_ptr->rowset_id();
             if (it->second.empty()) {
                 _txn_tablet_map.erase(it);
             }
@@ -299,43 +302,43 @@ OLAPStatus TxnManager::delete_txn(OlapMeta* meta, TPartitionId partition_id, TTr
     WriteLock wrlock(_get_txn_lock(transaction_id));
     WriteLock txn_wrlock(&_txn_map_lock);
     auto it = _txn_tablet_map.find(key);
-    if (it != _txn_tablet_map.end()) {
-        auto load_itr = it->second.find(tablet_info);
-        if (load_itr != it->second.end()) {
-            // found load for txn,tablet
-            // case 1: user commit rowset, then the load id must be equal
-            TabletTxnInfo& load_info = load_itr->second;
-            if (load_info.rowset != nullptr && meta != nullptr) {
-                if (load_info.rowset->version().first > 0) { 
-                    LOG(WARNING) << "could not delete transaction from engine, "
-                                 << "just remove it from memory not delete from disk" 
-                                 << " because related rowset already published."
-                                 << ",partition_id: " << key.first
-                                 << ", transaction_id: " << key.second
-                                 << ", tablet: " << tablet_info.to_string()
-                                 << ", rowset id: " << load_info.rowset->rowset_id()
-                                 << ", version: " << load_info.rowset->version().first;
-                    return OLAP_ERR_TRANSACTION_ALREADY_VISIBLE;
-                } else {
-                    RowsetMetaManager::remove(meta, load_info.rowset->rowset_id());
-                    #ifndef BE_TEST
-                    StorageEngine::instance()->add_unused_rowset(load_info.rowset);
-                    #endif
-                }
-            }
-        }
-        it->second.erase(tablet_info);
-        LOG(INFO) << "delete transaction from engine successfully."
-                << " partition_id: " << key.first
-                << ", transaction_id: " << key.second
-                << ", tablet: " << tablet_info.to_string();
-        if (it->second.empty()) {
-            _txn_tablet_map.erase(it);
-        }
-        return OLAP_SUCCESS;
-    } else {
+    if (it == _txn_tablet_map.end()) {
         return OLAP_ERR_TRANSACTION_NOT_EXIST;
     }
+    auto load_itr = it->second.find(tablet_info);
+    if (load_itr != it->second.end()) {
+        // found load for txn,tablet
+        // case 1: user commit rowset, then the load id must be equal
+        TabletTxnInfo& load_info = load_itr->second;
+        if (load_info.rowset != nullptr && meta != nullptr) {
+            if (load_info.rowset->version().first > 0) { 
+                LOG(WARNING) << "could not delete transaction from engine, "
+                                << "just remove it from memory not delete from disk" 
+                                << " because related rowset already published."
+                                << ",partition_id: " << key.first
+                                << ", transaction_id: " << key.second
+                                << ", tablet: " << tablet_info.to_string()
+                                << ", rowset id: " << load_info.rowset->rowset_id()
+                                << ", version: " << load_info.rowset->version().first;
+                return OLAP_ERR_TRANSACTION_ALREADY_VISIBLE;
+            } else {
+                RowsetMetaManager::remove(meta, load_info.rowset->rowset_id());
+                #ifndef BE_TEST
+                StorageEngine::instance()->add_unused_rowset(load_info.rowset);
+                #endif
+                LOG(INFO) << "delete transaction from engine successfully."
+                            << ",partition_id: " << key.first
+                            << ", transaction_id: " << key.second
+                            << ", tablet: " << tablet_info.to_string()
+                            << ", rowset: " << (load_info.rowset != nullptr ?  load_info.rowset->rowset_id(): 0);
+            }
+        }
+    }
+    it->second.erase(tablet_info);
+    if (it->second.empty()) {
+        _txn_tablet_map.erase(it);
+    }
+    return OLAP_SUCCESS;
 }
 
 void TxnManager::get_tablet_related_txns(TabletSharedPtr tablet, int64_t* partition_id,
@@ -376,9 +379,10 @@ void TxnManager::force_rollback_tablet_related_txns(OlapMeta* meta, TTabletId ta
             }
             it.second.erase(tablet_info);
             LOG(INFO) << "remove tablet related txn."
-                    << " partition_id: " << it.first.first
-                    << ", transaction_id: " << it.first.second
-                    << ", tablet: " << tablet_info.to_string();
+                      << " partition_id: " << it.first.first
+                      << ", transaction_id: " << it.first.second
+                      << ", tablet: " << tablet_info.to_string()
+                      << ", rowset: " << (load_info.rowset != nullptr ?  load_info.rowset->rowset_id(): 0);;
         }
         if (it.second.empty()) {
             _txn_tablet_map.erase(it.first);
