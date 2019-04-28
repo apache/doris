@@ -63,6 +63,13 @@ set(EXEC_FILES
     csv_scan_node.cpp
     csv_scanner.cpp
     es_scan_node.cpp
+    es_http_scan_node.cpp
+    es_http_scanner.cpp
+    es/es_predicate.cpp
+    es/es_scan_reader.cpp
+    es/es_scroll_query.cpp
+    es/es_scroll_parser.cpp
+    es/es_query_builder.cpp
     spill_sort_node.cc
     union_node.cpp
     union_node_ir.cpp
@@ -101,6 +108,8 @@ add_library(Exec STATIC
 )
 
 # TODO: why is this test disabled?
+#ADD_BE_TEST(es/es_query_builder_test)
+#ADD_BE_TEST(es/es_scan_reader_test)
 #ADD_BE_TEST(new_olap_scan_node_test)
 #ADD_BE_TEST(pre_aggregation_node_test)
 #ADD_BE_TEST(hash_table_test)

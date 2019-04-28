@@ -19,6 +19,7 @@ package org.apache.doris.external;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -54,6 +55,27 @@ public class EsIndexState {
         this.shardRoutings = Maps.newHashMap();
         this.partitionDesc = null;
         this.partitionKey = null;
+    }
+
+
+    public void addHttpAddress(Map<String, EsNodeInfo> nodesInfo) {
+        for (Map.Entry<Integer, List<EsShardRouting>> entry : shardRoutings.entrySet()) {
+            List<EsShardRouting> shardRoutings = entry.getValue();
+            for (EsShardRouting shardRouting : shardRoutings) {
+                String nodeId = shardRouting.getNodeId();
+                if (nodesInfo.containsKey(nodeId)) {
+                    shardRouting.setHttpAddress(nodesInfo.get(nodeId).getPublishAddress());
+                } else {
+                    shardRouting.setHttpAddress(randomAddress(nodesInfo));
+                }
+            }
+        }
+    }
+
+    public TNetworkAddress randomAddress(Map<String, EsNodeInfo> nodesInfo) {
+        int seed = new Random().nextInt() % nodesInfo.size();
+        EsNodeInfo[] nodeInfos = (EsNodeInfo[]) nodesInfo.values().toArray();
+        return nodeInfos[seed].getPublishAddress();
     }
     
     public static EsIndexState parseIndexStateV55(String indexName, JSONObject indicesRoutingMap, 

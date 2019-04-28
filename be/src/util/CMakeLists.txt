@@ -88,3 +88,4 @@ add_library(Util STATIC
 #ADD_BE_TEST(bit-util-test)
 #ADD_BE_TEST(rle-test)
 ##ADD_BE_TEST(perf-counters-test)
+##ADD_BE_TEST(es-scan-reader-test)
