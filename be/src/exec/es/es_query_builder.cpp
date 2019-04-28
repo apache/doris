@@ -123,7 +123,7 @@ void TermsInSetQueryBuilder::to_json(rapidjson::Document* document, rapidjson::V
     rapidjson::Document::AllocatorType& allocator = document->GetAllocator();
     rapidjson::Value terms_node(rapidjson::kObjectType);
     rapidjson::Value values_node(rapidjson::kArrayType);
-    for (auto value : _values) {
+    for (auto& value : _values) {
         rapidjson::Value value_value(value.c_str(), allocator);
         values_node.PushBack(value_value, allocator);
     }
