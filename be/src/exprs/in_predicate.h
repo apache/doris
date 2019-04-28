@@ -55,7 +55,7 @@ public:
     // if add to children, when List is long, copy is a expensive op.
     void insert(void* value);
 
-    HybirdSetBase* hybird_set() {
+    HybirdSetBase* hybird_set() const {
         return _hybird_set.get();
     }
 

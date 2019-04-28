@@ -18,9 +18,11 @@
 package org.apache.doris.external;
 
 import java.util.Map;
+import java.util.Random;
 
 import org.apache.doris.catalog.PartitionInfo;
 import com.google.common.collect.Maps;
+import org.apache.doris.thrift.TNetworkAddress;
 
 /**
  * save the dynamic info parsed from es cluster state such as shard routing, partition info
@@ -37,6 +39,22 @@ public class EsTableState {
         partitionIdToIndices = Maps.newHashMap();
         partitionedIndexStates = Maps.newHashMap();
         unPartitionedIndexStates = Maps.newHashMap();
+    }
+
+    public void addHttpAddress(Map<String, EsNodeInfo> nodesInfo) {
+        for (EsIndexState indexState : partitionedIndexStates.values()) {
+            indexState.addHttpAddress(nodesInfo);
+        }
+        for (EsIndexState indexState : unPartitionedIndexStates.values()) {
+            indexState.addHttpAddress(nodesInfo);
+        }
+
+    }
+
+    public TNetworkAddress randomAddress(Map<String, EsNodeInfo> nodesInfo) {
+        int seed = new Random().nextInt() % nodesInfo.size();
+        EsNodeInfo[] nodeInfos = (EsNodeInfo[]) nodesInfo.values().toArray();
+        return nodeInfos[seed].getPublishAddress();
     }
     
     public PartitionInfo getPartitionInfo() {

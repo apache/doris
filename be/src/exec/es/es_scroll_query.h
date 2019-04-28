@@ -15,28 +15,26 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/olap_utils.h"
-#include "runtime/string_value.h"
-#include <cstring>
+#pragma once
+
+#include<string>
+#include<vector>
+
+#include "exec/es/es_predicate.h"
 
 namespace doris {
 
-const char* StringValue::s_llvm_class_name = "struct.doris::StringValue";
+class ESScrollQueryBuilder {
 
-std::string StringValue::debug_string() const {
-    return std::string(ptr, len);
-}
-
-std::string StringValue::to_string() const {
-    return std::string(ptr, len);
-}
-
-std::ostream& operator<<(std::ostream& os, const StringValue& string_value) {
-    return os << string_value.debug_string();
-}
-
-std::size_t operator-(const StringValue& v1, const StringValue& v2) {
-    return 0;
-}
-
+public:
+    ESScrollQueryBuilder();
+    ~ESScrollQueryBuilder();
+    // build the query DSL for elasticsearch
+    static std::string build_next_scroll_body(const std::string& scroll_id, const std::string& scroll);
+    static std::string build_clear_scroll_body(const std::string& scroll_id);
+    // @note: predicates should processed before pass it to this method, 
+    // tie breaker for predicate wheather can push down es can reference the push-down filters
+    static std::string build(const std::map<std::string, std::string>& properties,
+                const std::vector<std::string>& fields, std::vector<EsPredicate*>& predicates);
+};
 }

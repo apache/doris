@@ -15,28 +15,40 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/olap_utils.h"
-#include "runtime/string_value.h"
-#include <cstring>
+#pragma once
+
+#include <string>
+
+#include "rapidjson/document.h"
+#include "runtime/descriptors.h"
+#include "runtime/tuple.h"
 
 namespace doris {
 
-const char* StringValue::s_llvm_class_name = "struct.doris::StringValue";
+class Status;
 
-std::string StringValue::debug_string() const {
-    return std::string(ptr, len);
-}
+class ScrollParser {
 
-std::string StringValue::to_string() const {
-    return std::string(ptr, len);
-}
+public:
+    ScrollParser();
+    ~ScrollParser();
 
-std::ostream& operator<<(std::ostream& os, const StringValue& string_value) {
-    return os << string_value.debug_string();
-}
+    Status parse(const std::string& scroll_result);
+    Status fill_tuple(const TupleDescriptor* _tuple_desc, Tuple* tuple, 
+                MemPool* mem_pool, bool* line_eof);
 
-std::size_t operator-(const StringValue& v1, const StringValue& v2) {
-    return 0;
-}
+    const std::string& get_scroll_id();
+    int get_total();
+    int get_size();
 
+private:
+
+    std::string _scroll_id;
+    int _total;
+    int _size;
+    rapidjson::SizeType _line_index;
+
+    rapidjson::Document _document_node;
+    rapidjson::Value _inner_hits_node;
+};
 }
