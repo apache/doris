@@ -91,12 +91,13 @@ public class RoutineLoadTaskScheduler extends Daemon {
         updateBackendSlotIfNecessary();
 
         // if size of queue is zero, tasks will be submit by batch
-        if (needScheduleTasksQueue.size() == 0 || routineLoadManager.getClusterIdleSlotNum() == 0) {
+        int idleSlotNum = routineLoadManager.getClusterIdleSlotNum();
+        if (needScheduleTasksQueue.size() == 0 || idleSlotNum == 0) {
             submitBatchTasksIfNotEmpty(beIdToBatchTask);
         }
 
         // scheduler will be blocked when there is no space for task in cluster
-        if (routineLoadManager.getClusterIdleSlotNum() == 0) {
+        if (idleSlotNum == 0) {
             Thread.sleep(SLOT_FULL_SLEEP_MS);
             return;
         }
