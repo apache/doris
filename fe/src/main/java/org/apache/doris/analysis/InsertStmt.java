@@ -546,5 +546,6 @@ public class InsertStmt extends DdlStmt {
         exprByName.clear();
         dataSink = null;
         dataPartition = null;
+        targetColumns.clear();
     }
 }
