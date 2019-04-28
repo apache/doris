@@ -35,6 +35,8 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.LogBuilder;
+import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.load.Load;
@@ -460,12 +462,18 @@ public class GlobalTransactionMgr {
         if (transactionState == null) {
             throw new UserException("transaction not found");
         }
+
+        // update transaction state extra if exists
+        if (txnCommitAttachment != null) {
+            transactionState.setTxnCommitAttachment(txnCommitAttachment);
+        }
+
         // before state transform
         transactionState.beforeStateTransform(TransactionStatus.ABORTED);
         boolean txnOperated = false;
         writeLock();
         try {
-            unprotectAbortTransaction(transactionId, reason, txnCommitAttachment);
+            unprotectAbortTransaction(transactionId, reason);
             txnOperated = true;
         } finally {
             writeUnlock();
@@ -901,7 +909,7 @@ public class GlobalTransactionMgr {
         }
     }
 
-    private void unprotectAbortTransaction(long transactionId, String reason, TxnCommitAttachment txnCommitAttachment)
+    private void unprotectAbortTransaction(long transactionId, String reason)
             throws UserException {
         TransactionState transactionState = idToTransactionState.get(transactionId);
         if (transactionState == null) {
@@ -913,10 +921,6 @@ public class GlobalTransactionMgr {
         if (transactionState.getTransactionStatus() == TransactionStatus.COMMITTED
                 || transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
             throw new UserException("transaction's state is already committed or visible, could not abort");
-        }
-        // update transaction state extra if exists
-        if (txnCommitAttachment != null) {
-            transactionState.setTxnCommitAttachment(txnCommitAttachment);
         }
         transactionState.setFinishTime(System.currentTimeMillis());
         transactionState.setReason(reason);

@@ -340,6 +340,20 @@
         "colocate_with" = "t1"
         );
 
+    8. 创建一个数据文件存储在BOS上的 broker 外部表
+        CREATE EXTERNAL TABLE example_db.table_broker (
+        k1 DATE
+        )
+        ENGINE=broker
+        PROPERTIES (
+        "broker_name" = "bos",
+        "path" = "bos://my_bucket/input/file",
+        )
+        BROKER PROPERTIES (
+          "bos_endpoint" = "http://bj.bcebos.com",
+          "bos_accesskey" = "xxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "bos_secret_accesskey"="yyyyyyyyyyyyyyyyyyyy"
+        )
 
 ## keyword
     CREATE,TABLE
