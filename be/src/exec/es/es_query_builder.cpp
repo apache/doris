@@ -169,7 +169,7 @@ BooleanQueryBuilder::~BooleanQueryBuilder() {
 }
 
 BooleanQueryBuilder::BooleanQueryBuilder(const std::vector<ExtPredicate*>& predicates) {
-    for (auto& predicate : predicates) {
+    for (auto predicate : predicates) {
         switch (predicate->node_type) {
             case TExprNodeType::BINARY_PRED: {
                 ExtBinaryPredicate* binary_predicate = (ExtBinaryPredicate*)predicate;
