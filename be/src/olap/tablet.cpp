@@ -812,8 +812,12 @@ void Tablet::delete_all_files() {
     ReadLock rdlock(&_meta_lock);
     for (auto it = _rs_version_map.begin(); it != _rs_version_map.end(); ++it) {
         it->second->remove();
-        _rs_version_map.erase(it);
     }
+    _rs_version_map.clear();
+    for (auto it = _inc_rs_version_map.begin(); it != _inc_rs_version_map.end(); ++it) {
+        it->second->remove();
+    }
+    _inc_rs_version_map.clear();
 }
 
 bool Tablet::check_path(const std::string& path_to_check) {
