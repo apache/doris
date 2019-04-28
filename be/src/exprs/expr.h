@@ -181,6 +181,8 @@ public:
 
     static TExprNodeType::type type_without_cast(const Expr* expr);
 
+    static const Expr* expr_without_cast(const Expr* expr);
+
     // Returns true if expr doesn't contain slotrefs, ie, can be evaluated
     // with get_value(NULL). The default implementation returns true if all of
     // the children are constant.

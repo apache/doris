@@ -222,22 +222,22 @@ Status EsPredicate::build_disjuncts_list(const Expr* conjunct) {
             return Status("build disjuncts failed: number of childs is not 2");
         }
 
-        SlotRef* slotRef = nullptr;
+        SlotRef* slot_ref = nullptr;
         TExprOpcode::type op;
         Expr* expr = nullptr;
         if (TExprNodeType::SLOT_REF == conjunct->get_child(0)->node_type()) {
             expr = conjunct->get_child(1);
-            slotRef = (SlotRef*)(conjunct->get_child(0));
+            slot_ref = (SlotRef*)(conjunct->get_child(0));
             op = conjunct->op();
         } else if (TExprNodeType::SLOT_REF == conjunct->get_child(1)->node_type()) {
             expr = conjunct->get_child(0);
-            slotRef = (SlotRef*)(conjunct->get_child(1));
+            slot_ref = (SlotRef*)(conjunct->get_child(1));
             op = conjunct->op();
         } else {
             return Status("build disjuncts failed: no SLOT_REF child");
         }
 
-        const SlotDescriptor* slot_desc = get_slot_desc(slotRef);
+        const SlotDescriptor* slot_desc = get_slot_desc(slot_ref);
         if (slot_desc == nullptr) {
             return Status("build disjuncts failed: slot_desc is null");
         }
@@ -288,19 +288,19 @@ Status EsPredicate::build_disjuncts_list(const Expr* conjunct) {
             return Status("build disjuncts failed: function name is not like");
         }
 
-        SlotRef* slotRef = nullptr;
+        SlotRef* slot_ref = nullptr;
         Expr* expr = nullptr;
         if (TExprNodeType::SLOT_REF == conjunct->get_child(0)->node_type()) {
             expr = conjunct->get_child(1);
-            slotRef = (SlotRef*)(conjunct->get_child(0));
+            slot_ref = (SlotRef*)(conjunct->get_child(0));
         } else if (TExprNodeType::SLOT_REF == conjunct->get_child(1)->node_type()) {
             expr = conjunct->get_child(0);
-            slotRef = (SlotRef*)(conjunct->get_child(1));
+            slot_ref = (SlotRef*)(conjunct->get_child(1));
         } else {
             return Status("build disjuncts failed: no SLOT_REF child");
         }
 
-        const SlotDescriptor* slot_desc = get_slot_desc(slotRef);
+        const SlotDescriptor* slot_desc = get_slot_desc(slot_ref);
         if (slot_desc == nullptr) {
             return Status("build disjuncts failed: slot_desc is null");
         }
@@ -332,11 +332,12 @@ Status EsPredicate::build_disjuncts_list(const Expr* conjunct) {
 
         vector<ExtLiteral> in_pred_values;
         const InPredicate* pred = dynamic_cast<const InPredicate*>(conjunct);
-        if (Expr::type_without_cast(pred->get_child(0)) != TExprNodeType::SLOT_REF) {
-            return Status("build disjuncts failed");
+        const Expr* expr = Expr::expr_without_cast(pred->get_child(0));
+        if (expr->node_type() != TExprNodeType::SLOT_REF) {
+            return Status("build disjuncts failed: node type is not slot ref");
         }
 
-        const SlotDescriptor* slot_desc = get_slot_desc(conjunct->get_child(0));
+        const SlotDescriptor* slot_desc = get_slot_desc((const SlotRef *)expr);
         if (slot_desc == nullptr) {
             return Status("build disjuncts failed: slot_desc is null");
         }
@@ -399,12 +400,10 @@ bool EsPredicate::is_match_func(const Expr* conjunct) {
     return false;
 }
 
-const SlotDescriptor* EsPredicate::get_slot_desc(const Expr* expr) {
-    std::vector<SlotId> slot_ids;
-    expr->get_slot_ids(&slot_ids);
+const SlotDescriptor* EsPredicate::get_slot_desc(const SlotRef* slotRef) {
     const SlotDescriptor* slot_desc = nullptr;
     for (SlotDescriptor* slot : _tuple_desc->slots()) {
-        if (slot->id() == slot_ids[0]) {
+        if (slot->id() == slotRef->slot_id()) {
             slot_desc = slot;
             break;
         }
