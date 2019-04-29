@@ -182,8 +182,7 @@ OLAPStatus OlapSnapshotConverter::convert_to_pdelta(const RowsetMetaPB& rowset_m
                    << " rowset id = " << rowset_meta_pb.rowset_id();
     }
     delta->set_creation_time(rowset_meta_pb.creation_time());
-    AlphaRowsetExtraMetaPB extra_meta_pb;
-    extra_meta_pb.ParseFromString(rowset_meta_pb.extra_properties());
+    AlphaRowsetExtraMetaPB extra_meta_pb = rowset_meta_pb.alpha_rowset_extra_meta_pb();
     
     for (auto& segment_group : extra_meta_pb.segment_groups()) {
         SegmentGroupPB* new_segment_group = delta->add_segment_group();
@@ -211,9 +210,9 @@ OLAPStatus OlapSnapshotConverter::convert_to_rowset_meta(const PDelta& delta,
     int64_t num_rows = 0;
     int64_t index_size = 0;
     int64_t data_size = 0;
-    AlphaRowsetExtraMetaPB extra_meta_pb;
+    AlphaRowsetExtraMetaPB* extra_meta_pb = rowset_meta_pb->mutable_alpha_rowset_extra_meta_pb();
     for (auto& segment_group : delta.segment_group()) {
-        SegmentGroupPB* new_segment_group = extra_meta_pb.add_segment_groups();
+        SegmentGroupPB* new_segment_group = extra_meta_pb->add_segment_groups();
         *new_segment_group = segment_group;
         if (!segment_group.empty()) {
             empty = false;
@@ -222,9 +221,6 @@ OLAPStatus OlapSnapshotConverter::convert_to_rowset_meta(const PDelta& delta,
         index_size += segment_group.index_size();
         data_size += segment_group.data_size();
     }
-    std::string extra_properties;
-    extra_meta_pb.SerializeToString(&extra_properties);
-    rowset_meta_pb->set_extra_properties(extra_properties);
 
     rowset_meta_pb->set_empty(empty);
     rowset_meta_pb->set_num_rows(num_rows);
@@ -258,9 +254,9 @@ OLAPStatus OlapSnapshotConverter::convert_to_rowset_meta(const PPendingDelta& pe
     int64_t num_rows = 0;
     int64_t index_size = 0;
     int64_t data_size = 0;
-    AlphaRowsetExtraMetaPB extra_meta_pb;
+    AlphaRowsetExtraMetaPB* extra_meta_pb = rowset_meta_pb->mutable_alpha_rowset_extra_meta_pb();
     for (auto& pending_segment_group : pending_delta.pending_segment_group()) {
-        SegmentGroupPB* new_segment_group = extra_meta_pb.add_segment_groups();
+        SegmentGroupPB* new_segment_group = extra_meta_pb->add_segment_groups();
         new_segment_group->set_segment_group_id(pending_segment_group.pending_segment_group_id());
         new_segment_group->set_num_segments(pending_segment_group.num_segments());
         new_segment_group->set_index_size(0);
@@ -278,9 +274,6 @@ OLAPStatus OlapSnapshotConverter::convert_to_rowset_meta(const PPendingDelta& pe
             empty = false;
         }
     }
-    std::string extra_properties;
-    extra_meta_pb.SerializeToString(&extra_properties);
-    rowset_meta_pb->set_extra_properties(extra_properties);
 
     rowset_meta_pb->set_empty(empty);
     rowset_meta_pb->set_num_rows(num_rows);
