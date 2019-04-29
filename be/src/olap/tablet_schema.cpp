@@ -80,9 +80,6 @@ OLAPStatus TabletColumn::to_schema_pb(ColumnPB* column) {
         column->set_precision(_precision);
         column->set_frac(_frac);
     }
-    if (_has_default_value) {
-        column->set_default_value(_default_value);
-    }
     column->set_length(_length);
     column->set_index_length(_index_length);
     if (_is_bf_column) {
