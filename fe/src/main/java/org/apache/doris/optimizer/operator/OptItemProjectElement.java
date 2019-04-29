@@ -23,7 +23,7 @@ import org.apache.doris.optimizer.base.OptColumnRef;
 public class OptItemProjectElement extends OptItem {
     private OptColumnRef ref;
 
-    protected OptItemProjectElement(OptColumnRef ref) {
+    public OptItemProjectElement(OptColumnRef ref) {
         super(OptOperatorType.OP_ITEM_PROJECT_ELEMENT);
         this.ref = ref;
     }

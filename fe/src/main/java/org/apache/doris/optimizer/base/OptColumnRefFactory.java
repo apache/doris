@@ -27,8 +27,17 @@ public class OptColumnRefFactory {
     private int nextId = 1;
     private Map<Integer, OptColumnRef> columnRefMap = Maps.newHashMap();
 
-    public OptColumnRef create(String name, Type type) {
+    public OptColumnRef create(Type type) {
         int id = nextId++;
+        String name = "ColRef_" + id;
+        return create(id, name, type);
+    }
+
+    public OptColumnRef create(String name, Type type) {
+        return create(nextId++, name, type);
+    }
+
+    private OptColumnRef create(int id, String name, Type type) {
         OptColumnRef columnRef = new OptColumnRef(id, type, name);
         columnRefMap.put(id, columnRef);
         return columnRef;
