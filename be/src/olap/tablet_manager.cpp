@@ -258,10 +258,6 @@ void TabletManager::cancel_unfinished_schema_change() {
                 return;
             }
 
-            if (new_alter_task == nullptr) {
-                continue;
-            }
-
             res = new_tablet->set_alter_state(ALTER_FAILED);
             if (res != OLAP_SUCCESS) {
                 LOG(FATAL) << "fail to save new tablet meta. res=" << res
@@ -275,7 +271,7 @@ void TabletManager::cancel_unfinished_schema_change() {
                 return;
             }
 
-            VLOG(3) << "cancel unfinished alter tablet task. base_tablet=" << tablet->full_name();
+            LOG(INFO) << "cancel unfinished alter tablet task. base_tablet=" << tablet->full_name();
             ++canceled_num;
         }
     }
