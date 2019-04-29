@@ -49,7 +49,7 @@ public class PartitionColumnFilter {
         this.inPredicate = inPredicate;
     }
 
-    // selete the bigger bound
+    // select the bigger bound
     public void setLowerBound(LiteralExpr newLowerBound, boolean newLowerBoundInclusive) {
         if (null == lowerBound) {
             lowerBound = newLowerBound;
