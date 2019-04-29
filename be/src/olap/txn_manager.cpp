@@ -327,7 +327,7 @@ OLAPStatus TxnManager::delete_txn(OlapMeta* meta, TPartitionId partition_id, TTr
                                 << ", version: " << load_info.rowset->version().first;
                 return OLAP_ERR_TRANSACTION_ALREADY_VISIBLE;
             } else {
-                RowsetMetaManager::remove(meta, load_info.rowset->rowset_id());
+                RowsetMetaManager::remove(meta, tablet_uid, load_info.rowset->rowset_id());
                 #ifndef BE_TEST
                 StorageEngine::instance()->add_unused_rowset(load_info.rowset);
                 #endif

@@ -88,7 +88,7 @@ OLAPStatus OlapSnapshotConverter::to_olap_header(const TabletMetaPB& tablet_meta
 }
 
 OLAPStatus OlapSnapshotConverter::to_tablet_meta_pb(const OLAPHeaderMessage& olap_header,
-        TabletMetaPB* tablet_meta_pb, vector<RowsetMetaPB>* pending_rowsets, DataDir* data_dir) {
+        TabletMetaPB* tablet_meta_pb, vector<RowsetMetaPB>* pending_rowsets) {
     if (olap_header.has_tablet_id()) {
         tablet_meta_pb->set_tablet_id(olap_header.tablet_id());
     }
@@ -119,12 +119,11 @@ OLAPStatus OlapSnapshotConverter::to_tablet_meta_pb(const OLAPHeaderMessage& ola
         schema->set_next_column_unique_id(olap_header.next_column_unique_id());
     }
 
+    RowsetId next_id = 10000;
     std::unordered_map<Version, RowsetMetaPB*, HashOfVersion> _rs_version_map;
     for (auto& delta : olap_header.delta()) {
         RowsetMetaPB* rowset_meta = tablet_meta_pb->add_rs_metas();
-        RowsetId next_id;
-        RETURN_NOT_OK(data_dir->next_id(&next_id));
-        convert_to_rowset_meta(delta, next_id, olap_header.tablet_id(), olap_header.schema_hash(), rowset_meta);
+        convert_to_rowset_meta(delta, ++next_id, olap_header.tablet_id(), olap_header.schema_hash(), rowset_meta);
         Version rowset_version = { delta.start_version(), delta.end_version() };
         _rs_version_map[rowset_version] = rowset_meta;
     }
@@ -139,16 +138,12 @@ OLAPStatus OlapSnapshotConverter::to_tablet_meta_pb(const OLAPHeaderMessage& ola
             continue;
         }
         RowsetMetaPB* rowset_meta = tablet_meta_pb->add_inc_rs_metas();
-        RowsetId next_id;
-        RETURN_NOT_OK(data_dir->next_id(&next_id));
-        convert_to_rowset_meta(inc_delta, next_id, olap_header.tablet_id(), olap_header.schema_hash(), rowset_meta);
+        convert_to_rowset_meta(inc_delta, ++next_id, olap_header.tablet_id(), olap_header.schema_hash(), rowset_meta);
     }
 
     for (auto& pending_delta : olap_header.pending_delta()) {
         RowsetMetaPB rowset_meta;
-        RowsetId next_id;
-        RETURN_NOT_OK(data_dir->next_id(&next_id));
-        convert_to_rowset_meta(pending_delta, next_id, olap_header.tablet_id(), olap_header.schema_hash(), &rowset_meta);
+        convert_to_rowset_meta(pending_delta, ++next_id, olap_header.tablet_id(), olap_header.schema_hash(), &rowset_meta);
         pending_rowsets->emplace_back(std::move(rowset_meta));
     }
     if (olap_header.has_schema_change_status()) {
@@ -160,6 +155,7 @@ OLAPStatus OlapSnapshotConverter::to_tablet_meta_pb(const OLAPHeaderMessage& ola
     }
     tablet_meta_pb->set_tablet_state(TabletStatePB::PB_RUNNING);
     *(tablet_meta_pb->mutable_tablet_uid()) = TabletUid().to_proto();
+    tablet_meta_pb->set_end_rowset_id(++next_id);
     VLOG(3) << "convert tablet meta tablet id = " << olap_header.tablet_id()
             << " schema hash = " << olap_header.schema_hash() << " successfully.";
     return OLAP_SUCCESS;
@@ -403,7 +399,7 @@ OLAPStatus OlapSnapshotConverter::to_alter_tablet_pb(const SchemaChangeStatusMes
 // from olap header to tablet meta
 OLAPStatus OlapSnapshotConverter::to_new_snapshot(const OLAPHeaderMessage& olap_header, const string& old_data_path_prefix, 
     const string& new_data_path_prefix, DataDir& data_dir, TabletMetaPB* tablet_meta_pb, vector<RowsetMetaPB>* pending_rowsets) {
-    RETURN_NOT_OK(to_tablet_meta_pb(olap_header, tablet_meta_pb, pending_rowsets, &data_dir));
+    RETURN_NOT_OK(to_tablet_meta_pb(olap_header, tablet_meta_pb, pending_rowsets));
 
     TabletSchema tablet_schema;
     RETURN_NOT_OK(tablet_schema.init_from_pb(tablet_meta_pb->schema()));

@@ -839,8 +839,16 @@ bool Tablet::check_path(const std::string& path_to_check) {
     return false;
 }
 
+// lock here, function that call next_rowset_id should not have meta lock
 OLAPStatus Tablet::next_rowset_id(RowsetId* id) {
-    return _data_dir->next_id(id);
+    WriteLock wrlock(&_meta_lock);
+    return _tablet_meta->get_next_rowset_id(id, _data_dir);
+}
+
+// lock here, function that call set_next_rowset_id should not have meta lock
+OLAPStatus Tablet::set_next_rowset_id(RowsetId new_rowset_id) {
+    WriteLock wrlock(&_meta_lock);
+    return _tablet_meta->set_next_rowset_id(new_rowset_id, _data_dir);
 }
 
 void Tablet::_print_missed_versions(const std::vector<Version>& missed_versions) const {

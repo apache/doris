@@ -646,17 +646,15 @@ void StorageEngine::_clean_unused_txns() {
     std::set<TabletInfo> tablet_infos;
     _txn_manager->get_all_related_tablets(&tablet_infos);
     for (auto& tablet_info : tablet_infos) {
-        TabletSharedPtr tablet = _tablet_manger->get_tablet(tablet_info.tablet_id, tablet_info.schema_hash, true);
+        TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_info.tablet_id, tablet_info.schema_hash, true);
         if (tablet == nullptr) {
             // TODO(ygl) :  should check if tablet still in meta, it's a improvement
             // case 1: tablet still in meta, just remove from memory
             // case 2: tablet not in meta store, remove rowset from meta
             // currently just remove them from memory
-            for(auto& txn_id : transaction_ids) {
-                // nullptr to indicate not remove them from meta store
-                _txn_manager->force_rollback_tablet_related_txns(nullptr, tablet_info.tablet_id, tablet_info.schema_hash, 
-                    tablet_info.tablet_uid);
-            }
+            // nullptr to indicate not remove them from meta store
+            _txn_manager->force_rollback_tablet_related_txns(nullptr, tablet_info.tablet_id, tablet_info.schema_hash, 
+                tablet_info.tablet_uid);
         }
     }
 }

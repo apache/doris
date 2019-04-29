@@ -210,6 +210,7 @@ public:
     bool check_path(const std::string& check_path);
 
     OLAPStatus next_rowset_id(RowsetId* id);
+    OLAPStatus set_next_rowset_id(RowsetId new_rowset_id);
 
 private:
     void _print_missed_versions(const std::vector<Version>& missed_versions) const;

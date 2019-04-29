@@ -151,7 +151,7 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
             break;
         } 
 
-        res = SnapshotManager::instance()->convert_rowset_ids(*(stores[0]), schema_hash_path, tablet_id, schema_hash);
+        res = SnapshotManager::instance()->convert_rowset_ids(*(stores[0]), schema_hash_path, tablet_id, schema_hash, nullptr);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "failed to convert rowset id when do storage migration"
                          << " path = " << schema_hash_path;

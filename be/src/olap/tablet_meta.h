@@ -122,6 +122,7 @@ public:
     static OLAPStatus reset_tablet_uid(const std::string& file_path);
     static std::string construct_header_file_path(const std::string& schema_hash_path, const int64_t tablet_id);
     OLAPStatus save_meta(DataDir* data_dir);
+    OLAPStatus _save_meta(DataDir* data_dir);
 
     OLAPStatus serialize(string* meta_binary);
     OLAPStatus deserialize(const string& meta_binary);
@@ -179,6 +180,12 @@ public:
     OLAPStatus delete_alter_task();
     OLAPStatus set_alter_state(AlterTabletState alter_state);
 
+    // rowsetid is not globally unique, it is tablet level
+    // it saves the batch end id into meta env
+    OLAPStatus get_next_rowset_id(RowsetId* rowset_id, DataDir* data_dir); 
+
+    OLAPStatus set_next_rowset_id(RowsetId new_rowset_id, DataDir* data_dir);
+
 private:
     int64_t _table_id;
     int64_t _partition_id;
@@ -187,6 +194,11 @@ private:
     int32_t _shard_id;
     int64_t _creation_time;
     int64_t _cumulative_layer_point;
+    TabletUid _tablet_uid;
+    RowsetId _next_rowset_id;
+    RowsetId _end_rowset_id;
+    RowsetId _batch_interval = 10000;
+
 
     TabletState _tablet_state;
     TabletSchema _schema;

@@ -488,10 +488,10 @@ Status SnapshotLoader::download(
 // 
 Status SnapshotLoader::move(
     const std::string& snapshot_path,
-    const std::string& tablet_path,
-    const std::string& store_path,
+    TabletSharedPtr tablet,
     bool overwrite) {
-
+    std::string tablet_path = tablet->tablet_path();
+    std::string store_path = tablet->data_dir()->path();
     LOG(INFO) << "begin to move snapshot files. from: "
               << snapshot_path << ", to: " << tablet_path
               << ", store: " << store_path << ", job: " << _job_id
@@ -546,7 +546,7 @@ Status SnapshotLoader::move(
 
     // rename the rowset ids and tabletid info in rowset meta
     OLAPStatus convert_status = SnapshotManager::instance()->convert_rowset_ids(*store, 
-        snapshot_path, tablet_id, schema_hash);
+        snapshot_path, tablet_id, schema_hash, tablet);
     if (convert_status != OLAP_SUCCESS) {
         std::stringstream ss;
         ss << "failed to convert rowsetids in snapshot: " << snapshot_path
@@ -585,6 +585,7 @@ Status SnapshotLoader::move(
         }
 
     } else {
+        LOG(FATAL) << "only support overwrite now";
     }
 
     // snapshot loader not need to change tablet uid

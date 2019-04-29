@@ -275,6 +275,7 @@ message TabletMetaPB {
     optional bool in_restore_mode = 13 [default = false];   // OlapHeaderMessage.in_restore_mode
     // a uniqued id to identified tablet with same tablet_id and schema hash
     optional PUniqueId tablet_uid = 14;
+    optional int64 end_rowset_id = 15;
 }
 
 message OLAPIndexHeaderMessage {

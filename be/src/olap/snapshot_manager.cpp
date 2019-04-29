@@ -119,7 +119,8 @@ OLAPStatus SnapshotManager::release_snapshot(const string& snapshot_path) {
 }
 
 
-OLAPStatus SnapshotManager::convert_rowset_ids(DataDir& data_dir, const string& clone_dir, int64_t tablet_id, const int32_t& schema_hash) {
+OLAPStatus SnapshotManager::convert_rowset_ids(DataDir& data_dir, const string& clone_dir, int64_t tablet_id, 
+    const int32_t& schema_hash, TabletSharedPtr tablet) {
     OLAPStatus res = OLAP_SUCCESS;   
     // check clone dir existed
     if (!check_dir_existed(clone_dir)) {
@@ -169,27 +170,47 @@ OLAPStatus SnapshotManager::convert_rowset_ids(DataDir& data_dir, const string& 
         }
     }
     RowsetId next_rowset_id = 0;
-    RETURN_NOT_OK(data_dir.next_id(&next_rowset_id));
+    if (tablet == nullptr) {
+        next_rowset_id = 10000;
+    } else {
+        RETURN_NOT_OK(tablet->next_rowset_id(&next_rowset_id));
+    }
     if (next_rowset_id <= max_rowset_id) {
-        OLAPStatus set_id_st = data_dir.set_next_id(max_rowset_id + 1);
-        if (set_id_st != OLAP_SUCCESS) {
-            return set_id_st;
+        next_rowset_id = max_rowset_id + 1;
+        if (tablet != nullptr) {
+            RETURN_NOT_OK(tablet->set_next_rowset_id(next_rowset_id));
         }
     }
 
     for (auto& visible_rowset : cloned_tablet_meta_pb.rs_metas()) {
         RowsetMetaPB* rowset_meta = new_tablet_meta_pb.add_rs_metas();
-        RETURN_NOT_OK(_rename_rowset_id(visible_rowset, clone_dir, data_dir, tablet_schema, rowset_meta));
+        RowsetId rowset_id = 0;
+        if (tablet != nullptr) {
+            RETURN_NOT_OK(tablet->next_rowset_id(&rowset_id));
+        } else {
+            rowset_id = ++next_rowset_id;
+        }
+        RETURN_NOT_OK(_rename_rowset_id(visible_rowset, clone_dir, data_dir, tablet_schema, rowset_id, rowset_meta));
         rowset_meta->set_tablet_id(tablet_id);
         rowset_meta->set_tablet_schema_hash(schema_hash);
     }
 
     for (auto& inc_rowset : cloned_tablet_meta_pb.inc_rs_metas()) {
         RowsetMetaPB* rowset_meta = new_tablet_meta_pb.add_inc_rs_metas();
-        RETURN_NOT_OK(_rename_rowset_id(inc_rowset, clone_dir, data_dir, tablet_schema, rowset_meta));
+        RowsetId rowset_id = 0;
+        if (tablet != nullptr) {
+            RETURN_NOT_OK(tablet->next_rowset_id(&rowset_id));
+        } else {
+            rowset_id = ++next_rowset_id;
+        }
+        RETURN_NOT_OK(_rename_rowset_id(inc_rowset, clone_dir, data_dir, tablet_schema, rowset_id, rowset_meta));
         rowset_meta->set_tablet_id(tablet_id);
         rowset_meta->set_tablet_schema_hash(schema_hash);
     }
+    // not deal with tablet == nullptr
+    // because if tablet != nullptr, then it will not use the new tablet meta ps's next rowset id
+    // if it == nullptr, it will use new tablet meta pb, next rowset id is right
+    new_tablet_meta_pb.set_end_rowset_id(next_rowset_id);
 
     res = TabletMeta::save(cloned_meta_file, new_tablet_meta_pb);
     if (res != OLAP_SUCCESS) {
@@ -201,22 +222,13 @@ OLAPStatus SnapshotManager::convert_rowset_ids(DataDir& data_dir, const string& 
 }
 
 OLAPStatus SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb, const string& new_path, 
-    DataDir& data_dir, TabletSchema& tablet_schema, RowsetMetaPB* new_rs_meta_pb) {
+    DataDir& data_dir, TabletSchema& tablet_schema, RowsetId& rowset_id, RowsetMetaPB* new_rs_meta_pb) {
     OLAPStatus res = OLAP_SUCCESS;
     RowsetMetaSharedPtr alpha_rowset_meta(new AlphaRowsetMeta());
     alpha_rowset_meta->init_from_pb(rs_meta_pb);
     RowsetSharedPtr org_rowset(new AlphaRowset(&tablet_schema, new_path, &data_dir, alpha_rowset_meta));
     RETURN_NOT_OK(org_rowset->init());
     RETURN_NOT_OK(org_rowset->load());
-    RowsetId rowset_id = 0;
-    RETURN_NOT_OK(data_dir.next_id(&rowset_id));
-    if (rs_meta_pb.rowset_id() == rowset_id) {
-        // if generated rowsetid == cloned rowset id then skip link files
-        // because after link files, it will try to delete old files
-        // but src is same with dst during link
-        *new_rs_meta_pb = rs_meta_pb;
-        return OLAP_SUCCESS;
-    }
     RowsetMetaSharedPtr org_rowset_meta = org_rowset->rowset_meta();
     RowsetWriterContext context;
     context.rowset_id = rowset_id;
