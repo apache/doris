@@ -168,8 +168,7 @@ public:
     };
 
     static StringVal do_money_format(FunctionContext *context, const std::string& v) {
-        CommaMoneypunct comma_moneypunct;
-        std::locale comma_locale(std::locale(), &comma_moneypunct);
+        std::locale comma_locale(std::locale(), new CommaMoneypunct ());
         std::stringstream ss;
         ss.imbue(comma_locale);
         ss << std::put_money(v);
