@@ -132,6 +132,7 @@ import org.apache.doris.load.LoadChecker;
 import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.LoadJob.JobState;
+import org.apache.doris.load.loadv2.LoadManager;
 import org.apache.doris.load.routineload.RoutineLoadManager;
 import org.apache.doris.load.routineload.RoutineLoadScheduler;
 import org.apache.doris.load.routineload.RoutineLoadTaskScheduler;
@@ -260,6 +261,7 @@ public class Catalog {
     private ConcurrentHashMap<String, Cluster> nameToCluster;
 
     private Load load;
+    private LoadManager loadManager;
     private RoutineLoadManager routineLoadManager;
     private ExportMgr exportMgr;
     private Clone clone;
@@ -411,6 +413,7 @@ public class Catalog {
         this.idToDb = new ConcurrentHashMap<>();
         this.fullNameToDb = new ConcurrentHashMap<>();
         this.load = new Load();
+        this.loadManager = new LoadManager();
         this.routineLoadManager = new RoutineLoadManager();
         this.exportMgr = new ExportMgr();
         this.clone = new Clone();
@@ -4553,6 +4556,10 @@ public class Catalog {
 
     public Load getLoadInstance() {
         return this.load;
+    }
+
+    public LoadManager getLoadManager() {
+        return loadManager;
     }
 
     public RoutineLoadManager getRoutineLoadManager() {
