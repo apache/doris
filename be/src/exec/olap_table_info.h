@@ -105,12 +105,25 @@ struct OlapTablePartition {
 class OlapTablePartKeyComparator {
 public:
     OlapTablePartKeyComparator(SlotDescriptor* slot_desc) : _slot_desc(slot_desc) { }
+    // return true if lhs < rhs
+    // 'nullptr' is max value, but 'null' is min value
     bool operator()(const Tuple* lhs, const Tuple* rhs) const {
         if (lhs == nullptr) {
             return false;
         } else if (rhs == nullptr) {
             return true;
         }
+
+        bool lhs_null = lhs->is_null(_slot_desc->null_indicator_offset());
+        bool rhs_null = rhs->is_null(_slot_desc->null_indicator_offset());
+        if (lhs_null && rhs_null) {
+            return false;
+        } else if (lhs_null) {
+            return true;
+        } else if (rhs_null) {
+            return false;
+        }
+
         auto lhs_value = lhs->get_slot(_slot_desc->tuple_offset());
         auto rhs_value = rhs->get_slot(_slot_desc->tuple_offset());
         return RawValue::lt(lhs_value, rhs_value, _slot_desc->type());
@@ -150,6 +163,7 @@ private:
     // check if this partition contain this key
     bool _part_contains(OlapTablePartition* part, Tuple* key) const {
         if (part->start_key == nullptr) {
+            // start_key is nullptr means the lower bound is boundless
             return true;
         }
         OlapTablePartKeyComparator comparator(_partition_slot_desc);

@@ -227,7 +227,7 @@ public class OlapTableSink extends DataSink {
                     TOlapTablePartition tPartition = new TOlapTablePartition();
                     tPartition.setId(partition.getId());
                     Range<PartitionKey> range = rangePartitionInfo.getRange(partition.getId());
-                    if (range.hasLowerBound()) {
+                    if (range.hasLowerBound() && !range.lowerEndpoint().isMinValue()) {
                         tPartition.setStart_key(range.lowerEndpoint().getKeys().get(0).treeToThrift().getNodes().get(0));
                     }
                     if (range.hasUpperBound() && !range.upperEndpoint().isMaxValue()) {
@@ -311,3 +311,4 @@ public class OlapTableSink extends DataSink {
     }
 
 }
+
