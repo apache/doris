@@ -29,19 +29,23 @@ public:
     LocalFileReader(const std::string& path, int64_t start_offset);
     virtual ~LocalFileReader();
 
-    Status open();
+    virtual Status open() override;
 
     // Read content to 'buf', 'buf_len' is the max size of this buffer.
     // Return ok when read success, and 'buf_len' is set to size of read content
     // If reach to end of file, the eof is set to true. meanwhile 'buf_len'
     // is set to zero.
     virtual Status read(uint8_t* buf, size_t* buf_len, bool* eof) override;
-
+    virtual Status readat(int64_t position, int64_t nbytes, int64_t* bytes_read, void* out) override;
+    virtual int64_t size () override;
+    virtual Status seek(int64_t position) override;
+    virtual Status tell(int64_t* position) override;
     virtual void close() override;
+    virtual bool closed() override;
 private:
     std::string _path;
-    int64_t _start_offset;
-    bool _eof;
+    int64_t _current_offset;
+    int64_t _file_size;
     FILE* _fp;
 };
 

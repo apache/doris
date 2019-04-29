@@ -17,6 +17,8 @@
 
 package org.apache.doris.load;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.apache.doris.analysis.ColumnSeparator;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.Expr;
@@ -31,10 +33,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -79,6 +77,7 @@ public class BrokerFileGroup implements Writable {
         this.lineDelimiter = table.getLineDelimiter();
         this.isNegative = false;
         this.filePaths = table.getPaths();
+        this.fileFormat = table.getFileFormat();
     }
 
     public BrokerFileGroup(DataDescription dataDescription) {
@@ -151,7 +150,10 @@ public class BrokerFileGroup implements Writable {
     public String getLineDelimiter() {
         return lineDelimiter;
     }
-    public String getFileFormat() { return fileFormat; }
+
+    public String getFileFormat() {
+        return fileFormat;
+    }
 
     public boolean isNegative() {
         return isNegative;
@@ -201,6 +203,7 @@ public class BrokerFileGroup implements Writable {
         }
         sb.append(",valueSeparator=").append(valueSeparator)
                 .append(",lineDelimiter=").append(lineDelimiter)
+                .append(",fileFormat=").append(fileFormat)
                 .append(",isNegative=").append(isNegative);
         sb.append(",fileInfos=[");
         int idx = 0;

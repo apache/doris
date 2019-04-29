@@ -148,6 +148,7 @@ bool OlapRewriteNode::copy_one_row(TupleRow* src_row, Tuple* tuple,
             StringValue* str_val = (StringValue*)src_value;
             if (str_val->len > column_type.len) {
                 (*ss) << "the length of input is too long than schema. "
+                    << "column_name: " << slot_desc->col_name() << "; "
                     << "input_str: [" << std::string(str_val->ptr, str_val->len) << "] "
                     << "schema length: " << column_type.len << "; "
                     << "actual length: " << str_val->len << "; ";
