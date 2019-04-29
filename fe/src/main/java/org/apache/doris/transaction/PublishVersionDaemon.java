@@ -144,6 +144,11 @@ public class PublishVersionDaemon extends Daemon {
                     } else {
                         for (long tabletId : errorTablets) {
                             // tablet inverted index also contains rollingup index
+                            // if tablet meta not contains the tablet, skip this tablet because this tablet is dropped
+                            // from fe
+                            if (tabletInvertedIndex.getTabletMeta(tabletId) == null) {
+                                continue;
+                            }
                             Replica replica = tabletInvertedIndex.getReplica(tabletId, publishVersionTask.getBackendId());
                             transErrorReplicas.add(replica);
                         }
