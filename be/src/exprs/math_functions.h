@@ -172,6 +172,9 @@ public:
         doris_udf::FunctionContext* ctx, int num_args, const doris_udf::DecimalV2Val* val);
     static doris_udf::DecimalV2Val greatest(
         doris_udf::FunctionContext* ctx, int num_args, const doris_udf::DecimalV2Val* val);
+
+    static double my_double_round(double value, int64_t dec, bool dec_unsigned, bool truncate);
+
 private:
     static const int32_t MIN_BASE = 2;
     static const int32_t MAX_BASE = 36;
