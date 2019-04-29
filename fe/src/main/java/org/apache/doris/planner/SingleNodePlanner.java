@@ -686,21 +686,29 @@ public class SingleNodePlanner {
      * Returns a MergeNode that materializes the exprs of the constant selectStmt. Replaces the resultExprs of the
      * selectStmt with SlotRefs into the materialized tuple.
      */
-    private PlanNode createConstantSelectPlan(SelectStmt selectStmt, Analyzer analyzer)
-            throws UserException {
+    private PlanNode createConstantSelectPlan(SelectStmt selectStmt, Analyzer analyzer) {
         Preconditions.checkState(selectStmt.getTableRefs().isEmpty());
         ArrayList<Expr> resultExprs = selectStmt.getResultExprs();
         // Create tuple descriptor for materialized tuple.
         TupleDescriptor tupleDesc = createResultTupleDescriptor(selectStmt, "union", analyzer);
         UnionNode unionNode = new UnionNode(ctx_.getNextNodeId(), tupleDesc.getId());
+
         // Analysis guarantees that selects without a FROM clause only have constant exprs.
-        unionNode.addConstExprList(Lists.newArrayList(resultExprs));
+        if (selectStmt.getValueList() != null) {
+            for (ArrayList<Expr> row : selectStmt.getValueList().getRows()) {
+                unionNode.addConstExprList(row);
+            }
+        } else {
+            unionNode.addConstExprList(Lists.newArrayList(resultExprs));
+        }
 
         // Replace the select stmt's resultExprs with SlotRefs into tupleDesc.
         for (int i = 0; i < resultExprs.size(); ++i) {
             SlotRef slotRef = new SlotRef(tupleDesc.getSlots().get(i));
             resultExprs.set(i, slotRef);
+            selectStmt.getBaseTblResultExprs().set(i, slotRef);
         }
+
         // UnionNode.init() needs tupleDesc to have been initialized
         unionNode.init(analyzer);
         return unionNode;

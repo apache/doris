@@ -148,6 +148,7 @@ public class Planner {
         List<Expr> resultExprs = queryStmt.getResultExprs();
         if (statment instanceof InsertStmt) {
             InsertStmt insertStmt = (InsertStmt) statment;
+            insertStmt.prepareExpressions();
             if (insertStmt.getOlapTuple() != null && !insertStmt.isStreaming()) {
                 singleNodePlan = new OlapRewriteNode(plannerContext.getNextNodeId(), singleNodePlan, insertStmt);
                 singleNodePlan.init(analyzer);
@@ -183,6 +184,7 @@ public class Planner {
 
         if (statment instanceof InsertStmt) {
             InsertStmt insertStmt = (InsertStmt) statment;
+
             rootFragment = distributedPlanner.createInsertFragment(rootFragment, insertStmt, fragments);
             rootFragment.setSink(insertStmt.createDataSink());
             insertStmt.finalize();
