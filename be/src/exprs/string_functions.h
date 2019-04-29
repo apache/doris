@@ -150,12 +150,15 @@ public:
                                                  const doris_udf::DecimalVal& v);
 
     static doris_udf::StringVal money_format(doris_udf::FunctionContext* context,
+                                                 const doris_udf::DecimalV2Val& v);
+
+    static doris_udf::StringVal money_format(doris_udf::FunctionContext* context,
                                                  const doris_udf::BigIntVal& v);
 
     static doris_udf::StringVal money_format(doris_udf::FunctionContext* context,
                                                  const doris_udf::LargeIntVal& v);
 
-    struct comma_moneypunct : std::moneypunct<char> {
+    struct CommaMoneypunct : std::moneypunct<char> {
         pattern do_pos_format() const override { return {{none, sign, none, value}}; }
         pattern do_neg_format() const override { return {{none, sign, none, value}}; }
         int do_frac_digits() const override { return 2; }
@@ -165,7 +168,8 @@ public:
     };
 
     static StringVal do_money_format(FunctionContext *context, const std::string& v) {
-        std::locale comma_locale(std::locale(), new comma_moneypunct());
+        CommaMoneypunct comma_moneypunct;
+        std::locale comma_locale(std::locale(), &comma_moneypunct);
         std::stringstream ss;
         ss.imbue(comma_locale);
         ss << std::put_money(v);

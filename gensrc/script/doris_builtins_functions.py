@@ -556,6 +556,8 @@ visible_functions = [
         '_ZN5doris15StringFunctions12money_formatEPN9doris_udf15FunctionContextERKNS1_9DoubleValE'],
     [['money_format'], 'VARCHAR', ['DECIMAL'],
         '_ZN5doris15StringFunctions12money_formatEPN9doris_udf15FunctionContextERKNS1_10DecimalValE'],
+    [['money_format'], 'VARCHAR', ['DECIMALV2'],
+        '_ZN5doris15StringFunctions12money_formatEPN9doris_udf15FunctionContextERKNS1_12DecimalV2ValE'],
 
     # Utility functions
     [['sleep'], 'BOOLEAN', ['INT'],

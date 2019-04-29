@@ -2,7 +2,7 @@
 
 ## Syntax
 
-money_format(Number)
+VARCHAR money_format(Number)
 
 ## Description
 

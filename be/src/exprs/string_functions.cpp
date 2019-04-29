@@ -729,6 +729,19 @@ StringVal StringFunctions::money_format(FunctionContext *context, const DecimalV
     return do_money_format(context, result.to_string());
 }
 
+StringVal StringFunctions::money_format(FunctionContext *context, const DecimalV2Val &v) {
+    if (v.is_null) {
+        return StringVal::null();
+    }
+
+    DecimalV2Value rounded;
+    DecimalV2Value::from_decimal_val(v).round(&rounded, 2, HALF_UP);
+    DecimalV2Value tmp(std::string("100"));
+    DecimalV2Value result = rounded * tmp;
+    return do_money_format(context, result.to_string());
+}
+
+
 StringVal StringFunctions::money_format(FunctionContext *context, const BigIntVal &v) {
     if (v.is_null) {
         return StringVal::null();
@@ -744,9 +757,8 @@ StringVal StringFunctions::money_format(FunctionContext *context, const LargeInt
     }
 
     std::stringstream ss;
-    ss << v.val;
-    std::string cent_money = ss.str() + std::string("00");
-    return do_money_format(context, cent_money);
+    ss << v.val << "00";
+    return do_money_format(context, ss.str());
 }
 
 }

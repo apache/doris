@@ -102,6 +102,26 @@ namespace doris {
         expected = AnyValUtil::from_string_temp(context, std::string("-7,407,407,406,790,123,456.72"));
         ASSERT_EQ(expected, result);
     }
+
+    TEST_F(StringFunctionsTest, money_format_decimal_v2) {
+        doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
+
+        DecimalV2Value dv1(std::string("3333333333.2222222222"));
+        DecimalV2Val value1;
+        dv1.to_decimal_val(&value1);
+
+        StringVal result = StringFunctions::money_format(context, value1);
+        StringVal expected = AnyValUtil::from_string_temp(context, std::string("3,333,333,333.22"));
+        ASSERT_EQ(expected, result);
+
+        DecimalV2Value dv2(std::string("-7407407406790123456.71604938271975308642"));
+        DecimalV2Val value2;
+        dv2.to_decimal_val(&value2);
+
+        result = StringFunctions::money_format(context, value2);
+        expected = AnyValUtil::from_string_temp(context, std::string("-7,407,407,406,790,123,456.72"));
+        ASSERT_EQ(expected, result);
+    }
 }
 
 int main(int argc, char** argv) {

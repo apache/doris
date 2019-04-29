@@ -154,6 +154,9 @@ ${DORIS_TEST_BINARY_DIR}/util/string_util_test
 ## Running common Unittest
 ${DORIS_TEST_BINARY_DIR}/common/resource_tls_test
 
+## Running exprs unit test
+${DORIS_TEST_BINARY_DIR}/exprs/string_functions_test
+
 ## Running exec unit test
 ${DORIS_TEST_BINARY_DIR}/exec/plain_text_line_reader_uncompressed_test
 ${DORIS_TEST_BINARY_DIR}/exec/plain_text_line_reader_gzip_test
