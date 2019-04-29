@@ -25,103 +25,104 @@
 
 namespace doris {
 
-    class StringFunctionsTest : public testing::Test {
-    public:
-        StringFunctionsTest() {
-        }
-    };
-
-    TEST_F(StringFunctionsTest, money_format_bigint) {
-        doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
-
-        StringVal result = StringFunctions::money_format(context, doris_udf::BigIntVal(123456));
-        StringVal expected = AnyValUtil::from_string_temp(context, std::string("123,456.00"));
-        ASSERT_EQ(expected, result);
-
-        result = StringFunctions::money_format(context, doris_udf::BigIntVal(-123456));
-        expected = AnyValUtil::from_string_temp(context, std::string("-123,456.00"));
-        ASSERT_EQ(expected, result);
-
-        result = StringFunctions::money_format(context, doris_udf::BigIntVal(9223372036854775807));
-        expected = AnyValUtil::from_string_temp(context, std::string("9,223,372,036,854,775,807.00"));
-        ASSERT_EQ(expected, result);
+class StringFunctionsTest : public testing::Test {
+public:
+    StringFunctionsTest() {
     }
+};
 
-    TEST_F(StringFunctionsTest, money_format_large_int) {
-        doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
+TEST_F(StringFunctionsTest, money_format_bigint) {
+    doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
 
-        std::string str("170141183460469231731687303715884105727");
-        std::stringstream ss;
-        ss << str;
-        __int128 value;
-        ss >> value;
+    StringVal result = StringFunctions::money_format(context, doris_udf::BigIntVal(123456));
+    StringVal expected = AnyValUtil::from_string_temp(context, std::string("123,456.00"));
+    ASSERT_EQ(expected, result);
 
-        std::cout << "value: " << value << std::endl;
+    result = StringFunctions::money_format(context, doris_udf::BigIntVal(-123456));
+    expected = AnyValUtil::from_string_temp(context, std::string("-123,456.00"));
+    ASSERT_EQ(expected, result);
 
-        StringVal result = StringFunctions::money_format(context, doris_udf::LargeIntVal(value));
-        StringVal expected = AnyValUtil::from_string_temp(context, std::string("170,141,183,460,469,231,731,687,303,715,884,105,727.00"));
-        ASSERT_EQ(expected, result);
-    }
+    result = StringFunctions::money_format(context, doris_udf::BigIntVal(9223372036854775807));
+    expected = AnyValUtil::from_string_temp(context, std::string("9,223,372,036,854,775,807.00"));
+    ASSERT_EQ(expected, result);
+}
 
-    TEST_F(StringFunctionsTest, money_format_double) {
-        doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
+TEST_F(StringFunctionsTest, money_format_large_int) {
+    doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
 
-        StringVal result = StringFunctions::money_format(context, doris_udf::DoubleVal(1234.456));
-        StringVal expected = AnyValUtil::from_string_temp(context, std::string("1,234.46"));
-        ASSERT_EQ(expected, result);
+    std::string str("170141183460469231731687303715884105727");
+    std::stringstream ss;
+    ss << str;
+    __int128 value;
+    ss >> value;
 
-        result = StringFunctions::money_format(context, doris_udf::DoubleVal(1234.45));
-        expected = AnyValUtil::from_string_temp(context, std::string("1,234.45"));
-        ASSERT_EQ(expected, result);
+    std::cout << "value: " << value << std::endl;
 
-        result = StringFunctions::money_format(context, doris_udf::DoubleVal(1234.4));
-        expected = AnyValUtil::from_string_temp(context, std::string("1,234.40"));
-        ASSERT_EQ(expected, result);
+    StringVal result = StringFunctions::money_format(context, doris_udf::LargeIntVal(value));
+    StringVal expected = AnyValUtil::from_string_temp(context, std::string("170,141,183,460,469,231,731,687,303,715,884,105,727.00"));
+    ASSERT_EQ(expected, result);
+}
 
-        result = StringFunctions::money_format(context, doris_udf::DoubleVal(1234.454));
-        expected = AnyValUtil::from_string_temp(context, std::string("1,234.45"));
-        ASSERT_EQ(expected, result);
-    }
+TEST_F(StringFunctionsTest, money_format_double) {
+    doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
 
-    TEST_F(StringFunctionsTest, money_format_decimal) {
-        doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
+    StringVal result = StringFunctions::money_format(context, doris_udf::DoubleVal(1234.456));
+    StringVal expected = AnyValUtil::from_string_temp(context, std::string("1,234.46"));
+    ASSERT_EQ(expected, result);
 
-        DecimalValue dv1(std::string("3333333333.2222222222"));
-        DecimalVal value1;
-        dv1.to_decimal_val(&value1);
+    result = StringFunctions::money_format(context, doris_udf::DoubleVal(1234.45));
+    expected = AnyValUtil::from_string_temp(context, std::string("1,234.45"));
+    ASSERT_EQ(expected, result);
 
-        StringVal result = StringFunctions::money_format(context, value1);
-        StringVal expected = AnyValUtil::from_string_temp(context, std::string("3,333,333,333.22"));
-        ASSERT_EQ(expected, result);
+    result = StringFunctions::money_format(context, doris_udf::DoubleVal(1234.4));
+    expected = AnyValUtil::from_string_temp(context, std::string("1,234.40"));
+    ASSERT_EQ(expected, result);
 
-        DecimalValue dv2(std::string("-7407407406790123456.71604938271975308642"));
-        DecimalVal value2;
-        dv2.to_decimal_val(&value2);
+    result = StringFunctions::money_format(context, doris_udf::DoubleVal(1234.454));
+    expected = AnyValUtil::from_string_temp(context, std::string("1,234.45"));
+    ASSERT_EQ(expected, result);
+}
 
-        result = StringFunctions::money_format(context, value2);
-        expected = AnyValUtil::from_string_temp(context, std::string("-7,407,407,406,790,123,456.72"));
-        ASSERT_EQ(expected, result);
-    }
+TEST_F(StringFunctionsTest, money_format_decimal) {
+    doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
 
-    TEST_F(StringFunctionsTest, money_format_decimal_v2) {
-        doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
+    DecimalValue dv1(std::string("3333333333.2222222222"));
+    DecimalVal value1;
+    dv1.to_decimal_val(&value1);
 
-        DecimalV2Value dv1(std::string("3333333333.2222222222"));
-        DecimalV2Val value1;
-        dv1.to_decimal_val(&value1);
+    StringVal result = StringFunctions::money_format(context, value1);
+    StringVal expected = AnyValUtil::from_string_temp(context, std::string("3,333,333,333.22"));
+    ASSERT_EQ(expected, result);
 
-        StringVal result = StringFunctions::money_format(context, value1);
-        StringVal expected = AnyValUtil::from_string_temp(context, std::string("3,333,333,333.22"));
-        ASSERT_EQ(expected, result);
+    DecimalValue dv2(std::string("-7407407406790123456.71604938271975308642"));
+    DecimalVal value2;
+    dv2.to_decimal_val(&value2);
 
-        DecimalV2Value dv2(std::string("-7407407406790123456.71604938271975308642"));
-        DecimalV2Val value2;
-        dv2.to_decimal_val(&value2);
+    result = StringFunctions::money_format(context, value2);
+    expected = AnyValUtil::from_string_temp(context, std::string("-7,407,407,406,790,123,456.72"));
+    ASSERT_EQ(expected, result);
+}
 
-        result = StringFunctions::money_format(context, value2);
-        expected = AnyValUtil::from_string_temp(context, std::string("-7,407,407,406,790,123,456.72"));
-        ASSERT_EQ(expected, result);
-    }
+TEST_F(StringFunctionsTest, money_format_decimal_v2) {
+    doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
+
+    DecimalV2Value dv1(std::string("3333333333.2222222222"));
+    DecimalV2Val value1;
+    dv1.to_decimal_val(&value1);
+
+    StringVal result = StringFunctions::money_format(context, value1);
+    StringVal expected = AnyValUtil::from_string_temp(context, std::string("3,333,333,333.22"));
+    ASSERT_EQ(expected, result);
+
+    DecimalV2Value dv2(std::string("-7407407406790123456.71604938271975308642"));
+    DecimalV2Val value2;
+    dv2.to_decimal_val(&value2);
+
+    result = StringFunctions::money_format(context, value2);
+    expected = AnyValUtil::from_string_temp(context, std::string("-7,407,407,406,790,123,456.72"));
+    ASSERT_EQ(expected, result);
+}
+
 }
 
 int main(int argc, char** argv) {
