@@ -114,12 +114,12 @@ TEST_F(StringFunctionsTest, money_format_decimal_v2) {
     StringVal expected = AnyValUtil::from_string_temp(context, std::string("3,333,333,333.22"));
     ASSERT_EQ(expected, result);
 
-    DecimalV2Value dv2(std::string("-7407407406790123456.71604938271975308642"));
+    DecimalV2Value dv2(std::string("-740740740.71604938271975308642"));
     DecimalV2Val value2;
     dv2.to_decimal_val(&value2);
 
     result = StringFunctions::money_format(context, value2);
-    expected = AnyValUtil::from_string_temp(context, std::string("-7,407,407,406,790,123,456.72"));
+    expected = AnyValUtil::from_string_temp(context, std::string("-740,740,740.72"));
     ASSERT_EQ(expected, result);
 }
 
