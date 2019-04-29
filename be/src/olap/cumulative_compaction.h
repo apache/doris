@@ -139,9 +139,9 @@ private:
     // CumulativeCompaction对象是否初始化
     bool _is_init;
     // table现有的cumulative层的标识点
-    int32_t _old_cumulative_layer_point;
+    int64_t _old_cumulative_layer_point;
     // 待cumulative compaction完成之后，新的cumulative层的标识点
-    int32_t _new_cumulative_layer_point;
+    int64_t _new_cumulative_layer_point;
     // 一个cumulative文件大小的最大值
     // 当delta文件的大小超过该值时，我们认为该delta文件是cumulative文件
     size_t _max_delta_file_size;

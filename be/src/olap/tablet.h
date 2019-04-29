@@ -86,8 +86,8 @@ public:
     inline int16_t shard_id();
     inline const int64_t creation_time() const;
     inline void set_creation_time(int64_t creation_time);
-    inline const int32_t cumulative_layer_point() const;
-    inline void set_cumulative_layer_point(const int32_t new_point);
+    inline const int64_t cumulative_layer_point() const;
+    inline void set_cumulative_layer_point(const int64_t new_point);
 
     inline bool equal(int64_t tablet_id, int32_t schema_hash);
     inline size_t tablet_footprint(); // disk space occupied by tablet
@@ -299,11 +299,11 @@ inline void Tablet::set_creation_time(int64_t creation_time) {
     _tablet_meta->set_creation_time(creation_time);
 }
 
-inline const int32_t Tablet::cumulative_layer_point() const {
+inline const int64_t Tablet::cumulative_layer_point() const {
     return _tablet_meta->cumulative_layer_point();
 }
 
-void inline Tablet::set_cumulative_layer_point(const int32_t new_point) {
+void inline Tablet::set_cumulative_layer_point(const int64_t new_point) {
     return _tablet_meta->set_cumulative_layer_point(new_point);
 }
 

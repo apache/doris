@@ -623,7 +623,7 @@ bool Tablet::can_do_compaction() {
 const uint32_t Tablet::calc_cumulative_compaction_score() const {
     uint32_t score = 0;
     bool base_rowset_exist = false;
-    const int32_t point = cumulative_layer_point();
+    const int64_t point = cumulative_layer_point();
     for (auto& rs_meta : _tablet_meta->all_rs_metas()) {
         if (rs_meta->start_version() >= point) {
             score++;
@@ -639,7 +639,7 @@ const uint32_t Tablet::calc_cumulative_compaction_score() const {
 
 const uint32_t Tablet::calc_base_compaction_score() const {
     uint32_t score = 0;
-    const int32_t point = cumulative_layer_point();
+    const int64_t point = cumulative_layer_point();
     bool base_rowset_exist = false;
     for (auto& rs_meta : _tablet_meta->all_rs_metas()) {
         if (rs_meta->start_version() < point) {

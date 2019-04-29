@@ -72,9 +72,6 @@ private:
     bool _has_referenced_column;
     int32_t _referenced_column_id;
     std::string _referenced_column;
-
-    // used to creating decimal data type
-
 };
 
 class TabletSchema {
@@ -105,6 +102,8 @@ private:
     size_t _num_rows_per_row_block;
     CompressKind _compress_kind;
     size_t _next_column_unique_id;
+
+    bool _has_bf_fpp;
     double _bf_fpp;
 };
 

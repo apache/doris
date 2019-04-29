@@ -204,7 +204,7 @@ static bool version_comparator(const Version& lhs, const Version& rhs) {
 bool BaseCompaction::_check_whether_satisfy_policy(bool is_manual_trigger,
                                                          vector<Version>* candidate_versions) {
     ReadLock rdlock(_tablet->get_header_lock_ptr());
-    int32_t cumulative_layer_point = _tablet->cumulative_layer_point();
+    int64_t cumulative_layer_point = _tablet->cumulative_layer_point();
     if (cumulative_layer_point == -1) {
         LOG(FATAL) << "tablet has an unreasonable cumulative layer point. [tablet='" << _tablet->full_name()
                    << "' cumulative_layer_point=" << cumulative_layer_point << "]";
