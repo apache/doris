@@ -6,6 +6,7 @@
     "shard_id": 34,
     "creation_time": 1553765664,
     "cumulative_layer_point": 2,
+    "tablet_state": "PB_NOTREADY",
     "schema": {
         "keys_type": "AGG_KEYS",
         "column": [
@@ -110,5 +111,6 @@
             "creation_time": 1553765670,
             "extra_properties": "Cj8IABABGIkBIMKRBCj3GDItChQtOTIyMTU1MjY3MjkzMDc2NDM3MBITOTIxMzI0NDQwNTY3MzIwODI3MhgAOAAKPggBEAEYYiCuggEo4gUyLQoULTkyMDQ4NjgyNzgzOTU5NTgyOTYSEzkyMjE4NjQ3ODUyMjk2NDE3MDYYADgA"
         }
-    ]
+    ],
+    "in_restore_mode": false
 }
