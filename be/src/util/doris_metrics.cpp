@@ -98,6 +98,9 @@ IntGaugeMetricsMap DorisMetrics::disks_state;
 
 IntGauge DorisMetrics::push_request_write_bytes_per_second;
 IntGauge DorisMetrics::query_scan_bytes_per_second;
+IntGauge DorisMetrics::max_disk_io_util_percent;
+IntGauge DorisMetrics::max_network_send_bytes_rate;
+IntGauge DorisMetrics::max_network_receive_bytes_rate;
 
 DorisMetrics::DorisMetrics() : _metrics(nullptr), _system_metrics(nullptr) {
 }
@@ -220,6 +223,9 @@ void DorisMetrics::initialize(
 
     REGISTER_DORIS_METRIC(push_request_write_bytes_per_second);
     REGISTER_DORIS_METRIC(query_scan_bytes_per_second);
+    REGISTER_DORIS_METRIC(max_disk_io_util_percent);
+    REGISTER_DORIS_METRIC(max_network_send_bytes_rate);
+    REGISTER_DORIS_METRIC(max_network_receive_bytes_rate);
 
     _metrics->register_hook(_s_hook_name, std::bind(&DorisMetrics::update, this));
 

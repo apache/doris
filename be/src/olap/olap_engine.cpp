@@ -1828,9 +1828,11 @@ void OLAPEngine::perform_cumulative_compaction() {
     OLAPTablePtr best_table = _find_best_tablet_to_compaction(CompactionType::CUMULATIVE_COMPACTION);
     if (best_table == nullptr) { return; }
 
+    DorisMetrics::cumulative_compaction_request_total.increment(1);
     CumulativeCompaction cumulative_compaction;
     OLAPStatus res = cumulative_compaction.init(best_table);
     if (res != OLAP_SUCCESS) {
+        DorisMetrics::cumulative_compaction_request_failed.increment(1);
         LOG(WARNING) << "failed to init cumulative compaction."
                      << "table=" << best_table->full_name();
         return;
@@ -1838,6 +1840,7 @@ void OLAPEngine::perform_cumulative_compaction() {
 
     res = cumulative_compaction.run();
     if (res != OLAP_SUCCESS) {
+        DorisMetrics::cumulative_compaction_request_failed.increment(1);
         LOG(WARNING) << "failed to do cumulative compaction."
                      << "table=" << best_table->full_name();
         return;
@@ -1848,9 +1851,11 @@ void OLAPEngine::perform_base_compaction() {
     OLAPTablePtr best_table = _find_best_tablet_to_compaction(CompactionType::BASE_COMPACTION);
     if (best_table == nullptr) { return; }
 
+    DorisMetrics::base_compaction_request_total.increment(1);
     BaseCompaction base_compaction;
     OLAPStatus res = base_compaction.init(best_table);
     if (res != OLAP_SUCCESS) {
+        DorisMetrics::base_compaction_request_failed.increment(1);
         LOG(WARNING) << "failed to init base compaction."
                      << "table=" << best_table->full_name();
         return;
@@ -1858,6 +1863,7 @@ void OLAPEngine::perform_base_compaction() {
 
     res = base_compaction.run();
     if (res != OLAP_SUCCESS) {
+        DorisMetrics::base_compaction_request_failed.increment(1);
         LOG(WARNING) << "failed to init base compaction."
                      << "table=" << best_table->full_name();
         return;
