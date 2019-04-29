@@ -263,7 +263,7 @@ message TabletMetaPB {
     optional int32 schema_hash = 4; // OlapHeaderMessage.schema_hash
     optional int32 shard_id = 5;    // OlapHeaderMessage.shard
     optional int64 creation_time = 6;   // OlapHeaderMessage.creation_time
-    optional int32 cumulative_layer_point = 7;  // OlapHeaderMessage.cumulative_layer_point
+    optional int64 cumulative_layer_point = 7;  // OlapHeaderMessage.cumulative_layer_point
 
     optional TabletStatePB tablet_state = 8;
     optional TabletSchemaPB schema = 9;

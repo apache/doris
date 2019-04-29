@@ -120,7 +120,7 @@ public:
     static OLAPStatus save(const string& file_path, TabletMetaPB& tablet_meta_pb);
     OLAPStatus save_meta(DataDir* data_dir);
 
-    OLAPStatus serialize(string* meta_binary) const;
+    OLAPStatus serialize(string* meta_binary);
     OLAPStatus deserialize(const string& meta_binary);
     OLAPStatus init_from_pb(const TabletMetaPB& tablet_meta_pb);
 
@@ -132,11 +132,11 @@ public:
     inline const int64_t tablet_id() const;
     inline const int32_t schema_hash() const;
     inline const int16_t shard_id() const;
-    void set_shard_id(int32_t shard_id);
+    inline void set_shard_id(int32_t shard_id);
     inline int64_t creation_time() const;
-    void set_creation_time(int64_t creation_time);
-    inline int32_t cumulative_layer_point() const;
-    void set_cumulative_layer_point(int32_t new_point);
+    inline void set_creation_time(int64_t creation_time);
+    inline int64_t cumulative_layer_point() const;
+    inline void set_cumulative_layer_point(int64_t new_point);
 
     inline const size_t num_rows() const;
     // disk space occupied by tablet
@@ -144,7 +144,7 @@ public:
     inline const size_t version_count() const;
     Version max_version() const;
 
-    inline const TabletState& tablet_state() const;
+    inline const TabletState tablet_state() const;
     inline OLAPStatus set_tablet_state(TabletState state);
 
     inline const bool in_restore_mode() const;
@@ -176,47 +176,63 @@ public:
     OLAPStatus set_alter_state(AlterTabletState alter_state);
 
 private:
+    int64_t _table_id;
+    int64_t _partition_id;
+    int64_t _tablet_id;
+    int32_t _schema_hash;
+    int32_t _shard_id;
+    int64_t _creation_time;
+    int64_t _cumulative_layer_point;
+
     TabletState _tablet_state;
     TabletSchema _schema;
-
     vector<RowsetMetaSharedPtr> _rs_metas;
     vector<RowsetMetaSharedPtr> _inc_rs_metas;
     DelPredicateArray _del_pred_array;
-
     AlterTabletTaskSharedPtr _alter_task;
     bool _in_restore_mode;
-
-    TabletMetaPB _tablet_meta_pb;
 
     RWMutex _meta_lock;
 };
 
 inline const int64_t TabletMeta::table_id() const {
-    return _tablet_meta_pb.table_id();
+    return _table_id;
 }
 
 inline const int64_t TabletMeta::partition_id() const {
-    return _tablet_meta_pb.partition_id();
+    return _partition_id;
 }
 
 inline const int64_t TabletMeta::tablet_id() const {
-    return _tablet_meta_pb.tablet_id();
+    return _tablet_id;
 }
 
 inline const int32_t TabletMeta::schema_hash() const {
-    return _tablet_meta_pb.schema_hash();
+    return _schema_hash;
 }
 
 inline const int16_t TabletMeta::shard_id() const {
-    return _tablet_meta_pb.shard_id();
+    return _shard_id;
+}
+
+inline void TabletMeta::set_shard_id(int32_t shard_id) {
+    _shard_id = shard_id;
 }
 
 inline int64_t TabletMeta::creation_time() const {
-    return _tablet_meta_pb.creation_time();
+    return _creation_time;
 }
 
-inline int32_t TabletMeta::cumulative_layer_point() const {
-    return _tablet_meta_pb.cumulative_layer_point();
+inline void TabletMeta::set_creation_time(int64_t creation_time) {
+    _creation_time = creation_time;
+}
+
+inline int64_t TabletMeta::cumulative_layer_point() const {
+    return _cumulative_layer_point;
+}
+
+inline void TabletMeta::set_cumulative_layer_point(int64_t new_point) {
+    _cumulative_layer_point = new_point;
 }
 
 inline const size_t TabletMeta::num_rows() const {
@@ -239,28 +255,12 @@ inline const size_t TabletMeta::version_count() const {
     return _rs_metas.size();
 }
 
-inline const TabletState& TabletMeta::tablet_state() const {
+inline const TabletState TabletMeta::tablet_state() const {
     return _tablet_state;
 }
 
 inline OLAPStatus TabletMeta::set_tablet_state(TabletState state) {
-    switch (state) {
-        case TABLET_NOTREADY:
-            _tablet_meta_pb.set_tablet_state(PB_NOTREADY);
-            break;
-        case TABLET_RUNNING:
-            _tablet_meta_pb.set_tablet_state(PB_RUNNING);
-            break;
-        case TABLET_TOMBSTONED:
-            _tablet_meta_pb.set_tablet_state(PB_TOMBSTONED);
-            break;
-        case TABLET_STOPPED:
-            _tablet_meta_pb.set_tablet_state(PB_STOPPED);
-            break;
-        case TABLET_SHUTDOWN:
-            _tablet_meta_pb.set_tablet_state(PB_SHUTDOWN);
-            break;
-    }
+    _tablet_state = state;
     return OLAP_SUCCESS;
 }
 
