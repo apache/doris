@@ -56,7 +56,7 @@ public abstract class LoadTask extends MasterTask {
         } finally {
             if (!isFinished) {
                 // callback on pending task failed
-                callback.onTaskFailed(exception.getMessage());
+                callback.onTaskFailed(exception == null ? "unknown error" : exception.getMessage());
             }
         }
     }

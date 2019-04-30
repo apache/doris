@@ -43,6 +43,12 @@ import org.apache.logging.log4j.Logger;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * There are 3 steps in BrokerLoadJob: BrokerPendingTask, LoadLoadingTask, CommitAndPublishTxn.
+ * Step1: BrokerPendingTask will be created on method of executeScheduleJob.
+ * Step2: LoadLoadingTasks will be created by the method of onTaskFinished when BrokerPendingTask is finished.
+ * Step3: CommitAndPublicTxn will be called by the method of onTaskFinished when all of LoadLoadingTasks are finished.
+ */
 public class BrokerLoadJob extends LoadJob {
 
     private static final Logger LOG = LogManager.getLogger(BrokerLoadJob.class);
@@ -50,6 +56,9 @@ public class BrokerLoadJob extends LoadJob {
     private BrokerDesc brokerDesc;
     // include broker desc and data desc
     private PullLoadSourceInfo dataSourceInfo = new PullLoadSourceInfo();
+
+    // it will be set to true when pending task finished
+    private boolean isLoading = false;
 
     public BrokerLoadJob(long dbId, String label, BrokerDesc brokerDesc) {
         super(dbId, label);
@@ -85,10 +94,17 @@ public class BrokerLoadJob extends LoadJob {
     @Override
     public void executeScheduleJob() {
         LoadTask task = new BrokerLoadPendingTask(this, dataSourceInfo.getIdToFileGroups(), brokerDesc);
-        tasks.add(task);
-        Catalog.getCurrentCatalog().getLoadManager().submitTask(task);
+        unprotectSubmitTask(task);
     }
 
+    /**
+     * Situation1: When attachment is instance of BrokerPendingTaskAttachment, this method is called by broker pending task.
+     * LoadLoadingTask will be created after BrokerPendingTask is finished.
+     * Situation2: When attachment is instance of BrokerLoadingTaskAttachment, this method is called by LoadLoadingTask.
+     * CommitTxn will be called after all of LoadingTasks are finished.
+     *
+     * @param attachment
+     */
     @Override
     public void onTaskFinished(TaskAttachment attachment) {
         if (attachment instanceof BrokerPendingTaskAttachment) {
@@ -109,8 +125,21 @@ public class BrokerLoadJob extends LoadJob {
      * step3: submit tasks into loadingTaskExecutor
      * @param attachment BrokerPendingTaskAttachment
      */
-    public void onPendingTaskFinished(BrokerPendingTaskAttachment attachment) {
+    private void onPendingTaskFinished(BrokerPendingTaskAttachment attachment) {
         // TODO(ml): check if task has been cancelled
+        writeLock();
+        try {
+            if (isLoading) {
+                LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
+                                 .add("error_msg", "this is a duplicated callback of pending task "
+                                         + "when broker already has loading task"));
+                return;
+            }
+            isLoading = true;
+        } finally {
+            writeUnlock();
+        }
+
         Database db = null;
         try {
             getDb();
@@ -148,8 +177,7 @@ public class BrokerLoadJob extends LoadJob {
                 task.init(attachment.getFileStatusByTable(tableId),
                           attachment.getFileNumByTable(tableId));
                 // Add tasks into list and pool
-                tasks.add(task);
-                Catalog.getCurrentCatalog().getLoadManager().submitTask(task);
+                unprotectSubmitTask(task);
             }
         } catch (UserException e) {
             updateState(JobState.CANCELLED, FailMsg.CancelType.ETL_RUN_FAIL, "failed to " + e.getMessage());
@@ -159,24 +187,24 @@ public class BrokerLoadJob extends LoadJob {
         loadStartTimestamp = System.currentTimeMillis();
     }
 
-    public void onLoadingTaskFinished(BrokerLoadingTaskAttachment attachment) {
+    private void onLoadingTaskFinished(BrokerLoadingTaskAttachment attachment) {
         // TODO(ml): check if task has been cancelled
-        boolean commitTxn = false;
         writeLock();
         try {
             // update loading status
             updateLoadingStatus(attachment);
 
             // begin commit txn when all of loading tasks have been finished
-            if (tasks.size() == tasks.stream()
-                    .filter(entity -> entity.isFinished()).count()) {
-                // check data quality
-                if (!checkDataQuality()) {
-                    unprotectedUpdateState(JobState.CANCELLED, FailMsg.CancelType.ETL_QUALITY_UNSATISFIED,
-                                           QUALITY_FAIL_MSG);
-                } else {
-                    commitTxn = true;
-                }
+            if (!(tasks.size() == tasks.stream()
+                    .filter(entity -> entity.isFinished()).count())) {
+                return;
+            }
+
+            // check data quality
+            if (!checkDataQuality()) {
+                unprotectedUpdateState(JobState.CANCELLED, FailMsg.CancelType.ETL_QUALITY_UNSATISFIED,
+                                       QUALITY_FAIL_MSG);
+                return;
             }
         } finally {
             writeUnlock();
@@ -188,18 +216,16 @@ public class BrokerLoadJob extends LoadJob {
         } catch (MetaNotFoundException e) {
             LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
                              .add("database_id", dbId)
-                             .add("error_msg", "Failed to divide job into loading task when db not found.")
+                             .add("error_msg", "Failed to commit txn when db not found.")
                              .build(), e);
             updateState(JobState.CANCELLED, FailMsg.CancelType.ETL_RUN_FAIL, "db does not exist. id: " + dbId);
             return;
         }
-        if (commitTxn) {
-            try {
-                Catalog.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
-                        db, transactionId, commitInfos, getLeftTimeMs());
-            } catch (UserException e) {
-                updateState(JobState.CANCELLED, FailMsg.CancelType.LOAD_RUN_FAIL, "failed to " + e.getMessage());
-            }
+        try {
+            Catalog.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
+                    db, transactionId, commitInfos, getLeftTimeMs());
+        } catch (UserException e) {
+            updateState(JobState.CANCELLED, FailMsg.CancelType.LOAD_RUN_FAIL, "failed to " + e.getMessage());
         }
     }
 
