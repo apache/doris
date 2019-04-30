@@ -788,6 +788,16 @@ void OLAPTable::load_pending_data() {
     std::set<int64_t> error_pending_data;
 
     for (const PPendingDelta& pending_delta : _header->pending_delta()) {
+        OLAPStatus add_status = OLAPEngine::get_instance()->add_transaction(
+                pending_delta.partition_id(), pending_delta.transaction_id(),
+                _tablet_id, _schema_hash, pending_delta.pending_segment_group()[0].load_id());
+        if (add_status != OLAP_SUCCESS) {
+            LOG(ERROR) << "find transaction exists in engine when load pending data. tablet=" << full_name()
+                         << ", transaction_id=" << pending_delta.transaction_id();
+            error_pending_data.insert(pending_delta.transaction_id());
+            continue;
+        }
+
         for (const PPendingSegmentGroup& pending_segment_group : pending_delta.pending_segment_group()) {
             SegmentGroup* segment_group = new SegmentGroup(this, false, 
                     pending_segment_group.pending_segment_group_id(),
@@ -839,17 +849,6 @@ void OLAPTable::load_pending_data() {
             if (segment_group->load() != OLAP_SUCCESS) {
                 LOG(WARNING) << "fail to load segment_group when load pending data."
                     << "table=" << full_name() << ", transaction_id=" << pending_delta.transaction_id();
-                error_pending_data.insert(pending_delta.transaction_id());
-                break;
-            }
-
-            OLAPStatus add_status = OLAPEngine::get_instance()->add_transaction(
-                    pending_delta.partition_id(), pending_delta.transaction_id(),
-                    _tablet_id, _schema_hash, pending_segment_group.load_id());
-
-            if (add_status != OLAP_SUCCESS) {
-                LOG(WARNING) << "find transaction exists in engine when load pending data. [table=" << full_name()
-                    << " transaction_id=" << pending_delta.transaction_id() << "]";
                 error_pending_data.insert(pending_delta.transaction_id());
                 break;
             }
