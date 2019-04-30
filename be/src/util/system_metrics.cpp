@@ -440,7 +440,7 @@ int64_t SystemMetrics::get_max_io_util(
     int64_t max = 0;
     for (auto& it : _disk_metrics) {
         int64_t cur = it.second->io_time_ms.value();
-        const auto& find = lst_value.find(it.first);
+        const auto find = lst_value.find(it.first);
         if (find == lst_value.end()) {
             continue;
         }
@@ -462,7 +462,6 @@ void SystemMetrics::get_network_traffic(
             std::map<std::string, int64_t>& rcv_map) {
     send_map.clear();
     rcv_map.clear();
-
     for (auto& it : _net_metrics) {
         if (it.first == "lo") { continue; }
         send_map.emplace(it.first, it.second->send_bytes.value());

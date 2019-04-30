@@ -120,6 +120,7 @@ void* calculate_metrics(void* dummy) {
     int64_t last_ts = -1L;
     int64_t lst_push_bytes = -1;
     int64_t lst_query_bytes = -1;
+
     std::map<std::string, int64_t> lst_disks_io_time;
     std::map<std::string, int64_t> lst_net_send_bytes;
     std::map<std::string, int64_t> lst_net_receive_bytes;
@@ -155,15 +156,18 @@ void* calculate_metrics(void* dummy) {
             // 3. max disk io util
             DorisMetrics::max_disk_io_util_percent.set_value(
                 DorisMetrics::system_metrics()->get_max_io_util(lst_disks_io_time, 15));
+            // update lst map
+            DorisMetrics::system_metrics()->get_disks_io_time(lst_disks_io_time);
 
             // 4. max network traffic
             int64_t max_send = 0;
             int64_t max_receive = 0;
             DorisMetrics::system_metrics()->get_max_net_traffic(
                 lst_net_send_bytes, lst_net_receive_bytes, 15, &max_send, &max_receive);
-
             DorisMetrics::max_network_send_bytes_rate.set_value(max_send);
             DorisMetrics::max_network_receive_bytes_rate.set_value(max_receive);
+            // update lst map
+            DorisMetrics::system_metrics()->get_network_traffic(lst_net_send_bytes, lst_net_receive_bytes);
         }
 
         sleep(15); // 15 seconds
