@@ -51,6 +51,7 @@
 #include "exprs/hll_hash_function.h"
 #include "olap/options.h"
 #include "util/time.h"
+#include "util/system_metrics.h"
 
 namespace doris {
 
@@ -111,17 +112,28 @@ void* memory_maintenance_thread(void* dummy) {
  * this thread will calculate some metrics at a fix interval(15 sec)
  * 1. push bytes per second
  * 2. scan bytes per second
+ * 3. max io util of all disks
+ * 4. max network send bytes rate
+ * 5. max network receive bytes rate
  */
 void* calculate_metrics(void* dummy) {
     int64_t last_ts = -1L;
     int64_t lst_push_bytes = -1;
     int64_t lst_query_bytes = -1;
 
+    std::map<std::string, int64_t> lst_disks_io_time;
+    std::map<std::string, int64_t> lst_net_send_bytes;
+    std::map<std::string, int64_t> lst_net_receive_bytes;
+
     while (true) {
+        DorisMetrics::metrics()->trigger_hook();
+
         if (last_ts == -1L) {
             last_ts = GetCurrentTimeMicros() / 1000;
             lst_push_bytes = DorisMetrics::push_request_write_bytes.value();
             lst_query_bytes = DorisMetrics::query_scan_bytes.value();
+            DorisMetrics::system_metrics()->get_disks_io_time(&lst_disks_io_time);
+            DorisMetrics::system_metrics()->get_network_traffic(&lst_net_send_bytes, &lst_net_receive_bytes);
         } else {
             int64_t current_ts = GetCurrentTimeMicros() / 1000;
             long interval = (current_ts - last_ts) / 1000;
@@ -140,6 +152,22 @@ void* calculate_metrics(void* dummy) {
             DorisMetrics::query_scan_bytes_per_second.set_value(
                 qps < 0 ? 0 : qps);
             lst_query_bytes = current_query_bytes;
+
+            // 3. max disk io util
+            DorisMetrics::max_disk_io_util_percent.set_value(
+                DorisMetrics::system_metrics()->get_max_io_util(lst_disks_io_time, 15));
+            // update lst map
+            DorisMetrics::system_metrics()->get_disks_io_time(&lst_disks_io_time);
+
+            // 4. max network traffic
+            int64_t max_send = 0;
+            int64_t max_receive = 0;
+            DorisMetrics::system_metrics()->get_max_net_traffic(
+                lst_net_send_bytes, lst_net_receive_bytes, 15, &max_send, &max_receive);
+            DorisMetrics::max_network_send_bytes_rate.set_value(max_send);
+            DorisMetrics::max_network_receive_bytes_rate.set_value(max_receive);
+            // update lst map
+            DorisMetrics::system_metrics()->get_network_traffic(&lst_net_send_bytes, &lst_net_receive_bytes);
         }
 
         sleep(15); // 15 seconds

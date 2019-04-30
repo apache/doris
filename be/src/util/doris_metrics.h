@@ -123,6 +123,9 @@ public:
     // by metric calculator
     static IntGauge push_request_write_bytes_per_second;
     static IntGauge query_scan_bytes_per_second;
+    static IntGauge max_disk_io_util_percent;
+    static IntGauge max_network_send_bytes_rate;
+    static IntGauge max_network_receive_bytes_rate;
 
     ~DorisMetrics();
     // call before calling metrics
@@ -135,6 +138,7 @@ public:
 
     static DorisMetrics* instance() { return &_s_doris_metrics; }
     static MetricRegistry* metrics() { return _s_doris_metrics._metrics; }
+    static SystemMetrics* system_metrics() { return _s_doris_metrics._system_metrics; }
 private:
     // Don't allow constrctor
     DorisMetrics();

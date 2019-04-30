@@ -35,8 +35,6 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.LogBuilder;
-import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.load.Load;
@@ -168,10 +166,15 @@ public class GlobalTransactionMgr {
             unprotectUpsertTransactionState(transactionState);
 
             if (MetricRepo.isInit.get()) {
-                MetricRepo.COUNTER_TXN_SUCCESS.increase(1L);
+                MetricRepo.COUNTER_TXN_BEGIN.increase(1L);
             }
 
             return tid;
+        } catch (Exception e) {
+            if (MetricRepo.isInit.get()) {
+                MetricRepo.COUNTER_TXN_REJECT.increase(1L);
+            }
+            throw e;
         } finally {
             writeUnlock();
         }

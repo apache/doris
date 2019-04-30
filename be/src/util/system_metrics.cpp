@@ -435,4 +435,64 @@ void SystemMetrics::_update_fd_metrics() {
     fclose(fp);
 }
 
+int64_t SystemMetrics::get_max_io_util(
+        const std::map<std::string, int64_t>& lst_value, int64_t interval_sec) {
+    int64_t max = 0;
+    for (auto& it : _disk_metrics) {
+        int64_t cur = it.second->io_time_ms.value();
+        const auto find = lst_value.find(it.first);
+        if (find == lst_value.end()) {
+            continue;
+        }
+        int64_t incr = cur - find->second;
+        if (incr > max) max = incr;
+    }
+    return max / interval_sec / 10;
 }
+
+void SystemMetrics::get_disks_io_time(std::map<std::string, int64_t>* map) {
+    map->clear();
+    for (auto& it : _disk_metrics) {
+        map->emplace(it.first, it.second->io_time_ms.value());
+    }
+}
+
+void SystemMetrics::get_network_traffic(
+            std::map<std::string, int64_t>* send_map,
+            std::map<std::string, int64_t>* rcv_map) {
+    send_map->clear();
+    rcv_map->clear();
+    for (auto& it : _net_metrics) {
+        if (it.first == "lo") { continue; }
+        send_map->emplace(it.first, it.second->send_bytes.value());
+        rcv_map->emplace(it.first, it.second->receive_bytes.value());
+    }
+}
+
+void SystemMetrics::get_max_net_traffic(
+            const std::map<std::string, int64_t>& lst_send_map,
+            const std::map<std::string, int64_t>& lst_rcv_map,
+            int64_t interval_sec,
+            int64_t* send_rate, int64_t* rcv_rate) {
+    int64_t max_send = 0;
+    int64_t max_rcv = 0;
+    for (auto& it : _net_metrics) {
+        int64_t cur_send = it.second->send_bytes.value();
+        int64_t cur_rcv = it.second->receive_bytes.value();
+
+        const auto find_send = lst_send_map.find(it.first);
+        if (find_send != lst_send_map.end()) {
+            int64_t incr = cur_send - find_send->second;
+            if (incr > max_send) max_send = incr;
+        }
+        const auto find_rcv= lst_rcv_map.find(it.first);
+        if (find_rcv != lst_rcv_map.end()) {
+            int64_t incr = cur_rcv - find_rcv->second;
+            if (incr > max_rcv) max_rcv = incr;
+        }
+    }
+
+    *send_rate = max_send / interval_sec;
+    *rcv_rate = max_rcv / interval_sec;
+}
+} // end namespace
