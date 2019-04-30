@@ -61,7 +61,7 @@ public class LoadManager {
             if (stmt.getBrokerDesc() == null) {
                 throw new DdlException("LoadManager only support the broker load.");
             }
-            BrokerLoadJob brokerLoadJob = BrokerLoadJob.fromLoadStmt(stmt);
+            BrokerLoadJob brokerLoadJob = BrokerLoadJob.fromLoadStmt(stmt, this);
             addLoadJob(brokerLoadJob);
         } finally {
             writeUnlock();

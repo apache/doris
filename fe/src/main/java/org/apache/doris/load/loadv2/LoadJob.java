@@ -91,11 +91,12 @@ public abstract class LoadJob implements LoadTaskCallback, TxnStateChangeCallbac
     protected List<TabletCommitInfo> commitInfos = Lists.newArrayList();
 
     protected ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
-    protected LoadManager loadManager = Catalog.getCurrentCatalog().getLoadManager();
+    protected LoadManager loadManager;
 
-    public LoadJob(long dbId, String label) {
+    public LoadJob(long dbId, String label, LoadManager loadManager) {
         this.dbId = dbId;
         this.label = label;
+        this.loadManager = loadManager;
     }
 
     protected void readLock() {

@@ -60,23 +60,23 @@ public class BrokerLoadJob extends LoadJob {
     // it will be set to true when pending task finished
     private boolean isLoading = false;
 
-    public BrokerLoadJob(long dbId, String label, BrokerDesc brokerDesc) {
-        super(dbId, label);
+    public BrokerLoadJob(long dbId, String label, BrokerDesc brokerDesc, LoadManager loadManager) {
+        super(dbId, label, loadManager);
         this.timeoutSecond = Config.pull_load_task_default_timeout_second;
         this.brokerDesc = brokerDesc;
     }
 
-    public static BrokerLoadJob fromLoadStmt(LoadStmt stmt) throws DdlException {
+    public static BrokerLoadJob fromLoadStmt(LoadStmt stmt, LoadManager loadManager) throws DdlException {
         // get db id
         String dbName = stmt.getLabel().getDbName();
-        Database db = Catalog.getInstance().getDb(stmt.getLabel().getDbName());
+        Database db = Catalog.getCurrentCatalog().getDb(stmt.getLabel().getDbName());
         if (db == null) {
             throw new DdlException("Database[" + dbName + "] does not exist");
         }
 
         // create job
         BrokerLoadJob brokerLoadJob = new BrokerLoadJob(db.getId(), stmt.getLabel().getLabelName(),
-                                                        stmt.getBrokerDesc());
+                                                        stmt.getBrokerDesc(), loadManager);
         brokerLoadJob.setJobProperties(stmt.getProperties());
         brokerLoadJob.checkDataSourceInfo(db, stmt.getDataDescriptions());
         brokerLoadJob.setDataSourceInfo(db, stmt.getDataDescriptions());
@@ -142,7 +142,7 @@ public class BrokerLoadJob extends LoadJob {
 
         Database db = null;
         try {
-            getDb();
+            db = getDb();
         } catch (MetaNotFoundException e) {
             LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
                              .add("database_id", dbId)
@@ -212,7 +212,7 @@ public class BrokerLoadJob extends LoadJob {
 
         Database db = null;
         try {
-            getDb();
+            db = getDb();
         } catch (MetaNotFoundException e) {
             LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
                              .add("database_id", dbId)
