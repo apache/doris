@@ -116,13 +116,7 @@ public:
 
         bool lhs_null = lhs->is_null(_slot_desc->null_indicator_offset());
         bool rhs_null = rhs->is_null(_slot_desc->null_indicator_offset());
-        if (lhs_null && rhs_null) {
-            return false;
-        } else if (lhs_null) {
-            return true;
-        } else if (rhs_null) {
-            return false;
-        }
+        if (lhs_null || rhs_null) { return !rhs_null; }
 
         auto lhs_value = lhs->get_slot(_slot_desc->tuple_offset());
         auto rhs_value = rhs->get_slot(_slot_desc->tuple_offset());
