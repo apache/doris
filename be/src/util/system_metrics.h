@@ -41,13 +41,13 @@ public:
     // update metrics
     void update();
 
-    void get_disks_io_time(std::map<std::string, int64_t>& map);
+    void get_disks_io_time(std::map<std::string, int64_t>* map);
     int64_t get_max_io_util(
         const std::map<std::string, int64_t>& lst_value, int64_t interval_sec);
 
     void get_network_traffic(
-            std::map<std::string, int64_t>& send_map,
-            std::map<std::string, int64_t>& rcv_map);
+            std::map<std::string, int64_t>* send_map,
+            std::map<std::string, int64_t>* rcv_map);
     void get_max_net_traffic(
             const std::map<std::string, int64_t>& lst_send_map,
             const std::map<std::string, int64_t>& lst_rcv_map,

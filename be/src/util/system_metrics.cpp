@@ -450,22 +450,22 @@ int64_t SystemMetrics::get_max_io_util(
     return max / interval_sec / 10;
 }
 
-void SystemMetrics::get_disks_io_time(std::map<std::string, int64_t>& map) {
-    map.clear();
+void SystemMetrics::get_disks_io_time(std::map<std::string, int64_t>* map) {
+    map->clear();
     for (auto& it : _disk_metrics) {
-        map.emplace(it.first, it.second->io_time_ms.value());
+        map->emplace(it.first, it.second->io_time_ms.value());
     }
 }
 
 void SystemMetrics::get_network_traffic(
-            std::map<std::string, int64_t>& send_map,
-            std::map<std::string, int64_t>& rcv_map) {
-    send_map.clear();
-    rcv_map.clear();
+            std::map<std::string, int64_t>* send_map,
+            std::map<std::string, int64_t>* rcv_map) {
+    send_map->clear();
+    rcv_map->clear();
     for (auto& it : _net_metrics) {
         if (it.first == "lo") { continue; }
-        send_map.emplace(it.first, it.second->send_bytes.value());
-        rcv_map.emplace(it.first, it.second->receive_bytes.value());
+        send_map->emplace(it.first, it.second->send_bytes.value());
+        rcv_map->emplace(it.first, it.second->receive_bytes.value());
     }
 }
 
