@@ -480,12 +480,12 @@ void SystemMetrics::get_max_net_traffic(
         int64_t cur_send = it.second->send_bytes.value();
         int64_t cur_rcv = it.second->receive_bytes.value();
 
-        const auto& find_send = lst_send_map.find(it.first);
+        const auto find_send = lst_send_map.find(it.first);
         if (find_send != lst_send_map.end()) {
             int64_t incr = cur_send - find_send->second;
             if (incr > max_send) max_send = incr;
         }
-        const auto& find_rcv= lst_rcv_map.find(it.first);
+        const auto find_rcv= lst_rcv_map.find(it.first);
         if (find_rcv != lst_rcv_map.end()) {
             int64_t incr = cur_rcv - find_rcv->second;
             if (incr > max_rcv) max_rcv = incr;
