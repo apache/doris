@@ -56,8 +56,7 @@ import java.util.UUID;
 public class LoadingTaskPlanner {
     private static final Logger LOG = LogManager.getLogger(LoadingTaskPlanner.class);
 
-    // Input param
-    private final long jobId;
+    // Input params
     private final long txnId;
     private final long dbId;
     private final OlapTable table;
@@ -68,15 +67,14 @@ public class LoadingTaskPlanner {
     private Analyzer analyzer = new Analyzer(Catalog.getInstance(), null);
     private DescriptorTable descTable = analyzer.getDescTbl();
 
-    // Output param
+    // Output params
     private List<PlanFragment> fragments = Lists.newArrayList();
     private List<ScanNode> scanNodes = Lists.newArrayList();
 
     private int nextNodeId = 0;
 
-    public LoadingTaskPlanner(long jobId, long txnId, long dbId, OlapTable table,
+    public LoadingTaskPlanner(long txnId, long dbId, OlapTable table,
                               BrokerDesc brokerDesc, List<BrokerFileGroup> brokerFileGroups) {
-        this.jobId = jobId;
         this.txnId = txnId;
         this.dbId = dbId;
         this.table = table;
@@ -85,8 +83,6 @@ public class LoadingTaskPlanner {
     }
 
     public void plan(List<List<TBrokerFileStatus>> fileStatusesList, int filesAdded) throws UserException {
-        // Tuple descriptor used for all nodes in plan.
-
         // Generate tuple descriptor
         List<Expr> slotRefs = Lists.newArrayList();
         TupleDescriptor tupleDesc = descTable.createTupleDescriptor();
@@ -102,8 +98,8 @@ public class LoadingTaskPlanner {
             slotRefs.add(new SlotRef(slotDesc));
         }
 
-        // Generate plan tree
-        // 1. first Scan node
+        // Generate plan trees
+        // 1. Broker scan node
         BrokerScanNode scanNode = new BrokerScanNode(new PlanNodeId(nextNodeId++), tupleDesc, "BrokerScanNode",
                                                      fileStatusesList, filesAdded);
         scanNode.setLoadInfo(table, brokerDesc, fileGroups);
@@ -118,12 +114,13 @@ public class LoadingTaskPlanner {
         olapTableSink.init(loadId, txnId, dbId);
         olapTableSink.finalize();
 
+        // 3. Plan fragment
         PlanFragment sinkFragment = new PlanFragment(new PlanFragmentId(0), scanNode, DataPartition.RANDOM);
         sinkFragment.setSink(olapTableSink);
 
         fragments.add(sinkFragment);
 
-        // Get partition
+        // 4. finalize
         for (PlanFragment fragment : fragments) {
             try {
                 fragment.finalize(analyzer, false);

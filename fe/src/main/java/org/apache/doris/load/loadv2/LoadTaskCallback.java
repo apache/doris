@@ -23,11 +23,7 @@ package org.apache.doris.load.loadv2;
 public interface LoadTaskCallback {
     long getCallbackId();
 
-    void onPendingTaskFinished(LoadPendingTaskAttachment attachment);
+    void onTaskFinished(TaskAttachment attachment);
 
-    void onPendingTaskFailed(String errMsg);
-
-    void onLoadingTaskFinished(LoadLoadingTaskAttachment attachment);
-
-    void onLoadingTaskFailed(String errMsg);
+    void onTaskFailed(String errMsg);
 }

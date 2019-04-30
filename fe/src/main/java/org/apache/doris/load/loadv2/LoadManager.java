@@ -25,37 +25,59 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.task.MasterTaskExecutor;
 
 import com.google.common.collect.Maps;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
-/*
-This class contains all of broker and mini load job(v2).
+/**
+ * The broker and mini load jobs(v2) are included in this class.
  */
 public class LoadManager {
     private Map<Long, LoadJob> idToLoadJob = Maps.newConcurrentMap();
-    private MasterTaskExecutor pendingTaskExecutor =
-            new MasterTaskExecutor(Config.load_pending_thread_num_high_priority);
-    private MasterTaskExecutor loadingTaskExecutor = new MasterTaskExecutor(10);
+    private Map<Long, Map<String, List<LoadJob>>> dbIdToLabelToLoadJobs = Maps.newConcurrentMap();
+    private MasterTaskExecutor taskExecutor = new MasterTaskExecutor(10);
 
     private ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
-    /*
-    Only broker stmt will call this method now.
+    /**
+     * This method will be invoked by the broker load(v2) now.
+     * @param stmt
+     * @throws DdlException
      */
-    public void createLoadJob(LoadStmt stmt) throws DdlException {
-        checkDb(stmt.getLabel().getDbName());
-        if (stmt.getBrokerDesc() != null) {
+    public void createLoadJobFromStmt(LoadStmt stmt) throws DdlException {
+        Database database = checkDb(stmt.getLabel().getDbName());
+        long dbId = database.getId();
+        writeLock();
+        try {
+            isLabelUsed(dbId, stmt.getLabel().getLabelName());
+            if (stmt.getBrokerDesc() == null) {
+                throw new DdlException("LoadManager only support the broker load.");
+            }
             BrokerLoadJob brokerLoadJob = BrokerLoadJob.fromLoadStmt(stmt);
-            idToLoadJob.put(brokerLoadJob.getId(), brokerLoadJob);
-        } else {
-            throw new DdlException("LoadManager only support the broker load.");
+            addLoadJob(brokerLoadJob);
+        } finally {
+            writeUnlock();
         }
+    }
+
+    private void addLoadJob(LoadJob loadJob) {
+        idToLoadJob.put(loadJob.getId(), loadJob);
+        long dbId = loadJob.getDbId();
+        if (!dbIdToLabelToLoadJobs.containsKey(dbId)) {
+            dbIdToLabelToLoadJobs.put(loadJob.getDbId(), new ConcurrentHashMap<>());
+        }
+        if (!dbIdToLabelToLoadJobs.get(dbId).containsKey(loadJob.getLabel())) {
+            dbIdToLabelToLoadJobs.get(dbId).put(loadJob.getLabel(), new ArrayList<>());
+        }
+        dbIdToLabelToLoadJobs.get(dbId).get(loadJob.getLabel()).add(loadJob);
     }
 
     public List<LoadJob> getLoadJobByState(JobState jobState) {
@@ -64,26 +86,41 @@ public class LoadManager {
                 .collect(Collectors.toList());
     }
 
-    public List<LoadJob> getNeedScheduleJobs() {
-        return getLoadJobByState(JobState.PENDING).stream()
-                .filter(entity -> !entity.hasPendingTask())
-                .collect(Collectors.toList());
-    }
-
-    private void checkDb(String dbName) throws DdlException {
+    private Database checkDb(String dbName) throws DdlException {
         // get db
         Database db = Catalog.getInstance().getDb(dbName);
         if (db == null) {
             throw new DdlException("Database[" + dbName + "] does not exist");
         }
+        return db;
     }
 
-    public void submitPendingTask(LoadPendingTask loadPendingTask) {
-        pendingTaskExecutor.submit(loadPendingTask);
+    /**
+     * step1: if label has been used in old load jobs which belong to load class
+     * step2: if label has been used in v2 load jobs
+     *
+     * @param dbId
+     * @param label
+     * @throws DdlException throw exception when label has been used by an unfinished job.
+     */
+    private void isLabelUsed(long dbId, String label)
+            throws DdlException {
+        // if label has been used in old load jobs
+        Catalog.getCurrentCatalog().getLoadInstance().isLabelUsed(dbId, label);
+        // if label has been used in v2 of load jobs
+        if (dbIdToLabelToLoadJobs.containsKey(dbId)) {
+            Map<String, List<LoadJob>> labelToLoadJobs = dbIdToLabelToLoadJobs.get(dbId);
+            if (labelToLoadJobs.containsKey(label)) {
+                List<LoadJob> labelLoadJobs = labelToLoadJobs.get(label);
+                if (labelLoadJobs.stream().filter(entity -> !entity.isFinished()).count() != 0) {
+                    throw new LabelAlreadyUsedException(label);
+                }
+            }
+        }
     }
 
-    public void submitLoadingTask(LoadLoadingTask loadLoadingTask) {
-        loadingTaskExecutor.submit(loadLoadingTask);
+    public void submitTask(LoadTask loadTask) {
+        taskExecutor.submit(loadTask);
     }
 
     private void readLock() {

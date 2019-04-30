@@ -28,31 +28,47 @@ import org.apache.doris.task.MasterTask;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 
-public abstract class LoadPendingTask extends MasterTask {
+public abstract class LoadTask extends MasterTask {
 
-    private static final Logger LOG = LogManager.getLogger(LoadPendingTask.class);
+    private static final Logger LOG = LogManager.getLogger(LoadTask.class);
 
-    protected LoadTaskCallback loadTaskCallback;
-    protected LoadPendingTaskAttachment attachment;
+    protected LoadTaskCallback callback;
+    protected TaskAttachment attachment;
+    protected boolean isFinished = false;
 
-    public LoadPendingTask(LoadTaskCallback loadTaskCallback) {
-        this.loadTaskCallback = loadTaskCallback;
+    public LoadTask(LoadTaskCallback callback) {
+        this.callback = callback;
     }
 
     @Override
     protected void exec() {
+        Exception exception = null;
         try {
             // execute pending task
             executeTask();
+            isFinished = true;
             // callback on pending task finished
-            loadTaskCallback.onPendingTaskFinished(attachment);
+            callback.onTaskFinished(attachment);
         } catch (Exception e) {
-            LOG.warn(new LogBuilder(LogKey.LOAD_JOB, loadTaskCallback.getCallbackId())
-                             .add("error_msg", "Failed to execute load pending task").build(), e);
-            // callback on pending task failed
-            loadTaskCallback.onPendingTaskFailed(e.getMessage());
+            exception = e;
+            LOG.warn(new LogBuilder(LogKey.LOAD_JOB, callback.getCallbackId())
+                             .add("error_msg", "Failed to execute load task").build(), e);
+        } finally {
+            if (!isFinished) {
+                // callback on pending task failed
+                callback.onTaskFailed(exception.getMessage());
+            }
         }
     }
 
+    public boolean isFinished() {
+        return isFinished;
+    }
+
+    /**
+     * execute load task
+     *
+     * @throws UserException task is failed
+     */
     abstract void executeTask() throws UserException;
 }

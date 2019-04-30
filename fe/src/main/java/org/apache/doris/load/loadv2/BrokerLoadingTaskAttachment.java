@@ -25,16 +25,14 @@ import org.apache.doris.transaction.TabletCommitInfo;
 import java.util.List;
 import java.util.Map;
 
-public class BrokerLoadingTaskAttachment implements LoadLoadingTaskAttachment {
+public class BrokerLoadingTaskAttachment implements TaskAttachment{
 
-    private Map<String, Long> fileMap;
     private Map<String, String> counters;
     private String trackingUrl;
     private List<TabletCommitInfo> commitInfoList;
 
-    public BrokerLoadingTaskAttachment(Map<String, Long> fileMap, Map<String, String> counters, String trackingUrl,
+    public BrokerLoadingTaskAttachment(Map<String, String> counters, String trackingUrl,
                                        List<TabletCommitInfo> commitInfoList) {
-        this.fileMap = fileMap;
         this.trackingUrl = trackingUrl;
         this.counters = counters;
         this.commitInfoList = commitInfoList;
@@ -46,10 +44,6 @@ public class BrokerLoadingTaskAttachment implements LoadLoadingTaskAttachment {
 
     public String getTrackingUrl() {
         return trackingUrl;
-    }
-
-    public Map<String, Long> getFileMap() {
-        return fileMap;
     }
 
     public List<TabletCommitInfo> getCommitInfoList() {

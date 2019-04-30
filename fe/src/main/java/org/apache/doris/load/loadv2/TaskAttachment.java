@@ -20,5 +20,5 @@
 
 package org.apache.doris.load.loadv2;
 
-public interface LoadLoadingTaskAttachment {
+public interface TaskAttachment {
 }

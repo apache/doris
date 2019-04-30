@@ -36,7 +36,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.List;
 import java.util.Map;
 
-public class BrokerLoadPendingTask extends LoadPendingTask {
+public class BrokerLoadPendingTask extends LoadTask {
 
     private static final Logger LOG = LogManager.getLogger(BrokerLoadPendingTask.class);
 
@@ -47,9 +47,9 @@ public class BrokerLoadPendingTask extends LoadPendingTask {
                                  Map<Long, List<BrokerFileGroup>> tableToBrokerFileList,
                                  BrokerDesc brokerDesc) {
         super(loadTaskCallback);
+        this.attachment = new BrokerPendingTaskAttachment();
         this.tableToBrokerFileList = tableToBrokerFileList;
         this.brokerDesc = brokerDesc;
-        this.attachment = new BrokerPendingTaskAttachment();
     }
 
     @Override
@@ -72,7 +72,7 @@ public class BrokerLoadPendingTask extends LoadPendingTask {
                 fileStatusList.add(fileStatuses);
                 for (TBrokerFileStatus fstatus : fileStatuses) {
                     if (LOG.isDebugEnabled()) {
-                        LOG.debug(new LogBuilder(LogKey.LOAD_JOB, loadTaskCallback.getCallbackId())
+                        LOG.debug(new LogBuilder(LogKey.LOAD_JOB, callback.getCallbackId())
                                           .add("file_status", fstatus)
                                           .build());
                     }

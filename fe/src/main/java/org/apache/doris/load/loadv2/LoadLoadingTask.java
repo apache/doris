@@ -46,7 +46,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-public class LoadLoadingTask extends MasterTask {
+public class LoadLoadingTask extends LoadTask {
     private static final Logger LOG = LogManager.getLogger(LoadLoadingTask.class);
 
     private final Database db;
@@ -56,18 +56,15 @@ public class LoadLoadingTask extends MasterTask {
     private final long jobDeadlineMs;
     private final long execMemLimit;
     private final long txnId;
-    private final LoadTaskCallback callback;
-    private boolean isFinished = false;
 
     private LoadingTaskPlanner planner;
 
-    private LoadLoadingTaskAttachment attachment;
     private String errMsg;
 
     public LoadLoadingTask(Database db, OlapTable table,
                            BrokerDesc brokerDesc, List<BrokerFileGroup> fileGroups,
                            long jobDeadlineMs, long execMemLimit, long txnId, LoadTaskCallback callback) {
-        this.signature = Catalog.getInstance().getNextId();
+        super(callback);
         this.db = db;
         this.table = table;
         this.brokerDesc = brokerDesc;
@@ -75,29 +72,23 @@ public class LoadLoadingTask extends MasterTask {
         this.jobDeadlineMs = jobDeadlineMs;
         this.execMemLimit = execMemLimit;
         this.txnId = txnId;
-        this.callback = callback;
     }
 
     public void init(List<List<TBrokerFileStatus>> fileStatusList, int fileNum) throws UserException {
-        planner = new LoadingTaskPlanner(callback.getCallbackId(), txnId, db.getId(), table, brokerDesc, fileGroups);
+        planner = new LoadingTaskPlanner(txnId, db.getId(), table, brokerDesc, fileGroups);
         planner.plan(fileStatusList, fileNum);
     }
 
-    public boolean isFinished() {
-        return isFinished;
-    }
-
     @Override
-    protected void exec() {
+    protected void executeTask() throws UserException {
         int retryTime = 3;
         for (int i = 0; i < retryTime; ++i) {
             isFinished = executeOnce();
             if (isFinished) {
-                callback.onLoadingTaskFinished(attachment);
                 return;
             }
         }
-        callback.onLoadingTaskFailed(errMsg);
+        throw new UserException(errMsg);
     }
 
     private boolean executeOnce() {
@@ -115,8 +106,7 @@ public class LoadLoadingTask extends MasterTask {
                     .registerQuery(executeId, curCoordinator);
             return actualExecute(curCoordinator);
         } catch (UserException e) {
-            LOG.warn(new LogBuilder(LogKey.LOAD_TASK, signature)
-                             .add(LogKey.LOAD_JOB.name(), callback.getCallbackId())
+            LOG.warn(new LogBuilder(LogKey.LOAD_JOB, callback.getCallbackId())
                              .add("error_msg", "failed to execute loading task")
                              .build(), e);
             errMsg = e.getMessage();
@@ -136,18 +126,16 @@ public class LoadLoadingTask extends MasterTask {
         try {
             curCoordinator.exec();
         } catch (Exception e) {
-            errMsg = "Coordinator execute failed with error " + e.getMessage();
+            LOG.warn(new LogBuilder(LogKey.LOAD_JOB, callback.getCallbackId())
+                             .add("error_msg", "coordinator execute failed")
+                             .build(), e);
+            errMsg = "coordinator execute failed with error " + e.getMessage();
             return false;
         }
         if (curCoordinator.join(waitSecond)) {
             Status status = curCoordinator.getExecStatus();
             if (status.ok()) {
-                Map<String, Long> resultFileMap = Maps.newHashMap();
-                for (String file : curCoordinator.getDeltaUrls()) {
-                    resultFileMap.put(file, -1L);
-                }
-                attachment = new BrokerLoadingTaskAttachment(resultFileMap,
-                                                             curCoordinator.getLoadCounters(),
+                attachment = new BrokerLoadingTaskAttachment(curCoordinator.getLoadCounters(),
                                                              curCoordinator.getTrackingUrl(),
                                                              TabletCommitInfo.fromThrift(curCoordinator.getCommitInfos()));
                 return true;
@@ -156,7 +144,7 @@ public class LoadLoadingTask extends MasterTask {
                 return false;
             }
         } else {
-            errMsg = "Coordinator could not finished before job timeout";
+            errMsg = "coordinator could not finished before job timeout";
             return false;
         }
     }

@@ -27,7 +27,7 @@ import com.google.common.collect.Maps;
 import java.util.List;
 import java.util.Map;
 
-public class BrokerPendingTaskAttachment implements LoadPendingTaskAttachment {
+public class BrokerPendingTaskAttachment implements TaskAttachment {
 
     // table id -> file status
     private Map<Long, List<List<TBrokerFileStatus>>> fileStatusMap = Maps.newHashMap();

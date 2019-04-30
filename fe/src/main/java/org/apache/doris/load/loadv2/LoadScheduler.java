@@ -21,6 +21,7 @@
 package org.apache.doris.load.loadv2;
 
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.util.Daemon;
 import org.apache.doris.common.util.LogBuilder;
@@ -33,11 +34,10 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 
-/*
-LoadScheduler will schedule the pending LoadJob which belongs to LoadManager.
-Every pending job will be allocated one pending task.
-The pre-loading checking will be executed by pending task.
-If there is a pending task belong to pending job, job will not be rescheduled.
+/**
+ * LoadScheduler will schedule the pending LoadJob which belongs to LoadManager.
+ * The function of scheduleJob, which is used to submit tasks, will be called in LoadScheduler.
+ * The status of LoadJob will be changed to loading after LoadScheduler.
  */
 public class LoadScheduler extends Daemon {
 
@@ -46,7 +46,7 @@ public class LoadScheduler extends Daemon {
     private LoadManager loadManager;
 
     public LoadScheduler(LoadManager loadManager) {
-        super();
+        super("Load scheduler", Config.load_checker_interval_second * 1000L);
         this.loadManager = loadManager;
     }
 
@@ -61,7 +61,7 @@ public class LoadScheduler extends Daemon {
 
     private void process() {
         // fetch all of pending job without pending task in loadManager
-        List<LoadJob> loadJobList = loadManager.getNeedScheduleJobs();
+        List<LoadJob> loadJobList = loadManager.getLoadJobByState(JobState.PENDING);
 
         // the limit of job will be restrict when begin txn
 
@@ -83,8 +83,8 @@ public class LoadScheduler extends Daemon {
                                  .build(), e);
                 continue;
             }
-            // divide job into pending task and add it to pool
-            loadJob.divideToPendingTask();
+            // schedule job
+            loadJob.scheduleJob();
         }
     }
 }

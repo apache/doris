@@ -36,7 +36,6 @@ import org.apache.doris.common.util.LogKey;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.PullLoadSourceInfo;
-import org.apache.doris.thrift.TEtlState;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -70,35 +69,48 @@ public class BrokerLoadJob extends LoadJob {
         BrokerLoadJob brokerLoadJob = new BrokerLoadJob(db.getId(), stmt.getLabel().getLabelName(),
                                                         stmt.getBrokerDesc());
         brokerLoadJob.setJobProperties(stmt.getProperties());
-        brokerLoadJob.setLoadInfo(db, stmt.getDataDescriptions());
+        brokerLoadJob.checkDataSourceInfo(db, stmt.getDataDescriptions());
         brokerLoadJob.setDataSourceInfo(db, stmt.getDataDescriptions());
         return brokerLoadJob;
     }
 
     private void setDataSourceInfo(Database db, List<DataDescription> dataDescriptions) throws DdlException {
         for (DataDescription dataDescription : dataDescriptions) {
-            BrokerFileGroup fileGroup = new BrokerFileGroup(dataDescription, brokerDesc);
+            BrokerFileGroup fileGroup = new BrokerFileGroup(dataDescription);
             fileGroup.parse(db);
             dataSourceInfo.addFileGroup(fileGroup);
         }
-        LOG.info("Source info is {}", dataSourceInfo);
     }
 
     @Override
-    public void createPendingTask() {
-        loadPendingTask = new BrokerLoadPendingTask(this, dataSourceInfo.getIdToFileGroups(), brokerDesc);
+    public void executeScheduleJob() {
+        LoadTask task = new BrokerLoadPendingTask(this, dataSourceInfo.getIdToFileGroups(), brokerDesc);
+        tasks.add(task);
+        Catalog.getCurrentCatalog().getLoadManager().submitTask(task);
+    }
+
+    @Override
+    public void onTaskFinished(TaskAttachment attachment) {
+        if (attachment instanceof BrokerPendingTaskAttachment) {
+            onPendingTaskFinished((BrokerPendingTaskAttachment) attachment);
+        } else if (attachment instanceof BrokerLoadingTaskAttachment) {
+            onLoadingTaskFinished((BrokerLoadingTaskAttachment) attachment);
+        }
+    }
+
+    @Override
+    public void onTaskFailed(String errMsg) {
+        updateState(JobState.CANCELLED, FailMsg.CancelType.LOAD_RUN_FAIL, errMsg);
     }
 
     /**
-     * divide job into loading task and init the plan of task
-     * submit tasks into loadingTaskExecutor in LoadManager
-     *
-     * @param attachment
+     * step1: divide job into loading task
+     * step2: init the plan of task
+     * step3: submit tasks into loadingTaskExecutor
+     * @param attachment BrokerPendingTaskAttachment
      */
-    @Override
-    public void onPendingTaskFinished(LoadPendingTaskAttachment attachment) {
+    public void onPendingTaskFinished(BrokerPendingTaskAttachment attachment) {
         // TODO(ml): check if task has been cancelled
-        BrokerPendingTaskAttachment brokerPendingTaskAttachment = (BrokerPendingTaskAttachment) attachment;
         Database db = null;
         try {
             getDb();
@@ -114,7 +126,6 @@ public class BrokerLoadJob extends LoadJob {
         // divide job into broker loading task by table
         db.readLock();
         try {
-            // tableId -> BrokerFileGroups
             for (Map.Entry<Long, List<BrokerFileGroup>> entry :
                     dataSourceInfo.getIdToFileGroups().entrySet()) {
                 long tableId = entry.getKey();
@@ -130,14 +141,15 @@ public class BrokerLoadJob extends LoadJob {
                     return;
                 }
 
-                // Generate pull load task, one
+                // Generate loading task and init the plan of task
                 LoadLoadingTask task = new LoadLoadingTask(db, table, brokerDesc,
                                                            entry.getValue(), getDeadlineMs(), execMemLimit,
                                                            transactionId, this);
-                task.init(brokerPendingTaskAttachment.getFileStatusByTable(tableId),
-                          brokerPendingTaskAttachment.getFileNumByTable(tableId));
-                loadLoadingTaskList.add(task);
-                Catalog.getCurrentCatalog().getLoadManager().submitLoadingTask(task);
+                task.init(attachment.getFileStatusByTable(tableId),
+                          attachment.getFileNumByTable(tableId));
+                // Add tasks into list and pool
+                tasks.add(task);
+                Catalog.getCurrentCatalog().getLoadManager().submitTask(task);
             }
         } catch (UserException e) {
             updateState(JobState.CANCELLED, FailMsg.CancelType.ETL_RUN_FAIL, "failed to " + e.getMessage());
@@ -147,23 +159,16 @@ public class BrokerLoadJob extends LoadJob {
         loadStartTimestamp = System.currentTimeMillis();
     }
 
-    @Override
-    public void onPendingTaskFailed(String errMsg) {
-        // TODO(ml): check if task has been cancelled
-        updateState(JobState.CANCELLED, FailMsg.CancelType.ETL_RUN_FAIL, errMsg);
-    }
-
-    @Override
-    public void onLoadingTaskFinished(LoadLoadingTaskAttachment attachment) {
+    public void onLoadingTaskFinished(BrokerLoadingTaskAttachment attachment) {
         // TODO(ml): check if task has been cancelled
         boolean commitTxn = false;
         writeLock();
         try {
             // update loading status
-            unprotectedUpdateLoadingStatus((BrokerLoadingTaskAttachment) attachment);
+            updateLoadingStatus(attachment);
 
             // begin commit txn when all of loading tasks have been finished
-            if (loadLoadingTaskList.size() == loadLoadingTaskList.stream()
+            if (tasks.size() == tasks.stream()
                     .filter(entity -> entity.isFinished()).count()) {
                 // check data quality
                 if (!checkDataQuality()) {
@@ -198,37 +203,17 @@ public class BrokerLoadJob extends LoadJob {
         }
     }
 
-    @Override
-    public void onLoadingTaskFailed(String errMsg) {
-        // TODO(ml): check if task has been cancelled
-        writeLock();
-        try {
-            // clean the loadingStatus
-            loadingStatus.reset();
-            loadingStatus.setState(TEtlState.CANCELLED);
-            LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
-                             .add("error_msg", "Failed to execute load plan with error " + errMsg)
-                             .build());
-            // cancel the job
-            unprotectedUpdateState(JobState.CANCELLED, FailMsg.CancelType.ETL_RUN_FAIL, errMsg);
-            return;
-        } finally {
-            writeUnlock();
-        }
-    }
-
-    private void unprotectedUpdateLoadingStatus(BrokerLoadingTaskAttachment attachment) {
-        loadingStatus.updateCounter(DPP_ABNORMAL_ALL,
-                                    increaseCounter(DPP_ABNORMAL_ALL, attachment.getCounter(DPP_ABNORMAL_ALL)));
-        loadingStatus.updateCounter(DPP_NORMAL_ALL,
-                                    increaseCounter(DPP_NORMAL_ALL, attachment.getCounter(DPP_NORMAL_ALL)));
+    private void updateLoadingStatus(BrokerLoadingTaskAttachment attachment) {
+        loadingStatus.replaceCounter(DPP_ABNORMAL_ALL,
+                                     increaseCounter(DPP_ABNORMAL_ALL, attachment.getCounter(DPP_ABNORMAL_ALL)));
+        loadingStatus.replaceCounter(DPP_NORMAL_ALL,
+                                     increaseCounter(DPP_NORMAL_ALL, attachment.getCounter(DPP_NORMAL_ALL)));
         if (attachment.getTrackingUrl() != null) {
             loadingStatus.setTrackingUrl(attachment.getTrackingUrl());
         }
-        loadingStatus.addAllFileMap(attachment.getFileMap());
         commitInfos.addAll(attachment.getCommitInfoList());
-        int finishedLoadingTaskNum = (int) loadLoadingTaskList.stream().filter(entity -> entity.isFinished()).count();
-        progress = finishedLoadingTaskNum / loadLoadingTaskList.size() * 100;
+        int finishedTaskNum = (int) tasks.stream().filter(entity -> entity.isFinished()).count();
+        progress = finishedTaskNum / tasks.size() * 100;
         if (progress == 100) {
             progress = 99;
         }

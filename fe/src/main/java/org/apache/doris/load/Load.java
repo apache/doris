@@ -519,7 +519,7 @@ public class Load {
         Map<Long, Map<Long, List<Source>>> tableToPartitionSources = Maps.newHashMap();
         for (DataDescription dataDescription : dataDescriptions) {
             // create source
-            createSource(db, dataDescription, tableToPartitionSources, job.getDeleteFlag());
+            checkAndCreateSource(db, dataDescription, tableToPartitionSources, job.getDeleteFlag());
             job.addTableName(dataDescription.getTableName());
         }
         for (Entry<Long, Map<Long, List<Source>>> tableEntry : tableToPartitionSources.entrySet()) {
@@ -538,7 +538,7 @@ public class Load {
         if (etlJobType == EtlJobType.BROKER) {
             PullLoadSourceInfo sourceInfo = new PullLoadSourceInfo();
             for (DataDescription dataDescription : dataDescriptions) {
-                BrokerFileGroup fileGroup = new BrokerFileGroup(dataDescription, stmt.getBrokerDesc());
+                BrokerFileGroup fileGroup = new BrokerFileGroup(dataDescription);
                 fileGroup.parse(db);
                 sourceInfo.addFileGroup(fileGroup);
             }
@@ -646,8 +646,10 @@ public class Load {
         return job;
     }
 
-    private void createSource(Database db, DataDescription dataDescription,
-                              Map<Long, Map<Long, List<Source>>> tableToPartitionSources, boolean deleteFlag) throws DdlException {
+    public static void checkAndCreateSource(Database db, DataDescription dataDescription,
+                                            Map<Long, Map<Long, List<Source>>> tableToPartitionSources,
+                                            boolean deleteFlag)
+            throws DdlException {
         Source source = new Source(dataDescription.getFilePathes());
         long tableId = -1;
         Set<Long> sourcePartitionIds = Sets.newHashSet();
@@ -846,7 +848,7 @@ public class Load {
                 checkMini = false;
             }
 
-            isLabelUsed(dbId, label, -1, checkMini);
+            unprotectIsLabelUsed(dbId, label, -1, checkMini);
 
             // add job
             Map<String, List<LoadJob>> labelToLoadJobs = null;
@@ -976,7 +978,7 @@ public class Load {
         long dbId = db.getId();
         writeLock();
         try {
-            if (isLabelUsed(dbId, label, timestamp, true)) {
+            if (unprotectIsLabelUsed(dbId, label, timestamp, true)) {
                 // label is used and this is a retry request.
                 // no need to do further operation, just return.
                 return false;
@@ -1020,6 +1022,15 @@ public class Load {
         }
     }
 
+    public boolean isLabelUsed(long dbId, String label) throws DdlException {
+        readLock();
+        try {
+            return unprotectIsLabelUsed(dbId, label, -1, false);
+        } finally {
+            readUnlock();
+        }
+    }
+
     /*
      * 1. if label is already used, and this is not a retry request,
      *    throw exception ("Label already used")
@@ -1028,7 +1039,7 @@ public class Load {
      * 3. if label is not used, return false
      * 4. throw exception if encounter error.
      */
-    private boolean isLabelUsed(long dbId, String label, long timestamp, boolean checkMini)
+    private boolean unprotectIsLabelUsed(long dbId, String label, long timestamp, boolean checkMini)
             throws DdlException {
         // check dbLabelToLoadJobs
         if (dbLabelToLoadJobs.containsKey(dbId)) {
