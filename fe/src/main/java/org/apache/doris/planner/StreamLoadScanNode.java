@@ -189,6 +189,8 @@ public class StreamLoadScanNode extends ScanNode {
 
             // substitute SlotRef in filter expression
             Expr whereExpr = streamLoadTask.getWhereExpr();
+            // where expr must be rewrite first to transfer some predicates(eg: BetweenPredicate to BinaryPredicate)
+            whereExpr = analyzer.getExprRewriter().rewrite(whereExpr, analyzer);
 
             List<SlotRef> slots = Lists.newArrayList();
             whereExpr.collect(SlotRef.class, slots);

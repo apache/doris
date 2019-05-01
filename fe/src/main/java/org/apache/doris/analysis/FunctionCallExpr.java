@@ -493,16 +493,18 @@ public class FunctionCallExpr extends Expr {
             fn = getBuiltinFunction(analyzer, fnName.getFunction(), new Type[]{compatibleType},
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         } else {
-            if (!analyzer.isUDFAllowed()) {
-                throw new AnalysisException("Does not support non-builtin functions: " + fnName);
-            }
-            // now first find function in builtin functions
+            // now first find function in built-in functions
             if (Strings.isNullOrEmpty(fnName.getDb())) {
                 fn = getBuiltinFunction(analyzer, fnName.getFunction(), collectChildReturnTypes(),
                         Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
             }
 
+            // find user defined functions
             if (fn == null) {
+                if (!analyzer.isUDFAllowed()) {
+                    throw new AnalysisException("Does not support non-builtin functions: " + fnName);
+                }
+
                 String dbName = fnName.analyzeDb(analyzer);
                 if (!Strings.isNullOrEmpty(dbName)) {
                     // check operation privilege
