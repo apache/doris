@@ -29,7 +29,6 @@ import org.apache.doris.common.AnalysisException;
 
 import org.apache.commons.lang.time.DateFormatUtils;
 import org.apache.commons.lang.time.DateUtils;
-import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -71,7 +70,6 @@ public class FEFunctions {
     @FEFunction(name = "date_format", argTypes = { "DATETIME", "VARCHAR" }, returnType = "VARCHAR")
     public static StringLiteral dateFormat(LiteralExpr date, StringLiteral fmtLiteral) throws AnalysisException {
         String result = dateFormatUtils(new Date(getTime(date)), fmtLiteral.getStringValue());
-        LOG.log(Level.INFO, " date_format : " + new Date(getTime(date)));
         return new StringLiteral(result);
     }
 
