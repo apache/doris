@@ -29,7 +29,6 @@ import org.apache.doris.common.AnalysisException;
 
 import org.apache.commons.lang.time.DateFormatUtils;
 import org.apache.commons.lang.time.DateUtils;
-import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -41,8 +40,6 @@ import org.joda.time.format.DateTimeFormatterBuilder;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.Locale;
-
-import static java.util.Calendar.JANUARY;
 
 /**
  * compute functions in FE.
@@ -72,7 +69,6 @@ public class FEFunctions {
     @FEFunction(name = "date_format", argTypes = { "DATETIME", "VARCHAR" }, returnType = "VARCHAR")
     public static StringLiteral dateFormat(LiteralExpr date, StringLiteral fmtLiteral) throws AnalysisException {
         String result = dateFormatUtils(new Date(getTime(date)), fmtLiteral.getStringValue());
-        LOG.log(Level.INFO, "date_format : " + result);
         return new StringLiteral(result);
     }
 
@@ -131,7 +127,7 @@ public class FEFunctions {
 
     private static int calFirstWeekDay(int year, int firstWeekDay) {
         Calendar calendar = Calendar.getInstance();
-        calendar.set(year, JANUARY,1);
+        calendar.set(year, Calendar.JANUARY,1);
         int firstDay = 1;
         calendar.set(Calendar.DAY_OF_MONTH, firstDay);
         while (calendar.get(Calendar.DAY_OF_WEEK) != firstWeekDay) {
