@@ -29,6 +29,7 @@ import org.apache.doris.common.AnalysisException;
 
 import org.apache.commons.lang.time.DateFormatUtils;
 import org.apache.commons.lang.time.DateUtils;
+import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -37,6 +38,7 @@ import java.math.BigInteger;
 import java.text.ParseException;
 import org.joda.time.format.DateTimeFormatter;
 import org.joda.time.format.DateTimeFormatterBuilder;
+
 import java.util.Calendar;
 import java.util.Date;
 import java.util.Locale;
@@ -69,6 +71,7 @@ public class FEFunctions {
     @FEFunction(name = "date_format", argTypes = { "DATETIME", "VARCHAR" }, returnType = "VARCHAR")
     public static StringLiteral dateFormat(LiteralExpr date, StringLiteral fmtLiteral) throws AnalysisException {
         String result = dateFormatUtils(new Date(getTime(date)), fmtLiteral.getStringValue());
+        LOG.log(Level.INFO, " date_format : " + new Date(getTime(date)));
         return new StringLiteral(result);
     }
 
@@ -258,20 +261,24 @@ public class FEFunctions {
                         break;
                     case 'D': // %D Day of the month with English suffix (0th, 1st, 2nd, 3rd, …)
                         calendar.setTime(date);
-                        int _day = calendar.get(Calendar.DAY_OF_MONTH);
-                        switch (_day % 10) {
-                            case 1:
-                                formatterBuilder.appendLiteral(String.valueOf(_day) + "st");
-                                break;
-                            case 2:
-                                formatterBuilder.appendLiteral(String.valueOf(_day) + "nd");
-                                break;
-                            case 3:
-                                formatterBuilder.appendLiteral(String.valueOf(_day) + "rd");
-                                break;
-                            default:
-                                formatterBuilder.appendLiteral(String.valueOf(_day) + "th");
-                                break;
+                        int day = calendar.get(Calendar.DAY_OF_MONTH);
+                        if (day >= 10 && day <= 19) {
+                            formatterBuilder.appendLiteral(String.valueOf(day) + "th");
+                        } else {
+                            switch (day % 10) {
+                                case 1:
+                                    formatterBuilder.appendLiteral(String.valueOf(day) + "st");
+                                    break;
+                                case 2:
+                                    formatterBuilder.appendLiteral(String.valueOf(day) + "nd");
+                                    break;
+                                case 3:
+                                    formatterBuilder.appendLiteral(String.valueOf(day) + "rd");
+                                    break;
+                                default:
+                                    formatterBuilder.appendLiteral(String.valueOf(day) + "th");
+                                    break;
+                            }
                         }
                         break;
                     case 'U': // %U Week (00..53), where Sunday is the first day of the week
