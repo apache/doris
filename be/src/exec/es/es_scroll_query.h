@@ -15,9 +15,26 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime/kafka_consumer_pipe.h"
+#pragma once
+
+#include<string>
+#include<vector>
+
+#include "exec/es/es_predicate.h"
 
 namespace doris {
 
+class ESScrollQueryBuilder {
 
-} // end namespace doris
+public:
+    ESScrollQueryBuilder();
+    ~ESScrollQueryBuilder();
+    // build the query DSL for elasticsearch
+    static std::string build_next_scroll_body(const std::string& scroll_id, const std::string& scroll);
+    static std::string build_clear_scroll_body(const std::string& scroll_id);
+    // @note: predicates should processed before pass it to this method, 
+    // tie breaker for predicate wheather can push down es can reference the push-down filters
+    static std::string build(const std::map<std::string, std::string>& properties,
+                const std::vector<std::string>& fields, std::vector<EsPredicate*>& predicates);
+};
+}

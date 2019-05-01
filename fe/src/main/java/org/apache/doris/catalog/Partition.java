@@ -239,6 +239,10 @@ public class Partition extends MetaObject implements Writable {
         return dataSize;
     }
 
+    public boolean hasData() {
+        return !(visibleVersion == PARTITION_INIT_VERSION && visibleVersionHash == PARTITION_INIT_VERSION_HASH);
+    }
+
     public static Partition read(DataInput in) throws IOException {
         Partition partition = new Partition();
         partition.readFields(in);

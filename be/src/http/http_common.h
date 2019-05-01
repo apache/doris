@@ -21,13 +21,6 @@
 
 namespace doris {
 
-struct HttpAuthInfo {
-    std::string user;
-    std::string passwd;
-    std::string cluster;
-    std::string user_ip;
-};
-
 static const std::string HTTP_DB_KEY = "db";
 static const std::string HTTP_TABLE_KEY = "table";
 static const std::string HTTP_LABEL_KEY = "label";

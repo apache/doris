@@ -15,36 +15,36 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_RUNTIME_KAFKA_COMSUMER_PIPE_H
-#define DORIS_BE_SRC_RUNTIME_KAFKA_COMSUMER_PIPE_H
+#pragma once
 
-#include <stdint.h>
+#include <mutex>
+#include <condition_variable>
 
-#include <string>
-#include <map>
-#include <vector>
+namespace {
 
-#include "librdkafka/rdkafka.h"
+class Semaphore {
+    public:
+        explicit Semaphore(int count = 0) : _count(count) {
+        }
 
-#include "exec/file_reader.h"
-#include "http/message_body_sink.h"
+        void set_count(int count) { _count = count; }
 
-namespace doris {
+        void signal() {
+            std::unique_lock<std::mutex> lock(_mutex);
+            ++count_;
+            cv_.notify_one();
+        }
 
-class KafkaConsumerPipe : public MessageBodySink, public FileReader {
-public:
-    KafkaConsumerPipe();
-    ~KafkaConsumerPipe();
+        void wait() {
+            std::unique_lock<std::mutex> lock(_mutex);
+            cv_.wait(lock, [=] { return _count > 0; });
+            --_count;
+        }
 
-
-private:
-    // this is only for testing librdkafka.a
-    void test_kafka_lib() {
-        //rd_kafka_conf_t *conf = rd_kafka_conf_new();
-        //rd_kafka_topic_conf_t *topic_conf = rd_kafka_topic_conf_new();
-    }
+    private:
+        std::mutex _mutex;
+        std::condition_variable _cv;
+        int _count;
 };
 
-} // end namespace doris
-
-#endif // DORIS_BE_SRC_RUNTIME_KAFKA_COMSUMER_PIPE_H
+} // end namespace

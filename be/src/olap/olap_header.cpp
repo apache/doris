@@ -338,7 +338,7 @@ OLAPStatus OLAPHeader::add_pending_segment_group(
                     LOG(WARNING) << "pending segment_group already exists in header."
                         << "transaction_id:" << transaction_id
                         << ", pending_segment_group_id: " << pending_segment_group_id;
-                    return OLAP_ERR_HEADER_ADD_PENDING_DELTA;
+                    return OLAP_SUCCESS;
                 }
             }
         }

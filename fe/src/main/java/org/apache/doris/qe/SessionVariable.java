@@ -68,8 +68,12 @@ public class SessionVariable implements Serializable, Writable {
     public static final String DISABLE_STREAMING_PREAGGREGATIONS = "disable_streaming_preaggregations";
     public static final String DISABLE_COLOCATE_JOIN = "disable_colocate_join";
     public static final String PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM = "parallel_fragment_exec_instance_num";
+    public static final String ENABLE_INSERT_STRICT = "enable_insert_strict";
     public static final int MIN_EXEC_INSTANCE_NUM = 1;
     public static final int MAX_EXEC_INSTANCE_NUM = 32;
+    public static final String MT_DOP = "mt_dop";
+    // if set to true, some of stmt will be forwarded to master FE to get result
+    public static final String FORWARD_TO_MASTER = "forward_to_master";
 
     // max memory used on every backend.
     @VariableMgr.VarAttr(name = EXEC_MEM_LIMIT)
@@ -182,6 +186,12 @@ public class SessionVariable implements Serializable, Writable {
      */
     @VariableMgr.VarAttr(name = PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM)
     private int parallelExecInstanceNum = 1;
+
+    @VariableMgr.VarAttr(name = ENABLE_INSERT_STRICT)
+    private boolean enableInsertStrict = false;
+
+    @VariableMgr.VarAttr(name = FORWARD_TO_MASTER)
+    private boolean forwardToMaster = false;
 
     public long getMaxExecMemByte() {
         return maxExecMemByte;
@@ -428,8 +438,21 @@ public class SessionVariable implements Serializable, Writable {
             this.parallelExecInstanceNum = parallelExecInstanceNum;
         }
     }
+
+    public boolean getEnableInsertStrict() { return enableInsertStrict; }
+    public void setEnableInsertStrict(boolean enableInsertStrict) { this.enableInsertStrict = enableInsertStrict; }
+
     
    // Serialize to thrift object
+    public boolean getForwardToMaster() {
+        return forwardToMaster;
+    }
+
+    public void setForwardToMaster(boolean forwardToMaster) {
+        this.forwardToMaster = forwardToMaster;
+    }
+
+    // Serialize to thrift object
     TQueryOptions toThrift() {
         TQueryOptions tResult = new TQueryOptions();
         tResult.setMem_limit(maxExecMemByte);

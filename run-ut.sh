@@ -154,6 +154,9 @@ ${DORIS_TEST_BINARY_DIR}/util/string_util_test
 ## Running common Unittest
 ${DORIS_TEST_BINARY_DIR}/common/resource_tls_test
 
+## Running exprs unit test
+${DORIS_TEST_BINARY_DIR}/exprs/string_functions_test
+
 ## Running exec unit test
 ${DORIS_TEST_BINARY_DIR}/exec/plain_text_line_reader_uncompressed_test
 ${DORIS_TEST_BINARY_DIR}/exec/plain_text_line_reader_gzip_test
@@ -163,6 +166,10 @@ ${DORIS_TEST_BINARY_DIR}/exec/plain_text_line_reader_lzop_test
 ${DORIS_TEST_BINARY_DIR}/exec/broker_scanner_test
 ${DORIS_TEST_BINARY_DIR}/exec/broker_scan_node_test
 ${DORIS_TEST_BINARY_DIR}/exec/es_scan_node_test
+${DORIS_TEST_BINARY_DIR}/exec/es_http_scan_node_test
+${DORIS_TEST_BINARY_DIR}/exec/es_predicate_test
+${DORIS_TEST_BINARY_DIR}/exec/es_scan_reader_test
+${DORIS_TEST_BINARY_DIR}/exec/es_query_builder_test
 ${DORIS_TEST_BINARY_DIR}/exec/olap_table_info_test
 ${DORIS_TEST_BINARY_DIR}/exec/olap_table_sink_test
 
@@ -209,6 +216,10 @@ ${DORIS_TEST_BINARY_DIR}/olap/serialize_test
 ${DORIS_TEST_BINARY_DIR}/olap/olap_header_manager_test
 ${DORIS_TEST_BINARY_DIR}/olap/olap_meta_test
 ${DORIS_TEST_BINARY_DIR}/olap/delta_writer_test
+
+# Running routine load test
+${DORIS_TEST_BINARY_DIR}/runtime/kafka_consumer_pipe_test
+${DORIS_TEST_BINARY_DIR}/runtime/routine_load_task_executor_test
 
 ## Running agent unittest
 # Prepare agent testdata

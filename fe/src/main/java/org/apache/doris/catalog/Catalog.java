@@ -133,6 +133,8 @@ import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.LoadJob.JobState;
 import org.apache.doris.load.routineload.RoutineLoadManager;
+import org.apache.doris.load.routineload.RoutineLoadScheduler;
+import org.apache.doris.load.routineload.RoutineLoadTaskScheduler;
 import org.apache.doris.master.Checkpoint;
 import org.apache.doris.master.MetaHelper;
 import org.apache.doris.meta.MetaContext;
@@ -349,6 +351,10 @@ public class Catalog {
 
     private TabletChecker tabletChecker;
 
+    private RoutineLoadScheduler routineLoadScheduler;
+
+    private RoutineLoadTaskScheduler routineLoadTaskScheduler;
+
     public List<Frontend> getFrontends(FrontendNodeType nodeType) {
         if (nodeType == null) {
             // get all
@@ -466,6 +472,9 @@ public class Catalog {
         this.stat = new TabletSchedulerStat();
         this.tabletScheduler = new TabletScheduler(this, systemInfo, tabletInvertedIndex, stat);
         this.tabletChecker = new TabletChecker(this, systemInfo, tabletScheduler, stat);
+
+        this.routineLoadScheduler = new RoutineLoadScheduler(routineLoadManager);
+        this.routineLoadTaskScheduler = new RoutineLoadTaskScheduler(routineLoadManager);
     }
 
     public static void destroyCheckpoint() {
@@ -649,7 +658,6 @@ public class Catalog {
         // the clear threads runs every min(transaction_clean_interval_second,stream_load_default_timeout_second)/10
         txnCleaner.setInterval(Math.min(Config.transaction_clean_interval_second,
                 Config.stream_load_default_timeout_second) * 100L);
-
     }
 
     private void getClusterIdAndRole() throws IOException {
@@ -1116,6 +1124,11 @@ public class Catalog {
         domainResolver.start();
 
         tabletStatMgr.start();
+
+        // start routine load scheduler
+        routineLoadScheduler.start();
+        routineLoadTaskScheduler.start();
+
         MetricRepo.init();
     }
 
@@ -1280,14 +1293,11 @@ public class Catalog {
         try {
             checksum = loadHeader(dis, checksum);
             checksum = loadMasterInfo(dis, checksum);
-            if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_22) {
-                checksum = loadFrontends(dis, checksum);
-            }
+            checksum = loadFrontends(dis, checksum);
             checksum = Catalog.getCurrentSystemInfo().loadBackends(dis, checksum);
             checksum = loadDb(dis, checksum);
             // ATTN: this should be done after load Db, and before loadAlterJob
             recreateTabletInvertIndex();
-
             checksum = loadLoadJob(dis, checksum);
             checksum = loadAlterJob(dis, checksum);
             checksum = loadBackupAndRestoreJob_D(dis, checksum);
@@ -1299,10 +1309,9 @@ public class Catalog {
             checksum = loadExportJob(dis, checksum);
             checksum = loadBackupHandler(dis, checksum);
             checksum = loadPaloAuth(dis, checksum);
-            if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_45) {
-                checksum = loadTransactionState(dis, checksum);
-            }
+            checksum = loadTransactionState(dis, checksum);
             checksum = loadColocateTableIndex(dis, checksum);
+            checksum = loadRoutineLoadJobs(dis, checksum);
 
             long remoteChecksum = dis.readLong();
             Preconditions.checkState(remoteChecksum == checksum, remoteChecksum + " vs. " + checksum);
@@ -1385,24 +1394,27 @@ public class Catalog {
     }
 
     public long loadFrontends(DataInputStream dis, long checksum) throws IOException {
-        int size = dis.readInt();
-        long newChecksum = checksum ^ size;
-        for (int i = 0; i < size; i++) {
-            Frontend fe = Frontend.read(dis);
-            replayAddFrontend(fe);
-        }
-
-        size = dis.readInt();
-        newChecksum ^= size;
-        for (int i = 0; i < size; i++) {
-            if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_41) {
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_22) {
+            int size = dis.readInt();
+            long newChecksum = checksum ^ size;
+            for (int i = 0; i < size; i++) {
                 Frontend fe = Frontend.read(dis);
-                removedFrontends.add(fe.getNodeName());
-            } else {
-                removedFrontends.add(Text.readString(dis));
+                replayAddFrontend(fe);
             }
+            
+            size = dis.readInt();
+            newChecksum ^= size;
+            for (int i = 0; i < size; i++) {
+                if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_41) {
+                    Frontend fe = Frontend.read(dis);
+                    removedFrontends.add(fe.getNodeName());
+                } else {
+                    removedFrontends.add(Text.readString(dis));
+                }
+            }
+            return newChecksum;
         }
-        return newChecksum;
+        return checksum;
     }
 
     public long loadDb(DataInputStream dis, long checksum) throws IOException, DdlException {
@@ -1688,10 +1700,13 @@ public class Catalog {
     }
 
     public long loadTransactionState(DataInputStream dis, long checksum) throws IOException {
-        int size = dis.readInt();
-        long newChecksum = checksum ^ size;
-        globalTransactionMgr.readFields(dis);
-        return newChecksum;
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_45) {
+            int size = dis.readInt();
+            long newChecksum = checksum ^ size;
+            globalTransactionMgr.readFields(dis);
+            return newChecksum;
+        }
+        return checksum;
     }
 
     public long loadRecycleBin(DataInputStream dis, long checksum) throws IOException {
@@ -1708,6 +1723,13 @@ public class Catalog {
     public long loadColocateTableIndex(DataInputStream dis, long checksum) throws IOException {
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_46) {
             Catalog.getCurrentColocateIndex().readFields(dis);
+        }
+        return checksum;
+    }
+
+    public long loadRoutineLoadJobs(DataInputStream dis, long checksum) throws IOException {
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_49) {
+            Catalog.getCurrentCatalog().getRoutineLoadManager().readFields(dis);
         }
         return checksum;
     }
@@ -1756,6 +1778,7 @@ public class Catalog {
             checksum = savePaloAuth(dos, checksum);
             checksum = saveTransactionState(dos, checksum);
             checksum = saveColocateTableIndex(dos, checksum);
+            checksum = saveRoutineLoadJobs(dos, checksum);
             dos.writeLong(checksum);
         } finally {
             dos.close();
@@ -1984,6 +2007,11 @@ public class Catalog {
 
     public long saveColocateTableIndex(DataOutputStream dos, long checksum) throws IOException {
         Catalog.getCurrentColocateIndex().write(dos);
+        return checksum;
+    }
+
+    public long saveRoutineLoadJobs(DataOutputStream dos, long checksum) throws IOException {
+        Catalog.getCurrentCatalog().getRoutineLoadManager().write(dos);
         return checksum;
     }
 
@@ -3918,7 +3946,8 @@ public class Catalog {
             sb.append("\"user\" = \"").append(esTable.getUserName()).append("\",\n");
             sb.append("\"password\" = \"").append(hidePassword ? "" : esTable.getPasswd()).append("\",\n");
             sb.append("\"index\" = \"").append(esTable.getIndexName()).append("\",\n");
-            sb.append("\"type\" = \"").append(esTable.getMappingType()).append("\"\n");
+            sb.append("\"type\" = \"").append(esTable.getMappingType()).append("\",\n");
+            sb.append("\"transport\" = \"").append(esTable.getTransport()).append("\"\n");
             sb.append(");");
         }
 
@@ -4528,6 +4557,10 @@ public class Catalog {
 
     public RoutineLoadManager getRoutineLoadManager() {
         return routineLoadManager;
+    }
+
+    public RoutineLoadTaskScheduler getRoutineLoadTaskScheduler(){
+        return routineLoadTaskScheduler;
     }
 
     public ExportMgr getExportMgr() {

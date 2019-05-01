@@ -43,7 +43,8 @@ enum TPlanNodeType {
   BROKER_SCAN_NODE,
   EMPTY_SET_NODE, 
   UNION_NODE,
-  ES_SCAN_NODE
+  ES_SCAN_NODE,
+  ES_HTTP_SCAN_NODE
 }
 
 // phases of an execution node

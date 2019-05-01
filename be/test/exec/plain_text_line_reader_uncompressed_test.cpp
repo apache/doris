@@ -272,6 +272,27 @@ TEST_F(PlainTextLineReaderTest, uncompressed_test_limit5) {
     ASSERT_TRUE(eof);
 }
 
+TEST_F(PlainTextLineReaderTest, uncompressed_test_empty) {
+    LocalFileReader file_reader("./be/test/exec/test_data/plain_text_line_reader/empty.txt", 0);
+    auto st = file_reader.open();
+    ASSERT_TRUE(st.ok());
+
+    Decompressor* decompressor;
+    st = Decompressor::create_decompressor(CompressType::UNCOMPRESSED, &decompressor);
+    ASSERT_TRUE(st.ok());
+    ASSERT_TRUE(decompressor == nullptr);
+
+    // set min length larger than 0 to test
+    PlainTextLineReader line_reader(&_profile, &file_reader, decompressor, 10, '\n');
+    const uint8_t* ptr;
+    size_t size;
+    bool eof;
+
+    st = line_reader.read_line(&ptr, &size, &eof);
+    ASSERT_TRUE(st.ok());
+    ASSERT_TRUE(eof);
+}
+
 } // end namespace doris
 
 int main(int argc, char** argv) {

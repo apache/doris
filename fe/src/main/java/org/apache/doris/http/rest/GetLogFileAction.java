@@ -17,21 +17,22 @@
 
 package org.apache.doris.http.rest;
 
-import java.io.File;
-import java.util.Set;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import org.apache.doris.common.Config;
 import org.apache.doris.http.ActionController;
 import org.apache.doris.http.BaseRequest;
 import org.apache.doris.http.BaseResponse;
 import org.apache.doris.http.IllegalArgException;
+
 import com.google.common.base.Strings;
 import com.google.common.collect.Sets;
 
-import io.netty.handler.codec.http.HttpHeaders;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.io.File;
+import java.util.Set;
+
+import io.netty.handler.codec.http.HttpHeaderNames;
 import io.netty.handler.codec.http.HttpMethod;
 import io.netty.handler.codec.http.HttpResponseStatus;
 
@@ -82,7 +83,7 @@ public class GetLogFileAction extends RestBaseAction {
             writeFileResponse(request, response, HttpResponseStatus.OK, logFile);
         } else if (method.equals(HttpMethod.HEAD)) {
             long fileLength = logFile.length();
-            response.updateHeader(HttpHeaders.Names.CONTENT_LENGTH, String.valueOf(fileLength));
+            response.updateHeader(HttpHeaderNames.CONTENT_LENGTH.toString(), String.valueOf(fileLength));
             writeResponse(request, response, HttpResponseStatus.OK);
         } else {
             response.appendContent(new RestBaseResult("HTTP method is not allowed.").toJson());

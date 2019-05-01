@@ -57,12 +57,18 @@ private:
     static const std::string PROCESS_THREAD_NUM;
     static const std::string PUSH_REQUEST_WRITE_BYTES_PER_SECOND;
     static const std::string QUERY_SCAN_BYTES_PER_SECOND;
+    static const std::string MAX_DISK_IO_UTIL_PERCENT;
+    static const std::string MAX_NETWORK_SEND_BYTES_RATE;
+    static const std::string MAX_NETWORK_RECEIVE_BYTES_RATE;
 };
 
 const std::string SimpleCoreMetricsVisitor::PROCESS_FD_NUM_USED = "process_fd_num_used";
 const std::string SimpleCoreMetricsVisitor::PROCESS_THREAD_NUM = "process_thread_num";
 const std::string SimpleCoreMetricsVisitor::PUSH_REQUEST_WRITE_BYTES_PER_SECOND = "push_request_write_bytes_per_second";
 const std::string SimpleCoreMetricsVisitor::QUERY_SCAN_BYTES_PER_SECOND = "query_scan_bytes_per_second";
+const std::string SimpleCoreMetricsVisitor::MAX_DISK_IO_UTIL_PERCENT = "max_disk_io_util_percent";
+const std::string SimpleCoreMetricsVisitor::MAX_NETWORK_SEND_BYTES_RATE= "max_network_send_bytes_rate";
+const std::string SimpleCoreMetricsVisitor::MAX_NETWORK_RECEIVE_BYTES_RATE= "max_network_receive_bytes_rate";
 
 void PrometheusMetricsVisitor::visit(const std::string& prefix,
                                      const std::string& name,
@@ -82,7 +88,7 @@ void PrometheusMetricsVisitor::visit(const std::string& prefix,
     case MetricType::COUNTER:
     case MetricType::GAUGE:
         for (auto& it : collector->metrics()) {
-            _visit_simple_metric(metric_name, it.first, (SimpleMetric*)it.second);
+            _visit_simple_metric(metric_name, it.first, (SimpleMetric*) it.second);
         }
         break;
     default:
@@ -117,7 +123,10 @@ void SimpleCoreMetricsVisitor::visit(const std::string& prefix,
 
     if (name != PROCESS_FD_NUM_USED && name != PROCESS_THREAD_NUM
         && name != PUSH_REQUEST_WRITE_BYTES_PER_SECOND
-        && name != QUERY_SCAN_BYTES_PER_SECOND) {
+        && name != QUERY_SCAN_BYTES_PER_SECOND
+        && name != MAX_DISK_IO_UTIL_PERCENT
+        && name != MAX_NETWORK_SEND_BYTES_RATE
+        && name != MAX_NETWORK_RECEIVE_BYTES_RATE) {
         return;
     }
 

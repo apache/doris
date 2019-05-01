@@ -23,9 +23,6 @@
 
 namespace doris {
 
-class HttpChannel;
-class BodySink;
-
 class MessageBodySink {
 public:
     virtual ~MessageBodySink() { }
@@ -41,7 +38,7 @@ public:
     virtual void cancel() { }
 };
 
-// write HTTP request's message-body to a local file
+// write message to a local file
 class MessageBodyFileSink : public MessageBodySink {
 public:
     MessageBodyFileSink(const std::string& path) : _path(path) { }

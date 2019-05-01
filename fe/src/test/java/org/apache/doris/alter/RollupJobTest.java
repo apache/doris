@@ -38,6 +38,7 @@ import org.apache.doris.catalog.Partition.PartitionState;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.task.AgentTask;
@@ -195,7 +196,7 @@ public class RollupJobTest {
         // load one transaction with backend 2 has errors
         long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1, 
                 CatalogTestUtil.testTxnLable1, transactionSource,
-                LoadJobSourceType.FRONTEND);
+                LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
         // commit a transaction, backend 2 has errors
         TabletCommitInfo tabletCommitInfo1 = new TabletCommitInfo(CatalogTestUtil.testTabletId1,
                 CatalogTestUtil.testBackendId1);
@@ -310,7 +311,7 @@ public class RollupJobTest {
         long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1, 
                 CatalogTestUtil.testTxnLable1, 
                 transactionSource,
-                LoadJobSourceType.FRONTEND);
+                LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
         // commit a transaction, backend 2 has errors
         TabletCommitInfo tabletCommitInfo1 = new TabletCommitInfo(CatalogTestUtil.testTabletId1,
                 CatalogTestUtil.testBackendId1);

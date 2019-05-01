@@ -22,6 +22,10 @@
 
 #include "runtime/string_value.h"
 #include "runtime/string_search.hpp"
+#include "anyval_util.h"
+#include <locale>
+#include <sstream>
+#include <iomanip>
 
 namespace doris {
 
@@ -137,8 +141,40 @@ public:
     static void parse_url_close(
         doris_udf::FunctionContext*,
         doris_udf::FunctionContext::FunctionStateScope);
-};
 
+
+    static doris_udf::StringVal money_format(doris_udf::FunctionContext* context,
+                                                 const doris_udf::DoubleVal& v);
+
+    static doris_udf::StringVal money_format(doris_udf::FunctionContext* context,
+                                                 const doris_udf::DecimalVal& v);
+
+    static doris_udf::StringVal money_format(doris_udf::FunctionContext* context,
+                                                 const doris_udf::DecimalV2Val& v);
+
+    static doris_udf::StringVal money_format(doris_udf::FunctionContext* context,
+                                                 const doris_udf::BigIntVal& v);
+
+    static doris_udf::StringVal money_format(doris_udf::FunctionContext* context,
+                                                 const doris_udf::LargeIntVal& v);
+
+    struct CommaMoneypunct : std::moneypunct<char> {
+        pattern do_pos_format() const override { return {{none, sign, none, value}}; }
+        pattern do_neg_format() const override { return {{none, sign, none, value}}; }
+        int do_frac_digits() const override { return 2; }
+        char_type do_thousands_sep() const override { return ','; }
+        string_type do_grouping() const override { return "\003"; }
+        string_type do_negative_sign() const override { return "-"; }
+    };
+
+    static StringVal do_money_format(FunctionContext *context, const std::string& v) {
+        std::locale comma_locale(std::locale(), new CommaMoneypunct ());
+        std::stringstream ss;
+        ss.imbue(comma_locale);
+        ss << std::put_money(v);
+        return AnyValUtil::from_string_temp(context, ss.str());
+    };
+};
 }
 
 #endif

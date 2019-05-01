@@ -19,12 +19,12 @@
 
 #include <string>
 
+#include "common/utils.h"
 #include "http/http_common.h"
 
 namespace doris {
 
 class HttpRequest;
-class HttpAuthInfo;
 
 std::string encode_basic_auth(const std::string& user, const std::string& passwd);
 // parse Basic authorization
@@ -32,16 +32,6 @@ std::string encode_basic_auth(const std::string& user, const std::string& passwd
 // Otherwise return fasle
 bool parse_basic_auth(const HttpRequest& req, std::string* user, std::string* passwd);
 
-bool parse_basic_auth(const HttpRequest& req, HttpAuthInfo* auth);
-
-template<class T>
-void set_http_auth(T* req, const HttpAuthInfo& auth) {
-    req->user = auth.user;
-    req->passwd = auth.passwd;
-    if (!auth.cluster.empty()) {
-        req->__set_cluster(auth.cluster);
-    }
-    req->__set_user_ip(auth.user_ip);
-}
+bool parse_basic_auth(const HttpRequest& req, AuthInfo* auth);
 
 }

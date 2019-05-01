@@ -49,11 +49,17 @@ class RuntimeProfile;
 class StreamLoadPipe;
 
 struct BrokerScanCounter {
-    BrokerScanCounter() : num_rows_returned(0), num_rows_filtered(0) {
+    BrokerScanCounter() :
+        num_rows_total(0),
+        // num_rows_returned(0),
+        num_rows_filtered(0),
+        num_rows_unselected(0) {
     }
     
-    int64_t num_rows_returned;
-    int64_t num_rows_filtered;
+    int64_t num_rows_total; // total read rows (read from source)
+    // int64_t num_rows_returned;  // qualified rows (match the dest schema)
+    int64_t num_rows_filtered;  // unqualified rows (unmatch the dest schema, or no partition)
+    int64_t num_rows_unselected; // rows filterd by predicates
 };
 
 // Broker scanner convert the data read from broker to doris's tuple.

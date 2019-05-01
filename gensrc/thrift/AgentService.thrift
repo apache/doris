@@ -192,7 +192,7 @@ struct TRecoverTabletReq {
     3: optional Types.TVersion version
     4: optional Types.TVersionHash version_hash
 }
- 
+
 struct TAgentTaskRequest {
     1: required TAgentServiceVersion protocol_version
     2: required Types.TTaskType task_type

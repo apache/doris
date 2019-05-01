@@ -15,26 +15,29 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.task;
+package org.apache.doris.analysis;
 
-import org.apache.doris.load.routineload.LoadDataSourceType;
-import org.apache.doris.thrift.TResourceInfo;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.thrift.TExprNode;
 
-import java.util.Map;
-
-
-public class KafkaRoutineLoadTask extends RoutineLoadTask {
-
-    private Map<Integer, Long> partitionIdToOffset;
-
-    public KafkaRoutineLoadTask(TResourceInfo resourceInfo, long backendId,
-                                long dbId, long tableId, String taskId,
-                                long txnId, Map<Integer, Long> partitionIdToOffset) {
-        super(resourceInfo, backendId, dbId, tableId, taskId, LoadDataSourceType.KAFKA, txnId);
-        this.partitionIdToOffset = partitionIdToOffset;
+//
+public class DefaultValueExpr extends Expr {
+    @Override
+    protected void analyzeImpl(Analyzer analyzer) throws AnalysisException {
     }
 
-    public Map<Integer, Long> getPartitionIdToOffset() {
-        return partitionIdToOffset;
+    @Override
+    protected String toSqlImpl() {
+        return null;
+    }
+
+    @Override
+    protected void toThrift(TExprNode msg) {
+
+    }
+
+    @Override
+    public Expr clone() {
+        return null;
     }
 }

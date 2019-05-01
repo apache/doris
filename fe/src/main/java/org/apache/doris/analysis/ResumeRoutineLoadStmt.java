@@ -25,25 +25,27 @@ import org.apache.doris.common.UserException;
   Resume routine load job by name
 
   syntax:
-      RESUME ROUTINE LOAD name
+      RESUME ROUTINE LOAD [database.]name
  */
 public class ResumeRoutineLoadStmt extends DdlStmt{
 
-    private final String name;
+    private final LabelName labelName;
 
-    public ResumeRoutineLoadStmt(String name) {
-        this.name = name;
+    public ResumeRoutineLoadStmt(LabelName labelName) {
+        this.labelName = labelName;
     }
 
     public String getName() {
-        return name;
+        return labelName.getLabelName();
+    }
+
+    public String getDbFullName() {
+        return labelName.getDbName();
     }
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         super.analyze(analyzer);
-        if (Strings.isNullOrEmpty(name)) {
-            throw new AnalysisException("routine load name could not be empty or null");
-        }
+        labelName.analyze(analyzer);
     }
 }

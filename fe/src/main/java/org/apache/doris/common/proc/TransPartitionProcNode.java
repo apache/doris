@@ -18,12 +18,9 @@
 package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Table;
-import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.common.AnalysisException;
-import com.google.common.base.Preconditions;
+import org.apache.doris.transaction.GlobalTransactionMgr;
+
 import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
@@ -37,30 +34,22 @@ import java.util.List;
 public class TransPartitionProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("PartitionId")
-            .add("PartitionName")
             .add("CommittedVersion")
             .add("CommittedVersionHash")
-            .add("State")
             .build();
 
     private long tid;
-    private Database db;
-    private OlapTable olapTable;
+    private long tableId;
 
-    public TransPartitionProcNode(long tid, Database db, OlapTable olapTable) {
+    public TransPartitionProcNode(long tid, long tableId) {
         this.tid = tid;
-        this.db = db;
-        this.olapTable = olapTable;
+        this.tableId = tableId;
     }
 
     @Override
     public ProcResult fetchResult() throws AnalysisException {
-        Preconditions.checkNotNull(db);
-        Preconditions.checkNotNull(olapTable);
-        Preconditions.checkState(olapTable.getType() == Table.TableType.OLAP);
-        Catalog catalog = Catalog.getInstance();
-        GlobalTransactionMgr transactionMgr = catalog.getCurrentGlobalTransactionMgr();
-        List<List<Comparable>> partitionInfos = transactionMgr.getPartitionTransInfo(tid, db, olapTable);
+        GlobalTransactionMgr transactionMgr = Catalog.getCurrentGlobalTransactionMgr();
+        List<List<Comparable>> partitionInfos = transactionMgr.getPartitionTransInfo(tid, tableId);
         // set result
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);

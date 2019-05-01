@@ -302,14 +302,28 @@ public:
 
     void collect(MetricsVisitor* visitor) {
         std::lock_guard<SpinLock> l(_lock);
-        // Before we collect, need to call hooks
-        for (auto& it : _hooks) {
-            it.second();
+        if (!config::enable_metric_calculator) {
+            // Before we collect, need to call hooks
+            unprotected_trigger_hook();
         }
+
         for (auto& it : _collectors) {
             it.second->collect(_name, it.first, visitor);
         }
     }
+
+    void trigger_hook() {
+        std::lock_guard<SpinLock> l(_lock);
+        unprotected_trigger_hook();
+    }
+
+private:
+    void unprotected_trigger_hook() {
+        for (auto& it : _hooks) {
+            it.second();
+        }
+    }
+
 private:
     void _deregister_locked(Metric* metric);
 

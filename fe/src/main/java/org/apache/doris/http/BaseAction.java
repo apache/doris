@@ -47,18 +47,20 @@ import io.netty.channel.ChannelProgressiveFuture;
 import io.netty.channel.ChannelProgressiveFutureListener;
 import io.netty.channel.DefaultFileRegion;
 import io.netty.handler.codec.base64.Base64;
-import io.netty.handler.codec.http.Cookie;
 import io.netty.handler.codec.http.DefaultFullHttpResponse;
 import io.netty.handler.codec.http.DefaultHttpResponse;
 import io.netty.handler.codec.http.FullHttpResponse;
 import io.netty.handler.codec.http.HttpChunkedInput;
-import io.netty.handler.codec.http.HttpHeaders;
+import io.netty.handler.codec.http.HttpHeaderNames;
+import io.netty.handler.codec.http.HttpHeaderValues;
 import io.netty.handler.codec.http.HttpMethod;
 import io.netty.handler.codec.http.HttpResponse;
 import io.netty.handler.codec.http.HttpResponseStatus;
+import io.netty.handler.codec.http.HttpUtil;
 import io.netty.handler.codec.http.HttpVersion;
 import io.netty.handler.codec.http.LastHttpContent;
-import io.netty.handler.codec.http.ServerCookieEncoder;
+import io.netty.handler.codec.http.cookie.Cookie;
+import io.netty.handler.codec.http.cookie.ServerCookieEncoder;
 import io.netty.handler.ssl.SslHandler;
 import io.netty.handler.stream.ChunkedFile;
 import io.netty.util.CharsetUtil;
@@ -93,7 +95,7 @@ public abstract class BaseAction implements IAction {
         } catch (Exception e) {
             LOG.warn("fail to process url: {}", request.getRequest().uri(), e);
             if (e instanceof UnauthorizedException) {
-                response.updateHeader(HttpHeaders.Names.WWW_AUTHENTICATE, "Basic realm=\"\"");
+                response.updateHeader(HttpHeaderNames.WWW_AUTHENTICATE.toString(), "Basic realm=\"\"");
                 writeResponse(request, response, HttpResponseStatus.UNAUTHORIZED);
             } else {
                 writeResponse(request, response, HttpResponseStatus.NOT_FOUND);
@@ -123,17 +125,17 @@ public abstract class BaseAction implements IAction {
 
         checkDefaultContentTypeHeader(response, responseObj);
         if (!method.equals(HttpMethod.HEAD)) {
-            response.updateHeader(HttpHeaders.Names.CONTENT_LENGTH,
+            response.updateHeader(HttpHeaderNames.CONTENT_LENGTH.toString(),
                     String.valueOf(responseObj.content().readableBytes()));
         }
         writeCustomHeaders(response, responseObj);
         writeCookies(response, responseObj);
 
-        boolean keepAlive = HttpHeaders.isKeepAlive(request.getRequest());
+        boolean keepAlive = HttpUtil.isKeepAlive(request.getRequest());
         if (!keepAlive) {
             request.getContext().write(responseObj).addListener(ChannelFutureListener.CLOSE);
         } else {
-            responseObj.headers().set(HttpHeaders.Names.CONNECTION, HttpHeaders.Values.KEEP_ALIVE);
+            responseObj.headers().set(HttpHeaderNames.CONNECTION.toString(), HttpHeaderValues.KEEP_ALIVE.toString());
             request.getContext().write(responseObj);
         }
     }
@@ -142,8 +144,8 @@ public abstract class BaseAction implements IAction {
             File resFile) {
         HttpResponse responseObj = new DefaultHttpResponse(HttpVersion.HTTP_1_1, status);
 
-        if (HttpHeaders.isKeepAlive(request.getRequest())) {
-            response.updateHeader(HttpHeaders.Names.CONNECTION, HttpHeaders.Values.KEEP_ALIVE);
+        if (HttpUtil.isKeepAlive(request.getRequest())) {
+            response.updateHeader(HttpHeaderNames.CONNECTION.toString(), HttpHeaderValues.KEEP_ALIVE.toString());
         }
 
         ChannelFuture sendFileFuture;
@@ -155,7 +157,7 @@ public abstract class BaseAction implements IAction {
             rafFile = new RandomAccessFile(resFile, "r");
             long fileLength = 0;
             fileLength = rafFile.length();
-            response.updateHeader(HttpHeaders.Names.CONTENT_LENGTH, String.valueOf(fileLength));
+            response.updateHeader(HttpHeaderNames.CONTENT_LENGTH.toString(), String.valueOf(fileLength));
             writeCookies(response, responseObj);
             writeCustomHeaders(response, responseObj);
 
@@ -205,7 +207,7 @@ public abstract class BaseAction implements IAction {
         });
 
         // Decide whether to close the connection or not.
-        boolean keepAlive = HttpHeaders.isKeepAlive(request.getRequest());
+        boolean keepAlive = HttpUtil.isKeepAlive(request.getRequest());
         if (!keepAlive) {
             // Close the connection when the whole content is written out.
             lastContentFuture.addListener(ChannelFutureListener.CLOSE);
@@ -215,9 +217,9 @@ public abstract class BaseAction implements IAction {
     // Set 'CONTENT_TYPE' header if it havn't been set.
     protected void checkDefaultContentTypeHeader(BaseResponse response, Object responseOj) {
         if (!Strings.isNullOrEmpty(response.getContentType())) {
-            response.updateHeader(HttpHeaders.Names.CONTENT_TYPE, response.getContentType());
+            response.updateHeader(HttpHeaderNames.CONTENT_TYPE.toString(), response.getContentType());
         } else {
-            response.updateHeader(HttpHeaders.Names.CONTENT_TYPE, "text/html");
+            response.updateHeader(HttpHeaderNames.CONTENT_TYPE.toString(), "text/html");
         }
     }
 
@@ -229,7 +231,7 @@ public abstract class BaseAction implements IAction {
 
     protected void writeCookies(BaseResponse response, HttpResponse responseObj) {
         for (Cookie cookie : response.getCookies()) {
-            responseObj.headers().add(HttpHeaders.Names.SET_COOKIE, ServerCookieEncoder.encode(cookie));
+            responseObj.headers().add(HttpHeaderNames.SET_COOKIE.toString(), ServerCookieEncoder.LAX.encode(cookie));
         }
     }
 
