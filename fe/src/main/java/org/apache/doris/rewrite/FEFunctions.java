@@ -69,7 +69,7 @@ public class FEFunctions {
 
     @FEFunction(name = "date_format", argTypes = { "DATETIME", "VARCHAR" }, returnType = "VARCHAR")
     public static StringLiteral dateFormat(LiteralExpr date, StringLiteral fmtLiteral) throws AnalysisException {
-        String result = dateFormatUtils(new Date(getTime(date)), fmtLiteral.getStringValue());
+        String result = dateFormat(new Date(getTime(date)), fmtLiteral.getStringValue());
         return new StringLiteral(result);
     }
 
@@ -137,7 +137,7 @@ public class FEFunctions {
         return firstDay;
     }
 
-    private  static String dateFormatUtils(Date date,  String pattern) {
+    private  static String dateFormat(Date date,  String pattern) {
         DateTimeFormatterBuilder formatterBuilder = new DateTimeFormatterBuilder();
         Calendar calendar = Calendar.getInstance();
         boolean escaped = false;
