@@ -26,12 +26,6 @@ import org.apache.doris.common.AnalysisException;
 import org.junit.Assert;
 import org.junit.Test;
 
-import java.text.DateFormat;
-import java.text.SimpleDateFormat;
-import java.util.Date;
-
-import static org.junit.Assert.assertEquals;
-
 /*
  * Author: Chenmingyu
  * Date: Mar 13, 2019
