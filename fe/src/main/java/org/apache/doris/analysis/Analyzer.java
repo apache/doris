@@ -136,6 +136,8 @@ public class Analyzer {
     // On-clause of any such semi-join is not allowed to reference other semi-joined tuples
     // except its own. Therefore, only a single semi-joined tuple can be visible at a time.
     private TupleId visibleSemiJoinedTupleId_ = null;
+    // for some situation that udf is not allowed.
+    private boolean isUDFAllowed = true;
     
     public void setIsSubquery() {
         isSubquery = true;
@@ -145,6 +147,9 @@ public class Analyzer {
     public boolean hasPlanHints() { return globalState.hasPlanHints; }
     public void setIsWithClause() { isWithClause_ = true; }
     public boolean isWithClause() { return isWithClause_; }
+    
+    public void setUDFAllowed(boolean val) { this.isUDFAllowed = val; }
+    public boolean isUDFAllowed() { return this.isUDFAllowed; }
 
     // state shared between all objects of an Analyzer tree
     // TODO: Many maps here contain properties about tuples, e.g., whether
