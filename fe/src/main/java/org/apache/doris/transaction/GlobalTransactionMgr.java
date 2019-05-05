@@ -715,6 +715,8 @@ public class GlobalTransactionMgr {
                     continue;
                 }
                 if (entry.getKey() <= endTransactionId) {
+                    LOG.info("find a running txn with txn_id={}, less than schema change txn_id {}", 
+                            entry.getKey(), endTransactionId);
                     return false;
                 }
             }
