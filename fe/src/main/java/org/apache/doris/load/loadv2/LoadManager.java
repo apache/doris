@@ -27,6 +27,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.task.MasterTaskExecutor;
+import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.collect.Maps;
 
@@ -43,9 +44,13 @@ import java.util.stream.Collectors;
 public class LoadManager {
     private Map<Long, LoadJob> idToLoadJob = Maps.newConcurrentMap();
     private Map<Long, Map<String, List<LoadJob>>> dbIdToLabelToLoadJobs = Maps.newConcurrentMap();
-    private MasterTaskExecutor taskExecutor = new MasterTaskExecutor(10);
+    private LoadJobScheduler loadJobScheduler;
 
     private ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
+
+    public LoadManager(LoadJobScheduler loadJobScheduler) {
+        this.loadJobScheduler = loadJobScheduler;
+    }
 
     /**
      * This method will be invoked by the broker load(v2) now.
@@ -61,7 +66,7 @@ public class LoadManager {
             if (stmt.getBrokerDesc() == null) {
                 throw new DdlException("LoadManager only support the broker load.");
             }
-            BrokerLoadJob brokerLoadJob = BrokerLoadJob.fromLoadStmt(stmt, this);
+            BrokerLoadJob brokerLoadJob = BrokerLoadJob.fromLoadStmt(stmt);
             addLoadJob(brokerLoadJob);
         } finally {
             writeUnlock();
@@ -78,6 +83,9 @@ public class LoadManager {
             dbIdToLabelToLoadJobs.get(dbId).put(loadJob.getLabel(), new ArrayList<>());
         }
         dbIdToLabelToLoadJobs.get(dbId).get(loadJob.getLabel()).add(loadJob);
+
+        // submit it
+        loadJobScheduler.submitJob(loadJob);
     }
 
     public List<LoadJob> getLoadJobByState(JobState jobState) {
@@ -117,10 +125,6 @@ public class LoadManager {
                 }
             }
         }
-    }
-
-    public void submitTask(LoadTask loadTask) {
-        taskExecutor.submit(loadTask);
     }
 
     private void readLock() {

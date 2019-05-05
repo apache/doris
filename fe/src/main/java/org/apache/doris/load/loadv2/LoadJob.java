@@ -38,6 +38,7 @@ import org.apache.doris.load.Load;
 import org.apache.doris.load.Source;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.task.MasterTaskExecutor;
 import org.apache.doris.thrift.TEtlState;
 import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.TabletCommitInfo;
@@ -91,12 +92,10 @@ public abstract class LoadJob implements LoadTaskCallback, TxnStateChangeCallbac
     protected List<TabletCommitInfo> commitInfos = Lists.newArrayList();
 
     protected ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
-    protected LoadManager loadManager;
 
-    public LoadJob(long dbId, String label, LoadManager loadManager) {
+    public LoadJob(long dbId, String label) {
         this.dbId = dbId;
         this.label = label;
-        this.loadManager = loadManager;
     }
 
     protected void readLock() {
@@ -219,10 +218,23 @@ public abstract class LoadJob implements LoadTaskCallback, TxnStateChangeCallbac
                                   timeoutSecond);
     }
 
-    // create pending task for load job and add pending task into pool
-    public void scheduleJob() {
+    /**
+     * create pending task for load job and add pending task into pool
+     * if job has been cancelled, this step will be ignored
+     * @throws LabelAlreadyUsedException the job is duplicated
+     * @throws BeginTransactionException the limit of load job is exceeded
+     * @throws AnalysisException there are error params in job
+     */
+    public void scheduleJob() throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException {
         writeLock();
         try {
+            // check if job state is pending
+            if (state != JobState.PENDING) {
+                return;
+            }
+            // schedule job
+            // the limit of job will be restrict when begin txn
+            beginTxn();
             executeScheduleJob();
             unprotectedUpdateState(JobState.LOADING);
         } finally {
@@ -313,11 +325,6 @@ public abstract class LoadJob implements LoadTaskCallback, TxnStateChangeCallbac
         }
 
         return true;
-    }
-
-    protected void unprotectSubmitTask(LoadTask loadTask) {
-        tasks.add(loadTask);
-        loadManager.submitTask(loadTask);
     }
 
     @Override

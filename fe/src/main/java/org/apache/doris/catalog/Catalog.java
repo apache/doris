@@ -132,6 +132,7 @@ import org.apache.doris.load.LoadChecker;
 import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.LoadJob.JobState;
+import org.apache.doris.load.loadv2.LoadJobScheduler;
 import org.apache.doris.load.loadv2.LoadManager;
 import org.apache.doris.load.routineload.RoutineLoadManager;
 import org.apache.doris.load.routineload.RoutineLoadScheduler;
@@ -176,6 +177,7 @@ import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.CreateReplicaTask;
+import org.apache.doris.task.MasterTaskExecutor;
 import org.apache.doris.task.PullLoadJobMgr;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
@@ -353,6 +355,10 @@ public class Catalog {
 
     private TabletChecker tabletChecker;
 
+    private MasterTaskExecutor loadTaskScheduler;
+
+    private LoadJobScheduler loadJobScheduler;
+
     private RoutineLoadScheduler routineLoadScheduler;
 
     private RoutineLoadTaskScheduler routineLoadTaskScheduler;
@@ -413,7 +419,6 @@ public class Catalog {
         this.idToDb = new ConcurrentHashMap<>();
         this.fullNameToDb = new ConcurrentHashMap<>();
         this.load = new Load();
-        this.loadManager = new LoadManager();
         this.routineLoadManager = new RoutineLoadManager();
         this.exportMgr = new ExportMgr();
         this.clone = new Clone();
@@ -476,6 +481,9 @@ public class Catalog {
         this.tabletScheduler = new TabletScheduler(this, systemInfo, tabletInvertedIndex, stat);
         this.tabletChecker = new TabletChecker(this, systemInfo, tabletScheduler, stat);
 
+        this.loadTaskScheduler = new MasterTaskExecutor(10);
+        this.loadJobScheduler = new LoadJobScheduler();
+        this.loadManager = new LoadManager(loadJobScheduler);
         this.routineLoadScheduler = new RoutineLoadScheduler(routineLoadManager);
         this.routineLoadTaskScheduler = new RoutineLoadTaskScheduler(routineLoadManager);
     }
@@ -4560,6 +4568,10 @@ public class Catalog {
 
     public LoadManager getLoadManager() {
         return loadManager;
+    }
+
+    public MasterTaskExecutor getLoadTaskScheduler() {
+        return loadTaskScheduler;
     }
 
     public RoutineLoadManager getRoutineLoadManager() {

@@ -60,13 +60,13 @@ public class BrokerLoadJob extends LoadJob {
     // it will be set to true when pending task finished
     private boolean isLoading = false;
 
-    public BrokerLoadJob(long dbId, String label, BrokerDesc brokerDesc, LoadManager loadManager) {
-        super(dbId, label, loadManager);
+    public BrokerLoadJob(long dbId, String label, BrokerDesc brokerDesc) {
+        super(dbId, label);
         this.timeoutSecond = Config.pull_load_task_default_timeout_second;
         this.brokerDesc = brokerDesc;
     }
 
-    public static BrokerLoadJob fromLoadStmt(LoadStmt stmt, LoadManager loadManager) throws DdlException {
+    public static BrokerLoadJob fromLoadStmt(LoadStmt stmt) throws DdlException {
         // get db id
         String dbName = stmt.getLabel().getDbName();
         Database db = Catalog.getCurrentCatalog().getDb(stmt.getLabel().getDbName());
@@ -76,7 +76,7 @@ public class BrokerLoadJob extends LoadJob {
 
         // create job
         BrokerLoadJob brokerLoadJob = new BrokerLoadJob(db.getId(), stmt.getLabel().getLabelName(),
-                                                        stmt.getBrokerDesc(), loadManager);
+                                                        stmt.getBrokerDesc());
         brokerLoadJob.setJobProperties(stmt.getProperties());
         brokerLoadJob.checkDataSourceInfo(db, stmt.getDataDescriptions());
         brokerLoadJob.setDataSourceInfo(db, stmt.getDataDescriptions());
@@ -94,7 +94,8 @@ public class BrokerLoadJob extends LoadJob {
     @Override
     public void executeScheduleJob() {
         LoadTask task = new BrokerLoadPendingTask(this, dataSourceInfo.getIdToFileGroups(), brokerDesc);
-        unprotectSubmitTask(task);
+        tasks.add(task);
+        Catalog.getCurrentCatalog().getLoadTaskScheduler().submit(task);
     }
 
     /**
@@ -126,13 +127,20 @@ public class BrokerLoadJob extends LoadJob {
      * @param attachment BrokerPendingTaskAttachment
      */
     private void onPendingTaskFinished(BrokerPendingTaskAttachment attachment) {
-        // TODO(ml): check if task has been cancelled
         writeLock();
         try {
+            // check if job has been cancelled
+            if (isFinished()) {
+                LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
+                                 .add("error_msg", "this task will be ignored when job is finished")
+                                 .build());
+                return;
+            }
             if (isLoading) {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
                                  .add("error_msg", "this is a duplicated callback of pending task "
-                                         + "when broker already has loading task"));
+                                         + "when broker already has loading task")
+                                 .build());
                 return;
             }
             isLoading = true;
@@ -143,15 +151,20 @@ public class BrokerLoadJob extends LoadJob {
         Database db = null;
         try {
             db = getDb();
-        } catch (MetaNotFoundException e) {
+            allocateLoadingTask(db, attachment);
+        } catch (UserException e) {
             LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
                              .add("database_id", dbId)
-                             .add("error_msg", "Failed to divide job into loading task when db not found.")
+                             .add("error_msg", "Failed to divide job into loading task.")
                              .build(), e);
-            updateState(JobState.CANCELLED, FailMsg.CancelType.ETL_RUN_FAIL, "db does not exist. id: " + dbId);
+            updateState(JobState.CANCELLED, FailMsg.CancelType.ETL_RUN_FAIL, e.getMessage());
             return;
         }
 
+        loadStartTimestamp = System.currentTimeMillis();
+    }
+
+    private void allocateLoadingTask(Database db, BrokerPendingTaskAttachment attachment) throws UserException {
         // divide job into broker loading task by table
         db.readLock();
         try {
@@ -177,20 +190,25 @@ public class BrokerLoadJob extends LoadJob {
                 task.init(attachment.getFileStatusByTable(tableId),
                           attachment.getFileNumByTable(tableId));
                 // Add tasks into list and pool
-                unprotectSubmitTask(task);
+                tasks.add(task);
+                Catalog.getCurrentCatalog().getLoadTaskScheduler().submit(task);
             }
-        } catch (UserException e) {
-            updateState(JobState.CANCELLED, FailMsg.CancelType.ETL_RUN_FAIL, "failed to " + e.getMessage());
         } finally {
             db.readUnlock();
         }
-        loadStartTimestamp = System.currentTimeMillis();
     }
 
     private void onLoadingTaskFinished(BrokerLoadingTaskAttachment attachment) {
-        // TODO(ml): check if task has been cancelled
         writeLock();
         try {
+            // check if job has been cancelled
+            if (isFinished()) {
+                LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
+                                 .add("error_msg", "this task will be ignored when job is finished")
+                                 .build());
+                return;
+            }
+
             // update loading status
             updateLoadingStatus(attachment);
 
@@ -213,19 +231,15 @@ public class BrokerLoadJob extends LoadJob {
         Database db = null;
         try {
             db = getDb();
-        } catch (MetaNotFoundException e) {
-            LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
-                             .add("database_id", dbId)
-                             .add("error_msg", "Failed to commit txn when db not found.")
-                             .build(), e);
-            updateState(JobState.CANCELLED, FailMsg.CancelType.ETL_RUN_FAIL, "db does not exist. id: " + dbId);
-            return;
-        }
-        try {
             Catalog.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
                     db, transactionId, commitInfos, getLeftTimeMs());
         } catch (UserException e) {
-            updateState(JobState.CANCELLED, FailMsg.CancelType.LOAD_RUN_FAIL, "failed to " + e.getMessage());
+            LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
+                             .add("database_id", dbId)
+                             .add("error_msg", "Failed to commit txn.")
+                             .build(), e);
+            updateState(JobState.CANCELLED, FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage());
+            return;
         }
     }
 

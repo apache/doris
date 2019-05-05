@@ -29,25 +29,26 @@ import org.apache.doris.common.util.LogKey;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.transaction.BeginTransactionException;
 
+import com.google.common.collect.Queues;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
+import java.util.concurrent.LinkedBlockingQueue;
 
 /**
  * LoadScheduler will schedule the pending LoadJob which belongs to LoadManager.
  * The function of scheduleJob, which is used to submit tasks, will be called in LoadScheduler.
  * The status of LoadJob will be changed to loading after LoadScheduler.
  */
-public class LoadScheduler extends Daemon {
+public class LoadJobScheduler extends Daemon {
 
-    private static final Logger LOG = LogManager.getLogger(LoadScheduler.class);
+    private static final Logger LOG = LogManager.getLogger(LoadJobScheduler.class);
+    private LinkedBlockingQueue<LoadJob> needScheduleJobs = Queues.newLinkedBlockingQueue();
 
-    private LoadManager loadManager;
-
-    public LoadScheduler(LoadManager loadManager) {
-        super("Load scheduler", Config.load_checker_interval_second * 1000L);
-        this.loadManager = loadManager;
+    public LoadJobScheduler() {
+        super("Load job scheduler", Config.load_checker_interval_second * 1000L);
     }
 
     @Override
@@ -59,17 +60,14 @@ public class LoadScheduler extends Daemon {
         }
     }
 
-    private void process() {
-        // fetch all of pending job without pending task in loadManager
-        List<LoadJob> loadJobList = loadManager.getLoadJobByState(JobState.PENDING);
+    private void process() throws InterruptedException {
+        while (!needScheduleJobs.isEmpty()) {
+            // take one load job from queue
+            LoadJob loadJob = needScheduleJobs.take();
 
-        // the limit of job will be restrict when begin txn
-
-        // schedule load job
-        for (LoadJob loadJob : loadJobList) {
+            // schedule job
             try {
-                // begin txn
-                loadJob.beginTxn();
+                loadJob.scheduleJob();
             } catch (LabelAlreadyUsedException | AnalysisException e) {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, loadJob.getId())
                                  .add("error_msg", "There are error properties in job. Job will be cancelled")
@@ -81,10 +79,13 @@ public class LoadScheduler extends Daemon {
                                  .add("error_msg", "Failed to begin txn when job is scheduling. "
                                          + "Job will be rescheduled later")
                                  .build(), e);
-                continue;
+                needScheduleJobs.put(loadJob);
+                break;
             }
-            // schedule job
-            loadJob.scheduleJob();
         }
+    }
+
+    public void submitJob(LoadJob job) {
+        needScheduleJobs.add(job);
     }
 }
