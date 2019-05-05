@@ -222,6 +222,9 @@ void TaskWorkerPool::submit_task(const TAgentTaskRequest& task) {
     if (ret == true) {
         {
             lock_guard<Mutex> worker_thread_lock(_worker_thread_lock);
+            if (task.__isset.alter_tablet_req && _tasks.size() >= config::alter_tablet_worker_count) {
+                return;
+            }
             _tasks.push_back(task);
             _worker_thread_condition_lock.notify();
         }
