@@ -1205,21 +1205,21 @@ load_property ::=
     ;
 
 pause_routine_load_stmt ::=
-    KW_PAUSE KW_ROUTINE KW_LOAD job_label:jobLabel
+    KW_PAUSE KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel
     {:
         RESULT = new PauseRoutineLoadStmt(jobLabel);
     :}
     ;
 
 resume_routine_load_stmt ::=
-    KW_RESUME KW_ROUTINE KW_LOAD job_label:jobLabel
+    KW_RESUME KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel
     {:
         RESULT = new ResumeRoutineLoadStmt(jobLabel);
     :}
     ;
 
 stop_routine_load_stmt ::=
-    KW_STOP KW_ROUTINE KW_LOAD job_label:jobLabel
+    KW_STOP KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel
     {:
         RESULT = new StopRoutineLoadStmt(jobLabel);
     :}
