@@ -542,7 +542,8 @@ OLAPStatus TabletManager::_drop_tablet_unlock(
 
     // Check tablet is in schema change or not, is base tablet or not
     bool is_schema_change_finished = true;
-    if (alter_state != ALTER_FINISHED) {
+    // alter finished? or alter_failed?
+    if (alter_state != ALTER_FINISHED) { 
         is_schema_change_finished = false;
     }
 
@@ -571,11 +572,18 @@ OLAPStatus TabletManager::_drop_tablet_unlock(
     // if drop tablet, then break link. the link maybe exists but the tablet 
     // not exist when be restarts
     related_tablet->obtain_header_wrlock();
-    related_tablet->delete_alter_task();
-    res = related_tablet->save_meta();
-    if (res != OLAP_SUCCESS) {
-        LOG(FATAL) << "fail to save tablet header. res=" << res
-                   << ", tablet=" << related_tablet->full_name();
+    // should check the related tablet id in alter task is current tablet to be dropped
+    // A related to B, BUT B related to C
+    // if drop A, should not clear B's alter task
+    AlterTabletTaskSharedPtr related_alter_task = related_tablet->alter_task();
+    if (related_alter_task != nullptr && related_alter_task->related_tablet_id() == tablet_id
+        && related_alter_task->related_schema_hash() == schema_hash) {
+        related_tablet->delete_alter_task();
+        res = related_tablet->save_meta();
+        if (res != OLAP_SUCCESS) {
+            LOG(FATAL) << "fail to save tablet header. res=" << res
+                    << ", tablet=" << related_tablet->full_name();
+        }
     }
 
     res = _drop_tablet_directly_unlocked(tablet_id, schema_hash, keep_files);
