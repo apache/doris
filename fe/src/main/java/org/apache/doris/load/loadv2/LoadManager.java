@@ -32,6 +32,7 @@ import org.apache.doris.transaction.TransactionState;
 import com.google.common.collect.Maps;
 
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -92,6 +93,29 @@ public class LoadManager {
         return idToLoadJob.values().stream()
                 .filter(entity -> entity.getState() == jobState)
                 .collect(Collectors.toList());
+    }
+
+    public void removeOldLoadJob() {
+        long currentTimeMs = System.currentTimeMillis();
+
+        writeLock();
+        try {
+            Iterator<Map.Entry<Long, LoadJob>> iter = idToLoadJob.entrySet().iterator();
+            while (iter.hasNext()) {
+                LoadJob job = iter.next().getValue();
+                if (job.isFinished()
+                        && ((currentTimeMs - job.getFinishTimestamp()) / 1000 > Config.label_keep_max_second)) {
+                    iter.remove();
+                    dbIdToLabelToLoadJobs.get(job.getDbId()).get(job.getLabel()).remove(job);
+                }
+            }
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    public void processTimeoutJobs() {
+        idToLoadJob.values().stream().forEach(entity -> entity.processTimeout());
     }
 
     private Database checkDb(String dbName) throws DdlException {

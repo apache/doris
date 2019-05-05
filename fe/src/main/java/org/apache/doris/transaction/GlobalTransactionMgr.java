@@ -563,7 +563,7 @@ public class GlobalTransactionMgr {
      * @param errorReplicaIds
      * @return
      */
-    public void finishTransaction(long transactionId, Set<Long> errorReplicaIds) {
+    public void finishTransaction(long transactionId, Set<Long> errorReplicaIds) throws UserException {
         TransactionState transactionState = idToTransactionState.get(transactionId);
         // add all commit errors and publish errors to a single set
         if (errorReplicaIds == null) {
@@ -696,14 +696,17 @@ public class GlobalTransactionMgr {
             if (hasError) {
                 return;
             }
+            boolean txnOperated = false;
             writeLock();
             try {
                 transactionState.setErrorReplicas(errorReplicaIds);
                 transactionState.setFinishTime(System.currentTimeMillis());
                 transactionState.setTransactionStatus(TransactionStatus.VISIBLE);
                 unprotectUpsertTransactionState(transactionState);
+                txnOperated = true;
             } finally {
                 writeUnlock();
+                transactionState.afterStateTransform(TransactionStatus.VISIBLE, txnOperated);
             }
             updateCatalogAfterVisible(transactionState, db);
         } finally {

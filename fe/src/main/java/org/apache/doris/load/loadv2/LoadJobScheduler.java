@@ -22,6 +22,7 @@ package org.apache.doris.load.loadv2;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.util.Daemon;
 import org.apache.doris.common.util.LogBuilder;
@@ -48,7 +49,7 @@ public class LoadJobScheduler extends Daemon {
     private LinkedBlockingQueue<LoadJob> needScheduleJobs = Queues.newLinkedBlockingQueue();
 
     public LoadJobScheduler() {
-        super("Load job scheduler", Config.load_checker_interval_second * 1000L);
+        super("Load job scheduler", Config.load_checker_interval_second * 1000);
     }
 
     @Override
@@ -56,7 +57,7 @@ public class LoadJobScheduler extends Daemon {
         try {
             process();
         } catch (Throwable e) {
-            LOG.warn("Failed to process one round of RoutineLoadScheduler with error message {}", e.getMessage(), e);
+            LOG.warn("Failed to process one round of LoadJobScheduler with error message {}", e.getMessage(), e);
         }
     }
 
@@ -72,7 +73,7 @@ public class LoadJobScheduler extends Daemon {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, loadJob.getId())
                                  .add("error_msg", "There are error properties in job. Job will be cancelled")
                                  .build(), e);
-                loadJob.updateState(JobState.CANCELLED, FailMsg.CancelType.ETL_SUBMIT_FAIL, e.getMessage());
+                loadJob.cancelJobWithoutCheck(FailMsg.CancelType.ETL_SUBMIT_FAIL, e.getMessage());
                 continue;
             } catch (BeginTransactionException e) {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, loadJob.getId())

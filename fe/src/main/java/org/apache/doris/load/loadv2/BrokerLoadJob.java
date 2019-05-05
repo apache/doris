@@ -29,7 +29,6 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
@@ -117,7 +116,7 @@ public class BrokerLoadJob extends LoadJob {
 
     @Override
     public void onTaskFailed(String errMsg) {
-        updateState(JobState.CANCELLED, FailMsg.CancelType.LOAD_RUN_FAIL, errMsg);
+        cancelJobWithoutCheck(FailMsg.CancelType.LOAD_RUN_FAIL, errMsg);
     }
 
     /**
@@ -157,7 +156,7 @@ public class BrokerLoadJob extends LoadJob {
                              .add("database_id", dbId)
                              .add("error_msg", "Failed to divide job into loading task.")
                              .build(), e);
-            updateState(JobState.CANCELLED, FailMsg.CancelType.ETL_RUN_FAIL, e.getMessage());
+            cancelJobWithoutCheck(FailMsg.CancelType.ETL_RUN_FAIL, e.getMessage());
             return;
         }
 
@@ -178,8 +177,8 @@ public class BrokerLoadJob extends LoadJob {
                                      .add("table_id", tableId)
                                      .add("error_msg", "Failed to divide job into loading task when table not found")
                                      .build());
-                    updateState(JobState.CANCELLED, FailMsg.CancelType.ETL_RUN_FAIL,
-                                "Unknown table(" + tableId + ") in database(" + db.getFullName() + ")");
+                    cancelJobWithoutCheck(FailMsg.CancelType.ETL_RUN_FAIL,
+                                          "Unknown table(" + tableId + ") in database(" + db.getFullName() + ")");
                     return;
                 }
 
@@ -220,25 +219,22 @@ public class BrokerLoadJob extends LoadJob {
 
             // check data quality
             if (!checkDataQuality()) {
-                unprotectedUpdateState(JobState.CANCELLED, FailMsg.CancelType.ETL_QUALITY_UNSATISFIED,
-                                       QUALITY_FAIL_MSG);
+                executeCancel(FailMsg.CancelType.ETL_QUALITY_UNSATISFIED, QUALITY_FAIL_MSG);
                 return;
             }
         } finally {
             writeUnlock();
         }
 
-        Database db = null;
         try {
-            db = getDb();
-            Catalog.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
-                    db, transactionId, commitInfos, getLeftTimeMs());
+            Catalog.getCurrentGlobalTransactionMgr().commitTransaction(
+                    dbId, transactionId, commitInfos);
         } catch (UserException e) {
             LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
                              .add("database_id", dbId)
                              .add("error_msg", "Failed to commit txn.")
                              .build(), e);
-            updateState(JobState.CANCELLED, FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage());
+            cancelJobWithoutCheck(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage());
             return;
         }
     }

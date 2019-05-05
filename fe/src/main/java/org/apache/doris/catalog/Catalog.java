@@ -2048,6 +2048,7 @@ public class Catalog {
             protected void runOneCycle() {
                 load.removeOldLoadJobs();
                 load.removeOldDeleteJobs();
+                loadManager.removeOldLoadJob();
                 exportMgr.removeOldExportJobs();
             }
         };
