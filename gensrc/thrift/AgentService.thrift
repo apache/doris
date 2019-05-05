@@ -221,6 +221,7 @@ struct TAgentTaskRequest {
     21: optional TClearTransactionTaskRequest clear_transaction_task_req
     22: optional TMoveDirReq move_dir_req
     23: optional TRecoverTabletReq recover_tablet_req;
+    24: optional i64 recv_time; // time the task is inserted to queue
 }
 
 struct TAgentResult {

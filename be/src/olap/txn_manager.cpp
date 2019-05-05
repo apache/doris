@@ -124,7 +124,10 @@ OLAPStatus TxnManager::commit_txn(
     OlapMeta* meta, TPartitionId partition_id, TTransactionId transaction_id,
     TTabletId tablet_id, SchemaHash schema_hash,
     const PUniqueId& load_id, RowsetSharedPtr rowset_ptr, bool is_recovery) {
-
+    DCHECK(partition_id > 0);
+    DCHECK(transaction_id > 0);
+    DCHECK(tablet_id > 0);
+    DCHECK(rowset_ptr != nullptr);
     pair<int64_t, int64_t> key(partition_id, transaction_id);
     TabletInfo tablet_info(tablet_id, schema_hash);
     if (rowset_ptr == nullptr) {
