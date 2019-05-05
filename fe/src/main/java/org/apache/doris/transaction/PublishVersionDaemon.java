@@ -54,7 +54,7 @@ public class PublishVersionDaemon extends Daemon {
         try {
             publishVersion();
         } catch (Throwable t) {
-            LOG.error("errors while publish version to all backends, {}", t);
+            LOG.error("errors while publish version to all backends", t);
         }
     }
     
@@ -150,7 +150,12 @@ public class PublishVersionDaemon extends Daemon {
                                 continue;
                             }
                             Replica replica = tabletInvertedIndex.getReplica(tabletId, publishVersionTask.getBackendId());
-                            transErrorReplicas.add(replica);
+                            if (replica != null) {
+                                transErrorReplicas.add(replica);
+                            } else {
+                                LOG.info("could not find related replica with tabletid={}, backendid={}", 
+                                        tabletId, publishVersionTask.getBackendId());
+                            }
                         }
                     }
                 } else {
@@ -181,7 +186,12 @@ public class PublishVersionDaemon extends Daemon {
                             if (errorPartitionIds.contains(partitionId)) {
                                 Replica replica = tabletInvertedIndex.getReplica(tabletId,
                                                                                  unfinishedTask.getBackendId());
-                                transErrorReplicas.add(replica);
+                                if (replica != null) {
+                                    transErrorReplicas.add(replica);
+                                } else {
+                                    LOG.info("could not find related replica with tabletid={}, backendid={}", 
+                                            tabletId, unfinishedTask.getBackendId());
+                                }
                             }
                         }
                     }

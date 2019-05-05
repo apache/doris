@@ -217,17 +217,17 @@ void TaskWorkerPool::submit_task(const TAgentTaskRequest& task) {
     if (task.__isset.resource_info) {
         user = task.resource_info.user;
     }
-
+    {
+        lock_guard<Mutex> worker_thread_lock(_worker_thread_lock);
+        if (task.__isset.alter_tablet_req && _tasks.size() >= config::alter_tablet_worker_count) {
+            return;
+        }
+    }
     bool ret = _record_task_info(task_type, signature, user);
     if (ret == true) {
-        {
-            lock_guard<Mutex> worker_thread_lock(_worker_thread_lock);
-            if (task.__isset.alter_tablet_req && _tasks.size() >= config::alter_tablet_worker_count) {
-                return;
-            }
-            _tasks.push_back(task);
-            _worker_thread_condition_lock.notify();
-        }
+        lock_guard<Mutex> worker_thread_lock(_worker_thread_lock);
+        _tasks.push_back(task);
+        _worker_thread_condition_lock.notify();
     }
 }
 
