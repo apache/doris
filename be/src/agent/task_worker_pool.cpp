@@ -217,15 +217,11 @@ void TaskWorkerPool::submit_task(const TAgentTaskRequest& task) {
     if (task.__isset.resource_info) {
         user = task.resource_info.user;
     }
-    {
-        lock_guard<Mutex> worker_thread_lock(_worker_thread_lock);
-        if (task.__isset.alter_tablet_req && _tasks.size() >= config::alter_tablet_worker_count) {
-            return;
-        }
-    }
     bool ret = _record_task_info(task_type, signature, user);
     if (ret == true) {
         lock_guard<Mutex> worker_thread_lock(_worker_thread_lock);
+        // set the task receive time
+        (const_cast<TAgentTaskRequest&>(task)).__set_recv_time(time(nullptr));
         _tasks.push_back(task);
         _worker_thread_condition_lock.notify();
     }
@@ -536,24 +532,33 @@ void* TaskWorkerPool::_alter_tablet_worker_thread_callback(void* arg_this) {
         CgroupsMgr::apply_system_cgroup();
         int64_t signatrue = agent_task_req.signature;
         LOG(INFO) << "get alter table task, signature: " <<  agent_task_req.signature;
-
-        TFinishTaskRequest finish_task_request;
-        TTaskType::type task_type = agent_task_req.task_type;
-        switch (task_type) {
-        case TTaskType::SCHEMA_CHANGE:
-        case TTaskType::ROLLUP:
-            worker_pool_this->_alter_tablet(worker_pool_this,
-                                           alter_tablet_request,
-                                           signatrue,
-                                           task_type,
-                                           &finish_task_request);
-            break;
-        default:
-            // pass
-            break;
+        bool is_task_timeout = false;
+        if (agent_task_req.__isset.recv_time) {
+            int64_t time_elapsed = time(nullptr) - agent_task_req.recv_time;
+            if (time_elapsed > config::report_task_interval_seconds * 20) {
+                LOG(INFO) << "task elapsed " << time_elapsed 
+                          << " since it is inserted to queue, it is timeout";
+                is_task_timeout = true;
+            }
         }
-
-        worker_pool_this->_finish_task(finish_task_request);
+        if (!is_task_timeout) {
+            TFinishTaskRequest finish_task_request;
+            TTaskType::type task_type = agent_task_req.task_type;
+            switch (task_type) {
+            case TTaskType::SCHEMA_CHANGE:
+            case TTaskType::ROLLUP:
+                worker_pool_this->_alter_tablet(worker_pool_this,
+                                            alter_tablet_request,
+                                            signatrue,
+                                            task_type,
+                                            &finish_task_request);
+                break;
+            default:
+                // pass
+                break;
+            }
+            worker_pool_this->_finish_task(finish_task_request);
+        }
         worker_pool_this->_remove_task_info(agent_task_req.task_type, agent_task_req.signature, "");
 #ifndef BE_TEST
     }
