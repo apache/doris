@@ -198,13 +198,13 @@
 
 语法：
 
-    PAUSE ROUTINE LOAD [db.]name;
+    PAUSE ROUTINE LOAD FOR [db.]name;
 
 ## example
 
 1. 暂停名称为 test1 的例行导入作业。
 
-    PAUSE ROUTINE LOAD test1;
+    PAUSE ROUTINE LOAD FOR test1;
 
 ## keyword
     PAUSE,ROUTINE,LOAD
@@ -215,13 +215,13 @@
 
 语法：
 
-    RESUME ROUTINE LOAD [db.]name;
+    RESUME ROUTINE LOAD FOR [db.]name;
 
 ## example
 
 1. 恢复名称为 test1 的例行导入作业。
 
-    RESUME ROUTINE LOAD test1;
+    RESUME ROUTINE LOAD FOR test1;
 
 ## keyword
     RESUME,ROUTINE,LOAD
@@ -232,7 +232,7 @@
 
 语法：
 
-    STOP ROUTINE LOAD [db.]name;
+    STOP ROUTINE LOAD FOR [db.]name;
 
     被停止的作业无法再恢复运行。
 
@@ -240,7 +240,7 @@
 
 1. 停止名称为 test1 的例行导入作业。
 
-    STOP ROUTINE LOAD test1;
+    STOP ROUTINE LOAD FOR test1;
 
 ## keyword
     STOP,ROUTINE,LOAD

@@ -24,6 +24,13 @@ public class ImportColumnDesc {
     private String columnName;
     private Expr expr;
 
+    public ImportColumnDesc(ImportColumnDesc other) {
+        this.columnName = other.columnName;
+        if (other.expr != null) {
+            this.expr = other.expr.clone();
+        }
+    }
+
     public ImportColumnDesc(String column) {
         this.columnName = column;
     }

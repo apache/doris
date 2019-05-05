@@ -17,15 +17,15 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.base.Strings;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.load.PullLoadSourceInfo;
 import org.apache.doris.thrift.TFunctionName;
+
+import com.google.common.base.Strings;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -67,7 +67,7 @@ public class FunctionName implements Writable {
 
     // Same as FunctionName but for builtins and we'll leave the case
     // as is since we aren't matching by string.
-    public static FunctionName CreateBuiltinName(String fn) {
+    public static FunctionName createBuiltinName(String fn) {
         FunctionName name = new FunctionName(fn);
         name.fn_ = fn;
         return name;
