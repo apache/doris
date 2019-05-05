@@ -788,9 +788,16 @@ void OLAPTable::load_pending_data() {
     std::set<int64_t> error_pending_data;
 
     for (const PPendingDelta& pending_delta : _header->pending_delta()) {
+        PUniqueId load_id;
+        if (pending_delta.pending_segment_group_size() > 0) {
+            load_id = pending_delta.pending_segment_group()[0].load_id();
+        } else {
+            load_id.set_hi(0);
+            load_id.set_lo(0);
+        }
         OLAPStatus add_status = OLAPEngine::get_instance()->add_transaction(
                 pending_delta.partition_id(), pending_delta.transaction_id(),
-                _tablet_id, _schema_hash, pending_delta.pending_segment_group()[0].load_id());
+                _tablet_id, _schema_hash, load_id);
         if (add_status != OLAP_SUCCESS) {
             LOG(ERROR) << "find transaction exists in engine when load pending data. tablet=" << full_name()
                          << ", transaction_id=" << pending_delta.transaction_id();
