@@ -50,6 +50,7 @@ OLAPStatus AlphaRowsetWriter::init(const RowsetWriterContext& rowset_writer_cont
     _rowset_writer_context = rowset_writer_context;
     _current_rowset_meta.reset(new(std::nothrow) AlphaRowsetMeta());
     _current_rowset_meta->set_rowset_id(_rowset_writer_context.rowset_id);
+    _current_rowset_meta->set_partition_id(_rowset_writer_context.partition_id);
     _current_rowset_meta->set_tablet_id(_rowset_writer_context.tablet_id);
     _current_rowset_meta->set_tablet_schema_hash(_rowset_writer_context.tablet_schema_hash);
     _current_rowset_meta->set_rowset_type(_rowset_writer_context.rowset_type);

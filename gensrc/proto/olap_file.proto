@@ -88,10 +88,9 @@ message RowsetMetaPB {
     repeated ZoneMap zone_maps = 15; // not set, not used currently
     optional DeletePredicatePB delete_predicate = 16;
     optional bool empty = 17;   // calculated from segment group
-//    optional string rowset_path = 18; // 去掉吧
-    optional PUniqueId load_id = 19;
-    optional bool delete_flag = 20;  // not set, get from olap index header msg?
-    optional int64 creation_time = 21; // PDelta.creation_time
+    optional PUniqueId load_id = 18;
+    optional bool delete_flag = 19;  // not set, get from olap index header msg?
+    optional int64 creation_time = 20; // PDelta.creation_time
     // spare field id for future use
     optional bytes extra_properties = 50;
 }

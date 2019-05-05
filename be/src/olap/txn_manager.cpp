@@ -327,7 +327,7 @@ OLAPStatus TxnManager::delete_txn(OlapMeta* meta, TPartitionId partition_id, TTr
                 StorageEngine::instance()->add_unused_rowset(load_info.rowset);
                 #endif
                 LOG(INFO) << "delete transaction from engine successfully."
-                            << ",partition_id: " << key.first
+                            << " partition_id: " << key.first
                             << ", transaction_id: " << key.second
                             << ", tablet: " << tablet_info.to_string()
                             << ", rowset: " << (load_info.rowset != nullptr ?  load_info.rowset->rowset_id(): 0);
