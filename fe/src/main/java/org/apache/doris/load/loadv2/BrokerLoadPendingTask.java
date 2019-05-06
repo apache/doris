@@ -70,8 +70,8 @@ public class BrokerLoadPendingTask extends LoadTask {
                     BrokerUtil.parseBrokerFile(path, brokerDesc, fileStatuses);
                 }
                 fileStatusList.add(fileStatuses);
-                for (TBrokerFileStatus fstatus : fileStatuses) {
-                    if (LOG.isDebugEnabled()) {
+                if (LOG.isDebugEnabled()) {
+                    for (TBrokerFileStatus fstatus : fileStatuses) {
                         LOG.debug(new LogBuilder(LogKey.LOAD_JOB, callback.getCallbackId())
                                           .add("file_status", fstatus)
                                           .build());
