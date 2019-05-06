@@ -326,6 +326,9 @@ public class TransactionState implements Writable {
                 case COMMITTED:
                     callback.afterCommitted(this, txnOperated);
                     break;
+                case VISIBLE:
+                    callback.afterVisible(this, txnOperated);
+                    break;
                 default:
                     break;
             }
