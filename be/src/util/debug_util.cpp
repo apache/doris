@@ -65,12 +65,12 @@ namespace doris {
     }
 
 THRIFT_ENUM_OUTPUT_FN(TExprOpcode);
-THRIFT_ENUM_OUTPUT_FN(TAggregationOp);
-THRIFT_ENUM_OUTPUT_FN(THdfsFileFormat);
-THRIFT_ENUM_OUTPUT_FN(THdfsCompression);
-THRIFT_ENUM_OUTPUT_FN(TStmtType);
-THRIFT_ENUM_OUTPUT_FN(QueryState);
-THRIFT_ENUM_OUTPUT_FN(TAgentServiceVersion);
+//THRIFT_ENUM_OUTPUT_FN(TAggregationOp);
+//THRIFT_ENUM_OUTPUT_FN(THdfsFileFormat);
+//THRIFT_ENUM_OUTPUT_FN(THdfsCompression);
+//THRIFT_ENUM_OUTPUT_FN(TStmtType);
+//THRIFT_ENUM_OUTPUT_FN(QueryState);
+//THRIFT_ENUM_OUTPUT_FN(TAgentServiceVersion);
 
 THRIFT_ENUM_PRINT_FN(TStmtType);
 THRIFT_ENUM_PRINT_FN(QueryState);

@@ -29,6 +29,8 @@
 #include <thrift/server/TNonblockingServer.h>
 #include <thrift/server/TThreadPoolServer.h>
 #include <thrift/server/TThreadedServer.h>
+#include <thrift/transport/TNonblockingServerSocket.h>
+#include <thrift/transport/TNonblockingServerTransport.h>
 #include <thrift/transport/TSocket.h>
 #include <thrift/transport/TServerSocket.h>
 
@@ -56,15 +58,15 @@ public:
 
     // Called when a client connects; we create per-client state and call any
     // SessionHandlerIf handler.
-    virtual void* createContext(boost::shared_ptr<apache::thrift::protocol::TProtocol> input,
-                                boost::shared_ptr<apache::thrift::protocol::TProtocol> output);
+    virtual void* createContext(std::shared_ptr<apache::thrift::protocol::TProtocol> input,
+                                std::shared_ptr<apache::thrift::protocol::TProtocol> output);
 
     // Called when a client starts an RPC; we set the thread-local session key.
-    virtual void processContext(void* context, boost::shared_ptr<apache::thrift::transport::TTransport> output);
+    virtual void processContext(void* context, std::shared_ptr<apache::thrift::transport::TTransport> output);
 
     // Called when a client disconnects; we call any SessionHandlerIf handler.
-    virtual void deleteContext(void* serverContext, boost::shared_ptr<apache::thrift::protocol::TProtocol> input,
-                               boost::shared_ptr<apache::thrift::protocol::TProtocol> output);
+    virtual void deleteContext(void* serverContext, std::shared_ptr<apache::thrift::protocol::TProtocol> input,
+                               std::shared_ptr<apache::thrift::protocol::TProtocol> output);
 
     // Waits for a timeout of TIMEOUT_MS for a server to signal that it has started
     // correctly.
@@ -180,8 +182,8 @@ ThriftServer::SessionKey* ThriftServer::get_thread_session_key() {
 }
 
 void* ThriftServer::ThriftServerEventProcessor::createContext(
-        boost::shared_ptr<apache::thrift::protocol::TProtocol> input,
-        boost::shared_ptr<apache::thrift::protocol::TProtocol> output) {
+        std::shared_ptr<apache::thrift::protocol::TProtocol> input,
+        std::shared_ptr<apache::thrift::protocol::TProtocol> output) {
     std::stringstream ss;
 
     apache::thrift::transport::TSocket* socket = NULL;
@@ -211,7 +213,7 @@ void* ThriftServer::ThriftServerEventProcessor::createContext(
     {
         boost::lock_guard<boost::mutex> _l(_thrift_server->_session_keys_lock);
 
-        boost::shared_ptr<SessionKey> key_ptr(new std::string(ss.str()));
+        std::shared_ptr<SessionKey> key_ptr(new std::string(ss.str()));
 
         _session_key = key_ptr.get();
         _thrift_server->_session_keys[key_ptr.get()] = key_ptr;
@@ -234,14 +236,14 @@ void* ThriftServer::ThriftServerEventProcessor::createContext(
 
 void ThriftServer::ThriftServerEventProcessor::processContext(
         void* context,
-        boost::shared_ptr<apache::thrift::transport::TTransport> transport) {
+        std::shared_ptr<apache::thrift::transport::TTransport> transport) {
     _session_key = reinterpret_cast<SessionKey*>(context);
 }
 
 void ThriftServer::ThriftServerEventProcessor::deleteContext(
         void* serverContext,
-        boost::shared_ptr<apache::thrift::protocol::TProtocol> input,
-        boost::shared_ptr<apache::thrift::protocol::TProtocol> output) {
+        std::shared_ptr<apache::thrift::protocol::TProtocol> input,
+        std::shared_ptr<apache::thrift::protocol::TProtocol> output) {
     _session_key = (SessionKey*)serverContext;
 
     if (_thrift_server->_session_handler != NULL) {
@@ -260,7 +262,7 @@ void ThriftServer::ThriftServerEventProcessor::deleteContext(
 
 ThriftServer::ThriftServer(
         const std::string& name,
-        const boost::shared_ptr<apache::thrift::TProcessor>& processor,
+        const std::shared_ptr<apache::thrift::TProcessor>& processor,
         int port,
         MetricRegistry* metrics,
         int num_worker_threads,
@@ -292,13 +294,13 @@ ThriftServer::ThriftServer(
 
 Status ThriftServer::start() {
     DCHECK(!_started);
-    boost::shared_ptr<apache::thrift::protocol::TProtocolFactory>
+    std::shared_ptr<apache::thrift::protocol::TProtocolFactory>
             protocol_factory(new apache::thrift::protocol::TBinaryProtocolFactory());
-    boost::shared_ptr<apache::thrift::concurrency::ThreadManager> thread_mgr;
-    boost::shared_ptr<apache::thrift::concurrency::ThreadFactory>
+    std::shared_ptr<apache::thrift::concurrency::ThreadManager> thread_mgr;
+    std::shared_ptr<apache::thrift::concurrency::ThreadFactory>
             thread_factory(new apache::thrift::concurrency::PosixThreadFactory());
-    boost::shared_ptr<apache::thrift::transport::TServerTransport> fe_server_transport;
-    boost::shared_ptr<apache::thrift::transport::TTransportFactory> transport_factory;
+    std::shared_ptr<apache::thrift::transport::TServerTransport> fe_server_transport;
+    std::shared_ptr<apache::thrift::transport::TTransportFactory> transport_factory;
 
     if (_server_type != THREADED) {
         thread_mgr = apache::thrift::concurrency::ThreadManager::newSimpleThreadManager(
@@ -313,17 +315,20 @@ Status ThriftServer::start() {
 
     switch (_server_type) {
     case NON_BLOCKING:
+    {
         if (transport_factory.get() == NULL) {
             transport_factory.reset(new apache::thrift::transport::TTransportFactory());
         }
 
+        std::shared_ptr<apache::thrift::transport::TNonblockingServerTransport> nbSocket;
+        nbSocket.reset(new apache::thrift::transport::TNonblockingServerSocket(_port));
         _server.reset(
                 new apache::thrift::server::TNonblockingServer(
                     _processor,
                     transport_factory, transport_factory,
-                    protocol_factory, protocol_factory, _port, thread_mgr));
+                    protocol_factory, protocol_factory, nbSocket, thread_mgr));
         break;
-
+    }
     case THREAD_POOL:
         fe_server_transport.reset(new apache::thrift::transport::TServerSocket(_port));
 
@@ -355,7 +360,7 @@ Status ThriftServer::start() {
         return Status(error_msg.str());
     }
 
-    boost::shared_ptr<ThriftServer::ThriftServerEventProcessor> event_processor(
+    std::shared_ptr<ThriftServer::ThriftServerEventProcessor> event_processor(
         new ThriftServer::ThriftServerEventProcessor(this));
     _server->setServerEventHandler(event_processor);
 

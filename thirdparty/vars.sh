@@ -67,10 +67,10 @@ OPENSSL_SOURCE=openssl-1.0.2k
 OPENSSL_MD5SUM="f965fc0bf01bf882b31314b61391ae65"
 
 # thrift
-THRIFT_DOWNLOAD="http://archive.apache.org/dist/thrift/0.9.3/thrift-0.9.3.tar.gz"
-THRIFT_NAME=thrift-0.9.3.tar.gz
-THRIFT_SOURCE=thrift-0.9.3
-THRIFT_MD5SUM="88d667a8ae870d5adeca8cb7d6795442"
+THRIFT_DOWNLOAD="http://archive.apache.org/dist/thrift/0.12.0/thrift-0.12.0.tar.gz"
+THRIFT_NAME=thrift-0.12.0.tar.gz
+THRIFT_SOURCE=thrift-0.12.0
+THRIFT_MD5SUM="3deebbb4d1ca77dd9c9e009a1ea02183"
 
 # llvm
 LLVM_DOWNLOAD="http://releases.llvm.org/3.4.2/llvm-3.4.2.src.tar.gz"
@@ -195,7 +195,7 @@ LEVELDB_MD5SUM="298b5bddf12c675d6345784261302252"
 
 # brpc
 BRPC_DOWNLOAD="https://github.com/brpc/brpc/archive/v0.9.0.tar.gz"
-BRPC_NAME=brpc-0.9.0.tar.gz
+BRPC_NAME=incubator-brpc-0.9.0.tar.gz
 BRPC_SOURCE=incubator-brpc-0.9.0
 BRPC_MD5SUM="79dfdc8b6e2d7a08dc68f14c5fabe6b7"
 
@@ -211,5 +211,11 @@ LIBRDKAFKA_NAME=librdkafka-0.11.6-RC5.tar.gz
 LIBRDKAFKA_SOURCE=librdkafka-0.11.6-RC5
 LIBRDKAFKA_MD5SUM="2e4ecef2df277e55a0144eb6d185e18a"
 
+# arrow
+ARROW_DOWNLOAD="https://github.com/apache/arrow/archive/apache-arrow-0.13.0.tar.gz"
+ARROW_NAME=arrow-apache-arrow-0.13.0.tar.gz
+ARROW_SOURCE=arrow-apache-arrow-0.13.0
+ARROW_MD5SUM="de9e00e43df0b5fae2ed92f6491cb10b"
+
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
-export TP_ARCHIVES="LIBEVENT OPENSSL THRIFT LLVM CLANG COMPILER_RT PROTOBUF GFLAGS GLOG GTEST RAPIDJSON SNAPPY GPERFTOOLS ZLIB LZ4 BZIP LZO2 CURL RE2 BOOST MYSQL BOOST_FOR_MYSQL LEVELDB BRPC ROCKSDB LIBRDKAFKA"
+export TP_ARCHIVES="LIBEVENT OPENSSL THRIFT LLVM CLANG COMPILER_RT PROTOBUF GFLAGS GLOG GTEST RAPIDJSON SNAPPY GPERFTOOLS ZLIB LZ4 BZIP LZO2 CURL RE2 BOOST MYSQL BOOST_FOR_MYSQL LEVELDB BRPC ROCKSDB LIBRDKAFKA ARROW"

@@ -517,6 +517,27 @@ build_librdkafka() {
     make -j$PARALLEL && make install
 }
 
+# arrow
+build_arrow() {
+    check_if_source_exist $ARROW_SOURCE
+
+    cd $TP_SOURCE_DIR/$ARROW_SOURCE/cpp
+
+    mkdir release && cd release && \
+    cmake .. -DARROW_PARQUET=ON -DARROW_OPTIONAL_INSTALL=ON -DBOOST_ROOT=$TP_INSTALL_DIR && \
+    make -j$PARALLEL parquet && make install && \
+    cp -r /usr/local/include/arrow $TP_INSTALL_DIR/include/ && \
+    cp -r /usr/local/include/parquet $TP_INSTALL_DIR/include/  && \
+    cp /usr/local/lib64/libarrow.a $TP_INSTALL_DIR/lib64 && \
+    ln -s $TP_INSTALL_DIR/lib64/libarrow.a $TP_INSTALL_DIR/lib/libarrow.a && \
+    cp /usr/local/lib64/libparquet.a $TP_INSTALL_DIR/lib64 && \
+    ln -s $TP_INSTALL_DIR/lib64/libparquet.a $TP_INSTALL_DIR/lib/libparquet.a && \
+    rm -rf /usr/local/include/arrow && \
+    rm -rf /usr/local/include/parquet && \
+    rm -rf /usr/local/lib64/libarrow.* && \
+    rm -rf /usr/local/lib64/libparquet.*
+}
+
 build_llvm 
 build_libevent
 build_zlib
@@ -540,5 +561,6 @@ build_leveldb
 build_brpc
 build_rocksdb
 build_librdkafka
+build_arrow
 
 echo "Finihsed to build all thirdparties"

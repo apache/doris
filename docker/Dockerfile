@@ -25,7 +25,7 @@ ARG GCC_VERSION=7.3.0
 ARG GCC_URL=https://mirrors.ustc.edu.cn/gnu/gcc/gcc-${GCC_VERSION}
 
 # install dependencies and build gcc 
-RUN yum install -y bzip2 wget git gcc-c++ libstdc++-static byacc flex automake libtool binutils-devel bison ncurses-devel make mlocate unzip patch which vim-common redhat-lsb-core zip \
+RUN yum install -y bzip2 wget git gcc-c++ libstdc++-static byacc flex automake libtool binutils-devel bison ncurses-devel make mlocate unzip patch which vim-common redhat-lsb-core zip libcurl-devel \
   && updatedb \
   && yum -y clean all \
   && rm -rf /var/cache/yum \
@@ -46,22 +46,16 @@ ARG CMAKE_DOWNLOAD_URL=https://cmake.org/files/v3.12/cmake-${CMAKE_VERSION}.tar.
 RUN mkdir -p /tmp/cmake && curl -fsSL -o /tmp/cmake.tar.gz ${CMAKE_DOWNLOAD_URL} \
     && tar -zxf /tmp/cmake.tar.gz -C /tmp/cmake --strip-components=1 \
     && cd /tmp/cmake \
-    && ./bootstrap --prefix=/usr/local \
-    && make -j$[$(nproc)/4+1] \
-    && make install \
+    && ./bootstrap --system-curl \
+    && gmake -j$[$(nproc)/4+1] \
+    && gmake install \
     && rm -rf /tmp/cmake.tar.gz \
     && rm -rf /tmp/cmake
 
 # install jdk
+COPY ./jdk.rpm ./
 RUN touch  ${DEFAULT_DIR}/install_jdk.sh \
     && echo '#!/bin/bash' >> ${DEFAULT_DIR}/install_jdk.sh \
-    && echo 'JAVA_VERSION="8"' >>  ${DEFAULT_DIR}/install_jdk.sh \
-    && echo 'URL=https://www.oracle.com' >>  ${DEFAULT_DIR}/install_jdk.sh \
-    && echo 'DOWNLOAD_URL1=${URL}/technetwork/java/javase/downloads/index.html' >>  ${DEFAULT_DIR}/install_jdk.sh \
-    && echo 'DOWNLOAD_URL2=$(curl -s $DOWNLOAD_URL1 | egrep -o "\/technetwork\/java/\javase\/downloads\/jdk${JAVA_VERSION}-downloads-.*\.html" | head -1)' >>  ${DEFAULT_DIR}/install_jdk.sh \
-    && echo 'DOWNLOAD_URL3="$(echo ${URL}${DOWNLOAD_URL2}|awk -F\" {"print $1"})"' >>  ${DEFAULT_DIR}/install_jdk.sh \
-    && echo 'DOWNLOAD_URL4=$(curl -s "$DOWNLOAD_URL3" | egrep -o "https\:\/\/download.oracle\.com\/otn-pub\/java\/jdk\/[7-8]u[0-9]+\-(.*)+\/jdk-[7-8]u[0-9]+(.*)linux-x64.rpm"|tail -n1)' >> ${DEFAULT_DIR}/install_jdk.sh \
-    && echo 'wget -q --no-cookies --no-check-certificate --header "Cookie: oraclelicense=accept-securebackup-cookie" $DOWNLOAD_URL4 -O jdk.rpm > /dev/null 2>&1' >>  ${DEFAULT_DIR}/install_jdk.sh \
     && echo 'rpm -Uvh jdk.rpm > /dev/null 2>&1' >>  ${DEFAULT_DIR}/install_jdk.sh \
     && echo 'mv /usr/java/jdk* /usr/java/jdk' >>  ${DEFAULT_DIR}/install_jdk.sh \
     && echo 'export JAVA_HOME=/usr/java/jdk' >>  ${DEFAULT_DIR}/install_jdk.sh \
@@ -107,5 +101,4 @@ RUN cd ${DEFAULT_DIR}/incubator-doris && /bin/bash thirdparty/build-thirdparty.s
     && mv ${DEFAULT_DIR}/incubator-doris/thirdparty/installed ${DEFAULT_DIR}/thirdparty/ \
     && rm -rf ${DEFAULT_DIR}/incubator-doris
 
-ENV DORIS_THIRDPARTY /var/local/thirdparty
 WORKDIR /root

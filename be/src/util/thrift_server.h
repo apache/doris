@@ -71,7 +71,7 @@ public:
     //  - num_worker_threads: the number of worker threads to use in any thread pool
     //  - server_type: the type of IO strategy this server should employ
     ThriftServer(const std::string& name,
-                 const boost::shared_ptr<apache::thrift::TProcessor>& processor, int port,
+                 const std::shared_ptr<apache::thrift::TProcessor>& processor, int port,
                  MetricRegistry* metrics = NULL, int num_worker_threads = DEFAULT_WORKER_THREADS,
                  ServerType server_type = THREADED);
 
@@ -128,7 +128,7 @@ private:
 
     // Thrift housekeeping
     boost::scoped_ptr<apache::thrift::server::TServer> _server;
-    boost::shared_ptr<apache::thrift::TProcessor> _processor;
+    std::shared_ptr<apache::thrift::TProcessor> _processor;
 
     // If not NULL, called when session events happen. Not owned by us.
     SessionHandlerIf* _session_handler;
@@ -138,7 +138,7 @@ private:
 
     // Map of active session keys to shared_ptr containing that key; when a key is
     // removed it is automatically freed.
-    typedef boost::unordered_map<SessionKey*, boost::shared_ptr<SessionKey> > SessionKeySet;
+    typedef boost::unordered_map<SessionKey*, std::shared_ptr<SessionKey> > SessionKeySet;
     SessionKeySet _session_keys;
 
     // True if metrics are enabled

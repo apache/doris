@@ -17,6 +17,7 @@
 
 #include "runtime/user_function_cache.h"
 
+#include <atomic>
 #include <vector>
 #include <regex>
 

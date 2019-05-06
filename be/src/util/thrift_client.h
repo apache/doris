@@ -93,9 +93,9 @@ private:
     int _port;
 
     // All shared pointers, because Thrift requires them to be
-    boost::shared_ptr<apache::thrift::transport::TSocket> _socket;
-    boost::shared_ptr<apache::thrift::transport::TTransport> _transport;
-    boost::shared_ptr<apache::thrift::protocol::TBinaryProtocol> _protocol;
+    std::shared_ptr<apache::thrift::transport::TSocket> _socket;
+    std::shared_ptr<apache::thrift::transport::TTransport> _transport;
+    std::shared_ptr<apache::thrift::protocol::TBinaryProtocol> _protocol;
 
 };
 

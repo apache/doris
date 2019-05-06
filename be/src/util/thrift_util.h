@@ -107,8 +107,8 @@ public:
     }
 
 private:
-    boost::shared_ptr<apache::thrift::transport::TMemoryBuffer> _mem_buffer;
-    boost::shared_ptr<apache::thrift::protocol::TProtocol> _protocol;
+    std::shared_ptr<apache::thrift::transport::TMemoryBuffer> _mem_buffer;
+    std::shared_ptr<apache::thrift::protocol::TProtocol> _protocol;
 };
 
 class ThriftDeserializer {
@@ -116,15 +116,15 @@ public:
     ThriftDeserializer(bool compact);
 
 private:
-    boost::shared_ptr<apache::thrift::protocol::TProtocolFactory> _factory;
-    boost::shared_ptr<apache::thrift::protocol::TProtocol> _tproto;
+    std::shared_ptr<apache::thrift::protocol::TProtocolFactory> _factory;
+    std::shared_ptr<apache::thrift::protocol::TProtocol> _tproto;
 };
 
 
 // Utility to create a protocol (deserialization) object for 'mem'.
-boost::shared_ptr<apache::thrift::protocol::TProtocol>
+std::shared_ptr<apache::thrift::protocol::TProtocol>
 create_deserialize_protocol(
-        boost::shared_ptr<apache::thrift::transport::TMemoryBuffer> mem,
+        std::shared_ptr<apache::thrift::transport::TMemoryBuffer> mem,
         bool compact);
 
 // Deserialize a thrift message from buf/len.  buf/len must at least contain
@@ -139,9 +139,9 @@ Status deserialize_thrift_msg(
     // Deserialize msg bytes into c++ thrift msg using memory
     // transport. TMemoryBuffer is not const-safe, although we use it in
     // a const-safe way, so we have to explicitly cast away the const.
-    boost::shared_ptr<apache::thrift::transport::TMemoryBuffer> tmem_transport(
+    std::shared_ptr<apache::thrift::transport::TMemoryBuffer> tmem_transport(
             new apache::thrift::transport::TMemoryBuffer(const_cast<uint8_t*>(buf), *len));
-    boost::shared_ptr<apache::thrift::protocol::TProtocol> tproto =
+    std::shared_ptr<apache::thrift::protocol::TProtocol> tproto =
             create_deserialize_protocol(tmem_transport, compact);
 
     try {

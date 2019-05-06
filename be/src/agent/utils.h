@@ -67,9 +67,9 @@ public:
     virtual AgentStatus release_snapshot(const std::string& snapshot_path, TAgentResult* result);
 
 private:
-    boost::shared_ptr<apache::thrift::transport::TTransport> _socket;
-    boost::shared_ptr<apache::thrift::transport::TTransport> _transport;
-    boost::shared_ptr<apache::thrift::protocol::TProtocol> _protocol;
+    std::shared_ptr<apache::thrift::transport::TTransport> _socket;
+    std::shared_ptr<apache::thrift::transport::TTransport> _transport;
+    std::shared_ptr<apache::thrift::protocol::TProtocol> _protocol;
     BackendServiceClient _agent_service_client;
     DISALLOW_COPY_AND_ASSIGN(AgentServerClient);
 };  // class AgentServerClient
