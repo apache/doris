@@ -54,10 +54,6 @@ public class BrokerFileGroup implements Writable {
     // input
     private DataDescription dataDescription;
 
-    // Now we don't save this in image, only use this to parse DataDescription;
-    // if we have this require later, we save this here.
-    private BrokerDesc brokerDesc;
-
     private long tableId;
     private String valueSeparator;
     private String lineDelimiter;
@@ -83,9 +79,8 @@ public class BrokerFileGroup implements Writable {
         this.filePathes = table.getPaths();
     }
 
-    public BrokerFileGroup(DataDescription dataDescription, BrokerDesc desc) {
+    public BrokerFileGroup(DataDescription dataDescription) {
         this.dataDescription = dataDescription;
-        this.brokerDesc = desc;
         exprColumnMap = dataDescription.getParsedExprMap();
     }
 
@@ -162,6 +157,10 @@ public class BrokerFileGroup implements Writable {
 
     public List<Long> getPartitionIds() {
         return partitionIds;
+    }
+
+    public List<String> getPartitionNames(){
+        return dataDescription.getPartitionNames();
     }
 
     public List<String> getFilePathes() {

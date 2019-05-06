@@ -46,7 +46,7 @@ public class RoutineLoadScheduler extends Daemon {
     }
 
     public RoutineLoadScheduler(RoutineLoadManager routineLoadManager) {
-        super("Routine load", DEFAULT_INTERVAL_SECONDS * 1000);
+        super("Routine load scheduler", DEFAULT_INTERVAL_SECONDS * 1000);
         this.routineLoadManager = routineLoadManager;
     }
 

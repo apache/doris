@@ -81,6 +81,10 @@ public class EtlStatus implements Writable {
         return counters;
     }
 
+    public void replaceCounter(String key, String value) {
+        counters.put(key, value);
+    }
+
     public void setCounters(Map<String, String> counters) {
         this.counters = counters;
     }
@@ -91,6 +95,16 @@ public class EtlStatus implements Writable {
 
     public void setFileMap(Map<String, Long> fileMap) {
         this.fileMap = fileMap;
+    }
+
+    public void addAllFileMap(Map<String, Long> fileMap) {
+        this.fileMap.putAll(fileMap);
+    }
+
+    public void reset() {
+        this.stats.clear();
+        this.counters.clear();
+        this.fileMap.clear();
     }
 
     @Override

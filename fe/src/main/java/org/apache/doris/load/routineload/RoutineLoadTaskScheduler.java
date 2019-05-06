@@ -69,12 +69,12 @@ public class RoutineLoadTaskScheduler extends Daemon {
 
     @VisibleForTesting
     public RoutineLoadTaskScheduler() {
-        super("routine load task", 0);
+        super("Routine load task scheduler", 0);
         this.routineLoadManager = Catalog.getInstance().getRoutineLoadManager();
     }
 
     public RoutineLoadTaskScheduler(RoutineLoadManager routineLoadManager) {
-        super("routine load task", 0);
+        super("Routine load task scheduler", 0);
         this.routineLoadManager = routineLoadManager;
     }
 
