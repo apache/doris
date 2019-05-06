@@ -17,6 +17,7 @@
 
 package org.apache.doris.load;
 
+import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CancelLoadStmt;
 import org.apache.doris.analysis.ColumnSeparator;
@@ -732,6 +733,14 @@ public class Load {
                 }
 
                 throw new DdlException("Column has no default value. column: " + columnName);
+            }
+
+            // check negative for sum aggreate type
+            for (Column column : tableSchema) {
+                if (!column.isKey() && column.getAggregationType() != AggregateType.SUM
+                        && dataDescription.isNegative()) {
+                    throw new DdlException("Column is not SUM AggreateType. column:" + column.getName());
+                }
             }
 
             // check hll 
