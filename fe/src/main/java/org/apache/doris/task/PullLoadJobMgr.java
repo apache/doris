@@ -151,6 +151,11 @@ public class PullLoadJobMgr {
                     if (!needRetry) {
                         break;
                     }
+                    try {
+                        Thread.sleep(5000);
+                    } catch (InterruptedException e) {
+
+                    }
                 }
             }
         }
