@@ -498,7 +498,7 @@ OLAPStatus RowBlockAllocator::allocate(RowBlock** row_block,
 
 void RowBlockAllocator::release(RowBlock* row_block) {
     if (row_block == nullptr) {
-        LOG(WARNING) << "null row block released.";
+        LOG(FATAL) << "null row block released.";
         return;
     }
 
