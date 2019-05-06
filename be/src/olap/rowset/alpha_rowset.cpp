@@ -277,6 +277,10 @@ int64_t AlphaRowset::txn_id() const {
     return _rowset_meta->txn_id();
 }
 
+int64_t AlphaRowset::partition_id() const {
+    return _rowset_meta->partition_id();
+}
+
 bool AlphaRowset::delete_flag() {
     return _rowset_meta->delete_flag();
 }

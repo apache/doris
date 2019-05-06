@@ -112,6 +112,8 @@ public:
     virtual PUniqueId load_id() const = 0;
 
     virtual int64_t txn_id() const = 0;
+
+    virtual int64_t partition_id() const = 0;
     
     // flag for push delete rowset
     virtual bool delete_flag() = 0;

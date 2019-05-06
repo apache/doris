@@ -1425,7 +1425,7 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
     RowsetWriterContext writer_context;
     writer_context.rowset_id = rowset_id;
     writer_context.tablet_id = new_tablet->tablet_id();
-    writer_context.partition_id = new_tablet->partition_id();
+    writer_context.partition_id = (*base_rowset)->partition_id();
     writer_context.tablet_schema_hash = new_tablet->schema_hash();
     writer_context.rowset_type = ALPHA_ROWSET;
     writer_context.rowset_path_prefix = new_tablet->tablet_path();
