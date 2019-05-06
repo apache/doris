@@ -45,7 +45,7 @@ import java.util.Map;
 
 /**
  * There are 3 steps in BrokerLoadJob: BrokerPendingTask, LoadLoadingTask, CommitAndPublishTxn.
- * Step1: BrokerPendingTask will be created on method of executeScheduleJob.
+ * Step1: BrokerPendingTask will be created on method of executeJob.
  * Step2: LoadLoadingTasks will be created by the method of onTaskFinished when BrokerPendingTask is finished.
  * Step3: CommitAndPublicTxn will be called by the method of onTaskFinished when all of LoadLoadingTasks are finished.
  */
@@ -92,7 +92,7 @@ public class BrokerLoadJob extends LoadJob {
     }
 
     @Override
-    public void executeScheduleJob() {
+    public void executeJob() {
         LoadTask task = new BrokerLoadPendingTask(this, dataSourceInfo.getIdToFileGroups(), brokerDesc);
         tasks.add(task);
         Catalog.getCurrentCatalog().getLoadTaskScheduler().submit(task);

@@ -38,7 +38,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 
 /**
  * LoadScheduler will schedule the pending LoadJob which belongs to LoadManager.
- * The function of schedule, which is used to submit tasks, will be called in LoadScheduler.
+ * The function of execute will be called in LoadScheduler.
  * The status of LoadJob will be changed to loading after LoadScheduler.
  */
 public class LoadJobScheduler extends Daemon {
@@ -69,7 +69,7 @@ public class LoadJobScheduler extends Daemon {
 
             // schedule job
             try {
-                loadJob.schedule();
+                loadJob.execute();
             } catch (LabelAlreadyUsedException | AnalysisException e) {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, loadJob.getId())
                                  .add("error_msg", "There are error properties in job. Job will be cancelled")
