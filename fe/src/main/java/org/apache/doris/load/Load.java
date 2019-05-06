@@ -736,10 +736,11 @@ public class Load {
             }
 
             // check negative for sum aggreate type
-            for (Column column : tableSchema) {
-                if (!column.isKey() && column.getAggregationType() != AggregateType.SUM
-                        && dataDescription.isNegative()) {
-                    throw new DdlException("Column is not SUM AggreateType. column:" + column.getName());
+            if (dataDescription.isNegative()) {
+                for (Column column : tableSchema) {
+                    if (!column.isKey() && column.getAggregationType() != AggregateType.SUM) {
+                        throw new DdlException("Column is not SUM AggreateType. column:" + column.getName());
+                    }
                 }
             }
 
