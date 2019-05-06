@@ -161,6 +161,7 @@ public class StmtExecutorTest {
         EasyMock.expectLastCall().anyTimes();
         EasyMock.expect(cood.getQueryProfile()).andReturn(new RuntimeProfile()).anyTimes();
         EasyMock.expect(cood.getNext()).andReturn(new RowBatch()).anyTimes();
+        EasyMock.expect(cood.getJobId()).andReturn(-1L).anyTimes();
         EasyMock.replay(cood);
         PowerMock.expectNew(Coordinator.class, EasyMock.isA(ConnectContext.class),
                 EasyMock.isA(Analyzer.class), EasyMock.isA(Planner.class))
