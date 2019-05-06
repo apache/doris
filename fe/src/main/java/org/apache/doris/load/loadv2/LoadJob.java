@@ -232,7 +232,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
      * @throws BeginTransactionException the limit of load job is exceeded
      * @throws AnalysisException there are error params in job
      */
-    public void scheduleJob() throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException {
+    public void schedule() throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException {
         writeLock();
         try {
             // check if job state is pending

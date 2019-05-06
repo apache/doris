@@ -29,6 +29,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
@@ -150,7 +151,7 @@ public class BrokerLoadJob extends LoadJob {
         Database db = null;
         try {
             db = getDb();
-            allocateLoadingTask(db, attachment);
+            createLoadingTask(db, attachment);
         } catch (UserException e) {
             LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
                              .add("database_id", dbId)
@@ -163,7 +164,7 @@ public class BrokerLoadJob extends LoadJob {
         loadStartTimestamp = System.currentTimeMillis();
     }
 
-    private void allocateLoadingTask(Database db, BrokerPendingTaskAttachment attachment) throws UserException {
+    private void createLoadingTask(Database db, BrokerPendingTaskAttachment attachment) throws UserException {
         // divide job into broker loading task by table
         db.readLock();
         try {
@@ -177,9 +178,8 @@ public class BrokerLoadJob extends LoadJob {
                                      .add("table_id", tableId)
                                      .add("error_msg", "Failed to divide job into loading task when table not found")
                                      .build());
-                    cancelJobWithoutCheck(FailMsg.CancelType.ETL_RUN_FAIL,
-                                          "Unknown table(" + tableId + ") in database(" + db.getFullName() + ")");
-                    return;
+                    throw new MetaNotFoundException("Failed to divide job into loading task when table "
+                                                            + tableId + " not found");
                 }
 
                 // Generate loading task and init the plan of task

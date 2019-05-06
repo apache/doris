@@ -22,7 +22,6 @@ package org.apache.doris.load.loadv2;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.util.Daemon;
 import org.apache.doris.common.util.LogBuilder;
@@ -35,12 +34,11 @@ import com.google.common.collect.Queues;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.List;
 import java.util.concurrent.LinkedBlockingQueue;
 
 /**
  * LoadScheduler will schedule the pending LoadJob which belongs to LoadManager.
- * The function of scheduleJob, which is used to submit tasks, will be called in LoadScheduler.
+ * The function of schedule, which is used to submit tasks, will be called in LoadScheduler.
  * The status of LoadJob will be changed to loading after LoadScheduler.
  */
 public class LoadJobScheduler extends Daemon {
@@ -62,13 +60,16 @@ public class LoadJobScheduler extends Daemon {
     }
 
     private void process() throws InterruptedException {
-        while (!needScheduleJobs.isEmpty()) {
+        while (true) {
             // take one load job from queue
-            LoadJob loadJob = needScheduleJobs.take();
+            LoadJob loadJob = needScheduleJobs.poll();
+            if (loadJob == null) {
+                return;
+            }
 
             // schedule job
             try {
-                loadJob.scheduleJob();
+                loadJob.schedule();
             } catch (LabelAlreadyUsedException | AnalysisException e) {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, loadJob.getId())
                                  .add("error_msg", "There are error properties in job. Job will be cancelled")
@@ -81,7 +82,7 @@ public class LoadJobScheduler extends Daemon {
                                          + "Job will be rescheduled later")
                                  .build(), e);
                 needScheduleJobs.put(loadJob);
-                break;
+                return;
             }
         }
     }
