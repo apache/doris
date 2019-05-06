@@ -105,6 +105,8 @@ public:
 
     int64_t txn_id() const override;
 
+    int64_t partition_id() const override;
+
     // flag for push delete rowset
     bool delete_flag() override;
 
