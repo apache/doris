@@ -24,16 +24,18 @@ import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.common.UserException;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TOlapRewriteNode;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
-import org.apache.doris.common.UserException;
 
-import com.google.common.collect.Lists;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
 import java.util.List;
 
 // Used to convert column to valid OLAP table
@@ -108,7 +110,6 @@ public class OlapRewriteNode extends PlanNode {
             cardinality = Math.round(((double) getChild(0).cardinality) * computeSelectivity());
             Preconditions.checkState(cardinality >= 0);
         }
-        LOG.info("stats Select: cardinality=" + Long.toString(cardinality));
     }
 
     @Override

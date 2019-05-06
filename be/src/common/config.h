@@ -377,7 +377,7 @@ namespace config {
     CONF_Int32(tablet_stat_cache_update_interval_second, "300");
 
     // result buffer cancelled time (unit: second)
-    CONF_Int32(result_buffer_cancelled_interval_time, "5");
+    CONF_Int32(result_buffer_cancelled_interval_time, "300");
 
     // can perform recovering tablet
     CONF_Bool(force_recovery, "false");
@@ -395,7 +395,7 @@ namespace config {
     CONF_Int32(txn_commit_rpc_timeout_ms, "10000");
 
     // If set to true, metric calculator will run
-    CONF_Bool(enable_metric_calculator, "false");
+    CONF_Bool(enable_metric_calculator, "true");
 
     // max consumer num in one data consumer group, for routine load
     CONF_Int32(max_consumer_num_per_group, "3");

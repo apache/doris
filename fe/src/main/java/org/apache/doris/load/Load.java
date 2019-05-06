@@ -3286,7 +3286,7 @@ public class Load {
         }
 
         // send tasks to backends
-        MarkedCountDownLatch countDownLatch = new MarkedCountDownLatch(totalReplicaNum);
+        MarkedCountDownLatch<Long, Long> countDownLatch = new MarkedCountDownLatch<Long, Long>(totalReplicaNum);
         for (AgentTask task : deleteBatchTask.getAllTasks()) {
             countDownLatch.addMark(task.getBackendId(), task.getSignature());
             ((PushTask) task).setCountDownLatch(countDownLatch);

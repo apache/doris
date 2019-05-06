@@ -774,7 +774,7 @@ public class Config extends ConfigBase {
     /*
      * If set to true, metric collector will be run as a daemon timer to collect metrics at fix interval
      */
-    @ConfField public static boolean enable_metric_calculator = false;
+    @ConfField public static boolean enable_metric_calculator = true;
 
     /*
      * the max concurrent task num of a routine load task

@@ -25,20 +25,20 @@ import java.util.List;
 import java.util.Map.Entry;
 import java.util.concurrent.CountDownLatch;
 
-public class MarkedCountDownLatch extends CountDownLatch {
+public class MarkedCountDownLatch<K, V> extends CountDownLatch {
 
-    private Multimap<Long, Long> marks;
+    private Multimap<K, V> marks;
 
     public MarkedCountDownLatch(int count) {
         super(count);
         marks = HashMultimap.create();
     }
 
-    public void addMark(long key, long value) {
+    public void addMark(K key, V value) {
         marks.put(key, value);
     }
 
-    public synchronized boolean markedCountDown(long key, long value) {
+    public synchronized boolean markedCountDown(K key, V value) {
         if (marks.remove(key, value)) {
             super.countDown();
             return true;
@@ -46,7 +46,13 @@ public class MarkedCountDownLatch extends CountDownLatch {
         return false;
     }
 
-    public synchronized List<Entry<Long, Long>> getLeftMarks() {
+    public synchronized List<Entry<K, V>> getLeftMarks() {
         return Lists.newArrayList(marks.entries());
+    }
+
+    public synchronized void countDownToZero() {
+        while(getCount() > 0) {
+            super.countDown();
+        }
     }
 }

@@ -26,6 +26,7 @@
 #include "runtime/runtime_state.h"
 #include "runtime/stream_load/stream_load_context.h"
 #include "util/frontend_helper.h"
+#include "util/doris_metrics.h"
 
 #include "gen_cpp/FrontendService.h"
 #include "gen_cpp/FrontendService_types.h"
@@ -73,7 +74,7 @@ Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx) {
 
                 if (status.ok()) {
                     DorisMetrics::stream_receive_bytes_total.increment(ctx->receive_bytes);
-                    DorisMetrics::stream_load_rows_total.increment(ctx->ctx->number_loaded_rows);
+                    DorisMetrics::stream_load_rows_total.increment(ctx->number_loaded_rows);
                 }
             } else {
                 LOG(WARNING) << "fragment execute failed"
