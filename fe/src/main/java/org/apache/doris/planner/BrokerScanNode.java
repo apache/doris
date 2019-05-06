@@ -17,7 +17,9 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.Expr;
@@ -25,6 +27,7 @@ import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.FunctionParams;
+import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
@@ -381,6 +384,7 @@ public class BrokerScanNode extends ScanNode {
             }
         }
 
+        boolean isNegative = context.fileGroup.isNegative();
         for (SlotDescriptor destSlotDesc : desc.getSlots()) {
             if (!destSlotDesc.isMaterialized()) {
                 continue;
@@ -412,6 +416,10 @@ public class BrokerScanNode extends ScanNode {
                 }
             }
 
+            if (isNegative && destSlotDesc.getColumn().getAggregationType() == AggregateType.SUM) {
+                expr = new ArithmeticExpr(ArithmeticExpr.Operator.MULTIPLY, expr, new IntLiteral(-1));
+                expr.analyze(analyzer);
+            }
             expr = castToSlot(destSlotDesc, expr);
             context.params.putToExpr_of_dest_slot(destSlotDesc.getId().asInt(), expr.treeToThrift());
         }
