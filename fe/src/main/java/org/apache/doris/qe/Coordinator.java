@@ -911,8 +911,14 @@ public class Coordinator {
             return false;
         }
 
-        if (ConnectContext.get().getSessionVariable().isDisableColocateJoin()) {
-            return false;
+        // TODO(cmy): some internal process, such as broker load task, do not have ConnectContext.
+        // Any configurations needed by the Coordinator should be passed in Coordinator initialization.
+        // Refine this later.
+        // Currently, just ignore the session variables if ConnectContext does not exist
+        if (ConnectContext.get() != null) {
+            if (ConnectContext.get().getSessionVariable().isDisableColocateJoin()) {
+                return false;
+            }
         }
 
         //cache the colocateFragmentIds
