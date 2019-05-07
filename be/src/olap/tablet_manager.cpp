@@ -1119,8 +1119,10 @@ OLAPStatus TabletManager::_create_inital_rowset(
                 res = OLAP_ERR_INPUT_PARAMETER_ERROR;
                 break;
             }
-            RowsetId rowset_id = 0;
-            RETURN_NOT_OK(tablet->next_rowset_id(&rowset_id));
+            RowsetId rowset_id = 1;
+            // if we know this is the first rowset in this tablet, then not call
+            // tablet to generate rowset id, just set it to 1
+            // RETURN_NOT_OK(tablet->next_rowset_id(&rowset_id));
             RowsetWriterContext context;
             context.rowset_id = rowset_id;
             context.tablet_uid = tablet->tablet_uid();

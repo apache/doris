@@ -186,6 +186,8 @@ public:
 
     OLAPStatus set_next_rowset_id(RowsetId new_rowset_id, DataDir* data_dir);
 
+    RowsetId get_previous_rowset_id();
+
 private:
     int64_t _table_id;
     int64_t _partition_id;
@@ -195,7 +197,7 @@ private:
     int64_t _creation_time;
     int64_t _cumulative_layer_point;
     TabletUid _tablet_uid;
-    RowsetId _next_rowset_id;
+    RowsetId _next_rowset_id = 10000;
     RowsetId _end_rowset_id;
     RowsetId _batch_interval = 10000;
 

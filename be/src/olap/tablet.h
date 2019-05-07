@@ -214,6 +214,7 @@ public:
 
 private:
     void _print_missed_versions(const std::vector<Version>& missed_versions) const;
+    OLAPStatus _check_added_rowset(const RowsetSharedPtr& rowset);
 
 private:
     TabletState _state;

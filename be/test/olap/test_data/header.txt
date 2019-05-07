@@ -112,5 +112,10 @@
             "extra_properties": "Cj8IABABGIkBIMKRBCj3GDItChQtOTIyMTU1MjY3MjkzMDc2NDM3MBITOTIxMzI0NDQwNTY3MzIwODI3MhgAOAAKPggBEAEYYiCuggEo4gUyLQoULTkyMDQ4NjgyNzgzOTU5NTgyOTYSEzkyMjE4NjQ3ODUyMjk2NDE3MDYYADgA"
         }
     ],
-    "in_restore_mode": false
+    "in_restore_mode": false,
+    "tablet_uid": {
+        "hi": 10,
+        "lo": 10
+    },
+    "end_rowset_id": 10000
 }

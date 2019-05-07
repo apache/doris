@@ -262,7 +262,6 @@ OLAPStatus TabletMeta::save_meta(DataDir* data_dir) {
 }
 
 OLAPStatus TabletMeta::_save_meta(DataDir* data_dir) {
-    WriteLock wrlock(&_meta_lock);
     string meta_binary;
     serialize(&meta_binary);
     OLAPStatus status = TabletMetaManager::save(data_dir, tablet_id(), schema_hash(), meta_binary);
@@ -663,6 +662,10 @@ OLAPStatus TabletMeta::set_next_rowset_id(RowsetId new_rowset_id, DataDir* data_
     }
     _next_rowset_id = new_rowset_id + 1;
     return OLAP_SUCCESS;
+}
+
+RowsetId TabletMeta::get_previous_rowset_id() {
+    return _next_rowset_id;
 }
 
 

@@ -265,10 +265,8 @@ OLAPStatus Tablet::deregister_tablet_from_dir() {
 }
 
 OLAPStatus Tablet::add_rowset(RowsetSharedPtr rowset) {
-    if (rowset == nullptr) {
-        return OLAP_ERR_ROWSET_INVALID;
-    }
     WriteLock wrlock(&_meta_lock);
+    RETURN_NOT_OK(_check_added_rowset(rowset));
     RETURN_NOT_OK(_tablet_meta->add_rs_meta(rowset->rowset_meta()));
     _rs_version_map[rowset->version()] = rowset;
     RETURN_NOT_OK(_rs_graph.add_version_to_graph(rowset->version()));
@@ -362,6 +360,8 @@ RowsetSharedPtr Tablet::rowset_with_largest_size() {
 
 OLAPStatus Tablet::add_inc_rowset(const RowsetSharedPtr& rowset) {
     WriteLock wrlock(&_meta_lock);
+    // check if the rowset id is valid
+    RETURN_NOT_OK(_check_added_rowset(rowset));
     RETURN_NOT_OK(_tablet_meta->add_rs_meta(rowset->rowset_meta()));
     _rs_version_map[rowset->version()] = rowset;
     _inc_rs_version_map[rowset->version()] = rowset;
@@ -860,5 +860,19 @@ void Tablet::_print_missed_versions(const std::vector<Version>& missed_versions)
     }
     LOG(WARNING) << ss.str();
 }
+
+ OLAPStatus Tablet::_check_added_rowset(const RowsetSharedPtr& rowset) {
+    if (rowset == nullptr) {
+        return OLAP_ERR_ROWSET_INVALID;
+    }
+    // check if the rowset id is valid
+    if (rowset->rowset_id() >= _tablet_meta->get_previous_rowset_id()) {
+        LOG(FATAL) << "rowset id is larger than next rowsetid, it is fatal error"
+                   << " rowset_id=" << rowset->rowset_id()
+                   << " next_id=" << _tablet_meta->get_previous_rowset_id();
+        return OLAP_ERR_ROWSET_INVALID;
+    }
+    return OLAP_SUCCESS;
+ }
 
 }  // namespace doris
