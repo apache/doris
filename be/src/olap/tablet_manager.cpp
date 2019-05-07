@@ -633,6 +633,10 @@ OLAPStatus TabletManager::drop_tablets_on_error_root_path(
 
 TabletSharedPtr TabletManager::get_tablet(TTabletId tablet_id, SchemaHash schema_hash, bool include_deleted) {
     ReadLock rlock(&_tablet_map_lock);
+    return _get_tablet(tablet_id, schema_hash, include_deleted);
+} // get_tablet
+
+TabletSharedPtr TabletManager::_get_tablet(TTabletId tablet_id, SchemaHash schema_hash, bool include_deleted) {
     TabletSharedPtr tablet;
     tablet = _get_tablet_with_no_lock(tablet_id, schema_hash);
     if (tablet == nullptr && include_deleted) {
@@ -652,6 +656,15 @@ TabletSharedPtr TabletManager::get_tablet(TTabletId tablet_id, SchemaHash schema
     }
 
     return tablet;
+} // get_tablet
+
+TabletSharedPtr TabletManager::get_tablet(TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid, bool include_deleted) {
+    ReadLock rlock(&_tablet_map_lock);
+    TabletSharedPtr tablet = _get_tablet(tablet_id, schema_hash, include_deleted);
+    if (tablet != nullptr && tablet->tablet_uid() == tablet_uid) {
+        return tablet;
+    }
+    return nullptr;
 } // get_tablet
 
 bool TabletManager::get_tablet_id_and_schema_hash_from_path(const std::string& path,

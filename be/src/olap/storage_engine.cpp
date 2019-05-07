@@ -498,8 +498,9 @@ void StorageEngine::clear_transaction_task(const TTransactionId transaction_id,
 
         // each tablet
         for (auto& tablet_info : tablet_infos) {
+            // should use tablet uid to ensure clean txn correctly
             TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_info.first.tablet_id, 
-                tablet_info.first.schema_hash);
+                tablet_info.first.schema_hash, tablet_info.first.tablet_uid);
             OlapMeta* meta = nullptr;
             if (tablet != nullptr) {
                 meta = tablet->data_dir()->get_meta();
@@ -646,7 +647,7 @@ void StorageEngine::_clean_unused_txns() {
     std::set<TabletInfo> tablet_infos;
     _txn_manager->get_all_related_tablets(&tablet_infos);
     for (auto& tablet_info : tablet_infos) {
-        TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_info.tablet_id, tablet_info.schema_hash, true);
+        TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_info.tablet_id, tablet_info.schema_hash, tablet_info.tablet_uid, true);
         if (tablet == nullptr) {
             // TODO(ygl) :  should check if tablet still in meta, it's a improvement
             // case 1: tablet still in meta, just remove from memory
