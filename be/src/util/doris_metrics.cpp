@@ -80,10 +80,20 @@ IntCounter DorisMetrics::cumulative_compaction_bytes_total;
 IntCounter DorisMetrics::cumulative_compaction_request_total;
 IntCounter DorisMetrics::cumulative_compaction_request_failed;
 
+IntCounter DorisMetrics::publish_task_request_total;
+IntCounter DorisMetrics::publish_task_failed_total;
+
 IntCounter DorisMetrics::meta_write_request_total;
 IntCounter DorisMetrics::meta_write_request_duration_us;
 IntCounter DorisMetrics::meta_read_request_total;
 IntCounter DorisMetrics::meta_read_request_duration_us;
+
+IntCounter DorisMetrics::txn_begin_request_total;
+IntCounter DorisMetrics::txn_commit_request_total;
+IntCounter DorisMetrics::txn_rollback_request_total;
+IntCounter DorisMetrics::txn_exec_plan_total;
+IntCounter DorisMetrics::stream_receive_bytes_total;
+IntCounter DorisMetrics::stream_load_rows_total;
 
 // gauges
 IntGauge DorisMetrics::memory_pool_bytes_total;
@@ -176,6 +186,9 @@ void DorisMetrics::initialize(
     REGISTER_ENGINE_REQUEST_METRIC(cumulative_compaction, total, cumulative_compaction_request_total);
     REGISTER_ENGINE_REQUEST_METRIC(cumulative_compaction, failed, cumulative_compaction_request_failed);
 
+    REGISTER_ENGINE_REQUEST_METRIC(publish, total, publish_task_request_total);
+    REGISTER_ENGINE_REQUEST_METRIC(publish, failed, publish_task_failed_total);
+
     _metrics->register_metric(
         "compaction_deltas_total", MetricLabels().add("type", "base"),
         &base_compaction_deltas_total);
@@ -201,6 +214,26 @@ void DorisMetrics::initialize(
     _metrics->register_metric(
         "meta_request_duration", MetricLabels().add("type", "read"),
         &meta_read_request_duration_us);
+
+    _metrics->register_metric(
+        "txn_request", MetricLabels().add("type", "begin"),
+        &txn_begin_request_total);
+    _metrics->register_metric(
+        "txn_request", MetricLabels().add("type", "commit"),
+        &txn_commit_request_total);
+    _metrics->register_metric(
+        "txn_request", MetricLabels().add("type", "rollback"),
+        &txn_rollback_request_total);
+    _metrics->register_metric(
+        "txn_request", MetricLabels().add("type", "exec"),
+        &txn_exec_plan_total);
+
+    _metrics->register_metric(
+        "stream_load", MetricLabels().add("type", "receive_bytes"),
+        &stream_receive_bytes_total);
+    _metrics->register_metric(
+        "stream_load", MetricLabels().add("type", "load_rows"),
+        &stream_load_rows_total);
 
     // Gauge
     REGISTER_DORIS_METRIC(memory_pool_bytes_total);

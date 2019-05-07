@@ -3275,7 +3275,7 @@ public class Catalog {
                 TStorageType storageType = indexIdToStorageType.get(indexId);
                 List<Column> schema = indexIdToSchema.get(indexId);
                 int totalTaskNum = index.getTablets().size() * replicationNum;
-                MarkedCountDownLatch countDownLatch = new MarkedCountDownLatch(totalTaskNum);
+                MarkedCountDownLatch<Long, Long> countDownLatch = new MarkedCountDownLatch<Long, Long>(totalTaskNum);
                 AgentBatchTask batchTask = new AgentBatchTask();
                 for (Tablet tablet : index.getTablets()) {
                     long tabletId = tablet.getId();
