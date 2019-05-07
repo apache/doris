@@ -70,6 +70,9 @@ public:
 
 private:
     OLAPStatus _init();
+    
+    // validate rowset build arguments before create rowset to make sure correctness
+    bool _validate_rowset();
 
 private:
     int32_t _segment_group_id;

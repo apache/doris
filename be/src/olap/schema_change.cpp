@@ -498,7 +498,7 @@ OLAPStatus RowBlockAllocator::allocate(RowBlock** row_block,
 
 void RowBlockAllocator::release(RowBlock* row_block) {
     if (row_block == nullptr) {
-        LOG(FATAL) << "null row block released.";
+        LOG(INFO) << "null row block released.";
         return;
     }
 
@@ -811,7 +811,10 @@ bool SchemaChangeDirectly::process(RowsetReaderSharedPtr rowset_reader, RowsetWr
     }
 
 DIRECTLY_PROCESS_ERR:
-    _row_block_allocator->release(new_row_block);
+    if (new_row_block) {
+        _row_block_allocator->release(new_row_block);
+        new_row_block = nullptr;
+    }
     return result;
 }
 

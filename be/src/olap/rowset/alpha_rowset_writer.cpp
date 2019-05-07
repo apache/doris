@@ -151,7 +151,7 @@ OLAPStatus AlphaRowsetWriter::flush() {
 
 RowsetSharedPtr AlphaRowsetWriter::build() {
     if (_writer_state != WRITER_FLUSHED) {
-        LOG(WARNING) << "invalid writer state before build:" << _writer_state;
+        LOG(WARNING) << "invalid writer state before build, state:" << _writer_state;
         return nullptr;
     }
     for (auto& segment_group : _segment_groups) {
@@ -199,6 +199,13 @@ RowsetSharedPtr AlphaRowsetWriter::build() {
     _current_rowset_meta->set_empty(_num_rows_written == 0);
     _current_rowset_meta->set_num_rows(_num_rows_written);
     _current_rowset_meta->set_creation_time(time(nullptr));
+
+    // validate rowset arguments before create rowset
+    bool ret = _validate_rowset();
+    if (!ret) {
+        LOG(WARNING) << "valiate rowset arguments failed";
+        return nullptr;
+    }
 
     RowsetSharedPtr rowset(new(std::nothrow) AlphaRowset(_rowset_writer_context.tablet_schema,
                                     _rowset_writer_context.rowset_path_prefix,
@@ -287,6 +294,20 @@ OLAPStatus AlphaRowsetWriter::_init() {
     _segment_group_id++;
     _writer_state = WRITER_INITED;
     return OLAP_SUCCESS;
+}
+
+bool AlphaRowsetWriter::_validate_rowset() {
+    if (_is_pending_rowset) {
+        int64_t partition_id = _current_rowset_meta->partition_id();
+        if (partition_id <= 0) {
+            LOG(WARNING) << "invalid partition id:" << partition_id << " for pending rowset."
+                         << ", rowset_id:" << _current_rowset_meta->rowset_id()
+                         << ", tablet_id:" << _current_rowset_meta->tablet_id()
+                         << ", schema_hash:" << _current_rowset_meta->tablet_schema_hash();
+            return false;
+        }
+    }
+    return true;
 }
 
 } // namespace doris
