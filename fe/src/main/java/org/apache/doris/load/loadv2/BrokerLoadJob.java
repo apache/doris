@@ -37,6 +37,8 @@ import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.PullLoadSourceInfo;
 
+import com.google.common.base.Joiner;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -57,13 +59,11 @@ public class BrokerLoadJob extends LoadJob {
     // include broker desc and data desc
     private PullLoadSourceInfo dataSourceInfo = new PullLoadSourceInfo();
 
-    // it will be set to true when pending task finished
-    private boolean isLoading = false;
-
     public BrokerLoadJob(long dbId, String label, BrokerDesc brokerDesc) {
         super(dbId, label);
         this.timeoutSecond = Config.pull_load_task_default_timeout_second;
         this.brokerDesc = brokerDesc;
+        this.jobType = org.apache.doris.load.LoadJob.EtlJobType.BROKER;
     }
 
     public static BrokerLoadJob fromLoadStmt(LoadStmt stmt) throws DdlException {
@@ -116,8 +116,8 @@ public class BrokerLoadJob extends LoadJob {
     }
 
     @Override
-    public void onTaskFailed(String errMsg) {
-        cancelJobWithoutCheck(FailMsg.CancelType.LOAD_RUN_FAIL, errMsg);
+    public void onTaskFailed(FailMsg failMsg) {
+        cancelJobWithoutCheck(failMsg);
     }
 
     /**
@@ -136,28 +136,30 @@ public class BrokerLoadJob extends LoadJob {
                                  .build());
                 return;
             }
-            if (isLoading) {
+            if (finishedTaskIds.contains(attachment.getTaskId())) {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
+                                 .add("task_id", attachment.getTaskId())
                                  .add("error_msg", "this is a duplicated callback of pending task "
                                          + "when broker already has loading task")
                                  .build());
                 return;
             }
-            isLoading = true;
+
+            // add task id into finishedTaskIds
+            finishedTaskIds.add(attachment.getTaskId());
         } finally {
             writeUnlock();
         }
 
-        Database db = null;
         try {
-            db = getDb();
+            Database db = getDb();
             createLoadingTask(db, attachment);
         } catch (UserException e) {
             LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
                              .add("database_id", dbId)
                              .add("error_msg", "Failed to divide job into loading task.")
                              .build(), e);
-            cancelJobWithoutCheck(FailMsg.CancelType.ETL_RUN_FAIL, e.getMessage());
+            cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.ETL_RUN_FAIL, e.getMessage()));
             return;
         }
 
@@ -208,25 +210,51 @@ public class BrokerLoadJob extends LoadJob {
                 return;
             }
 
+            // check if task has been finished
+            if (finishedTaskIds.contains(attachment.getTaskId())) {
+                LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
+                                 .add("task_id", attachment.getTaskId())
+                                 .add("error_msg", "this is a duplicated callback of loading task").build());
+                return;
+            }
+
             // update loading status
+            finishedTaskIds.add(attachment.getTaskId());
             updateLoadingStatus(attachment);
 
             // begin commit txn when all of loading tasks have been finished
-            if (!(tasks.size() == tasks.stream()
-                    .filter(entity -> entity.isFinished()).count())) {
+            if (finishedTaskIds.size() != tasks.size()) {
                 return;
             }
 
             // check data quality
             if (!checkDataQuality()) {
-                executeCancel(FailMsg.CancelType.ETL_QUALITY_UNSATISFIED, QUALITY_FAIL_MSG);
+                executeCancel(new FailMsg(FailMsg.CancelType.ETL_QUALITY_UNSATISFIED, QUALITY_FAIL_MSG));
                 return;
             }
         } finally {
             writeUnlock();
         }
 
+        if (LOG.isDebugEnabled()) {
+            LOG.debug(new LogBuilder(LogKey.LOAD_JOB, id)
+                              .add("commit_infos", Joiner.on(",").join(commitInfos))
+                              .build());
+        }
+
+        Database db = null;
         try {
+            db = getDb();
+        } catch (MetaNotFoundException e) {
+            LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
+                             .add("database_id", dbId)
+                             .add("error_msg", "db has been deleted when job is loading")
+                             .build(), e);
+            cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()));
+        }
+        db.writeLock();
+        try {
+
             Catalog.getCurrentGlobalTransactionMgr().commitTransaction(
                     dbId, transactionId, commitInfos);
         } catch (UserException e) {
@@ -234,8 +262,10 @@ public class BrokerLoadJob extends LoadJob {
                              .add("database_id", dbId)
                              .add("error_msg", "Failed to commit txn.")
                              .build(), e);
-            cancelJobWithoutCheck(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage());
+            cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()));
             return;
+        } finally {
+            db.writeUnlock();
         }
     }
 
@@ -248,15 +278,17 @@ public class BrokerLoadJob extends LoadJob {
             loadingStatus.setTrackingUrl(attachment.getTrackingUrl());
         }
         commitInfos.addAll(attachment.getCommitInfoList());
-        int finishedTaskNum = (int) tasks.stream().filter(entity -> entity.isFinished()).count();
-        progress = finishedTaskNum / tasks.size() * 100;
+        progress = finishedTaskIds.size() / tasks.size() * 100;
         if (progress == 100) {
             progress = 99;
         }
     }
 
     private String increaseCounter(String key, String deltaValue) {
-        long value = Long.valueOf(loadingStatus.getCounters().get(key));
+        long value = 0;
+        if (loadingStatus.getCounters().containsKey(key)) {
+            value = Long.valueOf(loadingStatus.getCounters().get(key));
+        }
         if (deltaValue != null) {
             value += Long.valueOf(deltaValue);
         }

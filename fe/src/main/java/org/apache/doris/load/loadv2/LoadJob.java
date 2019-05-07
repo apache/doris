@@ -32,6 +32,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.EtlStatus;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.Load;
@@ -46,14 +47,18 @@ import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
 
+import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 
+import org.apache.commons.lang.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public abstract class LoadJob extends AbstractTxnStateChangeCallback implements LoadTaskCallback {
@@ -68,6 +73,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     protected long dbId;
     protected String label;
     protected JobState state = JobState.PENDING;
+    protected org.apache.doris.load.LoadJob.EtlJobType jobType;
 
     // optional properties
     // timeout second need to be reset in constructor of subclass
@@ -83,6 +89,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     protected long transactionId;
     protected FailMsg failMsg;
     protected List<LoadTask> tasks = Lists.newArrayList();
+    protected List<Long> finishedTaskIds = Lists.newArrayList();
     protected EtlStatus loadingStatus = new EtlStatus();
     // 0: the job status is pending
     // n/100: n is the number of task which has been finished
@@ -154,13 +161,8 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         return finishTimestamp;
     }
 
-    public boolean isFinished() {
-        readLock();
-        try {
-            return state == JobState.FINISHED || state == JobState.CANCELLED;
-        } finally {
-            readUnlock();
-        }
+    protected boolean isFinished() {
+        return state == JobState.FINISHED || state == JobState.CANCELLED;
     }
 
     protected void setJobProperties(Map<String, String> properties) throws DdlException {
@@ -255,7 +257,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             if (isFinished() || getDeadlineMs() >= System.currentTimeMillis() || isCommitting) {
                 return;
             }
-            executeCancel(FailMsg.CancelType.TIMEOUT, "loading timeout to cancel");
+            executeCancel(new FailMsg(FailMsg.CancelType.TIMEOUT, "loading timeout to cancel"));
         } finally {
             writeUnlock();
         }
@@ -290,16 +292,16 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         state = JobState.LOADING;
     }
 
-    public void cancelJobWithoutCheck(FailMsg.CancelType cancelType, String errMsg) {
+    public void cancelJobWithoutCheck(FailMsg failMsg) {
         writeLock();
         try {
-            executeCancel(cancelType, errMsg);
+            executeCancel(failMsg);
         } finally {
             writeUnlock();
         }
     }
 
-    public void cancelJob(FailMsg.CancelType cancelType, String errMsg) throws DdlException {
+    public void cancelJob(FailMsg failMsg) throws DdlException {
         writeLock();
         try {
             if (isCommitting) {
@@ -308,15 +310,15 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
                                          + "The job could not be cancelled in this step").build());
                 throw new DdlException("Job could not be cancelled while txn is committing");
             }
-            executeCancel(cancelType, errMsg);
+            executeCancel(failMsg);
         } finally {
             writeUnlock();
         }
     }
 
-    protected void executeCancel(FailMsg.CancelType cancelType, String errMsg) {
+    protected void executeCancel(FailMsg failMsg) {
         LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
-                         .add("error_msg", "Failed to execute load with error " + errMsg)
+                         .add("error_msg", "Failed to execute load with error " + failMsg.getMsg())
                          .build());
 
         // reset txn id
@@ -333,7 +335,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         tasks.clear();
 
         // set failMsg and state
-        failMsg = new FailMsg(cancelType, errMsg);
+        this.failMsg = failMsg;
         finishTimestamp = System.currentTimeMillis();
         state = JobState.CANCELLED;
 
@@ -363,6 +365,69 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         }
 
         return true;
+    }
+
+    public List<Comparable> getShowInfo() {
+        readLock();
+        try {
+            List<Comparable> jobInfo = Lists.newArrayList();
+            // jobId
+            jobInfo.add(id);
+            // label
+            jobInfo.add(label);
+            // state
+            jobInfo.add(state.name());
+
+            // progress
+            switch (state) {
+                case PENDING:
+                    jobInfo.add("ETL:N/A; LOAD:0%");
+                    break;
+                case CANCELLED:
+                    jobInfo.add("ETL:N/A; LOAD:N/A");
+                    break;
+                default:
+                    jobInfo.add("ETL:N/A; LOAD:" + progress + "%");
+                    break;
+            }
+
+            // type
+            jobInfo.add(jobType);
+
+            // etl info
+            if (loadingStatus.getCounters().size() == 0) {
+                jobInfo.add("N/A");
+            } else {
+                jobInfo.add(Joiner.on("; ").withKeyValueSeparator("=").join(loadingStatus.getCounters()));
+            }
+
+            // task info
+            jobInfo.add("cluster:N/A" + "; timeout(s):" + timeoutSecond
+                                + "; max_filter_ratio:" + maxFilterRatio);
+
+            // error msg
+            if (failMsg == null) {
+                jobInfo.add("N/A");
+            } else {
+                jobInfo.add("type:" + failMsg.getCancelType() + "; msg:" + failMsg.getMsg());
+            }
+
+            // create time
+            jobInfo.add(TimeUtils.longToTimeString(createTimestamp));
+            // etl start time
+            jobInfo.add(TimeUtils.longToTimeString(loadStartTimestamp));
+            // etl end time
+            jobInfo.add(TimeUtils.longToTimeString(loadStartTimestamp));
+            // load start time
+            jobInfo.add(TimeUtils.longToTimeString(loadStartTimestamp));
+            // load end time
+            jobInfo.add(TimeUtils.longToTimeString(finishTimestamp));
+            // tracking url
+            jobInfo.add(loadingStatus.getTrackingUrl());
+            return jobInfo;
+        } finally {
+            readUnlock();
+        }
     }
 
     @Override
@@ -418,7 +483,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
                 return;
             }
             // cancel load job
-            executeCancel(FailMsg.CancelType.LOAD_RUN_FAIL, txnStatusChangeReason);
+            executeCancel(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, txnStatusChangeReason));
         } finally {
             writeUnlock();
         }
@@ -426,7 +491,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
 
     @Override
     public void replayOnAborted(TransactionState txnState) {
-        cancelJobWithoutCheck(FailMsg.CancelType.LOAD_RUN_FAIL, null);
+        cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, null));
     }
 
     @Override

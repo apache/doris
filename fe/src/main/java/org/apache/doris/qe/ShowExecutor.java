@@ -90,8 +90,10 @@ import org.apache.doris.common.proc.LoadProcDir;
 import org.apache.doris.common.proc.PartitionsProcDir;
 import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.TabletsProcDir;
+import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
+import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.ExportMgr;
 import org.apache.doris.load.Load;
@@ -118,10 +120,12 @@ import java.io.InputStreamReader;
 import java.net.URL;
 import java.net.URLConnection;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 // Execute one show statement.
 public class ShowExecutor {
@@ -648,8 +652,24 @@ public class ShowExecutor {
         List<List<Comparable>> loadInfos = load.getLoadJobInfosByDb(dbId, db.getFullName(),
                                                                     showStmt.getLabelValue(),
                                                                     showStmt.isAccurateMatch(),
-                                                                    showStmt.getStates(),
-                                                                    showStmt.getOrderByPairs());
+                                                                    showStmt.getStates());
+        List<String> statesValue = showStmt.getStates() == null ? null : showStmt.getStates().stream()
+                .map(entity -> entity.name())
+                .collect(Collectors.toList());
+        loadInfos.addAll(catalog.getLoadManager().getLoadJobInfosByDb(dbId, showStmt.getLabelValue(),
+                                                                      showStmt.isAccurateMatch(),
+                                                                      statesValue));
+        List<OrderByPair> orderByPairs = showStmt.getOrderByPairs();
+        ListComparator<List<Comparable>> comparator = null;
+        if (orderByPairs != null) {
+            OrderByPair[] orderByPairArr = new OrderByPair[orderByPairs.size()];
+            comparator = new ListComparator<List<Comparable>>(orderByPairs.toArray(orderByPairArr));
+        } else {
+            // sort by id asc
+            comparator = new ListComparator<List<Comparable>>(0);
+        }
+        Collections.sort(loadInfos, comparator);
+
         List<List<String>> rows = Lists.newArrayList();
         for (List<Comparable> loadInfo : loadInfos) {
             List<String> oneInfo = new ArrayList<String>(loadInfo.size());

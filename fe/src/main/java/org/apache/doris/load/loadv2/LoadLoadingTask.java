@@ -23,11 +23,14 @@ package org.apache.doris.load.loadv2;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.common.LoadException;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.load.BrokerFileGroup;
+import org.apache.doris.load.FailMsg;
+import org.apache.doris.load.Load;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.thrift.TBrokerFileStatus;
@@ -67,6 +70,7 @@ public class LoadLoadingTask extends LoadTask {
         this.jobDeadlineMs = jobDeadlineMs;
         this.execMemLimit = execMemLimit;
         this.txnId = txnId;
+        this.failMsg = new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, null);
     }
 
     public void init(List<List<TBrokerFileStatus>> fileStatusList, int fileNum) throws UserException {
@@ -78,7 +82,7 @@ public class LoadLoadingTask extends LoadTask {
     protected void executeTask() throws UserException {
         int retryTime = 3;
         for (int i = 0; i < retryTime; ++i) {
-            isFinished = executeOnce();
+            boolean isFinished = executeOnce();
             if (isFinished) {
                 return;
             }
@@ -90,7 +94,7 @@ public class LoadLoadingTask extends LoadTask {
         // New one query id,
         UUID uuid = UUID.randomUUID();
         TUniqueId executeId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
-        Coordinator curCoordinator = new Coordinator(-1L, executeId, planner.getDescTable(),
+        Coordinator curCoordinator = new Coordinator(callback.getCallbackId(), executeId, planner.getDescTable(),
                                                      planner.getFragments(), planner.getScanNodes(), db.getClusterName());
         curCoordinator.setQueryType(TQueryType.LOAD);
         curCoordinator.setExecMemoryLimit(execMemLimit);
@@ -99,10 +103,11 @@ public class LoadLoadingTask extends LoadTask {
         try {
             QeProcessorImpl.INSTANCE
                     .registerQuery(executeId, curCoordinator);
-            return actualExecute(curCoordinator);
-        } catch (UserException e) {
+            actualExecute(curCoordinator);
+            return true;
+        } catch (Exception e) {
             LOG.warn(new LogBuilder(LogKey.LOAD_JOB, callback.getCallbackId())
-                             .add("error_msg", "failed to execute loading task")
+                             .add("error_msg", "coordinator execute failed in loading task")
                              .build(), e);
             errMsg = e.getMessage();
             return false;
@@ -111,36 +116,25 @@ public class LoadLoadingTask extends LoadTask {
         }
     }
 
-    private boolean actualExecute(Coordinator curCoordinator) {
+    private void actualExecute(Coordinator curCoordinator) throws Exception {
         int waitSecond = (int) (getLeftTimeMs() / 1000);
         if (waitSecond <= 0) {
-            errMsg = "time out";
-            return false;
+            throw new LoadException("failed to execute plan when the left time is less then 0");
         }
 
-        try {
-            curCoordinator.exec();
-        } catch (Exception e) {
-            LOG.warn(new LogBuilder(LogKey.LOAD_JOB, callback.getCallbackId())
-                             .add("error_msg", "coordinator execute failed")
-                             .build(), e);
-            errMsg = "coordinator execute failed with error " + e.getMessage();
-            return false;
-        }
+        curCoordinator.exec();
         if (curCoordinator.join(waitSecond)) {
             Status status = curCoordinator.getExecStatus();
             if (status.ok()) {
-                attachment = new BrokerLoadingTaskAttachment(curCoordinator.getLoadCounters(),
+                attachment = new BrokerLoadingTaskAttachment(signature,
+                                                             curCoordinator.getLoadCounters(),
                                                              curCoordinator.getTrackingUrl(),
                                                              TabletCommitInfo.fromThrift(curCoordinator.getCommitInfos()));
-                return true;
             } else {
-                errMsg = status.getErrorMsg();
-                return false;
+                throw new LoadException(status.getErrorMsg());
             }
         } else {
-            errMsg = "coordinator could not finished before job timeout";
-            return false;
+            throw new LoadException("coordinator could not finished before job timeout");
         }
     }
 

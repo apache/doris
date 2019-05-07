@@ -20,13 +20,15 @@
 
 package org.apache.doris.load.loadv2;
 
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
+import org.apache.doris.load.FailMsg;
 import org.apache.doris.task.MasterTask;
 
-import org.apache.log4j.LogManager;
-import org.apache.log4j.Logger;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 public abstract class LoadTask extends MasterTask {
 
@@ -34,35 +36,32 @@ public abstract class LoadTask extends MasterTask {
 
     protected LoadTaskCallback callback;
     protected TaskAttachment attachment;
-    protected boolean isFinished = false;
+    protected FailMsg failMsg = new FailMsg();
 
-    public LoadTask(LoadTaskCallback callback) {
+    public LoadTask(LoadTaskCallback callback){
+        this.signature = Catalog.getCurrentCatalog().getNextId();
         this.callback = callback;
     }
 
     @Override
     protected void exec() {
-        Exception exception = null;
+        boolean isFinished = false;
         try {
             // execute pending task
             executeTask();
-            isFinished = true;
             // callback on pending task finished
             callback.onTaskFinished(attachment);
+            isFinished = true;
         } catch (Exception e) {
-            exception = e;
+            failMsg.setMsg(e.getMessage());
             LOG.warn(new LogBuilder(LogKey.LOAD_JOB, callback.getCallbackId())
                              .add("error_msg", "Failed to execute load task").build(), e);
         } finally {
             if (!isFinished) {
                 // callback on pending task failed
-                callback.onTaskFailed(exception == null ? "unknown error" : exception.getMessage());
+                callback.onTaskFailed(failMsg);
             }
         }
-    }
-
-    public boolean isFinished() {
-        return isFinished;
     }
 
     /**

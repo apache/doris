@@ -20,10 +20,12 @@
 
 package org.apache.doris.load.loadv2;
 
+import org.apache.doris.load.FailMsg;
+
 public interface LoadTaskCallback {
     long getCallbackId();
 
     void onTaskFinished(TaskAttachment attachment);
 
-    void onTaskFailed(String errMsg);
+    void onTaskFailed(FailMsg failMsg);
 }

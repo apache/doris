@@ -26,6 +26,7 @@ import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.load.BrokerFileGroup;
+import org.apache.doris.load.FailMsg;
 import org.apache.doris.thrift.TBrokerFileStatus;
 
 import com.google.common.collect.Lists;
@@ -47,9 +48,10 @@ public class BrokerLoadPendingTask extends LoadTask {
                                  Map<Long, List<BrokerFileGroup>> tableToBrokerFileList,
                                  BrokerDesc brokerDesc) {
         super(loadTaskCallback);
-        this.attachment = new BrokerPendingTaskAttachment();
+        this.attachment = new BrokerPendingTaskAttachment(signature);
         this.tableToBrokerFileList = tableToBrokerFileList;
         this.brokerDesc = brokerDesc;
+        this.failMsg = new FailMsg(FailMsg.CancelType.ETL_RUN_FAIL, null);
     }
 
     @Override

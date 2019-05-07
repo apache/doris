@@ -20,5 +20,14 @@
 
 package org.apache.doris.load.loadv2;
 
-public interface TaskAttachment {
+public class TaskAttachment {
+    private long taskId;
+
+    public TaskAttachment(long taskId) {
+        this.taskId = taskId;
+    }
+
+    public long getTaskId() {
+        return taskId;
+    }
 }

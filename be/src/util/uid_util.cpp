@@ -26,13 +26,13 @@ std::ostream& operator<<(std::ostream& os, const UniqueId& uid) {
 
 std::string print_id(const TUniqueId& id) {
     std::stringstream out;
-    out << std::hex << id.hi << ":" << id.lo;
+    out << std::hex << id.hi << "-" << id.lo;
     return out.str();
 }
 
 std::string print_id(const PUniqueId& id) {
     std::stringstream out;
-    out << std::hex << id.hi() << ":" << id.lo();
+    out << std::hex << id.hi() << "-" << id.lo();
     return out.str();
 }
 
@@ -40,7 +40,7 @@ bool parse_id(const std::string& s, TUniqueId* id) {
     DCHECK(id != NULL);
 
     const char* hi_part = s.c_str();
-    char* colon = const_cast<char*>(strchr(hi_part, ':'));
+    char* colon = const_cast<char*>(strchr(hi_part, '-'));
 
     if (colon == NULL) {
         return false;
