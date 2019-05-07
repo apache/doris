@@ -111,6 +111,7 @@ TEST_F(SystemMetricsTest, normal) {
         network_interfaces.emplace_back("xgbe0");
         SystemMetrics metrics;
         metrics.install(&registry, disk_devices, network_interfaces);
+        metrics.update();
 
         TestMetricsVisitor visitor;
         registry.collect(&visitor);

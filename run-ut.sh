@@ -98,7 +98,7 @@ if [ ${RUN} -ne 1 ]; then
 fi
 
 echo "******************************"
-echo "    Runing PaloBe Unittest    "
+echo "    Running PaloBe Unittest    "
 echo "******************************"
 
 cd ${DORIS_HOME}
@@ -120,7 +120,7 @@ if [ ${RUN} -ne 1 ]; then
 fi
 
 echo "******************************"
-echo "    Runing PaloBe Unittest    "
+echo "    Running PaloBe Unittest    "
 echo "******************************"
 
 export DORIS_TEST_BINARY_DIR=${DORIS_TEST_BINARY_DIR}/test/
