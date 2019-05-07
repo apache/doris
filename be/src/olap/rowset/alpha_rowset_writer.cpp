@@ -203,7 +203,7 @@ RowsetSharedPtr AlphaRowsetWriter::build() {
     // validate rowset arguments before create rowset
     bool ret = _validate_rowset();
     if (!ret) {
-        LOG(WARNING) << "valiate rowset arguments failed";
+        LOG(FATAL) << "valiate rowset arguments failed";
         return nullptr;
     }
 
