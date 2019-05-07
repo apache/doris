@@ -177,7 +177,9 @@ public class PullLoadTask {
         } catch (Exception e) {
             LOG.warn("pull load task exec failed", e);
             onFailed(queryId, new Status(TStatusCode.INTERNAL_ERROR, "Coordinator execute failed: " + e.getMessage()));
+            return;
         }
+
         if (curCoordinator.join(waitSecond)) {
             Status status = curCoordinator.getExecStatus();
             if (status.ok()) {
