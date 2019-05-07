@@ -139,7 +139,7 @@ void SystemMetrics::_update_cpu_metrics() {
 
     if (getline(&_line_ptr, &_line_buf_size, fp) < 0) {
         char buf[64];
-        LOG(WARNING) << "geline failed, errno=" << errno
+        LOG(WARNING) << "getline failed, errno=" << errno
             << ", message=" << strerror_r(errno, buf, 64);
         fclose(fp);
         return;

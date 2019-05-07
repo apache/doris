@@ -100,13 +100,20 @@ public:
     static IntCounter cumulative_compaction_deltas_total;
     static IntCounter cumulative_compaction_bytes_total;
 
-    static IntCounter alter_task_success_total;
-    static IntCounter alter_task_failed_total;
+    static IntCounter publish_task_request_total;
+    static IntCounter publish_task_failed_total;
 
     static IntCounter meta_write_request_total;
     static IntCounter meta_write_request_duration_us;
     static IntCounter meta_read_request_total;
     static IntCounter meta_read_request_duration_us;
+
+    static IntCounter txn_begin_request_total;
+    static IntCounter txn_commit_request_total;
+    static IntCounter txn_rollback_request_total;
+    static IntCounter txn_exec_plan_total;
+    static IntCounter stream_receive_bytes_total;
+    static IntCounter stream_load_rows_total;
 
     // Gauges
     static IntGauge memory_pool_bytes_total;

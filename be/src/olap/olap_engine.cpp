@@ -1832,17 +1832,21 @@ void OLAPEngine::perform_cumulative_compaction() {
     CumulativeCompaction cumulative_compaction;
     OLAPStatus res = cumulative_compaction.init(best_table);
     if (res != OLAP_SUCCESS) {
-        DorisMetrics::cumulative_compaction_request_failed.increment(1);
-        LOG(WARNING) << "failed to init cumulative compaction."
-                     << "table=" << best_table->full_name();
+        if (res != OLAP_ERR_CUMULATIVE_REPEAT_INIT && res != OLAP_ERR_CE_TRY_CE_LOCK_ERROR) {
+            DorisMetrics::cumulative_compaction_request_failed.increment(1);
+            LOG(WARNING) << "failed to init cumulative compaction"
+                << ", table=" << best_table->full_name()
+                << ", res=" << res;
+        }
         return;
     }
 
     res = cumulative_compaction.run();
     if (res != OLAP_SUCCESS) {
         DorisMetrics::cumulative_compaction_request_failed.increment(1);
-        LOG(WARNING) << "failed to do cumulative compaction."
-                     << "table=" << best_table->full_name();
+        LOG(WARNING) << "failed to do cumulative compaction"
+                     << ", table=" << best_table->full_name()
+                     << ", res=" << res;
         return;
     }
 }
@@ -1855,17 +1859,21 @@ void OLAPEngine::perform_base_compaction() {
     BaseCompaction base_compaction;
     OLAPStatus res = base_compaction.init(best_table);
     if (res != OLAP_SUCCESS) {
-        DorisMetrics::base_compaction_request_failed.increment(1);
-        LOG(WARNING) << "failed to init base compaction."
-                     << "table=" << best_table->full_name();
+        if (res != OLAP_ERR_BE_TRY_BE_LOCK_ERROR && res != OLAP_ERR_BE_NO_SUITABLE_VERSION) {
+            DorisMetrics::base_compaction_request_failed.increment(1);
+            LOG(WARNING) << "failed to init base compaction"
+                << ", table=" << best_table->full_name()
+                << ", res=" << res;
+        }
         return;
     }
 
     res = base_compaction.run();
     if (res != OLAP_SUCCESS) {
         DorisMetrics::base_compaction_request_failed.increment(1);
-        LOG(WARNING) << "failed to init base compaction."
-                     << "table=" << best_table->full_name();
+        LOG(WARNING) << "failed to init base compaction"
+                     << ", table=" << best_table->full_name()
+                     << ", res=" << res;
         return;
     }
 }

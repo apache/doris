@@ -17,8 +17,6 @@
 
 package org.apache.doris.task;
 
-import com.google.common.collect.Range;
-
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
@@ -35,6 +33,9 @@ import org.apache.doris.thrift.TPushType;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTaskType;
+
+import com.google.common.collect.Range;
+
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -75,7 +76,7 @@ public class AgentTaskTest {
 
     private TStorageType storageType = TStorageType.COLUMN;
     private List<Column> columns;
-    private MarkedCountDownLatch latch = new MarkedCountDownLatch(3);
+    private MarkedCountDownLatch<Long, Long> latch = new MarkedCountDownLatch<Long, Long>(3);
 
     private Range<PartitionKey> range1;
     private Range<PartitionKey> range2;
