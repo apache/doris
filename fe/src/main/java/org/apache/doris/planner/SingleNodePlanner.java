@@ -17,33 +17,13 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.AggregateInfo;
-import org.apache.doris.analysis.AnalyticInfo;
-import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.BaseTableRef;
-import org.apache.doris.analysis.BinaryPredicate;
-import org.apache.doris.analysis.CaseExpr;
-import org.apache.doris.analysis.CastExpr;
-import org.apache.doris.analysis.DescriptorTable;
-import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.ExprSubstitutionMap;
-import org.apache.doris.analysis.FunctionCallExpr;
-import org.apache.doris.analysis.InPredicate;
-import org.apache.doris.analysis.InlineViewRef;
-import org.apache.doris.analysis.IsNullPredicate;
-import org.apache.doris.analysis.JoinOperator;
-import org.apache.doris.analysis.LiteralExpr;
-import org.apache.doris.analysis.NullLiteral;
-import org.apache.doris.analysis.QueryStmt;
-import org.apache.doris.analysis.SelectStmt;
-import org.apache.doris.analysis.SlotDescriptor;
-import org.apache.doris.analysis.SlotId;
-import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.analysis.TableRef;
-import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.analysis.TupleId;
-import org.apache.doris.analysis.TupleIsNullPredicate;
-import org.apache.doris.analysis.UnionStmt;
+import com.google.common.base.Preconditions;
+import com.google.common.base.Predicate;
+import com.google.common.collect.Iterables;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
+import org.apache.doris.analysis.*;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MysqlTable;
@@ -52,19 +32,10 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.UserException;
-
-import com.google.common.base.Preconditions;
-import com.google.common.base.Predicate;
-import com.google.common.collect.Iterables;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 /**
  * Constructs a non-executable single-node plan from an analyzed parse tree.
@@ -685,7 +656,59 @@ public class SingleNodePlanner {
         }
 
         // add aggregation, if required
-        if (aggInfo != null) root = createAggregationPlan(selectStmt, analyzer, root);
+        if (aggInfo != null) {
+            // introduce repeatNode for group by extension
+            GroupByClause groupByClause = selectStmt.getGroupByClause();
+            if (groupByClause != null && groupByClause.isGroupByExtension()) {
+                root = createRepeatNodePlan(selectStmt, analyzer, root);
+            }
+
+            root = createAggregationPlan(selectStmt, analyzer, root);
+        }
+
+        return root;
+    }
+
+    private PlanNode createRepeatNodePlan(SelectStmt selectStmt, Analyzer analyzer,
+                                           PlanNode root) throws UserException {
+        GroupByClause groupByClause = selectStmt.getGroupByClause();
+        Preconditions.checkState(groupByClause != null && groupByClause.isGroupByExtension());
+
+        // build tupleDesc according to child's tupleDesc info
+        SlotRef groupingIdSlotRef = groupByClause.getGroupingIdSlotRef();
+        Preconditions.checkState(groupingIdSlotRef.getDesc() != null);
+        TupleDescriptor repeatNodeTupleDesc = groupingIdSlotRef.getDesc().getParent();
+        repeatNodeTupleDesc.computeMemLayout();
+
+        // build new BitSet List for tupleDesc
+        Set<SlotDescriptor> slotDescSet = new HashSet<>();
+        for(TupleId tupleId : root.getTupleIds()) {
+            TupleDescriptor tupleDescriptor = analyzer.getDescTbl().getTupleDesc(tupleId);
+            slotDescSet.addAll(tupleDescriptor.getSlots());
+        }
+
+        List<Set<SlotId>> groupingIdList = new ArrayList<>();
+        List<Long> groupingIdValueList = new ArrayList<>();
+        List<Expr> exprList = groupByClause.getGroupingExprs();
+        Preconditions.checkState(exprList.size() >= 2);
+        for(BitSet bitSet : groupByClause.getGroupingIdList()) {
+            Set<SlotId> slotIdSet = new HashSet<>();
+            for(SlotDescriptor slotDesc : slotDescSet) {
+                SlotId slotId = slotDesc.getId();
+                if (slotId == null) continue;
+                for(int i = 0; i < exprList.size(); i++) {
+                    if (bitSet.get(i) && exprList.get(i).isBound(slotId)) {
+                        slotIdSet.add(slotId);
+                        break;
+                    }
+                }
+            }
+            groupingIdList.add(slotIdSet);
+            groupingIdValueList.add(RepeatNode.convert(bitSet));
+        }
+
+        root = new RepeatNode(ctx_.getNextNodeId(), root, groupingIdList, repeatNodeTupleDesc,
+                groupingIdValueList);
 
         return root;
     }

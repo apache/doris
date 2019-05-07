@@ -361,7 +361,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         computeNumDistinctValues();
 
         // Do all the analysis for the expr subclass before marking the Expr analyzed.
-        analyzeImpl(analyzer);
+        if (analyzer != null) analyzeImpl(analyzer);
         analysisDone();
     }
 

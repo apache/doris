@@ -70,7 +70,7 @@ public class SelectStmt extends QueryStmt {
     protected SelectList selectList;
     private final ArrayList<String> colLabels; // lower case column labels
     protected final FromClause fromClause_;
-    protected ArrayList<Expr>   groupingExprs;
+    protected GroupByClause groupByClause;
     private List<Expr> originalExpr;
     //
     private Expr havingClause;  // original having clause
@@ -107,7 +107,7 @@ public class SelectStmt extends QueryStmt {
             SelectList selectList,
             FromClause fromClause,
             Expr wherePredicate,
-            ArrayList<Expr> groupingExprs,
+            GroupByClause groupByClause,
             Expr havingPredicate,
             ArrayList<OrderByElement> orderByElements,
             LimitElement limitElement) {
@@ -119,7 +119,7 @@ public class SelectStmt extends QueryStmt {
             fromClause_ = fromClause;
         }
         this.whereClause = wherePredicate;
-        this.groupingExprs = groupingExprs;
+        this.groupByClause = groupByClause;
         this.havingClause = havingPredicate;
 
         this.colLabels = Lists.newArrayList();
@@ -133,7 +133,7 @@ public class SelectStmt extends QueryStmt {
         selectList = other.selectList.clone();
         fromClause_ = other.fromClause_.clone();
         whereClause = (other.whereClause != null) ? other.whereClause.clone() : null;
-        groupingExprs = (other.groupingExprs != null) ? Expr.cloneAndResetList(other.groupingExprs) : null;
+        groupByClause = (other.groupByClause != null) ? other.groupByClause.clone() : null;
         havingClause = (other.havingClause != null) ? other.havingClause.clone() : null;
 
         colLabels = Lists.newArrayList(other.colLabels);
@@ -150,7 +150,7 @@ public class SelectStmt extends QueryStmt {
         colLabels.clear();
         fromClause_.reset();
         if (whereClause != null) whereClause.reset();
-        if (groupingExprs != null) Expr.resetList(groupingExprs);
+        if (groupByClause != null) groupByClause.reset();
         if (havingClause != null) havingClause.reset();
         havingPred = null;
         aggInfo = null;
@@ -194,6 +194,10 @@ public class SelectStmt extends QueryStmt {
     }
     public AggregateInfo getAggInfo() {
         return aggInfo;
+    }
+
+    public GroupByClause getGroupByClause() {
+        return groupByClause;
     }
 
     public AnalyticInfo getAnalyticInfo() {
@@ -764,7 +768,7 @@ public class SelectStmt extends QueryStmt {
             }
         }
 
-        if (groupingExprs == null && !selectList.isDistinct()
+        if (groupByClause == null && !selectList.isDistinct()
                 && !TreeNode.contains(resultExprs, Expr.isAggregatePredicate())
                 && (havingPred == null || !havingPred.contains(Expr.isAggregatePredicate()))
                 && (sortInfo == null || !TreeNode.contains(sortInfo.getOrderingExprs(),
@@ -780,7 +784,7 @@ public class SelectStmt extends QueryStmt {
             throw new AnalysisException("Aggregation without a FROM clause is not allowed");
         }
 
-        if (selectList.isDistinct() && groupingExprs == null) {
+        if (selectList.isDistinct() && groupByClause == null) {
             List<Expr> aggregateExpr = Lists.newArrayList();
             TreeNode.collect(resultExprs, Expr.isAggregatePredicate(), aggregateExpr);
             if (aggregateExpr.size() == resultExprs.size()) {
@@ -789,7 +793,7 @@ public class SelectStmt extends QueryStmt {
         }
 
         if (selectList.isDistinct()
-                && (groupingExprs != null
+                && (groupByClause != null
                     || TreeNode.contains(resultExprs, Expr.isAggregatePredicate())
                     || (havingPred != null && havingPred.contains(Expr.isAggregatePredicate())))) {
             throw new AnalysisException("cannot combine SELECT DISTINCT with aggregate functions or GROUP BY");
@@ -798,54 +802,12 @@ public class SelectStmt extends QueryStmt {
         // disallow '*' and explicit GROUP BY (we can't group by '*', and if you need to
         // name all star-expanded cols in the group by clause you might as well do it
         // in the select list)
-        if (groupingExprs != null ||
+        if (groupByClause != null ||
                 TreeNode.contains(resultExprs, Expr.isAggregatePredicate())) {
             for (SelectListItem item : selectList.getItems()) {
                 if (item.isStar()) {
                     throw new AnalysisException(
                       "cannot combine '*' in select list with GROUP BY: " + item.toSql());
-                }
-            }
-        }
-
-        // disallow subqueries in the GROUP BY clause
-        if (groupingExprs != null) {
-            for (Expr expr: groupingExprs) {
-                if (expr.contains(Predicates.instanceOf(Subquery.class))) {
-                    throw new AnalysisException(
-                            "Subqueries are not supported in the GROUP BY clause.");
-                }
-            }
-        }
-
-        // analyze grouping exprs
-        ArrayList<Expr> groupingExprsCopy = Lists.newArrayList();
-        if (groupingExprs != null) {
-            // make a deep copy here, we don't want to modify the original
-            // exprs during analysis (in case we need to print them later)
-            groupingExprsCopy = Expr.cloneList(groupingExprs);
-
-            substituteOrdinalsAliases(groupingExprsCopy, "GROUP BY", analyzer);
-
-            for (int i = 0; i < groupingExprsCopy.size(); ++i) {
-                groupingExprsCopy.get(i).analyze(analyzer);
-                if (groupingExprsCopy.get(i).contains(Expr.isAggregatePredicate())) {
-                    // reference the original expr in the error msg
-                    throw new AnalysisException(
-                            "GROUP BY expression must not contain aggregate functions: "
-                                    + groupingExprs.get(i).toSql());
-                }
-                if (groupingExprsCopy.get(i).contains(AnalyticExpr.class)) {
-                    // reference the original expr in the error msg
-                    throw new AnalysisException(
-                            "GROUP BY expression must not contain analytic expressions: "
-                                    + groupingExprsCopy.get(i).toSql());
-                }
-
-                if (groupingExprsCopy.get(i).type.isHllType()) {
-                    throw new AnalysisException(
-                            "GROUP BY expression must not contain hll column: "
-                            + groupingExprsCopy.get(i).toSql());
                 }
             }
         }
@@ -887,6 +849,17 @@ public class SelectStmt extends QueryStmt {
                 Expr.substituteList(aggExprs, countAllMap, analyzer, false);
         aggExprs.clear();
         TreeNode.collect(substitutedAggs, Expr.isAggregatePredicate(), aggExprs);
+
+        ArrayList<Expr> groupingExprsCopy = Lists.newArrayList();
+        if (groupByClause != null) {
+            // must do it before copying for createAggInfo()
+            groupByClause.analyze(analyzer);
+
+            // make a deep copy here, we don't want to modify the original
+            // exprs during analysis (in case we need to print them later)
+            groupingExprsCopy = Expr.cloneList(groupByClause.getGroupingExprs());
+            substituteOrdinalsAliases(groupingExprsCopy, "GROUP BY", analyzer);
+        }
         createAggInfo(groupingExprsCopy, aggExprs, analyzer);
 
         // combine avg smap with the one that produces the final agg output
@@ -1054,7 +1027,7 @@ public class SelectStmt extends QueryStmt {
             throws AnalysisException {
         ExprSubstitutionMap scalarCountAllMap = new ExprSubstitutionMap();
 
-        if (groupingExprs != null && !groupingExprs.isEmpty()) {
+        if (groupByClause != null && !groupByClause.isEmpty()) {
             // There are grouping expressions, so no substitution needs to be done.
             return scalarCountAllMap;
         }
@@ -1185,7 +1158,12 @@ public class SelectStmt extends QueryStmt {
         if (havingClause != null) {
             havingClause = rewriter.rewrite(havingClause, analyzer);
         }
-        if (groupingExprs != null) rewriter.rewriteList(groupingExprs, analyzer);
+        if (groupByClause != null) {
+            ArrayList<Expr> groupingExprs = groupByClause.getGroupingExprs();
+            if (groupingExprs != null) {
+                rewriter.rewriteList(groupingExprs, analyzer);
+            }
+        }
         if (orderByElements != null) {
             for (OrderByElement orderByElem: orderByElements) {
                 orderByElem.setExpr(rewriter.rewrite(orderByElem.getExpr(), analyzer));
@@ -1227,12 +1205,9 @@ public class SelectStmt extends QueryStmt {
             strBuilder.append(whereClause.toSql());
         }
         // Group By clause
-        if (groupingExprs != null) {
+        if (groupByClause != null) {
             strBuilder.append(" GROUP BY ");
-            for (int i = 0; i < groupingExprs.size(); ++i) {
-                strBuilder.append(groupingExprs.get(i).toSql());
-                strBuilder.append((i + 1 != groupingExprs.size()) ? ", " : "");
-            }
+            strBuilder.append(groupByClause.toSql());
         }
         // Having clause
         if (havingClause != null) {
@@ -1320,8 +1295,8 @@ public class SelectStmt extends QueryStmt {
             }
         }
         // substitute group by
-        if (groupingExprs != null) {
-            substituteOrdinalsAliases(groupingExprs, "GROUP BY", analyzer);
+        if (groupByClause != null) {
+            substituteOrdinalsAliases(groupByClause.getGroupingExprs(), "GROUP BY", analyzer);
         }
         // substitute having
         if (havingClause != null) {
@@ -1340,7 +1315,7 @@ public class SelectStmt extends QueryStmt {
 
     public boolean hasWhereClause() { return whereClause != null; }
     public boolean hasAggInfo() { return aggInfo != null; }
-    public boolean hasGroupByClause() { return groupingExprs != null; }
+    public boolean hasGroupByClause() { return groupByClause != null; }
     /**
      * Check if the stmt returns a single row. This can happen
      * in the following cases:

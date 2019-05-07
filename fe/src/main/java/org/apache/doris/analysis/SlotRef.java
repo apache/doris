@@ -44,7 +44,7 @@ public class SlotRef extends Expr {
     private String label;
 
     // results of analysis
-    private SlotDescriptor desc;
+    protected SlotDescriptor desc;
 
     // Only used write
     private SlotRef() {
@@ -204,7 +204,7 @@ public class SlotRef extends Expr {
         if (desc != null) {
             return desc.getId().hashCode();
         }
-        return Objects.hashCode((tblName.toSql() + "." + label).toLowerCase());
+        return Objects.hashCode((tblName == null ? "" : tblName.toSql() + "." + label).toLowerCase());
     }
 
     @Override

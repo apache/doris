@@ -71,6 +71,7 @@ set(EXEC_FILES
     spill_sort_node.cc
     union_node.cpp
     union_node_ir.cpp
+    repeat_node.cpp
     schema_scanner.cpp
     schema_scan_node.cpp
     schema_scanner/schema_tables_scanner.cpp

@@ -222,6 +222,8 @@ public class DistributedPlanner {
             result = createAnalyticFragment(root, childFragments.get(0), fragments);
         } else if (root instanceof EmptySetNode) {
             result = new PlanFragment(ctx_.getNextFragmentId(), root, DataPartition.UNPARTITIONED);
+        } else if (root instanceof RepeatNode) {
+            result = createRepeatNodeFragment((RepeatNode) root, childFragments.get(0), fragments);
         } else {
             throw new UserException(
                     "Cannot create plan fragment for this node type: " + root.getExplainString());
@@ -754,6 +756,14 @@ public class DistributedPlanner {
         } else {
             return createMergeAggregationFragment(node, childFragment);
         }
+    }
+
+    private PlanFragment createRepeatNodeFragment(
+            RepeatNode repeatNode, PlanFragment childFragment, ArrayList<PlanFragment> fragments)
+            throws UserException {
+        repeatNode.setNumInstances(childFragment.getPlanRoot().getNumInstances());
+        childFragment.addPlanRoot(repeatNode);
+        return childFragment;
     }
 
     /**
