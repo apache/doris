@@ -17,8 +17,8 @@
 
 package org.apache.doris.task;
 
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.Status;
+import org.apache.doris.common.UserException;
 import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.collect.Maps;
@@ -151,6 +151,11 @@ public class PullLoadJobMgr {
                     if (!needRetry) {
                         break;
                     }
+                    try {
+                        Thread.sleep(5000);
+                    } catch (InterruptedException e) {
+
+                    }
                 }
             }
         }
@@ -182,8 +187,9 @@ public class PullLoadJobMgr {
                         job.onTaskFailed(task);
                     }
                 } catch (Throwable e) {
-                    LOG.warn("Process one pull load task exception. taskId={}:{}", task.jobId, task.taskId, e);
-                    task.onFailed(new Status(TStatusCode.INTERNAL_ERROR, e.getMessage()));
+                    LOG.warn("Process one pull load task exception. job id: {}, task id: {}",
+                            task.jobId, task.taskId, e);
+                    task.onFailed(null, new Status(TStatusCode.INTERNAL_ERROR, e.getMessage()));
                     job.onTaskFailed(task);
                 }
             }

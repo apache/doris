@@ -26,6 +26,7 @@
 #include "runtime/runtime_state.h"
 #include "runtime/stream_load/stream_load_context.h"
 #include "util/frontend_helper.h"
+#include "util/doris_metrics.h"
 
 #include "gen_cpp/FrontendService.h"
 #include "gen_cpp/FrontendService_types.h"
@@ -42,6 +43,7 @@ Status k_stream_load_plan_status;
 #endif
 
 Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx) {
+    DorisMetrics::txn_exec_plan_total.increment(1);
     // submit this params
 #ifndef BE_TEST
     ctx->ref();
@@ -66,11 +68,13 @@ Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx) {
                 }
                 if (ctx->number_filtered_rows > 0 &&
                     !executor->runtime_state()->get_error_log_file_path().empty()) {
-
-                    // if (ctx->load_type == TLoadType::MANUL_LOAD) {
-                        ctx->error_url = to_load_error_http_path(
+                    ctx->error_url = to_load_error_http_path(
                             executor->runtime_state()->get_error_log_file_path());
-                    // }
+                }
+
+                if (status.ok()) {
+                    DorisMetrics::stream_receive_bytes_total.increment(ctx->receive_bytes);
+                    DorisMetrics::stream_load_rows_total.increment(ctx->number_loaded_rows);
                 }
             } else {
                 LOG(WARNING) << "fragment execute failed"
@@ -108,8 +112,9 @@ Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx) {
 }
 
 Status StreamLoadExecutor::begin_txn(StreamLoadContext* ctx) {
-    TNetworkAddress master_addr = _exec_env->master_info()->network_address;
+    DorisMetrics::txn_begin_request_total.increment(1);
 
+    TNetworkAddress master_addr = _exec_env->master_info()->network_address;
     TLoadTxnBeginRequest request;
     set_request_auth(&request, ctx->auth);
     request.db = ctx->db;
@@ -141,8 +146,9 @@ Status StreamLoadExecutor::begin_txn(StreamLoadContext* ctx) {
 }
 
 Status StreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
-    TNetworkAddress master_addr = _exec_env->master_info()->network_address;
+    DorisMetrics::txn_commit_request_total.increment(1);
 
+    TNetworkAddress master_addr = _exec_env->master_info()->network_address;
     TLoadTxnCommitRequest request;
     set_request_auth(&request, ctx->auth);
     request.db = ctx->db;
@@ -183,6 +189,8 @@ Status StreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
 }
 
 void StreamLoadExecutor::rollback_txn(StreamLoadContext* ctx) {
+    DorisMetrics::txn_rollback_request_total.increment(1);
+
     TNetworkAddress master_addr = _exec_env->master_info()->network_address;
     TLoadTxnRollbackRequest request;
     set_request_auth(&request, ctx->auth);
