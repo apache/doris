@@ -21,7 +21,6 @@
 package org.apache.doris.load.loadv2;
 
 import org.apache.doris.analysis.BrokerDesc;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Status;
@@ -31,19 +30,15 @@ import org.apache.doris.common.util.LogKey;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.QeProcessorImpl;
-import org.apache.doris.task.MasterTask;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TabletCommitInfo;
 
-import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 public class LoadLoadingTask extends LoadTask {
@@ -95,7 +90,7 @@ public class LoadLoadingTask extends LoadTask {
         // New one query id,
         UUID uuid = UUID.randomUUID();
         TUniqueId executeId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
-        Coordinator curCoordinator = new Coordinator(executeId, planner.getDescTable(),
+        Coordinator curCoordinator = new Coordinator(-1L, executeId, planner.getDescTable(),
                                                      planner.getFragments(), planner.getScanNodes(), db.getClusterName());
         curCoordinator.setQueryType(TQueryType.LOAD);
         curCoordinator.setExecMemoryLimit(execMemLimit);
