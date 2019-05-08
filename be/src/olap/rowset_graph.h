@@ -33,7 +33,7 @@ public:
     OLAPStatus capture_consistent_versions(const Version& spec_version,
                                            std::vector<Version>* version_path) const;
 private:
-    OLAPStatus _add_vertex_to_graph(int vertex_value);
+    OLAPStatus _add_vertex_to_graph(int64_t vertex_value);
 
     // OLAP version contains two parts, [start_version, end_version]. In order
     // to construct graph, the OLAP version has two corresponding vertex, one
@@ -44,7 +44,7 @@ private:
 
     // vertex value --> vertex_index of _version_graph
     // It is easy to find vertex index according to vertex value.
-    std::unordered_map<int, int> _vertex_index_map;
+    std::unordered_map<int64_t, int64_t> _vertex_index_map;
 };
 
 }  // namespace doris
