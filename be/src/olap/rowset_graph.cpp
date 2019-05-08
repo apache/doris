@@ -28,7 +28,7 @@ OLAPStatus RowsetGraph::construct_rowset_graph(const std::vector<RowsetMetaShare
     }
 
     // Distill vertex values from versions in TabletMeta.
-    std::vector<int> vertex_values;
+    std::vector<int64_t> vertex_values;
     vertex_values.reserve(2 * rs_metas.size());
 
     for (size_t i = 0; i < rs_metas.size(); ++i) {
@@ -40,7 +40,7 @@ OLAPStatus RowsetGraph::construct_rowset_graph(const std::vector<RowsetMetaShare
 
     // Items in vertex_values are sorted, but not unique.
     // we choose unique items in vertex_values to create vertexes.
-    int last_vertex_value = -1;
+    int64_t last_vertex_value = -1;
     for (size_t i = 0; i < vertex_values.size(); ++i) {
         if (i != 0 && vertex_values[i] == last_vertex_value) {
             continue;
@@ -57,16 +57,16 @@ OLAPStatus RowsetGraph::construct_rowset_graph(const std::vector<RowsetMetaShare
     }
 
     // Create edges for version graph according to TabletMeta's versions.
-    for (int i = 0; i < rs_metas.size(); ++i) {
+    for (size_t i = 0; i < rs_metas.size(); ++i) {
         // Versions in header are unique.
         // We ensure _vertex_index_map has its start_version.
-        int start_vertex_index = _vertex_index_map[rs_metas[i]->start_version()];
-        int end_vertex_index = _vertex_index_map[rs_metas[i]->end_version() + 1];
+        int64_t start_vertex_index = _vertex_index_map[rs_metas[i]->start_version()];
+        int64_t end_vertex_index = _vertex_index_map[rs_metas[i]->end_version() + 1];
         // Add one edge from start_version to end_version.
-        std::list<int>* edges = _version_graph[start_vertex_index].edges;
+        std::list<int64_t>* edges = _version_graph[start_vertex_index].edges;
         edges->insert(edges->begin(), end_vertex_index);
         // Add reverse edge from end_version to start_version.
-        std::list<int>* r_edges = _version_graph[end_vertex_index].edges;
+        std::list<int64_t>* r_edges = _version_graph[end_vertex_index].edges;
         r_edges->insert(r_edges->begin(), start_vertex_index);
     }
     return OLAP_SUCCESS;
@@ -83,8 +83,8 @@ OLAPStatus RowsetGraph::reconstruct_rowset_graph(const std::vector<RowsetMetaSha
 
 OLAPStatus RowsetGraph::add_version_to_graph(const Version& version) {
     // Add version.first as new vertex of version graph if not exist.
-    int start_vertex_value = version.first;
-    int end_vertex_value = version.second + 1;
+    int64_t start_vertex_value = version.first;
+    int64_t end_vertex_value = version.second + 1;
 
     // Add vertex to graph.
     OLAPStatus status = _add_vertex_to_graph(start_vertex_value);
@@ -99,24 +99,24 @@ OLAPStatus RowsetGraph::add_version_to_graph(const Version& version) {
         return status;
     }
 
-    int start_vertex_index = _vertex_index_map[start_vertex_value];
-    int end_vertex_index = _vertex_index_map[end_vertex_value];
+    int64_t start_vertex_index = _vertex_index_map[start_vertex_value];
+    int64_t end_vertex_index = _vertex_index_map[end_vertex_value];
 
     // We assume this version is new version, so we just add two edges
     // into version graph. add one edge from start_version to end_version
-    std::list<int>* edges = _version_graph[start_vertex_index].edges;
+    std::list<int64_t>* edges = _version_graph[start_vertex_index].edges;
     edges->insert(edges->begin(), end_vertex_index);
 
     // We add reverse edge(from end_version to start_version) to graph
-    std::list<int>* r_edges = _version_graph[end_vertex_index].edges;
+    std::list<int64_t>* r_edges = _version_graph[end_vertex_index].edges;
     r_edges->insert(r_edges->begin(), start_vertex_index);
 
     return OLAP_SUCCESS;
 }
 
 OLAPStatus RowsetGraph::delete_version_from_graph(const Version& version) {
-    int start_vertex_value = version.first;
-    int end_vertex_value = version.second + 1;
+    int64_t start_vertex_value = version.first;
+    int64_t end_vertex_value = version.second + 1;
 
     if (_vertex_index_map.find(start_vertex_value) == _vertex_index_map.end()
           || _vertex_index_map.find(end_vertex_value) == _vertex_index_map.end()) {
@@ -125,8 +125,8 @@ OLAPStatus RowsetGraph::delete_version_from_graph(const Version& version) {
         return OLAP_ERR_HEADER_DELETE_VERSION;
     }
 
-    int start_vertex_index = _vertex_index_map[start_vertex_value];
-    int end_vertex_index = _vertex_index_map[end_vertex_value];
+    int64_t start_vertex_index = _vertex_index_map[start_vertex_value];
+    int64_t end_vertex_index = _vertex_index_map[end_vertex_value];
     // Remove edge and its reverse edge.
     _version_graph[start_vertex_index].edges->remove(end_vertex_index);
     _version_graph[end_vertex_index].edges->remove(start_vertex_index);
@@ -134,14 +134,14 @@ OLAPStatus RowsetGraph::delete_version_from_graph(const Version& version) {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus RowsetGraph::_add_vertex_to_graph(int vertex_value) {
+OLAPStatus RowsetGraph::_add_vertex_to_graph(int64_t vertex_value) {
     // Vertex with vertex_value already exists.
     if (_vertex_index_map.find(vertex_value) != _vertex_index_map.end()) {
         VLOG(3) << "vertex with vertex value already exists. value=" << vertex_value;
         return OLAP_SUCCESS;
     }
 
-    std::list<int>* edges = new std::list<int>();
+    std::list<int64_t>* edges = new std::list<int64_t>();
     if (edges == nullptr) {
         LOG(WARNING) << "fail to malloc edge list.";
         return OLAP_ERR_OTHER_ERROR;
@@ -168,37 +168,39 @@ OLAPStatus RowsetGraph::capture_consistent_versions(
     }
 
     // bfs_queue's element is vertex_index.
-    std::queue<int> bfs_queue;
+    std::queue<int64_t> bfs_queue;
     // predecessor[i] means the predecessor of vertex_index 'i'.
-    std::vector<int> predecessor(_version_graph.size());
-    // visited[int]==true means it had entered bfs_queue.
+    std::vector<int64_t> predecessor(_version_graph.size());
+    // visited[int64_t]==true means it had entered bfs_queue.
     std::vector<bool> visited(_version_graph.size());
     // [start_vertex_value, end_vertex_value)
-    int start_vertex_value = spec_version.first;
-    int end_vertex_value = spec_version.second + 1;
+    int64_t start_vertex_value = spec_version.first;
+    int64_t end_vertex_value = spec_version.second + 1;
     // -1 is invalid vertex index.
-    int start_vertex_index = -1;
+    int64_t start_vertex_index = -1;
     // -1 is valid vertex index.
-    int end_vertex_index = -1;
+    int64_t end_vertex_index = 9223372036854775807LL;
 
     for (size_t i = 0; i < _version_graph.size(); ++i) {
-        if (_version_graph[i].value == start_vertex_value) {
-            start_vertex_index = i;
+        if (_version_graph[i].value <= start_vertex_value
+            && start_vertex_index <= _version_graph[i].value) {
+            start_vertex_index = _version_graph[i].value;
         }
-        if (_version_graph[i].value == end_vertex_value) {
-            end_vertex_index = i;
+        if (_version_graph[i].value >= end_vertex_value
+            && end_vertex_index >= _version_graph[i].value) {
+            end_vertex_index = _version_graph[i].value;
         }
     }
 
-    if (start_vertex_index < 0 || end_vertex_index < 0) {
-        LOG(WARNING) << "fail to find path in version_graph. "
+    if ((start_vertex_value != start_vertex_index) || (end_vertex_value != end_vertex_index)) {
+        LOG(WARNING) << "version already has been merged. "
                      << "spec_version: " << spec_version.first << "-" << spec_version.second
-                     << ", tmp_start: " <<  start_vertex_index
-                     << ", tmp_end: " << end_vertex_index;
-        return OLAP_ERR_VERSION_NOT_EXIST;
+                     << ", left_boundary: " <<  start_vertex_index
+                     << ", right_boundary: " << end_vertex_index;
+        return OLAP_ERR_VERSION_ALREADY_MERGED;
     }
 
-    for (int i = 0; i < static_cast<int>(_version_graph.size()); ++i) {
+    for (size_t i = 0; i < _version_graph.size(); ++i) {
         visited[i] = false;
     }
 
@@ -208,7 +210,7 @@ OLAPStatus RowsetGraph::capture_consistent_versions(
     predecessor[start_vertex_index] = start_vertex_index;
 
     while (bfs_queue.empty() == false && visited[end_vertex_index] == false) {
-        int top_vertex_index = bfs_queue.front();
+        int64_t top_vertex_index = bfs_queue.front();
         bfs_queue.pop();
         auto it = _version_graph[top_vertex_index].edges->begin();
         for (; it != _version_graph[top_vertex_index].edges->end(); ++it) {
@@ -232,8 +234,8 @@ OLAPStatus RowsetGraph::capture_consistent_versions(
         return OLAP_ERR_VERSION_NOT_EXIST; 
     }
 
-    std::vector<int> reversed_path;
-    int tmp_vertex_index = end_vertex_index;
+    std::vector<int64_t> reversed_path;
+    int64_t tmp_vertex_index = end_vertex_index;
     reversed_path.push_back(tmp_vertex_index);
 
     // For start_vertex_index, its predecessor must be itself.
@@ -244,9 +246,9 @@ OLAPStatus RowsetGraph::capture_consistent_versions(
 
     // Make version_path from reversed_path.
     std::stringstream shortest_path_for_debug;
-    for (int path_id = reversed_path.size() - 1; path_id > 0; --path_id) {
-        int tmp_start_vertex_value = _version_graph[reversed_path[path_id]].value;
-        int tmp_end_vertex_value = _version_graph[reversed_path[path_id - 1]].value;
+    for (size_t path_id = reversed_path.size() - 1; path_id > 0; --path_id) {
+        int64_t tmp_start_vertex_value = _version_graph[reversed_path[path_id]].value;
+        int64_t tmp_end_vertex_value = _version_graph[reversed_path[path_id - 1]].value;
 
         // tmp_start_vertex_value mustn't be equal to tmp_end_vertex_value
         if (tmp_start_vertex_value <= tmp_end_vertex_value) {

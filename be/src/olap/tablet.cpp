@@ -487,12 +487,12 @@ OLAPStatus Tablet::capture_rs_readers(const Version& spec_version,
     vector<Version> version_path;
     OLAPStatus status = _rs_graph.capture_consistent_versions(spec_version, &version_path);
     if (status != OLAP_SUCCESS) {
-        LOG(WARNING) << "tablet_id:" << tablet_id() << ", schema_hash:" << schema_hash()
-                << ", missed version for version:" << spec_version.first << "-" << spec_version.second
-                << ", status:" <<  status;
-        std::vector<Version> missed_version;
-        calc_missed_versions_unlock(spec_version.second, &missed_version);
-        _print_missed_versions(missed_version);
+        LOG(WARNING) << "status:" << status << ", tablet:" << full_name()
+                     << ", missed version for version:"
+                     << spec_version.first << "-" << spec_version.second;
+        std::vector<Version> missed_versions;
+        calc_missed_versions_unlock(spec_version.second, &missed_versions);
+        _print_missed_versions(missed_versions);
         return status;
     }
     RETURN_NOT_OK(capture_rs_readers(version_path, rs_readers));
@@ -858,7 +858,8 @@ void Tablet::_print_missed_versions(const std::vector<Version>& missed_versions)
     for (int i = 0; i < 10 && i < missed_versions.size(); ++i) {
         ss << missed_versions[i].first << "-" << missed_versions[i].second << ",";
     }
-    LOG(WARNING) << ss.str();
+    LOG(WARNING) << "tablet=" << full_name()
+                 << ", " << ss.str();
 }
 
  OLAPStatus Tablet::_check_added_rowset(const RowsetSharedPtr& rowset) {
