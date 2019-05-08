@@ -866,10 +866,10 @@ void Tablet::_print_missed_versions(const std::vector<Version>& missed_versions)
         return OLAP_ERR_ROWSET_INVALID;
     }
     // check if the rowset id is valid
-    if (rowset->rowset_id() >= _tablet_meta->get_previous_rowset_id()) {
+    if (rowset->rowset_id() >= _tablet_meta->get_cur_rowset_id()) {
         LOG(FATAL) << "rowset id is larger than next rowsetid, it is fatal error"
                    << " rowset_id=" << rowset->rowset_id()
-                   << " next_id=" << _tablet_meta->get_previous_rowset_id();
+                   << " next_id=" << _tablet_meta->get_cur_rowset_id();
         return OLAP_ERR_ROWSET_INVALID;
     }
     return OLAP_SUCCESS;

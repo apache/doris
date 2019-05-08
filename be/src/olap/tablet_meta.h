@@ -185,7 +185,7 @@ public:
 
     OLAPStatus set_next_rowset_id(RowsetId new_rowset_id, DataDir* data_dir);
 
-    RowsetId get_previous_rowset_id();
+    RowsetId get_cur_rowset_id();
 
 private:
     OLAPStatus _save_meta(DataDir* data_dir);

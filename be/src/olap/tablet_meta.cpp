@@ -205,7 +205,7 @@ OLAPStatus TabletMeta::reset_tablet_uid(const std::string& file_path) {
     *(tmp_tablet_meta_pb.mutable_tablet_uid()) = TabletUid().to_proto();
     res = save(file_path, tmp_tablet_meta_pb);
     if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "fail to save tablet meta pb to " 
+        LOG(FATAL) << "fail to save tablet meta pb to " 
                      << " meta_file=" << file_path;
         return res;
     }
@@ -262,8 +262,6 @@ OLAPStatus TabletMeta::save_meta(DataDir* data_dir) {
 }
 
 OLAPStatus TabletMeta::_save_meta(DataDir* data_dir) {
-    string meta_binary;
-    serialize(&meta_binary);
     // check if rowset id all valid, should remove it later
     for (auto& rs_meta : _rs_metas) {
         if (rs_meta->rowset_id() >= _next_rowset_id) {
@@ -279,6 +277,8 @@ OLAPStatus TabletMeta::_save_meta(DataDir* data_dir) {
                        << " next_rowset_id=" << _next_rowset_id;
         }
     }
+    string meta_binary;
+    serialize(&meta_binary);
     OLAPStatus status = TabletMetaManager::save(data_dir, tablet_id(), schema_hash(), meta_binary);
     if (status != OLAP_SUCCESS) {
        LOG(FATAL) << "fail to save tablet_meta. status=" << status
@@ -679,7 +679,7 @@ OLAPStatus TabletMeta::set_next_rowset_id(RowsetId new_rowset_id, DataDir* data_
     return OLAP_SUCCESS;
 }
 
-RowsetId TabletMeta::get_previous_rowset_id() {
+RowsetId TabletMeta::get_cur_rowset_id() {
     return _next_rowset_id;
 }
 

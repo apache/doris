@@ -987,10 +987,13 @@ OLAPStatus TabletManager::start_trash_sweep() {
         OLAPStatus check_st = TabletMetaManager::get_header((*it)->data_dir(), 
             (*it)->tablet_id(), (*it)->schema_hash(), new_tablet_meta);
         if (check_st == OLAP_SUCCESS) {
-            if (new_tablet_meta->tablet_state() != TABLET_SHUTDOWN) {
+            if (new_tablet_meta->tablet_state() != TABLET_SHUTDOWN
+                || new_tablet_meta->tablet_uid() != it->tablet_uid()) {
                 LOG(WARNING) << "tablet's state changed to normal, skip remove dirs"
                             << " tablet id = " << new_tablet_meta->tablet_id()
-                            << " schema hash = " << new_tablet_meta->schema_hash();
+                            << " schema hash = " << new_tablet_meta->schema_hash()
+                            << " old tablet_uid=" << it->tablet_uid()
+                            << " cur tablet_uid=" << new_tablet_meta->tablet_uid();
                 // remove it from list
                 it = _shutdown_tablets.erase(it);
                 continue;
