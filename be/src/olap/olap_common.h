@@ -190,8 +190,8 @@ struct HashOfVersion {
 
 // It is used to represent Graph vertex.
 struct Vertex {
-    int value;
-    std::list<int>* edges;
+    int64_t value;
+    std::list<int64_t>* edges;
 };
 
 class Field;
