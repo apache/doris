@@ -557,6 +557,13 @@ OLAPStatus OlapStore::_load_table_from_header(OLAPEngine* engine, TTabletId tabl
         return OLAP_ERR_TABLE_INDEX_VALIDATE_ERROR;
     }
 
+    res = olap_table->load();
+    if (res != OLAP_SUCCESS) {
+        LOG(WARNING) << "load tablet failed: tablet:" << olap_table->full_name() << ", res:" << res;
+        olap_table->mark_dropped();
+        return OLAP_ERR_TABLE_INDEX_VALIDATE_ERROR;
+    }
+
     res = engine->add_table(tablet_id, schema_hash, olap_table);
     if (res != OLAP_SUCCESS) {
         // insert existed tablet return OLAP_SUCCESS

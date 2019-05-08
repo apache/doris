@@ -316,8 +316,8 @@ OLAPStatus OLAPTable::load() {
     res = load_indices();
 
     if (res != OLAP_SUCCESS) {
-        LOG(FATAL) << "fail to load indices. [res=" << res << " table='" << _full_name << "']";
-        goto EXIT;
+        LOG(WARNING) << "fail to load indices. [res=" << res << " table='" << _full_name << "']";
+        return res;
     }
 
     // delete unused files
@@ -337,6 +337,7 @@ OLAPStatus OLAPTable::load() {
 
 EXIT:
     if (res != OLAP_SUCCESS) {
+        LOG(WARNING) << "tablet load failed. drop tablet:" <<  _full_name;
         OLAPEngine::get_instance()->drop_table(tablet_id(), schema_hash());
     }
 
