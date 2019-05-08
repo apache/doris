@@ -93,7 +93,7 @@ public class GlobalTransactionMgr {
     private Catalog catalog;
 
     public GlobalTransactionMgr(Catalog catalog) {
-        idToTransactionState = new HashMap<>();
+        idToTransactionState = Maps.newConcurrentMap();
         dbIdToTxnLabels = HashBasedTable.create();
         runningTxnNums = Maps.newHashMap();
         this.catalog = catalog;
@@ -278,12 +278,13 @@ public class GlobalTransactionMgr {
         for (TabletCommitInfo tabletCommitInfo : tabletCommitInfos) {
             long tabletId = tabletCommitInfo.getTabletId();
             long tableId = tabletInvertedIndex.getTableId(tabletId);
-            if (TabletInvertedIndex.NOT_EXIST_VALUE == tableId) {
+            OlapTable tbl = (OlapTable) db.getTable(tableId);
+            if (tbl == null) {
                 throw new MetaNotFoundException("could not find table for tablet [" + tabletId + "]");
             }
             
             long partitionId = tabletInvertedIndex.getPartitionId(tabletId);
-            if (TabletInvertedIndex.NOT_EXIST_VALUE == partitionId) {
+            if (tbl.getPartition(partitionId) == null) {
                 throw new MetaNotFoundException("could not find partition for tablet [" + tabletId + "]");
             }
             
@@ -301,6 +302,9 @@ public class GlobalTransactionMgr {
         Set<Long> totalInvolvedBackends = Sets.newHashSet();
         for (long tableId : tableToPartition.keySet()) {
             OlapTable table = (OlapTable) db.getTable(tableId);
+            if (table == null) {
+                throw new MetaNotFoundException("Table does not exist: " + tableId);
+            }
             for (Partition partition : table.getPartitions()) {
                 if (!tableToPartition.get(tableId).contains(partition.getId())) {
                     continue;

@@ -623,7 +623,6 @@ OLAPStatus OlapStore::_check_none_row_oriented_table_in_store(
     }
     // init must be called
     RETURN_NOT_OK(olap_header->init());
-    LOG(INFO) << "data_file_type:" << olap_header->data_file_type();
     if (olap_header->data_file_type() == OLAP_DATA_FILE) {
         LOG(FATAL) << "Not support row-oriented table any more. Please convert it to column-oriented table."
                    << "tablet=" << tablet_id << "." << schema_hash;

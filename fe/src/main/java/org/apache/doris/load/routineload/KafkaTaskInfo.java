@@ -19,6 +19,7 @@ package org.apache.doris.load.routineload;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
@@ -68,6 +69,9 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         tRoutineLoadTask.setJob_id(jobId);
         tRoutineLoadTask.setTxn_id(txnId);
         Database database = Catalog.getCurrentCatalog().getDb(routineLoadJob.getDbId());
+        if (database == null) {
+            throw new MetaNotFoundException("database " + routineLoadJob.getDbId() + " does not exist");
+        }
         tRoutineLoadTask.setDb(database.getFullName());
         tRoutineLoadTask.setTbl(database.getTable(routineLoadJob.getTableId()).getName());
         // label = job_name+job_id+task_id+txn_id

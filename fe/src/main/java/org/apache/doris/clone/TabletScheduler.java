@@ -809,6 +809,9 @@ public class TabletScheduler extends Daemon {
         List<RootPathLoadStatistic> allFitPaths = Lists.newArrayList();
         for (int i = 0; i < beStatistics.size(); i++) {
             BackendLoadStatistic bes = beStatistics.get(i);
+            if (!bes.isAvailable()) {
+                continue;
+            }
             // exclude BE which already has replica of this tablet
             if (tabletCtx.containsBE(bes.getBeId())) {
                 continue;
