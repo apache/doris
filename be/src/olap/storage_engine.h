@@ -172,12 +172,6 @@ public:
     // @return OLAP_SUCCESS if load tablet success
     OLAPStatus load_header(
         const std::string& shard_path, const TCloneReq& request);
-        
-    OLAPStatus load_header(
-        DataDir* store,
-            const std::string& shard_path,
-            TTabletId tablet_id,
-            TSchemaHash schema_hash);
 
     // call this if you want to trigger a disk and tablet report
     void report_notify(bool is_all) {
@@ -222,6 +216,8 @@ private:
 
     TabletSharedPtr _find_best_tablet_to_compaction(CompactionType compaction_type);
 
+    void _clean_unused_txns();
+    
     OLAPStatus _do_sweep(
             const std::string& scan_root, const time_t& local_tm_now, const uint32_t expire);
 

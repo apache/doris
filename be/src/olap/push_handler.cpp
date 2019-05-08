@@ -91,7 +91,7 @@ OLAPStatus PushHandler::_do_streaming_ingestion(
   load_id.set_lo(0);
   OLAPStatus res = StorageEngine::instance()->txn_manager()->prepare_txn(
       request.partition_id, request.transaction_id, tablet->tablet_id(),
-      tablet->schema_hash(), load_id);
+      tablet->schema_hash(), tablet->tablet_uid(), load_id);
 
   // prepare txn will be always successful
   // if current tablet is under schema change, origin tablet is successful and
@@ -136,7 +136,7 @@ OLAPStatus PushHandler::_do_streaming_ingestion(
         res = StorageEngine::instance()->txn_manager()->prepare_txn(
             request.partition_id, request.transaction_id,
             related_tablet->tablet_id(), related_tablet->schema_hash(),
-            load_id);
+            related_tablet->tablet_uid(), load_id);
         // prepare txn will always be successful
         tablet_vars->push_back(TabletVars());
         TabletVars& new_item = tablet_vars->back();
@@ -194,7 +194,8 @@ OLAPStatus PushHandler::_do_streaming_ingestion(
       OLAPStatus rollback_status =
           StorageEngine::instance()->txn_manager()->rollback_txn(
               request.partition_id, request.transaction_id,
-              tablet_var.tablet->tablet_id(), tablet_var.tablet->schema_hash());
+              tablet_var.tablet->tablet_id(), tablet_var.tablet->schema_hash(), 
+              tablet_var.tablet->tablet_uid());
       // has to check rollback status to ensure not delete a committed rowset
       if (rollback_status == OLAP_SUCCESS) {
         // actually, olap_index may has been deleted in delete_transaction()
@@ -219,7 +220,8 @@ OLAPStatus PushHandler::_do_streaming_ingestion(
         StorageEngine::instance()->txn_manager()->commit_txn(
             tablet_var.tablet->data_dir()->get_meta(), request.partition_id,
             request.transaction_id, tablet_var.tablet->tablet_id(),
-            tablet_var.tablet->schema_hash(), load_id, tablet_var.rowset_to_add,
+            tablet_var.tablet->schema_hash(), tablet_var.tablet->tablet_uid(), 
+            load_id, tablet_var.rowset_to_add,
             false);
     if (commit_status != OLAP_SUCCESS &&
         commit_status != OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
@@ -312,6 +314,7 @@ OLAPStatus PushHandler::_convert(TabletSharedPtr cur_tablet,
         VLOG(3) << "init RowsetBuilder.";
         RowsetWriterContext context;
         context.rowset_id = rowset_id;
+        context.tablet_uid = cur_tablet->tablet_uid();
         context.tablet_id = cur_tablet->tablet_id();
         context.partition_id = _request.partition_id;
         context.tablet_schema_hash = cur_tablet->schema_hash();

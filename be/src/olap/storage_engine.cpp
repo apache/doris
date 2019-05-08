@@ -498,14 +498,16 @@ void StorageEngine::clear_transaction_task(const TTransactionId transaction_id,
 
         // each tablet
         for (auto& tablet_info : tablet_infos) {
+            // should use tablet uid to ensure clean txn correctly
             TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_info.first.tablet_id, 
-                tablet_info.first.schema_hash);
+                tablet_info.first.schema_hash, tablet_info.first.tablet_uid);
             OlapMeta* meta = nullptr;
             if (tablet != nullptr) {
                 meta = tablet->data_dir()->get_meta();
             }
             StorageEngine::instance()->txn_manager()->delete_txn(meta, partition_id, transaction_id,
-                                tablet_info.first.tablet_id, tablet_info.first.schema_hash);
+                                tablet_info.first.tablet_id, tablet_info.first.schema_hash, 
+                                tablet_info.first.tablet_uid);
         }
     }
     LOG(INFO) << "finish to clear transaction task. transaction_id=" << transaction_id;
@@ -632,10 +634,30 @@ OLAPStatus StorageEngine::start_trash_sweep(double* usage) {
         }
     }
 
-    // clear expire incremental rowset
+    // clear expire incremental rowset, move deleted tablet to trash
     _tablet_manager->start_trash_sweep();
 
+    // clean rubbish transactions
+    _clean_unused_txns();
+
     return res;
+}
+
+void StorageEngine::_clean_unused_txns() {
+    std::set<TabletInfo> tablet_infos;
+    _txn_manager->get_all_related_tablets(&tablet_infos);
+    for (auto& tablet_info : tablet_infos) {
+        TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_info.tablet_id, tablet_info.schema_hash, tablet_info.tablet_uid, true);
+        if (tablet == nullptr) {
+            // TODO(ygl) :  should check if tablet still in meta, it's a improvement
+            // case 1: tablet still in meta, just remove from memory
+            // case 2: tablet not in meta store, remove rowset from meta
+            // currently just remove them from memory
+            // nullptr to indicate not remove them from meta store
+            _txn_manager->force_rollback_tablet_related_txns(nullptr, tablet_info.tablet_id, tablet_info.schema_hash, 
+                tablet_info.tablet_uid);
+        }
+    }
 }
 
 OLAPStatus StorageEngine::_do_sweep(
@@ -786,6 +808,16 @@ OLAPStatus StorageEngine::load_header(
     schema_hash_path_stream << shard_path
                             << "/" << request.tablet_id
                             << "/" << request.schema_hash;
+    // not surely, reload and restore tablet action call this api
+    // reset tablet uid here
+
+    string header_path = TabletMeta::construct_header_file_path(schema_hash_path_stream.str(), request.tablet_id);
+    res = TabletMeta::reset_tablet_uid(header_path);
+    if (res != OLAP_SUCCESS) {
+        LOG(WARNING) << "fail reset tablet uid file path = " << header_path
+                     << " res=" << res;
+        return res;
+    }
     res = _tablet_manager->load_tablet_from_dir(
             store,
             request.tablet_id, request.schema_hash,
@@ -798,34 +830,6 @@ OLAPStatus StorageEngine::load_header(
     LOG(INFO) << "success to process load headers.";
     return res;
 }
-
-OLAPStatus StorageEngine::load_header(
-        DataDir* store,
-        const string& shard_path,
-        TTabletId tablet_id,
-        TSchemaHash schema_hash) {
-    LOG(INFO) << "begin to process load headers. tablet_id=" << tablet_id
-              << " schema_hash=" << schema_hash;
-    OLAPStatus res = OLAP_SUCCESS;
-
-    stringstream schema_hash_path_stream;
-    schema_hash_path_stream << shard_path
-                            << "/" << tablet_id
-                            << "/" << schema_hash;
-    res =  _tablet_manager->load_tablet_from_dir(
-            store,
-            tablet_id, schema_hash,
-            schema_hash_path_stream.str(), 
-            false);
-    if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "fail to process load headers. res=" << res;
-        return res;
-    }
-
-    LOG(INFO) << "success to process load headers.";
-    return res;
-}
-
 
 OLAPStatus StorageEngine::execute_task(EngineTask* task) {
     // 1. add wlock to related tablets

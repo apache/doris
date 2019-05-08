@@ -69,7 +69,8 @@ OLAPStatus EnginePublishVersionTask::finish() {
                 res = OLAP_ERR_PUSH_ROWSET_NOT_FOUND;
                 continue;
             }
-            TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_info.tablet_id, tablet_info.schema_hash);
+            TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_info.tablet_id, 
+                tablet_info.schema_hash, tablet_info.tablet_uid);
 
             if (tablet == nullptr) {
                 LOG(WARNING) << "can't get tablet when publish version. tablet_id=" << tablet_info.tablet_id
@@ -81,7 +82,7 @@ OLAPStatus EnginePublishVersionTask::finish() {
 
             publish_status = StorageEngine::instance()->txn_manager()->publish_txn(tablet->data_dir()->get_meta(), 
                 partition_id, 
-                transaction_id, tablet_info.tablet_id, tablet_info.schema_hash, 
+                transaction_id, tablet_info.tablet_id, tablet_info.schema_hash, tablet_info.tablet_uid, 
                 version, version_hash);
             
             if (publish_status != OLAP_SUCCESS) {
@@ -106,7 +107,7 @@ OLAPStatus EnginePublishVersionTask::finish() {
                 LOG(INFO) << "publish version successfully on tablet. tablet=" << tablet->full_name()
                           << ", transaction_id=" << transaction_id << ", version=" << version.first;
                 // delete rowset from meta env, because add inc rowset alreay saved the rowset meta to tablet meta
-                RowsetMetaManager::remove(tablet->data_dir()->get_meta(), rowset->rowset_id());
+                RowsetMetaManager::remove(tablet->data_dir()->get_meta(), tablet->tablet_uid(), rowset->rowset_id());
                 // delete txn info
             } else {
                 LOG(WARNING) << "fail to publish version on tablet. tablet=" << tablet->full_name().c_str()

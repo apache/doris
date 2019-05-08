@@ -78,6 +78,8 @@ public:
     OLAPStatus revise_tablet_meta(const std::vector<RowsetMetaSharedPtr>& rowsets_to_clone,
                                   const std::vector<Version>& versions_to_delete);
 
+
+    TabletUid tablet_uid();
     inline int64_t table_id() const;
     inline const std::string full_name() const;
     inline int64_t partition_id() const;
@@ -208,9 +210,11 @@ public:
     bool check_path(const std::string& check_path);
 
     OLAPStatus next_rowset_id(RowsetId* id);
+    OLAPStatus set_next_rowset_id(RowsetId new_rowset_id);
 
 private:
     void _print_missed_versions(const std::vector<Version>& missed_versions) const;
+    OLAPStatus _check_added_rowset(const RowsetSharedPtr& rowset);
 
 private:
     TabletState _state;
@@ -255,10 +259,11 @@ inline int64_t Tablet::table_id() const {
 }
 
 inline const std::string Tablet::full_name() const {
-    std::string tablet_name = std::to_string(_tablet_meta->tablet_id())
-                              + "." +
-                              std::to_string(_tablet_meta->schema_hash());
-    return tablet_name;
+    std::stringstream ss;
+    ss << _tablet_meta->tablet_id() 
+       << "." << _tablet_meta->schema_hash() 
+       << "." << _tablet_meta->tablet_uid().to_string();
+    return ss.str();
 }
 
 inline int64_t Tablet::partition_id() const {

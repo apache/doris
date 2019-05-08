@@ -1054,6 +1054,7 @@ bool SchemaChangeWithSorting::_internal_sorting(const vector<RowBlock*>& row_blo
     }
     RowsetWriterContext context;
     context.rowset_id = rowset_id;
+    context.tablet_uid = _tablet->tablet_uid();
     context.tablet_id = _tablet->tablet_id();
     context.partition_id = _tablet->partition_id();
     context.tablet_schema_hash = _tablet->schema_hash();
@@ -1195,7 +1196,8 @@ OLAPStatus SchemaChangeHandler::process_alter_tablet(AlterTabletType type,
     // get current transactions
     int64_t partition_id;
     std::set<int64_t> transaction_ids;
-    StorageEngine::instance()->txn_manager()->get_tablet_related_txns(base_tablet, &partition_id, &transaction_ids);
+    StorageEngine::instance()->txn_manager()->get_tablet_related_txns(base_tablet->tablet_id(), 
+        base_tablet->schema_hash(), base_tablet->tablet_uid(), &partition_id, &transaction_ids);
     base_tablet->release_push_lock();
 
     // wait transactions to publish version
@@ -1206,7 +1208,10 @@ OLAPStatus SchemaChangeHandler::process_alter_tablet(AlterTabletType type,
         num++;
         if (num % 100 == 0) {
             for (int64_t transaction_id : transaction_ids) {
-                LOG(INFO) << "transaction_id is waiting by schema_change: " << transaction_id;
+                LOG(INFO) << "transaction_id is waiting by schema_change."
+                          << " base_tablet=" << base_tablet->full_name()
+                          << " new_tablet=" << new_tablet->full_name()
+                          << " transactionid=" << transaction_id;
             }
         }
         sleep(1);
@@ -1215,7 +1220,7 @@ OLAPStatus SchemaChangeHandler::process_alter_tablet(AlterTabletType type,
         for (int64_t transaction_id : transaction_ids) {
             if (!StorageEngine::instance()->txn_manager()->has_txn(
                 partition_id, transaction_id,
-                base_tablet->tablet_id(), base_tablet->schema_hash())) {
+                base_tablet->tablet_id(), base_tablet->schema_hash(), base_tablet->tablet_uid())) {
                 finished_transactions.push_back(transaction_id);
             }
         }
@@ -1427,6 +1432,7 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
     RETURN_NOT_OK(new_tablet->next_rowset_id(&rowset_id));
     RowsetWriterContext writer_context;
     writer_context.rowset_id = rowset_id;
+    writer_context.tablet_uid = new_tablet->tablet_uid();
     writer_context.tablet_id = new_tablet->tablet_id();
     writer_context.partition_id = (*base_rowset)->partition_id();
     writer_context.tablet_schema_hash = new_tablet->schema_hash();
@@ -1657,6 +1663,7 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
 
         RowsetWriterContext writer_context;
         writer_context.rowset_id = rowset_id;
+        writer_context.tablet_uid = new_tablet->tablet_uid();
         writer_context.tablet_id = new_tablet->tablet_id();
         writer_context.partition_id = new_tablet->partition_id();
         writer_context.tablet_schema_hash = new_tablet->schema_hash();

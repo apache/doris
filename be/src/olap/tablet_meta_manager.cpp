@@ -101,7 +101,8 @@ OLAPStatus TabletMetaManager::save(DataDir* store,
     OlapMeta* meta = store->get_meta();
     LOG(INFO) << "save tablet meta " 
               << " tablet_id=" << tablet_id
-              << " schema_hash=" << schema_hash;
+              << " schema_hash=" << schema_hash
+              << " meta_size=" << meta_binary.length();
     return meta->put(META_COLUMN_FAMILY_INDEX, key, meta_binary);
 }
 

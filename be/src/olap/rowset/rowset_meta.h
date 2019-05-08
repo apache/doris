@@ -92,6 +92,14 @@ public:
         _rowset_meta_pb.set_tablet_id(tablet_id);
     }
 
+    TabletUid tablet_uid() {
+        return _rowset_meta_pb.tablet_uid();
+    }
+
+    void set_tablet_uid(TabletUid tablet_uid) {
+        *(_rowset_meta_pb.mutable_tablet_uid()) = tablet_uid.to_proto();
+    }
+
     int64_t txn_id() {
         return _rowset_meta_pb.txn_id();
     }
