@@ -64,7 +64,8 @@ private:
         vector<string>* error_msgs,
         const vector<Version>* missing_versions,
         bool* allow_incremental_clone, 
-        int32_t* snapshot_version);
+        int32_t* snapshot_version, 
+        TabletSharedPtr tablet);
         
     OLAPStatus _convert_to_new_snapshot(DataDir& data_dir, const string& clone_dir, int64_t tablet_id);
 

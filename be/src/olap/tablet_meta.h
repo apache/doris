@@ -30,6 +30,7 @@
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/delete_handler.h"
+#include "util/uid_util.h"
 
 using std::string;
 using std::vector;
@@ -93,7 +94,6 @@ private:
     AlterTabletType _alter_type;
 };
 
-
 typedef std::shared_ptr<AlterTabletTask> AlterTabletTaskSharedPtr;
 
 // Class encapsulates meta of tablet.
@@ -105,19 +105,22 @@ public:
                              uint64_t shard_id, const TTabletSchema& tablet_schema,
                              uint32_t next_unique_id,
                              const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
-                             TabletMetaSharedPtr* tablet_meta);
+                             TabletMetaSharedPtr* tablet_meta, TabletUid& tablet_uid);
     TabletMeta();
     TabletMeta(int64_t table_id, int64_t partition_id,
                int64_t tablet_id, int32_t schema_hash,
                uint64_t shard_id, const TTabletSchema& tablet_schema,
                uint32_t next_unique_id,
-               const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id);
+               const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id, 
+               TabletUid tablet_uid);
 
     // Function create_from_file is used to be compatible with previous tablet_meta.
     // Previous tablet_meta is a physical file in tablet dir, which is not stored in rocksdb.
     OLAPStatus create_from_file(const std::string& file_path);
     OLAPStatus save(const std::string& file_path);
     static OLAPStatus save(const string& file_path, TabletMetaPB& tablet_meta_pb);
+    static OLAPStatus reset_tablet_uid(const std::string& file_path);
+    static std::string construct_header_file_path(const std::string& schema_hash_path, const int64_t tablet_id);
     OLAPStatus save_meta(DataDir* data_dir);
 
     OLAPStatus serialize(string* meta_binary);
@@ -127,6 +130,7 @@ public:
     OLAPStatus to_meta_pb(TabletMetaPB* tablet_meta_pb);
     OLAPStatus to_json(std::string* json_string, json2pb::Pb2JsonOptions& options);
 
+    const TabletUid tablet_uid();
     inline const int64_t table_id() const;
     inline const int64_t partition_id() const;
     inline const int64_t tablet_id() const;
@@ -175,6 +179,17 @@ public:
     OLAPStatus delete_alter_task();
     OLAPStatus set_alter_state(AlterTabletState alter_state);
 
+    // rowsetid is not globally unique, it is tablet level
+    // it saves the batch end id into meta env
+    OLAPStatus get_next_rowset_id(RowsetId* rowset_id, DataDir* data_dir); 
+
+    OLAPStatus set_next_rowset_id(RowsetId new_rowset_id, DataDir* data_dir);
+
+    RowsetId get_cur_rowset_id();
+
+private:
+    OLAPStatus _save_meta(DataDir* data_dir);
+
 private:
     int64_t _table_id;
     int64_t _partition_id;
@@ -183,6 +198,11 @@ private:
     int32_t _shard_id;
     int64_t _creation_time;
     int64_t _cumulative_layer_point;
+    TabletUid _tablet_uid;
+    RowsetId _next_rowset_id = 10000;
+    RowsetId _end_rowset_id;
+    RowsetId _batch_interval = 10000;
+
 
     TabletState _tablet_state;
     TabletSchema _schema;

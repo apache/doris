@@ -75,48 +75,50 @@ public:
     // add a txn to manager
     // partition id is useful in publish version stage because version is associated with partition
     OLAPStatus prepare_txn(TPartitionId partition_id, TTransactionId transaction_id,
-                           TTabletId tablet_id, SchemaHash schema_hash,
+                           TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid, 
                            const PUniqueId& load_id);
     
     OLAPStatus commit_txn(OlapMeta* meta, TPartitionId partition_id, TTransactionId transaction_id,
-                          TTabletId tablet_id, SchemaHash schema_hash,
+                          TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid, 
                           const PUniqueId& load_id, RowsetSharedPtr rowset_ptr, 
                           bool is_recovery);
     
     // remove a txn from txn manager
     // not persist rowset meta because 
     OLAPStatus publish_txn(OlapMeta* meta, TPartitionId partition_id, TTransactionId transaction_id,
-                           TTabletId tablet_id, SchemaHash schema_hash,
+                           TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid, 
                            Version& version, VersionHash& version_hash);
 
     // delete the txn from manager if it is not committed(not have a valid rowset)
     OLAPStatus rollback_txn(TPartitionId partition_id, TTransactionId transaction_id,
-                            TTabletId tablet_id, SchemaHash schema_hash);
+                            TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid);
 
     // remove the txn from txn manager
     // delete the related rowset if it is not null
     // delete rowset related data if it is not null
     OLAPStatus delete_txn(OlapMeta* meta, TPartitionId partition_id, TTransactionId transaction_id,
-                          TTabletId tablet_id, SchemaHash schema_hash);
+                          TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid);
 
-    void get_tablet_related_txns(TabletSharedPtr tablet, int64_t* partition_id,
+    void get_tablet_related_txns(TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid, int64_t* partition_id,
                                 std::set<int64_t>* transaction_ids);
 
     void get_txn_related_tablets(const TTransactionId transaction_id,
                                  TPartitionId partition_ids,
                                  std::map<TabletInfo, RowsetSharedPtr>* tablet_infos);
+    
+    void get_all_related_tablets(std::set<TabletInfo>* tablet_infos);
 
     // just check if the txn exists
     bool has_txn(TPartitionId partition_id, TTransactionId transaction_id,
-                 TTabletId tablet_id, SchemaHash schema_hash);
+                 TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid);
     
     // check if the txn exists and has related rowset
     bool has_committed_txn(TPartitionId partition_id, TTransactionId transaction_id,
-                           TTabletId tablet_id, SchemaHash schema_hash);
+                           TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid);
 
-    bool get_expire_txns(TTabletId tablet_id, SchemaHash schema_hash, std::vector<int64_t>* transaction_ids);
+    bool get_expire_txns(TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid, std::vector<int64_t>* transaction_ids);
 
-    void force_rollback_tablet_related_txns(OlapMeta* meta, TTabletId tablet_id, SchemaHash schema_hash);
+    void force_rollback_tablet_related_txns(OlapMeta* meta, TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid);
     
 private:
     RWMutex* _get_txn_lock(TTransactionId txn_id) {

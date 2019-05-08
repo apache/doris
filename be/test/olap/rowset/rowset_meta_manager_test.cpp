@@ -59,6 +59,7 @@ public:
         }
         _json_rowset_meta = _json_rowset_meta.substr(0, _json_rowset_meta.size() - 1);
         _json_rowset_meta = _json_rowset_meta.substr(0, _json_rowset_meta.size() - 1);
+        _tablet_uid = TabletUid(10, 10);
     }
 
     virtual void TearDown() {
@@ -69,6 +70,7 @@ public:
 private:
     OlapMeta* _meta;
     std::string _json_rowset_meta;
+    TabletUid _tablet_uid;
 };
 
 TEST_F(RowsetMetaManagerTest, TestSaveAndGetAndRemove) {
@@ -76,16 +78,16 @@ TEST_F(RowsetMetaManagerTest, TestSaveAndGetAndRemove) {
     RowsetMeta rowset_meta;
     rowset_meta.init_from_json(_json_rowset_meta);
     ASSERT_EQ(rowset_meta.rowset_id(), rowset_id);
-    OLAPStatus status = RowsetMetaManager::save(_meta, rowset_id, &rowset_meta);
+    OLAPStatus status = RowsetMetaManager::save(_meta, _tablet_uid, rowset_id, &rowset_meta);
     ASSERT_TRUE(status == OLAP_SUCCESS);
     std::string json_rowset_meta_read;
-    status = RowsetMetaManager::get_json_rowset_meta(_meta, rowset_id, &json_rowset_meta_read);
+    status = RowsetMetaManager::get_json_rowset_meta(_meta, _tablet_uid, rowset_id, &json_rowset_meta_read);
     ASSERT_TRUE(status == OLAP_SUCCESS);
     ASSERT_EQ(_json_rowset_meta, json_rowset_meta_read);
-    status = RowsetMetaManager::remove(_meta, rowset_id);
+    status = RowsetMetaManager::remove(_meta, _tablet_uid, rowset_id);
     ASSERT_TRUE(status == OLAP_SUCCESS);
     RowsetMetaSharedPtr rowset_meta_read(new RowsetMeta());
-    status = RowsetMetaManager::get_rowset_meta(_meta, rowset_id, rowset_meta_read);
+    status = RowsetMetaManager::get_rowset_meta(_meta, _tablet_uid, rowset_id, rowset_meta_read);
     ASSERT_TRUE(status != OLAP_SUCCESS);
 }
 
@@ -94,7 +96,7 @@ TEST_F(RowsetMetaManagerTest, TestLoad) {
     OLAPStatus status = RowsetMetaManager::load_json_rowset_meta(_meta, rowset_meta_path);
     ASSERT_TRUE(status == OLAP_SUCCESS);
     std::string json_rowset_meta_read;
-    status = RowsetMetaManager::get_json_rowset_meta(_meta, rowset_id, &json_rowset_meta_read);
+    status = RowsetMetaManager::get_json_rowset_meta(_meta, _tablet_uid, rowset_id, &json_rowset_meta_read);
     ASSERT_TRUE(status == OLAP_SUCCESS);
     ASSERT_EQ(_json_rowset_meta, json_rowset_meta_read);
 }

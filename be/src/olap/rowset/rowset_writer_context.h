@@ -43,6 +43,8 @@ struct RowsetWriterContext {
         txn_id(0) {
         load_id.set_hi(0);
         load_id.set_lo(0);
+        tablet_uid.hi = 0;
+        tablet_uid.lo = 0;
     }
     int64_t rowset_id;
     int64_t tablet_id;
@@ -62,6 +64,7 @@ struct RowsetWriterContext {
     // properties for pending rowset
     int64_t txn_id;
     PUniqueId load_id;
+    TabletUid tablet_uid;
 };
 
 } // namespace doris

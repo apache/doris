@@ -50,8 +50,11 @@ DeltaWriter::~DeltaWriter() {
 }
 
 void DeltaWriter::_garbage_collection() {
-    OLAPStatus rollback_status = StorageEngine::instance()->txn_manager()->rollback_txn(_req.partition_id,
-        _req.txn_id,_req.tablet_id, _req.schema_hash);
+    OLAPStatus rollback_status = OLAP_SUCCESS;
+    if (_tablet != nullptr) {
+        rollback_status = StorageEngine::instance()->txn_manager()->rollback_txn(_req.partition_id,
+            _req.txn_id,_req.tablet_id, _req.schema_hash, _tablet->tablet_uid());
+    }
     // has to check rollback status, because the rowset maybe committed in this thread and
     // published in another thread, then rollback will failed
     // when rollback failed should not delete rowset
@@ -60,7 +63,7 @@ void DeltaWriter::_garbage_collection() {
     }
     if (_new_tablet != nullptr) {
         rollback_status = StorageEngine::instance()->txn_manager()->rollback_txn(_req.partition_id, _req.txn_id,
-            _new_tablet->tablet_id(), _new_tablet->schema_hash());
+            _new_tablet->tablet_id(), _new_tablet->schema_hash(), _new_tablet->tablet_uid());
         if (rollback_status == OLAP_SUCCESS) {
             StorageEngine::instance()->add_unused_rowset(_new_rowset);
         }
@@ -79,7 +82,7 @@ OLAPStatus DeltaWriter::init() {
         MutexLock push_lock(_tablet->get_push_lock());
         RETURN_NOT_OK(StorageEngine::instance()->txn_manager()->prepare_txn(
                             _req.partition_id, _req.txn_id,
-                            _req.tablet_id, _req.schema_hash, _req.load_id));
+                            _req.tablet_id, _req.schema_hash, _tablet->tablet_uid(), _req.load_id));
         if (_req.need_gen_rollup) {
             AlterTabletTaskSharedPtr alter_task = _tablet->alter_task();
             if (alter_task != nullptr && alter_task->alter_state() != ALTER_FAILED) {
@@ -98,7 +101,7 @@ OLAPStatus DeltaWriter::init() {
                 }
                 StorageEngine::instance()->txn_manager()->prepare_txn(
                                     _req.partition_id, _req.txn_id,
-                                    new_tablet_id, new_schema_hash, _req.load_id);
+                                    new_tablet_id, new_schema_hash, _new_tablet->tablet_uid(), _req.load_id);
             }
         }
     }
@@ -111,6 +114,7 @@ OLAPStatus DeltaWriter::init() {
     }
     RowsetWriterContext writer_context;
     writer_context.rowset_id = rowset_id;
+    writer_context.tablet_uid = _tablet->tablet_uid();
     writer_context.tablet_id = _req.tablet_id;
     writer_context.partition_id = _req.partition_id;
     writer_context.tablet_schema_hash = _req.schema_hash;
@@ -183,7 +187,7 @@ OLAPStatus DeltaWriter::close(google::protobuf::RepeatedPtrField<PTabletInfo>* t
         return OLAP_ERR_MALLOC_ERROR;
     }
     res = StorageEngine::instance()->txn_manager()->commit_txn(_tablet->data_dir()->get_meta(),
-        _req.partition_id, _req.txn_id,_req.tablet_id, _req.schema_hash,
+        _req.partition_id, _req.txn_id,_req.tablet_id, _req.schema_hash, _tablet->tablet_uid(), 
         _req.load_id, _cur_rowset, false);
     if (res != OLAP_SUCCESS && res != OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
         LOG(WARNING) << "commit txn: " << _req.txn_id
@@ -204,8 +208,8 @@ OLAPStatus DeltaWriter::close(google::protobuf::RepeatedPtrField<PTabletInfo>* t
         }
 
         res = StorageEngine::instance()->txn_manager()->commit_txn(_new_tablet->data_dir()->get_meta(),
-                    _req.partition_id, _req.txn_id, _new_tablet->tablet_id(),
-                    _new_tablet->schema_hash(),
+                    _req.partition_id, _req.txn_id, _new_tablet->tablet_id(), 
+                    _new_tablet->schema_hash(), _new_tablet->tablet_uid(),
                     _req.load_id, _new_rowset, false);
 
         if (res != OLAP_SUCCESS && res != OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {

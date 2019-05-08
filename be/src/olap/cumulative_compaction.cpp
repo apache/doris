@@ -136,6 +136,7 @@ OLAPStatus CumulativeCompaction::run() {
         RETURN_NOT_OK(_tablet->next_rowset_id(&rowset_id));
         RowsetWriterContext context;
         context.rowset_id = rowset_id;
+        context.tablet_uid = _tablet->tablet_uid();
         context.tablet_id = _tablet->tablet_id();
         context.partition_id = _tablet->partition_id();
         context.tablet_schema_hash = _tablet->schema_hash();

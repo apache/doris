@@ -90,7 +90,7 @@ OLAPStatus EngineCloneTask::execute() {
                             &src_host, &src_file_path, _error_msgs,
                             &missed_versions,
                             &allow_incremental_clone, 
-                            &snapshot_version);
+                            &snapshot_version, tablet);
         if (status == DORIS_SUCCESS && allow_incremental_clone) {
             OLAPStatus olap_status = _finish_clone(tablet, local_data_path, _clone_req.committed_version, allow_incremental_clone, snapshot_version);
             if (olap_status != OLAP_SUCCESS) {
@@ -104,7 +104,7 @@ OLAPStatus EngineCloneTask::execute() {
             LOG(INFO) << "begin to full clone. [table=" << tablet->full_name();
             status = _clone_copy(*(tablet->data_dir()), _clone_req, _signature, local_data_path,
                                 &src_host, &src_file_path,  _error_msgs,
-                                NULL, NULL, &snapshot_version);
+                                NULL, NULL, &snapshot_version, tablet);
             if (status == DORIS_SUCCESS) {
                 LOG(INFO) << "download successfully when full clone. [table=" << tablet->full_name()
                           << " src_host=" << src_host.host << " src_file_path=" << src_file_path
@@ -150,25 +150,33 @@ OLAPStatus EngineCloneTask::execute() {
                                 &src_host,
                                 &src_file_path,
                                 _error_msgs,
-                                NULL, NULL, &snapshot_version);
+                                nullptr, nullptr, &snapshot_version, nullptr);
         }
 
         if (status == DORIS_SUCCESS) {
             LOG(INFO) << "clone copy done. src_host: " << src_host.host
                         << " src_file_path: " << src_file_path;
-            // Load header
-            OLAPStatus load_header_status =
-                StorageEngine::instance()->load_header(
-                    store,
-                    local_shard_root_path,
-                    _clone_req.tablet_id,
-                    _clone_req.schema_hash);
-            if (load_header_status != OLAP_SUCCESS) {
-                LOG(WARNING) << "load header failed. local_shard_root_path: '" << local_shard_root_path
-                             << "' schema_hash: " << _clone_req.schema_hash << ". status: " << load_header_status
-                             << ". signature: " << _signature;
-                _error_msgs->push_back("load header failed.");
+            stringstream schema_hash_path_stream;
+            schema_hash_path_stream << local_shard_root_path
+                                    << "/" << _clone_req.tablet_id
+                                    << "/" << _clone_req.schema_hash;
+            string header_path = TabletMeta::construct_header_file_path(schema_hash_path_stream.str(), 
+                _clone_req.tablet_id);
+            OLAPStatus reset_id_status = TabletMeta::reset_tablet_uid(header_path);
+            if (reset_id_status != OLAP_SUCCESS) {
+                LOG(WARNING) << "errors while set tablet uid: '" << header_path;
+                _error_msgs->push_back("errors while set tablet uid.");
                 status = DORIS_ERROR;
+            } else {
+                OLAPStatus load_header_status =  StorageEngine::instance()->tablet_manager()->load_tablet_from_dir(
+                    store, _clone_req.tablet_id, _clone_req.schema_hash, schema_hash_path_stream.str(), false);
+                if (load_header_status != OLAP_SUCCESS) {
+                    LOG(WARNING) << "load header failed. local_shard_root_path: '" << local_shard_root_path
+                                << "' schema_hash: " << _clone_req.schema_hash << ". status: " << load_header_status
+                                << ". signature: " << _signature;
+                    _error_msgs->push_back("load header failed.");
+                    status = DORIS_ERROR;
+                }
             }
             // clone success, delete .hdr file because tablet meta is stored in rocksdb
             string cloned_meta_file = tablet_dir_stream.str() + "/" + std::to_string(_clone_req.tablet_id) + ".hdr";
@@ -267,7 +275,8 @@ AgentStatus EngineCloneTask::_clone_copy(
         vector<string>* error_msgs,
         const vector<Version>* missed_versions,
         bool* allow_incremental_clone, 
-        int32_t* snapshot_version) {
+        int32_t* snapshot_version, 
+        TabletSharedPtr tablet) {
     AgentStatus status = DORIS_SUCCESS;
 
     std::string token = _master_info.token;
@@ -565,15 +574,14 @@ AgentStatus EngineCloneTask::_clone_copy(
             if (convert_status != OLAP_SUCCESS) {
                 status = DORIS_ERROR;
             }
-        } else {
-            // if cloned from new version be, then should change all rowset ids 
-            // because they maybe its id same with local rowset
-            OLAPStatus convert_status = SnapshotManager::instance()->convert_rowset_ids(data_dir, 
-                local_data_path, clone_req.tablet_id, clone_req.schema_hash);
-            if (convert_status != OLAP_SUCCESS) {
-                status = DORIS_ERROR;
-            }
+        } 
+        // change all rowset ids because they maybe its id same with local rowset
+        OLAPStatus convert_status = SnapshotManager::instance()->convert_rowset_ids(data_dir, 
+            local_data_path, clone_req.tablet_id, clone_req.schema_hash, tablet);
+        if (convert_status != OLAP_SUCCESS) {
+            status = DORIS_ERROR;
         }
+        
 
         // Release snapshot, if failed, ignore it. OLAP engine will drop useless snapshot
         TAgentResult release_snapshot_result;

@@ -91,6 +91,8 @@ public:
     // Get tablet pointer
     TabletSharedPtr get_tablet(TTabletId tablet_id, SchemaHash schema_hash, bool include_deleted = false);
 
+    TabletSharedPtr get_tablet(TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid, bool include_deleted = false);
+
     bool get_tablet_id_and_schema_hash_from_path(const std::string& path,
             TTabletId* tablet_id, TSchemaHash* schema_hash);
 
@@ -160,6 +162,8 @@ private:
     OLAPStatus _drop_tablet_unlock(TTabletId tablet_id, SchemaHash schema_hash, bool keep_files);
 
     TabletSharedPtr _get_tablet_with_no_lock(TTabletId tablet_id, SchemaHash schema_hash);
+
+    TabletSharedPtr _get_tablet(TTabletId tablet_id, SchemaHash schema_hash, bool include_deleted);
 
     TabletSharedPtr _internal_create_tablet(const AlterTabletType alter_type, const TCreateTabletReq& request, 
         const bool is_schema_change_tablet, const TabletSharedPtr ref_tablet, std::vector<DataDir*> data_dirs);
