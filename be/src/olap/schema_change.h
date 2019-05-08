@@ -177,18 +177,14 @@ private:
 
 class LinkedSchemaChange : public SchemaChange {
 public:
-    explicit LinkedSchemaChange(
-                TabletSharedPtr base_tablet,
-                TabletSharedPtr new_tablet);
+    explicit LinkedSchemaChange() { }
     ~LinkedSchemaChange() {}
 
     bool process(RowsetReaderSharedPtr rowset_reader,
                  RowsetWriterSharedPtr new_rowset_writer,
-                 TabletSharedPtr tablet,
+                 TabletSharedPtr new_tablet,
                  TabletSharedPtr base_tablet);
 private:
-    TabletSharedPtr _base_tablet;
-    TabletSharedPtr _new_tablet;
     DISALLOW_COPY_AND_ASSIGN(LinkedSchemaChange);
 };
 
@@ -198,17 +194,15 @@ public:
     // @params tablet           the instance of tablet which has new schema.
     // @params row_block_changer    changer to modifiy the data of RowBlock
     explicit SchemaChangeDirectly(
-            TabletSharedPtr tablet,
             const RowBlockChanger& row_block_changer);
     virtual ~SchemaChangeDirectly();
 
     virtual bool process(RowsetReaderSharedPtr rowset_reader,
                          RowsetWriterSharedPtr new_rowset_writer,
-                         TabletSharedPtr tablet,
+                         TabletSharedPtr new_tablet,
                          TabletSharedPtr base_tablet);
 
 private:
-    TabletSharedPtr _tablet;
     const RowBlockChanger& _row_block_changer;
     RowBlockAllocator* _row_block_allocator;
     RowCursor* _src_cursor;
@@ -223,14 +217,13 @@ private:
 class SchemaChangeWithSorting : public SchemaChange {
 public:
     explicit SchemaChangeWithSorting(
-            TabletSharedPtr tablet,
             const RowBlockChanger& row_block_changer,
             size_t memory_limitation);
     virtual ~SchemaChangeWithSorting();
 
     virtual bool process(RowsetReaderSharedPtr rowset_reader,
                          RowsetWriterSharedPtr new_rowset_builder,
-                         TabletSharedPtr tablet,
+                         TabletSharedPtr new_tablet,
                          TabletSharedPtr base_tablet);
 
 private:
@@ -238,14 +231,14 @@ private:
             const std::vector<RowBlock*>& row_block_arr,
             const Version& temp_delta_versions,
             const VersionHash version_hash,
+            TabletSharedPtr new_tablet,
             RowsetSharedPtr* rowset);
 
     bool _external_sorting(
             std::vector<RowsetSharedPtr>& src_rowsets,
             RowsetWriterSharedPtr rowset_writer,
-            TabletSharedPtr tablet);
+            TabletSharedPtr new_tablet);
 
-    TabletSharedPtr _tablet;
     const RowBlockChanger& _row_block_changer;
     size_t _memory_limitation;
     Version _temp_delta_versions;
