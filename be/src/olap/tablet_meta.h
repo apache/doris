@@ -122,7 +122,6 @@ public:
     static OLAPStatus reset_tablet_uid(const std::string& file_path);
     static std::string construct_header_file_path(const std::string& schema_hash_path, const int64_t tablet_id);
     OLAPStatus save_meta(DataDir* data_dir);
-    OLAPStatus _save_meta(DataDir* data_dir);
 
     OLAPStatus serialize(string* meta_binary);
     OLAPStatus deserialize(const string& meta_binary);
@@ -187,6 +186,9 @@ public:
     OLAPStatus set_next_rowset_id(RowsetId new_rowset_id, DataDir* data_dir);
 
     RowsetId get_previous_rowset_id();
+
+private:
+    OLAPStatus _save_meta(DataDir* data_dir);
 
 private:
     int64_t _table_id;

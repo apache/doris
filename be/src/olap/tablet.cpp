@@ -853,7 +853,7 @@ OLAPStatus Tablet::set_next_rowset_id(RowsetId new_rowset_id) {
 
 void Tablet::_print_missed_versions(const std::vector<Version>& missed_versions) const {
     std::stringstream ss;
-    ss << "missed version:";
+    ss << full_name() << " has "<< missed_versions.size() << " missed version:";
     // print at most 10 version
     for (int i = 0; i < 10 && i < missed_versions.size(); ++i) {
         ss << missed_versions[i].first << "-" << missed_versions[i].second << ",";

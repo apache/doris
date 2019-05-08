@@ -264,6 +264,21 @@ OLAPStatus TabletMeta::save_meta(DataDir* data_dir) {
 OLAPStatus TabletMeta::_save_meta(DataDir* data_dir) {
     string meta_binary;
     serialize(&meta_binary);
+    // check if rowset id all valid, should remove it later
+    for (auto& rs_meta : _rs_metas) {
+        if (rs_meta->rowset_id() >= _next_rowset_id) {
+            LOG(FATAL) << "meta contains invalid rowsetid " 
+                       << " rowset_id=" <<  rs_meta->rowset_id()
+                       << " next_rowset_id=" << _next_rowset_id;
+        }
+    }
+    for (auto& rs_meta : _inc_rs_metas) {
+        if (rs_meta->rowset_id() >= _next_rowset_id) {
+            LOG(FATAL) << "meta contains invalid rowsetid " 
+                       << " rowset_id=" <<  rs_meta->rowset_id()
+                       << " next_rowset_id=" << _next_rowset_id;
+        }
+    }
     OLAPStatus status = TabletMetaManager::save(data_dir, tablet_id(), schema_hash(), meta_binary);
     if (status != OLAP_SUCCESS) {
        LOG(FATAL) << "fail to save tablet_meta. status=" << status

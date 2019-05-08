@@ -480,9 +480,10 @@ bool TxnManager::get_expire_txns(TTabletId tablet_id, SchemaHash schema_hash, Ta
             double diff = difftime(now, txn_info->second.creation_time);
             if (diff >= config::pending_data_expire_time_sec) {
                 transaction_ids->push_back(it.first.second);
-                VLOG(3) << "find expire pending data. " 
+                LOG(INFO) << "find expire pending data. " 
                         << " tablet_id=" << tablet_id
                         << " schema_hash=" << schema_hash 
+                        << " tablet_uid=" << tablet_uid.to_string()
                         << " transaction_id=" << it.first.second 
                         << " exist_sec=" << diff;
             }

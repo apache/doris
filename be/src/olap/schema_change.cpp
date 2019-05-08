@@ -1208,7 +1208,10 @@ OLAPStatus SchemaChangeHandler::process_alter_tablet(AlterTabletType type,
         num++;
         if (num % 100 == 0) {
             for (int64_t transaction_id : transaction_ids) {
-                LOG(INFO) << "transaction_id is waiting by schema_change: " << transaction_id;
+                LOG(INFO) << "transaction_id is waiting by schema_change."
+                          << " base_tablet=" << base_tablet->full_name()
+                          << " new_tablet=" << new_tablet->full_name()
+                          << " transactionid=" << transaction_id;
             }
         }
         sleep(1);
