@@ -163,6 +163,13 @@ TEST_F(RowsetMetaTest, TestAlphaRowsetMetaAdd) {
     std::vector<SegmentGroupPB> segment_groups;
     rowset_meta.get_segment_groups(&segment_groups);
     ASSERT_EQ(3, segment_groups.size());
+    std::string meta_pb_string = "";
+    ASSERT_TRUE(rowset_meta.serialize(&meta_pb_string));
+    AlphaRowsetMeta rowset_meta_2;
+    ASSERT_TRUE(rowset_meta_2.init(meta_pb_string));
+    segment_groups.clear();
+    rowset_meta_2.get_segment_groups(&segment_groups);
+    ASSERT_EQ(3, segment_groups.size());
 }
 
 TEST_F(RowsetMetaTest, TestAlphaRowsetMetaClear) {
@@ -172,6 +179,13 @@ TEST_F(RowsetMetaTest, TestAlphaRowsetMetaClear) {
     rowset_meta.clear_segment_group();
     std::vector<SegmentGroupPB> segment_groups;
     rowset_meta.get_segment_groups(&segment_groups);
+    ASSERT_EQ(0, segment_groups.size());
+    std::string meta_pb_string = "";
+    ASSERT_TRUE(rowset_meta.serialize(&meta_pb_string));
+    AlphaRowsetMeta rowset_meta_2;
+    ASSERT_TRUE(rowset_meta_2.init(meta_pb_string));
+    segment_groups.clear();
+    rowset_meta_2.get_segment_groups(&segment_groups);
     ASSERT_EQ(0, segment_groups.size());
 }
 

@@ -93,7 +93,7 @@ message RowsetMetaPB {
     optional int64 creation_time = 20; // PDelta.creation_time
     optional PUniqueId tablet_uid = 21;
     // spare field id for future use
-    optional bytes extra_properties = 50;
+    optional AlphaRowsetExtraMetaPB alpha_rowset_extra_meta_pb = 50;
 }
 
 message AlphaRowsetExtraMetaPB {
