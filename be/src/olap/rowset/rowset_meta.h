@@ -44,12 +44,12 @@ public:
         if (!ret) {
             return false;
         }
-        return deserialize_extra_properties();
+        return true;
     }
 
     virtual bool init_from_pb(const RowsetMetaPB& rowset_meta_pb) {
         _rowset_meta_pb = rowset_meta_pb;
-        return deserialize_extra_properties();
+        return true;
     }
 
     virtual bool init_from_json(const std::string& json_rowset_meta) {
@@ -57,11 +57,6 @@ public:
         if (!ret) {
             return false;
         }
-        return deserialize_extra_properties();
-    }
-
-    virtual bool deserialize_extra_properties() {
-        LOG(INFO) << "deserialize_extra_properties";
         return true;
     }
 
@@ -280,19 +275,12 @@ public:
         return _rowset_meta_pb.set_partition_id(partition_id);
     }
 
-    virtual std::string extra_properties() {
-        return _rowset_meta_pb.extra_properties();
-    }
-
-    virtual void set_extra_properties(std::string extra_properties) {
-        _rowset_meta_pb.set_extra_properties(extra_properties);
-    }
-
     void to_rowset_pb(RowsetMetaPB* rs_meta_pb) {
         *rs_meta_pb = _rowset_meta_pb;
     }
 
 private:
+    friend class AlphaRowsetMeta;
     bool _deserialize_from_pb(const std::string& value) {
         return _rowset_meta_pb.ParseFromString(value);
     }
@@ -302,6 +290,18 @@ private:
            return false;
         }
         return _rowset_meta_pb.SerializeToString(value);
+    }
+
+    bool _has_alpha_rowset_extra_meta_pb() {
+        return _rowset_meta_pb.has_alpha_rowset_extra_meta_pb();
+    }
+
+    const AlphaRowsetExtraMetaPB& _alpha_rowset_extra_meta_pb() {
+        return _rowset_meta_pb.alpha_rowset_extra_meta_pb();
+    }
+
+    AlphaRowsetExtraMetaPB* _mutable_alpha_rowset_extra_meta_pb() {
+        return _rowset_meta_pb.mutable_alpha_rowset_extra_meta_pb();
     }
 
 private:
