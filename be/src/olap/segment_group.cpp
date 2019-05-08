@@ -365,10 +365,22 @@ OLAPStatus SegmentGroup::validate() {
         string data_path = construct_data_file_path(_segment_group_id, seg_id);
 
         // 检查index文件头
+        if (!boost::filesystem::exists(index_path)) {
+            LOG(WARNING) << "tmp index_path not exist:" << index_path
+                         << ", tablet_id:" << _table->tablet_id()
+                         << ", schema_hash:" << _table->schema_hash();
+        }
+
         if ((res = index_file_header.validate(index_path)) != OLAP_SUCCESS) {
             LOG(WARNING) << "validate index file error. [file='" << index_path << "']";
             _check_io_error(res);
             return res;
+        }
+
+        if (!boost::filesystem::exists(data_path)) {
+            LOG(WARNING) << "tmp data_path not exist:" << data_path
+                         << ", tablet_id:" << _table->tablet_id()
+                         << ", schema_hash:" << _table->schema_hash();
         }
 
         // 检查data文件头

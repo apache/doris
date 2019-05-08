@@ -560,7 +560,6 @@ OLAPStatus OlapStore::_load_table_from_header(OLAPEngine* engine, TTabletId tabl
     res = olap_table->load();
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "load tablet failed: tablet:" << olap_table->full_name() << ", res:" << res;
-        olap_table->mark_dropped();
         return OLAP_ERR_TABLE_INDEX_VALIDATE_ERROR;
     }
 
