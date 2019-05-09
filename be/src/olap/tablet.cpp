@@ -431,10 +431,10 @@ void Tablet::delete_expired_inc_rowsets() {
 
 OLAPStatus Tablet::capture_consistent_versions(
                         const Version& spec_version, vector<Version>* version_path) const {
-    OLAPStatus status = _rs_graph.capture_consistent_versions(spec_version, &version_path);
+    OLAPStatus status = _rs_graph.capture_consistent_versions(spec_version, version_path);
     if (status != OLAP_SUCCESS) {
-        calc_missed_versions_unlock(spec_version.second, &missed_versions);
         std::vector<Version> missed_versions;
+        calc_missed_versions_unlock(spec_version.second, &missed_versions);
         if (missed_version.empty()) {
             LOG(WARNING) << "tablet:" << full_name()
                          << ", version already has been merged. "
