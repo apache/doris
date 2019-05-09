@@ -179,25 +179,21 @@ OLAPStatus RowsetGraph::capture_consistent_versions(
     // -1 is invalid vertex index.
     int64_t start_vertex_index = -1;
     // -1 is valid vertex index.
-    int64_t end_vertex_index = 9223372036854775807LL;
+    int64_t end_vertex_index = -1;
 
     for (size_t i = 0; i < _version_graph.size(); ++i) {
-        if (_version_graph[i].value <= start_vertex_value
-            && start_vertex_index <= _version_graph[i].value) {
-            start_vertex_index = _version_graph[i].value;
+        if (_version_graph[i].value == start_vertex_value) {
+            start_vertex_index = i;
         }
-        if (_version_graph[i].value >= end_vertex_value
-            && end_vertex_index >= _version_graph[i].value) {
-            end_vertex_index = _version_graph[i].value;
+        if (_version_graph[i].value == end_vertex_value) {
+            end_vertex_index = i;
         }
     }
 
-    if ((start_vertex_value != start_vertex_index) || (end_vertex_value != end_vertex_index)) {
-        LOG(WARNING) << "version already has been merged. "
-                     << "spec_version: " << spec_version.first << "-" << spec_version.second
-                     << ", left_boundary: " <<  start_vertex_index
-                     << ", right_boundary: " << end_vertex_index;
-        return OLAP_ERR_VERSION_ALREADY_MERGED;
+    if (start_vertex_index < 0 || end_vertex_index < 0) {
+        LOG(WARNING) << "fail to find path in version_graph. "
+                     << "spec_version: " << spec_version.first << "-" << spec_version.second;
+        return OLAP_ERR_VERSION_NOT_EXIST;
     }
 
     for (size_t i = 0; i < _version_graph.size(); ++i) {
