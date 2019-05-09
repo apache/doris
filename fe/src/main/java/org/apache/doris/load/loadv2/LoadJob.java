@@ -30,6 +30,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.TimeUtils;
@@ -221,7 +222,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         // register txn state listener
         Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback(this);
         transactionId = Catalog.getCurrentGlobalTransactionMgr()
-                .beginTransaction(dbId, label, -1, "FE: " + FrontendOptions.getLocalHostAddress(),
+                .beginTransaction(dbId, String.valueOf(id), -1, "FE: " + FrontendOptions.getLocalHostAddress(),
                                   TransactionState.LoadJobSourceType.FRONTEND, id,
                                   timeoutSecond - 1);
     }
