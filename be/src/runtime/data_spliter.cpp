@@ -171,7 +171,6 @@ Status DataSpliter::process_partition(
             error_log << "there is no corresponding partition for this key: ";
             ctx->print_value(row, &error_log);
             state->update_num_rows_load_filtered(1);
-            state->update_num_rows_load_success(-1);
             return Status(error_log.str(), true);
         }
         *info = _partition_infos[*part_index];

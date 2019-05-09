@@ -213,7 +213,7 @@ public class LoadManager {
             Map<String, List<LoadJob>> labelToLoadJobs = dbIdToLabelToLoadJobs.get(dbId);
             if (labelToLoadJobs.containsKey(label)) {
                 List<LoadJob> labelLoadJobs = labelToLoadJobs.get(label);
-                if (labelLoadJobs.stream().filter(entity -> !entity.isFinished()).count() != 0) {
+                if (labelLoadJobs.stream().filter(entity -> entity.getState() != JobState.CANCELLED).count() != 0) {
                     LOG.warn("Failed to add load job when label {} has been used.", label);
                     throw new LabelAlreadyUsedException(label);
                 }

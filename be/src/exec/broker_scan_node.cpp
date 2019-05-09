@@ -407,7 +407,6 @@ void BrokerScanNode::scanner_worker(int start_idx, int length) {
     }
 
     // Update stats
-    // _runtime_state->update_num_rows_load_success(counter.num_rows_returned);
     _runtime_state->update_num_rows_load_total(counter.num_rows_total);
     _runtime_state->update_num_rows_load_filtered(counter.num_rows_filtered);
     _runtime_state->update_num_rows_load_unselected(counter.num_rows_unselected);

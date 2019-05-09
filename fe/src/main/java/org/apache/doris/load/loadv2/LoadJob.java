@@ -30,7 +30,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.TimeUtils;
@@ -161,7 +160,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         return finishTimestamp;
     }
 
-    protected boolean isFinished() {
+    public boolean isFinished() {
         return state == JobState.FINISHED || state == JobState.CANCELLED;
     }
 
@@ -222,7 +221,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         // register txn state listener
         Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback(this);
         transactionId = Catalog.getCurrentGlobalTransactionMgr()
-                .beginTransaction(dbId, String.valueOf(id), -1, "FE: " + FrontendOptions.getLocalHostAddress(),
+                .beginTransaction(dbId, label, -1, "FE: " + FrontendOptions.getLocalHostAddress(),
                                   TransactionState.LoadJobSourceType.FRONTEND, id,
                                   timeoutSecond - 1);
     }
@@ -318,13 +317,9 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
 
     protected void executeCancel(FailMsg failMsg) {
         LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
+                         .add("transaction_id", transactionId)
                          .add("error_msg", "Failed to execute load with error " + failMsg.getMsg())
                          .build());
-
-        // reset txn id
-        if (transactionId != -1) {
-            transactionId = -1;
-        }
 
         // clean the loadingStatus
         loadingStatus.setState(TEtlState.CANCELLED);
@@ -336,17 +331,32 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         // set failMsg and state
         this.failMsg = failMsg;
         finishTimestamp = System.currentTimeMillis();
-        state = JobState.CANCELLED;
 
         // remove callback
         Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().removeCallback(id);
+        // abort txn
+        try {
+            LOG.debug(new LogBuilder(LogKey.LOAD_JOB, id)
+                              .add("transaction_id", transactionId)
+                              .add("msg", "begin to abort txn")
+                              .build());
+            Catalog.getCurrentGlobalTransactionMgr().abortTransaction(transactionId, failMsg.getMsg());
+        } catch (UserException e) {
+            LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
+                             .add("transaction_id", transactionId)
+                             .add("error_msg", "failed to abort txn when job is cancelled, txn will be aborted later")
+                             .build());
+        }
+
+        // change state
+        state = JobState.CANCELLED;
     }
 
     private void executeFinish() {
         progress = 100;
         finishTimestamp = System.currentTimeMillis();
-        state = JobState.FINISHED;
         Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().removeCallback(id);
+        state = JobState.FINISHED;
 
         MetricRepo.COUNTER_LOAD_FINISHED.increase(1L);
     }
@@ -438,7 +448,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     public void beforeCommitted(TransactionState txnState) throws TransactionException {
         writeLock();
         try {
-            if (transactionId == -1) {
+            if (isFinished()) {
                 throw new TransactionException("txn could not be committed when job has been cancelled");
             }
             isCommitting = true;
@@ -478,7 +488,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         }
         writeLock();
         try {
-            if (transactionId == -1) {
+            if (isFinished()) {
                 return;
             }
             // cancel load job
