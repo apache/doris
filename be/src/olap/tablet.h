@@ -126,7 +126,7 @@ public:
                                       const VersionHash& version_hash);
     void delete_expired_inc_rowsets();
 
-    OLAPStatus capture_consistent_versions(const Version& version, vector<Version>* span_versions) const;
+    OLAPStatus capture_consistent_versions(const Version& spec_version, vector<Version>* version_path) const;
     OLAPStatus check_version_integrity(const Version& version);
     bool check_version_exist(const Version& version) const;
     void list_versions(std::vector<Version>* versions) const;

@@ -430,11 +430,24 @@ void Tablet::delete_expired_inc_rowsets() {
 }
 
 OLAPStatus Tablet::capture_consistent_versions(
-                        const Version& version, vector<Version>* span_versions) const {
-    OLAPStatus status = _rs_graph.capture_consistent_versions(version, span_versions);
+                        const Version& spec_version, vector<Version>* version_path) const {
+    OLAPStatus status = _rs_graph.capture_consistent_versions(spec_version, version_path);
     if (status != OLAP_SUCCESS) {
-        LOG(WARNING) << "fail to generate shortest version path. tablet=" << full_name()
-                     << ", version='" << version.first << "-" << version.second;
+        std::vector<Version> missed_versions;
+        calc_missed_versions_unlock(spec_version.second, &missed_versions);
+        if (missed_version.empty()) {
+            LOG(WARNING) << "tablet:" << full_name()
+                         << ", version already has been merged. "
+                         << "spec_version: " << spec_version.first
+                         << "-" << spec_version.second;
+            status = OLAP_ERR_VERSION_ALREADY_MERGED;
+        } else {
+            LOG(WARNING) << "status:" << status << ", tablet:" << full_name()
+                         << ", missed version for version:"
+                         << spec_version.first << "-" << spec_version.second;
+            _print_missed_versions(missed_versions);
+        }
+        return status;
     }
     return status;
 }
@@ -442,7 +455,7 @@ OLAPStatus Tablet::capture_consistent_versions(
 OLAPStatus Tablet::check_version_integrity(const Version& version) {
     vector<Version> span_versions;
     ReadLock rdlock(&_meta_lock);
-    return _rs_graph.capture_consistent_versions(version, &span_versions);
+    return capture_consistent_versions(version, &span_versions);
 }
 
 bool Tablet::check_version_exist(const Version& version) const {
@@ -461,7 +474,7 @@ void Tablet::list_versions(vector<Version>* versions) const {
 OLAPStatus Tablet::capture_consistent_rowsets(const Version& spec_version,
                                               vector<RowsetSharedPtr>* rowsets) const {
     vector<Version> version_path;
-    RETURN_NOT_OK(_rs_graph.capture_consistent_versions(spec_version, &version_path));
+    RETURN_NOT_OK(capture_consistent_versions(spec_version, &version_path));
     RETURN_NOT_OK(capture_consistent_rowsets(version_path, rowsets));
     return OLAP_SUCCESS;
 }
@@ -485,16 +498,7 @@ OLAPStatus Tablet::capture_consistent_rowsets(const vector<Version>& version_pat
 OLAPStatus Tablet::capture_rs_readers(const Version& spec_version,
                                       vector<RowsetReaderSharedPtr>* rs_readers) const {
     vector<Version> version_path;
-    OLAPStatus status = _rs_graph.capture_consistent_versions(spec_version, &version_path);
-    if (status != OLAP_SUCCESS) {
-        LOG(WARNING) << "status:" << status << ", tablet:" << full_name()
-                     << ", missed version for version:"
-                     << spec_version.first << "-" << spec_version.second;
-        std::vector<Version> missed_versions;
-        calc_missed_versions_unlock(spec_version.second, &missed_versions);
-        _print_missed_versions(missed_versions);
-        return status;
-    }
+    RETURN_NOT_OK(capture_consistent_versions(spec_version, &version_path));
     RETURN_NOT_OK(capture_rs_readers(version_path, rs_readers));
     return OLAP_SUCCESS;
 }
@@ -613,11 +617,7 @@ bool Tablet::can_do_compaction() {
 
     Version test_version = Version(0, lastest_delta->end_version());
     vector<Version> path_versions;
-    if (OLAP_SUCCESS != _rs_graph.capture_consistent_versions(test_version, &path_versions)) {
-        LOG(WARNING) << "tablet has missed version. tablet=" << full_name();
-        vector<Version> missed_versions;
-        calc_missed_versions_unlock(lastest_delta->end_version(), &missed_versions);
-        _print_missed_versions(missed_versions);
+    if (OLAP_SUCCESS != capture_consistent_versions(test_version, &path_versions)) {
         return false;
     }
 
