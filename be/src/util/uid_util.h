@@ -104,6 +104,10 @@ struct UniqueId {
         return hi == rhs.hi && lo == rhs.lo;
     }
 
+    bool operator!=(const UniqueId& rhs) const {
+        return hi != rhs.hi || lo != rhs.lo;
+    }
+
     TUniqueId to_thrift() const {
         TUniqueId tid;
         tid.__set_hi(hi);
