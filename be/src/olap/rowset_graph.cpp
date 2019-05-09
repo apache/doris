@@ -179,24 +179,30 @@ OLAPStatus RowsetGraph::capture_consistent_versions(
     // -1 is invalid vertex index.
     int64_t start_vertex_index = -1;
     // -1 is valid vertex index.
-    int64_t end_vertex_index = 9223372036854775807LL;
+    int64_t end_vertex_index = -1;
+    // -1 is start boundary .
+    int64_t start_boundary = -1;
+    // -1 is end boudary.
+    int64_t end_boundary = 9223372036854775807LL;
 
     for (size_t i = 0; i < _version_graph.size(); ++i) {
         if (_version_graph[i].value <= start_vertex_value
-            && start_vertex_index <= _version_graph[i].value) {
-            start_vertex_index = _version_graph[i].value;
+            && start_boundary <= _version_graph[i].value) {
+            start_boundary = _version_graph[i].value;
+            start_vertex_index = i;
         }
         if (_version_graph[i].value >= end_vertex_value
-            && end_vertex_index >= _version_graph[i].value) {
-            end_vertex_index = _version_graph[i].value;
+            && end_boundary >= _version_graph[i].value) {
+            end_vertex_index = i;
+            end_boundary = _version_graph[i].value;
         }
     }
 
-    if ((start_vertex_value != start_vertex_index) || (end_vertex_value != end_vertex_index)) {
+    if ((start_vertex_value != start_boundary) || (end_vertex_value != end_boundary)) {
         LOG(WARNING) << "version already has been merged. "
                      << "spec_version: " << spec_version.first << "-" << spec_version.second
-                     << ", left_boundary: " <<  start_vertex_index
-                     << ", right_boundary: " << end_vertex_index;
+                     << ", left_boundary: " << start_boundary 
+                     << ", right_boundary: " << end_boundary;
         return OLAP_ERR_VERSION_ALREADY_MERGED;
     }
 
