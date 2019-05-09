@@ -60,7 +60,7 @@ public class LoadProcDir implements ProcDirInterface {
         result.setNames(TITLE_NAMES);
 
         LinkedList<List<Comparable>> loadJobInfos = load.getLoadJobInfosByDb(db.getId(), db.getFullName(),
-                                                                             null, false, null, null);
+                                                                             null, false, null);
         int counter = 0;
         Iterator<List<Comparable>> iterator = loadJobInfos.descendingIterator();
         while (iterator.hasNext()) {

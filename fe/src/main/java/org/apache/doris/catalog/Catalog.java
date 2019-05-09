@@ -1080,6 +1080,9 @@ public class Catalog {
         LoadChecker.init(Config.load_checker_interval_second * 1000L);
         LoadChecker.startAll();
 
+        // New load scheduler
+        loadJobScheduler.start();
+
         // Export checker
         ExportChecker.init(Config.export_checker_interval_second * 1000L);
         ExportChecker.startAll();
