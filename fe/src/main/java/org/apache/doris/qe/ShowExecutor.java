@@ -648,17 +648,20 @@ public class ShowExecutor {
         }
         long dbId = db.getId();
 
+        // combine the List<LoadInfo> of load(v1) and loadManager(v2)
         Load load = catalog.getLoadInstance();
         List<List<Comparable>> loadInfos = load.getLoadJobInfosByDb(dbId, db.getFullName(),
                                                                     showStmt.getLabelValue(),
                                                                     showStmt.isAccurateMatch(),
                                                                     showStmt.getStates());
-        List<String> statesValue = showStmt.getStates() == null ? null : showStmt.getStates().stream()
+        Set<String> statesValue = showStmt.getStates() == null ? null : showStmt.getStates().stream()
                 .map(entity -> entity.name())
-                .collect(Collectors.toList());
+                .collect(Collectors.toSet());
         loadInfos.addAll(catalog.getLoadManager().getLoadJobInfosByDb(dbId, showStmt.getLabelValue(),
                                                                       showStmt.isAccurateMatch(),
                                                                       statesValue));
+
+        // order the result of List<LoadInfo> by orderByPairs in show stmt
         List<OrderByPair> orderByPairs = showStmt.getOrderByPairs();
         ListComparator<List<Comparable>> comparator = null;
         if (orderByPairs != null) {

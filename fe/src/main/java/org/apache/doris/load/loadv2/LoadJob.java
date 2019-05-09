@@ -52,7 +52,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
-import org.apache.commons.lang.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -89,7 +88,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     protected long transactionId;
     protected FailMsg failMsg;
     protected List<LoadTask> tasks = Lists.newArrayList();
-    protected List<Long> finishedTaskIds = Lists.newArrayList();
+    protected Set<Long> finishedTaskIds = Sets.newHashSet();
     protected EtlStatus loadingStatus = new EtlStatus();
     // 0: the job status is pending
     // n/100: n is the number of task which has been finished
@@ -327,7 +326,6 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         }
 
         // clean the loadingStatus
-        loadingStatus.reset();
         loadingStatus.setState(TEtlState.CANCELLED);
 
         // tasks will not be removed from task pool.

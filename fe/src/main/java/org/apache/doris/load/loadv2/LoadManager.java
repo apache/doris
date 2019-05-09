@@ -32,6 +32,7 @@ import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -129,14 +130,24 @@ public class LoadManager {
         idToLoadJob.values().stream().forEach(entity -> entity.processTimeout());
     }
 
+    /**
+     * This method will return the jobs info which can meet the condition of input param.
+     * @param dbId used to filter jobs which belong to this db
+     * @param labelValue used to filter jobs which's label is or like labelValue.
+     * @param accurateMatch true: filter jobs which's label is labelValue. false: filter jobs which's label like itself.
+     * @param statesValue used to filter jobs which's state within the statesValue set.
+     * @return The result is the list of jobInfo.
+     *     JobInfo is a List<Comparable> which includes the comparable object: jobId, label, state etc.
+     *     The result is unordered.
+     */
     public List<List<Comparable>> getLoadJobInfosByDb(long dbId, String labelValue,
-                                                      boolean accurateMatch, List<String> statesValue) {
+                                                      boolean accurateMatch, Set<String> statesValue) {
         LinkedList<List<Comparable>> loadJobInfos = new LinkedList<List<Comparable>>();
         if (!dbIdToLabelToLoadJobs.containsKey(dbId)) {
             return loadJobInfos;
         }
 
-        List<JobState> states = Lists.newArrayList();
+        Set<JobState> states = Sets.newHashSet();
         if (statesValue == null || statesValue.size() == 0) {
             states.addAll(EnumSet.allOf(JobState.class));
         } else {
@@ -161,7 +172,7 @@ public class LoadManager {
                                             .map(entity -> entity.getShowInfo()).collect(Collectors.toList()));
                 return loadJobInfos;
             }
-
+            List<LoadJob> loadJobList = Lists.newArrayList();
             for (Map.Entry<String, List<LoadJob>> entry : labelToLoadJobs.entrySet()) {
                 if (entry.getKey().contains(labelValue)) {
                     loadJobInfos.addAll(entry.getValue().stream()
