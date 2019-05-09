@@ -73,7 +73,7 @@ rm ${DORIS_HOME}/fe/build/ -rf
 rm ${DORIS_HOME}/fe/output/ -rf
 
 echo "******************************"
-echo "    Runing PaloBe Unittest    "
+echo "    Runing DorisFe Unittest    "
 echo "******************************"
 
 cd ${DORIS_HOME}/fe/
