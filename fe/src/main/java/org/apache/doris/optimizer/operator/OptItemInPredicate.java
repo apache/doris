@@ -20,6 +20,13 @@ package org.apache.doris.optimizer.operator;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.optimizer.OptUtils;
 
+// this predicate may have many children,
+// OptItemInPredicate
+// |--- child0
+// |--- child1
+// |--- child2
+// ...
+// which indicates 'child0 in (child1, child1, ...)'
 public class OptItemInPredicate extends OptItem {
     boolean isNotIn;
 
@@ -27,6 +34,7 @@ public class OptItemInPredicate extends OptItem {
         super(OptOperatorType.OP_ITEM_IN_PREDICATE);
         this.isNotIn = isNotIn;
     }
+    public boolean isNotIn() { return isNotIn; }
 
     @Override
     public Type getReturnType() {

@@ -21,7 +21,7 @@ package org.apache.doris.analysis;
 /**
  * captures info of a single WHEN expr THEN expr clause.
  */
-class CaseWhenClause {
+public class CaseWhenClause {
     private final Expr whenExpr;
     private final Expr thenExpr;
 

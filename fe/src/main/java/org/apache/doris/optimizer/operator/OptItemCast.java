@@ -20,6 +20,9 @@ package org.apache.doris.optimizer.operator;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.optimizer.OptUtils;
 
+// indicates cast expression, such as 'cast(c1 as int)'
+// OptItemCast
+// |--- child
 public class OptItemCast extends OptItem {
     private Type destType;
 
@@ -27,6 +30,8 @@ public class OptItemCast extends OptItem {
         super(OptOperatorType.OP_ITEM_CAST);
         this.destType = destType;
     }
+
+    public Type getDestType() { return destType; }
 
     @Override
     public Type getReturnType() {

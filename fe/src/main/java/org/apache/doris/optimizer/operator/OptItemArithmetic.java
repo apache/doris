@@ -21,6 +21,13 @@ import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.optimizer.OptUtils;
 
+// In common case, the OptItemArithmetic has two children. Such as 'add', 'minus'
+// OptItemArithmetic
+// |--- OptItem(left child)
+// |--- OptItem(right child)
+// But for some cases, this has only one child, such as 'bitnot'
+// OptItemArithmetic
+// |--- OptItem(left child)
 public class OptItemArithmetic extends OptItem {
     private ArithmeticExpr.Operator op;
 
@@ -28,6 +35,8 @@ public class OptItemArithmetic extends OptItem {
         super(OptOperatorType.OP_ITEM_ARITHMETIC);
         this.op = op;
     }
+
+    public ArithmeticExpr.Operator getOp() { return op; }
 
     @Override
     public Type getReturnType() {

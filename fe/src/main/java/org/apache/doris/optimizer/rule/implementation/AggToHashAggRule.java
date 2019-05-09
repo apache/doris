@@ -17,16 +17,7 @@
 
 package org.apache.doris.optimizer.rule.implementation;
 
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
-import org.apache.doris.analysis.AggregateInfo;
-import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.optimizer.OptExpression;
-import org.apache.doris.optimizer.StmtToExpressionConvertor;
-import org.apache.doris.optimizer.base.ItemUtils;
-import org.apache.doris.optimizer.base.OptColumnRefSet;
-import org.apache.doris.optimizer.base.OptPhysicalProperty;
 import org.apache.doris.optimizer.operator.*;
 import org.apache.doris.optimizer.rule.OptRuleType;
 
@@ -69,7 +60,7 @@ public class AggToHashAggRule extends ImplemetationRule {
 //            final AggregateInfo mergeInfo = operator.getAggInfo().getMergeAggInfo();
 //            final List<OptExpression> mergeInputs = Lists.newArrayList();
 //            mergeInputs.add(aggregateExpr);
-//            final StmtToExpressionConvertor convertor = new StmtToExpressionConvertor();
+//            final StmtToExpressionConverter convertor = new StmtToExpressionConverter();
 //            for (FunctionCallExpr func : mergeInfo.getAggregateExprs()) {
 //                mergeInputs.add(convertor.convertExpr(func));
 //            }

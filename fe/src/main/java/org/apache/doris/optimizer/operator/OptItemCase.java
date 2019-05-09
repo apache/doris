@@ -20,6 +20,14 @@ package org.apache.doris.optimizer.operator;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.optimizer.OptUtils;
 
+// Indicates case expression 'CASE case_expr WHEN when_expr THEN then_expr ... ELSE else_expr'
+// or 'CASE WHEN when_expr THEN then_expr ... ELSE else_expr'
+// OptItemCase
+// |--- case_expr
+// |--- when_expr
+// |--- then_expr
+// ...
+// |--- else_expr
 public class OptItemCase extends OptItem {
     private boolean hasCase;
     private boolean hasElse;
@@ -31,6 +39,9 @@ public class OptItemCase extends OptItem {
         this.hasElse = hasElse;
         this.type = type;
     }
+
+    public boolean hasCase() { return hasCase; }
+    public boolean hasElse() { return hasElse; }
 
     @Override
     public Type getReturnType() {
