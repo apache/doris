@@ -181,12 +181,15 @@ public class RoutineLoadTaskScheduler extends Daemon {
 
     private void submitBatchTasksIfNotEmpty(Map<Long, List<TRoutineLoadTask>> beIdToRoutineLoadTask) {
         for (Map.Entry<Long, List<TRoutineLoadTask>> entry : beIdToRoutineLoadTask.entrySet()) {
+            Backend backend = Catalog.getCurrentSystemInfo().getBackend(entry.getKey());
+            if (backend == null) {
+                LOG.warn("failed to send tasks to be {} when backend is unavailable", entry.getKey());
+                continue;
+            }
+            TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBePort());
             boolean ok = false;
             BackendService.Client client = null;
-            TNetworkAddress address = null;
             try {
-                Backend backend = Catalog.getCurrentSystemInfo().getBackend(entry.getKey());
-                address = new TNetworkAddress(backend.getHost(), backend.getBePort());
                 client = ClientPool.backendPool.borrowObject(address);
                 client.submit_routine_load_task(entry.getValue());
                 if (LOG.isDebugEnabled()) {
