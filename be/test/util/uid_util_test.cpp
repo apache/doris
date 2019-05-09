@@ -72,6 +72,22 @@ TEST_F(UidUtilTest, UniqueId) {
         UniqueId id2("002bdc546291f4b1", "015ee2a321ce7d15");
         ASSERT_TRUE(id == id2);
     }
+
+    {
+        TUniqueId tuid;
+        tuid.__set_hi(12345678987654321);
+        tuid.__set_lo(98765432123456789);
+        UniqueId id(tuid);
+        std::stringstream ss;
+        ss << id;
+        ASSERT_STREQ("002bdc546291f4b1:015ee2a321ce7d15", ss.str().c_str());
+        UniqueId id2("002bdc546291f4b1", "015ee2a321ce7d15");
+        ASSERT_TRUE(id == id2);
+        ASSERT_FALSE(id != id2);
+        UniqueId id3("002bdc546291f4b1", "015ee2a321ce7d16");
+        ASSERT_TRUE(id != id3);
+        ASSERT_FALSE(id == id3);
+    }
 }
 
 TEST_F(UidUtilTest, Hash) {

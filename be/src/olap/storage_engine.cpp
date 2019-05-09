@@ -568,7 +568,8 @@ void StorageEngine::perform_base_compaction() {
     OLAPStatus res = base_compaction.init(best_tablet);
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "failed to init base compaction."
-                     << "tablet=" << best_tablet->full_name();
+                    << " tablet=" << best_tablet->full_name()
+                    << " res=" << res;
         return;
     }
 
