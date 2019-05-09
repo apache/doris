@@ -383,6 +383,10 @@ public class SelectStmt extends QueryStmt {
 
         resolveInlineViewRefs(analyzer);
 
+        if (analyzer.hasEmptySpjResultSet() && aggInfo == null) {
+            analyzer.setHasEmptyResultSet();
+        }
+
         if (aggInfo != null) {
             if (LOG.isDebugEnabled()) LOG.debug("post-analysis " + aggInfo.debugString());
         }

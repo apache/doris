@@ -248,4 +248,33 @@ public class CastExpr extends Expr {
         return false;
     }
 
+    @Override
+    public Expr getResultValue() throws AnalysisException {
+        final Expr value = children.get(0).getResultValue();
+        if (!(value instanceof LiteralExpr)) {
+            return this;
+        }
+
+        final Expr targetExpr = castTo((LiteralExpr)value);
+        return targetExpr;
+    }
+
+    private Expr castTo(LiteralExpr value) throws AnalysisException {
+        if (type.isIntegerType()) {
+            return new IntLiteral(value.getLongValue());
+        } else if (type.isLargeIntType()) {
+            return new LargeIntLiteral(value.getStringValue());
+        } else if (type.isDecimal()) {
+            return new DecimalLiteral(value.getStringValue());
+        } else if (type.isFloatingPointType()) {
+            return new FloatLiteral(value.getDoubleValue());
+        } else if (type.isStringType()) {
+            return new StringLiteral(value.getStringValue());
+        } else if (type.isDateType()) {
+            return new DateLiteral(value.getStringValue(), Type.DATETIME);
+        } else if (type.isBoolean()) {
+            return new BoolLiteral(value.getStringValue());
+        }
+        return this;
+    }
 }

@@ -186,4 +186,37 @@ public class CompoundPredicate extends Predicate {
         }
         return conjunctivePred;
     }
+
+   @Override
+    public Expr getResultValue() throws AnalysisException {
+        boolean compoundResult = false;
+        if (op == Operator.NOT) {
+            final Expr childValue = getChild(0).getResultValue();
+            if(!(childValue instanceof BoolLiteral)) {
+                return this;
+            }
+            final BoolLiteral boolChild = (BoolLiteral)childValue;
+            compoundResult = !boolChild.getValue();
+        } else {
+            final Expr leftChildValue = getChild(0).getResultValue();
+            final Expr rightChildValue = getChild(1).getResultValue();
+            if(!(leftChildValue instanceof BoolLiteral)
+                    || !(rightChildValue instanceof BoolLiteral)) {
+                return this;
+            }
+            final BoolLiteral leftBoolValue = (BoolLiteral)leftChildValue;
+            final BoolLiteral rightBoolValue = (BoolLiteral)rightChildValue;
+            switch (op) {
+                case AND:
+                    compoundResult = leftBoolValue.getValue() && rightBoolValue.getValue();
+                    break;
+                case OR:
+                    compoundResult = leftBoolValue.getValue() || rightBoolValue.getValue();
+                    break;
+                default:
+                    Preconditions.checkState(false, "No defined binary operator.");
+            }
+        }
+        return new BoolLiteral(compoundResult);
+    }
 }
