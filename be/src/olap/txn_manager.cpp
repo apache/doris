@@ -159,7 +159,8 @@ OLAPStatus TxnManager::commit_txn(
                     LOG(INFO) << "find transaction exists when add to engine."
                               << "partition_id: " << key.first
                               << ", transaction_id: " << key.second
-                              << ", tablet: " << tablet_info.to_string();
+                              << ", tablet: " << tablet_info.to_string()
+                              << ", rowset_id: " << load_info.rowset->rowset_id();
                     return OLAP_SUCCESS;
                 } else if (load_info.load_id.hi() == load_id.hi()
                     && load_info.load_id.lo() == load_id.lo()
@@ -169,7 +170,9 @@ OLAPStatus TxnManager::commit_txn(
                     LOG(WARNING) << "find transaction exists when add to engine."
                                  << "partition_id: " << key.first
                                  << ", transaction_id: " << key.second
-                                 << ", tablet: " << tablet_info.to_string();
+                                 << ", tablet: " << tablet_info.to_string()
+                                 << ", exist rowset_id: " << load_info.rowset->rowset_id()
+                                 << ", new rowset_id: " << rowset_ptr->rowset_id();
                     return OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST;
                 }
             }
