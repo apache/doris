@@ -1399,7 +1399,7 @@ public class Load {
     }
 
     public LinkedList<List<Comparable>> getLoadJobInfosByDb(long dbId, String dbName, String labelValue,
-                                                            boolean accurateMatch, Set<JobState> states, ArrayList<OrderByPair> orderByPairs) {
+                                                            boolean accurateMatch, Set<JobState> states) {
         LinkedList<List<Comparable>> loadJobInfos = new LinkedList<List<Comparable>>();
         readLock();
         try {
@@ -1549,15 +1549,6 @@ public class Load {
             readUnlock();
         }
 
-        ListComparator<List<Comparable>> comparator = null;
-        if (orderByPairs != null) {
-            OrderByPair[] orderByPairArr = new OrderByPair[orderByPairs.size()];
-            comparator = new ListComparator<List<Comparable>>(orderByPairs.toArray(orderByPairArr));
-        } else {
-            // sort by id asc
-            comparator = new ListComparator<List<Comparable>>(0);
-        }
-        Collections.sort(loadJobInfos, comparator);
         return loadJobInfos;
     }
 

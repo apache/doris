@@ -25,14 +25,15 @@ import org.apache.doris.transaction.TabletCommitInfo;
 import java.util.List;
 import java.util.Map;
 
-public class BrokerLoadingTaskAttachment implements TaskAttachment{
+public class BrokerLoadingTaskAttachment extends TaskAttachment {
 
     private Map<String, String> counters;
     private String trackingUrl;
     private List<TabletCommitInfo> commitInfoList;
 
-    public BrokerLoadingTaskAttachment(Map<String, String> counters, String trackingUrl,
+    public BrokerLoadingTaskAttachment(long taskId, Map<String, String> counters, String trackingUrl,
                                        List<TabletCommitInfo> commitInfoList) {
+        super(taskId);
         this.trackingUrl = trackingUrl;
         this.counters = counters;
         this.commitInfoList = commitInfoList;

@@ -50,7 +50,6 @@ import org.apache.doris.transaction.AbstractTxnStateChangeCallback;
 import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
-import org.apache.doris.transaction.TxnStateChangeCallback;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;

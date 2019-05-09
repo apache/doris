@@ -44,6 +44,7 @@ import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Joiner;
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 
 import org.apache.logging.log4j.LogManager;
@@ -104,7 +105,9 @@ public class LoadingTaskPlanner {
                                                      fileStatusesList, filesAdded);
         scanNode.setLoadInfo(table, brokerDesc, fileGroups);
         scanNode.init(analyzer);
+        scanNode.finalize(analyzer);
         scanNodes.add(scanNode);
+        descTable.computeMemLayout();
 
         // 2. Olap table sink
         String partitionNames = convertBrokerDescPartitionInfo();
@@ -147,8 +150,14 @@ public class LoadingTaskPlanner {
     private String convertBrokerDescPartitionInfo() {
         String result = "";
         for (BrokerFileGroup brokerFileGroup : fileGroups) {
+            if (brokerFileGroup.getPartitionNames() == null) {
+                continue;
+            }
             result += Joiner.on(",").join(brokerFileGroup.getPartitionNames());
             result += ",";
+        }
+        if (Strings.isNullOrEmpty(result)) {
+            return null;
         }
         result = result.substring(0, result.length() - 2);
         return result;

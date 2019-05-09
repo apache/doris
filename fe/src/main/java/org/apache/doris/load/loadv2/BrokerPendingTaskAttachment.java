@@ -27,12 +27,16 @@ import com.google.common.collect.Maps;
 import java.util.List;
 import java.util.Map;
 
-public class BrokerPendingTaskAttachment implements TaskAttachment {
+public class BrokerPendingTaskAttachment extends TaskAttachment {
 
     // table id -> file status
     private Map<Long, List<List<TBrokerFileStatus>>> fileStatusMap = Maps.newHashMap();
     // table id -> total file num
     private Map<Long, Integer> fileNumMap = Maps.newHashMap();
+
+    public BrokerPendingTaskAttachment(long taskId) {
+        super(taskId);
+    }
 
     public void addFileStatus(long tableId, List<List<TBrokerFileStatus>> fileStatusList) {
         fileStatusMap.put(tableId, fileStatusList);
