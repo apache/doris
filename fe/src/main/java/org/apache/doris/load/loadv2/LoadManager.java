@@ -26,15 +26,24 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LabelAlreadyUsedException;
+import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.task.MasterTaskExecutor;
 import org.apache.doris.transaction.TransactionState;
 
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.Iterator;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
@@ -43,6 +52,9 @@ import java.util.stream.Collectors;
  * The broker and mini load jobs(v2) are included in this class.
  */
 public class LoadManager {
+    private static final Logger LOG = LogManager.getLogger(LoadManager.class);
+    public static final String VERSION = "v2";
+
     private Map<Long, LoadJob> idToLoadJob = Maps.newConcurrentMap();
     private Map<Long, Map<String, List<LoadJob>>> dbIdToLabelToLoadJobs = Maps.newConcurrentMap();
     private LoadJobScheduler loadJobScheduler;
@@ -118,10 +130,67 @@ public class LoadManager {
         idToLoadJob.values().stream().forEach(entity -> entity.processTimeout());
     }
 
+    /**
+     * This method will return the jobs info which can meet the condition of input param.
+     * @param dbId used to filter jobs which belong to this db
+     * @param labelValue used to filter jobs which's label is or like labelValue.
+     * @param accurateMatch true: filter jobs which's label is labelValue. false: filter jobs which's label like itself.
+     * @param statesValue used to filter jobs which's state within the statesValue set.
+     * @return The result is the list of jobInfo.
+     *     JobInfo is a List<Comparable> which includes the comparable object: jobId, label, state etc.
+     *     The result is unordered.
+     */
+    public List<List<Comparable>> getLoadJobInfosByDb(long dbId, String labelValue,
+                                                      boolean accurateMatch, Set<String> statesValue) {
+        LinkedList<List<Comparable>> loadJobInfos = new LinkedList<List<Comparable>>();
+        if (!dbIdToLabelToLoadJobs.containsKey(dbId)) {
+            return loadJobInfos;
+        }
+
+        Set<JobState> states = Sets.newHashSet();
+        if (statesValue == null || statesValue.size() == 0) {
+            states.addAll(EnumSet.allOf(JobState.class));
+        } else {
+            for (String stateValue : statesValue) {
+                try {
+                    states.add(JobState.valueOf(stateValue));
+                } catch (IllegalArgumentException e) {
+                    // ignore this state
+                }
+            }
+        }
+
+        readLock();
+        try {
+            Map<String, List<LoadJob>> labelToLoadJobs = dbIdToLabelToLoadJobs.get(dbId);
+            if (accurateMatch) {
+                if (!labelToLoadJobs.containsKey(labelValue)) {
+                    return loadJobInfos;
+                }
+                loadJobInfos.addAll(labelToLoadJobs.get(labelValue).stream()
+                                            .filter(entity -> states.contains(entity.getState()))
+                                            .map(entity -> entity.getShowInfo()).collect(Collectors.toList()));
+                return loadJobInfos;
+            }
+            List<LoadJob> loadJobList = Lists.newArrayList();
+            for (Map.Entry<String, List<LoadJob>> entry : labelToLoadJobs.entrySet()) {
+                if (entry.getKey().contains(labelValue)) {
+                    loadJobInfos.addAll(entry.getValue().stream()
+                                                .filter(entity -> states.contains(entity.getState()))
+                                                .map(entity -> entity.getShowInfo()).collect(Collectors.toList()));
+                }
+            }
+            return loadJobInfos;
+        } finally {
+            readUnlock();
+        }
+    }
+
     private Database checkDb(String dbName) throws DdlException {
         // get db
         Database db = Catalog.getInstance().getDb(dbName);
         if (db == null) {
+            LOG.warn("Database {} does not exist", dbName);
             throw new DdlException("Database[" + dbName + "] does not exist");
         }
         return db;
@@ -145,6 +214,7 @@ public class LoadManager {
             if (labelToLoadJobs.containsKey(label)) {
                 List<LoadJob> labelLoadJobs = labelToLoadJobs.get(label);
                 if (labelLoadJobs.stream().filter(entity -> !entity.isFinished()).count() != 0) {
+                    LOG.warn("Failed to add load job when label {} has been used.", label);
                     throw new LabelAlreadyUsedException(label);
                 }
             }
