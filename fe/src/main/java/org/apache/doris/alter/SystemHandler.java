@@ -39,6 +39,7 @@ import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
@@ -279,7 +280,13 @@ public class SystemHandler extends AlterHandler {
             }
 
             // check if meet replication number requirement
-            List<String> dbNames = Catalog.getInstance().getDbNames();
+            List<String> dbNames;
+            try {
+                dbNames = Catalog.getInstance().getClusterDbNames(clusterName);
+            } catch (AnalysisException e) {
+                throw new DdlException(e.getMessage());
+            }
+
             for (String dbName : dbNames) {
                 Database db = Catalog.getInstance().getDb(dbName);
                 if (db == null) {
