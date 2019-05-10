@@ -31,7 +31,7 @@
         6) Load error hub:
             当前支持两种类型的 Hub：Mysql 和 Broker。需在 PROPERTIES 中指定 "type" = "mysql" 或 "type" = "broker"。
             如果需要删除当前的 load error hub，可以将 type 设为 null。
-            1) 当使用 Mysql 类型时，导入时产生的错误信息将会插入到指定的 mysql 库表中，之后可以通过 show load warnings; 语句直接查看错误信息。
+            1) 当使用 Mysql 类型时，导入时产生的错误信息将会插入到指定的 mysql 库表中，之后可以通过 show load warnings 语句直接查看错误信息。
                
                 Mysql 类型的 Hub 需指定以下参数：
                     host：mysql host
