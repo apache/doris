@@ -18,6 +18,8 @@
 package org.apache.doris.clone;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Database;
@@ -43,9 +45,13 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 /**
  * when backend remove, down, and add, balance colocate tablets
@@ -70,13 +76,18 @@ public class ColocateTableBalancer extends Daemon {
 
     @Override
     /**
-     * firstly, try marking balancing group to stable if the balance has finished
-     * secondly, try deleting redundant replicas for colocate group balance finished just now
-     *          we delay to delete redundant replicas until all clone job is done.
-     * thirdly, try balancing colocate group if we found backend removed, down or added.
+     * The colocate table balance flow:
+     *
+     * 1 balance start when found backend removed, down or added
+     * 2 compute which bucket seq need to migrate, the migrate source backend, the migrate target backend
+     * 3 mark colocate group balancing in colocate meta
+     * 4 update colcate backendsPerBucketSeq meta
+     * 5 do real data migration by clone job
+     * 6 delete redundant replicas after all clone job done
+     * 7 mark colocate group  stable in colocate meta and balance done
      */
     protected void runOneCycle() {
-        tryMarkBalancingGroupStable();
+        checkAndCloneBalancingGroup();
 
         tryDeleteRedundantReplicas();
 
@@ -86,8 +97,9 @@ public class ColocateTableBalancer extends Daemon {
     /**
      * check all balancing colocate group tables
      * if all tables in a colocate group are stable, mark the colocate group stable
+     * else add a clone job for balancing colocate group tables
      */
-    private synchronized void tryMarkBalancingGroupStable() {
+    private synchronized void checkAndCloneBalancingGroup() {
         ColocateTableIndex colocateIndex = Catalog.getCurrentColocateIndex();
         Catalog catalog = Catalog.getInstance();
 
@@ -109,7 +121,7 @@ public class ColocateTableBalancer extends Daemon {
             List<Long> allTableIds = colocateIndex.getAllTableIds(groupId);
             for (long tableId : allTableIds) {
                 OlapTable olapTable = (OlapTable) db.getTable(tableId);
-                if (checkTableBalancing(db, olapTable, colocateIndex.getBackendsPerBucketSeq(groupId))) {
+                if (checkAndCloneTable(db, olapTable, colocateIndex.getBackendsPerBucketSeq(groupId))) {
                     isBalancing = true;
                     break;
                 }
@@ -130,11 +142,10 @@ public class ColocateTableBalancer extends Daemon {
      *      a: all replica state is not clone
      *      b: the tablet backendIds are consistent with ColocateTableIndex's backendsPerBucketSeq
      *
-     * 2 if colocate table is balancing , we will try adding a clone job
-     *      handle the FE restart when colocate groups balancing case:
-     *      After FE restart, the clone job meta will lose
+     * 2 if colocate table is balancing , we will try adding a clone job.
+     *   clone.addCloneJob has duplicated check, so we could try many times
      */
-    private boolean checkTableBalancing(Database db, OlapTable olapTable, List<List<Long>> backendsPerBucketSeq) {
+    private boolean checkAndCloneTable(Database db, OlapTable olapTable, List<List<Long>> backendsPerBucketSeq) {
         boolean isBalancing = false;
         out: for (Partition partition : olapTable.getPartitions()) {
             short replicateNum = olapTable.getPartitionInfo().getReplicationNum(partition.getId());
@@ -305,9 +316,7 @@ public class ColocateTableBalancer extends Daemon {
                     LOG.info("colocate group {} will delete tablet {}", groupId, deleteTabletSet);
                     //delete tablet will affect colocate table local query schedule,
                     //so make colocate group balancing again
-                    colocateIndex.markGroupBalancing(groupId);
-                    ColocatePersistInfo info = ColocatePersistInfo.CreateForMarkBalancing(groupId);
-                    Catalog.getInstance().getEditLog().logColocateMarkBalancing(info);
+                    markGroupBalancing(groupId);
                     for (CloneTabletInfo tabletInfo : deleteTabletSet) {
                         deleteRedundantReplicas(db, tabletInfo);
                     }
@@ -382,11 +391,9 @@ public class ColocateTableBalancer extends Daemon {
     }
 
     /**
-     * 1 compute need delete BucketSeqs in the removedBackend
-     * 2 select clone replica BackendId for the new Replica
-     * 3 mark colocate group balancing
-     * 4 add a Supplement Job
-     * 5 update the TableColocateIndex backendsPerBucketSeq metadata
+     * 1 compute which bucket seq need to migrate, the migrate target backend
+     * 2 mark colocate group balancing in colocate meta
+     * 3 update colcate backendsPerBucketSeq meta
      */
     private void balanceForBackendRemoved(Database db, Long groupId, Long removedBackendId) {
         ColocateTableIndex colocateIndex = Catalog.getCurrentColocateIndex();
@@ -431,11 +438,7 @@ public class ColocateTableBalancer extends Daemon {
                             long cloneReplicaBackendId = selectCloneBackendIdForRemove(newGroup2BackendsPerBucketSeq, groupId, i, db.getClusterName(), tabletInfo);
 
                             if (cloneReplicaBackendId != -1L) {
-                                if (!colocateIndex.isGroupBalancing(groupId)) {
-                                    colocateIndex.markGroupBalancing(groupId);
-                                    ColocatePersistInfo info = ColocatePersistInfo.CreateForMarkBalancing(groupId);
-                                    Catalog.getInstance().getEditLog().logColocateMarkBalancing(info);
-                                }
+                                markGroupBalancing(groupId);
 
                                 //update TableColocateIndex groupBucket2BEs
                                 List<Long> backends = newBackendsPerBucketSeq.get(i);
@@ -444,15 +447,13 @@ public class ColocateTableBalancer extends Daemon {
                                     backends.add(cloneReplicaBackendId);
                                 }
 
-                                AddSupplementJob(tabletInfo, cloneReplicaBackendId);
+                                Preconditions.checkState(replicateNum == backends.size(), replicateNum + " vs. " + backends.size());
                             }
                         }
                     }
                 }
             }
-            colocateIndex.addBackendsPerBucketSeq(groupId, newBackendsPerBucketSeq);
-            ColocatePersistInfo info = ColocatePersistInfo.CreateForBackendsPerBucketSeq(groupId, newBackendsPerBucketSeq);
-            Catalog.getInstance().getEditLog().logColocateBackendsPerBucketSeq(info);
+            persistBackendsToBucketSeqMeta(groupId, newBackendsPerBucketSeq);
         } catch (Exception e) {
             LOG.error(e.getMessage(), e);
         } finally {
@@ -507,109 +508,131 @@ public class ColocateTableBalancer extends Daemon {
     }
 
     /**
-     * balance after new backend added
-     *
-     * 1 compute the the number of bucket seqs need to move from the each old backend and
-     *   the number of bucket seqs need to move to the each new backend
-     * 2 select the clone target Backend for the new Replica
-     * 3 mark colocate group balancing
-     * 4 add a Migration Job
-     * 5 update the ColocateTableIndex's backendsPerBucketSeq
+     * 1 compute which bucket seq need to migrate, the migrate source backend, the migrate target backend
+     * 2 mark colocate group balancing in colocate meta
+     * 3 update colcate backendsPerBucketSeq meta
      *
      * For example:
-     * There are 3 backend and 4 tablet, and replicateNum is 3.
      *
-     * the mapping from tablet to backend to is following:
-     *
-     * tablet1 : [1, 2, 3]
-     * tablet2 : [2, 1, 3]
-     * tablet3 : [3, 2, 1]
-     * tablet4 : [1, 2, 3]
-     *
-     * After Adding a new backend:
-     *
-     * the needMoveBucketSeqs  = 4 * 3 / (3 + 1) = 3
-     * the bucketSeqsPerNewBackend = 3 / 1 = 1
-     *
-     * After balancing, the mapping from tablet to backend to is following:
-     *
-     * tablet1 : [4, 2, 3]
-     * tablet2 : [4, 1, 3]
-     * tablet3 : [4, 2, 1]
-     * tablet4 : [1, 2, 3]
+     * the old backendsPerBucketSeq is:
+     * [[1, 2, 3], [4, 1, 2], [3, 4, 1], [2, 3, 4], [1, 2, 3]]
+     * 
+     * after we add two new backends: [5, 6]
+     * 
+     * the balanced backendsPerBucketSeq will become:
+     * [[5, 6, 3], [6, 1, 2], [5, 4, 1], [2, 3, 4], [1, 2, 3]]
      *
      */
     private void balanceForBackendAdded(Long groupId, Database db, List<Long> addedBackendIds) {
         ColocateTableIndex colocateIndex = Catalog.getCurrentColocateIndex();
-        com.google.common.collect.Table<Long, Integer, Long> newGroup2BackendsPerBucketSeq = HashBasedTable.create();
-
         List<List<Long>> backendsPerBucketSeq = colocateIndex.getBackendsPerBucketSeq(groupId);
-        int replicateNum = backendsPerBucketSeq.get(0).size();
-        Set<Long> allGroupBackendIds = colocateIndex.getBackendsByGroup(groupId);
-
-        List<List<Long>> newBackendsPerBucketSeq = deepCopy(backendsPerBucketSeq);
-
-        int needMoveBucketSeqs = backendsPerBucketSeq.size() * replicateNum / (allGroupBackendIds.size() + addedBackendIds.size());
-        int bucketSeqsPerNewBackend = needMoveBucketSeqs / addedBackendIds.size();
-        LOG.info("for colocate group {}, needMoveBucketSeqs : {} , bucketSeqPerNewBackend: {}", groupId, needMoveBucketSeqs, bucketSeqsPerNewBackend);
 
         db.readLock();
         try {
-            List<Long> allTableIds = colocateIndex.getAllTableIds(groupId);
-            for (long tableId : allTableIds) {
-                OlapTable olapTable = (OlapTable) db.getTable(tableId);
-                for (Partition partition : olapTable.getPartitions()) {
-                    replicateNum = olapTable.getPartitionInfo().getReplicationNum(partition.getId());
-                    for (MaterializedIndex index : partition.getMaterializedIndices()) {
-                        List<Tablet> tablets = index.getTablets();
-                        for (int i = 0; i < tablets.size() && i < needMoveBucketSeqs; i++) {
-                            Tablet tablet = tablets.get(i);
-                            List<Replica> replicas = tablet.getReplicas();
-                            List<Long> sortedReplicaIds = sortReplicaId(replicas);
-                            //always delete replica which id is minimum
-                            Replica deleteReplica = tablet.getReplicaById(sortedReplicaIds.get(0));
-
-                            long tabletSizeB = deleteReplica.getDataSize() * partition.getMaterializedIndices().size()
-                             * olapTable.getPartitions().size() * allTableIds.size();
-                            CloneTabletInfo tabletInfo = new CloneTabletInfo(db.getId(), tableId, partition.getId(),
-                            index.getId(), tablet.getId(), (short) replicateNum, (short) replicateNum,
-                            tabletSizeB, tablet.getBackendIds());
-
-                            Long cloneReplicaBackendId = newGroup2BackendsPerBucketSeq.get(groupId, i);
-                            if (cloneReplicaBackendId == null) {
-                                // select dest backend
-                                cloneReplicaBackendId = addedBackendIds.get(i % addedBackendIds.size());
-                                newGroup2BackendsPerBucketSeq.put(groupId, i, cloneReplicaBackendId);
-                            }
-
-                            if (!colocateIndex.isGroupBalancing(groupId)) {
-                                colocateIndex.markGroupBalancing(groupId);
-                                ColocatePersistInfo info = ColocatePersistInfo.CreateForMarkBalancing(groupId);
-                                Catalog.getInstance().getEditLog().logColocateMarkBalancing(info);
-                            }
-
-                            //update ColocateTableIndex backendsPerBucketSeq
-                            List<Long> backends = newBackendsPerBucketSeq.get(i);
-                            backends.remove(deleteReplica.getBackendId());
-                            if (!backends.contains(cloneReplicaBackendId)) {
-                                backends.add(cloneReplicaBackendId);
-                            }
-
-                            Preconditions.checkState(replicateNum == backends.size(), replicateNum + " vs. " + backends.size());
-
-                            AddMigrationJob(tabletInfo, cloneReplicaBackendId);
-                        }
-                    }
-                }
-            }
-            colocateIndex.addBackendsPerBucketSeq(groupId, newBackendsPerBucketSeq);
-            ColocatePersistInfo info = ColocatePersistInfo.CreateForBackendsPerBucketSeq(groupId, newBackendsPerBucketSeq);
-            Catalog.getInstance().getEditLog().logColocateBackendsPerBucketSeq(info);
+            List<List<Long>> newBackendsPerBucketSeq = balance(backendsPerBucketSeq, addedBackendIds);
+            markGroupBalancing(groupId);
+            persistBackendsToBucketSeqMeta(groupId, newBackendsPerBucketSeq);
         } catch (Exception e) {
             LOG.error(e.getMessage(), e);
         } finally {
             db.readUnlock();
         }
+    }
+
+    /**
+     * Returns a map that the key is backend id, the value is backend counter
+     * The map will sort by counter in descending order
+     *
+     * @param backends the backend id list
+     * @return a descending sorted map
+     */
+    private static Map<Long, Long> getBackendCounter(List<Long> backends) {
+        Map<Long, Long> backendCounter = backends.stream()
+                .collect(Collectors.groupingBy(Function.identity(), Collectors.counting()));
+
+        return backendCounter.entrySet().stream().sorted(Collections.reverseOrder(Map.Entry.comparingByValue()))
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (e1, e2) -> e1, LinkedHashMap::new));
+    }
+
+    /**
+     * balance the bucket seq according to the new backends
+     *
+     * @param backendsPerBucketSeq the mapping from bucket seq to backend
+     * @param newBackends the new backends need to balance
+     * @return the balanced mapping from bucket seq to backend
+     */
+    public static List<List<Long>> balance(List<List<Long>> backendsPerBucketSeq, List<Long> newBackends) {
+        int replicateNum = backendsPerBucketSeq.get(0).size();
+        Set<Long> groupBackendSet = backendsPerBucketSeq.stream().flatMap(List::stream).collect(Collectors.toSet());
+        List<Long> groupBackendList = backendsPerBucketSeq.stream().flatMap(List::stream).collect(Collectors.toList());
+        Map<Long, Long> sortedBackendCounter = getBackendCounter(groupBackendList);
+
+        int allBackendSize = groupBackendSet.size() + newBackends.size();
+        //all backend should keep at least one replica
+        int avgReplicaNum = Math.max(groupBackendList.size() / allBackendSize, 1);
+        //the most balance case: all replica in all bucket seq have different backend
+        int needBalanceNum = Math.min(avgReplicaNum * newBackends.size(), groupBackendList.size() - groupBackendSet.size());
+
+        LOG.info("avg ReplicaNum: " + avgReplicaNum);
+        LOG.info("need BalanceNum: " + needBalanceNum);
+
+        int hasBalancedNum = 0;
+        //keep which BucketSeq will migrate to the new target backend
+        Map<Long, List<Integer>> targetBackendsToBucketSeqs = Maps.newHashMap();
+
+        while (hasBalancedNum < needBalanceNum) {
+            for(Map.Entry<Long, Long> beckendCounter: sortedBackendCounter.entrySet()) {
+                long count = beckendCounter.getValue();
+                long sourceBackend = beckendCounter.getKey();
+
+                //new backend should not as sourceBackend
+                if (newBackends.contains(sourceBackend)) {
+                    continue;
+                }
+
+                if (count > avgReplicaNum && hasBalancedNum < needBalanceNum) {
+                    Long targetBackend = newBackends.get (hasBalancedNum % newBackends.size());
+
+                    List<Integer> targetIndexes = IntStream.range(0, groupBackendList.size()).boxed()
+                            .filter(i -> groupBackendList.get(i).equals(sourceBackend))
+                            .collect(Collectors.toList());
+
+                    for(int targetIndex: targetIndexes) {
+                        int targetBucketSeq = targetIndex / replicateNum;
+
+                        //for one bucket seq, all replica should in different Backend
+                        List<Integer> choseTargetBucketSeq = targetBackendsToBucketSeqs.getOrDefault(targetBackend, Lists.newArrayList());
+                        if (!choseTargetBucketSeq.contains(targetBucketSeq)) {
+                            groupBackendList.set(targetIndex, targetBackend);
+
+                            choseTargetBucketSeq.add(targetBucketSeq);
+                            targetBackendsToBucketSeqs.put(targetBackend, choseTargetBucketSeq);
+
+                            hasBalancedNum++;
+                            break;
+                        }
+                    }
+                }
+            }
+            sortedBackendCounter = getBackendCounter(groupBackendList);
+        }
+        return  Lists.partition(groupBackendList, replicateNum);
+    }
+
+    private void markGroupBalancing(long groupId) {
+        if (!Catalog.getCurrentColocateIndex().isGroupBalancing(groupId)) {
+            Catalog.getCurrentColocateIndex().markGroupBalancing(groupId);
+            ColocatePersistInfo info = ColocatePersistInfo.CreateForMarkBalancing(groupId);
+            Catalog.getInstance().getEditLog().logColocateMarkBalancing(info);
+            LOG.info("mark group {} balancing", groupId);
+        }
+    }
+
+    private void persistBackendsToBucketSeqMeta(long groupId, List<List<Long>> newBackendsPerBucketSeq) {
+        Catalog.getCurrentColocateIndex().addBackendsPerBucketSeq(groupId, newBackendsPerBucketSeq);
+        ColocatePersistInfo info = ColocatePersistInfo.CreateForBackendsPerBucketSeq(groupId, newBackendsPerBucketSeq);
+        Catalog.getInstance().getEditLog().logColocateBackendsPerBucketSeq(info);
+        LOG.info("persist backendsPerBucketSeq {} for group {}", newBackendsPerBucketSeq, groupId);
     }
 
     // for backend down or removed
