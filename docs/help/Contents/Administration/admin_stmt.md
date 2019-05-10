@@ -23,7 +23,7 @@
             ALTER SYSTEM SET LOAD ERRORS HUB PROPERTIES ("key" = "value"[, ...]);
 
     说明：
-        1) host 可以使主机名或者ip地址
+        1) host 可以是主机名或者ip地址
         2) heartbeat_port 为该节点的心跳端口
         3) 增加和删除节点为同步操作。这两种操作不考虑节点上已有的数据，节点直接从元数据中删除，请谨慎使用。
         4) 节点下线操作用于安全下线节点。该操作为异步操作。如果成功，节点最终会从元数据中删除。如果失败，则不会完成下线。
@@ -31,7 +31,7 @@
         6) Load error hub:
             当前支持两种类型的 Hub：Mysql 和 Broker。需在 PROPERTIES 中指定 "type" = "mysql" 或 "type" = "broker"。
             如果需要删除当前的 load error hub，可以将 type 设为 null。
-            1) 当使用 Mysql 类型时，导入时产生的错误信息将会插入到指定的 mysql 库表中，之后可以通过 show load warnings 语句直接查看错误信息。
+            1) 当使用 Mysql 类型时，导入时产生的错误信息将会插入到指定的 mysql 库表中，之后可以通过 show load warnings; 语句直接查看错误信息。
                
                 Mysql 类型的 Hub 需指定以下参数：
                     host：mysql host
