@@ -527,8 +527,8 @@ public class TabletScheduler extends Daemon {
                 case VERSION_INCOMPLETE:
                     handleReplicaVersionIncomplete(tabletCtx, batchTask);
                     break;
-                case REPLICA_UNAVAILABLE:
-                    handleReplicaUnavailable(tabletCtx, batchTask);
+                case REPLICA_RELOCATING:
+                    handleReplicaRelocating(tabletCtx, batchTask);
                     break;
                 case REDUNDANT:
                     handleRedundantReplica(tabletCtx);
@@ -602,7 +602,7 @@ public class TabletScheduler extends Daemon {
      * under decommission.
      * This process is same as replica missing
      */
-    private void handleReplicaUnavailable(TabletSchedCtx tabletCtx, AgentBatchTask batchTask)
+    private void handleReplicaRelocating(TabletSchedCtx tabletCtx, AgentBatchTask batchTask)
             throws SchedException {
         stat.counterReplicaUnavailableErr.incrementAndGet();
         handleReplicaMissing(tabletCtx, batchTask);

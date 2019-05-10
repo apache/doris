@@ -51,7 +51,7 @@ public class Tablet extends MetaObject implements Writable {
         HEALTHY,
         REPLICA_MISSING, // not enough alive replica num
         VERSION_INCOMPLETE, // alive replica num is enough, but version is missing
-        REPLICA_UNAVAILABLE, // replica is alive and version complete, but some BE of replicas may under decommission
+        REPLICA_RELOCATING, // replica is healthy, but is under relocating (eg. BE is decommission)
         REDUNDANT, // too much replicas
         REPLICA_MISSING_IN_CLUSTER, // not enough healthy replicas in correct cluster
     }
@@ -367,7 +367,7 @@ public class Tablet extends MetaObject implements Writable {
 
         int alive = 0;
         int aliveAndVersionComplete = 0;
-        int available = 0;
+        int stable = 0;
         int availableInCluster = 0;
 
         for (Replica replica : replicas) {
@@ -391,7 +391,7 @@ public class Tablet extends MetaObject implements Writable {
                 // this replica is alive, version complete, but backend is not available
                 continue;
             }
-            available++;
+            stable++;
 
             if (!backend.getOwnerClusterName().equals(clusterName)) {
                 // this replica is available, version complete, but not in right cluster
@@ -416,11 +416,11 @@ public class Tablet extends MetaObject implements Writable {
             return Pair.create(TabletStatus.REDUNDANT, TabletSchedCtx.Priority.VERY_HIGH);
         }
 
-        // 3. available replicas are not enough
-        if (available < (replicationNum / 2) + 1) {
-            return Pair.create(TabletStatus.REPLICA_UNAVAILABLE, TabletSchedCtx.Priority.NORMAL);
-        } else if (available < replicationNum) {
-            return Pair.create(TabletStatus.REPLICA_UNAVAILABLE, TabletSchedCtx.Priority.LOW);
+        // 3. replica is under relocating
+        if (stable < (replicationNum / 2) + 1) {
+            return Pair.create(TabletStatus.REPLICA_RELOCATING, TabletSchedCtx.Priority.NORMAL);
+        } else if (stable < replicationNum) {
+            return Pair.create(TabletStatus.REPLICA_RELOCATING, TabletSchedCtx.Priority.LOW);
         }
 
         // 4. healthy replicas in cluster are not enough

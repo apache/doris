@@ -58,7 +58,7 @@
 
     存活副本数大于等于期望副本数，但其中健康副本数小于期望副本数。
 
-3. REPLICA\_UNAVAILABLE
+3. REPLICA\_RELOCATING
 
     拥有等于 replication num 的版本完整的存活副本数，但是部分副本所在的 BE 节点处于 unavailable 状态（比如 decommission 中）
     
@@ -84,7 +84,7 @@ TabletChecker 作为常驻的后台进程，会定期检查所有分片的状态
 
 针对不同的状态，我们采用不同的修复方式：
 
-1. REPLICA\_MISSING/REPLICA\_UNAVAILABLE
+1. REPLICA\_MISSING/REPLICA\_RELOCATING
 
     选择一个低负载的，可用的 BE 节点作为目的端。选择一个健康副本作为源端。clone 任务会从源端拷贝一个完整的副本到目的端。对于副本补齐，我们会直接选择一个可用的 BE 节点，而不考虑存储介质。
     
@@ -124,12 +124,12 @@ TabletScheduler 里等待被调度的分片会根据状态不同，赋予不同�
 
     * REPLICA\_MISSING 但多数存活（比如3副本丢失了1个）
     * VERSION\_INCOMPLETE 但多数副本的版本完整
-    * REPLICA\_UNAVAILABLE 且多数副本 unavailable（比如3副本有2个 unavailable）
+    * REPLICA\_RELOCATING 且多数副本需要 relocate（比如3副本有2个）
 
 4. LOW
 
     * REPLICA\_MISSING\_IN\_CLUSTER
-    * REPLICA\_UNAVAILABLE 但多数副本的版本 available
+    * REPLICA\_RELOCATING 但多数副本 stable
 
 ### 手动优先级
 
@@ -484,7 +484,7 @@ TabletScheduler 在每轮调度时，都会通过 LoadBalancer 来选择一定�
 | num of clone task timeout                         | 2           |
 | num of replica missing error                      | 4354857     |
 | num of replica version missing error              | 967         |
-| num of replica unavailable error                  | 0           |
+| num of replica relocating                         | 0           |
 | num of replica redundant error                    | 90          |
 | num of replica missing in cluster error           | 0           |
 | num of balance scheduled                          | 0           |
@@ -511,8 +511,8 @@ TabletScheduler 在每轮调度时，都会通过 LoadBalancer 来选择一定�
 * num of clone task failed：clone 任务失败的数量
 * num of clone task timeout：clone 任务超时的数量
 * num of replica missing error：检查的状态为副本缺失的 tablet 的数量
-* num of replica version missing error：检查的状态为版本缺失的 tablet 的数量（该统计值包括了 num of replica unavailable error 和 num of replica missing in cluster error）
-* num of replica unavailable error：检查的状态为 replica unavailable 的 tablet 的数量
+* num of replica version missing error：检查的状态为版本缺失的 tablet 的数量（该统计值包括了 num of replica relocating 和 num of replica missing in cluster error）
+* num of replica relocating：检查的状态为 replica relocating 的 tablet 的数量
 * num of replica redundant error：检查的状态为副本冗余的 tablet 的数量
 * num of replica missing in cluster error：检查的状态为不在对应 cluster 的 tablet 的数量
 * num of balance scheduled：均衡调度的次数
