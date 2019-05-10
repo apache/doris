@@ -75,7 +75,6 @@ public class FoldConstantsRule implements ExprRewriteRule {
                 return expr;
             }
         }
-LOG.info("chenhao FoldConstantsRule expr:" + expr + " constant:" + expr.isConstant());
         return expr.getResultValue();
     }
 }
