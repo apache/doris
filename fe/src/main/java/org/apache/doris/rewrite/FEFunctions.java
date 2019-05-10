@@ -194,7 +194,7 @@ public class FEFunctions {
             }
         }
 
-        Date retDate = new Date(builder.toFormatter().parseMillis(date.getStringValue()));
+        Date retDate = new Date(builder.toFormatter().withLocale(Locale.ENGLISH).parseMillis(date.getStringValue()));
         if (hasTimePart) {
             return new DateLiteral(DateFormatUtils.format(retDate, "yyyy-MM-dd HH:mm:ss"), Type.DATETIME);
         } else {
