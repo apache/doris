@@ -41,6 +41,16 @@ import java.util.Map;
 
 // create a user define function
 public class CreateFunctionStmt extends DdlStmt {
+    public static final String OBJECT_FILE_KEY = "object_file";
+    public static final String SYMBOL_KEY = "symbol";
+    public static final String MD5_CHECKSUM = "md5";
+    public static final String INIT_KEY = "init_fn";
+    public static final String UPDATE_KEY = "update_fn";
+    public static final String MERGE_KEY = "merge_fn";
+    public static final String SERIALIZE_KEY = "serialize_fn";
+    public static final String FINALIZE_KEY = "finalize_fn";
+    public static final String GET_VALUE_KEY = "get_value_fn";
+    public static final String REMOVE_KEY = "remove_fn";
 
     private final FunctionName functionName;
     private final boolean isAggregate;
@@ -102,7 +112,6 @@ public class CreateFunctionStmt extends DdlStmt {
             intermediateType = returnType;
         }
 
-        String OBJECT_FILE_KEY = "object_file";
         objectFile = properties.get(OBJECT_FILE_KEY);
         if (Strings.isNullOrEmpty(objectFile)) {
             throw new AnalysisException("No 'object_file' in properties");
@@ -113,7 +122,6 @@ public class CreateFunctionStmt extends DdlStmt {
             throw new AnalysisException("cannot to compute object's checksum");
         }
 
-        String MD5_CHECKSUM = "md5";
         String md5sum = properties.get(MD5_CHECKSUM);
         if (md5sum != null && !md5sum.equalsIgnoreCase(checksum)) {
             throw new AnalysisException("library's checksum is not equal with input, checksum=" + checksum);
@@ -140,14 +148,6 @@ public class CreateFunctionStmt extends DdlStmt {
     }
 
     private void analyzeUda() throws AnalysisException {
-        final String INIT_KEY = "init_fn";
-        final String UPDATE_KEY = "update_fn";
-        final String MERGE_KEY = "merge_fn";
-        final String SERIALIZE_KEY = "serialize_fn";
-        final String FINALIZE_KEY = "finalize_fn";
-        final String GET_VALUE_KEY = "get_value_fn";
-        final String REMOVE_KEY = "remove_fn";
-
         AggregateFunction.AggregateFunctionBuilder builder = AggregateFunction.AggregateFunctionBuilder.createUdfBuilder();
 
         builder.name(functionName).argsType(argsDef.getArgTypes()).retType(returnType.getType())
@@ -173,7 +173,6 @@ public class CreateFunctionStmt extends DdlStmt {
     }
 
     private void analyzeUdf() throws AnalysisException {
-        final String SYMBOL_KEY = "symbol";
         String symbol = properties.get(SYMBOL_KEY);
         if (Strings.isNullOrEmpty(symbol)) {
             throw new AnalysisException("No 'symbol' in properties");
