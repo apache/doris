@@ -26,11 +26,11 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.FailMsg;
-import org.apache.doris.load.Load;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.thrift.TBrokerFileStatus;
@@ -122,6 +122,13 @@ public class LoadLoadingTask extends LoadTask {
             throw new LoadException("failed to execute plan when the left time is less then 0");
         }
 
+        if (LOG.isDebugEnabled()) {
+            LOG.debug(new LogBuilder(LogKey.LOAD_JOB, callback.getCallbackId())
+                              .add("task_id", signature)
+                              .add("query_id", DebugUtil.printId(curCoordinator.getQueryId()))
+                              .add("msg", "begin to execute plan")
+                              .build());
+        }
         curCoordinator.exec();
         if (curCoordinator.join(waitSecond)) {
             Status status = curCoordinator.getExecStatus();

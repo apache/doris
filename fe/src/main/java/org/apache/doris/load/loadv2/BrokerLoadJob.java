@@ -254,7 +254,6 @@ public class BrokerLoadJob extends LoadJob {
         }
         db.writeLock();
         try {
-
             Catalog.getCurrentGlobalTransactionMgr().commitTransaction(
                     dbId, transactionId, commitInfos);
         } catch (UserException e) {

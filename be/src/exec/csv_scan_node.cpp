@@ -305,12 +305,9 @@ Status CsvScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos
         }
         // split & check line & fill default value
         bool is_success = split_check_fill(line, state);
-        if (is_success) {
-            ++_normal_row_number;
-            state->set_normal_row_number(state->get_normal_row_number() + 1);
-        } else {
-            ++_error_row_number;
-            state->set_error_row_number(state->get_error_row_number() + 1);
+        ++_num_rows_load_total;
+        if (!is_success) {
+            ++_num_rows_load_filtered;
             continue;
         }
 
@@ -328,8 +325,10 @@ Status CsvScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos
             _tuple = reinterpret_cast<Tuple*>(new_tuple);
         }
     }
-    VLOG_ROW << "normal_row_number: " << state->get_normal_row_number()
-            << "; error_row_number: " << state->get_error_row_number() << std::endl;
+    state->update_num_rows_load_total(_num_rows_load_total);
+    state->update_num_rows_load_filtered(_num_rows_load_filtered);
+    VLOG_ROW << "normal_row_number: " << state->num_rows_load_success()
+            << "; error_row_number: " << state->num_rows_load_filtered() << std::endl;
 
     row_batch->tuple_data_pool()->acquire_data(_tuple_pool.get(), false);
 
@@ -352,7 +351,7 @@ Status CsvScanNode::close(RuntimeState* state) {
 
     RETURN_IF_ERROR(ExecNode::close(state));
 
-    if (state->get_normal_row_number() == 0) {
+    if (state->num_rows_load_success() == 0) {
         std::stringstream error_msg;
         error_msg << "Read zero normal line file. ";
         state->append_error_msg_to_file("", error_msg.str(), true);
@@ -361,11 +360,11 @@ Status CsvScanNode::close(RuntimeState* state) {
     }
 
     // only write summary line if there are error lines
-    if (_error_row_number > 0) {
+    if (_num_rows_load_filtered > 0) {
         // Summary normal line and error line number info
         std::stringstream summary_msg;
-        summary_msg << "error line: " << _error_row_number
-            << "; normal line: " << _normal_row_number;
+        summary_msg << "error line: " << _num_rows_load_filtered
+            << "; normal line: " << state->num_rows_load_success();
         state->append_error_msg_to_file("", summary_msg.str(), true);
     }
 
