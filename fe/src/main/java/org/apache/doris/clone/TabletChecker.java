@@ -238,6 +238,8 @@ public class TabletChecker extends Daemon {
                                         db.getId(), olapTbl.getId(),
                                         partition.getId(), idx.getId(), tablet.getId(),
                                         System.currentTimeMillis());
+                                // the tablet status will be set again when being scheduled
+                                tabletCtx.setTabletStatus(statusWithPrio.first);
                                 tabletCtx.setOrigPriority(statusWithPrio.second);
 
                                 AddResult res = tabletScheduler.addTablet(tabletCtx, false /* not force */);
