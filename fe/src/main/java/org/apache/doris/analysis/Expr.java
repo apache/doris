@@ -1555,7 +1555,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
      */
     public Expr getResultValue() throws AnalysisException {
         final Expr newExpr = ExpressionFunctions.INSTANCE.evalExpr(this);
-        return newExpr != null? newExpr : this;
+        return newExpr != null ? newExpr : this;
     }
 
 }

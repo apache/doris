@@ -506,6 +506,10 @@ public class BinaryPredicate extends Predicate implements Writable {
     }
 
     private Expr compareLiteral(LiteralExpr first, LiteralExpr second) throws AnalysisException {
+        if (first instanceof NullLiteral || second instanceof NullLiteral) {
+            return new NullLiteral();
+        }
+
         final int compareResult = first.compareLiteral(second);
         switch(op) {
             case EQ:

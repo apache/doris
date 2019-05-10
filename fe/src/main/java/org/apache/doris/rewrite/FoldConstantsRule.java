@@ -45,6 +45,28 @@ public class FoldConstantsRule implements ExprRewriteRule {
 
     @Override
     public Expr apply(Expr expr, Analyzer analyzer) throws AnalysisException {
+        // Avoid calling Expr.isConstant() because that would lead to repeated traversals
+        // of the Expr tree. Assumes the bottom-up application of this rule. Constant
+        // children should have been folded at this point.
+        for (Expr child : expr.getChildren()) {
+            if (!child.isLiteral() && !(child instanceof CastExpr)) {
+                return expr;
+            }
+        }
+
+        if (expr.isLiteral() || !expr.isConstant()) {
+            return expr;
+        }
+
+        // Do not constant fold cast(null as dataType) because we cannot preserve the
+        // cast-to-types and that can lead to query failures, e.g., CTAS
+        if (expr instanceof CastExpr) {
+            CastExpr castExpr = (CastExpr) expr;
+            if (castExpr.getChild(0) instanceof NullLiteral) {
+                return expr;
+            }
+        }
+
         // Analyze constant exprs, if necessary. Note that the 'expr' may become non-constant
         // after analysis (e.g., aggregate functions).
         if (!expr.isAnalyzed()) {
@@ -53,6 +75,7 @@ public class FoldConstantsRule implements ExprRewriteRule {
                 return expr;
             }
         }
+LOG.info("chenhao FoldConstantsRule expr:" + expr + " constant:" + expr.isConstant());
         return expr.getResultValue();
     }
 }

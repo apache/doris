@@ -55,13 +55,8 @@ public enum ExpressionFunctions {
         if (constExpr instanceof ArithmeticExpr
                 || constExpr instanceof FunctionCallExpr) {
             Function fn = constExpr.getFn();
-            // unused cast
-            if (fn == null) {
-                Preconditions.checkState((constExpr instanceof CastExpr)
-                        && constExpr.getChildren().size() == 1);
-                return constExpr.getChild(0);
-            }
-
+            
+            Preconditions.checkNotNull(fn, "Expr's fn can't be null.");
             // null
             if (!nonNullResultWithNullParamFunctions.contains(fn.getFunctionName().getFunction())) {
                 for (Expr e : constExpr.getChildren()) {

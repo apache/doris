@@ -254,24 +254,30 @@ public class CastExpr extends Expr {
         if (!(value instanceof LiteralExpr)) {
             return this;
         }
-
-        final Expr targetExpr = castTo((LiteralExpr)value);
+        Expr targetExpr;
+        try {
+            targetExpr = castTo((LiteralExpr)value);
+        } catch (AnalysisException ae) {
+            targetExpr = this;
+        } catch (NumberFormatException nfe) {
+            targetExpr = new NullLiteral();
+        }
         return targetExpr;
     }
 
     private Expr castTo(LiteralExpr value) throws AnalysisException {
         if (type.isIntegerType()) {
-            return new IntLiteral(value.getLongValue());
+            return new IntLiteral(value.getLongValue(), type);
         } else if (type.isLargeIntType()) {
             return new LargeIntLiteral(value.getStringValue());
         } else if (type.isDecimal()) {
             return new DecimalLiteral(value.getStringValue());
         } else if (type.isFloatingPointType()) {
-            return new FloatLiteral(value.getDoubleValue());
+            return new FloatLiteral(value.getDoubleValue(), type);
         } else if (type.isStringType()) {
             return new StringLiteral(value.getStringValue());
         } else if (type.isDateType()) {
-            return new DateLiteral(value.getStringValue(), Type.DATETIME);
+            return new DateLiteral(value.getStringValue(), type);
         } else if (type.isBoolean()) {
             return new BoolLiteral(value.getStringValue());
         }
