@@ -636,10 +636,10 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                 visibleVersion, visibleVersionHash);
         cloneTask.setPathHash(srcPathHash, destPathHash);
         
-        // if this is a balance task, or this is a repair task with REPLICA_MISSING or REPLICA_MISSING_IN_CLUSTER,
+        // if this is a balance task, or this is a repair task with REPLICA_MISSING/REPLICA_RELOCATING or REPLICA_MISSING_IN_CLUSTER,
         // we create a new replica with state CLONE
         if (tabletStatus == TabletStatus.REPLICA_MISSING || tabletStatus == TabletStatus.REPLICA_MISSING_IN_CLUSTER
-                || type == Type.BALANCE) {
+                || tabletStatus == TabletStatus.REPLICA_RELOCATING || type == Type.BALANCE) {
             Replica cloneReplica = new Replica(
                     Catalog.getCurrentCatalog().getNextId(), destBackendId,
                     -1 /* version */, 0 /* version hash */, schemaHash,

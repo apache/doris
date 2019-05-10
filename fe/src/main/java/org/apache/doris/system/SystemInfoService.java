@@ -249,7 +249,15 @@ public class SystemInfoService {
 
     public boolean checkBackendAvailable(long backendId) {
         Backend backend = idToBackendRef.get().get(backendId);
-        if (backend == null || !backend.isAlive() || backend.isDecommissioned()) {
+        if (backend == null || !backend.isAvailable()) {
+            return false;
+        }
+        return true;
+    }
+
+    public boolean checkBackendAlive(long backendId) {
+        Backend backend = idToBackendRef.get().get(backendId);
+        if (backend == null || !backend.isAlive()) {
             return false;
         }
         return true;
