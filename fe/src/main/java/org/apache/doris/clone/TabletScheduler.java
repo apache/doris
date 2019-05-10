@@ -83,18 +83,18 @@ public class TabletScheduler extends Daemon {
     private static final Logger LOG = LogManager.getLogger(TabletScheduler.class);
 
     // handle at most BATCH_NUM tablets in one loop
-    private static final int MIN_BATCH_NUM = 10;
+    private static final int MIN_BATCH_NUM = 50;
 
     // the minimum interval of updating cluster statistics and priority of tablet info
     private static final long STAT_UPDATE_INTERVAL_MS = 20 * 1000; // 20s
 
-    private static final long SCHEDULE_INTERVAL_MS = 5000; // 5s
+    private static final long SCHEDULE_INTERVAL_MS = 1000; // 5s
 
     public static final int BALANCE_SLOT_NUM_FOR_PATH = 2;
 
     // if the number of scheduled tablets in TabletScheduler exceed this threshold,
     // skip checking.
-    public static final int MAX_SCHEDULING_TABLETS = 5000;
+    public static final int MAX_SCHEDULING_TABLETS = 2000;
     // if the number of balancing tablets in TabletScheduler exceed this threshold,
     // no more balance check
     public static final int MAX_BALANCING_TABLETS = 100;
@@ -527,6 +527,9 @@ public class TabletScheduler extends Daemon {
                 case VERSION_INCOMPLETE:
                     handleReplicaVersionIncomplete(tabletCtx, batchTask);
                     break;
+                case REPLICA_RELOCATING:
+                    handleReplicaRelocating(tabletCtx, batchTask);
+                    break;
                 case REDUNDANT:
                     handleRedundantReplica(tabletCtx);
                     break;
@@ -592,6 +595,17 @@ public class TabletScheduler extends Daemon {
 
         // create clone task
         batchTask.addTask(tabletCtx.createCloneReplicaAndTask());
+    }
+
+    /*
+     * There are enough alive replicas with complete version in this tablet, but some of backends may
+     * under decommission.
+     * This process is same as replica missing
+     */
+    private void handleReplicaRelocating(TabletSchedCtx tabletCtx, AgentBatchTask batchTask)
+            throws SchedException {
+        stat.counterReplicaUnavailableErr.incrementAndGet();
+        handleReplicaMissing(tabletCtx, batchTask);
     }
 
     /*

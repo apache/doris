@@ -27,16 +27,20 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.clone.CloneChecker;
+import org.apache.doris.clone.TabletSchedCtx;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Daemon;
 import org.apache.doris.metric.GaugeMetric;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.persist.BackendTabletsInfo;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskExecutor;
@@ -863,6 +867,8 @@ public class ReportHandler extends Daemon {
     private static void addReplica(long tabletId, TTabletInfo backendTabletInfo, long backendId)
             throws MetaNotFoundException {
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
+        SystemInfoService infoService = Catalog.getCurrentSystemInfo();
+
         long dbId = invertedIndex.getDbId(tabletId);
         long tableId = invertedIndex.getTableId(tabletId);
         long partitionId = invertedIndex.getPartitionId(tabletId);
@@ -922,19 +928,11 @@ public class ReportHandler extends Daemon {
                 return;
             }
 
-            List<Replica> replicas = tablet.getReplicas();
-            int onlineReplicaNum = 0;
-            for (Replica replica : replicas) {
-                final long id = replica.getBackendId();
-                final Backend backend = Catalog.getCurrentSystemInfo().getBackend(id);
-                if (backend != null && backend.isAlive() && !backend.isDecommissioned()
-						&& replica.getState() == ReplicaState.NORMAL) {
-                    onlineReplicaNum++;
-                }
-            }
+            Pair<TabletStatus, TabletSchedCtx.Priority> status = tablet.getHealthStatusWithPriority(infoService,
+                    db.getClusterName(), visibleVersion, visibleVersionHash,
+                    replicationNum);
             
-            if (onlineReplicaNum < replicationNum) {
-                long replicaId = Catalog.getInstance().getNextId();
+            if (status.first == TabletStatus.VERSION_INCOMPLETE || status.first == TabletStatus.REPLICA_MISSING) {
                 long lastFailedVersion = -1L;
                 long lastFailedVersionHash = 0L;
                 if (version > partition.getNextVersion() - 1) {
@@ -947,6 +945,8 @@ public class ReportHandler extends Daemon {
                     lastFailedVersion = partition.getCommittedVersion();
                     lastFailedVersionHash = partition.getCommittedVersionHash();
                 }
+
+                long replicaId = Catalog.getInstance().getNextId();
                 Replica replica = new Replica(replicaId, backendId, version, versionHash, schemaHash,
                                               dataSize, rowCount, ReplicaState.NORMAL, 
                                               lastFailedVersion, lastFailedVersionHash, version, versionHash);
@@ -965,13 +965,14 @@ public class ReportHandler extends Daemon {
             } else {
                 // replica is enough. check if this tablet is already in meta
                 // (status changed between 'tabletReport()' and 'addReplica()')
-                for (Replica replica : replicas) {
+                for (Replica replica : tablet.getReplicas()) {
                     if (replica.getBackendId() == backendId) {
                         // tablet is already in meta. return true
                         return;
                     }
                 }
-                throw new MetaNotFoundException("replica is enough[" + replicas.size() + "-" + replicationNum + "]");
+                throw new MetaNotFoundException(
+                        "replica is enough[" + tablet.getReplicas().size() + "-" + replicationNum + "]");
             }
         } finally {
             db.writeUnlock();

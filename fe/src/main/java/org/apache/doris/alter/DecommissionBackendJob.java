@@ -201,7 +201,8 @@ public class DecommissionBackendJob extends AlterJob {
                     continue;
                 }
 
-                LOG.info("{} lefts {} replicas to migrate.", backend, backendTabletIds.size());
+                LOG.info("{} lefts {} replicas to migrate: {}", backend, backendTabletIds.size(),
+                        backendTabletIds.size() <= 20 ? backendTabletIds : "too many");
             } // end for backends
         }
 

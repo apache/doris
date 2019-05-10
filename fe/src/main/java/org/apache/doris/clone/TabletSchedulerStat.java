@@ -98,6 +98,8 @@ public class TabletSchedulerStat {
     public AtomicLong counterReplicaMissingErr = new AtomicLong(0L);
     @StatField("num of replica version missing error")
     public AtomicLong counterReplicaVersionMissingErr = new AtomicLong(0L);
+    @StatField("num of replica unavailable error")
+    public AtomicLong counterReplicaUnavailableErr = new AtomicLong(0L);
     @StatField("num of replica redundant error")
     public AtomicLong counterReplicaRedundantErr = new AtomicLong(0L);
     @StatField("num of replica missing in cluster error")
