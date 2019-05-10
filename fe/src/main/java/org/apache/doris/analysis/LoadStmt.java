@@ -81,7 +81,7 @@ public class LoadStmt extends DdlStmt {
     private final Map<String, String> properties;
     private String user;
 
-    private static String version = "v1";
+    private String version = "v1";
 
     // properties set
     private final static ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
@@ -184,9 +184,18 @@ public class LoadStmt extends DdlStmt {
             if (!versionProperty.equalsIgnoreCase(LoadManager.VERSION)) {
                 throw new DdlException(VERSION + " must be " + LoadManager.VERSION);
             }
-            version = LoadManager.VERSION;
         }
 
+    }
+
+    private void analyzeVersion() {
+        if (properties == null) {
+            return;
+        }
+        final String versionProperty = properties.get(VERSION);
+        if (versionProperty != null) {
+            version = LoadManager.VERSION;
+        }
     }
 
     @Override
@@ -209,6 +218,7 @@ public class LoadStmt extends DdlStmt {
             throw new AnalysisException(e.getMessage());
         }
 
+        analyzeVersion();
         user = ConnectContext.get().getQualifiedUser();
     }
 

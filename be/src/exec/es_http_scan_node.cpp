@@ -424,9 +424,6 @@ void EsHttpScanNode::scanner_worker(int start_idx, int length, std::promise<Stat
             << status.get_error_msg();
     }
 
-    // Update stats
-    _runtime_state->update_num_rows_load_success(counter.num_rows_returned);
-    _runtime_state->update_num_rows_load_filtered(counter.num_rows_filtered);
 
     // scanner is going to finish 
     {
