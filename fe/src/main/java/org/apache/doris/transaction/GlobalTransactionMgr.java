@@ -254,7 +254,7 @@ public class GlobalTransactionMgr {
         TransactionState transactionState = idToTransactionState.get(transactionId);
         if (transactionState == null
                 || transactionState.getTransactionStatus() == TransactionStatus.ABORTED) {
-            throw new TransactionCommitFailedException("Transaction has already been cancelled");
+            throw new TransactionCommitFailedException(transactionState.getReason());
         }
         if (transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
             return;
