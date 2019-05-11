@@ -277,6 +277,10 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         this.tabletStatus = tabletStatus;
     }
     
+    public TabletStatus getTabletStatus() {
+        return tabletStatus;
+    }
+
     public long getDbId() {
         return dbId;
     }
