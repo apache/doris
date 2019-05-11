@@ -1547,4 +1547,15 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     public boolean supportSerializable() {
         return false;
     }
+
+    /**
+     * For calculating expr.
+     * @return value returned can't be null, if this and it's children are't constant expr, return this.
+     * @throws AnalysisException
+     */
+    public Expr getResultValue() throws AnalysisException {
+        final Expr newExpr = ExpressionFunctions.INSTANCE.evalExpr(this);
+        return newExpr != null ? newExpr : this;
+    }
+
 }
