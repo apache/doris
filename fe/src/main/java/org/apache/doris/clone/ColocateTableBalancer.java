@@ -604,7 +604,7 @@ public class ColocateTableBalancer extends Daemon {
                     continue;
                 }
 
-                if (sourceReplicaNum > avgReplicaNum && hasBalancedNum < needBalanceNum) {
+                if (sourceReplicaNum > avgReplicaNum) {
                     Long targetBackend = newBackends.get (hasBalancedNum % newBackends.size());
 
                     List<Integer> sourceIndexes = IntStream.range(0, flatBackendsPerBucketSeq.size()).boxed()
@@ -626,6 +626,10 @@ public class ColocateTableBalancer extends Daemon {
                             break;
                         }
                     }
+                }
+
+                if (hasBalancedNum >= needBalanceNum) {
+                    break;
                 }
             }
             // reorder because the replica num in each backend has changed
