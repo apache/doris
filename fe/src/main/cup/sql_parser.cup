@@ -1894,6 +1894,10 @@ show_param ::=
     {:
         RESULT = new ShowRolesStmt();
     :}
+    | KW_FUNCTION opt_db:dbName
+    {:
+        RESULT = new ShowFunctionStmt(dbName);
+    :}
     ;
 
 keys_or_index ::=
