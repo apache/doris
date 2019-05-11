@@ -833,7 +833,8 @@ public class TabletScheduler extends Daemon {
 
             List<RootPathLoadStatistic> resultPaths = Lists.newArrayList();
             BalanceStatus st = bes.isFit(tabletCtx.getTabletSize(), tabletCtx.getStorageMedium(),
-                    resultPaths, true /* is supplement */);
+                    resultPaths, tabletCtx.getTabletStatus() != TabletStatus.REPLICA_RELOCATING
+                    /* if REPLICA_RELOCATING, then it is not a supplement task */);
             if (!st.ok()) {
                 LOG.debug("unable to find path for supplementing tablet: {}. {}", tabletCtx, st);
                 continue;
