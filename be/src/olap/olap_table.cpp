@@ -317,7 +317,12 @@ OLAPStatus OLAPTable::load() {
     res = load_indices();
 
     if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "fail to load indices. [res=" << res << " table='" << _full_name << "']";
+        if (config::auto_recover_index_loading_failure) {
+            LOG(WARNING) << "fail to load indices. [res=" << res << " table='" << _full_name << "']";
+        } else {
+            // fatal log will let BE process exit
+            LOG(FATAL) << "fail to load indices. [res=" << res << " table='" << _full_name << "']";
+        }
         goto EXIT;
     }
 

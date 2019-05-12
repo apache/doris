@@ -399,6 +399,10 @@ namespace config {
 
     // max consumer num in one data consumer group, for routine load
     CONF_Int32(max_consumer_num_per_group, "3");
+
+    // Is set to true, index loading failure will not causing BE exit,
+    // and the tablet will be marked as bad, so that FE will try to repair it.
+    CONF_Bool(auto_recover_index_loading_failure, "false");
 } // namespace config
 
 } // namespace doris
