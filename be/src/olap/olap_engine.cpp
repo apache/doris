@@ -835,6 +835,10 @@ OLAPStatus OLAPEngine::get_tables_by_id(
                 it = table_list->erase(it);
                 continue;
             }
+        } else if ((*it)->is_used()) {
+            LOG(WARNING) << "table is bad: " << (*it)->full_name().c_str();
+            it = table_list->erase(it); 
+            continue;
         }
         ++it;
     }
@@ -1884,7 +1888,7 @@ OLAPTablePtr OLAPEngine::_find_best_tablet_to_compaction(CompactionType compacti
     OLAPTablePtr best_table;
     for (tablet_map_t::value_type& table_ins : _tablet_map){
         for (OLAPTablePtr& table_ptr : table_ins.second.table_arr) {
-            if (!table_ptr->is_loaded() || !_can_do_compaction(table_ptr)) {
+            if (!table_ptr->is_used() || !table_ptr->is_loaded() || !_can_do_compaction(table_ptr)) {
                 continue;
             }
 
