@@ -800,7 +800,7 @@ OLAPTablePtr OLAPEngine::get_table(TTabletId tablet_id, SchemaHash schema_hash, 
             OLAPStatus ost = olap_table->load();
             if (ost != OLAP_SUCCESS) {
                 OLAP_LOG_WARNING("fail to load olap table. [table=%ld]", tablet_id);
-                if (err != nullptr) { *err = "failed to load tablet. res: " + ost; }
+                if (err != nullptr) { *err = "load tablet failed"; }
                 olap_table.reset();
             }
         }
