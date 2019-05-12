@@ -86,7 +86,7 @@ public:
     }
 
     // Get table pointer
-    OLAPTablePtr get_table(TTabletId tablet_id, SchemaHash schema_hash, bool load_table = true, Status* st = nullptr);
+    OLAPTablePtr get_table(TTabletId tablet_id, SchemaHash schema_hash, bool load_table = true, std::string* st = nullptr);
 
     OLAPStatus get_tables_by_id(TTabletId tablet_id, std::list<OLAPTablePtr>* table_list);    
 

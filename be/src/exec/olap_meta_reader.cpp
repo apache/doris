@@ -43,14 +43,14 @@ Status EngineMetaReader::get_hints(
         RuntimeProfile* profile) {
     auto tablet_id = scan_range->scan_range().tablet_id;
     int32_t schema_hash = strtoul(scan_range->scan_range().schema_hash.c_str(), NULL, 10);
-    Status st;
+    std::string err;
     OLAPTablePtr table = OLAPEngine::get_instance()->get_table(
-        tablet_id, schema_hash, &st);
+        tablet_id, schema_hash, &err);
     if (table.get() == NULL) {
         std::stringstream ss;
         ss << "failed to get tablet. tablet_id=" << tablet_id << ", schema_hash="
-            << schema_hash << ", reason: " << st.get_error_msg();
-        LOG(WARNING) < ss.str();
+            << schema_hash << ", reason: " << err;
+        LOG(WARNING) << ss.str();
         return Status(ss.str());
     }
 
