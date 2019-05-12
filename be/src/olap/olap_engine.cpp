@@ -785,7 +785,7 @@ OLAPTablePtr OLAPEngine::_get_table_with_no_lock(TTabletId tablet_id, SchemaHash
     return olap_table;
 }
 
-OLAPTablePtr OLAPEngine::get_table(TTabletId tablet_id, SchemaHash schema_hash, bool load_table) {
+OLAPTablePtr OLAPEngine::get_table(TTabletId tablet_id, SchemaHash schema_hash, bool load_table, Status* st) {
     _tablet_map_lock.rdlock();
     OLAPTablePtr olap_table;
     olap_table = _get_table_with_no_lock(tablet_id, schema_hash);
@@ -794,13 +794,18 @@ OLAPTablePtr OLAPEngine::get_table(TTabletId tablet_id, SchemaHash schema_hash, 
     if (olap_table.get() != NULL) {
         if (!olap_table->is_used()) {
             OLAP_LOG_WARNING("olap table cannot be used. [table=%ld]", tablet_id);
+            if (st != nullptr) { *st = Status("tablet cannot be used"); }
             olap_table.reset();
         } else if (load_table && !olap_table->is_loaded()) {
-            if (olap_table->load() != OLAP_SUCCESS) {
+            OLAPStatus ost = olap_table->load();
+            if (ost != OLAP_SUCCESS) {
                 OLAP_LOG_WARNING("fail to load olap table. [table=%ld]", tablet_id);
+                if (st != nullptr) { *st = Status("failed to load tablet. res: " + ost); }
                 olap_table.reset();
             }
         }
+    } else if (st != nullptr) {
+        *st = Status("tablet does not exist");
     }
 
     return olap_table;

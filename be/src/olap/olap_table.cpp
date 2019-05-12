@@ -148,7 +148,8 @@ OLAPTable::OLAPTable(OLAPHeader* header, OlapStore* store) :
         _num_key_fields(0),
         _id(0),
         _store(store),
-        _is_loaded(false) {
+        _is_loaded(false),
+        _is_bad(false) {
     if (header == NULL) {
         return;  // for convenience of mock test.
     }
@@ -316,7 +317,7 @@ OLAPStatus OLAPTable::load() {
     res = load_indices();
 
     if (res != OLAP_SUCCESS) {
-        LOG(WARN) << "fail to load indices. [res=" << res << " table='" << _full_name << "']";
+        LOG(WARNING) << "fail to load indices. [res=" << res << " table='" << _full_name << "']";
         goto EXIT;
     }
 
