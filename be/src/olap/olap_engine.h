@@ -86,7 +86,11 @@ public:
     }
 
     // Get table pointer
-    OLAPTablePtr get_table(TTabletId tablet_id, SchemaHash schema_hash, bool load_table = true, std::string* st = nullptr);
+    // TODO(cmy): I think it is better to return Status instead of OLAPTablePtr,
+    // so that the caller can decide what to do next based on Status.
+    // Currently, I just add a new parameter 'err' to save the error msg.
+    // This should be redesigned later.
+    OLAPTablePtr get_table(TTabletId tablet_id, SchemaHash schema_hash, bool load_table = true, std::string* err = nullptr);
 
     OLAPStatus get_tables_by_id(TTabletId tablet_id, std::list<OLAPTablePtr>* table_list);    
 
