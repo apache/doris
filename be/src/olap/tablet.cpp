@@ -435,7 +435,7 @@ OLAPStatus Tablet::capture_consistent_versions(
     if (status != OLAP_SUCCESS) {
         std::vector<Version> missed_versions;
         calc_missed_versions_unlock(spec_version.second, &missed_versions);
-        if (missed_version.empty()) {
+        if (missed_versions.empty()) {
             LOG(WARNING) << "tablet:" << full_name()
                          << ", version already has been merged. "
                          << "spec_version: " << spec_version.first
@@ -541,21 +541,21 @@ AlterTabletTaskSharedPtr Tablet::alter_task() {
     return _tablet_meta->alter_task();
 }
 
-OLAPStatus Tablet::add_alter_task(int64_t tablet_id,
-                            int32_t schema_hash,
+OLAPStatus Tablet::add_alter_task(int64_t related_tablet_id,
+                            int32_t related_schema_hash,
                             const vector<Version>& versions_to_alter,
                             const AlterTabletType alter_type) {
     AlterTabletTask alter_task;
     alter_task.set_alter_state(ALTER_RUNNING);
-    alter_task.set_related_tablet_id(tablet_id);
-    alter_task.set_related_schema_hash(schema_hash);
+    alter_task.set_related_tablet_id(related_tablet_id);
+    alter_task.set_related_schema_hash(related_schema_hash);
     alter_task.set_alter_type(alter_type);
     RETURN_NOT_OK(_tablet_meta->add_alter_task(alter_task));
     LOG(INFO) << "successfully add alter task for tablet_id:" << this->tablet_id()
               << ", schema_hash:" << this->schema_hash()
-              << " related tablet id " << tablet_id
-              << " related schema hash " << schema_hash
-              << "alter type " << alter_type; 
+              << ", related_tablet_id " << related_tablet_id
+              << ", related_schema_hash " << related_schema_hash
+              << ", alter_type " << alter_type;
     return OLAP_SUCCESS;
 }
 

@@ -147,7 +147,7 @@ public:
 
     // message for alter task
     AlterTabletTaskSharedPtr alter_task();
-    OLAPStatus add_alter_task(int64_t tablet_id, int32_t schema_hash,
+    OLAPStatus add_alter_task(int64_t related_tablet_id, int32_t related_schema_hash,
                         const vector<Version>& versions_to_alter,
                         const AlterTabletType alter_type);
     OLAPStatus delete_alter_task();
