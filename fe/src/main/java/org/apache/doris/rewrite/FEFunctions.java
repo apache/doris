@@ -67,6 +67,16 @@ public class FEFunctions {
         return new DateLiteral(DateFormatUtils.format(d, "yyyy-MM-dd HH:mm:ss"), Type.DATETIME);
     }
 
+    @FEFunction(name = "adddate", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME")
+    public static DateLiteral addDate(LiteralExpr date, LiteralExpr day) throws AnalysisException {
+        return dateAdd(date, day);
+    }
+
+    @FEFunction(name = "days_add", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME")
+    public static DateLiteral daysAdd(LiteralExpr date, LiteralExpr day) throws AnalysisException {
+        return dateAdd(date, day);
+    }
+
     @FEFunction(name = "date_format", argTypes = { "DATETIME", "VARCHAR" }, returnType = "VARCHAR")
     public static StringLiteral dateFormat(LiteralExpr date, StringLiteral fmtLiteral) throws AnalysisException {
         String result = dateFormat(new Date(getTime(date)), fmtLiteral.getStringValue());
@@ -237,6 +247,27 @@ public class FEFunctions {
     public static IntLiteral unix_timestamp(LiteralExpr arg) throws AnalysisException {
         long timestamp = getTime(arg);
         return new IntLiteral(timestamp / 1000, Type.INT);
+    }
+
+    @FEFunction(name = "from_unixtime", argTypes = { "INT" }, returnType = "VARCHAR")
+    public static StringLiteral fromUnixTime(LiteralExpr unixTime) throws AnalysisException {
+        //if unixTime < 0, we should return null, throw a exception and let BE process
+        if (unixTime.getLongValue() < 0) {
+            throw new AnalysisException("unixtime should larger than zero");
+        }
+        Date date = new Date(unixTime.getLongValue() * 1000);
+        return new StringLiteral(dateFormat(date, "%Y-%m-%d %H:%i:%S"));
+    }
+
+    @FEFunction(name = "from_unixtime", argTypes = { "INT", "VARCHAR" }, returnType = "VARCHAR")
+    public static StringLiteral fromUnixTime(LiteralExpr unixTime, StringLiteral fmtLiteral) throws AnalysisException {
+        //if unixTime < 0, we should return null, throw a exception and let BE process
+        if (unixTime.getLongValue() < 0) {
+            throw new AnalysisException("unixtime should larger than zero");
+        }
+        Date date = new Date(unixTime.getLongValue() * 1000);
+        //currently, doris BE only support "yyyy-MM-dd HH:mm:ss" and "yyyy-MM-dd" format
+        return new StringLiteral(DateFormatUtils.format(date, fmtLiteral.getStringValue()));
     }
 
     private static long getTime(LiteralExpr expr) throws AnalysisException {
