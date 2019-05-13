@@ -349,10 +349,11 @@ public class BackupHandler extends Daemon implements Writable {
                 ClusterNamespace.getNameFromFullName(db.getFullName()),
                 tblRefs, stmt.getTimeoutMs(),
                 catalog, repository.getId());
-        dbIdToBackupOrRestoreJob.put(db.getId(), backupJob);
-
         // write log
         catalog.getEditLog().logBackupJob(backupJob);
+
+        // must put to dbIdToBackupOrRestoreJob after edit log, otherwise the state of job may be changed.
+        dbIdToBackupOrRestoreJob.put(db.getId(), backupJob);
 
         LOG.info("finished to submit backup job: {}", backupJob);
     }
@@ -517,7 +518,7 @@ public class BackupHandler extends Daemon implements Writable {
             AbstractJob existingJob = dbIdToBackupOrRestoreJob.get(job.getDbId());
             if (existingJob == null || existingJob.isDone()) {
                 LOG.error("invalid existing job: {}. current replay job is: {}",
-                          existingJob, job);
+                        existingJob, job);
                 return;
             }
             // We use replayed job, not the existing job, to do the replayRun().
