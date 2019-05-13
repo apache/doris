@@ -79,13 +79,13 @@ Status OlapScanner::_prepare(
     VersionHash version_hash =
         strtoul(scan_range->scan_range().version_hash.c_str(), nullptr, 10);
     {
-        _olap_table = OLAPEngine::get_instance()->get_table(tablet_id, schema_hash);
+        std::string err;
+        _olap_table = OLAPEngine::get_instance()->get_table(tablet_id, schema_hash, true, &err);
         if (_olap_table.get() == nullptr) {
-            OLAP_LOG_WARNING("tablet does not exist. [tablet_id=%ld schema_hash=%d]",
-                             tablet_id, schema_hash);
-
             std::stringstream ss;
-            ss << "tablet does not exist: " << tablet_id;
+            ss << "failed to get tablet: " << tablet_id << " with schema hash: " << schema_hash
+               << ", reason: " << err;
+            LOG(WARNING) << ss.str();
             return Status(ss.str());
         }
         {
