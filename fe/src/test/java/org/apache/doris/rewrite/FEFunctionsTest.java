@@ -24,7 +24,9 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 
 import org.junit.Assert;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.ExpectedException;
 
 import java.util.TimeZone;
 
@@ -37,6 +39,9 @@ import static org.junit.Assert.fail;
 
 public class FEFunctionsTest {
 
+    @Rule
+    public ExpectedException expectedEx = ExpectedException.none();
+
     @Test
     public void unixtimestampTest() {
         try {
@@ -45,6 +50,39 @@ public class FEFunctionsTest {
         } catch (AnalysisException e) {
             e.printStackTrace();
         }
+    }
+
+    @Test
+    public void dateAddTest() throws AnalysisException {
+        DateLiteral actualResult = FEFunctions.dateAdd(new StringLiteral("2018-08-08"), new IntLiteral(1));
+        DateLiteral expectedResult = new DateLiteral("2018-08-09", Type.DATE);
+        Assert.assertEquals(expectedResult, actualResult);
+
+        actualResult = FEFunctions.dateAdd(new StringLiteral("2018-08-08"), new IntLiteral(-1));
+        expectedResult = new DateLiteral("2018-08-07", Type.DATE);
+        Assert.assertEquals(expectedResult, actualResult);
+    }
+
+    @Test
+    public void fromUnixTimeTest() throws AnalysisException {
+        StringLiteral actualResult = FEFunctions.fromUnixTime(new IntLiteral(100000));
+        StringLiteral expectedResult = new StringLiteral("1970-01-02 11:46:40");
+        Assert.assertEquals(expectedResult, actualResult);
+
+        actualResult = FEFunctions.fromUnixTime(new IntLiteral(100000), new StringLiteral("yyyy-MM-dd"));
+        expectedResult = new StringLiteral("1970-01-02");
+        Assert.assertEquals(expectedResult, actualResult);
+
+        actualResult = FEFunctions.fromUnixTime(new IntLiteral(0));
+        expectedResult = new StringLiteral("1970-01-01 08:00:00");
+        Assert.assertEquals(expectedResult, actualResult);
+    }
+
+    @Test
+    public void fromUnixTimeTestException() throws AnalysisException {
+        expectedEx.expect(AnalysisException.class);
+        expectedEx.expectMessage("unixtime should larger than zero");
+        FEFunctions.fromUnixTime(new IntLiteral(-100));
     }
 
     @Test
