@@ -378,9 +378,11 @@ public class BackupHandler extends Daemon implements Writable {
         RestoreJob restoreJob = new RestoreJob(stmt.getLabel(), stmt.getBackupTimestamp(),
                 db.getId(), db.getFullName(), jobInfo, stmt.allowLoad(), stmt.getReplicationNum(),
                 stmt.getTimeoutMs(), stmt.getMetaVersion(), catalog, repository.getId());
+        catalog.getEditLog().logRestoreJob(restoreJob);
+
+        // must put to dbIdToBackupOrRestoreJob after edit log, otherwise the state of job may be changed.
         dbIdToBackupOrRestoreJob.put(db.getId(), restoreJob);
 
-        catalog.getEditLog().logRestoreJob(restoreJob);
         LOG.info("finished to submit restore job: {}", restoreJob);
     }
 
