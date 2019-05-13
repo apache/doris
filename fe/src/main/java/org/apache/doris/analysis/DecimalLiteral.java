@@ -170,6 +170,16 @@ public class DecimalLiteral extends LiteralExpr {
     }
 
     @Override
+    public long getLongValue() {
+        return value.longValue();
+    }
+
+    @Override
+    public double getDoubleValue() {
+        return value.doubleValue();
+    }
+
+    @Override
     protected void toThrift(TExprNode msg) {
         // TODO(hujie01) deal with loss information
         msg.node_type = TExprNodeType.DECIMAL_LITERAL;
