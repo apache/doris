@@ -199,7 +199,7 @@ select * from es_table where esquery(k4, ' {
     ES主版本大于5，ES在2.x之前和5.x之后数据的扫描方式不同，目前支持5.x之后的
 2. 是否支持X-Pack认证的ES集群
 
-    支持所有使用http basic认证方式的ES集群
+    支持所有使用HTTP Basic认证方式的ES集群
 3. 一些查询比请求ES慢很多
 
     是，比如_count相关的query等，ES内部会直接读取满足条件的文档个数相关的元数据，不需要对真实的数据进行过滤
