@@ -4839,6 +4839,16 @@ public class Catalog {
             throw new DdlException("Table name[" + newTableName + "] is already used");
         }
 
+        // check if rollup has same name
+        if (table.getType() == TableType.OLAP) {
+            OlapTable olapTable = (OlapTable) table;
+            for (String idxName: olapTable.getIndexNameToId().keySet()) {
+                if (idxName.equals(newTableName)) {
+                    throw new DdlException("New name conflicts with rollup index name: " + idxName);
+                }
+            }
+        }
+
         table.setName(newTableName);
 
         db.dropTable(tableName);
