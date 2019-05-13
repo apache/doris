@@ -148,7 +148,8 @@ OLAPTable::OLAPTable(OLAPHeader* header, OlapStore* store) :
         _num_key_fields(0),
         _id(0),
         _store(store),
-        _is_loaded(false) {
+        _is_loaded(false),
+        _is_bad(false) {
     if (header == NULL) {
         return;  // for convenience of mock test.
     }
@@ -310,13 +311,18 @@ OLAPStatus OLAPTable::load() {
                      << "res=" << res << ", root=" << one_schema_root;
         goto EXIT;
     } else if (res != OLAP_SUCCESS) {
-        OLAPEngine::get_instance()->drop_table(tablet_id(), schema_hash(), true);
-        return res;
+        // OLAPEngine::get_instance()->drop_table(tablet_id(), schema_hash(), true);
+        goto EXIT;
     }
     res = load_indices();
 
     if (res != OLAP_SUCCESS) {
-        LOG(FATAL) << "fail to load indices. [res=" << res << " table='" << _full_name << "']";
+        if (config::auto_recover_index_loading_failure) {
+            LOG(WARNING) << "fail to load indices. [res=" << res << " table='" << _full_name << "']";
+        } else {
+            // fatal log will let BE process exit
+            LOG(FATAL) << "fail to load indices. [res=" << res << " table='" << _full_name << "']";
+        }
         goto EXIT;
     }
 
@@ -333,11 +339,14 @@ OLAPStatus OLAPTable::load() {
     }
     release_header_lock();
 
+EXIT:
+    // always set _is_loaded to true, so that this tablet will be not loaded again
     _is_loaded = true;
 
-EXIT:
     if (res != OLAP_SUCCESS) {
-        OLAPEngine::get_instance()->drop_table(tablet_id(), schema_hash());
+        _is_bad = true;
+        // Do not drop table directly here, FE will get the report and handle it.
+        //  OLAPEngine::get_instance()->drop_table(tablet_id(), schema_hash());
     }
 
     return res;
@@ -2227,7 +2236,7 @@ void OLAPTable::set_io_error() {
 }
 
 bool OLAPTable::is_used() {
-    return _store->is_used();
+    return !_is_bad && _store->is_used();
 }
 
 VersionEntity OLAPTable::get_version_entity_by_version(const Version& version) {

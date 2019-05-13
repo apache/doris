@@ -785,7 +785,7 @@ OLAPTablePtr OLAPEngine::_get_table_with_no_lock(TTabletId tablet_id, SchemaHash
     return olap_table;
 }
 
-OLAPTablePtr OLAPEngine::get_table(TTabletId tablet_id, SchemaHash schema_hash, bool load_table) {
+OLAPTablePtr OLAPEngine::get_table(TTabletId tablet_id, SchemaHash schema_hash, bool load_table, std::string* err) {
     _tablet_map_lock.rdlock();
     OLAPTablePtr olap_table;
     olap_table = _get_table_with_no_lock(tablet_id, schema_hash);
@@ -794,13 +794,18 @@ OLAPTablePtr OLAPEngine::get_table(TTabletId tablet_id, SchemaHash schema_hash, 
     if (olap_table.get() != NULL) {
         if (!olap_table->is_used()) {
             OLAP_LOG_WARNING("olap table cannot be used. [table=%ld]", tablet_id);
+            if (err != nullptr) { *err = "tablet cannot be used"; }
             olap_table.reset();
         } else if (load_table && !olap_table->is_loaded()) {
-            if (olap_table->load() != OLAP_SUCCESS) {
+            OLAPStatus ost = olap_table->load();
+            if (ost != OLAP_SUCCESS) {
                 OLAP_LOG_WARNING("fail to load olap table. [table=%ld]", tablet_id);
+                if (err != nullptr) { *err = "load tablet failed"; }
                 olap_table.reset();
             }
         }
+    } else if (err != nullptr) {
+        *err = "tablet does not exist";
     }
 
     return olap_table;
@@ -835,6 +840,10 @@ OLAPStatus OLAPEngine::get_tables_by_id(
                 it = table_list->erase(it);
                 continue;
             }
+        } else if ((*it)->is_used()) {
+            LOG(WARNING) << "table is bad: " << (*it)->full_name().c_str();
+            it = table_list->erase(it); 
+            continue;
         }
         ++it;
     }
@@ -1884,7 +1893,7 @@ OLAPTablePtr OLAPEngine::_find_best_tablet_to_compaction(CompactionType compacti
     OLAPTablePtr best_table;
     for (tablet_map_t::value_type& table_ins : _tablet_map){
         for (OLAPTablePtr& table_ptr : table_ins.second.table_arr) {
-            if (!table_ptr->is_loaded() || !_can_do_compaction(table_ptr)) {
+            if (!table_ptr->is_used() || !table_ptr->is_loaded() || !_can_do_compaction(table_ptr)) {
                 continue;
             }
 

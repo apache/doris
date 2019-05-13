@@ -626,6 +626,8 @@ public:
 
     bool is_used();
 
+    void set_bad(bool is_bad) { _is_bad = is_bad; }
+
     // 得到当前table的root path路径，路径末尾不带斜杠(/)
     std::string storage_root_path_name() {
         return _storage_root_path;
@@ -753,6 +755,7 @@ private:
     std::string _tablet_path;
 
     bool _table_for_check;
+    std::atomic<bool> _is_bad;   // if this tablet is broken, set to true. default is false
 
     DISALLOW_COPY_AND_ASSIGN(OLAPTable);
 };
