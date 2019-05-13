@@ -34,9 +34,9 @@ CREATE EXTERNAL TABLE `es_table` (
 PARTITION BY RANGE(`id`)
 ()
 PROPERTIES (
-"host" = "host",
-"user" = "xxxx",
-"password" = "xxxx",
+"host" = "http://192.168.0.1:8200,http://192.168.0.2:8200",
+"user" = "root",
+"password" = "root",
 "index" = "tindex”,
 "type" = "doc"
 );
@@ -67,7 +67,7 @@ select * from es_table where k1 > 1000 and k3 ='term' or k4 like 'fu*z_'
 match查询：
 
 ```
-select * from es_table where esquery('k4', '{
+select * from es_table where esquery(k4, '{
         "match": {
            "k4": "doris on elasticsearch"
         }
@@ -76,7 +76,7 @@ select * from es_table where esquery('k4', '{
 geo相关查询：
 
 ```
-select * from es_table where esquery('k4', '{
+select * from es_table where esquery(k4, '{
       "geo_shape": {
          "location": {
             "shape": {
@@ -101,7 +101,7 @@ select * from es_table where esquery('k4', '{
 bool查询：
 
 ```
-select * from es_table where esquery('k4', ' {
+select * from es_table where esquery(k4, ' {
          "bool": {
             "must": [
                {
