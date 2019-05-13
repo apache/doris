@@ -858,8 +858,7 @@ void Tablet::_print_missed_versions(const std::vector<Version>& missed_versions)
     for (int i = 0; i < 10 && i < missed_versions.size(); ++i) {
         ss << missed_versions[i].first << "-" << missed_versions[i].second << ",";
     }
-    LOG(WARNING) << "tablet=" << full_name()
-                 << ", " << ss.str();
+    LOG(WARNING) << ss.str();
 }
 
  OLAPStatus Tablet::_check_added_rowset(const RowsetSharedPtr& rowset) {

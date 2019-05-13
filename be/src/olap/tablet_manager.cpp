@@ -239,6 +239,15 @@ void TabletManager::cancel_unfinished_schema_change() {
             }
 
             AlterTabletTaskSharedPtr new_alter_task = new_tablet->alter_task();
+            if (new_alter_task != nullptr 
+                && (new_alter_task->related_tablet_id() != tablet->tablet_id() 
+                    || new_alter_task->related_schema_hash() != tablet->schema_hash())) {
+                LOG(WARNING) << "base tablet " << tablet->full_name()
+                             << " new tablet " << new_tablet->full_name()
+                             << " new tablet link to tablet_id " << new_alter_task->related_tablet_id() 
+                             << " schema_hash " << new_alter_task->related_schema_hash();
+                continue;
+            }
             // DORIS-3741. Upon restart, it should not clear schema change request.
             if (alter_task->alter_state() == ALTER_FINISHED
                 && new_alter_task != nullptr 
@@ -248,7 +257,7 @@ void TabletManager::cancel_unfinished_schema_change() {
 
             OLAPStatus res = tablet->set_alter_state(ALTER_FAILED);
             if (res != OLAP_SUCCESS) {
-                LOG(FATAL) << "fail to set base tablet meta. res=" << res
+                LOG(FATAL) << "fail to set alter state. res=" << res
                            << ", base_tablet=" << tablet->full_name();
                 return;
             }
@@ -258,18 +267,28 @@ void TabletManager::cancel_unfinished_schema_change() {
                            << ", base_tablet=" << tablet->full_name();
                 return;
             }
-
-            res = new_tablet->set_alter_state(ALTER_FAILED);
-            if (res != OLAP_SUCCESS) {
-                LOG(FATAL) << "fail to save new tablet meta. res=" << res
-                           << ", new_tablet=" << new_tablet->full_name();
-                return;
-            }
-            res = new_tablet->save_meta();
-            if (res != OLAP_SUCCESS) {
-                LOG(FATAL) << "fail to save new tablet meta. res=" << res
-                           << ", new_tablet=" << new_tablet->full_name();
-                return;
+            if (new_alter_task == nullptr 
+                && new_tablet->creation_time() < tablet->creation_time()) {
+                // case 1: create new tablet and save meta successfully, but failed to save alter state in base tablet
+                // case 2: during clear stage, clear base successfully, but failed to clear new tablet
+                LOG(WARNING) << "base tablet's alter task is null, skip set state"
+                             << " base_tablet=" << new_tablet->full_name()
+                             << " create_time=" << new_tablet->creation_time()
+                             << " new_tablet=" << tablet->full_name()
+                             << " create_time=" << tablet->creation_time();
+            } else {
+                res = new_tablet->set_alter_state(ALTER_FAILED);
+                if (res != OLAP_SUCCESS) {
+                    LOG(FATAL) << "fail to set alter state. res=" << res
+                            << ", new_tablet=" << new_tablet->full_name();
+                    return;
+                }
+                res = new_tablet->save_meta();
+                if (res != OLAP_SUCCESS) {
+                    LOG(FATAL) << "fail to save new tablet meta. res=" << res
+                            << ", new_tablet=" << new_tablet->full_name();
+                    return;
+                }
             }
 
             LOG(INFO) << "cancel unfinished alter tablet task. base_tablet=" << tablet->full_name();
@@ -308,8 +327,8 @@ OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request,
     OLAPStatus res = OLAP_SUCCESS;
     DorisMetrics::create_tablet_requests_total.increment(1);
     // Make sure create_tablet operation is idempotent:
-    //    return success if tablet with same tablet_id and schema_hash exist,
-    //           false if tablet with same tablet_id but different schema_hash exist
+    // return success if tablet with same tablet_id and schema_hash exist,
+    //        false if tablet with same tablet_id but different schema_hash exist
     // why??????
     if (_check_tablet_id_exist_unlock(request.tablet_id)) {
         TabletSharedPtr tablet = _get_tablet_with_no_lock(
