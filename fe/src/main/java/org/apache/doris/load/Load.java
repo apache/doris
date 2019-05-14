@@ -1105,6 +1105,31 @@ public class Load {
         return false;
     }
 
+    public boolean isLabelExist(String dbName, String label) throws DdlException {
+        // get load job and check state
+        Database db = Catalog.getInstance().getDb(dbName);
+        if (db == null) {
+            throw new DdlException("Db does not exist. name: " + dbName);
+        }
+        readLock();
+        try {
+            Map<String, List<LoadJob>> labelToLoadJobs = dbLabelToLoadJobs.get(db.getId());
+            if (labelToLoadJobs == null) {
+                return false;
+            }
+            List<LoadJob> loadJobs = labelToLoadJobs.get(label);
+            if (loadJobs == null) {
+                return false;
+            }
+            if (loadJobs.stream().filter(entity -> entity.getState() != JobState.CANCELLED).count() == 0) {
+                return false;
+            }
+            return true;
+        } finally {
+            readUnlock();
+        }
+    }
+
     public boolean cancelLoadJob(CancelLoadStmt stmt) throws DdlException {
         // get params
         String dbName = stmt.getDbName();
