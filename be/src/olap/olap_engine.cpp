@@ -1944,7 +1944,7 @@ OLAPStatus OLAPEngine::start_trash_sweep(double* usage) {
             continue;
         }
 
-        double curr_usage = info.data_used_capacity
+        double curr_usage = (info.capacity - info.available)
                 / (double) info.capacity;
         *usage = *usage > curr_usage ? *usage : curr_usage;
 
