@@ -75,7 +75,6 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     // input params
     protected long dbId;
     protected String label;
-    protected List<DataDescription> dataDescriptions = Lists.newArrayList();
     protected JobState state = JobState.PENDING;
     protected org.apache.doris.load.LoadJob.EtlJobType jobType;
 
@@ -107,10 +106,9 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
 
     protected ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
-    public LoadJob(long dbId, String label, List<DataDescription> dataDescriptions) {
+    public LoadJob(long dbId, String label) {
         this.dbId = dbId;
         this.label = label;
-        this.dataDescriptions = dataDescriptions;
     }
 
     protected void readLock() {
@@ -223,13 +221,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         }
     }
 
-    private Set<String> getTableNames() {
-        Set<String> result = Sets.newHashSet();
-        for (DataDescription dataDescription : dataDescriptions) {
-            result.add(dataDescription.getTableName());
-        }
-        return result;
-    }
+    abstract Set<String> getTableNames();
 
     public void beginTxn() throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException {
         // register txn state listener
@@ -339,7 +331,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         }
     }
 
-    public void checkAuth() throws DdlException {
+    private void checkAuth() throws DdlException {
         Database db = Catalog.getInstance().getDb(dbId);
         if (db == null) {
             throw new DdlException("Db does not exist. id: " + dbId);
@@ -426,9 +418,11 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         return true;
     }
 
-    public List<Comparable> getShowInfo() {
+    public List<Comparable> getShowInfo() throws DdlException {
         readLock();
         try {
+            // check auth
+            checkAuth();
             List<Comparable> jobInfo = Lists.newArrayList();
             // jobId
             jobInfo.add(id);

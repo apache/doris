@@ -92,10 +92,11 @@ public class LoadManager {
         if (!dbIdToLabelToLoadJobs.containsKey(dbId)) {
             dbIdToLabelToLoadJobs.put(loadJob.getDbId(), new ConcurrentHashMap<>());
         }
-        if (!dbIdToLabelToLoadJobs.get(dbId).containsKey(loadJob.getLabel())) {
-            dbIdToLabelToLoadJobs.get(dbId).put(loadJob.getLabel(), new ArrayList<>());
+        Map<String, List<LoadJob>> labelToLoadJobs = dbIdToLabelToLoadJobs.get(dbId);
+        if (!labelToLoadJobs.containsKey(loadJob.getLabel())) {
+            labelToLoadJobs.put(loadJob.getLabel(), new ArrayList<>());
         }
-        dbIdToLabelToLoadJobs.get(dbId).get(loadJob.getLabel()).add(loadJob);
+        labelToLoadJobs.get(loadJob.getLabel()).add(loadJob);
 
         // submit it
         loadJobScheduler.submitJob(loadJob);
@@ -113,10 +114,11 @@ public class LoadManager {
             if (!dbIdToLabelToLoadJobs.containsKey(db.getId())) {
                 throw new DdlException("Load job does not exist");
             }
-            if (!dbIdToLabelToLoadJobs.get(db.getId()).containsKey(stmt.getLabel())) {
+            Map<String, List<LoadJob>> labelToLoadJobs = dbIdToLabelToLoadJobs.get(db.getId());
+            if (!labelToLoadJobs.containsKey(stmt.getLabel())) {
                 throw new DdlException("Load job does not exist");
             }
-            List<LoadJob> loadJobList = dbIdToLabelToLoadJobs.get(db.getId()).get(stmt.getLabel());
+            List<LoadJob> loadJobList = labelToLoadJobs.get(stmt.getLabel());
             Optional<LoadJob> loadJobOptional = loadJobList.stream().filter(entity -> !entity.isFinished()).findFirst();
             if (!loadJobOptional.isPresent()) {
                 throw new DdlException("There is no unfinished job which label is " + stmt.getLabel());
@@ -206,10 +208,9 @@ public class LoadManager {
                 }
             }
 
-            // check state and auth
+            // check state
             for (LoadJob loadJob : loadJobList) {
                 try {
-                    loadJob.checkAuth();
                     if (!states.contains(loadJob.getState())) {
                         continue;
                     }

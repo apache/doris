@@ -38,12 +38,15 @@ import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.PullLoadSourceInfo;
 
 import com.google.common.base.Joiner;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * There are 3 steps in BrokerLoadJob: BrokerPendingTask, LoadLoadingTask, CommitAndPublishTxn.
@@ -55,13 +58,17 @@ public class BrokerLoadJob extends LoadJob {
 
     private static final Logger LOG = LogManager.getLogger(BrokerLoadJob.class);
 
+    // input params
+    private List<DataDescription> dataDescriptions = Lists.newArrayList();
     private BrokerDesc brokerDesc;
+
     // include broker desc and data desc
     private PullLoadSourceInfo dataSourceInfo = new PullLoadSourceInfo();
 
     public BrokerLoadJob(long dbId, String label, BrokerDesc brokerDesc, List<DataDescription> dataDescriptions) {
-        super(dbId, label, dataDescriptions);
+        super(dbId, label);
         this.timeoutSecond = Config.pull_load_task_default_timeout_second;
+        this.dataDescriptions = dataDescriptions;
         this.brokerDesc = brokerDesc;
         this.jobType = org.apache.doris.load.LoadJob.EtlJobType.BROKER;
     }
@@ -90,6 +97,15 @@ public class BrokerLoadJob extends LoadJob {
             fileGroup.parse(db);
             dataSourceInfo.addFileGroup(fileGroup);
         }
+    }
+
+    @Override
+    protected Set<String> getTableNames() {
+        Set<String> result = Sets.newHashSet();
+        for (DataDescription dataDescription : dataDescriptions) {
+            result.add(dataDescription.getTableName());
+        }
+        return result;
     }
 
     @Override
