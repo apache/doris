@@ -75,6 +75,9 @@ public:
         string& old_data_path_prefix, OLAPHeaderMessage* olap_header);
     
     OLAPStatus save(const string& file_path, const OLAPHeaderMessage& olap_header);
+
+private:
+    void _modify_old_segment_group_id(RowsetMetaPB& rowset_meta);
 };
 
 }

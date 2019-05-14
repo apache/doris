@@ -214,7 +214,9 @@ OLAPStatus OlapSnapshotConverter::convert_to_rowset_meta(const PDelta& delta,
     for (auto& segment_group : delta.segment_group()) {
         SegmentGroupPB* new_segment_group = extra_meta_pb->add_segment_groups();
         *new_segment_group = segment_group;
-        if (!segment_group.empty()) {
+        // if segment group does not has empty property, then it is not empty
+        // if segment group's empty == false, then it is not empty
+        if (!segment_group.has_empty() || !segment_group.empty()) {
             empty = false;
         }
         num_rows += segment_group.num_rows();
@@ -406,6 +408,7 @@ OLAPStatus OlapSnapshotConverter::to_new_snapshot(const OLAPHeaderMessage& olap_
         RETURN_NOT_OK(rowset.init());
         std::vector<std::string> success_files;
         RETURN_NOT_OK(rowset.convert_from_old_files(old_data_path_prefix, &success_files));
+        _modify_old_segment_group_id(const_cast<RowsetMetaPB&>(visible_rowset));
     }
 
     // convert inc delta file to rowsets
@@ -417,6 +420,7 @@ OLAPStatus OlapSnapshotConverter::to_new_snapshot(const OLAPHeaderMessage& olap_
         RETURN_NOT_OK(rowset.init());
         std::vector<std::string> success_files;
         RETURN_NOT_OK(rowset.convert_from_old_files(old_data_path_prefix, &success_files));
+        _modify_old_segment_group_id(const_cast<RowsetMetaPB&>(inc_rowset));
     }
 
     for (auto it = pending_rowsets->begin(); it != pending_rowsets->end(); ++it) {
@@ -432,6 +436,7 @@ OLAPStatus OlapSnapshotConverter::to_new_snapshot(const OLAPHeaderMessage& olap_
         // should load the pending delta, get these info and reset rowset meta's row num
         // data size, index size
         RETURN_NOT_OK(rowset.reset_sizeinfo());
+        // pending rowset not have segment group id == -1 problem, not need to modify sg id in meta
         rowset.to_rowset_pb(&(*it));
     }
     return OLAP_SUCCESS;
@@ -495,6 +500,23 @@ OLAPStatus OlapSnapshotConverter::save(const string& file_path, const OLAPHeader
     }
 
     return OLAP_SUCCESS;
+}
+
+void OlapSnapshotConverter::_modify_old_segment_group_id(RowsetMetaPB& rowset_meta) {
+    if (!rowset_meta.has_alpha_rowset_extra_meta_pb()) {
+        return;
+    }
+    AlphaRowsetExtraMetaPB* alpha_rowset_extra_meta_pb = rowset_meta.mutable_alpha_rowset_extra_meta_pb();
+    for (auto& segment_group_pb : alpha_rowset_extra_meta_pb->segment_groups()) {
+        if (segment_group_pb.segment_group_id() == -1) {
+            // check if segment groups size == 1
+            if (alpha_rowset_extra_meta_pb->segment_groups().size() != 1) {
+                LOG(FATAL) << "the rowset has a segment group's id == -1 but it contains more than one segment group"
+                           << " it should not happen";
+            }
+            (const_cast<SegmentGroupPB&>(segment_group_pb)).set_segment_group_id(0);
+        }
+    }
 }
 
 }
