@@ -111,14 +111,14 @@ public class LoadManager {
         LoadJob loadJob = null;
         readLock();
         try {
-            if (!dbIdToLabelToLoadJobs.containsKey(db.getId())) {
-                throw new DdlException("Load job does not exist");
-            }
             Map<String, List<LoadJob>> labelToLoadJobs = dbIdToLabelToLoadJobs.get(db.getId());
-            if (!labelToLoadJobs.containsKey(stmt.getLabel())) {
+            if (labelToLoadJobs == null) {
                 throw new DdlException("Load job does not exist");
             }
             List<LoadJob> loadJobList = labelToLoadJobs.get(stmt.getLabel());
+            if (loadJobList == null) {
+                throw new DdlException("Load job does not exist");
+            }
             Optional<LoadJob> loadJobOptional = loadJobList.stream().filter(entity -> !entity.isFinished()).findFirst();
             if (!loadJobOptional.isPresent()) {
                 throw new DdlException("There is no unfinished job which label is " + stmt.getLabel());
