@@ -248,6 +248,10 @@ namespace config {
     CONF_Int64(cumulative_compaction_budgeted_bytes, "104857600");
     CONF_Int32(cumulative_compaction_write_mbytes_per_sec, "100");
 
+    // if compaction of a tablet failed, this tablet should not be chosen to
+    // compaction until this interval passes.
+    CONF_Int64(min_compaction_failure_interval_ms, "600000") // 10 min
+
     // Port to start debug webserver on
     CONF_Int32(webserver_port, "8040");
     // Interface to start debug webserver on. If blank, webserver binds to 0.0.0.0
