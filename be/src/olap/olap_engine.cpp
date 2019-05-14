@@ -1860,6 +1860,7 @@ void OLAPEngine::perform_cumulative_compaction() {
                      << ", res=" << res;
         return;
     }
+    best_table->set_last_compaction_failure_time(0);
 }
 
 void OLAPEngine::perform_base_compaction() {
@@ -1889,6 +1890,7 @@ void OLAPEngine::perform_base_compaction() {
                      << ", res=" << res;
         return;
     }
+    best_table->set_last_compaction_failure_time(0);
 }
 
 OLAPTablePtr OLAPEngine::_find_best_tablet_to_compaction(CompactionType compaction_type) {
