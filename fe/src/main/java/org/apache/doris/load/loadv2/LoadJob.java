@@ -27,6 +27,8 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
@@ -38,6 +40,7 @@ import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.Load;
 import org.apache.doris.load.Source;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TEtlState;
@@ -69,6 +72,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     protected static final String DPP_ABNORMAL_ALL = "dpp.abnorm.ALL";
 
     protected long id = Catalog.getCurrentCatalog().getNextId();
+    // input params
     protected long dbId;
     protected String label;
     protected JobState state = JobState.PENDING;
@@ -207,7 +211,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         }
     }
 
-    protected void checkDataSourceInfo(Database db, List<DataDescription> dataDescriptions) throws DdlException {
+    protected static void checkDataSourceInfo(Database db, List<DataDescription> dataDescriptions) throws DdlException {
         for (DataDescription dataDescription : dataDescriptions) {
             // loadInfo is a temporary param for the method of checkAndCreateSource.
             // <TableId,<PartitionId,<LoadInfoList>>>
@@ -216,6 +220,8 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             Load.checkAndCreateSource(db, dataDescription, loadInfo, false);
         }
     }
+
+    abstract Set<String> getTableNames();
 
     public void beginTxn() throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException {
         // register txn state listener
@@ -303,15 +309,51 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     public void cancelJob(FailMsg failMsg) throws DdlException {
         writeLock();
         try {
+            // check
             if (isCommitting) {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
                                  .add("error_msg", "The txn which belongs to job is committing. "
                                          + "The job could not be cancelled in this step").build());
                 throw new DdlException("Job could not be cancelled while txn is committing");
             }
+            if (isFinished()) {
+                LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
+                                 .add("state", state)
+                                 .add("error_msg", "Job could not be cancelled when job is finished or cancelled")
+                                 .build());
+                throw new DdlException("Job could not be cancelled when job is finished or cancelled");
+            }
+
+            checkAuth();
             executeCancel(failMsg);
         } finally {
             writeUnlock();
+        }
+    }
+
+    private void checkAuth() throws DdlException {
+        Database db = Catalog.getInstance().getDb(dbId);
+        if (db == null) {
+            throw new DdlException("Db does not exist. id: " + dbId);
+        }
+
+        // check auth
+        Set<String> tableNames = getTableNames();
+        if (tableNames.isEmpty()) {
+            // forward compatibility
+            if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), db.getFullName(),
+                                                                   PrivPredicate.LOAD)) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "CANCEL LOAD");
+            }
+        } else {
+            for (String tblName : tableNames) {
+                if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), db.getFullName(),
+                                                                        tblName, PrivPredicate.LOAD)) {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "CANCEL LOAD",
+                                                   ConnectContext.get().getQualifiedUser(),
+                                                   ConnectContext.get().getRemoteIP(), tblName);
+                }
+            }
         }
     }
 
@@ -376,9 +418,11 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         return true;
     }
 
-    public List<Comparable> getShowInfo() {
+    public List<Comparable> getShowInfo() throws DdlException {
         readLock();
         try {
+            // check auth
+            checkAuth();
             List<Comparable> jobInfo = Lists.newArrayList();
             // jobId
             jobInfo.add(id);

@@ -21,7 +21,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
-import org.apache.doris.load.Load;
 import org.apache.doris.load.loadv2.LoadManager;
 import org.apache.doris.qe.ConnectContext;
 

@@ -210,7 +210,7 @@ public class GlobalTransactionMgr {
             writeUnlock();
         }
     }
-    
+
     public void commitTransaction(long dbId, long transactionId, List<TabletCommitInfo> tabletCommitInfos)
             throws UserException {
         commitTransaction(dbId, transactionId, tabletCommitInfos, null);
@@ -282,12 +282,12 @@ public class GlobalTransactionMgr {
             if (tbl == null) {
                 throw new MetaNotFoundException("could not find table for tablet [" + tabletId + "]");
             }
-            
+
             long partitionId = tabletInvertedIndex.getPartitionId(tabletId);
             if (tbl.getPartition(partitionId) == null) {
                 throw new MetaNotFoundException("could not find partition for tablet [" + tabletId + "]");
             }
-            
+
             if (!tableToPartition.containsKey(tableId)) {
                 tableToPartition.put(tableId, new HashSet<>());
             }
