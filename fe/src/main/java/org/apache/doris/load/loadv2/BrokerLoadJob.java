@@ -59,8 +59,8 @@ public class BrokerLoadJob extends LoadJob {
     // include broker desc and data desc
     private PullLoadSourceInfo dataSourceInfo = new PullLoadSourceInfo();
 
-    public BrokerLoadJob(long dbId, String label, BrokerDesc brokerDesc) {
-        super(dbId, label);
+    public BrokerLoadJob(long dbId, String label, BrokerDesc brokerDesc, List<DataDescription> dataDescriptions) {
+        super(dbId, label, dataDescriptions);
         this.timeoutSecond = Config.pull_load_task_default_timeout_second;
         this.brokerDesc = brokerDesc;
         this.jobType = org.apache.doris.load.LoadJob.EtlJobType.BROKER;
@@ -73,12 +73,13 @@ public class BrokerLoadJob extends LoadJob {
         if (db == null) {
             throw new DdlException("Database[" + dbName + "] does not exist");
         }
+        // check data source info
+        LoadJob.checkDataSourceInfo(db, stmt.getDataDescriptions());
 
         // create job
         BrokerLoadJob brokerLoadJob = new BrokerLoadJob(db.getId(), stmt.getLabel().getLabelName(),
-                                                        stmt.getBrokerDesc());
+                                                        stmt.getBrokerDesc(), stmt.getDataDescriptions());
         brokerLoadJob.setJobProperties(stmt.getProperties());
-        brokerLoadJob.checkDataSourceInfo(db, stmt.getDataDescriptions());
         brokerLoadJob.setDataSourceInfo(db, stmt.getDataDescriptions());
         return brokerLoadJob;
     }
