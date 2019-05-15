@@ -310,6 +310,7 @@ bool BaseCompaction::_check_whether_satisfy_policy(bool is_manual_trigger,
 OLAPStatus BaseCompaction::_do_base_compaction(VersionHash new_base_version_hash,
                                                vector<ColumnData*>* base_data_sources,
                                                uint64_t* row_count) {
+    OlapStopWatch watch;
     // 1. 生成新base文件对应的olap index
     SegmentGroup* new_base = new (std::nothrow) SegmentGroup(_table.get(),
                                                        _new_base_version,
@@ -399,7 +400,9 @@ OLAPStatus BaseCompaction::_do_base_compaction(VersionHash new_base_version_hash
             << "source_rows=" << source_rows
             << ", merged_rows=" << merged_rows
             << ", filted_rows=" << filted_rows
-            << ", new_index_rows=" << new_base->num_rows();
+            << ", new_index_rows=" << new_base->num_rows()
+            << ", merged_version_num=" << _need_merged_versions.size()
+            << ", time_us=" << watch.get_elapse_time_us();
     }
 
     LOG(INFO) << "succeed to do base compaction. table=" << _table->full_name()
