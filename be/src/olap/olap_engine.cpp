@@ -1897,6 +1897,22 @@ OLAPTablePtr OLAPEngine::_find_best_tablet_to_compaction(CompactionType compacti
                 continue;
             }
 
+            if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
+                if (!table_ptr->try_cumulative_lock()) {
+                    continue;
+                } else {
+                    table_ptr->release_cumulative_lock();
+                }
+            }
+
+            if (compaction_type == CompactionType::BASE_COMPACTION) {
+                if (!table_ptr->try_base_compaction_lock()) {
+                    continue;
+                } else {
+                    table_ptr->release_base_compaction_lock();
+                }
+            }
+
             ReadLock rdlock(table_ptr->get_header_lock_ptr());
             uint32_t table_score = 0;
             if (compaction_type == CompactionType::BASE_COMPACTION) {
