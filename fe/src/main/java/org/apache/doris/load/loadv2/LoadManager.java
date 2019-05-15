@@ -20,15 +20,14 @@
 
 package org.apache.doris.load.loadv2;
 
+import org.apache.doris.analysis.CancelLoadStmt;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LabelAlreadyUsedException;
-import org.apache.doris.common.util.LogBuilder;
-import org.apache.doris.task.MasterTaskExecutor;
-import org.apache.doris.transaction.TransactionState;
+import org.apache.doris.load.FailMsg;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -43,6 +42,7 @@ import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -92,13 +92,43 @@ public class LoadManager {
         if (!dbIdToLabelToLoadJobs.containsKey(dbId)) {
             dbIdToLabelToLoadJobs.put(loadJob.getDbId(), new ConcurrentHashMap<>());
         }
-        if (!dbIdToLabelToLoadJobs.get(dbId).containsKey(loadJob.getLabel())) {
-            dbIdToLabelToLoadJobs.get(dbId).put(loadJob.getLabel(), new ArrayList<>());
+        Map<String, List<LoadJob>> labelToLoadJobs = dbIdToLabelToLoadJobs.get(dbId);
+        if (!labelToLoadJobs.containsKey(loadJob.getLabel())) {
+            labelToLoadJobs.put(loadJob.getLabel(), new ArrayList<>());
         }
-        dbIdToLabelToLoadJobs.get(dbId).get(loadJob.getLabel()).add(loadJob);
+        labelToLoadJobs.get(loadJob.getLabel()).add(loadJob);
 
         // submit it
         loadJobScheduler.submitJob(loadJob);
+    }
+
+    public void cancelLoadJob(CancelLoadStmt stmt) throws DdlException {
+        Database db = Catalog.getInstance().getDb(stmt.getDbName());
+        if (db == null) {
+            throw new DdlException("Db does not exist. name: " + stmt.getDbName());
+        }
+
+        LoadJob loadJob = null;
+        readLock();
+        try {
+            Map<String, List<LoadJob>> labelToLoadJobs = dbIdToLabelToLoadJobs.get(db.getId());
+            if (labelToLoadJobs == null) {
+                throw new DdlException("Load job does not exist");
+            }
+            List<LoadJob> loadJobList = labelToLoadJobs.get(stmt.getLabel());
+            if (loadJobList == null) {
+                throw new DdlException("Load job does not exist");
+            }
+            Optional<LoadJob> loadJobOptional = loadJobList.stream().filter(entity -> !entity.isFinished()).findFirst();
+            if (!loadJobOptional.isPresent()) {
+                throw new DdlException("There is no unfinished job which label is " + stmt.getLabel());
+            }
+            loadJob = loadJobOptional.get();
+        } finally {
+            readUnlock();
+        }
+
+        loadJob.cancelJob(new FailMsg(FailMsg.CancelType.USER_CANCEL, "user cancel"));
     }
 
     public List<LoadJob> getLoadJobByState(JobState jobState) {
@@ -163,21 +193,31 @@ public class LoadManager {
         readLock();
         try {
             Map<String, List<LoadJob>> labelToLoadJobs = dbIdToLabelToLoadJobs.get(dbId);
+            List<LoadJob> loadJobList = Lists.newArrayList();
+            // check label value
             if (accurateMatch) {
                 if (!labelToLoadJobs.containsKey(labelValue)) {
                     return loadJobInfos;
                 }
-                loadJobInfos.addAll(labelToLoadJobs.get(labelValue).stream()
-                                            .filter(entity -> states.contains(entity.getState()))
-                                            .map(entity -> entity.getShowInfo()).collect(Collectors.toList()));
-                return loadJobInfos;
+                loadJobList.addAll(labelToLoadJobs.get(labelValue));
             }
-            List<LoadJob> loadJobList = Lists.newArrayList();
+            // non-accurate match
             for (Map.Entry<String, List<LoadJob>> entry : labelToLoadJobs.entrySet()) {
                 if (entry.getKey().contains(labelValue)) {
-                    loadJobInfos.addAll(entry.getValue().stream()
-                                                .filter(entity -> states.contains(entity.getState()))
-                                                .map(entity -> entity.getShowInfo()).collect(Collectors.toList()));
+                    loadJobList.addAll(entry.getValue());
+                }
+            }
+
+            // check state
+            for (LoadJob loadJob : loadJobList) {
+                try {
+                    if (!states.contains(loadJob.getState())) {
+                        continue;
+                    }
+                    // add load job info
+                    loadJobInfos.add(loadJob.getShowInfo());
+                } catch (DdlException e) {
+                    continue;
                 }
             }
             return loadJobInfos;

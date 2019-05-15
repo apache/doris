@@ -149,7 +149,8 @@ OLAPTable::OLAPTable(OLAPHeader* header, OlapStore* store) :
         _id(0),
         _store(store),
         _is_loaded(false),
-        _is_bad(false) {
+        _is_bad(false),
+        _last_compaction_failure_time(0) {
     if (header == NULL) {
         return;  // for convenience of mock test.
     }

@@ -176,8 +176,8 @@ build_openssl() {
     make -j$PARALLEL && make install
     if [ -f $TP_INSTALL_DIR/lib64/libcrypto.a ]; then
         mkdir -p $TP_INSTALL_DIR/lib && \
-        ln -s $TP_INSTALL_DIR/lib64/libcrypto.a $TP_INSTALL_DIR/lib/libcrypto.a && \
-        ln -s $TP_INSTALL_DIR/lib64/libssl.a $TP_INSTALL_DIR/lib/libssl.a
+        cp $TP_INSTALL_DIR/lib64/libcrypto.a $TP_INSTALL_DIR/lib/libcrypto.a && \
+        cp $TP_INSTALL_DIR/lib64/libssl.a $TP_INSTALL_DIR/lib/libssl.a
     fi
     # NOTE(zc): remove this dynamic library files to make libcurl static link.
     # If I don't remove this files, I don't known how to make libcurl link static library
@@ -327,7 +327,12 @@ build_snappy() {
     -DSNAPPY_BUILD_TESTS=0 ../
     make -j$PARALLEL && make install
     if [ -f $TP_INSTALL_DIR/lib64/libsnappy.a ]; then
-        mkdir -p $TP_INSTALL_DIR/lib && ln -s $TP_INSTALL_DIR/lib64/libsnappy.a $TP_INSTALL_DIR/lib/libsnappy.a
+        mkdir -p $TP_INSTALL_DIR/lib && cp $TP_INSTALL_DIR/lib64/libsnappy.a $TP_INSTALL_DIR/lib/libsnappy.a
+        #build for libarrow.a
+        cp $TP_INCLUDE_DIR/snappy/snappy-c.h  $TP_INCLUDE_DIR/snappy-c.h && \
+        cp $TP_INCLUDE_DIR/snappy/snappy-sinksource.h  $TP_INCLUDE_DIR/snappy-sinksource.h && \
+        cp $TP_INCLUDE_DIR/snappy/snappy-stubs-public.h  $TP_INCLUDE_DIR/snappy-stubs-public.h && \
+        cp $TP_INCLUDE_DIR/snappy/snappy.h  $TP_INCLUDE_DIR/snappy.h
     fi
 }
 
@@ -488,7 +493,7 @@ build_brpc() {
     -DProtobuf_PROTOC_EXECUTABLE=$TP_INSTALL_DIR/bin/protoc ..
     make -j$PARALLEL && make install
     if [ -f $TP_INSTALL_DIR/lib/libbrpc.a ]; then
-        mkdir -p $TP_INSTALL_DIR/lib64 && ln -s $TP_INSTALL_DIR/lib/libbrpc.a $TP_INSTALL_DIR/lib64/libbrpc.a
+        mkdir -p $TP_INSTALL_DIR/lib64 && cp $TP_INSTALL_DIR/lib/libbrpc.a $TP_INSTALL_DIR/lib64/libbrpc.a
     fi
 }
 
@@ -511,10 +516,40 @@ build_librdkafka() {
     cd $TP_SOURCE_DIR/$LIBRDKAFKA_SOURCE
 
     CPPFLAGS="-I${TP_INCLUDE_DIR}" \
-    LDFLAGS="-L${TP_LIB_DIR}"
+    LDFLAGS="-L${TP_LIB_DIR}" \
     CFLAGS="-fPIC" \
     ./configure --prefix=$TP_INSTALL_DIR --enable-static --disable-ssl --disable-sasl
     make -j$PARALLEL && make install
+}
+
+build_arrow() {
+    check_if_source_exist $ARROW_SOURCE
+    cd $TP_SOURCE_DIR/$ARROW_SOURCE/cpp && mkdir -p release && cd release
+    export ARROW_BROTLI_URL=${TP_SOURCE_DIR}/${BROTLI_NAME}
+    export ARROW_DOUBLE_CONVERSION_URL=${TP_SOURCE_DIR}/${DOUBLE_CONVERSION_NAME}
+    export ARROW_GLOG_URL=${TP_SOURCE_DIR}/${GLOG_NAME}
+    export ARROW_LZ4_URL=${TP_SOURCE_DIR}/${LZ4_NAME}
+    export ARROW_URIPARSER_URL=${TP_SOURCE_DIR}/${URIPARSER_NAME}
+    export ARROW_ZSTD_URL=${TP_SOURCE_DIR}/${ZSTD_NAME}
+    
+    cmake -DARROW_PARQUET=ON -DARROW_IPC=OFF -DARROW_BUILD_SHARED=OFF \
+    -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR \
+    -DARROW_BOOST_USE_SHARED=OFF -DBoost_NO_BOOST_CMAKE=ON -DBOOST_ROOT=$TP_INSTALL_DIR \
+    -Dgflags_ROOT=$TP_INSTALL_DIR/ \
+    -DSnappy_ROOT=$TP_INSTALL_DIR/ \
+    -DGLOG_ROOT=$TP_INSTALL_DIR/ \
+    -DLZ4_ROOT=$TP_INSTALL_DIR/ \
+    -DThrift_ROOT=$TP_INSTALL_DIR/ ..
+
+    make -j$PARALLEL && make install
+    #copy dep libs
+    cp -rf ./jemalloc_ep-prefix/src/jemalloc_ep/dist/lib/libjemalloc_pic.a $TP_INSTALL_DIR/lib64/libjemalloc.a
+    cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlienc.a $TP_INSTALL_DIR/lib64/libbrotlienc.a
+    cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlidec.a $TP_INSTALL_DIR/lib64/libbrotlidec.a
+    cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlicommon.a $TP_INSTALL_DIR/lib64/libbrotlicommon.a
+    cp -rf ./zstd_ep-install/lib64/libzstd.a $TP_INSTALL_DIR/lib64/libzstd.a
+    cp -rf ./double-conversion_ep/src/double-conversion_ep/lib/libdouble-conversion.a $TP_INSTALL_DIR/lib64/libdouble-conversion.a
+    cp -rf ./uriparser_ep-install/lib/liburiparser.a $TP_INSTALL_DIR/lib64/liburiparser.a
 }
 
 build_llvm 
@@ -540,5 +575,7 @@ build_leveldb
 build_brpc
 build_rocksdb
 build_librdkafka
+build_arrow
 
 echo "Finihsed to build all thirdparties"
+

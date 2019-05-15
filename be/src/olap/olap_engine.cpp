@@ -1843,6 +1843,7 @@ void OLAPEngine::perform_cumulative_compaction() {
     if (res != OLAP_SUCCESS) {
         if (res != OLAP_ERR_CUMULATIVE_REPEAT_INIT && res != OLAP_ERR_CE_TRY_CE_LOCK_ERROR) {
             DorisMetrics::cumulative_compaction_request_failed.increment(1);
+            best_table->set_last_compaction_failure_time(UnixMillis());
             LOG(WARNING) << "failed to init cumulative compaction"
                 << ", table=" << best_table->full_name()
                 << ", res=" << res;
@@ -1853,11 +1854,13 @@ void OLAPEngine::perform_cumulative_compaction() {
     res = cumulative_compaction.run();
     if (res != OLAP_SUCCESS) {
         DorisMetrics::cumulative_compaction_request_failed.increment(1);
+        best_table->set_last_compaction_failure_time(UnixMillis());
         LOG(WARNING) << "failed to do cumulative compaction"
                      << ", table=" << best_table->full_name()
                      << ", res=" << res;
         return;
     }
+    best_table->set_last_compaction_failure_time(0);
 }
 
 void OLAPEngine::perform_base_compaction() {
@@ -1870,6 +1873,7 @@ void OLAPEngine::perform_base_compaction() {
     if (res != OLAP_SUCCESS) {
         if (res != OLAP_ERR_BE_TRY_BE_LOCK_ERROR && res != OLAP_ERR_BE_NO_SUITABLE_VERSION) {
             DorisMetrics::base_compaction_request_failed.increment(1);
+            best_table->set_last_compaction_failure_time(UnixMillis());
             LOG(WARNING) << "failed to init base compaction"
                 << ", table=" << best_table->full_name()
                 << ", res=" << res;
@@ -1880,23 +1884,26 @@ void OLAPEngine::perform_base_compaction() {
     res = base_compaction.run();
     if (res != OLAP_SUCCESS) {
         DorisMetrics::base_compaction_request_failed.increment(1);
+        best_table->set_last_compaction_failure_time(UnixMillis());
         LOG(WARNING) << "failed to init base compaction"
                      << ", table=" << best_table->full_name()
                      << ", res=" << res;
         return;
     }
+    best_table->set_last_compaction_failure_time(0);
 }
 
 OLAPTablePtr OLAPEngine::_find_best_tablet_to_compaction(CompactionType compaction_type) {
     ReadLock tablet_map_rdlock(&_tablet_map_lock);
     uint32_t highest_score = 0;
     OLAPTablePtr best_table;
+    int64_t now = UnixMillis();
     for (tablet_map_t::value_type& table_ins : _tablet_map){
         for (OLAPTablePtr& table_ptr : table_ins.second.table_arr) {
             if (!table_ptr->is_used() || !table_ptr->is_loaded() || !_can_do_compaction(table_ptr)) {
                 continue;
             }
-
+          
             if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
                 if (!table_ptr->try_cumulative_lock()) {
                     continue;
@@ -1911,6 +1918,12 @@ OLAPTablePtr OLAPEngine::_find_best_tablet_to_compaction(CompactionType compacti
                 } else {
                     table_ptr->release_base_compaction_lock();
                 }
+            } 
+          
+            if (now - table_ptr->last_compaction_failure_time() <= config::min_compaction_failure_interval_sec * 1000) {
+                LOG(INFO) << "tablet last compaction failure time is: " << table_ptr->last_compaction_failure_time()
+                        << ", skip it";
+                continue;
             }
 
             ReadLock rdlock(table_ptr->get_header_lock_ptr());
@@ -1960,7 +1973,7 @@ OLAPStatus OLAPEngine::start_trash_sweep(double* usage) {
             continue;
         }
 
-        double curr_usage = info.data_used_capacity
+        double curr_usage = (info.capacity - info.available)
                 / (double) info.capacity;
         *usage = *usage > curr_usage ? *usage : curr_usage;
 
