@@ -1833,8 +1833,8 @@ void OLAPEngine::start_clean_fd_cache() {
     VLOG(10) << "end clean file descritpor cache";
 }
 
-void OLAPEngine::perform_cumulative_compaction() {
-    OLAPTablePtr best_table = _find_best_tablet_to_compaction(CompactionType::CUMULATIVE_COMPACTION);
+void OLAPEngine::perform_cumulative_compaction(OlapStore* store) {
+    OLAPTablePtr best_table = _find_best_tablet_to_compaction(CompactionType::CUMULATIVE_COMPACTION, store);
     if (best_table == nullptr) { return; }
 
     DorisMetrics::cumulative_compaction_request_total.increment(1);
@@ -1863,8 +1863,8 @@ void OLAPEngine::perform_cumulative_compaction() {
     best_table->set_last_compaction_failure_time(0);
 }
 
-void OLAPEngine::perform_base_compaction() {
-    OLAPTablePtr best_table = _find_best_tablet_to_compaction(CompactionType::BASE_COMPACTION);
+void OLAPEngine::perform_base_compaction(OlapStore* store) {
+    OLAPTablePtr best_table = _find_best_tablet_to_compaction(CompactionType::BASE_COMPACTION, store);
     if (best_table == nullptr) { return; }
 
     DorisMetrics::base_compaction_request_total.increment(1);
@@ -1893,14 +1893,15 @@ void OLAPEngine::perform_base_compaction() {
     best_table->set_last_compaction_failure_time(0);
 }
 
-OLAPTablePtr OLAPEngine::_find_best_tablet_to_compaction(CompactionType compaction_type) {
+OLAPTablePtr OLAPEngine::_find_best_tablet_to_compaction(CompactionType compaction_type, OlapStore* store) {
     ReadLock tablet_map_rdlock(&_tablet_map_lock);
     uint32_t highest_score = 0;
     OLAPTablePtr best_table;
     int64_t now = UnixMillis();
     for (tablet_map_t::value_type& table_ins : _tablet_map){
         for (OLAPTablePtr& table_ptr : table_ins.second.table_arr) {
-            if (!table_ptr->is_used() || !table_ptr->is_loaded() || !_can_do_compaction(table_ptr)) {
+            if (table_ptr->store()->path_hash() != store->path_hash() 
+                || !table_ptr->is_used() || !table_ptr->is_loaded() || !_can_do_compaction(table_ptr)) {
                 continue;
             }
           
