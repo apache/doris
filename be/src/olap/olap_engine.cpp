@@ -1903,7 +1903,23 @@ OLAPTablePtr OLAPEngine::_find_best_tablet_to_compaction(CompactionType compacti
             if (!table_ptr->is_used() || !table_ptr->is_loaded() || !_can_do_compaction(table_ptr)) {
                 continue;
             }
+          
+            if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
+                if (!table_ptr->try_cumulative_lock()) {
+                    continue;
+                } else {
+                    table_ptr->release_cumulative_lock();
+                }
+            }
 
+            if (compaction_type == CompactionType::BASE_COMPACTION) {
+                if (!table_ptr->try_base_compaction_lock()) {
+                    continue;
+                } else {
+                    table_ptr->release_base_compaction_lock();
+                }
+            } 
+          
             if (now - table_ptr->last_compaction_failure_time() <= config::min_compaction_failure_interval_sec * 1000) {
                 LOG(INFO) << "tablet last compaction failure time is: " << table_ptr->last_compaction_failure_time()
                         << ", skip it";
