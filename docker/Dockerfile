@@ -24,8 +24,8 @@ ENV DEFAULT_DIR /var/local
 ARG GCC_VERSION=7.3.0
 ARG GCC_URL=https://mirrors.ustc.edu.cn/gnu/gcc/gcc-${GCC_VERSION}
 
-# install dependencies and build gcc 
-RUN yum install -y bzip2 wget git gcc-c++ libstdc++-static byacc flex automake libtool binutils-devel bison ncurses-devel make mlocate unzip patch which vim-common redhat-lsb-core zip \
+# install dependencies and build gcc
+RUN yum install -y bzip2 wget git gcc-c++ libstdc++-static byacc flex automake libtool binutils-devel bison ncurses-devel make mlocate unzip patch which vim-common redhat-lsb-core zip libcurl-devel \
   && updatedb \
   && yum -y clean all \
   && rm -rf /var/cache/yum \
@@ -39,29 +39,23 @@ RUN yum install -y bzip2 wget git gcc-c++ libstdc++-static byacc flex automake l
   && make -j$[$(nproc)/4+1] && make install \
   && rm -rf /var/local/gcc \
   && rm -f /tmp/gcc.tar.gz
- 
+
 # build cmake
 ARG CMAKE_VERSION=3.12.3
 ARG CMAKE_DOWNLOAD_URL=https://cmake.org/files/v3.12/cmake-${CMAKE_VERSION}.tar.gz
 RUN mkdir -p /tmp/cmake && curl -fsSL -o /tmp/cmake.tar.gz ${CMAKE_DOWNLOAD_URL} \
     && tar -zxf /tmp/cmake.tar.gz -C /tmp/cmake --strip-components=1 \
     && cd /tmp/cmake \
-    && ./bootstrap --prefix=/usr/local \
-    && make -j$[$(nproc)/4+1] \
-    && make install \
+    && ./bootstrap --system-curl \
+    && gmake -j$[$(nproc)/4+1] \
+    && gmake install \
     && rm -rf /tmp/cmake.tar.gz \
     && rm -rf /tmp/cmake
 
 # install jdk
+COPY ./jdk.rpm ./
 RUN touch  ${DEFAULT_DIR}/install_jdk.sh \
     && echo '#!/bin/bash' >> ${DEFAULT_DIR}/install_jdk.sh \
-    && echo 'JAVA_VERSION="8"' >>  ${DEFAULT_DIR}/install_jdk.sh \
-    && echo 'URL=https://www.oracle.com' >>  ${DEFAULT_DIR}/install_jdk.sh \
-    && echo 'DOWNLOAD_URL1=${URL}/technetwork/java/javase/downloads/index.html' >>  ${DEFAULT_DIR}/install_jdk.sh \
-    && echo 'DOWNLOAD_URL2=$(curl -s $DOWNLOAD_URL1 | egrep -o "\/technetwork\/java/\javase\/downloads\/jdk${JAVA_VERSION}-downloads-.*\.html" | head -1)' >>  ${DEFAULT_DIR}/install_jdk.sh \
-    && echo 'DOWNLOAD_URL3="$(echo ${URL}${DOWNLOAD_URL2}|awk -F\" {"print $1"})"' >>  ${DEFAULT_DIR}/install_jdk.sh \
-    && echo 'DOWNLOAD_URL4=$(curl -s "$DOWNLOAD_URL3" | egrep -o "https\:\/\/download.oracle\.com\/otn-pub\/java\/jdk\/[7-8]u[0-9]+\-(.*)+\/jdk-[7-8]u[0-9]+(.*)linux-x64.rpm"|tail -n1)' >> ${DEFAULT_DIR}/install_jdk.sh \
-    && echo 'wget -q --no-cookies --no-check-certificate --header "Cookie: oraclelicense=accept-securebackup-cookie" $DOWNLOAD_URL4 -O jdk.rpm > /dev/null 2>&1' >>  ${DEFAULT_DIR}/install_jdk.sh \
     && echo 'rpm -Uvh jdk.rpm > /dev/null 2>&1' >>  ${DEFAULT_DIR}/install_jdk.sh \
     && echo 'mv /usr/java/jdk* /usr/java/jdk' >>  ${DEFAULT_DIR}/install_jdk.sh \
     && echo 'export JAVA_HOME=/usr/java/jdk' >>  ${DEFAULT_DIR}/install_jdk.sh \
@@ -88,16 +82,16 @@ RUN mkdir -p /usr/share/maven /usr/share/maven/ref \
   && tar -xzf /tmp/apache-maven.tar.gz -C /usr/share/maven --strip-components=1 \
   && rm -f /tmp/apache-maven.tar.gz \
   && ln -s /usr/share/maven/bin/mvn /usr/bin/mvn
-  
+
 ENV MAVEN_HOME /usr/share/maven
-  
+
 # build environment
 WORKDIR ${DEFAULT_DIR}
 
 # there is a repo which is included all of thirdparty
 ENV REPOSITORY_URL=https://doris-incubating-repo.bj.bcebos.com/thirdparty
 
-# clone lastest source code from local dir(please update local dir before docker build), download and build third party
+# clone lastest source code, download and build thirdparty
 COPY incubator-doris ${DEFAULT_DIR}/incubator-doris
 RUN cd ${DEFAULT_DIR}/incubator-doris && /bin/bash thirdparty/build-thirdparty.sh \
     && rm -rf ${DEFAULT_DIR}/incubator-doris/thirdparty/src \
