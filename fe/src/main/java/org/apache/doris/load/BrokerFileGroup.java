@@ -17,7 +17,6 @@
 
 package org.apache.doris.load;
 
-import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.ColumnSeparator;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.Expr;
@@ -137,7 +136,7 @@ public class BrokerFileGroup implements Writable {
         isNegative = dataDescription.isNegative();
 
         // FilePath
-        filePaths = dataDescription.getFilePathes();
+        filePaths = dataDescription.getFilePaths();
     }
 
     public long getTableId() {

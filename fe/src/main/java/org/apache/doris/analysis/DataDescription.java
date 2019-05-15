@@ -58,7 +58,7 @@ public class DataDescription {
     public static String FUNCTION_HASH_HLL = "hll_hash";
     private final String tableName;
     private final List<String> partitionNames;
-    private final List<String> filePathes;
+    private final List<String> filePaths;
     private final List<String> columnNames;
     private final ColumnSeparator columnSeparator;
     private final String fileFormat;
@@ -76,14 +76,14 @@ public class DataDescription {
 
     public DataDescription(String tableName, 
                            List<String> partitionNames, 
-                           List<String> filePathes, 
+                           List<String> filePaths,
                            List<String> columnNames,
                            ColumnSeparator columnSeparator,
                            boolean isNegative,
                            List<Expr> columnMappingList) {
         this.tableName = tableName;
         this.partitionNames = partitionNames;
-        this.filePathes = filePathes;
+        this.filePaths = filePaths;
         this.columnNames = columnNames;
         this.columnSeparator = columnSeparator;
         this.fileFormat = null;
@@ -93,7 +93,7 @@ public class DataDescription {
 
     public DataDescription(String tableName,
                            List<String> partitionNames,
-                           List<String> filePathes,
+                           List<String> filePaths,
                            List<String> columnNames,
                            ColumnSeparator columnSeparator,
                            String fileFormat,
@@ -101,7 +101,7 @@ public class DataDescription {
                            List<Expr> columnMappingList) {
         this.tableName = tableName;
         this.partitionNames = partitionNames;
-        this.filePathes = filePathes;
+        this.filePaths = filePaths;
         this.columnNames = columnNames;
         this.columnSeparator = columnSeparator;
         this.fileFormat = fileFormat;
@@ -117,8 +117,8 @@ public class DataDescription {
         return partitionNames;
     }
 
-    public List<String> getFilePathes() {
-        return filePathes;
+    public List<String> getFilePaths() {
+        return filePaths;
     }
 
     public List<String> getColumnNames() {
@@ -447,11 +447,11 @@ public class DataDescription {
                                                 ConnectContext.get().getRemoteIP(), tableName);
         }
 
-        if (filePathes == null || filePathes.isEmpty()) {
+        if (filePaths == null || filePaths.isEmpty()) {
             throw new AnalysisException("No file path in load statement.");
         }
-        for (int i = 0; i < filePathes.size(); ++i) {
-            filePathes.set(i, filePathes.get(i).trim());
+        for (int i = 0; i < filePaths.size(); ++i) {
+            filePaths.set(i, filePaths.get(i).trim());
         }
 
         if (columnSeparator != null) {
@@ -465,7 +465,7 @@ public class DataDescription {
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("DATA INFILE (");
-        Joiner.on(", ").appendTo(sb, Lists.transform(filePathes, new Function<String, String>() {
+        Joiner.on(", ").appendTo(sb, Lists.transform(filePaths, new Function<String, String>() {
             @Override
             public String apply(String s) {
                 return "'" + s + "'";
