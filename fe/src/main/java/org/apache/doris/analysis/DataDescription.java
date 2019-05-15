@@ -50,6 +50,7 @@ import java.util.Set;
 //          INTO TABLE tbl_name
 //          [PARTITION (p1, p2)]
 //          [COLUMNS TERMINATED BY separator]
+//          [FORMAT AS format]
 //          [(col1, ...)]
 //          [SET (k1=f1(xx), k2=f2(xx))]
 public class DataDescription {
@@ -60,6 +61,7 @@ public class DataDescription {
     private final List<String> filePathes;
     private final List<String> columnNames;
     private final ColumnSeparator columnSeparator;
+    private final String fileFormat;
     private final boolean isNegative;
     private final List<Expr> columnMappingList;
 
@@ -84,6 +86,25 @@ public class DataDescription {
         this.filePathes = filePathes;
         this.columnNames = columnNames;
         this.columnSeparator = columnSeparator;
+        this.fileFormat = null;
+        this.isNegative = isNegative;
+        this.columnMappingList = columnMappingList;
+    }
+
+    public DataDescription(String tableName,
+                           List<String> partitionNames,
+                           List<String> filePathes,
+                           List<String> columnNames,
+                           ColumnSeparator columnSeparator,
+                           String fileFormat,
+                           boolean isNegative,
+                           List<Expr> columnMappingList) {
+        this.tableName = tableName;
+        this.partitionNames = partitionNames;
+        this.filePathes = filePathes;
+        this.columnNames = columnNames;
+        this.columnSeparator = columnSeparator;
+        this.fileFormat = fileFormat;
         this.isNegative = isNegative;
         this.columnMappingList = columnMappingList;
     }
@@ -103,6 +124,8 @@ public class DataDescription {
     public List<String> getColumnNames() {
         return columnNames;
     }
+
+    public String getFileFormat() { return fileFormat; }
 
     public String getColumnSeparator() {
         if (columnSeparator == null) {
@@ -204,10 +227,15 @@ public class DataDescription {
             if (columnToFunction.containsKey(column)) {
                 throw new AnalysisException("Duplicate column mapping: " + column);
             }
-            
+
+            // we support function and column reference to change a column name
             Expr child1 = predicate.getChild(1);
             if (!(child1 instanceof FunctionCallExpr)) {
-                throw new AnalysisException("Mapping function error, function: " + child1.toSql());
+                if (isPullLoad && child1 instanceof SlotRef) {
+                    // we only support SlotRef in pull load
+                } else {
+                    throw new AnalysisException("Mapping function error, function: " + child1.toSql());
+                }
             }
 
             if (!child1.supportSerializable()) {
@@ -215,6 +243,12 @@ public class DataDescription {
             }
 
             parsedExprMap.put(column, child1);
+
+            if (!(child1 instanceof FunctionCallExpr)) {
+                // only just for pass later check
+                columnToFunction.put(column, Pair.create("__slot_ref", Lists.newArrayList()));
+                continue;
+            }
 
             FunctionCallExpr functionCallExpr = (FunctionCallExpr) child1;
             String functionName = functionCallExpr.getFnName().getFunction();

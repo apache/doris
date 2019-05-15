@@ -114,7 +114,7 @@ public class PullLoadPendingTask extends LoadPendingTask {
             List<BrokerFileGroup> fileGroups = entry.getValue();
             for (BrokerFileGroup fileGroup : fileGroups) {
                 List<TBrokerFileStatus> fileStatuses = Lists.newArrayList();
-                for (String path : fileGroup.getFilePathes()) {
+                for (String path : fileGroup.getFilePaths()) {
                     BrokerUtil.parseBrokerFile(path, job.getBrokerDesc(), fileStatuses);
                 }
                 fileStatusList.add(fileStatuses);
