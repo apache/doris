@@ -57,8 +57,6 @@ OLAPStatus OLAPEngine::_start_bg_worker() {
         [this] {
             _unused_index_thread_callback(nullptr);
         });
-    
-    uint32_t file_system_num = get_file_system_count();
     // convert store map to vector
     std::vector<OlapStore*> store_vec;
     for (auto& tmp_store : _store_map) {
@@ -66,7 +64,7 @@ OLAPStatus OLAPEngine::_start_bg_worker() {
     }
     int32_t store_num = store_vec.size();
     // start be and ce threads for merge data
-    int32_t base_compaction_num_threads = config::base_compaction_num_threads_per_disk * file_system_num;
+    int32_t base_compaction_num_threads = config::base_compaction_num_threads_per_disk * store_num;
     _base_compaction_threads.reserve(base_compaction_num_threads);
     for (uint32_t i = 0; i < base_compaction_num_threads; ++i) {
         _base_compaction_threads.emplace_back(
@@ -75,7 +73,7 @@ OLAPStatus OLAPEngine::_start_bg_worker() {
             });
     }
 
-    int32_t cumulative_compaction_num_threads = config::cumulative_compaction_num_threads_per_disk * file_system_num;
+    int32_t cumulative_compaction_num_threads = config::cumulative_compaction_num_threads_per_disk * store_num;
     _cumulative_compaction_threads.reserve(cumulative_compaction_num_threads);
     for (uint32_t i = 0; i < cumulative_compaction_num_threads; ++i) {
         _cumulative_compaction_threads.emplace_back(
