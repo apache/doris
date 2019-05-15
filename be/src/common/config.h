@@ -250,7 +250,7 @@ namespace config {
 
     // if compaction of a tablet failed, this tablet should not be chosen to
     // compaction until this interval passes.
-    CONF_Int64(min_compaction_failure_interval_ms, "600000") // 10 min
+    CONF_Int64(min_compaction_failure_interval_sec, "600") // 10 min
 
     // Port to start debug webserver on
     CONF_Int32(webserver_port, "8040");

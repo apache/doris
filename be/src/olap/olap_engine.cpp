@@ -1904,7 +1904,7 @@ OLAPTablePtr OLAPEngine::_find_best_tablet_to_compaction(CompactionType compacti
                 continue;
             }
 
-            if (now - table_ptr->last_compaction_failure_time() <= config::min_compaction_failure_interval_ms) {
+            if (now - table_ptr->last_compaction_failure_time() <= config::min_compaction_failure_interval_sec * 1000) {
                 LOG(INFO) << "tablet last compaction failure time is: " << table_ptr->last_compaction_failure_time()
                         << ", skip it";
                 continue;
