@@ -50,6 +50,7 @@ import java.util.Set;
 //          INTO TABLE tbl_name
 //          [PARTITION (p1, p2)]
 //          [COLUMNS TERMINATED BY separator]
+//          [FORMAT AS format]
 //          [(col1, ...)]
 //          [SET (k1=f1(xx), k2=f2(xx))]
 public class DataDescription {
@@ -57,9 +58,10 @@ public class DataDescription {
     public static String FUNCTION_HASH_HLL = "hll_hash";
     private final String tableName;
     private final List<String> partitionNames;
-    private final List<String> filePathes;
+    private final List<String> filePaths;
     private final List<String> columnNames;
     private final ColumnSeparator columnSeparator;
+    private final String fileFormat;
     private final boolean isNegative;
     private final List<Expr> columnMappingList;
 
@@ -74,16 +76,35 @@ public class DataDescription {
 
     public DataDescription(String tableName, 
                            List<String> partitionNames, 
-                           List<String> filePathes, 
+                           List<String> filePaths,
                            List<String> columnNames,
                            ColumnSeparator columnSeparator,
                            boolean isNegative,
                            List<Expr> columnMappingList) {
         this.tableName = tableName;
         this.partitionNames = partitionNames;
-        this.filePathes = filePathes;
+        this.filePaths = filePaths;
         this.columnNames = columnNames;
         this.columnSeparator = columnSeparator;
+        this.fileFormat = null;
+        this.isNegative = isNegative;
+        this.columnMappingList = columnMappingList;
+    }
+
+    public DataDescription(String tableName,
+                           List<String> partitionNames,
+                           List<String> filePaths,
+                           List<String> columnNames,
+                           ColumnSeparator columnSeparator,
+                           String fileFormat,
+                           boolean isNegative,
+                           List<Expr> columnMappingList) {
+        this.tableName = tableName;
+        this.partitionNames = partitionNames;
+        this.filePaths = filePaths;
+        this.columnNames = columnNames;
+        this.columnSeparator = columnSeparator;
+        this.fileFormat = fileFormat;
         this.isNegative = isNegative;
         this.columnMappingList = columnMappingList;
     }
@@ -96,13 +117,15 @@ public class DataDescription {
         return partitionNames;
     }
 
-    public List<String> getFilePathes() {
-        return filePathes;
+    public List<String> getFilePaths() {
+        return filePaths;
     }
 
     public List<String> getColumnNames() {
         return columnNames;
     }
+
+    public String getFileFormat() { return fileFormat; }
 
     public String getColumnSeparator() {
         if (columnSeparator == null) {
@@ -204,10 +227,15 @@ public class DataDescription {
             if (columnToFunction.containsKey(column)) {
                 throw new AnalysisException("Duplicate column mapping: " + column);
             }
-            
+
+            // we support function and column reference to change a column name
             Expr child1 = predicate.getChild(1);
             if (!(child1 instanceof FunctionCallExpr)) {
-                throw new AnalysisException("Mapping function error, function: " + child1.toSql());
+                if (isPullLoad && child1 instanceof SlotRef) {
+                    // we only support SlotRef in pull load
+                } else {
+                    throw new AnalysisException("Mapping function error, function: " + child1.toSql());
+                }
             }
 
             if (!child1.supportSerializable()) {
@@ -215,6 +243,12 @@ public class DataDescription {
             }
 
             parsedExprMap.put(column, child1);
+
+            if (!(child1 instanceof FunctionCallExpr)) {
+                // only just for pass later check
+                columnToFunction.put(column, Pair.create("__slot_ref", Lists.newArrayList()));
+                continue;
+            }
 
             FunctionCallExpr functionCallExpr = (FunctionCallExpr) child1;
             String functionName = functionCallExpr.getFnName().getFunction();
@@ -413,11 +447,11 @@ public class DataDescription {
                                                 ConnectContext.get().getRemoteIP(), tableName);
         }
 
-        if (filePathes == null || filePathes.isEmpty()) {
+        if (filePaths == null || filePaths.isEmpty()) {
             throw new AnalysisException("No file path in load statement.");
         }
-        for (int i = 0; i < filePathes.size(); ++i) {
-            filePathes.set(i, filePathes.get(i).trim());
+        for (int i = 0; i < filePaths.size(); ++i) {
+            filePaths.set(i, filePaths.get(i).trim());
         }
 
         if (columnSeparator != null) {
@@ -431,7 +465,7 @@ public class DataDescription {
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("DATA INFILE (");
-        Joiner.on(", ").appendTo(sb, Lists.transform(filePathes, new Function<String, String>() {
+        Joiner.on(", ").appendTo(sb, Lists.transform(filePaths, new Function<String, String>() {
             @Override
             public String apply(String s) {
                 return "'" + s + "'";

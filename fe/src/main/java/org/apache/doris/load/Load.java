@@ -62,7 +62,6 @@ import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.ListComparator;
-import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.load.AsyncDeleteJob.DeleteState;
@@ -651,7 +650,7 @@ public class Load {
                                             Map<Long, Map<Long, List<Source>>> tableToPartitionSources,
                                             boolean deleteFlag)
             throws DdlException {
-        Source source = new Source(dataDescription.getFilePathes());
+        Source source = new Source(dataDescription.getFilePaths());
         long tableId = -1;
         Set<Long> sourcePartitionIds = Sets.newHashSet();
 

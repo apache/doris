@@ -323,7 +323,9 @@ public class BrokerScanNode extends ScanNode {
 
         params.setProperties(brokerDesc.getProperties());
 
-        context.exprMap = fileGroup.getExprColumnMap();
+        // We must create a new map here, because we will change this map later.
+        // But fileGroup will be persisted later, so we keep it unchanged.
+        context.exprMap = Maps.newHashMap(fileGroup.getExprColumnMap());
         parseExprMap(context.exprMap);
 
         // Generate expr
@@ -488,7 +490,7 @@ public class BrokerScanNode extends ScanNode {
             filesAdded = 0;
             for (BrokerFileGroup fileGroup : fileGroups) {
                 List<TBrokerFileStatus> fileStatuses = Lists.newArrayList();
-                for (String path : fileGroup.getFilePathes()) {
+                for (String path : fileGroup.getFilePaths()) {
                     BrokerUtil.parseBrokerFile(path, brokerDesc, fileStatuses);
                 }
                 fileStatusesList.add(fileStatuses);
@@ -553,7 +555,9 @@ public class BrokerScanNode extends ScanNode {
         }
     }
 
+    // If fileFormat is not null, we use fileFormat instead of check file's suffix
     private void processFileGroup(
+            String fileFormat,
             TBrokerScanRangeParams params,
             List<TBrokerFileStatus> fileStatuses)
             throws UserException {
@@ -640,7 +644,7 @@ public class BrokerScanNode extends ScanNode {
             } catch (AnalysisException e) {
                 throw new UserException(e.getMessage());
             }
-            processFileGroup(context.params, fileStatuses);
+            processFileGroup(context.fileGroup.getFileFormat(), context.params, fileStatuses);
         }
         if (LOG.isDebugEnabled()) {
             for (TScanRangeLocations locations : locationsList) {
