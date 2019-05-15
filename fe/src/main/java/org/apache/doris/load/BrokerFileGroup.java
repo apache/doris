@@ -17,7 +17,6 @@
 
 package org.apache.doris.load;
 
-import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.ColumnSeparator;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.Expr;
@@ -57,14 +56,16 @@ public class BrokerFileGroup implements Writable {
     private long tableId;
     private String valueSeparator;
     private String lineDelimiter;
+    // fileFormat may be null, which means format will be decided by file's suffix
+    // TODO(zc): we need to persist fileFormat, this should be done in next META_VERSION increase
+    private String fileFormat;
     private boolean isNegative;
     private List<Long> partitionIds;
     private List<String> fileFieldNames;
-    private List<String> filePathes;
+    private List<String> filePaths;
 
     // This column need expression to get column
     private Map<String, Expr> exprColumnMap;
-
 
     // Used for recovery from edit log
     private BrokerFileGroup() {
@@ -76,7 +77,7 @@ public class BrokerFileGroup implements Writable {
         this.valueSeparator = ColumnSeparator.convertSeparator(table.getColumnSeparator());
         this.lineDelimiter = table.getLineDelimiter();
         this.isNegative = false;
-        this.filePathes = table.getPaths();
+        this.filePaths = table.getPaths();
     }
 
     public BrokerFileGroup(DataDescription dataDescription) {
@@ -129,10 +130,13 @@ public class BrokerFileGroup implements Writable {
         if (lineDelimiter == null) {
             lineDelimiter = "\n";
         }
+
+        fileFormat = dataDescription.getFileFormat();
+
         isNegative = dataDescription.isNegative();
 
         // FilePath
-        filePathes = dataDescription.getFilePathes();
+        filePaths = dataDescription.getFilePaths();
     }
 
     public long getTableId() {
@@ -146,6 +150,7 @@ public class BrokerFileGroup implements Writable {
     public String getLineDelimiter() {
         return lineDelimiter;
     }
+    public String getFileFormat() { return fileFormat; }
 
     public boolean isNegative() {
         return isNegative;
@@ -163,8 +168,8 @@ public class BrokerFileGroup implements Writable {
         return dataDescription.getPartitionNames();
     }
 
-    public List<String> getFilePathes() {
-        return filePathes;
+    public List<String> getFilePaths() {
+        return filePaths;
     }
 
     public Map<String, Expr> getExprColumnMap() {
@@ -202,7 +207,7 @@ public class BrokerFileGroup implements Writable {
                 .append(",isNegative=").append(isNegative);
         sb.append(",fileInfos=[");
         int idx = 0;
-        for (String path : filePathes) {
+        for (String path : filePaths) {
             if (idx++ != 0) {
                 sb.append(",");
             }
@@ -243,9 +248,9 @@ public class BrokerFileGroup implements Writable {
                 Text.writeString(out, name);
             }
         }
-        // filePathes
-        out.writeInt(filePathes.size());
-        for (String path : filePathes) {
+        // filePaths
+        out.writeInt(filePaths.size());
+        for (String path : filePaths) {
             Text.writeString(out, path);
         }
         // expr column map
@@ -290,9 +295,9 @@ public class BrokerFileGroup implements Writable {
         // fileInfos
         {
             int size = in.readInt();
-            filePathes = Lists.newArrayList();
+            filePaths = Lists.newArrayList();
             for (int i = 0; i < size; ++i) {
-                filePathes.add(Text.readString(in));
+                filePaths.add(Text.readString(in));
             }
         }
         // expr column map
