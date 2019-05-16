@@ -161,10 +161,18 @@ public class Tablet extends MetaObject implements Writable {
         return beIds;
     }
 
-    public List<Long> getAliveBackendIdsList() {
+    // for loading data
+    public List<Long> getNormalReplicaBackendIds() {
         List<Long> beIds = Lists.newArrayList();
+        SystemInfoService infoService = Catalog.getCurrentSystemInfo();
         for (Replica replica : replicas) {
-            if (Catalog.getCurrentSystemInfo().checkBackendAlive(replica.getBackendId())) {
+            if (replica.isBad()) {
+                continue;
+            }
+            
+            ReplicaState state = replica.getState();
+            if (infoService.checkBackendAlive(replica.getBackendId())
+                    && (state == ReplicaState.NORMAL || state == ReplicaState.SCHEMA_CHANGE)) {
                 beIds.add(replica.getBackendId());
             }
         }

@@ -286,9 +286,9 @@ public class OlapTableSink extends DataSink {
             int quorum = table.getPartitionInfo().getReplicationNum(partition.getId()) / 2 + 1;            
             for (MaterializedIndex index : partition.getMaterializedIndices()) {
                 // we should ensure the replica backend is alive
-                //otherwise, there will be a 'unknown node id, id=xxx' error for stream load
+                // otherwise, there will be a 'unknown node id, id=xxx' error for stream load
                 for (Tablet tablet : index.getTablets()) {
-                    List<Long> beIds = tablet.getAliveBackendIdsList();
+                    List<Long> beIds = tablet.getNormalReplicaBackendIds();
                     if (beIds.size() < quorum) {
                         throw new UserException("tablet " + tablet.getId() + " has few replicas: " + beIds.size());
                     }

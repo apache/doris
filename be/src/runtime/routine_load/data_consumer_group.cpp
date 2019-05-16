@@ -68,6 +68,7 @@ Status KafkaDataConsumerGroup::start_all(StreamLoadContext* ctx) {
             [this, &result_st] (const Status& st) { 
                 std::unique_lock<std::mutex> lock(_mutex);
                 _counter--;
+                VLOG(1) << "group counter is: " << _counter << ", grp: " << _grp_id;
                 if (_counter == 0) {
                     _queue.shutdown();
                     LOG(INFO) << "all consumers are finished. shutdown queue. group id: " << _grp_id;
@@ -117,7 +118,10 @@ Status KafkaDataConsumerGroup::start_all(StreamLoadContext* ctx) {
             // shutdown queue
             _queue.shutdown();
             // cancel all consumers
-            for(auto& consumer : _consumers) { consumer->cancel(ctx); }
+            for (auto& consumer : _consumers) { consumer->cancel(ctx); }
+
+            // waiting all threads finished
+            _thread_pool.join();
 
             if (!result_st.ok()) {
                 // some of consumers encounter errors, cancel this task
@@ -158,7 +162,7 @@ Status KafkaDataConsumerGroup::start_all(StreamLoadContext* ctx) {
                     << " - " << msg->offset() << "]";
             } else {
                 // failed to append this msg, we must stop
-                LOG(WARNING) << "failed to append msg to pipe";
+                LOG(WARNING) << "failed to append msg to pipe. grp: " << _grp_id;
                 eos = true;
             }
             delete msg;
