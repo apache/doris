@@ -193,8 +193,8 @@ enum AlterTabletState {
 }
 
 enum AlterTabletType {
-    SCHEMA_CHANGE = 0;
-    ROLLUP = 1;
+    SCHEMA_CHANGE = 1;
+    ROLLUP = 2;
 }
 
 message AlterTabletPB {

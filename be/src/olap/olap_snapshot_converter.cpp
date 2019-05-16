@@ -393,7 +393,8 @@ OLAPStatus OlapSnapshotConverter::to_alter_tablet_pb(const SchemaChangeStatusMes
 
 // from olap header to tablet meta
 OLAPStatus OlapSnapshotConverter::to_new_snapshot(const OLAPHeaderMessage& olap_header, const string& old_data_path_prefix, 
-    const string& new_data_path_prefix, DataDir& data_dir, TabletMetaPB* tablet_meta_pb, vector<RowsetMetaPB>* pending_rowsets) {
+    const string& new_data_path_prefix, DataDir& data_dir, TabletMetaPB* tablet_meta_pb, 
+    vector<RowsetMetaPB>* pending_rowsets, bool is_startup) {
     RETURN_NOT_OK(to_tablet_meta_pb(olap_header, tablet_meta_pb, pending_rowsets));
 
     TabletSchema tablet_schema;
@@ -419,7 +420,13 @@ OLAPStatus OlapSnapshotConverter::to_new_snapshot(const OLAPHeaderMessage& olap_
         AlphaRowset rowset(&tablet_schema, new_data_path_prefix, &data_dir, alpha_rowset_meta);
         RETURN_NOT_OK(rowset.init());
         std::vector<std::string> success_files;
-        RETURN_NOT_OK(rowset.convert_from_old_files(old_data_path_prefix, &success_files));
+        std::string inc_data_path = old_data_path_prefix;
+        // in clone case: there is no incremental perfix
+        // in start up case: there is incremental prefix
+        if (is_startup) {
+            inc_data_path = inc_data_path + "/" + INCREMENTAL_DELTA_PREFIX;
+        }
+        RETURN_NOT_OK(rowset.convert_from_old_files(inc_data_path, &success_files));
         _modify_old_segment_group_id(const_cast<RowsetMetaPB&>(inc_rowset));
     }
 
@@ -431,6 +438,8 @@ OLAPStatus OlapSnapshotConverter::to_new_snapshot(const OLAPHeaderMessage& olap_
         RETURN_NOT_OK(rowset.init());
         std::vector<std::string> success_files;
         // std::string pending_delta_path = old_data_path_prefix + PENDING_DELTA_PREFIX;
+        // if this is a pending segment group, rowset will add pending_delta_prefix when
+        // construct old file path
         RETURN_NOT_OK(rowset.convert_from_old_files(old_data_path_prefix, &success_files));
         // pending delta does not have row num, index size, data size info
         // should load the pending delta, get these info and reset rowset meta's row num

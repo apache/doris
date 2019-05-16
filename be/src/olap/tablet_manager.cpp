@@ -214,10 +214,6 @@ void TabletManager::cancel_unfinished_schema_change() {
     uint64_t canceled_num = 0;
     LOG(INFO) << "begin to cancel unfinished schema change.";
 
-    TTabletId tablet_id;
-    TSchemaHash schema_hash;
-    vector<Version> schema_change_versions;
-
     for (const auto& tablet_instance : _tablet_map) {
         for (TabletSharedPtr tablet : tablet_instance.second.table_arr) {
             if (tablet == nullptr) {
@@ -225,70 +221,22 @@ void TabletManager::cancel_unfinished_schema_change() {
                 continue;
             }
             AlterTabletTaskSharedPtr alter_task = tablet->alter_task();
-            if (alter_task == nullptr) {
-                continue;
-            }
-
-            tablet_id = alter_task->related_tablet_id();
-            schema_hash = alter_task->related_schema_hash();
-            TabletSharedPtr new_tablet = get_tablet(tablet_id, schema_hash);
-            if (new_tablet == nullptr) {
-                LOG(WARNING) << "new tablet created by alter tablet does not exist. "
-                             << "tablet=" << tablet->full_name();
-                continue;
-            }
-
-            AlterTabletTaskSharedPtr new_alter_task = new_tablet->alter_task();
-            if (new_alter_task != nullptr 
-                && (new_alter_task->related_tablet_id() != tablet->tablet_id() 
-                    || new_alter_task->related_schema_hash() != tablet->schema_hash())) {
-                LOG(WARNING) << "base tablet " << tablet->full_name()
-                             << " new tablet " << new_tablet->full_name()
-                             << " new tablet link to tablet_id " << new_alter_task->related_tablet_id() 
-                             << " schema_hash " << new_alter_task->related_schema_hash();
-                continue;
-            }
-            // DORIS-3741. Upon restart, it should not clear schema change request.
-            if (alter_task->alter_state() == ALTER_FINISHED
-                && new_alter_task != nullptr 
-                && new_alter_task->alter_state() == ALTER_FINISHED) {
+            // if alter task's state == finished, could not do anything
+            if (alter_task == nullptr || alter_task->alter_state() == ALTER_FINISHED) {
                 continue;
             }
 
             OLAPStatus res = tablet->set_alter_state(ALTER_FAILED);
             if (res != OLAP_SUCCESS) {
                 LOG(FATAL) << "fail to set alter state. res=" << res
-                           << ", base_tablet=" << tablet->full_name();
+                        << ", base_tablet=" << tablet->full_name();
                 return;
             }
             res = tablet->save_meta();
             if (res != OLAP_SUCCESS) {
                 LOG(FATAL) << "fail to save base tablet meta. res=" << res
-                           << ", base_tablet=" << tablet->full_name();
+                        << ", base_tablet=" << tablet->full_name();
                 return;
-            }
-            if (new_alter_task == nullptr 
-                && new_tablet->creation_time() < tablet->creation_time()) {
-                // case 1: create new tablet and save meta successfully, but failed to save alter state in base tablet
-                // case 2: during clear stage, clear base successfully, but failed to clear new tablet
-                LOG(WARNING) << "base tablet's alter task is null, skip set state"
-                             << " base_tablet=" << new_tablet->full_name()
-                             << " create_time=" << new_tablet->creation_time()
-                             << " new_tablet=" << tablet->full_name()
-                             << " create_time=" << tablet->creation_time();
-            } else {
-                res = new_tablet->set_alter_state(ALTER_FAILED);
-                if (res != OLAP_SUCCESS) {
-                    LOG(FATAL) << "fail to set alter state. res=" << res
-                            << ", new_tablet=" << new_tablet->full_name();
-                    return;
-                }
-                res = new_tablet->save_meta();
-                if (res != OLAP_SUCCESS) {
-                    LOG(FATAL) << "fail to save new tablet meta. res=" << res
-                            << ", new_tablet=" << new_tablet->full_name();
-                    return;
-                }
             }
 
             LOG(INFO) << "cancel unfinished alter tablet task. base_tablet=" << tablet->full_name();
