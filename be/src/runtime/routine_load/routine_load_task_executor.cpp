@@ -41,6 +41,11 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
         return Status::OK;
     }
 
+    if (_thread_pool.get_queue_size() > 100) {
+        LOG(INFO) << "too many tasks in queue: " << _thread_pool.get_queue_size() << ", reject task: " << UniqueId(task.id);
+        return Status("too many tasks");
+    }
+
     // create the context
     StreamLoadContext* ctx = new StreamLoadContext(_exec_env);
     ctx->load_type = TLoadType::ROUTINE_LOAD;
@@ -131,7 +136,7 @@ void RoutineLoadTaskExecutor::exec_task(
         } \
     } while (false);
 
-    VLOG(1) << "begin to execute routine load task: " << ctx->brief();
+    LOG(INFO) << "begin to execute routine load task: " << ctx->brief();
 
     // create data consumer group
     std::shared_ptr<DataConsumerGroup> consumer_grp;
