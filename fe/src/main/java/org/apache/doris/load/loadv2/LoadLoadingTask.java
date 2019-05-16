@@ -70,7 +70,7 @@ public class LoadLoadingTask extends LoadTask {
         this.jobDeadlineMs = jobDeadlineMs;
         this.execMemLimit = execMemLimit;
         this.txnId = txnId;
-        this.failMsg = new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, null);
+        this.failMsg = new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL);
     }
 
     public void init(List<List<TBrokerFileStatus>> fileStatusList, int fileNum) throws UserException {

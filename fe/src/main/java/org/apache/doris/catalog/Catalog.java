@@ -211,6 +211,7 @@ import org.codehaus.jackson.map.JsonMappingException;
 import org.codehaus.jackson.map.ObjectMapper;
 
 import java.io.BufferedInputStream;
+import java.io.DataInput;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.File;
@@ -1326,6 +1327,7 @@ public class Catalog {
             checksum = loadTransactionState(dis, checksum);
             checksum = loadColocateTableIndex(dis, checksum);
             checksum = loadRoutineLoadJobs(dis, checksum);
+            loadLoadJobs(dis);
 
             long remoteChecksum = dis.readLong();
             Preconditions.checkState(remoteChecksum == checksum, remoteChecksum + " vs. " + checksum);
@@ -1748,6 +1750,12 @@ public class Catalog {
         return checksum;
     }
 
+    public void loadLoadJobs(DataInputStream in) throws IOException {
+//        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_50) {
+//            Catalog.getCurrentCatalog().getLoadManager().readFields(in);
+//        }
+    }
+
     // Only called by checkpoint thread
     public void saveImage() throws IOException {
         // Write image.ckpt
@@ -1793,6 +1801,7 @@ public class Catalog {
             checksum = saveTransactionState(dos, checksum);
             checksum = saveColocateTableIndex(dos, checksum);
             checksum = saveRoutineLoadJobs(dos, checksum);
+            saveLoadJobs(dos);
             dos.writeLong(checksum);
         } finally {
             dos.close();
@@ -2044,6 +2053,10 @@ public class Catalog {
 
     public void replayGlobalVariable(SessionVariable variable) throws IOException, DdlException {
         VariableMgr.replayGlobalVariable(variable);
+    }
+
+    public void saveLoadJobs(DataOutputStream out) throws IOException {
+        Catalog.getCurrentCatalog().getLoadManager().write(out);
     }
 
     public void createCleaner() {

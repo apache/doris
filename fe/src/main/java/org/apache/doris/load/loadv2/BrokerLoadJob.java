@@ -34,6 +34,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.load.BrokerFileGroup;
+import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.PullLoadSourceInfo;
 
@@ -44,6 +45,9 @@ import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -65,12 +69,18 @@ public class BrokerLoadJob extends LoadJob {
     // include broker desc and data desc
     private PullLoadSourceInfo dataSourceInfo = new PullLoadSourceInfo();
 
+    // only for log replay
+    public BrokerLoadJob() {
+        super();
+        this.jobType = EtlJobType.BROKER;
+    }
+
     public BrokerLoadJob(long dbId, String label, BrokerDesc brokerDesc, List<DataDescription> dataDescriptions) {
         super(dbId, label);
         this.timeoutSecond = Config.pull_load_task_default_timeout_second;
         this.dataDescriptions = dataDescriptions;
         this.brokerDesc = brokerDesc;
-        this.jobType = org.apache.doris.load.LoadJob.EtlJobType.BROKER;
+        this.jobType = EtlJobType.BROKER;
     }
 
     public static BrokerLoadJob fromLoadStmt(LoadStmt stmt) throws DdlException {
@@ -243,12 +253,6 @@ public class BrokerLoadJob extends LoadJob {
             if (finishedTaskIds.size() != tasks.size()) {
                 return;
             }
-
-            // check data quality
-            if (!checkDataQuality()) {
-                executeCancel(new FailMsg(FailMsg.CancelType.ETL_QUALITY_UNSATISFIED, QUALITY_FAIL_MSG));
-                return;
-            }
         } finally {
             writeUnlock();
         }
@@ -259,6 +263,11 @@ public class BrokerLoadJob extends LoadJob {
                               .build());
         }
 
+        // check data quality
+        if (!checkDataQuality()) {
+            cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.ETL_QUALITY_UNSATISFIED, QUALITY_FAIL_MSG));
+            return;
+        }
         Database db = null;
         try {
             db = getDb();
@@ -272,7 +281,9 @@ public class BrokerLoadJob extends LoadJob {
         db.writeLock();
         try {
             Catalog.getCurrentGlobalTransactionMgr().commitTransaction(
-                    dbId, transactionId, commitInfos);
+                    dbId, transactionId, commitInfos,
+                    new LoadJobEndOperation(id, loadingStatus, progress, loadStartTimestamp,
+                                            finishTimestamp, state, failMsg));
         } catch (UserException e) {
             LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
                              .add("database_id", dbId)
@@ -310,4 +321,19 @@ public class BrokerLoadJob extends LoadJob {
         }
         return String.valueOf(value);
     }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        super.write(out);
+        brokerDesc.write(out);
+        dataSourceInfo.write(out);
+    }
+
+    @Override
+    public void readFields(DataInput in) throws IOException {
+        super.readFields(in);
+        brokerDesc = BrokerDesc.read(in);
+        dataSourceInfo.readFields(in);
+    }
+
 }

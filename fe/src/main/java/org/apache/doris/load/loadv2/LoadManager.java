@@ -27,6 +27,9 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LabelAlreadyUsedException;
+import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.LogBuilder;
+import org.apache.doris.common.util.LogKey;
 import org.apache.doris.load.FailMsg;
 
 import com.google.common.collect.Lists;
@@ -36,6 +39,9 @@ import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.Iterator;
@@ -51,7 +57,7 @@ import java.util.stream.Collectors;
 /**
  * The broker and mini load jobs(v2) are included in this class.
  */
-public class LoadManager {
+public class LoadManager implements Writable{
     private static final Logger LOG = LogManager.getLogger(LoadManager.class);
     public static final String VERSION = "v2";
 
@@ -73,17 +79,27 @@ public class LoadManager {
     public void createLoadJobFromStmt(LoadStmt stmt) throws DdlException {
         Database database = checkDb(stmt.getLabel().getDbName());
         long dbId = database.getId();
+        LoadJob loadJob = null;
         writeLock();
         try {
             isLabelUsed(dbId, stmt.getLabel().getLabelName());
             if (stmt.getBrokerDesc() == null) {
                 throw new DdlException("LoadManager only support the broker load.");
             }
-            BrokerLoadJob brokerLoadJob = BrokerLoadJob.fromLoadStmt(stmt);
-            addLoadJob(brokerLoadJob);
+            loadJob = BrokerLoadJob.fromLoadStmt(stmt);
+            addLoadJob(loadJob);
         } finally {
             writeUnlock();
         }
+        // persistent
+        Catalog.getCurrentCatalog().getEditLog().logCreateLoadJob(loadJob);
+    }
+
+    public void replayCreateLoadJob(LoadJob loadJob) {
+        addLoadJob(loadJob);
+        LOG.info(new LogBuilder(LogKey.LOAD_JOB, loadJob.getId())
+                         .add("msg", "replay create load job")
+                         .build());
     }
 
     private void addLoadJob(LoadJob loadJob) {
@@ -97,6 +113,9 @@ public class LoadManager {
             labelToLoadJobs.put(loadJob.getLabel(), new ArrayList<>());
         }
         labelToLoadJobs.get(loadJob.getLabel()).add(loadJob);
+        // add callback before txn created, because callback will be performed on replay without txn begin
+        // register txn state listener
+        Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback(loadJob);
 
         // submit it
         loadJobScheduler.submitJob(loadJob);
@@ -131,6 +150,15 @@ public class LoadManager {
         loadJob.cancelJob(new FailMsg(FailMsg.CancelType.USER_CANCEL, "user cancel"));
     }
 
+    public void replayEndLoadJob(LoadJobEndOperation operation) {
+        LoadJob job = idToLoadJob.get(operation.getId());
+        job.unprotectReadEndOperation(operation);
+        LOG.info(new LogBuilder(LogKey.LOAD_JOB, operation.getId())
+                         .add("operation", operation)
+                         .add("msg", "replay end load job")
+                         .build());
+    }
+
     public List<LoadJob> getLoadJobByState(JobState jobState) {
         return idToLoadJob.values().stream()
                 .filter(entity -> entity.getState() == jobState)
@@ -149,11 +177,21 @@ public class LoadManager {
                         && ((currentTimeMs - job.getFinishTimestamp()) / 1000 > Config.label_keep_max_second)) {
                     iter.remove();
                     dbIdToLabelToLoadJobs.get(job.getDbId()).get(job.getLabel()).remove(job);
+                    Catalog.getCurrentCatalog().getEditLog().logRemoveLoadJob(job.getId());
                 }
             }
         } finally {
             writeUnlock();
         }
+    }
+
+    public void replayRemoveOldLoadJob(long id) {
+        LoadJob loadJob = idToLoadJob.get(id);
+        if (loadJob == null) {
+            return;
+        }
+        idToLoadJob.remove(id);
+        dbIdToLabelToLoadJobs.get(loadJob.getDbId()).get(loadJob.getLabel()).remove(loadJob);
     }
 
     public void processTimeoutJobs() {
@@ -275,5 +313,34 @@ public class LoadManager {
 
     private void writeUnlock() {
         lock.writeLock().unlock();
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        out.writeInt(idToLoadJob.size());
+        for (LoadJob loadJob : idToLoadJob.values()) {
+            loadJob.write(out);
+        }
+    }
+
+    @Override
+    public void readFields(DataInput in) throws IOException {
+        int size = in.readInt();
+        for (int i = 0; i < size; i++) {
+            LoadJob loadJob = LoadJob.read(in);
+            idToLoadJob.put(loadJob.getId(), loadJob);
+            Map<String, List<LoadJob>> map = dbIdToLabelToLoadJobs.get(loadJob.getDbId());
+            if (map == null) {
+                map = Maps.newConcurrentMap();
+                dbIdToLabelToLoadJobs.put(loadJob.getDbId(), map);
+            }
+
+            List<LoadJob> jobs = map.get(loadJob.getLabel());
+            if (jobs == null) {
+                jobs = Lists.newArrayList();
+                map.put(loadJob.getLabel(), jobs);
+            }
+            jobs.add(loadJob);
+        }
     }
 }

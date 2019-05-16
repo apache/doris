@@ -51,7 +51,7 @@ public class BrokerLoadPendingTask extends LoadTask {
         this.attachment = new BrokerPendingTaskAttachment(signature);
         this.tableToBrokerFileList = tableToBrokerFileList;
         this.brokerDesc = brokerDesc;
-        this.failMsg = new FailMsg(FailMsg.CancelType.ETL_RUN_FAIL, null);
+        this.failMsg = new FailMsg(FailMsg.CancelType.ETL_RUN_FAIL);
     }
 
     @Override

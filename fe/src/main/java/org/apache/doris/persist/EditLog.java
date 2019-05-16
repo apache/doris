@@ -51,6 +51,7 @@ import org.apache.doris.load.ExportMgr;
 import org.apache.doris.load.Load;
 import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.load.LoadJob;
+import org.apache.doris.load.loadv2.LoadJobEndOperation;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
@@ -679,6 +680,23 @@ public class EditLog {
                     Catalog.getCurrentCatalog().getRoutineLoadManager().replayRemoveOldRoutineLoad(operation);
                     break;
                 }
+                case OperationType.OP_CREATE_LOAD_JOB: {
+                    org.apache.doris.load.loadv2.LoadJob loadJob =
+                            (org.apache.doris.load.loadv2.LoadJob) journal.getData();
+                    Catalog.getCurrentCatalog().getLoadManager().replayCreateLoadJob(loadJob);
+                    break;
+                }
+                case OperationType.OP_END_LOAD_JOB: {
+                    LoadJobEndOperation operation = (LoadJobEndOperation) journal.getData();
+                    Catalog.getCurrentCatalog().getLoadManager().replayEndLoadJob(operation);
+                    break;
+                }
+                case OperationType.OP_REMOVE_LOAD_JOB: {
+                    Text tableId = (Text) journal.getData();
+                    Catalog.getCurrentCatalog().getLoadManager()
+                            .replayRemoveOldLoadJob(Long.parseLong(tableId.toString()));
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}", opCode, e);
@@ -858,10 +876,6 @@ public class EditLog {
         logEdit(OperationType.OP_LOAD_DONE, job);
     }
 
-    public void logRoutineLoadJob(RoutineLoadJob job) {
-        logEdit(OperationType.OP_ROUTINE_LOAD_JOB, job);
-    }
-
     public void logStartRollup(RollupJob rollupJob) {
         logEdit(OperationType.OP_START_ROLLUP, rollupJob);
     }
@@ -876,10 +890,6 @@ public class EditLog {
 
     public void logCancelRollup(RollupJob rollupJob) {
         logEdit(OperationType.OP_CANCEL_ROLLUP, rollupJob);
-    }
-
-    public void logClearRollupIndexInfo(ReplicaPersistInfo info) {
-        logEdit(OperationType.OP_CLEAR_ROLLUP_INFO, info);
     }
 
     public void logDropRollup(DropInfo info) {
@@ -1060,10 +1070,6 @@ public class EditLog {
         logEdit(OperationType.OP_DROP_CLUSTER, info);
     }
 
-    public void logUpdateDbClusterName(String info) {
-        logEdit(OperationType.OP_UPDATE_DB, new Text(info));
-    }
-
     public void logExpandCluster(ClusterInfo ci) {
         logEdit(OperationType.OP_EXPAND_CLUSTER, ci);
     }
@@ -1192,5 +1198,17 @@ public class EditLog {
 
     public void logRemoveRoutineLoadJob(RoutineLoadOperation operation) {
         logEdit(OperationType.OP_REMOVE_ROUTINE_LOAD_JOB, operation);
+    }
+
+    public void logCreateLoadJob(org.apache.doris.load.loadv2.LoadJob loadJob) {
+//        logEdit(OperationType.OP_CREATE_LOAD_JOB, loadJob);
+    }
+
+    public void logEndLoadJob(LoadJobEndOperation loadJobEndOperation) {
+//        logEdit(OperationType.OP_END_LOAD_JOB, loadJobEndOperation);
+    }
+
+    public void logRemoveLoadJob(long id) {
+//        logEdit(OperationType.OP_REMOVE_LOAD_JOB, new Text(Long.toString(id)));
     }
 }
