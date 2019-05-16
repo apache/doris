@@ -42,7 +42,7 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
     }
 
     if (_thread_pool.get_queue_size() > 100) {
-        LOG(INFO) << "too much task in queue: " << _thread_pool.get_queue_size() << ", reject task: " << UniqueId(task.id);
+        LOG(INFO) << "too many tasks in queue: " << _thread_pool.get_queue_size() << ", reject task: " << UniqueId(task.id);
         return Status("too many tasks");
     }
 
