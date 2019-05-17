@@ -325,7 +325,11 @@ public class BrokerScanNode extends ScanNode {
 
         // We must create a new map here, because we will change this map later.
         // But fileGroup will be persisted later, so we keep it unchanged.
-        context.exprMap = Maps.newHashMap(fileGroup.getExprColumnMap());
+        if (fileGroup.getExprColumnMap() != null) {
+            context.exprMap = Maps.newHashMap(fileGroup.getExprColumnMap());
+        } else {
+            context.exprMap = null;
+        }
         parseExprMap(context.exprMap);
 
         // Generate expr
