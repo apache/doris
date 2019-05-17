@@ -640,7 +640,8 @@ OLAPStatus EngineCloneTask::_convert_to_new_snapshot(DataDir& data_dir, const st
     OlapSnapshotConverter converter;
     TabletMetaPB tablet_meta_pb;
     vector<RowsetMetaPB> pending_rowsets;
-    res = converter.to_new_snapshot(olap_header_msg, clone_dir, clone_dir, data_dir, &tablet_meta_pb, &pending_rowsets);
+    res = converter.to_new_snapshot(olap_header_msg, clone_dir, clone_dir, data_dir, &tablet_meta_pb, 
+        &pending_rowsets, false);
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to convert snapshot to new format. dir='" << clone_dir;
         return res;

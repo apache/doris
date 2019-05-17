@@ -150,8 +150,14 @@ SegmentGroup::~SegmentGroup() {
 }
 
 std::string SegmentGroup::_construct_file_name(int32_t segment_id, const string& suffix) const {
+    // during convert from old files, the segment group id == -1, but we want to convert
+    // it to 0
+    int32_t tmp_sg_id = 0;
+    if (_segment_group_id > 0) {
+        tmp_sg_id = _segment_group_id;
+    }
     std::string file_name = std::to_string(_rowset_id) + "_"
-            + std::to_string(_segment_group_id) + "_" + std::to_string(segment_id) + suffix;
+            + std::to_string(tmp_sg_id) + "_" + std::to_string(segment_id) + suffix;
     return file_name;
 }
 
@@ -398,6 +404,7 @@ OLAPStatus SegmentGroup::validate() {
 }
 
 bool SegmentGroup::check() {
+    // if the segment group is converted from old files, _empty == false but _num_segments == 0
     if (_empty && (_num_segments > 0 || !zero_num_rows())) {
         LOG(WARNING) << "invalid num segments for empty segment group, _num_segments:" << _num_segments
                 << ",num rows:" << num_rows();
@@ -688,6 +695,9 @@ int64_t SegmentGroup::get_tablet_id() {
 
 OLAPStatus SegmentGroup::make_snapshot(const std::string& snapshot_path,
                                        std::vector<std::string>* success_links) {
+    if (_empty) {
+        return OLAP_SUCCESS;
+    }
     for (int segment_id = 0; segment_id < _num_segments; segment_id++) {
         std::string snapshot_data_file_name = construct_data_file_path(snapshot_path, segment_id);
         if (!check_dir_existed(snapshot_data_file_name)) {
@@ -715,6 +725,10 @@ OLAPStatus SegmentGroup::make_snapshot(const std::string& snapshot_path,
 
 OLAPStatus SegmentGroup::convert_from_old_files(const std::string& snapshot_path,
                                        std::vector<std::string>* success_links) {
+    if (_empty) {
+        // the segment group is empty, it does not have files, just return
+        return OLAP_SUCCESS;
+    }
     for (int segment_id = 0; segment_id < _num_segments; segment_id++) {
         std::string new_data_file_name = construct_data_file_path(_rowset_path_prefix, segment_id);
         if (!check_dir_existed(new_data_file_name)) {
@@ -748,6 +762,9 @@ OLAPStatus SegmentGroup::convert_from_old_files(const std::string& snapshot_path
 
 OLAPStatus SegmentGroup::convert_to_old_files(const std::string& snapshot_path,
                                        std::vector<std::string>* success_links) {
+    if (_empty) {
+        return OLAP_SUCCESS;
+    }
     for (int segment_id = 0; segment_id < _num_segments; segment_id++) {
         std::string new_data_file_name = construct_data_file_path(_rowset_path_prefix, segment_id);
         std::string old_data_file_name = construct_old_data_file_path(snapshot_path, segment_id);

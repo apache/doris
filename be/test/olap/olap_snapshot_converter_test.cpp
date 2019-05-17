@@ -119,7 +119,7 @@ TEST_F(OlapSnapshotConverterTest, ToNewAndToOldSnapshot) {
     TabletMetaPB tablet_meta_pb;
     vector<RowsetMetaPB> pending_rowsets;
     OLAPStatus status = converter.to_new_snapshot(header_msg, _tablet_data_path, _tablet_data_path, 
-        *_data_dir, &tablet_meta_pb, &pending_rowsets);
+        *_data_dir, &tablet_meta_pb, &pending_rowsets, true);
     ASSERT_TRUE(status == OLAP_SUCCESS);
 
     TabletSchema tablet_schema;
