@@ -121,6 +121,7 @@ Status KafkaDataConsumerGroup::start_all(StreamLoadContext* ctx) {
             for (auto& consumer : _consumers) { consumer->cancel(ctx); }
 
             // waiting all threads finished
+            _thread_pool.shutdown();
             _thread_pool.join();
 
             if (!result_st.ok()) {
