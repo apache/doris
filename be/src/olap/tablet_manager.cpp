@@ -510,11 +510,7 @@ OLAPStatus TabletManager::_drop_tablet_unlock(
     TSchemaHash related_schema_hash = alter_task->related_schema_hash();;
 
     // Check tablet is in schema change or not, is base tablet or not
-    bool is_schema_change_finished = true;
-    // alter finished? or alter_failed?
-    if (alter_state != ALTER_FINISHED) { 
-        is_schema_change_finished = false;
-    }
+    bool is_schema_change_finished = (alter_state == ALTER_FINISHED || alter_state == ALTER_FAILED);
 
     bool is_drop_base_tablet = false;
     TabletSharedPtr related_tablet = _get_tablet_with_no_lock(
