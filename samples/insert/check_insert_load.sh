@@ -1,6 +1,20 @@
 #!/usr/bin/env bash
 
-source `dirname ${BASH_SOURCE[0]}`/../../conf/env
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#   http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
 
 function check_insert_load_palo_func(){
     local palo=$1
@@ -44,3 +58,9 @@ function check_insert_load_palo_func(){
 
     return 1
 }
+
+# check_insert_load.sh demo.
+# You need input your palo db connect config & insert sql.
+palo=``"mysql -h$palo_host -P$palo_port -u$palo_user -p$palo_password -D$palo_database"
+sql="INSERT INTO TABLE_Y[(column1, column2,...,columnN)] SELECT column1, column2,..., columnN [FROM TABLE_X WHERE xxx]"
+check_insert_load_palo_func ``"$palo"` `"$sql"

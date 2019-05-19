@@ -22,11 +22,8 @@ under the License.
 import re
 import time
 import os
-import subprocess
 import sys
-
 import MySQLdb
-
 
 def insert_func(host, port, user, password, database, select_sql, insert_sql):
     """
@@ -36,8 +33,8 @@ def insert_func(host, port, user, password, database, select_sql, insert_sql):
     :param user:
     :param password:
     :param database:
-    :param select_sql: SELECT column1, column2,..., columnN [FROM TABLE_X WHERE xxx]，[]内的内容是可选的
-    :param insert_sql: INSERT INTO TABLE_Y[(column1, column2,...,columnN)]，TABLE_X可以和TABLE_Y不同，[]内的内容是可选的
+    :param select_sql: SELECT column1, column2,..., columnN [FROM TABLE_X WHERE xxx]
+    :param insert_sql: INSERT INTO TABLE_Y[(column1, column2,...,columnN)]
     :return:
     """
     db_conn = MySQLdb.connect(host=host,
@@ -52,9 +49,9 @@ def insert_func(host, port, user, password, database, select_sql, insert_sql):
 
 def insert_process(select_sql, insert_sql, cursor):
     """
-    插入指定数据库，并判断是否插入成功
-    :param select_sql: SELECT column1, column2,..., columnN [FROM TABLE_X WHERE xxx]，[]内的内容是可选的
-    :param insert_sql: INSERT INTO TABLE_Y[(column1, column2,...,columnN)]，TABLE_X可以和TABLE_Y不同，[]内的内容是可选的
+    issue insert task and check insert task status.
+    :param select_sql: SELECT column1, column2,..., columnN [FROM TABLE_X WHERE xxx]
+    :param insert_sql: INSERT INTO TABLE_Y[(column1, column2,...,columnN)]
     :param cursor:
     :return:
     """
@@ -76,7 +73,7 @@ def insert_process(select_sql, insert_sql, cursor):
         label_info).group(1)
     print label
 
-    # 获取insert执行状态
+    # check insert task status
     sql = "show load where label = '" + label + "' order by CreateTime desc limit 1"
     print sql
     cursor.execute(sql)
@@ -97,5 +94,19 @@ def insert_process(select_sql, insert_sql, cursor):
     if load_status == "CANCELLED":
         exit("error: insert data CANCELLED")
     elif load_status != "FINISHED":
-        exit("error: insert data failed")
+        exit("error: insert data timout")
+    else:
+        print "insert success."
 
+if __name__ == '__main__':
+    """
+    Befor you run this demo, you should do as below.
+    First, you need install MySQLdb, execute cmd by root:
+        pip install MySQL-python
+        # if you met error: "mysql_config not found", you can execute the following cmd to solve it.
+        ln -s /usr/local/mysql/bin/mysql_config /usr/local/bin/mysql_config
+    Second, you need input your db connect config & input insert/select sql
+    """
+    insert_func("127.0.0.1", 8080, 'user', 'password', 'test_db', 
+        "SELECT column1, column2 FROM TABLE_X WHERE column1 = 'test'", 
+        "INSERT INTO TABLE_Y(column1, column2)")
