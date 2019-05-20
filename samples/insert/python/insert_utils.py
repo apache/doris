@@ -27,7 +27,7 @@ import MySQLdb
 
 def insert_func(host, port, user, password, database, select_sql, insert_sql):
     """
-    insert into palo's table select xxx 
+    insert into doris table select xxx 
     :param host:
     :param port:
     :param user:

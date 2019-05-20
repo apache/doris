@@ -16,10 +16,10 @@
 # under the License.
 
 
-function check_insert_load_palo_func(){
-    local palo=$1
+function check_insert_load_doris_func(){
+    local doris=$1
     local sql=$2
-    insert_return_info=`${palo} -e "${sql}" -vv`
+    insert_return_info=`${doris} -e "${sql}" -vv`
 
     label=`echo ${insert_return_info}|perl -e '$_ = <>;chomp;/(\w{8}\-\w{4}\-\w{4}\-\w{4}\-\w{12})/;print $1'`
     echo "${label}"
@@ -37,8 +37,8 @@ function check_insert_load_palo_func(){
     wait_seconds=3600
     while [[ "${wait_seconds}" > 0 ]];do
         echo "${wait_seconds}"
-        echo "${palo} -e show load where label = '${label}' order by createtime desc limit 1"
-        result=`${palo} -e "show load where label = '${label}' order by createtime desc limit 1" -N`
+        echo "${doris} -e show load where label = '${label}' order by createtime desc limit 1"
+        result=`${doris} -e "show load where label = '${label}' order by createtime desc limit 1" -N`
 
         load_status=`echo "${result}"|perl -e '$_ = <>;chomp;/(\d+)\s(\w{8}\-\w{4}\-\w{4}\-\w{4}\-\w{12})\s(\w+)\s/;print $3'`
         if [[ "${load_status}" == 'FINISHED' || "${load_status}" == 'CANCELLED' ]]; then
@@ -60,7 +60,12 @@ function check_insert_load_palo_func(){
 }
 
 # check_insert_load.sh demo.
-# You need input your palo db connect config & insert sql.
-palo=``"mysql -h$palo_host -P$palo_port -u$palo_user -p$palo_password -D$palo_database"
+# You need input your doris db connect config & insert sql.
+doris_host="127.0.0.1"
+doris_port=8080
+doris_user="db_user"
+doris_password="db_password"
+doris_database="db_name"
+doris="mysql -h$doris_host -P$doris_port -u$doris_user -p$doris_password -D$doris_database"
 sql="INSERT INTO TABLE_Y[(column1, column2,...,columnN)] SELECT column1, column2,..., columnN [FROM TABLE_X WHERE xxx]"
-check_insert_load_palo_func ``"$palo"` `"$sql"
+check_insert_load_doris_func ``"$doris"` `"$sql"

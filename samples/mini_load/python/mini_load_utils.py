@@ -23,8 +23,8 @@ import os
 import subprocess
 
 
-class PaloMiniLoadClient(object):
-    """ load file to palo """
+class DorisMiniLoadClient(object):
+    """ load file to doris """
 
     def __init__(self, db_host, db_port, db_name, 
                 db_user, db_password, file_name, table, load_timeout):
@@ -56,9 +56,9 @@ class PaloMiniLoadClient(object):
 
         return '_'.join([self.table, os.path.basename(self.file_name)])
 
-    def load_palo(self):
+    def load_doris(self):
         """
-        load file to palo by curl, allow 3 times to retry.
+        load file to doris by curl, allow 3 times to retry.
         :return: mini load label
         """
         retry_time = 0
@@ -82,11 +82,11 @@ class PaloMiniLoadClient(object):
             # check returncode;
             # If fail, retry 3 times
             if load_subprocess.returncode != 0:
-                print """Load to palo failed! LABEL is %s, Retry time is %d """ % (label, retry_time)
+                print """Load to doris failed! LABEL is %s, Retry time is %d """ % (label, retry_time)
                 retry_time += 1
             # If success, print log, and break retry loop
             if load_subprocess.returncode == 0:
-                print """Load to palo success! LABEL is %s, Retry time is %d """ % (label, retry_time)
+                print """Load to doris success! LABEL is %s, Retry time is %d """ % (label, retry_time)
                 break
 
         return label
@@ -151,7 +151,7 @@ if __name__ == '__main__':
     table = "db_table"
     # default load_time_out, seconds
     load_timeout = 86400
-    palo_client = PaloMiniLoadClient(
+    doris_client = DorisMiniLoadClient(
         db_host, db_port, db_name, db_user, db_password, file_name, table, load_timeout)
-    palo_client.check_load_status(palo_client.load_palo(), db_host, db_port, db_user, db_password, db_name)
-    print "load to palo end"
+    doris_client.check_load_status(doris_client.load_doirs(), db_host, db_port, db_user, db_password, db_name)
+    print "load to doris end"
