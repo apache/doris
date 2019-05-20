@@ -129,7 +129,7 @@ check_if_source_exist() {
         echo "dir should specified to check if exist."
         exit 1
     fi
-    
+
     if [ ! -d $TP_SOURCE_DIR/$1 ];then
         echo "$TP_SOURCE_DIR/$1 does not exist."
         exit 1
@@ -142,7 +142,7 @@ check_if_archieve_exist() {
         echo "archieve should specified to check if exist."
         exit 1
     fi
-    
+
     if [ ! -f $TP_SOURCE_DIR/$1 ];then
         echo "$TP_SOURCE_DIR/$1 does not exist."
         exit 1
@@ -154,7 +154,7 @@ build_libevent() {
     check_if_source_exist $LIBEVENT_SOURCE
     cd $TP_SOURCE_DIR/$LIBEVENT_SOURCE
     if [ ! -f configure ]; then
-        ./autogen.sh 
+        ./autogen.sh
     fi
 
     CFLAGS="-std=c99 -fPIC -D_BSD_SOURCE -fno-omit-frame-pointer -g -ggdb -O2 -I${TP_INCLUDE_DIR}" \
@@ -328,12 +328,14 @@ build_snappy() {
     make -j$PARALLEL && make install
     if [ -f $TP_INSTALL_DIR/lib64/libsnappy.a ]; then
         mkdir -p $TP_INSTALL_DIR/lib && cp $TP_INSTALL_DIR/lib64/libsnappy.a $TP_INSTALL_DIR/lib/libsnappy.a
-        #build for libarrow.a
-        cp $TP_INCLUDE_DIR/snappy/snappy-c.h  $TP_INCLUDE_DIR/snappy-c.h && \
-        cp $TP_INCLUDE_DIR/snappy/snappy-sinksource.h  $TP_INCLUDE_DIR/snappy-sinksource.h && \
-        cp $TP_INCLUDE_DIR/snappy/snappy-stubs-public.h  $TP_INCLUDE_DIR/snappy-stubs-public.h && \
-        cp $TP_INCLUDE_DIR/snappy/snappy.h  $TP_INCLUDE_DIR/snappy.h
+
     fi
+
+    #build for libarrow.a
+    cp $TP_INCLUDE_DIR/snappy/snappy-c.h  $TP_INCLUDE_DIR/snappy-c.h && \
+    cp $TP_INCLUDE_DIR/snappy/snappy-sinksource.h  $TP_INCLUDE_DIR/snappy-sinksource.h && \
+    cp $TP_INCLUDE_DIR/snappy/snappy-stubs-public.h  $TP_INCLUDE_DIR/snappy-stubs-public.h && \
+    cp $TP_INCLUDE_DIR/snappy/snappy.h  $TP_INCLUDE_DIR/snappy.h
 }
 
 # gperftools
@@ -341,7 +343,7 @@ build_gperftools() {
     check_if_source_exist $GPERFTOOLS_SOURCE
     cd $TP_SOURCE_DIR/$GPERFTOOLS_SOURCE
     if [ ! -f configure ]; then
-        ./autogen.sh 
+        ./autogen.sh
     fi
 
     CPPFLAGS="-I${TP_INCLUDE_DIR}" \
@@ -389,7 +391,7 @@ build_bzip() {
 build_lzo2() {
     check_if_source_exist $LZO2_SOURCE
     cd $TP_SOURCE_DIR/$LZO2_SOURCE
-    
+
     CPPFLAGS="-I${TP_INCLUDE_DIR} -fPIC" \
     LDFLAGS="-L${TP_LIB_DIR}" \
     CFLAGS="-fPIC" \
@@ -401,7 +403,7 @@ build_lzo2() {
 build_curl() {
     check_if_source_exist $CURL_SOURCE
     cd $TP_SOURCE_DIR/$CURL_SOURCE
-    
+
     CPPFLAGS="-I${TP_INCLUDE_DIR}" \
     LDFLAGS="-L${TP_LIB_DIR}" LIBS="-lcrypto -lssl -lcrypto -ldl" \
     CFLAGS="-fPIC" \
@@ -414,7 +416,7 @@ build_curl() {
 build_re2() {
     check_if_source_exist $RE2_SOURCE
     cd $TP_SOURCE_DIR/$RE2_SOURCE
-    
+
     $CMAKE_CMD -DBUILD_SHARED_LIBS=0 -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR
     make -j$PARALLEL install
 }
@@ -425,7 +427,7 @@ build_boost() {
     cd $TP_SOURCE_DIR/$BOOST_SOURCE
 
     echo "using gcc : doris : ${CXX} ; " > tools/build/src/user-config.jam
-    ./bootstrap.sh --prefix=$TP_INSTALL_DIR 
+    ./bootstrap.sh --prefix=$TP_INSTALL_DIR
     ./b2 --toolset=gcc-doris link=static -d0 -j$PARALLEL --without-mpi --without-graph --without-graph_parallel --without-python cxxflags="-std=c++11 -fPIC -I$TP_INCLUDE_DIR -L$TP_LIB_DIR" install
 }
 
@@ -459,7 +461,7 @@ build_mysql() {
     cp -R ../include/* ../../../installed/include/mysql/
     cp ../libbinlogevents/export/binary_log_types.h ../../../installed/include/mysql/
     echo "mysql headers are installed."
-    
+
     # copy libmysqlclient.a
     cp libmysql/libmysqlclient.a ../../../installed/lib/
     echo "mysql client lib is installed."
@@ -531,7 +533,7 @@ build_arrow() {
     export ARROW_LZ4_URL=${TP_SOURCE_DIR}/${LZ4_NAME}
     export ARROW_URIPARSER_URL=${TP_SOURCE_DIR}/${URIPARSER_NAME}
     export ARROW_ZSTD_URL=${TP_SOURCE_DIR}/${ZSTD_NAME}
-    
+
     cmake -DARROW_PARQUET=ON -DARROW_IPC=OFF -DARROW_BUILD_SHARED=OFF \
     -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR \
     -DARROW_BOOST_USE_SHARED=OFF -DBoost_NO_BOOST_CMAKE=ON -DBOOST_ROOT=$TP_INSTALL_DIR \
@@ -547,12 +549,16 @@ build_arrow() {
     cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlienc.a $TP_INSTALL_DIR/lib64/libbrotlienc.a
     cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlidec.a $TP_INSTALL_DIR/lib64/libbrotlidec.a
     cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlicommon.a $TP_INSTALL_DIR/lib64/libbrotlicommon.a
-    cp -rf ./zstd_ep-install/lib64/libzstd.a $TP_INSTALL_DIR/lib64/libzstd.a
+    if [ -f ./zstd_ep-install/lib64/libzstd.a ]; then
+        cp -rf ./zstd_ep-install/lib64/libzstd.a $TP_INSTALL_DIR/lib64/libzstd.a
+    else
+        cp -rf ./zstd_ep-install/lib/libzstd.a $TP_INSTALL_DIR/lib64/libzstd.a
+    fi
     cp -rf ./double-conversion_ep/src/double-conversion_ep/lib/libdouble-conversion.a $TP_INSTALL_DIR/lib64/libdouble-conversion.a
     cp -rf ./uriparser_ep-install/lib/liburiparser.a $TP_INSTALL_DIR/lib64/liburiparser.a
 }
 
-build_llvm 
+build_llvm
 build_libevent
 build_zlib
 build_lz4
