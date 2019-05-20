@@ -32,9 +32,9 @@ class OpcodeRegistry;
 class TupleRow;
 
 struct JsonPath {
-	std::string key;
-	int idx;
-	bool is_valid;
+	std::string key; // key of a json object
+	int idx;    // array index of a json array, -1 means not set
+	bool is_valid;  // true if the path is successfully parsed
 
 	JsonPath(const std::string& key_, int idx_, bool is_valid_):
 		key(key_),
