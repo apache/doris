@@ -36,7 +36,6 @@ static int do_add(int128_t x, int128_t y, int128_t* result) {
     } else {
         *result = DecimalV2Value::MAX_DECIMAL_VALUE;
         error = E_DEC_OVERFLOW;
-        LOG(INFO) << "overflow (x=" << x << ", y=" << y << ")";
     }
     return error;
 }
@@ -67,7 +66,6 @@ static int do_mul(int128_t x, int128_t y, int128_t* result) {
     int leading_zero_bits = clz128(x) + clz128(y); 
     if (leading_zero_bits < sizeof(int128_t) || max128 / x < y) {
         *result = DecimalV2Value::MAX_DECIMAL_VALUE;
-        LOG(INFO) << "overflow (x=" << x << ", y=" << y << ")";
         error = E_DEC_OVERFLOW;
         return error;
     }
@@ -78,7 +76,6 @@ static int do_mul(int128_t x, int128_t y, int128_t* result) {
     // overflow
     if (*result > DecimalV2Value::MAX_DECIMAL_VALUE) {
         *result = DecimalV2Value::MAX_DECIMAL_VALUE;
-        LOG(INFO) << "overflow (x=" << x << ", y=" << y << ")";
         error = E_DEC_OVERFLOW;
         return error;
     }
@@ -90,7 +87,6 @@ static int do_mul(int128_t x, int128_t y, int128_t* result) {
         if (remainder >= (DecimalV2Value::ONE_BILLION >> 1)) {
             *result += 1;
         }
-        LOG(INFO) << "truncate (x=" << x << ", y=" << y << ")" << ", result=" << *result;
     }
 
     return error;
@@ -109,7 +105,6 @@ static int do_div(int128_t x, int128_t y, int128_t* result) {
         if (remainder >= (y >> 1)) {
             *result += 1;
         }
-        LOG(INFO) << "truncate (x=" << x << ", y=" << y << ")" << ", result=" << *result;
     }
 
     return error;
