@@ -22,9 +22,18 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
-import org.apache.doris.task.RoutineLoadTask;
+import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.thrift.TRoutineLoadTask;
 import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.TransactionState;
+
+import com.google.common.collect.Lists;
+
+import java.util.List;
+import java.util.UUID;
 
 /**
  * Routine load task info is the task info include the only id (signature).
@@ -36,51 +45,104 @@ public abstract class RoutineLoadTaskInfo {
     
     private RoutineLoadManager routineLoadManager = Catalog.getCurrentCatalog().getRoutineLoadManager();
     
-    protected String id;
-    protected long txnId;
-    protected String jobId;
+    protected UUID id;
+    protected long txnId = -1L;
+    protected long jobId;
+    protected String clusterName;
+
     private long createTimeMs;
-    private long loadStartTimeMs;
-    
-    public RoutineLoadTaskInfo(String id, String jobId) throws BeginTransactionException,
-            LabelAlreadyUsedException, AnalysisException {
+    private long executeStartTimeMs = -1L;
+    // the be id of previous task
+    protected long previousBeId = -1L;
+    // the be id of this task
+    protected long beId = -1L;
+
+    public RoutineLoadTaskInfo(UUID id, long jobId, String clusterName) {
         this.id = id;
         this.jobId = jobId;
+        this.clusterName = clusterName;
         this.createTimeMs = System.currentTimeMillis();
-        // begin a txn for task
-        RoutineLoadJob routineLoadJob = routineLoadManager.getJob(jobId);
-        txnId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(
-                routineLoadJob.getDbId(), id, -1, "streamLoad",
-                TransactionState.LoadJobSourceType.ROUTINE_LOAD_TASK, routineLoadJob);
+    }
+
+    public RoutineLoadTaskInfo(UUID id, long jobId, String clusterName, long previousBeId) {
+        this(id, jobId, clusterName);
+        this.previousBeId = previousBeId;
     }
     
-    public String getId() {
+    public UUID getId() {
         return id;
     }
     
-    public String getJobId() {
+    public long getJobId() {
         return jobId;
     }
     
-    public void setLoadStartTimeMs(long loadStartTimeMs) {
-        this.loadStartTimeMs = loadStartTimeMs;
+    public String getClusterName() {
+        return clusterName;
     }
-    
-    public long getLoadStartTimeMs() {
-        return loadStartTimeMs;
+
+    public void setExecuteStartTimeMs(long executeStartTimeMs) {
+        this.executeStartTimeMs = executeStartTimeMs;
+    }
+
+    public long getPreviousBeId() {
+        return previousBeId;
+    }
+
+    public void setBeId(long beId) {
+        this.beId = beId;
+    }
+
+    public long getBeId() {
+        return beId;
+    }
+
+    public long getCreateTimeMs() {
+        return createTimeMs;
+    }
+
+    public long getExecuteStartTimeMs() {
+        return executeStartTimeMs;
     }
     
     public long getTxnId() {
         return txnId;
     }
-    
-    abstract RoutineLoadTask createStreamLoadTask(long beId) throws LoadException;
+
+    public boolean isRunning() {
+        return executeStartTimeMs > 0;
+    }
+
+    abstract TRoutineLoadTask createRoutineLoadTask() throws LoadException, UserException;
+
+    public void beginTxn() throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException {
+        // begin a txn for task
+        RoutineLoadJob routineLoadJob = routineLoadManager.getJob(jobId);
+        txnId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(
+                routineLoadJob.getDbId(), DebugUtil.printId(id), -1, "FE: " + FrontendOptions.getLocalHostAddress(),
+                TransactionState.LoadJobSourceType.ROUTINE_LOAD_TASK, routineLoadJob.getId(),
+                routineLoadJob.getMaxBatchIntervalS() * 2);
+    }
+
+    public List<String> getTaskShowInfo() {
+        List<String> row = Lists.newArrayList();
+        row.add(DebugUtil.printId(id));
+        row.add(String.valueOf(txnId));
+        row.add(String.valueOf(jobId));
+        row.add(String.valueOf(TimeUtils.longToTimeString(createTimeMs)));
+        row.add(String.valueOf(TimeUtils.longToTimeString(executeStartTimeMs)));
+        row.add(String.valueOf(beId));
+        row.add(getTaskDataSourceProperties());
+        return row;
+    }
+
+    abstract String getTaskDataSourceProperties();
     
     @Override
     public boolean equals(Object obj) {
         if (obj instanceof RoutineLoadTaskInfo) {
             RoutineLoadTaskInfo routineLoadTaskInfo = (RoutineLoadTaskInfo) obj;
-            return this.id.equals(routineLoadTaskInfo.getId());
+            return this.id.toString().equals(routineLoadTaskInfo.getId().toString());
         } else {
             return false;
         }

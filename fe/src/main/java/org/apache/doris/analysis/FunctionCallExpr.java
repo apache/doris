@@ -17,13 +17,12 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.base.Joiner;
-import com.google.common.base.Objects;
-import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.ImmutableSortedSet;
-import org.apache.doris.catalog.*;
+import org.apache.doris.catalog.AggregateFunction;
+import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.ScalarFunction;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -32,6 +31,14 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TAggregateExpr;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
+
+import com.google.common.base.Joiner;
+import com.google.common.base.Objects;
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSortedSet;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -472,7 +479,7 @@ public class FunctionCallExpr extends Expr {
             Type type = getChild(0).type.getMaxResolutionType();
             fn = getBuiltinFunction(analyzer, fnName.getFunction(), new Type[]{type},
                 Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-        }  else if (fnName.getFunction().equalsIgnoreCase("count_distinct")) {
+        } else if (fnName.getFunction().equalsIgnoreCase("count_distinct")) {
             Type compatibleType = this.children.get(0).getType();
             for (int i = 1; i < this.children.size(); ++i) {
                 Type type = this.children.get(i).getType();
@@ -486,13 +493,18 @@ public class FunctionCallExpr extends Expr {
             fn = getBuiltinFunction(analyzer, fnName.getFunction(), new Type[]{compatibleType},
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         } else {
-            // now first find function in builtin functions
+            // now first find function in built-in functions
             if (Strings.isNullOrEmpty(fnName.getDb())) {
                 fn = getBuiltinFunction(analyzer, fnName.getFunction(), collectChildReturnTypes(),
                         Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
             }
 
+            // find user defined functions
             if (fn == null) {
+                if (!analyzer.isUDFAllowed()) {
+                    throw new AnalysisException("Does not support non-builtin functions: " + fnName);
+                }
+
                 String dbName = fnName.analyzeDb(analyzer);
                 if (!Strings.isNullOrEmpty(dbName)) {
                     // check operation privilege

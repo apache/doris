@@ -314,6 +314,20 @@ public class Backend implements Writable {
         return dataUsedCapacityB;
     }
 
+    public double getMaxDiskUsedPct() {
+        ImmutableMap<String, DiskInfo> disks = disksRef.get();
+        double maxPct = 0.0;
+        for (DiskInfo diskInfo : disks.values()) {
+            if (diskInfo.getState() == DiskState.ONLINE) {
+                double percent = diskInfo.getUsedPct();
+                if (percent > maxPct) {
+                    maxPct = percent;
+                }
+            }
+        }
+        return maxPct;
+    }
+
     public String getPathByPathHash(long pathHash) {
         for (DiskInfo diskInfo : disksRef.get().values()) {
             if (diskInfo.getPathHash() == pathHash) {

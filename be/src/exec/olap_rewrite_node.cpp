@@ -247,7 +247,6 @@ bool OlapRewriteNode::copy_rows(RuntimeState* state, RowBatch* output_batch) {
     }
     if (num_rows_invalid > 0) {
         state->update_num_rows_load_filtered(num_rows_invalid);
-        state->update_num_rows_load_success(-1 * num_rows_invalid);
     }
 
     if (VLOG_ROW_IS_ON) {

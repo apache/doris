@@ -680,7 +680,7 @@ public class RestoreJob extends AbstractJob {
 
         // Send create replica task to BE outside the db lock
         if (batchTask.getTaskNum() > 0) {
-            MarkedCountDownLatch latch = new MarkedCountDownLatch(batchTask.getTaskNum());
+            MarkedCountDownLatch<Long, Long> latch = new MarkedCountDownLatch<Long, Long>(batchTask.getTaskNum());
             for (AgentTask task : batchTask.getAllTasks()) {
                 latch.addMark(((CreateReplicaTask) task).getBackendId(), ((CreateReplicaTask) task).getTabletId());
                 ((CreateReplicaTask) task).setLatch(latch);

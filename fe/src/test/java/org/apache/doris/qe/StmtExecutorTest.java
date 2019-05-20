@@ -161,6 +161,7 @@ public class StmtExecutorTest {
         EasyMock.expectLastCall().anyTimes();
         EasyMock.expect(cood.getQueryProfile()).andReturn(new RuntimeProfile()).anyTimes();
         EasyMock.expect(cood.getNext()).andReturn(new RowBatch()).anyTimes();
+        EasyMock.expect(cood.getJobId()).andReturn(-1L).anyTimes();
         EasyMock.replay(cood);
         PowerMock.expectNew(Coordinator.class, EasyMock.isA(ConnectContext.class),
                 EasyMock.isA(Analyzer.class), EasyMock.isA(Planner.class))
@@ -453,7 +454,7 @@ public class StmtExecutorTest {
 
         // Mock ddl
         PowerMock.mockStatic(DdlExecutor.class);
-        DdlExecutor.execute(EasyMock.isA(Catalog.class), EasyMock.isA(DdlStmt.class));
+        DdlExecutor.execute(EasyMock.isA(Catalog.class), EasyMock.isA(DdlStmt.class), EasyMock.anyString());
         EasyMock.expectLastCall().anyTimes();
         PowerMock.replay(DdlExecutor.class);
 
@@ -481,7 +482,7 @@ public class StmtExecutorTest {
 
         // Mock ddl
         PowerMock.mockStatic(DdlExecutor.class);
-        DdlExecutor.execute(EasyMock.isA(Catalog.class), EasyMock.isA(DdlStmt.class));
+        DdlExecutor.execute(EasyMock.isA(Catalog.class), EasyMock.isA(DdlStmt.class), EasyMock.anyString());
         EasyMock.expectLastCall().andThrow(new DdlException("ddl fail"));
         PowerMock.replay(DdlExecutor.class);
 
@@ -509,7 +510,7 @@ public class StmtExecutorTest {
 
         // Mock ddl
         PowerMock.mockStatic(DdlExecutor.class);
-        DdlExecutor.execute(EasyMock.isA(Catalog.class), EasyMock.isA(DdlStmt.class));
+        DdlExecutor.execute(EasyMock.isA(Catalog.class), EasyMock.isA(DdlStmt.class), EasyMock.anyString());
         EasyMock.expectLastCall().andThrow(new Exception("bug"));
         PowerMock.replay(DdlExecutor.class);
 
@@ -527,16 +528,12 @@ public class StmtExecutorTest {
         EasyMock.expect(useStmt.getDatabase()).andReturn("testDb").anyTimes();
         EasyMock.expect(useStmt.getRedirectStatus()).andReturn(RedirectStatus.NO_FORWARD).anyTimes();
         EasyMock.expect(useStmt.getClusterName()).andReturn("testCluster").anyTimes();
-
         EasyMock.replay(useStmt);
 
         Symbol symbol = new Symbol(0, useStmt);
         SqlParser parser = EasyMock.createMock(SqlParser.class);
         EasyMock.expect(parser.parse()).andReturn(symbol).anyTimes();
         EasyMock.replay(parser);
-
-        PowerMock.expectNew(SqlParser.class, EasyMock.isA(SqlScanner.class)).andReturn(parser);
-        PowerMock.replay(SqlParser.class);
 
         StmtExecutor executor = new StmtExecutor(ctx, "");
         executor.execute();

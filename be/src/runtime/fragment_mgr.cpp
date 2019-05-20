@@ -44,6 +44,9 @@
 namespace doris {
 
 std::string to_load_error_http_path(const std::string& file_name) {
+    if (file_name.empty()) {
+        return "";
+    }
     std::stringstream url;
     url << "http://" << BackendOptions::get_localhost() << ":" << config::webserver_port
         << "/api/_load_error_log?"
@@ -263,7 +266,7 @@ void FragmentExecState::coordinator_callback(
             params.delta_urls.push_back(to_http_path(it));
         }
     }
-    if (runtime_state->num_rows_load_success() > 0 ||
+    if (runtime_state->num_rows_load_total() > 0 ||
             runtime_state->num_rows_load_filtered() > 0) {
         params.__isset.load_counters = true;
         // TODO(zc)

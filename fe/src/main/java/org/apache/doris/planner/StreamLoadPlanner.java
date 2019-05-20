@@ -27,6 +27,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.LoadErrorHub;
+import org.apache.doris.task.StreamLoadTask;
 import org.apache.doris.thrift.PaloInternalServiceVersion;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TLoadErrorHubInfo;
@@ -36,7 +37,6 @@ import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TScanRangeParams;
-import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
@@ -63,17 +63,19 @@ public class StreamLoadPlanner {
     // Data will load to this table
     private Database db;
     private OlapTable destTable;
-    private TStreamLoadPutRequest request;
+    private StreamLoadTask streamLoadTask;
 
     private Analyzer analyzer;
     private DescriptorTable descTable;
 
-    public StreamLoadPlanner(Database db, OlapTable destTable, TStreamLoadPutRequest request) {
+    public StreamLoadPlanner(Database db, OlapTable destTable, StreamLoadTask streamLoadTask) {
         this.db = db;
         this.destTable = destTable;
-        this.request = request;
-
+        this.streamLoadTask = streamLoadTask;
         analyzer = new Analyzer(Catalog.getInstance(), null);
+        // TODO(cmy): currently we do not support UDF in stream load command.
+        // Because there is no way to check the privilege of accessing UDF..
+        analyzer.setUDFAllowed(false);
         descTable = analyzer.getDescTbl();
     }
 
@@ -84,22 +86,18 @@ public class StreamLoadPlanner {
             SlotDescriptor slotDesc = descTable.addSlotDescriptor(tupleDesc);
             slotDesc.setIsMaterialized(true);
             slotDesc.setColumn(col);
-            if (col.isAllowNull()) {
-                slotDesc.setIsNullable(true);
-            } else {
-                slotDesc.setIsNullable(false);
-            }
+            slotDesc.setIsNullable(col.isAllowNull());
         }
 
         // create scan node
-        StreamLoadScanNode scanNode = new StreamLoadScanNode(new PlanNodeId(0), tupleDesc, destTable, request);
+        StreamLoadScanNode scanNode = new StreamLoadScanNode(new PlanNodeId(0), tupleDesc, destTable, streamLoadTask);
         scanNode.init(analyzer);
         descTable.computeMemLayout();
         scanNode.finalize(analyzer);
 
         // create dest sink
-        OlapTableSink olapTableSink = new OlapTableSink(destTable, tupleDesc, request.getPartitions());
-        olapTableSink.init(request.getLoadId(), request.getTxnId(), db.getId());
+        OlapTableSink olapTableSink = new OlapTableSink(destTable, tupleDesc, streamLoadTask.getPartitions());
+        olapTableSink.init(streamLoadTask.getId(), streamLoadTask.getTxnId(), db.getId());
         olapTableSink.finalize();
 
         // for stream load, we only need one fragment, ScanNode -> DataSink.
@@ -150,7 +148,7 @@ public class StreamLoadPlanner {
             }
         }
 
-        LOG.debug("stream load txn id: {}, plan: {}", request.txnId, params);
+        // LOG.debug("stream load txn id: {}, plan: {}", streamLoadTask.getTxnId(), params);
         return params;
     }
 }

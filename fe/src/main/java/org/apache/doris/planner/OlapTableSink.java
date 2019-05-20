@@ -52,6 +52,7 @@ import org.apache.doris.thrift.TTabletLocation;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
@@ -84,7 +85,7 @@ public class OlapTableSink extends DataSink {
     public OlapTableSink(OlapTable dstTable, TupleDescriptor tupleDescriptor, String partitions) {
         this.dstTable = dstTable;
         this.tupleDescriptor = tupleDescriptor;
-        this.partitions = partitions;
+        this.partitions = Strings.emptyToNull(partitions);
     }
 
     public void init(TUniqueId loadId, long txnId, long dbId) throws AnalysisException {
@@ -226,7 +227,7 @@ public class OlapTableSink extends DataSink {
                     TOlapTablePartition tPartition = new TOlapTablePartition();
                     tPartition.setId(partition.getId());
                     Range<PartitionKey> range = rangePartitionInfo.getRange(partition.getId());
-                    if (range.hasLowerBound()) {
+                    if (range.hasLowerBound() && !range.lowerEndpoint().isMinValue()) {
                         tPartition.setStart_key(range.lowerEndpoint().getKeys().get(0).treeToThrift().getNodes().get(0));
                     }
                     if (range.hasUpperBound() && !range.upperEndpoint().isMaxValue()) {
@@ -284,13 +285,14 @@ public class OlapTableSink extends DataSink {
         for (Partition partition : table.getPartitions()) {
             int quorum = table.getPartitionInfo().getReplicationNum(partition.getId()) / 2 + 1;            
             for (MaterializedIndex index : partition.getMaterializedIndices()) {
+                // we should ensure the replica backend is alive
+                // otherwise, there will be a 'unknown node id, id=xxx' error for stream load
                 for (Tablet tablet : index.getTablets()) {
-                    List<Long> beIds = tablet.getBackendIdsList();
+                    List<Long> beIds = tablet.getNormalReplicaBackendIds();
                     if (beIds.size() < quorum) {
                         throw new UserException("tablet " + tablet.getId() + " has few replicas: " + beIds.size());
                     }
-                    locationParam.addToTablets(
-                            new TTabletLocation(tablet.getId(), Lists.newArrayList(tablet.getBackendIds())));
+                    locationParam.addToTablets(new TTabletLocation(tablet.getId(), beIds));
                 }
             }
         }
@@ -308,3 +310,4 @@ public class OlapTableSink extends DataSink {
     }
 
 }
+

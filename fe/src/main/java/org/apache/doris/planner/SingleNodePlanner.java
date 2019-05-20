@@ -599,6 +599,13 @@ public class SingleNodePlanner {
             rowTuples.addAll(tblRef.getMaterializedTupleIds());
         }
         
+       if (analyzer.hasEmptySpjResultSet()) {
+            final PlanNode emptySetNode = new EmptySetNode(ctx_.getNextNodeId(), rowTuples);
+            emptySetNode.init(analyzer);
+            emptySetNode.setOutputSmap(selectStmt.getBaseTblSmap());
+            return createAggregationPlan(selectStmt, analyzer, emptySetNode);
+        }
+
         // create left-deep sequence of binary hash joins; assign node ids as we go along
         TableRef tblRef = selectStmt.getTableRefs().get(0);
         materializeTableResultForCrossJoinOrCountStar(tblRef, analyzer);
@@ -686,21 +693,29 @@ public class SingleNodePlanner {
      * Returns a MergeNode that materializes the exprs of the constant selectStmt. Replaces the resultExprs of the
      * selectStmt with SlotRefs into the materialized tuple.
      */
-    private PlanNode createConstantSelectPlan(SelectStmt selectStmt, Analyzer analyzer)
-            throws UserException {
+    private PlanNode createConstantSelectPlan(SelectStmt selectStmt, Analyzer analyzer) {
         Preconditions.checkState(selectStmt.getTableRefs().isEmpty());
         ArrayList<Expr> resultExprs = selectStmt.getResultExprs();
         // Create tuple descriptor for materialized tuple.
         TupleDescriptor tupleDesc = createResultTupleDescriptor(selectStmt, "union", analyzer);
         UnionNode unionNode = new UnionNode(ctx_.getNextNodeId(), tupleDesc.getId());
+
         // Analysis guarantees that selects without a FROM clause only have constant exprs.
-        unionNode.addConstExprList(Lists.newArrayList(resultExprs));
+        if (selectStmt.getValueList() != null) {
+            for (ArrayList<Expr> row : selectStmt.getValueList().getRows()) {
+                unionNode.addConstExprList(row);
+            }
+        } else {
+            unionNode.addConstExprList(Lists.newArrayList(resultExprs));
+        }
 
         // Replace the select stmt's resultExprs with SlotRefs into tupleDesc.
         for (int i = 0; i < resultExprs.size(); ++i) {
             SlotRef slotRef = new SlotRef(tupleDesc.getSlots().get(i));
             resultExprs.set(i, slotRef);
+            selectStmt.getBaseTblResultExprs().set(i, slotRef);
         }
+
         // UnionNode.init() needs tupleDesc to have been initialized
         unionNode.init(analyzer);
         return unionNode;
@@ -937,7 +952,9 @@ public class SingleNodePlanner {
      */
     public void migrateConjunctsToInlineView(Analyzer analyzer,
                                              InlineViewRef inlineViewRef) throws AnalysisException {
-        List<Expr> unassignedConjuncts = analyzer.getUnassignedConjuncts(inlineViewRef.getId().asList(), true);
+        // All conjuncts
+        final List<Expr> unassignedConjuncts =
+                analyzer.getUnassignedConjuncts(inlineViewRef.getId().asList(), true);
         if (!canMigrateConjuncts(inlineViewRef)) {
             // mark (fully resolve) slots referenced by unassigned conjuncts as
             // materialized
@@ -947,7 +964,30 @@ public class SingleNodePlanner {
             return;
         }
 
-        List<Expr> preds = Lists.newArrayList();
+        // Constant conjuncts
+        final List<Expr> unassignedConstantConjuncts = Lists.newArrayList();
+        for (Expr e : unassignedConjuncts) {
+            if (e.isConstant()) {
+                unassignedConstantConjuncts.add(e);
+            }
+        }
+        // Non constant conjuncts
+        unassignedConjuncts.removeAll(unassignedConstantConjuncts);
+        migrateNonconstantConjuncts(inlineViewRef,  unassignedConjuncts, analyzer);
+        migrateConstantConjuncts(inlineViewRef, unassignedConstantConjuncts);
+    }
+
+    /**
+     * For handling non-constant conjuncts. This only substitute conjunct's tuple with InlineView's
+     * and register it in InlineView's Analyzer, whcih will be assigned by the next planning.
+     * @param inlineViewRef
+     * @param unassignedConjuncts
+     * @param analyzer
+     * @throws AnalysisException
+     */
+    private void migrateNonconstantConjuncts(
+            InlineViewRef inlineViewRef, List<Expr> unassignedConjuncts, Analyzer analyzer) throws AnalysisException {
+        final List<Expr> preds = Lists.newArrayList();
         for (Expr e: unassignedConjuncts) {
             if (analyzer.canEvalPredicate(inlineViewRef.getId().asList(), e)) {
                 preds.add(e);
@@ -962,14 +1002,14 @@ public class SingleNodePlanner {
         // create new predicates against the inline view's unresolved result exprs, not
         // the resolved result exprs, in order to avoid skipping scopes (and ignoring
         // limit clauses on the way)
-        List<Expr> viewPredicates =
+        final List<Expr> viewPredicates =
                 Expr.substituteList(preds, inlineViewRef.getSmap(), analyzer, false);
 
         // Remove unregistered predicates that reference the same slot on
         // both sides (e.g. a = a). Such predicates have been generated from slot
         // equivalences and may incorrectly reject rows with nulls (IMPALA-1412/IMPALA-2643).
         // TODO(zc)
-        Predicate<Expr> isIdentityPredicate = new Predicate<Expr>() {
+        final Predicate<Expr> isIdentityPredicate = new Predicate<Expr>() {
             @Override
             public boolean apply(Expr expr) {
                 return org.apache.doris.analysis.Predicate.isEquivalencePredicate(expr)
@@ -992,6 +1032,62 @@ public class SingleNodePlanner {
         List<Expr> substUnassigned = Expr.substituteList(unassignedConjuncts,
                 inlineViewRef.getBaseTblSmap(), analyzer, false);
         analyzer.materializeSlots(substUnassigned);
+
+    }
+
+    /**
+     * For handling constant conjuncts when migrating conjuncts to InlineViews. Constant conjuncts
+     * should be assigned to query block from top to bottom, it will try to push down constant conjuncts.
+     * @param inlineViewRef
+     * @param conjuncts
+     * @throws AnalysisException
+     */
+    private void migrateConstantConjuncts(InlineViewRef inlineViewRef, List<Expr> conjuncts) throws AnalysisException {
+        if (conjuncts.isEmpty()) {
+            return;
+        }
+        final List<Expr> newConjuncts = cloneExprs(conjuncts);
+        final QueryStmt stmt = inlineViewRef.getViewStmt();
+        final Analyzer viewAnalyzer = inlineViewRef.getAnalyzer();
+        viewAnalyzer.markConjunctsAssigned(conjuncts);
+        if (stmt instanceof SelectStmt) {
+            final SelectStmt select = (SelectStmt)stmt;
+            if (select.getAggInfo() != null) {
+                viewAnalyzer.registerConjuncts(newConjuncts, select.getAggInfo().getOutputTupleId().asList());
+            } else if (select.getTableRefs().size() > 1) {
+                // Conjuncts will be assigned to the lowest outer join node or non-outer join's leaf children.
+                for (int i = select.getTableRefs().size(); i > 1; i--) {
+                    final TableRef joinInnerChild = select.getTableRefs().get(i - 1);
+                    if (!joinInnerChild.getJoinOp().isOuterJoin()) {
+                        // lowest join is't outer join.
+                        if (i == 2) {
+                            // Register constant for inner.
+                            viewAnalyzer.registerConjuncts(newConjuncts, joinInnerChild.getDesc().getId().asList());
+                            // Register constant for outer.
+                            final TableRef joinOuterChild = select.getTableRefs().get(0);
+                            final List<Expr> cloneConjuncts = cloneExprs(newConjuncts);
+                            viewAnalyzer.registerConjuncts(cloneConjuncts, joinOuterChild.getDesc().getId().asList());
+                        }
+                        continue;
+                    }
+                    viewAnalyzer.registerOnClauseConjuncts(newConjuncts, joinInnerChild);
+                    break;
+                }
+            } else {
+                Preconditions.checkArgument(select.getTableRefs().size() == 1);
+                viewAnalyzer.registerConjuncts(newConjuncts, select.getTableRefs().get(0).getDesc().getId().asList());
+            }
+        } else {
+            Preconditions.checkArgument(stmt instanceof UnionStmt);
+            final UnionStmt union = (UnionStmt)stmt;
+            viewAnalyzer.registerConjuncts(newConjuncts, union.getTupleId().asList());
+        }
+    }
+
+    private List<Expr> cloneExprs(List<Expr> candidates) {
+        final List<Expr> clones = Lists.newArrayList();
+        candidates.forEach(expr -> clones.add(expr.clone()));
+        return clones;
     }
 
     /**
@@ -1054,6 +1150,7 @@ public class SingleNodePlanner {
         // TODO chenhao16 add
         // materialize conjuncts in where
         analyzer.materializeSlots(scanNode.getConjuncts());
+
         scanNodes.add(scanNode);
         return scanNode;
     }

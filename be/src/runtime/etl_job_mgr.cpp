@@ -166,12 +166,12 @@ void EtlJobMgr::finalize_job(PlanFragmentExecutor* executor) {
             result.file_map[to_http_path(it)] = file_size;
         }
         // set statistics
-        result.process_normal_rows = state->get_normal_row_number();
-        result.process_abnormal_rows = state->get_error_row_number();
+        result.process_normal_rows = state->num_rows_load_success();
+        result.process_abnormal_rows = state->num_rows_load_filtered();
     } else {
         // get debug path
-        result.process_normal_rows = state->get_normal_row_number();
-        result.process_abnormal_rows = state->get_error_row_number();
+        result.process_normal_rows = state->num_rows_load_success();
+        result.process_abnormal_rows = state->num_rows_load_filtered();
     }
 
     result.debug_path = state->get_error_log_file_path();

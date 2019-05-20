@@ -89,9 +89,9 @@ public class CatalogTestUtil {
         Backend backend1 = createBackend(testBackendId1, "host1", 123, 124, 125);
         Backend backend2 = createBackend(testBackendId2, "host1", 123, 124, 125);
         Backend backend3 = createBackend(testBackendId3, "host1", 123, 124, 125);
-        catalog.getCurrentSystemInfo().addBackend(backend1);
-        catalog.getCurrentSystemInfo().addBackend(backend2);
-        catalog.getCurrentSystemInfo().addBackend(backend3);
+        Catalog.getCurrentSystemInfo().addBackend(backend1);
+        Catalog.getCurrentSystemInfo().addBackend(backend2);
+        Catalog.getCurrentSystemInfo().addBackend(backend3);
         catalog.initDefaultCluster();
         Database db = createSimpleDb(testDbId1, testTableId1, testPartitionId1, testIndexId1, testTabletId1,
                 testStartVersion, testStartVersionHash);

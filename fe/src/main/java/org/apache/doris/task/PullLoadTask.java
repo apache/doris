@@ -21,8 +21,9 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.Status;
+import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.QeProcessorImpl;
@@ -52,7 +53,6 @@ public class PullLoadTask {
     public final List<BrokerFileGroup> fileGroups;
     public final long jobDeadlineMs;
 
-    // s
     private PullLoadTaskPlanner planner;
 
     // Useful things after executed
@@ -69,7 +69,7 @@ public class PullLoadTask {
         CANCELLED,
     }
 
-    private TUniqueId executeId;
+    private TUniqueId queryId;
     private Coordinator curCoordinator;
     private State executeState = State.RUNNING;
     private Status executeStatus;
@@ -128,10 +128,12 @@ public class PullLoadTask {
         return executeStatus;
     }
 
-    public synchronized void onCancelled() {
+    public synchronized void onCancelled(String reason) {
         if (executeState == State.RUNNING) {
             executeState = State.CANCELLED;
             executeStatus = Status.CANCELLED;
+            LOG.info("cancel one pull load task({}). task id: {}, query id: {}, job id: {}",
+                    reason, taskId, DebugUtil.printId(curCoordinator.getQueryId()), jobId);
         }
     }
 
@@ -145,30 +147,27 @@ public class PullLoadTask {
             this.fileMap = fileMap;
             this.counters = counters;
             this.trackingUrl = trackingUrl;
+            LOG.info("finished one pull load task. task id: {}, query id: {}, job id: {}",
+                    taskId, DebugUtil.printId(curCoordinator.getQueryId()), jobId);
         }
     }
 
     public synchronized void onFailed(TUniqueId id, Status failStatus) {
         if (executeState == State.RUNNING) {
-            if (!executeId.equals(id)) {
+            if (id != null && !queryId.equals(id)) {
                 return;
             }
             executeState = State.FAILED;
             executeStatus = failStatus;
-        }
-    }
-
-    public synchronized void onFailed(Status failStatus) {
-        if (executeState == State.RUNNING) {
-            executeState = State.FAILED;
-            executeStatus = failStatus;
+            LOG.info("failed one pull load task({}). task id: {}, query id: {}, job id: {}",
+                    failStatus.getErrorMsg(), taskId, id != null ? DebugUtil.printId(id) : "NaN", jobId);
         }
     }
 
     private void actualExecute() {
         int waitSecond = (int) (getLeftTimeMs() / 1000);
         if (waitSecond <= 0) {
-            onCancelled();
+            onCancelled("waiting timeout");
             return;
         }
 
@@ -176,8 +175,11 @@ public class PullLoadTask {
         try {
             curCoordinator.exec();
         } catch (Exception e) {
-            onFailed(executeId, new Status(TStatusCode.INTERNAL_ERROR, "Coordinator execute failed."));
+            LOG.warn("pull load task exec failed", e);
+            onFailed(queryId, new Status(TStatusCode.INTERNAL_ERROR, "Coordinator execute failed: " + e.getMessage()));
+            return;
         }
+
         if (curCoordinator.join(waitSecond)) {
             Status status = curCoordinator.getExecStatus();
             if (status.ok()) {
@@ -187,10 +189,10 @@ public class PullLoadTask {
                 }
                 onFinished(resultFileMap, curCoordinator.getLoadCounters(), curCoordinator.getTrackingUrl());
             } else {
-                onFailed(executeId, status);
+                onFailed(queryId, status);
             }
         } else {
-            onCancelled();
+            onCancelled("execution timeout");
         }
     }
 
@@ -205,8 +207,8 @@ public class PullLoadTask {
 
             // New one query id,
             UUID uuid = UUID.randomUUID();
-            executeId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
-            curCoordinator = new Coordinator(executeId, planner.getDescTable(),
+            queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+            curCoordinator = new Coordinator(jobId, queryId, planner.getDescTable(),
                     planner.getFragments(), planner.getScanNodes(), db.getClusterName());
             curCoordinator.setQueryType(TQueryType.LOAD);
             curCoordinator.setExecMemoryLimit(execMemLimit);
@@ -215,15 +217,14 @@ public class PullLoadTask {
 
         boolean needUnregister = false;
         try {
-            QeProcessorImpl.INSTANCE
-                     .registerQuery(executeId, curCoordinator);
+            QeProcessorImpl.INSTANCE.registerQuery(queryId, curCoordinator);
             actualExecute();
             needUnregister = true;
         } catch (UserException e) {
-            onFailed(executeId, new Status(TStatusCode.INTERNAL_ERROR, e.getMessage()));
+            onFailed(queryId, new Status(TStatusCode.INTERNAL_ERROR, e.getMessage()));
         } finally {
             if (needUnregister) {
-                QeProcessorImpl.INSTANCE.unregisterQuery(executeId);
+                QeProcessorImpl.INSTANCE.unregisterQuery(queryId);
             }
             synchronized (this) {
                 curThread = null;

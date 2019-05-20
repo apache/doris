@@ -115,10 +115,10 @@ GTEST_SOURCE=googletest-release-1.8.0
 GTEST_MD5SUM="16877098823401d1bf2ed7891d7dce36"
 
 # snappy
-SNAPPY_DOWNLOAD="https://github.com/google/snappy/releases/download/1.1.4/snappy-1.1.4.tar.gz"
-SNAPPY_NAME=snappy-1.1.4.tar.gz
-SNAPPY_SOURCE=snappy-1.1.4
-SNAPPY_MD5SUM="c328993b68afe3e5bd87c8ea9bdeb028"
+SNAPPY_DOWNLOAD="https://github.com/google/snappy/archive/1.1.7.tar.gz"
+SNAPPY_NAME=snappy-1.1.7.tar.gz
+SNAPPY_SOURCE=snappy-1.1.7
+SNAPPY_MD5SUM="ee9086291c9ae8deb4dac5e0b85bf54a"
 
 # gperftools
 GPERFTOOLS_DOWNLOAD="https://github.com/gperftools/gperftools/archive/gperftools-2.7.tar.gz"
@@ -194,8 +194,8 @@ LEVELDB_SOURCE=leveldb-1.20
 LEVELDB_MD5SUM="298b5bddf12c675d6345784261302252"
 
 # brpc
-BRPC_DOWNLOAD="https://github.com/brpc/brpc/archive/v0.9.0.tar.gz"
-BRPC_NAME=brpc-0.9.0.tar.gz
+BRPC_DOWNLOAD="https://github.com/apache/incubator-brpc/archive/v0.9.0.tar.gz"
+BRPC_NAME=incubator-brpc-0.9.0.tar.gz
 BRPC_SOURCE=incubator-brpc-0.9.0
 BRPC_MD5SUM="79dfdc8b6e2d7a08dc68f14c5fabe6b7"
 
@@ -211,5 +211,36 @@ LIBRDKAFKA_NAME=librdkafka-0.11.6-RC5.tar.gz
 LIBRDKAFKA_SOURCE=librdkafka-0.11.6-RC5
 LIBRDKAFKA_MD5SUM="2e4ecef2df277e55a0144eb6d185e18a"
 
+# zstd
+ZSTD_DOWNLOAD="https://github.com/facebook/zstd/archive/v1.3.7.tar.gz"
+ZSTD_NAME=zstd-1.3.7.tar.gz
+ZSTD_SOURCE=zstd-1.3.7
+ZSTD_MD5SUM="9b89923a360ac85a3b8076fdf495318d"
+
+# uriparser
+URIPARSER_DOWNLOAD="https://github.com/uriparser/uriparser/archive/uriparser-0.9.2.tar.gz"
+URIPARSER_NAME=uriparser-0.9.2.tar.gz
+URIPARSER_SOURCE=uriparser-0.9.2
+URIPARSER_MD5SUM="3169aa620d63c67580fd1bc0b1f54638"
+
+# double-conversion
+DOUBLE_CONVERSION_DOWNLOAD="https://github.com/google/double-conversion/archive/v3.1.1.tar.gz"
+DOUBLE_CONVERSION_NAME=double-conversion-3.1.1.tar.gz
+DOUBLE_CONVERSION_SOURCE=double-conversion-3.1.1
+DOUBLE_CONVERSION_MD5SUM="befd431c3de3f3ed7926ba2845ee609d"
+
+# brotli
+BROTLI_DOWNLOAD="https://github.com/google/brotli/archive/v0.6.0.tar.gz"
+BROTLI_NAME=brotli-0.6.0.tar.gz
+BROTLI_SOURCE=brotli-0.6.0
+BROTLI_MD5SUM="1dcdcda924ab0c232ce54fa9f2b02624"
+
+# arrow
+ARROW_DOWNLOAD="https://github.com/apache/arrow/archive/apache-arrow-0.13.0.tar.gz"
+ARROW_NAME=arrow-apache-arrow-0.13.0.tar.gz
+ARROW_SOURCE=arrow-apache-arrow-0.13.0
+ARROW_MD5SUM="de9e00e43df0b5fae2ed92f6491cb10b"
+
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
-export TP_ARCHIVES="LIBEVENT OPENSSL THRIFT LLVM CLANG COMPILER_RT PROTOBUF GFLAGS GLOG GTEST RAPIDJSON SNAPPY GPERFTOOLS ZLIB LZ4 BZIP LZO2 CURL RE2 BOOST MYSQL BOOST_FOR_MYSQL LEVELDB BRPC ROCKSDB LIBRDKAFKA"
+export TP_ARCHIVES="LIBEVENT OPENSSL THRIFT LLVM CLANG COMPILER_RT PROTOBUF GFLAGS GLOG GTEST RAPIDJSON SNAPPY GPERFTOOLS ZLIB LZ4 BZIP LZO2 CURL RE2 BOOST MYSQL BOOST_FOR_MYSQL LEVELDB BRPC ROCKSDB LIBRDKAFKA ARROW BROTLI DOUBLE_CONVERSION URIPARSER ZSTD"
+

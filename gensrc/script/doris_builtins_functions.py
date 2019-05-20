@@ -32,13 +32,13 @@
 visible_functions = [
     # Bit and Byte functions
     # For functions corresponding to builtin operators, we can reuse the implementations
-    [['bitand'], 'TINYINT', ['TINYINT', 'TINYINT'], 
+    [['bitand'], 'TINYINT', ['TINYINT', 'TINYINT'],
         '_ZN5doris9Operators32bitand_tiny_int_val_tiny_int_valEPN9doris_udf'
         '15FunctionContextERKNS1_10TinyIntValES6_'],
-    [['bitand'], 'SMALLINT', ['SMALLINT', 'SMALLINT'], 
+    [['bitand'], 'SMALLINT', ['SMALLINT', 'SMALLINT'],
         '_ZN5doris9Operators34bitand_small_int_val_small_int_valEPN9doris_udf'
         '15FunctionContextERKNS1_11SmallIntValES6_'],
-    [['bitand'], 'INT', ['INT', 'INT'], 
+    [['bitand'], 'INT', ['INT', 'INT'],
         '_ZN5doris9Operators22bitand_int_val_int_valEPN9doris_udf'
         '15FunctionContextERKNS1_6IntValES6_'],
     [['bitand'], 'BIGINT', ['BIGINT', 'BIGINT'],
@@ -48,35 +48,35 @@ visible_functions = [
         '_ZN5doris9Operators34bitand_large_int_val_large_int_valEPN9doris_udf'
         '15FunctionContextERKNS1_11LargeIntValES6_'],
 
-    [['bitor'], 'TINYINT', ['TINYINT', 'TINYINT'], 
+    [['bitor'], 'TINYINT', ['TINYINT', 'TINYINT'],
         '_ZN5doris9Operators31bitor_tiny_int_val_tiny_int_valEPN9doris_udf'
         '15FunctionContextERKNS1_10TinyIntValES6_'],
-    [['bitor'], 'SMALLINT', ['SMALLINT', 'SMALLINT'], 
+    [['bitor'], 'SMALLINT', ['SMALLINT', 'SMALLINT'],
         '_ZN5doris9Operators33bitor_small_int_val_small_int_valEPN9doris_udf'
         '15FunctionContextERKNS1_11SmallIntValES6_'],
-    [['bitor'], 'INT', ['INT', 'INT'], 
+    [['bitor'], 'INT', ['INT', 'INT'],
         '_ZN5doris9Operators21bitor_int_val_int_valEPN9doris_udf'
         '15FunctionContextERKNS1_6IntValES6_'],
-    [['bitor'], 'BIGINT', ['BIGINT', 'BIGINT'], 
+    [['bitor'], 'BIGINT', ['BIGINT', 'BIGINT'],
         '_ZN5doris9Operators29bitor_big_int_val_big_int_valEPN9doris_udf'
         '15FunctionContextERKNS1_9BigIntValES6_'],
-    [['bitor'], 'LARGEINT', ['LARGEINT', 'LARGEINT'], 
+    [['bitor'], 'LARGEINT', ['LARGEINT', 'LARGEINT'],
         '_ZN5doris9Operators33bitor_large_int_val_large_int_valEPN9doris_udf'
         '15FunctionContextERKNS1_11LargeIntValES6_'],
 
-    [['bitxor'], 'TINYINT', ['TINYINT', 'TINYINT'], 
+    [['bitxor'], 'TINYINT', ['TINYINT', 'TINYINT'],
         '_ZN5doris9Operators32bitxor_tiny_int_val_tiny_int_valEPN9doris_udf'
         '15FunctionContextERKNS1_10TinyIntValES6_'],
-    [['bitxor'], 'SMALLINT', ['SMALLINT', 'SMALLINT'], 
+    [['bitxor'], 'SMALLINT', ['SMALLINT', 'SMALLINT'],
         '_ZN5doris9Operators34bitxor_small_int_val_small_int_valEPN9doris_udf'
         '15FunctionContextERKNS1_11SmallIntValES6_'],
-    [['bitxor'], 'INT', ['INT', 'INT'], 
+    [['bitxor'], 'INT', ['INT', 'INT'],
         '_ZN5doris9Operators22bitxor_int_val_int_valEPN9doris_udf'
         '15FunctionContextERKNS1_6IntValES6_'],
-    [['bitxor'], 'BIGINT', ['BIGINT', 'BIGINT'], 
+    [['bitxor'], 'BIGINT', ['BIGINT', 'BIGINT'],
         '_ZN5doris9Operators30bitxor_big_int_val_big_int_valEPN9doris_udf'
         '15FunctionContextERKNS1_9BigIntValES6_'],
-    [['bitxor'], 'LARGEINT', ['LARGEINT', 'LARGEINT'], 
+    [['bitxor'], 'LARGEINT', ['LARGEINT', 'LARGEINT'],
         '_ZN5doris9Operators34bitxor_large_int_val_large_int_valEPN9doris_udf'
         '15FunctionContextERKNS1_11LargeIntValES6_'],
 
@@ -86,60 +86,60 @@ visible_functions = [
     [['bitnot'], 'SMALLINT', ['SMALLINT'],
         '_ZN5doris9Operators20bitnot_small_int_valEPN9doris_udf'
         '15FunctionContextERKNS1_11SmallIntValE'],
-    [['bitnot'], 'INT', ['INT'], 
+    [['bitnot'], 'INT', ['INT'],
         '_ZN5doris9Operators14bitnot_int_valEPN9doris_udf'
         '15FunctionContextERKNS1_6IntValE'],
-    [['bitnot'], 'BIGINT', ['BIGINT'], 
+    [['bitnot'], 'BIGINT', ['BIGINT'],
         '_ZN5doris9Operators18bitnot_big_int_valEPN9doris_udf'
         '15FunctionContextERKNS1_9BigIntValE'],
-    [['bitnot'], 'LARGEINT', ['LARGEINT'], 
+    [['bitnot'], 'LARGEINT', ['LARGEINT'],
         '_ZN5doris9Operators20bitnot_large_int_valEPN9doris_udf'
         '15FunctionContextERKNS1_11LargeIntValE'],
 
     # Timestamp functions
-    [['unix_timestamp'], 'INT', [], 
+    [['unix_timestamp'], 'INT', [],
         '_ZN5doris18TimestampFunctions7to_unixEPN9doris_udf15FunctionContextE'],
-    [['unix_timestamp'], 'INT', ['DATETIME'], 
+    [['unix_timestamp'], 'INT', ['DATETIME'],
         '_ZN5doris18TimestampFunctions7to_unixEPN9doris_udf15FunctionContextERKNS1_11DateTimeValE'],
-    [['unix_timestamp'], 'INT', ['VARCHAR', 'VARCHAR'], 
+    [['unix_timestamp'], 'INT', ['VARCHAR', 'VARCHAR'],
         '_ZN5doris18TimestampFunctions7to_unixEPN9doris_udf15FunctionContextERKNS1_9StringValES6_'],
     [['from_unixtime'], 'VARCHAR', ['INT'],
         '_ZN5doris18TimestampFunctions9from_unixEPN9doris_udf15FunctionContextERKNS1_6IntValE'],
     [['from_unixtime'], 'VARCHAR', ['INT', 'VARCHAR'],
         '_ZN5doris18TimestampFunctions9from_unixEPN9doris_udf'
         '15FunctionContextERKNS1_6IntValERKNS1_9StringValE'],
-    [['now', 'current_timestamp'], 'DATETIME', [], 
+    [['now', 'current_timestamp'], 'DATETIME', [],
         '_ZN5doris18TimestampFunctions3nowEPN9doris_udf15FunctionContextE'],
-    [['curtime', 'current_time'], 'DATETIME', [], 
+    [['curtime', 'current_time'], 'DATETIME', [],
         '_ZN5doris18TimestampFunctions7curtimeEPN9doris_udf15FunctionContextE'],
-    [['timestamp'], 'DATETIME', ['DATETIME'], 
+    [['timestamp'], 'DATETIME', ['DATETIME'],
         '_ZN5doris18TimestampFunctions9timestampEPN9doris_udf15FunctionContextERKNS1_11DateTimeValE'],
 
-    [['from_days'], 'DATE', ['INT'], 
+    [['from_days'], 'DATE', ['INT'],
         '_ZN5doris18TimestampFunctions9from_daysEPN9doris_udf15FunctionContextERKNS1_6IntValE'],
-    [['to_days'], 'INT', ['DATE'], 
+    [['to_days'], 'INT', ['DATE'],
         '_ZN5doris18TimestampFunctions7to_daysEPN9doris_udf15FunctionContextERKNS1_11DateTimeValE'],
 
-    [['year'], 'INT', ['DATETIME'], 
+    [['year'], 'INT', ['DATETIME'],
         '_ZN5doris18TimestampFunctions4yearEPN9doris_udf15FunctionContextERKNS1_11DateTimeValE'],
-    [['month'], 'INT', ['DATETIME'], 
+    [['month'], 'INT', ['DATETIME'],
         '_ZN5doris18TimestampFunctions5monthEPN9doris_udf15FunctionContextERKNS1_11DateTimeValE'],
-    [['quarter'], 'INT', ['DATETIME'], 
+    [['quarter'], 'INT', ['DATETIME'],
         '_ZN5doris18TimestampFunctions7quarterEPN9doris_udf15FunctionContextERKNS1_11DateTimeValE'],
-    [['day', 'dayofmonth'], 'INT', ['DATETIME'], 
+    [['day', 'dayofmonth'], 'INT', ['DATETIME'],
         '_ZN5doris18TimestampFunctions12day_of_monthEPN9doris_udf'
         '15FunctionContextERKNS1_11DateTimeValE'],
-    [['dayofyear'], 'INT', ['DATETIME'], 
+    [['dayofyear'], 'INT', ['DATETIME'],
         '_ZN5doris18TimestampFunctions11day_of_yearEPN9doris_udf'
         '15FunctionContextERKNS1_11DateTimeValE'],
-    [['weekofyear'], 'INT', ['DATETIME'], 
+    [['weekofyear'], 'INT', ['DATETIME'],
         '_ZN5doris18TimestampFunctions12week_of_yearEPN9doris_udf'
         '15FunctionContextERKNS1_11DateTimeValE'],
-    [['hour'], 'INT', ['DATETIME'], 
+    [['hour'], 'INT', ['DATETIME'],
         '_ZN5doris18TimestampFunctions4hourEPN9doris_udf15FunctionContextERKNS1_11DateTimeValE'],
-    [['minute'], 'INT', ['DATETIME'], 
+    [['minute'], 'INT', ['DATETIME'],
         '_ZN5doris18TimestampFunctions6minuteEPN9doris_udf15FunctionContextERKNS1_11DateTimeValE'],
-    [['second'], 'INT', ['DATETIME'], 
+    [['second'], 'INT', ['DATETIME'],
         '_ZN5doris18TimestampFunctions6secondEPN9doris_udf15FunctionContextERKNS1_11DateTimeValE'],
 
     [['years_add'], 'DATETIME', ['DATETIME', 'INT'],
@@ -191,10 +191,10 @@ visible_functions = [
         '_ZN5doris18TimestampFunctions10micros_subEPN9doris_udf'
         '15FunctionContextERKNS1_11DateTimeValERKNS1_6IntValE'],
 
-    [['datediff'], 'INT', ['DATETIME', 'DATETIME'], 
+    [['datediff'], 'INT', ['DATETIME', 'DATETIME'],
         '_ZN5doris18TimestampFunctions9date_diffEPN9doris_udf'
         '15FunctionContextERKNS1_11DateTimeValES6_'],
-    [['timediff'], 'DATETIME', ['DATETIME', 'DATETIME'], 
+    [['timediff'], 'DATETIME', ['DATETIME', 'DATETIME'],
             '_ZN5doris18TimestampFunctions9time_diffEPN9doris_udf'
             '15FunctionContextERKNS1_11DateTimeValES6_'],
 
@@ -204,90 +204,90 @@ visible_functions = [
     [['date_format'], 'VARCHAR', ['DATETIME', 'VARCHAR'],
         '_ZN5doris18TimestampFunctions11date_formatEPN9doris_udf'
         '15FunctionContextERKNS1_11DateTimeValERKNS1_9StringValE'],
-    [['date', 'to_date'], 'DATE', ['DATETIME'], 
+    [['date', 'to_date'], 'DATE', ['DATETIME'],
         '_ZN5doris18TimestampFunctions7to_dateEPN9doris_udf15FunctionContextERKNS1_11DateTimeValE'],
 
-    [['dayname'], 'VARCHAR', ['DATETIME'], 
+    [['dayname'], 'VARCHAR', ['DATETIME'],
         '_ZN5doris18TimestampFunctions8day_nameEPN9doris_udf'
         '15FunctionContextERKNS1_11DateTimeValE'],
-    [['monthname'], 'VARCHAR', ['DATETIME'], 
+    [['monthname'], 'VARCHAR', ['DATETIME'],
         '_ZN5doris18TimestampFunctions10month_nameEPN9doris_udf'
         '15FunctionContextERKNS1_11DateTimeValE'],
 
     # Math builtin functions
-    [['pi'], 'DOUBLE', [], 
+    [['pi'], 'DOUBLE', [],
         '_ZN5doris13MathFunctions2piEPN9doris_udf15FunctionContextE'],
-    [['e'], 'DOUBLE', [], 
+    [['e'], 'DOUBLE', [],
         '_ZN5doris13MathFunctions1eEPN9doris_udf15FunctionContextE'],
 
-    [['abs'], 'DOUBLE', ['DOUBLE'], 
+    [['abs'], 'DOUBLE', ['DOUBLE'],
         '_ZN5doris13MathFunctions3absEPN9doris_udf15FunctionContextERKNS1_9DoubleValE'],
-    [['sign'], 'FLOAT', ['DOUBLE'], 
+    [['sign'], 'FLOAT', ['DOUBLE'],
         '_ZN5doris13MathFunctions4signEPN9doris_udf15FunctionContextERKNS1_9DoubleValE'],
 
-    [['sin'], 'DOUBLE', ['DOUBLE'], 
+    [['sin'], 'DOUBLE', ['DOUBLE'],
         '_ZN5doris13MathFunctions3sinEPN9doris_udf15FunctionContextERKNS1_9DoubleValE'],
-    [['asin'], 'DOUBLE', ['DOUBLE'], 
+    [['asin'], 'DOUBLE', ['DOUBLE'],
         '_ZN5doris13MathFunctions4asinEPN9doris_udf15FunctionContextERKNS1_9DoubleValE'],
-    [['cos'], 'DOUBLE', ['DOUBLE'], 
+    [['cos'], 'DOUBLE', ['DOUBLE'],
         '_ZN5doris13MathFunctions3cosEPN9doris_udf15FunctionContextERKNS1_9DoubleValE'],
-    [['acos'], 'DOUBLE', ['DOUBLE'], 
+    [['acos'], 'DOUBLE', ['DOUBLE'],
         '_ZN5doris13MathFunctions4acosEPN9doris_udf15FunctionContextERKNS1_9DoubleValE'],
-    [['tan'], 'DOUBLE', ['DOUBLE'], 
+    [['tan'], 'DOUBLE', ['DOUBLE'],
             '_ZN5doris13MathFunctions3tanEPN9doris_udf15FunctionContextERKNS1_9DoubleValE'],
-    [['atan'], 'DOUBLE', ['DOUBLE'], 
+    [['atan'], 'DOUBLE', ['DOUBLE'],
             '_ZN5doris13MathFunctions4atanEPN9doris_udf15FunctionContextERKNS1_9DoubleValE'],
 
-    [['ceil', 'ceiling', 'dceil'], 'BIGINT', ['DOUBLE'], 
+    [['ceil', 'ceiling', 'dceil'], 'BIGINT', ['DOUBLE'],
             '_ZN5doris13MathFunctions4ceilEPN9doris_udf15FunctionContextERKNS1_9DoubleValE'],
     [['floor', 'dfloor'], 'BIGINT', ['DOUBLE'],
             '_ZN5doris13MathFunctions5floorEPN9doris_udf15FunctionContextERKNS1_9DoubleValE'],
     [['round', 'dround'], 'BIGINT', ['DOUBLE'],
             '_ZN5doris13MathFunctions5roundEPN9doris_udf15FunctionContextERKNS1_9DoubleValE'],
-    [['round', 'dround'], 'DOUBLE', ['DOUBLE', 'INT'], 
+    [['round', 'dround'], 'DOUBLE', ['DOUBLE', 'INT'],
             '_ZN5doris13MathFunctions11round_up_toEPN9doris_udf'
             '15FunctionContextERKNS1_9DoubleValERKNS1_6IntValE'],
-    [['truncate'], 'DOUBLE', ['DOUBLE', 'INT'], 
+    [['truncate'], 'DOUBLE', ['DOUBLE', 'INT'],
             '_ZN5doris13MathFunctions8truncateEPN9doris_udf'
             '15FunctionContextERKNS1_9DoubleValERKNS1_6IntValE'],
 
-    [['ln', 'dlog1'], 'DOUBLE', ['DOUBLE'], 
+    [['ln', 'dlog1'], 'DOUBLE', ['DOUBLE'],
             '_ZN5doris13MathFunctions2lnEPN9doris_udf15FunctionContextERKNS1_9DoubleValE'],
-    [['log'], 'DOUBLE', ['DOUBLE', 'DOUBLE'], 
+    [['log'], 'DOUBLE', ['DOUBLE', 'DOUBLE'],
             '_ZN5doris13MathFunctions3logEPN9doris_udf15FunctionContextERKNS1_9DoubleValES6_'],
-    [['log2'], 'DOUBLE', ['DOUBLE'], 
+    [['log2'], 'DOUBLE', ['DOUBLE'],
             '_ZN5doris13MathFunctions4log2EPN9doris_udf15FunctionContextERKNS1_9DoubleValE'],
     [['log10', 'dlog10'], 'DOUBLE', ['DOUBLE'],
             '_ZN5doris13MathFunctions5log10EPN9doris_udf15FunctionContextERKNS1_9DoubleValE'],
-    [['exp', 'dexp'], 'DOUBLE', ['DOUBLE'], 
+    [['exp', 'dexp'], 'DOUBLE', ['DOUBLE'],
             '_ZN5doris13MathFunctions3expEPN9doris_udf15FunctionContextERKNS1_9DoubleValE'],
 
-    [['radians'], 'DOUBLE', ['DOUBLE'], 
+    [['radians'], 'DOUBLE', ['DOUBLE'],
             '_ZN5doris13MathFunctions7radiansEPN9doris_udf15FunctionContextERKNS1_9DoubleValE'],
-    [['degrees'], 'DOUBLE', ['DOUBLE'], 
+    [['degrees'], 'DOUBLE', ['DOUBLE'],
             '_ZN5doris13MathFunctions7degreesEPN9doris_udf15FunctionContextERKNS1_9DoubleValE'],
 
     [['sqrt', 'dsqrt'], 'DOUBLE', ['DOUBLE'],
             '_ZN5doris13MathFunctions4sqrtEPN9doris_udf15FunctionContextERKNS1_9DoubleValE'],
-    [['pow', 'power', 'dpow', 'fpow'], 'DOUBLE', ['DOUBLE', 'DOUBLE'], 
+    [['pow', 'power', 'dpow', 'fpow'], 'DOUBLE', ['DOUBLE', 'DOUBLE'],
             '_ZN5doris13MathFunctions3powEPN9doris_udf15FunctionContextERKNS1_9DoubleValES6_'],
 
-    [['rand', 'random'], 'DOUBLE', [], 
+    [['rand', 'random'], 'DOUBLE', [],
             '_ZN5doris13MathFunctions4randEPN9doris_udf15FunctionContextE',
             '_ZN5doris13MathFunctions12rand_prepareEPN9doris_udf'
             '15FunctionContextENS2_18FunctionStateScopeE'],
-    [['rand', 'random'], 'DOUBLE', ['BIGINT'], 
+    [['rand', 'random'], 'DOUBLE', ['BIGINT'],
             '_ZN5doris13MathFunctions9rand_seedEPN9doris_udf15FunctionContextERKNS1_9BigIntValE',
             '_ZN5doris13MathFunctions12rand_prepareEPN9doris_udf'
             '15FunctionContextENS2_18FunctionStateScopeE'],
 
-    [['bin'], 'VARCHAR', ['BIGINT'], 
+    [['bin'], 'VARCHAR', ['BIGINT'],
             '_ZN5doris13MathFunctions3binEPN9doris_udf15FunctionContextERKNS1_9BigIntValE'],
-    [['hex'], 'VARCHAR', ['BIGINT'], 
+    [['hex'], 'VARCHAR', ['BIGINT'],
             '_ZN5doris13MathFunctions7hex_intEPN9doris_udf15FunctionContextERKNS1_9BigIntValE'],
-    [['hex'], 'VARCHAR', ['VARCHAR'], 
+    [['hex'], 'VARCHAR', ['VARCHAR'],
             '_ZN5doris13MathFunctions10hex_stringEPN9doris_udf15FunctionContextERKNS1_9StringValE'],
-    [['unhex'], 'VARCHAR', ['VARCHAR'], 
+    [['unhex'], 'VARCHAR', ['VARCHAR'],
             '_ZN5doris13MathFunctions5unhexEPN9doris_udf15FunctionContextERKNS1_9StringValE'],
 
     [['conv'], 'VARCHAR', ['BIGINT', 'TINYINT', 'TINYINT'],
@@ -297,36 +297,36 @@ visible_functions = [
             '_ZN5doris13MathFunctions11conv_stringEPN9doris_udf'
             '15FunctionContextERKNS1_9StringValERKNS1_10TinyIntValES9_'],
 
-    [['pmod'], 'BIGINT', ['BIGINT', 'BIGINT'], 
+    [['pmod'], 'BIGINT', ['BIGINT', 'BIGINT'],
             '_ZN5doris13MathFunctions11pmod_bigintEPN9doris_udf'
             '15FunctionContextERKNS1_9BigIntValES6_'],
-    [['pmod'], 'DOUBLE', ['DOUBLE', 'DOUBLE'], 
+    [['pmod'], 'DOUBLE', ['DOUBLE', 'DOUBLE'],
             '_ZN5doris13MathFunctions11pmod_doubleEPN9doris_udf'
             '15FunctionContextERKNS1_9DoubleValES6_'],
-    [['mod'], 'TINYINT', ['TINYINT', 'TINYINT'], 
+    [['mod'], 'TINYINT', ['TINYINT', 'TINYINT'],
             '_ZN5doris9Operators29mod_tiny_int_val_tiny_int_valEPN9doris_udf'
             '15FunctionContextERKNS1_10TinyIntValES6_'],
-    [['mod'], 'SMALLINT', ['SMALLINT', 'SMALLINT'], 
+    [['mod'], 'SMALLINT', ['SMALLINT', 'SMALLINT'],
             '_ZN5doris9Operators31mod_small_int_val_small_int_valEPN9doris_udf'
             '15FunctionContextERKNS1_11SmallIntValES6_'],
-    [['mod'], 'INT', ['INT', 'INT'], 
+    [['mod'], 'INT', ['INT', 'INT'],
             '_ZN5doris9Operators19mod_int_val_int_valEPN9doris_udf'
             '15FunctionContextERKNS1_6IntValES6_'],
-    [['mod'], 'BIGINT', ['BIGINT', 'BIGINT'], 
+    [['mod'], 'BIGINT', ['BIGINT', 'BIGINT'],
             '_ZN5doris9Operators27mod_big_int_val_big_int_valEPN9doris_udf'
             '15FunctionContextERKNS1_9BigIntValES6_'],
-    [['mod'], 'LARGEINT', ['LARGEINT', 'LARGEINT'], 
+    [['mod'], 'LARGEINT', ['LARGEINT', 'LARGEINT'],
             '_ZN5doris9Operators31mod_large_int_val_large_int_valEPN9doris_udf'
             '15FunctionContextERKNS1_11LargeIntValES6_'],
-    [['mod'], 'DECIMAL', ['DECIMAL', 'DECIMAL'], 
+    [['mod'], 'DECIMAL', ['DECIMAL', 'DECIMAL'],
             '_ZN5doris16DecimalOperators27mod_decimal_val_decimal_valEPN9doris_udf'
             '15FunctionContextERKNS1_10DecimalValES6_'],
-    [['mod'], 'DECIMALV2', ['DECIMALV2', 'DECIMALV2'], 
+    [['mod'], 'DECIMALV2', ['DECIMALV2', 'DECIMALV2'],
             '_ZN5doris18DecimalV2Operators31mod_decimalv2_val_decimalv2_valEPN9doris_udf'
             '15FunctionContextERKNS1_12DecimalV2ValES6_'],
-    [['mod', 'fmod'], 'FLOAT', ['FLOAT', 'FLOAT'], 
+    [['mod', 'fmod'], 'FLOAT', ['FLOAT', 'FLOAT'],
         '_ZN5doris13MathFunctions10fmod_floatEPN9doris_udf15FunctionContextERKNS1_8FloatValES6_'],
-    [['mod', 'fmod'], 'DOUBLE', ['DOUBLE', 'DOUBLE'], 
+    [['mod', 'fmod'], 'DOUBLE', ['DOUBLE', 'DOUBLE'],
         '_ZN5doris13MathFunctions11fmod_doubleEPN9doris_udf15FunctionContextERKNS1_9DoubleValES6_'],
 
     [['positive'], 'BIGINT', ['BIGINT'],
@@ -455,7 +455,7 @@ visible_functions = [
     [['coalesce'], 'DECIMAL', ['DECIMAL', '...'], ''],
     [['coalesce'], 'DECIMALV2', ['DECIMALV2', '...'], ''],
 
-    [['esquery'], 'BOOLEAN', ['VARCHAR', 'VARCHAR'], 
+    [['esquery'], 'BOOLEAN', ['VARCHAR', 'VARCHAR'],
         '_ZN5doris11ESFunctions5matchEPN'
         '9doris_udf15FunctionContextERKNS1_9StringValES6_'],
 
@@ -466,40 +466,46 @@ visible_functions = [
     [['substr', 'substring'], 'VARCHAR', ['VARCHAR', 'INT', 'INT'],
         '_ZN5doris15StringFunctions9substringEPN'
         '9doris_udf15FunctionContextERKNS1_9StringValERKNS1_6IntValES9_'],
-    [['strleft'], 'VARCHAR', ['VARCHAR', 'INT'], 
+    [['strleft'], 'VARCHAR', ['VARCHAR', 'INT'],
         '_ZN5doris15StringFunctions4leftEPN9doris_udf'
         '15FunctionContextERKNS1_9StringValERKNS1_6IntValE'],
-    [['strright'], 'VARCHAR', ['VARCHAR', 'INT'], 
+    [['left'], 'VARCHAR', ['VARCHAR', 'INT'],
+     '_ZN5doris15StringFunctions4leftEPN9doris_udf'
+     '15FunctionContextERKNS1_9StringValERKNS1_6IntValE'],
+    [['strright'], 'VARCHAR', ['VARCHAR', 'INT'],
         '_ZN5doris15StringFunctions5rightEPN9doris_udf'
         '15FunctionContextERKNS1_9StringValERKNS1_6IntValE'],
-    [['space'], 'VARCHAR', ['INT'], 
+    [['right'], 'VARCHAR', ['VARCHAR', 'INT'],
+     '_ZN5doris15StringFunctions5rightEPN9doris_udf'
+     '15FunctionContextERKNS1_9StringValERKNS1_6IntValE'],
+    [['space'], 'VARCHAR', ['INT'],
         '_ZN5doris15StringFunctions5spaceEPN9doris_udf15FunctionContextERKNS1_6IntValE'],
-    [['repeat'], 'VARCHAR', ['VARCHAR', 'INT'], 
+    [['repeat'], 'VARCHAR', ['VARCHAR', 'INT'],
         '_ZN5doris15StringFunctions6repeatEPN9doris_udf'
         '15FunctionContextERKNS1_9StringValERKNS1_6IntValE'],
-    [['lpad'], 'VARCHAR', ['VARCHAR', 'INT', 'VARCHAR'], 
+    [['lpad'], 'VARCHAR', ['VARCHAR', 'INT', 'VARCHAR'],
             '_ZN5doris15StringFunctions4lpadEPN9doris_udf'
             '15FunctionContextERKNS1_9StringValERKNS1_6IntValES6_'],
-    [['rpad'], 'VARCHAR', ['VARCHAR', 'INT', 'VARCHAR'], 
+    [['rpad'], 'VARCHAR', ['VARCHAR', 'INT', 'VARCHAR'],
             '_ZN5doris15StringFunctions4rpadEPN9doris_udf'
             '15FunctionContextERKNS1_9StringValERKNS1_6IntValES6_'],
-    [['length'], 'INT', ['VARCHAR'], 
+    [['length'], 'INT', ['VARCHAR'],
             '_ZN5doris15StringFunctions6lengthEPN9doris_udf15FunctionContextERKNS1_9StringValE'],
-    [['lower', 'lcase'], 'VARCHAR', ['VARCHAR'], 
+    [['lower', 'lcase'], 'VARCHAR', ['VARCHAR'],
             '_ZN5doris15StringFunctions5lowerEPN9doris_udf15FunctionContextERKNS1_9StringValE'],
     [['upper', 'ucase'], 'VARCHAR', ['VARCHAR'],
             '_ZN5doris15StringFunctions5upperEPN9doris_udf15FunctionContextERKNS1_9StringValE'],
-    [['reverse'], 'VARCHAR', ['VARCHAR'], 
+    [['reverse'], 'VARCHAR', ['VARCHAR'],
             '_ZN5doris15StringFunctions7reverseEPN9doris_udf15FunctionContextERKNS1_9StringValE'],
-    [['trim'], 'VARCHAR', ['VARCHAR'], 
+    [['trim'], 'VARCHAR', ['VARCHAR'],
             '_ZN5doris15StringFunctions4trimEPN9doris_udf15FunctionContextERKNS1_9StringValE'],
-    [['ltrim'], 'VARCHAR', ['VARCHAR'], 
+    [['ltrim'], 'VARCHAR', ['VARCHAR'],
             '_ZN5doris15StringFunctions5ltrimEPN9doris_udf15FunctionContextERKNS1_9StringValE'],
     [['rtrim'], 'VARCHAR', ['VARCHAR'],
             '_ZN5doris15StringFunctions5rtrimEPN9doris_udf15FunctionContextERKNS1_9StringValE'],
-    [['ascii'], 'INT', ['VARCHAR'], 
+    [['ascii'], 'INT', ['VARCHAR'],
             '_ZN5doris15StringFunctions5asciiEPN9doris_udf15FunctionContextERKNS1_9StringValE'],
-    [['instr'], 'INT', ['VARCHAR', 'VARCHAR'], 
+    [['instr'], 'INT', ['VARCHAR', 'VARCHAR'],
             '_ZN5doris15StringFunctions5instrEPN9doris_udf15FunctionContextERKNS1_9StringValES6_'],
     [['locate'], 'INT', ['VARCHAR', 'VARCHAR'],
             '_ZN5doris15StringFunctions6locateEPN9doris_udf15FunctionContextERKNS1_9StringValES6_'],
@@ -520,7 +526,7 @@ visible_functions = [
             '15FunctionContextENS2_18FunctionStateScopeE',
             '_ZN5doris15StringFunctions12regexp_closeEPN9doris_udf'
             '15FunctionContextENS2_18FunctionStateScopeE'],
-    [['concat'], 'VARCHAR', ['VARCHAR', '...'], 
+    [['concat'], 'VARCHAR', ['VARCHAR', '...'],
             '_ZN5doris15StringFunctions6concatEPN9doris_udf15FunctionContextEiPKNS1_9StringValE'],
     [['concat_ws'], 'VARCHAR', ['VARCHAR', 'VARCHAR', '...'],
             '_ZN5doris15StringFunctions9concat_wsEPN9doris_udf'
@@ -528,7 +534,7 @@ visible_functions = [
     [['find_in_set'], 'INT', ['VARCHAR', 'VARCHAR'],
             '_ZN5doris15StringFunctions11find_in_setEPN9doris_udf'
             '15FunctionContextERKNS1_9StringValES6_'],
-    [['parse_url'], 'VARCHAR', ['VARCHAR', 'VARCHAR'], 
+    [['parse_url'], 'VARCHAR', ['VARCHAR', 'VARCHAR'],
             '_ZN5doris15StringFunctions9parse_urlEPN9doris_udf'
             '15FunctionContextERKNS1_9StringValES6_',
             '_ZN5doris15StringFunctions17parse_url_prepareEPN9doris_udf'
@@ -542,20 +548,30 @@ visible_functions = [
             '15FunctionContextENS2_18FunctionStateScopeE',
             '_ZN5doris15StringFunctions15parse_url_closeEPN9doris_udf'
             '15FunctionContextENS2_18FunctionStateScopeE'],
+    [['money_format'], 'VARCHAR', ['BIGINT'],
+        '_ZN5doris15StringFunctions12money_formatEPN9doris_udf15FunctionContextERKNS1_9BigIntValE'],
+    [['money_format'], 'VARCHAR', ['LARGEINT'],
+        '_ZN5doris15StringFunctions12money_formatEPN9doris_udf15FunctionContextERKNS1_11LargeIntValE'],
+    [['money_format'], 'VARCHAR', ['DOUBLE'],
+        '_ZN5doris15StringFunctions12money_formatEPN9doris_udf15FunctionContextERKNS1_9DoubleValE'],
+    [['money_format'], 'VARCHAR', ['DECIMAL'],
+        '_ZN5doris15StringFunctions12money_formatEPN9doris_udf15FunctionContextERKNS1_10DecimalValE'],
+    [['money_format'], 'VARCHAR', ['DECIMALV2'],
+        '_ZN5doris15StringFunctions12money_formatEPN9doris_udf15FunctionContextERKNS1_12DecimalV2ValE'],
 
     # Utility functions
-    [['sleep'], 'BOOLEAN', ['INT'], 
+    [['sleep'], 'BOOLEAN', ['INT'],
         '_ZN5doris16UtilityFunctions5sleepEPN9doris_udf15FunctionContextERKNS1_6IntValE'],
-    [['version'], 'VARCHAR', [], 
+    [['version'], 'VARCHAR', [],
         '_ZN5doris16UtilityFunctions7versionEPN9doris_udf15FunctionContextE'],
 
     # Json functions
-    [['get_json_int'], 'INT', ['VARCHAR', 'VARCHAR'], 
+    [['get_json_int'], 'INT', ['VARCHAR', 'VARCHAR'],
         '_ZN5doris13JsonFunctions12get_json_intEPN9doris_udf15FunctionContextERKNS1_9StringValES6_'],
-    [['get_json_double'], 'DOUBLE', ['VARCHAR', 'VARCHAR'], 
+    [['get_json_double'], 'DOUBLE', ['VARCHAR', 'VARCHAR'],
         '_ZN5doris13JsonFunctions15get_json_doubleEPN9doris_udf'
         '15FunctionContextERKNS1_9StringValES6_'],
-    [['get_json_string'], 'VARCHAR', ['VARCHAR', 'VARCHAR'], 
+    [['get_json_string'], 'VARCHAR', ['VARCHAR', 'VARCHAR'],
         '_ZN5doris13JsonFunctions15get_json_stringEPN9doris_udf'
         '15FunctionContextERKNS1_9StringValES6_'],
 
@@ -564,7 +580,7 @@ visible_functions = [
         '_ZN5doris16HllHashFunctions15hll_cardinalityEPN9doris_udf15FunctionContextERKNS1_6HllValE'],
     [['hll_hash'], 'VARCHAR', ['VARCHAR'],
         '_ZN5doris16HllHashFunctions8hll_hashEPN9doris_udf15FunctionContextERKNS1_9StringValE'],
-    
+
     # aes and base64 function
     [['aes_encrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR'],
         '_ZN5doris19EncryptionFunctions11aes_encryptEPN9doris_udf'

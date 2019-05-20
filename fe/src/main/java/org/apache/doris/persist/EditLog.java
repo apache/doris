@@ -664,6 +664,21 @@ public class EditLog {
                     Catalog.getCurrentCatalog().replayBackendTabletsInfo(backendTabletsInfo);
                     break;
                 }
+                case OperationType.OP_CREATE_ROUTINE_LOAD_JOB: {
+                    RoutineLoadJob routineLoadJob = (RoutineLoadJob) journal.getData();
+                    Catalog.getCurrentCatalog().getRoutineLoadManager().replayCreateRoutineLoadJob(routineLoadJob);
+                    break;
+                }
+                case OperationType.OP_CHANGE_ROUTINE_LOAD_JOB: {
+                    RoutineLoadOperation operation = (RoutineLoadOperation) journal.getData();
+                    Catalog.getCurrentCatalog().getRoutineLoadManager().replayChangeRoutineLoadJob(operation);
+                    break;
+                }
+                case OperationType.OP_REMOVE_ROUTINE_LOAD_JOB: {
+                    RoutineLoadOperation operation = (RoutineLoadOperation) journal.getData();
+                    Catalog.getCurrentCatalog().getRoutineLoadManager().replayRemoveOldRoutineLoad(operation);
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}", opCode, e);
@@ -704,7 +719,7 @@ public class EditLog {
      */
     private synchronized void logEdit(short op, Writable writable) {
         if (this.getNumEditStreams() == 0) {
-            LOG.error("Fatal Error : no editLog stream");
+            LOG.error("Fatal Error : no editLog stream", new Exception());
             throw new Error("Fatal Error : no editLog stream");
         }
 
@@ -1165,5 +1180,17 @@ public class EditLog {
 
     public void logBackendTabletsInfo(BackendTabletsInfo backendTabletsInfo) {
         logEdit(OperationType.OP_BACKEND_TABLETS_INFO, backendTabletsInfo);
+    }
+
+    public void logCreateRoutineLoadJob(RoutineLoadJob routineLoadJob) {
+        logEdit(OperationType.OP_CREATE_ROUTINE_LOAD_JOB, routineLoadJob);
+    }
+
+    public void logOpRoutineLoadJob(RoutineLoadOperation routineLoadOperation) {
+        logEdit(OperationType.OP_CHANGE_ROUTINE_LOAD_JOB, routineLoadOperation);
+    }
+
+    public void logRemoveRoutineLoadJob(RoutineLoadOperation operation) {
+        logEdit(OperationType.OP_REMOVE_ROUTINE_LOAD_JOB, operation);
     }
 }

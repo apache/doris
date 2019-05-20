@@ -43,11 +43,12 @@ public final class ProcService {
         root.register("frontends", new FrontendsProcNode(Catalog.getInstance()));
         root.register("brokers", Catalog.getInstance().getBrokerMgr().getProcNode());
         root.register("load_error_hub", new LoadErrorHubProcNode(Catalog.getInstance()));
-        root.register("transactions", new TransDbProcDir(Catalog.getInstance()));
+        root.register("transactions", new TransDbProcDir());
         root.register("monitor", new MonitorProcDir());
         root.register("current_queries", new CurrentQueryStatisticsProcDir());
         root.register("current_backend_instances", new CurrentQueryBackendInstanceProcDir());
         root.register("cluster_balance", new ClusterBalanceProcDir());
+        root.register("routine_loads", new RoutineLoadsProcDir());
     }
 
     // 通过指定的路径获得对应的PROC Node

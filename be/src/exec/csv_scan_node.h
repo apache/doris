@@ -126,8 +126,8 @@ private:
     // Current RuntimeState
     RuntimeState* _runtime_state;
 
-    int64_t _error_row_number = 0L;
-    int64_t _normal_row_number = 0L;
+    int64_t _num_rows_load_total = 0L;
+    int64_t _num_rows_load_filtered = 0L;
 
     RuntimeProfile::Counter* _split_check_timer;
     RuntimeProfile::Counter* _split_line_timer;

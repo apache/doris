@@ -39,6 +39,7 @@ import org.apache.doris.load.DeleteInfo;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.load.LoadJob;
+import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.master.Checkpoint;
 import org.apache.doris.mysql.privilege.UserProperty;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
@@ -60,6 +61,7 @@ import org.apache.doris.persist.PartitionPersistInfo;
 import org.apache.doris.persist.PrivInfo;
 import org.apache.doris.persist.RecoverInfo;
 import org.apache.doris.persist.ReplicaPersistInfo;
+import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.persist.TableInfo;
 import org.apache.doris.persist.TablePropertyInfo;
 import org.apache.doris.persist.TruncateTableInfo;
@@ -408,6 +410,17 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_BACKEND_TABLETS_INFO: {
                 data = BackendTabletsInfo.read(in);
+                needRead = false;
+                break;
+            }
+            case OperationType.OP_CREATE_ROUTINE_LOAD_JOB: {
+                data = RoutineLoadJob.read(in);
+                needRead = false;
+                break;
+            }
+            case OperationType.OP_CHANGE_ROUTINE_LOAD_JOB:
+            case OperationType.OP_REMOVE_ROUTINE_LOAD_JOB: {
+                data = RoutineLoadOperation.read(in);
                 needRead = false;
                 break;
             }

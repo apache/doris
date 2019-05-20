@@ -868,6 +868,8 @@ void* TaskWorkerPool::_publish_version_worker_thread_callback(void* arg_this) {
             publish_version_req = agent_task_req.publish_version_req;
             worker_pool_this->_tasks.pop_front();
         }
+
+        DorisMetrics::publish_task_request_total.increment(1);
         LOG(INFO)<< "get publish version task, signature:" << agent_task_req.signature;
 
         TStatusCode::type status_code = TStatusCode::OK;
@@ -898,6 +900,7 @@ void* TaskWorkerPool::_publish_version_worker_thread_callback(void* arg_this) {
             OLAP_LOG_WARNING("publish version failed. signature: %ld", agent_task_req.signature);
             error_msgs.push_back("publish version failed");
             finish_task_request.__set_error_tablet_ids(error_tablet_ids);
+            DorisMetrics::publish_task_failed_total.increment(1);
         } else {
             LOG(INFO) << "publish_version success. signature:" << agent_task_req.signature;
         }

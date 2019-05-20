@@ -21,6 +21,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.thrift.TTabletCommitInfo;
 
 import com.google.common.collect.Lists;
+import com.google.gson.Gson;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -64,5 +65,11 @@ public class TabletCommitInfo implements Writable {
     public void readFields(DataInput in) throws IOException {
         tabletId = in.readLong();
         backendId = in.readLong();
+    }
+
+    @Override
+    public String toString() {
+        Gson gson = new Gson();
+        return gson.toJson(this);
     }
 }

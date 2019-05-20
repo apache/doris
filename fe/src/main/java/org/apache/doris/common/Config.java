@@ -340,6 +340,18 @@ public class Config extends ConfigBase {
     public static int stream_load_default_timeout_second = 300; // 300s
 
     /*
+     * Max stream load timeout
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int max_stream_load_timeout_second = 259200; // 3days
+
+    /*
+    * Min stream load timeout
+    */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int min_stream_load_timeout_second = 1; // 1s
+
+    /*
      * Default hadoop load timeout
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -762,6 +774,12 @@ public class Config extends ConfigBase {
     /*
      * If set to true, metric collector will be run as a daemon timer to collect metrics at fix interval
      */
-    @ConfField public static boolean enable_metric_calculator = false;
+    @ConfField public static boolean enable_metric_calculator = true;
+
+    /*
+     * the max concurrent task num of a routine load task
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int max_routine_load_task_concurrent_num = 5;
 }
 

@@ -100,13 +100,20 @@ public:
     static IntCounter cumulative_compaction_deltas_total;
     static IntCounter cumulative_compaction_bytes_total;
 
-    static IntCounter alter_task_success_total;
-    static IntCounter alter_task_failed_total;
+    static IntCounter publish_task_request_total;
+    static IntCounter publish_task_failed_total;
 
     static IntCounter meta_write_request_total;
     static IntCounter meta_write_request_duration_us;
     static IntCounter meta_read_request_total;
     static IntCounter meta_read_request_duration_us;
+
+    static IntCounter txn_begin_request_total;
+    static IntCounter txn_commit_request_total;
+    static IntCounter txn_rollback_request_total;
+    static IntCounter txn_exec_plan_total;
+    static IntCounter stream_receive_bytes_total;
+    static IntCounter stream_load_rows_total;
 
     // Gauges
     static IntGauge memory_pool_bytes_total;
@@ -123,6 +130,9 @@ public:
     // by metric calculator
     static IntGauge push_request_write_bytes_per_second;
     static IntGauge query_scan_bytes_per_second;
+    static IntGauge max_disk_io_util_percent;
+    static IntGauge max_network_send_bytes_rate;
+    static IntGauge max_network_receive_bytes_rate;
 
     ~DorisMetrics();
     // call before calling metrics
@@ -135,6 +145,7 @@ public:
 
     static DorisMetrics* instance() { return &_s_doris_metrics; }
     static MetricRegistry* metrics() { return _s_doris_metrics._metrics; }
+    static SystemMetrics* system_metrics() { return _s_doris_metrics._system_metrics; }
 private:
     // Don't allow constrctor
     DorisMetrics();

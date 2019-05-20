@@ -28,13 +28,13 @@
 #include "common/logging.h"
 #include "exec/broker_reader.h"
 #include "exec/broker_writer.h"
-#include "exec/schema_scanner/frontend_helper.h"
 #include "olap/file_helper.h"
 #include "olap/olap_engine.h"
 #include "olap/olap_table.h"
 #include "runtime/exec_env.h"
 #include "runtime/broker_mgr.h"
 #include "util/file_utils.h"
+#include "util/frontend_helper.h"
 
 namespace doris {
 

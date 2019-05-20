@@ -63,6 +63,28 @@ struct TTabletStatResult {
     1: required map<i64, TTabletStat> tablets_stats
 }
 
+struct TKafkaLoadInfo {
+    1: required string brokers;
+    2: required string topic;
+    3: required map<i32, i64> partition_begin_offset;
+}
+
+struct TRoutineLoadTask {
+    1: required Types.TLoadSourceType type
+    2: required i64 job_id
+    3: required Types.TUniqueId id
+    4: required i64 txn_id
+    5: required i64 auth_code
+    6: optional string db
+    7: optional string tbl
+    8: optional string label
+    9: optional i64 max_interval_s
+    10: optional i64 max_batch_rows
+    11: optional i64 max_batch_size
+    12: optional TKafkaLoadInfo kafka_load_info
+    13: optional PaloInternalService.TExecPlanFragmentParams params
+}
+
 service BackendService {
     // Called by coord to start asynchronous execution of plan fragment in backend.
     // Returns as soon as all incoming data streams have been set up.
@@ -102,7 +124,7 @@ service BackendService {
     Status.TStatus register_pull_load_task(1: Types.TUniqueId id, 2: i32 num_senders)
 
     // Call by task coordinator to unregister this task.
-    // This task may be failed because load task have been finished or this task 
+    // This task may be failed because load task have been finished or this task
     // has been canceled by coordinator.
     Status.TStatus deregister_pull_load_task(1: Types.TUniqueId id)
 
@@ -119,4 +141,6 @@ service BackendService {
     Status.TStatus erase_export_task(1:Types.TUniqueId task_id);
 
     TTabletStatResult get_tablet_stat();
+
+    Status.TStatus submit_routine_load_task(1:list<TRoutineLoadTask> tasks);
 }

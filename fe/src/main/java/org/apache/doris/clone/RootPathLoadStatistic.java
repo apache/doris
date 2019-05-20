@@ -113,14 +113,15 @@ public class RootPathLoadStatistic implements Comparable<RootPathLoadStatistic> 
         return BalanceStatus.OK;
     }
 
+    // path with lower usage percent rank ahead
     @Override
     public int compareTo(RootPathLoadStatistic o) {
         double myPercent = getUsedPercent();
         double otherPercent = o.getUsedPercent();
         if (myPercent < otherPercent) {
-            return 1;
-        } else if (myPercent > otherPercent) {
             return -1;
+        } else if (myPercent > otherPercent) {
+            return 1;
         } else {
             return 0;
         }

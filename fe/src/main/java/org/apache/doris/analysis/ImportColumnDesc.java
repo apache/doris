@@ -21,20 +21,27 @@ package org.apache.doris.analysis;
  * Created by zhaochun on 2018/4/23.
  */
 public class ImportColumnDesc {
-    private String column;
+    private String columnName;
     private Expr expr;
 
+    public ImportColumnDesc(ImportColumnDesc other) {
+        this.columnName = other.columnName;
+        if (other.expr != null) {
+            this.expr = other.expr.clone();
+        }
+    }
+
     public ImportColumnDesc(String column) {
-        this.column = column;
+        this.columnName = column;
     }
 
     public ImportColumnDesc(String column, Expr expr) {
-        this.column = column;
+        this.columnName = column;
         this.expr = expr;
     }
 
-    public String getColumn() {
-        return column;
+    public String getColumnName() {
+        return columnName;
     }
 
     public Expr getExpr() {
@@ -43,5 +50,15 @@ public class ImportColumnDesc {
 
     public boolean isColumn() {
         return expr == null;
+    }
+
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(columnName);
+        if (expr != null) {
+            sb.append("=").append(expr.toSql());
+        }
+        return sb.toString();
     }
 }

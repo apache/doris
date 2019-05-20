@@ -15,23 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-
 package org.apache.doris.load;
 
 import org.apache.doris.analysis.ColumnSeparator;
-import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.LoadColumnsInfo;
+import org.apache.doris.analysis.ImportColumnsStmt;
+import org.apache.doris.analysis.ImportWhereStmt;
 
 import java.util.List;
 
 public class RoutineLoadDesc {
     private final ColumnSeparator columnSeparator;
-    private final LoadColumnsInfo columnsInfo;
-    private final Expr wherePredicate;
+    private final ImportColumnsStmt columnsInfo;
+    private final ImportWhereStmt wherePredicate;
+    // nullable
     private final List<String> partitionNames;
 
-    public RoutineLoadDesc(ColumnSeparator columnSeparator, LoadColumnsInfo columnsInfo,
-                           Expr wherePredicate, List<String> partitionNames) {
+    public RoutineLoadDesc(ColumnSeparator columnSeparator, ImportColumnsStmt columnsInfo,
+            ImportWhereStmt wherePredicate, List<String> partitionNames) {
         this.columnSeparator = columnSeparator;
         this.columnsInfo = columnsInfo;
         this.wherePredicate = wherePredicate;
@@ -42,14 +42,15 @@ public class RoutineLoadDesc {
         return columnSeparator;
     }
 
-    public LoadColumnsInfo getColumnsInfo() {
+    public ImportColumnsStmt getColumnsInfo() {
         return columnsInfo;
     }
 
-    public Expr getWherePredicate() {
+    public ImportWhereStmt getWherePredicate() {
         return wherePredicate;
     }
 
+    // nullable
     public List<String> getPartitionNames() {
         return partitionNames;
     }

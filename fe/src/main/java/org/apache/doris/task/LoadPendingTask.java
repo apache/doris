@@ -25,6 +25,7 @@ import org.apache.doris.load.Load;
 import org.apache.doris.load.LoadChecker;
 import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.LoadJob.JobState;
+import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 
@@ -75,9 +76,8 @@ public abstract class LoadPendingTask extends MasterTask {
             // create etl request and make some guarantee for schema change and rollup
             if (job.getTransactionId() < 0) {
                 long transactionId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(dbId, 
-                        job.getLabel(),
-                        "fe", 
-                        LoadJobSourceType.FRONTEND);
+                        job.getLabel(), "FE: " + FrontendOptions.getLocalHostAddress(), LoadJobSourceType.FRONTEND,
+                        job.getTimeoutSecond());
                 job.setTransactionId(transactionId);
             }
             createEtlRequest();

@@ -150,6 +150,7 @@
             2) 目前仅支持以下类型的列作为 Range 分区列，且只能指定一个分区列
                 TINYINT, SMALLINT, INT, BIGINT, LARGEINT, DATE, DATETIME
             3) 分区为左闭右开区间，首个分区的左边界为做最小值
+            4) NULL 值只会存放在包含最小值的分区中。当包含最小值的分区被删除后，NULL 值将无法导入。
                              
         注意：
             1) 分区一般用于时间维度的数据管理
@@ -340,6 +341,20 @@
         "colocate_with" = "t1"
         );
 
+    8. 创建一个数据文件存储在BOS上的 broker 外部表
+        CREATE EXTERNAL TABLE example_db.table_broker (
+        k1 DATE
+        )
+        ENGINE=broker
+        PROPERTIES (
+        "broker_name" = "bos",
+        "path" = "bos://my_bucket/input/file",
+        )
+        BROKER PROPERTIES (
+          "bos_endpoint" = "http://bj.bcebos.com",
+          "bos_accesskey" = "xxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "bos_secret_accesskey"="yyyyyyyyyyyyyyyyyyyy"
+        )
 
 ## keyword
     CREATE,TABLE
@@ -580,8 +595,7 @@
         ORDER BY (k3,k1,k2,v2,v1) FROM example_rollup_index;
 
     11. 修改表的 bloom filter 列
-        ALTER TABLE example_db.my_table
-        PROPERTIES ("bloom_filter_columns"="k1,k2,k3");
+        ALTER TABLE example_db.my_table set ("bloom_filter_columns"="k1,k2,k3");
 
        也可以合并到上面的 schema change 操作中
         ALTER TABLE example_db.my_table
@@ -723,7 +737,7 @@
 
         ALTER DATABASE example_db SET DATA QUOTA 200M;
 
-    2. 将数据库额 example_db 重命名为 example_db2
+    2. 将数据库 example_db 重命名为 example_db2
         ALTER DATABASE example_db RENAME example_db2;
 
 ## keyword

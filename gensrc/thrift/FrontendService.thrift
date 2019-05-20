@@ -458,6 +458,8 @@ struct TLoadTxnBeginRequest {
     6: optional string user_ip
     7: required string label
     8: optional i64 timestamp
+    9: optional i64 auth_code
+    10: optional i64 timeout
 }
 
 struct TLoadTxnBeginResult {
@@ -493,6 +495,7 @@ struct TStreamLoadPutRequest {
     14: optional string columnSeparator
 
     15: optional string partitions
+    16: optional i64 auth_code
 }
 
 struct TStreamLoadPutResult {
@@ -501,31 +504,26 @@ struct TStreamLoadPutResult {
     2: optional PaloInternalService.TExecPlanFragmentParams params
 }
 
-enum TRoutineLoadType {
-    KAFKA = 1
-}
-
 struct TKafkaRLTaskProgress {
-    1: required map<i32,i64> partitionIdToOffset
-}
-
-enum TTxnSourceType {
-    ROUTINE_LOAD_TASK = 1
+    1: required map<i32,i64> partitionCmtOffset
 }
 
 struct TRLTaskTxnCommitAttachment {
-    1: required TRoutineLoadType routineLoadType
-    2: required i64 backendId
-    3: required i64 taskSignature
-    4: required i32 numOfErrorData
-    5: required i32 numOfTotalData
-    6: required string taskId
-    7: required string jobId
-    8: optional TKafkaRLTaskProgress kafkaRLTaskProgress
+    1: required Types.TLoadSourceType loadSourceType
+    2: required Types.TUniqueId id
+    3: required i64 jobId
+    4: optional i64 loadedRows
+    5: optional i64 filteredRows
+    6: optional i64 unselectedRows
+    7: optional i64 receivedBytes
+    8: optional i64 loadedBytes
+    9: optional i64 loadCostMs
+    10: optional TKafkaRLTaskProgress kafkaRLTaskProgress
+    11: optional string errorLogUrl
 }
 
 struct TTxnCommitAttachment {
-    1: required TTxnSourceType txnSourceType
+    1: required Types.TLoadType loadType
     2: optional TRLTaskTxnCommitAttachment rlTaskTxnCommitAttachment
 }
 
@@ -539,7 +537,8 @@ struct TLoadTxnCommitRequest {
     7: required i64 txnId
     8: required bool sync
     9: optional list<Types.TTabletCommitInfo> commitInfos
-    10: optional TTxnCommitAttachment txnCommitAttachment
+    10: optional i64 auth_code
+    11: optional TTxnCommitAttachment txnCommitAttachment
 }
 
 struct TLoadTxnCommitResult {
@@ -555,6 +554,8 @@ struct TLoadTxnRollbackRequest {
     6: optional string user_ip
     7: required i64 txnId
     8: optional string reason
+    9: optional i64 auth_code
+    10: optional TTxnCommitAttachment txnCommitAttachment
 }
 
 struct TLoadTxnRollbackResult {

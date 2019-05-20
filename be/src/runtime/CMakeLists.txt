@@ -93,8 +93,14 @@ add_library(Runtime STATIC
   bufferpool/system_allocator.cc
   initial_reservations.cc
   snapshot_loader.cpp
-  kafka_consumer_pipe.cpp
   query_statistics.cpp 
+  message_body_sink.cpp
+  stream_load/stream_load_context.cpp
+  stream_load/stream_load_executor.cpp
+  routine_load/data_consumer.cpp
+  routine_load/data_consumer_group.cpp
+  routine_load/data_consumer_pool.cpp
+  routine_load/routine_load_task_executor.cpp
 )
 
 # This test runs forever so should not be part of 'make test'

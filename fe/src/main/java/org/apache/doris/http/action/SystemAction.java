@@ -17,6 +17,8 @@
 
 package org.apache.doris.http.action;
 
+import org.apache.doris.analysis.RedirectStatus;
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.proc.ProcDirInterface;
 import org.apache.doris.common.proc.ProcNodeInterface;
@@ -25,10 +27,17 @@ import org.apache.doris.http.ActionController;
 import org.apache.doris.http.BaseRequest;
 import org.apache.doris.http.BaseResponse;
 import org.apache.doris.http.IllegalArgException;
+import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.MasterOpExecutor;
+import org.apache.doris.qe.ShowResultSet;
+import org.apache.doris.system.SystemInfoService;
 
+import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 import io.netty.handler.codec.http.HttpMethod;
 
@@ -47,50 +56,73 @@ public class SystemAction extends WebBaseAction {
         getPageHeader(request, response.getContent());
 
         String currentPath = request.getSingleParameter("path");
-        ProcNodeInterface node = null;
-        // root path is default path
         if (Strings.isNullOrEmpty(currentPath)) {
             currentPath = "/";
         }
-
-        node = getProcNode(currentPath);
-        appendSystemInfo(response.getContent(), node, currentPath);
+        appendSystemInfo(response.getContent(), currentPath, currentPath);
 
         getPageFooter(response.getContent());
         writeResponse(request, response);
     }
 
-    private void appendSystemInfo(StringBuilder buffer, ProcNodeInterface procNode, String path) {
+    private void appendSystemInfo(StringBuilder buffer, String procPath, String path) {
         buffer.append("<h2>System Info</h2>");
         buffer.append("<p>This page lists the system info, like /proc in Linux.</p>");
         buffer.append("<p class=\"text-info\"> Current path: " + path + "</p>");
 
+        ProcNodeInterface procNode = getProcNode(procPath);
         if (procNode == null) {
-            buffer.append("<p class=\"text-error\"> No such proc path["
-                    + path
-                    + "]</p>");
+            buffer.append("<p class=\"text-error\"> No such proc path[" + path + "]</p>");
             return;
         }
+        boolean isDir = (procNode instanceof ProcDirInterface);
 
-        boolean isDir = false;
-        if (procNode instanceof ProcDirInterface) {
-            isDir = true;
+        List<String> columnNames = null;
+        List<List<String>> rows = null;
+        if (!Catalog.getCurrentCatalog().isMaster()) {
+            // forward to master
+            String showProcStmt = "SHOW PROC \"" + procPath + "\"";
+            ConnectContext context = new ConnectContext(null);
+            context.setCatalog(Catalog.getCurrentCatalog());
+            context.setCluster(SystemInfoService.DEFAULT_CLUSTER);
+            context.setQualifiedUser(PaloAuth.ADMIN_USER);
+            MasterOpExecutor masterOpExecutor = new MasterOpExecutor(showProcStmt, context,
+                    RedirectStatus.FORWARD_NO_SYNC);
+            try {
+                masterOpExecutor.execute();
+            } catch (Exception e) {
+                buffer.append("<p class=\"text-error\"> Failed to forward request to master</p>");
+                return;
+            }
+
+            ShowResultSet resultSet = masterOpExecutor.getProxyResultSet();
+            if (resultSet == null) {
+                buffer.append("<p class=\"text-error\"> Failed to get result from master</p>");
+                return;
+            }
+
+            columnNames = resultSet.getMetaData().getColumns().stream().map(c -> c.getName()).collect(
+                    Collectors.toList());
+            rows = resultSet.getResultRows();
+        } else {
+            ProcResult result;
+            try {
+                result = procNode.fetchResult();
+            } catch (AnalysisException e) {
+                buffer.append("<p class=\"text-error\"> The result is null, "
+                        + "maybe haven't be implemented completely[" + e.getMessage() + "], please check.</p>");
+                buffer.append("<p class=\"text-info\"> "
+                        + "INFO: ProcNode type is [" + procNode.getClass().getName()
+                        + "]</p>");
+                return;
+            }
+
+            columnNames = result.getColumnNames();
+            rows = result.getRows();
         }
 
-        ProcResult result;
-        try {
-            result = procNode.fetchResult();
-        } catch (AnalysisException e) {
-            buffer.append("<p class=\"text-error\"> The result is null, "
-                    + "maybe haven't be implemented completely[" + e.getMessage() + "], please check.</p>");
-            buffer.append("<p class=\"text-info\"> "
-                    + "INFO: ProcNode type is [" + procNode.getClass().getName()
-                    + "]</p>");
-            return;
-        }
-
-        List<String> columnNames = result.getColumnNames();
-        List<List<String>> rows = result.getRows();
+        Preconditions.checkNotNull(columnNames);
+        Preconditions.checkNotNull(rows);
 
         appendBackButton(buffer, path);
         appendTableHeader(buffer, columnNames);

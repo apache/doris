@@ -198,15 +198,15 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_A
     KW_DATA, KW_DATABASE, KW_DATABASES, KW_DATE, KW_DATETIME, KW_DECIMAL, KW_DECOMMISSION, KW_DEFAULT, KW_DESC, KW_DESCRIBE,
     KW_DELETE, KW_DISTINCT, KW_DISTINCTPC, KW_DISTINCTPCSA, KW_DISTRIBUTED, KW_DISTRIBUTION, KW_BUCKETS, KW_DIV, KW_DOUBLE, KW_DROP, KW_DROPP, KW_DUPLICATE,
     KW_ELSE, KW_END, KW_ENGINE, KW_ENGINES, KW_ENTER, KW_ERRORS, KW_EVENTS, KW_EXISTS, KW_EXPORT, KW_EXTERNAL, KW_EXTRACT,
-    KW_FALSE, KW_FOLLOWER, KW_FOLLOWING, KW_FREE, KW_FROM, KW_FIRST, KW_FLOAT, KW_FOR, KW_FRONTEND, KW_FRONTENDS, KW_FULL, KW_FUNCTION,
+    KW_FALSE, KW_FOLLOWER, KW_FOLLOWING, KW_FREE, KW_FROM, KW_FIRST, KW_FLOAT, KW_FOR, KW_FORMAT, KW_FRONTEND, KW_FRONTENDS, KW_FULL, KW_FUNCTION,
     KW_GLOBAL, KW_GRANT, KW_GRANTS, KW_GROUP,
     KW_HASH, KW_HAVING, KW_HELP,KW_HLL, KW_HLL_UNION, KW_HUB,
     KW_IDENTIFIED, KW_IF, KW_IN, KW_INDEX, KW_INDEXES, KW_INFILE,
-    KW_INNER, KW_INSERT, KW_INT, KW_INTERVAL, KW_INTO, KW_IS, KW_ISNULL,  KW_ISOLATION,
+    KW_INNER, KW_INSERT, KW_INT, KW_INTERMEDIATE, KW_INTERVAL, KW_INTO, KW_IS, KW_ISNULL,  KW_ISOLATION,
     KW_JOIN,
     KW_KEY, KW_KILL,
     KW_LABEL, KW_LARGEINT, KW_LAST, KW_LEFT, KW_LESS, KW_LEVEL, KW_LIKE, KW_LIMIT, KW_LINK, KW_LOAD,
-    KW_ROUTINE, KW_PAUSE, KW_RESUME, KW_STOP,
+    KW_ROUTINE, KW_PAUSE, KW_RESUME, KW_STOP, KW_TASK,
     KW_LOCAL, KW_LOCATION,
     KW_MAX, KW_MAX_VALUE, KW_MERGE, KW_MIN, KW_MIGRATE, KW_MIGRATIONS, KW_MODIFY,
     KW_NAME, KW_NAMES, KW_NEGATIVE, KW_NO, KW_NOT, KW_NULL, KW_NULLS,
@@ -225,7 +225,7 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_A
     KW_TABLE, KW_TABLES, KW_TABLET, KW_TERMINATED, KW_THAN, KW_THEN, KW_TIMESTAMP, KW_TINYINT,
     KW_TO, KW_TRANSACTION, KW_TRIGGERS, KW_TRIM, KW_TRUE, KW_TRUNCATE, KW_TYPE, KW_TYPES,
     KW_UNCOMMITTED, KW_UNBOUNDED, KW_UNION, KW_UNIQUE, KW_UNSIGNED, KW_USE, KW_USER, KW_USING,
-    KW_VALUES, KW_VARCHAR, KW_VARIABLES, KW_VIEW,
+    KW_VALUE, KW_VALUES, KW_VARCHAR, KW_VARIABLES, KW_VIEW,
     KW_WARNINGS, KW_WHEN, KW_WHITELIST, KW_WHERE, KW_WITH, KW_WORK, KW_WRITE;
 
 terminal COMMA, DOT, DOTDOTDOT, AT, STAR, LPAREN, RPAREN, SEMICOLON, LBRACKET, RBRACKET, DIVIDE, MOD, ADD, SUBTRACT;
@@ -243,7 +243,8 @@ terminal String COMMENTED_PLAN_HINTS;
 
 // Statement that the result of this parser.
 nonterminal StatementBase query, stmt, show_stmt, show_param, help_stmt, load_stmt,
-    create_routine_load_stmt, pause_routine_load_stmt, resume_routine_load_stmt, stop_routine_load_stmt, show_routine_load_stmt,
+    create_routine_load_stmt, pause_routine_load_stmt, resume_routine_load_stmt, stop_routine_load_stmt,
+    show_routine_load_stmt, show_routine_load_task_stmt,
     describe_stmt, alter_stmt,
     use_stmt, kill_stmt, drop_stmt, recover_stmt, grant_stmt, revoke_stmt, create_stmt, set_stmt, sync_stmt, cancel_stmt, cancel_param, delete_stmt,
     link_stmt, migrate_stmt, enter_stmt, unsupported_stmt, export_stmt, admin_stmt, truncate_stmt, import_columns_stmt, import_where_stmt;
@@ -256,6 +257,7 @@ nonterminal opt_with_consistent_snapshot, opt_work, opt_chain, opt_release;
 
 // Single select statement.
 nonterminal SelectStmt select_stmt;
+nonterminal ValueList value_clause;
 
 // No return.
 nonterminal describe_command, opt_full, opt_inner, opt_outer, from_or_in, keys_or_index, opt_storage, opt_wild_where,
@@ -287,9 +289,9 @@ nonterminal RestoreStmt restore_stmt;
 
 nonterminal SelectList select_clause, select_list, select_sublist;
 nonterminal SelectListItem select_list_item, star_expr;
-nonterminal Expr expr, non_pred_expr, arithmetic_expr, timestamp_arithmetic_expr;
+nonterminal Expr expr, non_pred_expr, arithmetic_expr, timestamp_arithmetic_expr, expr_or_default;
 nonterminal LiteralExpr set_expr_or_default;
-nonterminal ArrayList<Expr> expr_list;
+nonterminal ArrayList<Expr> expr_list, values, row_value, opt_values;
 nonterminal ArrayList<Expr> func_arg_list;
 nonterminal String select_alias, opt_table_alias;
 nonterminal ArrayList<String> ident_list, opt_using_partition;
@@ -308,7 +310,7 @@ nonterminal OrderByElement order_by_element;
 nonterminal Boolean opt_order_param;
 nonterminal Boolean opt_nulls_order_param;
 nonterminal LimitElement limit_clause;
-nonterminal TypeDef type_def;
+nonterminal TypeDef type_def, opt_intermediate_type;
 nonterminal List<TypeDef> type_def_list;
 nonterminal FunctionArgsDef func_args_def;
 nonterminal Type type;
@@ -386,7 +388,6 @@ nonterminal TablePattern tbl_pattern;
 nonterminal String ident_or_star;
 
 // Routine load
-nonterminal LoadColumnsInfo load_columns_info;
 nonterminal ParseNode load_property;
 nonterminal List<ParseNode> opt_load_property_list;
 
@@ -402,7 +403,7 @@ nonterminal List<AlterClause> alter_table_clause_list;
 //
 nonterminal String keyword, ident, ident_or_text, variable_name, text_or_password,
         charset_name_or_default, old_or_new_charset_name_or_default, opt_collate,
-        collation_name_or_default;
+        collation_name_or_default, type_func_name_keyword, type_function_name, opt_file_format;
 
 nonterminal String opt_db, opt_partition_name, procedure_or_function, opt_default_value, opt_comment, opt_engine;
 nonterminal Boolean opt_if_exists, opt_if_not_exists;
@@ -449,7 +450,7 @@ query ::=
     ;
 
 import_columns_stmt ::=
-    KW_COLUMNS import_column_descs:columns
+    KW_COLUMNS LPAREN import_column_descs:columns RPAREN
     {:
         RESULT = new ImportColumnsStmt(columns);
     :}
@@ -529,6 +530,8 @@ stmt ::=
     | stop_routine_load_stmt : stmt
     {: RESULT = stmt; :}
     | show_routine_load_stmt : stmt
+    {: RESULT = stmt; :}
+    | show_routine_load_task_stmt : stmt
     {: RESULT = stmt; :}
     | cancel_stmt : stmt
     {: RESULT = stmt; :}
@@ -838,6 +841,16 @@ sync_stmt ::=
     :}
     ;
 
+opt_intermediate_type ::=
+    {:
+        RESULT = null;
+    :}
+    | KW_INTERMEDIATE type_def:intermediateType
+    {:
+        RESULT = intermediateType;
+    :}
+    ;
+
 // Create Statement
 create_stmt ::=
     /* Database */
@@ -852,9 +865,9 @@ create_stmt ::=
     :}*/
     /* Function */
     | KW_CREATE opt_aggregate:isAggregate KW_FUNCTION function_name:functionName LPAREN func_args_def:args RPAREN
-            KW_RETURNS type_def:retrunType opt_properties:properties
+            KW_RETURNS type_def:retrunType opt_intermediate_type:intermediateType opt_properties:properties
     {:
-        RESULT = new CreateFunctionStmt(isAggregate, functionName, args, retrunType, properties);
+        RESULT = new CreateFunctionStmt(isAggregate, functionName, args, retrunType, intermediateType, properties);
     :}
     /* Table */
     | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name
@@ -1031,10 +1044,11 @@ data_desc ::=
     KW_INTO KW_TABLE ident:tableName
     opt_partitions:partitionNames
     opt_field_term:colSep
+    opt_file_format:fileFormat
     opt_col_list:colList
     opt_col_mapping_list:colMappingList
     {:
-        RESULT = new DataDescription(tableName, partitionNames, files, colList, colSep, isNeg, colMappingList);
+        RESULT = new DataDescription(tableName, partitionNames, files, colList, colSep, fileFormat, isNeg, colMappingList);
     :}
     ;
 
@@ -1082,6 +1096,13 @@ column_separator ::=
     {:
         RESULT = new ColumnSeparator(sep);
     :}
+    ;
+
+opt_file_format ::=
+    /* Empty */
+    {: RESULT = null; :}
+    | KW_FORMAT KW_AS ident_or_text:format
+    {: RESULT = format; :}
     ;
 
 opt_col_list ::=
@@ -1148,12 +1169,12 @@ opt_cluster ::=
 
 // Routine load statement
 create_routine_load_stmt ::=
-    KW_CREATE KW_ROUTINE KW_LOAD ident:jobName KW_ON table_name:dbTableName
+    KW_CREATE KW_ROUTINE KW_LOAD job_label:jobLabel KW_ON ident:tableName
     opt_load_property_list:loadPropertyList
     opt_properties:properties
     KW_FROM ident:type LPAREN key_value_map:customProperties RPAREN
     {:
-        RESULT = new CreateRoutineLoadStmt(jobName, dbTableName, loadPropertyList, properties, type, customProperties);
+        RESULT = new CreateRoutineLoadStmt(jobLabel, tableName, loadPropertyList, properties, type, customProperties);
     :}
     ;
 
@@ -1177,11 +1198,11 @@ load_property ::=
     {:
       RESULT = colSep;
     :}
-    | load_columns_info:columnsInfo
+    | import_columns_stmt:columnsInfo
     {:
       RESULT = columnsInfo;
     :}
-    | where_clause_without_null:wherePredicate
+    | import_where_stmt:wherePredicate
     {:
       RESULT = wherePredicate;
     :}
@@ -1191,39 +1212,50 @@ load_property ::=
     :}
     ;
 
-load_columns_info ::=
-    col_list:colList
-    opt_col_mapping_list:colMappingList
-    {:
-        RESULT = new LoadColumnsInfo(colList, colMappingList);
-    :}
-    ;
-
 pause_routine_load_stmt ::=
-    KW_PAUSE KW_ROUTINE KW_LOAD ident:name
+    KW_PAUSE KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel
     {:
-        RESULT = new PauseRoutineLoadStmt(name);
+        RESULT = new PauseRoutineLoadStmt(jobLabel);
     :}
     ;
 
 resume_routine_load_stmt ::=
-    KW_RESUME KW_ROUTINE KW_LOAD ident:name
+    KW_RESUME KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel
     {:
-        RESULT = new ResumeRoutineLoadStmt(name);
+        RESULT = new ResumeRoutineLoadStmt(jobLabel);
     :}
     ;
 
 stop_routine_load_stmt ::=
-    KW_STOP KW_ROUTINE KW_LOAD ident:name
+    KW_STOP KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel
     {:
-        RESULT = new StopRoutineLoadStmt(name);
+        RESULT = new StopRoutineLoadStmt(jobLabel);
     :}
     ;
 
 show_routine_load_stmt ::=
-    KW_SHOW KW_ROUTINE KW_LOAD ident:name
+    KW_SHOW KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel
     {:
-        RESULT = new ShowRoutineLoadStmt(name);
+        RESULT = new ShowRoutineLoadStmt(jobLabel, false);
+    :}
+    | KW_SHOW KW_ALL KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel
+    {:
+        RESULT = new ShowRoutineLoadStmt(jobLabel, true);
+    :}
+    | KW_SHOW KW_ROUTINE KW_LOAD
+    {:
+        RESULT = new ShowRoutineLoadStmt(null, false);
+    :}
+    | KW_SHOW KW_ALL KW_ROUTINE KW_LOAD
+    {:
+        RESULT = new ShowRoutineLoadStmt(null, true);
+    :}
+    ;
+
+show_routine_load_task_stmt ::=
+    KW_SHOW KW_ROUTINE KW_LOAD KW_TASK opt_db:dbName opt_wild_where
+    {:
+        RESULT = new ShowRoutineLoadTaskStmt(dbName, parser.where);
     :}
     ;
 
@@ -1869,6 +1901,10 @@ show_param ::=
     | KW_ROLES
     {:
         RESULT = new ShowRolesStmt();
+    :}
+    | KW_FUNCTION opt_db:dbName
+    {:
+        RESULT = new ShowFunctionStmt(dbName);
     :}
     ;
 
@@ -2663,7 +2699,64 @@ select_stmt ::=
                             groupingExprs, havingPredicate, orderByClause,
                             limitClause);
   :}
+  | value_clause:valueClause order_by_clause:orderByClause limit_clause:limitClause
+  {:
+      RESULT = new SelectStmt(valueClause, orderByClause, limitClause);
+  :}
   ;
+
+value_clause ::=
+    KW_VALUES row_value:value
+    {:
+        RESULT = new ValueList(value);
+    :}
+    | value_clause:valueClause COMMA row_value:value
+    {:
+        valueClause.addRow(value);
+        RESULT = valueClause;
+    :}
+    ;
+
+row_value ::= 
+    LPAREN opt_values:values RPAREN
+    {:
+        RESULT = values;
+    :}
+    ;
+
+opt_values ::=
+    values:valueList
+    {:
+        RESULT = valueList;
+    :}
+    |
+    {:
+        RESULT = Lists.newArrayList();
+    :}
+    ;
+
+values ::=
+    expr_or_default:value
+    {:
+        RESULT = Lists.newArrayList(value);
+    :}
+    | values:valueList COMMA expr_or_default:value
+    {:
+        valueList.add(value);
+        RESULT = valueList;
+    :}
+    ;
+
+expr_or_default ::=
+    expr:expr
+    {:
+        RESULT = expr;
+    :}
+    | KW_DEFAULT
+    {:
+        RESULT = new DefaultValueExpr();
+    :}
+    ;
 
 select_clause ::=
     KW_SELECT select_list:l
@@ -2776,10 +2869,17 @@ table_name ::=
     ;
 
 function_name ::=
-    ident:fn
+    type_function_name:fn
     {: RESULT = new FunctionName(null, fn); :}
-    | ident:db DOT ident:fn
+    | ident:db DOT type_function_name:fn
     {: RESULT = new FunctionName(db, fn); :}
+    ;
+
+type_function_name ::=
+    ident:id
+    {: RESULT = id; :}
+    | type_func_name_keyword:id
+    {: RESULT = id; :}
     ;
 
 from_clause ::=
@@ -3744,6 +3844,13 @@ opt_release ::=
     :}
     ;
 
+type_func_name_keyword ::= 
+    KW_LEFT:id
+    {: RESULT = id; :}
+    | KW_RIGHT:id
+    {: RESULT = id; :}
+    ;
+
 // Keyword that we allow for identifiers
 keyword ::=
     KW_AFTER:id
@@ -3797,6 +3904,8 @@ keyword ::=
     | KW_BUCKETS:id
     {: RESULT = id; :}
     | KW_FIRST:id
+    {: RESULT = id; :}
+    | KW_FORMAT:id
     {: RESULT = id; :}
     | KW_FUNCTION:id
     {: RESULT = id; :}
@@ -3940,6 +4049,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_VARIABLES:id
     {: RESULT = id; :}
+    | KW_VALUE:id
+    {: RESULT = id; :}
     | KW_VIEW:id
     {: RESULT = id; :}
     | KW_WARNINGS:id
@@ -3947,26 +4058,36 @@ keyword ::=
     | KW_WORK:id
     {: RESULT = id; :}
     | KW_CLUSTER:id
-	{: RESULT = id; :}
- 	| KW_CLUSTERS:id
-	{: RESULT = id; :} 
+    {: RESULT = id; :}
+    | KW_CLUSTERS:id
+    {: RESULT = id; :}
     | KW_LINK:id
-	{: RESULT = id; :}
+    {: RESULT = id; :}
     | KW_MIGRATE:id
-	{: RESULT = id; :}
-	| KW_MIGRATIONS:id
-	{: RESULT = id; :}
-	| KW_COUNT:id
-	{: RESULT = id; :}
-	| KW_SUM:id
-	{: RESULT = id; :}
-	| KW_MIN:id
-	{: RESULT = id; :}
-	| KW_MAX:id
-	{: RESULT = id; :}
-	| KW_FREE:id
-	{: RESULT = id; :}
-	;
+    {: RESULT = id; :}
+    | KW_MIGRATIONS:id
+    {: RESULT = id; :}
+    | KW_COUNT:id
+    {: RESULT = id; :}
+    | KW_SUM:id
+    {: RESULT = id; :}
+    | KW_MIN:id
+    {: RESULT = id; :}
+    | KW_MAX:id
+    {: RESULT = id; :}
+    | KW_FREE:id
+    {: RESULT = id; :}
+    | KW_TASK:id
+    {: RESULT = id; :}
+    | KW_ROUTINE:id
+    {: RESULT = id; :}
+    | KW_PAUSE:id
+    {: RESULT = id; :}
+    | KW_RESUME:id
+    {: RESULT = id; :}
+    | KW_STOP:id
+    {: RESULT = id; :}
+    ;
 
 // Identifier that contain keyword
 ident ::=

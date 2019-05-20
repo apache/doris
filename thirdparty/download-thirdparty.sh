@@ -16,7 +16,7 @@
 # specific language governing permissions and limitations
 # under the License.
 
-set -e
+#set -e
 ################################################################
 # This script will download all thirdparties and java libraries
 # which are defined in *vars.sh*, unpack patch them if necessary.
@@ -65,6 +65,7 @@ md5sum_func() {
        md5=`md5sum "$DESC_DIR/$FILENAME"`
        if [ "$md5" != "$MD5SUM  $DESC_DIR/$FILENAME" ]; then
            echo "$DESC_DIR/$FILENAME md5sum check failed!"
+           echo -e "except-md5 $MD5SUM \nactual-md5 $md5"
            return 1
        fi
     fi
@@ -106,7 +107,7 @@ download_func() {
             echo "Downloading $FILENAME from $DOWNLOAD_URL to $DESC_DIR"
             wget --no-check-certificate $DOWNLOAD_URL -O $DESC_DIR/$FILENAME
             if [ "$?"x == "0"x ]; then
-	        if md5sum_func $FILENAME $DESC_DIR $MD5SUM; then
+                if md5sum_func $FILENAME $DESC_DIR $MD5SUM; then
                     SUCCESS=1
                     echo "Success to download $FILENAME"
                     break;
@@ -121,8 +122,8 @@ download_func() {
 
     if [ $SUCCESS -ne 1 ]; then
         echo "Failed to download $FILENAME"
-        exit 1
     fi
+    return $SUCCESS
 }
 
 # download thirdparty archives
@@ -134,9 +135,22 @@ do
     if test "x$REPOSITORY_URL" = x; then
         URL=$TP_ARCH"_DOWNLOAD"
         download_func ${!NAME} ${!URL} $TP_SOURCE_DIR ${!MD5SUM}
+        if [ "$?"x == "0"x ]; then
+            echo "Failed to download ${!NAME}"
+            exit 1
+        fi
     else
         URL="${REPOSITORY_URL}/${!NAME}"
         download_func ${!NAME} ${URL} $TP_SOURCE_DIR ${!MD5SUM}
+        if [ "$?x" == "0x" ]; then
+            #try to download from home 
+            URL=$TP_ARCH"_DOWNLOAD"
+            download_func ${!NAME} ${!URL} $TP_SOURCE_DIR ${!MD5SUM}
+            if [ "$?x" == "0x" ]; then
+                echo "Failed to download ${!NAME}"
+                exit 1 # download failed again exit.
+            fi
+        fi
     fi
 done
 echo "===== Downloading thirdparty archives...done"
@@ -280,4 +294,5 @@ if [ ! -f $PATCHED_MARK ]; then
 fi
 cd -
 echo "Finished patching $BRPC_SOURCE"
+
 

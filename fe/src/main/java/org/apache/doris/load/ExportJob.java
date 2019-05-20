@@ -291,11 +291,9 @@ public class ExportJob implements Writable {
         for (int i = 0; i < fragments.size(); ++i) {
             PlanFragment fragment = fragments.get(i);
             ScanNode scanNode = nodes.get(i);
-
             TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits() + i, uuid.getLeastSignificantBits());
-
             Coordinator coord = new Coordinator(
-                    queryId, desc, Lists.newArrayList(fragment), Lists.newArrayList(scanNode), clusterName);
+                    id, queryId, desc, Lists.newArrayList(fragment), Lists.newArrayList(scanNode), clusterName);
             coords.add(coord);
             this.coordList.add(coord);
         }

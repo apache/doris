@@ -59,11 +59,13 @@ RuntimeState::RuntimeState(
             _is_cancelled(false),
             _per_fragment_instance_idx(0),
             _root_node_id(-1),
-            _num_rows_load_success(0),
+            _num_rows_load_total(0),
             _num_rows_load_filtered(0),
+            _num_rows_load_unselected(0),
             _num_print_error_rows(0),
             _normal_row_number(0),
             _error_row_number(0),
+            _error_log_file_path(""),
             _error_log_file(nullptr),
             _instance_buffer_reservation(new ReservationTracker) {
     Status status = init(fragment_instance_id, query_options, now, exec_env);
@@ -84,11 +86,13 @@ RuntimeState::RuntimeState(
             _is_cancelled(false),
             _per_fragment_instance_idx(0),
             _root_node_id(-1),
-            _num_rows_load_success(0),
+            _num_rows_load_total(0),
             _num_rows_load_filtered(0),
+            _num_rows_load_unselected(0),
             _num_print_error_rows(0),
             _normal_row_number(0),
             _error_row_number(0),
+            _error_log_file_path(""),
             _error_log_file(nullptr),
             _instance_buffer_reservation(new ReservationTracker) {
     Status status = init(fragment_params.params.fragment_instance_id, query_options, now, exec_env);
@@ -448,7 +452,7 @@ void RuntimeState::append_error_msg_to_file(
         if (_error_row_number < MAX_ERROR_NUM) {
             // Note: export reason first in case src line too long and be truncated.
             out << "Reason: " << error_msg;
-            out << "src line: [" << line << "]; ";
+            out << ". src line: [" << line << "]; ";
         } else if (_error_row_number == MAX_ERROR_NUM) {
             out << "TOO MUCH ERROR! already reach " << MAX_ERROR_NUM << "."
                     << " no more show next error.";

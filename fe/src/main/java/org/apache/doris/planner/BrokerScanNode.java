@@ -17,7 +17,9 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.Expr;
@@ -25,6 +27,7 @@ import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.FunctionParams;
+import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
@@ -320,7 +323,13 @@ public class BrokerScanNode extends ScanNode {
 
         params.setProperties(brokerDesc.getProperties());
 
-        context.exprMap = fileGroup.getExprColumnMap();
+        // We must create a new map here, because we will change this map later.
+        // But fileGroup will be persisted later, so we keep it unchanged.
+        if (fileGroup.getExprColumnMap() != null) {
+            context.exprMap = Maps.newHashMap(fileGroup.getExprColumnMap());
+        } else {
+            context.exprMap = null;
+        }
         parseExprMap(context.exprMap);
 
         // Generate expr
@@ -381,6 +390,7 @@ public class BrokerScanNode extends ScanNode {
             }
         }
 
+        boolean isNegative = context.fileGroup.isNegative();
         for (SlotDescriptor destSlotDesc : desc.getSlots()) {
             if (!destSlotDesc.isMaterialized()) {
                 continue;
@@ -412,6 +422,10 @@ public class BrokerScanNode extends ScanNode {
                 }
             }
 
+            if (isNegative && destSlotDesc.getColumn().getAggregationType() == AggregateType.SUM) {
+                expr = new ArithmeticExpr(ArithmeticExpr.Operator.MULTIPLY, expr, new IntLiteral(-1));
+                expr.analyze(analyzer);
+            }
             expr = castToSlot(destSlotDesc, expr);
             context.params.putToExpr_of_dest_slot(destSlotDesc.getId().asInt(), expr.treeToThrift());
         }
@@ -480,7 +494,7 @@ public class BrokerScanNode extends ScanNode {
             filesAdded = 0;
             for (BrokerFileGroup fileGroup : fileGroups) {
                 List<TBrokerFileStatus> fileStatuses = Lists.newArrayList();
-                for (String path : fileGroup.getFilePathes()) {
+                for (String path : fileGroup.getFilePaths()) {
                     BrokerUtil.parseBrokerFile(path, brokerDesc, fileStatuses);
                 }
                 fileStatusesList.add(fileStatuses);
@@ -545,7 +559,9 @@ public class BrokerScanNode extends ScanNode {
         }
     }
 
+    // If fileFormat is not null, we use fileFormat instead of check file's suffix
     private void processFileGroup(
+            String fileFormat,
             TBrokerScanRangeParams params,
             List<TBrokerFileStatus> fileStatuses)
             throws UserException {
@@ -632,7 +648,7 @@ public class BrokerScanNode extends ScanNode {
             } catch (AnalysisException e) {
                 throw new UserException(e.getMessage());
             }
-            processFileGroup(context.params, fileStatuses);
+            processFileGroup(context.fileGroup.getFileFormat(), context.params, fileStatuses);
         }
         if (LOG.isDebugEnabled()) {
             for (TScanRangeLocations locations : locationsList) {

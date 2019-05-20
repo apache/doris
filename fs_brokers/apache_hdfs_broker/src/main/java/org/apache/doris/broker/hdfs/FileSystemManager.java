@@ -269,6 +269,7 @@ public class FileSystemManager {
                                 "invalid " + dfsHaNameNodesKey + " configuration");
                     } else {
                         for (String nameNode : nameNodes) {
+                            nameNode = nameNode.trim();
                             String nameNodeRpcAddress =
                                     DFS_HA_NAMENODE_RPC_ADDRESS_PREFIX + dfsNameServices + "." + nameNode;
                             if (!properties.containsKey(nameNodeRpcAddress)) {

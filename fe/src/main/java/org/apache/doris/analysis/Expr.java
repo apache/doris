@@ -632,10 +632,15 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
      * If smap is null, this function is equivalent to clone().
      * If preserveRootType is true, the resulting expr tree will be cast if necessary to
      * the type of 'this'.
+     * 
+     * @throws AnalysisException
      */
-    public Expr substitute(ExprSubstitutionMap smap, Analyzer analyzer, boolean preserveRootType) {
+    public Expr substitute(ExprSubstitutionMap smap, Analyzer analyzer, boolean preserveRootType)
+            throws AnalysisException {
         try {
             return trySubstitute(smap, analyzer, preserveRootType);
+        } catch (AnalysisException e) {
+            throw e;
         } catch (Exception e) {
             throw new IllegalStateException("Failed analysis after expr substitution.", e);
         }
@@ -1547,4 +1552,15 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     public boolean supportSerializable() {
         return false;
     }
+
+    /**
+     * For calculating expr.
+     * @return value returned can't be null, if this and it's children are't constant expr, return this.
+     * @throws AnalysisException
+     */
+    public Expr getResultValue() throws AnalysisException {
+        final Expr newExpr = ExpressionFunctions.INSTANCE.evalExpr(this);
+        return newExpr != null ? newExpr : this;
+    }
+
 }

@@ -27,6 +27,10 @@ std::string StringValue::debug_string() const {
     return std::string(ptr, len);
 }
 
+std::string StringValue::to_string() const {
+    return std::string(ptr, len);
+}
+
 std::ostream& operator<<(std::ostream& os, const StringValue& string_value) {
     return os << string_value.debug_string();
 }

@@ -19,19 +19,15 @@
 
 #include <functional>
 
-#include "common/status.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "http/http_handler.h"
-#include "http/message_body_sink.h"
 #include "runtime/client_cache.h"
+#include "runtime/message_body_sink.h"
 
 namespace doris {
 
 class ExecEnv;
-class TStreamLoadPutRequest;
-class TStreamLoadPutResult;
-class HttpAuthInfo;
-class TTabletCommitInfo;
+class Status;
 class StreamLoadContext;
 
 class StreamLoadAction : public HttpHandler {
@@ -47,9 +43,6 @@ public:
 
     void on_chunk_data(HttpRequest* req) override;
     void free_handler_ctx(void* ctx) override;
-
-    // called by deconstructor
-    void rollback(StreamLoadContext* ctx);
 
 private:
     Status _on_header(HttpRequest* http_req, StreamLoadContext* ctx);

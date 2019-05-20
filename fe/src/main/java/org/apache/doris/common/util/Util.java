@@ -19,7 +19,9 @@ package org.apache.doris.common.util;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.common.AnalysisException;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 
 import org.apache.logging.log4j.LogManager;
@@ -40,6 +42,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.Set;
+import java.util.function.Predicate;
 import java.util.zip.Adler32;
 
 public class Util {
@@ -363,6 +366,30 @@ public class Util {
         }
         LOG.debug("get result from url {}: {}", urlStr, sb.toString());
         return sb.toString();
+    }
+
+    public static long getLongPropertyOrDefault(String valStr, long defaultVal, Predicate<Long> pred,
+            String hintMsg) throws AnalysisException {
+        if (Strings.isNullOrEmpty(valStr)) {
+            return defaultVal;
+        }
+        
+        long result = defaultVal;
+        try {
+            result = Long.valueOf(valStr);
+        } catch (NumberFormatException e) {
+            throw new AnalysisException(hintMsg);
+        }
+
+        if (pred == null) {
+            return result;
+        }
+
+        if (!pred.test(result)) {
+            throw new AnalysisException(hintMsg);
+        }
+
+        return result;
     }
 }
 

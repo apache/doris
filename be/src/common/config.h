@@ -237,6 +237,7 @@ namespace config {
     CONF_Int32(base_compaction_check_interval_seconds, "60");
     CONF_Int64(base_compaction_num_cumulative_deltas, "5");
     CONF_Int32(base_compaction_num_threads, "1");
+    CONF_Int32(base_compaction_num_threads_per_disk, "1");
     CONF_Double(base_cumulative_delta_ratio, "0.3");
     CONF_Int64(base_compaction_interval_seconds_since_last_operation, "604800");
     CONF_Int32(base_compaction_write_mbytes_per_sec, "5");
@@ -245,8 +246,13 @@ namespace config {
     CONF_Int32(cumulative_compaction_check_interval_seconds, "10");
     CONF_Int64(cumulative_compaction_num_singleton_deltas, "5");
     CONF_Int32(cumulative_compaction_num_threads, "1");
+    CONF_Int32(cumulative_compaction_num_threads_per_disk, "1");
     CONF_Int64(cumulative_compaction_budgeted_bytes, "104857600");
     CONF_Int32(cumulative_compaction_write_mbytes_per_sec, "100");
+
+    // if compaction of a tablet failed, this tablet should not be chosen to
+    // compaction until this interval passes.
+    CONF_Int64(min_compaction_failure_interval_sec, "600") // 10 min
 
     // Port to start debug webserver on
     CONF_Int32(webserver_port, "8040");
@@ -377,7 +383,7 @@ namespace config {
     CONF_Int32(tablet_stat_cache_update_interval_second, "300");
 
     // result buffer cancelled time (unit: second)
-    CONF_Int32(result_buffer_cancelled_interval_time, "5");
+    CONF_Int32(result_buffer_cancelled_interval_time, "300");
 
     // can perform recovering tablet
     CONF_Bool(force_recovery, "false");
@@ -395,7 +401,14 @@ namespace config {
     CONF_Int32(txn_commit_rpc_timeout_ms, "10000");
 
     // If set to true, metric calculator will run
-    CONF_Bool(enable_metric_calculator, "false");
+    CONF_Bool(enable_metric_calculator, "true");
+
+    // max consumer num in one data consumer group, for routine load
+    CONF_Int32(max_consumer_num_per_group, "3");
+
+    // Is set to true, index loading failure will not causing BE exit,
+    // and the tablet will be marked as bad, so that FE will try to repair it.
+    CONF_Bool(auto_recover_index_loading_failure, "false");
 } // namespace config
 
 } // namespace doris

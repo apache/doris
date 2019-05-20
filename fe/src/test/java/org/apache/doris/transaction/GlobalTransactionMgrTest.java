@@ -22,25 +22,18 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
-import com.google.common.collect.Maps;
-import mockit.Deencapsulation;
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mocked;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.CatalogTestUtil;
-import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.FakeCatalog;
 import org.apache.doris.catalog.FakeEditLog;
-import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.DdlException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.LabelAlreadyUsedException;
-import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.load.routineload.KafkaProgress;
 import org.apache.doris.load.routineload.KafkaRoutineLoadJob;
 import org.apache.doris.load.routineload.KafkaTaskInfo;
@@ -49,14 +42,15 @@ import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.load.routineload.RoutineLoadManager;
 import org.apache.doris.load.routineload.RoutineLoadTaskInfo;
 import org.apache.doris.meta.MetaContext;
-import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.persist.EditLog;
 import org.apache.doris.thrift.TKafkaRLTaskProgress;
+import org.apache.doris.thrift.TLoadSourceType;
 import org.apache.doris.thrift.TRLTaskTxnCommitAttachment;
-import org.apache.doris.thrift.TResourceInfo;
-import org.apache.doris.thrift.TRoutineLoadType;
+import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import org.apache.kafka.clients.consumer.KafkaConsumer;
@@ -65,10 +59,14 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.lang.reflect.InvocationTargetException;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
+
+import mockit.Deencapsulation;
+import mockit.Injectable;
+import mockit.Mocked;
 
 public class GlobalTransactionMgrTest {
 
@@ -81,7 +79,6 @@ public class GlobalTransactionMgrTest {
     private static Catalog slaveCatalog;
 
     private String transactionSource = "localfe";
-
 
     @Before
     public void setUp() throws InstantiationException, IllegalAccessException, IllegalArgumentException,
@@ -111,8 +108,8 @@ public class GlobalTransactionMgrTest {
         long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
                 CatalogTestUtil.testTxnLable1,
                 transactionSource,
-                LoadJobSourceType.FRONTEND);
-        TransactionState transactionState = fakeEditLog.getTransaction(transactionId);
+                LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
+        TransactionState transactionState = masterTransMgr.getTransactionState(transactionId);
         assertNotNull(transactionState);
         assertEquals(transactionId, transactionState.getTransactionId());
         assertEquals(TransactionStatus.PREPARE, transactionState.getTransactionStatus());
@@ -125,18 +122,17 @@ public class GlobalTransactionMgrTest {
             BeginTransactionException {
         FakeCatalog.setCatalog(masterCatalog);
         long transactionId = 0;
-        Throwable throwable = null;
         try {
             transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
                     CatalogTestUtil.testTxnLable1,
                     transactionSource,
-                    LoadJobSourceType.FRONTEND);
+                    LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
         } catch (AnalysisException e) {
             e.printStackTrace();
         } catch (LabelAlreadyUsedException e) {
             e.printStackTrace();
         }
-        TransactionState transactionState = fakeEditLog.getTransaction(transactionId);
+        TransactionState transactionState = masterTransMgr.getTransactionState(transactionId);
         assertNotNull(transactionState);
         assertEquals(transactionId, transactionState.getTransactionId());
         assertEquals(TransactionStatus.PREPARE, transactionState.getTransactionStatus());
@@ -147,7 +143,7 @@ public class GlobalTransactionMgrTest {
             transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
                     CatalogTestUtil.testTxnLable1,
                     transactionSource,
-                    LoadJobSourceType.FRONTEND);
+                    LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
         } catch (Exception e) {
             // TODO: handle exception
         }
@@ -155,15 +151,12 @@ public class GlobalTransactionMgrTest {
 
     // all replica committed success
     @Test
-    public void testCommitTransaction1() throws MetaNotFoundException,
-            TransactionException,
-            IllegalTransactionParameterException, LabelAlreadyUsedException,
-            AnalysisException, BeginTransactionException {
+    public void testCommitTransaction1() throws UserException {
         FakeCatalog.setCatalog(masterCatalog);
         long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
                 CatalogTestUtil.testTxnLable1,
                 transactionSource,
-                LoadJobSourceType.FRONTEND);
+                LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
         // commit a transaction
         TabletCommitInfo tabletCommitInfo1 = new TabletCommitInfo(CatalogTestUtil.testTabletId1,
                 CatalogTestUtil.testBackendId1);
@@ -198,16 +191,13 @@ public class GlobalTransactionMgrTest {
 
     // commit with only two replicas
     @Test
-    public void testCommitTransactionWithOneFailed() throws MetaNotFoundException,
-            TransactionException,
-            IllegalTransactionParameterException, LabelAlreadyUsedException,
-            AnalysisException, BeginTransactionException {
+    public void testCommitTransactionWithOneFailed() throws UserException {
         TransactionState transactionState = null;
         FakeCatalog.setCatalog(masterCatalog);
         long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
                 CatalogTestUtil.testTxnLable1,
                 transactionSource,
-                LoadJobSourceType.FRONTEND);
+                LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
         // commit a transaction with 1,2 success
         TabletCommitInfo tabletCommitInfo1 = new TabletCommitInfo(CatalogTestUtil.testTabletId1,
                 CatalogTestUtil.testBackendId1);
@@ -229,7 +219,7 @@ public class GlobalTransactionMgrTest {
         long transactionId2 = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
                 CatalogTestUtil.testTxnLable2,
                 transactionSource,
-                LoadJobSourceType.FRONTEND);
+                LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
         tabletCommitInfo1 = new TabletCommitInfo(CatalogTestUtil.testTabletId1, CatalogTestUtil.testBackendId1);
         TabletCommitInfo tabletCommitInfo3 = new TabletCommitInfo(CatalogTestUtil.testTabletId1,
                 CatalogTestUtil.testBackendId3);
@@ -237,7 +227,7 @@ public class GlobalTransactionMgrTest {
         transTablets.add(tabletCommitInfo1);
         transTablets.add(tabletCommitInfo3);
         masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, transactionId2, transTablets);
-        transactionState = fakeEditLog.getTransaction(transactionId2);
+        transactionState = masterTransMgr.getTransactionState(transactionId2);
         // check status is prepare, because the commit failed
         assertEquals(TransactionStatus.PREPARE, transactionState.getTransactionStatus());
         // check replica version
@@ -303,160 +293,140 @@ public class GlobalTransactionMgrTest {
 
     @Test
     public void testCommitRoutineLoadTransaction(@Injectable TabletCommitInfo tabletCommitInfo,
-                                                 @Injectable Database database,
-                                                 @Injectable KafkaTaskInfo routineLoadTaskInfo,
-                                                 @Injectable TResourceInfo tResourceInfo,
-                                                 @Injectable OlapTable olapTable,
-                                                 @Mocked Catalog catalog,
-                                                 @Mocked ConnectContext connectContext,
-                                                 @Mocked KafkaConsumer kafkaConsumer)
-            throws MetaNotFoundException, TransactionException, DdlException {
-        List<TabletCommitInfo> tabletCommitInfoList = new ArrayList<>();
-        tabletCommitInfoList.add(tabletCommitInfo);
+            @Mocked KafkaConsumer kafkaConsumer,
+            @Mocked EditLog editLog)
+            throws UserException {
+        FakeCatalog.setCatalog(masterCatalog);
 
-        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob("test", 1L, 1L, "host:port", "topic");
+        TabletCommitInfo tabletCommitInfo1 = new TabletCommitInfo(CatalogTestUtil.testTabletId1, CatalogTestUtil.testBackendId1);
+        TabletCommitInfo tabletCommitInfo2 = new TabletCommitInfo(CatalogTestUtil.testTabletId1, CatalogTestUtil.testBackendId2);
+        TabletCommitInfo tabletCommitInfo3 = new TabletCommitInfo(CatalogTestUtil.testTabletId1, CatalogTestUtil.testBackendId3);
+        List<TabletCommitInfo> transTablets = Lists.newArrayList();
+        transTablets.add(tabletCommitInfo1);
+        transTablets.add(tabletCommitInfo2);
+        transTablets.add(tabletCommitInfo3);
+
+        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "test", "default_cluster", 1L, 1L, "host:port", "topic");
         List<RoutineLoadTaskInfo> routineLoadTaskInfoList = Deencapsulation.getField(routineLoadJob, "routineLoadTaskInfoList");
+        Map<Integer, Long> partitionIdToOffset = Maps.newHashMap();
+        partitionIdToOffset.put(1, 0L);
+        KafkaTaskInfo routineLoadTaskInfo = new KafkaTaskInfo(UUID.randomUUID(), 1L, "defualt_cluster", partitionIdToOffset);
+        Deencapsulation.setField(routineLoadTaskInfo, "txnId", 1L);
         routineLoadTaskInfoList.add(routineLoadTaskInfo);
-        TransactionState transactionState = new TransactionState(1L, 1L, "label", 1L, LoadJobSourceType.ROUTINE_LOAD_TASK, "be1");
+        TransactionState transactionState = new TransactionState(1L, 1L, "label", 1L,
+                LoadJobSourceType.ROUTINE_LOAD_TASK, "be1", routineLoadJob.getId(),
+                Config.stream_load_default_timeout_second);
         transactionState.setTransactionStatus(TransactionStatus.PREPARE);
-        transactionState.setTxnStateChangeListener(routineLoadJob);
+        masterTransMgr.getCallbackFactory().addCallback(routineLoadJob);
+        // Deencapsulation.setField(transactionState, "txnStateChangeListener", routineLoadJob);
         Map<Long, TransactionState> idToTransactionState = Maps.newHashMap();
         idToTransactionState.put(1L, transactionState);
         Deencapsulation.setField(routineLoadJob, "maxErrorNum", 10);
         Map<Integer, Long> oldKafkaProgressMap = Maps.newHashMap();
         oldKafkaProgressMap.put(1, 0L);
         KafkaProgress oldkafkaProgress = new KafkaProgress();
-        oldkafkaProgress.setPartitionIdToOffset(oldKafkaProgressMap);
+        Deencapsulation.setField(oldkafkaProgress, "partitionIdToOffset", oldKafkaProgressMap);
         Deencapsulation.setField(routineLoadJob, "progress", oldkafkaProgress);
-        routineLoadJob.setState(RoutineLoadJob.JobState.RUNNING);
+        Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.RUNNING);
 
         TRLTaskTxnCommitAttachment rlTaskTxnCommitAttachment = new TRLTaskTxnCommitAttachment();
-        rlTaskTxnCommitAttachment.setBackendId(1L);
-        rlTaskTxnCommitAttachment.setTaskSignature(1L);
-        rlTaskTxnCommitAttachment.setNumOfTotalData(100);
-        rlTaskTxnCommitAttachment.setNumOfErrorData(1);
-        rlTaskTxnCommitAttachment.setTaskId("label");
+        rlTaskTxnCommitAttachment.setId(new TUniqueId());
+        rlTaskTxnCommitAttachment.setLoadedRows(100);
+        rlTaskTxnCommitAttachment.setFilteredRows(1);
         rlTaskTxnCommitAttachment.setJobId(Deencapsulation.getField(routineLoadJob, "id"));
-        rlTaskTxnCommitAttachment.setRoutineLoadType(TRoutineLoadType.KAFKA);
+        rlTaskTxnCommitAttachment.setLoadSourceType(TLoadSourceType.KAFKA);
         TKafkaRLTaskProgress tKafkaRLTaskProgress = new TKafkaRLTaskProgress();
         Map<Integer, Long> kafkaProgress = Maps.newHashMap();
         kafkaProgress.put(1, 10L);
-        tKafkaRLTaskProgress.setPartitionIdToOffset(kafkaProgress);
+        tKafkaRLTaskProgress.setPartitionCmtOffset(kafkaProgress);
         rlTaskTxnCommitAttachment.setKafkaRLTaskProgress(tKafkaRLTaskProgress);
         TxnCommitAttachment txnCommitAttachment = new RLTaskTxnCommitAttachment(rlTaskTxnCommitAttachment);
 
-
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
-        routineLoadManager.addRoutineLoadJob(routineLoadJob);
+        routineLoadManager.addRoutineLoadJob(routineLoadJob, "db");
 
-
-        new Expectations() {
-            {
-                catalog.getDb(1L);
-                result = database;
-                routineLoadTaskInfo.getId();
-                result = "label";
-                catalog.getRoutineLoadManager();
-                result = routineLoadManager;
-                database.getTable(anyLong);
-                result = olapTable;
-                routineLoadTaskInfo.getJobId();
-                result = Deencapsulation.getField(routineLoadJob, "id");
-                routineLoadTaskInfo.getPartitions();
-                result = Lists.newArrayList().add(1);
-            }
-        };
         Deencapsulation.setField(masterTransMgr, "idToTransactionState", idToTransactionState);
-        masterTransMgr.commitTransaction(1L, 1L, tabletCommitInfoList, txnCommitAttachment);
+        masterTransMgr.commitTransaction(1L, 1L, transTablets, txnCommitAttachment);
 
-        Assert.assertEquals(Integer.valueOf(100), Deencapsulation.getField(routineLoadJob, "currentTotalNum"));
-        Assert.assertEquals(Integer.valueOf(1), Deencapsulation.getField(routineLoadJob, "currentErrorNum"));
-        Assert.assertEquals(Long.valueOf(10L), ((KafkaProgress) routineLoadJob.getProgress()).getPartitionIdToOffset().get(1));
-        Assert.assertEquals(1, routineLoadJob.getNeedScheduleTaskInfoList().size());
-        Assert.assertNotEquals("label", routineLoadJob.getNeedScheduleTaskInfoList().get(0));
-        Assert.assertEquals(1, routineLoadManager.getNeedScheduleTasksQueue().size());
-        Assert.assertNotEquals("label", routineLoadManager.getNeedScheduleTasksQueue().peek().getId());
-
+        Assert.assertEquals(Long.valueOf(101), Deencapsulation.getField(routineLoadJob, "currentTotalRows"));
+        Assert.assertEquals(Long.valueOf(1), Deencapsulation.getField(routineLoadJob, "currentErrorRows"));
+        Assert.assertEquals(Long.valueOf(11L), ((KafkaProgress) routineLoadJob.getProgress()).getOffsetByPartition(1));
+        // todo(ml): change to assert queue
+        // Assert.assertEquals(1, routineLoadManager.getNeedScheduleTasksQueue().size());
+        // Assert.assertNotEquals("label", routineLoadManager.getNeedScheduleTasksQueue().peek().getId());
     }
 
     @Test
     public void testCommitRoutineLoadTransactionWithErrorMax(@Injectable TabletCommitInfo tabletCommitInfo,
-                                                             @Injectable Database database,
-                                                             @Injectable KafkaTaskInfo routineLoadTaskInfo,
-                                                             @Injectable TResourceInfo tResourceInfo,
-                                                             @Injectable OlapTable olapTable,
-                                                             @Mocked Catalog catalog,
-                                                             @Mocked ConnectContext connectContext,
-                                                             @Mocked KafkaConsumer kafkaConsumer)
-            throws TransactionException, MetaNotFoundException, DdlException {
-        List<TabletCommitInfo> tabletCommitInfoList = new ArrayList<>();
-        tabletCommitInfoList.add(tabletCommitInfo);
+            @Mocked EditLog editLog,
+            @Mocked KafkaConsumer kafkaConsumer)
+            throws UserException {
 
-        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob("test", 1L, 1L, "host:port", "topic");
+        FakeCatalog.setCatalog(masterCatalog);
+        
+        TabletCommitInfo tabletCommitInfo1 = new TabletCommitInfo(CatalogTestUtil.testTabletId1, CatalogTestUtil.testBackendId1);
+        TabletCommitInfo tabletCommitInfo2 = new TabletCommitInfo(CatalogTestUtil.testTabletId1, CatalogTestUtil.testBackendId2);
+        TabletCommitInfo tabletCommitInfo3 = new TabletCommitInfo(CatalogTestUtil.testTabletId1, CatalogTestUtil.testBackendId3);
+        List<TabletCommitInfo> transTablets = Lists.newArrayList();
+        transTablets.add(tabletCommitInfo1);
+        transTablets.add(tabletCommitInfo2);
+        transTablets.add(tabletCommitInfo3);
+
+        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "test", "default_cluster", 1L, 1L, "host:port", "topic");
         List<RoutineLoadTaskInfo> routineLoadTaskInfoList = Deencapsulation.getField(routineLoadJob, "routineLoadTaskInfoList");
+        Map<Integer, Long> partitionIdToOffset = Maps.newHashMap();
+        partitionIdToOffset.put(1, 0L);
+        KafkaTaskInfo routineLoadTaskInfo = new KafkaTaskInfo(UUID.randomUUID(), 1L, "defualt_cluster", partitionIdToOffset);
+        Deencapsulation.setField(routineLoadTaskInfo, "txnId", 1L);
         routineLoadTaskInfoList.add(routineLoadTaskInfo);
-        TransactionState transactionState = new TransactionState(1L, 1L, "label", 1L, LoadJobSourceType.ROUTINE_LOAD_TASK, "be1");
+        TransactionState transactionState = new TransactionState(1L, 1L, "label", 1L,
+                LoadJobSourceType.ROUTINE_LOAD_TASK, "be1", routineLoadJob.getId(),
+                Config.stream_load_default_timeout_second);
         transactionState.setTransactionStatus(TransactionStatus.PREPARE);
-        transactionState.setTxnStateChangeListener(routineLoadJob);
+        masterTransMgr.getCallbackFactory().addCallback(routineLoadJob);
         Map<Long, TransactionState> idToTransactionState = Maps.newHashMap();
         idToTransactionState.put(1L, transactionState);
         Deencapsulation.setField(routineLoadJob, "maxErrorNum", 10);
         Map<Integer, Long> oldKafkaProgressMap = Maps.newHashMap();
         oldKafkaProgressMap.put(1, 0L);
         KafkaProgress oldkafkaProgress = new KafkaProgress();
-        oldkafkaProgress.setPartitionIdToOffset(oldKafkaProgressMap);
+        Deencapsulation.setField(oldkafkaProgress, "partitionIdToOffset", oldKafkaProgressMap);
         Deencapsulation.setField(routineLoadJob, "progress", oldkafkaProgress);
-        routineLoadJob.setState(RoutineLoadJob.JobState.RUNNING);
+        Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.RUNNING);
 
         TRLTaskTxnCommitAttachment rlTaskTxnCommitAttachment = new TRLTaskTxnCommitAttachment();
-        rlTaskTxnCommitAttachment.setBackendId(1L);
-        rlTaskTxnCommitAttachment.setTaskSignature(1L);
-        rlTaskTxnCommitAttachment.setNumOfTotalData(100);
-        rlTaskTxnCommitAttachment.setNumOfErrorData(11);
-        rlTaskTxnCommitAttachment.setTaskId("label");
+        rlTaskTxnCommitAttachment.setId(new TUniqueId());
+        rlTaskTxnCommitAttachment.setLoadedRows(100);
+        rlTaskTxnCommitAttachment.setFilteredRows(11);
         rlTaskTxnCommitAttachment.setJobId(Deencapsulation.getField(routineLoadJob, "id"));
-        rlTaskTxnCommitAttachment.setRoutineLoadType(TRoutineLoadType.KAFKA);
+        rlTaskTxnCommitAttachment.setLoadSourceType(TLoadSourceType.KAFKA);
         TKafkaRLTaskProgress tKafkaRLTaskProgress = new TKafkaRLTaskProgress();
         Map<Integer, Long> kafkaProgress = Maps.newHashMap();
         kafkaProgress.put(1, 10L);
-        tKafkaRLTaskProgress.setPartitionIdToOffset(kafkaProgress);
+        tKafkaRLTaskProgress.setPartitionCmtOffset(kafkaProgress);
         rlTaskTxnCommitAttachment.setKafkaRLTaskProgress(tKafkaRLTaskProgress);
         TxnCommitAttachment txnCommitAttachment = new RLTaskTxnCommitAttachment(rlTaskTxnCommitAttachment);
 
-
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
-        routineLoadManager.addRoutineLoadJob(routineLoadJob);
+        routineLoadManager.addRoutineLoadJob(routineLoadJob, "db");
 
-
-        new Expectations() {
-            {
-                catalog.getDb(1L);
-                result = database;
-                routineLoadTaskInfo.getId();
-                result = "label";
-                database.getTable(anyLong);
-                result = olapTable;
-            }
-        };
         Deencapsulation.setField(masterTransMgr, "idToTransactionState", idToTransactionState);
-        masterTransMgr.commitTransaction(1L, 1L, tabletCommitInfoList, txnCommitAttachment);
+        masterTransMgr.commitTransaction(1L, 1L, transTablets, txnCommitAttachment);
 
-        Assert.assertEquals(Integer.valueOf(0), Deencapsulation.getField(routineLoadJob, "currentTotalNum"));
-        Assert.assertEquals(Integer.valueOf(0), Deencapsulation.getField(routineLoadJob, "currentErrorNum"));
-        Assert.assertEquals(Long.valueOf(10L), ((KafkaProgress) routineLoadJob.getProgress()).getPartitionIdToOffset().get(1));
-        Assert.assertEquals(0, routineLoadJob.getNeedScheduleTaskInfoList().size());
-        Assert.assertEquals(0, routineLoadManager.getNeedScheduleTasksQueue().size());
+        Assert.assertEquals(Long.valueOf(0), Deencapsulation.getField(routineLoadJob, "currentTotalRows"));
+        Assert.assertEquals(Long.valueOf(0), Deencapsulation.getField(routineLoadJob, "currentErrorRows"));
+        Assert.assertEquals(Long.valueOf(11L),
+                ((KafkaProgress) routineLoadJob.getProgress()).getOffsetByPartition(1));
+        // todo(ml): change to assert queue
+        // Assert.assertEquals(0, routineLoadManager.getNeedScheduleTasksQueue().size());
         Assert.assertEquals(RoutineLoadJob.JobState.PAUSED, routineLoadJob.getState());
     }
 
-
-    public void testFinishTransaction() throws MetaNotFoundException, TransactionException,
-            IllegalTransactionParameterException, LabelAlreadyUsedException,
-            AnalysisException, BeginTransactionException {
+    public void testFinishTransaction() throws UserException {
         long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
                 CatalogTestUtil.testTxnLable1,
                 transactionSource,
-                LoadJobSourceType.FRONTEND);
+                LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
         // commit a transaction
         TabletCommitInfo tabletCommitInfo1 = new TabletCommitInfo(CatalogTestUtil.testTabletId1,
                 CatalogTestUtil.testBackendId1);
@@ -493,10 +463,7 @@ public class GlobalTransactionMgrTest {
     }
 
     @Test
-    public void testFinishTransactionWithOneFailed() throws MetaNotFoundException,
-            TransactionException,
-            IllegalTransactionParameterException, LabelAlreadyUsedException,
-            AnalysisException, BeginTransactionException {
+    public void testFinishTransactionWithOneFailed() throws UserException {
         TransactionState transactionState = null;
         Partition testPartition = masterCatalog.getDb(CatalogTestUtil.testDbId1).getTable(CatalogTestUtil.testTableId1)
                 .getPartition(CatalogTestUtil.testPartition1);
@@ -505,7 +472,7 @@ public class GlobalTransactionMgrTest {
         long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
                 CatalogTestUtil.testTxnLable1,
                 transactionSource,
-                LoadJobSourceType.FRONTEND);
+                LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
         // commit a transaction with 1,2 success
         TabletCommitInfo tabletCommitInfo1 = new TabletCommitInfo(CatalogTestUtil.testTabletId1,
                 CatalogTestUtil.testBackendId1);
@@ -559,7 +526,7 @@ public class GlobalTransactionMgrTest {
         long transactionId2 = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
                 CatalogTestUtil.testTxnLable2,
                 transactionSource,
-                LoadJobSourceType.FRONTEND);
+                LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
         tabletCommitInfo1 = new TabletCommitInfo(CatalogTestUtil.testTabletId1, CatalogTestUtil.testBackendId1);
         TabletCommitInfo tabletCommitInfo3 = new TabletCommitInfo(CatalogTestUtil.testTabletId1,
                 CatalogTestUtil.testBackendId3);
@@ -567,7 +534,7 @@ public class GlobalTransactionMgrTest {
         transTablets.add(tabletCommitInfo1);
         transTablets.add(tabletCommitInfo3);
         masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, transactionId2, transTablets);
-        transactionState = fakeEditLog.getTransaction(transactionId2);
+        transactionState = masterTransMgr.getTransactionState(transactionId2);
         // check status is prepare, because the commit failed
         assertEquals(TransactionStatus.PREPARE, transactionState.getTransactionStatus());
 
@@ -627,8 +594,8 @@ public class GlobalTransactionMgrTest {
         long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
                 CatalogTestUtil.testTxnLable1,
                 transactionSource,
-                LoadJobSourceType.FRONTEND);
-        TransactionState transactionState = fakeEditLog.getTransaction(transactionId);
+                LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
+        TransactionState transactionState = masterTransMgr.getTransactionState(transactionId);
         assertNotNull(transactionState);
         assertEquals(transactionId, transactionState.getTransactionId());
         assertEquals(TransactionStatus.PREPARE, transactionState.getTransactionStatus());
