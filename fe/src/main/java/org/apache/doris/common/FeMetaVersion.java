@@ -103,10 +103,11 @@ public final class FeMetaVersion {
 
     // UDF
     public static final int VERSION_47 = 47;
-    // TODO(ml):VERSION_ROUTINE_LOAD add extra in transaction state for routine load
 
     // replica schema hash
     public static final int VERSION_48 = 48;
     // routine load job
     public static final int VERSION_49 = 49;
+    // load job v2 for broker load
+//    public static final int VERSION_50 = 50;
 }

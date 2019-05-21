@@ -126,7 +126,7 @@ public class GlobalTransactionMgr {
             throws AnalysisException, LabelAlreadyUsedException, BeginTransactionException {
         
         if (Config.disable_load_job) {
-            throw new BeginTransactionException("disable_load_job is set to true, all load jobs are prevented");
+            throw new AnalysisException("disable_load_job is set to true, all load jobs are prevented");
         }
         
         if (timeoutSecond > Config.max_stream_load_timeout_second ||

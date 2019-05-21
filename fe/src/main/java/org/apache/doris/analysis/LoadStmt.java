@@ -89,7 +89,7 @@ public class LoadStmt extends DdlStmt {
             .add(LOAD_DELETE_FLAG_PROPERTY)
             .add(EXEC_MEM_LIMIT)
             .add(CLUSTER_PROPERTY)
-            .add(VERSION)
+//            .add(VERSION)
             .build();
     
     public LoadStmt(LabelName label, List<DataDescription> dataDescriptions,

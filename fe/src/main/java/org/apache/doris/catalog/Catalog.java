@@ -1081,6 +1081,7 @@ public class Catalog {
         LoadChecker.startAll();
 
         // New load scheduler
+        loadManager.submitJobs();
         loadJobScheduler.start();
 
         // Export checker
@@ -1326,6 +1327,7 @@ public class Catalog {
             checksum = loadTransactionState(dis, checksum);
             checksum = loadColocateTableIndex(dis, checksum);
             checksum = loadRoutineLoadJobs(dis, checksum);
+            checksum = loadLoadJobsV2(dis, checksum);
 
             long remoteChecksum = dis.readLong();
             Preconditions.checkState(remoteChecksum == checksum, remoteChecksum + " vs. " + checksum);
@@ -1748,6 +1750,13 @@ public class Catalog {
         return checksum;
     }
 
+    public long loadLoadJobsV2(DataInputStream in, long checksum) throws IOException {
+//        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_50) {
+//            Catalog.getCurrentCatalog().getLoadManager().readFields(in);
+//        }
+        return checksum;
+    }
+
     // Only called by checkpoint thread
     public void saveImage() throws IOException {
         // Write image.ckpt
@@ -1793,6 +1802,7 @@ public class Catalog {
             checksum = saveTransactionState(dos, checksum);
             checksum = saveColocateTableIndex(dos, checksum);
             checksum = saveRoutineLoadJobs(dos, checksum);
+            checksum = saveLoadJobsV2(dos, checksum);
             dos.writeLong(checksum);
         } finally {
             dos.close();
@@ -2044,6 +2054,11 @@ public class Catalog {
 
     public void replayGlobalVariable(SessionVariable variable) throws IOException, DdlException {
         VariableMgr.replayGlobalVariable(variable);
+    }
+
+    public long saveLoadJobsV2(DataOutputStream out, long checksum) throws IOException {
+//        Catalog.getCurrentCatalog().getLoadManager().write(out);
+        return checksum;
     }
 
     public void createCleaner() {

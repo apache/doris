@@ -70,7 +70,8 @@ public class LoadLoadingTask extends LoadTask {
         this.jobDeadlineMs = jobDeadlineMs;
         this.execMemLimit = execMemLimit;
         this.txnId = txnId;
-        this.failMsg = new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, null);
+        this.failMsg = new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL);
+        this.retryTime = 3;
     }
 
     public void init(List<List<TBrokerFileStatus>> fileStatusList, int fileNum) throws UserException {
@@ -79,18 +80,12 @@ public class LoadLoadingTask extends LoadTask {
     }
 
     @Override
-    protected void executeTask() throws UserException {
-        int retryTime = 3;
-        for (int i = 0; i < retryTime; ++i) {
-            boolean isFinished = executeOnce();
-            if (isFinished) {
-                return;
-            }
-        }
-        throw new UserException(errMsg);
+    protected void executeTask() throws Exception{
+        retryTime--;
+        executeOnce();
     }
 
-    private boolean executeOnce() {
+    private void executeOnce() throws Exception {
         // New one query id,
         UUID uuid = UUID.randomUUID();
         TUniqueId executeId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
@@ -104,13 +99,6 @@ public class LoadLoadingTask extends LoadTask {
             QeProcessorImpl.INSTANCE
                     .registerQuery(executeId, curCoordinator);
             actualExecute(curCoordinator);
-            return true;
-        } catch (Exception e) {
-            LOG.warn(new LogBuilder(LogKey.LOAD_JOB, callback.getCallbackId())
-                             .add("error_msg", "coordinator execute failed in loading task")
-                             .build(), e);
-            errMsg = e.getMessage();
-            return false;
         } finally {
             QeProcessorImpl.INSTANCE.unregisterQuery(executeId);
         }

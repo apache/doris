@@ -34,6 +34,7 @@ import com.google.common.collect.Queues;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.List;
 import java.util.concurrent.LinkedBlockingQueue;
 
 /**
@@ -89,5 +90,9 @@ public class LoadJobScheduler extends Daemon {
 
     public void submitJob(LoadJob job) {
         needScheduleJobs.add(job);
+    }
+
+    public void submitJob(List<LoadJob> jobs) {
+        needScheduleJobs.addAll(jobs);
     }
 }
