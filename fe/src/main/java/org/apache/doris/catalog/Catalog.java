@@ -211,7 +211,6 @@ import org.codehaus.jackson.map.JsonMappingException;
 import org.codehaus.jackson.map.ObjectMapper;
 
 import java.io.BufferedInputStream;
-import java.io.DataInput;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.File;
@@ -1327,7 +1326,7 @@ public class Catalog {
             checksum = loadTransactionState(dis, checksum);
             checksum = loadColocateTableIndex(dis, checksum);
             checksum = loadRoutineLoadJobs(dis, checksum);
-            loadLoadJobs(dis);
+            checksum = loadLoadJobsV2(dis, checksum);
 
             long remoteChecksum = dis.readLong();
             Preconditions.checkState(remoteChecksum == checksum, remoteChecksum + " vs. " + checksum);
@@ -1750,10 +1749,11 @@ public class Catalog {
         return checksum;
     }
 
-    public void loadLoadJobs(DataInputStream in) throws IOException {
+    public long loadLoadJobsV2(DataInputStream in, long checksum) throws IOException {
 //        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_50) {
 //            Catalog.getCurrentCatalog().getLoadManager().readFields(in);
 //        }
+        return checksum;
     }
 
     // Only called by checkpoint thread
@@ -1801,7 +1801,7 @@ public class Catalog {
             checksum = saveTransactionState(dos, checksum);
             checksum = saveColocateTableIndex(dos, checksum);
             checksum = saveRoutineLoadJobs(dos, checksum);
-            saveLoadJobs(dos);
+            checksum = saveLoadJobsV2(dos, checksum);
             dos.writeLong(checksum);
         } finally {
             dos.close();
@@ -2055,8 +2055,9 @@ public class Catalog {
         VariableMgr.replayGlobalVariable(variable);
     }
 
-    public void saveLoadJobs(DataOutputStream out) throws IOException {
-        Catalog.getCurrentCatalog().getLoadManager().write(out);
+    public long saveLoadJobsV2(DataOutputStream out, long checksum) throws IOException {
+//        Catalog.getCurrentCatalog().getLoadManager().write(out);
+        return checksum;
     }
 
     public void createCleaner() {
