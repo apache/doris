@@ -78,7 +78,7 @@ public:
     ~HttpClientTest() override { }
 
     static void SetUpTestCase() {
-        s_server = new EvHttpServer(29386);
+        s_server = new EvHttpServer(29998);
         s_server->register_handler(GET, "/simple_get", &s_simple_get_handler);
         s_server->register_handler(HEAD, "/simple_get", &s_simple_get_handler);
         s_server->register_handler(POST, "/simple_post", &s_simple_post_handler);
@@ -92,7 +92,7 @@ public:
 
 TEST_F(HttpClientTest, get_normal) {
     HttpClient client;
-    auto st = client.init("http://127.0.0.1:29386/simple_get");
+    auto st = client.init("http://127.0.0.1:29998/simple_get");
     ASSERT_TRUE(st.ok());
     client.set_method(GET);
     client.set_basic_auth("test1", "");
@@ -102,7 +102,7 @@ TEST_F(HttpClientTest, get_normal) {
     ASSERT_STREQ("test1", response.c_str());
 
     // for head
-    st = client.init("http://127.0.0.1:29386/simple_get");
+    st = client.init("http://127.0.0.1:29998/simple_get");
     ASSERT_TRUE(st.ok());
     client.set_method(HEAD);
     client.set_basic_auth("test1", "");
@@ -113,7 +113,7 @@ TEST_F(HttpClientTest, get_normal) {
 
 TEST_F(HttpClientTest, download) {
     HttpClient client;
-    auto st = client.init("http://127.0.0.1:29386/simple_get");
+    auto st = client.init("http://127.0.0.1:29998/simple_get");
     ASSERT_TRUE(st.ok());
     client.set_basic_auth("test1", "");
     std::string local_file = ".http_client_test.dat";
@@ -129,7 +129,7 @@ TEST_F(HttpClientTest, download) {
 
 TEST_F(HttpClientTest, get_failed) {
     HttpClient client;
-    auto st = client.init("http://127.0.0.1:29386/simple_get");
+    auto st = client.init("http://127.0.0.1:29998/simple_get");
     ASSERT_TRUE(st.ok());
     client.set_method(GET);
     client.set_basic_auth("test1", "");
@@ -140,7 +140,7 @@ TEST_F(HttpClientTest, get_failed) {
 
 TEST_F(HttpClientTest, post_normal) {
     HttpClient client;
-    auto st = client.init("http://127.0.0.1:29386/simple_post");
+    auto st = client.init("http://127.0.0.1:29998/simple_post");
     ASSERT_TRUE(st.ok());
     client.set_method(POST);
     client.set_basic_auth("test1", "");
@@ -154,7 +154,7 @@ TEST_F(HttpClientTest, post_normal) {
 
 TEST_F(HttpClientTest, post_failed) {
     HttpClient client;
-    auto st = client.init("http://127.0.0.1:29386/simple_pos");
+    auto st = client.init("http://127.0.0.1:29998/simple_pos");
     ASSERT_TRUE(st.ok());
     client.set_method(POST);
     client.set_basic_auth("test1", "");
