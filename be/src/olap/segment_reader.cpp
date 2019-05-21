@@ -835,7 +835,7 @@ OLAPStatus SegmentReader::_create_reader(size_t* buffer_size) {
 
 OLAPStatus SegmentReader::_seek_to_block_directly(
         int64_t block_id, const std::vector<uint32_t>& cids) {
-    if (_at_block_start && block_id == _current_block_id) {
+    if (!config::block_seek_position && _at_block_start && block_id == _current_block_id) {
         // no need to execute seek
         return OLAP_SUCCESS;
     }
