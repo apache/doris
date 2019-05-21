@@ -66,7 +66,7 @@ import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.load.LoadJob.EtlJobType;
+import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.loadv2.LoadManager;
 
 /**

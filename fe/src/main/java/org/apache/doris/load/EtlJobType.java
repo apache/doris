@@ -18,14 +18,12 @@
  *
  */
 
-package org.apache.doris.load.loadv2;
+package org.apache.doris.load;
 
-import org.apache.doris.load.FailMsg;
-
-public interface LoadTaskCallback {
-    long getCallbackId();
-
-    void onTaskFinished(TaskAttachment attachment);
-
-    void onTaskFailed(long taskId, FailMsg failMsg);
+public enum EtlJobType {
+    HADOOP,
+    MINI,
+    INSERT,
+    BROKER,
+    DELETE
 }
