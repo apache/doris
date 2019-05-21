@@ -121,7 +121,7 @@ public class BrokerLoadJob extends LoadJob {
     @Override
     public void executeJob() {
         LoadTask task = new BrokerLoadPendingTask(this, dataSourceInfo.getIdToFileGroups(), brokerDesc);
-        tasks.add(task);
+        idToTasks.put(task.getSignature(), task);
         Catalog.getCurrentCatalog().getLoadTaskScheduler().submit(task);
     }
 
@@ -143,8 +143,36 @@ public class BrokerLoadJob extends LoadJob {
     }
 
     @Override
-    public void onTaskFailed(FailMsg failMsg) {
-        cancelJobWithoutCheck(failMsg);
+    public void onTaskFailed(long taskId, FailMsg failMsg) {
+        writeLock();
+        try {
+            // check if job has been completed
+            if (isCompleted()) {
+                LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
+                                 .add("state", state)
+                                 .add("error_msg", "this task will be ignored when job is completed")
+                                 .build());
+                return;
+            }
+            LoadTask loadTask = idToTasks.get(taskId);
+            if (loadTask == null) {
+                return;
+            }
+            if (loadTask.getRetryTime() <= 0) {
+                executeCancel(failMsg, true);
+            } else {
+                // retry task
+                idToTasks.remove(loadTask.getSignature());
+                loadTask.resetSignature();
+                idToTasks.put(loadTask.getSignature(), loadTask);
+                Catalog.getCurrentCatalog().getLoadTaskScheduler().submit(loadTask);
+                return;
+            }
+        } finally {
+            writeUnlock();
+        }
+
+        logFinalOperation();
     }
 
     /**
@@ -219,7 +247,7 @@ public class BrokerLoadJob extends LoadJob {
                 task.init(attachment.getFileStatusByTable(tableId),
                           attachment.getFileNumByTable(tableId));
                 // Add tasks into list and pool
-                tasks.add(task);
+                idToTasks.put(task.getSignature(), task);
                 Catalog.getCurrentCatalog().getLoadTaskScheduler().submit(task);
             }
         } finally {
@@ -252,7 +280,7 @@ public class BrokerLoadJob extends LoadJob {
             updateLoadingStatus(attachment);
 
             // begin commit txn when all of loading tasks have been finished
-            if (finishedTaskIds.size() != tasks.size()) {
+            if (finishedTaskIds.size() != idToTasks.size()) {
                 return;
             }
         } finally {
@@ -307,7 +335,7 @@ public class BrokerLoadJob extends LoadJob {
             loadingStatus.setTrackingUrl(attachment.getTrackingUrl());
         }
         commitInfos.addAll(attachment.getCommitInfoList());
-        progress = finishedTaskIds.size() / tasks.size() * 100;
+        progress = finishedTaskIds.size() / idToTasks.size() * 100;
         if (progress == 100) {
             progress = 99;
         }

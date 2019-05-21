@@ -97,7 +97,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
 
     protected long transactionId;
     protected FailMsg failMsg;
-    protected List<LoadTask> tasks = Lists.newArrayList();
+    protected Map<Long, LoadTask> idToTasks = Maps.newConcurrentMap();
     protected Set<Long> finishedTaskIds = Sets.newHashSet();
     protected EtlStatus loadingStatus = new EtlStatus();
     // 0: the job status is pending
@@ -400,7 +400,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
 
         // tasks will not be removed from task pool.
         // it will be aborted on the stage of onTaskFinished or onTaskFailed.
-        tasks.clear();
+        idToTasks.clear();
 
         // set failMsg and state
         this.failMsg = failMsg;
@@ -452,7 +452,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         return true;
     }
 
-    private void logFinalOperation() {
+    protected void logFinalOperation() {
         Catalog.getCurrentCatalog().getEditLog().logEndLoadJob(
                 new LoadJobFinalOperation(id, loadingStatus, progress, loadStartTimestamp, finishTimestamp,
                                           state, failMsg));

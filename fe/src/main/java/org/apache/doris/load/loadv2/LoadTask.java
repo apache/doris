@@ -37,6 +37,7 @@ public abstract class LoadTask extends MasterTask {
     protected LoadTaskCallback callback;
     protected TaskAttachment attachment;
     protected FailMsg failMsg = new FailMsg();
+    protected int retryTime = 1;
 
     public LoadTask(LoadTaskCallback callback){
         this.signature = Catalog.getCurrentCatalog().getNextId();
@@ -61,7 +62,7 @@ public abstract class LoadTask extends MasterTask {
         } finally {
             if (!isFinished) {
                 // callback on pending task failed
-                callback.onTaskFailed(failMsg);
+                callback.onTaskFailed(signature, failMsg);
             }
         }
     }
@@ -71,5 +72,13 @@ public abstract class LoadTask extends MasterTask {
      *
      * @throws UserException task is failed
      */
-    abstract void executeTask() throws UserException;
+    abstract void executeTask() throws Exception;
+
+    public int getRetryTime() {
+        return retryTime;
+    }
+
+    public void resetSignature() {
+        this.signature = Catalog.getCurrentCatalog().getNextId();
+    }
 }
