@@ -187,7 +187,9 @@ TEST_F(OlapSnapshotConverterTest, ToNewAndToOldSnapshot) {
         bool found = false;
         for (auto& pending_rowset : pending_rowsets) {
             if (pending_rowset.partition_id() == partition_id
-                && pending_rowset.txn_id() == transaction_id) {
+                && pending_rowset.txn_id() == transaction_id
+                && pending_rowset.tablet_uid().hi() == tablet_meta_pb.tablet_uid().hi()
+                && pending_rowset.tablet_uid().lo() == tablet_meta_pb.tablet_uid().lo()) {
                 found = true;
             }
         }
