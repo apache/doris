@@ -32,10 +32,10 @@ import java.io.DataOutput;
 import java.io.IOException;
 
 /**
- * This object will be new when job finished or cancelled.
- * It is used to edit the job end state.
+ * This object will be created when job finished or cancelled.
+ * It is used to edit the job final state.
  */
-public class LoadJobEndOperation extends TxnCommitAttachment implements Writable {
+public class LoadJobFinalOperation extends TxnCommitAttachment implements Writable {
     private long id;
     private EtlStatus loadingStatus = new EtlStatus();
     private int progress;
@@ -45,12 +45,12 @@ public class LoadJobEndOperation extends TxnCommitAttachment implements Writable
     // optional
     private FailMsg failMsg;
 
-    public LoadJobEndOperation() {
+    public LoadJobFinalOperation() {
         super(TransactionState.LoadJobSourceType.LOAD_JOB);
     }
 
-    public LoadJobEndOperation(long id, EtlStatus loadingStatus, int progress, long loadStartTimestamp,
-                               long finishTimestamp, JobState jobState, FailMsg failMsg) {
+    public LoadJobFinalOperation(long id, EtlStatus loadingStatus, int progress, long loadStartTimestamp,
+                                 long finishTimestamp, JobState jobState, FailMsg failMsg) {
         super(TransactionState.LoadJobSourceType.LOAD_JOB);
         this.id = id;
         this.loadingStatus = loadingStatus;

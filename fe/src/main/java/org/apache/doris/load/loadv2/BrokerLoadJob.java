@@ -157,9 +157,10 @@ public class BrokerLoadJob extends LoadJob {
         writeLock();
         try {
             // check if job has been cancelled
-            if (isFinished()) {
+            if (isCompleted()) {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
-                                 .add("error_msg", "this task will be ignored when job is finished")
+                                 .add("state", state)
+                                 .add("error_msg", "this task will be ignored when job is completed")
                                  .build());
                 return;
             }
@@ -230,9 +231,10 @@ public class BrokerLoadJob extends LoadJob {
         writeLock();
         try {
             // check if job has been cancelled
-            if (isFinished()) {
+            if (isCompleted()) {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
-                                 .add("error_msg", "this task will be ignored when job is finished")
+                                 .add("state", state)
+                                 .add("error_msg", "this task will be ignored when job is completed")
                                  .build());
                 return;
             }
@@ -282,8 +284,8 @@ public class BrokerLoadJob extends LoadJob {
         try {
             Catalog.getCurrentGlobalTransactionMgr().commitTransaction(
                     dbId, transactionId, commitInfos,
-                    new LoadJobEndOperation(id, loadingStatus, progress, loadStartTimestamp,
-                                            finishTimestamp, state, failMsg));
+                    new LoadJobFinalOperation(id, loadingStatus, progress, loadStartTimestamp,
+                                              finishTimestamp, state, failMsg));
         } catch (UserException e) {
             LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
                              .add("database_id", dbId)

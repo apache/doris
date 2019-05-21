@@ -178,7 +178,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         return finishTimestamp;
     }
 
-    public boolean isFinished() {
+    public boolean isCompleted() {
         return state == JobState.FINISHED || state == JobState.CANCELLED;
     }
 
@@ -276,14 +276,14 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     public void processTimeout() {
         writeLock();
         try {
-            if (isFinished() || getDeadlineMs() >= System.currentTimeMillis() || isCommitting) {
+            if (isCompleted() || getDeadlineMs() >= System.currentTimeMillis() || isCommitting) {
                 return;
             }
             executeCancel(new FailMsg(FailMsg.CancelType.TIMEOUT, "loading timeout to cancel"), true);
         } finally {
             writeUnlock();
         }
-        logEndOperation();
+        logFinalOperation();
     }
 
     abstract void executeJob();
@@ -328,7 +328,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         } finally {
             writeUnlock();
         }
-        logEndOperation();
+        logFinalOperation();
     }
 
     public void cancelJob(FailMsg failMsg) throws DdlException {
@@ -341,10 +341,10 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
                                          + "The job could not be cancelled in this step").build());
                 throw new DdlException("Job could not be cancelled while txn is committing");
             }
-            if (isFinished()) {
+            if (isCompleted()) {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
                                  .add("state", state)
-                                 .add("error_msg", "Job could not be cancelled when job is finished or cancelled")
+                                 .add("error_msg", "Job could not be cancelled when job is completed")
                                  .build());
                 throw new DdlException("Job could not be cancelled when job is finished or cancelled");
             }
@@ -354,7 +354,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         } finally {
             writeUnlock();
         }
-        logEndOperation();
+        logFinalOperation();
     }
 
     private void checkAuth() throws DdlException {
@@ -452,19 +452,19 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         return true;
     }
 
-    private void logEndOperation() {
+    private void logFinalOperation() {
         Catalog.getCurrentCatalog().getEditLog().logEndLoadJob(
-                new LoadJobEndOperation(id, loadingStatus, progress, loadStartTimestamp, finishTimestamp,
-                                        state, failMsg));
+                new LoadJobFinalOperation(id, loadingStatus, progress, loadStartTimestamp, finishTimestamp,
+                                          state, failMsg));
     }
 
-    public void unprotectReadEndOperation(LoadJobEndOperation loadJobEndOperation) {
-        loadingStatus = loadJobEndOperation.getLoadingStatus();
-        progress = loadJobEndOperation.getProgress();
-        loadStartTimestamp = loadJobEndOperation.getLoadStartTimestamp();
-        finishTimestamp = loadJobEndOperation.getFinishTimestamp();
-        state = loadJobEndOperation.getJobState();
-        failMsg = loadJobEndOperation.getFailMsg();
+    public void unprotectReadEndOperation(LoadJobFinalOperation loadJobFinalOperation) {
+        loadingStatus = loadJobFinalOperation.getLoadingStatus();
+        progress = loadJobFinalOperation.getProgress();
+        loadStartTimestamp = loadJobFinalOperation.getLoadStartTimestamp();
+        finishTimestamp = loadJobFinalOperation.getFinishTimestamp();
+        state = loadJobFinalOperation.getJobState();
+        failMsg = loadJobFinalOperation.getFailMsg();
     }
 
     public List<Comparable> getShowInfo() throws DdlException {
@@ -555,7 +555,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     public void beforeCommitted(TransactionState txnState) throws TransactionException {
         writeLock();
         try {
-            if (isFinished()) {
+            if (isCompleted()) {
                 throw new TransactionException("txn could not be committed when job has been cancelled");
             }
             isCommitting = true;
@@ -604,7 +604,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         }
         writeLock();
         try {
-            if (isFinished()) {
+            if (isCompleted()) {
                 return;
             }
             // cancel load job
@@ -623,7 +623,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     public void replayOnAborted(TransactionState txnState) {
         writeLock();
         try {
-            unprotectReadEndOperation((LoadJobEndOperation) txnState.getTxnCommitAttachment());
+            unprotectReadEndOperation((LoadJobFinalOperation) txnState.getTxnCommitAttachment());
             failMsg = new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, txnState.getReason());
             finishTimestamp = txnState.getFinishTime();
             state = JobState.CANCELLED;
@@ -651,7 +651,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     public void replayOnVisible(TransactionState txnState) {
         writeLock();
         try {
-            unprotectReadEndOperation((LoadJobEndOperation) txnState.getTxnCommitAttachment());
+            unprotectReadEndOperation((LoadJobFinalOperation) txnState.getTxnCommitAttachment());
             progress = 100;
             finishTimestamp = txnState.getFinishTime();
             state = JobState.FINISHED;

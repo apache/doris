@@ -51,7 +51,7 @@ import org.apache.doris.load.ExportMgr;
 import org.apache.doris.load.Load;
 import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.load.LoadJob;
-import org.apache.doris.load.loadv2.LoadJobEndOperation;
+import org.apache.doris.load.loadv2.LoadJobFinalOperation;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
@@ -687,14 +687,8 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_END_LOAD_JOB: {
-                    LoadJobEndOperation operation = (LoadJobEndOperation) journal.getData();
+                    LoadJobFinalOperation operation = (LoadJobFinalOperation) journal.getData();
                     Catalog.getCurrentCatalog().getLoadManager().replayEndLoadJob(operation);
-                    break;
-                }
-                case OperationType.OP_REMOVE_LOAD_JOB: {
-                    Text tableId = (Text) journal.getData();
-                    Catalog.getCurrentCatalog().getLoadManager()
-                            .replayRemoveOldLoadJob(Long.parseLong(tableId.toString()));
                     break;
                 }
                 default: {
@@ -1204,11 +1198,7 @@ public class EditLog {
 //        logEdit(OperationType.OP_CREATE_LOAD_JOB, loadJob);
     }
 
-    public void logEndLoadJob(LoadJobEndOperation loadJobEndOperation) {
+    public void logEndLoadJob(LoadJobFinalOperation loadJobFinalOperation) {
 //        logEdit(OperationType.OP_END_LOAD_JOB, loadJobEndOperation);
-    }
-
-    public void logRemoveLoadJob(long id) {
-//        logEdit(OperationType.OP_REMOVE_LOAD_JOB, new Text(Long.toString(id)));
     }
 }

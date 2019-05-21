@@ -44,7 +44,7 @@ public class BrokerLoadPendingTask extends LoadTask {
     private Map<Long, List<BrokerFileGroup>> tableToBrokerFileList;
     private BrokerDesc brokerDesc;
 
-    public BrokerLoadPendingTask(LoadTaskCallback loadTaskCallback,
+    public BrokerLoadPendingTask(BrokerLoadJob loadTaskCallback,
                                  Map<Long, List<BrokerFileGroup>> tableToBrokerFileList,
                                  BrokerDesc brokerDesc) {
         super(loadTaskCallback);

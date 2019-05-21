@@ -88,6 +88,8 @@ public class LoadManager implements Writable{
             }
             loadJob = BrokerLoadJob.fromLoadStmt(stmt);
             addLoadJob(loadJob);
+            // submit it
+            loadJobScheduler.submitJob(loadJob);
         } finally {
             writeUnlock();
         }
@@ -116,9 +118,6 @@ public class LoadManager implements Writable{
         // add callback before txn created, because callback will be performed on replay without txn begin
         // register txn state listener
         Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback(loadJob);
-
-        // submit it
-        loadJobScheduler.submitJob(loadJob);
     }
 
     public void cancelLoadJob(CancelLoadStmt stmt) throws DdlException {
@@ -138,9 +137,9 @@ public class LoadManager implements Writable{
             if (loadJobList == null) {
                 throw new DdlException("Load job does not exist");
             }
-            Optional<LoadJob> loadJobOptional = loadJobList.stream().filter(entity -> !entity.isFinished()).findFirst();
+            Optional<LoadJob> loadJobOptional = loadJobList.stream().filter(entity -> !entity.isCompleted()).findFirst();
             if (!loadJobOptional.isPresent()) {
-                throw new DdlException("There is no unfinished job which label is " + stmt.getLabel());
+                throw new DdlException("There is no uncompleted job which label is " + stmt.getLabel());
             }
             loadJob = loadJobOptional.get();
         } finally {
@@ -150,7 +149,7 @@ public class LoadManager implements Writable{
         loadJob.cancelJob(new FailMsg(FailMsg.CancelType.USER_CANCEL, "user cancel"));
     }
 
-    public void replayEndLoadJob(LoadJobEndOperation operation) {
+    public void replayEndLoadJob(LoadJobFinalOperation operation) {
         LoadJob job = idToLoadJob.get(operation.getId());
         job.unprotectReadEndOperation(operation);
         LOG.info(new LogBuilder(LogKey.LOAD_JOB, operation.getId())
@@ -173,25 +172,15 @@ public class LoadManager implements Writable{
             Iterator<Map.Entry<Long, LoadJob>> iter = idToLoadJob.entrySet().iterator();
             while (iter.hasNext()) {
                 LoadJob job = iter.next().getValue();
-                if (job.isFinished()
+                if (job.isCompleted()
                         && ((currentTimeMs - job.getFinishTimestamp()) / 1000 > Config.label_keep_max_second)) {
                     iter.remove();
                     dbIdToLabelToLoadJobs.get(job.getDbId()).get(job.getLabel()).remove(job);
-                    Catalog.getCurrentCatalog().getEditLog().logRemoveLoadJob(job.getId());
                 }
             }
         } finally {
             writeUnlock();
         }
-    }
-
-    public void replayRemoveOldLoadJob(long id) {
-        LoadJob loadJob = idToLoadJob.get(id);
-        if (loadJob == null) {
-            return;
-        }
-        idToLoadJob.remove(id);
-        dbIdToLabelToLoadJobs.get(loadJob.getDbId()).get(loadJob.getLabel()).remove(loadJob);
     }
 
     public void processTimeoutJobs() {
@@ -264,6 +253,11 @@ public class LoadManager implements Writable{
         }
     }
 
+    public void submitJobs() {
+        loadJobScheduler.submitJob(idToLoadJob.values().stream().filter(
+                loadJob -> loadJob.state == JobState.PENDING).collect(Collectors.toList()));
+    }
+
     private Database checkDb(String dbName) throws DdlException {
         // get db
         Database db = Catalog.getInstance().getDb(dbName);
@@ -317,9 +311,16 @@ public class LoadManager implements Writable{
 
     @Override
     public void write(DataOutput out) throws IOException {
+        long currentTimeMs = System.currentTimeMillis();
+
         out.writeInt(idToLoadJob.size());
         for (LoadJob loadJob : idToLoadJob.values()) {
-            loadJob.write(out);
+            if (!loadJob.isCompleted()
+                    || (loadJob.isCompleted()
+                    && ((currentTimeMs - loadJob.getFinishTimestamp()) / 1000 <= Config.label_keep_max_second))) {
+                loadJob.write(out);
+            }
+            // If load job will be removed by cleaner later, it will not be saved in image.
         }
     }
 

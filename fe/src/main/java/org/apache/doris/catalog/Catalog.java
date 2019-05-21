@@ -1081,6 +1081,7 @@ public class Catalog {
         LoadChecker.startAll();
 
         // New load scheduler
+        loadManager.submitJobs();
         loadJobScheduler.start();
 
         // Export checker

@@ -166,5 +166,4 @@ public class OperationType {
     public static final short OP_CREATE_LOAD_JOB = 230;
     // this finish op include finished and cancelled
     public static final short OP_END_LOAD_JOB = 231;
-    public static final short OP_REMOVE_LOAD_JOB = 232;
 }
