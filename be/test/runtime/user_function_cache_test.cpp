@@ -86,7 +86,7 @@ public:
     UserFunctionCacheTest() { }
     virtual ~UserFunctionCacheTest() { }
     static void SetUpTestCase() {
-        s_server = new EvHttpServer(29386);
+        s_server = new EvHttpServer(29999);
         s_server->register_handler(GET, "/{FILE}", &s_test_handler);
         s_server->start();
 
@@ -130,7 +130,7 @@ TEST_F(UserFunctionCacheTest, download_normal) {
     // get my_add
     st = cache.get_function_ptr(1,
                                 "_Z6my_addv",
-                                "http://127.0.0.1:29386/my_add.so",
+                                "http://127.0.0.1:29999/my_add.so",
                                 my_add_md5sum, &fn_ptr, &entry);
     ASSERT_TRUE(st.ok());
     ASSERT_TRUE(k_is_downloaded);
@@ -140,7 +140,7 @@ TEST_F(UserFunctionCacheTest, download_normal) {
     // get my_del
     st = cache.get_function_ptr(1,
                                 "_Z6my_delv",
-                                "http://127.0.0.1:29386/my_add.so",
+                                "http://127.0.0.1:29999/my_add.so",
                                 my_add_md5sum, &fn_ptr, &entry);
     ASSERT_TRUE(st.ok());
     ASSERT_NE(nullptr, fn_ptr);
@@ -149,7 +149,7 @@ TEST_F(UserFunctionCacheTest, download_normal) {
     // get my_mul
     st = cache.get_function_ptr(1,
                                 "_Z6my_mulv",
-                                "http://127.0.0.1:29386/my_add.so",
+                                "http://127.0.0.1:29999/my_add.so",
                                 my_add_md5sum, &fn_ptr, &entry);
     ASSERT_FALSE(st.ok());
 
@@ -165,7 +165,7 @@ TEST_F(UserFunctionCacheTest, load_normal) {
     UserFunctionCacheEntry* entry = nullptr;
     st = cache.get_function_ptr(1,
                                 "_Z6my_addv",
-                                "http://127.0.0.1:29386/my_add.so",
+                                "http://127.0.0.1:29999/my_add.so",
                                 my_add_md5sum, &fn_ptr, &entry);
     ASSERT_TRUE(st.ok());
     ASSERT_FALSE(k_is_downloaded);
@@ -183,7 +183,7 @@ TEST_F(UserFunctionCacheTest, download_fail) {
     UserFunctionCacheEntry* entry = nullptr;
     st = cache.get_function_ptr(2,
                                 "_Z6my_delv",
-                                "http://127.0.0.1:29386/my_del.so",
+                                "http://127.0.0.1:29999/my_del.so",
                                 my_add_md5sum, &fn_ptr, &entry);
     ASSERT_FALSE(st.ok());
 }
@@ -199,7 +199,7 @@ TEST_F(UserFunctionCacheTest, md5_fail) {
     UserFunctionCacheEntry* entry = nullptr;
     st = cache.get_function_ptr(1,
                                 "_Z6my_addv",
-                                "http://127.0.0.1:29386/my_add.so",
+                                "http://127.0.0.1:29999/my_add.so",
                                 "1234", &fn_ptr, &entry);
     ASSERT_FALSE(st.ok());
 }
@@ -218,7 +218,7 @@ TEST_F(UserFunctionCacheTest, bad_so) {
     UserFunctionCacheEntry* entry = nullptr;
     st = cache.get_function_ptr(2,
                                 "_Z6my_addv",
-                                "http://127.0.0.1:29386/my_add.so",
+                                "http://127.0.0.1:29999/my_add.so",
                                 "abc", &fn_ptr, &entry);
     ASSERT_FALSE(st.ok());
 }

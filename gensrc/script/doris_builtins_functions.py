@@ -567,13 +567,17 @@ visible_functions = [
 
     # Json functions
     [['get_json_int'], 'INT', ['VARCHAR', 'VARCHAR'],
-        '_ZN5doris13JsonFunctions12get_json_intEPN9doris_udf15FunctionContextERKNS1_9StringValES6_'],
+        '_ZN5doris13JsonFunctions12get_json_intEPN9doris_udf15FunctionContextERKNS1_9StringValES6_',
+        '_ZN5doris13JsonFunctions17json_path_prepareEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE',
+        '_ZN5doris13JsonFunctions15json_path_closeEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE'],
     [['get_json_double'], 'DOUBLE', ['VARCHAR', 'VARCHAR'],
-        '_ZN5doris13JsonFunctions15get_json_doubleEPN9doris_udf'
-        '15FunctionContextERKNS1_9StringValES6_'],
+        '_ZN5doris13JsonFunctions15get_json_doubleEPN9doris_udf15FunctionContextERKNS1_9StringValES6_',
+        '_ZN5doris13JsonFunctions17json_path_prepareEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE',
+        '_ZN5doris13JsonFunctions15json_path_closeEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE'],
     [['get_json_string'], 'VARCHAR', ['VARCHAR', 'VARCHAR'],
-        '_ZN5doris13JsonFunctions15get_json_stringEPN9doris_udf'
-        '15FunctionContextERKNS1_9StringValES6_'],
+        '_ZN5doris13JsonFunctions15get_json_stringEPN9doris_udf15FunctionContextERKNS1_9StringValES6_',
+        '_ZN5doris13JsonFunctions17json_path_prepareEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE',
+        '_ZN5doris13JsonFunctions15json_path_closeEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE'],
 
     #hll function
     [['hll_cardinality'], 'BIGINT', ['HLL'],
