@@ -62,4 +62,6 @@ public interface TxnStateChangeCallback {
     void replayOnAborted(TransactionState txnState);
 
     void afterVisible(TransactionState txnState, boolean txnOperated);
+
+    void replayOnVisible(TransactionState txnState);
 }

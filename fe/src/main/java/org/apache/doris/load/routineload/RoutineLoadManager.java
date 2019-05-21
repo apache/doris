@@ -578,7 +578,7 @@ public class RoutineLoadManager implements Writable {
         try {
             job.updateState(operation.getJobState(), null, true /* is replay */);
         } catch (UserException e) {
-            LOG.error("should not happend", e);
+            LOG.error("should not happened", e);
         }
         LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, operation.getId())
                  .add("current_state", operation.getJobState())
