@@ -409,6 +409,10 @@ namespace config {
     // Is set to true, index loading failure will not causing BE exit,
     // and the tablet will be marked as bad, so that FE will try to repair it.
     CONF_Bool(auto_recover_index_loading_failure, "false");
+
+    // This configuration is used to recover compaction under the corner case.
+    // If this configuration is set to true, block will seek position.
+    CONF_Bool(block_seek_position, "false");
 } // namespace config
 
 } // namespace doris
