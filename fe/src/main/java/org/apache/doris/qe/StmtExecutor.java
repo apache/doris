@@ -47,6 +47,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
@@ -54,6 +55,7 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.load.EtlJobType;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlEofPacket;
 import org.apache.doris.mysql.MysqlSerializer;
@@ -630,22 +632,26 @@ public class StmtExecutor {
             return;
         }
 
-        if (insertStmt.isStreaming()) {
-            Catalog.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
-                    insertStmt.getDbObj(), insertStmt.getTransactionId(),
-                    TabletCommitInfo.fromThrift(coord.getCommitInfos()),
-                    5000);
-            context.getState().setOk();
-        } else {
-            context.getCatalog().getLoadInstance().addLoadJob(
-                    uuid.toString(),
-                    insertStmt.getDb(),
-                    insertStmt.getTargetTable().getId(),
-                    insertStmt.getIndexIdToSchemaHash(),
-                    insertStmt.getTransactionId(),
-                    coord.getDeltaUrls(),
-                    System.currentTimeMillis()
-            );
+        Catalog.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
+                insertStmt.getDbObj(), insertStmt.getTransactionId(),
+                TabletCommitInfo.fromThrift(coord.getCommitInfos()),
+                5000);
+        context.getState().setOk();
+
+        // record the non-streaming insert info for show load
+        if (!insertStmt.isStreaming()) {
+            try {
+                context.getCatalog().getLoadManager().recordFinishedLoadJob(
+                        uuid.toString(),
+                        insertStmt.getDb(),
+                        insertStmt.getTargetTable().getId(),
+                        EtlJobType.INSERT,
+                        System.currentTimeMillis()
+                );
+            } catch (MetaNotFoundException e) {
+                LOG.warn("Record info of insert load with error " + e.getMessage(), e);
+                context.getState().setOk("Insert has been finished while info has not been recorded with " + e.getMessage());
+            }
             context.getState().setOk("{'label':'" + uuid.toString() + "'}");
         }
     }

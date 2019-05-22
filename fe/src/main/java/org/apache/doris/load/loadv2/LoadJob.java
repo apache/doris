@@ -235,7 +235,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         }
     }
 
-    abstract Set<String> getTableNames();
+    abstract Set<String> getTableNames() throws MetaNotFoundException;
 
     public void isJobTypeRead(boolean jobTypeRead) {
         isJobTypeRead = jobTypeRead;
@@ -331,7 +331,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         logFinalOperation();
     }
 
-    public void cancelJob(FailMsg failMsg) throws DdlException {
+    public void cancelJob(FailMsg failMsg) throws DdlException, MetaNotFoundException {
         writeLock();
         try {
             // check
@@ -357,7 +357,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         logFinalOperation();
     }
 
-    private void checkAuth() throws DdlException {
+    private void checkAuth() throws DdlException, MetaNotFoundException {
         Database db = Catalog.getInstance().getDb(dbId);
         if (db == null) {
             throw new DdlException("Db does not exist. id: " + dbId);
@@ -467,7 +467,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         failMsg = loadJobFinalOperation.getFailMsg();
     }
 
-    public List<Comparable> getShowInfo() throws DdlException {
+    public List<Comparable> getShowInfo() throws DdlException, MetaNotFoundException {
         readLock();
         try {
             // check auth
@@ -537,6 +537,8 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         EtlJobType type = EtlJobType.valueOf(Text.readString(in));
         if (type == EtlJobType.BROKER) {
             job = new BrokerLoadJob();
+        } else if (type == EtlJobType.INSERT) {
+            job = new InsertLoadJob();
         } else {
             throw new IOException("Unknown load type: " + type.name());
         }
