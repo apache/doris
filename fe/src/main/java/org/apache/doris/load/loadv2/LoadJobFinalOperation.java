@@ -46,12 +46,12 @@ public class LoadJobFinalOperation extends TxnCommitAttachment implements Writab
     private FailMsg failMsg;
 
     public LoadJobFinalOperation() {
-        super(TransactionState.LoadJobSourceType.LOAD_JOB);
+        super(TransactionState.LoadJobSourceType.BATCH_LOAD_JOB);
     }
 
     public LoadJobFinalOperation(long id, EtlStatus loadingStatus, int progress, long loadStartTimestamp,
                                  long finishTimestamp, JobState jobState, FailMsg failMsg) {
-        super(TransactionState.LoadJobSourceType.LOAD_JOB);
+        super(TransactionState.LoadJobSourceType.BATCH_LOAD_JOB);
         this.id = id;
         this.loadingStatus = loadingStatus;
         this.progress = progress;
