@@ -59,36 +59,31 @@ OLAPStatus StorageEngine::_start_bg_worker() {
         });
     _disk_stat_monitor_thread.detach();
 
-    // start thread for monitoring the unused index
-    _unused_index_thread = std::thread(
-        [this] {
-            _unused_index_thread_callback(nullptr);
-        });
     // convert store map to vector
-    std::vector<OlapStore*> store_vec;
+    std::vector<DataDir*> data_dirs;
     for (auto& tmp_store : _store_map) {
-        store_vec.push_back(tmp_store.second);
+        data_dirs.push_back(tmp_store.second);
     }
-    int32_t store_num = store_vec.size();
+    int32_t data_dir_num = data_dirs.size();
     // start be and ce threads for merge data
-    int32_t base_compaction_num_threads = config::base_compaction_num_threads_per_disk * store_num;
+    int32_t base_compaction_num_threads = config::base_compaction_num_threads_per_disk * data_dir_num;
     _base_compaction_threads.reserve(base_compaction_num_threads);
     for (uint32_t i = 0; i < base_compaction_num_threads; ++i) {
         _base_compaction_threads.emplace_back(
-            [this, store_num, store_vec, i] {
-                _base_compaction_thread_callback(nullptr, store_vec[i % store_num]);
+            [this, data_dir_num, data_dirs, i] {
+                _base_compaction_thread_callback(nullptr, data_dirs[i % data_dir_num]);
             });
     }
     for (auto& thread : _base_compaction_threads) {
         thread.detach();
     }
 
-    int32_t cumulative_compaction_num_threads = config::cumulative_compaction_num_threads_per_disk * store_num;
+    int32_t cumulative_compaction_num_threads = config::cumulative_compaction_num_threads_per_disk * data_dir_num;
     _cumulative_compaction_threads.reserve(cumulative_compaction_num_threads);
     for (uint32_t i = 0; i < cumulative_compaction_num_threads; ++i) {
         _cumulative_compaction_threads.emplace_back(
-            [this, store_num, store_vec, i] {
-                _cumulative_compaction_thread_callback(nullptr, store_vec[i % store_num]);
+            [this, data_dir_num, data_dirs, i] {
+                _cumulative_compaction_thread_callback(nullptr, data_dirs[i % data_dir_num]);
             });
     }
     for (auto& thread : _cumulative_compaction_threads) {
@@ -144,7 +139,7 @@ void* StorageEngine::_fd_cache_clean_callback(void* arg) {
     return nullptr;
 }
 
-void* StorageEngine::_base_compaction_thread_callback(void* arg, OlapStore* store) {
+void* StorageEngine::_base_compaction_thread_callback(void* arg, DataDir* data_dir) {
 #ifdef GOOGLE_PROFILER
     ProfilerRegisterThread();
 #endif
@@ -162,7 +157,7 @@ void* StorageEngine::_base_compaction_thread_callback(void* arg, OlapStore* stor
         // cgroup is not initialized at this time
         // add tid to cgroup
         CgroupsMgr::apply_system_cgroup();
-        perform_base_compaction(store);
+        perform_base_compaction(data_dir);
 
         usleep(interval * 1000000);
     }
@@ -237,7 +232,7 @@ void* StorageEngine::_disk_stat_monitor_thread_callback(void* arg) {
     return nullptr;
 }
 
-void* StorageEngine::_cumulative_compaction_thread_callback(void* arg, OlapStore* store) {
+void* StorageEngine::_cumulative_compaction_thread_callback(void* arg, DataDir* data_dir) {
 #ifdef GOOGLE_PROFILER
     ProfilerRegisterThread();
 #endif
@@ -254,7 +249,7 @@ void* StorageEngine::_cumulative_compaction_thread_callback(void* arg, OlapStore
         // cgroup is not initialized at this time
         // add tid to cgroup
         CgroupsMgr::apply_system_cgroup();
-        perform_cumulative_compaction(store);
+        perform_cumulative_compaction(data_dir);
         usleep(interval * 1000000);
     }
 

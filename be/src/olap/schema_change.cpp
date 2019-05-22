@@ -242,11 +242,11 @@ bool RowBlockChanger::change_row_block(
                         }
 
                         write_helper.set_not_null(i);
-                        if (mutable_block->tablet_schema()[i].type == OLAP_FIELD_TYPE_CHAR) {
+                        if (mutable_block->tablet_schema().column(i).type() == OLAP_FIELD_TYPE_CHAR) {
                             // if modify length of CHAR type, the size of slice should be equal
                             // to new length.
                             Slice* src = (Slice*)(field_to_read->get_ptr(read_helper.get_buf()));
-                            size_t size = mutable_block->tablet_schema()[i].length;
+                            size_t size = mutable_block->tablet_schema().column(i).length();
                             char* buf = reinterpret_cast<char*>(mem_pool->allocate(size));
                             memset(buf, 0, size);
                             size_t copy_size = (size < src->size) ? size : src->size;

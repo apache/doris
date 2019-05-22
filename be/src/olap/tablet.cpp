@@ -155,7 +155,7 @@ OLAPStatus Tablet::init() {
 }
 
 bool Tablet::is_used() {
-    return _data_dir->is_used();
+    return !_is_bad && _data_dir->is_used();
 }
 
 TabletUid Tablet::tablet_uid() {
@@ -591,15 +591,6 @@ void Tablet::set_io_error() {
                      full_name().c_str());
 }
 
-bool Tablet::is_used() {
-    return !_is_bad && _data_dir->is_used();
-}
-
-size_t Tablet::get_version_data_size(const Version& version) {
-    RowsetSharedPtr rowset = _rs_version_map[version];
-    return rowset->data_disk_size();
-}
-
 OLAPStatus Tablet::recover_tablet_until_specfic_version(const int64_t& spec_version,
                                                         const int64_t& version_hash) {
     return OLAP_SUCCESS;
@@ -811,16 +802,6 @@ OLAPStatus Tablet::split_range(
     AlphaRowset* alpha_rowset = reinterpret_cast<AlphaRowset*>(rowset.get());
     OLAPStatus status = alpha_rowset->split_range(start_key, end_key, request_block_row_count, ranges);
     return status;
-}
-
-OLAPStatus Tablet::recover_tablet_until_specfic_version(const int64_t& spec_version,
-                                                        const int64_t& version_hash) {
-    return OLAP_SUCCESS;
-}
-
-void Tablet::set_io_error() {
-    OLAP_LOG_WARNING("io error occur.[tablet_full_name='%s', root_path_name='%s']",
-                     full_name().c_str());
 }
 
 void Tablet::delete_all_files() {

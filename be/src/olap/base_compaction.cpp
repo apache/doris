@@ -335,6 +335,7 @@ bool BaseCompaction::_check_whether_satisfy_policy(bool is_manual_trigger,
 
 OLAPStatus BaseCompaction::_do_base_compaction(VersionHash new_base_version_hash,
                                                const vector<RowsetSharedPtr>& rowsets) {
+    OlapStopWatch watch;
     vector<RowsetReaderSharedPtr> rs_readers;
     for (auto& rowset : rowsets) {
         RowsetReaderSharedPtr rs_reader(rowset->create_reader());

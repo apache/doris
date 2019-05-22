@@ -95,8 +95,8 @@ public:
     OLAPStatus clear();
 
     void start_clean_fd_cache();
-    void perform_cumulative_compaction(OlapStore* store);
-    void perform_base_compaction(OlapStore* store);
+    void perform_cumulative_compaction(DataDir* data_dir);
+    void perform_base_compaction(DataDir* data_dir);
 
     // 获取cache的使用情况信息
     void get_cache_status(rapidjson::Document* document) const;
@@ -214,8 +214,6 @@ private:
 
     OLAPStatus _start_bg_worker();
 
-    TabletSharedPtr _find_best_tablet_to_compaction(CompactionType compaction_type);
-
     void _clean_unused_txns();
     
     OLAPStatus _do_sweep(
@@ -226,7 +224,7 @@ private:
     void* _unused_rowset_monitor_thread_callback(void* arg);
 
     // base compaction thread process function
-    void* _base_compaction_thread_callback(void* arg);
+    void* _base_compaction_thread_callback(void* arg, DataDir* data_dir);
 
     // garbage sweep thread process function. clear snapshot and trash folder
     void* _garbage_sweeper_thread_callback(void* arg);
@@ -235,7 +233,7 @@ private:
     void* _disk_stat_monitor_thread_callback(void* arg);
 
     // cumulative process function
-    void* _cumulative_compaction_thread_callback(void* arg);
+    void* _cumulative_compaction_thread_callback(void* arg, DataDir* data_dir);
 
     // clean file descriptors cache
     void* _fd_cache_clean_callback(void* arg);

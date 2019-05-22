@@ -86,12 +86,15 @@ public:
 
     OLAPStatus drop_tablets_on_error_root_path(const std::vector<TabletInfo>& tablet_info_vec);
 
-    TabletSharedPtr find_best_tablet_to_compaction(CompactionType compaction_type);
+    TabletSharedPtr find_best_tablet_to_compaction(CompactionType compaction_type, DataDir* data_dir);
 
     // Get tablet pointer
-    TabletSharedPtr get_tablet(TTabletId tablet_id, SchemaHash schema_hash, bool include_deleted = false);
+    TabletSharedPtr get_tablet(TTabletId tablet_id, SchemaHash schema_hash,
+                               bool include_deleted = false, std::string* err = nullptr);
 
-    TabletSharedPtr get_tablet(TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid, bool include_deleted = false);
+    TabletSharedPtr get_tablet(TTabletId tablet_id, SchemaHash schema_hash,
+                               TabletUid tablet_uid, bool include_deleted = false,
+                               std::string* err = nullptr);
 
     bool get_tablet_id_and_schema_hash_from_path(const std::string& path,
             TTabletId* tablet_id, TSchemaHash* schema_hash);
@@ -163,7 +166,8 @@ private:
 
     TabletSharedPtr _get_tablet_with_no_lock(TTabletId tablet_id, SchemaHash schema_hash);
 
-    TabletSharedPtr _get_tablet(TTabletId tablet_id, SchemaHash schema_hash, bool include_deleted);
+    TabletSharedPtr _get_tablet(TTabletId tablet_id, SchemaHash schema_hash,
+                                bool include_deleted, std::string* err);
 
     TabletSharedPtr _internal_create_tablet(const AlterTabletType alter_type, const TCreateTabletReq& request, 
         const bool is_schema_change_tablet, const TabletSharedPtr ref_tablet, std::vector<DataDir*> data_dirs);

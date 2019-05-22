@@ -213,8 +213,6 @@ public:
         _last_compaction_failure_time = time;
     }
 
-    RowsetSharedPtr rowset_with_largest_size();
-
     void delete_all_files();
 
     bool check_path(const std::string& check_path);

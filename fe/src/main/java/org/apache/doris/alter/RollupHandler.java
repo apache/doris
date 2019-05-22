@@ -599,7 +599,7 @@ public class RollupHandler extends AlterHandler {
                 }
                 case FINISHING: {
                     // check previous load job finished
-                    if (rollupJob.checkPreviousLoadFinished()) {
+                    if (rollupJob.isPreviousLoadFinished()) {
                         // if all previous load job finished, then send clear alter tasks to all related be
                         LOG.info("previous txn finished, try to send clear txn task");
                         int res = rollupJob.checkOrResendClearTasks();

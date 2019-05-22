@@ -594,12 +594,14 @@ OLAPStatus TabletManager::drop_tablets_on_error_root_path(
     return res;
 } // drop_tablets_on_error_root_path
 
-TabletSharedPtr TabletManager::get_tablet(TTabletId tablet_id, SchemaHash schema_hash, bool include_deleted) {
+TabletSharedPtr TabletManager::get_tablet(TTabletId tablet_id, SchemaHash schema_hash,
+                                          bool include_deleted, std::string* err) {
     ReadLock rlock(&_tablet_map_lock);
-    return _get_tablet(tablet_id, schema_hash, include_deleted);
+    return _get_tablet(tablet_id, schema_hash, include_deleted, err);
 } // get_tablet
 
-TabletSharedPtr TabletManager::_get_tablet(TTabletId tablet_id, SchemaHash schema_hash, bool include_deleted) {
+TabletSharedPtr TabletManager::_get_tablet(TTabletId tablet_id, SchemaHash schema_hash,
+                                           bool include_deleted, std::string* err) {
     TabletSharedPtr tablet;
     tablet = _get_tablet_with_no_lock(tablet_id, schema_hash);
     if (tablet == nullptr && include_deleted) {
@@ -614,16 +616,21 @@ TabletSharedPtr TabletManager::_get_tablet(TTabletId tablet_id, SchemaHash schem
     if (tablet != nullptr) {
         if (!tablet->is_used()) {
             LOG(WARNING) << "tablet cannot be used. tablet=" << tablet_id;
+            if (err != nullptr) { *err = "tablet cannot be used"; }
             tablet.reset();
         }
+    } else if (err != nullptr) {
+        *err = "tablet does not exist";
     }
 
     return tablet;
 } // get_tablet
 
-TabletSharedPtr TabletManager::get_tablet(TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid, bool include_deleted) {
+TabletSharedPtr TabletManager::get_tablet(TTabletId tablet_id, SchemaHash schema_hash,
+                                          TabletUid tablet_uid, bool include_deleted,
+                                          std::string* err) {
     ReadLock rlock(&_tablet_map_lock);
-    TabletSharedPtr tablet = _get_tablet(tablet_id, schema_hash, include_deleted);
+    TabletSharedPtr tablet = _get_tablet(tablet_id, schema_hash, include_deleted, err);
     if (tablet != nullptr && tablet->tablet_uid() == tablet_uid) {
         return tablet;
     }
@@ -686,10 +693,12 @@ void TabletManager::get_tablet_stat(TTabletStatResult& result) {
     result.__set_tablets_stats(_tablet_stat_cache);
 } // get_tablet_stat
 
-TabletSharedPtr TabletManager::find_best_tablet_to_compaction(CompactionType compaction_type) {
+TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
+            CompactionType compaction_type, DataDir* data_dir) {
     ReadLock tablet_map_rdlock(&_tablet_map_lock);
     uint32_t highest_score = 0;
     TabletSharedPtr best_tablet;
+    int64_t now = UnixMillis();
     for (tablet_map_t::value_type& table_ins : _tablet_map){
         for (TabletSharedPtr& table_ptr : table_ins.second.table_arr) {
             AlterTabletTaskSharedPtr cur_alter_task = table_ptr->alter_task();
@@ -702,8 +711,32 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(CompactionType com
                         continue;
                     }
             }
-            if (!table_ptr->init_succeeded() || !table_ptr->can_do_compaction()) {
+
+            if (table_ptr->data_dir()->path_hash() != data_dir->path_hash()
+                    || !table_ptr->is_used() || !table_ptr->init_succeeded() || !table_ptr->can_do_compaction()) {
                 continue;
+            }
+
+            if (now - table_ptr->last_compaction_failure_time() <= config::min_compaction_failure_interval_sec * 1000) {
+                LOG(INFO) << "tablet last compaction failure time is: " << table_ptr->last_compaction_failure_time()
+                    << ", tablet: " << table_ptr->tablet_id() << ", skip it.";
+                continue;
+            }
+
+            if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
+                if (!table_ptr->try_cumulative_lock()) {
+                    continue;
+                } else {
+                    table_ptr->release_cumulative_lock();
+                }
+            }
+
+            if (compaction_type == CompactionType::BASE_COMPACTION) {
+                if (!table_ptr->try_base_compaction_lock()) {
+                    continue;
+                } else {
+                    table_ptr->release_base_compaction_lock();
+                }
             }
 
             ReadLock rdlock(table_ptr->get_header_lock_ptr());
@@ -718,6 +751,12 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(CompactionType com
                 best_tablet = table_ptr;
             }
         }
+    }
+
+    if (best_tablet != nullptr) {
+        LOG(INFO) << "find best tablet to do compaction."
+            << " type: " << (compaction_type == CompactionType::CUMULATIVE_COMPACTION ? "cumulative" : "base")
+            << ", tablet id: " << best_tablet->tablet_id() << ", score: " << highest_score;
     }
     return best_tablet;
 }

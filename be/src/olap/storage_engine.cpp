@@ -538,8 +538,8 @@ void StorageEngine::start_clean_fd_cache() {
     VLOG(10) << "end clean file descritpor cache";
 }
 
-void StorageEngine::perform_cumulative_compaction(OlapStore* store) {
-    TabletSharedPtr best_tablet = _find_best_tablet_to_compaction(CompactionType::CUMULATIVE_COMPACTION, store);
+void StorageEngine::perform_cumulative_compaction(DataDir* data_dir) {
+    TabletSharedPtr best_tablet = _tablet_manager->find_best_tablet_to_compaction(CompactionType::CUMULATIVE_COMPACTION, data_dir);
     if (best_tablet == nullptr) { return; }
 
     DorisMetrics::cumulative_compaction_request_total.increment(1);
@@ -571,8 +571,8 @@ void StorageEngine::perform_cumulative_compaction(OlapStore* store) {
     best_tablet->set_last_compaction_failure_time(0);
 }
 
-void StorageEngine::perform_base_compaction(OlapStore* store) {
-    TabletSharedPtr best_tablet = _find_best_tablet_to_compaction(CompactionType::BASE_COMPACTION, store);
+void StorageEngine::perform_base_compaction(DataDir* data_dir) {
+    TabletSharedPtr best_tablet = _tablet_manager->find_best_tablet_to_compaction(CompactionType::BASE_COMPACTION, data_dir);
     if (best_tablet == nullptr) { return; }
 
     DorisMetrics::base_compaction_request_total.increment(1);
@@ -599,61 +599,6 @@ void StorageEngine::perform_base_compaction(OlapStore* store) {
         return;
     }
     best_tablet->set_last_compaction_failure_time(0);
-}
-
-OLAPTablePtr StorageEngine::_find_best_tablet_to_compaction(CompactionType compaction_type, OlapStore* store) {
-    ReadLock tablet_map_rdlock(&_tablet_map_lock);
-    uint32_t highest_score = 0;
-    TabletSharedPtr best_tablet;
-    int64_t now = UnixMillis();
-    for (tablet_map_t::value_type& table_ins : _tablet_map){
-        for (OLAPTablePtr& table_ptr : table_ins.second.table_arr) {
-            if (table_ptr->store()->path_hash() != store->path_hash() 
-                || !table_ptr->is_used() || !table_ptr->is_loaded() || !_can_do_compaction(table_ptr)) {
-                continue;
-            }
-          
-            if (now - table_ptr->last_compaction_failure_time() <= config::min_compaction_failure_interval_sec * 1000) {
-                LOG(INFO) << "tablet last compaction failure time is: " << table_ptr->last_compaction_failure_time()
-                        << ", tablet: " << table_ptr->tablet_id() << ", skip it.";
-                continue;
-            }
-
-            if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
-                if (!table_ptr->try_cumulative_lock()) {
-                    continue;
-                } else {
-                    table_ptr->release_cumulative_lock();
-                }
-            }
-
-            if (compaction_type == CompactionType::BASE_COMPACTION) {
-                if (!table_ptr->try_base_compaction_lock()) {
-                    continue;
-                } else {
-                    table_ptr->release_base_compaction_lock();
-                }
-            } 
-
-            ReadLock rdlock(table_ptr->get_header_lock_ptr());
-            uint32_t table_score = 0;
-            if (compaction_type == CompactionType::BASE_COMPACTION) {
-                table_score = table_ptr->get_base_compaction_score();
-            } else if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
-                table_score = table_ptr->get_cumulative_compaction_score();
-            }
-            if (table_score > highest_score) {
-                highest_score = table_score;
-                best_tablet = table_ptr;
-            }
-        }
-    }
-
-    if (best_tablet != nullptr) {
-        LOG(INFO) << "find best tablet to do compaction. type: " << (compaction_type == CompactionType::CUMULATIVE_COMPACTION ? "cumulative" : "base")
-            << ", tablet id: " << best_table->tablet_id() << ", score: " << highest_score;
-    }
-    return best_tablet;
 }
 
 void StorageEngine::get_cache_status(rapidjson::Document* document) const {
