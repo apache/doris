@@ -2344,7 +2344,7 @@ void OLAPEngine::revoke_files_from_gc(const std::vector<std::string>& files_to_c
                 }
             }
             if (!found) {
-                LOG(INFO) << "file:" << file << " do not exist in unused files";
+                LOG(INFO) << "file:" << file << " does not exist in unused files";
             }
         }
     }
