@@ -163,7 +163,7 @@ inline int Field::index_cmp(char* left, char* right) const {
             // so calculate the min of the three size as new compare_size
             compare_size = std::min(std::min(compare_size, (int)l_slice->size), (int)r_slice->size);
             res = strncmp(l_slice->data, r_slice->data, compare_size);
-            if (res == 0) {
+            if (res == 0 && compare_size != (_index_size - OLAP_STRING_MAX_BYTES)) {
                 if (l_slice->size < r_slice->size) {
                     res = -1;
                 } else if (l_slice->size > r_slice->size) {
