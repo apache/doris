@@ -167,6 +167,15 @@ inline int Field::index_cmp(char* left, char* right) const {
             // Only the fixed length of prefix index should be compared.
             // If r_slice->size > l_slice->size, igonre the extra parts directly.
             res = strncmp(l_slice->data, r_slice->data, compare_size);
+            if (res == 0 && compare_size != (_index_size - OLAP_STRING_MAX_BYTES)) {
+                if (l_slice->size < r_slice->size) {
+                    res = -1;
+                } else if (l_slice->size > r_slice->size) {
+                    res = 1;
+                } else {
+                    res = 0;
+                }
+            }
         } else {
             res = l_slice->compare(*r_slice);
         }
