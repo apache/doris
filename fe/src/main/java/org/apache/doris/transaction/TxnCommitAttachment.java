@@ -19,6 +19,7 @@ package org.apache.doris.transaction;
 
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.load.loadv2.LoadJobFinalOperation;
 import org.apache.doris.load.routineload.RLTaskTxnCommitAttachment;
 import org.apache.doris.thrift.TTxnCommitAttachment;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
@@ -71,6 +72,8 @@ public abstract class TxnCommitAttachment implements Writable {
         LoadJobSourceType type = LoadJobSourceType.valueOf(Text.readString(in));
         if (type == LoadJobSourceType.ROUTINE_LOAD_TASK) {
             attachment = new RLTaskTxnCommitAttachment();
+        } else if (type == LoadJobSourceType.BATCH_LOAD_JOB) {
+            attachment = new LoadJobFinalOperation();
         } else {
             throw new IOException("Unknown load job source type: " + type.name());
         }

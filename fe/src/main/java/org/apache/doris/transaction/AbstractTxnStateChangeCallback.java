@@ -57,4 +57,9 @@ public abstract class AbstractTxnStateChangeCallback implements TxnStateChangeCa
     public void afterVisible(TransactionState txnState, boolean txnOperated) {
 
     }
+
+    @Override
+    public void replayOnVisible(TransactionState txnState) {
+
+    }
 }

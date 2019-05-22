@@ -34,6 +34,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.load.BrokerFileGroup;
+import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.PullLoadSourceInfo;
 
@@ -44,6 +45,9 @@ import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -65,12 +69,18 @@ public class BrokerLoadJob extends LoadJob {
     // include broker desc and data desc
     private PullLoadSourceInfo dataSourceInfo = new PullLoadSourceInfo();
 
+    // only for log replay
+    public BrokerLoadJob() {
+        super();
+        this.jobType = EtlJobType.BROKER;
+    }
+
     public BrokerLoadJob(long dbId, String label, BrokerDesc brokerDesc, List<DataDescription> dataDescriptions) {
         super(dbId, label);
         this.timeoutSecond = Config.pull_load_task_default_timeout_second;
         this.dataDescriptions = dataDescriptions;
         this.brokerDesc = brokerDesc;
-        this.jobType = org.apache.doris.load.LoadJob.EtlJobType.BROKER;
+        this.jobType = EtlJobType.BROKER;
     }
 
     public static BrokerLoadJob fromLoadStmt(LoadStmt stmt) throws DdlException {
@@ -111,7 +121,7 @@ public class BrokerLoadJob extends LoadJob {
     @Override
     public void executeJob() {
         LoadTask task = new BrokerLoadPendingTask(this, dataSourceInfo.getIdToFileGroups(), brokerDesc);
-        tasks.add(task);
+        idToTasks.put(task.getSignature(), task);
         Catalog.getCurrentCatalog().getLoadTaskScheduler().submit(task);
     }
 
@@ -133,8 +143,36 @@ public class BrokerLoadJob extends LoadJob {
     }
 
     @Override
-    public void onTaskFailed(FailMsg failMsg) {
-        cancelJobWithoutCheck(failMsg);
+    public void onTaskFailed(long taskId, FailMsg failMsg) {
+        writeLock();
+        try {
+            // check if job has been completed
+            if (isCompleted()) {
+                LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
+                                 .add("state", state)
+                                 .add("error_msg", "this task will be ignored when job is completed")
+                                 .build());
+                return;
+            }
+            LoadTask loadTask = idToTasks.get(taskId);
+            if (loadTask == null) {
+                return;
+            }
+            if (loadTask.getRetryTime() <= 0) {
+                executeCancel(failMsg, true);
+            } else {
+                // retry task
+                idToTasks.remove(loadTask.getSignature());
+                loadTask.resetSignature();
+                idToTasks.put(loadTask.getSignature(), loadTask);
+                Catalog.getCurrentCatalog().getLoadTaskScheduler().submit(loadTask);
+                return;
+            }
+        } finally {
+            writeUnlock();
+        }
+
+        logFinalOperation();
     }
 
     /**
@@ -147,9 +185,10 @@ public class BrokerLoadJob extends LoadJob {
         writeLock();
         try {
             // check if job has been cancelled
-            if (isFinished()) {
+            if (isCompleted()) {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
-                                 .add("error_msg", "this task will be ignored when job is finished")
+                                 .add("state", state)
+                                 .add("error_msg", "this task will be ignored when job is completed")
                                  .build());
                 return;
             }
@@ -208,7 +247,7 @@ public class BrokerLoadJob extends LoadJob {
                 task.init(attachment.getFileStatusByTable(tableId),
                           attachment.getFileNumByTable(tableId));
                 // Add tasks into list and pool
-                tasks.add(task);
+                idToTasks.put(task.getSignature(), task);
                 Catalog.getCurrentCatalog().getLoadTaskScheduler().submit(task);
             }
         } finally {
@@ -220,9 +259,10 @@ public class BrokerLoadJob extends LoadJob {
         writeLock();
         try {
             // check if job has been cancelled
-            if (isFinished()) {
+            if (isCompleted()) {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
-                                 .add("error_msg", "this task will be ignored when job is finished")
+                                 .add("state", state)
+                                 .add("error_msg", "this task will be ignored when job is completed")
                                  .build());
                 return;
             }
@@ -240,13 +280,7 @@ public class BrokerLoadJob extends LoadJob {
             updateLoadingStatus(attachment);
 
             // begin commit txn when all of loading tasks have been finished
-            if (finishedTaskIds.size() != tasks.size()) {
-                return;
-            }
-
-            // check data quality
-            if (!checkDataQuality()) {
-                executeCancel(new FailMsg(FailMsg.CancelType.ETL_QUALITY_UNSATISFIED, QUALITY_FAIL_MSG));
+            if (finishedTaskIds.size() != idToTasks.size()) {
                 return;
             }
         } finally {
@@ -259,6 +293,11 @@ public class BrokerLoadJob extends LoadJob {
                               .build());
         }
 
+        // check data quality
+        if (!checkDataQuality()) {
+            cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.ETL_QUALITY_UNSATISFIED, QUALITY_FAIL_MSG));
+            return;
+        }
         Database db = null;
         try {
             db = getDb();
@@ -272,7 +311,9 @@ public class BrokerLoadJob extends LoadJob {
         db.writeLock();
         try {
             Catalog.getCurrentGlobalTransactionMgr().commitTransaction(
-                    dbId, transactionId, commitInfos);
+                    dbId, transactionId, commitInfos,
+                    new LoadJobFinalOperation(id, loadingStatus, progress, loadStartTimestamp,
+                                              finishTimestamp, state, failMsg));
         } catch (UserException e) {
             LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
                              .add("database_id", dbId)
@@ -294,7 +335,7 @@ public class BrokerLoadJob extends LoadJob {
             loadingStatus.setTrackingUrl(attachment.getTrackingUrl());
         }
         commitInfos.addAll(attachment.getCommitInfoList());
-        progress = finishedTaskIds.size() / tasks.size() * 100;
+        progress = finishedTaskIds.size() / idToTasks.size() * 100;
         if (progress == 100) {
             progress = 99;
         }
@@ -310,4 +351,19 @@ public class BrokerLoadJob extends LoadJob {
         }
         return String.valueOf(value);
     }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        super.write(out);
+        brokerDesc.write(out);
+        dataSourceInfo.write(out);
+    }
+
+    @Override
+    public void readFields(DataInput in) throws IOException {
+        super.readFields(in);
+        brokerDesc = BrokerDesc.read(in);
+        dataSourceInfo.readFields(in);
+    }
+
 }

@@ -162,6 +162,10 @@ inline int Field::index_cmp(char* left, char* right) const {
             // l_slice size and r_slice size may be less than compare_size
             // so calculate the min of the three size as new compare_size
             compare_size = std::min(std::min(compare_size, (int)l_slice->size), (int)r_slice->size);
+
+            // This functionn is used to compare prefix index.
+            // Only the fixed length of prefix index should be compared.
+            // If r_slice->size > l_slice->size, igonre the extra parts directly.
             res = strncmp(l_slice->data, r_slice->data, compare_size);
             if (res == 0 && compare_size != (_index_size - OLAP_STRING_MAX_BYTES)) {
                 if (l_slice->size < r_slice->size) {
