@@ -2332,14 +2332,19 @@ void OLAPEngine::revoke_files_from_gc(const std::vector<std::string>& files_to_c
     {
         SCOPED_RAW_TIMER(&duration_ns);
         for (auto& file : files_to_check) {
+            bool found = false;
             for (auto& rowset_gc_files : _gc_files) {
                 auto file_iter =
                         std::find(rowset_gc_files.second.begin(), rowset_gc_files.second.end(), file);
                 if (file_iter != rowset_gc_files.second.end()) {
                     LOG(INFO) << "file:" << file << " exist in unused files to gc. revoke it";
                     rowset_gc_files.second.erase(file_iter);
+                    found = true;
                     break;
                 }
+            }
+            if (!found) {
+                LOG(INFO) << "file:" << file << " does not exist in unused files";
             }
         }
     }
@@ -2831,7 +2836,8 @@ OLAPStatus OLAPEngine::finish_clone(OLAPTablePtr tablet, const string& clone_dir
         std::vector<std::string> files_to_check;
         for (auto& clone_file : clone_files) {
             if (local_files.find(clone_file) != local_files.end()) {
-                files_to_check.push_back(clone_file);
+                string clone_path = tablet_dir + "/" + clone_file;
+                files_to_check.push_back(clone_path);
             }
         }
         revoke_files_from_gc(files_to_check);
@@ -2846,7 +2852,7 @@ OLAPStatus OLAPEngine::finish_clone(OLAPTablePtr tablet, const string& clone_dir
         // link files from clone dir, if file exists, skip it
         for (const string& clone_file : clone_files) {
             if (local_files.find(clone_file) != local_files.end()) {
-                VLOG(3) << "find same file when clone, skip it. "
+                LOG(INFO) << "find same file when clone, skip it. "
                         << "tablet=" << tablet->full_name()
                         << ", clone_file=" << clone_file;
                 continue;
