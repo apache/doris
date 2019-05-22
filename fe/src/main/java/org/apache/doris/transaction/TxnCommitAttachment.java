@@ -72,7 +72,7 @@ public abstract class TxnCommitAttachment implements Writable {
         LoadJobSourceType type = LoadJobSourceType.valueOf(Text.readString(in));
         if (type == LoadJobSourceType.ROUTINE_LOAD_TASK) {
             attachment = new RLTaskTxnCommitAttachment();
-        } else if (type == LoadJobSourceType.LOAD_JOB) {
+        } else if (type == LoadJobSourceType.BATCH_LOAD_JOB) {
             attachment = new LoadJobFinalOperation();
         } else {
             throw new IOException("Unknown load job source type: " + type.name());
