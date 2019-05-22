@@ -244,7 +244,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     public void beginTxn() throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException {
         transactionId = Catalog.getCurrentGlobalTransactionMgr()
                 .beginTransaction(dbId, label, -1, "FE: " + FrontendOptions.getLocalHostAddress(),
-                                  TransactionState.LoadJobSourceType.LOAD_JOB, id,
+                                  TransactionState.LoadJobSourceType.BATCH_LOAD_JOB, id,
                                   timeoutSecond - 1);
     }
 
