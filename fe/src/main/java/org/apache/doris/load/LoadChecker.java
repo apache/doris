@@ -55,6 +55,7 @@ import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -292,6 +293,10 @@ public class LoadChecker extends Daemon {
         
         long stragglerTimeout = job.isSyncDeleteJob() ? job.getDeleteJobTimeout() / 2 
                                                     : Config.load_straggler_wait_second * 1000;
+        Set<Long> unfinisheTablets = Sets.newHashSet();
+        unfinisheTablets.addAll(jobTotalTablets);
+        unfinisheTablets.removeAll(job.getQuorumTablets());
+        job.setUnfinishedTablets(unfinisheTablets);
         if (job.getQuorumTablets().containsAll(jobTotalTablets)) {
             // commit the job to transaction manager and not care about the result
             // if could not commit successfully and commit again until job is timeout
