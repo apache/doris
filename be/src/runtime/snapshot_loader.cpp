@@ -544,9 +544,9 @@ Status SnapshotLoader::move(
         RETURN_IF_ERROR(_get_existing_files_from_local(tablet_path, &tablet_files));
         std::vector<std::string> files_to_check;
         for (auto& snapshot_file : snapshot_files) {
-            if (tablet_files.find(snapshot_file) != snapshot_files.end()) {
-                string file_path = tablet_path + "/" + snapshot_file;
-                files_to_check.push_back(file_path);
+            if (std::find(tablet_files.begin(), tablet_files.end(), snapshot_file) != tablet_files.end()) {
+                std::string file_path = tablet_path + "/" + snapshot_file;
+                files_to_check.emplace_back(std::move(file_path));
             }
         }
         OLAPEngine::get_instance()->revoke_files_from_gc(files_to_check);
@@ -570,13 +570,22 @@ Status SnapshotLoader::move(
 
         // link files one by one
         // files in snapshot dir will be moved in snapshot clean process
+        std::vector<std::string> linked_files;
         for (auto& file : snapshot_files) {
             std::string full_src_path = snapshot_path + "/" + file;
             std::string full_dest_path = tablet_path + "/" + file;
             if (link(full_src_path.c_str(), full_dest_path.c_str()) != 0) {
-                LOG(WARNING) << "failed to link file from " << full_src_path << " to " << full_dest_path;
+                LOG(WARNING) << "failed to link file from " << full_src_path
+                        << " to " << full_dest_path << ", err: " << std::strerror(errno);
+
+                // clean the already linked files
+                for (auto& linked_file : linked_files) {
+                    remove(linked_file.c_str());
+                }
+                
                 return Status("move tablet failed");
             }
+            linked_files.push_back(full_dest_path);
             VLOG(2) << "link file from " << full_src_path << " to " << full_dest_path;
         }
 
@@ -715,24 +724,7 @@ Status SnapshotLoader::move(
         }
     }
 
-    // reload tablet
-    OlapStore* store = OLAPEngine::get_instance()->get_store(store_path);
-    if (store == nullptr) {
-        std::stringstream ss;
-        ss << "failed to get store by path: " << store_path;
-        LOG(WARNING) << ss.str();
-        return Status(ss.str());
-    }
-    OLAPStatus ost = OLAPEngine::get_instance()->load_one_tablet(
-            store, tablet_id, schema_hash, tablet_path, true);
-    if (ost != OLAP_SUCCESS) {
-        std::stringstream ss;
-        ss << "failed to reload header of tablet: " << tablet_id;
-        LOG(WARNING) << ss.str();
-        return Status(ss.str());
-    }
-    LOG(INFO) << "finished to reload header of tablet: " << tablet_id;
-
+    LOG(INFO) << "finished to move tablet: " << tablet_id;
     return status;
 }
 

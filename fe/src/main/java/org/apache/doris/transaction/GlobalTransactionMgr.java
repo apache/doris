@@ -33,6 +33,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.LabelAlreadyUsedException;
+import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
@@ -281,6 +282,11 @@ public class GlobalTransactionMgr {
             OlapTable tbl = (OlapTable) db.getTable(tableId);
             if (tbl == null) {
                 throw new MetaNotFoundException("could not find table for tablet [" + tabletId + "]");
+            }
+
+            if (tbl.getState() == OlapTableState.RESTORE) {
+                throw new LoadException("Table " + tbl.getName() + " is in restore process. "
+                        + "Can not load into it");
             }
 
             long partitionId = tabletInvertedIndex.getPartitionId(tabletId);
