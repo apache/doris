@@ -2054,10 +2054,6 @@ string OLAPTable::construct_file_name(const Version& version,
     return file_name;
 }
 
-string OLAPTable::construct_dir_path() const {
-    return _tablet_path;
-}
-
 int32_t OLAPTable::get_field_index(const string& field_name) const {
     field_index_map_t::const_iterator res_iterator = _field_index_map.find(field_name);
     if (res_iterator == _field_index_map.end()) {

@@ -2263,19 +2263,39 @@ AgentStatus TaskWorkerPool::_move_dir(
         return DORIS_TASK_REQUEST_ERROR;
     }
 
-    std::string dest_tablet_dir = tablet->construct_dir_path();
+    std::string dest_tablet_dir = tablet->tablet_path();
     std::string store_path = tablet->store()->path();
 
+    // same as finish_clone() in OlapEngine, lock them all
+    tablet->obtain_base_compaction_lock();
+    tablet->obtain_cumulative_lock();
+    tablet->obtain_push_lock();
+    tablet->obtain_header_wrlock();
     SnapshotLoader loader(_env, job_id, tablet_id);
     Status status = loader.move(src, dest_tablet_dir, store_path, overwrite);
+    // unlock
+    tablet->release_header_lock();
+    tablet->release_push_lock();
+    tablet->release_cumulative_lock();
+    tablet->release_base_compaction_lock();
 
     if (!status.ok()) {
-        OLAP_LOG_WARNING("move failed. job id: %ld, msg: %s",
-            job_id, status.get_error_msg().c_str());
+        LOG(WARNING) << "move failed. job id: " << job_id << ", msg: " << status.get_error_msg();
         error_msgs->push_back(status.get_error_msg());
         return DORIS_INTERNAL_ERROR;
     }
 
+    // reload tablet
+    OLAPStatus ost = OLAPEngine::get_instance()->load_one_tablet(
+            tablet->store(), tablet_id, schema_hash, dest_tablet_dir, true);
+    if (ost != OLAP_SUCCESS) {
+        std::stringstream ss;
+        ss << "failed to reload tablet: " << tablet_id;
+        LOG(WARNING) << ss.str();
+        error_msgs->push_back(ss.str());
+        return DORIS_INTERNAL_ERROR;
+    }
+    LOG(INFO) << "finished to reload tablet: " << tablet_id << " after move dir";
     return DORIS_SUCCESS;
 }
 
