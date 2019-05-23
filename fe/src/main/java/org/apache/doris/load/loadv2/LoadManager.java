@@ -27,11 +27,14 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LabelAlreadyUsedException;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
+import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -43,6 +46,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.EnumSet;
 import java.util.Iterator;
 import java.util.LinkedList;
@@ -87,7 +91,7 @@ public class LoadManager implements Writable{
                 throw new DdlException("LoadManager only support the broker load.");
             }
             loadJob = BrokerLoadJob.fromLoadStmt(stmt);
-            addLoadJob(loadJob);
+            createLoadJob(loadJob);
             // submit it
             loadJobScheduler.submitJob(loadJob);
         } finally {
@@ -98,10 +102,17 @@ public class LoadManager implements Writable{
     }
 
     public void replayCreateLoadJob(LoadJob loadJob) {
-        addLoadJob(loadJob);
+        createLoadJob(loadJob);
         LOG.info(new LogBuilder(LogKey.LOAD_JOB, loadJob.getId())
                          .add("msg", "replay create load job")
                          .build());
+    }
+
+    private void createLoadJob(LoadJob loadJob) {
+        addLoadJob(loadJob);
+        // add callback before txn created, because callback will be performed on replay without txn begin
+        // register txn state listener
+        Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback(loadJob);
     }
 
     private void addLoadJob(LoadJob loadJob) {
@@ -115,12 +126,31 @@ public class LoadManager implements Writable{
             labelToLoadJobs.put(loadJob.getLabel(), new ArrayList<>());
         }
         labelToLoadJobs.get(loadJob.getLabel()).add(loadJob);
-        // add callback before txn created, because callback will be performed on replay without txn begin
-        // register txn state listener
-        Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback(loadJob);
     }
 
-    public void cancelLoadJob(CancelLoadStmt stmt) throws DdlException {
+    public void recordFinishedLoadJob(String label, String dbName, long tableId, EtlJobType jobType,
+                                      long createTimestamp) throws MetaNotFoundException {
+
+        // get db id
+        Database db = Catalog.getCurrentCatalog().getDb(dbName);
+        if (db == null) {
+            throw new MetaNotFoundException("Database[" + dbName + "] does not exist");
+        }
+
+        LoadJob loadJob;
+        switch (jobType) {
+            case INSERT:
+                loadJob = new InsertLoadJob(label, db.getId(), tableId, createTimestamp);
+                break;
+            default:
+                return;
+        }
+        addLoadJob(loadJob);
+        // persistent
+        Catalog.getCurrentCatalog().getEditLog().logCreateLoadJob(loadJob);
+    }
+
+    public void cancelLoadJob(CancelLoadStmt stmt) throws DdlException, MetaNotFoundException {
         Database db = Catalog.getInstance().getDb(stmt.getDbName());
         if (db == null) {
             throw new DdlException("Db does not exist. name: " + stmt.getDbName());
@@ -221,17 +251,23 @@ public class LoadManager implements Writable{
         try {
             Map<String, List<LoadJob>> labelToLoadJobs = dbIdToLabelToLoadJobs.get(dbId);
             List<LoadJob> loadJobList = Lists.newArrayList();
-            // check label value
-            if (accurateMatch) {
-                if (!labelToLoadJobs.containsKey(labelValue)) {
-                    return loadJobInfos;
-                }
-                loadJobList.addAll(labelToLoadJobs.get(labelValue));
-            }
-            // non-accurate match
-            for (Map.Entry<String, List<LoadJob>> entry : labelToLoadJobs.entrySet()) {
-                if (entry.getKey().contains(labelValue)) {
-                    loadJobList.addAll(entry.getValue());
+            if (Strings.isNullOrEmpty(labelValue)) {
+                loadJobList.addAll(labelToLoadJobs.values()
+                                           .stream().flatMap(Collection::stream).collect(Collectors.toList()));
+            } else {
+                // check label value
+                if (accurateMatch) {
+                    if (!labelToLoadJobs.containsKey(labelValue)) {
+                        return loadJobInfos;
+                    }
+                    loadJobList.addAll(labelToLoadJobs.get(labelValue));
+                } else {
+                    // non-accurate match
+                    for (Map.Entry<String, List<LoadJob>> entry : labelToLoadJobs.entrySet()) {
+                        if (entry.getKey().contains(labelValue)) {
+                            loadJobList.addAll(entry.getValue());
+                        }
+                    }
                 }
             }
 
@@ -243,7 +279,7 @@ public class LoadManager implements Writable{
                     }
                     // add load job info
                     loadJobInfos.add(loadJob.getShowInfo());
-                } catch (DdlException e) {
+                } catch (DdlException | MetaNotFoundException e) {
                     continue;
                 }
             }
