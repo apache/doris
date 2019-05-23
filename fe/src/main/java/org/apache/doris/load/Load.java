@@ -1191,6 +1191,7 @@ public class Load {
 
     public boolean cancelLoadJob(LoadJob job, CancelType cancelType, String msg) {
         // update job to cancelled
+        LOG.info("try to cancel load job: {}", job);
         JobState srcState = job.getState();
         if (!updateLoadJobState(job, JobState.CANCELLED, cancelType, msg)) {
             LOG.warn("cancel load job failed. job: {}", job, new Exception());
