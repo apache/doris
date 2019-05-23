@@ -69,7 +69,7 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.load.EtlJobType;
-import org.apache.doris.load.loadv2.LoadManager;
+import org.apache.doris.load.Load;
 
 /**
  * Created by zhaochun on 14/11/10.
@@ -116,10 +116,10 @@ public class DdlExecutor {
                 jobType = EtlJobType.HADOOP;
             }
             // TODO(ml): WIP
-            if (loadStmt.getVersion().equals(LoadManager.VERSION)) {
-                catalog.getLoadManager().createLoadJobFromStmt(loadStmt);
-            } else {
+            if (loadStmt.getVersion().equals(Load.VERSION) || loadStmt.getBrokerDesc() == null) {
                 catalog.getLoadManager().createLoadJobV1FromStmt(loadStmt, jobType, System.currentTimeMillis());
+            } else {
+                catalog.getLoadManager().createLoadJobFromStmt(loadStmt);
             }
         } else if (ddlStmt instanceof CancelLoadStmt) {
             if (catalog.getLoadInstance().isLabelExist(
