@@ -23,6 +23,7 @@ package org.apache.doris.load.loadv2;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
@@ -50,8 +51,7 @@ public class InsertLoadJob extends LoadJob {
     }
 
     public InsertLoadJob(String label, long dbId, long tableId, long createTimestamp) {
-        this.label = label;
-        this.dbId = dbId;
+        super(dbId, label);
         this.tableId = tableId;
         this.createTimestamp = createTimestamp;
         this.loadStartTimestamp = createTimestamp;
@@ -59,6 +59,7 @@ public class InsertLoadJob extends LoadJob {
         this.state = JobState.FINISHED;
         this.progress = 100;
         this.jobType = EtlJobType.INSERT;
+        this.timeoutSecond = Config.insert_load_default_timeout_second;
     }
 
     @Override

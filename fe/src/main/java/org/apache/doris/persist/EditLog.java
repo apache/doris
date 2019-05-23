@@ -1195,10 +1195,10 @@ public class EditLog {
     }
 
     public void logCreateLoadJob(org.apache.doris.load.loadv2.LoadJob loadJob) {
-//        logEdit(OperationType.OP_CREATE_LOAD_JOB, loadJob);
+        logEdit(OperationType.OP_CREATE_LOAD_JOB, loadJob);
     }
 
     public void logEndLoadJob(LoadJobFinalOperation loadJobFinalOperation) {
-//        logEdit(OperationType.OP_END_LOAD_JOB, loadJobEndOperation);
+        logEdit(OperationType.OP_END_LOAD_JOB, loadJobFinalOperation);
     }
 }
