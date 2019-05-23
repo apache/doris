@@ -132,6 +132,8 @@ import org.apache.doris.load.LoadChecker;
 import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.LoadJob.JobState;
+import org.apache.doris.load.loadv2.LoadJobScheduler;
+import org.apache.doris.load.loadv2.LoadManager;
 import org.apache.doris.load.routineload.RoutineLoadManager;
 import org.apache.doris.load.routineload.RoutineLoadScheduler;
 import org.apache.doris.load.routineload.RoutineLoadTaskScheduler;
@@ -175,6 +177,7 @@ import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.CreateReplicaTask;
+import org.apache.doris.task.MasterTaskExecutor;
 import org.apache.doris.task.PullLoadJobMgr;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
@@ -260,6 +263,7 @@ public class Catalog {
     private ConcurrentHashMap<String, Cluster> nameToCluster;
 
     private Load load;
+    private LoadManager loadManager;
     private RoutineLoadManager routineLoadManager;
     private ExportMgr exportMgr;
     private Clone clone;
@@ -350,6 +354,10 @@ public class Catalog {
     private TabletScheduler tabletScheduler;
 
     private TabletChecker tabletChecker;
+
+    private MasterTaskExecutor loadTaskScheduler;
+
+    private LoadJobScheduler loadJobScheduler;
 
     private RoutineLoadScheduler routineLoadScheduler;
 
@@ -473,6 +481,9 @@ public class Catalog {
         this.tabletScheduler = new TabletScheduler(this, systemInfo, tabletInvertedIndex, stat);
         this.tabletChecker = new TabletChecker(this, systemInfo, tabletScheduler, stat);
 
+        this.loadTaskScheduler = new MasterTaskExecutor(10);
+        this.loadJobScheduler = new LoadJobScheduler();
+        this.loadManager = new LoadManager(loadJobScheduler);
         this.routineLoadScheduler = new RoutineLoadScheduler(routineLoadManager);
         this.routineLoadTaskScheduler = new RoutineLoadTaskScheduler(routineLoadManager);
     }
@@ -1069,6 +1080,10 @@ public class Catalog {
         LoadChecker.init(Config.load_checker_interval_second * 1000L);
         LoadChecker.startAll();
 
+        // New load scheduler
+        loadManager.submitJobs();
+        loadJobScheduler.start();
+
         // Export checker
         ExportChecker.init(Config.export_checker_interval_second * 1000L);
         ExportChecker.startAll();
@@ -1312,6 +1327,7 @@ public class Catalog {
             checksum = loadTransactionState(dis, checksum);
             checksum = loadColocateTableIndex(dis, checksum);
             checksum = loadRoutineLoadJobs(dis, checksum);
+            checksum = loadLoadJobsV2(dis, checksum);
 
             long remoteChecksum = dis.readLong();
             Preconditions.checkState(remoteChecksum == checksum, remoteChecksum + " vs. " + checksum);
@@ -1734,6 +1750,13 @@ public class Catalog {
         return checksum;
     }
 
+    public long loadLoadJobsV2(DataInputStream in, long checksum) throws IOException {
+//        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_50) {
+//            Catalog.getCurrentCatalog().getLoadManager().readFields(in);
+//        }
+        return checksum;
+    }
+
     // Only called by checkpoint thread
     public void saveImage() throws IOException {
         // Write image.ckpt
@@ -1779,6 +1802,7 @@ public class Catalog {
             checksum = saveTransactionState(dos, checksum);
             checksum = saveColocateTableIndex(dos, checksum);
             checksum = saveRoutineLoadJobs(dos, checksum);
+            checksum = saveLoadJobsV2(dos, checksum);
             dos.writeLong(checksum);
         } finally {
             dos.close();
@@ -2032,11 +2056,17 @@ public class Catalog {
         VariableMgr.replayGlobalVariable(variable);
     }
 
+    public long saveLoadJobsV2(DataOutputStream out, long checksum) throws IOException {
+//        Catalog.getCurrentCatalog().getLoadManager().write(out);
+        return checksum;
+    }
+
     public void createCleaner() {
         cleaner = new Daemon() {
             protected void runOneCycle() {
                 load.removeOldLoadJobs();
                 load.removeOldDeleteJobs();
+                loadManager.removeOldLoadJob();
                 exportMgr.removeOldExportJobs();
             }
         };
@@ -3263,7 +3293,7 @@ public class Catalog {
                 TStorageType storageType = indexIdToStorageType.get(indexId);
                 List<Column> schema = indexIdToSchema.get(indexId);
                 int totalTaskNum = index.getTablets().size() * replicationNum;
-                MarkedCountDownLatch countDownLatch = new MarkedCountDownLatch(totalTaskNum);
+                MarkedCountDownLatch<Long, Long> countDownLatch = new MarkedCountDownLatch<Long, Long>(totalTaskNum);
                 AgentBatchTask batchTask = new AgentBatchTask();
                 for (Tablet tablet : index.getTablets()) {
                     long tabletId = tablet.getId();
@@ -4555,6 +4585,14 @@ public class Catalog {
         return this.load;
     }
 
+    public LoadManager getLoadManager() {
+        return loadManager;
+    }
+
+    public MasterTaskExecutor getLoadTaskScheduler() {
+        return loadTaskScheduler;
+    }
+
     public RoutineLoadManager getRoutineLoadManager() {
         return routineLoadManager;
     }
@@ -4814,6 +4852,16 @@ public class Catalog {
         // check if name is already used
         if (db.getTable(newTableName) != null) {
             throw new DdlException("Table name[" + newTableName + "] is already used");
+        }
+
+        // check if rollup has same name
+        if (table.getType() == TableType.OLAP) {
+            OlapTable olapTable = (OlapTable) table;
+            for (String idxName: olapTable.getIndexNameToId().keySet()) {
+                if (idxName.equals(newTableName)) {
+                    throw new DdlException("New name conflicts with rollup index name: " + idxName);
+                }
+            }
         }
 
         table.setName(newTableName);

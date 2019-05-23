@@ -21,6 +21,7 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.Status;
@@ -63,7 +64,6 @@ import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TReportExecStatusParams;
 import org.apache.doris.thrift.TResourceInfo;
-import org.apache.doris.thrift.TResultBatch;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
@@ -77,6 +77,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -94,7 +95,6 @@ import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -151,12 +151,13 @@ public class Coordinator {
     private ConcurrentMap<TUniqueId, BackendExecState> backendExecStateMap =
             Maps.newConcurrentMap();
     private List<ScanNode> scanNodes;
+    // number of instances of this query, equals to
     // number of backends executing plan fragments on behalf of this query;
     // set in computeFragmentExecParams();
     // same as backend_exec_states_.size() after Exec()
-    private int numBackends;
-
-    private CountDownLatch profileDoneSignal;
+    private Set<TUniqueId> instanceIds = Sets.newHashSet();
+    // instance id -> dummy value
+    private MarkedCountDownLatch<TUniqueId, Long> profileDoneSignal;
 
     private boolean isBlockQuery;
 
@@ -172,12 +173,13 @@ public class Coordinator {
     private List<TTabletCommitInfo> commitInfos = Lists.newArrayList();
 
     // Input parameter
+    private long jobId = -1; // job which this task belongs to
     private TUniqueId queryId;
     private TResourceInfo tResourceInfo;
     private boolean needReport;
 
     private String clusterName;
-    // paralle execute
+    // parallel execute
     private final TUniqueId nextInstanceId;
 
     // Used for query
@@ -200,9 +202,10 @@ public class Coordinator {
     }
 
     // Used for pull load task coordinator
-    public Coordinator(TUniqueId queryId, DescriptorTable descTable,
+    public Coordinator(Long jobId, TUniqueId queryId, DescriptorTable descTable,
             List<PlanFragment> fragments, List<ScanNode> scanNodes, String cluster) {
         this.isBlockQuery = true;
+        this.jobId = jobId;
         this.queryId = queryId;
         this.descTable = descTable.toThrift();
         this.fragments = fragments;
@@ -215,6 +218,10 @@ public class Coordinator {
         this.nextInstanceId = new TUniqueId();
         nextInstanceId.setHi(queryId.hi);
         nextInstanceId.setLo(queryId.lo + 1);
+    }
+
+    public long getJobId() {
+        return jobId;
     }
 
     public TUniqueId getQueryId() {
@@ -385,7 +392,10 @@ public class Coordinator {
         // to keep things simple, make async Cancel() calls wait until plan fragment
         // execution has been initiated, otherwise we might try to cancel fragment
         // execution at backends where it hasn't even started
-        profileDoneSignal = new CountDownLatch(numBackends);
+        profileDoneSignal = new MarkedCountDownLatch<TUniqueId, Long>(instanceIds.size());
+        for (TUniqueId instanceId : instanceIds) {
+            profileDoneSignal.addMark(instanceId, -1L /* value is meaningless */);
+        }
         lock();
         try {
             // execute all instances from up to bottom
@@ -539,7 +549,7 @@ public class Coordinator {
         }
     }
 
-    void updateStatus(Status status) {
+    private void updateStatus(Status status, TUniqueId instanceId) {
         lock.lock();
         try {
             // The query is done and we are just waiting for remote fragments to clean up.
@@ -558,7 +568,8 @@ public class Coordinator {
             }
 
             queryStatus.setStatus(status);
-            LOG.warn("One instance report fail throw updateStatus(), need cancel");
+            LOG.warn("one instance report fail throw updateStatus(), need cancel. job id: {}, query id: {}, instance id: {}",
+                    jobId, DebugUtil.printId(queryId), instanceId != null ? DebugUtil.printId(instanceId) : "NaN");
             cancelInternal();
         } finally {
             lock.unlock();
@@ -575,13 +586,17 @@ public class Coordinator {
 
         resultBatch = receiver.getNext(status);
         if (!status.ok()) {
-            LOG.warn("get next fail, need cancel");
+            LOG.warn("get next fail, need cancel. query id: {}", DebugUtil.printId(queryId));
         }
-        updateStatus(status);
+        updateStatus(status, null /* no instance id */);
 
+        Status copyStatus = null;
         lock();
-        Status copyStatus = new Status(queryStatus);
-        unlock();
+        try {
+            copyStatus = new Status(queryStatus);
+        } finally {
+            unlock();
+        }
 
         if (!copyStatus.ok()) {
             if (Strings.isNullOrEmpty(copyStatus.getErrorMsg())) {
@@ -608,7 +623,7 @@ public class Coordinator {
             // if this query is a block query do not cancel.
             Long numLimitRows  = fragments.get(0).getPlanRoot().getLimit();
             boolean hasLimit = numLimitRows > 0;
-            if (!isBlockQuery && numBackends > 1 && hasLimit && numReceivedRows >= numLimitRows) {
+            if (!isBlockQuery && instanceIds.size() > 1 && hasLimit && numReceivedRows >= numLimitRows) {
                 LOG.debug("no block query, return num >= limit rows, need cancel");
                 cancelInternal();
             }
@@ -643,6 +658,11 @@ public class Coordinator {
             receiver.cancel();
         }
         cancelRemoteFragmentsAsync();
+        if (profileDoneSignal != null) {
+            // count down to zero to notify all objects waiting for this
+            profileDoneSignal.countDownToZero();
+            LOG.info("unfinished instance: {}", profileDoneSignal.getLeftMarks());
+        }
     }
 
     private void cancelRemoteFragmentsAsync() {
@@ -690,7 +710,7 @@ public class Coordinator {
         computeFragmentHosts();
 
         // assign instance ids
-        numBackends = 0;
+        instanceIds.clear();
         for (FragmentExecParams params : fragmentExecParamsMap.values()) {
             LOG.debug("fragment {} has instances {}", params.fragment.getFragmentId(), params.instanceExecParams.size());
             for (int j = 0; j < params.instanceExecParams.size(); ++j) {
@@ -698,10 +718,9 @@ public class Coordinator {
                 // globally-unique instance id
                 TUniqueId instanceId = new TUniqueId();
                 instanceId.setHi(queryId.hi);
-                instanceId.setLo(queryId.lo + numBackends + 1);
+                instanceId.setLo(queryId.lo + instanceIds.size() + 1);
                 params.instanceExecParams.get(j).instanceId = instanceId;
-
-                numBackends++;
+                instanceIds.add(instanceId);
             }
         }
 
@@ -845,7 +864,7 @@ public class Coordinator {
                     params.instanceExecParams.add(instanceParam);
                 }
             } else {
-                //normat fragment
+                // normal fragment
                 Iterator iter = fragmentExecParamsMap.get(fragment.getFragmentId()).scanRangeAssignment.entrySet().iterator();
                 int parallelExecInstanceNum = fragment.getParallel_exec_num();
                 while (iter.hasNext()) {
@@ -892,8 +911,14 @@ public class Coordinator {
             return false;
         }
 
-        if (ConnectContext.get().getSessionVariable().isDisableColocateJoin()) {
-            return false;
+        // TODO(cmy): some internal process, such as broker load task, do not have ConnectContext.
+        // Any configurations needed by the Coordinator should be passed in Coordinator initialization.
+        // Refine this later.
+        // Currently, just ignore the session variables if ConnectContext does not exist
+        if (ConnectContext.get() != null) {
+            if (ConnectContext.get().getSessionVariable().isDisableColocateJoin()) {
+                return false;
+            }
         }
 
         //cache the colocateFragmentIds
@@ -1055,7 +1080,8 @@ public class Coordinator {
 
     public void updateFragmentExecStatus(TReportExecStatusParams params) {
         if (params.backend_num >= backendExecStates.size()) {
-            LOG.error("unknown backend number");
+            LOG.error("unknown backend number: {}, expected less than: {}",
+                    params.backend_num, backendExecStates.size());
             return;
         }
 
@@ -1090,9 +1116,8 @@ public class Coordinator {
         // (UpdateStatus() initiates cancellation, if it hasn't already been initiated)
         if (!(returnedAllResults && status.isCancelled()) && !status.ok()) {
             LOG.warn("One instance report fail, query_id={} instance_id={}",
-                    DebugUtil.printId(queryId),
-                    DebugUtil.printId(params.getFragment_instance_id()));
-            updateStatus(status);
+                    DebugUtil.printId(queryId), DebugUtil.printId(params.getFragment_instance_id()));
+            updateStatus(status, params.getFragment_instance_id());
         }
         if (done) {
             if (params.isSetDelta_urls()) {
@@ -1110,7 +1135,7 @@ public class Coordinator {
             if (params.isSetCommitInfos()) {
                 updateCommitInfos(params.getCommitInfos());
             }
-            profileDoneSignal.countDown();
+            profileDoneSignal.markedCountDown(params.getFragment_instance_id(), -1L);
         }
 
         return;
@@ -1161,7 +1186,6 @@ public class Coordinator {
     private BucketSeqToScanRange bucketSeqToScanRange = new BucketSeqToScanRange();
     private Map<Integer, TNetworkAddress> bucketSeqToAddress = Maps.newHashMap();
     private Set<Integer> colocateFragmentIds = new HashSet<>();
-
 
     // record backend execute state
     // TODO(zhaochun): add profile information and others

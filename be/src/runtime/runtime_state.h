@@ -415,10 +415,6 @@ public:
         return _num_rows_load_total.load();
     }
 
-    int64_t num_rows_load_success() {
-        return _num_rows_load_success.load();
-    }
-
     int64_t num_rows_load_filtered() {
         return _num_rows_load_filtered.load();
     }
@@ -427,12 +423,12 @@ public:
         return _num_rows_load_unselected.load();
     }
 
-    void update_num_rows_load_total(int64_t num_rows) {
-        _num_rows_load_total.fetch_add(num_rows);
+    int64_t num_rows_load_success() {
+        return num_rows_load_total() - num_rows_load_filtered() - num_rows_load_unselected();
     }
 
-    void update_num_rows_load_success(int64_t num_rows) {
-        _num_rows_load_success.fetch_add(num_rows);
+    void update_num_rows_load_total(int64_t num_rows) {
+        _num_rows_load_total.fetch_add(num_rows);
     }
 
     void update_num_rows_load_filtered(int64_t num_rows) {
@@ -601,7 +597,6 @@ private:
     // put here to collect files??
     std::vector<std::string> _output_files;
     std::atomic<int64_t> _num_rows_load_total;  // total rows read from source
-    std::atomic<int64_t> _num_rows_load_success;    // rows loaded success
     std::atomic<int64_t> _num_rows_load_filtered;   // unqualified rows
     std::atomic<int64_t> _num_rows_load_unselected; // rows filtered by predicates
     std::atomic<int64_t> _num_print_error_rows;

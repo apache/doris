@@ -21,7 +21,7 @@ import org.apache.doris.common.UserException;
 
 public interface TxnStateChangeCallback {
 
-    public long getId();
+    long getId();
 
     /**
      * this interface is executed before txn committed, it will check if txn could be commit
@@ -29,7 +29,7 @@ public interface TxnStateChangeCallback {
      * @throws TransactionException if transaction could not be commit or there are some exception before committed,
      *                                  it will throw this exception. The txn will be committed failed.
      */
-    public void beforeCommitted(TransactionState txnState) throws TransactionException;
+    void beforeCommitted(TransactionState txnState) throws TransactionException;
 
     /**
      * this interface is executed before txn aborted, it will check if txn could be abort
@@ -38,16 +38,16 @@ public interface TxnStateChangeCallback {
      * @throws TransactionException if transaction could not be abort or there are some exception before aborted,
      *                                  it will throw this exception. The txn will be aborted failed.
      */
-    public void beforeAborted(TransactionState txnState) throws TransactionException;
+    void beforeAborted(TransactionState txnState) throws TransactionException;
 
     /**
      * update catalog of job which has related txn after transaction has been committed
      *
      * @param txnState
      */
-    public void afterCommitted(TransactionState txnState, boolean txnOperated) throws UserException;
+    void afterCommitted(TransactionState txnState, boolean txnOperated) throws UserException;
 
-    public void replayOnCommitted(TransactionState txnState);
+    void replayOnCommitted(TransactionState txnState);
 
     /**
      * this interface is executed when transaction has been aborted
@@ -57,7 +57,11 @@ public interface TxnStateChangeCallback {
      *            maybe null
      * @return
      */
-    public void afterAborted(TransactionState txnState, boolean txnOperated, String txnStatusChangeReason) throws UserException;
+    void afterAborted(TransactionState txnState, boolean txnOperated, String txnStatusChangeReason) throws UserException;
 
-    public void replayOnAborted(TransactionState txnState);
+    void replayOnAborted(TransactionState txnState);
+
+    void afterVisible(TransactionState txnState, boolean txnOperated);
+
+    void replayOnVisible(TransactionState txnState);
 }

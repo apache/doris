@@ -45,7 +45,8 @@ public class TransactionState implements Writable {
         FRONTEND(1),        // old dpp load, mini load, insert stmt(not streaming type) use this type
         BACKEND_STREAMING(2),         // streaming load use this type
         INSERT_STREAMING(3), // insert stmt (streaming type) use this type
-        ROUTINE_LOAD_TASK(4); // routine load task use this type
+        ROUTINE_LOAD_TASK(4), // routine load task use this type
+        BATCH_LOAD_JOB(5); // load job v2 for broker load
         
         private final int flag;
         
@@ -67,6 +68,8 @@ public class TransactionState implements Writable {
                     return INSERT_STREAMING;
                 case 4:
                     return ROUTINE_LOAD_TASK;
+                case 5:
+                    return BATCH_LOAD_JOB;
                 default:
                     return null;
             }
@@ -326,6 +329,9 @@ public class TransactionState implements Writable {
                 case COMMITTED:
                     callback.afterCommitted(this, txnOperated);
                     break;
+                case VISIBLE:
+                    callback.afterVisible(this, txnOperated);
+                    break;
                 default:
                     break;
             }
@@ -340,6 +346,8 @@ public class TransactionState implements Writable {
                 callback.replayOnAborted(this);
             } else if (transactionStatus == TransactionStatus.COMMITTED) {
                 callback.replayOnCommitted(this);
+            } else if (transactionStatus == TransactionStatus.VISIBLE) {
+                callback.replayOnVisible(this);
             }
         }
     }

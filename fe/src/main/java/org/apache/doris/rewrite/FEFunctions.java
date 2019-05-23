@@ -35,8 +35,12 @@ import org.apache.logging.log4j.Logger;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.text.ParseException;
+import org.joda.time.format.DateTimeFormatter;
+import org.joda.time.format.DateTimeFormatterBuilder;
+
 import java.util.Calendar;
 import java.util.Date;
+import java.util.Locale;
 
 /**
  * compute functions in FE.
@@ -63,10 +67,149 @@ public class FEFunctions {
         return new DateLiteral(DateFormatUtils.format(d, "yyyy-MM-dd HH:mm:ss"), Type.DATETIME);
     }
 
+    @FEFunction(name = "adddate", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME")
+    public static DateLiteral addDate(LiteralExpr date, LiteralExpr day) throws AnalysisException {
+        return dateAdd(date, day);
+    }
+
+    @FEFunction(name = "days_add", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME")
+    public static DateLiteral daysAdd(LiteralExpr date, LiteralExpr day) throws AnalysisException {
+        return dateAdd(date, day);
+    }
+
     @FEFunction(name = "date_format", argTypes = { "DATETIME", "VARCHAR" }, returnType = "VARCHAR")
     public static StringLiteral dateFormat(LiteralExpr date, StringLiteral fmtLiteral) throws AnalysisException {
-        String result = DateFormatUtils.format(new Date(getTime(date)), fmtLiteral.getStringValue());
+        String result = dateFormat(new Date(getTime(date)), fmtLiteral.getStringValue());
         return new StringLiteral(result);
+    }
+
+    @FEFunction(name = "str_to_date", argTypes = { "VARCHAR", "VARCHAR" }, returnType = "DATETIME")
+    public static DateLiteral dateParse(StringLiteral date, StringLiteral fmtLiteral) throws AnalysisException {
+        boolean hasTimePart = false;
+        DateTimeFormatterBuilder builder = new DateTimeFormatterBuilder();
+
+        String formatString = fmtLiteral.getStringValue();
+        boolean escaped = false;
+        for (int i = 0; i < formatString.length(); i++) {
+            char character = formatString.charAt(i);
+
+            if (escaped) {
+                switch (character) {
+                    case 'a': // %a Abbreviated weekday name (Sun..Sat)
+                        builder.appendDayOfWeekShortText();
+                        break;
+                    case 'b': // %b Abbreviated month name (Jan..Dec)
+                        builder.appendMonthOfYearShortText();
+                        break;
+                    case 'c': // %c Month, numeric (0..12)
+                        builder.appendMonthOfYear(1);
+                        break;
+                    case 'd': // %d Day of the month, numeric (00..31)
+                        builder.appendDayOfMonth(2);
+                        break;
+                    case 'e': // %e Day of the month, numeric (0..31)
+                        builder.appendDayOfMonth(1);
+                        break;
+                    case 'H': // %H Hour (00..23)
+                        builder.appendHourOfDay(2);
+                        hasTimePart = true;
+                        break;
+                    case 'h': // %h Hour (01..12)
+                    case 'I': // %I Hour (01..12)
+                        builder.appendClockhourOfHalfday(2);
+                        hasTimePart = true;
+                        break;
+                    case 'i': // %i Minutes, numeric (00..59)
+                        builder.appendMinuteOfHour(2);
+                        hasTimePart = true;
+                        break;
+                    case 'j': // %j Day of year (001..366)
+                        builder.appendDayOfYear(3);
+                        break;
+                    case 'k': // %k Hour (0..23)
+                        builder.appendHourOfDay(1);
+                        hasTimePart = true;
+                        break;
+                    case 'l': // %l Hour (1..12)
+                        builder.appendClockhourOfHalfday(1);
+                        hasTimePart = true;
+                        break;
+                    case 'M': // %M Month name (January..December)
+                        builder.appendMonthOfYearText();
+                        break;
+                    case 'm': // %m Month, numeric (00..12)
+                        builder.appendMonthOfYear(2);
+                        break;
+                    case 'p': // %p AM or PM
+                        builder.appendHalfdayOfDayText();
+                        break;
+                    case 'r': // %r Time, 12-hour (hh:mm:ss followed by AM or PM)
+                        builder.appendClockhourOfHalfday(2)
+                                .appendLiteral(':')
+                                .appendMinuteOfHour(2)
+                                .appendLiteral(':')
+                                .appendSecondOfMinute(2)
+                                .appendLiteral(' ')
+                                .appendHalfdayOfDayText();
+                        hasTimePart = true;
+                        break;
+                    case 'S': // %S Seconds (00..59)
+                    case 's': // %s Seconds (00..59)
+                        builder.appendSecondOfMinute(2);
+                        hasTimePart = true;
+                        break;
+                    case 'T': // %T Time, 24-hour (hh:mm:ss)
+                        builder.appendHourOfDay(2)
+                                .appendLiteral(':')
+                                .appendMinuteOfHour(2)
+                                .appendLiteral(':')
+                                .appendSecondOfMinute(2);
+                        hasTimePart = true;
+                        break;
+                    case 'v': // %v Week (01..53), where Monday is the first day of the week; used with %x
+                        builder.appendWeekOfWeekyear(2);
+                        break;
+                    case 'x': // %x Year for the week, where Monday is the first day of the week, numeric, four digits; used with %v
+                        builder.appendWeekyear(4, 4);
+                        break;
+                    case 'W': // %W Weekday name (Sunday..Saturday)
+                        builder.appendDayOfWeekText();
+                        break;
+                    case 'Y': // %Y Year, numeric, four digits
+                        builder.appendYear(4, 4);
+                        break;
+                    case 'y': // %y Year, numeric (two digits)
+                        builder.appendTwoDigitYear(2020);
+                        break;
+                    case 'f': // %f Microseconds (000000..999999)
+                    case 'w': // %w Day of the week (0=Sunday..6=Saturday)
+                    case 'U': // %U Week (00..53), where Sunday is the first day of the week
+                    case 'u': // %u Week (00..53), where Monday is the first day of the week
+                    case 'V': // %V Week (01..53), where Sunday is the first day of the week; used with %X
+                    case 'X': // %X Year for the week where Sunday is the first day of the week, numeric, four digits; used with %V
+                    case 'D': // %D Day of the month with English suffix (0th, 1st, 2nd, 3rd, …)
+                        throw new AnalysisException(String.format("%%%s not supported in date format string", character));
+                    case '%': // %% A literal "%" character
+                        builder.appendLiteral('%');
+                        break;
+                    default: // %<x> The literal character represented by <x>
+                        builder.appendLiteral(character);
+                        break;
+                }
+                escaped = false;
+            } else if (character == '%') {
+                escaped = true;
+            } else {
+                builder.appendLiteral(character);
+            }
+        }
+
+        Date retDate = new Date(builder.toFormatter().withLocale(Locale.ENGLISH).parseMillis(date.getStringValue()));
+        if (hasTimePart) {
+            return new DateLiteral(DateFormatUtils.format(retDate, "yyyy-MM-dd HH:mm:ss"), Type.DATETIME);
+        } else {
+            return new DateLiteral(DateFormatUtils.format(retDate, "yyyy-MM-dd"), Type.DATE);
+        }
     }
 
     @FEFunction(name = "date_sub", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME")
@@ -106,6 +249,27 @@ public class FEFunctions {
         return new IntLiteral(timestamp / 1000, Type.INT);
     }
 
+    @FEFunction(name = "from_unixtime", argTypes = { "INT" }, returnType = "VARCHAR")
+    public static StringLiteral fromUnixTime(LiteralExpr unixTime) throws AnalysisException {
+        //if unixTime < 0, we should return null, throw a exception and let BE process
+        if (unixTime.getLongValue() < 0) {
+            throw new AnalysisException("unixtime should larger than zero");
+        }
+        Date date = new Date(unixTime.getLongValue() * 1000);
+        return new StringLiteral(dateFormat(date, "%Y-%m-%d %H:%i:%S"));
+    }
+
+    @FEFunction(name = "from_unixtime", argTypes = { "INT", "VARCHAR" }, returnType = "VARCHAR")
+    public static StringLiteral fromUnixTime(LiteralExpr unixTime, StringLiteral fmtLiteral) throws AnalysisException {
+        //if unixTime < 0, we should return null, throw a exception and let BE process
+        if (unixTime.getLongValue() < 0) {
+            throw new AnalysisException("unixtime should larger than zero");
+        }
+        Date date = new Date(unixTime.getLongValue() * 1000);
+        //currently, doris BE only support "yyyy-MM-dd HH:mm:ss" and "yyyy-MM-dd" format
+        return new StringLiteral(DateFormatUtils.format(date, fmtLiteral.getStringValue()));
+    }
+
     private static long getTime(LiteralExpr expr) throws AnalysisException {
         try {
             String[] parsePatterns = { "yyyyMMdd", "yyyy-MM-dd", "yyyy-MM-dd HH:mm:ss" };
@@ -119,6 +283,210 @@ public class FEFunctions {
         } catch (ParseException e) {
             throw new AnalysisException(e.getLocalizedMessage());
         }
+    }
+
+
+    private static int calFirstWeekDay(int year, int firstWeekDay) {
+        Calendar calendar = Calendar.getInstance();
+        calendar.set(year, Calendar.JANUARY,1);
+        int firstDay = 1;
+        calendar.set(Calendar.DAY_OF_MONTH, firstDay);
+        while (calendar.get(Calendar.DAY_OF_WEEK) != firstWeekDay) {
+            calendar.set(Calendar.DAY_OF_MONTH, ++firstDay);
+        }
+        return firstDay;
+    }
+
+    private  static String dateFormat(Date date,  String pattern) {
+        DateTimeFormatterBuilder formatterBuilder = new DateTimeFormatterBuilder();
+        Calendar calendar = Calendar.getInstance();
+        boolean escaped = false;
+        for (int i = 0; i < pattern.length(); i++) {
+            char character = pattern.charAt(i);
+            if (escaped) {
+                switch (character) {
+                    case 'a': // %a Abbreviated weekday name (Sun..Sat)
+                        formatterBuilder.appendDayOfWeekShortText();
+                        break;
+                    case 'b': // %b Abbreviated month name (Jan..Dec)
+                        formatterBuilder.appendMonthOfYearShortText();
+                        break;
+                    case 'c': // %c Month, numeric (0..12)
+                        formatterBuilder.appendMonthOfYear(1);
+                        break;
+                    case 'd': // %d Day of the month, numeric (00..31)
+                        formatterBuilder.appendDayOfMonth(2);
+                        break;
+                    case 'e': // %e Day of the month, numeric (0..31)
+                        formatterBuilder.appendDayOfMonth(1);
+                        break;
+                    case 'f': // %f Microseconds (000000..999999)
+                        formatterBuilder.appendFractionOfSecond(6, 9);
+                        break;
+                    case 'H': // %H Hour (00..23)
+                        formatterBuilder.appendHourOfDay(2);
+                        break;
+                    case 'h': // %h Hour (01..12)
+                    case 'I': // %I Hour (01..12)
+                        formatterBuilder.appendClockhourOfHalfday(2);
+                        break;
+                    case 'i': // %i Minutes, numeric (00..59)
+                        formatterBuilder.appendMinuteOfHour(2);
+                        break;
+                    case 'j': // %j Day of year (001..366)
+                        formatterBuilder.appendDayOfYear(3);
+                        break;
+                    case 'k': // %k Hour (0..23)
+                        formatterBuilder.appendHourOfDay(1);
+                        break;
+                    case 'l': // %l Hour (1..12)
+                        formatterBuilder.appendClockhourOfHalfday(1);
+                        break;
+                    case 'M': // %M Month name (January..December)
+                        formatterBuilder.appendMonthOfYearText();
+                        break;
+                    case 'm': // %m Month, numeric (00..12)
+                        formatterBuilder.appendMonthOfYear(2);
+                        break;
+                    case 'p': // %p AM or PM
+                        formatterBuilder.appendHalfdayOfDayText();
+                        break;
+                    case 'r': // %r Time, 12-hour (hh:mm:ss followed by AM or PM)
+                        formatterBuilder.appendClockhourOfHalfday(2)
+                                .appendLiteral(':')
+                                .appendMinuteOfHour(2)
+                                .appendLiteral(':')
+                                .appendSecondOfMinute(2)
+                                .appendLiteral(' ')
+                                .appendHalfdayOfDayText();
+                        break;
+                    case 'S': // %S Seconds (00..59)
+                    case 's': // %s Seconds (00..59)
+                        formatterBuilder.appendSecondOfMinute(2);
+                        break;
+                    case 'T': // %T Time, 24-hour (hh:mm:ss)
+                        formatterBuilder.appendHourOfDay(2)
+                                .appendLiteral(':')
+                                .appendMinuteOfHour(2)
+                                .appendLiteral(':')
+                                .appendSecondOfMinute(2);
+                        break;
+                    case 'V': // %V Week (01..53), where Sunday is the first day of the week; used with %X
+                    {
+                        int week;
+                        calendar.setTime(date);
+                        int firstSunday = calFirstWeekDay(calendar.get(Calendar.YEAR), Calendar.SUNDAY);
+                        if (calendar.get(Calendar.DATE) <= 7 && calendar.get(Calendar.MONTH) == Calendar.JANUARY
+                                && calendar.get(Calendar.DATE) >= firstSunday) {
+                            week = 1;
+                        } else {
+                            calendar.add(Calendar.DATE, -7);
+                            week = calendar.get(Calendar.WEEK_OF_YEAR) +
+                                    (calFirstWeekDay(calendar.get(Calendar.YEAR), Calendar.SUNDAY) == 1 ? 1 : 0);
+                        }
+                        formatterBuilder.appendLiteral(String.format("%02d", week));
+                        break;
+                    }
+                    case 'v': // %v Week (01..53), where Monday is the first day of the week; used with %x
+                        formatterBuilder.appendWeekOfWeekyear(2);
+                        break;
+                    case 'X': // %X Year for the week where Sunday is the first day of the week, numeric, four digits; used with %V
+                        calendar.setTime(date);
+                        if(calendar.get(Calendar.MONTH) == Calendar.JANUARY &&
+                                calendar.get(Calendar.DATE) < calFirstWeekDay(calendar.get(Calendar.YEAR), Calendar.SUNDAY)) {
+                            formatterBuilder.appendLiteral(String.valueOf(calendar.get(Calendar.YEAR) - 1));
+                        } else {
+                            formatterBuilder.appendLiteral(String.valueOf(calendar.get(Calendar.YEAR)));
+                        }
+                        break;
+                    case 'x': // %x Year for the week, where Monday is the first day of the week, numeric, four digits; used with %v
+                        formatterBuilder.appendWeekyear(4, 4);
+                        break;
+                    case 'W': // %W Weekday name (Sunday..Saturday)
+                        formatterBuilder.appendDayOfWeekText();
+                        break;
+                    case 'w': // %w Day of the week (0=Sunday..6=Saturday)
+                        calendar.setTime(date);
+                        calendar.setFirstDayOfWeek(Calendar.SUNDAY);
+                        formatterBuilder.appendLiteral(String.valueOf(calendar.get(Calendar.DAY_OF_WEEK) - 1));
+                        break;
+                    case 'y': // %y Year, numeric (two digits)
+                        int PIVOT_YEAR = 2020;
+                        formatterBuilder.appendTwoDigitYear(PIVOT_YEAR);
+                        break;
+                    case 'Y': // %Y Year, numeric, four digits
+                        formatterBuilder.appendYear(4, 4);
+                        break;
+                    case 'D': // %D Day of the month with English suffix (0th, 1st, 2nd, 3rd, …)
+                        calendar.setTime(date);
+                        int day = calendar.get(Calendar.DAY_OF_MONTH);
+                        if (day >= 10 && day <= 19) {
+                            formatterBuilder.appendLiteral(String.valueOf(day) + "th");
+                        } else {
+                            switch (day % 10) {
+                                case 1:
+                                    formatterBuilder.appendLiteral(String.valueOf(day) + "st");
+                                    break;
+                                case 2:
+                                    formatterBuilder.appendLiteral(String.valueOf(day) + "nd");
+                                    break;
+                                case 3:
+                                    formatterBuilder.appendLiteral(String.valueOf(day) + "rd");
+                                    break;
+                                default:
+                                    formatterBuilder.appendLiteral(String.valueOf(day) + "th");
+                                    break;
+                            }
+                        }
+                        break;
+                    case 'U': // %U Week (00..53), where Sunday is the first day of the week
+                        calendar.setTime(date);
+                        if (calendar.get(Calendar.DATE) <= 7 && calendar.get(Calendar.MONTH) == Calendar.JANUARY) {
+                            int firstSunday = calFirstWeekDay(calendar.get(Calendar.YEAR), Calendar.SUNDAY);
+                            formatterBuilder.appendLiteral(String.format("%02d",
+                                    ((calendar.get(Calendar.DATE) < firstSunday && firstSunday != 1) ? 0 : 1)));
+                        } else {
+                            calendar.add(Calendar.DATE, -7);
+                            calendar.setFirstDayOfWeek(Calendar.SUNDAY);
+                            formatterBuilder.appendLiteral(String.format("%02d",
+                                    calendar.get(Calendar.WEEK_OF_YEAR)
+                                    + (calFirstWeekDay(calendar.get(Calendar.YEAR), Calendar.SUNDAY) == 1 ? 1 : 0)));
+                        }
+                        break;
+                    case 'u': // %u Week (00..53), where Monday is the first day of the week
+                    {
+                        calendar.setTime(date);
+                        int week;
+                        int firstMonday = calFirstWeekDay(calendar.get(Calendar.YEAR), Calendar.MONDAY);
+                        if (calendar.get(Calendar.DATE) <= 7 && calendar.get(Calendar.MONTH) == Calendar.JANUARY) {
+                            week = (calendar.get(Calendar.DATE) >= firstMonday || firstMonday == 1) ? 1 : 0 ;
+                            week += (firstMonday >= 5 ? 1 : 0);
+                        } else {
+                            calendar.add(Calendar.DATE, -7);
+                            calendar.setFirstDayOfWeek(Calendar.MONDAY);
+                            week = calendar.get(Calendar.WEEK_OF_YEAR) + ((firstMonday >= 5 || firstMonday == 1) ? 1 : 0);
+                        }
+                        formatterBuilder.appendLiteral(String.format("%02d", week));
+                        break;
+                    }
+                    case '%': // %% A literal “%” character
+                        formatterBuilder.appendLiteral('%');
+                        break;
+                    default: // %<x> The literal character represented by <x>
+                        formatterBuilder.appendLiteral(character);
+                        break;
+                }
+                escaped = false;
+            }
+            else if (character == '%') {
+                escaped = true;
+            }
+            else {
+                formatterBuilder.appendLiteral(character);
+            }
+        }
+        DateTimeFormatter formatter = formatterBuilder.toFormatter();
+        return formatter.withLocale(Locale.US).print(date.getTime());
     }
 
     /**

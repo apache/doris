@@ -315,12 +315,15 @@
     
     7. 导入数据到含有HLL列的表，可以是表中的列或者数据里面的列
 
+        如果表中有三列分别是（id,v1,v2）。其中v1和v2列是hll列。导入的源文件有3列。则（column_list）中声明第一列为id，第二三列为一个临时命名的k1,k2。
+        在SET中必须给表中的hll列特殊声明 hll_hash。表中的v1列等于原始数据中的hll_hash(k1)列。
         LOAD LABEL example_db.label7
         (
         DATA INFILE("hdfs://hdfs_host:hdfs_port/user/palo/data/input/file")
         INTO TABLE `my_table`
         PARTITION (p1, p2)
         COLUMNS TERMINATED BY ","
+        (id, k1, k2)
         SET (
           v1 = hll_hash(k1),
           v2 = hll_hash(k2)
@@ -342,42 +345,5 @@
         )
         WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password");
 
-    8. 导入的数据同一列做sum max然后生成两列指标
-
-       假设导入文件 file 有两列, 我们称为 k1 和 v1， my_table 表有 4 列，分别是 k1, sumv1, maxv1, minv1，建表语句如下：
-
-       CREATE TABLE my_db.my_table
-       (
-         k1 INT,
-         sumv1 INT SUM,
-         maxv1 INT MAX,
-         minv1 INT MIN
-       )
-         ENGINE=olap
-         AGGREGATE KEY(k1)
-         DISTRIBUTED BY HASH (k1) BUCKETS 32
-         PARTITION BY RANGE (k1)
-         (
-         PARTITION p1 VALUES LESS THAN ("2014-01-01"),
-         PARTITION p2 VALUES LESS THAN ("2014-06-01")
-       )
-
-       导入语句可以写成：
-
-       LOAD LABEL my_db.mylabel
-       (
-         DATA INFILE("hdfs://hdfs_host:hdfs_port/user/palo/data/input/file")
-         INTO TABLE `my_table`
-         PARTITION (p1, p2)
-         COLUMNS TERMINATED BY ","
-         (k1, v1)
-         SET (
-           sumv1 = v1,
-           maxv1 = v1,
-           minv1 = v1
-         )
-       )
-       WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password");
- 
 ## keyword
     BROKER LOAD

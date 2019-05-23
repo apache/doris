@@ -93,7 +93,7 @@ public class GlobalTransactionMgr {
     private Catalog catalog;
 
     public GlobalTransactionMgr(Catalog catalog) {
-        idToTransactionState = new HashMap<>();
+        idToTransactionState = Maps.newConcurrentMap();
         dbIdToTxnLabels = HashBasedTable.create();
         runningTxnNums = Maps.newHashMap();
         this.catalog = catalog;
@@ -126,7 +126,7 @@ public class GlobalTransactionMgr {
             throws AnalysisException, LabelAlreadyUsedException, BeginTransactionException {
         
         if (Config.disable_load_job) {
-            throw new BeginTransactionException("disable_load_job is set to true, all load jobs are prevented");
+            throw new AnalysisException("disable_load_job is set to true, all load jobs are prevented");
         }
         
         if (timeoutSecond > Config.max_stream_load_timeout_second ||
@@ -210,7 +210,7 @@ public class GlobalTransactionMgr {
             writeUnlock();
         }
     }
-    
+
     public void commitTransaction(long dbId, long transactionId, List<TabletCommitInfo> tabletCommitInfos)
             throws UserException {
         commitTransaction(dbId, transactionId, tabletCommitInfos, null);
@@ -254,7 +254,7 @@ public class GlobalTransactionMgr {
         TransactionState transactionState = idToTransactionState.get(transactionId);
         if (transactionState == null
                 || transactionState.getTransactionStatus() == TransactionStatus.ABORTED) {
-            throw new TransactionCommitFailedException("Transaction has already been cancelled");
+            throw new TransactionCommitFailedException(transactionState.getReason());
         }
         if (transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
             return;
@@ -278,15 +278,16 @@ public class GlobalTransactionMgr {
         for (TabletCommitInfo tabletCommitInfo : tabletCommitInfos) {
             long tabletId = tabletCommitInfo.getTabletId();
             long tableId = tabletInvertedIndex.getTableId(tabletId);
-            if (TabletInvertedIndex.NOT_EXIST_VALUE == tableId) {
+            OlapTable tbl = (OlapTable) db.getTable(tableId);
+            if (tbl == null) {
                 throw new MetaNotFoundException("could not find table for tablet [" + tabletId + "]");
             }
-            
+
             long partitionId = tabletInvertedIndex.getPartitionId(tabletId);
-            if (TabletInvertedIndex.NOT_EXIST_VALUE == partitionId) {
+            if (tbl.getPartition(partitionId) == null) {
                 throw new MetaNotFoundException("could not find partition for tablet [" + tabletId + "]");
             }
-            
+
             if (!tableToPartition.containsKey(tableId)) {
                 tableToPartition.put(tableId, new HashSet<>());
             }
@@ -301,6 +302,9 @@ public class GlobalTransactionMgr {
         Set<Long> totalInvolvedBackends = Sets.newHashSet();
         for (long tableId : tableToPartition.keySet()) {
             OlapTable table = (OlapTable) db.getTable(tableId);
+            if (table == null) {
+                throw new MetaNotFoundException("Table does not exist: " + tableId);
+            }
             for (Partition partition : table.getPartitions()) {
                 if (!tableToPartition.get(tableId).contains(partition.getId())) {
                     continue;
@@ -566,7 +570,7 @@ public class GlobalTransactionMgr {
      * @param errorReplicaIds
      * @return
      */
-    public void finishTransaction(long transactionId, Set<Long> errorReplicaIds) {
+    public void finishTransaction(long transactionId, Set<Long> errorReplicaIds) throws UserException {
         TransactionState transactionState = idToTransactionState.get(transactionId);
         // add all commit errors and publish errors to a single set
         if (errorReplicaIds == null) {
@@ -699,14 +703,17 @@ public class GlobalTransactionMgr {
             if (hasError) {
                 return;
             }
+            boolean txnOperated = false;
             writeLock();
             try {
                 transactionState.setErrorReplicas(errorReplicaIds);
                 transactionState.setFinishTime(System.currentTimeMillis());
                 transactionState.setTransactionStatus(TransactionStatus.VISIBLE);
                 unprotectUpsertTransactionState(transactionState);
+                txnOperated = true;
             } finally {
                 writeUnlock();
+                transactionState.afterStateTransform(TransactionStatus.VISIBLE, txnOperated);
             }
             updateCatalogAfterVisible(transactionState, db);
         } finally {

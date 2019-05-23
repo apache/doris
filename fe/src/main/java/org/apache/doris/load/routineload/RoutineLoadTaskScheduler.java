@@ -69,12 +69,12 @@ public class RoutineLoadTaskScheduler extends Daemon {
 
     @VisibleForTesting
     public RoutineLoadTaskScheduler() {
-        super("routine load task", 0);
+        super("Routine load task scheduler", 0);
         this.routineLoadManager = Catalog.getInstance().getRoutineLoadManager();
     }
 
     public RoutineLoadTaskScheduler(RoutineLoadManager routineLoadManager) {
-        super("routine load task", 0);
+        super("Routine load task scheduler", 0);
         this.routineLoadManager = routineLoadManager;
     }
 
@@ -182,9 +182,13 @@ public class RoutineLoadTaskScheduler extends Daemon {
     private void submitBatchTasksIfNotEmpty(Map<Long, List<TRoutineLoadTask>> beIdToRoutineLoadTask) {
         for (Map.Entry<Long, List<TRoutineLoadTask>> entry : beIdToRoutineLoadTask.entrySet()) {
             Backend backend = Catalog.getCurrentSystemInfo().getBackend(entry.getKey());
+            if (backend == null) {
+                LOG.warn("failed to send tasks to be {} when backend is unavailable", entry.getKey());
+                continue;
+            }
             TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBePort());
-            BackendService.Client client = null;
             boolean ok = false;
+            BackendService.Client client = null;
             try {
                 client = ClientPool.backendPool.borrowObject(address);
                 client.submit_routine_load_task(entry.getValue());
@@ -194,7 +198,7 @@ public class RoutineLoadTaskScheduler extends Daemon {
                 ok = true;
                 entry.getValue().clear();
             } catch (Exception e) {
-                LOG.warn("task send error. backend[{}]", backend.getId(), e);
+                LOG.warn("task send error. backend[{}]", entry.getKey(), e);
             } finally {
                 if (ok) {
                     ClientPool.backendPool.returnObject(address, client);

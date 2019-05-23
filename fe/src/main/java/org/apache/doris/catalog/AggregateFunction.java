@@ -20,6 +20,9 @@ package org.apache.doris.catalog;
 import static org.apache.doris.common.io.IOUtils.readOptionStringOrNull;
 import static org.apache.doris.common.io.IOUtils.writeOptionString;
 
+import com.google.common.collect.Maps;
+import com.google.gson.Gson;
+import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.common.io.IOUtils;
 
 import org.apache.doris.analysis.FunctionName;
@@ -35,6 +38,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 // import org.apache.doris.analysis.String;
 
@@ -411,6 +415,19 @@ public class AggregateFunction extends Function {
         isAnalyticFn = input.readBoolean();
         isAggregateFn = input.readBoolean();
         returnsNonNullOnEmpty = input.readBoolean();
+    }
+
+    @Override
+    public String getProperties() {
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(CreateFunctionStmt.OBJECT_FILE_KEY, getLocation().toString());
+        properties.put(CreateFunctionStmt.MD5_CHECKSUM, checksum);
+        properties.put(CreateFunctionStmt.INIT_KEY, initFnSymbol);
+        properties.put(CreateFunctionStmt.UPDATE_KEY, updateFnSymbol);
+        properties.put(CreateFunctionStmt.MERGE_KEY, mergeFnSymbol);
+        properties.put(CreateFunctionStmt.SERIALIZE_KEY, serializeFnSymbol);
+        properties.put(CreateFunctionStmt.FINALIZE_KEY, finalizeFnSymbol);
+        return new Gson().toJson(properties);
     }
 }
 

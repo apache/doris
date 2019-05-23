@@ -17,12 +17,12 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarFunction;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TExpr;
@@ -31,10 +31,10 @@ import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.base.Preconditions;
-
 import com.google.common.collect.Lists;
-import org.apache.logging.log4j.Logger;
+
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 public class CastExpr extends Expr {
     private static final Logger LOG = LogManager.getLogger(CastExpr.class);
@@ -248,4 +248,39 @@ public class CastExpr extends Expr {
         return false;
     }
 
+    @Override
+    public Expr getResultValue() throws AnalysisException {
+        final Expr value = children.get(0).getResultValue();
+        if (!(value instanceof LiteralExpr)) {
+            return this;
+        }
+        Expr targetExpr;
+        try {
+            targetExpr = castTo((LiteralExpr)value);
+        } catch (AnalysisException ae) {
+            targetExpr = this;
+        } catch (NumberFormatException nfe) {
+            targetExpr = new NullLiteral();
+        }
+        return targetExpr;
+    }
+
+    private Expr castTo(LiteralExpr value) throws AnalysisException {
+        if (type.isIntegerType()) {
+            return new IntLiteral(value.getLongValue(), type);
+        } else if (type.isLargeIntType()) {
+            return new LargeIntLiteral(value.getStringValue());
+        } else if (type.isDecimal()) {
+            return new DecimalLiteral(value.getStringValue());
+        } else if (type.isFloatingPointType()) {
+            return new FloatLiteral(value.getDoubleValue(), type);
+        } else if (type.isStringType()) {
+            return new StringLiteral(value.getStringValue());
+        } else if (type.isDateType()) {
+            return new DateLiteral(value.getStringValue(), type);
+        } else if (type.isBoolean()) {
+            return new BoolLiteral(value.getStringValue());
+        }
+        return this;
+    }
 }

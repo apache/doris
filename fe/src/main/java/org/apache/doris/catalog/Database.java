@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import com.google.common.collect.Lists;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Table.TableType;
@@ -594,6 +595,14 @@ public class Database extends MetaObject implements Writable {
             return null;
         }
         return Function.getFunction(fns, desc, mode);
+    }
+
+    public synchronized List<Function> getFunctions() {
+        List<Function> functions = Lists.newArrayList();
+        for (Map.Entry<String, ImmutableList<Function>> entry : name2Function.entrySet()) {
+            functions.addAll(entry.getValue());
+        }
+        return functions;
     }
 
     public boolean isInfoSchemaDb() {

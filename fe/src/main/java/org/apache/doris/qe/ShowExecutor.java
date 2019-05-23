@@ -39,6 +39,7 @@ import org.apache.doris.analysis.ShowDeleteStmt;
 import org.apache.doris.analysis.ShowEnginesStmt;
 import org.apache.doris.analysis.ShowExportStmt;
 import org.apache.doris.analysis.ShowFrontendsStmt;
+import org.apache.doris.analysis.ShowFunctionStmt;
 import org.apache.doris.analysis.ShowGrantsStmt;
 import org.apache.doris.analysis.ShowLoadStmt;
 import org.apache.doris.analysis.ShowLoadWarningsStmt;
@@ -63,16 +64,20 @@ import org.apache.doris.backup.AbstractJob;
 import org.apache.doris.backup.BackupJob;
 import org.apache.doris.backup.Repository;
 import org.apache.doris.backup.RestoreJob;
+import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MetadataViewer;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
 import org.apache.doris.cluster.BaseParam;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -90,8 +95,10 @@ import org.apache.doris.common.proc.LoadProcDir;
 import org.apache.doris.common.proc.PartitionsProcDir;
 import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.TabletsProcDir;
+import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
+import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.ExportMgr;
 import org.apache.doris.load.Load;
@@ -118,10 +125,12 @@ import java.io.InputStreamReader;
 import java.net.URL;
 import java.net.URLConnection;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 // Execute one show statement.
 public class ShowExecutor {
@@ -163,6 +172,8 @@ public class ShowExecutor {
             handleShowProcesslist();
         } else if (stmt instanceof ShowEnginesStmt) {
             handleShowEngines();
+        } else if (stmt instanceof ShowFunctionStmt) {
+            handleShowFunction();
         } else if (stmt instanceof ShowVariablesStmt) {
             handleShowVariables();
         } else if (stmt instanceof ShowColumnStmt) {
@@ -268,6 +279,46 @@ public class ShowExecutor {
         rowSet.add(Lists.newArrayList("Olap engine", "YES", "Default storage engine of palo", "NO", "NO", "NO"));
         rowSet.add(Lists.newArrayList("MySQL", "YES", "MySQL server which data is in it", "NO", "NO", "NO"));
 
+        // Only success
+        resultSet = new ShowResultSet(showStmt.getMetaData(), rowSet);
+    }
+
+    // Handle show function
+    private void handleShowFunction() throws AnalysisException {
+        ShowFunctionStmt showStmt = (ShowFunctionStmt) stmt;
+
+        Database db = ctx.getCatalog().getDb(showStmt.getDbName());
+        if (db == null) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, showStmt.getDbName());
+        }
+        List<Function> functions = db.getFunctions();
+
+        List<List<String>> rowSet = Lists.newArrayList();
+        for (Function function : functions) {
+            List<String> row = Lists.newArrayList();
+            // signature
+            row.add(function.getSignature());
+            // return type
+            row.add(function.getReturnType().getPrimitiveType().toString());
+            // function type
+            // intermediate type
+            if (function instanceof ScalarFunction) {
+                row.add("Scalar");
+                row.add("NULL");
+            } else {
+                row.add("Aggregate");
+                AggregateFunction aggFunc = (AggregateFunction) function;
+                Type intermediateType = aggFunc.getIntermediateType();
+                if (intermediateType != null) {
+                    row.add(intermediateType.getPrimitiveType().toString());
+                } else {
+                    row.add("NULL");
+                }
+            }
+            // property
+            row.add(function.getProperties());
+            rowSet.add(row);
+        }
         // Only success
         resultSet = new ShowResultSet(showStmt.getMetaData(), rowSet);
     }
@@ -644,12 +695,31 @@ public class ShowExecutor {
         }
         long dbId = db.getId();
 
+        // combine the List<LoadInfo> of load(v1) and loadManager(v2)
         Load load = catalog.getLoadInstance();
         List<List<Comparable>> loadInfos = load.getLoadJobInfosByDb(dbId, db.getFullName(),
                                                                     showStmt.getLabelValue(),
                                                                     showStmt.isAccurateMatch(),
-                                                                    showStmt.getStates(),
-                                                                    showStmt.getOrderByPairs());
+                                                                    showStmt.getStates());
+        Set<String> statesValue = showStmt.getStates() == null ? null : showStmt.getStates().stream()
+                .map(entity -> entity.name())
+                .collect(Collectors.toSet());
+        loadInfos.addAll(catalog.getLoadManager().getLoadJobInfosByDb(dbId, showStmt.getLabelValue(),
+                                                                      showStmt.isAccurateMatch(),
+                                                                      statesValue));
+
+        // order the result of List<LoadInfo> by orderByPairs in show stmt
+        List<OrderByPair> orderByPairs = showStmt.getOrderByPairs();
+        ListComparator<List<Comparable>> comparator = null;
+        if (orderByPairs != null) {
+            OrderByPair[] orderByPairArr = new OrderByPair[orderByPairs.size()];
+            comparator = new ListComparator<List<Comparable>>(orderByPairs.toArray(orderByPairArr));
+        } else {
+            // sort by id asc
+            comparator = new ListComparator<List<Comparable>>(0);
+        }
+        Collections.sort(loadInfos, comparator);
+
         List<List<String>> rows = Lists.newArrayList();
         for (List<Comparable> loadInfo : loadInfos) {
             List<String> oneInfo = new ArrayList<String>(loadInfo.size());

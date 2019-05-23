@@ -136,6 +136,8 @@ public class Analyzer {
     // On-clause of any such semi-join is not allowed to reference other semi-joined tuples
     // except its own. Therefore, only a single semi-joined tuple can be visible at a time.
     private TupleId visibleSemiJoinedTupleId_ = null;
+    // for some situation that udf is not allowed.
+    private boolean isUDFAllowed = true;
     
     public void setIsSubquery() {
         isSubquery = true;
@@ -145,6 +147,9 @@ public class Analyzer {
     public boolean hasPlanHints() { return globalState.hasPlanHints; }
     public void setIsWithClause() { isWithClause_ = true; }
     public boolean isWithClause() { return isWithClause_; }
+    
+    public void setUDFAllowed(boolean val) { this.isUDFAllowed = val; }
+    public boolean isUDFAllowed() { return this.isUDFAllowed; }
 
     // state shared between all objects of an Analyzer tree
     // TODO: Many maps here contain properties about tuples, e.g., whether
@@ -739,7 +744,7 @@ public class Analyzer {
                     registerConstantConjunct(id, conjunct);
                 }
             }
-            //markConstantConjunct(conjunct, fromHavingClause);
+            markConstantConjunct(conjunct, fromHavingClause);
         }
     }
 
@@ -871,7 +876,7 @@ public class Analyzer {
     public List<Expr> getUnassignedConjuncts(
             List<TupleId> tupleIds, boolean inclOjConjuncts) {
         List<Expr> result = Lists.newArrayList();
-        for (Expr e: globalState.conjuncts.values()) {
+        for (Expr e : globalState.conjuncts.values()) {
             // handle constant conjuncts
             if (e.isConstant()) {
                 boolean isBoundByTuple = false;
@@ -886,7 +891,6 @@ public class Analyzer {
                     continue;
                 }
             }
-
             if (e.isBoundByTupleIds(tupleIds)
                     && !e.isAuxExpr()
                     && !globalState.assignedConjuncts.contains(e.getId())
@@ -1089,6 +1093,8 @@ public class Analyzer {
     public boolean hasEmptyResultSet() { return hasEmptyResultSet_; }
     public void setHasEmptyResultSet() { hasEmptyResultSet_ = true; }
 
+    public boolean hasEmptySpjResultSet() { return hasEmptySpjResultSet_; }
+
     public void setHasLimitOffsetClause(boolean hasLimitOffset) {
         this.hasLimitOffsetClause_ = hasLimitOffset;
     }
@@ -1140,8 +1146,6 @@ public class Analyzer {
     private void markConstantConjunct(Expr conjunct, boolean fromHavingClause)
             throws AnalysisException {
         if (!conjunct.isConstant() || isOjConjunct(conjunct)) return;
-        /*
-        markConjunctAssigned(conjunct);
         if ((!fromHavingClause && !hasEmptySpjResultSet_)
                 || (fromHavingClause && !hasEmptyResultSet_)) {
             try {
@@ -1155,18 +1159,22 @@ public class Analyzer {
                     // aliases and having it analyzed is needed for the following EvalPredicate() call
                     conjunct.analyze(this);
                 }
-                if (!FeSupport.EvalPredicate(conjunct, globalState_.queryCtx)) {
-                    if (fromHavingClause) {
-                        hasEmptyResultSet_ = true;
-                    } else {
-                        hasEmptySpjResultSet_ = true;
+                final Expr newConjunct = conjunct.getResultValue();
+                if (newConjunct instanceof BoolLiteral) {
+                    final BoolLiteral value = (BoolLiteral)newConjunct;
+                    if (!value.getValue()) {
+                        if (fromHavingClause) {
+                            hasEmptyResultSet_ = true;
+                        } else {
+                            hasEmptySpjResultSet_ = true;
+                        }
                     }
+                    markConjunctAssigned(conjunct);
                 }
-            } catch (InternalException ex) {
+            } catch (AnalysisException ex) {
                 throw new AnalysisException("Error evaluating \"" + conjunct.toSql() + "\"", ex);
             }
         }
-        */
     }
 
     public boolean isOjConjunct(Expr e) {
@@ -1318,7 +1326,7 @@ public class Analyzer {
     /**
      * Mark predicate as assigned.
      */
-    public void markConjunctAssigned(Predicate conjunct) {
+    public void markConjunctAssigned(Expr conjunct) {
         globalState.assignedConjuncts.add(conjunct.getId());
     }
 

@@ -369,6 +369,7 @@ bool CumulativeCompaction::_find_previous_version(const Version current_version,
 
 OLAPStatus CumulativeCompaction::_do_cumulative_compaction() {
     OLAPStatus res = OLAP_SUCCESS;
+    OlapStopWatch watch;
     Merger merger(_table, _new_segment_group, READER_CUMULATIVE_COMPACTION);
 
     // 1. merge delta files into new cumulative file
@@ -412,7 +413,9 @@ OLAPStatus CumulativeCompaction::_do_cumulative_compaction() {
         LOG(INFO) << "all row nums. source_rows=" << source_rows
                   << ", merged_rows=" << merged_rows
                   << ", filted_rows=" << filted_rows
-                  << ", new_index_rows=" << _new_segment_group->num_rows();
+                  << ", new_index_rows=" << _new_segment_group->num_rows()
+                  << ", merged_version_num=" << _need_merged_versions.size()
+                  << ", time_us=" << watch.get_elapse_time_us();
     }
 
     // 3. add new cumulative file into table

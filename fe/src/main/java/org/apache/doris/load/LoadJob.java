@@ -69,14 +69,6 @@ public class LoadJob implements Writable {
         QUORUM_FINISHED,
         CANCELLED
     }
-    
-    public enum EtlJobType {
-        HADOOP,
-        MINI,
-        INSERT,
-        BROKER,
-        DELETE
-    }
 
     private static final int DEFAULT_TIMEOUT_S = 0;
     private static final double DEFAULT_MAX_FILTER_RATIO = 0;

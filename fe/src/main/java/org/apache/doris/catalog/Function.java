@@ -102,7 +102,7 @@ public class Function implements Writable {
     private TFunctionBinaryType binaryType;
 
     // library's checksum to make sure all backends use one library to serve user's request
-    private String checksum = "";
+    protected String checksum = "";
 
     // Only used for serialization
     protected Function() {
@@ -644,5 +644,25 @@ public class Function implements Writable {
         }
         function.readFields(input);
         return function;
+    }
+
+    public String getSignature() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(name.getFunction()).append("(");
+        for (int i = 0; i < argTypes.length; ++i) {
+            if (i != 0) {
+                sb.append(',');
+            }
+            sb.append(argTypes[i].getPrimitiveType().toString());
+        }
+        if (hasVarArgs) {
+            sb.append(", ...");
+        }
+        sb.append(")");
+        return sb.toString();
+    }
+
+    public String getProperties() {
+        return "";
     }
 }

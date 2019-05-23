@@ -304,7 +304,7 @@ public class BackendLoadStatistic {
     public BalanceStatus isFit(long tabletSize, TStorageMedium medium,
             List<RootPathLoadStatistic> result, boolean isSupplement) {
         BalanceStatus status = new BalanceStatus(ErrCode.COMMON_ERROR);
-        // try choosing path from first to end
+        // try choosing path from first to end (low usage to high usage)
         for (int i = 0; i < pathStatistics.size(); i++) {
             RootPathLoadStatistic pathStatistic = pathStatistics.get(i);
             // if this is a supplement task, ignore the storage medium

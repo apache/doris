@@ -98,7 +98,7 @@ if [ ${RUN} -ne 1 ]; then
 fi
 
 echo "******************************"
-echo "    Runing PaloBe Unittest    "
+echo "    Running PaloBe Unittest    "
 echo "******************************"
 
 cd ${DORIS_HOME}
@@ -120,7 +120,7 @@ if [ ${RUN} -ne 1 ]; then
 fi
 
 echo "******************************"
-echo "    Runing PaloBe Unittest    "
+echo "    Running PaloBe Unittest    "
 echo "******************************"
 
 export DORIS_TEST_BINARY_DIR=${DORIS_TEST_BINARY_DIR}/test/
@@ -156,6 +156,7 @@ ${DORIS_TEST_BINARY_DIR}/common/resource_tls_test
 
 ## Running exprs unit test
 ${DORIS_TEST_BINARY_DIR}/exprs/string_functions_test
+${DORIS_TEST_BINARY_DIR}/exprs/json_function_test
 
 ## Running exec unit test
 ${DORIS_TEST_BINARY_DIR}/exec/plain_text_line_reader_uncompressed_test

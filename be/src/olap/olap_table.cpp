@@ -148,7 +148,9 @@ OLAPTable::OLAPTable(OLAPHeader* header, OlapStore* store) :
         _num_key_fields(0),
         _id(0),
         _store(store),
-        _is_loaded(false) {
+        _is_loaded(false),
+        _is_bad(false),
+        _last_compaction_failure_time(0) {
     if (header == NULL) {
         return;  // for convenience of mock test.
     }
@@ -310,13 +312,18 @@ OLAPStatus OLAPTable::load() {
                      << "res=" << res << ", root=" << one_schema_root;
         goto EXIT;
     } else if (res != OLAP_SUCCESS) {
-        OLAPEngine::get_instance()->drop_table(tablet_id(), schema_hash(), true);
-        return res;
+        // OLAPEngine::get_instance()->drop_table(tablet_id(), schema_hash(), true);
+        goto EXIT;
     }
     res = load_indices();
 
     if (res != OLAP_SUCCESS) {
-        LOG(FATAL) << "fail to load indices. [res=" << res << " table='" << _full_name << "']";
+        if (config::auto_recover_index_loading_failure) {
+            LOG(WARNING) << "fail to load indices. [res=" << res << " table='" << _full_name << "']";
+        } else {
+            // fatal log will let BE process exit
+            LOG(FATAL) << "fail to load indices. [res=" << res << " table='" << _full_name << "']";
+        }
         goto EXIT;
     }
 
@@ -333,11 +340,14 @@ OLAPStatus OLAPTable::load() {
     }
     release_header_lock();
 
+EXIT:
+    // always set _is_loaded to true, so that this tablet will be not loaded again
     _is_loaded = true;
 
-EXIT:
     if (res != OLAP_SUCCESS) {
-        OLAPEngine::get_instance()->drop_table(tablet_id(), schema_hash());
+        _is_bad = true;
+        // Do not drop table directly here, FE will get the report and handle it.
+        //  OLAPEngine::get_instance()->drop_table(tablet_id(), schema_hash());
     }
 
     return res;
@@ -788,9 +798,16 @@ void OLAPTable::load_pending_data() {
     std::set<int64_t> error_pending_data;
 
     for (const PPendingDelta& pending_delta : _header->pending_delta()) {
+        PUniqueId load_id;
+        if (pending_delta.pending_segment_group_size() > 0) {
+            load_id = pending_delta.pending_segment_group()[0].load_id();
+        } else {
+            load_id.set_hi(0);
+            load_id.set_lo(0);
+        }
         OLAPStatus add_status = OLAPEngine::get_instance()->add_transaction(
                 pending_delta.partition_id(), pending_delta.transaction_id(),
-                _tablet_id, _schema_hash, pending_delta.pending_segment_group()[0].load_id());
+                _tablet_id, _schema_hash, load_id);
         if (add_status != OLAP_SUCCESS) {
             LOG(ERROR) << "find transaction exists in engine when load pending data. tablet=" << full_name()
                          << ", transaction_id=" << pending_delta.transaction_id();
@@ -2220,7 +2237,7 @@ void OLAPTable::set_io_error() {
 }
 
 bool OLAPTable::is_used() {
-    return _store->is_used();
+    return !_is_bad && _store->is_used();
 }
 
 VersionEntity OLAPTable::get_version_entity_by_version(const Version& version) {

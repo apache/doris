@@ -21,6 +21,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.load.loadv2.LoadManager;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Function;
@@ -57,6 +58,7 @@ public class LoadStmt extends DdlStmt {
     public static final String LOAD_DELETE_FLAG_PROPERTY = "load_delete_flag";
     public static final String EXEC_MEM_LIMIT = "exec_mem_limit";
     public static final String CLUSTER_PROPERTY = "cluster";
+    private static final String VERSION = "version";
     
     // for load data from Baidu Object Store(BOS)
     public static final String BOS_ENDPOINT = "bos_endpoint";
@@ -78,6 +80,8 @@ public class LoadStmt extends DdlStmt {
     private final Map<String, String> properties;
     private String user;
 
+    private String version = "v1";
+
     // properties set
     private final static ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
             .add(TIMEOUT_PROPERTY)
@@ -85,6 +89,7 @@ public class LoadStmt extends DdlStmt {
             .add(LOAD_DELETE_FLAG_PROPERTY)
             .add(EXEC_MEM_LIMIT)
             .add(CLUSTER_PROPERTY)
+//            .add(VERSION)
             .build();
     
     public LoadStmt(LabelName label, List<DataDescription> dataDescriptions,
@@ -170,6 +175,26 @@ public class LoadStmt extends DdlStmt {
                 throw new DdlException(MAX_FILTER_RATIO_PROPERTY + " is not a number.");
             }
         }
+
+        // version
+        final String versionProperty = properties.get(VERSION);
+        // TODO(ml): only support v1
+        if (versionProperty != null) {
+            if (!versionProperty.equalsIgnoreCase(LoadManager.VERSION)) {
+                throw new DdlException(VERSION + " must be " + LoadManager.VERSION);
+            }
+        }
+
+    }
+
+    private void analyzeVersion() {
+        if (properties == null) {
+            return;
+        }
+        final String versionProperty = properties.get(VERSION);
+        if (versionProperty != null) {
+            version = LoadManager.VERSION;
+        }
     }
 
     @Override
@@ -192,6 +217,7 @@ public class LoadStmt extends DdlStmt {
             throw new AnalysisException(e.getMessage());
         }
 
+        analyzeVersion();
         user = ConnectContext.get().getQualifiedUser();
     }
 
@@ -201,6 +227,10 @@ public class LoadStmt extends DdlStmt {
             return true;
         }
         return false;
+    }
+
+    public String getVersion() {
+        return version;
     }
 
     @Override
