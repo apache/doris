@@ -2116,8 +2116,15 @@ OLAPStatus OLAPEngine::_create_new_table_header(
     uint32_t key_count = 0;
     bool has_bf_columns = false;
     uint32_t next_unique_id = 0;
-    if (true == is_schema_change_table) {
+    if (is_schema_change_table) {
         next_unique_id = ref_olap_table->next_unique_id();
+    }
+    if (is_schema_change_table && next_unique_id == 0) {
+        LOG(FATAL) << "old_tablet=" << ref_olap_table->full_name()
+            << ", new_tablet=" << request.tablet_id
+            << ", new_schema_hash=" << request.tablet_schema.schema_hash
+            << ", next_unique_id=" << next_unique_id;
+        return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
     for (TColumn column : request.tablet_schema.columns) {
         if (column.column_type.type == TPrimitiveType::VARCHAR
@@ -2126,7 +2133,7 @@ OLAPStatus OLAPEngine::_create_new_table_header(
             return OLAP_ERR_SCHEMA_SCHEMA_INVALID;
         }
         header->add_column();
-        if (true == is_schema_change_table) {
+        if (is_schema_change_table) {
             /*
              * for schema change, compare old_olap_table and new_olap_table
              * 1. if column in both new_olap_table and old_olap_table,
@@ -2207,7 +2214,7 @@ OLAPStatus OLAPEngine::_create_new_table_header(
         }
         ++i;
     }
-    if (true == is_schema_change_table){
+    if (is_schema_change_table){
         /*
          * for schema change, next_unique_id of new olap table should be greater than
          * next_unique_id of old olap table
