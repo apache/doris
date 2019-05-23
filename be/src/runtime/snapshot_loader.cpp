@@ -485,6 +485,7 @@ Status SnapshotLoader::download(
 // If overwrite, just replace the tablet_path with snapshot_path,
 // else: (TODO)
 // 
+// MUST hold tablet's header lock, push lock, cumulative lock and base compaction lock
 Status SnapshotLoader::move(
     const std::string& snapshot_path,
     const std::string& tablet_path,
@@ -538,6 +539,18 @@ Status SnapshotLoader::move(
         std::vector<std::string> snapshot_files;
         RETURN_IF_ERROR(_get_existing_files_from_local(snapshot_path, &snapshot_files));
 
+        // 0. check all existing tablet files, revoke file if it is in GC queue
+        std::vector<std::string> tablet_files;
+        RETURN_IF_ERROR(_get_existing_files_from_local(tablet_path, &tablet_files));
+        std::vector<std::string> files_to_check;
+        for (auto& snapshot_file : snapshot_files) {
+            if (std::find(tablet_files.begin(), tablet_files.end(), snapshot_file) != tablet_files.end()) {
+                std::string file_path = tablet_path + "/" + snapshot_file;
+                files_to_check.emplace_back(std::move(file_path));
+            }
+        }
+        OLAPEngine::get_instance()->revoke_files_from_gc(files_to_check);
+
         // 1. simply delete the old dir and replace it with the snapshot dir
         try {
             // This remove seems saft enough, because we already get
@@ -555,12 +568,25 @@ Status SnapshotLoader::move(
             return Status(ss.str());
         }
 
-        // copy files one by one
+        // link files one by one
+        // files in snapshot dir will be moved in snapshot clean process
+        std::vector<std::string> linked_files;
         for (auto& file : snapshot_files) {
             std::string full_src_path = snapshot_path + "/" + file;
             std::string full_dest_path = tablet_path + "/" + file;
-            RETURN_IF_ERROR(FileUtils::copy_file(full_src_path, full_dest_path));
-            VLOG(2) << "copy file from " << full_src_path<< " to " << full_dest_path;
+            if (link(full_src_path.c_str(), full_dest_path.c_str()) != 0) {
+                LOG(WARNING) << "failed to link file from " << full_src_path
+                        << " to " << full_dest_path << ", err: " << std::strerror(errno);
+
+                // clean the already linked files
+                for (auto& linked_file : linked_files) {
+                    remove(linked_file.c_str());
+                }
+                
+                return Status("move tablet failed");
+            }
+            linked_files.push_back(full_dest_path);
+            VLOG(2) << "link file from " << full_src_path << " to " << full_dest_path;
         }
 
     } else {
@@ -698,25 +724,7 @@ Status SnapshotLoader::move(
         }
     }
 
-    // fixme: there is no header now and can not call load_one_tablet here
-    // reload header
-    OlapStore* store = OLAPEngine::get_instance()->get_store(store_path);
-    if (store == nullptr) {
-        std::stringstream ss;
-        ss << "failed to get store by path: " << store_path;
-        LOG(WARNING) << ss.str();
-        return Status(ss.str());
-    }
-    OLAPStatus ost = OLAPEngine::get_instance()->load_one_tablet(
-            store, tablet_id, schema_hash, tablet_path, true);
-    if (ost != OLAP_SUCCESS) {
-        std::stringstream ss;
-        ss << "failed to reload header of tablet: " << tablet_id;
-        LOG(WARNING) << ss.str();
-        return Status(ss.str());
-    }
-    LOG(INFO) << "finished to reload header of tablet: " << tablet_id;
-
+    LOG(INFO) << "finished to move tablet: " << tablet_id;
     return status;
 }
 
