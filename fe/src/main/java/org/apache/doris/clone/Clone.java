@@ -471,8 +471,8 @@ public class Clone {
             // We should discard the cloned replica with stale version.
             if (tabletInfo.getVersion() < taskVersion
                     || (tabletInfo.getVersion() == taskVersion && tabletInfo.getVersion_hash() != taskVersionHash)) {
-                throw new MetaNotFoundException(String.format("cloned replica's version info is stale. %ld-%ld,"
-                                                        + " expected: %ld-%ld",
+                throw new MetaNotFoundException(String.format("cloned replica's version info is stale. %d-%d,"
+                                                        + " expected: %d-%d",
                                                               tabletInfo.getVersion(), tabletInfo.getVersion_hash(),
                                                               taskVersion, taskVersionHash));
             }
@@ -491,9 +491,9 @@ public class Clone {
                 
                 // if clone finished and report version == last failed version then last failed version hash should equal
                 if (replica.getLastFailedVersion() == version && replica.getLastFailedVersionHash() != versionHash) {
-                    throw new MetaNotFoundException(String.format("clone finshed and report version %ld, " 
-                            + "version hash %ld, but the replica's current failed version " 
-                            + "is %ld versionhash is %ld", 
+                    throw new MetaNotFoundException(String.format("clone finished and report version %d, "
+                            + "version hash %d, but the replica's current failed version "
+                            + "is %d version hash is %d",
                             version, versionHash, replica.getLastFailedVersion(), 
                             replica.getLastFailedVersionHash()));
                 }
