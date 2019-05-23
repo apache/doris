@@ -108,7 +108,7 @@ OLAPStatus RowsetMetaManager::traverse_rowset_metas(OlapMeta* meta,
         uint64_t rowset_id = std::stol(parts[2].c_str(), NULL, 10);
         // TODO(ygl): parset tablet id from parts[1]
         std::vector<std::string> uid_parts;
-        split_string<char>(parts[1], ':', &uid_parts);
+        split_string<char>(parts[1], '-', &uid_parts);
         TabletUid tablet_uid(uid_parts[0], uid_parts[1]);
         return func(tablet_uid, rowset_id, value);
     };
