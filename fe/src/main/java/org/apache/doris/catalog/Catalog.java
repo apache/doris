@@ -1751,9 +1751,9 @@ public class Catalog {
     }
 
     public long loadLoadJobsV2(DataInputStream in, long checksum) throws IOException {
-//        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_50) {
-//            Catalog.getCurrentCatalog().getLoadManager().readFields(in);
-//        }
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_50) {
+            Catalog.getCurrentCatalog().getLoadManager().readFields(in);
+        }
         return checksum;
     }
 
@@ -2057,7 +2057,7 @@ public class Catalog {
     }
 
     public long saveLoadJobsV2(DataOutputStream out, long checksum) throws IOException {
-//        Catalog.getCurrentCatalog().getLoadManager().write(out);
+        Catalog.getCurrentCatalog().getLoadManager().write(out);
         return checksum;
     }
 

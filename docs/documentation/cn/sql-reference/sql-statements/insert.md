@@ -4,6 +4,7 @@
 
 ```
 INSERT INTO table_name
+    [ PARTITION (, ...) ]
     [ (column [, ...]) ]
     [ \[ hint [, ...] \] ]
     { VALUES ( { expression | DEFAULT } [, ...] ) [, ...] | query }
@@ -12,6 +13,8 @@ INSERT INTO table_name
 ## Description
 
 INSERT 向一张表里插入数据。用户可以通过 VALUES 语法插入一条或者多条数据，或者通过一个查询来插入0条或者多条数据。
+
+partition是目标分区，如果指定目标分区，则只会导入符合目标分区的数据。如果没有指定，则默认值为这张表的所有分区。
 
 column是目标列，可以以任意的顺序存在。如果没有指定目标列，那么默认值是这张表的所有列。
 
@@ -23,6 +26,8 @@ column是目标列，可以以任意的顺序存在。如果没有指定目标�
 
 > tablet_name: 导入数据的目的表。可以是 `db_name.table_name` 形式
 > 
+> partition_names: 指定待导入的分区，必须是 `table_name` 中存在的分区，多个分区名称用逗号分隔
+>
 > column_name: 指定的目的列，必须是 `table_name` 中存在的列
 > 
 > expression: 需要赋值给某个列的对应表达式
@@ -31,7 +36,8 @@ column是目标列，可以以任意的顺序存在。如果没有指定目标�
 > 
 > query: 一个普通查询，查询的结果会写入到目标中
 > 
-> hint: 用于指示`INSERT`执行行为的一些指示符。`streaming`，用于指示使用同步方式来完成`INSERT`语句执行。
+> hint: 用于指示 `INSERT` 执行行为的一些指示符。`streaming` 和 默认的非 `streaming` 方式均会使用同步方式完成 `INSERT` 语句执行
+>       非 `streaming` 方式在执行完成后会返回一个 label 方便用户通过 `SHOW LOAD` 查询导入的状态
 
 ## Note
 
@@ -72,8 +78,6 @@ INSERT INTO test [streaming] SELECT * FROM test2
 INSERT INTO test (c1, c2) [streaming] SELECT * from test2
 ```
 
-为了兼容的问题，默认的insert方式是异步完成的，效率比较差。如果需要使用效率比较高的导入方式，需要加上`[streaming]`来使用同步导入方式。
-
 4. 向`test`表中异步的导入一个查询语句结果
 
 ```
@@ -81,4 +85,6 @@ INSERT INTO test SELECT * FROM test2
 INSERT INTO test (c1, c2) SELECT * from test2
 ```
 
-由于Doris之前的导入方式都是异步导入方式，这个导入语句会返回一个导入作业的`label`，用户需要通过`SHOW LOAD`命令查看此`label`导入作业的运行状况，当状态为`FINISHED`时，导入数据才生效。
+异步的导入其实是，一个同步的导入封装成了异步。填写 streaming 和不填写的*执行效率是一样*的。
+
+由于Doris之前的导入方式都是异步导入方式，为了兼容旧有的使用习惯，不加 streaming 的 `INSERT` 语句依旧会返回一个 label，用户需要通过`SHOW LOAD`命令查看此`label`导入作业的状态。
