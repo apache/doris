@@ -21,12 +21,14 @@ import org.apache.doris.analysis.ColumnSeparator;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.catalog.BrokerTable;
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 
@@ -57,7 +59,6 @@ public class BrokerFileGroup implements Writable {
     private String valueSeparator;
     private String lineDelimiter;
     // fileFormat may be null, which means format will be decided by file's suffix
-    // TODO(zc): we need to persist fileFormat, this should be done in next META_VERSION increase
     private String fileFormat;
     private boolean isNegative;
     private List<Long> partitionIds;
@@ -264,7 +265,13 @@ public class BrokerFileGroup implements Writable {
                 Expr.writeTo(entry.getValue(), out);
             }
         }
-        //
+        // fileFormat
+        if (fileFormat == null) {
+            out.writeBoolean(false);
+        } else {
+            out.writeBoolean(true);
+            Text.writeString(out, fileFormat);
+        }
     }
 
     @Override
@@ -310,6 +317,12 @@ public class BrokerFileGroup implements Writable {
                     final String name = Text.readString(in);
                     exprColumnMap.put(name, Expr.readIn(in));
                 }
+            }
+        }
+        // file format
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_50) {
+            if (in.readBoolean()) {
+                fileFormat = Text.readString(in);
             }
         }
     }
