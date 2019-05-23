@@ -358,8 +358,6 @@ public:
                                     int32_t segment_group_id, int32_t segment,
                                     const std::string& suffix) const;
 
-    std::string construct_dir_path() const;
-
     // Return -1 if field name is invalid, else return field index in schema.
     int32_t get_field_index(const std::string& field_name) const;
 
@@ -639,7 +637,7 @@ public:
         return _storage_root_path;
     }
 
-    std::string tablet_path() {
+    std::string tablet_path() const {
         return _tablet_path;
     }
 
