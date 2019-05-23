@@ -49,7 +49,9 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -111,6 +113,7 @@ public class LoadJob implements Writable {
     private Map<Long, TabletLoadInfo> idToTabletLoadInfo;
     private Set<Long> quorumTablets;
     private Set<Long> fullTablets;
+    private List<Long> unfinishedTablets;
     private Set<PushTask> pushTasks;
     private Map<Long, ReplicaPersistInfo> replicaPersistInfos;
     
@@ -169,6 +172,7 @@ public class LoadJob implements Writable {
         this.idToTabletLoadInfo = Maps.newHashMap();;
         this.quorumTablets = new HashSet<Long>();
         this.fullTablets = new HashSet<Long>();
+        this.unfinishedTablets = new ArrayList<>();
         this.pushTasks = new HashSet<PushTask>();
         this.replicaPersistInfos = Maps.newHashMap();
         this.resourceInfo = null;
@@ -213,6 +217,7 @@ public class LoadJob implements Writable {
         this.idToTabletLoadInfo = null;
         this.quorumTablets = new HashSet<Long>();
         this.fullTablets = new HashSet<Long>();
+        this.unfinishedTablets = new ArrayList<>();
         this.pushTasks = new HashSet<PushTask>();
         this.replicaPersistInfos = Maps.newHashMap();
         this.resourceInfo = null;
@@ -575,6 +580,11 @@ public class LoadJob implements Writable {
         return fullTablets;
     }
     
+    public void setUnfinishedTablets(Set<Long> unfinisheTablets) {
+        this.unfinishedTablets.clear();
+        this.unfinishedTablets.addAll(unfinisheTablets);
+    }
+    
     public void addPushTask(PushTask pushTask) {
         pushTasks.add(pushTask);
     }
@@ -645,7 +655,9 @@ public class LoadJob implements Writable {
                 + ", etlFinishTimeMs=" + etlFinishTimeMs + ", loadStartTimeMs=" + loadStartTimeMs
                 + ", loadFinishTimeMs=" + loadFinishTimeMs + ", failMsg=" + failMsg + ", etlJobType=" + etlJobType
                 + ", etlJobInfo=" + etlJobInfo + ", priority=" + priority + ", transactionId=" + transactionId 
-                + ", quorumFinishTimeMs=" + quorumFinishTimeMs +"]";
+                + ", quorumFinishTimeMs=" + quorumFinishTimeMs 
+                + ", unfinished tablets=[" + this.unfinishedTablets.subList(0, Math.min(3, this.unfinishedTablets.size())) + "]" 
+                + "]";
     }
 
     public void clearRedundantInfoForHistoryJob() {
