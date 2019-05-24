@@ -17,6 +17,8 @@
 
 package org.apache.doris.common;
 
+import com.google.common.collect.Maps;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.core.LoggerContext;
 import org.apache.logging.log4j.core.config.ConfigurationSource;
@@ -26,73 +28,69 @@ import org.apache.logging.log4j.core.lookup.StrSubstitutor;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
+import java.util.Map;
 
 // 
 // don't use trace. use INFO, WARN, ERROR, FATAL
 //
 public class Log4jConfig extends XmlConfiguration {
     private static final long serialVersionUID = 1L; 
-
-    private static String xmlConfTemplate = "" + 
-        "<?xml version='1.0' encoding='UTF-8'?>" +
-        "<Configuration status='debug' packages='org.apache.doris.common'>" +
-        "<Appenders>" +
-            "<RollingFile name='Sys' fileName='${sys_log_dir}/fe.log' " +
-            "filePattern='${sys_log_dir}/fe.log.${sys_file_pattern}'>" +
-            "<PatternLayout charset='UTF-8'>" +
-            "<Pattern>%d{yyyy-MM-dd HH:mm:ss,SSS} %p %tid [%C{1}.%M():%L] %m%n</Pattern>" +
-                "</PatternLayout>" +
-                "<Policies>" + 
-                    "<TimeBasedTriggeringPolicy /><!--SYSLOG-->" +
-                    "<SizeBasedTriggeringPolicy size='${sys_roll_maxsize}MB'/>" + 
-                "</Policies>" + 
-                "<DefaultRolloverStrategy max='${sys_roll_num}' fileIndex='min'/>" +
-            "</RollingFile>" + 
-            "<RollingFile name='SysWF' fileName='${sys_log_dir}/fe.warn.log' " + 
-                                      "filePattern='${sys_log_dir}/fe.warn.log.${sys_file_pattern}'>" +
-                "<PatternLayout charset='UTF-8'>" +
-            "<Pattern>%d{yyyy-MM-dd HH:mm:ss,SSS} %p %tid [%C{1}.%M():%L] %m%n</Pattern>" +
-                "</PatternLayout>" +
-                "<Policies>" + 
-                    "<TimeBasedTriggeringPolicy /><!--SYSLOG-->" +
-                    "<SizeBasedTriggeringPolicy size='${sys_roll_maxsize}MB'/>" + 
-                "</Policies>" + 
-                "<DefaultRolloverStrategy max='${sys_roll_num}' fileIndex='min'/>" +
-            "</RollingFile>" +
-            "<RollingFile name='Auditfile' fileName='${audit_log_dir}/fe.audit.log' " + 
-                                    "filePattern='${audit_log_dir}/fe.audit.log.${audit_file_pattern}'>" +
-                "<PatternLayout charset='UTF-8'>" +
-                "<Pattern>%d{yyyy-MM-dd HH:mm:ss,SSS} [%c{1}] %m%n</Pattern>" +
-                "</PatternLayout>" +
-                "<Policies>" + 
-                "<TimeBasedTriggeringPolicy /><!--AUDITLOG-->" +
-                "<SizeBasedTriggeringPolicy size='${audit_roll_maxsize}MB'/>" + 
-                "</Policies>" + 
-                "<DefaultRolloverStrategy max='${audit_roll_num}' fileIndex='min'/>" +
-                "</RollingFile>" + 
-        "</Appenders>" + 
-        "<Loggers>" + 
-            "<Root level='${sys_log_level}'>" + 
-                "<AppenderRef ref='Sys'/>" + 
-                "<AppenderRef ref='SysWF' level='WARN'/>" + 
-            "</Root>" + 
-            "<Logger name='audit' level='ERROR' additivity='false'>" + 
-                "<AppenderRef ref='Auditfile'/>" + 
-            "</Logger>" + 
-            "<Logger name='org.apache.thrift' level='DEBUG'>" +
-            "    <AppenderRef ref='Sys'/>" +
-            "</Logger>" +
-            "<Logger name='org.apache.thrift.transport' level='DEBUG'>" +
-            "    <AppenderRef ref='Sys'/>" +
-            "</Logger>" +
-            "<Logger name='org.apache.doris.thrift' level='DEBUG'>" +
-            "    <AppenderRef ref='Sys'/>" +
-            "</Logger>" +
-            "<!--REPLACED BY AUDIT AND VERBOSE MODULE NAMES-->" + 
-        "</Loggers>" + 
-        "</Configuration>";
+    
+    private static String xmlConfTemplate = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n" + 
+            "\n" + 
+            "<Configuration status=\"debug\" packages=\"org.apache.doris.common\">\n" + 
+            "  <Appenders>\n" + 
+            "    <RollingFile name=\"Sys\" fileName=\"${sys_log_dir}/fe.log\" filePattern=\"${sys_log_dir}/fe.log.${sys_file_pattern}-%i\">\n" + 
+            "      <PatternLayout charset=\"UTF-8\">\n" + 
+            "        <Pattern>%d{yyyy-MM-dd HH:mm:ss,SSS} %p %tid [%C{1}.%M():%L] %m%n</Pattern>\n" + 
+            "      </PatternLayout>\n" + 
+            "      <Policies>\n" + 
+            "        <TimeBasedTriggeringPolicy/>\n" + 
+            "        <SizeBasedTriggeringPolicy size=\"${sys_roll_maxsize}MB\"/>\n" + 
+            "      </Policies>\n" + 
+            "      <DefaultRolloverStrategy max=\"${sys_roll_num}\" fileIndex=\"min\"/>\n" + 
+            "    </RollingFile>\n" + 
+            "    <RollingFile name=\"SysWF\" fileName=\"${sys_log_dir}/fe.warn.log\" filePattern=\"${sys_log_dir}/fe.warn.log.${sys_file_pattern}-%i\">\n" + 
+            "      <PatternLayout charset=\"UTF-8\">\n" + 
+            "        <Pattern>%d{yyyy-MM-dd HH:mm:ss,SSS} %p %tid [%C{1}.%M():%L] %m%n</Pattern>\n" + 
+            "      </PatternLayout>\n" + 
+            "      <Policies>\n" + 
+            "        <TimeBasedTriggeringPolicy/>\n" + 
+            "        <SizeBasedTriggeringPolicy size=\"${sys_roll_maxsize}MB\"/>\n" + 
+            "      </Policies>\n" + 
+            "      <DefaultRolloverStrategy max=\"${sys_roll_num}\" fileIndex=\"min\"/>\n" + 
+            "    </RollingFile>\n" + 
+            "    <RollingFile name=\"Auditfile\" fileName=\"${audit_log_dir}/fe.audit.log\" filePattern=\"${audit_log_dir}/fe.audit.log.${audit_file_pattern}-%i\">\n" + 
+            "      <PatternLayout charset=\"UTF-8\">\n" + 
+            "        <Pattern>%d{yyyy-MM-dd HH:mm:ss,SSS} [%c{1}] %m%n</Pattern>\n" + 
+            "      </PatternLayout>\n" + 
+            "      <Policies>\n" + 
+            "        <TimeBasedTriggeringPolicy/>\n" + 
+            "        <SizeBasedTriggeringPolicy size=\"${audit_roll_maxsize}MB\"/>\n" + 
+            "      </Policies>\n" + 
+            "      <DefaultRolloverStrategy max=\"${audit_roll_num}\" fileIndex=\"min\"/>\n" + 
+            "    </RollingFile>\n" + 
+            "  </Appenders>\n" + 
+            "  <Loggers>\n" + 
+            "    <Root level=\"${sys_log_level}\">\n" + 
+            "      <AppenderRef ref=\"Sys\"/>\n" + 
+            "      <AppenderRef ref=\"SysWF\" level=\"WARN\"/>\n" + 
+            "    </Root>\n" + 
+            "    <Logger name=\"audit\" level=\"ERROR\" additivity=\"false\">\n" + 
+            "      <AppenderRef ref=\"Auditfile\"/>\n" + 
+            "    </Logger>\n" + 
+            "    <Logger name=\"org.apache.thrift\" level=\"DEBUG\"> \n" + 
+            "      <AppenderRef ref=\"Sys\"/>\n" + 
+            "    </Logger>\n" + 
+            "    <Logger name=\"org.apache.thrift.transport\" level=\"DEBUG\"> \n" + 
+            "      <AppenderRef ref=\"Sys\"/>\n" + 
+            "    </Logger>\n" + 
+            "    <Logger name=\"org.apache.doris.thrift\" level=\"DEBUG\"> \n" + 
+            "      <AppenderRef ref=\"Sys\"/>\n" + 
+            "    </Logger>\n" + 
+            "    <!--REPLACED BY AUDIT AND VERBOSE MODULE NAMES-->\n" + 
+            "  </Loggers>\n" + 
+            "</Configuration>";
     
     private static StrSubstitutor strSub;
     private static String sysLogLevel;
@@ -101,7 +99,8 @@ public class Log4jConfig extends XmlConfiguration {
     
     private static void reconfig() throws IOException {
         String newXmlConfTemplate = xmlConfTemplate;
-        // get sys log config properties
+
+        // sys log config
         String sysLogDir = Config.sys_log_dir;
         String sysRollNum = String.valueOf(Config.sys_log_roll_num);
         
@@ -112,40 +111,30 @@ public class Log4jConfig extends XmlConfiguration {
             throw new IOException("sys_log_level config error");
         }
         
-        String sysFilePattern = "";
-        String sysRollMaxSize = "1000000000"; // default ~= 1PB
-        String sysrollMode = Config.sys_log_roll_mode;
-        if (sysrollMode.equals("TIME-HOUR")) {
-            sysFilePattern = "%d{yyyyMMddHH}";      
-        } else if (sysrollMode.equals("TIME-DAY")) {
-            sysFilePattern = "%d{yyyyMMdd}";        
-        } else if (sysrollMode.startsWith("SIZE-MB-")) {
-            sysRollMaxSize = String.valueOf(Integer.parseInt(sysrollMode.replaceAll("SIZE-MB-", "")));
-            sysFilePattern = "%i";
-            newXmlConfTemplate = newXmlConfTemplate.replaceAll("<TimeBasedTriggeringPolicy /><!--SYSLOG-->", "");
+        String sysLogRollPattern = "%d{yyyyMMdd}";
+        String sysRollMaxSize = String.valueOf(Config.log_roll_size_mb);
+        if (Config.sys_log_roll_interval.equals("HOUR")) {
+            sysLogRollPattern = "%d{yyyyMMddHH}";
+        } else if (Config.sys_log_roll_interval.equals("DAY")) {
+            sysLogRollPattern = "%d{yyyyMMdd}";
         } else {
-            throw new IOException("sys_log_roll_mode config error");
+            throw new IOException("sys_log_roll_interval config error: " + Config.sys_log_roll_interval);
         }
         
-        // get audit log config
+        // audit log config
         String auditLogDir = Config.audit_log_dir;
+        String auditLogRollPattern = "%d{yyyyMMdd}";
         String auditRollNum = String.valueOf(Config.audit_log_roll_num);
-            
-        String auditFilePattern = "";
-        String auditRollMaxSize = "1000000000"; // default ~= 1PB
-        String auditRollMode = Config.audit_log_roll_mode;
-        if (auditRollMode.equals("TIME-HOUR")) {
-            auditFilePattern = "%d{yyyyMMddHH}";        
-        } else if (auditRollMode.equals("TIME-DAY")) {
-            auditFilePattern = "%d{yyyyMMdd}";          
-        } else if (auditRollMode.startsWith("SIZE-MB-")) {
-            auditRollMaxSize = String.valueOf(Integer.parseInt(auditRollMode.replaceAll("SIZE-MB-", "")));
-            auditFilePattern = "%i";
-            newXmlConfTemplate = newXmlConfTemplate.replaceAll("<TimeBasedTriggeringPolicy /><!--AUDITLOG-->", "");
+        String auditRollMaxSize = String.valueOf(Config.log_roll_size_mb);
+        if (Config.audit_log_roll_interval.equals("HOUR")) {
+            auditLogRollPattern = "%d{yyyyMMddHH}";
+        } else if (Config.audit_log_roll_interval.equals("DAY")) {
+            auditLogRollPattern = "%d{yyyyMMdd}";
         } else {
-            throw new IOException("audit_log_roll_mode config error");
+            throw new IOException("audit_log_roll_interval config error: " + Config.audit_log_roll_interval);
         }
         
+        // verbose modules and audit log modules
         StringBuilder sb = new StringBuilder();
         for (String s : verboseModules) {
             sb.append("<Logger name='" + s + "' level='DEBUG'/>");
@@ -156,20 +145,25 @@ public class Log4jConfig extends XmlConfiguration {
         newXmlConfTemplate = newXmlConfTemplate.replaceAll("<!--REPLACED BY AUDIT AND VERBOSE MODULE NAMES-->",
                                                            sb.toString());
             
-        ConcurrentMap<String, String> properties = new ConcurrentHashMap<String, String>();
-        properties.put("audit_log_dir", auditLogDir);
-        properties.put("audit_file_pattern", auditFilePattern);
-        properties.put("audit_roll_maxsize", auditRollMaxSize);
-        properties.put("audit_roll_num", auditRollNum);
-        
+        Map<String, String> properties = Maps.newHashMap();
         properties.put("sys_log_dir", sysLogDir);
-        properties.put("sys_file_pattern", sysFilePattern);
+        properties.put("sys_file_pattern", sysLogRollPattern);
         properties.put("sys_roll_maxsize", sysRollMaxSize);
         properties.put("sys_roll_num", sysRollNum);
         properties.put("sys_log_level", sysLogLevel);
         
-        strSub = new StrSubstitutor(new Interpolator(properties));
+        properties.put("audit_log_dir", auditLogDir);
+        properties.put("audit_file_pattern", auditLogRollPattern);
+        properties.put("audit_roll_maxsize", auditRollMaxSize);
+        properties.put("audit_roll_num", auditRollNum);
         
+        strSub = new StrSubstitutor(new Interpolator(properties));
+        newXmlConfTemplate = strSub.replace(newXmlConfTemplate);
+
+        System.out.println("=====");
+        System.out.println(newXmlConfTemplate);
+        System.out.println("=====");
+
         // new SimpleLog4jConfiguration with xmlConfTemplate
         ByteArrayInputStream bis = new ByteArrayInputStream(newXmlConfTemplate.getBytes("UTF-8"));
         ConfigurationSource source = new ConfigurationSource(bis);
