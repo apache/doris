@@ -86,9 +86,9 @@ OLAPStatus TabletMetaManager::save(DataDir* store,
     std::string value;
     tablet_meta->serialize(&value);
     OlapMeta* meta = store->get_meta();
-    LOG(INFO) << "save tablet meta " 
-              << " tablet_id=" << tablet_id
-              << " schema_hash=" << schema_hash;
+    LOG(INFO) << "save tablet meta"
+              << ", key:" << key
+              << ", meta length:" << value.length();
     return meta->put(META_COLUMN_FAMILY_INDEX, key, value);
 }
 
@@ -97,12 +97,10 @@ OLAPStatus TabletMetaManager::save(DataDir* store,
     std::stringstream key_stream;
     key_stream << header_prefix << tablet_id << "_" << schema_hash;
     std::string key = key_stream.str();
-    VLOG(3) << "save tablet meta to meta store: key = " << key;
     OlapMeta* meta = store->get_meta();
     LOG(INFO) << "save tablet meta " 
-              << " tablet_id=" << tablet_id
-              << " schema_hash=" << schema_hash
-              << " meta_size=" << meta_binary.length();
+              << ", key=" << key
+              << ", meta_size=" << meta_binary.length();
     return meta->put(META_COLUMN_FAMILY_INDEX, key, meta_binary);
 }
 
