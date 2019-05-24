@@ -89,7 +89,7 @@ public:
 private:
     template <class T> friend class ClientCache;
     // Private constructor so that only ClientCache can instantiate this class.
-    ClientCacheHelper() : _metrics_enabled(false), _max_cache_size(-1) { }
+    ClientCacheHelper() : _metrics_enabled(false), _max_cache_size_per_host(-1) { }
 
     ClientCacheHelper(int max_cache_size_per_host):
         _metrics_enabled(false),

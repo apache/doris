@@ -137,7 +137,7 @@ void ClientCacheHelper::release_client(void** client_key) {
     boost::lock_guard<boost::mutex> lock(_lock);
     ClientMap::iterator client_map_entry = _client_map.find(*client_key);
     DCHECK(client_map_entry != _client_map.end());
-    ThriftClientImpl* info = i->second;
+    ThriftClientImpl* info = client_map_entry->second;
     ClientCacheMap::iterator j = _client_cache.find(make_network_address(info->ipaddress(), info->port()));
     DCHECK(j != _client_cache.end());
     
