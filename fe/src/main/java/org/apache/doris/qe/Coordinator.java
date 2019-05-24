@@ -667,8 +667,11 @@ public class Coordinator {
 
     private void cancelRemoteFragmentsAsync() {
         for (BackendExecState backendExecState : backendExecStates) {
-            LOG.warn("cancelRemoteFragments initiated={} done={} hasCanceled={}",
-                    backendExecState.initiated, backendExecState.done, backendExecState.hasCanceled);
+            TNetworkAddress address = backendExecState.getBackendAddress();
+            LOG.info("cancelRemoteFragments initiated={} done={} hasCanceled={} ip={} port={} fragment instance id={}",
+                    backendExecState.initiated, backendExecState.done, backendExecState.hasCanceled,
+                    address.hostname, address.port, DebugUtil.printId(backendExecState.getFragmentInstanceId()));
+
             backendExecState.lock();
             try {
                 if (!backendExecState.initiated) {
@@ -681,19 +684,15 @@ public class Coordinator {
                 if (backendExecState.hasCanceled) {
                     continue;
                 }
-                TNetworkAddress address = backendExecState.getBackendAddress();
-                TNetworkAddress brcAddress = toBrpcHost(address);
-
-                LOG.info("cancelRemoteFragments ip={} port={} rpcParams={}", address.hostname, address.port,
-                        DebugUtil.printId(backendExecState.getFragmentInstanceId()));
+                TNetworkAddress brpcAddress = toBrpcHost(address);
 
                 try {
                     BackendServiceProxy.getInstance().cancelPlanFragmentAsync(
-                            brcAddress, backendExecState.getFragmentInstanceId());
+                            brpcAddress, backendExecState.getFragmentInstanceId());
                 } catch (RpcException e) {
                     LOG.warn("cancel plan fragment get a exception, address={}:{}",
-                            brcAddress.getHostname(), brcAddress.getPort());
-                    SimpleScheduler.updateBlacklistBackends(addressToBackendID.get(brcAddress));
+                            brpcAddress.getHostname(), brpcAddress.getPort());
+                    SimpleScheduler.updateBlacklistBackends(addressToBackendID.get(brpcAddress));
                 }
 
                 backendExecState.hasCanceled = true;

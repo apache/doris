@@ -71,10 +71,10 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _metrics = DorisMetrics::metrics();
     _stream_mgr = new DataStreamMgr();
     _result_mgr = new ResultBufferMgr();
-    _client_cache = new BackendServiceClientCache();
-    _frontend_client_cache = new FrontendServiceClientCache();
-    _broker_client_cache = new BrokerServiceClientCache();
-    _extdatasource_client_cache = new ExtDataSourceServiceClientCache();
+    _backend_client_cache = new BackendServiceClientCache(config::max_client_cache_size_per_host);
+    _frontend_client_cache = new FrontendServiceClientCache(config::max_client_cache_size_per_host);
+    _broker_client_cache = new BrokerServiceClientCache(config::max_client_cache_size_per_host);
+    _extdatasource_client_cache = new ExtDataSourceServiceClientCache(config::max_client_cache_size_per_host);
     _mem_tracker = nullptr;
     _pool_mem_trackers = new PoolMemTrackerRegistry();
     _thread_mgr = new ThreadResourceMgr();
@@ -100,7 +100,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _stream_load_executor = new StreamLoadExecutor(this);
     _routine_load_task_executor = new RoutineLoadTaskExecutor(this);
 
-    _client_cache->init_metrics(DorisMetrics::metrics(), "backend");
+    _backend_client_cache->init_metrics(DorisMetrics::metrics(), "backend");
     _frontend_client_cache->init_metrics(DorisMetrics::metrics(), "frontend");
     _broker_client_cache->init_metrics(DorisMetrics::metrics(), "broker");
     _extdatasource_client_cache->init_metrics(DorisMetrics::metrics(), "extdatasource");
@@ -209,7 +209,7 @@ void ExecEnv::_destory() {
     delete _broker_client_cache;
     delete _extdatasource_client_cache;
     delete _frontend_client_cache;
-    delete _client_cache;
+    delete _backend_client_cache;
     delete _result_mgr;
     delete _stream_mgr;
     delete _stream_load_executor;
