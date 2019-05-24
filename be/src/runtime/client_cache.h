@@ -91,9 +91,9 @@ private:
     // Private constructor so that only ClientCache can instantiate this class.
     ClientCacheHelper() : _metrics_enabled(false), _max_cache_size(-1) { }
 
-    ClientCacheHelper(int max_cache_size) : _metrics_enabled(false), _max_cache_size(max_cache_size) { }
-
-    int get_cache_size();
+    ClientCacheHelper(int max_cache_size_per_host):
+        _metrics_enabled(false),
+        _max_cache_size_per_host(max_cache_size_per_host) { }
 
     // Protects all member variables
     // TODO: have more fine-grained locks or use lock-free data structures,
@@ -112,8 +112,8 @@ private:
     // MetricRegistry
     bool _metrics_enabled;
 
-    // max connections in this cache, -1 means unlimited
-    int _max_cache_size;
+    // max connections per host in this cache, -1 means unlimited
+    int _max_cache_size_per_host;
 
     // Number of clients 'checked-out' from the cache
     std::unique_ptr<IntGauge> _used_clients;

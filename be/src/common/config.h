@@ -414,8 +414,11 @@ namespace config {
     // If this configuration is set to true, block will seek position.
     CONF_Bool(block_seek_position, "false");
 
-    // the max client cache number of FE client cache
-    CONF_Int32(max_frontend_client_cache_size, "10");
+    // the max client cache number per each host
+    // There are variety of client cache in BE, but currently we use the
+    // same cache size configuration.
+    // TODO(cmy): use different config to set different client cache if necessary.
+    CONF_Int32(max_client_cache_size_per_host, "10");
 } // namespace config
 
 } // namespace doris
