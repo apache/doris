@@ -135,15 +135,26 @@ Status ClientCacheHelper::create_client(
 void ClientCacheHelper::release_client(void** client_key) {
     DCHECK(*client_key != NULL) << "Trying to release NULL client";
     boost::lock_guard<boost::mutex> lock(_lock);
-    ClientMap::iterator i = _client_map.find(*client_key);
-    DCHECK(i != _client_map.end());
-    ThriftClientImpl* info = i->second;
-    //VLOG_RPC << "releasing client for "
-    //         << info->ipaddress() << ":" << info->port();
-    ClientCacheMap::iterator j =
-        _client_cache.find(make_network_address(info->ipaddress(), info->port()));
-    DCHECK(j != _client_cache.end());
-    j->second.push_back(*client_key);
+    if (_max_cache_size >= 0 && get_cache_size() >= _max_cache_size) {
+        // cache is full, close it and remove it from _client_map
+        ClientMap::iterator client_map_entry = _client_map.find(*client_key);
+        DCHECK(client_map_entry != _client_map.end());
+        client_map_entry->second->close();
+        _client_map.erase(*client_key);
+
+        if (_metrics_enabled) {
+            _opened_clients->increment(-1);
+        }
+    } else {
+        // return to the cache
+        ClientMap::iterator i = _client_map.find(*client_key);
+        DCHECK(i != _client_map.end());
+        ThriftClientImpl* info = i->second;
+        // VLOG_RPC << "releasing client for " << info->ipaddress() << ":" << info->port();
+        ClientCacheMap::iterator j = _client_cache.find(make_network_address(info->ipaddress(), info->port()));
+        DCHECK(j != _client_cache.end());
+        j->second.push_back(*client_key);
+    }
 
     if (_metrics_enabled) {
         _used_clients->increment(-1);
@@ -198,6 +209,14 @@ void ClientCacheHelper::test_shutdown() {
     for (std::vector<TNetworkAddress>::iterator it = hostports.begin(); it != hostports.end();
             ++it) {
         close_connections(*it);
+    }
+}
+
+int ClientCacheHelper::get_cache_size() {
+    // MUST hold lock first
+    int size = 0;
+    BOOST_FOREACH(const ClientCacheMap::value_type & i, _client_cache) {
+        size += i.second.size();
     }
 }
 

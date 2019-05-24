@@ -413,6 +413,9 @@ namespace config {
     // This configuration is used to recover compaction under the corner case.
     // If this configuration is set to true, block will seek position.
     CONF_Bool(block_seek_position, "false");
+
+    // the max client cache number of FE client cache
+    CONF_Int32(max_frontend_client_cache_size, "10");
 } // namespace config
 
 } // namespace doris

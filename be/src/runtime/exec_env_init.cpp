@@ -72,7 +72,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _stream_mgr = new DataStreamMgr();
     _result_mgr = new ResultBufferMgr();
     _client_cache = new BackendServiceClientCache();
-    _frontend_client_cache = new FrontendServiceClientCache();
+    _frontend_client_cache = new FrontendServiceClientCache(config::max_frontend_client_cache_size);
     _broker_client_cache = new BrokerServiceClientCache();
     _extdatasource_client_cache = new ExtDataSourceServiceClientCache();
     _mem_tracker = nullptr;
