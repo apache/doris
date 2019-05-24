@@ -668,7 +668,7 @@ public class Coordinator {
     private void cancelRemoteFragmentsAsync() {
         for (BackendExecState backendExecState : backendExecStates) {
             TNetworkAddress address = backendExecState.getBackendAddress();
-            LOG.warn("cancelRemoteFragments initiated={} done={} hasCanceled={} ip={} port={} fragment instance id={}",
+            LOG.info("cancelRemoteFragments initiated={} done={} hasCanceled={} ip={} port={} fragment instance id={}",
                     backendExecState.initiated, backendExecState.done, backendExecState.hasCanceled,
                     address.hostname, address.port, DebugUtil.printId(backendExecState.getFragmentInstanceId()));
 
