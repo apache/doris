@@ -72,7 +72,7 @@ Status KafkaDataConsumer::init(StreamLoadContext* ctx) {
     RETURN_IF_ERROR(set_conf("api.version.request", "true"));
     RETURN_IF_ERROR(set_conf("api.version.fallback.ms", "0"));
 
-    for(auto& item : ctx->kafka_info->properties) {
+    for (auto& item : ctx->kafka_info->properties) {
         RETURN_IF_ERROR(set_conf(item.first, item.second));
     }
 
