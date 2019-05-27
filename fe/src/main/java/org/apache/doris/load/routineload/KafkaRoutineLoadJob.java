@@ -99,7 +99,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         return brokerList;
     }
 
-    public Map<String, String> getProperties() {
+    public Map<String, String> getCustomKafkaProperties() {
         return customKafkaProperties;
     }
 
