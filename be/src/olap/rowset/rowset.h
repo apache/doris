@@ -70,9 +70,9 @@ public:
 
     virtual RowsetMetaSharedPtr rowset_meta() const = 0;
 
-    virtual int data_disk_size() const = 0;
+    virtual size_t data_disk_size() const = 0;
 
-    virtual int index_disk_size() const = 0;
+    virtual size_t index_disk_size() const = 0;
 
     virtual bool empty() const = 0;
 

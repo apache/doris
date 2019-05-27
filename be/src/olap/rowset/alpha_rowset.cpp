@@ -123,11 +123,11 @@ RowsetMetaSharedPtr AlphaRowset::rowset_meta() const {
     return _rowset_meta;
 }
 
-int AlphaRowset::data_disk_size() const {
+size_t AlphaRowset::data_disk_size() const {
     return _rowset_meta->total_disk_size();
 }
 
-int AlphaRowset::index_disk_size() const {
+size_t AlphaRowset::index_disk_size() const {
     return _rowset_meta->index_disk_size();
 }
 
