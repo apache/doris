@@ -56,9 +56,9 @@ public:
 
     RowsetMetaSharedPtr rowset_meta() const override;
 
-    int data_disk_size() const override;
+    size_t data_disk_size() const override;
 
-    int index_disk_size() const override;
+    size_t index_disk_size() const override;
 
     bool empty() const override;
 
