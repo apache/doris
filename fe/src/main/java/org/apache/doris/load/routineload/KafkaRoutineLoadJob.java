@@ -381,11 +381,14 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         List<Integer> sortedPartitions = Lists.newArrayList(currentKafkaPartitions);
         Collections.sort(sortedPartitions);
         dataSourceProperties.put("currentKafkaPartitions", Joiner.on(",").join(sortedPartitions));
-        for (Map.Entry<String, String> property : customKafkaProperties.entrySet()) {
-            dataSourceProperties.put(property.getKey(), property.getValue());
-        }
         Gson gson = new GsonBuilder().disableHtmlEscaping().create();
         return gson.toJson(dataSourceProperties);
+    }
+
+    @Override
+    protected String customPropertiesJsonToString() {
+        Gson gson = new GsonBuilder().disableHtmlEscaping().create();
+        return gson.toJson(customKafkaProperties);
     }
 
     @Override
