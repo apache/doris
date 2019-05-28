@@ -53,6 +53,17 @@ public class FEFunctionsTest {
     }
 
     @Test
+    public void dateDiffTest() throws AnalysisException {
+        IntLiteral actualResult = FEFunctions.dateDiff(new DateLiteral("2010-11-30 23:59:59", Type.DATETIME), new DateLiteral("2010-12-31", Type.DATE));
+        IntLiteral expectedResult = new IntLiteral(-31);
+        Assert.assertEquals(expectedResult, actualResult);
+
+        actualResult = FEFunctions.dateDiff(new DateLiteral("2010-11-30 23:59:50", Type.DATETIME), new DateLiteral("2010-12-30 23:59:59", Type.DATETIME));
+        expectedResult = new IntLiteral(-30);
+        Assert.assertEquals(expectedResult, actualResult);
+    }
+
+    @Test
     public void dateAddTest() throws AnalysisException {
         DateLiteral actualResult = FEFunctions.dateAdd(new StringLiteral("2018-08-08"), new IntLiteral(1));
         DateLiteral expectedResult = new DateLiteral("2018-08-09", Type.DATE);
