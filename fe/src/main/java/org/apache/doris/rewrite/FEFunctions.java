@@ -38,6 +38,7 @@ import java.text.ParseException;
 import org.joda.time.format.DateTimeFormatter;
 import org.joda.time.format.DateTimeFormatterBuilder;
 
+import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.Locale;
@@ -55,11 +56,10 @@ public class FEFunctions {
 
     @FEFunction(name = "datediff", argTypes = { "DATETIME", "DATETIME" }, returnType = "INT")
     public static IntLiteral dateDiff(LiteralExpr first, LiteralExpr second) throws AnalysisException {
-        String[] parsePatterns = { "yyyyMMdd" };
+        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
         try {
             // DATEDIFF function only uses the date part for calculations and ignores the time part
-            long diff = DateUtils.parseDate(first.getStringValue(), parsePatterns).getTime()
-                    - DateUtils.parseDate(second.getStringValue(), parsePatterns).getTime();
+            long diff = sdf.parse(first.getStringValue()).getTime() - sdf.parse(second.getStringValue()).getTime();
             long datediff = diff / 1000 / 60 / 60 / 24;
             return new IntLiteral(datediff, Type.INT);
         } catch (ParseException e) {
