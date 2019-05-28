@@ -17,6 +17,7 @@
 
 package org.apache.doris.rewrite;
 
+import com.google.common.collect.Lists;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.FloatLiteral;
@@ -55,9 +56,15 @@ public class FEFunctions {
 
     @FEFunction(name = "datediff", argTypes = { "DATETIME", "DATETIME" }, returnType = "INT")
     public static IntLiteral dateDiff(LiteralExpr first, LiteralExpr second) throws AnalysisException {
-        long diff = getTime(first) - getTime(second);
-        long datediff = diff / 1000 / 60 / 60 / 24;
-        return new IntLiteral(datediff, Type.INT);
+        String[] parsePatterns = { "yyyyMMdd" };
+        try {
+            long diff = DateUtils.parseDate(first.getStringValue(), parsePatterns).getTime()
+                    - DateUtils.parseDate(second.getStringValue(), parsePatterns).getTime();
+            long datediff = diff / 1000 / 60 / 60 / 24;
+            return new IntLiteral(datediff, Type.INT);
+        } catch (ParseException e) {
+            throw new AnalysisException(e.getLocalizedMessage());
+        }
     }
 
     @FEFunction(name = "date_add", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME")
