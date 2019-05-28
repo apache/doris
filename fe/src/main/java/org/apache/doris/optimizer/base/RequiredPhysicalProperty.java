@@ -33,6 +33,7 @@ public class RequiredPhysicalProperty extends RequiredProperty {
         final RequiredPhysicalProperty property = new RequiredPhysicalProperty();
         property.orderProperty = OrderEnforcerProperty.EMPTY;
         property.distributionProperty = DistributionEnforcerProperty.ANY;
+        property.columns = new OptColumnRefSet();
         return property;
     }
 

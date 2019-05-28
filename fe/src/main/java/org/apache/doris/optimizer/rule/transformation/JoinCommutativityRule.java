@@ -18,10 +18,12 @@
 package org.apache.doris.optimizer.rule.transformation;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 import org.apache.doris.optimizer.OptExpression;
 import org.apache.doris.optimizer.operator.OptLogicalJoin;
 import org.apache.doris.optimizer.operator.OptPatternLeaf;
 import org.apache.doris.optimizer.rule.OptRuleType;
+import org.apache.doris.optimizer.rule.RuleCallContext;
 
 import java.util.List;
 
@@ -44,14 +46,20 @@ public class JoinCommutativityRule extends ExplorationRule {
     }
 
     @Override
-    public void transform(OptExpression expr, List<OptExpression> newExprs) {
-        final OptExpression leftChild = expr.getInput(0);
-        final OptExpression rightChild = expr.getInput(1);
-        Preconditions.checkNotNull(leftChild);
-        Preconditions.checkNotNull(rightChild);
+    public void transform(RuleCallContext call) {
+        final OptExpression originExpr = call.getOrigin();
+        final OptExpression outerChild = originExpr.getInput(0);
+        final OptExpression innerChild = originExpr.getInput(1);
+        Preconditions.checkNotNull(outerChild, "Join's outer child can't be null.");
+        Preconditions.checkNotNull(innerChild, "Join's inner child can't be null.");
 
-        final OptExpression newJoinExpr = OptExpression.create(new OptLogicalJoin(),
-                rightChild, leftChild);
-        newExprs.add(newJoinExpr);
+        final List<OptExpression> newChildrens = Lists.newArrayList();
+        newChildrens.add(innerChild);
+        newChildrens.add(outerChild);
+        for (int i = 2; i < originExpr.getInputs().size(); i++) {
+            newChildrens.add(originExpr.getInput(i));
+        }
+
+        call.addNewExpr(OptExpression.create(new OptLogicalJoin(), newChildrens));
     }
 }

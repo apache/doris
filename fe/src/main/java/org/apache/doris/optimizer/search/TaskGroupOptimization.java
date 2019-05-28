@@ -60,7 +60,7 @@ public class TaskGroupOptimization extends Task {
 
     private final OptGroup group;
     private final OptimizationContext optContext;
-    private int lastMexprIndex;
+    private MultiExpression lastMExpr;
 
     public static void schedule(SearchContext sContext, OptGroup group,
                                 OptimizationContext optContext, Task parent) {
@@ -72,7 +72,8 @@ public class TaskGroupOptimization extends Task {
         this.group = group;
         this.optContext = optContext;
         this.nextState = new InitalizingState();
-        this.lastMexprIndex = 0;
+        this.lastMExpr = null;
+        this.group.insert(optContext);
     }
 
     private class InitalizingState extends TaskState {
@@ -93,15 +94,23 @@ public class TaskGroupOptimization extends Task {
         @Override
         public void handle(SearchContext sContext) {
             boolean isSchedulingMExprTask = false;
-            for (; lastMexprIndex < group.getMultiExpressions().size(); lastMexprIndex++) {
-                final MultiExpression mExpr = group.getMultiExpressions().get(lastMexprIndex);
-                if (!mExpr.getOp().isPhysical() && sContext.getSearchVariables().isExecuteOptimization()
-                        && mExpr.isImplemented()) {
-                    continue;
+            while (lastMExpr == null || lastMExpr.next() != null) {
+                if (sContext.getSearchVariables().isExecuteOptimization()) {
+                    if (lastMExpr == null) {
+                        lastMExpr = group.getFirstPhysicalMultiExpression();
+                    } else {
+                        lastMExpr = group.nextPhysicalExpr(lastMExpr);
+                    }
+                } else {
+                    // Only explore.
+                    if (lastMExpr == null) {
+                        lastMExpr = group.getFirstLogicalMultiExpression();
+                    } else {
+                        lastMExpr = group.nextLogicalExpr(lastMExpr);
+                    }
                 }
-
-                if (isSatifisyRequiredProperty(mExpr, sContext)) {
-                    TaskMultiExpressionOptimization.schedule(sContext, mExpr,
+                if (isSatifisyRequiredProperty(lastMExpr, sContext)) {
+                    TaskMultiExpressionOptimization.schedule(sContext, lastMExpr,
                             optContext, TaskGroupOptimization.this);
                     isSchedulingMExprTask = true;
                 }

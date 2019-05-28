@@ -19,17 +19,29 @@ package org.apache.doris.optimizer.operator;
 
 import org.apache.doris.catalog.Type;
 import org.apache.doris.optimizer.base.OptColumnRef;
+import org.apache.doris.optimizer.base.OptColumnRefSet;
 
 public class OptItemProjectElement extends OptItem {
-    private OptColumnRef ref;
+    private OptColumnRef column;
 
     public OptItemProjectElement(OptColumnRef ref) {
         super(OptOperatorType.OP_ITEM_PROJECT_ELEMENT);
-        this.ref = ref;
+        this.column = ref;
     }
 
     @Override
     public Type getReturnType() {
         return null;
+    }
+
+    @Override
+    public OptColumnRefSet getGeneratedColumns() {
+        final OptColumnRefSet columnRefSet = new OptColumnRefSet();
+        columnRefSet.include(column);
+        return columnRefSet;
+    }
+
+    public OptColumnRef getColumn() {
+        return column;
     }
 }

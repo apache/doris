@@ -60,7 +60,7 @@ public class OptLogicalProject extends OptLogical {
         final OptItemProperty project = exprHandle.getChildItemProperty(1);
         columns.include(childProperty.getOutputColumns());
         columns.intersects(project.getUsedColumns());
-        columns.include(project.getDefinedColumns());
+        columns.include(project.getGeneratedColumns());
         return columns;
     }
 

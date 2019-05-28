@@ -19,6 +19,8 @@ package org.apache.doris.optimizer;
 
 import com.google.common.base.Preconditions;
 import org.apache.doris.optimizer.base.OptColumnRefSet;
+import org.apache.doris.optimizer.base.OptItemProperty;
+import org.apache.doris.optimizer.base.OptLogicalProperty;
 import org.apache.doris.optimizer.base.RequiredLogicalProperty;
 import org.apache.doris.optimizer.operator.OptExpressionHandle;
 import org.apache.doris.optimizer.operator.OptLogical;
@@ -84,4 +86,5 @@ public class OptLogicalUTLeafNode extends OptLogical {
     public OptColumnRefSet getOutputColumns(OptExpressionHandle exprHandle) {
         return new OptColumnRefSet();
     }
+
 }

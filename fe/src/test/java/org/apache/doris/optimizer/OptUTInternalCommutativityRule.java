@@ -3,6 +3,7 @@ package org.apache.doris.optimizer;
 import com.google.common.base.Preconditions;
 import org.apache.doris.optimizer.operator.OptPatternLeaf;
 import org.apache.doris.optimizer.rule.OptRuleType;
+import org.apache.doris.optimizer.rule.RuleCallContext;
 import org.apache.doris.optimizer.rule.transformation.ExplorationRule;
 
 import java.util.List;
@@ -18,6 +19,7 @@ public class OptUTInternalCommutativityRule extends ExplorationRule {
                         OptExpression.create(new OptPatternLeaf())));
     }
 
+    @Override
     public boolean isCompatible(OptRuleType type) {
         if (type == this.type()) {
             return false;
@@ -26,15 +28,16 @@ public class OptUTInternalCommutativityRule extends ExplorationRule {
     }
 
     @Override
-    public void transform(OptExpression expr, List<OptExpression> newExprs) {
-        final OptExpression leftChild = expr.getInput(0);
-        final OptExpression rightChild = expr.getInput(1);
+    public void transform(RuleCallContext call) {
+        final OptExpression originExpr = call.getOrigin();
+        final OptExpression leftChild = originExpr.getInput(0);
+        final OptExpression rightChild = originExpr.getInput(1);
         Preconditions.checkNotNull(leftChild);
         Preconditions.checkNotNull(rightChild);
 
         // TODO children's tuple need to exchange.
         final OptExpression newJoinExpr = OptExpression.create(new OptLogicalUTInternalNode(),
                 rightChild, leftChild);
-        newExprs.add(newJoinExpr);
+        call.addNewExpr(newJoinExpr);
     }
 }

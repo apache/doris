@@ -21,7 +21,8 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import org.apache.doris.optimizer.base.OptCost;
+import com.sun.org.apache.xpath.internal.operations.Mult;
+import org.apache.doris.optimizer.cost.OptCost;
 import org.apache.doris.optimizer.base.OptimizationContext;
 import org.apache.doris.optimizer.base.RequiredPhysicalProperty;
 import org.apache.doris.optimizer.rule.OptRuleType;
@@ -59,6 +60,7 @@ public class OptMemo {
     private OptGroup root;
 
     public OptMemo() {
+        reset();
     }
 
     // copy an expression into search space, this function will add an MultiExpression for
@@ -68,15 +70,26 @@ public class OptMemo {
     // Scan(A) and Scan(B).
     // We return MultiExpression rather than OptGroup because we can get OptGroup from MultiExpression
     public MultiExpression init(OptExpression originExpr) {
+        reset();
         final MultiExpression rootMExpr = copyIn(null,
                 originExpr, OptRuleType.RULE_NONE, MultiExpression.INVALID_ID);
         this.root = rootMExpr.getGroup();
         return rootMExpr;
     }
 
+    private void reset() {
+        nextGroupId = 1;
+        groups.clear();
+        unusedGroups.clear();
+        unusedMExprs.clear();
+        mExprs.clear();
+        root = null;
+    }
+
     public MultiExpression copyIn(OptExpression expr, OptRuleType type, int sourceMExprid) {
         return copyIn(null, expr, type, sourceMExprid);
     }
+
     public MultiExpression copyIn(OptGroup targetGroup, OptExpression expr) { return copyIn(targetGroup, expr, OptRuleType.RULE_NONE, MultiExpression.INVALID_ID);};
 
     // used to copy an Expression into this memo.
@@ -227,6 +240,27 @@ public class OptMemo {
 
     public List<OptGroup> getGroups() { return groups; }
     public Map<MultiExpression, MultiExpression> getMExprs() { return mExprs; }
+
+    public List<MultiExpression> getLogicalMExprs() {
+        final List<MultiExpression> logicalExprs = Lists.newArrayList();
+        for (MultiExpression mExpr : mExprs.keySet()) {
+            if (mExpr.getOp().isLogical()) {
+                logicalExprs.add(mExpr);
+            }
+        }
+        return logicalExprs;
+    }
+
+    public List<MultiExpression> getPhysicalMExprs() {
+        final List<MultiExpression> physicalExprs = Lists.newArrayList();
+        for (MultiExpression mExpr : mExprs.keySet()) {
+            if (mExpr.getOp().isPhysical()) {
+                physicalExprs.add(mExpr);
+            }
+        }
+        return physicalExprs;
+    }
+
     public OptGroup getRoot() { return this.root; }
 
     public void dump() {
@@ -261,7 +295,7 @@ public class OptMemo {
         OptimizationContext optCtx = null;
         MultiExpression bestMExpr = null;
         if (groupRoot.isItem()) {
-            bestMExpr = groupRoot.getFirstMultiExpression();
+            bestMExpr = groupRoot.getFirstLogicalMultiExpression();
         } else {
             optCtx = groupRoot.lookupBest(propertyInput);
             bestMExpr = optCtx.getBestMultiExpr();

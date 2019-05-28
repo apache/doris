@@ -25,7 +25,6 @@ public class OptPhysicalDistribution extends OptPhysical {
 
     public OptPhysicalDistribution(OptDistributionSpec spec) {
         super(OptOperatorType.OP_PHYSICAL_DISTRIBUTION, spec);
-        this.columnsRequiredForChildrenCache = Lists.newArrayList();
     }
 
     @Override

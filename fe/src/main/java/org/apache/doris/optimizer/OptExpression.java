@@ -17,15 +17,17 @@
 
 package org.apache.doris.optimizer;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import org.apache.doris.optimizer.base.OptCost;
+import org.apache.doris.optimizer.cost.OptCost;
 import org.apache.doris.optimizer.base.OptItemProperty;
 import org.apache.doris.optimizer.base.OptLogicalProperty;
 import org.apache.doris.optimizer.base.OptPhysicalProperty;
 import org.apache.doris.optimizer.base.OptProperty;
 import org.apache.doris.optimizer.operator.OptExpressionHandle;
-import org.apache.doris.optimizer.operator.OptLogicalProject;
+import org.apache.doris.optimizer.operator.OptLogical;
 import org.apache.doris.optimizer.operator.OptOperator;
+import org.apache.doris.optimizer.operator.OptPhysical;
 import org.apache.doris.optimizer.stat.Statistics;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -176,6 +178,12 @@ public class OptExpression {
         }
         property = op.createProperty();
         OptExpressionHandle handle = new OptExpressionHandle(this);
+        if (op instanceof OptLogical) {
+            handle.deriveProperty();
+        } else {
+            Preconditions.checkArgument(op instanceof OptPhysical);
+            handle.derivePlanProperty();
+        }
         property.derive(handle);
         return property;
     }

@@ -98,7 +98,7 @@ public class OptLogicalAggregate extends OptLogical {
         columns.include(childProperty.getOutputColumns());
 
         final OptItemProperty itemProperty = exprHandle.getChildItemProperty(1);
-        columns.include(itemProperty.getDefinedColumns());
+        columns.include(itemProperty.getGeneratedColumns());
         return columns;
     }
 
@@ -169,16 +169,6 @@ public class OptLogicalAggregate extends OptLogical {
     }
 
     public List<OptColumnRef> getGroupBy() { return groupByColumns; }
-
-    public enum AggType {
-        GB_LOCAL,
-        GB_GLOBAL,
-        GB_INTERMEDIATE
-    }
-
-    public enum AggStage {
-        TWO_STAGE_SCALAR_DQA,
-        THREE_STAGE_SCALAR_DQA,
-        OTHERS
-    }
+    public List<OptColumnRef> getDistinctColumns() { return dqaColumns; }
+    public boolean isDuplicate() { return dqaColumns.isEmpty(); }
 }

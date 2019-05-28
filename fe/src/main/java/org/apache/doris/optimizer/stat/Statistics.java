@@ -51,6 +51,11 @@ public class Statistics {
         this.rowCount = rowCount;
     }
 
+    // TODO ch, return width according column type.
+    public int width(OptColumnRefSet columns) {
+        return columns.cardinality();
+    }
+
     public OptColumnRefSet getStatColumns() {
         return statColumns;
     }

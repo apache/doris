@@ -20,7 +20,10 @@ package org.apache.doris.optimizer;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import org.apache.doris.optimizer.base.OptCostContext;
+import org.apache.doris.optimizer.base.OptimizationContext;
 import org.apache.doris.optimizer.base.RequiredLogicalProperty;
+import org.apache.doris.optimizer.cost.CostModel;
 import org.apache.doris.optimizer.operator.OptExpressionHandle;
 import org.apache.doris.optimizer.operator.OptLogical;
 import org.apache.doris.optimizer.operator.OptOperator;
@@ -81,7 +84,7 @@ public class MultiExpression {
     public OptRuleType getRuleTypeDerivedFrom() { return ruleTypeDerivedFrom; }
     public void setStatus(MEState status) { this.status = status; }
     public MEState getStatus() { return status; }
-    public boolean isImplemented() { return status == MEState.Implemented; }
+    public boolean isImplemented() { return status == MEState.Implemented || op.isPhysical(); }
     public boolean isOptimized() { return status == MEState.Optimized; }
     public void setNext(MultiExpression next) { this.next = next; }
     public void setInvalid() { this.group = null; }
@@ -99,6 +102,13 @@ public class MultiExpression {
     public Statistics deriveStat(OptExpressionHandle exprHandle, RequiredLogicalProperty property) {
         final OptLogical logical = (OptLogical)op;
         return logical.deriveStat(exprHandle, property);
+    }
+
+    public OptCostContext computeCost(OptimizationContext context, CostModel costModel) {
+        final OptCostContext costContext = new OptCostContext(this, context);
+        costContext.setStatistics(this.group.getStatistics());
+        costContext.compute(costModel);
+        return costContext;
     }
 
     public String debugString() {

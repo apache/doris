@@ -166,10 +166,8 @@ public class StatisticsEstimator {
     }
 
     public static Statistics estimateOlapScan(
-            BaseTableRef table, RequiredLogicalProperty property) {
-        Preconditions.checkArgument(table.getTable().getType() == Table.TableType.OLAP);
+            OlapTable olapTable, RequiredLogicalProperty property) {
         final Statistics statistics = new Statistics();
-        final OlapTable olapTable = (OlapTable) table.getTable();
         for (int id : property.getColumns().getColumnIds()) {
             statistics.addRow(id, estimateCardinalityWithRows(olapTable.getRowCount()));
         }

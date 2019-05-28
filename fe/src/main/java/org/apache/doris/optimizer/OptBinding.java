@@ -106,7 +106,7 @@ public class OptBinding {
         if (lastExpr != null) {
             mExpr = lastExpr.getMExpr();
         } else {
-            mExpr = group.getFirstMultiExpression();
+            mExpr = group.getFirstLogicalMultiExpression();
         }
 
         // Fast path. When pattern is PatternLeaf and lastExpr is not null it means that

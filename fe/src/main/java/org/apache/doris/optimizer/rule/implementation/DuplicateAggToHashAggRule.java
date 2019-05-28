@@ -6,6 +6,7 @@ import org.apache.doris.optimizer.operator.OptOperatorType;
 import org.apache.doris.optimizer.operator.OptPatternLeaf;
 import org.apache.doris.optimizer.operator.OptPatternMultiTree;
 import org.apache.doris.optimizer.rule.OptRuleType;
+import org.apache.doris.optimizer.rule.RuleCallContext;
 
 import java.util.List;
 
@@ -22,8 +23,8 @@ public class DuplicateAggToHashAggRule extends ImplemetationRule {
                 ));
     }
 
-    @Override
-    public void transform(OptExpression expr, List<OptExpression> newExprs) {
+//    @Override
+//    public void transform(OptExpression expr, List<OptExpression> newExprs) {
 //        final OptLogicalAggregate operator = (OptLogicalAggregate) expr.getOp();
 //        if (!operator.isDuplicate()) {
 //            return;
@@ -51,5 +52,10 @@ public class DuplicateAggToHashAggRule extends ImplemetationRule {
 //                mergeChildren);
 //
 //        newExprs.add(mergeExpr);
+//    }
+
+    @Override
+    public void transform(RuleCallContext call) {
+
     }
 }

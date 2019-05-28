@@ -21,8 +21,7 @@ import com.google.common.base.Preconditions;
 import org.apache.doris.optimizer.operator.OptPatternLeaf;
 import org.apache.doris.optimizer.rule.OptRule;
 import org.apache.doris.optimizer.rule.OptRuleType;
-
-import java.util.List;
+import org.apache.doris.optimizer.rule.RuleCallContext;
 
 public class OptUTInternalImplementation extends OptRule {
 
@@ -33,20 +32,21 @@ public class OptUTInternalImplementation extends OptRule {
                 OptExpression.create(
                         new OptLogicalUTInternalNode(),
                         OptExpression.create(new OptPatternLeaf()),
-                        OptExpression.create(new OptPatternLeaf())
-                ));
+                        OptExpression.create(new OptPatternLeaf()))
+                );
     }
 
     @Override
-    public void transform(OptExpression expr, List<OptExpression> newExprs) {
-        final OptExpression leftChild = expr.getInput(0);
-        final OptExpression rightChild = expr.getInput(1);
+    public void transform(RuleCallContext call) {
+        final OptExpression originExpr = call.getOrigin();
+        final OptExpression leftChild = originExpr.getInput(0);
+        final OptExpression rightChild = originExpr.getInput(1);
         Preconditions.checkNotNull(leftChild);
         Preconditions.checkNotNull(rightChild);
         final OptExpression newExpr = OptExpression.create(
                 new OptPhysicalUTInternalNode(),
                 leftChild,
                 rightChild);
-        newExprs.add(newExpr);
+        call.addNewExpr(newExpr);
     }
 }

@@ -17,13 +17,13 @@
 
 package org.apache.doris.optimizer.rule.implementation;
 
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
 import org.apache.doris.optimizer.OptExpression;
-import org.apache.doris.optimizer.operator.*;
+import org.apache.doris.optimizer.operator.OptLogicalInnerJoin;
+import org.apache.doris.optimizer.operator.OptPatternLeaf;
+import org.apache.doris.optimizer.operator.OptPatternMultiTree;
+import org.apache.doris.optimizer.operator.OptPhysicalHashJoin;
 import org.apache.doris.optimizer.rule.OptRuleType;
-
-import java.util.List;
+import org.apache.doris.optimizer.rule.RuleCallContext;
 
 public class InnerJoinToHashJoinRule extends ImplemetationRule {
 
@@ -40,35 +40,11 @@ public class InnerJoinToHashJoinRule extends ImplemetationRule {
     }
 
     @Override
-    public void transform(OptExpression expr, List<OptExpression> newExprs) {
-//        final List<OptExpression> eqConjuncts = Lists.newArrayList();
-//        final List<OptExpression> otherConjuncts = Lists.newArrayList();
-//        final List<OptExpression> conjuncts = Lists.newArrayList();
-//        for (int i = 2; i < expr.getInputs().size(); i++) {
-//            final OptExpression child = expr.getInput(i);
-//            if (child.isEqConjunct()) {
-//                eqConjuncts.add(child);
-//            } else if (child.isOtherConjunct()) {
-//                otherConjuncts.add(child);
-//            } else if (child.isConjunct()) {
-//                conjuncts.add(child);
-//            } else  {
-//                Preconditions.checkArgument(false,
-//                        "Join should't have other type scalar except conjunct.");
-//            }
-//        }
-//        if (eqConjuncts.size() < 1) {
-//            return;
-//        }
-//
-//        final OptExpression outerChild = expr.getInput(0);
-//        final OptExpression innerChild = expr.getInput(1);
-//        Preconditions.checkNotNull(outerChild);
-//        Preconditions.checkNotNull(innerChild);
-//
-//        final OptExpression newExpr = OptExpression.create(
-//                new OptPhysicalHashJoin(eqConjuncts, otherConjuncts, conjuncts),
-//                expr.getInputs());
-//        newExprs.add(newExpr);
+    public void transform(RuleCallContext call) {
+        final OptExpression originExpr = call.getOrigin();
+        final OptExpression newExpr = OptExpression.create(
+                new OptPhysicalHashJoin(),
+                originExpr.getInputs());
+        call.addNewExpr(newExpr);
     }
 }

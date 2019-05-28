@@ -20,6 +20,7 @@ package org.apache.doris.optimizer;
 import com.google.common.base.Preconditions;
 import org.apache.doris.optimizer.operator.OptPatternLeaf;
 import org.apache.doris.optimizer.rule.OptRuleType;
+import org.apache.doris.optimizer.rule.RuleCallContext;
 import org.apache.doris.optimizer.rule.transformation.ExplorationRule;
 
 import java.util.List;
@@ -38,9 +39,10 @@ public class OptUTInternalAssociativityRule extends ExplorationRule {
     }
 
     @Override
-    public void transform(OptExpression expr, List<OptExpression> newExprs) {
-        final OptExpression leftChildJoin = expr.getInput(0);
-        final OptExpression rightChild = expr.getInput(1);
+    public void transform(RuleCallContext call) {
+        final OptExpression originExpr = call.getOrigin();
+        final OptExpression leftChildJoin = originExpr.getInput(0);
+        final OptExpression rightChild = originExpr.getInput(1);
         Preconditions.checkNotNull(leftChildJoin);
         Preconditions.checkNotNull(rightChild);
         final OptExpression leftChildJoinLeftChild = leftChildJoin.getInput(0);
@@ -57,6 +59,6 @@ public class OptUTInternalAssociativityRule extends ExplorationRule {
                 new OptLogicalUTInternalNode(),
                 newLeftChildJoin,
                 leftChildJoinRightChild);
-        newExprs.add(newTopJoin);
+        call.addNewExpr(newTopJoin);
     }
 }

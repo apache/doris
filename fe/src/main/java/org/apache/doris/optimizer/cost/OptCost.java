@@ -15,28 +15,31 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.optimizer.rule.implementation;
+package org.apache.doris.optimizer.cost;
 
-import org.apache.doris.optimizer.OptExpression;
-import org.apache.doris.optimizer.operator.OptLogicalScan;
-import org.apache.doris.optimizer.operator.OptPhysicalOlapScan;
-import org.apache.doris.optimizer.rule.OptRuleType;
-import org.apache.doris.optimizer.rule.RuleCallContext;
+public final class OptCost implements Comparable<OptCost> {
+    private double cost;
 
-import java.util.List;
+    public OptCost() {
+        cost = 0.0;
+    }
 
-public class OlapScanRule extends ImplemetationRule {
+    public OptCost(double cost) {
+        this.cost = cost;
+    }
 
-    public static OlapScanRule INSTANCE = new OlapScanRule();
-
-    private OlapScanRule() {
-        super(OptRuleType.RULE_IMP_OLAP_LSCAN_TO_PSCAN,
-                OptExpression.create(
-                        new OptLogicalScan()));
+    public void add(OptCost cost) {
+        this.cost += cost.cost;
     }
 
     @Override
-    public void transform(RuleCallContext call) {
-
+    public int compareTo(OptCost o) {
+        if (cost == o.cost) {
+            return 0;
+        } else if (cost < o.cost) {
+            return -1;
+        } else {
+            return 1;
+        }
     }
 }

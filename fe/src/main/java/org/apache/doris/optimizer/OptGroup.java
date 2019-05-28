@@ -36,11 +36,10 @@ import java.util.Set;
 // and physical MultiExpressions
 public class OptGroup {
     private static final Logger LOG = LogManager.getLogger(OptGroup.class);
-
+    private static int nextMExprId = 1;
     private int id;
     private boolean isItem;
     private List<MultiExpression> mExprs = Lists.newArrayList();
-    private static int nextMExprId = 1;
     private GState status;
     private Map<OptimizationContext, OptimizationContext> optContextMap;
     private OptProperty property;
@@ -97,28 +96,89 @@ public class OptGroup {
     public String getExplain() {
         return getExplain("", "");
     }
+
     public boolean duplicateWith(OptGroup other) {
         return this == other;
     }
 
-
     public MultiExpression getFirstMultiExpression() {
-        if (mExprs.isEmpty()) { return null; }
+        if (mExprs.isEmpty()) {
+            return null;
+        }
         return mExprs.get(0);
     }
 
+    public MultiExpression getFirstLogicalMultiExpression() {
+        if (mExprs.isEmpty()) {
+            return null;
+        }
+        final MultiExpression first = mExprs.get(0);
+        if (first.getOp().isLogical()) {
+            return first;
+        }
+        return nextLogicalExpr(first);
+    }
+
+    public MultiExpression getFirstPhysicalMultiExpression() {
+        if (mExprs.isEmpty()) {
+            return null;
+        }
+        final MultiExpression first = mExprs.get(0);
+        if (first.getOp().isPhysical()) {
+            return first;
+        }
+
+        return nextPhysicalExpr(first);
+    }
+
+    public MultiExpression nextLogicalExpr(MultiExpression mExpr) {
+        if (mExpr == null) {
+            return null;
+        }
+        MultiExpression nextExpr = mExpr;
+        while (nextExpr.next() != null && !nextExpr.next().getOp().isLogical()) {
+            nextExpr = nextExpr.next();
+        }
+        return nextExpr.next();
+    }
+
+    public MultiExpression nextPhysicalExpr(MultiExpression mExpr) {
+        if (mExpr == null) {
+            return null;
+        }
+        MultiExpression nextExpr = mExpr;
+        while (nextExpr.next() != null && !nextExpr.next().getOp().isPhysical()) {
+            nextExpr = nextExpr.next();
+        }
+        return nextExpr.next();
+    }
+
+    public MultiExpression nextExpr(MultiExpression mExpr) {
+        return mExpr.next();
+    }
+
     public int getId() { return id; }
+
     public boolean isImplemented() { return status == GState.Implemented; }
+
     public boolean isOptimized() { return status == GState.Optimized; }
+
     public boolean isItem() { return isItem; }
+
     public List<MultiExpression> getMultiExpressions() { return mExprs; }
-    public OptimizationContext lookUp(OptimizationContext newContext) { return optContextMap.get(newContext); }
-    public void setStatus(GState status) { this.status = status; }
+
     public GState getStatus() { return status; }
+
+    public void setStatus(GState status) { this.status = status; }
+
     public OptProperty getProperty() { return property; }
+
     public void setProperty(OptProperty property) { this.property = property; }
+
     public Statistics getStatistics() { return statistics; }
+
     public void setStatistics(Statistics statistics) { this.statistics = statistics; }
+
     public OptExpression getItemExpression() { return itemExpression; }
 
     public void mergeGroup(OptGroup other) {
@@ -185,13 +245,14 @@ public class OptGroup {
         return mExprs.get(0);
     }
 
-    public enum GState {
-        Unimplemented,
-        Implementing,
-        Implemented,
-        Optimizing,
-        Optimized
+    public void insert(OptimizationContext newContext) {
+        Preconditions.checkArgument(optContextMap.put(newContext, newContext) == null);
     }
+
+    public OptimizationContext lookUp(OptimizationContext newContext) {
+        return optContextMap.get(newContext);
+    }
+
 
     public void updateBestCost(OptimizationContext optContext, OptCostContext costContext) {
         final OptimizationContext existOptContext = optContextMap.get(optContext);
@@ -209,6 +270,14 @@ public class OptGroup {
     public OptimizationContext lookupBest(RequiredPhysicalProperty property) {
         OptimizationContext optCtx = new OptimizationContext(this, property);
         return optContextMap.get(optCtx);
+    }
+
+    public enum GState {
+        Unimplemented,
+        Implementing,
+        Implemented,
+        Optimizing,
+        Optimized
     }
 
 }

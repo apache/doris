@@ -18,6 +18,7 @@
 package org.apache.doris.optimizer.search;
 
 import com.google.common.base.Preconditions;
+import org.apache.doris.optimizer.OptMemo;
 
 /**
  * Base class for Cascades search task.
@@ -70,9 +71,55 @@ public abstract class Task {
         return isFinished();
     }
 
+    protected void setInitMemoStatus(SearchContext sContext) {
+        final OptMemo memo = sContext.getMemo();
+
+    }
+
     // Base class for StateMacheine's state.
     protected abstract class TaskState {
         public abstract void handle(SearchContext sContext);
     }
 
+    protected static class TaskExecutionInfo {
+        private long groupsNumBefore;
+        private long groupsNumFinished;
+        private long mExprsNumBefore;
+        private long mExprsNumFinished;
+
+        public TaskExecutionInfo() {
+        }
+
+        public long getGroupsNumBefore() {
+            return groupsNumBefore;
+        }
+
+        public void setGroupsNumBefore(long groupsNumBefore) {
+            this.groupsNumBefore = groupsNumBefore;
+        }
+
+        public long getGroupsNumFinished() {
+            return groupsNumFinished;
+        }
+
+        public void setGroupsNumFinished(long groupsNumFinished) {
+            this.groupsNumFinished = groupsNumFinished;
+        }
+
+        public long getmExprsNumBefore() {
+            return mExprsNumBefore;
+        }
+
+        public void setmExprsNumBefore(long mExprsNumBefore) {
+            this.mExprsNumBefore = mExprsNumBefore;
+        }
+
+        public long getmExprsNumFinished() {
+            return mExprsNumFinished;
+        }
+
+        public void setmExprsNumFinished(long mExprsNumFinished) {
+            this.mExprsNumFinished = mExprsNumFinished;
+        }
+    }
 }

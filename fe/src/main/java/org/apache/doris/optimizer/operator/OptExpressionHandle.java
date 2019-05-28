@@ -27,7 +27,7 @@ import org.apache.doris.optimizer.stat.Statistics;
 
 import java.util.List;
 
-public class OptExpressionHandle {
+public final class OptExpressionHandle {
     private OptExpression expression;
     private MultiExpression multiExpr;
     private OptCostContext costContext;
@@ -175,7 +175,7 @@ public class OptExpressionHandle {
      * 2. save operator and direct children's logical properties,
      * physical properties, and statistics.
      */
-    public void derivePhysicalProperty() {
+    public void derivePlanProperty() {
         Preconditions.checkNotNull(multiExpr,
                 "Only support MultiExpression to derive physical property.");
         Preconditions.checkState(multiExpr.getOp().isPhysical(),
@@ -217,15 +217,15 @@ public class OptExpressionHandle {
      */
     public void deriveProperty() {
         if (multiExpr != null) {
-            Preconditions.checkArgument(multiExpr.getOp().isLogical());
             copyProperties();
             return;
         }
 
-        Preconditions.checkArgument(expression.getOp().isLogical(),
-                "Expression must be logcial.");
-        Preconditions.checkNotNull(expression,
-                "expression is null.");
+        if (expression.getProperty() != null) {
+            copyProperties();
+            return;
+        }
+        copyStats();
 
         for (OptExpression input : expression.getInputs()) {
             final OptProperty property = input.deriveProperty();

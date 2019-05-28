@@ -54,4 +54,9 @@ public class OptItemFunctionCall extends OptItem {
         sb.append(prefix).append("ItemFunctionCall(op=").append(expr.getFnName()).append(")");
         return sb.toString();
     }
+
+    public FunctionCallExpr getFunction() {
+        return expr;
+    }
+
 }

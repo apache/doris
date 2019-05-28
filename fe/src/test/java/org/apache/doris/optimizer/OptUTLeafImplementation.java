@@ -17,11 +17,9 @@
 
 package org.apache.doris.optimizer;
 
-import org.apache.doris.optimizer.operator.OptPhysicalOlapScan;
 import org.apache.doris.optimizer.rule.OptRuleType;
+import org.apache.doris.optimizer.rule.RuleCallContext;
 import org.apache.doris.optimizer.rule.implementation.ImplemetationRule;
-
-import java.util.List;
 
 public class OptUTLeafImplementation extends ImplemetationRule {
 
@@ -34,8 +32,8 @@ public class OptUTLeafImplementation extends ImplemetationRule {
     }
 
     @Override
-    public void transform(OptExpression expr, List<OptExpression> newExprs) {
-        final OptExpression newExpr = OptExpression.create(new OptPhysicalOlapScan());
-        newExprs.add(newExpr);
+    public void transform(RuleCallContext call) {
+        final OptExpression newExpr = OptExpression.create(new OptPhysicalUTLeafNode());
+        call.addNewExpr(newExpr);
     }
 }
