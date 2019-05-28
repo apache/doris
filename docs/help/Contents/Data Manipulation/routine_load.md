@@ -157,6 +157,13 @@
 
                     "kafka_partitions" = "0,1,2,3",
                     "kafka_offsets" = "101,0,OFFSET_BEGINNING,OFFSET_END"
+            
+            4. property
+                指定自定义kafka参数
+                功能等同于kafka shell中 "--property" 参数
+                
+                示例:
+                    "property.client.id" = "12345"
 
 
     7. 导入数据格式样例
@@ -317,6 +324,8 @@
         OFFSET_BEGINNING: 表示用户指定了从头开始消费，并且还未开始消费。
         OFFSET_END: 表示用户指定了从末尾开始消费，并且还未开始消费。
         OFFSET_ZERO: 表示用户指定了从 0 开始消费，并且还未开始消费。
+        
+    14. CustomProperties: 自定义参数。
 
 ## example
 

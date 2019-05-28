@@ -979,6 +979,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             row.add(String.valueOf(getSizeOfRoutineLoadTaskInfoList()));
             row.add(jobPropertiesToJsonString());
             row.add(dataSourcePropertiesJsonToString());
+            row.add(customPropertiesJsonToString());
             row.add(getStatistic());
             row.add(getProgress().toJsonString());
             switch (state) {
@@ -1042,6 +1043,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     }
 
     abstract String dataSourcePropertiesJsonToString();
+
+    abstract String customPropertiesJsonToString();
 
 
     public boolean needRemove() {

@@ -136,6 +136,8 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     private String kafkaTopic;
     // pair<partition id, offset>
     private List<Pair<Integer, Long>> kafkaPartitionOffsets = Lists.newArrayList();
+    //custom kafka property map<key, value>
+    private Map<String, String> customKafkaProperties = Maps.newHashMap();
 
     private static final Predicate<Long> DESIRED_CONCURRENT_NUMBER_PRED = (v) -> { return v > 0L; };
     private static final Predicate<Long> MAX_ERROR_NUMBER_PRED = (v) -> { return v >= 0L; };
@@ -206,6 +208,9 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         return kafkaPartitionOffsets;
     }
 
+    public Map<String, String> getCustomKafkaProperties() {
+        return customKafkaProperties;
+    }
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
@@ -318,7 +323,8 @@ public class CreateRoutineLoadStmt extends DdlStmt {
 
     private void checkKafkaProperties() throws AnalysisException {
         Optional<String> optional = dataSourceProperties.keySet().parallelStream()
-                .filter(entity -> !KAFKA_PROPERTIES_SET.contains(entity)).findFirst();
+                .filter(entity -> !KAFKA_PROPERTIES_SET.contains(entity))
+                .filter(entity -> !entity.startsWith("property.")).findFirst();
         if (optional.isPresent()) {
             throw new AnalysisException(optional.get() + " is invalid kafka custom property");
         }
@@ -393,6 +399,19 @@ public class CreateRoutineLoadStmt extends DdlStmt {
                     }
                 }
             }
+        }
+        // check custom kafka property
+        for (Map.Entry<String, String> dataSourceProperty : dataSourceProperties.entrySet()) {
+            if (dataSourceProperty.getKey().startsWith("property.")) {
+                String propertyKey = dataSourceProperty.getKey();
+                String propertyValue = dataSourceProperty.getValue();
+                String propertyValueArr[] = propertyKey.split("\\.");
+                if (propertyValueArr.length < 2) {
+                    throw new AnalysisException("kafka property value could not be a empty string");
+                }
+                customKafkaProperties.put(propertyKey.substring(propertyKey.indexOf(".") + 1), propertyValue);
+            }
+            //can be extended in the future which other prefix
         }
     }
 
