@@ -58,7 +58,7 @@ public class FEFunctionsTest {
         IntLiteral expectedResult = new IntLiteral(-31);
         Assert.assertEquals(expectedResult, actualResult);
 
-        actualResult = FEFunctions.dateDiff(new StringLiteral("2010-11-30 23:59:50"), new StringLiteral("2010-12-30  23:59:59"));
+        actualResult = FEFunctions.dateDiff(new StringLiteral("2010-11-30 23:59:50"), new StringLiteral("2010-12-30 23:59:59"));
         expectedResult = new IntLiteral(-30);
         Assert.assertEquals(expectedResult, actualResult);
     }
