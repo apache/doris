@@ -170,8 +170,8 @@ OLAPStatus TabletManager::_add_tablet_to_map(TTabletId tablet_id, SchemaHash sch
      // check if new tablet's meta is in store and add new tablet's meta to meta store
     OLAPStatus res = OLAP_SUCCESS;
     if (update_meta) {
-        res = TabletMetaManager::save(tablet->data_dir(), 
-            tablet->tablet_id(), tablet->schema_hash(), tablet->tablet_meta());
+        // call tablet save meta in order to valid the meta
+        res = tablet->save_meta();
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "failed to save new tablet's meta to meta store" 
                             << " tablet_id = " << tablet_id
@@ -826,7 +826,14 @@ OLAPStatus TabletManager::load_tablet_from_dir(
     std::string shard_path = boost_header_path.parent_path().parent_path().parent_path().string();
     std::string shard_str = shard_path.substr(shard_path.find_last_of('/') + 1);
     int32_t shard = stol(shard_str);
-    OLAPStatus res = OLAP_SUCCESS;
+    // load dir is called by clone, restore, storage migration
+    // should change tablet uid when tablet object changed
+    OLAPStatus res = TabletMeta::reset_tablet_uid(header_path);
+    if (res != OLAP_SUCCESS) {
+        LOG(WARNING) << "failed to set tablet uid when copied tablet meta file"
+                     << " header_path=" << header_path;
+        return res;
+    }
     TabletMetaSharedPtr tablet_meta(new(nothrow) TabletMeta());
     do {
         if (access(header_path.c_str(), F_OK) != 0) {
