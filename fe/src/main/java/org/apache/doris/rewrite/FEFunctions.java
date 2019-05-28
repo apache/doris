@@ -17,7 +17,6 @@
 
 package org.apache.doris.rewrite;
 
-import com.google.common.collect.Lists;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.FloatLiteral;
