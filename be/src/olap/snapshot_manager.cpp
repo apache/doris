@@ -182,6 +182,7 @@ OLAPStatus SnapshotManager::convert_rowset_ids(DataDir& data_dir, const string& 
         }
     }
 
+    std::unordered_map<Version, RowsetMetaPB*, HashOfVersion> _rs_version_map;
     for (auto& visible_rowset : cloned_tablet_meta_pb.rs_metas()) {
         RowsetMetaPB* rowset_meta = new_tablet_meta_pb.add_rs_metas();
         RowsetId rowset_id = 0;
@@ -193,9 +194,18 @@ OLAPStatus SnapshotManager::convert_rowset_ids(DataDir& data_dir, const string& 
         RETURN_NOT_OK(_rename_rowset_id(visible_rowset, clone_dir, data_dir, tablet_schema, rowset_id, rowset_meta));
         rowset_meta->set_tablet_id(tablet_id);
         rowset_meta->set_tablet_schema_hash(schema_hash);
+        Version rowset_version = {visible_rowset.start_version(), visible_rowset.end_version()};
+        _rs_version_map[rowset_version] = rowset_meta;
     }
 
     for (auto& inc_rowset : cloned_tablet_meta_pb.inc_rs_metas()) {
+        Version rowset_version = {inc_rowset.start_version(), inc_rowset.end_version()};
+        auto exist_rs = _rs_version_map.find(rowset_version); 
+        if (exist_rs != _rs_version_map.end()) {
+            RowsetMetaPB* rowset_meta = new_tablet_meta_pb.add_inc_rs_metas();
+            *rowset_meta = *(exist_rs->second);
+            continue;
+        }
         RowsetMetaPB* rowset_meta = new_tablet_meta_pb.add_inc_rs_metas();
         RowsetId rowset_id = 0;
         if (tablet != nullptr) {
@@ -207,10 +217,13 @@ OLAPStatus SnapshotManager::convert_rowset_ids(DataDir& data_dir, const string& 
         rowset_meta->set_tablet_id(tablet_id);
         rowset_meta->set_tablet_schema_hash(schema_hash);
     }
-    // not deal with tablet == nullptr
-    // because if tablet != nullptr, then it will not use the new tablet meta ps's next rowset id
-    // if it == nullptr, it will use new tablet meta pb, next rowset id is right
-    new_tablet_meta_pb.set_end_rowset_id(next_rowset_id);
+    RowsetId new_next_rowset_id = 0;
+    if (tablet != nullptr) {
+        RETURN_NOT_OK(tablet->next_rowset_id(&new_next_rowset_id));
+    } else {
+        new_next_rowset_id = next_rowset_id + 1;
+    }
+    new_tablet_meta_pb.set_end_rowset_id(new_next_rowset_id);
 
     res = TabletMeta::save(cloned_meta_file, new_tablet_meta_pb);
     if (res != OLAP_SUCCESS) {
