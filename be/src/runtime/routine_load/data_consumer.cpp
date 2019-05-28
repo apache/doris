@@ -72,6 +72,10 @@ Status KafkaDataConsumer::init(StreamLoadContext* ctx) {
     RETURN_IF_ERROR(set_conf("api.version.request", "true"));
     RETURN_IF_ERROR(set_conf("api.version.fallback.ms", "0"));
 
+    for (auto& item : ctx->kafka_info->properties) {
+        RETURN_IF_ERROR(set_conf(item.first, item.second));
+    }
+
     if (conf->set("event_cb", &_k_event_cb, errstr) != RdKafka::Conf::CONF_OK) {
         std::stringstream ss;
         ss << "failed to set 'event_cb'";
