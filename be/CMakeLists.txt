@@ -178,11 +178,11 @@ set_target_properties(brpc PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/
 add_library(rocksdb STATIC IMPORTED)
 set_target_properties(rocksdb PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/librocksdb.a)
 
-add_library(librdkafka STATIC IMPORTED)
-set_target_properties(librdkafka PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/librdkafka.a)
-
 add_library(librdkafka_cpp STATIC IMPORTED)
 set_target_properties(librdkafka_cpp PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/librdkafka++.a)
+
+add_library(librdkafka STATIC IMPORTED)
+set_target_properties(librdkafka PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/librdkafka.a)
 
 find_program(THRIFT_COMPILER thrift ${CMAKE_SOURCE_DIR}/bin)
 
@@ -290,7 +290,7 @@ set(CXX_FLAGS_DEBUG "${CXX_GCC_FLAGS} -Werror -ggdb")
 #   -O3: Enable all compiler optimizations
 #   -DNDEBUG: Turn off dchecks/asserts/debug only code.
 #   -gdwarf-2: Debug information is stored as dwarf2 to be as compatible as possible
-set(CXX_FLAGS_RELEASE "${CXX_GCC_FLAGS} -O3 -gdwarf-2")
+set(CXX_FLAGS_RELEASE "${CXX_GCC_FLAGS} -O3 -gdwarf-2 -DNDEBUG")
 
 SET(CXX_FLAGS_ASAN "${CXX_GCC_FLAGS} -O1 -fsanitize=address -DADDRESS_SANITIZER")
 SET(CXX_FLAGS_LSAN "${CXX_GCC_FLAGS} -O1 -fsanitize=leak -DLEAK_SANITIZER")
@@ -440,9 +440,10 @@ set(DORIS_LINK_LIBS
 
 # Set thirdparty libraries
 set(DORIS_DEPENDENCIES
+    ${WL_START_GROUP}
     rocksdb
-    librdkafka
     librdkafka_cpp
+    librdkafka
     lzo
     snappy
     ${Boost_LIBRARIES}
@@ -456,7 +457,6 @@ set(DORIS_DEPENDENCIES
     libevent
     mysql
     curl
-    ${WL_START_GROUP}
     ${LIBZ}
     ${LIBBZ2}
     gflags
@@ -464,8 +464,8 @@ set(DORIS_DEPENDENCIES
     protobuf
     openssl
     crypto
-    ${WL_START_GROUP}
     leveldb
+    ${WL_END_GROUP}
 )
 
 # Add all external dependencies. They should come after the palo libs.

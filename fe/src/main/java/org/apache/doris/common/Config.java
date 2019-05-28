@@ -18,46 +18,67 @@
 package org.apache.doris.common;
 
 public class Config extends ConfigBase {
+    
+    /*
+     * The max size of one sys log and audit log
+     */
+    @ConfField public static int log_roll_size_mb = 1024; // 1 GB
 
     /*
-     * This specifies FE log dir. FE will produces 2 log files:
-     * fe.log:      all logs of FE process.
-     * fe.warn.log  all WARNING and ERROR log of FE process.
+     * sys_log_dir:
+     *      This specifies FE log dir. FE will produces 2 log files:
+     *      fe.log:      all logs of FE process.
+     *      fe.warn.log  all WARNING and ERROR log of FE process.
+     *      
+     * sys_log_level:
+     *      INFO, WARNING, ERROR, FATAL
+     *      
+     * sys_log_roll_num:
+     *      Maximal FE log files to be kept.
+     *      
+     * sys_log_verbose_modules:
+     *      Verbose modules. VERBOSE level is implemented by log4j DEBUG level.
+     *      eg:
+     *          sys_log_verbose_modules = org.apache.doris.catalog
+     *      This will only print debug log of files in package org.apache.doris.catalog and all its sub packages.
+     *      
+     * sys_log_roll_interval:
+     *      DAY:  log suffix is yyyyMMdd
+     *      HOUR: log suffix is yyyyMMddHH
      */
     @ConfField public static String sys_log_dir = System.getenv("DORIS_HOME") + "/log";
-    @ConfField public static String sys_log_level = "INFO"; // INFO, WARNING, ERROR, FATAL
-    /*
-     * The roll mode of FE log files.
-     * TIME-DAY:    roll every day.
-     * TIME-HOUR:   roll every hour.
-     * SIZE-MB-nnn: roll by size.
-     */
-    @ConfField public static String sys_log_roll_mode = "SIZE-MB-1024"; // TIME-DAY， TIME-HOUR， SIZE-MB-nnn
-    /*
-     * Maximal FE log files to be kept.
-     * Doesn't work if roll mode is TIME-*
-     */
+    @ConfField public static String sys_log_level = "INFO"; 
     @ConfField public static int sys_log_roll_num = 10;
-
-    /*
-     * Verbose modules. VERBOSE level is implemented by log4j DEBUG level.
-     * eg:
-     *      sys_log_verbose_modules = org.apache.doris.catalog
-     *  This will only print verbose log of files in package org.apache.doris.catalog and all its sub packages.
-     */
     @ConfField public static String[] sys_log_verbose_modules = {};
+    @ConfField public static String sys_log_roll_interval = "DAY";
+    @Deprecated
+    @ConfField public static String sys_log_roll_mode = "SIZE-MB-1024";
 
     /*
-     * This specifies FE audit log dir.
-     * Audit log fe.audit.log contains all SQL queries with related infos such as user, host, cost, status, etc.
+     * audit_log_dir:
+     *      This specifies FE audit log dir.
+     *      Audit log fe.audit.log contains all requests with related infos such as user, host, cost, status, etc.
+     * 
+     * audit_log_roll_num:
+     *      Maximal FE audit log files to be kept.
+     *      
+     * audit_log_modules:
+     *       Slow query contains all queries which cost exceed *qe_slow_log_ms*
+     *       
+     * qe_slow_log_ms:
+     *      If the response time of a query exceed this threshold, it will be recored in audit log as slow_query.
+     *      
+     * audit_log_roll_interval:
+     *      DAY:  log suffix is yyyyMMdd
+     *      HOUR: log suffix is yyyyMMddHH
      */
     @ConfField public static String audit_log_dir = System.getenv("DORIS_HOME") + "/log";
-    /*
-     * Slow query contains all queries which cost exceed *qe_slow_log_ms*
-     */
+    @ConfField public static int audit_log_roll_num = 90; // nearly 3 months
     @ConfField public static String[] audit_log_modules = {"slow_query", "query"};
-    @ConfField public static String audit_log_roll_mode = "TIME-DAY"; // TIME-DAY， TIME-HOUR， SIZE-MB-nnn
-    @ConfField public static int audit_log_roll_num = 10; // Doesn't work if roll mode is TIME-*
+    @ConfField(mutable = true) public static long qe_slow_log_ms = 5000;
+    @ConfField public static String audit_log_roll_interval = "DAY";
+    @Deprecated
+    @ConfField public static String audit_log_roll_mode = "TIME-DAY";
 
     /*
      * Labels of finished or cancelled load jobs will be removed after *label_keep_max_second*
@@ -340,6 +361,18 @@ public class Config extends ConfigBase {
     public static int stream_load_default_timeout_second = 300; // 300s
 
     /*
+     * Max stream load timeout
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int max_stream_load_timeout_second = 259200; // 3days
+
+    /*
+    * Min stream load timeout
+    */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int min_stream_load_timeout_second = 1; // 1s
+
+    /*
      * Default hadoop load timeout
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -510,11 +543,7 @@ public class Config extends ConfigBase {
      * Maximal number of connections per user, per FE.
      */
     @ConfField public static int max_conn_per_user = 100;
-    /*
-     * If the response time of a query exceed this threshold, it will be recored in audit log as slow_query.
-     */
-    @ConfField(mutable = true)
-    public static long qe_slow_log_ms = 5000;
+
     /*
     * The memory_limit for colocote join PlanFragment instance =
     * exec_mem_limit / min (query_colocate_join_memory_limit_penalty_factor, instance_num)
@@ -744,5 +773,30 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static boolean disable_balance = false;
+    
+    // This threshold is to avoid piling up too many report task in FE, which may cause OOM exception.
+    // In some large Doris cluster, eg: 100 Backends with ten million replicas, a tablet report may cost
+    // several seconds after some modification of metadata(drop partition, etc..).
+    // And one Backend will report tablets info every 1 min, so unlimited receiving reports is unacceptable.
+    // TODO(cmy): we will optimize the processing speed of tablet report in future, but now, just discard
+    // the report if queue size exceeding limit.
+    // Some online time cost:
+    // 1. disk report: 0-1 ms
+    // 2. task report: 0-1 ms
+    // 3. tablet report 
+    //      10000 replicas: 200ms
+    @ConfField(mutable = true, masterOnly = true)
+    public static int report_queue_size = 100;
+    
+    /*
+     * If set to true, metric collector will be run as a daemon timer to collect metrics at fix interval
+     */
+    @ConfField public static boolean enable_metric_calculator = true;
+
+    /*
+     * the max concurrent task num of a routine load task
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int max_routine_load_task_concurrent_num = 5;
 }
 

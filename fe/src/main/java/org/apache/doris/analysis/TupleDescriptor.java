@@ -17,20 +17,21 @@
 
 package org.apache.doris.analysis;
 
-import java.util.ArrayList;
-import java.util.List;
-
-import org.apache.logging.log4j.Logger;
-import org.apache.logging.log4j.LogManager;
-
 import org.apache.doris.catalog.ColumnStats;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.thrift.TTupleDescriptor;
+
 import com.google.common.base.Joiner;
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.util.ArrayList;
+import java.util.List;
 
 public class TupleDescriptor {
     private static final Logger LOG = LogManager.getLogger(TupleDescriptor.class);
@@ -216,7 +217,7 @@ public class TupleDescriptor {
         }
 
         this.byteSize = offset;
-        LOG.debug("tuple is {}", byteSize);
+        // LOG.debug("tuple is {}", byteSize);
     }
 
     /**

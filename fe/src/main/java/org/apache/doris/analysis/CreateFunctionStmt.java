@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSortedMap;
 import org.apache.commons.codec.binary.Hex;
+import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.ScalarFunction;
@@ -40,11 +41,22 @@ import java.util.Map;
 
 // create a user define function
 public class CreateFunctionStmt extends DdlStmt {
+    public static final String OBJECT_FILE_KEY = "object_file";
+    public static final String SYMBOL_KEY = "symbol";
+    public static final String MD5_CHECKSUM = "md5";
+    public static final String INIT_KEY = "init_fn";
+    public static final String UPDATE_KEY = "update_fn";
+    public static final String MERGE_KEY = "merge_fn";
+    public static final String SERIALIZE_KEY = "serialize_fn";
+    public static final String FINALIZE_KEY = "finalize_fn";
+    public static final String GET_VALUE_KEY = "get_value_fn";
+    public static final String REMOVE_KEY = "remove_fn";
 
     private final FunctionName functionName;
     private final boolean isAggregate;
     private final FunctionArgsDef argsDef;
     private final TypeDef returnType;
+    private TypeDef intermediateType;
     private final Map<String, String> properties;
 
     // needed item set after analyzed
@@ -53,11 +65,12 @@ public class CreateFunctionStmt extends DdlStmt {
     private String checksum;
 
     public CreateFunctionStmt(boolean isAggregate, FunctionName functionName, FunctionArgsDef argsDef,
-                              TypeDef returnType, Map<String, String> properties) {
+                              TypeDef returnType, TypeDef intermediateType, Map<String, String> properties) {
         this.functionName = functionName;
         this.isAggregate = isAggregate;
         this.argsDef = argsDef;
         this.returnType = returnType;
+        this.intermediateType = intermediateType;
         if (properties == null) {
             this.properties = ImmutableSortedMap.of();
         } else {
@@ -93,8 +106,12 @@ public class CreateFunctionStmt extends DdlStmt {
         argsDef.analyze(analyzer);
 
         returnType.analyze(analyzer);
+        if (intermediateType != null) {
+            intermediateType.analyze(analyzer);
+        } else {
+            intermediateType = returnType;
+        }
 
-        String OBJECT_FILE_KEY = "object_file";
         objectFile = properties.get(OBJECT_FILE_KEY);
         if (Strings.isNullOrEmpty(objectFile)) {
             throw new AnalysisException("No 'object_file' in properties");
@@ -105,7 +122,6 @@ public class CreateFunctionStmt extends DdlStmt {
             throw new AnalysisException("cannot to compute object's checksum");
         }
 
-        String MD5_CHECKSUM = "md5";
         String md5sum = properties.get(MD5_CHECKSUM);
         if (md5sum != null && !md5sum.equalsIgnoreCase(checksum)) {
             throw new AnalysisException("library's checksum is not equal with input, checksum=" + checksum);
@@ -132,11 +148,31 @@ public class CreateFunctionStmt extends DdlStmt {
     }
 
     private void analyzeUda() throws AnalysisException {
-        throw new AnalysisException("Not support aggregate function now.");
+        AggregateFunction.AggregateFunctionBuilder builder = AggregateFunction.AggregateFunctionBuilder.createUdfBuilder();
+
+        builder.name(functionName).argsType(argsDef.getArgTypes()).retType(returnType.getType())
+                .intermediateType(intermediateType.getType()).objectFile(objectFile);
+        String initFnSymbol = properties.get(INIT_KEY);
+        if (initFnSymbol == null) {
+            throw new AnalysisException("No 'init_fn' in properties");
+        }
+        String updateFnSymbol = properties.get(UPDATE_KEY);
+        if (updateFnSymbol == null) {
+            throw new AnalysisException("No 'update_fn' in properties");
+        }
+        String mergeFnSymbol = properties.get(MERGE_KEY);
+        if (mergeFnSymbol == null) {
+            throw new AnalysisException("No 'merge_fn' in properties");
+        }
+        function = builder.initFnSymbol(initFnSymbol)
+                .updateFnSymbol(updateFnSymbol).mergeFnSymbol(mergeFnSymbol)
+                .serializeFnSymbol(properties.get(SERIALIZE_KEY)).finalizeFnSymbol(properties.get(FINALIZE_KEY))
+                .getValueFnSymbol(properties.get(GET_VALUE_KEY)).removeFnSymbol(properties.get(REMOVE_KEY))
+                .build();
+        function.setChecksum(checksum);
     }
 
     private void analyzeUdf() throws AnalysisException {
-        final String SYMBOL_KEY = "symbol";
         String symbol = properties.get(SYMBOL_KEY);
         if (Strings.isNullOrEmpty(symbol)) {
             throw new AnalysisException("No 'symbol' in properties");

@@ -66,6 +66,7 @@ public class OperationType {
     public static final short OP_RENAME_ROLLUP = 120;
 
     // 30~39 130~139 230~239 ...
+    // load job for only hadoop load
     public static final short OP_LOAD_START = 30;
     public static final short OP_LOAD_ETL = 31;
     public static final short OP_LOAD_LOADING = 32;
@@ -156,4 +157,13 @@ public class OperationType {
     public static final short OP_ADD_FUNCTION = 130;
     public static final short OP_DROP_FUNCTION = 131;
 
+    // routine load 200
+    public static final short OP_CREATE_ROUTINE_LOAD_JOB = 200;
+    public static final short OP_CHANGE_ROUTINE_LOAD_JOB = 201;
+    public static final short OP_REMOVE_ROUTINE_LOAD_JOB = 202;
+
+    // load job v2 for broker load 230~250
+    public static final short OP_CREATE_LOAD_JOB = 230;
+    // this finish op include finished and cancelled
+    public static final short OP_END_LOAD_JOB = 231;
 }

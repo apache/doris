@@ -1,14 +1,14 @@
 # Apache Doris (incubating)
 [![Join the chat at https://gitter.im/apache-doris/Lobby](https://badges.gitter.im/apache-doris/Lobby.svg)](https://gitter.im/apache-doris/Lobby?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 
-Doris is an MPP-based interactive SQL data warehousing for reporting and analysis. It open-sourced by Baidu. 
+Doris is an MPP-based interactive SQL data warehousing for reporting and analysis. It is open-sourced by Baidu. 
 
 ## 1. License
 
 [Apache License, Version 2.0](http://www.apache.org/licenses/LICENSE-2.0)
 
 ## 2. Technology
-Doris mainly integrates the technology of Google Mesa and Apache Impala, and it based on a column-oriented storage engine and can communicate by MySQL client.
+Doris mainly integrates the technology of Google Mesa and Apache Impala, and it is based on a column-oriented storage engine and can communicate by MySQL client.
 
 ## 3. User cases
 Doris not only provides high concurrent low latency point query performance, but also provides high throughput queries of ad-hoc analysis. 

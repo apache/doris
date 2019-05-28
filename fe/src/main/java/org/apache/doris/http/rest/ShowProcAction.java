@@ -17,6 +17,8 @@
 
 package org.apache.doris.http.rest;
 
+import org.apache.doris.analysis.RedirectStatus;
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.ProcResult;
@@ -27,6 +29,10 @@ import org.apache.doris.http.BaseResponse;
 import org.apache.doris.http.IllegalArgException;
 import org.apache.doris.http.UnauthorizedException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.MasterOpExecutor;
+import org.apache.doris.qe.ShowResultSet;
+import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Strings;
 import com.google.gson.Gson;
@@ -54,8 +60,9 @@ public class ShowProcAction extends RestBaseAction {
     @Override
     public void execute(BaseRequest request, BaseResponse response) {
         // check authority
+        AuthorizationInfo authInfo;
         try {
-            AuthorizationInfo authInfo = getAuthorizationInfo(request);
+            authInfo = getAuthorizationInfo(request);
             checkGlobalAuth(authInfo, PrivPredicate.ADMIN);
         } catch (UnauthorizedException e) {
             response.appendContent("Authentication Failed. " + e.getMessage());
@@ -64,33 +71,73 @@ public class ShowProcAction extends RestBaseAction {
         }
 
         String path = request.getSingleParameter("path");
-        ProcNodeInterface procNode = null;
-        ProcService instance = ProcService.getInstance();
-        try {
-            if (Strings.isNullOrEmpty(path)) {
-                procNode = instance.open("/");
-            } else {
-                procNode = instance.open(path);
-            }
-        } catch (AnalysisException e) {
-            LOG.warn(e.getMessage());
-            response.getContent().append("[]");
+        String forward = request.getSingleParameter("forward");
+        boolean isForward = false;
+        if (!Strings.isNullOrEmpty(forward) && forward.equals("true")) {
+            isForward = true;
         }
 
-        if (procNode != null) {
-            ProcResult result;
-            try {
-                result = procNode.fetchResult();
-                List<List<String>> rows = result.getRows();
+        // forward to master if necessary
+        if (!Catalog.getCurrentCatalog().isMaster() && isForward) {
+            String showProcStmt = "SHOW PROC \"" + path + "\"";
+            ConnectContext context = new ConnectContext(null);
+            context.setCatalog(Catalog.getCurrentCatalog());
+            context.setCluster(SystemInfoService.DEFAULT_CLUSTER);
+            context.setQualifiedUser(authInfo.fullUserName);
+            context.setRemoteIP(authInfo.remoteIp);
+            MasterOpExecutor masterOpExecutor = new MasterOpExecutor(showProcStmt, context,
+                    RedirectStatus.FORWARD_NO_SYNC);
+            LOG.debug("need to transfer to Master. stmt: {}", context.getStmtId());
 
-                Gson gson = new Gson();
-                response.setContentType("application/json");
-                response.getContent().append(gson.toJson(rows));
+            try {
+                masterOpExecutor.execute();
+            } catch (Exception e) {
+                response.appendContent("Failed to forward stmt: " + e.getMessage());
+                sendResult(request, response);
+                return;
+            }
+
+            ShowResultSet resultSet = masterOpExecutor.getProxyResultSet();
+            if (resultSet == null) {
+                response.appendContent("Failed to get result set");
+                sendResult(request, response);
+                return;
+            }
+
+            Gson gson = new Gson();
+            response.setContentType("application/json");
+            response.getContent().append(gson.toJson(resultSet.getResultRows()));
+
+        } else {
+            ProcNodeInterface procNode = null;
+            ProcService instance = ProcService.getInstance();
+            try {
+                if (Strings.isNullOrEmpty(path)) {
+                    procNode = instance.open("/");
+                } else {
+                    procNode = instance.open(path);
+                }
             } catch (AnalysisException e) {
                 LOG.warn(e.getMessage());
                 response.getContent().append("[]");
             }
+
+            if (procNode != null) {
+                ProcResult result;
+                try {
+                    result = procNode.fetchResult();
+                    List<List<String>> rows = result.getRows();
+
+                    Gson gson = new Gson();
+                    response.setContentType("application/json");
+                    response.getContent().append(gson.toJson(rows));
+                } catch (AnalysisException e) {
+                    LOG.warn(e.getMessage());
+                    response.getContent().append("[]");
+                }
+            }
         }
+
         sendResult(request, response);
     }
 }

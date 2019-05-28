@@ -1106,7 +1106,6 @@ public class SchemaChangeJob extends AlterJob {
                 jobInfo.add(state.name()); // job state
                 jobInfo.add("N/A"); // progress
                 jobInfo.add(cancelMsg);
-
                 jobInfos.add(jobInfo);
                 return;
             }
@@ -1122,33 +1121,38 @@ public class SchemaChangeJob extends AlterJob {
 
         // calc progress and state for each table
         for (Long indexId : changedIndexIdToSchemaVersion.keySet()) {
-            int totalReplicaNum = 0;
-            int finishedReplicaNum = 0;
-            String idxState = IndexState.NORMAL.name();
-            for (Partition partition : tbl.getPartitions()) {
-                MaterializedIndex index = partition.getIndex(indexId);
-
-                if (state == JobState.RUNNING) {
-                    int tableReplicaNum = getTotalReplicaNumByIndexId(indexId);
-                    int tableFinishedReplicaNum = getFinishedReplicaNumByIndexId(indexId);
-                    Preconditions.checkState(!(tableReplicaNum == 0 && tableFinishedReplicaNum == -1));
-                    Preconditions.checkState(tableFinishedReplicaNum <= tableReplicaNum,
-                            tableFinishedReplicaNum + "/" + tableReplicaNum);
-                    totalReplicaNum += tableReplicaNum;
-                    finishedReplicaNum += tableFinishedReplicaNum;
-                }
-
-                if (index.getState() != IndexState.NORMAL) {
-                    idxState = index.getState().name();
-                }
-            }
-
-            indexState.put(indexId, idxState);
-
-            if (Catalog.getInstance().isMaster() && state == JobState.RUNNING && totalReplicaNum != 0) {
-                indexProgress.put(indexId, (finishedReplicaNum * 100 / totalReplicaNum) + "%");
+            if (tbl.getIndexNameById(indexId) == null) {
+                // this index may be dropped, and this should be a FINISHED job, just use a dummy info to show
+                indexState.put(indexId, IndexState.NORMAL.name());
+                indexProgress.put(indexId, "100%");
             } else {
-                indexProgress.put(indexId, "0%");
+                int totalReplicaNum = 0;
+                int finishedReplicaNum = 0;
+                String idxState = IndexState.NORMAL.name();
+                for (Partition partition : tbl.getPartitions()) {
+                    MaterializedIndex index = partition.getIndex(indexId);
+                    if (state == JobState.RUNNING) {
+                        int tableReplicaNum = getTotalReplicaNumByIndexId(indexId);
+                        int tableFinishedReplicaNum = getFinishedReplicaNumByIndexId(indexId);
+                        Preconditions.checkState(!(tableReplicaNum == 0 && tableFinishedReplicaNum == -1));
+                        Preconditions.checkState(tableFinishedReplicaNum <= tableReplicaNum,
+                                tableFinishedReplicaNum + "/" + tableReplicaNum);
+                        totalReplicaNum += tableReplicaNum;
+                        finishedReplicaNum += tableFinishedReplicaNum;
+                    }
+
+                    if (index.getState() != IndexState.NORMAL) {
+                        idxState = index.getState().name();
+                    }
+                }
+
+                indexState.put(indexId, idxState);
+
+                if (Catalog.getInstance().isMaster() && state == JobState.RUNNING && totalReplicaNum != 0) {
+                    indexProgress.put(indexId, (finishedReplicaNum * 100 / totalReplicaNum) + "%");
+                } else {
+                    indexProgress.put(indexId, "0%");
+                }
             }
         }
 
@@ -1159,7 +1163,7 @@ public class SchemaChangeJob extends AlterJob {
             jobInfo.add(tbl.getName());
             jobInfo.add(TimeUtils.longToTimeString(createTime));
             jobInfo.add(TimeUtils.longToTimeString(finishedTime));
-            jobInfo.add(tbl.getIndexNameById(indexId)); // index name
+            jobInfo.add(tbl.getIndexNameById(indexId) == null ? "N/A" : tbl.getIndexNameById(indexId)); // index name
             jobInfo.add(indexId);
             // index schema version and schema hash
             jobInfo.add(changedIndexIdToSchemaVersion.get(indexId) + "-" + changedIndexIdToSchemaHash.get(indexId));
@@ -1358,7 +1362,7 @@ public class SchemaChangeJob extends AlterJob {
     @Override
     public String toString() {
         return "SchemaChangeJob [tableName=" + tableName + ", type=" + type + ", state=" + state + ", dbId=" + dbId
-                + ", tableId=" + tableId + ", transactionId=" + transactionId + ", hasPreviousLoadFinished="
-                + hasPreviousLoadFinished + ", createTime=" + createTime + ", finishedTime=" + finishedTime + "]";
+                + ", tableId=" + tableId + ", transactionId=" + transactionId + ", isPreviousLoadFinished="
+                + isPreviousLoadFinished + ", createTime=" + createTime + ", finishedTime=" + finishedTime + "]";
     }
 }

@@ -18,6 +18,8 @@
 #include "exprs/json_functions.h"
 
 #include <string>
+#include <boost/tokenizer.hpp>
+#include <boost/algorithm/string.hpp>
 #include <gtest/gtest.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/document.h>
@@ -27,6 +29,7 @@
 #include "runtime/runtime_state.h"
 #include "common/object_pool.h"
 #include "util/logging.h"
+#include "util/stopwatch.hpp"
 
 namespace doris {
 
@@ -42,14 +45,14 @@ TEST_F(JsonFunctionTest, string)
     std::string json_string("{\"id\":\"name\",\"age\":11,\"money\":123000.789}");
     std::string path_string("$.id");
     rapidjson::Document document1;
-    rapidjson::Value* res1 = JsonFunctions::get_json_object(json_string, path_string,
+    rapidjson::Value* res1 = JsonFunctions::get_json_object(nullptr, json_string, path_string,
                       JSON_FUN_STRING, &document1);
     ASSERT_EQ(std::string(res1->GetString()), "name");
 
     std::string json_string2("{\"price a\": [0,1,2],\"couponFee\":0}");
     std::string path_string2("$.price a");
     rapidjson::Document document2;
-    rapidjson::Value* res2 = JsonFunctions::get_json_object(json_string2, path_string2,
+    rapidjson::Value* res2 = JsonFunctions::get_json_object(nullptr, json_string2, path_string2,
                        JSON_FUN_STRING, &document2);
     rapidjson::StringBuffer buf2;
     rapidjson::Writer<rapidjson::StringBuffer> writer2(buf2);
@@ -59,7 +62,7 @@ TEST_F(JsonFunctionTest, string)
     std::string json_string3("{\"price a\": [],\"couponFee\":0}");
     std::string path_string3("$.price a");
     rapidjson::Document document3;
-    rapidjson::Value* res3 = JsonFunctions::get_json_object(json_string3, path_string3,
+    rapidjson::Value* res3 = JsonFunctions::get_json_object(nullptr, json_string3, path_string3,
                        JSON_FUN_STRING, &document3);
     rapidjson::StringBuffer buf3;
     rapidjson::Writer<rapidjson::StringBuffer> writer3(buf3);
@@ -69,16 +72,16 @@ TEST_F(JsonFunctionTest, string)
     std::string json_string4("{\"price a\": [],\"couponFee\":null}");
     std::string path_string4("$.couponFee");
     rapidjson::Document document4;
-    rapidjson::Value* res4 = JsonFunctions::get_json_object(json_string4, path_string4,
+    rapidjson::Value* res4 = JsonFunctions::get_json_object(nullptr, json_string4, path_string4,
                        JSON_FUN_STRING, &document4);
     ASSERT_TRUE(res4->IsNull());
 
-    std::string json_string5("{\"blockNames\": {}," 
+    std::string json_string5("{\"blockNames\": {},"
         "\"seatCategories\": [{\"areas\": [{\"areaId\": 205705999,\"blockIds\": []},"
         "{\"areaId\": 205705998,\"blockIds\": []}],\"seatCategoryId\": 338937290}]}");
     std::string path_string5_1("$.blockNames");
     rapidjson::Document document5_1;
-    rapidjson::Value* res5_1 = JsonFunctions::get_json_object(json_string5, path_string5_1,
+    rapidjson::Value* res5_1 = JsonFunctions::get_json_object(nullptr, json_string5, path_string5_1,
                        JSON_FUN_STRING, &document5_1);
     rapidjson::StringBuffer buf5_1;
     rapidjson::Writer<rapidjson::StringBuffer> writer5_1(buf5_1);
@@ -87,7 +90,7 @@ TEST_F(JsonFunctionTest, string)
 
     std::string path_string5_2("$.seatCategories.areas.blockIds");
     rapidjson::Document document5_2;
-    rapidjson::Value* res5_2 = JsonFunctions::get_json_object(json_string5, path_string5_2,
+    rapidjson::Value* res5_2 = JsonFunctions::get_json_object(nullptr, json_string5, path_string5_2,
                        JSON_FUN_STRING, &document5_2);
     rapidjson::StringBuffer buf5_2;
     rapidjson::Writer<rapidjson::StringBuffer> writer5_2(buf5_2);
@@ -96,7 +99,7 @@ TEST_F(JsonFunctionTest, string)
 
     std::string path_string5_3("$.seatCategories.areas[0].areaId");
     rapidjson::Document document5_3;
-    rapidjson::Value* res5_3 = JsonFunctions::get_json_object(json_string5, path_string5_3,
+    rapidjson::Value* res5_3 = JsonFunctions::get_json_object(nullptr, json_string5, path_string5_3,
                        JSON_FUN_STRING, &document5_2);
     rapidjson::StringBuffer buf5_3;
     rapidjson::Writer<rapidjson::StringBuffer> writer5_3(buf5_3);
@@ -109,7 +112,7 @@ TEST_F(JsonFunctionTest, int)
     std::string json_string("{\"id\":\"name\",\"age\":11,\"money\":123000.789}");
     std::string path_string("$.age");
     rapidjson::Document document;
-    rapidjson::Value* res = JsonFunctions::get_json_object(json_string, path_string,
+    rapidjson::Value* res = JsonFunctions::get_json_object(nullptr, json_string, path_string,
                       JSON_FUN_INT, &document);
     ASSERT_EQ(res->GetInt(), 11);
 
@@ -118,27 +121,27 @@ TEST_F(JsonFunctionTest, int)
             "{\"id\":[{\"kk\":\"cc\"}]}]}");
     std::string path_string1("$.list.id.aa[0]");
     rapidjson::Document document1;
-    rapidjson::Value* res1 = JsonFunctions::get_json_object(json_string1, path_string1,
+    rapidjson::Value* res1 = JsonFunctions::get_json_object(nullptr, json_string1, path_string1,
                        JSON_FUN_INT, &document1);
     ASSERT_EQ(res1->GetInt(), 1);
 
     std::string json_string2("[1,2,3,5,8,0]");
     std::string path_string2("$.[3]");
     rapidjson::Document document2;
-    rapidjson::Value* res2 = JsonFunctions::get_json_object(json_string2, path_string2,
+    rapidjson::Value* res2 = JsonFunctions::get_json_object(nullptr, json_string2, path_string2,
                        JSON_FUN_INT, &document2);
     ASSERT_EQ(res2->GetInt(), 5);
 
     std::string json_string3("{\"price a\": [0,1,2],\"couponFee\":0.0}");
     std::string path_string3_1("$.price a[3]");
     rapidjson::Document document3_1;
-    rapidjson::Value* res3_1 = JsonFunctions::get_json_object(json_string3, path_string3_1,
+    rapidjson::Value* res3_1 = JsonFunctions::get_json_object(nullptr, json_string3, path_string3_1,
                          JSON_FUN_INT, &document3_1);
     ASSERT_TRUE(res3_1->IsNull());
 
     std::string path_string3_2("$.couponFee");
     rapidjson::Document document3_2;
-    rapidjson::Value* res3_2 = JsonFunctions::get_json_object(json_string3, path_string3_2,
+    rapidjson::Value* res3_2 = JsonFunctions::get_json_object(nullptr, json_string3, path_string3_2,
                          JSON_FUN_INT, &document3_2);
     ASSERT_FALSE(res3_2->IsInt());
 }
@@ -148,15 +151,39 @@ TEST_F(JsonFunctionTest, double)
     std::string json_string("{\"id\":\"name\",\"age\":11,\"money\":123000.789}");
     std::string path_string("$.money");
     rapidjson::Document document;
-    rapidjson::Value* res = JsonFunctions::get_json_object(json_string, path_string,
+    rapidjson::Value* res = JsonFunctions::get_json_object(nullptr, json_string, path_string,
                       JSON_FUN_DOUBLE, &document);
     ASSERT_EQ(res->GetDouble(), 123000.789);
 
     std::string path_string2("$.age");
     rapidjson::Document document2;
-    rapidjson::Value* res2 = JsonFunctions::get_json_object(json_string, path_string2,
+    rapidjson::Value* res2 = JsonFunctions::get_json_object(nullptr, json_string, path_string2,
                        JSON_FUN_DOUBLE, &document2);
     ASSERT_EQ(res2->GetInt(), 11);
+}
+
+TEST_F(JsonFunctionTest, special_char)
+{
+    std::string json_string("{\"key with.dot\": [\"v1\", \"v2\"]}");
+    std::string path_string("$.\"key with.dot\"[1]");
+    rapidjson::Document document;
+    rapidjson::Value* res = JsonFunctions::get_json_object(nullptr, json_string, path_string, JSON_FUN_DOUBLE, &document);
+    ASSERT_FALSE(res->GetString() == nullptr);
+    ASSERT_EQ(std::string(res->GetString()), "v2");
+
+    std::string json_string2("{\"key with|\": [\"v1\", \"v2\"]}");
+    std::string path_string2("$.key with|[0]");
+    rapidjson::Document document2;
+    rapidjson::Value* res2 = JsonFunctions::get_json_object(nullptr, json_string2, path_string2, JSON_FUN_DOUBLE, &document2);
+    ASSERT_FALSE(res2->GetString() == nullptr);
+    ASSERT_EQ(std::string(res2->GetString()), "v1");
+
+    std::string json_string3("{\"key with.dot\": [{\"key2.dot\":\"v1\"}, {\"key3.dot\":\"v2\"}]}");
+    std::string path_string3("$.\"key with.dot\"[0].\"key2.dot\"");
+    rapidjson::Document document3;
+    rapidjson::Value* res3 = JsonFunctions::get_json_object(nullptr, json_string3, path_string3, JSON_FUN_DOUBLE, &document3);
+    ASSERT_FALSE(res3->GetString() == nullptr);
+    ASSERT_EQ(std::string(res3->GetString()), "v1");
 }
 
 }

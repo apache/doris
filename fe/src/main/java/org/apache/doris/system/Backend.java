@@ -24,7 +24,6 @@ import org.apache.doris.catalog.DiskInfo.DiskState;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
 import org.apache.doris.thrift.TDisk;
 
@@ -315,6 +314,20 @@ public class Backend implements Writable {
         return dataUsedCapacityB;
     }
 
+    public double getMaxDiskUsedPct() {
+        ImmutableMap<String, DiskInfo> disks = disksRef.get();
+        double maxPct = 0.0;
+        for (DiskInfo diskInfo : disks.values()) {
+            if (diskInfo.getState() == DiskState.ONLINE) {
+                double percent = diskInfo.getUsedPct();
+                if (percent > maxPct) {
+                    maxPct = percent;
+                }
+            }
+        }
+        return maxPct;
+    }
+
     public String getPathByPathHash(long pathHash) {
         for (DiskInfo diskInfo : disksRef.get().values()) {
             if (diskInfo.getPathHash() == pathHash) {
@@ -385,8 +398,6 @@ public class Backend implements Writable {
             disksRef.set(ImmutableMap.copyOf(newDisks));
             // log disk changing
             Catalog.getInstance().getEditLog().logBackendStateChange(this);
-            // disks is changed, regenerated capacity metrics
-            MetricRepo.generateCapacityMetrics();
         }
     }
 

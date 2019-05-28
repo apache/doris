@@ -338,7 +338,7 @@ OLAPStatus OLAPHeader::add_pending_segment_group(
                     LOG(WARNING) << "pending segment_group already exists in header."
                         << "transaction_id:" << transaction_id
                         << ", pending_segment_group_id: " << pending_segment_group_id;
-                    return OLAP_ERR_HEADER_ADD_PENDING_DELTA;
+                    return OLAP_SUCCESS;
                 }
             }
         }
@@ -754,7 +754,7 @@ OLAPStatus OLAPHeader::select_versions_to_span(const Version& target_version,
 
     VLOG(10) << "calculated shortest path. "
              << "version=" << target_version.first << "-" << target_version.second
-             << "path=" << shortest_path_for_debug.str();
+             << " path=" << shortest_path_for_debug.str();
 
     return OLAP_SUCCESS;
 }

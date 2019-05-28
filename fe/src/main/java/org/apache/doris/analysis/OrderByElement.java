@@ -17,11 +17,12 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.common.AnalysisException;
+
+import com.google.common.collect.Lists;
+
 import java.util.ArrayList;
 import java.util.List;
-
-import org.apache.doris.common.AnalysisException;
-import com.google.common.collect.Lists;
 
 /**
  * Combination of expr and ASC/DESC, and nulls ordering.
@@ -97,7 +98,7 @@ public class OrderByElement {
      * @throws AnalysisException
      */
     public static ArrayList<OrderByElement> substitute(List<OrderByElement> src,
-            ExprSubstitutionMap smap, Analyzer analyzer) {
+            ExprSubstitutionMap smap, Analyzer analyzer) throws AnalysisException {
         ArrayList<OrderByElement> result = Lists.newArrayListWithCapacity(src.size());
 
         for (OrderByElement element: src) {

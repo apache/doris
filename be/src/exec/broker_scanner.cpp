@@ -24,8 +24,8 @@
 #include "runtime/exec_env.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/raw_value.h"
-#include "runtime/load_stream_mgr.h"
-#include "runtime/stream_load_pipe.h"
+#include "runtime/stream_load/load_stream_mgr.h"
+#include "runtime/stream_load/stream_load_pipe.h"
 #include "runtime/tuple.h"
 #include "exprs/expr.h"
 #include "exec/text_converter.h"
@@ -178,6 +178,7 @@ Status BrokerScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
         {
             COUNTER_UPDATE(_rows_read_counter, 1);
             SCOPED_TIMER(_materialize_timer);
+            _counter->num_rows_total++;
             if (convert_one_row(Slice(ptr, size), tuple, tuple_pool)) {
                 break;
             }
@@ -237,6 +238,7 @@ Status BrokerScanner::open_file_reader() {
     case TFileType::FILE_STREAM: {
         _stream_load_pipe = _state->exec_env()->load_stream_mgr()->get(range.load_id);
         if (_stream_load_pipe == nullptr) {
+            VLOG(3) << "unknown stream load id: " << UniqueId(range.load_id);
             return Status("unknown stream load id");
         }
         _cur_file_reader = _stream_load_pipe.get();
@@ -582,6 +584,7 @@ bool BrokerScanner::fill_dest_tuple(const Slice& line, Tuple* dest_tuple, MemPoo
         if (!slot_desc->is_materialized()) {
             continue;
         }
+
         ExprContext* ctx = _dest_expr_ctx[ctx_idx++];
         void* value = ctx->get_value(_src_tuple_row);
         if (value == nullptr) {

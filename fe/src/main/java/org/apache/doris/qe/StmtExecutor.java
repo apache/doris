@@ -17,10 +17,6 @@
 
 package org.apache.doris.qe;
 
-import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateTableAsSelectStmt;
 import org.apache.doris.analysis.DdlStmt;
@@ -42,8 +38,8 @@ import org.apache.doris.analysis.UnsupportedStmt;
 import org.apache.doris.analysis.UseStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -51,13 +47,15 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.Version;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.common.Version;
+import org.apache.doris.load.EtlJobType;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlEofPacket;
 import org.apache.doris.mysql.MysqlSerializer;
@@ -66,11 +64,17 @@ import org.apache.doris.planner.Planner;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rpc.PQueryStatistics;
 import org.apache.doris.rpc.RpcException;
+import org.apache.doris.task.LoadEtlTask;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TQueryOptions;
-import org.apache.doris.thrift.TResultBatch;
+import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TabletCommitInfo;
+
+import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -586,6 +590,7 @@ public class StmtExecutor {
         context.setQueryId(new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
 
         coord = new Coordinator(context, analyzer, planner);
+        coord.setQueryType(TQueryType.LOAD);
 
         QeProcessorImpl.INSTANCE.registerQuery(context.queryId(), coord);
 
@@ -611,6 +616,15 @@ public class StmtExecutor {
 
         LOG.info("delta files is {}", coord.getDeltaUrls());
 
+        if (context.getSessionVariable().getEnableInsertStrict()) {
+            Map<String, String> counters = coord.getLoadCounters();
+            String strValue = counters.get(LoadEtlTask.DPP_ABNORMAL_ALL);
+            if (strValue != null && Long.valueOf(strValue) > 0) {
+                throw new UserException("Insert has filtered data in strict mode, tracking_url="
+                        + coord.getTrackingUrl());
+            }
+        }
+
         if (insertStmt.getTargetTable().getType() != TableType.OLAP) {
             // no need to add load job.
             // mysql table is already being inserted.
@@ -618,22 +632,26 @@ public class StmtExecutor {
             return;
         }
 
-        if (insertStmt.isStreaming()) {
-            Catalog.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
-                    insertStmt.getDbObj(), insertStmt.getTransactionId(),
-                    TabletCommitInfo.fromThrift(coord.getCommitInfos()),
-                    5000);
-            context.getState().setOk();
-        } else {
-            context.getCatalog().getLoadInstance().addLoadJob(
-                    uuid.toString(),
-                    insertStmt.getDb(),
-                    insertStmt.getTargetTable().getId(),
-                    insertStmt.getIndexIdToSchemaHash(),
-                    insertStmt.getTransactionId(),
-                    coord.getDeltaUrls(),
-                    System.currentTimeMillis()
-            );
+        Catalog.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
+                insertStmt.getDbObj(), insertStmt.getTransactionId(),
+                TabletCommitInfo.fromThrift(coord.getCommitInfos()),
+                5000);
+        context.getState().setOk();
+
+        // record the non-streaming insert info for show load
+        if (!insertStmt.isStreaming()) {
+            try {
+                context.getCatalog().getLoadManager().recordFinishedLoadJob(
+                        uuid.toString(),
+                        insertStmt.getDb(),
+                        insertStmt.getTargetTable().getId(),
+                        EtlJobType.INSERT,
+                        System.currentTimeMillis()
+                );
+            } catch (MetaNotFoundException e) {
+                LOG.warn("Record info of insert load with error " + e.getMessage(), e);
+                context.getState().setOk("Insert has been finished while info has not been recorded with " + e.getMessage());
+            }
             context.getState().setOk("{'label':'" + uuid.toString() + "'}");
         }
     }
@@ -750,7 +768,7 @@ public class StmtExecutor {
 
     private void handleDdlStmt() {
         try {
-            DdlExecutor.execute(context.getCatalog(), (DdlStmt) parsedStmt);
+            DdlExecutor.execute(context.getCatalog(), (DdlStmt) parsedStmt, originStmt);
             context.getState().setOk();
         } catch (UserException e) {
             // Return message to info client what happened.

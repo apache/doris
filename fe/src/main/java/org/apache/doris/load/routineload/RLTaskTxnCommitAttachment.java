@@ -17,8 +17,9 @@
 
 package org.apache.doris.load.routineload;
 
-import org.apache.doris.common.io.Text;
 import org.apache.doris.thrift.TRLTaskTxnCommitAttachment;
+import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TxnCommitAttachment;
 
 import java.io.DataInput;
@@ -29,116 +30,86 @@ import java.io.IOException;
 // "numOfTotalData": "", "taskId": "", "jobId": ""}
 public class RLTaskTxnCommitAttachment extends TxnCommitAttachment {
 
-    public enum RoutineLoadType {
-        KAFKA(1);
-
-        private final int flag;
-
-        private RoutineLoadType(int flag) {
-            this.flag = flag;
-        }
-
-        public int value() {
-            return flag;
-        }
-
-        public static RoutineLoadType valueOf(int flag) {
-            switch (flag) {
-                case 1:
-                    return KAFKA;
-                default:
-                    return null;
-            }
-        }
-    }
-
+    private long jobId;
+    private TUniqueId taskId;
+    private long filteredRows;
+    private long loadedRows;
+    private long unselectedRows;
+    private long receivedBytes;
+    private long taskExecutionTimeMs;
     private RoutineLoadProgress progress;
-    private long backendId;
-    private long taskSignature;
-    private int numOfErrorData;
-    private int numOfTotalData;
-    private String taskId;
-    private String jobId;
-    private RoutineLoadType routineLoadType;
+    private String errorLogUrl;
 
     public RLTaskTxnCommitAttachment() {
+        super(TransactionState.LoadJobSourceType.ROUTINE_LOAD_TASK);
     }
 
     public RLTaskTxnCommitAttachment(TRLTaskTxnCommitAttachment rlTaskTxnCommitAttachment) {
-        this.backendId = rlTaskTxnCommitAttachment.getBackendId();
-        this.taskSignature = rlTaskTxnCommitAttachment.getTaskSignature();
-        this.numOfErrorData = rlTaskTxnCommitAttachment.getNumOfErrorData();
-        this.numOfTotalData = rlTaskTxnCommitAttachment.getNumOfTotalData();
-        this.taskId = rlTaskTxnCommitAttachment.getTaskId();
+        super(TransactionState.LoadJobSourceType.ROUTINE_LOAD_TASK);
         this.jobId = rlTaskTxnCommitAttachment.getJobId();
-        switch (rlTaskTxnCommitAttachment.getRoutineLoadType()) {
+        this.taskId = rlTaskTxnCommitAttachment.getId();
+        this.filteredRows = rlTaskTxnCommitAttachment.getFilteredRows();
+        this.loadedRows = rlTaskTxnCommitAttachment.getLoadedRows();
+        this.unselectedRows = rlTaskTxnCommitAttachment.getUnselectedRows();
+        this.receivedBytes = rlTaskTxnCommitAttachment.getReceivedBytes();
+        this.taskExecutionTimeMs = rlTaskTxnCommitAttachment.getLoadCostMs();
+
+        switch (rlTaskTxnCommitAttachment.getLoadSourceType()) {
             case KAFKA:
                 this.progress = new KafkaProgress(rlTaskTxnCommitAttachment.getKafkaRLTaskProgress());
+                break;
+            default:
+                break;
         }
+
+        if (rlTaskTxnCommitAttachment.isSetErrorLogUrl()) {
+            this.errorLogUrl = rlTaskTxnCommitAttachment.getErrorLogUrl();
+        }
+    }
+
+    public TUniqueId getTaskId() {
+        return taskId;
+    }
+
+    public long getFilteredRows() {
+        return filteredRows;
+    }
+
+    public long getLoadedRows() {
+        return loadedRows;
+    }
+
+    public long getUnselectedRows() {
+        return unselectedRows;
+    }
+
+    public long getTotalRows() {
+        return filteredRows + loadedRows + unselectedRows;
+    }
+
+    public long getReceivedBytes() {
+        return receivedBytes;
+    }
+
+    public long getTaskExecutionTimeMs() {
+        return taskExecutionTimeMs;
     }
 
     public RoutineLoadProgress getProgress() {
         return progress;
     }
 
-    public void setProgress(RoutineLoadProgress progress) {
-        this.progress = progress;
-    }
-
-    public long getBackendId() {
-        return backendId;
-    }
-
-    public void setBackendId(long backendId) {
-        this.backendId = backendId;
-    }
-
-    public long getTaskSignature() {
-        return taskSignature;
-    }
-
-    public void setTaskSignature(long taskSignature) {
-        this.taskSignature = taskSignature;
-    }
-
-    public int getNumOfErrorData() {
-        return numOfErrorData;
-    }
-
-    public void setNumOfErrorData(int numOfErrorData) {
-        this.numOfErrorData = numOfErrorData;
-    }
-
-    public int getNumOfTotalData() {
-        return numOfTotalData;
-    }
-
-    public void setNumOfTotalData(int numOfTotalData) {
-        this.numOfTotalData = numOfTotalData;
-    }
-
-    public String getTaskId() {
-        return taskId;
-    }
-
-    public void setTaskId(String taskId) {
-        this.taskId = taskId;
-    }
-
-    public String getJobId() {
-        return jobId;
-    }
-
-    public void setJobId(String jobId) {
-        this.jobId = jobId;
+    public String getErrorLogUrl() {
+        return errorLogUrl;
     }
 
     @Override
     public String toString() {
-        return "RoutineLoadTaskTxnExtra [backendId=" + backendId
-                + ", taskSignature=" + taskSignature
-                + ", numOfErrorData=" + numOfErrorData
-                + ", numOfTotalData=" + numOfTotalData
+        return "RLTaskTxnCommitAttachment [filteredRows=" + filteredRows
+                + ", loadedRows=" + loadedRows
+                + ", unselectedRows=" + unselectedRows
+                + ", receivedBytes=" + receivedBytes
+                + ", taskExecutionTimeMs=" + taskExecutionTimeMs
                 + ", taskId=" + taskId
                 + ", jobId=" + jobId
                 + ", progress=" + progress.toString() + "]";
@@ -146,30 +117,23 @@ public class RLTaskTxnCommitAttachment extends TxnCommitAttachment {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        out.writeLong(backendId);
-        out.writeLong(taskSignature);
-        out.writeInt(numOfErrorData);
-        out.writeInt(numOfTotalData);
-        Text.writeString(out, taskId);
-        Text.writeString(out, jobId);
-        out.writeInt(routineLoadType.value());
+        super.write(out);
+        out.writeLong(filteredRows);
+        out.writeLong(loadedRows);
+        out.writeLong(unselectedRows);
+        out.writeLong(receivedBytes);
+        out.writeLong(taskExecutionTimeMs);
         progress.write(out);
     }
 
     @Override
     public void readFields(DataInput in) throws IOException {
-        backendId = in.readLong();
-        taskSignature = in.readLong();
-        numOfErrorData = in.readInt();
-        numOfTotalData = in.readInt();
-        taskId = Text.readString(in);
-        jobId = Text.readString(in);
-        routineLoadType = RoutineLoadType.valueOf(in.readInt());
-        switch (routineLoadType) {
-            case KAFKA:
-                KafkaProgress kafkaProgress = new KafkaProgress();
-                kafkaProgress.readFields(in);
-                progress = kafkaProgress;
-        }
+        super.readFields(in);
+        filteredRows = in.readLong();
+        loadedRows = in.readLong();
+        unselectedRows = in.readLong();
+        receivedBytes = in.readLong();
+        taskExecutionTimeMs = in.readLong();
+        progress = RoutineLoadProgress.read(in);
     }
 }

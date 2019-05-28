@@ -121,7 +121,7 @@ MasterServerClient::MasterServerClient(
 }
 
 AgentStatus MasterServerClient::finish_task(
-        const TFinishTaskRequest request,
+        const TFinishTaskRequest& request,
         TMasterResult* result) {
     Status client_status;
     FrontendServiceConnection client(
@@ -168,7 +168,7 @@ AgentStatus MasterServerClient::finish_task(
     return DORIS_SUCCESS;
 }
 
-AgentStatus MasterServerClient::report(const TReportRequest request, TMasterResult* result) {
+AgentStatus MasterServerClient::report(const TReportRequest& request, TMasterResult* result) {
     Status client_status;
     FrontendServiceConnection client(
             _client_cache,

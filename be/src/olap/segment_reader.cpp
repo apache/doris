@@ -316,13 +316,6 @@ OLAPStatus SegmentReader::get_block(
         return res;
     }
 
-    DCHECK(num_rows_load == _num_rows_in_block || _next_block_id == _end_block)
-        << "num_rows_load must equal with _num_rows_in_block"
-        << ", num_rows_load:" << num_rows_load
-        << ", _num_rows_in_block:" << _num_rows_in_block
-        << ", _next_block_id" << _next_block_id
-        << ", _end_block" << _end_block;
-
     _seek_to_block(_next_block_id + 1, _without_filter);
 
     *next_block_id = _next_block_id;
@@ -842,7 +835,7 @@ OLAPStatus SegmentReader::_create_reader(size_t* buffer_size) {
 
 OLAPStatus SegmentReader::_seek_to_block_directly(
         int64_t block_id, const std::vector<uint32_t>& cids) {
-    if (_at_block_start && block_id == _current_block_id) {
+    if (!config::block_seek_position && _at_block_start && block_id == _current_block_id) {
         // no need to execute seek
         return OLAP_SUCCESS;
     }

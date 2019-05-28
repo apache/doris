@@ -386,6 +386,16 @@ bool EsScanNode::check_left_conjuncts(Expr* conjunct) {
     }
 }
 
+bool EsScanNode::ignore_cast(SlotDescriptor* slot, Expr* expr) {
+    if (slot->type().is_date_type() && expr->type().is_date_type()) {
+        return true;
+    }
+    if (slot->type().is_string_type() && expr->type().is_string_type()) {
+        return true;
+    }
+    return false;
+}
+
 bool EsScanNode::get_disjuncts(ExprContext* context, Expr* conjunct,
                                vector<TExtPredicate>& disjuncts) {
     if (TExprNodeType::BINARY_PRED == conjunct->node_type()) {
@@ -457,6 +467,12 @@ bool EsScanNode::get_disjuncts(ExprContext* context, Expr* conjunct,
         disjuncts.push_back(std::move(predicate));
         return true;
     } else if (TExprNodeType::IN_PRED == conjunct->node_type()) {
+        // the op code maybe FILTER_NEW_IN, it means there is function in list
+        // like col_a in (abs(1))
+        if (TExprOpcode::FILTER_IN != conjunct->op() 
+            && TExprOpcode::FILTER_NOT_IN != conjunct->op()) {
+            return false;
+        }
         TExtInPredicate ext_in_predicate;
         vector<TExtLiteral> in_pred_values;
         InPredicate* pred = dynamic_cast<InPredicate*>(conjunct);
@@ -475,25 +491,25 @@ bool EsScanNode::get_disjuncts(ExprContext* context, Expr* conjunct,
         columnDesc.__set_type(slot_desc->type().to_thrift());
         ext_in_predicate.__set_col(columnDesc);
 
-        for (int i = 1; i < pred->children().size(); ++i) {
-            // varchar, string, all of them are string type, but varchar != string
-            // TODO add date, datetime support?
-            if (pred->get_child(0)->type().is_string_type()) {
-                if (!pred->get_child(i)->type().is_string_type()) {
-                    return false;
-                }
-            } else {
-                if (pred->get_child(i)->type().type != pred->get_child(0)->type().type) {
-                    return false;
-                }
+        if (pred->get_child(0)->type().type != slot_desc->type().type) {
+            if (!ignore_cast(slot_desc, pred->get_child(0))) {
+                return false;
+            }
+        }
+
+        HybirdSetBase::IteratorBase* iter = pred->hybird_set()->begin();
+        while (iter->has_next()) {
+            if (nullptr == iter->get_value()) {
+                return false;
             }
             TExtLiteral literal;
-            if (!to_ext_literal(context, pred->get_child(i), &literal)) {
+            if (!to_ext_literal(slot_desc->type().type, const_cast<void *>(iter->get_value()), &literal)) {
                 VLOG(1) << "get disjuncts fail: can't get literal, node_type="
-                        << pred->get_child(i)->node_type();
+                        << slot_desc->type().type;
                 return false;
             }
             in_pred_values.push_back(literal);
+            iter->next();
         }
         ext_in_predicate.__set_values(in_pred_values);
         TExtPredicate predicate;
@@ -542,98 +558,122 @@ SlotDescriptor* EsScanNode::get_slot_desc(SlotRef* slotRef) {
 }
 
 bool EsScanNode::to_ext_literal(ExprContext* context, Expr* expr, TExtLiteral* literal) {
-    literal->__set_node_type(expr->node_type());
     switch (expr->node_type()) {
-    case TExprNodeType::BOOL_LITERAL: {
+    case TExprNodeType::BOOL_LITERAL:
+    case TExprNodeType::INT_LITERAL:
+    case TExprNodeType::LARGE_INT_LITERAL:
+    case TExprNodeType::FLOAT_LITERAL:
+    case TExprNodeType::DECIMAL_LITERAL:
+    case TExprNodeType::STRING_LITERAL:
+    case TExprNodeType::DATE_LITERAL:
+        return to_ext_literal(expr->type().type, context->get_value(expr, NULL), literal);
+    default:
+        return false;
+    }
+}
+
+bool EsScanNode::to_ext_literal(PrimitiveType slot_type, void* value, TExtLiteral* literal) {
+    TExprNodeType::type node_type;
+    switch (slot_type) {
+    case TYPE_BOOLEAN: {
+        node_type = (TExprNodeType::BOOL_LITERAL);
         TBoolLiteral bool_literal;
-        void* value = context->get_value(expr, NULL);
         bool_literal.__set_value(*reinterpret_cast<bool*>(value));
         literal->__set_bool_literal(bool_literal);
-        return true;
+        break;
     }
-    case TExprNodeType::DATE_LITERAL: {
-        void* value = context->get_value(expr, NULL);
-        DateTimeValue date_value = *reinterpret_cast<DateTimeValue*>(value);
+
+    case TYPE_TINYINT: {
+        node_type = (TExprNodeType::INT_LITERAL);
+        TIntLiteral int_literal;
+        int_literal.__set_value(*reinterpret_cast<int8_t*>(value));
+        literal->__set_int_literal(int_literal);
+        break;
+    }
+    case TYPE_SMALLINT: {
+        node_type = (TExprNodeType::INT_LITERAL);
+        TIntLiteral int_literal;
+        int_literal.__set_value(*reinterpret_cast<int16_t*>(value));
+        literal->__set_int_literal(int_literal);
+        break;
+    }
+    case TYPE_INT: {
+        node_type = (TExprNodeType::INT_LITERAL);
+        TIntLiteral int_literal;
+        int_literal.__set_value(*reinterpret_cast<int32_t*>(value));
+        literal->__set_int_literal(int_literal);
+        break;
+    }
+    case TYPE_BIGINT: {
+        node_type = (TExprNodeType::INT_LITERAL);
+        TIntLiteral int_literal;
+        int_literal.__set_value(*reinterpret_cast<int64_t*>(value));
+        literal->__set_int_literal(int_literal);
+        break;
+    }
+
+    case TYPE_LARGEINT: {
+        node_type = (TExprNodeType::LARGE_INT_LITERAL);
+        char buf[48];
+        int len = 48;
+        char* v = LargeIntValue::to_string(*reinterpret_cast<__int128*>(value), buf, &len);
+        TLargeIntLiteral large_int_literal;
+        large_int_literal.__set_value(v);
+        literal->__set_large_int_literal(large_int_literal);
+        break;
+    }
+
+    case TYPE_FLOAT: {
+        node_type = (TExprNodeType::FLOAT_LITERAL);
+        TFloatLiteral float_literal;
+        float_literal.__set_value(*reinterpret_cast<float*>(value));
+        literal->__set_float_literal(float_literal);
+        break;
+    }
+    case TYPE_DOUBLE: {
+        node_type = (TExprNodeType::FLOAT_LITERAL);
+        TFloatLiteral float_literal;
+        float_literal.__set_value(*reinterpret_cast<double*>(value));
+        literal->__set_float_literal(float_literal);
+        break;
+    }
+
+    case TYPE_DECIMAL: {
+        node_type = (TExprNodeType::DECIMAL_LITERAL);
+        TDecimalLiteral decimal_literal;
+        decimal_literal.__set_value(reinterpret_cast<DecimalValue*>(value)->to_string());
+        literal->__set_decimal_literal(decimal_literal);
+        break;
+    }
+
+    case TYPE_DATE:
+    case TYPE_DATETIME: {
+        node_type = (TExprNodeType::DATE_LITERAL);
+        const DateTimeValue date_value = *reinterpret_cast<DateTimeValue*>(value);
         char str[MAX_DTVALUE_STR_LEN];
         date_value.to_string(str);
         TDateLiteral date_literal;
         date_literal.__set_value(str);
         literal->__set_date_literal(date_literal);
-        return true;
+        break;
     }
-    case TExprNodeType::FLOAT_LITERAL: {
-        TFloatLiteral float_literal;
-        void* value = context->get_value(expr, NULL);
-        switch (expr->type().type) {
-        case TYPE_FLOAT: {
-            float_literal.__set_value(*reinterpret_cast<float*>(value));
-            break;
-        }
-        case TYPE_DOUBLE: {
-            float_literal.__set_value(*((double *)value));
-            break;
-        }
-        default:
-            return false;
-        }
-        literal->__set_float_literal(float_literal);
-        return true;
-    }
-    case TExprNodeType::INT_LITERAL: {
-        TIntLiteral int_literal;
-        void* value = context->get_value(expr, NULL);
-        int64_t int_val = 0;
-        switch (expr->type().type) {
-        case TYPE_TINYINT: {
-            int_val = *reinterpret_cast<int8_t*>(value);
-            break;
-        }
-        case TYPE_SMALLINT: {
-            int_val = *reinterpret_cast<int16_t*>(value);
-            break;
-        }
-        case TYPE_INT: {
-            int_val = *reinterpret_cast<int32_t*>(value);
-            break;
-        }
-        case TYPE_BIGINT: {
-            int_val = *reinterpret_cast<int64_t*>(value);
-            break;
-        }
-        default:
-            return false;
-        }
-        int_literal.__set_value(int_val);
-        literal->__set_int_literal(int_literal);
-        return true;
-    }
-    case TExprNodeType::STRING_LITERAL: {
+
+    case TYPE_CHAR:
+    case TYPE_VARCHAR: {
+        node_type = (TExprNodeType::STRING_LITERAL);
         TStringLiteral string_literal;
-        void* value = context->get_value(expr, NULL);
         string_literal.__set_value((reinterpret_cast<StringValue*>(value))->debug_string());
         literal->__set_string_literal(string_literal);
-        return true;
+        break;
     }
-    case TExprNodeType::DECIMAL_LITERAL: {
-        TDecimalLiteral decimal_literal;
-        void* value = context->get_value(expr, NULL);
-        decimal_literal.__set_value(reinterpret_cast<DecimalValue*>(value)->to_string());
-        literal->__set_decimal_literal(decimal_literal);
-        return true;
-    }
-    case TExprNodeType::LARGE_INT_LITERAL: {
-        char buf[48];
-        int len = 48;
-        void* value = context->get_value(expr, NULL);
-        char* v = LargeIntValue::to_string(*reinterpret_cast<__int128*>(value), buf, &len);
-        TLargeIntLiteral large_int_literal;
-        large_int_literal.__set_value(v);
-        literal->__set_large_int_literal(large_int_literal);
-        return true;
-    }
-    default:
+
+    default: {
+        DCHECK(false) << "Invalid type.";
         return false;
     }
+    }
+    literal->__set_node_type(node_type);
+    return true;
 }
 
 Status EsScanNode::get_next_from_es(TExtGetNextResult& result) {

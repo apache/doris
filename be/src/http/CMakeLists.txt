@@ -29,7 +29,6 @@ add_library(Webserver STATIC
   http_channel.cpp
   http_status.cpp
   http_parser.cpp
-  message_body_sink.cpp
   web_page_handler.cpp
   monitor_action.cpp
   default_path_handlers.cpp

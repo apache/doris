@@ -17,9 +17,6 @@
 
 package org.apache.doris.planner;
 
-import java.util.List;
-import java.util.Map;
-
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
@@ -27,7 +24,11 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.UserException;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TScanRangeLocations;
+
 import com.google.common.base.Objects;
+
+import java.util.List;
+import java.util.Map;
 
 /**
  * Representation of the common elements of all scan nodes.
@@ -52,10 +53,6 @@ abstract public class ScanNode extends PlanNode {
         result.hostname = hostPort[0];
         result.port = Integer.parseInt(hostPort[1]);
         return result;
-    }
-
-    public Map<String, PartitionColumnFilter> getColumnFilters() {
-        return this.columnFilters;
     }
 
     public void setColumnFilters(Map<String, PartitionColumnFilter> columnFilters) {

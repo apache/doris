@@ -17,17 +17,18 @@
 
 package org.apache.doris.load;
 
-import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.ColumnSeparator;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.catalog.BrokerTable;
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 
@@ -54,21 +55,18 @@ public class BrokerFileGroup implements Writable {
     // input
     private DataDescription dataDescription;
 
-    // Now we don't save this in image, only use this to parse DataDescription;
-    // if we have this require later, we save this here.
-    private BrokerDesc brokerDesc;
-
     private long tableId;
     private String valueSeparator;
     private String lineDelimiter;
+    // fileFormat may be null, which means format will be decided by file's suffix
+    private String fileFormat;
     private boolean isNegative;
     private List<Long> partitionIds;
     private List<String> fileFieldNames;
-    private List<String> filePathes;
+    private List<String> filePaths;
 
     // This column need expression to get column
     private Map<String, Expr> exprColumnMap;
-
 
     // Used for recovery from edit log
     private BrokerFileGroup() {
@@ -80,12 +78,11 @@ public class BrokerFileGroup implements Writable {
         this.valueSeparator = ColumnSeparator.convertSeparator(table.getColumnSeparator());
         this.lineDelimiter = table.getLineDelimiter();
         this.isNegative = false;
-        this.filePathes = table.getPaths();
+        this.filePaths = table.getPaths();
     }
 
-    public BrokerFileGroup(DataDescription dataDescription, BrokerDesc desc) {
+    public BrokerFileGroup(DataDescription dataDescription) {
         this.dataDescription = dataDescription;
-        this.brokerDesc = desc;
         exprColumnMap = dataDescription.getParsedExprMap();
     }
 
@@ -134,10 +131,13 @@ public class BrokerFileGroup implements Writable {
         if (lineDelimiter == null) {
             lineDelimiter = "\n";
         }
+
+        fileFormat = dataDescription.getFileFormat();
+
         isNegative = dataDescription.isNegative();
 
         // FilePath
-        filePathes = dataDescription.getFilePathes();
+        filePaths = dataDescription.getFilePaths();
     }
 
     public long getTableId() {
@@ -151,6 +151,7 @@ public class BrokerFileGroup implements Writable {
     public String getLineDelimiter() {
         return lineDelimiter;
     }
+    public String getFileFormat() { return fileFormat; }
 
     public boolean isNegative() {
         return isNegative;
@@ -164,8 +165,12 @@ public class BrokerFileGroup implements Writable {
         return partitionIds;
     }
 
-    public List<String> getFilePathes() {
-        return filePathes;
+    public List<String> getPartitionNames(){
+        return dataDescription.getPartitionNames();
+    }
+
+    public List<String> getFilePaths() {
+        return filePaths;
     }
 
     public Map<String, Expr> getExprColumnMap() {
@@ -203,7 +208,7 @@ public class BrokerFileGroup implements Writable {
                 .append(",isNegative=").append(isNegative);
         sb.append(",fileInfos=[");
         int idx = 0;
-        for (String path : filePathes) {
+        for (String path : filePaths) {
             if (idx++ != 0) {
                 sb.append(",");
             }
@@ -244,9 +249,9 @@ public class BrokerFileGroup implements Writable {
                 Text.writeString(out, name);
             }
         }
-        // filePathes
-        out.writeInt(filePathes.size());
-        for (String path : filePathes) {
+        // filePaths
+        out.writeInt(filePaths.size());
+        for (String path : filePaths) {
             Text.writeString(out, path);
         }
         // expr column map
@@ -259,6 +264,13 @@ public class BrokerFileGroup implements Writable {
                 Text.writeString(out, entry.getKey());
                 Expr.writeTo(entry.getValue(), out);
             }
+        }
+        // fileFormat
+        if (fileFormat == null) {
+            out.writeBoolean(false);
+        } else {
+            out.writeBoolean(true);
+            Text.writeString(out, fileFormat);
         }
     }
 
@@ -291,9 +303,9 @@ public class BrokerFileGroup implements Writable {
         // fileInfos
         {
             int size = in.readInt();
-            filePathes = Lists.newArrayList();
+            filePaths = Lists.newArrayList();
             for (int i = 0; i < size; ++i) {
-                filePathes.add(Text.readString(in));
+                filePaths.add(Text.readString(in));
             }
         }
         // expr column map
@@ -305,6 +317,12 @@ public class BrokerFileGroup implements Writable {
                     final String name = Text.readString(in);
                     exprColumnMap.put(name, Expr.readIn(in));
                 }
+            }
+        }
+        // file format
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_50) {
+            if (in.readBoolean()) {
+                fileFormat = Text.readString(in);
             }
         }
     }

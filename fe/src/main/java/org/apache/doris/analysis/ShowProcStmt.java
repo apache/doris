@@ -79,4 +79,13 @@ public class ShowProcStmt extends ShowStmt {
         }
         return builder.build();
     }
+
+    @Override
+    public RedirectStatus getRedirectStatus() {
+        if (ConnectContext.get().getSessionVariable().getForwardToMaster()) {
+            return RedirectStatus.FORWARD_NO_SYNC;
+        } else {
+            return RedirectStatus.NO_FORWARD;
+        }
+    }
 }

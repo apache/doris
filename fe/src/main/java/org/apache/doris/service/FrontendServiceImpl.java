@@ -47,6 +47,7 @@ import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.task.StreamLoadTask;
 import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.FrontendServiceVersion;
 import org.apache.doris.thrift.TColumnDef;
@@ -330,7 +331,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TFeResult miniLoad(TMiniLoadRequest request) throws TException {
-        LOG.info("mini load request is {}", request);
+        LOG.info("receive mini load request: label: {}, db: {}, tbl: {}, backend: {}",
+                request.getLabel(), request.getDb(), request.getTbl(), request.getBackend());
 
         ConnectContext context = new ConnectContext(null);
         String cluster = SystemInfoService.DEFAULT_CLUSTER;
@@ -507,7 +509,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TFeResult loadCheck(TLoadCheckRequest request) throws TException {
-        LOG.info("load check request. label: {}, user: {}, ip: {}",
+        LOG.info("receive load check request. label: {}, user: {}, ip: {}",
                  request.getLabel(), request.getUser(), request.getUser_ip());
 
         TStatus status = new TStatus(TStatusCode.OK);
@@ -536,22 +538,21 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TLoadTxnBeginResult loadTxnBegin(TLoadTxnBeginRequest request) throws TException {
-        TNetworkAddress clientAddr = getClientAddr();
-
-        LOG.info("receive loadTxnBegin request, db: {}, tbl: {}, label: {}, backend: {}",
-                request.getDb(), request.getTbl(), request.getLabel(),
-                clientAddr == null ? "unknown" : clientAddr.getHostname());
+        String clientAddr = getClientAddrAsString();
+        LOG.info("receive txn begin request, db: {}, tbl: {}, label: {}, backend: {}",
+                request.getDb(), request.getTbl(), request.getLabel(), clientAddr);
         LOG.debug("txn begin request: {}", request);
 
         TLoadTxnBeginResult result = new TLoadTxnBeginResult();
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
         try {
-            result.setTxnId(loadTxnBeginImpl(request));
+            result.setTxnId(loadTxnBeginImpl(request, clientAddr));
         } catch (LabelAlreadyUsedException e) {
             status.setStatus_code(TStatusCode.LABEL_ALREADY_EXISTS);
             status.addToError_msgs(e.getMessage());
         } catch (UserException e) {
+            LOG.warn("failed to begin: {}", e.getMessage());
             status.setStatus_code(TStatusCode.ANALYSIS_ERROR);
             status.addToError_msgs(e.getMessage());
         } catch (Throwable e) {
@@ -560,11 +561,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             status.addToError_msgs(Strings.nullToEmpty(e.getMessage()));
             return result;
         }
-
         return result;
     }
 
-    private long loadTxnBeginImpl(TLoadTxnBeginRequest request) throws UserException {
+    private long loadTxnBeginImpl(TLoadTxnBeginRequest request, String clientIp) throws UserException {
         String cluster = request.getCluster();
         if (Strings.isNullOrEmpty(cluster)) {
             cluster = SystemInfoService.DEFAULT_CLUSTER;
@@ -588,16 +588,22 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
             throw new UserException("unknown database, database=" + dbName);
         }
+
         // begin
         long timestamp = request.isSetTimestamp() ? request.getTimestamp() : -1;
+        long timeoutSecond = request.isSetTimeout() ? request.getTimeout() : Config.stream_load_default_timeout_second;
         return Catalog.getCurrentGlobalTransactionMgr().beginTransaction(
-                db.getId(), request.getLabel(), timestamp, "streamLoad",
-                TransactionState.LoadJobSourceType.BACKEND_STREAMING, null);
+                db.getId(), request.getLabel(), timestamp, "BE: " + clientIp,
+                TransactionState.LoadJobSourceType.BACKEND_STREAMING, -1, timeoutSecond);
     }
 
     @Override
     public TLoadTxnCommitResult loadTxnCommit(TLoadTxnCommitRequest request) throws TException {
-        LOG.info("receive loadTxnCommit request, request={}", request);
+        String clientAddr = getClientAddrAsString();
+        LOG.info("receive txn commit request. db: {}, tbl: {}, txn id: {}, backend: {}",
+                request.getDb(), request.getTbl(), request.getTxnId(), clientAddr);
+        LOG.debug("txn commit request: {}", request);
+
         TLoadTxnCommitResult result = new TLoadTxnCommitResult();
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
@@ -608,6 +614,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 status.addToError_msgs("transaction commit successfully, BUT data will be visible later");
             }
         } catch (UserException e) {
+            LOG.warn("failed to commit: {}", e.getMessage());
             status.setStatus_code(TStatusCode.ANALYSIS_ERROR);
             status.addToError_msgs(e.getMessage());
         } catch (Throwable e) {
@@ -626,8 +633,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             cluster = SystemInfoService.DEFAULT_CLUSTER;
         }
 
-        checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
-                              request.getTbl(), request.getUser_ip(), PrivPredicate.LOAD);
+        if (request.isSetAuth_code()) {
+            // TODO(cmy): find a way to check
+        } else {
+            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
+                    request.getTbl(), request.getUser_ip(), PrivPredicate.LOAD);
+        }
 
         // get database
         Catalog catalog = Catalog.getInstance();
@@ -649,7 +660,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TLoadTxnRollbackResult loadTxnRollback(TLoadTxnRollbackRequest request) throws TException {
-        LOG.info("receive loadTxnRollback request, request={}", request);
+        String clientAddr = getClientAddrAsString();
+        LOG.info("receive txn rollback request. db: {}, tbl: {}, txn id: {}, reason: {}, backend: {}",
+                request.getDb(), request.getTbl(), request.getTxnId(), request.getReason(), clientAddr);
+        LOG.debug("txn rollback request: {}", request);
 
         TLoadTxnRollbackResult result = new TLoadTxnRollbackResult();
         TStatus status = new TStatus(TStatusCode.OK);
@@ -657,6 +671,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         try {
             loadTxnRollbackImpl(request);
         } catch (UserException e) {
+            LOG.warn("failed to rollback: {}", e.getMessage());
             status.setStatus_code(TStatusCode.ANALYSIS_ERROR);
             status.addToError_msgs(e.getMessage());
         } catch (Throwable e) {
@@ -675,16 +690,24 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             cluster = SystemInfoService.DEFAULT_CLUSTER;
         }
 
-        checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
-                              request.getTbl(), request.getUser_ip(), PrivPredicate.LOAD);
+        if (request.isSetAuth_code()) {
+            // TODO(cmy): find a way to check
+        } else {
+            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
+                    request.getTbl(), request.getUser_ip(), PrivPredicate.LOAD);
+        }
 
         Catalog.getCurrentGlobalTransactionMgr().abortTransaction(request.getTxnId(),
-                                                                  request.isSetReason() ? request.getReason() : "system cancel");
+                                                                  request.isSetReason() ? request.getReason() : "system cancel",
+                                                                  TxnCommitAttachment.fromThrift(request.getTxnCommitAttachment()));
     }
 
     @Override
     public TStreamLoadPutResult streamLoadPut(TStreamLoadPutRequest request) throws TException {
-        LOG.info("receive streamLoadPut request, request={}", request);
+        String clientAddr = getClientAddrAsString();
+        LOG.info("receive stream load put request. db:{}, tbl: {}, txn id: {}, backend: {}",
+                request.getDb(), request.getTbl(), request.getTxnId(), clientAddr);
+        LOG.debug("stream load put request: {}", request);
 
         TStreamLoadPutResult result = new TStreamLoadPutResult();
         TStatus status = new TStatus(TStatusCode.OK);
@@ -692,6 +715,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         try {
             result.setParams(streamLoadPutImpl(request));
         } catch (UserException e) {
+            LOG.warn("failed to get stream load plan: {}", e.getMessage());
             status.setStatus_code(TStatusCode.ANALYSIS_ERROR);
             status.addToError_msgs(e.getMessage());
         } catch (Throwable e) {
@@ -719,6 +743,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
             throw new UserException("unknown database, database=" + dbName);
         }
+
         db.readLock();
         try {
             Table table = db.getTable(request.getTbl());
@@ -728,7 +753,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             if (!(table instanceof OlapTable)) {
                 throw new UserException("load table type is not OlapTable, type=" + table.getClass());
             }
-            StreamLoadPlanner planner = new StreamLoadPlanner(db, (OlapTable) table, request);
+            StreamLoadPlanner planner = new StreamLoadPlanner(db, (OlapTable) table, StreamLoadTask.fromTStreamLoadPutRequest(request));
             return planner.plan();
         } finally {
             db.readUnlock();
@@ -752,5 +777,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         return null;
     }
+
+    private String getClientAddrAsString() {
+        TNetworkAddress addr = getClientAddr();
+        return addr == null ? "unknown" : addr.hostname + ":" + addr.port;
+    }
 }
+
 

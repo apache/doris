@@ -17,31 +17,40 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.base.Joiner;
-import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
+
+import com.google.common.base.Joiner;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+/*
+ * LoadColumnsInfo saves all columns' mapping expression
+ */
 public class LoadColumnsInfo implements ParseNode {
     private final List<String> columnNames;
     private final List<Expr> columnMappingList;
 
+    // the following maps are parsed from 'columnMappingList'
+    // col name -> (func name -> func args)
     private Map<String, Pair<String, List<String>>> columnToFunction;
     private Map<String, Expr> parsedExprMap;
 
     public LoadColumnsInfo(List<String> columnNames, List<Expr> columnMappingList) {
         this.columnNames = columnNames;
         this.columnMappingList = columnMappingList;
+    }
+
+    public Map<String, Expr> getParsedExprMap() {
+        return parsedExprMap;
     }
 
     @Override
@@ -87,27 +96,28 @@ public class LoadColumnsInfo implements ParseNode {
         parsedExprMap = Maps.newHashMap();
         for (Expr expr : columnMappingList) {
             if (!(expr instanceof BinaryPredicate)) {
-                throw new AnalysisException("Mapping function expr error. expr: " + expr.toSql());
+                throw new AnalysisException("Mapping function should only be binary predicate: " + expr.toSql());
             }
 
             BinaryPredicate predicate = (BinaryPredicate) expr;
             if (predicate.getOp() != BinaryPredicate.Operator.EQ) {
-                throw new AnalysisException("Mapping function operator error. op: " + predicate.getOp());
+                throw new AnalysisException("Mapping function should only be binary predicate with EQ operator: "
+                        + predicate.getOp());
             }
 
             Expr child0 = predicate.getChild(0);
             if (!(child0 instanceof SlotRef)) {
-                throw new AnalysisException("Mapping column error. column: " + child0.toSql());
+                throw new AnalysisException("Mapping function's left child should be a column name: " + child0.toSql());
             }
 
             String column = ((SlotRef) child0).getColumnName();
             if (columnToFunction.containsKey(column)) {
-                throw new AnalysisException("Duplicate column mapping: " + column);
+                throw new AnalysisException("Duplicate mapping for column: " + column);
             }
 
             Expr child1 = predicate.getChild(1);
             if (!(child1 instanceof FunctionCallExpr)) {
-                throw new AnalysisException("Mapping function error, function: " + child1.toSql());
+                throw new AnalysisException("Mapping function's right child should be a funcation: " + child1.toSql());
             }
 
             if (!child1.supportSerializable()) {

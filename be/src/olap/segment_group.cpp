@@ -568,6 +568,7 @@ OLAPStatus SegmentGroup::add_short_key(const RowCursor& short_key, const uint32_
             _check_io_error(res);
             return res;
         }
+        _file_created = true;
         _new_segment_created = true;
 
         // 准备FileHeader

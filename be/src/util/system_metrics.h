@@ -17,6 +17,7 @@
 
 #include "util/metrics.h"
 
+#include <map>
 #include <memory>
 
 namespace doris {
@@ -39,6 +40,19 @@ public:
 
     // update metrics
     void update();
+
+    void get_disks_io_time(std::map<std::string, int64_t>* map);
+    int64_t get_max_io_util(
+        const std::map<std::string, int64_t>& lst_value, int64_t interval_sec);
+
+    void get_network_traffic(
+            std::map<std::string, int64_t>* send_map,
+            std::map<std::string, int64_t>* rcv_map);
+    void get_max_net_traffic(
+            const std::map<std::string, int64_t>& lst_send_map,
+            const std::map<std::string, int64_t>& lst_rcv_map,
+            int64_t interval_sec,
+            int64_t* send_rate, int64_t* rcv_rate);
 
 private:
     void _install_cpu_metrics(MetricRegistry*);

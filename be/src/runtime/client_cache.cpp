@@ -135,15 +135,24 @@ Status ClientCacheHelper::create_client(
 void ClientCacheHelper::release_client(void** client_key) {
     DCHECK(*client_key != NULL) << "Trying to release NULL client";
     boost::lock_guard<boost::mutex> lock(_lock);
-    ClientMap::iterator i = _client_map.find(*client_key);
-    DCHECK(i != _client_map.end());
-    ThriftClientImpl* info = i->second;
-    //VLOG_RPC << "releasing client for "
-    //         << info->ipaddress() << ":" << info->port();
-    ClientCacheMap::iterator j =
-        _client_cache.find(make_network_address(info->ipaddress(), info->port()));
+    ClientMap::iterator client_map_entry = _client_map.find(*client_key);
+    DCHECK(client_map_entry != _client_map.end());
+    ThriftClientImpl* info = client_map_entry->second;
+    ClientCacheMap::iterator j = _client_cache.find(make_network_address(info->ipaddress(), info->port()));
     DCHECK(j != _client_cache.end());
-    j->second.push_back(*client_key);
+    
+    if (_max_cache_size_per_host >=0 && j->second.size() >= _max_cache_size_per_host) {
+        // cache of this host is full, close this client connection and remove if from _client_map
+        info->close();
+        _client_map.erase(*client_key);
+        delete info;
+
+        if (_metrics_enabled) {
+            _opened_clients->increment(-1);
+        }
+    } else {
+        j->second.push_back(*client_key);
+    }
 
     if (_metrics_enabled) {
         _used_clients->increment(-1);
@@ -165,7 +174,10 @@ void ClientCacheHelper::close_connections(const TNetworkAddress& hostport) {
     BOOST_FOREACH(void * client_key, cache_entry->second) {
         ClientMap::iterator client_map_entry = _client_map.find(client_key);
         DCHECK(client_map_entry != _client_map.end());
-        client_map_entry->second->close();
+        ThriftClientImpl* info = client_map_entry->second;
+        info->close();
+        _client_map.erase(client_key);
+        delete info;
     }
 }
 

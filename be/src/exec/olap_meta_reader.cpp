@@ -43,13 +43,14 @@ Status EngineMetaReader::get_hints(
         RuntimeProfile* profile) {
     auto tablet_id = scan_range->scan_range().tablet_id;
     int32_t schema_hash = strtoul(scan_range->scan_range().schema_hash.c_str(), NULL, 10);
+    std::string err;
     OLAPTablePtr table = OLAPEngine::get_instance()->get_table(
-        tablet_id, schema_hash);
+        tablet_id, schema_hash, true, &err);
     if (table.get() == NULL) {
-        LOG(WARNING) << "tablet does not exist. tablet_id=" << tablet_id << ", schema_hash="
-            << schema_hash;
         std::stringstream ss;
-        ss << "tablet does not exist: " << tablet_id;
+        ss << "failed to get tablet: " << tablet_id << "with schema hash: "
+            << schema_hash << ", reason: " << err;
+        LOG(WARNING) << ss.str();
         return Status(ss.str());
     }
 

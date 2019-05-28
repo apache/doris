@@ -129,7 +129,7 @@ check_if_source_exist() {
         echo "dir should specified to check if exist."
         exit 1
     fi
-    
+
     if [ ! -d $TP_SOURCE_DIR/$1 ];then
         echo "$TP_SOURCE_DIR/$1 does not exist."
         exit 1
@@ -142,7 +142,7 @@ check_if_archieve_exist() {
         echo "archieve should specified to check if exist."
         exit 1
     fi
-    
+
     if [ ! -f $TP_SOURCE_DIR/$1 ];then
         echo "$TP_SOURCE_DIR/$1 does not exist."
         exit 1
@@ -154,7 +154,7 @@ build_libevent() {
     check_if_source_exist $LIBEVENT_SOURCE
     cd $TP_SOURCE_DIR/$LIBEVENT_SOURCE
     if [ ! -f configure ]; then
-        ./autogen.sh 
+        ./autogen.sh
     fi
 
     CFLAGS="-std=c99 -fPIC -D_BSD_SOURCE -fno-omit-frame-pointer -g -ggdb -O2 -I${TP_INCLUDE_DIR}" \
@@ -176,8 +176,8 @@ build_openssl() {
     make -j$PARALLEL && make install
     if [ -f $TP_INSTALL_DIR/lib64/libcrypto.a ]; then
         mkdir -p $TP_INSTALL_DIR/lib && \
-        ln -s $TP_INSTALL_DIR/lib64/libcrypto.a $TP_INSTALL_DIR/lib/libcrypto.a && \
-        ln -s $TP_INSTALL_DIR/lib64/libssl.a $TP_INSTALL_DIR/lib/libssl.a
+        cp $TP_INSTALL_DIR/lib64/libcrypto.a $TP_INSTALL_DIR/lib/libcrypto.a && \
+        cp $TP_INSTALL_DIR/lib64/libssl.a $TP_INSTALL_DIR/lib/libssl.a
     fi
     # NOTE(zc): remove this dynamic library files to make libcurl static link.
     # If I don't remove this files, I don't known how to make libcurl link static library
@@ -319,12 +319,23 @@ build_snappy() {
     check_if_source_exist $SNAPPY_SOURCE
     cd $TP_SOURCE_DIR/$SNAPPY_SOURCE
 
-    CPPFLAGS="-I${TP_INCLUDE_DIR}" \
-    LDFLAGS="-L${TP_LIB_DIR}" \
-    CFLAGS="-fPIC" \
-    ./configure --prefix=$TP_INSTALL_DIR --disable-shared --enable-static \
-    --includedir=$TP_INCLUDE_DIR/snappy
+    mkdir build -p && cd build
+    rm -rf CMakeCache.txt CMakeFiles/
+    $CMAKE_CMD -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR \
+    -DCMAKE_POSITION_INDEPENDENT_CODE=On \
+    -DCMAKE_INSTALL_INCLUDEDIR=$TP_INCLUDE_DIR/snappy \
+    -DSNAPPY_BUILD_TESTS=0 ../
     make -j$PARALLEL && make install
+    if [ -f $TP_INSTALL_DIR/lib64/libsnappy.a ]; then
+        mkdir -p $TP_INSTALL_DIR/lib && cp $TP_INSTALL_DIR/lib64/libsnappy.a $TP_INSTALL_DIR/lib/libsnappy.a
+
+    fi
+
+    #build for libarrow.a
+    cp $TP_INCLUDE_DIR/snappy/snappy-c.h  $TP_INCLUDE_DIR/snappy-c.h && \
+    cp $TP_INCLUDE_DIR/snappy/snappy-sinksource.h  $TP_INCLUDE_DIR/snappy-sinksource.h && \
+    cp $TP_INCLUDE_DIR/snappy/snappy-stubs-public.h  $TP_INCLUDE_DIR/snappy-stubs-public.h && \
+    cp $TP_INCLUDE_DIR/snappy/snappy.h  $TP_INCLUDE_DIR/snappy.h
 }
 
 # gperftools
@@ -332,10 +343,13 @@ build_gperftools() {
     check_if_source_exist $GPERFTOOLS_SOURCE
     cd $TP_SOURCE_DIR/$GPERFTOOLS_SOURCE
     if [ ! -f configure ]; then
-        ./autogen.sh 
+        ./autogen.sh
     fi
 
     CPPFLAGS="-I${TP_INCLUDE_DIR}" \
+    LDFLAGS="-L${TP_LIB_DIR}" \
+    LD_LIBRARY_PATH="${TP_LIB_DIR}" \
+    CFLAGS="-fPIC" \
     LDFLAGS="-L${TP_LIB_DIR}" \
     LD_LIBRARY_PATH="${TP_LIB_DIR}" \
     CFLAGS="-fPIC" \
@@ -377,7 +391,7 @@ build_bzip() {
 build_lzo2() {
     check_if_source_exist $LZO2_SOURCE
     cd $TP_SOURCE_DIR/$LZO2_SOURCE
-    
+
     CPPFLAGS="-I${TP_INCLUDE_DIR} -fPIC" \
     LDFLAGS="-L${TP_LIB_DIR}" \
     CFLAGS="-fPIC" \
@@ -389,7 +403,7 @@ build_lzo2() {
 build_curl() {
     check_if_source_exist $CURL_SOURCE
     cd $TP_SOURCE_DIR/$CURL_SOURCE
-    
+
     CPPFLAGS="-I${TP_INCLUDE_DIR}" \
     LDFLAGS="-L${TP_LIB_DIR}" LIBS="-lcrypto -lssl -lcrypto -ldl" \
     CFLAGS="-fPIC" \
@@ -402,7 +416,7 @@ build_curl() {
 build_re2() {
     check_if_source_exist $RE2_SOURCE
     cd $TP_SOURCE_DIR/$RE2_SOURCE
-    
+
     $CMAKE_CMD -DBUILD_SHARED_LIBS=0 -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR
     make -j$PARALLEL install
 }
@@ -413,7 +427,7 @@ build_boost() {
     cd $TP_SOURCE_DIR/$BOOST_SOURCE
 
     echo "using gcc : doris : ${CXX} ; " > tools/build/src/user-config.jam
-    ./bootstrap.sh --prefix=$TP_INSTALL_DIR 
+    ./bootstrap.sh --prefix=$TP_INSTALL_DIR
     ./b2 --toolset=gcc-doris link=static -d0 -j$PARALLEL --without-mpi --without-graph --without-graph_parallel --without-python cxxflags="-std=c++11 -fPIC -I$TP_INCLUDE_DIR -L$TP_LIB_DIR" install
 }
 
@@ -447,7 +461,7 @@ build_mysql() {
     cp -R ../include/* ../../../installed/include/mysql/
     cp ../libbinlogevents/export/binary_log_types.h ../../../installed/include/mysql/
     echo "mysql headers are installed."
-    
+
     # copy libmysqlclient.a
     cp libmysql/libmysqlclient.a ../../../installed/lib/
     echo "mysql client lib is installed."
@@ -456,7 +470,6 @@ build_mysql() {
 #leveldb
 build_leveldb() {
     check_if_source_exist $LEVELDB_SOURCE
-
     cd $TP_SOURCE_DIR/$LEVELDB_SOURCE
     CXXFLAGS="-fPIC" make -j$PARALLEL
     cp out-static/libleveldb.a ../../installed/lib/libleveldb.a
@@ -482,7 +495,7 @@ build_brpc() {
     -DProtobuf_PROTOC_EXECUTABLE=$TP_INSTALL_DIR/bin/protoc ..
     make -j$PARALLEL && make install
     if [ -f $TP_INSTALL_DIR/lib/libbrpc.a ]; then
-        mkdir -p $TP_INSTALL_DIR/lib64 && ln -s $TP_INSTALL_DIR/lib/libbrpc.a $TP_INSTALL_DIR/lib64/libbrpc.a
+        mkdir -p $TP_INSTALL_DIR/lib64 && cp $TP_INSTALL_DIR/lib/libbrpc.a $TP_INSTALL_DIR/lib64/libbrpc.a
     fi
 }
 
@@ -505,13 +518,47 @@ build_librdkafka() {
     cd $TP_SOURCE_DIR/$LIBRDKAFKA_SOURCE
 
     CPPFLAGS="-I${TP_INCLUDE_DIR}" \
-    LDFLAGS="-L${TP_LIB_DIR}"
+    LDFLAGS="-L${TP_LIB_DIR}" \
     CFLAGS="-fPIC" \
-    ./configure --prefix=$TP_INSTALL_DIR --enable-static
+    ./configure --prefix=$TP_INSTALL_DIR --enable-static --disable-ssl --disable-sasl
     make -j$PARALLEL && make install
 }
 
-build_llvm 
+build_arrow() {
+    check_if_source_exist $ARROW_SOURCE
+    cd $TP_SOURCE_DIR/$ARROW_SOURCE/cpp && mkdir -p release && cd release
+    export ARROW_BROTLI_URL=${TP_SOURCE_DIR}/${BROTLI_NAME}
+    export ARROW_DOUBLE_CONVERSION_URL=${TP_SOURCE_DIR}/${DOUBLE_CONVERSION_NAME}
+    export ARROW_GLOG_URL=${TP_SOURCE_DIR}/${GLOG_NAME}
+    export ARROW_LZ4_URL=${TP_SOURCE_DIR}/${LZ4_NAME}
+    export ARROW_URIPARSER_URL=${TP_SOURCE_DIR}/${URIPARSER_NAME}
+    export ARROW_ZSTD_URL=${TP_SOURCE_DIR}/${ZSTD_NAME}
+
+    cmake -DARROW_PARQUET=ON -DARROW_IPC=OFF -DARROW_BUILD_SHARED=OFF \
+    -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR \
+    -DARROW_BOOST_USE_SHARED=OFF -DBoost_NO_BOOST_CMAKE=ON -DBOOST_ROOT=$TP_INSTALL_DIR \
+    -Dgflags_ROOT=$TP_INSTALL_DIR/ \
+    -DSnappy_ROOT=$TP_INSTALL_DIR/ \
+    -DGLOG_ROOT=$TP_INSTALL_DIR/ \
+    -DLZ4_ROOT=$TP_INSTALL_DIR/ \
+    -DThrift_ROOT=$TP_INSTALL_DIR/ ..
+
+    make -j$PARALLEL && make install
+    #copy dep libs
+    cp -rf ./jemalloc_ep-prefix/src/jemalloc_ep/dist/lib/libjemalloc_pic.a $TP_INSTALL_DIR/lib64/libjemalloc.a
+    cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlienc.a $TP_INSTALL_DIR/lib64/libbrotlienc.a
+    cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlidec.a $TP_INSTALL_DIR/lib64/libbrotlidec.a
+    cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlicommon.a $TP_INSTALL_DIR/lib64/libbrotlicommon.a
+    if [ -f ./zstd_ep-install/lib64/libzstd.a ]; then
+        cp -rf ./zstd_ep-install/lib64/libzstd.a $TP_INSTALL_DIR/lib64/libzstd.a
+    else
+        cp -rf ./zstd_ep-install/lib/libzstd.a $TP_INSTALL_DIR/lib64/libzstd.a
+    fi
+    cp -rf ./double-conversion_ep/src/double-conversion_ep/lib/libdouble-conversion.a $TP_INSTALL_DIR/lib64/libdouble-conversion.a
+    cp -rf ./uriparser_ep-install/lib/liburiparser.a $TP_INSTALL_DIR/lib64/liburiparser.a
+}
+
+build_llvm
 build_libevent
 build_zlib
 build_lz4
@@ -521,8 +568,8 @@ build_openssl
 build_boost # must before thrift
 build_protobuf
 build_gflags
-build_glog
 build_gtest
+build_glog
 build_rapidjson
 build_snappy
 build_gperftools
@@ -534,5 +581,7 @@ build_leveldb
 build_brpc
 build_rocksdb
 build_librdkafka
+build_arrow
 
 echo "Finihsed to build all thirdparties"
+

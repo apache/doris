@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+// include aggregate_functions.h first to make sure that all need includes is written in header files
 #include "exprs/aggregate_functions.h"
 
 #include <math.h>
@@ -50,11 +51,6 @@ using doris_udf::AnyVal;
 // Delimiter to use if the separator is NULL.
 static const StringVal DEFAULT_STRING_CONCAT_DELIM((uint8_t*)", ", 2);
 
-// Hyperloglog precision. Default taken from paper. Doesn't seem to matter very
-// much when between [6,12]
-const int HLL_PRECISION = 14;
-const int HLL_SETS_BYTES_NUM = 16384;
-    
 void AggregateFunctions::init_null(FunctionContext*, AnyVal* dst) {
     dst->is_null = true;
 }
@@ -1063,7 +1059,7 @@ StringVal AggregateFunctions::pcsa_finalize(FunctionContext* c, const StringVal&
 }
 
 void AggregateFunctions::hll_init(FunctionContext* ctx, StringVal* dst) {
-    int str_len = std::pow(2, HLL_PRECISION);
+    int str_len = std::pow(2, HLL_COLUMN_PRECISION);
     dst->is_null = false;
     dst->ptr = ctx->allocate(str_len);
     dst->len = str_len;
@@ -1077,7 +1073,7 @@ void AggregateFunctions::hll_update(FunctionContext* ctx, const T& src, StringVa
     }
 
     DCHECK(!dst->is_null);
-    DCHECK_EQ(dst->len, std::pow(2, HLL_PRECISION));
+    DCHECK_EQ(dst->len, std::pow(2, HLL_COLUMN_PRECISION));
     uint64_t hash_value = AnyValUtil::hash64_murmur(src, HashUtil::MURMUR_SEED);
 
     if (hash_value != 0) {
@@ -1085,7 +1081,7 @@ void AggregateFunctions::hll_update(FunctionContext* ctx, const T& src, StringVa
         // find the first 1 bit after the index bits.
         int idx = hash_value % dst->len;
         // uint8_t first_one_bit = __buiHLL_LENltin_ctzl(hash_value >> HLL_PRECISION) + 1;
-        uint8_t first_one_bit = __builtin_ctzl(hash_value >> HLL_PRECISION) + 1;
+        uint8_t first_one_bit = __builtin_ctzl(hash_value >> HLL_COLUMN_PRECISION) + 1;
         dst->ptr[idx] = std::max(dst->ptr[idx], first_one_bit);
     }
 }
@@ -1094,8 +1090,8 @@ void AggregateFunctions::hll_merge(FunctionContext* ctx, const StringVal& src,
                                    StringVal* dst) {
     DCHECK(!dst->is_null);
     DCHECK(!src.is_null);
-    DCHECK_EQ(dst->len, std::pow(2, HLL_PRECISION));
-    DCHECK_EQ(src.len, std::pow(2, HLL_PRECISION));
+    DCHECK_EQ(dst->len, std::pow(2, HLL_COLUMN_PRECISION));
+    DCHECK_EQ(src.len, std::pow(2, HLL_COLUMN_PRECISION));
 
     for (int i = 0; i < src.len; ++i) {
         dst->ptr[i] = std::max(dst->ptr[i], src.ptr[i]);
@@ -1114,86 +1110,41 @@ StringVal AggregateFunctions::hll_finalize(FunctionContext* ctx, const StringVal
 }
 
     
-void AggregateFunctions::hll_union_agg_init(FunctionContext* ctx, StringVal* dst) {
-    int str_len = std::pow(2, HLL_PRECISION);
-    dst->is_null = false;
-    dst->ptr = ctx->allocate(str_len);
-    dst->len = str_len;
-    memset(dst->ptr, 0, str_len);
-}
-
-void AggregateFunctions::hll_union_parse_and_cal(HllSetResolver& resolver, StringVal* dst) {
-    
-    if (resolver.get_hll_data_type() == HLL_DATA_EMPTY) {    
-        return;
-    }    
-    if (resolver.get_hll_data_type() == HLL_DATA_EXPLICIT) {
-        for (int i = 0; i < resolver.get_explicit_count(); i++) {
-            uint64_t hash_value = resolver.get_explicit_value(i);
-            int idx = hash_value % dst->len;
-            uint8_t first_one_bit = __builtin_ctzl(hash_value >> HLL_PRECISION) + 1; 
-            dst->ptr[idx] = std::max(dst->ptr[idx], first_one_bit);
-        }    
-    } else if (resolver.get_hll_data_type() == HLL_DATA_SPRASE) {
-        std::map<HllSetResolver::SparseIndexType, HllSetResolver::SparseValueType>& 
-                                            sparse_map = resolver.get_sparse_map();
-        for (std::map<HllSetResolver::SparseIndexType, 
-             HllSetResolver::SparseValueType>::iterator iter = sparse_map.begin(); 
-                                    iter != sparse_map.end(); iter++) {
-            dst->ptr[iter->first] = std::max(dst->ptr[iter->first], (uint8_t)iter->second);
-        }  
-    } else if (resolver.get_hll_data_type() == HLL_DATA_FULL) {
-        char* full_value = resolver.get_full_value();
-        for (int i = 0; i < HLL_SETS_BYTES_NUM; i++) {
-            dst->ptr[i] = std::max(dst->ptr[i], (uint8_t)full_value[i]);
-        }
-    }
-    return ;
+void AggregateFunctions::hll_union_agg_init(FunctionContext* ctx, HllVal* dst) {
+    dst->init(ctx);
 }
 
 void AggregateFunctions::hll_union_agg_update(FunctionContext* ctx, 
-                                              const StringVal& src, StringVal* dst) {
+                                              const HllVal& src, HllVal* dst) {
     if (src.is_null) {
         return;
     }
     DCHECK(!dst->is_null);
-    DCHECK_EQ(dst->len, std::pow(2, HLL_PRECISION));
     
-    HllSetResolver resolver;
-    resolver.init((char*)src.ptr, src.len);
-    resolver.parse();
-    hll_union_parse_and_cal(resolver, dst); 
+    dst->agg_parse_and_cal(src);
     return ;
 }
 
-void AggregateFunctions::hll_union_agg_merge(FunctionContext* ctx, const StringVal& src,
-                                   StringVal* dst) {
+void AggregateFunctions::hll_union_agg_merge(FunctionContext* ctx, const HllVal& src, HllVal* dst) {
     DCHECK(!dst->is_null);
     DCHECK(!src.is_null);
-    DCHECK_EQ(dst->len, HLL_SETS_BYTES_NUM);
-    DCHECK_EQ(src.len, HLL_SETS_BYTES_NUM);
+    DCHECK_EQ(dst->len, HLL_COLUMN_DEFAULT_LEN);
+    DCHECK_EQ(src.len, HLL_COLUMN_DEFAULT_LEN);
      
-    for (int i = 0; i < src.len; ++i) {
-        dst->ptr[i] = std::max(dst->ptr[i], src.ptr[i]);
-    }
+    dst->agg_merge(src);
 }
 
-doris_udf::StringVal AggregateFunctions::hll_union_agg_finalize(doris_udf::FunctionContext* ctx, 
-                                                               const StringVal& src) {
+doris_udf::BigIntVal AggregateFunctions::hll_union_agg_finalize(doris_udf::FunctionContext* ctx,
+                                                               const HllVal& src) {
     double estimate = hll_algorithm(src);
-    std::stringstream out;
-    out << (int64_t)estimate;
-    std::string out_str = out.str();
-    StringVal result_str(ctx, out_str.size());
-    memcpy(result_str.ptr, out_str.c_str(), result_str.len);
-    return result_str;
+    BigIntVal result((int64_t)estimate);
+    return result;
 }
 
-int64_t AggregateFunctions::hll_algorithm(const doris_udf::StringVal& src) {
-    DCHECK(!src.is_null);
-    DCHECK_EQ(src.len, HLL_SETS_BYTES_NUM);
+int64_t AggregateFunctions::hll_algorithm(uint8_t *pdata, int data_len) {
+    DCHECK_EQ(data_len, HLL_REGISTERS_COUNT);
     
-    const int num_streams = HLL_SETS_BYTES_NUM;
+    const int num_streams = HLL_REGISTERS_COUNT;
     // Empirical constants for the algorithm.
     float alpha = 0;
     
@@ -1210,10 +1161,10 @@ int64_t AggregateFunctions::hll_algorithm(const doris_udf::StringVal& src) {
     float harmonic_mean = 0;
     int num_zero_registers = 0;
     
-    for (int i = 0; i < src.len; ++i) {
-        harmonic_mean += powf(2.0f, -src.ptr[i]);
+    for (int i = 0; i < data_len; ++i) {
+        harmonic_mean += powf(2.0f, -pdata[i]);
         
-        if (src.ptr[i] == 0) {
+        if (pdata[i] == 0) {
             ++num_zero_registers;
         }
     }
@@ -1239,6 +1190,38 @@ int64_t AggregateFunctions::hll_algorithm(const doris_udf::StringVal& src) {
         estimate -= estimate * (bias / 100);
     }
     return (int64_t)(estimate + 0.5);
+}
+
+void AggregateFunctions::hll_raw_agg_init(
+        FunctionContext* ctx,
+        HllVal* dst) {
+    hll_union_agg_init(ctx, dst);
+}
+
+void AggregateFunctions::hll_raw_agg_update(
+        FunctionContext* ctx,
+        const HllVal& src,
+        HllVal* dst) {
+    hll_union_agg_update(ctx, src, dst);
+}
+
+void AggregateFunctions::hll_raw_agg_merge(
+        FunctionContext* ctx,
+        const HllVal& src,
+        HllVal* dst) {
+    hll_union_agg_merge(ctx, src, dst);
+}
+
+doris_udf::HllVal AggregateFunctions::hll_raw_agg_finalize(
+        doris_udf::FunctionContext* ctx,
+        const HllVal& src) {
+    DCHECK(!src.is_null);
+    DCHECK_EQ(src.len, HLL_COLUMN_DEFAULT_LEN);
+
+    HllVal result;
+    result.init(ctx);
+    memcpy(result.ptr, src.ptr, src.len);
+    return result;
 }
 
 // TODO chenhao , reduce memory copy

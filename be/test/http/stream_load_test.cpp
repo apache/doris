@@ -23,12 +23,13 @@
 #include <event2/http_struct.h>
 #include <rapidjson/document.h>
 
-#include "exec/schema_scanner/frontend_helper.h"
+#include "exec/schema_scanner/schema_helper.h"
 #include "gen_cpp/HeartbeatService_types.h"
 #include "http/http_channel.h"
 #include "http/http_request.h"
 #include "runtime/exec_env.h"
-#include "runtime/load_stream_mgr.h"
+#include "runtime/stream_load/load_stream_mgr.h"
+#include "runtime/stream_load/stream_load_executor.h"
 #include "runtime/thread_resource_mgr.h"
 #include "util/brpc_stub_cache.h"
 #include "util/cpu_info.h"
@@ -81,6 +82,7 @@ public:
         _env._master_info = new TMasterInfo();
         _env._load_stream_mgr = new LoadStreamMgr();
         _env._brpc_stub_cache = new BrpcStubCache();
+        _env._stream_load_executor = new StreamLoadExecutor(&_env);
 
         _evhttp_req = evhttp_request_new(nullptr, nullptr);
     }
@@ -93,6 +95,8 @@ public:
         _env._master_info = nullptr;
         delete _env._thread_mgr;
         _env._thread_mgr = nullptr;
+        delete _env._stream_load_executor;
+        _env._stream_load_executor = nullptr;
 
         if (_evhttp_req != nullptr) {
             evhttp_request_free(_evhttp_req);

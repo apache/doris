@@ -56,14 +56,14 @@ public class RangePartitionPruner implements PartitionPruner {
     }
 
     private Collection<Long> prune(RangeMap<PartitionKey, Long> rangeMap,
-                                   int columnId,
+                                   int columnIdx,
                                    PartitionKey minKey,
                                    PartitionKey maxKey,
                                    int complex)
             throws AnalysisException {
-        LOG.debug("column id {}, column filters {}", columnId, partitionColumnFilters);
+        LOG.debug("column idx {}, column filters {}", columnIdx, partitionColumnFilters);
         // the last column in partition Key
-        if (columnId == partitionColumns.size()) {
+        if (columnIdx == partitionColumns.size()) {
             try {
                 return Lists.newArrayList(rangeMap.subRangeMap(Range.closed(minKey, maxKey)).asMapOfRanges().values());
             } catch (IllegalArgumentException e) {
@@ -71,7 +71,7 @@ public class RangePartitionPruner implements PartitionPruner {
             }
         }
         // no filter in this column
-        Column keyColumn = partitionColumns.get(columnId);
+        Column keyColumn = partitionColumns.get(columnIdx);
         PartitionColumnFilter filter = partitionColumnFilters.get(keyColumn.getName());
         if (null == filter) {
             minKey.pushColumn(LiteralExpr.createInfinity(Type.fromPrimitiveType(keyColumn.getDataType()), false),
@@ -104,7 +104,7 @@ public class RangePartitionPruner implements PartitionPruner {
                     minKey.pushColumn(filter.lowerBound, keyColumn.getDataType());
                     maxKey.pushColumn(filter.upperBound, keyColumn.getDataType());
                 }
-                Collection<Long> result = prune(rangeMap, columnId + 1, minKey, maxKey, complex);
+                Collection<Long> result = prune(rangeMap, columnIdx + 1, minKey, maxKey, complex);
                 minKey.popColumn();
                 maxKey.popColumn();
                 return result;
@@ -118,8 +118,8 @@ public class RangePartitionPruner implements PartitionPruner {
             if (filter.lowerBound != null) {
                 minKey.pushColumn(filter.lowerBound, keyColumn.getDataType());
                 pushMinCount++;
-                if (filter.lowerBoundInclusive && columnId != lastColumnId) {
-                    Column column = partitionColumns.get(columnId + 1);
+                if (filter.lowerBoundInclusive && columnIdx != lastColumnId) {
+                    Column column = partitionColumns.get(columnIdx + 1);
                     Type type = Type.fromPrimitiveType(column.getDataType());
                     minKey.pushColumn(LiteralExpr.createInfinity(type, false), column.getDataType());
                     pushMinCount++;
@@ -132,8 +132,8 @@ public class RangePartitionPruner implements PartitionPruner {
             if (filter.upperBound != null) {
                 maxKey.pushColumn(filter.upperBound, keyColumn.getDataType());
                 pushMaxCount++;
-                if (filter.upperBoundInclusive && columnId != lastColumnId) {
-                    Column column = partitionColumns.get(columnId + 1);
+                if (filter.upperBoundInclusive && columnIdx != lastColumnId) {
+                    Column column = partitionColumns.get(columnIdx + 1);
                     maxKey.pushColumn(LiteralExpr.createInfinity(Type.fromPrimitiveType(column.getDataType()), true),
                             column.getDataType());
                     pushMaxCount++;
@@ -167,7 +167,7 @@ public class RangePartitionPruner implements PartitionPruner {
             LiteralExpr expr = (LiteralExpr) inPredicate.getChild(i);
             minKey.pushColumn(expr, keyColumn.getDataType());
             maxKey.pushColumn(expr, keyColumn.getDataType());
-            Collection<Long> subList = prune(rangeMap, columnId + 1, minKey, maxKey, newComplex);
+            Collection<Long> subList = prune(rangeMap, columnIdx + 1, minKey, maxKey, newComplex);
             for (long partId : subList) {
                 resultSet.add(partId);
             }

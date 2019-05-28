@@ -86,7 +86,11 @@ public:
     }
 
     // Get table pointer
-    OLAPTablePtr get_table(TTabletId tablet_id, SchemaHash schema_hash, bool load_table = true);
+    // TODO(cmy): I think it is better to return Status instead of OLAPTablePtr,
+    // so that the caller can decide what to do next based on Status.
+    // Currently, I just add a new parameter 'err' to save the error msg.
+    // This should be redesigned later.
+    OLAPTablePtr get_table(TTabletId tablet_id, SchemaHash schema_hash, bool load_table = true, std::string* err = nullptr);
 
     OLAPStatus get_tables_by_id(TTabletId tablet_id, std::list<OLAPTablePtr>* table_list);    
 
@@ -178,8 +182,8 @@ public:
     OLAPStatus clear();
 
     void start_clean_fd_cache();
-    void perform_cumulative_compaction();
-    void perform_base_compaction();
+    void perform_cumulative_compaction(OlapStore* store);
+    void perform_base_compaction(OlapStore* store);
 
     // 获取cache的使用情况信息
     void get_cache_status(rapidjson::Document* document) const;
@@ -527,7 +531,7 @@ private:
 
     OLAPStatus _check_existed_or_else_create_dir(const std::string& path);
 
-    OLAPTablePtr _find_best_tablet_to_compaction(CompactionType compaction_type);
+    OLAPTablePtr _find_best_tablet_to_compaction(CompactionType compaction_type, OlapStore* store);
     bool _can_do_compaction(OLAPTablePtr table);
 
     void _cancel_unfinished_schema_change();
@@ -584,7 +588,7 @@ private:
     // Thread functions
 
     // base compaction thread process function
-    void* _base_compaction_thread_callback(void* arg);
+    void* _base_compaction_thread_callback(void* arg, OlapStore* store);
 
     // garbage sweep thread process function. clear snapshot and trash folder
     void* _garbage_sweeper_thread_callback(void* arg);
@@ -596,7 +600,7 @@ private:
     void* _unused_index_thread_callback(void* arg);
 
     // cumulative process function
-    void* _cumulative_compaction_thread_callback(void* arg);
+    void* _cumulative_compaction_thread_callback(void* arg, OlapStore* store);
 
     // clean file descriptors cache
     void* _fd_cache_clean_callback(void* arg);

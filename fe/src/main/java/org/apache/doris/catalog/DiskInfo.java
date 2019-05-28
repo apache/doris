@@ -86,6 +86,10 @@ public class DiskInfo implements Writable {
         this.diskAvailableCapacityB = availableCapacityB;
     }
 
+    public double getUsedPct() {
+        return (totalCapacityB - diskAvailableCapacityB) / (double) (totalCapacityB <= 0 ? 1 : totalCapacityB);
+    }
+
     public DiskState getState() {
         return state;
     }

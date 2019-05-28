@@ -145,21 +145,10 @@ public class Planner {
         singleNodePlanner = new SingleNodePlanner(plannerContext);
         PlanNode singleNodePlan = singleNodePlanner.createSingleNodePlan();
 
-        singleNodePlanner.validatePlan(singleNodePlan);
-
         List<Expr> resultExprs = queryStmt.getResultExprs();
         if (statment instanceof InsertStmt) {
-            if (queryOptions.isSetMt_dop() && queryOptions.mt_dop > 0) {
-                throw new NotImplementedException(
-                        "MT_DOP not supported for plans with insert.");
-            }
- 
             InsertStmt insertStmt = (InsertStmt) statment;
-            if (insertStmt.getOlapTuple() != null && !insertStmt.isStreaming()) {
-                singleNodePlan = new OlapRewriteNode(plannerContext.getNextNodeId(), singleNodePlan, insertStmt);
-                singleNodePlan.init(analyzer);
-                resultExprs = insertStmt.getResultExprs();
-            }
+            insertStmt.prepareExpressions();
         }
 
         // TODO chenhao16 , no used materialization work
@@ -190,6 +179,7 @@ public class Planner {
 
         if (statment instanceof InsertStmt) {
             InsertStmt insertStmt = (InsertStmt) statment;
+
             rootFragment = distributedPlanner.createInsertFragment(rootFragment, insertStmt, fragments);
             rootFragment.setSink(insertStmt.createDataSink());
             insertStmt.finalize();

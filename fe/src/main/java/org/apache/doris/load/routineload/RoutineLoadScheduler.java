@@ -20,7 +20,12 @@ package org.apache.doris.load.routineload;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Daemon;
+import org.apache.doris.common.util.LogBuilder;
+import org.apache.doris.common.util.LogKey;
+
+import com.google.common.annotations.VisibleForTesting;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -30,58 +35,104 @@ import java.util.List;
 public class RoutineLoadScheduler extends Daemon {
 
     private static final Logger LOG = LogManager.getLogger(RoutineLoadScheduler.class);
+    private static final int DEFAULT_INTERVAL_SECONDS = 10;
 
-    private RoutineLoadManager routineLoadManager = Catalog.getInstance().getRoutineLoadManager();
+    private RoutineLoadManager routineLoadManager;
+
+    @VisibleForTesting
+    public RoutineLoadScheduler() {
+        super();
+        routineLoadManager = Catalog.getInstance().getRoutineLoadManager();
+    }
+
+    public RoutineLoadScheduler(RoutineLoadManager routineLoadManager) {
+        super("Routine load scheduler", DEFAULT_INTERVAL_SECONDS * 1000);
+        this.routineLoadManager = routineLoadManager;
+    }
 
     @Override
     protected void runOneCycle() {
         try {
             process();
         } catch (Throwable e) {
-            LOG.error("failed to schedule jobs with error massage {}", e.getMessage(), e);
+            LOG.warn("Failed to process one round of RoutineLoadScheduler", e);
         }
     }
 
-    private void process() {
+    private void process() throws UserException {
         // update
-        routineLoadManager.rescheduleRoutineLoadJob();
+        routineLoadManager.updateRoutineLoadJob();
         // get need schedule routine jobs
         List<RoutineLoadJob> routineLoadJobList = null;
         try {
             routineLoadJobList = getNeedScheduleRoutineJobs();
         } catch (LoadException e) {
-            LOG.error("failed to get need schedule routine jobs");
+            LOG.warn("failed to get need schedule routine jobs", e);
         }
 
-        LOG.debug("there are {} job need schedule", routineLoadJobList.size());
+        LOG.info("there are {} job need schedule", routineLoadJobList.size());
         for (RoutineLoadJob routineLoadJob : routineLoadJobList) {
+            RoutineLoadJob.JobState errorJobState = null;
+            UserException userException = null;
             try {
+                // init the stream load planner
+                routineLoadJob.initPlanner();
                 // judge nums of tasks more then max concurrent tasks of cluster
-                int currentConcurrentTaskNum = routineLoadJob.calculateCurrentConcurrentTaskNum();
-                int totalTaskNum = currentConcurrentTaskNum + routineLoadManager.getSizeOfIdToRoutineLoadTask();
-                if (totalTaskNum > routineLoadManager.getTotalMaxConcurrentTaskNum()) {
-                    LOG.info("job {} concurrent task num {}, current total task num {}. "
-                                    + "desired total task num {} more then total max task num {}, "
-                                    + "skip this turn of job scheduler",
-                            routineLoadJob.getId(), currentConcurrentTaskNum,
-                            routineLoadManager.getSizeOfIdToRoutineLoadTask(),
-                            totalTaskNum, routineLoadManager.getTotalMaxConcurrentTaskNum());
+                int desiredConcurrentTaskNum = routineLoadJob.calculateCurrentConcurrentTaskNum();
+                if (desiredConcurrentTaskNum <= 0) {
+                    // the job will be rescheduled later.
+                    LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
+                                     .add("msg", "the current concurrent num is less then or equal to zero, "
+                                             + "job will be rescheduled later")
+                                     .build());
+                    continue;
+                }
+                int currentTotalTaskNum = routineLoadManager.getSizeOfIdToRoutineLoadTask();
+                int desiredTotalTaskNum = desiredConcurrentTaskNum + currentTotalTaskNum;
+                if (desiredTotalTaskNum > routineLoadManager.getTotalMaxConcurrentTaskNum()) {
+                    LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
+                                     .add("desired_concurrent_task_num", desiredConcurrentTaskNum)
+                                     .add("current_total_task_num", currentTotalTaskNum)
+                                     .add("desired_total_task_num", desiredTotalTaskNum)
+                                     .add("total_max_task_num", routineLoadManager.getTotalMaxConcurrentTaskNum())
+                                     .add("msg", "skip this turn of job scheduler while there are not enough slot in backends")
+                                     .build());
                     break;
                 }
-                // divide job into tasks
-                List<RoutineLoadTaskInfo> needScheduleTasksList =
-                        routineLoadJob.divideRoutineLoadJob(currentConcurrentTaskNum);
-                // save task into queue of needScheduleTasks
-                routineLoadManager.getNeedScheduleTasksQueue().addAll(needScheduleTasksList);
+                // check state and divide job into tasks
+                routineLoadJob.divideRoutineLoadJob(desiredConcurrentTaskNum);
             } catch (MetaNotFoundException e) {
-                routineLoadJob.updateState(RoutineLoadJob.JobState.CANCELLED);
+                errorJobState = RoutineLoadJob.JobState.CANCELLED;
+                userException = e;
+            } catch (UserException e) {
+                errorJobState = RoutineLoadJob.JobState.PAUSED;
+                userException = e;
+            }
+
+            if (errorJobState != null) {
+                LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
+                                 .add("current_state", routineLoadJob.getState())
+                                 .add("desired_state", errorJobState)
+                                 .add("warn_msg", "failed to scheduler job, change job state to desired_state with error reason " + userException.getMessage())
+                                 .build(), userException);
+                try {
+                    routineLoadJob.updateState(errorJobState, userException.getMessage(), false);
+                } catch (UserException e) {
+                    LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
+                                     .add("current_state", routineLoadJob.getState())
+                                     .add("desired_state", errorJobState)
+                                     .add("warn_msg", "failed to change state to desired state")
+                                     .build(), e);
+                }
             }
         }
 
         LOG.debug("begin to check timeout tasks");
         // check timeout tasks
-        List<RoutineLoadTaskInfo> rescheduleTasksList = routineLoadManager.processTimeoutTasks();
-        routineLoadManager.getNeedScheduleTasksQueue().addAll(rescheduleTasksList);
+        routineLoadManager.processTimeoutTasks();
+
+        LOG.debug("begin to clean old jobs ");
+        routineLoadManager.cleanOldRoutineLoadJobs();
     }
 
     private List<RoutineLoadJob> getNeedScheduleRoutineJobs() throws LoadException {

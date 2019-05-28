@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.thrift.TPartitionVersionInfo;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TTablet;
@@ -139,6 +140,12 @@ public class TabletInvertedIndex {
                                 if (backendTabletInfo.isSetPath_hash() &&
                                         replica.getPathHash() != backendTabletInfo.getPath_hash()) {
                                     replica.setPathHash(backendTabletInfo.getPath_hash());
+                                }
+
+                                if (backendTabletInfo.isSetSchema_hash() && replica.getState() == ReplicaState.NORMAL
+                                        && replica.getSchemaHash() != backendTabletInfo.getSchema_hash()) {
+                                    // update the schema hash only when replica is normal
+                                    replica.setSchemaHash(backendTabletInfo.getSchema_hash());
                                 }
 
                                 if (needRecover(replica, tabletMeta.getOldSchemaHash(), backendTabletInfo)) {

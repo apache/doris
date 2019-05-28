@@ -21,12 +21,31 @@
 #include <set>
 #include <string>
 #include <vector>
+#include <unordered_map>
 
 #include "util/metrics.h"
 
 namespace doris {
 
 class SystemMetrics;
+
+class IntGaugeMetricsMap {
+public:
+    void set_metric(const std::string& key, int64_t val) {
+        auto metric = metrics.find(key);
+        if (metric != metrics.end()) {
+            metric->second.set_value(val);
+        }
+    }   
+
+    IntGauge* set_key(const std::string& key) {
+        metrics.emplace(key, IntGauge());
+        return &metrics.find(key)->second;
+    }
+
+private:
+    std::unordered_map<std::string, IntGauge> metrics;
+};
 
 class DorisMetrics {
 public:
@@ -81,13 +100,20 @@ public:
     static IntCounter cumulative_compaction_deltas_total;
     static IntCounter cumulative_compaction_bytes_total;
 
-    static IntCounter alter_task_success_total;
-    static IntCounter alter_task_failed_total;
+    static IntCounter publish_task_request_total;
+    static IntCounter publish_task_failed_total;
 
     static IntCounter meta_write_request_total;
     static IntCounter meta_write_request_duration_us;
     static IntCounter meta_read_request_total;
     static IntCounter meta_read_request_duration_us;
+
+    static IntCounter txn_begin_request_total;
+    static IntCounter txn_commit_request_total;
+    static IntCounter txn_rollback_request_total;
+    static IntCounter txn_exec_plan_total;
+    static IntCounter stream_receive_bytes_total;
+    static IntCounter stream_load_rows_total;
 
     // Gauges
     static IntGauge memory_pool_bytes_total;
@@ -95,17 +121,31 @@ public:
     static IntGauge process_fd_num_used;
     static IntGauge process_fd_num_limit_soft;
     static IntGauge process_fd_num_limit_hard;
+    static IntGaugeMetricsMap disks_total_capacity;
+    static IntGaugeMetricsMap disks_avail_capacity;
+    static IntGaugeMetricsMap disks_data_used_capacity;
+    static IntGaugeMetricsMap disks_state;
+
+    // The following metrics will be calculated
+    // by metric calculator
+    static IntGauge push_request_write_bytes_per_second;
+    static IntGauge query_scan_bytes_per_second;
+    static IntGauge max_disk_io_util_percent;
+    static IntGauge max_network_send_bytes_rate;
+    static IntGauge max_network_receive_bytes_rate;
 
     ~DorisMetrics();
     // call before calling metrics
     void initialize(
         const std::string& name,
+        const std::vector<std::string>& paths = std::vector<std::string>(),
         bool init_system_metrics = false,
         const std::set<std::string>& disk_devices = std::set<std::string>(),
         const std::vector<std::string>& network_interfaces = std::vector<std::string>());
 
     static DorisMetrics* instance() { return &_s_doris_metrics; }
     static MetricRegistry* metrics() { return _s_doris_metrics._metrics; }
+    static SystemMetrics* system_metrics() { return _s_doris_metrics._system_metrics; }
 private:
     // Don't allow constrctor
     DorisMetrics();

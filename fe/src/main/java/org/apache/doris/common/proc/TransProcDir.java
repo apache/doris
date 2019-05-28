@@ -18,10 +18,10 @@
 package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.Database;
-import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.ListComparator;
+import org.apache.doris.transaction.GlobalTransactionMgr;
+
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 
@@ -46,20 +46,26 @@ public class TransProcDir implements ProcDirInterface {
             .add("FinishTime")
             .add("Reason")
             .add("ErrorReplicasCount")
+            .add("ListenerId")
+            .add("TimeoutMs")
             .build();
-    private long dbId;
 
-    public TransProcDir(long dbId) {
+    public static final int MAX_SHOW_ENTRIES = 2000;
+
+    private long dbId;
+    private String state;
+
+    public TransProcDir(long dbId, String state) {
         this.dbId = dbId;
+        this.state = state;
     }
 
     @Override
     public ProcResult fetchResult() throws AnalysisException {
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
-        Catalog catalog = Catalog.getInstance();
         GlobalTransactionMgr transactionMgr = Catalog.getCurrentGlobalTransactionMgr();
-        List<List<Comparable>> infos = transactionMgr.getDbTransInfo(dbId);
+        List<List<Comparable>> infos = transactionMgr.getDbTransInfo(dbId, state.equals("running"), MAX_SHOW_ENTRIES);
         // order by transactionId, asc
         ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(0);
         Collections.sort(infos, comparator);
@@ -90,11 +96,6 @@ public class TransProcDir implements ProcDirInterface {
         } catch (NumberFormatException e) {
             throw new AnalysisException("Invalid transaction id format: " + tid);
         }
-        Database db = Catalog.getInstance().getDb(dbId);
-        if (db == null) {
-            throw new AnalysisException("Database[" + dbId + "] does not exist.");
-        }
-
-        return new TransTablesProcDir(db, tid);
+        return new TransTablesProcDir(tid);
     }
 }

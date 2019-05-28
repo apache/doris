@@ -86,10 +86,22 @@ public class EsStateStore extends Daemon {
     protected void runOneCycle() {
         for (EsTable esTable : esTables.values()) {
             try {
-                EsTableState esTableState = loadEsIndexMetadataV55(esTable);
-                if (esTableState != null) {
-                    esTable.setEsTableState(esTableState);
+                EsRestClient client = new EsRestClient(esTable.getSeeds(),
+                        esTable.getUserName(), esTable.getPasswd());
+//                EsTableState esTableState = loadEsIndexMetadataV55(esTable);
+                String indexMetaData = client.getIndexMetaData(esTable.getIndexName());
+                if (indexMetaData == null) {
+                    continue;
                 }
+                EsTableState esTableState = parseClusterState55(indexMetaData, esTable);
+                if (esTableState == null) {
+                    continue;
+                }
+                if (EsTable.TRANSPORT_HTTP.equals(esTable.getTransport())) {
+                    Map<String, EsNodeInfo> nodesInfo = client.getHttpNodes();
+                    esTableState.addHttpAddress(nodesInfo);
+                }
+                esTable.setEsTableState(esTableState);
             } catch (Throwable e) {
                 LOG.error("errors while load table {} state from es", esTable.getName());
             }

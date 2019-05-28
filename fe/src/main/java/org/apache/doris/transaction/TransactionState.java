@@ -17,14 +17,17 @@
 
 package org.apache.doris.transaction;
 
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.load.TxnStateChangeListener;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.task.PublishVersionTask;
 
 import com.google.common.base.Joiner;
+import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
@@ -42,7 +45,8 @@ public class TransactionState implements Writable {
         FRONTEND(1),        // old dpp load, mini load, insert stmt(not streaming type) use this type
         BACKEND_STREAMING(2),         // streaming load use this type
         INSERT_STREAMING(3), // insert stmt (streaming type) use this type
-        ROUTINE_LOAD_TASK(4); // routine load task use this type
+        ROUTINE_LOAD_TASK(4), // routine load task use this type
+        BATCH_LOAD_JOB(5); // load job v2 for broker load
         
         private final int flag;
         
@@ -64,20 +68,8 @@ public class TransactionState implements Writable {
                     return INSERT_STREAMING;
                 case 4:
                     return ROUTINE_LOAD_TASK;
-                default:
-                    return null;
-            }
-        }
-        
-        @Override
-        public String toString() {
-            switch (this) {
-                case FRONTEND:
-                    return "frontend";
-                case BACKEND_STREAMING:
-                    return "backend_streaming";
-                case INSERT_STREAMING:
-                    return "insert_streaming";
+                case 5:
+                    return BATCH_LOAD_JOB;
                 default:
                     return null;
             }
@@ -86,7 +78,27 @@ public class TransactionState implements Writable {
     
     public enum TxnStatusChangeReason {
         DB_DROPPED,
-        TIMEOUT
+        TIMEOUT,
+        OFFSET_OUT_OF_RANGE;
+
+        public static TxnStatusChangeReason fromString(String reasonString) {
+            for (TxnStatusChangeReason txnStatusChangeReason : TxnStatusChangeReason.values()) {
+                if (reasonString.contains(txnStatusChangeReason.toString())) {
+                    return txnStatusChangeReason;
+                }
+            }
+            return null;
+        }
+
+        @Override
+        public String toString() {
+            switch (this) {
+                case OFFSET_OUT_OF_RANGE:
+                    return "Offset out of range";
+                default:
+                    return this.name();
+            }
+        }
     }
     
     private long dbId;
@@ -96,13 +108,14 @@ public class TransactionState implements Writable {
     // no need to persist it
     private long timestamp;
     private Map<Long, TableCommitInfo> idToTableCommitInfos;
+    // coordinator is show who begin this txn (FE, or one of BE, etc...)
     private String coordinator;
     private TransactionStatus transactionStatus;
     private LoadJobSourceType sourceType;
     private long prepareTime;
     private long commitTime;
     private long finishTime;
-    private String reason;
+    private String reason = "";
     // error replica ids
     private Set<Long> errorReplicas;
     private CountDownLatch latch;
@@ -113,10 +126,14 @@ public class TransactionState implements Writable {
     private long publishVersionTime;
     private TransactionStatus preStatus = null;
     
+    private long callbackId = -1;
+    private long timeoutMs = Config.stream_load_default_timeout_second;
+
     // optional
     private TxnCommitAttachment txnCommitAttachment;
-    private TxnStateChangeListener txnStateChangeListener;
     
+    private String errorLogUrl = null;
+
     public TransactionState() {
         this.dbId = -1;
         this.transactionId = -1;
@@ -137,7 +154,7 @@ public class TransactionState implements Writable {
     }
     
     public TransactionState(long dbId, long transactionId, String label, long timestamp,
-            LoadJobSourceType sourceType, String coordinator) {
+                            LoadJobSourceType sourceType, String coordinator, long callbackId, long timeoutMs) {
         this.dbId = dbId;
         this.transactionId = transactionId;
         this.label = label;
@@ -154,14 +171,8 @@ public class TransactionState implements Writable {
         this.publishVersionTasks = Maps.newHashMap();
         this.hasSendTask = false;
         this.latch = new CountDownLatch(1);
-    }
-    
-    public TransactionState(long dbId, long transactionId, String label, long timestamp,
-            LoadJobSourceType sourceType, String coordinator,  TxnStateChangeListener txnStateChangeListener) {
-        this(dbId, transactionId, label, timestamp, sourceType, coordinator);
-        if (txnStateChangeListener != null) {
-            this.txnStateChangeListener = txnStateChangeListener;
-        }
+        this.callbackId = callbackId;
+        this.timeoutMs = timeoutMs;
     }
     
     public void setErrorReplicas(Set<Long> newErrorReplicas) {
@@ -184,7 +195,7 @@ public class TransactionState implements Writable {
         this.hasSendTask = hasSendTask;
         this.publishVersionTime = System.currentTimeMillis();
     }
-    
+
     public void updateSendTaskTime() {
         this.publishVersionTime = System.currentTimeMillis();
     }
@@ -201,69 +212,6 @@ public class TransactionState implements Writable {
         return timestamp;
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        out.writeLong(transactionId);
-        Text.writeString(out, label);
-        out.writeLong(dbId);
-        out.writeInt(idToTableCommitInfos.size());
-        for (TableCommitInfo info : idToTableCommitInfos.values()) {
-            info.write(out);
-        }
-        Text.writeString(out, coordinator);
-        out.writeInt(transactionStatus.value());
-        out.writeInt(sourceType.value());
-        out.writeLong(prepareTime);
-        out.writeLong(commitTime);
-        out.writeLong(finishTime);
-        Text.writeString(out, reason);
-        out.writeInt(errorReplicas.size());
-        for (long errorReplciaId : errorReplicas) {
-            out.writeLong(errorReplciaId);
-        }
-        // TODO(ml): persistent will be enable after all of routine load work finished.
-//        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_46) {
-//            if (txnCommitAttachment == null) {
-//                out.writeBoolean(false);
-//            } else {
-//                out.writeBoolean(true);
-//                txnCommitAttachment.write(out);
-//            }
-//        }
-    }
-    
-    @Override
-    public void readFields(DataInput in) throws IOException {
-        transactionId = in.readLong();
-        label = Text.readString(in);
-        dbId = in.readLong();
-        int size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            TableCommitInfo info = new TableCommitInfo();
-            info.readFields(in);
-            idToTableCommitInfos.put(info.getTableId(), info);
-        }
-        coordinator = Text.readString(in);
-        transactionStatus = TransactionStatus.valueOf(in.readInt());
-        sourceType = LoadJobSourceType.valueOf(in.readInt());
-        prepareTime = in.readLong();
-        commitTime = in.readLong();
-        finishTime = in.readLong();
-        reason = Text.readString(in);
-        int errorReplicaNum = in.readInt();
-        for (int i = 0; i < errorReplicaNum; ++i) {
-            errorReplicas.add(in.readLong());
-        }
-        // TODO(ml): persistent will be enable after all of routine load work finished.
-//        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_46) {
-//            if (in.readBoolean()) {
-//                txnCommitAttachment = TransactionStateExtra.readTxnCommitAttachment(in, sourceType);
-//            }
-//        }
-        
-        // TODO(ml): reload txnStateChangeListener by txnCommitAttachment
-    }
-    
     public long getTransactionId() {
         return transactionId;
     }
@@ -300,31 +248,32 @@ public class TransactionState implements Writable {
         return this.preStatus;
     }
     
-    
     public TxnCommitAttachment getTxnCommitAttachment() {
         return txnCommitAttachment;
     }
-    
-    public void setTransactionStatus(TransactionStatus transactionStatus) throws TransactionException {
-        setTransactionStatus(transactionStatus, null);
+
+    public long getCallbackId() {
+        return callbackId;
     }
-    
-    public void setTransactionStatus(TransactionStatus transactionStatus, TxnStatusChangeReason txnStatusChangeReason)
-            throws TransactionException {
-        // before state changed
-        if (txnStateChangeListener != null) {
-            switch (transactionStatus) {
-                case ABORTED:
-                    txnStateChangeListener.beforeAborted(this, txnStatusChangeReason);
-                    break;
-            }
-        }
-        
-        // state changed
+
+    public long getTimeoutMs() {
+        return timeoutMs;
+    }
+
+    public void setErrorLogUrl(String errorLogUrl) {
+        this.errorLogUrl = errorLogUrl;
+    }
+
+    public String getErrorLogUrl() {
+        return errorLogUrl;
+    }
+
+    public void setTransactionStatus(TransactionStatus transactionStatus) {
+        // status changed
         this.preStatus = this.transactionStatus;
         this.transactionStatus = transactionStatus;
         
-        // after state changed
+        // after status changed
         if (transactionStatus == TransactionStatus.VISIBLE) {
             this.latch.countDown();
             if (MetricRepo.isInit.get()) {
@@ -334,14 +283,75 @@ public class TransactionState implements Writable {
             if (MetricRepo.isInit.get()) {
                 MetricRepo.COUNTER_TXN_FAILED.increase(1L);
             }
-            if (txnStateChangeListener != null) {
-                txnStateChangeListener.onAborted(this, txnStatusChangeReason);
+        }
+    }
+
+    public void beforeStateTransform(TransactionStatus transactionStatus) throws TransactionException {
+        // before status changed
+        TxnStateChangeCallback callback = Catalog.getCurrentGlobalTransactionMgr()
+                .getCallbackFactory().getCallback(callbackId);
+        if (callback != null) {
+            switch (transactionStatus) {
+                case ABORTED:
+                    callback.beforeAborted(this);
+                    break;
+                case COMMITTED:
+                    callback.beforeCommitted(this);
+                    break;
+                default:
+                    break;
             }
-        } else if (transactionStatus == TransactionStatus.COMMITTED && txnStateChangeListener != null) {
-            txnStateChangeListener.onCommitted(this);
+        } else if (callback == null && callbackId > 0) {
+            switch (transactionStatus) {
+                case COMMITTED:
+                    // Maybe listener has been deleted. The txn need to be aborted later.
+                    throw new TransactionException("Failed to commit txn when callback could not be found");
+                default:
+                    break;
+            }
+        }
+    }
+
+    public void afterStateTransform(TransactionStatus transactionStatus, boolean txnOperated) throws UserException {
+        afterStateTransform(transactionStatus, txnOperated, null);
+    }
+
+    public void afterStateTransform(TransactionStatus transactionStatus, boolean txnOperated, String txnStatusChangeReason)
+            throws UserException {
+        // after status changed
+        TxnStateChangeCallback callback = Catalog.getCurrentGlobalTransactionMgr()
+                .getCallbackFactory().getCallback(callbackId);
+        if (callback != null) {
+            switch (transactionStatus) {
+                case ABORTED:
+                    callback.afterAborted(this, txnOperated, txnStatusChangeReason);
+                    break;
+                case COMMITTED:
+                    callback.afterCommitted(this, txnOperated);
+                    break;
+                case VISIBLE:
+                    callback.afterVisible(this, txnOperated);
+                    break;
+                default:
+                    break;
+            }
         }
     }
     
+    public void replaySetTransactionStatus() {
+        TxnStateChangeCallback callback = Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().getCallback(
+                callbackId);
+        if (callback != null) {
+            if (transactionStatus == TransactionStatus.ABORTED) {
+                callback.replayOnAborted(this);
+            } else if (transactionStatus == TransactionStatus.COMMITTED) {
+                callback.replayOnCommitted(this);
+            } else if (transactionStatus == TransactionStatus.VISIBLE) {
+                callback.replayOnVisible(this);
+            }
+        }
+    }
+
     public void waitTransactionVisible(long timeoutMillis) throws InterruptedException {
         this.latch.await(timeoutMillis, TimeUnit.MILLISECONDS);
     }
@@ -359,7 +369,7 @@ public class TransactionState implements Writable {
     }
     
     public void setReason(String reason) {
-        this.reason = reason;
+        this.reason = Strings.nullToEmpty(reason);
     }
     
     public Set<Long> getErrorReplicas() {
@@ -426,12 +436,66 @@ public class TransactionState implements Writable {
         return System.currentTimeMillis() - publishVersionTime > timeoutMillis;
     }
     
-    public void setTxnStateChangeListener(TxnStateChangeListener txnStateChangeListener) {
-        this.txnStateChangeListener = txnStateChangeListener;
+    @Override
+    public void write(DataOutput out) throws IOException {
+        out.writeLong(transactionId);
+        Text.writeString(out, label);
+        out.writeLong(dbId);
+        out.writeInt(idToTableCommitInfos.size());
+        for (TableCommitInfo info : idToTableCommitInfos.values()) {
+            info.write(out);
+        }
+        Text.writeString(out, coordinator);
+        out.writeInt(transactionStatus.value());
+        out.writeInt(sourceType.value());
+        out.writeLong(prepareTime);
+        out.writeLong(commitTime);
+        out.writeLong(finishTime);
+        Text.writeString(out, reason);
+        out.writeInt(errorReplicas.size());
+        for (long errorReplciaId : errorReplicas) {
+            out.writeLong(errorReplciaId);
+        }
+
+        if (txnCommitAttachment == null) {
+            out.writeBoolean(false);
+        } else {
+            out.writeBoolean(true);
+            txnCommitAttachment.write(out);
+        }
+        out.writeLong(callbackId);
+        out.writeLong(timeoutMs);
     }
     
-    public TxnStateChangeListener getTxnStateChangeListener() {
-        return txnStateChangeListener;
+    @Override
+    public void readFields(DataInput in) throws IOException {
+        transactionId = in.readLong();
+        label = Text.readString(in);
+        dbId = in.readLong();
+        int size = in.readInt();
+        for (int i = 0; i < size; i++) {
+            TableCommitInfo info = new TableCommitInfo();
+            info.readFields(in);
+            idToTableCommitInfos.put(info.getTableId(), info);
+        }
+        coordinator = Text.readString(in);
+        transactionStatus = TransactionStatus.valueOf(in.readInt());
+        sourceType = LoadJobSourceType.valueOf(in.readInt());
+        prepareTime = in.readLong();
+        commitTime = in.readLong();
+        finishTime = in.readLong();
+        reason = Text.readString(in);
+        int errorReplicaNum = in.readInt();
+        for (int i = 0; i < errorReplicaNum; ++i) {
+            errorReplicas.add(in.readLong());
+        }
+
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_49) {
+            if (in.readBoolean()) {
+                txnCommitAttachment = TxnCommitAttachment.read(in);
+            }
+            callbackId = in.readLong();
+            timeoutMs = in.readLong();
+        }
     }
-    
 }

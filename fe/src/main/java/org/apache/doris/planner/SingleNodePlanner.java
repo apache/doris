@@ -17,51 +17,17 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.AggregateInfo;
-import org.apache.doris.analysis.AnalyticInfo;
-import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.BaseTableRef;
-import org.apache.doris.analysis.BinaryPredicate;
-import org.apache.doris.analysis.CaseExpr;
-import org.apache.doris.analysis.CastExpr;
-import org.apache.doris.analysis.DescriptorTable;
-import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.ExprSubstitutionMap;
-import org.apache.doris.analysis.FunctionCallExpr;
-import org.apache.doris.analysis.InPredicate;
-import org.apache.doris.analysis.InlineViewRef;
-import org.apache.doris.analysis.IsNullPredicate;
-import org.apache.doris.analysis.JoinOperator;
-import org.apache.doris.analysis.LiteralExpr;
-import org.apache.doris.analysis.NullLiteral;
-import org.apache.doris.analysis.QueryStmt;
-import org.apache.doris.analysis.SelectStmt;
-import org.apache.doris.analysis.SlotDescriptor;
-import org.apache.doris.analysis.SlotId;
-import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.analysis.TableRef;
-import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.analysis.TupleId;
-import org.apache.doris.analysis.TupleIsNullPredicate;
-import org.apache.doris.analysis.UnionStmt;
-import org.apache.doris.catalog.AggregateType;
-import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.MysqlTable;
-import org.apache.doris.catalog.Table;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.UserException;
-import org.apache.doris.common.NotImplementedException;
-import org.apache.doris.common.Pair;
-import org.apache.doris.common.Reference;
-
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
-import javassist.expr.NewArray;
-
+import org.apache.doris.analysis.*;
+import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.MysqlTable;
+import org.apache.doris.catalog.Table;
+import org.apache.doris.common.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -148,31 +114,6 @@ public class SingleNodePlanner {
                 ctx_.getQueryOptions().getDefault_order_by_limit());
         Preconditions.checkNotNull(singleNodePlan);
         return singleNodePlan;
-    }
-
-    /**
-     * Checks that the given single-node plan is executable:
-     * - It may not contain right or full outer joins with no equi-join conjuncts that
-     *   are not inside the right child of a SubplanNode.
-     * - MT_DOP > 0 is not supported for plans with base table joins or table sinks.
-     * Throws a NotImplementedException if plan validation fails.
-     */
-    public void validatePlan(PlanNode planNode) throws NotImplementedException {
-      if (ctx_.getQueryOptions().isSetMt_dop() && ctx_.getQueryOptions().mt_dop > 0
-          && (planNode instanceof HashJoinNode || planNode instanceof CrossJoinNode)) {
-          throw new NotImplementedException(
-              "MT_DOP not supported for plans with base table joins or table sinks.");
-      }
-
-      // As long as MT_DOP is unset or 0 any join can run in a single-node plan.
-      if (ctx_.isSingleNodeExec() &&
-          (!ctx_.getQueryOptions().isSetMt_dop() || ctx_.getQueryOptions().mt_dop == 0)) {
-          return;
-      }
-
-      for (PlanNode child : planNode.getChildren()) {
-          validatePlan(child);
-      }
     }
 
     /**
@@ -555,6 +496,9 @@ public class SingleNodePlanner {
                             break;
                         }
                     } else if (aggExpr.getFnName().getFunction().equalsIgnoreCase("HLL_UNION_AGG")) {
+                        // do nothing
+                    } else if (aggExpr.getFnName().getFunction().equalsIgnoreCase("HLL_RAW_AGG")) {
+                        // do nothing
                     } else if (aggExpr.getFnName().getFunction().equalsIgnoreCase("NDV")) {
                         if ((!col.isKey())) {
                             turnOffReason = "NDV function with non-key column: " + col.getName();
@@ -568,7 +512,7 @@ public class SingleNodePlanner {
                             returnColumnValidate = false;
                             break;
                         }
-                   } else {
+                    } else {
                         turnOffReason = "Invalid Aggregate Operator: " + aggExpr.getFnName().getFunction();
                         returnColumnValidate = false;
                         break;
@@ -655,6 +599,13 @@ public class SingleNodePlanner {
             rowTuples.addAll(tblRef.getMaterializedTupleIds());
         }
         
+       if (analyzer.hasEmptySpjResultSet()) {
+            final PlanNode emptySetNode = new EmptySetNode(ctx_.getNextNodeId(), rowTuples);
+            emptySetNode.init(analyzer);
+            emptySetNode.setOutputSmap(selectStmt.getBaseTblSmap());
+            return createAggregationPlan(selectStmt, analyzer, emptySetNode);
+        }
+
         // create left-deep sequence of binary hash joins; assign node ids as we go along
         TableRef tblRef = selectStmt.getTableRefs().get(0);
         materializeTableResultForCrossJoinOrCountStar(tblRef, analyzer);
@@ -742,21 +693,29 @@ public class SingleNodePlanner {
      * Returns a MergeNode that materializes the exprs of the constant selectStmt. Replaces the resultExprs of the
      * selectStmt with SlotRefs into the materialized tuple.
      */
-    private PlanNode createConstantSelectPlan(SelectStmt selectStmt, Analyzer analyzer)
-            throws UserException {
+    private PlanNode createConstantSelectPlan(SelectStmt selectStmt, Analyzer analyzer) {
         Preconditions.checkState(selectStmt.getTableRefs().isEmpty());
         ArrayList<Expr> resultExprs = selectStmt.getResultExprs();
         // Create tuple descriptor for materialized tuple.
         TupleDescriptor tupleDesc = createResultTupleDescriptor(selectStmt, "union", analyzer);
         UnionNode unionNode = new UnionNode(ctx_.getNextNodeId(), tupleDesc.getId());
+
         // Analysis guarantees that selects without a FROM clause only have constant exprs.
-        unionNode.addConstExprList(Lists.newArrayList(resultExprs));
+        if (selectStmt.getValueList() != null) {
+            for (ArrayList<Expr> row : selectStmt.getValueList().getRows()) {
+                unionNode.addConstExprList(row);
+            }
+        } else {
+            unionNode.addConstExprList(Lists.newArrayList(resultExprs));
+        }
 
         // Replace the select stmt's resultExprs with SlotRefs into tupleDesc.
         for (int i = 0; i < resultExprs.size(); ++i) {
             SlotRef slotRef = new SlotRef(tupleDesc.getSlots().get(i));
             resultExprs.set(i, slotRef);
+            selectStmt.getBaseTblResultExprs().set(i, slotRef);
         }
+
         // UnionNode.init() needs tupleDesc to have been initialized
         unionNode.init(analyzer);
         return unionNode;
@@ -993,7 +952,9 @@ public class SingleNodePlanner {
      */
     public void migrateConjunctsToInlineView(Analyzer analyzer,
                                              InlineViewRef inlineViewRef) throws AnalysisException {
-        List<Expr> unassignedConjuncts = analyzer.getUnassignedConjuncts(inlineViewRef.getId().asList(), true);
+        // All conjuncts
+        final List<Expr> unassignedConjuncts =
+                analyzer.getUnassignedConjuncts(inlineViewRef.getId().asList(), true);
         if (!canMigrateConjuncts(inlineViewRef)) {
             // mark (fully resolve) slots referenced by unassigned conjuncts as
             // materialized
@@ -1003,7 +964,30 @@ public class SingleNodePlanner {
             return;
         }
 
-        List<Expr> preds = Lists.newArrayList();
+        // Constant conjuncts
+        final List<Expr> unassignedConstantConjuncts = Lists.newArrayList();
+        for (Expr e : unassignedConjuncts) {
+            if (e.isConstant()) {
+                unassignedConstantConjuncts.add(e);
+            }
+        }
+        // Non constant conjuncts
+        unassignedConjuncts.removeAll(unassignedConstantConjuncts);
+        migrateNonconstantConjuncts(inlineViewRef,  unassignedConjuncts, analyzer);
+        migrateConstantConjuncts(inlineViewRef, unassignedConstantConjuncts);
+    }
+
+    /**
+     * For handling non-constant conjuncts. This only substitute conjunct's tuple with InlineView's
+     * and register it in InlineView's Analyzer, whcih will be assigned by the next planning.
+     * @param inlineViewRef
+     * @param unassignedConjuncts
+     * @param analyzer
+     * @throws AnalysisException
+     */
+    private void migrateNonconstantConjuncts(
+            InlineViewRef inlineViewRef, List<Expr> unassignedConjuncts, Analyzer analyzer) throws AnalysisException {
+        final List<Expr> preds = Lists.newArrayList();
         for (Expr e: unassignedConjuncts) {
             if (analyzer.canEvalPredicate(inlineViewRef.getId().asList(), e)) {
                 preds.add(e);
@@ -1018,14 +1002,14 @@ public class SingleNodePlanner {
         // create new predicates against the inline view's unresolved result exprs, not
         // the resolved result exprs, in order to avoid skipping scopes (and ignoring
         // limit clauses on the way)
-        List<Expr> viewPredicates =
+        final List<Expr> viewPredicates =
                 Expr.substituteList(preds, inlineViewRef.getSmap(), analyzer, false);
 
         // Remove unregistered predicates that reference the same slot on
         // both sides (e.g. a = a). Such predicates have been generated from slot
         // equivalences and may incorrectly reject rows with nulls (IMPALA-1412/IMPALA-2643).
         // TODO(zc)
-        Predicate<Expr> isIdentityPredicate = new Predicate<Expr>() {
+        final Predicate<Expr> isIdentityPredicate = new Predicate<Expr>() {
             @Override
             public boolean apply(Expr expr) {
                 return org.apache.doris.analysis.Predicate.isEquivalencePredicate(expr)
@@ -1048,6 +1032,62 @@ public class SingleNodePlanner {
         List<Expr> substUnassigned = Expr.substituteList(unassignedConjuncts,
                 inlineViewRef.getBaseTblSmap(), analyzer, false);
         analyzer.materializeSlots(substUnassigned);
+
+    }
+
+    /**
+     * For handling constant conjuncts when migrating conjuncts to InlineViews. Constant conjuncts
+     * should be assigned to query block from top to bottom, it will try to push down constant conjuncts.
+     * @param inlineViewRef
+     * @param conjuncts
+     * @throws AnalysisException
+     */
+    private void migrateConstantConjuncts(InlineViewRef inlineViewRef, List<Expr> conjuncts) throws AnalysisException {
+        if (conjuncts.isEmpty()) {
+            return;
+        }
+        final List<Expr> newConjuncts = cloneExprs(conjuncts);
+        final QueryStmt stmt = inlineViewRef.getViewStmt();
+        final Analyzer viewAnalyzer = inlineViewRef.getAnalyzer();
+        viewAnalyzer.markConjunctsAssigned(conjuncts);
+        if (stmt instanceof SelectStmt) {
+            final SelectStmt select = (SelectStmt)stmt;
+            if (select.getAggInfo() != null) {
+                viewAnalyzer.registerConjuncts(newConjuncts, select.getAggInfo().getOutputTupleId().asList());
+            } else if (select.getTableRefs().size() > 1) {
+                // Conjuncts will be assigned to the lowest outer join node or non-outer join's leaf children.
+                for (int i = select.getTableRefs().size(); i > 1; i--) {
+                    final TableRef joinInnerChild = select.getTableRefs().get(i - 1);
+                    if (!joinInnerChild.getJoinOp().isOuterJoin()) {
+                        // lowest join is't outer join.
+                        if (i == 2) {
+                            // Register constant for inner.
+                            viewAnalyzer.registerConjuncts(newConjuncts, joinInnerChild.getDesc().getId().asList());
+                            // Register constant for outer.
+                            final TableRef joinOuterChild = select.getTableRefs().get(0);
+                            final List<Expr> cloneConjuncts = cloneExprs(newConjuncts);
+                            viewAnalyzer.registerConjuncts(cloneConjuncts, joinOuterChild.getDesc().getId().asList());
+                        }
+                        continue;
+                    }
+                    viewAnalyzer.registerOnClauseConjuncts(newConjuncts, joinInnerChild);
+                    break;
+                }
+            } else {
+                Preconditions.checkArgument(select.getTableRefs().size() == 1);
+                viewAnalyzer.registerConjuncts(newConjuncts, select.getTableRefs().get(0).getDesc().getId().asList());
+            }
+        } else {
+            Preconditions.checkArgument(stmt instanceof UnionStmt);
+            final UnionStmt union = (UnionStmt)stmt;
+            viewAnalyzer.registerConjuncts(newConjuncts, union.getTupleId().asList());
+        }
+    }
+
+    private List<Expr> cloneExprs(List<Expr> candidates) {
+        final List<Expr> clones = Lists.newArrayList();
+        candidates.forEach(expr -> clones.add(expr.clone()));
+        return clones;
     }
 
     /**
@@ -1110,6 +1150,7 @@ public class SingleNodePlanner {
         // TODO chenhao16 add
         // materialize conjuncts in where
         analyzer.materializeSlots(scanNode.getConjuncts());
+
         scanNodes.add(scanNode);
         return scanNode;
     }

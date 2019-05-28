@@ -144,7 +144,7 @@ user_identity：
         
     3. 授予指定库表的权限给角色
 
-        GRANT LOAD_PRIV ON db1.* TO ROLE my_role;
+        GRANT LOAD_PRIV ON db1.* TO ROLE 'my_role';
 
 ## keyword
    GRANT
@@ -279,7 +279,7 @@ user_identity：
 
     1. 查看已创建的角色：
 
-        SHOW ROELS;
+        SHOW ROLES;
 
 ## keyword
     SHOW,ROLES

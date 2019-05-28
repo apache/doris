@@ -294,6 +294,10 @@ public class HashJoinNode extends PlanNode {
         return Math.max(children.get(0).getNumInstances(), children.get(1).getNumInstances());
     }
 
+    public boolean isShuffleJoin() {
+        return distrMode == DistributionMode.PARTITIONED;
+    }
+
     enum DistributionMode {
         NONE("NONE"),
         BROADCAST("BROADCAST"),

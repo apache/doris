@@ -79,13 +79,13 @@ Status OlapScanner::_prepare(
     VersionHash version_hash =
         strtoul(scan_range->scan_range().version_hash.c_str(), nullptr, 10);
     {
-        _olap_table = OLAPEngine::get_instance()->get_table(tablet_id, schema_hash);
+        std::string err;
+        _olap_table = OLAPEngine::get_instance()->get_table(tablet_id, schema_hash, true, &err);
         if (_olap_table.get() == nullptr) {
-            OLAP_LOG_WARNING("tablet does not exist. [tablet_id=%ld schema_hash=%d]",
-                             tablet_id, schema_hash);
-
             std::stringstream ss;
-            ss << "tablet does not exist: " << tablet_id;
+            ss << "failed to get tablet: " << tablet_id << " with schema hash: " << schema_hash
+               << ", reason: " << err;
+            LOG(WARNING) << ss.str();
             return Status(ss.str());
         }
         {
@@ -245,6 +245,7 @@ Status OlapScanner::get_batch(
         while (true) {
             // Batch is full, break
             if (batch->is_full()) {
+                _update_realtime_counter();
                 break;
             }
             // Read one row from reader
@@ -254,6 +255,7 @@ Status OlapScanner::get_batch(
             }
             // If we reach end of this scanner, break
             if (UNLIKELY(*eof)) {
+                _update_realtime_counter();
                 break;
             }
 
@@ -459,6 +461,10 @@ void OlapScanner::update_counter() {
     DorisMetrics::query_scan_rows.increment(_reader->stats().raw_rows_read);
 
     _has_update_counter = true;
+}
+
+void OlapScanner::_update_realtime_counter() {
+    COUNTER_UPDATE(_parent->bytes_read_counter(), _reader->stats().bytes_read);
 }
 
 Status OlapScanner::close(RuntimeState* state) {

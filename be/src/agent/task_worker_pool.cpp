@@ -868,6 +868,8 @@ void* TaskWorkerPool::_publish_version_worker_thread_callback(void* arg_this) {
             publish_version_req = agent_task_req.publish_version_req;
             worker_pool_this->_tasks.pop_front();
         }
+
+        DorisMetrics::publish_task_request_total.increment(1);
         LOG(INFO)<< "get publish version task, signature:" << agent_task_req.signature;
 
         TStatusCode::type status_code = TStatusCode::OK;
@@ -898,6 +900,7 @@ void* TaskWorkerPool::_publish_version_worker_thread_callback(void* arg_this) {
             OLAP_LOG_WARNING("publish version failed. signature: %ld", agent_task_req.signature);
             error_msgs.push_back("publish version failed");
             finish_task_request.__set_error_tablet_ids(error_tablet_ids);
+            DorisMetrics::publish_task_failed_total.increment(1);
         } else {
             LOG(INFO) << "publish_version success. signature:" << agent_task_req.signature;
         }
@@ -1787,6 +1790,11 @@ void* TaskWorkerPool::_report_disk_state_worker_thread_callback(void* arg_this) 
             disk.__set_disk_available_capacity(static_cast<double>(root_path_info.available));
             disk.__set_used(root_path_info.is_used);
             disks[root_path_info.path] = disk;
+
+            DorisMetrics::disks_total_capacity.set_metric(root_path_info.path, root_path_info.capacity);
+            DorisMetrics::disks_avail_capacity.set_metric(root_path_info.path, root_path_info.available);
+            DorisMetrics::disks_data_used_capacity.set_metric(root_path_info.path, root_path_info.data_used_capacity);
+            DorisMetrics::disks_state.set_metric(root_path_info.path, root_path_info.is_used ? 1L : 0L);
         }
         request.__set_disks(disks);
 
@@ -2255,19 +2263,39 @@ AgentStatus TaskWorkerPool::_move_dir(
         return DORIS_TASK_REQUEST_ERROR;
     }
 
-    std::string dest_tablet_dir = tablet->construct_dir_path();
+    std::string dest_tablet_dir = tablet->tablet_path();
     std::string store_path = tablet->store()->path();
 
+    // same as finish_clone() in OlapEngine, lock them all
+    tablet->obtain_base_compaction_lock();
+    tablet->obtain_cumulative_lock();
+    tablet->obtain_push_lock();
+    tablet->obtain_header_wrlock();
     SnapshotLoader loader(_env, job_id, tablet_id);
     Status status = loader.move(src, dest_tablet_dir, store_path, overwrite);
+    // unlock
+    tablet->release_header_lock();
+    tablet->release_push_lock();
+    tablet->release_cumulative_lock();
+    tablet->release_base_compaction_lock();
 
     if (!status.ok()) {
-        OLAP_LOG_WARNING("move failed. job id: %ld, msg: %s",
-            job_id, status.get_error_msg().c_str());
+        LOG(WARNING) << "move failed. job id: " << job_id << ", msg: " << status.get_error_msg();
         error_msgs->push_back(status.get_error_msg());
         return DORIS_INTERNAL_ERROR;
     }
 
+    // reload tablet
+    OLAPStatus ost = OLAPEngine::get_instance()->load_one_tablet(
+            tablet->store(), tablet_id, schema_hash, dest_tablet_dir, true);
+    if (ost != OLAP_SUCCESS) {
+        std::stringstream ss;
+        ss << "failed to reload tablet: " << tablet_id;
+        LOG(WARNING) << ss.str();
+        error_msgs->push_back(ss.str());
+        return DORIS_INTERNAL_ERROR;
+    }
+    LOG(INFO) << "finished to reload tablet: " << tablet_id << " after move dir";
     return DORIS_SUCCESS;
 }
 

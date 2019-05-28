@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe;
 
+import com.google.common.base.Strings;
 import org.apache.doris.analysis.AdminShowConfigStmt;
 import org.apache.doris.analysis.AdminShowReplicaDistributionStmt;
 import org.apache.doris.analysis.AdminShowReplicaStatusStmt;
@@ -38,6 +39,7 @@ import org.apache.doris.analysis.ShowDeleteStmt;
 import org.apache.doris.analysis.ShowEnginesStmt;
 import org.apache.doris.analysis.ShowExportStmt;
 import org.apache.doris.analysis.ShowFrontendsStmt;
+import org.apache.doris.analysis.ShowFunctionStmt;
 import org.apache.doris.analysis.ShowGrantsStmt;
 import org.apache.doris.analysis.ShowLoadStmt;
 import org.apache.doris.analysis.ShowLoadWarningsStmt;
@@ -50,6 +52,7 @@ import org.apache.doris.analysis.ShowRestoreStmt;
 import org.apache.doris.analysis.ShowRolesStmt;
 import org.apache.doris.analysis.ShowRollupStmt;
 import org.apache.doris.analysis.ShowRoutineLoadStmt;
+import org.apache.doris.analysis.ShowRoutineLoadTaskStmt;
 import org.apache.doris.analysis.ShowSnapshotStmt;
 import org.apache.doris.analysis.ShowStmt;
 import org.apache.doris.analysis.ShowTableStatusStmt;
@@ -61,16 +64,20 @@ import org.apache.doris.backup.AbstractJob;
 import org.apache.doris.backup.BackupJob;
 import org.apache.doris.backup.Repository;
 import org.apache.doris.backup.RestoreJob;
+import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MetadataViewer;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
 import org.apache.doris.cluster.BaseParam;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -80,6 +87,7 @@ import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.proc.BackendsProcDir;
 import org.apache.doris.common.proc.FrontendsProcNode;
@@ -87,6 +95,10 @@ import org.apache.doris.common.proc.LoadProcDir;
 import org.apache.doris.common.proc.PartitionsProcDir;
 import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.TabletsProcDir;
+import org.apache.doris.common.util.ListComparator;
+import org.apache.doris.common.util.LogBuilder;
+import org.apache.doris.common.util.LogKey;
+import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.ExportMgr;
 import org.apache.doris.load.Load;
@@ -113,10 +125,12 @@ import java.io.InputStreamReader;
 import java.net.URL;
 import java.net.URLConnection;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 // Execute one show statement.
 public class ShowExecutor {
@@ -158,6 +172,8 @@ public class ShowExecutor {
             handleShowProcesslist();
         } else if (stmt instanceof ShowEnginesStmt) {
             handleShowEngines();
+        } else if (stmt instanceof ShowFunctionStmt) {
+            handleShowFunction();
         } else if (stmt instanceof ShowVariablesStmt) {
             handleShowVariables();
         } else if (stmt instanceof ShowColumnStmt) {
@@ -168,6 +184,8 @@ public class ShowExecutor {
             handleShowLoadWarnings();
         } else if (stmt instanceof ShowRoutineLoadStmt) {
             handleShowRoutineLoad();
+        } else if (stmt instanceof ShowRoutineLoadTaskStmt) {
+            handleShowRoutineLoadTask();
         } else if (stmt instanceof ShowDeleteStmt) {
             handleShowDelete();
         } else if (stmt instanceof ShowAlterStmt) {
@@ -261,6 +279,46 @@ public class ShowExecutor {
         rowSet.add(Lists.newArrayList("Olap engine", "YES", "Default storage engine of palo", "NO", "NO", "NO"));
         rowSet.add(Lists.newArrayList("MySQL", "YES", "MySQL server which data is in it", "NO", "NO", "NO"));
 
+        // Only success
+        resultSet = new ShowResultSet(showStmt.getMetaData(), rowSet);
+    }
+
+    // Handle show function
+    private void handleShowFunction() throws AnalysisException {
+        ShowFunctionStmt showStmt = (ShowFunctionStmt) stmt;
+
+        Database db = ctx.getCatalog().getDb(showStmt.getDbName());
+        if (db == null) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, showStmt.getDbName());
+        }
+        List<Function> functions = db.getFunctions();
+
+        List<List<String>> rowSet = Lists.newArrayList();
+        for (Function function : functions) {
+            List<String> row = Lists.newArrayList();
+            // signature
+            row.add(function.getSignature());
+            // return type
+            row.add(function.getReturnType().getPrimitiveType().toString());
+            // function type
+            // intermediate type
+            if (function instanceof ScalarFunction) {
+                row.add("Scalar");
+                row.add("NULL");
+            } else {
+                row.add("Aggregate");
+                AggregateFunction aggFunc = (AggregateFunction) function;
+                Type intermediateType = aggFunc.getIntermediateType();
+                if (intermediateType != null) {
+                    row.add(intermediateType.getPrimitiveType().toString());
+                } else {
+                    row.add("NULL");
+                }
+            }
+            // property
+            row.add(function.getProperties());
+            rowSet.add(row);
+        }
         // Only success
         resultSet = new ShowResultSet(showStmt.getMetaData(), rowSet);
     }
@@ -637,12 +695,31 @@ public class ShowExecutor {
         }
         long dbId = db.getId();
 
+        // combine the List<LoadInfo> of load(v1) and loadManager(v2)
         Load load = catalog.getLoadInstance();
         List<List<Comparable>> loadInfos = load.getLoadJobInfosByDb(dbId, db.getFullName(),
                                                                     showStmt.getLabelValue(),
                                                                     showStmt.isAccurateMatch(),
-                                                                    showStmt.getStates(),
-                                                                    showStmt.getOrderByPairs());
+                                                                    showStmt.getStates());
+        Set<String> statesValue = showStmt.getStates() == null ? null : showStmt.getStates().stream()
+                .map(entity -> entity.name())
+                .collect(Collectors.toSet());
+        loadInfos.addAll(catalog.getLoadManager().getLoadJobInfosByDb(dbId, showStmt.getLabelValue(),
+                                                                      showStmt.isAccurateMatch(),
+                                                                      statesValue));
+
+        // order the result of List<LoadInfo> by orderByPairs in show stmt
+        List<OrderByPair> orderByPairs = showStmt.getOrderByPairs();
+        ListComparator<List<Comparable>> comparator = null;
+        if (orderByPairs != null) {
+            OrderByPair[] orderByPairArr = new OrderByPair[orderByPairs.size()];
+            comparator = new ListComparator<List<Comparable>>(orderByPairs.toArray(orderByPairArr));
+        } else {
+            // sort by id asc
+            comparator = new ListComparator<List<Comparable>>(0);
+        }
+        Collections.sort(loadInfos, comparator);
+
         List<List<String>> rows = Lists.newArrayList();
         for (List<Comparable> loadInfo : loadInfos) {
             List<String> oneInfo = new ArrayList<String>(loadInfo.size());
@@ -793,37 +870,98 @@ public class ShowExecutor {
 
     private void handleShowRoutineLoad() throws AnalysisException {
         ShowRoutineLoadStmt showRoutineLoadStmt = (ShowRoutineLoadStmt) stmt;
+        List<List<String>> rows = Lists.newArrayList();
         // if job exists
-        RoutineLoadJob routineLoadJob =
-                Catalog.getCurrentCatalog().getRoutineLoadManager().getJobByName(showRoutineLoadStmt.getName());
+        List<RoutineLoadJob> routineLoadJobList;
+        try {
+            routineLoadJobList = Catalog.getCurrentCatalog().getRoutineLoadManager()
+                    .getJob(showRoutineLoadStmt.getDbFullName(),
+                            showRoutineLoadStmt.getName(),
+                            showRoutineLoadStmt.isIncludeHistory());
+        } catch (MetaNotFoundException e) {
+            LOG.warn(e.getMessage(), e);
+            throw new AnalysisException(e.getMessage());
+        }
+
+        if (routineLoadJobList != null) {
+            String dbFullName = showRoutineLoadStmt.getDbFullName();
+            String tableName = null;
+            for (RoutineLoadJob routineLoadJob : routineLoadJobList) {
+                // check auth
+                try {
+                    tableName = routineLoadJob.getTableName();
+                } catch (MetaNotFoundException e) {
+                    LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
+                                     .add("error_msg", "The table metadata of job has been changed. "
+                                             + "The job will be cancelled automatically")
+                                     .build(), e);
+                }
+                if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
+                                                                        dbFullName,
+                                                                        tableName,
+                                                                        PrivPredicate.LOAD)) {
+                    LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
+                                     .add("operator", "show routine load job")
+                                     .add("user", ConnectContext.get().getQualifiedUser())
+                                     .add("remote_ip", ConnectContext.get().getRemoteIP())
+                                     .add("db_full_name", dbFullName)
+                                     .add("table_name", tableName)
+                                     .add("error_msg", "The table access denied"));
+                    continue;
+                }
+
+                // get routine load info
+                rows.add(routineLoadJob.getShowInfo());
+            }
+        }
+
+        if (!Strings.isNullOrEmpty(showRoutineLoadStmt.getName()) && rows.size() == 0) {
+            // if the jobName has been specified
+            throw new AnalysisException("There is no job named " + showRoutineLoadStmt.getName()
+                                                + " in db " + showRoutineLoadStmt.getDbFullName()
+                                                + " include history " + showRoutineLoadStmt.isIncludeHistory());
+        }
+        resultSet = new ShowResultSet(showRoutineLoadStmt.getMetaData(), rows);
+    }
+
+    private void handleShowRoutineLoadTask() throws AnalysisException {
+        ShowRoutineLoadTaskStmt showRoutineLoadTaskStmt = (ShowRoutineLoadTaskStmt) stmt;
+        List<List<String>> rows = Lists.newArrayList();
+        // if job exists
+        RoutineLoadJob routineLoadJob;
+        try {
+            routineLoadJob = Catalog.getCurrentCatalog().getRoutineLoadManager().getJob(showRoutineLoadTaskStmt.getDbFullName(),
+                                                                                        showRoutineLoadTaskStmt.getJobName());
+        } catch (MetaNotFoundException e) {
+            LOG.warn(e.getMessage(), e);
+            throw new AnalysisException(e.getMessage());
+        }
         if (routineLoadJob == null) {
-            throw new AnalysisException("There is no routine load job with id " + showRoutineLoadStmt.getName());
+            throw new AnalysisException("The job named " + showRoutineLoadTaskStmt.getJobName() + "does not exists "
+                                                + "or job state is stopped or cancelled");
         }
 
         // check auth
+        String dbFullName = showRoutineLoadTaskStmt.getDbFullName();
+        String tableName;
+        try {
+            tableName = routineLoadJob.getTableName();
+        } catch (MetaNotFoundException e) {
+            throw new AnalysisException("The table metadata of job has been changed. The job will be cancelled automatically", e);
+        }
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
-                                                                routineLoadJob.getDbFullName(),
-                                                                routineLoadJob.getTableName(),
+                                                                dbFullName,
+                                                                tableName,
                                                                 PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                                                 ConnectContext.get().getQualifiedUser(),
                                                 ConnectContext.get().getRemoteIP(),
-                                                routineLoadJob.getTableName());
+                                                tableName);
         }
 
-        // get routine load info
-        List<List<String>> rows = Lists.newArrayList();
-        List<String> row = Lists.newArrayList();
-        row.add(routineLoadJob.getId());
-        row.add(routineLoadJob.getName());
-        row.add(String.valueOf(routineLoadJob.getDbId()));
-        row.add(String.valueOf(routineLoadJob.getTableId()));
-        row.add(routineLoadJob.getPartitions());
-        row.add(routineLoadJob.getState().name());
-        row.add(routineLoadJob.getDesiredConcurrentNumber());
-        row.add(routineLoadJob.getProgress().toString());
-
-        resultSet = new ShowResultSet(showRoutineLoadStmt.getMetaData(), rows);
+        // get routine load task info
+        rows.addAll(routineLoadJob.getTasksShowInfo());
+        resultSet = new ShowResultSet(showRoutineLoadTaskStmt.getMetaData(), rows);
     }
 
     // Show user property statement

@@ -32,8 +32,8 @@ import java.util.Map;
 
 public class BackendProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("RootPath").add("DataUsedCapacity").add("AvailCapacity").add("TotalCapacity")
-            .add("UsedPct").add("State").add("PathHash")
+            .add("RootPath").add("DataUsedCapacity").add("OtherUsedCapacity").add("AvailCapacity")
+            .add("TotalCapacity").add("TotalUsedPct").add("State").add("PathHash")
             .build();
 
     private Backend backend;
@@ -62,19 +62,23 @@ public class BackendProcNode implements ProcNodeInterface {
             // avail
             long availB = entry.getValue().getAvailableCapacityB();
             Pair<Double, String> availUnitPair = DebugUtil.getByteUint(availB);
-            info.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(availUnitPair.first) + " " + availUnitPair.second);
-            
             // total
             long totalB = entry.getValue().getTotalCapacityB();
             Pair<Double, String> totalUnitPair = DebugUtil.getByteUint(totalB);
+            // other
+            long otherB = totalB - availB;
+            Pair<Double, String> otherUnitPair = DebugUtil.getByteUint(otherB);
+
+            info.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(otherUnitPair.first) + " " + otherUnitPair.second);
+            info.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(availUnitPair.first) + " " + availUnitPair.second);
             info.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(totalUnitPair.first) + " "  + totalUnitPair.second);
-           
-            // used percent
+
+            // total used percent
             double used = 0.0;
             if (totalB <= 0) {
                 used = 0.0;
             } else {
-                used = (double) (totalB - availB) * 100 / totalB;
+                used = (double) otherB * 100 / totalB;
             }
             info.add(String.format("%.2f", used) + " %");
 

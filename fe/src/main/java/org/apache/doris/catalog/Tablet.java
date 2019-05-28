@@ -51,6 +51,7 @@ public class Tablet extends MetaObject implements Writable {
         HEALTHY,
         REPLICA_MISSING, // not enough alive replica num
         VERSION_INCOMPLETE, // alive replica num is enough, but version is missing
+        REPLICA_RELOCATING, // replica is healthy, but is under relocating (eg. BE is decommission)
         REDUNDANT, // too much replicas
         REPLICA_MISSING_IN_CLUSTER, // not enough healthy replicas in correct cluster
     }
@@ -160,10 +161,20 @@ public class Tablet extends MetaObject implements Writable {
         return beIds;
     }
 
-    public List<Long> getBackendIdsList() {
+    // for loading data
+    public List<Long> getNormalReplicaBackendIds() {
         List<Long> beIds = Lists.newArrayList();
+        SystemInfoService infoService = Catalog.getCurrentSystemInfo();
         for (Replica replica : replicas) {
-            beIds.add(replica.getBackendId());
+            if (replica.isBad()) {
+                continue;
+            }
+            
+            ReplicaState state = replica.getState();
+            if (infoService.checkBackendAlive(replica.getBackendId())
+                    && (state == ReplicaState.NORMAL || state == ReplicaState.SCHEMA_CHANGE)) {
+                beIds.add(replica.getBackendId());
+            }
         }
         return beIds;
     }
@@ -362,57 +373,73 @@ public class Tablet extends MetaObject implements Writable {
             SystemInfoService systemInfoService, String clusterName,
             long visibleVersion, long visibleVersionHash, int replicationNum) {
 
-        int aliveReplicaNum = 0;
-        int healthyReplicaNum = 0;
-        int healthyReplicaNumInCluster = 0;
+        int alive = 0;
+        int aliveAndVersionComplete = 0;
+        int stable = 0;
+        int availableInCluster = 0;
 
         for (Replica replica : replicas) {
             long backendId = replica.getBackendId();
             Backend backend = systemInfoService.getBackend(backendId);
-            if (backend == null || !backend.isAvailable() || replica.getState() == ReplicaState.CLONE
+            if (backend == null || !backend.isAlive() || replica.getState() == ReplicaState.CLONE
                     || replica.isBad()) {
-                // replica missing or bad
+                // this replica is not alive
                 continue;
             }
-            ++aliveReplicaNum;
+            alive++;
 
-            if (replica.getLastFailedVersion() > 0 ||
-                    replica.getVersion() < visibleVersion
-                    || (replica.getVersion() == visibleVersion 
-                    && replica.getVersionHash() != visibleVersionHash) ) {
-                // version incomplete
+            if (replica.getLastFailedVersion() > 0 || replica.getVersion() < visibleVersion
+                    || (replica.getVersion() == visibleVersion && replica.getVersionHash() != visibleVersionHash)) {
+                // this replica is alive but version incomplete
                 continue;
             }
+            aliveAndVersionComplete++;
 
-            ++healthyReplicaNum;
-            if (backend.getOwnerClusterName().equals(clusterName)) {
-                ++healthyReplicaNumInCluster;
+            if (!backend.isAvailable()) {
+                // this replica is alive, version complete, but backend is not available
+                continue;
             }
+            stable++;
+
+            if (!backend.getOwnerClusterName().equals(clusterName)) {
+                // this replica is available, version complete, but not in right cluster
+                continue;
+            }
+            availableInCluster++;
         }
 
         // 1. alive replicas are not enough
-        if (aliveReplicaNum < (replicationNum / 2) + 1) {
+        if (alive < (replicationNum / 2) + 1) {
             return Pair.create(TabletStatus.REPLICA_MISSING, TabletSchedCtx.Priority.HIGH);
-        } else if (aliveReplicaNum < replicationNum) {
+        } else if (alive < replicationNum) {
             return Pair.create(TabletStatus.REPLICA_MISSING, TabletSchedCtx.Priority.NORMAL);
         }
-        
-        // 2. healthy replicas are not enough
-        if (healthyReplicaNum < (replicationNum / 2) + 1) {
+
+        // 2. version complete replicas are not enough
+        if (aliveAndVersionComplete < (replicationNum / 2) + 1) {
             return Pair.create(TabletStatus.VERSION_INCOMPLETE, TabletSchedCtx.Priority.HIGH);
-        } else if (healthyReplicaNum < replicationNum) {
+        } else if (aliveAndVersionComplete < replicationNum) {
             return Pair.create(TabletStatus.VERSION_INCOMPLETE, TabletSchedCtx.Priority.NORMAL);
+        } else if (aliveAndVersionComplete > replicationNum) {
+            return Pair.create(TabletStatus.REDUNDANT, TabletSchedCtx.Priority.VERY_HIGH);
         }
 
-        // 3. healthy replicas in cluster are not enough
-        if (healthyReplicaNumInCluster < replicationNum) {
+        // 3. replica is under relocating
+        if (stable < (replicationNum / 2) + 1) {
+            return Pair.create(TabletStatus.REPLICA_RELOCATING, TabletSchedCtx.Priority.NORMAL);
+        } else if (stable < replicationNum) {
+            return Pair.create(TabletStatus.REPLICA_RELOCATING, TabletSchedCtx.Priority.LOW);
+        }
+
+        // 4. healthy replicas in cluster are not enough
+        if (availableInCluster < replicationNum) {
             return Pair.create(TabletStatus.REPLICA_MISSING_IN_CLUSTER, TabletSchedCtx.Priority.LOW);
         } else if (replicas.size() > replicationNum) {
             // we set REDUNDANT as VERY_HIGH, because delete redundant replicas can free the space quickly.
             return Pair.create(TabletStatus.REDUNDANT, TabletSchedCtx.Priority.VERY_HIGH);
         }
 
-        // 4. healthy
+        // 5. healthy
         return Pair.create(TabletStatus.HEALTHY, TabletSchedCtx.Priority.NORMAL);
     }
 

@@ -72,7 +72,7 @@ public class DataDescriptionTest {
         Assert.assertEquals("DATA INFILE ('abc.txt') NEGATIVE INTO TABLE testTable (col1, col2)", desc.toString());
         Assert.assertEquals("testTable", desc.getTableName());
         Assert.assertEquals("[col1, col2]", desc.getColumnNames().toString());
-        Assert.assertEquals("[abc.txt]", desc.getFilePathes().toString());
+        Assert.assertEquals("[abc.txt]", desc.getFilePaths().toString());
         Assert.assertTrue(desc.isNegative());
         Assert.assertNull(desc.getColumnSeparator());
 

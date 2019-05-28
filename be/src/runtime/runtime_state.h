@@ -411,21 +411,34 @@ public:
     void append_error_msg_to_file(const std::string& line, const std::string& error_msg,
         bool is_summary = false);
 
-    int64_t num_rows_load_success() {
-        return _num_rows_load_success.load();
+    int64_t num_rows_load_total() {
+        return _num_rows_load_total.load();
     }
 
     int64_t num_rows_load_filtered() {
         return _num_rows_load_filtered.load();
     }
 
-    void update_num_rows_load_success(int64_t num_rows) {
-        _num_rows_load_success.fetch_add(num_rows);
+    int64_t num_rows_load_unselected() {
+        return _num_rows_load_unselected.load();
+    }
+
+    int64_t num_rows_load_success() {
+        return num_rows_load_total() - num_rows_load_filtered() - num_rows_load_unselected();
+    }
+
+    void update_num_rows_load_total(int64_t num_rows) {
+        _num_rows_load_total.fetch_add(num_rows);
     }
 
     void update_num_rows_load_filtered(int64_t num_rows) {
         _num_rows_load_filtered.fetch_add(num_rows);
     }
+
+    void update_num_rows_load_unselected(int64_t num_rows) {
+        _num_rows_load_unselected.fetch_add(num_rows);
+    }
+
     void export_load_error(const std::string& error_msg);
 
     void set_per_fragment_instance_idx(int idx) {
@@ -583,8 +596,9 @@ private:
 
     // put here to collect files??
     std::vector<std::string> _output_files;
-    std::atomic<int64_t> _num_rows_load_success;
-    std::atomic<int64_t> _num_rows_load_filtered;
+    std::atomic<int64_t> _num_rows_load_total;  // total rows read from source
+    std::atomic<int64_t> _num_rows_load_filtered;   // unqualified rows
+    std::atomic<int64_t> _num_rows_load_unselected; // rows filtered by predicates
     std::atomic<int64_t> _num_print_error_rows;
 
     std::vector<std::string> _export_output_files;

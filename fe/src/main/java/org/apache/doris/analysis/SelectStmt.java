@@ -86,13 +86,23 @@ public class SelectStmt extends QueryStmt {
     // directly
     private ExprSubstitutionMap baseTblSmap = new ExprSubstitutionMap();
 
+    private ValueList valueList;
+
     // END: Members that need to be reset()
     // ///////////////////////////////////////
 
     // SQL string of this SelectStmt before inline-view expression substitution.
     // Set in analyze().
     protected String sqlString_;
-    
+
+    public SelectStmt(ValueList valueList, ArrayList<OrderByElement> orderByElement, LimitElement limitElement) {
+        super(orderByElement, limitElement);
+        this.valueList = valueList;
+        this.selectList = new SelectList();
+        this.fromClause_ = new FromClause();
+        this.colLabels = Lists.newArrayList();
+    }
+
     SelectStmt(
             SelectList selectList,
             FromClause fromClause,
@@ -158,6 +168,10 @@ public class SelectStmt extends QueryStmt {
      */
     public SelectList getSelectList() {
         return selectList;
+    }
+
+    public ValueList getValueList() {
+        return valueList;
     }
 
     /**
@@ -306,6 +320,20 @@ public class SelectStmt extends QueryStmt {
                 colLabels.add(item.toColumnLabel());
             }
         }
+        if (valueList != null) {
+            if (!fromInsert) {
+                valueList.analyzeForSelect(analyzer);
+            }
+            for (Expr expr : valueList.getFirstRow()) {
+                if (expr instanceof DefaultValueExpr) {
+                    resultExprs.add(new IntLiteral(1));
+                } else {
+                    resultExprs.add(expr);
+                }
+                colLabels.add(expr.toColumnLabel());
+            }
+        }
+        // analyze valueList if exists
         if (needToSql) {
             originalExpr = Expr.cloneList(resultExprs);
         }
@@ -354,6 +382,10 @@ public class SelectStmt extends QueryStmt {
         reorderTable(analyzer);
 
         resolveInlineViewRefs(analyzer);
+
+        if (analyzer.hasEmptySpjResultSet() && aggInfo == null) {
+            analyzer.setHasEmptyResultSet();
+        }
 
         if (aggInfo != null) {
             if (LOG.isDebugEnabled()) LOG.debug("post-analysis " + aggInfo.debugString());

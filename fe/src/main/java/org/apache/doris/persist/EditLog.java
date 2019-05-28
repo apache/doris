@@ -51,6 +51,7 @@ import org.apache.doris.load.ExportMgr;
 import org.apache.doris.load.Load;
 import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.load.LoadJob;
+import org.apache.doris.load.loadv2.LoadJobFinalOperation;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
@@ -664,6 +665,32 @@ public class EditLog {
                     Catalog.getCurrentCatalog().replayBackendTabletsInfo(backendTabletsInfo);
                     break;
                 }
+                case OperationType.OP_CREATE_ROUTINE_LOAD_JOB: {
+                    RoutineLoadJob routineLoadJob = (RoutineLoadJob) journal.getData();
+                    Catalog.getCurrentCatalog().getRoutineLoadManager().replayCreateRoutineLoadJob(routineLoadJob);
+                    break;
+                }
+                case OperationType.OP_CHANGE_ROUTINE_LOAD_JOB: {
+                    RoutineLoadOperation operation = (RoutineLoadOperation) journal.getData();
+                    Catalog.getCurrentCatalog().getRoutineLoadManager().replayChangeRoutineLoadJob(operation);
+                    break;
+                }
+                case OperationType.OP_REMOVE_ROUTINE_LOAD_JOB: {
+                    RoutineLoadOperation operation = (RoutineLoadOperation) journal.getData();
+                    Catalog.getCurrentCatalog().getRoutineLoadManager().replayRemoveOldRoutineLoad(operation);
+                    break;
+                }
+                case OperationType.OP_CREATE_LOAD_JOB: {
+                    org.apache.doris.load.loadv2.LoadJob loadJob =
+                            (org.apache.doris.load.loadv2.LoadJob) journal.getData();
+                    Catalog.getCurrentCatalog().getLoadManager().replayCreateLoadJob(loadJob);
+                    break;
+                }
+                case OperationType.OP_END_LOAD_JOB: {
+                    LoadJobFinalOperation operation = (LoadJobFinalOperation) journal.getData();
+                    Catalog.getCurrentCatalog().getLoadManager().replayEndLoadJob(operation);
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}", opCode, e);
@@ -704,7 +731,7 @@ public class EditLog {
      */
     private synchronized void logEdit(short op, Writable writable) {
         if (this.getNumEditStreams() == 0) {
-            LOG.error("Fatal Error : no editLog stream");
+            LOG.error("Fatal Error : no editLog stream", new Exception());
             throw new Error("Fatal Error : no editLog stream");
         }
 
@@ -843,10 +870,6 @@ public class EditLog {
         logEdit(OperationType.OP_LOAD_DONE, job);
     }
 
-    public void logRoutineLoadJob(RoutineLoadJob job) {
-        logEdit(OperationType.OP_ROUTINE_LOAD_JOB, job);
-    }
-
     public void logStartRollup(RollupJob rollupJob) {
         logEdit(OperationType.OP_START_ROLLUP, rollupJob);
     }
@@ -861,10 +884,6 @@ public class EditLog {
 
     public void logCancelRollup(RollupJob rollupJob) {
         logEdit(OperationType.OP_CANCEL_ROLLUP, rollupJob);
-    }
-
-    public void logClearRollupIndexInfo(ReplicaPersistInfo info) {
-        logEdit(OperationType.OP_CLEAR_ROLLUP_INFO, info);
     }
 
     public void logDropRollup(DropInfo info) {
@@ -1045,10 +1064,6 @@ public class EditLog {
         logEdit(OperationType.OP_DROP_CLUSTER, info);
     }
 
-    public void logUpdateDbClusterName(String info) {
-        logEdit(OperationType.OP_UPDATE_DB, new Text(info));
-    }
-
     public void logExpandCluster(ClusterInfo ci) {
         logEdit(OperationType.OP_EXPAND_CLUSTER, ci);
     }
@@ -1165,5 +1180,25 @@ public class EditLog {
 
     public void logBackendTabletsInfo(BackendTabletsInfo backendTabletsInfo) {
         logEdit(OperationType.OP_BACKEND_TABLETS_INFO, backendTabletsInfo);
+    }
+
+    public void logCreateRoutineLoadJob(RoutineLoadJob routineLoadJob) {
+        logEdit(OperationType.OP_CREATE_ROUTINE_LOAD_JOB, routineLoadJob);
+    }
+
+    public void logOpRoutineLoadJob(RoutineLoadOperation routineLoadOperation) {
+        logEdit(OperationType.OP_CHANGE_ROUTINE_LOAD_JOB, routineLoadOperation);
+    }
+
+    public void logRemoveRoutineLoadJob(RoutineLoadOperation operation) {
+        logEdit(OperationType.OP_REMOVE_ROUTINE_LOAD_JOB, operation);
+    }
+
+    public void logCreateLoadJob(org.apache.doris.load.loadv2.LoadJob loadJob) {
+        logEdit(OperationType.OP_CREATE_LOAD_JOB, loadJob);
+    }
+
+    public void logEndLoadJob(LoadJobFinalOperation loadJobFinalOperation) {
+        logEdit(OperationType.OP_END_LOAD_JOB, loadJobFinalOperation);
     }
 }

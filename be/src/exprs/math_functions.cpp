@@ -69,7 +69,7 @@ const double log_10[] = {
 
 #define ARRAY_ELEMENTS(A) ((uint64_t) (sizeof(A)/sizeof(A[0])))
 
-static double my_double_round(double value, int64_t dec, bool dec_unsigned, bool truncate) {
+double MathFunctions::my_double_round(double value, int64_t dec, bool dec_unsigned, bool truncate) {
     bool dec_negative = (dec < 0) && !dec_unsigned;
     uint64_t abs_dec = dec_negative ? -dec : dec;
     /*

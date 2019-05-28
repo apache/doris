@@ -17,15 +17,13 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.base.Joiner;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import mockit.Injectable;
-import mockit.Mock;
-import mockit.MockUp;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.routineload.LoadDataSourceType;
+
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 import org.junit.Assert;
@@ -35,6 +33,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+import mockit.Injectable;
+import mockit.Mock;
+import mockit.MockUp;
+
 public class CreateRoutineLoadStmtTest {
 
     private static final Logger LOG = LogManager.getLogger(CreateRoutineLoadStmtTest.class);
@@ -43,6 +45,7 @@ public class CreateRoutineLoadStmtTest {
     public void testAnalyzeWithDuplicateProperty(@Injectable Analyzer analyzer) throws UserException {
         String jobName = "job1";
         String dbName = "db1";
+        LabelName labelName = new LabelName(dbName, jobName);
         String tableNameString = "table1";
         String topicName = "topic1";
         String serverAddress = "http://127.0.0.1:8080";
@@ -53,7 +56,6 @@ public class CreateRoutineLoadStmtTest {
         ColumnSeparator columnSeparator = new ColumnSeparator(",");
 
         // duplicate load property
-        TableName tableName = new TableName(dbName, tableNameString);
         List<ParseNode> loadPropertyList = new ArrayList<>();
         loadPropertyList.add(columnSeparator);
         loadPropertyList.add(columnSeparator);
@@ -63,10 +65,10 @@ public class CreateRoutineLoadStmtTest {
         Map<String, String> customProperties = Maps.newHashMap();
 
         customProperties.put(CreateRoutineLoadStmt.KAFKA_TOPIC_PROPERTY, topicName);
-        customProperties.put(CreateRoutineLoadStmt.KAFKA_ENDPOINT_PROPERTY, serverAddress);
+        customProperties.put(CreateRoutineLoadStmt.KAFKA_BROKER_LIST_PROPERTY, serverAddress);
         customProperties.put(CreateRoutineLoadStmt.KAFKA_PARTITIONS_PROPERTY, kafkaPartitionString);
 
-        CreateRoutineLoadStmt createRoutineLoadStmt = new CreateRoutineLoadStmt(jobName, tableName,
+        CreateRoutineLoadStmt createRoutineLoadStmt = new CreateRoutineLoadStmt(labelName, tableNameString,
                                                                                 loadPropertyList, properties,
                                                                                 typeName, customProperties);
 
@@ -89,6 +91,7 @@ public class CreateRoutineLoadStmtTest {
     public void testAnalyze(@Injectable Analyzer analyzer) throws UserException {
         String jobName = "job1";
         String dbName = "db1";
+        LabelName labelName = new LabelName(dbName, jobName);
         String tableNameString = "table1";
         String topicName = "topic1";
         String serverAddress = "127.0.0.1:8080";
@@ -109,10 +112,10 @@ public class CreateRoutineLoadStmtTest {
         Map<String, String> customProperties = Maps.newHashMap();
 
         customProperties.put(CreateRoutineLoadStmt.KAFKA_TOPIC_PROPERTY, topicName);
-        customProperties.put(CreateRoutineLoadStmt.KAFKA_ENDPOINT_PROPERTY, serverAddress);
+        customProperties.put(CreateRoutineLoadStmt.KAFKA_BROKER_LIST_PROPERTY, serverAddress);
         customProperties.put(CreateRoutineLoadStmt.KAFKA_PARTITIONS_PROPERTY, kafkaPartitionString);
 
-        CreateRoutineLoadStmt createRoutineLoadStmt = new CreateRoutineLoadStmt(jobName, tableName,
+        CreateRoutineLoadStmt createRoutineLoadStmt = new CreateRoutineLoadStmt(labelName, tableNameString,
                                                                                 loadPropertyList, properties,
                                                                                 typeName, customProperties);
         new MockUp<StatementBase>() {
@@ -129,9 +132,8 @@ public class CreateRoutineLoadStmtTest {
         Assert.assertEquals(partitionNames.getPartitionNames(), createRoutineLoadStmt.getRoutineLoadDesc().getPartitionNames());
         Assert.assertEquals(2, createRoutineLoadStmt.getDesiredConcurrentNum());
         Assert.assertEquals(0, createRoutineLoadStmt.getMaxErrorNum());
-        Assert.assertEquals(serverAddress, createRoutineLoadStmt.getKafkaEndpoint());
+        Assert.assertEquals(serverAddress, createRoutineLoadStmt.getKafkaBrokerList());
         Assert.assertEquals(topicName, createRoutineLoadStmt.getKafkaTopic());
-        Assert.assertEquals(kafkaPartitionString, Joiner.on(",").join(createRoutineLoadStmt.getKafkaPartitions()));
     }
 
 }

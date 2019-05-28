@@ -23,11 +23,11 @@
             ALTER SYSTEM SET LOAD ERRORS HUB PROPERTIES ("key" = "value"[, ...]);
 
     说明：
-        1) host 可以使主机名或者ip地址
+        1) host 可以是主机名或者ip地址
         2) heartbeat_port 为该节点的心跳端口
         3) 增加和删除节点为同步操作。这两种操作不考虑节点上已有的数据，节点直接从元数据中删除，请谨慎使用。
         4) 节点下线操作用于安全下线节点。该操作为异步操作。如果成功，节点最终会从元数据中删除。如果失败，则不会完成下线。
-        5) 可以手动取消节点下线操作。详见 CANCEL ALTER SYSTEM
+        5) 可以手动取消节点下线操作。详见 CANCEL DECOMMISSION
         6) Load error hub:
             当前支持两种类型的 Hub：Mysql 和 Broker。需在 PROPERTIES 中指定 "type" = "mysql" 或 "type" = "broker"。
             如果需要删除当前的 load error hub，可以将 type 设为 null。
@@ -92,20 +92,20 @@
 ## keyword
     ALTER,SYSTEM,BACKEND,BROKER,FREE
 
-# CANCEL ALTER SYSTEM
+# CANCEL DECOMMISSION
 ## description
 
     该语句用于撤销一个节点下线操作。（仅管理员使用！）
     语法：
-        CANCEL ALTER SYSTEM DECOMMISSION BACKEND "host:heartbeat_port"[,"host:heartbeat_port"...];
+        CANCEL DECOMMISSION BACKEND "host:heartbeat_port"[,"host:heartbeat_port"...];
         
 ## example
 
     1. 取消两个节点的下线操作：
-        CANCEL ALTER SYSTEM DECOMMISSION BACKEND "host1:port", "host2:port";
+        CANCEL DECOMMISSION BACKEND "host1:port", "host2:port";
 
 ## keyword
-    CANCEL,ALTER,SYSTEM,BACKEND
+    CANCEL,DECOMMISSION,BACKEND
 
 # CREATE CLUSTER
 ## description

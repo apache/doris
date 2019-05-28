@@ -25,6 +25,7 @@ import org.apache.doris.thrift.TAggregateFunction;
 import org.apache.doris.thrift.TAggregationOp;
 import org.apache.doris.thrift.TFunction;
 import org.apache.doris.thrift.TFunctionBinaryType;
+
 import com.google.common.base.Preconditions;
 
 import java.util.ArrayList;
@@ -41,7 +42,7 @@ public class BuiltinAggregateFunction extends Function {
         return isAnalyticFn;
     }
     // TODO: this is not used yet until the planner understand this.
-    private       org.apache.doris.catalog.Type intermediateType_;
+    private org.apache.doris.catalog.Type intermediateType_;
     private boolean reqIntermediateTuple = false;
 
     public boolean isReqIntermediateTuple() {
@@ -51,7 +52,7 @@ public class BuiltinAggregateFunction extends Function {
     public BuiltinAggregateFunction(Operator op, ArrayList<Type> argTypes,
       Type retType, org.apache.doris.catalog.Type intermediateType, boolean isAnalyticFn)
       throws AnalysisException {
-        super(FunctionName.CreateBuiltinName(op.toString()), argTypes,
+        super(FunctionName.createBuiltinName(op.toString()), argTypes,
           retType, false);
         Preconditions.checkState(intermediateType != null);
         Preconditions.checkState(op != null);

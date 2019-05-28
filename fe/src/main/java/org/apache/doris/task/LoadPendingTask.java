@@ -19,12 +19,14 @@ package org.apache.doris.task;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.load.EtlSubmitResult;
 import org.apache.doris.load.FailMsg.CancelType;
 import org.apache.doris.load.Load;
 import org.apache.doris.load.LoadChecker;
 import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.LoadJob.JobState;
+import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 
@@ -34,6 +36,9 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
+import java.util.UUID;
+
+import sun.security.ssl.Debug;
 
 public abstract class LoadPendingTask extends MasterTask {
     private static final Logger LOG = LogManager.getLogger(LoadPendingTask.class);
@@ -74,10 +79,10 @@ public abstract class LoadPendingTask extends MasterTask {
             // yiguolei: get transactionid here, because create etl request will get schema and partition info
             // create etl request and make some guarantee for schema change and rollup
             if (job.getTransactionId() < 0) {
-                long transactionId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(dbId, 
-                        job.getLabel(),
-                        "fe", 
-                        LoadJobSourceType.FRONTEND);
+                long transactionId = Catalog.getCurrentGlobalTransactionMgr()
+                        .beginTransaction(dbId, DebugUtil.printId(UUID.randomUUID()),
+                                          "FE: " + FrontendOptions.getLocalHostAddress(), LoadJobSourceType.FRONTEND,
+                                          job.getTimeoutSecond());
                 job.setTransactionId(transactionId);
             }
             createEtlRequest();

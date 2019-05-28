@@ -125,6 +125,8 @@ public class BinaryPredicate extends Predicate implements Writable {
         }
 
         public boolean isEquivalence() { return this == EQ; };
+
+        public boolean isUnequivalence() { return this == NE; }
     }
 
     private Operator op;
@@ -490,6 +492,42 @@ public class BinaryPredicate extends Predicate implements Writable {
         BinaryPredicate binaryPredicate = new BinaryPredicate();
         binaryPredicate.readFields(in);
         return binaryPredicate;
+    }
+
+    @Override
+    public Expr getResultValue() throws AnalysisException {
+        final Expr leftChildValue = getChild(0).getResultValue();
+        final Expr rightChildValue = getChild(1).getResultValue();
+        if(!(leftChildValue instanceof LiteralExpr)
+                || !(rightChildValue instanceof LiteralExpr)) {
+            return this;
+        }
+        return compareLiteral((LiteralExpr)leftChildValue, (LiteralExpr)rightChildValue);
+    }
+
+    private Expr compareLiteral(LiteralExpr first, LiteralExpr second) throws AnalysisException {
+        if (first instanceof NullLiteral || second instanceof NullLiteral) {
+            return new NullLiteral();
+        }
+
+        final int compareResult = first.compareLiteral(second);
+        switch(op) {
+            case EQ:
+                return new BoolLiteral(compareResult == 0);
+            case GE:
+                return new BoolLiteral(compareResult == 1 || compareResult == 0);
+            case GT:
+                return new BoolLiteral(compareResult == 1);
+            case LE:
+                return new BoolLiteral(compareResult == -1 || compareResult == 0);
+            case LT:
+                return new BoolLiteral(compareResult == -1);
+            case NE:
+                return new BoolLiteral(compareResult != 0);
+            default:
+                Preconditions.checkState(false, "No defined binary operator.");
+        }
+        return this;
     }
 }
 

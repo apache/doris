@@ -197,7 +197,7 @@ public class Partition extends MetaObject implements Writable {
     }
     
     public long getCommittedVersion() {
-        return Math.max(this.nextVersion - 1, 2);
+        return this.nextVersion - 1;
     }
     
     public long getCommittedVersionHash() {
@@ -237,6 +237,10 @@ public class Partition extends MetaObject implements Writable {
             dataSize += mIndex.getDataSize();
         }
         return dataSize;
+    }
+
+    public boolean hasData() {
+        return !(visibleVersion == PARTITION_INIT_VERSION && visibleVersionHash == PARTITION_INIT_VERSION_HASH);
     }
 
     public static Partition read(DataInput in) throws IOException {
