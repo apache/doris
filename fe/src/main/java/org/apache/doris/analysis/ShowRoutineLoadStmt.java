@@ -76,6 +76,7 @@ public class ShowRoutineLoadStmt extends ShowStmt {
                     .add("CurrentTaskNum")
                     .add("JobProperties")
                     .add("DataSourceProperties")
+                    .add("CustomProperties")
                     .add("Statistic")
                     .add("Progress")
                     .add("ReasonOfStateChanged")

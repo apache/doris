@@ -43,7 +43,8 @@ public:
     KafkaLoadInfo(const TKafkaLoadInfo& t_info):
         brokers(t_info.brokers),
         topic(t_info.topic),
-        begin_offset(t_info.partition_begin_offset) {
+        begin_offset(t_info.partition_begin_offset),
+        properties(t_info.properties) {
 
         for (auto& p : t_info.partition_begin_offset) {
             cmt_offset[p.first] = p.second -1;
@@ -71,6 +72,8 @@ public:
     std::map<int32_t, int64_t> begin_offset;
     // partiton -> commit offset, inclusive.
     std::map<int32_t, int64_t> cmt_offset;
+    //custom kafka property key -> value
+    std::map<std::string, std::string> properties;
 };
 
 class MessageBodySink;

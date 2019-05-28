@@ -110,4 +110,6 @@ public final class FeMetaVersion {
     public static final int VERSION_49 = 49;
     // load job v2 for broker load
     public static final int VERSION_50 = 50;
+    // kafka custom properties
+    public static final int VERSION_51 = 51;
 }

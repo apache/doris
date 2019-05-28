@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
@@ -70,6 +71,8 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     private List<Integer> customKafkaPartitions = Lists.newArrayList();
     // current kafka partitions is the actually partition which will be fetched
     private List<Integer> currentKafkaPartitions = Lists.newArrayList();
+    //kafka properties ，property prefix will be mapped to kafka custom parameters, which can be extended in the future
+    private Map<String, String> customKafkaProperties = Maps.newHashMap();
 
     // this is the kafka consumer which is used to fetch the number of partitions
     private KafkaConsumer<String, String> consumer;
@@ -94,6 +97,10 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     public String getBrokerList() {
         return brokerList;
+    }
+
+    public Map<String, String> getCustomKafkaProperties() {
+        return customKafkaProperties;
     }
 
     @Override
@@ -343,6 +350,9 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         if (!stmt.getKafkaPartitionOffsets().isEmpty()) {
             setCustomKafkaPartitions(stmt.getKafkaPartitionOffsets());
         }
+        if (!stmt.getCustomKafkaProperties().isEmpty()) {
+            setCustomKafkaProperties(stmt.getCustomKafkaProperties());
+        }
     }
 
     // this is a unprotected method which is called in the initialization function
@@ -359,6 +369,10 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         }
     }
 
+    private void setCustomKafkaProperties(Map<String, String> kafkaProperties) {
+        this.customKafkaProperties = kafkaProperties;
+    }
+
     @Override
     protected String dataSourcePropertiesJsonToString() {
         Map<String, String> dataSourceProperties = Maps.newHashMap();
@@ -372,6 +386,12 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     }
 
     @Override
+    protected String customPropertiesJsonToString() {
+        Gson gson = new GsonBuilder().disableHtmlEscaping().create();
+        return gson.toJson(customKafkaProperties);
+    }
+
+    @Override
     public void write(DataOutput out) throws IOException {
         super.write(out);
         Text.writeString(out, brokerList);
@@ -380,6 +400,12 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         out.writeInt(customKafkaPartitions.size());
         for (Integer partitionId : customKafkaPartitions) {
             out.writeInt(partitionId);
+        }
+
+        out.writeInt(customKafkaProperties.size());
+        for (Map.Entry<String, String> property : customKafkaProperties.entrySet()) {
+            Text.writeString(out, "property." + property.getKey());
+            Text.writeString(out, property.getValue());
         }
     }
 
@@ -391,6 +417,17 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         int size = in.readInt();
         for (int i = 0; i < size; i++) {
             customKafkaPartitions.add(in.readInt());
+        }
+
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_51) {
+            int count = in.readInt();
+            for (int i = 0 ;i < count ;i ++) {
+                String propertyKey = Text.readString(in);
+                String propertyValue = Text.readString(in);
+                if (propertyKey.startsWith("property.")) {
+                    this.customKafkaProperties.put(propertyKey.substring(propertyKey.indexOf(".") + 1), propertyValue);
+                }
+            }
         }
 
         setConsumer();
