@@ -558,6 +558,29 @@ build_arrow() {
     cp -rf ./uriparser_ep-install/lib/liburiparser.a $TP_INSTALL_DIR/lib64/liburiparser.a
 }
 
+# s2
+build_s2() {
+    # check_if_source_exist $BRPC_SOURCE
+    # if [ ! -f $CMAKE_CMD ]; then
+    #     echo "cmake executable does not exit"
+    #     exit 1
+    # fi
+    cd $TP_SOURCE_DIR/s2geometry-0.9.0
+    mkdir build -p && cd build
+    rm -rf CMakeCache.txt CMakeFiles/
+    CXXFLAGS="-O3" \
+    LDFLAGS="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc" \
+    $CMAKE_CMD -v -DBUILD_SHARED_LIBS=0 -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR \
+    -DCMAKE_INCLUDE_PATH="$TP_INSTALL_DIR/include" \
+    -DBUILD_SHARED_LIBS=OFF \
+    -DGFLAGS_ROOT_DIR="$TP_INSTALL_DIR/include" \
+    -DWITH_GFLAGS=ON \
+    -DGLOG_ROOT_DIR="$TP_INSTALL_DIR/include" \
+    -DWITH_GLOG=ON \
+    -DCMAKE_LIBRARY_PATH="$TP_INSTALL_DIR/lib;$TP_INSTALL_DIR/lib64" ..
+    make -j$PARALLEL && make install
+}
+
 build_llvm
 build_libevent
 build_zlib
@@ -582,6 +605,7 @@ build_brpc
 build_rocksdb
 build_librdkafka
 build_arrow
+build_s2
 
 echo "Finihsed to build all thirdparties"
 
