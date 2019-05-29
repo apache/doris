@@ -58,7 +58,6 @@ OLAPStatus EngineCloneTask::execute() {
     string src_file_path;
     TBackend src_host;
     // Check local tablet exist or not
-    int32_t snapshot_version = 1;
     TabletSharedPtr tablet =
             StorageEngine::instance()->tablet_manager()->get_tablet(
             _clone_req.tablet_id, _clone_req.schema_hash);
@@ -92,9 +91,9 @@ OLAPStatus EngineCloneTask::execute() {
                             &src_host, &src_file_path, _error_msgs,
                             &missed_versions,
                             &allow_incremental_clone, 
-                            &snapshot_version, tablet);
+                            tablet);
         if (status == DORIS_SUCCESS && allow_incremental_clone) {
-            OLAPStatus olap_status = _finish_clone(tablet, local_data_path, _clone_req.committed_version, allow_incremental_clone, snapshot_version);
+            OLAPStatus olap_status = _finish_clone(tablet, local_data_path, _clone_req.committed_version, allow_incremental_clone);
             if (olap_status != OLAP_SUCCESS) {
                 LOG(WARNING) << "failed to finish incremental clone. [table=" << tablet->full_name()
                              << " res=" << olap_status << "]";
@@ -106,13 +105,13 @@ OLAPStatus EngineCloneTask::execute() {
             LOG(INFO) << "begin to full clone. [table=" << tablet->full_name();
             status = _clone_copy(*(tablet->data_dir()), _clone_req, _signature, local_data_path,
                                 &src_host, &src_file_path,  _error_msgs,
-                                NULL, NULL, &snapshot_version, tablet);
+                                NULL, NULL, tablet);
             if (status == DORIS_SUCCESS) {
                 LOG(INFO) << "download successfully when full clone. [table=" << tablet->full_name()
                           << " src_host=" << src_host.host << " src_file_path=" << src_file_path
                           << " local_data_path=" << local_data_path << "]";
 
-                OLAPStatus olap_status = _finish_clone(tablet, local_data_path, _clone_req.committed_version, false, snapshot_version);
+                OLAPStatus olap_status = _finish_clone(tablet, local_data_path, _clone_req.committed_version, false);
 
                 if (olap_status != OLAP_SUCCESS) {
                     LOG(WARNING) << "fail to finish full clone. [table=" << tablet->full_name()
@@ -152,7 +151,7 @@ OLAPStatus EngineCloneTask::execute() {
                                 &src_host,
                                 &src_file_path,
                                 _error_msgs,
-                                nullptr, nullptr, &snapshot_version, nullptr);
+                                nullptr, nullptr, nullptr);
         }
 
         if (status == DORIS_SUCCESS) {
@@ -277,7 +276,6 @@ AgentStatus EngineCloneTask::_clone_copy(
         vector<string>* error_msgs,
         const vector<Version>* missed_versions,
         bool* allow_incremental_clone, 
-        int32_t* snapshot_version, 
         TabletSharedPtr tablet) {
     AgentStatus status = DORIS_SUCCESS;
 
@@ -310,7 +308,6 @@ AgentStatus EngineCloneTask::_clone_copy(
         agent_client.make_snapshot(
                 snapshot_request,
                 &make_snapshot_result);
-        *snapshot_version = make_snapshot_result.snapshot_version;
         if (make_snapshot_result.__isset.allow_incremental_clone) {
             // During upgrading, some BE nodes still be installed an old previous old.
             // which incremental clone is not ready in those nodes.
@@ -594,8 +591,7 @@ OLAPStatus EngineCloneTask::_convert_to_new_snapshot(DataDir& data_dir, const st
 
 // only incremental clone use this method
 OLAPStatus EngineCloneTask::_finish_clone(TabletSharedPtr tablet, const string& clone_dir,
-                                         int64_t committed_version, bool is_incremental_clone, 
-                                         int32_t snapshot_version) {
+                                         int64_t committed_version, bool is_incremental_clone) {
     OLAPStatus res = OLAP_SUCCESS;
     vector<string> linked_success_files;
 
