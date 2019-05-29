@@ -335,7 +335,7 @@ public class BrokerLoadJob extends LoadJob {
             loadingStatus.setTrackingUrl(attachment.getTrackingUrl());
         }
         commitInfos.addAll(attachment.getCommitInfoList());
-        progress = finishedTaskIds.size() / idToTasks.size() * 100;
+        progress = (int) ((double) finishedTaskIds.size() / idToTasks.size() * 100);
         if (progress == 100) {
             progress = 99;
         }

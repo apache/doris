@@ -174,7 +174,7 @@ public class MiniLoadPendingTask extends LoadPendingTask {
         try {
             fragment.finalize(null, false);
         } catch (Exception e) {
-            LOG.info("fragment finalize faild.e = {}", e);
+            LOG.info("fragment finalize failed.e = {}", e);
             throw new LoadException("Fragment finalize failed.", e);
         }
 
