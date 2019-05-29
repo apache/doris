@@ -1,4 +1,4 @@
-# `ST_Polygon`,`ST_PolyFromText`, `ST_PolygonFromText`
+# `ST_Polygon`,`ST_PolyFromText`,`ST_PolygonFromText`
 
 ## Syntax
 
