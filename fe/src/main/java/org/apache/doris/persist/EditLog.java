@@ -691,6 +691,16 @@ public class EditLog {
                     Catalog.getCurrentCatalog().getLoadManager().replayEndLoadJob(operation);
                     break;
                 }
+                case OperationType.OP_CREATE_SMALL_FILE: {
+                    SmallFileInfo info = (SmallFileInfo) journal.getData();
+                    Catalog.getCurrentCatalog().getSmallFileMgr().replayCreateFile(info);
+                    break;
+                }
+                case OperationType.OP_DROP_SMALL_FILE: {
+                    SmallFileInfo info = (SmallFileInfo) journal.getData();
+                    Catalog.getCurrentCatalog().getSmallFileMgr().replayRemoveFile(info);
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}", opCode, e);
@@ -1200,5 +1210,13 @@ public class EditLog {
 
     public void logEndLoadJob(LoadJobFinalOperation loadJobFinalOperation) {
         logEdit(OperationType.OP_END_LOAD_JOB, loadJobFinalOperation);
+    }
+
+    public void logCreateSmallFile(SmallFileInfo info) {
+        logEdit(OperationType.OP_CREATE_SMALL_FILE, info);
+    }
+
+    public void logDropSmallFile(SmallFileInfo info) {
+        logEdit(OperationType.OP_DROP_SMALL_FILE, info);
     }
 }

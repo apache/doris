@@ -63,6 +63,7 @@ import org.apache.doris.persist.PrivInfo;
 import org.apache.doris.persist.RecoverInfo;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.persist.RoutineLoadOperation;
+import org.apache.doris.persist.SmallFileInfo;
 import org.apache.doris.persist.TableInfo;
 import org.apache.doris.persist.TablePropertyInfo;
 import org.apache.doris.persist.TruncateTableInfo;
@@ -432,6 +433,12 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_END_LOAD_JOB: {
                 data = LoadJobFinalOperation.read(in);
+                needRead = false;
+                break;
+            }
+            case OperationType.OP_CREATE_SMALL_FILE:
+            case OperationType.OP_DROP_SMALL_FILE: {
+                data = SmallFileInfo.read(in);
                 needRead = false;
                 break;
             }

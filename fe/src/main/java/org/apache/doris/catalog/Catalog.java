@@ -108,6 +108,7 @@ import org.apache.doris.common.util.KuduUtil;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.QueryableReentrantLock;
+import org.apache.doris.common.util.SmallFileMgr;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.consistency.ConsistencyChecker;
 import org.apache.doris.deploy.DeployManager;
@@ -363,6 +364,8 @@ public class Catalog {
 
     private RoutineLoadTaskScheduler routineLoadTaskScheduler;
 
+    private SmallFileMgr smallFileMgr;
+
     public List<Frontend> getFrontends(FrontendNodeType nodeType) {
         if (nodeType == null) {
             // get all
@@ -486,6 +489,8 @@ public class Catalog {
         this.loadManager = new LoadManager(loadJobScheduler);
         this.routineLoadScheduler = new RoutineLoadScheduler(routineLoadManager);
         this.routineLoadTaskScheduler = new RoutineLoadTaskScheduler(routineLoadManager);
+
+        this.smallFileMgr = new SmallFileMgr();
     }
 
     public static void destroyCheckpoint() {
@@ -1757,6 +1762,13 @@ public class Catalog {
         return checksum;
     }
 
+    public long loadSmallFiles(DataInputStream in, long checksum) throws IOException {
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_52) {
+            smallFileMgr.readFields(in);
+        }
+        return checksum;
+    }
+
     // Only called by checkpoint thread
     public void saveImage() throws IOException {
         // Write image.ckpt
@@ -1803,6 +1815,7 @@ public class Catalog {
             checksum = saveColocateTableIndex(dos, checksum);
             checksum = saveRoutineLoadJobs(dos, checksum);
             checksum = saveLoadJobsV2(dos, checksum);
+            checksum = saveSmallFiles(dos, checksum);
             dos.writeLong(checksum);
         } finally {
             dos.close();
@@ -2058,6 +2071,11 @@ public class Catalog {
 
     public long saveLoadJobsV2(DataOutputStream out, long checksum) throws IOException {
         Catalog.getCurrentCatalog().getLoadManager().write(out);
+        return checksum;
+    }
+
+    public long saveSmallFiles(DataOutputStream out, long checksum) throws IOException {
+        smallFileMgr.write(out);
         return checksum;
     }
 
@@ -4607,6 +4625,10 @@ public class Catalog {
 
     public Clone getCloneInstance() {
         return this.clone;
+    }
+
+    public SmallFileMgr getSmallFileMgr() {
+        return this.smallFileMgr;
     }
 
     public long getReplayedJournalId() {
