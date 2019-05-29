@@ -346,11 +346,11 @@ public class PropertyAnalyzer {
     }
 
     public static String analyzeColocate(Map<String, String> properties) throws AnalysisException {
-        String colocateTable = null;
+        String colocateGroup = null;
         if (properties != null && properties.containsKey(PROPERTIES_COLOCATE_WITH)) {
-            colocateTable = properties.get(PROPERTIES_COLOCATE_WITH);
+            colocateGroup = properties.get(PROPERTIES_COLOCATE_WITH);
             properties.remove(PROPERTIES_COLOCATE_WITH);
         }
-        return colocateTable;
+        return colocateGroup;
     }
 }

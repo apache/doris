@@ -22,6 +22,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 
 import java.util.List;
+import java.util.Map;
 
 public class ColocateTableUtils {
 
@@ -36,9 +37,20 @@ public class ColocateTableUtils {
         return parentTable;
     }
 
+    public static Table getTable(Database db, long tblId) {
+        Table tbl;
+        db.readLock();
+        try {
+            tbl = db.getTable(tblId);
+        } finally {
+            db.readUnlock();
+        }
+        return tbl;
+    }
+
     static void checkTableExist(Table colocateTable, String colocateTableName) throws DdlException {
         if (colocateTable == null) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_NO_EXIT, colocateTableName);
+            ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_NOT_EXIST, colocateTableName);
         }
     }
 
@@ -60,6 +72,16 @@ public class ColocateTableUtils {
         int oldBucketNum = oldDistributionInfo.getBucketNum();
         if (oldBucketNum != newDistributionInfo.getBucketNum()) {
             ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_MUST_SAME_BUCKNUM, oldBucketNum);
+        }
+    }
+
+    public static void checkReplicationNum(PartitionInfo parentInfo, PartitionInfo childInfo) throws DdlException {
+        // tables in same colocation group should have same replication num of all partitions
+        short expectedRepNum = parentInfo.idToReplicationNum.values().stream().findFirst().get();
+        for (Map.Entry<Long, Short> entry : childInfo.idToReplicationNum.entrySet()) {
+            if (entry.getValue() != expectedRepNum) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_MUST_SAME_REPLICAT_NUM, expectedRepNum);
+            }
         }
     }
 
@@ -100,4 +122,9 @@ public class ColocateTableUtils {
         }
     }
 
+    public static void checkTableIsColocated(Table parentTable, String colocateTableName) throws DdlException {
+        if (Catalog.getCurrentCatalog().getColocateTableIndex().isColocateTable(parentTable.getId())) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_NOT_COLOCATE_TABLE, colocateTableName);
+        }
+    }
 }

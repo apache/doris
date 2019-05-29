@@ -108,7 +108,7 @@ public class RepositoryMgr extends Daemon implements Writable {
                     // log
                     Catalog.getCurrentCatalog().getEditLog().logDropRepository(repoName);
                 }
-                LOG.info("sucessfully removing repo {} from repository mgr", repoName);
+                LOG.info("successfully removing repo {} from repository mgr", repoName);
                 return Status.OK;
             }
             return new Status(ErrCode.NOT_FOUND, "repository does not exist");

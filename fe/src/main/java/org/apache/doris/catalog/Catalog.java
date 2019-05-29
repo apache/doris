@@ -3460,34 +3460,57 @@ public class Catalog {
             throw new DdlException(e.getMessage());
         }
 
-        // colocateTable
+        if (partitionInfo.getType() == PartitionType.UNPARTITIONED) {
+            // if this is an unpartitioned table, we should analyze data property and replication num here.
+            // if this is a partitioned table, there properties are already analyzed in RangePartitionDesc analyze phase.
+
+            // use table name as this single partition name
+            String partitionName = tableName;
+            long partitionId = partitionNameToId.get(partitionName);
+            DataProperty dataProperty = null;
+            try {
+                dataProperty = PropertyAnalyzer.analyzeDataProperty(stmt.getProperties(),
+                        DataProperty.DEFAULT_HDD_DATA_PROPERTY);
+            } catch (AnalysisException e) {
+                throw new DdlException(e.getMessage());
+            }
+            Preconditions.checkNotNull(dataProperty);
+            partitionInfo.setDataProperty(partitionId, dataProperty);
+
+            // analyze replication num
+            short replicationNum = FeConstants.default_replication_num;
+            try {
+                replicationNum = PropertyAnalyzer.analyzeReplicationNum(properties, replicationNum);
+            } catch (AnalysisException e) {
+                throw new DdlException(e.getMessage());
+            }
+            partitionInfo.setReplicationNum(partitionId, replicationNum);
+        }
+
+        // check colocation properties
         try {
-            String colocateTableName = PropertyAnalyzer.analyzeColocate(properties);
-            if (colocateTableName != null) {
+            String colocateGroup = PropertyAnalyzer.analyzeColocate(properties);
+            if (colocateGroup != null) {
                 if (Config.disable_colocate_join) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_DISABLED);
                 }
+                
+                if (colocateTableIndex.hasColocateGroup(colocateGroup)) {
+                    // group already exist, get an arbitrary table from this group and check.
+                    long arbiTableId = colocateTableIndex.getTableIdByGroup(colocateGroup);
+                    OlapTable arbiTable = (OlapTable) ColocateTableUtils.getTable(db, arbiTableId);
+                    if (arbiTable == null) {
+                        // this should not happen
+                        throw new DdlException("Table " + arbiTableId + " does not eixst");
+                    }
 
-                Table parentTable = ColocateTableUtils.getColocateTable(db, colocateTableName);
-                // for colocate child table
-                if (!colocateTableName.equals(tableName)) {
-                    ColocateTableUtils.checkTableExist(parentTable, colocateTableName);
-
-                    ColocateTableUtils.checkTableType(parentTable);
-
-                    ColocateTableUtils.checkBucketNum((OlapTable) parentTable, distributionInfo);
-
-                    ColocateTableUtils.checkDistributionColumnSizeAndType((OlapTable) parentTable, distributionInfo);
-
-                    //for C -> B, B -> A. we need get table A id
-                    long groupId = getColocateTableIndex().getGroup(parentTable.getId());
-                    getColocateTableIndex().addTableToGroup(db.getId(), tableId, groupId);
-                } else {
-                    getColocateTableIndex().addTableToGroup(db.getId(), tableId, tableId);
+                    ColocateTableUtils.checkBucketNum(arbiTable, distributionInfo);
+                    ColocateTableUtils.checkDistributionColumnSizeAndType(arbiTable, distributionInfo);
+                    ColocateTableUtils.checkReplicationNum(arbiTable.getPartitionInfo(), partitionInfo);
                 }
+                getColocateTableIndex().addTableToGroup(db.getId(), tableId, colocateGroup);
 
-                olapTable.setColocateTable(colocateTableName);
-
+                olapTable.setColocateTable(colocateGroup);
             }
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
@@ -3525,31 +3548,6 @@ public class Catalog {
                 // use table name as partition name
                 String partitionName = tableName;
                 long partitionId = partitionNameToId.get(partitionName);
-
-                // check data property first
-                DataProperty dataProperty = null;
-                try {
-                    dataProperty = PropertyAnalyzer.analyzeDataProperty(stmt.getProperties(),
-                            DataProperty.DEFAULT_HDD_DATA_PROPERTY);
-                } catch (AnalysisException e) {
-                    throw new DdlException(e.getMessage());
-                }
-                Preconditions.checkNotNull(dataProperty);
-                partitionInfo.setDataProperty(partitionId, dataProperty);
-
-                // analyze replication num
-                short replicationNum = FeConstants.default_replication_num;
-                try {
-                    replicationNum = PropertyAnalyzer.analyzeReplicationNum(properties, replicationNum);
-                    if (getColocateTableIndex().isColocateChildTable(olapTable.getId())) {
-                        Table parentTable = ColocateTableUtils.getColocateTable(db, olapTable.getColocateTable());
-                        ColocateTableUtils.checkReplicationNum(((OlapTable)parentTable).getPartitionInfo(), replicationNum);
-                    }
-                } catch (AnalysisException e) {
-                    throw new DdlException(e.getMessage());
-                }
-                partitionInfo.setReplicationNum(partitionId, replicationNum);
-
                 // create partition
                 Partition partition = createPartitionWithIndices(db.getClusterName(), db.getId(),
                         olapTable.getId(),
@@ -3560,8 +3558,8 @@ public class Catalog {
                         olapTable.getIndexIdToSchema(),
                         keysType,
                         distributionInfo,
-                        dataProperty.getStorageMedium(),
-                        replicationNum,
+                        partitionInfo.getDataProperty(partitionId).getStorageMedium(),
+                        partitionInfo.getReplicationNum(partitionId),
                         versionInfo, bfColumns, bfFpp,
                         tabletIdSet, isRestore);
                 olapTable.addPartition(partition);
@@ -3617,7 +3615,7 @@ public class Catalog {
                     ErrorReport.reportDdlException(ErrorCode.ERR_CANT_CREATE_TABLE, tableName, "table already exists");
                 }
 
-                //we have added these index to memory, only need to persist here
+                // we have added these index to memory, only need to persist here
                 if (getColocateTableIndex().isColocateTable(tableId)) {
                     long colocateTableId = ColocateTableUtils.getColocateTable(db, olapTable.getColocateTable()).getId();
                     long groupId = getColocateTableIndex().getGroup(colocateTableId);
@@ -3638,7 +3636,7 @@ public class Catalog {
                 Catalog.getCurrentInvertedIndex().deleteTablet(tabletId);
             }
 
-            //only remove from memory, because we have not persist it
+            // only remove from memory, because we have not persist it
             if (getColocateTableIndex().isColocateTable(tableId)) {
                 getColocateTableIndex().removeTable(tableId);
             }
@@ -4099,9 +4097,9 @@ public class Catalog {
         Preconditions.checkArgument(replicationNum > 0);
 
         DistributionInfoType distributionInfoType = distributionInfo.getType();
-        if (distributionInfoType == DistributionInfoType.RANDOM || distributionInfoType == DistributionInfoType.HASH) {
+        if (distributionInfoType == DistributionInfoType.HASH) {
             ColocateTableIndex colocateIndex = Catalog.getCurrentColocateIndex();
-            List<List<Long>> backendsPerBucketSeq = new ArrayList<>();
+            List<List<Long>> backendsPerBucketSeq = null;
             if (colocateIndex.isColocateTable(tabletMeta.getTableId())) {
                 Database db = Catalog.getInstance().getDb(tabletMeta.getDbId());
                 long groupId = colocateIndex.getGroup(tabletMeta.getTableId());
@@ -4114,6 +4112,10 @@ public class Catalog {
                     db.writeUnlock();
                 }
             }
+
+            // firstColocateTable is true, means this may be the first table of colocation group,
+            // or this is just a normal table
+            boolean firstColocateTable = backendsPerBucketSeq == null || backendsPerBucketSeq.isEmpty();
             for (int i = 0; i < distributionInfo.getBucketNum(); ++i) {
                 // create a new tablet with random chosen backends
                 Tablet tablet = new Tablet(getNextId());
@@ -4124,39 +4126,29 @@ public class Catalog {
 
                 // get BackendIds
                 List<Long> chosenBackendIds;
-
-                // for colocate parent table
-                if (colocateIndex.isColocateParentTable(tabletMeta.getTableId())) {
-                    if (backendsPerBucketSeq.size() == distributionInfo.getBucketNum()) {
-                        // for not first partitions of colocate parent table
-                        chosenBackendIds = backendsPerBucketSeq.get(i);
-                    } else {
-                        // for the first partitions of colocate parent table
-                        chosenBackendIds = chosenBackendIdBySeq(replicationNum, clusterName);
-                        backendsPerBucketSeq.add(chosenBackendIds);
-
-                        if (i == distributionInfo.getBucketNum() - 1) {
-                            // delay persist this until we ensure the table create successfully
-                            colocateIndex.addBackendsPerBucketSeq(tabletMeta.getTableId(), backendsPerBucketSeq);
-                        }
-                    }
-                } else if (colocateIndex.isColocateTable(tabletMeta.getTableId())) {
-                    // for colocate child table
-                    chosenBackendIds = backendsPerBucketSeq.get(i);
-                } else {
-                    // for normal table
+                if (firstColocateTable) {
+                    // This is the first colocate table in the group. randomly choose backends
                     chosenBackendIds = chosenBackendIdBySeq(replicationNum, clusterName);
+                    backendsPerBucketSeq.add(chosenBackendIds);
+                } else {
+                    // get backends from existing backend sequence
+                    chosenBackendIds = backendsPerBucketSeq.get(i);
                 }
-
+                
+                // create replicas
                 for (long backendId : chosenBackendIds) {
                     long replicaId = getNextId();
                     Replica replica = new Replica(replicaId, backendId, replicaState, version, versionHash,
                             tabletMeta.getOldSchemaHash());
                     tablet.addReplica(replica);
                 }
-
                 Preconditions.checkState(chosenBackendIds.size() == replicationNum, chosenBackendIds.size() + " vs. "+ replicationNum);
             }
+
+            if (backendsPerBucketSeq != null) {
+                colocateIndex.addBackendsPerBucketSeq(tabletMeta.getTableId(), backendsPerBucketSeq);
+            }
+
         } else {
             throw new DdlException("Unknown distribution type: " + distributionInfoType);
         }
@@ -4921,18 +4913,50 @@ public class Catalog {
         }
     }
 
-    //the invoker should keep db write lock
-    public void modifyTableColocate(Database db, OlapTable table, String colocateTable) throws DdlException {
-        Table parentTable = db.getTable(colocateTable);
-        if (parentTable != null && getColocateTableIndex().isColocateParentTable(parentTable.getId())) {
-            table.setColocateTable(colocateTable);
+    // the invoker should keep db write lock
+    public void modifyTableColocate(Database db, OlapTable table, String colocateGroup, boolean isReplay)
+            throws DdlException {
+        String oldGroup = table.getColocateTable();
+        
+        if (!Strings.isNullOrEmpty(colocateGroup)) {
+            if (!colocateTableIndex.hasColocateGroup(colocateGroup)) {
+                // check if all partitions all this table has same buckets num and same replication number
+                PartitionInfo partitionInfo = table.getPartitionInfo();
+                if (partitionInfo.getType() == PartitionType.RANGE) {
+                    int bucketsNum = -1;
+                    short replicationNum = -1;
+                    for (Partition partition : table.getPartitions()) {
+                        if (bucketsNum == -1) {
+                            bucketsNum = partition.getDistributionInfo().getBucketNum();
+                        } else if (bucketsNum != partition.getDistributionInfo().getBucketNum() ) {
+                            throw new DdlException("Partitions in table " + table.getName() + " have different buckets number");
+                        }
+                        
+                        if (replicationNum == -1) {
+                            replicationNum = partitionInfo.getReplicationNum(partition.getId());
+                        } else if (replicationNum != partitionInfo.getReplicationNum(partition.getId())) {
+                            throw new DdlException("Partitions in table " + table.getName() + " have different replication number");
+                        }
+                    }
+                }
+            } else {
+                // set to an already exist colocate group, check if this table can be added to this group.
+                OlapTable arbiTable = ColocateTableUtils;
+            }
+        }
+        
+        long groupId = colocateTableIndex.addOrMoveTable(db.getId(), table.getId(), oldGroup, colocateGroup);
+        // set this group as unstable
+        colocateTableIndex.markGroupBalancing(groupId);
+
+        if (!isReplay) {
             Map<String, String> properties = Maps.newHashMapWithExpectedSize(1);
-            properties.put(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH, colocateTable);
+            properties.put(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH, colocateGroup);
             TablePropertyInfo info = new TablePropertyInfo(db.getId(), table.getId(), properties);
             editLog.logModifyTableColocate(info);
-        } else {
-            ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_NO_EXIT, colocateTable);
         }
+        LOG.info("finished modify table's colocation property. table: {}, is replay: {}",
+                table.getName(), isReplay);
     }
 
     public void replayModifyTableColocate(TablePropertyInfo info) {
@@ -4944,7 +4968,7 @@ public class Catalog {
         db.writeLock();
         try {
             OlapTable table = (OlapTable) db.getTable(tableId);
-            table.setColocateTable(properties.get((PropertyAnalyzer.PROPERTIES_COLOCATE_WITH)));
+            modifyTableColocate(db, table, properties.get(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH), true);
         } finally {
             db.writeUnlock();
         }

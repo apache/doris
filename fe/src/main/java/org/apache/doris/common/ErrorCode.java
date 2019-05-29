@@ -199,8 +199,8 @@ public enum ErrorCode {
             "%s"),
     ERR_COLOCATE_TABLE_DISABLED(5063, new byte[] { '4', '2', '0', '0', '0' },
             "Colocate table is disabled by Admin"),
-    ERR_COLOCATE_TABLE_NO_EXIT(5063, new byte[] { '4', '2', '0', '0', '0' },
-            "Colocate table '%s' no exist"),
+    ERR_COLOCATE_TABLE_NOT_EXIST(5063, new byte[] { '4', '2', '0', '0', '0' },
+            "Colocate table '%s' does not exist"),
     ERR_COLOCATE_TABLE_MUST_OLAP_TABLE(5063, new byte[] { '4', '2', '0', '0', '0' },
             "Colocate tables '%s' must be OLAP table"),
     ERR_COLOCATE_TABLE_MUST_SAME_REPLICAT_NUM(5063, new byte[] { '4', '2', '0', '0', '0' },
@@ -210,7 +210,9 @@ public enum ErrorCode {
     ERR_COLOCATE_TABLE_SAME_DISTRIBUTED_COLUMNS_SIZE(5063, new byte[] { '4', '2', '0', '0', '0' },
             "Colocate table distribution columns size must be same : %s"),
     ERR_COLOCATE_TABLE_SAME_DISTRIBUTED_COLUMNS_TYPE(5063, new byte[] { '4', '2', '0', '0', '0' },
-            "Colocate table distribution columns must have the same data type: %s should be %s");
+            "Colocate table distribution columns must have the same data type: %s should be %s"), 
+    ERR_COLOCATE_NOT_COLOCATE_TABLE(5064, new byte[] { '4', '2', '0', '0', '0' },
+            "Table %s is not a colocated table"),;
 
 
     ErrorCode(int code, byte[] sqlState, String errorMsg) {
