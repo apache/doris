@@ -209,7 +209,7 @@ doris_udf::StringVal GeoFunctions::st_circle(FunctionContext* ctx,
     if (lng.is_null || lat.is_null || radius.is_null) {
         return StringVal::null();
     }
-    StConstructState* state = (StConstructState*)ctx->get_function_state(FunctionContext::FRAGMENT_LOCAL);
+    StConstructState* state = (StConstructState*) ctx->get_function_state(FunctionContext::FRAGMENT_LOCAL);
     if (state == nullptr) {
         std::unique_ptr<GeoCircle> circle(new GeoCircle());
         auto res = circle->init(lng.val, lat.val, radius.val);
