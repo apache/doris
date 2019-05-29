@@ -443,6 +443,26 @@ struct TLoadCheckRequest {
     9: optional string tbl
 }
 
+struct TMiniLoadBeginRequest {
+    1: required string user
+    2: required string passwd
+    3: optional string cluster
+    4: optional string user_ip
+    5: required string db
+    6: required string tbl
+    7: required string label
+    8: optional string sub_label
+    9: optional i64 timeout_second
+    10: optional double max_filter_ratio 
+    11: optional i64 auth_code
+	12: required i64 create_timestamp;
+}
+
+struct TMiniLoadBeginResult {
+    1: required Status.TStatus status
+    2: optional i64 txn_id
+}
+
 struct TUpdateExportTaskStatusRequest {
     1: required FrontendServiceVersion protocolVersion
     2: required Types.TUniqueId taskId
@@ -523,9 +543,16 @@ struct TRLTaskTxnCommitAttachment {
     11: optional string errorLogUrl
 }
 
+struct TMiniLoadTxnCommitAttachment {
+    1: required i64 loadedRows
+    2: required i64 filteredRows
+    3: optional string errorLogUrl
+} 
+
 struct TTxnCommitAttachment {
     1: required Types.TLoadType loadType
     2: optional TRLTaskTxnCommitAttachment rlTaskTxnCommitAttachment
+    3: optional TMiniLoadTxnCommitAttachment mlTxnCommitAttachment 
 }
 
 struct TLoadTxnCommitRequest {
@@ -581,9 +608,14 @@ service FrontendService {
     MasterService.TMasterResult finishTask(1:MasterService.TFinishTaskRequest request)
     MasterService.TMasterResult report(1:MasterService.TReportRequest request)
     MasterService.TFetchResourceResult fetchResource()
+    
+    // those three method are used for asynchronous mini load which will be abandoned
     TFeResult miniLoad(1:TMiniLoadRequest request)
     TFeResult updateMiniEtlTaskStatus(1:TUpdateMiniEtlTaskStatusRequest request)
     TFeResult loadCheck(1:TLoadCheckRequest request)
+    // this method is used for streaming mini load
+    TMiniLoadBeginResult miniLoadBegin(TMiniLoadBeginRequest request)
+    TFeResult isMiniLoadStreaming()
 
     TMasterOpResult forward(TMasterOpRequest params)
 

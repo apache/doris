@@ -81,18 +81,6 @@ public class InsertLoadJob extends LoadJob {
     }
 
     @Override
-    void executeJob() {
-    }
-
-    @Override
-    public void onTaskFinished(TaskAttachment attachment) {
-    }
-
-    @Override
-    public void onTaskFailed(long taskId, FailMsg failMsg) {
-    }
-
-    @Override
     public void write(DataOutput out) throws IOException {
         super.write(out);
         out.writeLong(tableId);

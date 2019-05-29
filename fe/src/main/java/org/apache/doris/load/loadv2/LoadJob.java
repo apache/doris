@@ -53,6 +53,7 @@ import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
+import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
@@ -87,7 +88,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
 
     // optional properties
     // timeout second need to be reset in constructor of subclass
-    protected int timeoutSecond = Config.pull_load_task_default_timeout_second;
+    protected long timeoutSecond = Config.pull_load_task_default_timeout_second;
     protected long execMemLimit = 2147483648L; // 2GB;
     protected double maxFilterRatio = 0;
     protected boolean deleteFlag = false;
@@ -111,6 +112,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
 
     // non-persistence
     protected boolean isCommitting = false;
+    protected boolean isCancellable = true;
 
     // only for persistence param
     private boolean isJobTypeRead = false;
@@ -149,7 +151,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
 
     public Database getDb() throws MetaNotFoundException {
         // get db
-        Database db = Catalog.getInstance().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
             throw new MetaNotFoundException("Database " + dbId + " already has been deleted");
         }
@@ -168,6 +170,10 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         return state;
     }
 
+    public long getCreateTimestamp() {
+        return createTimestamp;
+    }
+
     public long getDeadlineMs() {
         return createTimestamp + timeoutSecond * 1000;
     }
@@ -178,6 +184,10 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
 
     public long getFinishTimestamp() {
         return finishTimestamp;
+    }
+
+    public long getTransactionId() {
+        return transactionId;
     }
 
     public boolean isCompleted() {
@@ -248,10 +258,6 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     }
 
     public void beginTxn() throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException {
-        transactionId = Catalog.getCurrentGlobalTransactionMgr()
-                .beginTransaction(dbId, label, -1, "FE: " + FrontendOptions.getLocalHostAddress(),
-                                  TransactionState.LoadJobSourceType.BATCH_LOAD_JOB, id,
-                                  timeoutSecond - 1);
     }
 
     /**
@@ -292,7 +298,8 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         logFinalOperation();
     }
 
-    abstract void executeJob();
+    protected void executeJob() {
+    }
 
     /**
      * This method only support update state to finished and loading.
@@ -327,10 +334,10 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         state = JobState.LOADING;
     }
 
-    public void cancelJobWithoutCheck(FailMsg failMsg) {
+    public void cancelJobWithoutCheck(FailMsg failMsg, boolean abortTxn) {
         writeLock();
         try {
-            executeCancel(failMsg, true);
+            executeCancel(failMsg, abortTxn);
         } finally {
             writeUnlock();
         }
@@ -341,6 +348,9 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         writeLock();
         try {
             // check
+            if (!isCancellable) {
+                throw new DdlException("Job could not be cancelled in type " + jobType.name());
+            }
             if (isCommitting) {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
                                  .add("error_msg", "The txn which belongs to job is committing. "
@@ -538,6 +548,17 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         }
     }
 
+    public void getJobInfo(Load.JobInfo jobInfo) throws MetaNotFoundException {
+        jobInfo.tblNames.addAll(getTableNames());
+        jobInfo.state = org.apache.doris.load.LoadJob.JobState.valueOf(state.name());
+        if (failMsg != null) {
+            jobInfo.failMsg = failMsg.getMsg();
+        } else {
+            jobInfo.failMsg = "";
+        }
+        jobInfo.trackingUrl = loadingStatus.getTrackingUrl();
+    }
+
     public static LoadJob read(DataInput in) throws IOException {
         LoadJob job = null;
         EtlJobType type = EtlJobType.valueOf(Text.readString(in));
@@ -545,6 +566,8 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             job = new BrokerLoadJob();
         } else if (type == EtlJobType.INSERT) {
             job = new InsertLoadJob();
+        } else if (type == EtlJobType.MINI) {
+            job = new MiniLoadJob();
         } else {
             throw new IOException("Unknown load type: " + type.name());
         }
@@ -615,11 +638,16 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             if (isCompleted()) {
                 return;
             }
+            // record attachment in load job
+            executeAfterAborted(txnState);
             // cancel load job
             executeCancel(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, txnStatusChangeReason), false);
         } finally {
             writeUnlock();
         }
+    }
+
+    protected void executeAfterAborted(TransactionState txnState) {
     }
 
     /**
@@ -631,7 +659,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     public void replayOnAborted(TransactionState txnState) {
         writeLock();
         try {
-            unprotectReadEndOperation((LoadJobFinalOperation) txnState.getTxnCommitAttachment());
+            executeReplayOnAborted(txnState);
             failMsg = new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, txnState.getReason());
             finishTimestamp = txnState.getFinishTime();
             state = JobState.CANCELLED;
@@ -640,9 +668,12 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         }
     }
 
+    protected void executeReplayOnAborted(TransactionState txnState) {
+    }
+
     /**
      * This method will finish the load job without edit log.
-     * The job will be finished by replayOnFinished when journal replay
+     * The job will be finished by replayOnVisible when txn journal replay
      *
      * @param txnState
      * @param txnOperated
@@ -652,20 +683,35 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         if (!txnOperated) {
             return;
         }
+        executeAfterVisible(txnState);
         updateState(JobState.FINISHED);
+    }
+
+    protected void executeAfterVisible(TransactionState txnState) {
     }
 
     @Override
     public void replayOnVisible(TransactionState txnState) {
         writeLock();
         try {
-            unprotectReadEndOperation((LoadJobFinalOperation) txnState.getTxnCommitAttachment());
+            executeReplayOnVisible(txnState);
             progress = 100;
             finishTimestamp = txnState.getFinishTime();
             state = JobState.FINISHED;
         } finally {
             writeUnlock();
         }
+    }
+
+    protected void executeReplayOnVisible(TransactionState txnState) {
+    }
+
+    @Override
+    public void onTaskFinished(TaskAttachment attachment) {
+    }
+
+    @Override
+    public void onTaskFailed(long taskId, FailMsg failMsg) {
     }
 
     @Override
@@ -696,7 +742,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         out.writeLong(dbId);
         Text.writeString(out, label);
         Text.writeString(out, state.name());
-        out.writeInt(timeoutSecond);
+        out.writeLong(timeoutSecond);
         out.writeLong(execMemLimit);
         out.writeDouble(maxFilterRatio);
         out.writeBoolean(deleteFlag);
@@ -727,7 +773,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         dbId = in.readLong();
         label = Text.readString(in);
         state = JobState.valueOf(Text.readString(in));
-        timeoutSecond = in.readInt();
+        timeoutSecond = in.readLong();
         execMemLimit = in.readLong();
         maxFilterRatio = in.readDouble();
         deleteFlag = in.readBoolean();

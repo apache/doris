@@ -74,7 +74,7 @@ public class MultiLoadMgr {
             lock.writeLock().unlock();
         }
         // Register to Load after put into map.
-        Catalog.getInstance().getLoadInstance().registerMiniLabel(fullDbName, label, System.currentTimeMillis());
+        Catalog.getCurrentCatalog().getLoadManager().createLoadJobV1FromMultiStart(fullDbName, label);
     }
 
     public void load(TMiniLoadRequest request) throws DdlException {

@@ -18,6 +18,7 @@
 package org.apache.doris.http.rest;
 
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.http.ActionController;
 import org.apache.doris.http.BaseRequest;
 import org.apache.doris.http.BaseResponse;
@@ -63,7 +64,15 @@ public class GetLoadInfoAction extends RestBaseAction {
         if (redirectToMaster(request, response)) {
             return;
         }
-        catalog.getLoadInstance().getJobInfo(info);
+        try {
+            try {
+                catalog.getLoadInstance().getJobInfo(info);
+            } catch (DdlException e) {
+                catalog.getLoadManager().getLoadJobInfo(info);
+            }
+        } catch (MetaNotFoundException e) {
+            throw new DdlException(e.getMessage());
+        }
 
         if (info.tblNames.isEmpty()) {
             checkDbAuth(authInfo, info.dbName, PrivPredicate.LOAD);

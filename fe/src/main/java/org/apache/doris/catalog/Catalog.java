@@ -135,6 +135,7 @@ import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.LoadJob.JobState;
 import org.apache.doris.load.loadv2.LoadJobScheduler;
 import org.apache.doris.load.loadv2.LoadManager;
+import org.apache.doris.load.loadv2.LoadTimeoutChecker;
 import org.apache.doris.load.routineload.RoutineLoadManager;
 import org.apache.doris.load.routineload.RoutineLoadScheduler;
 import org.apache.doris.load.routineload.RoutineLoadTaskScheduler;
@@ -360,6 +361,8 @@ public class Catalog {
 
     private LoadJobScheduler loadJobScheduler;
 
+    private LoadTimeoutChecker loadTimeoutChecker;
+
     private RoutineLoadScheduler routineLoadScheduler;
 
     private RoutineLoadTaskScheduler routineLoadTaskScheduler;
@@ -487,6 +490,7 @@ public class Catalog {
         this.loadTaskScheduler = new MasterTaskExecutor(10);
         this.loadJobScheduler = new LoadJobScheduler();
         this.loadManager = new LoadManager(loadJobScheduler);
+        this.loadTimeoutChecker = new LoadTimeoutChecker(loadManager);
         this.routineLoadScheduler = new RoutineLoadScheduler(routineLoadManager);
         this.routineLoadTaskScheduler = new RoutineLoadTaskScheduler(routineLoadManager);
 
@@ -1087,6 +1091,7 @@ public class Catalog {
         // New load scheduler
         loadManager.submitJobs();
         loadJobScheduler.start();
+        loadTimeoutChecker.start();
 
         // Export checker
         ExportChecker.init(Config.export_checker_interval_second * 1000L);

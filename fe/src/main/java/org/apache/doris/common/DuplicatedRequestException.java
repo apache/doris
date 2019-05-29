@@ -18,13 +18,11 @@
  *
  */
 
-package org.apache.doris.load.loadv2;
+package org.apache.doris.common;
 
-import org.apache.doris.load.LoadJob;
+public class DuplicatedRequestException extends DdlException {
 
-public enum JobState {
-    PENDING,
-    LOADING,
-    FINISHED,
-    CANCELLED
+    public DuplicatedRequestException(String msg) {
+        super(msg);
+    }
 }

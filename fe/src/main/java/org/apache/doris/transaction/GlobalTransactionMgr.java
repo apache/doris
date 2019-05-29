@@ -486,8 +486,7 @@ public class GlobalTransactionMgr {
         boolean txnOperated = false;
         writeLock();
         try {
-            unprotectAbortTransaction(transactionId, reason);
-            txnOperated = true;
+            txnOperated = unprotectAbortTransaction(transactionId, reason);
         } finally {
             writeUnlock();
             transactionState.afterStateTransform(TransactionStatus.ABORTED, txnOperated, reason);
@@ -925,14 +924,14 @@ public class GlobalTransactionMgr {
         }
     }
 
-    private void unprotectAbortTransaction(long transactionId, String reason)
+    private boolean unprotectAbortTransaction(long transactionId, String reason)
             throws UserException {
         TransactionState transactionState = idToTransactionState.get(transactionId);
         if (transactionState == null) {
             throw new UserException("transaction not found");
         }
         if (transactionState.getTransactionStatus() == TransactionStatus.ABORTED) {
-            return;
+            return false;
         }
         if (transactionState.getTransactionStatus() == TransactionStatus.COMMITTED
                 || transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
@@ -945,6 +944,7 @@ public class GlobalTransactionMgr {
         for (PublishVersionTask task : transactionState.getPublishVersionTasks().values()) {
             AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.PUBLISH_VERSION, task.getSignature());
         }
+        return true;
     }
     
     // for replay idToTransactionState
