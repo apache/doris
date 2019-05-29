@@ -93,6 +93,12 @@ public class VariableMgrTest {
         var = VariableMgr.newSessionVariable();
         Assert.assertEquals(1234L, var.getMaxExecMemByte());
 
+        SetVar setVar2 = new SetVar(SetType.GLOBAL, "parallel_fragment_exec_instance_num", new IntLiteral(5L));
+        VariableMgr.setVar(var, setVar2);
+        Assert.assertEquals(1L, var.getParallelExecInstanceNum());
+        var = VariableMgr.newSessionVariable();
+        Assert.assertEquals(5L, var.getParallelExecInstanceNum());
+
         // Set session variable
         setVar = new SetVar(SetType.GLOBAL, "exec_mem_limit", new IntLiteral(1234L));
         VariableMgr.setVar(var, setVar);
