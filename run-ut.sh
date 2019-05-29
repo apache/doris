@@ -235,8 +235,5 @@ fi
 cp -r ${DORIS_HOME}/be/test/agent/test_data ${DORIS_TEST_BINARY_DIR}/agent/
 cd ${DORIS_TEST_BINARY_DIR}/agent
 # ./agent_server_test
-# ./file_downloader_test
 #./heartbeat_server_test
-#./pusher_test
 ./utils_test
-#./task_worker_pool_test

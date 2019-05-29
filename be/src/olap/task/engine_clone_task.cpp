@@ -19,6 +19,7 @@
 
 #include <set>
 
+#include "http/http_client.h"
 #include "olap/olap_snapshot_converter.h"
 #include "olap/snapshot_manager.h"
 #include "olap/rowset/alpha_rowset.h"
@@ -350,8 +351,6 @@ AgentStatus EngineCloneTask::_clone_copy(
         }
         string src_file_full_path = src_file_full_path_stream.str();
         string local_file_full_path = local_file_full_path_stream.str();
-
-#ifndef BE_TEST
         // Check local path exist, if exist, remove it, then create the dir
         // local_file_full_path = tabletid/clone， for a specific tablet, there should be only one folder
         // if this folder exists, then should remove it
@@ -362,58 +361,29 @@ AgentStatus EngineCloneTask::_clone_copy(
             }
             boost::filesystem::create_directories(local_file_full_dir);
         }
-#endif
 
         // Get remove dir file list
-        FileDownloader::FileDownloaderParam downloader_param;
-        downloader_param.remote_file_path = http_host + HTTP_REQUEST_PREFIX
+        HttpClient client;
+        std::string remote_file_path = http_host + HTTP_REQUEST_PREFIX
             + HTTP_REQUEST_TOKEN_PARAM + token
             + HTTP_REQUEST_FILE_PARAM + src_file_full_path;
-        downloader_param.curl_opt_timeout = LIST_REMOTE_FILE_TIMEOUT;
-
-#ifndef BE_TEST
-        FileDownloader* file_downloader_ptr = new FileDownloader(downloader_param);
-        if (file_downloader_ptr == NULL) {
-            LOG(WARNING) << "clone copy create file downloader failed. try next backend";
-            status = DORIS_ERROR;
-        }
-#endif
 
         string file_list_str;
-        AgentStatus download_status = DORIS_SUCCESS;
-        uint32_t download_retry_time = 0;
-        while (status == DORIS_SUCCESS && download_retry_time < DOWNLOAD_FILE_MAX_RETRY) {
-#ifndef BE_TEST
-            download_status = file_downloader_ptr->list_file_dir(&file_list_str);
-#else
-            download_status = _file_downloader_ptr->list_file_dir(&file_list_str);
-#endif
-            if (download_status != DORIS_SUCCESS) {
-                LOG(WARNING) << "clone get remote file list failed. " 
-                             << " backend_ip: " << src_host->host.c_str()
-                             << " src_file_path: " << downloader_param.remote_file_path.c_str()
-                             << " signature: " << signature;
-                ++download_retry_time;
-#ifndef BE_TEST
-                sleep(download_retry_time);
-#endif
-            } else {
-                break;
-            }
-        }
+        auto list_files_cb = [&remote_file_path, &file_list_str] (HttpClient* client) {
+            RETURN_IF_ERROR(client->init(remote_file_path));
+            client->set_timeout_ms(LIST_REMOTE_FILE_TIMEOUT * 1000);
+            RETURN_IF_ERROR(client->execute(&file_list_str));
+            return Status::OK;
+        };
 
-#ifndef BE_TEST
-        if (file_downloader_ptr != NULL) {
-            delete file_downloader_ptr;
-            file_downloader_ptr = NULL;
-        }
-#endif
+        Status download_status = HttpClient::execute_with_retry(
+            DOWNLOAD_FILE_MAX_RETRY, 1, list_files_cb);
 
         vector<string> file_name_list;
-        if (download_status != DORIS_SUCCESS) {
+        if (!download_status.ok()) {
             LOG(WARNING) << "clone get remote file list failed over max time. " 
-                         << " backend_ip: " << src_host->host.c_str()
-                         << " src_file_path: " << downloader_param.remote_file_path.c_str()
+                         << " backend_ip: " << src_host->host
+                         << " src_file_path: " << remote_file_path
                          << " signature: " << signature;
             status = DORIS_ERROR;
         } else {
@@ -448,127 +418,85 @@ AgentStatus EngineCloneTask::_clone_copy(
         }
 
         // Get copy from remote
-        for (auto file_name : file_name_list) {
-            download_retry_time = 0;
-            downloader_param.remote_file_path = http_host + HTTP_REQUEST_PREFIX
+        uint64_t total_file_size = 0;
+        MonotonicStopWatch watch;
+        watch.start();
+        for (auto& file_name : file_name_list) {
+            remote_file_path = http_host + HTTP_REQUEST_PREFIX
                 + HTTP_REQUEST_TOKEN_PARAM + token
                 + HTTP_REQUEST_FILE_PARAM + src_file_full_path + file_name;
-            downloader_param.local_file_path = local_file_full_path + file_name;
 
-            // Get file length
+            // get file length
             uint64_t file_size = 0;
-            uint64_t estimate_time_out = 0;
-
-            downloader_param.curl_opt_timeout = GET_LENGTH_TIMEOUT;
-#ifndef BE_TEST
-            file_downloader_ptr = new FileDownloader(downloader_param);
-            if (file_downloader_ptr == NULL) {
-                LOG(WARNING) << "clone copy create file downloader failed. try next backend";
+            auto get_file_size_cb = [&remote_file_path, &file_size] (HttpClient* client) {
+                RETURN_IF_ERROR(client->init(remote_file_path));
+                client->set_timeout_ms(GET_LENGTH_TIMEOUT * 1000);
+                RETURN_IF_ERROR(client->head());
+                file_size = client->get_content_length();
+                return Status::OK;
+            };
+            download_status = HttpClient::execute_with_retry(
+                DOWNLOAD_FILE_MAX_RETRY, 1, get_file_size_cb);
+            if (!download_status.ok()) {
+                LOG(WARNING) << "clone copy get file length failed over max time. remote_path="
+                    << remote_file_path
+                    << ", signature=" << signature;
                 status = DORIS_ERROR;
                 break;
             }
-#endif
-            while (download_retry_time < DOWNLOAD_FILE_MAX_RETRY) {
-#ifndef BE_TEST
-                download_status = file_downloader_ptr->get_length(&file_size);
-#else
-                download_status = _file_downloader_ptr->get_length(&file_size);
-#endif
-                if (download_status != DORIS_SUCCESS) {
-                    LOG(WARNING) << "clone copy get file length failed. " 
-                                 << " backend_ip:  " << src_host->host.c_str()
-                                 << " src_file_path: " << downloader_param.remote_file_path.c_str() 
-                                 << " signature: " << signature;
-                    ++download_retry_time;
-#ifndef BE_TEST
-                    sleep(download_retry_time);
-#endif
-                } else {
-                    break;
+
+            total_file_size += file_size;
+            uint64_t estimate_timeout = file_size / config::download_low_speed_limit_kbps / 1024;
+            if (estimate_timeout < config::download_low_speed_time) {
+                estimate_timeout = config::download_low_speed_time;
+            }
+
+            std::string local_file_path = local_file_full_path + file_name;
+
+            auto download_cb = [&remote_file_path,
+                                estimate_timeout,
+                                &local_file_path,
+                                file_size] (HttpClient* client) {
+                RETURN_IF_ERROR(client->init(remote_file_path));
+                client->set_timeout_ms(estimate_timeout * 1000);
+                RETURN_IF_ERROR(client->download(local_file_path));
+
+                // Check file length
+                uint64_t local_file_size = boost::filesystem::file_size(local_file_path);
+                if (local_file_size != file_size) {
+                    LOG(WARNING) << "download file length error"
+                        << ", remote_path=" << remote_file_path
+                        << ", file_size=" << file_size
+                        << ", local_file_size=" << local_file_size;
+                    return Status("downloaded file size is not equal");
                 }
-            }
-
-#ifndef BE_TEST
-            if (file_downloader_ptr != NULL) {
-                delete file_downloader_ptr;
-                file_downloader_ptr = NULL;
-            }
-#endif
-            if (download_status != DORIS_SUCCESS) {
-                LOG(WARNING) << "clone copy get file length failed over max time. "
-                             << " backend_ip: " << src_host->host.c_str()
-                             << " src_file_path: " << downloader_param.remote_file_path.c_str()
-                             << " signature: " << signature;
-                status = DORIS_ERROR;
-                break;
-            }
-
-            estimate_time_out = file_size / config::download_low_speed_limit_kbps / 1024;
-            if (estimate_time_out < config::download_low_speed_time) {
-                estimate_time_out = config::download_low_speed_time;
-            }
-
-            // Download the file
-            download_retry_time = 0;
-            downloader_param.curl_opt_timeout = estimate_time_out;
-#ifndef BE_TEST
-            file_downloader_ptr = new FileDownloader(downloader_param);
-            if (file_downloader_ptr == NULL) {
-                LOG(WARNING) << "clone copy create file downloader failed. try next backend";
-                status = DORIS_ERROR;
-                break;
-            }
-#endif
-            while (download_retry_time < DOWNLOAD_FILE_MAX_RETRY) {
-#ifndef BE_TEST
-                download_status = file_downloader_ptr->download_file();
-#else
-                download_status = _file_downloader_ptr->download_file();
-#endif
-                if (download_status != DORIS_SUCCESS) {
-                    LOG(WARNING) << "download file failed. " 
-                                 << " backend_ip: " << src_host->host.c_str() 
-                                 << " src_file_path: " << downloader_param.remote_file_path.c_str()
-                                 << " signature: " << signature;
-                } else {
-                    // Check file length
-                    boost::filesystem::path local_file_path(downloader_param.local_file_path);
-                    uint64_t local_file_size = boost::filesystem::file_size(local_file_path);
-                    if (local_file_size != file_size) {
-                        LOG(WARNING) << "download file length error. " 
-                                     << " backend_ip: " << src_host->host.c_str()
-                                     << " src_file_path: " << downloader_param.remote_file_path.c_str()
-                                     << " signature: " << signature
-                                     << " remote file size: " << file_size
-                                     << " local file size: " << local_file_size;
-                        download_status = DORIS_FILE_DOWNLOAD_FAILED;
-                    } else {
-                        chmod(downloader_param.local_file_path.c_str(), S_IRUSR | S_IWUSR);
-                        break;
-                    }
-                }
-                ++download_retry_time;
-#ifndef BE_TEST
-                sleep(download_retry_time);
-#endif
-            } // Try to download a file from remote backend
-
-#ifndef BE_TEST
-            if (file_downloader_ptr != NULL) {
-                delete file_downloader_ptr;
-                file_downloader_ptr = NULL;
-            }
-#endif
-
-            if (download_status != DORIS_SUCCESS) {
-                LOG(WARNING) << "download file failed over max retry. " 
-                             << "backend_ip: " << src_host->host.c_str() 
-                             << "src_file_path: " << downloader_param.remote_file_path.c_str()
-                             << " signature: " << signature;
+                chmod(local_file_path.c_str(), S_IRUSR | S_IWUSR);
+                return Status::OK;
+            };
+            download_status = HttpClient::execute_with_retry(
+                DOWNLOAD_FILE_MAX_RETRY, 1, download_cb);
+            if (!download_status.ok()) {
+                LOG(WARNING) << "download file failed over max retry."
+                    << ", remote_path=" << remote_file_path
+                    << ", signature=" << signature
+                    << ", errormsg=" << download_status.get_error_msg();
                 status = DORIS_ERROR;
                 break;
             }
         } // Clone files from remote backend
+
+        uint64_t total_time_ms = watch.elapsed_time() / 1000 / 1000;
+        total_time_ms = total_time_ms > 0 ? total_time_ms : 0;
+        double copy_rate = 0.0;
+        if (total_time_ms > 0) {
+            copy_rate = total_file_size / ((double) total_time_ms) / 1000;
+        }
+        _copy_size = (int64_t) total_file_size;
+        _copy_time_ms = (int64_t) total_time_ms;
+        LOG(INFO) << "succeed to copy tablet " << signature
+                  << ", total file size: " << total_file_size << " B"
+                  << ", cost: " << total_time_ms << " ms"
+                  << ", rate: " << copy_rate << " B/s";
         if (make_snapshot_result.snapshot_version < PREFERRED_SNAPSHOT_VERSION) {
             OLAPStatus convert_status = _convert_to_new_snapshot(data_dir, local_data_path, clone_req.tablet_id);
             if (convert_status != OLAP_SUCCESS) {

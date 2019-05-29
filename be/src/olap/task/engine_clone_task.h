@@ -76,10 +76,8 @@ private:
     AgentStatus* _res_status;
     int64_t _signature;
     const TMasterInfo& _master_info;
-#ifdef BE_TEST
-    AgentServerClient* _agent_client;
-    FileDownloader* _file_downloader_ptr;
-#endif
+    int64_t _copy_size;
+    int64_t _copy_time_ms;
 }; // EngineTask
 
 } // doris

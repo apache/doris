@@ -67,7 +67,6 @@ private:
         vector<TTabletInfo>* tablet_info_vec);
 
     AgentStatus _get_tmp_file_dir(const std::string& root_path, std::string* local_path);
-    AgentStatus _download_file();
     OLAPStatus _push(const TPushReq& request,
                     std::vector<TTabletInfo>* tablet_info_vec);
     void _get_file_name_from_path(const std::string& file_path, std::string* file_name);
@@ -75,11 +74,11 @@ private:
     bool _is_init = false;
     TPushReq& _push_req;
     std::vector<TTabletInfo>* _tablet_infos;
-    FileDownloader::FileDownloaderParam _downloader_param;
-    FileDownloader* _file_downloader;
     int64_t _signature;
     AgentStatus _download_status;
     AgentStatus* _res_status;
+    std::string _remote_file_path;
+    std::string _local_file_path;
 };  // class Pusher
 }  // namespace doris
 #endif  // DORIS_BE_SRC_OLAP_TASK_ENGINE_BATCH_LOAD_TASK_H
