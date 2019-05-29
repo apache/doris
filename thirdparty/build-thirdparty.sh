@@ -560,11 +560,7 @@ build_arrow() {
 
 # s2
 build_s2() {
-    # check_if_source_exist $BRPC_SOURCE
-    # if [ ! -f $CMAKE_CMD ]; then
-    #     echo "cmake executable does not exit"
-    #     exit 1
-    # fi
+    check_if_source_exist $S2_SOURCE
     cd $TP_SOURCE_DIR/s2geometry-0.9.0
     mkdir build -p && cd build
     rm -rf CMakeCache.txt CMakeFiles/
