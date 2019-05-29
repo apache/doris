@@ -6,7 +6,7 @@
 
 ## Description
 
-当point是一个合法的POINT类型是，返回对应的Y坐标值
+当point是一个合法的POINT类型时，返回对应的Y坐标值
 
 ## Examples
 
