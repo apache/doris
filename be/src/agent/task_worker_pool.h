@@ -26,7 +26,6 @@
 #include <mutex>
 #include <utility>
 #include <vector>
-#include "agent/file_downloader.h"
 #include "agent/status.h"
 #include "agent/utils.h"
 #include "gen_cpp/AgentService_types.h"
@@ -141,7 +140,6 @@ private:
     ExecEnv* _env;
 #ifdef BE_TEST
     AgentServerClient* _agent_client;
-    FileDownloader* _file_downloader_ptr;
 #endif
 
     std::deque<TAgentTaskRequest> _tasks;

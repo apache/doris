@@ -18,7 +18,6 @@
 #ifndef DORIS_BE_SRC_OLAP_TASK_ENGINE_CLONE_TASK_H
 #define DORIS_BE_SRC_OLAP_TASK_ENGINE_CLONE_TASK_H
 
-#include "agent/file_downloader.h"
 #include "agent/utils.h"
 #include "gen_cpp/AgentService_types.h"
 #include "gen_cpp/HeartbeatService.h"
@@ -76,10 +75,8 @@ private:
     AgentStatus* _res_status;
     int64_t _signature;
     const TMasterInfo& _master_info;
-#ifdef BE_TEST
-    AgentServerClient* _agent_client;
-    FileDownloader* _file_downloader_ptr;
-#endif
+    int64_t _copy_size;
+    int64_t _copy_time_ms;
 }; // EngineTask
 
 } // doris
