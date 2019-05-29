@@ -18,7 +18,6 @@
 #ifndef DORIS_BE_SRC_OLAP_TASK_ENGINE_CLONE_TASK_H
 #define DORIS_BE_SRC_OLAP_TASK_ENGINE_CLONE_TASK_H
 
-#include "agent/file_downloader.h"
 #include "agent/utils.h"
 #include "gen_cpp/AgentService_types.h"
 #include "gen_cpp/HeartbeatService.h"

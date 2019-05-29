@@ -172,6 +172,11 @@ void EngineBatchLoadTask::_get_file_name_from_path(const string& file_path, stri
 
 AgentStatus EngineBatchLoadTask::_process() {
     AgentStatus status = DORIS_SUCCESS;
+    if (!_is_init) {	
+        LOG(WARNING) << "has not init yet. tablet_id: " 	
+                     << _push_req.tablet_id;	
+        return DORIS_ERROR;	
+    }
     // Remote file not empty, need to download
     if (_push_req.__isset.http_file_path) {
         // Get file length and timeout

@@ -26,7 +26,6 @@
 #include <mutex>
 #include <utility>
 #include <vector>
-#include "agent/file_downloader.h"
 #include "agent/status.h"
 #include "agent/utils.h"
 #include "gen_cpp/AgentService_types.h"
