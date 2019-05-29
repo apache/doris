@@ -6,7 +6,7 @@
 
 ## Description
 
-将一个结合图形转化为WKT（Well Known Text）的表示形式
+将一个几何图形转化为WKT（Well Known Text）的表示形式
 
 ## Examples
 
