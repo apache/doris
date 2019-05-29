@@ -21,20 +21,17 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/geo")
 # where to put generated binaries
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/geo")
 
-set(LEX_SOURCE_FILE ${GENSRC_DIR}/geo/wkt_lex.l.cpp)
-set(YACC_SOURCE_FILE ${GENSRC_DIR}/geo/wkt_yacc.y.cpp)
-
 add_library(Geo STATIC
     geo_common.cpp
     geo_functions.cpp
     geo_types.cpp
     wkt_parse.cpp
-    ${LEX_SOURCE_FILE}
-    ${YACC_SOURCE_FILE}
+    ${GENSRC_DIR}/geo/wkt_lex.l.cpp
+    ${GENSRC_DIR}/geo/wkt_yacc.y.cpp
 )
 
 add_custom_command(
-    OUTPUT ${GENSRC_DIR}/geo/wkt_lex.l.cpp
+    OUTPUT ${GENSRC_DIR}/geo/wkt_lex.l.cpp ${GENSRC_DIR}/geo/wkt_lex.l.h
     COMMAND mkdir -p ${GENSRC_DIR}/geo
     COMMAND flex --header-file=${GENSRC_DIR}/geo/wkt_lex.l.h --outfile=${GENSRC_DIR}/geo/wkt_lex.l.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/wkt_lex.l
@@ -42,7 +39,7 @@ add_custom_command(
 set_source_files_properties(${GENSRC_DIR}/geo/wkt_lex.l.cpp PROPERTIES GENERATED TRUE)
 
 add_custom_command(
-    OUTPUT ${GENSRC_DIR}/geo/wkt_yacc.y.cpp
+    OUTPUT ${GENSRC_DIR}/geo/wkt_yacc.y.cpp  ${GENSRC_DIR}/geo/wkt_yacc.y.hpp
     COMMAND mkdir -p ${GENSRC_DIR}/geo
     COMMAND bison --output=${GENSRC_DIR}/geo/wkt_yacc.y.cpp ${CMAKE_CURRENT_SOURCE_DIR}/wkt_yacc.y
     MAIN_DEPENDENCY ${CMAKE_CURRENT_SOURCE_DIR}/wkt_yacc.y)

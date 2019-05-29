@@ -158,6 +158,11 @@ ${DORIS_TEST_BINARY_DIR}/common/resource_tls_test
 ${DORIS_TEST_BINARY_DIR}/exprs/string_functions_test
 ${DORIS_TEST_BINARY_DIR}/exprs/json_function_test
 
+## Running geo unit test
+${DORIS_TEST_BINARY_DIR}/geo/geo_functions_test
+${DORIS_TEST_BINARY_DIR}/geo/wkt_parse_test
+${DORIS_TEST_BINARY_DIR}/geo/geo_types_test
+
 ## Running exec unit test
 ${DORIS_TEST_BINARY_DIR}/exec/plain_text_line_reader_uncompressed_test
 ${DORIS_TEST_BINARY_DIR}/exec/plain_text_line_reader_gzip_test
