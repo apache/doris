@@ -1350,7 +1350,7 @@ drop_stmt ::=
         RESULT = new DropRoleStmt(role);
     :}
     | KW_DROP KW_FILE STRING_LITERAL:fileName opt_db:dbName KW_PROPERTIES LPAREN key_value_map:properties RPAREN
-    {dbName, :
+    {:
         RESULT = new DropFileStmt(fileName, dbName, properties);
     :}
     ;

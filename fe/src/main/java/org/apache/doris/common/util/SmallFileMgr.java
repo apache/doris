@@ -270,6 +270,7 @@ public class SmallFileMgr implements Writable {
             URL url = new URL(downloadUrl);
 
             URLConnection urlConnection = url.openConnection();
+            urlConnection.setReadTimeout(10000); // 10s
             InputStream inputStream = urlConnection.getInputStream();
 
             MessageDigest digest = MessageDigest.getInstance("MD5");
@@ -300,6 +301,7 @@ public class SmallFileMgr implements Writable {
             String base64Content = Base64.getEncoder().encodeToString(buf);
             return new SmallFile(base64Content, bytesRead, checksum);
         } catch (IOException | NoSuchAlgorithmException e) {
+            LOG.warn("failed to get file from url: {}", downloadUrl, e);
             throw new DdlException("Failed to get file from url: " + downloadUrl + ". Error: " + e.getMessage());
         }
     }

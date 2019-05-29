@@ -82,6 +82,10 @@ public class DropFileStmt extends DdlStmt {
             dbName = ClusterNamespace.getFullName(analyzer.getClusterName(), dbName);
         }
 
+        if (Strings.isNullOrEmpty(dbName)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
+        }
+
         if (Strings.isNullOrEmpty(fileName)) {
             throw new AnalysisException("File name is not specified");
         }
