@@ -24,22 +24,24 @@ import org.apache.doris.http.BaseResponse;
 import org.apache.doris.http.IllegalArgException;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import org.codehaus.jackson.map.ObjectMapper;
 
 import java.io.File;
+import java.util.Map;
 import java.util.Set;
 
-import io.netty.handler.codec.http.HttpHeaderNames;
 import io.netty.handler.codec.http.HttpMethod;
 import io.netty.handler.codec.http.HttpResponseStatus;
 
+// get log file infos:
+//      curl -I http://fe_host:http_port/api/get_log_file?type=fe.audit.log
+// get log file:
+//      curl -X GET http://fe_host:http_port/api/get_log_file?type=fe.audit.log&file=fe.audit.log.20190528.1
 public class GetLogFileAction extends RestBaseAction {
-    Set<String> logFileTypes = Sets.newHashSet("fe.audit.log");
-
-    private static final Logger LOG = LogManager.getLogger(GetLogFileAction.class);
+    private final Set<String> logFileTypes = Sets.newHashSet("fe.audit.log");
 
     public GetLogFileAction(ActionController controller) {
         super(controller);
@@ -53,7 +55,7 @@ public class GetLogFileAction extends RestBaseAction {
     @Override
     public void execute(BaseRequest request, BaseResponse response) {
         String logType = request.getSingleParameter("type");
-        String logDate = request.getSingleParameter("date");
+        String logFile = request.getSingleParameter("file");
         
         // check param empty
         if (Strings.isNullOrEmpty(logType)) {
@@ -69,38 +71,53 @@ public class GetLogFileAction extends RestBaseAction {
             return;
         }
         
-        // check log file exist
-        File logFile = getLogFileName(logType, logDate);
-        if (logFile == null || !logFile.exists()) {
-            response.appendContent("Log file not exist.");
-            writeResponse(request, response, HttpResponseStatus.NOT_FOUND);
-            return;
-        }
-        
-        // get file or just file size
         HttpMethod method = request.getRequest().method();
-        if (method.equals(HttpMethod.GET)) {
-            writeFileResponse(request, response, HttpResponseStatus.OK, logFile);
-        } else if (method.equals(HttpMethod.HEAD)) {
-            long fileLength = logFile.length();
-            response.updateHeader(HttpHeaderNames.CONTENT_LENGTH.toString(), String.valueOf(fileLength));
+        if (method.equals(HttpMethod.HEAD)) {
+            String fileInfos = getFileInfos(logType);
+            response.updateHeader("file_infos", fileInfos);
             writeResponse(request, response, HttpResponseStatus.OK);
+            return;
+        } else if (method.equals(HttpMethod.GET)) {
+            File log = getLogFile(logType, logFile);
+            if (!log.exists() || !log.isFile()) {
+                response.appendContent("Log file not exist: " + log.getName());
+                writeResponse(request, response, HttpResponseStatus.NOT_FOUND);
+                return;
+            }
+            writeFileResponse(request, response, HttpResponseStatus.OK, log);
         } else {
             response.appendContent(new RestBaseResult("HTTP method is not allowed.").toJson());
             writeResponse(request, response, HttpResponseStatus.METHOD_NOT_ALLOWED);
         }
     }
     
-    private File getLogFileName(String type, String date) {
-        String logPath = "";
-        
-        if ("fe.audit.log".equals(type)) {
-            logPath = Config.audit_log_dir + "/fe.audit.log";
-            if (!Strings.isNullOrEmpty(date)) {
-                logPath += "." + date;
+    private String getFileInfos(String logType) {
+        Map<String, Long> fileInfos = Maps.newTreeMap();
+        if (logType.equals("fe.audit.log")) {
+            File logDir = new File(Config.audit_log_dir);
+            File[] files = logDir.listFiles();
+            for (int i = 0; i < files.length; i++) {
+                if (files[i].isFile() && files[i].getName().startsWith("fe.audit.log")) {
+                    fileInfos.put(files[i].getName(), files[i].length());
+                }
             }
         }
 
+        String result = "";
+        ObjectMapper mapper = new ObjectMapper();
+        try {
+            result = mapper.writeValueAsString(fileInfos);
+        } catch (Exception e) {
+            // do nothing
+        }
+        return result;
+    }
+
+    private File getLogFile(String logType, String logFile) {
+        String logPath = "";
+        if ("fe.audit.log".equals(logType)) {
+            logPath = Config.audit_log_dir + "/" + logFile;
+        }
         return new File(logPath);
     }
 }
