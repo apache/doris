@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.base.Strings;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
@@ -29,10 +28,12 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
+import com.google.common.base.Strings;
+
 public class ShowSmallFilesStmt extends ShowStmt {
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
-                    .addColumn(new Column("DbId", ScalarType.createVarchar(256)))
+                    .addColumn(new Column("DbName", ScalarType.createVarchar(256)))
                     .addColumn(new Column("Catalog", ScalarType.createVarchar(32)))
                     .addColumn(new Column("FileName", ScalarType.createVarchar(16)))
                     .addColumn(new Column("FileSize", ScalarType.createVarchar(16)))

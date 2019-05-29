@@ -24,21 +24,17 @@ import org.apache.doris.http.BaseResponse;
 import org.apache.doris.http.IllegalArgException;
 
 import com.google.common.base.Strings;
-import com.google.common.collect.Sets;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.File;
-import java.util.Set;
 
 import io.netty.handler.codec.http.HttpHeaderNames;
 import io.netty.handler.codec.http.HttpMethod;
 import io.netty.handler.codec.http.HttpResponseStatus;
 
 public class GetLogFileAction extends RestBaseAction {
-    Set<String> logFileTypes = Sets.newHashSet("fe.audit.log");
-    
     private static final Logger LOG = LogManager.getLogger(GetLogFileAction.class);
 
     public GetLogFileAction(ActionController controller) {
@@ -46,8 +42,8 @@ public class GetLogFileAction extends RestBaseAction {
     }
 
     public static void registerAction(ActionController controller) throws IllegalArgException {
-        controller.registerHandler(HttpMethod.GET, "/api/get_log_file", new GetLogFileAction(controller));
-        controller.registerHandler(HttpMethod.HEAD, "/api/get_log_file", new GetLogFileAction(controller));
+        controller.registerHandler(HttpMethod.GET, "/api/get_small_file", new GetLogFileAction(controller));
+        controller.registerHandler(HttpMethod.HEAD, "/api/get_small_file", new GetLogFileAction(controller));
     }
 
     @Override

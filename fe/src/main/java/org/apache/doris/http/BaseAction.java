@@ -147,7 +147,8 @@ public abstract class BaseAction implements IAction {
         if (HttpUtil.isKeepAlive(request.getRequest())) {
             response.updateHeader(HttpHeaderNames.CONNECTION.toString(), HttpHeaderValues.KEEP_ALIVE.toString());
         }
-
+        response.updateHeader(HttpHeaderNames.CONTENT_TYPE.toString(), HttpHeaderValues.APPLICATION_OCTET_STREAM.toString());
+        
         ChannelFuture sendFileFuture;
         ChannelFuture lastContentFuture;
 

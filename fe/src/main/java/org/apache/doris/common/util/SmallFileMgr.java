@@ -39,6 +39,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
@@ -105,7 +106,7 @@ public class SmallFileMgr implements Writable {
             if (smallFile == null) {
                 return false;
             }
-            return false;
+            return true;
         }
 
         public SmallFile getFile(String fileName) {
@@ -302,7 +303,11 @@ public class SmallFileMgr implements Writable {
             return new SmallFile(base64Content, bytesRead, checksum);
         } catch (IOException | NoSuchAlgorithmException e) {
             LOG.warn("failed to get file from url: {}", downloadUrl, e);
-            throw new DdlException("Failed to get file from url: " + downloadUrl + ". Error: " + e.getMessage());
+            String errorMsg = e.getMessage();
+            if (e instanceof FileNotFoundException) {
+                errorMsg = "File not found";
+            }
+            throw new DdlException("Failed to get file from url: " + downloadUrl + ". Error: " + errorMsg);
         }
     }
 
