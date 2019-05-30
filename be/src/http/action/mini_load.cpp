@@ -53,6 +53,7 @@
 #include "runtime/fragment_mgr.h"
 #include "runtime/load_path_mgr.h"
 #include "runtime/client_cache.h"
+#include "runtime/stream_load/stream_load_context.h"
 #include "gen_cpp/MasterService_types.h"
 #include "gen_cpp/HeartbeatService_types.h"
 #include "gen_cpp/FrontendService.h"
@@ -93,6 +94,9 @@ const std::string TABLE_KEY = "table";
 const std::string LABEL_KEY = "label";
 const std::string SUB_LABEL_KEY = "sub_label";
 const std::string FILE_PATH_KEY = "file_path";
+const std::string COLUMNS_KEY = "columns";
+const std::string HLL_KEY = "hll";
+const std::string COLUMN_SEPARATOR = "column_separator";
 const char* k_100_continue = "100-continue";
 
 MiniLoadAction::MiniLoadAction(ExecEnv* exec_env) :
@@ -154,7 +158,7 @@ Status MiniLoadAction::_load(
     // put here to log master information
     const TNetworkAddress& master_address = _exec_env->master_info()->network_address;
     Status status;
-    FrontendServiceConnection client(
+    FrontendSeeviceConnection client(
             _exec_env->frontend_client_cache(), master_address, config::thrift_rpc_timeout_ms, &status);
     if (!status.ok()) {
         std::stringstream ss;
@@ -368,6 +372,7 @@ Status MiniLoadAction::_on_header(HttpRequest* req) {
     RETURN_IF_ERROR(check_auth(req, ctx->load_check_req));
 
     // Receive data first, keep things easy.
+    // TODO(ml): save data in stream load pipe
     RETURN_IF_ERROR(data_saved_dir(ctx->load_handle, req->param(TABLE_KEY),
                                    &ctx->file_path));
     // destructor will close the file handle, not depend on DeferOp any more
@@ -514,6 +519,134 @@ bool LoadHandleCmp::operator() (const LoadHandle& lhs, const LoadHandle& rhs) co
     }
 
     return false;
+}
+
+Status MiniLoadAction::_check_record_load (HttpRequest* req) {
+    // TODO(ml): generate request
+    return Status::OK;
+}
+
+Status MiniLoadAction::_process_put (StreamLoadContext* ctx) {
+    TStreamLoadPutRequest request;
+    set_request_auth(&request, ctx->auth);
+    request.db = ctx->db;
+    request.tbl = ctx->table;
+    request.txnId = ctx->txn_id;
+    request.formatType = ctx->format;
+    request.__set_loadId(ctx->id.to_thrift());
+    request.fileType = TFileType::FILE_STREAM;
+    // Prepare request parameters.
+    std::map<std::string, std::string> params(
+            http_req->query_params().begin(), http_req->query_params().end());
+    std::map<std::string, std::string>::iterator columns_it = params.find(COLUMNS_KEY);
+    if (columns_it != params.end()) {
+        std::string columns_value = columns_it->second;
+        std::map<std::string, std::string>::iterator hll_it = params.find(HLL_KEY);
+        if (hll_it != params.end()) {
+            std::string hll_value = hll_it->second;
+            if (hll_value.empty()) {
+                return Status("Hll value could not be empty when hll key is exists!"); 
+            }
+            int left_position = 0;
+            for(int right_position = 0; i < hll_value.size(); i++) {
+                if (hll_value[i] == ',' ) {
+                    columns_value += "," + hll_value.substr(left_position, right_position - left_position);
+                    left_position = right_position + 1;
+                    continue; 
+                }
+                if (hll_value[i] == ':') {
+                    columns_value += "=hll_hash(" + hll_value.substr(left_position, right_position - left_position) + ")";
+                    left_position = right_position + 1;
+                }
+            }
+            if (left_position < right_position) {
+                columns_value += "=hll_hash(" + hll_value.substr(left_position, right_position - left_position) + ")";
+            }
+        }
+        request.__set_columns(columns_value);
+    }
+    std::map<std::string, std::string>::iterator column_separator_it = params.find();
+    if (column_separator_it != params.end()) {
+        request.__set_columnSeparator(column_separator_it->second);
+    }
+
+    // plan this load
+    TNetworkAddress master_addr = _exec_env->master_info()->network_address;
+#ifndef BE_TEST
+    if (!http_req->header(HTTP_MAX_FILTER_RATIO).empty()) {
+        ctx->max_filter_ratio = strtod(http_req->header(HTTP_MAX_FILTER_RATIO).c_str(), nullptr);
+    }
+
+    RETURN_IF_ERROR(FrontendHelper::rpc(
+                master_addr.hostname, master_addr.port,
+            [&request, ctx] (FrontendServiceConnection& client) {
+            client->streamLoadPut(ctx->put_result, request);
+            }));
+#else
+    ctx->put_result = k_stream_load_put_result;
+#endif
+    Status plan_status(ctx->put_result.status);
+    if (!plan_status.ok()) {
+        LOG(WARNING) << "plan streaming load failed. errmsg=" << plan_status.get_error_msg()
+                << ctx->brief();
+        return plan_status;
+    }
+    VLOG(3) << "params is " << apache::thrift::ThriftDebugString(ctx->put_result.params);
+    return Status::OK;
+}
+
+// new on_header of mini load
+Status MiniLoadAction::_new_on_header (HttpRequest* req) {
+    size_t body_bytes = 0;
+    size_t max_body_bytes = config::mini_load_max_mb * 1024 * 1024;
+    if (!req->header(HttpHeaders::CONTENT_LENGTH).empty()) {
+        body_bytes = std::stol(req->header(HttpHeaders::CONTENT_LENGTH));
+        if (body_bytes > max_body_bytes) {
+            std::stringstream ss;
+            ss << "file size exceed max body size, max_body_bytes=" << max_body_bytes;
+            return Status(ss.str());
+        }
+    } else {
+        evhttp_connection_set_max_body_size(
+                evhttp_request_get_connection(req->get_evhttp_request()),
+                max_body_bytes);
+    }
+
+    RETURN_IF_ERROR(check_request(req));
+
+    StreamLoadContext* ctx = new StreamLoadContext(_exec_env);
+    ctx->ref();
+    req->set_handler_ctx(ctx);
+
+    ctx->load_type = TLoadType::MANUL_LOAD;
+    ctx->load_src_type = TLoadSourceType::RAW;
+
+    ctx->db = req->param(DB_KEY);
+    ctx->table = req->param(TABLE_KEY);
+    if(!req->param(SUB_LABEL_KEY).empty()) {
+        ctx->label = req->param(SUB_LABEL_KEY);
+    }
+    else{
+        ctx->label = req->param(LABEL_KEY);
+    }
+    ctx->format = TFileFormatType::FORMAT_CSV_PLAIN;
+    LOG(INFO) << "new income mini load request." << ctx->brief()
+        << ", db: " << ctx->db << ", tbl: " << ctx->table;
+
+    // record metadata in frontend
+    RETURN_IF_ERROR(_check_record_load(req));
+
+    // open sink 
+    auto pipe = std::make_shared<StreamLoadPipe>();
+    RETURN_IF_ERROR(_exec_env->load_stream_mgr()->put(ctx->id, pipe));
+    request.fileType = TFileType::FILE_STREAM;
+    ctx->body_sink = pipe;
+
+    // get plan from fe
+    RETURN_IF_ERROR(_process_put(ctx));
+
+    // execute plan
+    return _exec_env->stream_load_executor()->execute_plan_fragment(ctx);
 }
 
 }

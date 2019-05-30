@@ -43,6 +43,7 @@ struct LoadHandleCmp {
 
 class TMasterResult;
 class ExecEnv;
+class StreamLoadContext;
 
 // This a handler for mini load
 // path is /api/{db}/{table}/_load
@@ -84,6 +85,10 @@ private:
             const HttpRequest* http_req,
             const TLoadCheckRequest& load_check_req);
 
+    Status  _new_on_header(HttpRequest *req);
+
+    Status _check_record_load(HttpRequest * req);
+ 
     ExecEnv* _exec_env;
 
     std::mutex _lock;
