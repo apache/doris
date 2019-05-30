@@ -17,7 +17,9 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
@@ -82,11 +84,15 @@ public class StreamLoadPlanner {
     public TExecPlanFragmentParams plan() throws UserException {
         // construct tuple descriptor, used for scanNode and dataSink
         TupleDescriptor tupleDesc = descTable.createTupleDescriptor("DstTableTuple");
+        boolean negative = streamLoadTask.getNegative();
         for (Column col : destTable.getBaseSchema()) {
             SlotDescriptor slotDesc = descTable.addSlotDescriptor(tupleDesc);
             slotDesc.setIsMaterialized(true);
             slotDesc.setColumn(col);
             slotDesc.setIsNullable(col.isAllowNull());
+            if (negative && !col.isKey() && col.getAggregationType() != AggregateType.SUM) {
+                throw new DdlException("Column is not SUM AggreateType. column:" + col.getName());
+            }
         }
 
         // create scan node

@@ -321,6 +321,12 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
     if (!http_req->header(HTTP_PARTITIONS).empty()) {
         request.__set_partitions(http_req->header(HTTP_PARTITIONS));
     }
+    if (!http_req->header(HTTP_NEGATIVE).empty()
+            && http_req->header(HTTP_NEGATIVE) == "true") {
+            request.__set_negative(true);
+    } else {
+        request.__set_negative(false);
+    }
 
     // plan this load
     TNetworkAddress master_addr = _exec_env->master_info()->network_address;
