@@ -37,6 +37,7 @@ import org.apache.doris.common.util.SmallFileMgr;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Joiner;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
@@ -68,7 +69,24 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     private static final Logger LOG = LogManager.getLogger(KafkaRoutineLoadJob.class);
 
     public static final String KAFKA_FILE_CATALOG = "kafka";
-    private static final int FETCH_PARTITIONS_TIMEOUT_SECOND = 10;
+    
+    // kafka SSL properties
+    public static final String KAFKA_SECURITY_PROTOCAL = "security.protocol";
+    public static final String KAFKA_SSL_CA_LOCATION = "ssl.ca.location";
+    public static final String KAFKA_SSL_CERTIFICATE_LOCATION = "ssl.certificate.location";
+    public static final String KAFKA_SSL_KEY_LOCATION = "ssl.key.location";
+    public static final String KAFKA_SSL_KEY_PASSWORD = "ssl.key.password";
+    public static final String KAFKA_SSL_TRUSTSTORE_LOCATION = "ssl.truststore.location";
+    public static final String KAFKA_SSL_TRUSTSTORE_PASSWORD = "ssl.truststore.password";
+    public static final String KAFKA_SSL_KEYSTORE_LOCATION = "ssl.keystore.location";
+    public static final String KAFKA_SSL_KEYSTORE_PASSWORD = "ssl.keystore.password";
+    
+    public static final ImmutableSet<String> KAFKA_FILE_PROPERTIES = ImmutableSet.<String>builder()
+            .add(KAFKA_SSL_CA_LOCATION)
+            .add(KAFKA_SSL_CERTIFICATE_LOCATION)
+            .add(KAFKA_SSL_KEY_LOCATION)
+            .add(KAFKA_SSL_TRUSTSTORE_LOCATION)
+            .add(KAFKA_SSL_KEYSTORE_LOCATION).build();
 
     private String brokerList;
     private String topic;
@@ -76,7 +94,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     private List<Integer> customKafkaPartitions = Lists.newArrayList();
     // current kafka partitions is the actually partition which will be fetched
     private List<Integer> currentKafkaPartitions = Lists.newArrayList();
-    //kafka properties ，property prefix will be mapped to kafka custom parameters, which can be extended in the future
+    // kafka properties ，property prefix will be mapped to kafka custom parameters, which can be extended in the future
     private Map<String, String> customKafkaProperties = Maps.newHashMap();
 
     // this is the kafka consumer which is used to fetch the number of partitions
@@ -317,7 +335,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         KafkaRoutineLoadJob kafkaRoutineLoadJob = new KafkaRoutineLoadJob(id, stmt.getName(),
                 db.getClusterName(), db.getId(), tableId, stmt.getKafkaBrokerList(), stmt.getKafkaTopic());
         kafkaRoutineLoadJob.setOptional(stmt);
-        kafkaRoutineLoadJob.checkSSLProperties();
+        kafkaRoutineLoadJob.checkCustomProperties();
         kafkaRoutineLoadJob.setConsumer();
         kafkaRoutineLoadJob.checkCustomPartition();
 
@@ -337,24 +355,13 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         }
     }
 
-    private void checkSSLProperties() throws DdlException {
-        // check ssl properties
+    private void checkCustomProperties() throws DdlException {
         SmallFileMgr smallFileMgr = Catalog.getCurrentCatalog().getSmallFileMgr();
-        if (customKafkaProperties.containsKey(CreateRoutineLoadStmt.KAFKA_SECURITY_PROTOCAL)
-                && customKafkaProperties.get(CreateRoutineLoadStmt.KAFKA_SECURITY_PROTOCAL).equals("ssl")) {
-            String caFile = customKafkaProperties.get(CreateRoutineLoadStmt.KAFKA_SSL_CA_LOCATION);
-            if (caFile != null && !smallFileMgr.containsFile(dbId, KAFKA_FILE_CATALOG, caFile)) {
-                throw new DdlException("File " + caFile + " does not exist. Create it first");
-            }
-
-            String clientCa = customKafkaProperties.get(CreateRoutineLoadStmt.KAFKA_SSL_CERTIFICATE_LOCATION);
-            if (clientCa != null && !smallFileMgr.containsFile(dbId, KAFKA_FILE_CATALOG, clientCa)) {
-                throw new DdlException("File " + clientCa + " does not exist. Create it first");
-            }
-
-            String clientKey = customKafkaProperties.get(CreateRoutineLoadStmt.KAFKA_SSL_KEY_LOCATION);
-            if (clientKey != null && !smallFileMgr.containsFile(dbId, KAFKA_FILE_CATALOG, clientKey)) {
-                throw new DdlException("File " + clientKey + " does not exist. Create it first");
+        for (Map.Entry<String, String> entry : customKafkaProperties.entrySet()) {
+            if (entry.getValue().startsWith("FILE:")) {
+                String file = entry.getValue().substring(entry.getValue().indexOf(":") + 1);
+                // check and save file to disk
+                smallFileMgr.saveToFile(dbId, KAFKA_FILE_CATALOG, file);
             }
         }
     }
@@ -385,30 +392,28 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         props.put(ConsumerConfig.GROUP_ID_CONFIG, UUID.randomUUID().toString());
         props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
         props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
-        // get ssl files
+        // REQUEST_TIMEOUT_MS_CONFIG is required to be larger than SESSION_TIMEOUT_MS_CONFIG and FETCH_MAX_WAIT_MS_CONFIG
+        props.put(ConsumerConfig.REQUEST_TIMEOUT_MS_CONFIG, 10000);
+        props.put(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, 9000);
+        props.put(ConsumerConfig.FETCH_MAX_WAIT_MS_CONFIG, 500);
+
+        // set custom properties
         SmallFileMgr smallFileMgr = Catalog.getCurrentCatalog().getSmallFileMgr();
         for (Map.Entry<String, String> entry : customKafkaProperties.entrySet()) {
-            if (entry.getKey().equals(CreateRoutineLoadStmt.KAFKA_SSL_TRUSTSTORE_LOCATION)) {
-                String truststoreFile = entry.getValue();
-                if (!smallFileMgr.containsFile(dbId, KAFKA_FILE_CATALOG, truststoreFile)) {
-                    throw new LoadException("File " + truststoreFile + " does not exist. Create it first");
-                }
-                String truststoreFilePath = smallFileMgr.saveToFile(dbId, KAFKA_FILE_CATALOG, truststoreFile);
-                props.put(entry.getKey(), truststoreFilePath);
-            } else if (entry.getKey().equals(CreateRoutineLoadStmt.KAFKA_SSL_KEYSTORE_LOCATION)) {
-                String keystoreFile = entry.getValue();
-                if (!smallFileMgr.containsFile(dbId, KAFKA_FILE_CATALOG, keystoreFile)) {
-                    throw new LoadException("File " + keystoreFile + " does not exist. Create it first");
-                }
-                String keystoreFilePath = smallFileMgr.saveToFile(dbId, KAFKA_FILE_CATALOG, keystoreFile);
-                props.put(entry.getKey(), keystoreFilePath);
-            } else if (entry.getKey().equals(CreateRoutineLoadStmt.KAFKA_SSL_KEY_PASSWORD)) {
+            if (entry.getValue().startsWith("FILE:")) {
+                String file = entry.getValue().substring(entry.getValue().indexOf(":") + 1);
+                String filePath = smallFileMgr.saveToFile(dbId, KAFKA_FILE_CATALOG, file);
+                props.put(entry.getKey(), filePath);
+            } else if (entry.getKey().equals(KAFKA_SSL_KEY_PASSWORD)) {
                 // change the KAFKA_SSL_KEY_PASSWORD -> KAFKA_SSL_KEYSTORE_PASSWORD
-                props.put(CreateRoutineLoadStmt.KAFKA_SSL_KEYSTORE_PASSWORD, entry.getValue());
+                // KAFKA_SSL_KEY_PASSWORD is for librdkafka,
+                // KAFKA_SSL_KEYSTORE_PASSWORD is for kafka java client
+                props.put(KAFKA_SSL_KEYSTORE_PASSWORD, entry.getValue());
             } else {
                 props.put(entry.getKey(), entry.getValue());
             }
         }
+
         try {
             consumer = new KafkaConsumer<>(props);
         } catch (KafkaException e) {

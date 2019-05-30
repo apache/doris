@@ -94,17 +94,6 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     // optional
     public static final String KAFKA_PARTITIONS_PROPERTY = "kafka_partitions";
     public static final String KAFKA_OFFSETS_PROPERTY = "kafka_offsets";
-    // kafka ssl
-    public static final String KAFKA_SECURITY_PROTOCAL = "security.protocol";
-    public static final String KAFKA_SSL_CA_LOCATION = "ssl.ca.location";
-    public static final String KAFKA_SSL_CERTIFICATE_LOCATION = "ssl.certificate.location";
-    public static final String KAFKA_SSL_KEY_LOCATION = "ssl.key.location";
-    public static final String KAFKA_SSL_KEY_PASSWORD = "ssl.key.password";
-
-    public static final String KAFKA_SSL_TRUSTSTORE_PASSWORD = "ssl.truststore.password";
-    public static final String KAFKA_SSL_TRUSTSTORE_LOCATION = "ssl.truststore.location";
-    public static final String KAFKA_SSL_KEYSTORE_LOCATION = "ssl.keystore.location";
-    public static final String KAFKA_SSL_KEYSTORE_PASSWORD = "ssl.keystore.password";
 
     private static final String NAME_TYPE = "ROUTINE LOAD NAME";
     private static final String ENDPOINT_REGEX = "[-A-Za-z0-9+&@#/%?=~_|!:,.;]+[-A-Za-z0-9+&@#/%=~_|]";
