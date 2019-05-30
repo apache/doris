@@ -61,7 +61,7 @@ public class GetLogFileAction extends RestBaseAction {
     }
 
     @Override
-    public void execute(BaseRequest request, BaseResponse response) {
+    public void executeWithoutPassword(AuthorizationInfo authInfo, BaseRequest request, BaseResponse response) {
         String logType = request.getSingleParameter("type");
         String logFile = request.getSingleParameter("file");
         

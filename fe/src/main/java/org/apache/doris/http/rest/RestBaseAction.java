@@ -66,7 +66,8 @@ public class RestBaseAction extends BaseAction {
         executeWithoutPassword(authInfo, request, response);
     }
 
-    // all derived classed should implement this method, NOT 'execute'
+    // If user password should be checked, the derived class should implement this method, NOT 'execute()',
+    // otherwise, override 'execute()' directly
     protected void executeWithoutPassword(AuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
             throws DdlException {
         throw new DdlException("Not implemented");
