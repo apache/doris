@@ -15,10 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "olap/field_info.h"
+
 #include <gtest/gtest.h>
-#include <olap/field_info.h>
 
 namespace doris {
+
 TEST(FieldInfoTest, HandleNoneZeroInput) {
     int64_t a_integer = 9223372036854775806L;
     int a_fraction = 1;
@@ -35,7 +37,8 @@ TEST(FieldInfoTest, HandleNoneZeroInput) {
     ASSERT_EQ(-9223372036854775807L, a.integer);
     ASSERT_EQ(-1, a.fraction);
 }
-}
+
+} // namespace doris
 
 int main(int argc, char **argv) {
     testing::InitGoogleTest(&argc, argv); 
