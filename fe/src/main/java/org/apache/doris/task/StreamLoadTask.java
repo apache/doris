@@ -58,6 +58,7 @@ public class StreamLoadTask {
     private ColumnSeparator columnSeparator;
     private String partitions;
     private String path;
+    private boolean negative;
 
     public StreamLoadTask(TUniqueId id, long txnId, TFileType fileType, TFileFormatType formatType) {
         this.id = id;
@@ -102,6 +103,10 @@ public class StreamLoadTask {
         return path;
     }
 
+    public boolean getNegative() {
+        return negative;
+    }
+
     public static StreamLoadTask fromTStreamLoadPutRequest(TStreamLoadPutRequest request) throws UserException {
         StreamLoadTask streamLoadTask = new StreamLoadTask(request.getLoadId(), request.getTxnId(),
                                                            request.getFileType(), request.getFormatType());
@@ -128,6 +133,9 @@ public class StreamLoadTask {
                 break;
             default:
                 throw new UserException("unsupported file type, type=" + request.getFileType());
+        }
+        if (request.isSetNegative()) {
+            negative = request.isNegative();
         }
     }
 

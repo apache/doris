@@ -496,6 +496,7 @@ struct TStreamLoadPutRequest {
 
     15: optional string partitions
     16: optional i64 auth_code
+    17: optional bool negative
 }
 
 struct TStreamLoadPutResult {

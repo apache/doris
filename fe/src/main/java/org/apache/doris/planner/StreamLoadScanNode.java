@@ -17,11 +17,14 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.ImportColumnDesc;
+import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
@@ -236,6 +239,7 @@ public class StreamLoadScanNode extends ScanNode {
     }
 
     private void finalizeParams() throws UserException {
+        boolean negative = streamLoadTask.getNegative();
         for (SlotDescriptor dstSlotDesc : desc.getSlots()) {
             if (!dstSlotDesc.isMaterialized()) {
                 continue;
@@ -277,6 +281,10 @@ public class StreamLoadScanNode extends ScanNode {
                             + dstSlotDesc.getColumn().getName() + "=hll_hash(xxx)");
                 }
                 expr.setType(Type.HLL);
+            }
+            if (negative && dstSlotDesc.getColumn().getAggregationType() == AggregateType.SUM) {
+                expr = new ArithmeticExpr(ArithmeticExpr.Operator.MULTIPLY, expr, new IntLiteral(-1));
+                expr.analyze(analyzer);
             }
             expr = castToSlot(dstSlotDesc, expr);
             brokerScanRange.params.putToExpr_of_dest_slot(dstSlotDesc.getId().asInt(), expr.treeToThrift());
