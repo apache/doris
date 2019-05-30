@@ -217,6 +217,7 @@ ${DORIS_TEST_BINARY_DIR}/olap/serialize_test
 ${DORIS_TEST_BINARY_DIR}/olap/olap_header_manager_test
 ${DORIS_TEST_BINARY_DIR}/olap/olap_meta_test
 ${DORIS_TEST_BINARY_DIR}/olap/delta_writer_test
+${DORIS_TEST_BINARY_DIR}/olap/field_info_test
 
 # Running routine load test
 ${DORIS_TEST_BINARY_DIR}/runtime/kafka_consumer_pipe_test
