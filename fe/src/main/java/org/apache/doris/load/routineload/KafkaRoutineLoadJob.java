@@ -48,7 +48,6 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -280,8 +279,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     private List<Integer> getAllKafkaPartitions() throws LoadException {
         List<Integer> result = new ArrayList<>();
         try {
-            List<PartitionInfo> partitionList = consumer.partitionsFor(topic,
-                    Duration.ofSeconds(FETCH_PARTITIONS_TIMEOUT_SECOND));
+            List<PartitionInfo> partitionList = consumer.partitionsFor(topic);
             for (PartitionInfo partitionInfo : partitionList) {
                 result.add(partitionInfo.partition());
             }

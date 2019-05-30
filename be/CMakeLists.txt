@@ -440,6 +440,7 @@ set(DORIS_LINK_LIBS
 
 # Set thirdparty libraries
 set(DORIS_DEPENDENCIES
+    mysql
     ${WL_START_GROUP}
     rocksdb
     librdkafka_cpp
@@ -455,7 +456,6 @@ set(DORIS_DEPENDENCIES
     pprof
     lz4
     libevent
-    mysql
     curl
     ${LIBZ}
     ${LIBBZ2}
