@@ -49,7 +49,8 @@ public:
     }
 
     ~RoutineLoadTaskExecutor() {
-
+        _thread_pool.shutdown();
+        _thread_pool.join();
     }
     
     // submit a routine load task
