@@ -32,6 +32,7 @@ import org.apache.logging.log4j.Logger;
 import java.net.URI;
 import java.net.URISyntaxException;
 
+import io.netty.handler.codec.http.HttpHeaderNames;
 import io.netty.handler.codec.http.HttpHeaders;
 import io.netty.handler.codec.http.HttpResponseStatus;
 
@@ -49,7 +50,7 @@ public class RestBaseAction extends BaseAction {
             execute(request, response);
         } catch (DdlException e) {
             if (e instanceof UnauthorizedException) {
-                response.updateHeader(HttpHeaders.Names.WWW_AUTHENTICATE, "Basic realm=\"\"");
+                response.updateHeader(HttpHeaderNames.WWW_AUTHENTICATE.toString(), "Basic realm=\"\"");
                 writeResponse(request, response, HttpResponseStatus.UNAUTHORIZED);
             } else {
                 sendResult(request, response, new RestBaseResult(e.getMessage()));
