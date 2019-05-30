@@ -262,7 +262,7 @@ public class SmallFileMgr implements Writable {
         }
     }
 
-    public SmallFile getFile(long dbId, String catalog, String fileName) {
+    public SmallFile getSmallFile(long dbId, String catalog, String fileName) {
         synchronized (files) {
             SmallFiles smallFiles = files.get(dbId, catalog);
             if (smallFiles == null) {
@@ -270,6 +270,12 @@ public class SmallFileMgr implements Writable {
             }
             return smallFiles.getFile(fileName);
         }
+    }
+
+
+    public File getFile(long id, String catalogName, String fileName) {
+        // TODO Auto-generated method stub
+        return null;
     }
 
     private SmallFile downloadAndCheck(String downloadUrl, String md5sum) throws DdlException {
