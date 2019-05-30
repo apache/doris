@@ -241,7 +241,6 @@ private:
     std::unordered_map<Version, RowsetSharedPtr, HashOfVersion> _rs_version_map;
     std::unordered_map<Version, RowsetSharedPtr, HashOfVersion> _inc_rs_version_map;
 
-    bool _table_for_check;
     std::atomic<bool> _is_bad;   // if this tablet is broken, set to true. default is false
     std::atomic<int64_t> _last_compaction_failure_time; // timestamp of last compaction failure
 

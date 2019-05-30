@@ -36,6 +36,7 @@
 #include "olap/rowset/alpha_rowset.h"
 #include "olap/tablet_meta_manager.h"
 #include "olap/utils.h"
+#include "util/time.h"
 
 namespace doris {
 
@@ -92,7 +93,9 @@ Tablet::Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir)
   : _state(tablet_meta->tablet_state()),
     _tablet_meta(tablet_meta),
     _schema(tablet_meta->tablet_schema()),
-    _data_dir(data_dir) {
+    _data_dir(data_dir),
+    _is_bad(false),
+    _last_compaction_failure_time(UnixMillis()) {
     _tablet_path.append(_data_dir->path());
     _tablet_path.append(DATA_PREFIX);
     _tablet_path.append("/");
