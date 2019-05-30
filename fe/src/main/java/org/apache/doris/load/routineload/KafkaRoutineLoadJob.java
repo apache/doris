@@ -42,7 +42,9 @@ import com.google.common.collect.Maps;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 
+import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.PartitionInfo;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.logging.log4j.LogManager;
@@ -379,10 +381,10 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         }
 
         Properties props = new Properties();
-        props.put("bootstrap.servers", this.brokerList);
-        props.put("group.id", UUID.randomUUID().toString());
-        props.put("key.deserializer", StringDeserializer.class.getName());
-        props.put("value.deserializer", StringDeserializer.class.getName());
+        props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, this.brokerList);
+        props.put(ConsumerConfig.GROUP_ID_CONFIG, UUID.randomUUID().toString());
+        props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
+        props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
         // get ssl files
         SmallFileMgr smallFileMgr = Catalog.getCurrentCatalog().getSmallFileMgr();
         for (Map.Entry<String, String> entry : customKafkaProperties.entrySet()) {
@@ -407,7 +409,12 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 props.put(entry.getKey(), entry.getValue());
             }
         }
-        consumer = new KafkaConsumer<>(props);
+        try {
+            consumer = new KafkaConsumer<>(props);
+        } catch (KafkaException e) {
+            LOG.warn("failed to construct kafka consumer. job: {}", id, e);
+            throw new DdlException(e.getMessage() + ", cause: " + e.getCause().getMessage());
+        }
     }
 
     @Override

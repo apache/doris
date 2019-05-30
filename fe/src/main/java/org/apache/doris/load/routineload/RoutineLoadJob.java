@@ -702,8 +702,9 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                     if (txnStatusChangeReason != null) {
                         switch (txnStatusChangeReason) {
                             case OFFSET_OUT_OF_RANGE:
+                            case PAUSE:
                                 updateState(JobState.PAUSED, "be " + taskBeId + " abort task "
-                                        + "with reason " + txnStatusChangeReason.toString(), false /* not replay */);
+                                        + "with reason: " + txnStatusChangeReasonString, false /* not replay */);
                                 return;
                             default:
                                 break;

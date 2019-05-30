@@ -54,7 +54,7 @@ Status KafkaDataConsumer::init(StreamLoadContext* ctx) {
     auto set_conf = [&conf, &errstr](const std::string& conf_key, const std::string& conf_val) {
         if (conf->set(conf_key, conf_val, errstr) != RdKafka::Conf::CONF_OK) {
             std::stringstream ss;
-            ss << "failed to set '" << conf_key << "'";
+            ss << "PAUSE: failed to set '" << conf_key << "'";
             LOG(WARNING) << ss.str();
             return Status(ss.str());
         }
@@ -78,7 +78,7 @@ Status KafkaDataConsumer::init(StreamLoadContext* ctx) {
 
     if (conf->set("event_cb", &_k_event_cb, errstr) != RdKafka::Conf::CONF_OK) {
         std::stringstream ss;
-        ss << "failed to set 'event_cb'";
+        ss << "PAUSE: failed to set 'event_cb'";
         LOG(WARNING) << ss.str();
         return Status(ss.str());
     }
@@ -86,7 +86,7 @@ Status KafkaDataConsumer::init(StreamLoadContext* ctx) {
     // create consumer
     _k_consumer = RdKafka::KafkaConsumer::create(conf, errstr); 
     if (!_k_consumer) {
-        LOG(WARNING) << "failed to create kafka consumer";
+        LOG(WARNING) << "PAUSE: failed to create kafka consumer";
         return Status("failed to create kafka consumer");
     }
 

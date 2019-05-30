@@ -79,7 +79,8 @@ public class TransactionState implements Writable {
     public enum TxnStatusChangeReason {
         DB_DROPPED,
         TIMEOUT,
-        OFFSET_OUT_OF_RANGE;
+        OFFSET_OUT_OF_RANGE,
+        PAUSE;
 
         public static TxnStatusChangeReason fromString(String reasonString) {
             for (TxnStatusChangeReason txnStatusChangeReason : TxnStatusChangeReason.values()) {

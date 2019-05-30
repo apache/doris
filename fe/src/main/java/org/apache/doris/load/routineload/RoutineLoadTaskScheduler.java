@@ -22,7 +22,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
-import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Daemon;
 import org.apache.doris.common.util.LogBuilder;
@@ -60,6 +59,7 @@ public class RoutineLoadTaskScheduler extends Daemon {
 
     private static final long BACKEND_SLOT_UPDATE_INTERVAL_MS = 10000; // 10s
     private static final long SLOT_FULL_SLEEP_MS = 1000; // 1s
+    private static final long MIN_SCHEDULE_INTERVAL_MS = 1000; // 1s
 
     private RoutineLoadManager routineLoadManager;
     private LinkedBlockingQueue<RoutineLoadTaskInfo> needScheduleTasksQueue = Queues.newLinkedBlockingQueue();
@@ -105,6 +105,11 @@ public class RoutineLoadTaskScheduler extends Daemon {
         try {
             // This step will be blocked when queue is empty
             RoutineLoadTaskInfo routineLoadTaskInfo = needScheduleTasksQueue.take();
+            if (System.currentTimeMillis() - routineLoadTaskInfo.getLastScheduledTime() < MIN_SCHEDULE_INTERVAL_MS) {
+                // delay this schedule, to void too many failure
+                needScheduleTasksQueue.put(routineLoadTaskInfo);
+                return;
+            }
             scheduleOneTask(routineLoadTaskInfo);
         } catch (InterruptedException e) {
             LOG.warn("Taking routine load task from queue has been interrupted", e);
@@ -114,6 +119,7 @@ public class RoutineLoadTaskScheduler extends Daemon {
 
     private void scheduleOneTask(RoutineLoadTaskInfo routineLoadTaskInfo) throws InterruptedException,
             UserException {
+        routineLoadTaskInfo.setLastScheduledTime(System.currentTimeMillis());
         // check if task has been abandoned
         if (!routineLoadManager.checkTaskInJob(routineLoadTaskInfo.getId())) {
             // task has been abandoned while renew task has been added in queue
@@ -212,8 +218,7 @@ public class RoutineLoadTaskScheduler extends Daemon {
     // check if previous be has idle slot
     // true: allocate previous be to task
     // false: allocate the most idle be to task
-    private void allocateTaskToBe(RoutineLoadTaskInfo routineLoadTaskInfo)
-            throws MetaNotFoundException, LoadException {
+    private void allocateTaskToBe(RoutineLoadTaskInfo routineLoadTaskInfo) throws LoadException {
         if (routineLoadTaskInfo.getPreviousBeId() != -1L) {
             if (routineLoadManager.checkBeToTask(routineLoadTaskInfo.getPreviousBeId(), routineLoadTaskInfo.getClusterName())) {
                 if (LOG.isDebugEnabled()) {
