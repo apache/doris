@@ -52,7 +52,6 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -294,7 +293,7 @@ public class KafkaRoutineLoadJobTest {
                 result = tableId;
                 table.getType();
                 result = Table.TableType.OLAP;
-                kafkaConsumer.partitionsFor(anyString, (Duration) any);
+                kafkaConsumer.partitionsFor(anyString);
                 result = kafkaPartitionInfoList;
             }
         };
