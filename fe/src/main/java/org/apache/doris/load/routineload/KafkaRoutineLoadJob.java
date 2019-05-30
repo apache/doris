@@ -66,7 +66,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     private static final Logger LOG = LogManager.getLogger(KafkaRoutineLoadJob.class);
 
     public static final String KAFKA_FILE_CATALOG = "kafka";
-    private static final int FETCH_PARTITIONS_TIMEOUT_SECOND = 5;
+    private static final int FETCH_PARTITIONS_TIMEOUT_SECOND = 10;
 
     private String brokerList;
     private String topic;

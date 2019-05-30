@@ -38,6 +38,7 @@ import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.BufferedInputStream;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.File;
@@ -45,7 +46,7 @@ import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
+import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLConnection;
 import java.nio.file.Paths;
@@ -274,24 +275,38 @@ public class SmallFileMgr implements Writable {
     private SmallFile downloadAndCheck(String downloadUrl, String md5sum) throws DdlException {
         try {
             URL url = new URL(downloadUrl);
-
+            // get file length
             URLConnection urlConnection = url.openConnection();
+            if (urlConnection instanceof HttpURLConnection) {
+                ((HttpURLConnection) urlConnection).setRequestMethod("HEAD");
+            }
             urlConnection.setReadTimeout(10000); // 10s
-            InputStream inputStream = urlConnection.getInputStream();
-
+            urlConnection.getInputStream();
+            
+            int contentLength = urlConnection.getContentLength();
+            if (contentLength == -1 || contentLength > Config.max_small_file_size_bytes) {
+                throw new DdlException("Failed to download file from url: " + url + ", invalid content length: " + contentLength);
+            }
+            
+            // download url
             MessageDigest digest = MessageDigest.getInstance("MD5");
-            byte[] buf = new byte[Config.max_small_file_size_bytes];
-            // read at most maxFileSizeBytes
-            int bytesRead = inputStream.read(buf);
-            if (bytesRead < 0) {
-                throw new DdlException("No data read from url: " + downloadUrl);
+            int bytesRead = 0;
+            byte buf[] = new byte[contentLength];
+            try (BufferedInputStream in = new BufferedInputStream(url.openStream())) {
+                while (bytesRead < contentLength) {
+                    bytesRead += in.read(buf, bytesRead, contentLength - bytesRead);
+                }
+
+                // check if there still has data(should not happen)
+                if (in.read() != -1) {
+                    throw new DdlException("Failed to download file from url: " + url
+                            + ", content length does not equals to actual file length");
+                }
             }
 
-            // read again see if still has data
-            byte[] nextBuf = new byte[1];
-            int nextBytesRead = inputStream.read(nextBuf);
-            if (nextBytesRead != -1) {
-                throw new DdlException("Data from url: " + downloadUrl + " exceeds max file size: " + Config.max_small_file_size_bytes);
+            if (bytesRead != contentLength) {
+                throw new DdlException("Failed to download file from url: " + url
+                        + ", invalid read bytes: " + bytesRead + ", expected: " + contentLength);
             }
 
             // check md5sum if necessary
@@ -304,6 +319,7 @@ public class SmallFileMgr implements Writable {
                 }
             }
 
+            // encode to base64
             String base64Content = Base64.getEncoder().encodeToString(buf);
             return new SmallFile(base64Content, bytesRead, checksum);
         } catch (IOException | NoSuchAlgorithmException e) {
@@ -349,6 +365,9 @@ public class SmallFileMgr implements Writable {
 
         // write to file
         try {
+            if (!file.getParentFile().exists() && !file.getParentFile().mkdirs()) {
+                throw new IOException("failed to make dir for file: " + fileName);
+            }
             file.createNewFile();
             byte[] decoded = Base64.getDecoder().decode(smallFile.content);
             FileOutputStream outputStream = new FileOutputStream(file);
