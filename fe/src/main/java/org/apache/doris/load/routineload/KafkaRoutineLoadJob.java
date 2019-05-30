@@ -21,6 +21,7 @@ import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeMetaVersion;
@@ -32,6 +33,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
+import org.apache.doris.common.util.SmallFileMgr;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Joiner;
@@ -42,6 +44,7 @@ import com.google.gson.GsonBuilder;
 
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.PartitionInfo;
+import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -62,6 +65,7 @@ import java.util.UUID;
 public class KafkaRoutineLoadJob extends RoutineLoadJob {
     private static final Logger LOG = LogManager.getLogger(KafkaRoutineLoadJob.class);
 
+    public static final String KAFKA_FILE_CATALOG = "kafka";
     private static final int FETCH_PARTITIONS_TIMEOUT_SECOND = 5;
 
     private String brokerList;
@@ -87,7 +91,6 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         this.brokerList = brokerList;
         this.topic = topic;
         this.progress = new KafkaProgress();
-        setConsumer();
     }
 
     public String getTopic() {
@@ -276,13 +279,15 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         return gson.toJson(summary);
     }
 
-    private List<Integer> getAllKafkaPartitions() throws LoadException {
+    private List<Integer> getAllKafkaPartitions() throws UserException {
+        setConsumer();
         List<Integer> result = new ArrayList<>();
         try {
             List<PartitionInfo> partitionList = consumer.partitionsFor(topic);
             for (PartitionInfo partitionInfo : partitionList) {
                 result.add(partitionInfo.partition());
             }
+            LOG.debug("get all kafka partitions for topic: {}. {}, job: {}", topic, result, id);
         } catch (Exception e) {
             throw new LoadException("failed to get partitions for topic: " + topic + ". " + e.getMessage());
         }
@@ -305,15 +310,51 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             db.readUnlock();
         }
 
-        // TODO(ml): check partition
-
         // init kafka routine load job
         long id = Catalog.getInstance().getNextId();
         KafkaRoutineLoadJob kafkaRoutineLoadJob = new KafkaRoutineLoadJob(id, stmt.getName(),
                 db.getClusterName(), db.getId(), tableId, stmt.getKafkaBrokerList(), stmt.getKafkaTopic());
         kafkaRoutineLoadJob.setOptional(stmt);
+        kafkaRoutineLoadJob.checkSSLProperties();
+        kafkaRoutineLoadJob.setConsumer();
+        kafkaRoutineLoadJob.checkCustomPartition();
 
         return kafkaRoutineLoadJob;
+    }
+
+    private void checkCustomPartition() throws UserException {
+        if (customKafkaPartitions.isEmpty()) {
+            return;
+        }
+        List<Integer> allKafkaPartitions = getAllKafkaPartitions();
+        for (Integer customPartition : customKafkaPartitions) {
+            if (!allKafkaPartitions.contains(customPartition)) {
+                throw new LoadException("there is a custom kafka partition " + customPartition
+                        + " which is invalid for topic " + topic);
+            }
+        }
+    }
+
+    private void checkSSLProperties() throws DdlException {
+        // check ssl properties
+        SmallFileMgr smallFileMgr = Catalog.getCurrentCatalog().getSmallFileMgr();
+        if (customKafkaProperties.containsKey(CreateRoutineLoadStmt.KAFKA_SECURITY_PROTOCAL)
+                && customKafkaProperties.get(CreateRoutineLoadStmt.KAFKA_SECURITY_PROTOCAL).equals("ssl")) {
+            String caFile = customKafkaProperties.get(CreateRoutineLoadStmt.KAFKA_SSL_CA_LOCATION);
+            if (caFile != null && !smallFileMgr.containsFile(dbId, KAFKA_FILE_CATALOG, caFile)) {
+                throw new DdlException("File " + caFile + " does not exist. Create it first");
+            }
+
+            String clientCa = customKafkaProperties.get(CreateRoutineLoadStmt.KAFKA_SSL_CERTIFICATE_LOCATION);
+            if (clientCa != null && !smallFileMgr.containsFile(dbId, KAFKA_FILE_CATALOG, clientCa)) {
+                throw new DdlException("File " + clientCa + " does not exist. Create it first");
+            }
+
+            String clientKey = customKafkaProperties.get(CreateRoutineLoadStmt.KAFKA_SSL_KEY_LOCATION);
+            if (clientKey != null && !smallFileMgr.containsFile(dbId, KAFKA_FILE_CATALOG, clientKey)) {
+                throw new DdlException("File " + clientKey + " does not exist. Create it first");
+            }
+        }
     }
 
     private void updateNewPartitionProgress() {
@@ -332,12 +373,40 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         }
     }
 
-    private void setConsumer() {
+    public void setConsumer() throws UserException {
+        if (consumer != null) {
+            return;
+        }
+
         Properties props = new Properties();
         props.put("bootstrap.servers", this.brokerList);
         props.put("group.id", UUID.randomUUID().toString());
-        props.put("key.deserializer", "org.apache.kafka.common.serialization.StringDeserializer");
-        props.put("value.deserializer", "org.apache.kafka.common.serialization.StringDeserializer");
+        props.put("key.deserializer", StringDeserializer.class.getName());
+        props.put("value.deserializer", StringDeserializer.class.getName());
+        // get ssl files
+        SmallFileMgr smallFileMgr = Catalog.getCurrentCatalog().getSmallFileMgr();
+        for (Map.Entry<String, String> entry : customKafkaProperties.entrySet()) {
+            if (entry.getKey().equals(CreateRoutineLoadStmt.KAFKA_SSL_TRUSTSTORE_LOCATION)) {
+                String truststoreFile = entry.getValue();
+                if (!smallFileMgr.containsFile(dbId, KAFKA_FILE_CATALOG, truststoreFile)) {
+                    throw new LoadException("File " + truststoreFile + " does not exist. Create it first");
+                }
+                String truststoreFilePath = smallFileMgr.saveToFile(dbId, KAFKA_FILE_CATALOG, truststoreFile);
+                props.put(entry.getKey(), truststoreFilePath);
+            } else if (entry.getKey().equals(CreateRoutineLoadStmt.KAFKA_SSL_KEYSTORE_LOCATION)) {
+                String keystoreFile = entry.getValue();
+                if (!smallFileMgr.containsFile(dbId, KAFKA_FILE_CATALOG, keystoreFile)) {
+                    throw new LoadException("File " + keystoreFile + " does not exist. Create it first");
+                }
+                String keystoreFilePath = smallFileMgr.saveToFile(dbId, KAFKA_FILE_CATALOG, keystoreFile);
+                props.put(entry.getKey(), keystoreFilePath);
+            } else if (entry.getKey().equals(CreateRoutineLoadStmt.KAFKA_SSL_KEY_PASSWORD)) {
+                // change the KAFKA_SSL_KEY_PASSWORD -> KAFKA_SSL_KEYSTORE_PASSWORD
+                props.put(CreateRoutineLoadStmt.KAFKA_SSL_KEYSTORE_PASSWORD, entry.getValue());
+            } else {
+                props.put(entry.getKey(), entry.getValue());
+            }
+        }
         consumer = new KafkaConsumer<>(props);
     }
 
@@ -355,13 +424,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     // this is a unprotected method which is called in the initialization function
     private void setCustomKafkaPartitions(List<Pair<Integer, Long>> kafkaPartitionOffsets) throws LoadException {
-        // check if custom kafka partition is valid
-        List<Integer> allKafkaPartitions = getAllKafkaPartitions();
         for (Pair<Integer, Long> partitionOffset : kafkaPartitionOffsets) {
-            if (!allKafkaPartitions.contains(partitionOffset.first)) {
-                throw new LoadException("there is a custom kafka partition " + partitionOffset.first
-                        + " which is invalid for topic " + topic);
-            }
             this.customKafkaPartitions.add(partitionOffset.first);
             ((KafkaProgress) progress).addPartitionOffset(partitionOffset);
         }
@@ -427,7 +490,5 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 }
             }
         }
-
-        setConsumer();
     }
 }

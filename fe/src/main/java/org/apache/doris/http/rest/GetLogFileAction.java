@@ -36,10 +36,18 @@ import java.util.Set;
 import io.netty.handler.codec.http.HttpMethod;
 import io.netty.handler.codec.http.HttpResponseStatus;
 
-// get log file infos:
-//      curl -I http://fe_host:http_port/api/get_log_file?type=fe.audit.log
-// get log file:
-//      curl -X GET http://fe_host:http_port/api/get_log_file?type=fe.audit.log&file=fe.audit.log.20190528.1
+/*
+ *  get log file infos:
+ *      curl -I http://fe_host:http_port/api/get_log_file?type=fe.audit.log
+ *      return:
+ *          HTTP/1.1 200 OK
+ *          file_infos: {"fe.audit.log":24759,"fe.audit.log.20190528.1":132934}
+ *          content-type: text/html
+ *          connection: keep-alive
+ *  
+ *  get log file:
+ *      curl -X GET http://fe_host:http_port/api/get_log_file?type=fe.audit.log&file=fe.audit.log.20190528.1
+ */
 public class GetLogFileAction extends RestBaseAction {
     private final Set<String> logFileTypes = Sets.newHashSet("fe.audit.log");
 

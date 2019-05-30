@@ -810,5 +810,10 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int max_small_file_size_bytes = 1024 * 1024; // 1MB
+
+    /*
+     * Save small files
+     */
+    @ConfField public static String small_file_dir = System.getenv("DORIS_HOME") + "/small_files";
 }
 

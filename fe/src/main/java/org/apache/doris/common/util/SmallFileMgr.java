@@ -34,16 +34,21 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Table;
 
 import org.apache.commons.codec.binary.Hex;
+import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
+import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
 import java.net.URLConnection;
+import java.nio.file.Paths;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Base64;
@@ -69,7 +74,7 @@ public class SmallFileMgr implements Writable {
         public SmallFile(String content, long size, String md5) {
             this.content = content;
             this.size = size;
-            this.md5 = md5;
+            this.md5 = md5.toLowerCase();
         }
     }
 
@@ -309,6 +314,75 @@ public class SmallFileMgr implements Writable {
             }
             throw new DdlException("Failed to get file from url: " + downloadUrl + ". Error: " + errorMsg);
         }
+    }
+
+    // save the specified file to disk. if file already exist, check it.
+    // return the absolute file path.
+    public String saveToFile(long dbId, String catalog, String fileName) throws DdlException {
+        SmallFile smallFile;
+        synchronized (files) {
+            SmallFiles smallFiles = files.get(dbId, catalog);
+            if (smallFiles == null) {
+                throw new DdlException("File " + fileName + " does not exist");
+            }
+
+            smallFile = smallFiles.getFile(fileName);
+            if (smallFile == null) {
+                throw new DdlException("File " + fileName + " does not exist");
+            }
+        }
+
+        // check file
+        File file = getAbsoluteFile(dbId, catalog, fileName);
+        if (file.exists()) {
+            if (!file.isFile()) {
+                throw new DdlException("File exist but not a file: " + fileName);
+            }
+
+            if (checkMd5(file, smallFile.md5)) {
+                return file.getAbsolutePath();
+            }
+
+            // file is invalid, delete it and create a new one
+            file.delete();
+        }
+
+        // write to file
+        try {
+            file.createNewFile();
+            byte[] decoded = Base64.getDecoder().decode(smallFile.content);
+            FileOutputStream outputStream = new FileOutputStream(file);
+            outputStream.write(decoded);
+            outputStream.flush();
+            outputStream.close();
+
+            if (!checkMd5(file, smallFile.md5)) {
+                throw new DdlException("write file " + fileName +" failed. md5 is invalid. expected: " + smallFile.md5);
+            }
+        } catch (IOException e) {
+            LOG.warn("failed to write file: {}", fileName, e);
+            throw new DdlException("failed to write file: " + fileName);
+        }
+
+        return file.getAbsolutePath();
+    }
+
+    private boolean checkMd5(File file, String expectedMd5) throws DdlException {
+        String md5sum = null;
+        try {
+            md5sum = DigestUtils.md5Hex(new FileInputStream(file));
+        } catch (FileNotFoundException e) {
+            throw new DdlException("File " + file.getName() + " does not exist");
+        } catch (IOException e) {
+            LOG.warn("failed to check md5 of file: {}", file.getName(), e);
+            throw new DdlException("Failed to check md5 of file: " + file.getName());
+        }
+
+        return md5sum.equals(expectedMd5);
+    }
+
+    private File getAbsoluteFile(long dbId, String catalog, String fileName) {
+        return Paths.get(Config.small_file_dir, String.valueOf(dbId), catalog, fileName).normalize().toAbsolutePath().toFile();
     }
 
     public List<List<String>> getInfo(String dbName) throws DdlException {
