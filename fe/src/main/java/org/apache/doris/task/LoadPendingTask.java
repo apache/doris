@@ -38,8 +38,6 @@ import org.apache.logging.log4j.Logger;
 import java.util.List;
 import java.util.UUID;
 
-import sun.security.ssl.Debug;
-
 public abstract class LoadPendingTask extends MasterTask {
     private static final Logger LOG = LogManager.getLogger(LoadPendingTask.class);
     private static final int RETRY_NUM = 5;

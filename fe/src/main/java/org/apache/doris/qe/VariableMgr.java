@@ -261,94 +261,24 @@ public class VariableMgr {
     public static void replayGlobalVariable(SessionVariable variable) throws IOException, DdlException {
         wlock.lock();
         try {
-            VarContext ctx = ctxByVarName.get(SessionVariable.CODEGEN_LEVEL);
-            setValue(ctx.getObj(), ctx.getField(), String.valueOf(variable.getCodegenLevel()));
-     
-            ctx = ctxByVarName.get(SessionVariable.NET_BUFFER_LENGTH);
-            setValue(ctx.getObj(), ctx.getField(), String.valueOf(variable.getNetBufferLength()));
-        
-            ctx = ctxByVarName.get(SessionVariable.SQL_SAFE_UPDATES);
-            setValue(ctx.getObj(), ctx.getField(), String.valueOf(variable.getSqlSafeUpdates()));
-        
-            ctx = ctxByVarName.get(SessionVariable.TIME_ZONE);
-            setValue(ctx.getObj(), ctx.getField(), String.valueOf(variable.getTimeZone()));
-        
-            ctx = ctxByVarName.get(SessionVariable.NET_READ_TIMEOUT);
-            setValue(ctx.getObj(), ctx.getField(), String.valueOf(variable.getNetReadTimeout()));
-        
-            ctx = ctxByVarName.get(SessionVariable.NET_WRITE_TIMEOUT);
-            setValue(ctx.getObj(), ctx.getField(), String.valueOf(variable.getNetWriteTimeout()));
-        
-            ctx = ctxByVarName.get(SessionVariable.WAIT_TIMEOUT);
-            setValue(ctx.getObj(), ctx.getField(), String.valueOf(variable.getWaitTimeout()));
-        
-            ctx = ctxByVarName.get(SessionVariable.INTERACTIVE_TIMTOUT);
-            setValue(ctx.getObj(), ctx.getField(), String.valueOf(variable.getInteractiveTimeout()));
-        
-            ctx = ctxByVarName.get(SessionVariable.QUERY_CACHE_TYPE);
-            setValue(ctx.getObj(), ctx.getField(), String.valueOf(variable.getQueryCacheType()));
-        
-            ctx = ctxByVarName.get(SessionVariable.AUTO_INCREMENT_INCREMENT);
-            setValue(ctx.getObj(), ctx.getField(), String.valueOf(variable.getAutoIncrementIncrement()));
-        
-            ctx = ctxByVarName.get(SessionVariable.MAX_ALLOWED_PACKET);
-            setValue(ctx.getObj(), ctx.getField(), String.valueOf(variable.getMaxAllowedPacket()));
-        
-            ctx = ctxByVarName.get(SessionVariable.SQL_SELECT_LIMIT);
-            setValue(ctx.getObj(), ctx.getField(), String.valueOf(variable.getSqlSelectLimit()));
-        
-            ctx = ctxByVarName.get(SessionVariable.SQL_AUTO_IS_NULL);
-            setValue(ctx.getObj(), ctx.getField(), String.valueOf(variable.isSqlAutoIsNull()));
-        
-            ctx = ctxByVarName.get(SessionVariable.COLLATION_DATABASE);
-            setValue(ctx.getObj(), ctx.getField(), String.valueOf(variable.getCollationDatabase()));
-        
-            ctx = ctxByVarName.get(SessionVariable.COLLATION_SERVER);
-            setValue(ctx.getObj(), ctx.getField(), String.valueOf(variable.getCollationServer()));
-        
-            ctx = ctxByVarName.get(SessionVariable.COLLATION_CONNECTION);
-            setValue(ctx.getObj(), ctx.getField(), String.valueOf(variable.getCollationConnection()));
-        
-            ctx = ctxByVarName.get(SessionVariable.CHARACTER_SET_SERVER);
-            setValue(ctx.getObj(), ctx.getField(), String.valueOf(variable.getCharsetServer()));
-        
-            ctx = ctxByVarName.get(SessionVariable.CHARACTER_SET_RESULTS);
-            setValue(ctx.getObj(), ctx.getField(), String.valueOf(variable.getCharsetResults()));
-        
-            ctx = ctxByVarName.get(SessionVariable.CHARACTER_SET_CONNNECTION);
-            setValue(ctx.getObj(), ctx.getField(), String.valueOf(variable.getCharsetConnection()));
-        
-            ctx = ctxByVarName.get(SessionVariable.CHARACTER_SET_CLIENT);
-            setValue(ctx.getObj(), ctx.getField(), String.valueOf(variable.getCharsetClient()));
-     
-            ctx = ctxByVarName.get(SessionVariable.TX_ISOLATION);
-            setValue(ctx.getObj(), ctx.getField(), String.valueOf(variable.getTxIsolation()));
-        
-            ctx = ctxByVarName.get(SessionVariable.AUTO_COMMIT);
-            setValue(ctx.getObj(), ctx.getField(), String.valueOf(variable.isAutoCommit()));
-       
-            ctx = ctxByVarName.get(SessionVariable.RESOURCE_VARIABLE);
-            setValue(ctx.getObj(), ctx.getField(), String.valueOf(variable.getResourceGroup()));
+            for (Field field : SessionVariable.class.getDeclaredFields()) {
+                VarAttr attr = field.getAnnotation(VarAttr.class);
+                if (attr == null) {
+                    continue;
+                }
 
-            ctx = ctxByVarName.get(SessionVariable.SQL_MODE);
-            setValue(ctx.getObj(), ctx.getField(), String.valueOf(variable.getSqlMode()));
+                field.setAccessible(true);
 
-            ctx = ctxByVarName.get(SessionVariable.IS_REPORT_SUCCESS);
-            setValue(ctx.getObj(), ctx.getField(), String.valueOf(variable.isReportSucc()));
-
-            ctx = ctxByVarName.get(SessionVariable.QUERY_TIMEOUT);
-            setValue(ctx.getObj(), ctx.getField(), String.valueOf(variable.getQueryTimeoutS()));
-
-            ctx = ctxByVarName.get(SessionVariable.MAX_ALLOWED_PACKET);
-            setValue(ctx.getObj(), ctx.getField(), String.valueOf(variable.getMaxAllowedPacket()));
-
-            ctx = ctxByVarName.get(SessionVariable.EXEC_MEM_LIMIT);
-            setValue(ctx.getObj(), ctx.getField(), String.valueOf(variable.getMaxExecMemByte()));
-
+                VarContext ctx = ctxByVarName.get(attr.name());
+                if (ctx.getFlag() == SESSION) {
+                    String value = getValue(variable, ctx.getField());
+                    setValue(ctx.getObj(), ctx.getField(), value);
+                }
+            }
         } finally {
             wlock.unlock();
         }
-    }    
+    }
 
     // Get variable value through variable name, used to satisfy statement like `SELECT @@comment_version`
     public static void fillValue(SessionVariable var, SysVariableDesc desc) throws AnalysisException {
