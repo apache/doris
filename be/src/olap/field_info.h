@@ -123,6 +123,7 @@ inline std::ostream& operator<<(std::ostream& os, const uint24_t& val) {
     return os;
 }
 
+// the sign of integer must be same as fraction
 struct decimal12_t {
     decimal12_t() : integer(0), fraction(0) {}
     decimal12_t(int64_t int_part, int32_t frac_part) {
@@ -147,7 +148,8 @@ struct decimal12_t {
             fraction += FRAC_RATIO;
         }
 
-        if (fraction * integer < 0) {
+        // if sign of fraction is different from integer
+        if ((fraction ^ integer) < 0) {
             bool sign = integer < 0;
             integer += (sign ? 1 : -1);
             fraction += (sign ? -FRAC_RATIO : FRAC_RATIO);
