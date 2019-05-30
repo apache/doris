@@ -480,7 +480,15 @@ public class ColocateTableTest {
 
     @Test
     public void testParentTableNotExist() throws Exception {
-        String tableName = "t8";
+        testParentTableNotExist("t8");
+    }
+
+    @Test
+    public void testParentTableNotExistCaseSensitive() throws Exception {
+        testParentTableNotExist(tableName1.toUpperCase());
+    }
+
+    private void testParentTableNotExist(String tableName) throws Exception {
         Map<String, String> properties = new HashMap<String, String>();
         properties.put(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH, tableName);
 

@@ -3447,7 +3447,7 @@ public class Catalog {
 
                 Table parentTable = ColocateTableUtils.getColocateTable(db, colocateTableName);
                 // for colocate child table
-                if (!colocateTableName.equalsIgnoreCase(tableName)) {
+                if (!colocateTableName.equals(tableName)) {
                     ColocateTableUtils.checkTableExist(parentTable, colocateTableName);
 
                     ColocateTableUtils.checkTableType(parentTable);
