@@ -39,7 +39,6 @@ import org.apache.kafka.common.PartitionInfo;
 import org.junit.Assert;
 import org.junit.Test;
 
-import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -213,7 +212,7 @@ public class RoutineLoadJobTest {
                 result = database;
                 database.getTable(anyLong);
                 result = table;
-                kafkaConsumer.partitionsFor(anyString, (Duration) any);
+                kafkaConsumer.partitionsFor(anyString);
                 result = partitionInfoList;
                 partitionInfo.partition();
                 result = 1;
