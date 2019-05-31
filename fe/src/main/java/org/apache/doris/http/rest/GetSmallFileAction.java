@@ -18,7 +18,6 @@
 package org.apache.doris.http.rest;
 
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.Database;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.SmallFileMgr;
 import org.apache.doris.http.ActionController;
@@ -50,13 +49,10 @@ public class GetSmallFileAction extends RestBaseAction {
     @Override
     public void execute(BaseRequest request, BaseResponse response) {
         String token = request.getSingleParameter("token");
-        String dbName = request.getSingleParameter("db");
-        String catalogName = request.getSingleParameter("catalog");
-        String fileName = request.getSingleParameter("file");
+        String fileIdStr = request.getSingleParameter("file_id");
         
         // check param empty
-        if (Strings.isNullOrEmpty(token) || Strings.isNullOrEmpty(dbName)
-                || Strings.isNullOrEmpty(catalogName) || Strings.isNullOrEmpty(fileName)) {
+        if (Strings.isNullOrEmpty(token) || Strings.isNullOrEmpty(fileIdStr)) {
             response.appendContent("Missing parameter");
             writeResponse(request, response, HttpResponseStatus.BAD_REQUEST);
             return;
@@ -69,9 +65,11 @@ public class GetSmallFileAction extends RestBaseAction {
             return;
         }
 
-        Database db = Catalog.getCurrentCatalog().getDb(dbName);
-        if (db == null) {
-            response.appendContent("database does not exist: " + dbName);
+        long fileId = -1;
+        try {
+            fileId = Long.valueOf(fileId);
+        } catch (NumberFormatException e) {
+            response.appendContent("Invalid file id format: " + fileIdStr);
             writeResponse(request, response, HttpResponseStatus.BAD_REQUEST);
             return;
         }
@@ -79,8 +77,9 @@ public class GetSmallFileAction extends RestBaseAction {
         SmallFileMgr fileMgr = Catalog.getCurrentCatalog().getSmallFileMgr();
         String filePath;
         try {
-            filePath = fileMgr.saveToFile(db.getId(), catalogName, fileName);
+            filePath = fileMgr.saveToFile(fileId);
         } catch (DdlException e) {
+            LOG.warn("failed to get file: {}", fileId, e);
             response.appendContent("get file failed: " + e.getMessage());
             writeResponse(request, response, HttpResponseStatus.BAD_REQUEST);
             return;

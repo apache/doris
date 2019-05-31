@@ -889,8 +889,8 @@
         FROM `example_repo`
         ON
         (
-            `backup_tbl` PARTITION (`p1`, `p2`) AS `backup_tbl2`,
-            `backup_tbl2`
+            `backup_tbl` PARTITION (`p1`, `p2`),
+            `backup_tbl2` AS `new_tbl`
         )
         PROPERTIES
         (

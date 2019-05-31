@@ -34,6 +34,7 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.SmallFileMgr;
+import org.apache.doris.common.util.SmallFileMgr.SmallFile;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Joiner;
@@ -96,6 +97,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     private List<Integer> currentKafkaPartitions = Lists.newArrayList();
     // kafka properties ，property prefix will be mapped to kafka custom parameters, which can be extended in the future
     private Map<String, String> customKafkaProperties = Maps.newHashMap();
+    private Map<String, String> convertedCustomProperties = Maps.newHashMap();
 
     // this is the kafka consumer which is used to fetch the number of partitions
     private KafkaConsumer<String, String> consumer;
@@ -123,6 +125,33 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     public Map<String, String> getCustomKafkaProperties() {
         return customKafkaProperties;
+    }
+
+    public Map<String, String> getConvertedCustomProperties() {
+        return convertedCustomProperties;
+    }
+
+    @Override
+    public void prepare() throws UserException {
+        super.prepare();
+        convertCustomProperties();
+    }
+
+    private void convertCustomProperties() throws DdlException {
+        SmallFileMgr smallFileMgr = Catalog.getCurrentCatalog().getSmallFileMgr();
+        for (Map.Entry<String, String> entry : customKafkaProperties.entrySet()) {
+            if (entry.getValue().startsWith("FILE:")) {
+                // convert FILE:file_name -> FILE:file_id:md5
+                String file = entry.getValue().substring(entry.getValue().indexOf(":") + 1);
+                SmallFile smallFile = smallFileMgr.getSmallFile(dbId, KAFKA_FILE_CATALOG, file);
+                if (smallFile == null) {
+                    throw new DdlException("File " + file + " does not exist. Create it first");
+                }
+                convertedCustomProperties.put(entry.getKey(), "FILE:" + smallFile.id + ":" + smallFile.md5);
+            } else {
+                convertedCustomProperties.put(entry.getKey(), entry.getValue());
+            }
+        }
     }
 
     @Override

@@ -1075,8 +1075,7 @@ public class Catalog {
         LOG.info("checkpointer thread started. thread id is {}", checkpointThreadId);
 
         // heartbeat mgr
-        heartbeatMgr.setMaster(
-                FrontendOptions.getLocalHostAddress(), Config.rpc_port, clusterId, token, epoch);
+        heartbeatMgr.setMaster(clusterId, token, epoch);
         heartbeatMgr.start();
 
         pullLoadJobMgr.start();

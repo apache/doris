@@ -67,33 +67,64 @@ import java.util.Map;
 public class SmallFileMgr implements Writable {
     public static final Logger LOG = LogManager.getLogger(SmallFileMgr.class);
 
-    public static class SmallFile {
+    public static class SmallFile implements Writable {
+        public long dbId;
+        public String catalog;
+        public String name;
+        public long id;
         public String content;
         public long size;
         public String md5;
 
-        public SmallFile(String content, long size, String md5) {
+        private SmallFile() {
+
+        }
+
+        public SmallFile(Long dbId, String catalogName, String fileName, Long id, String content, long size, String md5) {
+            this.dbId = dbId;
+            this.catalog = catalogName;
+            this.name = fileName;
+            this.id = id;
             this.content = content;
             this.size = size;
             this.md5 = md5.toLowerCase();
         }
+
+        public static SmallFile read(DataInput in) throws IOException {
+            SmallFile smallFile = new SmallFile();
+            smallFile.readFields(in);
+            return smallFile;
+        }
+
+        @Override
+        public void write(DataOutput out) throws IOException {
+            out.writeLong(dbId);
+            Text.writeString(out, catalog);
+            Text.writeString(out, name);
+            out.writeLong(id);
+            Text.writeString(out, content);
+            out.writeLong(size);
+            Text.writeString(out, md5);
+        }
+
+        @Override
+        public void readFields(DataInput in) throws IOException {
+            dbId = in.readLong();
+            catalog = Text.readString(in);
+            name = Text.readString(in);
+            id = in.readLong();
+            content = Text.readString(in);
+            size = in.readLong();
+            md5 = Text.readString(in);
+        }
     }
 
-    public static class SmallFiles implements Writable {
-        private String catalog;
+    public static class SmallFiles {
         // file name -> file
         private Map<String, SmallFile> files = Maps.newHashMap();
 
-        private SmallFiles() {
+        public SmallFiles() {
 
-        }
-
-        public SmallFiles(String catalog) {
-            this.catalog = catalog;
-        }
-
-        public String getCatalogName() {
-            return catalog;
         }
 
         public Map<String, SmallFile> getFiles() {
@@ -107,12 +138,8 @@ public class SmallFileMgr implements Writable {
             this.files.put(fileName, file);
         }
 
-        public boolean removeFile(String fileName) {
-            SmallFile smallFile = files.remove(fileName);
-            if (smallFile == null) {
-                return false;
-            }
-            return true;
+        public SmallFile removeFile(String fileName) {
+            return files.remove(fileName);
         }
 
         public SmallFile getFile(String fileName) {
@@ -122,42 +149,11 @@ public class SmallFileMgr implements Writable {
         public boolean containsFile(String fileName) {
             return files.containsKey(fileName);
         }
-
-        public static SmallFiles read(DataInput in) throws IOException {
-            SmallFiles smallFiles = new SmallFiles();
-            smallFiles.readFields(in);
-            return smallFiles;
-        }
-
-        @Override
-        public void write(DataOutput out) throws IOException {
-            Text.writeString(out, catalog);
-            out.writeInt(files.size());
-            for (Map.Entry<String, SmallFile> entry : files.entrySet()) {
-                Text.writeString(out, entry.getKey());
-                Text.writeString(out, entry.getValue().content);
-                out.writeLong(entry.getValue().size);
-                Text.writeString(out, entry.getValue().md5);
-            }
-        }
-
-        @Override
-        public void readFields(DataInput in) throws IOException {
-            catalog = Text.readString(in);
-            int size = in.readInt();
-            for (int i = 0; i < size; i++) {
-                String fileName = Text.readString(in);
-                String content = Text.readString(in);
-                long fileSize = in.readLong();
-                String md5 = Text.readString(in);
-                files.put(fileName, new SmallFile(content, fileSize, md5));
-            }
-        }
     }
 
     // db id -> catalog -> files
     private Table<Long, String, SmallFiles> files = HashBasedTable.create();
-    private int fileNum = 0;
+    private Map<Long, SmallFile> idToFiles = Maps.newHashMap();
 
     public SmallFileMgr() {
     }
@@ -183,31 +179,33 @@ public class SmallFileMgr implements Writable {
     private void downloadAndAddFile(long dbId, String catalog, String fileName, String downloadUrl, String md5sum)
             throws DdlException {
         synchronized (files) {
-            if (fileNum >= Config.max_small_file_number) {
+            if (idToFiles.size() >= Config.max_small_file_number) {
                 throw new DdlException("File number exceeds limit: " + Config.max_small_file_number);
             }
         }
 
-        SmallFile smallFile = downloadAndCheck(downloadUrl, md5sum);
+        SmallFile smallFile = downloadAndCheck(dbId, catalog, fileName, downloadUrl, md5sum);
 
         synchronized (files) {
-            if (fileNum >= Config.max_small_file_number) {
+            if (idToFiles.size() >= Config.max_small_file_number) {
                 throw new DdlException("File number exceeds limit: " + Config.max_small_file_number);
             }
 
             SmallFiles smallFiles = files.get(dbId, catalog);
             if (smallFiles == null) {
-                smallFiles = new SmallFiles(catalog);
+                smallFiles = new SmallFiles();
                 files.put(dbId, catalog, smallFiles);
             }
 
             smallFiles.addFile(fileName, smallFile);
-            fileNum++;
+            idToFiles.put(smallFile.id, smallFile);
 
-            SmallFileInfo info = new SmallFileInfo(dbId, catalog, fileName, smallFile.content, smallFile.size, smallFile.md5);
+            SmallFileInfo info = new SmallFileInfo(dbId, catalog, smallFile.id, fileName, smallFile.content,
+                    smallFile.size, smallFile.md5);
             Catalog.getCurrentCatalog().getEditLog().logCreateSmallFile(info);
 
-            LOG.info("finished to add file {} from url {}. current file number: {}", fileName, downloadUrl, fileNum);
+            LOG.info("finished to add file {} from url {}. current file number: {}", fileName, downloadUrl,
+                    idToFiles.size());
         }
     }
 
@@ -215,13 +213,13 @@ public class SmallFileMgr implements Writable {
         synchronized (files) {
             SmallFiles smallFiles = files.get(info.dbId, info.catalogName);
             if (smallFiles == null) {
-                smallFiles = new SmallFiles(info.catalogName);
+                smallFiles = new SmallFiles();
                 files.put(info.dbId, info.catalogName, smallFiles);
             }
 
             try {
-                smallFiles.addFile(info.fileName, new SmallFile(info.content, info.fileSize, info.md5));
-                fileNum++;
+                smallFiles.addFile(info.fileName,
+                        new SmallFile(info.dbId, info.catalogName, info.fileName, info.fileId, info.content, info.fileSize, info.md5));
             } catch (DdlException e) {
                 LOG.warn("should not happen", e);
             }
@@ -234,8 +232,9 @@ public class SmallFileMgr implements Writable {
             if (smallFiles == null) {
                 return;
             }
-            if (smallFiles.removeFile(fileName)) {
-                fileNum--;
+            SmallFile smallFile = smallFiles.removeFile(fileName);
+            if (smallFile != null) {
+                idToFiles.remove(smallFile.id);
 
                 if (!isReplay) {
                     SmallFileInfo info = new SmallFileInfo(dbId, catalog, fileName);
@@ -243,7 +242,7 @@ public class SmallFileMgr implements Writable {
                 }
 
                 LOG.info("finished to remove file {}. current file number: {}. is replay: {}",
-                        fileName, fileNum, isReplay);
+                        fileName, idToFiles.size(), isReplay);
             }
         }
     }
@@ -272,13 +271,14 @@ public class SmallFileMgr implements Writable {
         }
     }
 
-
-    public File getFile(long id, String catalogName, String fileName) {
-        // TODO Auto-generated method stub
-        return null;
+    public SmallFile getSmallFile(long fileId) {
+        synchronized (files) {
+            return idToFiles.get(fileId);
+        }
     }
 
-    private SmallFile downloadAndCheck(String downloadUrl, String md5sum) throws DdlException {
+    private SmallFile downloadAndCheck(long dbId, String catalog, String fileName,
+            String downloadUrl, String md5sum) throws DdlException {
         try {
             URL url = new URL(downloadUrl);
             // get file length
@@ -327,7 +327,8 @@ public class SmallFileMgr implements Writable {
 
             // encode to base64
             String base64Content = Base64.getEncoder().encodeToString(buf);
-            return new SmallFile(base64Content, bytesRead, checksum);
+            return new SmallFile(dbId, catalog, fileName, Catalog.getCurrentCatalog().getNextId(), base64Content,
+                    bytesRead, checksum);
         } catch (IOException | NoSuchAlgorithmException e) {
             LOG.warn("failed to get file from url: {}", downloadUrl, e);
             String errorMsg = e.getMessage();
@@ -336,6 +337,14 @@ public class SmallFileMgr implements Writable {
             }
             throw new DdlException("Failed to get file from url: " + downloadUrl + ". Error: " + errorMsg);
         }
+    }
+
+    public String saveToFile(long fileId) throws DdlException {
+        SmallFile smallFile = getSmallFile(fileId);
+        if (smallFile == null) {
+            throw new DdlException("File does not exist: " + fileId);
+        }
+        return saveToFile(smallFile.dbId, smallFile.catalog, smallFile.name);
     }
 
     // save the specified file to disk. if file already exist, check it.
@@ -445,13 +454,9 @@ public class SmallFileMgr implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        out.writeInt(files.rowMap().size());
-        for (Map.Entry<Long, Map<String, SmallFiles>> entry : files.rowMap().entrySet()) {
-            out.writeLong(entry.getKey());
-            out.writeInt(entry.getValue().size());
-            for (Map.Entry<String, SmallFiles> entry2 : entry.getValue().entrySet()) {
-                entry2.getValue().write(out);
-            }
+        out.writeInt(idToFiles.size());
+        for (SmallFile smallFile : idToFiles.values()) {
+            smallFile.write(out);
         }
     }
 
@@ -459,11 +464,18 @@ public class SmallFileMgr implements Writable {
     public void readFields(DataInput in) throws IOException {
         int size = in.readInt();
         for (int i = 0; i < size; i++) {
-            long dbId = in.readLong();
-            int size2 = in.readInt();
-            for (int j = 0; j < size2; j++) {
-                SmallFiles smallFiles = SmallFiles.read(in);
-                files.put(dbId, smallFiles.getCatalogName(), smallFiles);
+            SmallFile smallFile = SmallFile.read(in);
+            idToFiles.put(smallFile.id, smallFile);
+            SmallFiles smallFiles = files.get(smallFile.dbId, smallFile.catalog);
+            if (smallFiles == null) {
+                smallFiles = new SmallFiles();
+                files.put(smallFile.dbId, smallFile.catalog, smallFiles);
+            }
+            try {
+                smallFiles.addFile(smallFile.name, smallFile);
+            } catch (DdlException e) {
+                // should not happen
+                e.printStackTrace();
             }
         }
     }

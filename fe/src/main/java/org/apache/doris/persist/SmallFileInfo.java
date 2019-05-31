@@ -32,6 +32,7 @@ import java.io.IOException;
 public class SmallFileInfo implements Writable {
     public long dbId;
     public String catalogName;
+    public long fileId;
     public String fileName;
     public String content;
     public long fileSize;
@@ -41,9 +42,11 @@ public class SmallFileInfo implements Writable {
 
     }
 
-    public SmallFileInfo(long dbId, String catalogName, String fileName, String content, long fileSize, String md5) {
+    public SmallFileInfo(long dbId, String catalogName, Long fileId, String fileName,
+            String content, long fileSize, String md5) {
         this.dbId = dbId;
         this.catalogName = catalogName;
+        this.fileId = fileId;
         this.fileName = fileName;
         this.content = content;
         this.fileSize = fileSize;
@@ -66,6 +69,7 @@ public class SmallFileInfo implements Writable {
     public void write(DataOutput out) throws IOException {
         out.writeLong(dbId);
         Text.writeString(out, catalogName);
+        out.writeLong(fileId);
         Text.writeString(out, fileName);
         if (content != null) {
             out.writeBoolean(true);
@@ -81,6 +85,7 @@ public class SmallFileInfo implements Writable {
     public void readFields(DataInput in) throws IOException {
         dbId = in.readLong();
         catalogName = Text.readString(in);
+        fileId = in.readLong();
         fileName = Text.readString(in);
         if (in.readBoolean()) {
             content = Text.readString(in);

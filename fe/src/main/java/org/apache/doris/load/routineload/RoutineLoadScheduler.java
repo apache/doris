@@ -75,8 +75,7 @@ public class RoutineLoadScheduler extends Daemon {
             RoutineLoadJob.JobState errorJobState = null;
             UserException userException = null;
             try {
-                // init the stream load planner
-                routineLoadJob.initPlanner();
+                routineLoadJob.prepare();
                 // judge nums of tasks more then max concurrent tasks of cluster
                 int desiredConcurrentTaskNum = routineLoadJob.calculateCurrentConcurrentTaskNum();
                 if (desiredConcurrentTaskNum <= 0) {

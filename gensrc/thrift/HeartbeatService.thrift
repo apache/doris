@@ -24,6 +24,7 @@ struct TMasterInfo {
     3: required Types.TEpoch epoch
     4: optional string token 
     5: optional string backend_ip
+    6: optional Types.TPort http_port
 }
 
 struct TBackendInfo {
