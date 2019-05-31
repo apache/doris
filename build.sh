@@ -51,8 +51,8 @@ Usage: $0 <options>
      --be               build Backend
      --fe               build Frontend
      --clean            clean and build target
-     --with-mysql        enable MySQL support
-     --without-mysql     disable MySQL support
+     --with-mysql       enable MySQL support
+     --without-mysql    disable MySQL support
 
   Eg.
     $0                          build Backend and Frontend without clean
