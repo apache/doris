@@ -16,6 +16,8 @@
 # under the License.
 
 # where to put generated libraries
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
 set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/udf")
 
 # where to put generated binaries
@@ -45,5 +47,11 @@ set (UDF_TEST_LINK_LIBS
   -lboost_date_time
   gtest)
   
+set_target_properties(DorisUdf PROPERTIES PUBLIC_HEADER "udf.h;uda_test_harness.h")
+INSTALL(TARGETS DorisUdf
+        ARCHIVE DESTINATION ${OUTPUT_DIR}/udf
+        LIBRARY DESTINATION ${OUTPUT_DIR}/udf/lib
+        PUBLIC_HEADER DESTINATION ${OUTPUT_DIR}/udf/include)
+
 #ADD_BE_TEST(udf_test)
 #ADD_BE_TEST(uda_test)
