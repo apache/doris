@@ -602,7 +602,45 @@ visible_functions = [
     [['md5'], 'VARCHAR', ['VARCHAR'],
         '_ZN5doris19EncryptionFunctions3md5EPN9doris_udf15FunctionContextERKNS1_9StringValE'],
     [['md5sum'], 'VARCHAR', ['VARCHAR', '...'],
-        '_ZN5doris19EncryptionFunctions6md5sumEPN9doris_udf15FunctionContextEiPKNS1_9StringValE']
+        '_ZN5doris19EncryptionFunctions6md5sumEPN9doris_udf15FunctionContextEiPKNS1_9StringValE'],
+
+    # geo functions
+    [['ST_Point'], 'VARCHAR', ['DOUBLE', 'DOUBLE'],
+        '_ZN5doris12GeoFunctions8st_pointEPN9doris_udf15FunctionContextERKNS1_9DoubleValES6_'],
+    [['ST_X'], 'DOUBLE', ['VARCHAR'],
+        '_ZN5doris12GeoFunctions4st_xEPN9doris_udf15FunctionContextERKNS1_9StringValE'],
+    [['ST_Y'], 'DOUBLE', ['VARCHAR'],
+        '_ZN5doris12GeoFunctions4st_yEPN9doris_udf15FunctionContextERKNS1_9StringValE'],
+
+    [['ST_Distance_Sphere'], 'DOUBLE', ['DOUBLE', 'DOUBLE', 'DOUBLE', 'DOUBLE'],
+        '_ZN5doris12GeoFunctions18st_distance_sphereEPN9doris_udf15FunctionContextERKNS1_9DoubleValES6_S6_S6_'],
+
+    [['ST_AsText', 'ST_AsWKT'], 'VARCHAR', ['VARCHAR'],
+        '_ZN5doris12GeoFunctions9st_as_wktEPN9doris_udf15FunctionContextERKNS1_9StringValE'],
+    [['ST_GeometryFromText', 'ST_GeomFromText'], 'VARCHAR', ['VARCHAR'],
+        '_ZN5doris12GeoFunctions11st_from_wktEPN9doris_udf15FunctionContextERKNS1_9StringValE',
+        '_ZN5doris12GeoFunctions19st_from_wkt_prepareEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE',
+        '_ZN5doris12GeoFunctions17st_from_wkt_closeEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE'],
+
+    [['ST_LineFromText', 'ST_LineStringFromText'], 'VARCHAR', ['VARCHAR'],
+        '_ZN5doris12GeoFunctions7st_lineEPN9doris_udf15FunctionContextERKNS1_9StringValE',
+        '_ZN5doris12GeoFunctions15st_line_prepareEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE',
+        '_ZN5doris12GeoFunctions17st_from_wkt_closeEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE'],
+
+    [['ST_Polygon', 'ST_PolyFromText', 'ST_PolygonFromText'], 'VARCHAR', ['VARCHAR'],
+        '_ZN5doris12GeoFunctions10st_polygonEPN9doris_udf15FunctionContextERKNS1_9StringValE',
+        '_ZN5doris12GeoFunctions18st_polygon_prepareEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE',
+        '_ZN5doris12GeoFunctions17st_from_wkt_closeEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE'],
+
+    [['ST_Circle'], 'VARCHAR', ['DOUBLE', 'DOUBLE', 'DOUBLE'],
+        '_ZN5doris12GeoFunctions9st_circleEPN9doris_udf15FunctionContextERKNS1_9DoubleValES6_S6_',
+        '_ZN5doris12GeoFunctions17st_circle_prepareEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE',
+        '_ZN5doris12GeoFunctions17st_from_wkt_closeEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE'],
+
+    [['ST_Contains'], 'BOOLEAN', ['VARCHAR', 'VARCHAR'],
+        '_ZN5doris12GeoFunctions11st_containsEPN9doris_udf15FunctionContextERKNS1_9StringValES6_',
+        '_ZN5doris12GeoFunctions19st_contains_prepareEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE',
+        '_ZN5doris12GeoFunctions17st_contains_closeEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE']
 ]
 
 invisible_functions = [

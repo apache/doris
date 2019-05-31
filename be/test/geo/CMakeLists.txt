@@ -16,13 +16,8 @@
 # under the License.
 
 # where to put generated libraries
-set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/testutil")
+set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/test/geo")
 
-# where to put generated binaries
-set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/testutil")
-
-add_library(TestUtil
-    desc_tbl_builder.cc
-    function_utils.cpp
-)
-
+ADD_BE_TEST(wkt_parse_test)
+ADD_BE_TEST(geo_functions_test)
+ADD_BE_TEST(geo_types_test)
