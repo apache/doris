@@ -21,9 +21,6 @@
 #include <boost/cstdint.hpp>
 #include <string.h>
 
-#include "common/logging.h"
-#include "olap/hll.h"
-
 // This is the only Doris header required to develop UDFs and UDAs. This header
 // contains the types that need to be used and the FunctionContext object. The context
 // object serves as the interface object between the UDF/UDA and the doris process.
@@ -622,6 +619,8 @@ struct StringVal : public AnyVal {
 
     // Creates a StringVal, which memory is avaliable when this funciont context is used next time
     static StringVal create_temp_string_val(FunctionContext* ctx, int len);
+
+    bool resize(FunctionContext* context, int len);
 
     bool operator==(const StringVal& other) const {
         if (is_null != other.is_null) {
