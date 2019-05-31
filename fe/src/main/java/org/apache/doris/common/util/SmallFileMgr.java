@@ -218,8 +218,9 @@ public class SmallFileMgr implements Writable {
             }
 
             try {
-                smallFiles.addFile(info.fileName,
-                        new SmallFile(info.dbId, info.catalogName, info.fileName, info.fileId, info.content, info.fileSize, info.md5));
+                SmallFile smallFile = new SmallFile(info.dbId, info.catalogName, info.fileName, info.fileId, info.content, info.fileSize, info.md5);
+                smallFiles.addFile(info.fileName, smallFile);
+                idToFiles.put(info.fileId, smallFile);
             } catch (DdlException e) {
                 LOG.warn("should not happen", e);
             }

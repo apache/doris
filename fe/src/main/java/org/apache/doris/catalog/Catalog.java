@@ -2074,7 +2074,7 @@ public class Catalog {
         return checksum;
     }
 
-    public long saveSmallFiles(DataOutputStream out, long checksum) throws IOException {
+    private long saveSmallFiles(DataOutputStream out, long checksum) throws IOException {
         smallFileMgr.write(out);
         return checksum;
     }
