@@ -49,6 +49,7 @@
 #include "exprs/utility_functions.h"
 #include "exprs/json_functions.h"
 #include "exprs/hll_hash_function.h"
+#include "geo/geo_functions.h"
 #include "olap/options.h"
 #include "util/time.h"
 #include "util/system_metrics.h"
@@ -264,6 +265,7 @@ void init_daemon(int argc, char** argv, const std::vector<StorePath>& paths) {
     JsonFunctions::init();
     HllHashFunctions::init();
     ESFunctions::init();
+    GeoFunctions::init();
 
     pthread_t tc_malloc_pid;
     pthread_create(&tc_malloc_pid, NULL, tcmalloc_gc_thread, NULL);
