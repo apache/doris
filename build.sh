@@ -36,7 +36,7 @@ export DORIS_HOME=${ROOT}
 . ${DORIS_HOME}/env.sh
 
 # build thirdparty libraries if necessary
-if [[ ! -f ${DORIS_THIRDPARTY}/installed/lib/librdkafka.a ]]; then
+if [[ ! -f ${DORIS_THIRDPARTY}/installed/lib/libs2.a ]]; then
     echo "Thirdparty libraries need to be build ..."
     ${DORIS_THIRDPARTY}/build-thirdparty.sh
 fi
