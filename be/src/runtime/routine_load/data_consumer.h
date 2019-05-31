@@ -19,6 +19,7 @@
 
 #include <ctime>
 #include <mutex>
+#include <unordered_map>
 
 #include "librdkafka/rdkafkacpp.h"
 
@@ -144,6 +145,7 @@ public:
 private:
     std::string _brokers;
     std::string _topic;
+    std::unordered_map<std::string, std::string> _custom_properties;
 
     KafkaEventCb _k_event_cb;
     RdKafka::KafkaConsumer* _k_consumer = nullptr;

@@ -70,13 +70,6 @@ AgentServer::AgentServer(ExecEnv* exec_env,
         }
     }
 
-    // create tmp dir
-//    boost::filesystem::path tmp_path(config::agent_tmp_dir);
-//    if (boost::filesystem::exists(tmp_path)) {
-//        boost::filesystem::remove_all(tmp_path);
-//    }
-//    boost::filesystem::create_directories(config::agent_tmp_dir);
-
     // init task worker pool
     _create_table_workers = new TaskWorkerPool(
             TaskWorkerPool::TaskWorkerType::CREATE_TABLE,

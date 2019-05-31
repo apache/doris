@@ -24,6 +24,7 @@
 
 #include "common/status.h"
 #include "service/backend_options.h"
+#include "runtime/small_file_mgr.h"
 #include "util/defer_op.h"
 #include "util/stopwatch.hpp"
 #include "util/uid_util.h"
@@ -73,7 +74,21 @@ Status KafkaDataConsumer::init(StreamLoadContext* ctx) {
     RETURN_IF_ERROR(set_conf("api.version.fallback.ms", "0"));
 
     for (auto& item : ctx->kafka_info->properties) {
-        RETURN_IF_ERROR(set_conf(item.first, item.second));
+        if (boost::algorithm::starts_with(item.second, "FILE:")) {
+            // file property should has format: FILE:file_id:md5
+            std::vector<std::string> parts;
+            boost::split(parts, item.second, boost::is_any_of(":"));
+            if (parts.size() != 3) {
+                return Status("Invalid file property of kafka: " + item.second);
+            }
+            int64_t file_id = std::stol(parts[1]);
+            std::string file_path;
+            RETURN_IF_ERROR(ctx->exec_env()->small_file_mgr()->get_file(file_id, parts[2], &file_path));
+            RETURN_IF_ERROR(set_conf(item.first, file_path));
+        } else {
+            RETURN_IF_ERROR(set_conf(item.first, item.second));
+        }
+        _custom_properties.emplace(item.first, item.second);
     }
 
     if (conf->set("event_cb", &_k_event_cb, errstr) != RdKafka::Conf::CONF_OK) {
@@ -224,6 +239,15 @@ bool KafkaDataConsumer::match(StreamLoadContext* ctx) {
     }
     if (_brokers != ctx->kafka_info->brokers || _topic != ctx->kafka_info->topic) {
         return false;
+    }
+    // check properties
+    if (_custom_properties.size() != ctx->kafka_info->properties.size()) {
+        return false;
+    }
+    for (auto& item : ctx->kafka_info->properties) {
+        if (_custom_properties.find(item.first) == _custom_properties.end()) {
+            return false;
+        }
     }
     return true;
 }

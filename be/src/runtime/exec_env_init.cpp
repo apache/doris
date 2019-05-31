@@ -47,6 +47,7 @@
 #include "runtime/routine_load/routine_load_task_executor.h"
 #include "runtime/stream_load/load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_executor.h"
+#include "runtime/small_file_mgr.h"
 #include "util/pretty_printer.h"
 #include "util/doris_metrics.h"
 #include "util/brpc_stub_cache.h"
@@ -99,6 +100,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _brpc_stub_cache = new BrpcStubCache();
     _stream_load_executor = new StreamLoadExecutor(this);
     _routine_load_task_executor = new RoutineLoadTaskExecutor(this);
+    _small_file_mgr = new SmallFileMgr(this, config::small_file_dir);
 
     _backend_client_cache->init_metrics(DorisMetrics::metrics(), "backend");
     _frontend_client_cache->init_metrics(DorisMetrics::metrics(), "frontend");

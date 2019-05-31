@@ -118,7 +118,6 @@ PullLoadTaskMgr::~PullLoadTaskMgr() {
 Status PullLoadTaskMgr::init() {
     auto st = load_task_ctxes();
     if (!st.ok()) {
-        LOG(WARNING) << "Load task from directory failed. because " << st.get_error_msg();
         _dir_exist = false;
     }
     return Status::OK;
