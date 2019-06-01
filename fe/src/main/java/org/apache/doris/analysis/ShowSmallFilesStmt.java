@@ -33,6 +33,7 @@ import com.google.common.base.Strings;
 public class ShowSmallFilesStmt extends ShowStmt {
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
+                    .addColumn(new Column("Id", ScalarType.createVarchar(32)))
                     .addColumn(new Column("DbName", ScalarType.createVarchar(256)))
                     .addColumn(new Column("Catalog", ScalarType.createVarchar(32)))
                     .addColumn(new Column("FileName", ScalarType.createVarchar(16)))

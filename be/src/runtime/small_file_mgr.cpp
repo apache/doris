@@ -150,8 +150,7 @@ Status SmallFileMgr::_download_file(
     auto fp_closer = [] (FILE*fp) { fclose(fp); };
     std::unique_ptr<FILE, decltype(fp_closer)> fp(fopen(tmp_file.c_str(), "w"), fp_closer);
     if (fp == nullptr) {
-        LOG(WARNING) << "fail to open file, file=" << tmp_file
-            << ", error=" << ferror(fp.get());
+        LOG(WARNING) << "fail to open file, file=" << tmp_file;
         return Status("fail to open file");
     }
 

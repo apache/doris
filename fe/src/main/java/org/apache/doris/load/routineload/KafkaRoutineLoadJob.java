@@ -425,7 +425,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         props.put(ConsumerConfig.REQUEST_TIMEOUT_MS_CONFIG, 10000);
         props.put(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, 9000);
         props.put(ConsumerConfig.FETCH_MAX_WAIT_MS_CONFIG, 500);
-        props.put(ConsumerConfig.DEFAULT_API_TIMEOUT_MS_CONFIG, 10000);
+        // props.put(ConsumerConfig.DEFAULT_API_TIMEOUT_MS_CONFIG, 10000);
 
         // set custom properties
         SmallFileMgr smallFileMgr = Catalog.getCurrentCatalog().getSmallFileMgr();

@@ -67,7 +67,7 @@ public class GetSmallFileAction extends RestBaseAction {
 
         long fileId = -1;
         try {
-            fileId = Long.valueOf(fileId);
+            fileId = Long.valueOf(fileIdStr);
         } catch (NumberFormatException e) {
             response.appendContent("Invalid file id format: " + fileIdStr);
             writeResponse(request, response, HttpResponseStatus.BAD_REQUEST);

@@ -53,9 +53,17 @@ Status KafkaDataConsumer::init(StreamLoadContext* ctx) {
 
     std::string errstr;
     auto set_conf = [&conf, &errstr](const std::string& conf_key, const std::string& conf_val) {
-        if (conf->set(conf_key, conf_val, errstr) != RdKafka::Conf::CONF_OK) {
+        RdKafka::Conf::ConfResult res = conf->set(conf_key, conf_val, errstr);
+        if (res == RdKafka::Conf::CONF_UNKNOWN) {
+            // ignore unknown config
+            return Status::OK;
+        } else if (errstr.find("not supported") != std::string::npos) {
+            // some java-only properties may be passed to here, and librdkafak will return 'xxx' not supported
+            // ignore it
+            return Status::OK;
+        } else if (res != RdKafka::Conf::CONF_OK) {
             std::stringstream ss;
-            ss << "PAUSE: failed to set '" << conf_key << "'";
+            ss << "PAUSE: failed to set '" << conf_key << "', value: '" << conf_val << "', err: " << errstr;
             LOG(WARNING) << ss.str();
             return Status(ss.str());
         }
@@ -79,11 +87,16 @@ Status KafkaDataConsumer::init(StreamLoadContext* ctx) {
             std::vector<std::string> parts;
             boost::split(parts, item.second, boost::is_any_of(":"));
             if (parts.size() != 3) {
-                return Status("Invalid file property of kafka: " + item.second);
+                return Status("PAUSE: Invalid file property of kafka: " + item.second);
             }
             int64_t file_id = std::stol(parts[1]);
             std::string file_path;
-            RETURN_IF_ERROR(ctx->exec_env()->small_file_mgr()->get_file(file_id, parts[2], &file_path));
+            Status st = ctx->exec_env()->small_file_mgr()->get_file(file_id, parts[2], &file_path);
+            if (!st.ok()) {
+                std::stringstream ss;
+                ss << "PAUSE: failed to get file for config: " << item.first << ", error: " << st.get_error_msg();
+                return Status(ss.str());
+            }
             RETURN_IF_ERROR(set_conf(item.first, file_path));
         } else {
             RETURN_IF_ERROR(set_conf(item.first, item.second));
@@ -101,8 +114,8 @@ Status KafkaDataConsumer::init(StreamLoadContext* ctx) {
     // create consumer
     _k_consumer = RdKafka::KafkaConsumer::create(conf, errstr); 
     if (!_k_consumer) {
-        LOG(WARNING) << "PAUSE: failed to create kafka consumer";
-        return Status("failed to create kafka consumer");
+        LOG(WARNING) << "PAUSE: failed to create kafka consumer: " << errstr;
+        return Status("PAUSE: failed to create kafka consumer: " + errstr);
     }
 
     VLOG(3) << "finished to init kafka consumer. " << ctx->brief();

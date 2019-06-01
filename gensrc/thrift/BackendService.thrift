@@ -86,6 +86,22 @@ struct TRoutineLoadTask {
     13: optional PaloInternalService.TExecPlanFragmentParams params
 }
 
+struct TKafkaMetaProxyRequest {
+    1: optional TKafkaLoadInfo kafka_info
+}
+
+struct TKafkaMetaProxyResult {
+    1: optional list<i32> partition_ids
+}
+
+struct TProxyRequest {
+    1: optional TKafkaMetaProxyRequest kafka_meta_request;
+}
+
+struct TProxyResult {
+    1: optional TKafkaMetaProxyResult kafka_meta_result;
+}
+
 service BackendService {
     // Called by coord to start asynchronous execution of plan fragment in backend.
     // Returns as soon as all incoming data streams have been set up.
@@ -144,4 +160,6 @@ service BackendService {
     TTabletStatResult get_tablet_stat();
 
     Status.TStatus submit_routine_load_task(1:list<TRoutineLoadTask> tasks);
+    // This is used for getting some information via Backend
+    TProxyResult get_info(1:TProxyRequest request);
 }

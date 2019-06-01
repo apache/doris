@@ -434,6 +434,7 @@ public class SmallFileMgr implements Writable {
                     SmallFiles smallFiles = entry.getValue();
                     for (Map.Entry<String, SmallFile> entry2 : smallFiles.getFiles().entrySet()) {
                         List<String> info = Lists.newArrayList();
+                        info.add(String.valueOf(entry2.getValue().id));
                         info.add(dbName);
                         info.add(entry.getKey()); // catalog
                         info.add(entry2.getKey()); // file name
