@@ -55,6 +55,8 @@ public:
     
     // submit a routine load task
     Status submit_task(const TRoutineLoadTask& task);
+    
+    Status get_kafka_partition_meta(const TKafkaMetaProxyRequest& request, std::vector<int32_t>* partition_ids);
 
 private:
     // execute the task

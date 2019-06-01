@@ -202,7 +202,7 @@ Status KafkaDataConsumer::group_consume(
             case RdKafka::ERR__TIMED_OUT:
                 // leave the status as OK, because this may happend
                 // if there is no data in kafka.
-                LOG(WARNING) << "kafka consume timeout: " << _id;
+                LOG(INFO) << "kafka consume timeout: " << _id;
                 break;
             default:
                 LOG(WARNING) << "kafka consume failed: " << _id
@@ -225,6 +225,66 @@ Status KafkaDataConsumer::group_consume(
             << ", put rows: " << put_rows;
 
     return st;
+}
+
+Status KafkaDataConsumer::get_partition_meta(std::vector<int32_t>* partition_ids) {
+    // create topic conf
+    RdKafka::Conf *tconf = RdKafka::Conf::create(RdKafka::Conf::CONF_TOPIC);
+    auto conf_deleter = [tconf] () { delete tconf; };
+    DeferOp delete_conf(std::bind<void>(conf_deleter));
+
+    // create topic
+    std::string errstr;
+    RdKafka::Topic *topic = RdKafka::Topic::create(_k_consumer, _topic, tconf, errstr);
+    if (!topic) {
+        std::stringstream ss;
+        ss << "failed to create topic: " << errstr;
+        LOG(WARNING) << ss.str();
+        return Status(ss.str());
+    }
+    auto topic_deleter = [topic] () { delete topic; };
+    DeferOp delete_topic(std::bind<void>(topic_deleter));
+
+    // get topic metadata
+    RdKafka::Metadata *metadata;
+    RdKafka::ErrorCode err = _k_consumer->metadata(true/* for this topic */, topic, &metadata, 5000);
+    if (err != RdKafka::ERR_NO_ERROR) {
+        std::stringstream ss;
+        ss << "failed to get partition meta: " << RdKafka::err2str(err);
+        LOG(WARNING) << ss.str();
+        return Status(ss.str());
+    }
+    auto meta_deleter = [metadata] () { delete metadata; };
+    DeferOp delete_meta(std::bind<void>(meta_deleter));
+
+    // get partition ids
+    RdKafka::Metadata::TopicMetadataIterator it;
+    for (it = metadata->topics()->begin(); it != metadata->topics()->end(); ++it) {
+        if ((*it)->topic() != _topic) {
+            continue;
+        }
+        
+        if ((*it)->err() != RdKafka::ERR_NO_ERROR) {
+            std::stringstream ss;
+            ss << "error: " << err2str((*it)->err());
+            if ((*it)->err() == RdKafka::ERR_LEADER_NOT_AVAILABLE) {
+                ss << ", try again";
+            }
+            LOG(WARNING) << ss.str();
+            return Status(ss.str());
+        }
+
+        RdKafka::TopicMetadata::PartitionMetadataIterator ip;
+        for (ip = (*it)->partitions()->begin(); ip != (*it)->partitions()->end(); ++ip) {
+            partition_ids->push_back((*ip)->id());
+        }
+    }
+
+    if (partition_ids->empty()) {
+        return Status("no partition in this topic");
+    }
+
+    return Status::OK;    
 }
 
 Status KafkaDataConsumer::cancel(StreamLoadContext* ctx) {

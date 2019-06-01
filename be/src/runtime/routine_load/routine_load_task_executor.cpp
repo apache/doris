@@ -33,6 +33,28 @@
 
 namespace doris {
 
+Status RoutineLoadTaskExecutor::get_kafka_partition_meta(
+        const TKafkaMetaProxyRequest& request, std::vector<int32_t>* partition_ids) {
+    DCHECK(request.__isset.kafka_info);
+
+    // This context is meaningless, just for unifing the interface
+    StreamLoadContext ctx(_exec_env);
+    ctx.load_type = TLoadType::ROUTINE_LOAD;
+    ctx.load_src_type = TLoadSourceType::KAFKA;
+    ctx.label = "NaN";
+    ctx.kafka_info = new KafkaLoadInfo(request.kafka_info);
+    ctx.need_rollback = false;
+
+    std::shared_ptr<DataConsumer> consumer;
+    RETURN_IF_ERROR(_data_consumer_pool.get_consumer(&ctx, &consumer));
+
+    Status st = std::static_pointer_cast<KafkaDataConsumer>(consumer)->get_partition_meta(partition_ids); 
+    if (st.ok()) {
+        _data_consumer_pool.return_consumer(consumer);
+    }
+    return st;
+}
+
 Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
     std::unique_lock<std::mutex> l(_lock); 
     if (_task_map.find(task.id) != _task_map.end()) {

@@ -245,4 +245,21 @@ void BackendService::submit_routine_load_task(
     return Status::OK.to_thrift(&t_status);
 }
 
+void BackendService::get_info(TProxyResult& result, const TProxyRequest& request) {
+    result.status.status_code = TStatusCode::OK;
+    if (request.__isset.kafka_meta_request) {
+        std::vector<int32_t> partition_ids;
+        Status st = _exec_env->routine_load_task_executor()->get_kafka_partition_meta(request.kafka_meta_request, &partition_ids);
+        if (!st.ok()) {
+            st.to_thrift(&result.status);
+            return;
+        } else {
+            TKafkaMetaProxyResult kafka_result;
+            kafka_result.__set_partition_ids(std::move(partition_ids));
+            result.__set_kafka_meta_result(std::move(kafka_result));
+            return;
+        }
+    }
+}
+
 } // namespace doris

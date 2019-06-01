@@ -142,6 +142,9 @@ public:
     // start the consumer and put msgs to queue
     Status group_consume(BlockingQueue<RdKafka::Message*>* queue, int64_t max_running_time_ms);
 
+    // get the partitions ids of the topic
+    Status get_partition_meta(std::vector<int32_t>* partition_ids);
+
 private:
     std::string _brokers;
     std::string _topic;
