@@ -18,10 +18,9 @@
 #include <gtest/gtest.h>
 #include "runtime/fragment_mgr.h"
 #include "runtime/plan_fragment_executor.h"
-// #include "runtime/mem_limit.hpp"
 #include "runtime/row_batch.h"
 #include "exec/data_sink.h"
-#include "common/configbase.h"
+#include "common/config.h"
 
 namespace doris {
 
@@ -61,6 +60,9 @@ protected:
     virtual void SetUp() {
         s_prepare_status = Status::OK;
         s_open_status = Status::OK;
+        LOG(INFO) << "fragment_pool_thread_num=" << config::fragment_pool_thread_num << ", pool_size=" << config::fragment_pool_queue_size;
+        config::fragment_pool_thread_num = 32;
+        config::fragment_pool_queue_size = 1024;
     }
     virtual void TearDown() {
     }
@@ -79,7 +81,7 @@ TEST_F(FragmentMgrTest, Normal) {
 
 TEST_F(FragmentMgrTest, AddNormal) {
     FragmentMgr mgr(nullptr);
-    for (int i = 0; i < 50; ++i) {
+    for (int i = 0; i < 8; ++i) {
         TExecPlanFragmentParams params;
         params.params.fragment_instance_id = TUniqueId();
         params.params.fragment_instance_id.__set_hi(100 + i);
