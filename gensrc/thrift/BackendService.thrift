@@ -99,7 +99,8 @@ struct TProxyRequest {
 }
 
 struct TProxyResult {
-    1: optional TKafkaMetaProxyResult kafka_meta_result;
+    1: required Status.TStatus status;
+    2: optional TKafkaMetaProxyResult kafka_meta_result;
 }
 
 service BackendService {

@@ -20,6 +20,7 @@ package org.apache.doris.load.routineload;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -35,20 +36,22 @@ import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.SmallFileMgr;
 import org.apache.doris.common.util.SmallFileMgr.SmallFile;
+import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.BackendService;
+import org.apache.doris.thrift.TKafkaLoadInfo;
+import org.apache.doris.thrift.TKafkaMetaProxyRequest;
+import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TProxyRequest;
+import org.apache.doris.thrift.TProxyResult;
+import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.base.Joiner;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 
-import org.apache.kafka.clients.consumer.ConsumerConfig;
-import org.apache.kafka.clients.consumer.KafkaConsumer;
-import org.apache.kafka.common.KafkaException;
-import org.apache.kafka.common.PartitionInfo;
-import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -59,7 +62,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.Properties;
 import java.util.UUID;
 
 /**
@@ -70,24 +72,6 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     private static final Logger LOG = LogManager.getLogger(KafkaRoutineLoadJob.class);
 
     public static final String KAFKA_FILE_CATALOG = "kafka";
-    
-    // kafka SSL properties
-    public static final String KAFKA_SECURITY_PROTOCAL = "security.protocol";
-    public static final String KAFKA_SSL_CA_LOCATION = "ssl.ca.location";
-    public static final String KAFKA_SSL_CERTIFICATE_LOCATION = "ssl.certificate.location";
-    public static final String KAFKA_SSL_KEY_LOCATION = "ssl.key.location";
-    public static final String KAFKA_SSL_KEY_PASSWORD = "ssl.key.password";
-    public static final String KAFKA_SSL_TRUSTSTORE_LOCATION = "ssl.truststore.location";
-    public static final String KAFKA_SSL_TRUSTSTORE_PASSWORD = "ssl.truststore.password";
-    public static final String KAFKA_SSL_KEYSTORE_LOCATION = "ssl.keystore.location";
-    public static final String KAFKA_SSL_KEYSTORE_PASSWORD = "ssl.keystore.password";
-    
-    public static final ImmutableSet<String> KAFKA_FILE_PROPERTIES = ImmutableSet.<String>builder()
-            .add(KAFKA_SSL_CA_LOCATION)
-            .add(KAFKA_SSL_CERTIFICATE_LOCATION)
-            .add(KAFKA_SSL_KEY_LOCATION)
-            .add(KAFKA_SSL_TRUSTSTORE_LOCATION)
-            .add(KAFKA_SSL_KEYSTORE_LOCATION).build();
 
     private String brokerList;
     private String topic;
@@ -98,9 +82,6 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     // kafka properties ，property prefix will be mapped to kafka custom parameters, which can be extended in the future
     private Map<String, String> customKafkaProperties = Maps.newHashMap();
     private Map<String, String> convertedCustomProperties = Maps.newHashMap();
-
-    // this is the kafka consumer which is used to fetch the number of partitions
-    private KafkaConsumer<String, String> consumer;
 
     public KafkaRoutineLoadJob() {
         // for serialization, id is dummy
@@ -138,6 +119,9 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     }
 
     private void convertCustomProperties() throws DdlException {
+        if (!convertedCustomProperties.isEmpty() || customKafkaProperties.isEmpty()) {
+            return;
+        }
         SmallFileMgr smallFileMgr = Catalog.getCurrentCatalog().getSmallFileMgr();
         for (Map.Entry<String, String> entry : customKafkaProperties.entrySet()) {
             if (entry.getValue().startsWith("FILE:")) {
@@ -329,18 +313,46 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     }
 
     private List<Integer> getAllKafkaPartitions() throws UserException {
-        setConsumer();
-        List<Integer> result = new ArrayList<>();
+        convertCustomProperties();
+        BackendService.Client client = null;
+        TNetworkAddress address = null;
+        boolean ok = false;
         try {
-            List<PartitionInfo> partitionList = consumer.partitionsFor(topic);
-            for (PartitionInfo partitionInfo : partitionList) {
-                result.add(partitionInfo.partition());
+            List<Long> backendIds = Catalog.getCurrentSystemInfo().getBackendIds(true);
+            if (backendIds.isEmpty()) {
+                throw new LoadException("Failed to get all partitions. No alive backends");
             }
-            LOG.debug("get all kafka partitions for topic: {}. {}, job: {}", topic, result, id);
+            Collections.shuffle(backendIds);
+            Backend be = Catalog.getCurrentSystemInfo().getBackend(backendIds.get(0));
+            address = new TNetworkAddress(be.getHost(), be.getBePort());
+            client = ClientPool.backendPool.borrowObject(address);
+            
+            TProxyRequest request = new TProxyRequest();
+            TKafkaMetaProxyRequest kafkaRequest = new TKafkaMetaProxyRequest();
+            TKafkaLoadInfo loadInfo = new TKafkaLoadInfo(brokerList, topic, Maps.newHashMap());
+            loadInfo.setProperties(convertedCustomProperties);
+            kafkaRequest.setKafka_info(loadInfo);
+            request.setKafka_meta_request(kafkaRequest);
+            
+            TProxyResult res = client.get_info(request);
+            ok = true;
+
+            if (res.getStatus().getStatus_code() != TStatusCode.OK) {
+                throw new LoadException("Failed to get all partitions of kafka topic: " + topic + ". error: "
+                        + res.getStatus().getError_msgs());
+            }
+
+            return res.getKafka_meta_result().getPartition_ids();
         } catch (Exception e) {
-            throw new LoadException("failed to get partitions for topic: " + topic + ". " + e.getMessage());
+            LOG.warn("failed to get partitions.", e);
+            throw new LoadException("Failed to get all partitions of kafka topic: " + topic + ". error: " + e.getMessage());
+        } finally {
+            if (ok) {
+                ClientPool.backendPool.returnObject(address, client);
+            } else {
+                ClientPool.backendPool.invalidateObject(address, client);
+            }
         }
-        return result;
     }
 
     public static KafkaRoutineLoadJob fromCreateStmt(CreateRoutineLoadStmt stmt) throws UserException {
@@ -365,7 +377,6 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 db.getClusterName(), db.getId(), tableId, stmt.getKafkaBrokerList(), stmt.getKafkaTopic());
         kafkaRoutineLoadJob.setOptional(stmt);
         kafkaRoutineLoadJob.checkCustomProperties();
-        kafkaRoutineLoadJob.setConsumer();
         kafkaRoutineLoadJob.checkCustomPartition();
 
         return kafkaRoutineLoadJob;
@@ -408,47 +419,6 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                                       .add("msg", "The new partition has been added in job"));
                 }
             }
-        }
-    }
-
-    public void setConsumer() throws UserException {
-        if (consumer != null) {
-            return;
-        }
-
-        Properties props = new Properties();
-        props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, this.brokerList);
-        props.put(ConsumerConfig.GROUP_ID_CONFIG, UUID.randomUUID().toString());
-        props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
-        props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
-        // REQUEST_TIMEOUT_MS_CONFIG is required to be larger than SESSION_TIMEOUT_MS_CONFIG and FETCH_MAX_WAIT_MS_CONFIG
-        props.put(ConsumerConfig.REQUEST_TIMEOUT_MS_CONFIG, 10000);
-        props.put(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, 9000);
-        props.put(ConsumerConfig.FETCH_MAX_WAIT_MS_CONFIG, 500);
-        // props.put(ConsumerConfig.DEFAULT_API_TIMEOUT_MS_CONFIG, 10000);
-
-        // set custom properties
-        SmallFileMgr smallFileMgr = Catalog.getCurrentCatalog().getSmallFileMgr();
-        for (Map.Entry<String, String> entry : customKafkaProperties.entrySet()) {
-            if (entry.getValue().startsWith("FILE:")) {
-                String file = entry.getValue().substring(entry.getValue().indexOf(":") + 1);
-                String filePath = smallFileMgr.saveToFile(dbId, KAFKA_FILE_CATALOG, file);
-                props.put(entry.getKey(), filePath);
-            } else if (entry.getKey().equals(KAFKA_SSL_KEY_PASSWORD)) {
-                // change the KAFKA_SSL_KEY_PASSWORD -> KAFKA_SSL_KEYSTORE_PASSWORD
-                // KAFKA_SSL_KEY_PASSWORD is for librdkafka,
-                // KAFKA_SSL_KEYSTORE_PASSWORD is for kafka java client
-                props.put(KAFKA_SSL_KEYSTORE_PASSWORD, entry.getValue());
-            } else {
-                props.put(entry.getKey(), entry.getValue());
-            }
-        }
-
-        try {
-            consumer = new KafkaConsumer<>(props);
-        } catch (KafkaException e) {
-            LOG.warn("failed to construct kafka consumer. job: {}", id, e);
-            throw new DdlException(e.getMessage() + ", cause: " + e.getCause().getMessage());
         }
     }
 
