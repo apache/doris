@@ -31,7 +31,6 @@ import org.apache.doris.thrift.TResourceInfo;
 
 import com.google.common.collect.Lists;
 
-import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -53,8 +52,7 @@ public class RoutineLoadSchedulerTest {
     TResourceInfo tResourceInfo;
 
     @Test
-    public void testNormalRunOneCycle(@Mocked KafkaConsumer consumer,
-                                      @Mocked Catalog catalog,
+    public void testNormalRunOneCycle(@Mocked Catalog catalog,
                                       @Injectable RoutineLoadManager routineLoadManager,
                                       @Injectable SystemInfoService systemInfoService,
                                       @Injectable Database database,
@@ -81,7 +79,6 @@ public class RoutineLoadSchedulerTest {
 
         Deencapsulation.setField(kafkaRoutineLoadJob, "customKafkaPartitions", partitions);
         Deencapsulation.setField(kafkaRoutineLoadJob, "desireTaskConcurrentNum", 3);
-        Deencapsulation.setField(kafkaRoutineLoadJob, "consumer", consumer);
 
         new Expectations() {
             {

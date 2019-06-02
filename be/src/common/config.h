@@ -413,7 +413,7 @@ namespace config {
     CONF_Int32(max_client_cache_size_per_host, "10");
 
     // Dir to save files downloaded by SmallFileMgr
-    CONF_String(small_file_dir, "${DORIS_HOME}/data/small_file/");
+    CONF_String(small_file_dir, "${DORIS_HOME}/lib/small_file/");
 } // namespace config
 
 } // namespace doris

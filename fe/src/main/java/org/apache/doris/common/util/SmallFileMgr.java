@@ -227,11 +227,11 @@ public class SmallFileMgr implements Writable {
         }
     }
 
-    public void removeFile(long dbId, String catalog, String fileName, boolean isReplay) {
+    public void removeFile(long dbId, String catalog, String fileName, boolean isReplay) throws DdlException {
         synchronized (files) {
             SmallFiles smallFiles = files.get(dbId, catalog);
             if (smallFiles == null) {
-                return;
+                throw new DdlException("No such file in catalog: " + catalog);
             }
             SmallFile smallFile = smallFiles.removeFile(fileName);
             if (smallFile != null) {
@@ -244,12 +244,18 @@ public class SmallFileMgr implements Writable {
 
                 LOG.info("finished to remove file {}. current file number: {}. is replay: {}",
                         fileName, idToFiles.size(), isReplay);
+            } else {
+                throw new DdlException("No such file: " + fileName);
             }
         }
     }
 
     public void replayRemoveFile(SmallFileInfo info) {
-        removeFile(info.dbId, info.catalogName, info.fileName, true);
+        try {
+            removeFile(info.dbId, info.catalogName, info.fileName, true);
+        } catch (DdlException e) {
+            LOG.error("should not happen", e);
+        }
     }
 
     public boolean containsFile(long dbId, String catalog, String fileName) {

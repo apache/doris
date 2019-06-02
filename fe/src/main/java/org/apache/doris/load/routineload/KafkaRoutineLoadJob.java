@@ -20,7 +20,6 @@ package org.apache.doris.load.routineload;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -32,19 +31,12 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.KafkaUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.SmallFileMgr;
 import org.apache.doris.common.util.SmallFileMgr.SmallFile;
-import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
-import org.apache.doris.thrift.BackendService;
-import org.apache.doris.thrift.TKafkaLoadInfo;
-import org.apache.doris.thrift.TKafkaMetaProxyRequest;
-import org.apache.doris.thrift.TNetworkAddress;
-import org.apache.doris.thrift.TProxyRequest;
-import org.apache.doris.thrift.TProxyResult;
-import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
@@ -314,45 +306,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     private List<Integer> getAllKafkaPartitions() throws UserException {
         convertCustomProperties();
-        BackendService.Client client = null;
-        TNetworkAddress address = null;
-        boolean ok = false;
-        try {
-            List<Long> backendIds = Catalog.getCurrentSystemInfo().getBackendIds(true);
-            if (backendIds.isEmpty()) {
-                throw new LoadException("Failed to get all partitions. No alive backends");
-            }
-            Collections.shuffle(backendIds);
-            Backend be = Catalog.getCurrentSystemInfo().getBackend(backendIds.get(0));
-            address = new TNetworkAddress(be.getHost(), be.getBePort());
-            client = ClientPool.backendPool.borrowObject(address);
-            
-            TProxyRequest request = new TProxyRequest();
-            TKafkaMetaProxyRequest kafkaRequest = new TKafkaMetaProxyRequest();
-            TKafkaLoadInfo loadInfo = new TKafkaLoadInfo(brokerList, topic, Maps.newHashMap());
-            loadInfo.setProperties(convertedCustomProperties);
-            kafkaRequest.setKafka_info(loadInfo);
-            request.setKafka_meta_request(kafkaRequest);
-            
-            TProxyResult res = client.get_info(request);
-            ok = true;
-
-            if (res.getStatus().getStatus_code() != TStatusCode.OK) {
-                throw new LoadException("Failed to get all partitions of kafka topic: " + topic + ". error: "
-                        + res.getStatus().getError_msgs());
-            }
-
-            return res.getKafka_meta_result().getPartition_ids();
-        } catch (Exception e) {
-            LOG.warn("failed to get partitions.", e);
-            throw new LoadException("Failed to get all partitions of kafka topic: " + topic + ". error: " + e.getMessage());
-        } finally {
-            if (ok) {
-                ClientPool.backendPool.returnObject(address, client);
-            } else {
-                ClientPool.backendPool.invalidateObject(address, client);
-            }
-        }
+        return KafkaUtil.getAllKafkaPartitions(brokerList, topic, customKafkaProperties);
     }
 
     public static KafkaRoutineLoadJob fromCreateStmt(CreateRoutineLoadStmt stmt) throws UserException {
