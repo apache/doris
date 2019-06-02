@@ -17,7 +17,6 @@
 
 package org.apache.doris.load;
 
-import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CancelLoadStmt;
 import org.apache.doris.analysis.ColumnSeparator;
@@ -31,6 +30,7 @@ import org.apache.doris.analysis.Predicate;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.backup.BlobStorage;
 import org.apache.doris.backup.Status;
+import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -1182,19 +1182,24 @@ public class Load {
         }
 
         // cancel job
-        if (!cancelLoadJob(job, CancelType.USER_CANCEL, "user cancel")) {
-            throw new DdlException("Cancel load job fail");
+        List<String> failedMsg = Lists.newArrayList();
+        if (!cancelLoadJob(job, CancelType.USER_CANCEL, "user cancel", failedMsg)) {
+            throw new DdlException("Cancel load job fail: " + (failedMsg.isEmpty() ? "Unknown reason" : failedMsg.get(0)));
         }
 
         return true;
     }
 
     public boolean cancelLoadJob(LoadJob job, CancelType cancelType, String msg) {
+        return cancelLoadJob(job, cancelType, msg, null);
+    }
+
+    public boolean cancelLoadJob(LoadJob job, CancelType cancelType, String msg, List<String> failedMsg) {
         // update job to cancelled
         LOG.info("try to cancel load job: {}", job);
         JobState srcState = job.getState();
-        if (!updateLoadJobState(job, JobState.CANCELLED, cancelType, msg)) {
-            LOG.warn("cancel load job failed. job: {}", job, new Exception());
+        if (!updateLoadJobState(job, JobState.CANCELLED, cancelType, msg, failedMsg)) {
+            LOG.warn("cancel load job failed. job: {}", job);
             return false;
         }
 
@@ -2243,10 +2248,11 @@ public class Load {
     }
 
     public boolean updateLoadJobState(LoadJob job, JobState destState) {
-        return updateLoadJobState(job, destState, CancelType.UNKNOWN, null);
+        return updateLoadJobState(job, destState, CancelType.UNKNOWN, null, null);
     }
 
-    public boolean updateLoadJobState(LoadJob job, JobState destState, CancelType cancelType, String msg) {
+    public boolean updateLoadJobState(LoadJob job, JobState destState, CancelType cancelType, String msg,
+            List<String> failedMsg) {
         boolean result = true;
         JobState srcState = null;
 
@@ -2262,7 +2268,7 @@ public class Load {
             try {
                 // sometimes db is dropped and then cancel the job, the job must have transactionid
                 // transaction state should only be dropped when job is dropped
-                processCancelled(job, cancelType, errMsg);
+                processCancelled(job, cancelType, errMsg, failedMsg);
             } finally {
                 writeUnlock();
             }
@@ -2307,7 +2313,7 @@ public class Load {
                                 Catalog.getInstance().getEditLog().logLoadQuorum(job);
                             } else {
                                 errMsg = "process loading finished fail";
-                                processCancelled(job, cancelType, errMsg);
+                            processCancelled(job, cancelType, errMsg, failedMsg);
                             }
                             break;
                         case FINISHED:
@@ -2348,7 +2354,7 @@ public class Load {
                             Catalog.getInstance().getEditLog().logLoadDone(job);
                             break;
                         case CANCELLED:
-                            processCancelled(job, cancelType, errMsg);
+                        processCancelled(job, cancelType, errMsg, failedMsg);
                             break;
                         default:
                             Preconditions.checkState(false, "wrong job state: " + destState.name());
@@ -2452,7 +2458,7 @@ public class Load {
                  version, versionHash, jobId, partitionId);
     }
 
-    private boolean processCancelled(LoadJob job, CancelType cancelType, String msg) {
+    private boolean processCancelled(LoadJob job, CancelType cancelType, String msg, List<String> failedMsg) {
         long jobId = job.getId();
         JobState srcState = job.getState();
         CancelType tmpCancelType = CancelType.UNKNOWN;
@@ -2464,6 +2470,9 @@ public class Load {
                     job.getFailMsg().toString());
         } catch (Exception e) {
             LOG.info("errors while abort transaction", e);
+            if (failedMsg != null) {
+                failedMsg.add("Abort tranaction failed: " + e.getMessage());
+            }
             return false;
         }
         switch (srcState) {
