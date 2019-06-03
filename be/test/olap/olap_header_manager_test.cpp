@@ -19,21 +19,19 @@
 #include <sstream>
 #include <fstream>
 
-#include "gtest/gtest.h"
-#include "gmock/gmock.h"
+#include <gtest/gtest.h>
+#include <boost/filesystem.hpp>
+#include <json2pb/json_to_pb.h>
+
 #include "olap/store.h"
 #include "olap/olap_header_manager.h"
 #include "olap/olap_define.h"
-#include "boost/filesystem.hpp"
-#include "json2pb/json_to_pb.h"
+#include "util/file_utils.h"
 
 #ifndef BE_TEST
 #define BE_TEST
 #endif
 
-using ::testing::_;
-using ::testing::Return;
-using ::testing::SetArgPointee;
 using std::string;
 
 namespace doris {
@@ -44,6 +42,7 @@ class OlapHeaderManagerTest : public testing::Test {
 public:
     virtual void SetUp() {
         std::string root_path = "./store";
+        FileUtils::remove_all(root_path);
         ASSERT_TRUE(boost::filesystem::create_directory(root_path));
         _store = new(std::nothrow) OlapStore(root_path);
         ASSERT_NE(nullptr, _store);
