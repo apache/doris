@@ -419,6 +419,11 @@ namespace config {
     // same cache size configuration.
     // TODO(cmy): use different config to set different client cache if necessary.
     CONF_Int32(max_client_cache_size_per_host, "10");
+
+    // This config is used to strict the incorrect data when loading. 
+    // If it is set to true, the incorrect data from file will be filtered
+    // If it is set to false, the incorrect data will be loaded and is set to NULL.
+    CONF_Bool(enable_load_strict, "true");
 } // namespace config
 
 } // namespace doris

@@ -586,8 +586,8 @@ bool BrokerScanner::fill_dest_tuple(const Slice& line, Tuple* dest_tuple, MemPoo
         }
 
         ExprContext* ctx = _dest_expr_ctx[ctx_idx++];
-        void* value = ctx->get_value(_src_tuple_row);
-        if (value == nullptr) {
+        // if src slot is null
+        if (_src_tuple_row->get_tuple(0)->is_null(slot_desc->null_indicator_offset())) {
             if (slot_desc->is_nullable()) {
                 dest_tuple->set_null(slot_desc->null_indicator_offset());
                 continue;
@@ -600,9 +600,27 @@ bool BrokerScanner::fill_dest_tuple(const Slice& line, Tuple* dest_tuple, MemPoo
                 return false;
             }
         }
-        dest_tuple->set_not_null(slot_desc->null_indicator_offset());
-        void* slot = dest_tuple->get_slot(slot_desc->tuple_offset());
-        RawValue::write(value, slot, slot_desc->type(), mem_pool);
+        // if src slot is not null
+        else {
+            void* value = ctx->get_value(_src_tuple_row);
+            // current slot is a incorrect data
+            if ((value == nullptr) && (config::enable_load_strict)) {
+                std::stringstream error_msg;
+                error_msg << "column(" << slot_desc->col_name() << ") value is incorrect";
+                _state->append_error_msg_to_file(
+                    std::string(line.data, line.size), error_msg.str());
+                _counter->num_rows_filtered++;
+                return false;
+            }
+            else if (value == nullptr) {
+                dest_tuple->set_null(slot_desc->null_indicator_offset());
+                continue;
+            }
+            dest_tuple->set_not_null(slot_desc->null_indicator_offset());
+            void* slot = dest_tuple->get_slot(slot_desc->tuple_offset());
+            RawValue::write(value, slot, slot_desc->type(), mem_pool);
+        }
+
     }
     return true;
 }
