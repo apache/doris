@@ -1,0 +1,82 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#ifndef DORIS_BE_SRC_OLAP_ROWSET_DFILE_PAGE_DECODER_H
+#define DORIS_BE_SRC_OLAP_ROWSET_DFILE_PAGE_DECODER_H
+
+#include "runtime/vectorized_row_batch.h"
+
+namespace doris {
+
+namespace dfile {
+
+class PageDecoder {
+public:
+    virtual ~PageDecoder() { }
+
+    // Call this to do some preparation for decoder.
+    // eg: parse data block header
+    virtual bool init() = 0;
+
+    // Seek the decoder to the given positional index of the page.
+    // For example, seek_to_position_in_block(0) seeks to the first
+    // stored entry.
+    //
+    // It is an error to call this with a value larger than Count().
+    // Doing so has undefined results.
+    virtual void seek_to_position_in_block(size_t pos) = 0;
+
+    // Seek the decoder forward by a given number of rows, or to the end
+    // of the page. This is primarily used to skip over data.
+    //
+    // Return the step skipped.
+    virtual size_t seek_forward(size_t n) {
+        size_t step = std::min(n, count() - current_index());
+        DCHECK_GE(step, 0);
+        seek_to_position_in_block(current_index() + step);
+        return step;
+    }
+
+    // Fetch the next vector of values from the page into 'dst'.
+    // The output vector must have space for up to n cells.
+    //
+    // return the size of entries.
+    //
+    // In the case that the values are themselves references
+    // to other memory (eg Slices), the referred-to memory is
+    // allocated in the dst column vector's arena.
+    virtual size_t next_vector(const size_t n, ColumnVector *dst) = 0;
+
+    // Return the number of elements in this page.
+    virtual size_t count() const = 0;
+
+    // Return the position within the page of the currently seeked
+    // entry (ie the entry that will next be returned by next_vector())
+    virtual size_t current_index() const = 0;
+
+    // Return the first rowid stored in this page.
+    virtual rowid_t get_first_rowid() const = 0;
+
+private:
+    DISALLOW_COPY_AND_ASSIGN(PageDecoder);
+};
+
+}  // namespace dfile
+
+}  // namespace doris
+
+#endif // DORIS_BE_SRC_OLAP_ROWSET_DFILE_PAGE_DECODER_H
