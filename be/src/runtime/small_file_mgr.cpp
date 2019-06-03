@@ -147,7 +147,12 @@ Status SmallFileMgr::_download_file(
     std::stringstream ss;
     ss << _local_path << "/" << file_id << ".tmp";
     std::string tmp_file = ss.str();
-    auto fp_closer = [] (FILE*fp) { fclose(fp); };
+    bool should_delete = true;
+    auto fp_closer = [&tmp_file, &should_delete] (FILE* fp) {
+        fclose(fp);
+        if (should_delete) remove(tmp_file.c_str());
+    };
+
     std::unique_ptr<FILE, decltype(fp_closer)> fp(fopen(tmp_file.c_str(), "w"), fp_closer);
     if (fp == nullptr) {
         LOG(WARNING) << "fail to open file, file=" << tmp_file;
@@ -155,10 +160,16 @@ Status SmallFileMgr::_download_file(
     }
 
     HttpClient client;
-    TMasterInfo* master_info = _exec_env->master_info();
+
     std::stringstream url_ss;
+#ifndef BE_TEST
+    TMasterInfo* master_info = _exec_env->master_info();
     url_ss << master_info->network_address.hostname << ":" << master_info->http_port << "/api/get_small_file?"
         << "file_id=" << file_id << "&token=" << master_info->token;
+#else
+    url_ss << "127.0.0.1:29997/api/get_small_file?file_id=" << file_id;
+#endif
+
     std::string url = url_ss.str();
 
     LOG(INFO) << "download file from: " << url;
@@ -180,12 +191,15 @@ Status SmallFileMgr::_download_file(
     RETURN_IF_ERROR(client.execute(download_cb));
     RETURN_IF_ERROR(status);
     digest.digest();
+
     if (!boost::iequals(digest.hex(), md5)) {
         LOG(WARNING) << "file's checksum is not equal, download: " << digest.hex()
-            << ", expected" << md5 << ", file: " << file_id;
+            << ", expected: " << md5 << ", file: " << file_id;
         return Status("download with invalid md5");
     }
+
     // close this file
+    should_delete = false;
     fp.reset();
 
     // rename temporary file to library file
@@ -197,6 +211,8 @@ Status SmallFileMgr::_download_file(
         char buf[64];
         LOG(WARNING) << "fail to rename file from=" << tmp_file << ", to=" << real_file_path
             << ", errno=" << errno << ", errmsg=" << strerror_r(errno, buf, 64);
+        remove(tmp_file.c_str());
+        remove(real_file_path.c_str());
         return Status("fail to rename file");
     }
 
