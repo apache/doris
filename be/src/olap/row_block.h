@@ -34,17 +34,14 @@ namespace doris {
 class ExprContext;
 
 struct RowBlockInfo {
-    RowBlockInfo() : checksum(0), row_num(0), unpacked_len(0) {}
-    RowBlockInfo(uint32_t value, uint32_t num, uint32_t unpacked_length) :
-            checksum(value),
-            row_num(num),
-            unpacked_len(unpacked_length) {}
+    RowBlockInfo() : checksum(0), row_num(0) { }
+    RowBlockInfo(uint32_t value, uint32_t num) : checksum(value), row_num(num) { }
 
     uint32_t checksum;
     uint32_t row_num;       // block最大数据行数
-    uint32_t unpacked_len;
     DataFileType data_file_type;
     bool null_supported;
+    std::vector<uint32_t> column_ids;
 };
 
 // 一般由256或512行组成一个RowBlock。
@@ -69,17 +66,6 @@ public:
     // 在field都为定长的情况下根据这两个值可以确定RowBlock内部buffer的大小，
     // 目前只考虑定长，因此在函数可以分配内存资源。
     OLAPStatus init(const RowBlockInfo& block_info);
-
-    // serialize memory content to row format
-    OLAPStatus serialize_to_row_format(char* dest_buffer,
-                                       size_t dest_len,
-                                       size_t* written_len,
-                                       OLAPCompressionType compression_type);
-
-    // 将外部buffer中的压缩数据解压到本地的buffer, 如果里面已经有数据了，则覆盖。
-    OLAPStatus decompress(const char* src_buffer,
-                          size_t src_len,
-                          OLAPCompressionType compression_type);
 
     inline void get_row(uint32_t row_index, RowCursor* cursor) const {
         cursor->attach(_mem_buf + row_index * _mem_row_bytes);
@@ -106,7 +92,6 @@ public:
     const uint32_t row_num() const { return _info.row_num; }
     const RowBlockInfo& row_block_info() const { return _info; }
     const std::vector<FieldInfo>& tablet_schema() const { return _tablet_schema; }
-    size_t buf_len() const { return _storage_buf_bytes; }
 
     size_t capacity() const { return _capacity; }
 
@@ -176,14 +161,6 @@ private:
     // Compute layout for storage buffer and  memory buffer
     void _compute_layout();
 
-    bool _check_memory_limit(size_t buf_len) const;
-
-    // Fill memory buffer from decompressed buffer, used in decompress function
-    void _convert_storage_to_memory();
-
-    // Fill storage buffer from memory buffer, prepare formated data to save in storage
-    void _convert_memory_to_storage(uint32_t row_num);
-
     uint32_t _capacity;
     RowBlockInfo _info;
     const std::vector<FieldInfo>& _tablet_schema;     // 内部保存的schema句柄
@@ -206,18 +183,6 @@ private:
 
     // Data in storage will be construct of two parts: fixed-length field stored in ahead
     // of buffer; content of variable length field(Varchar/HLL) are stored after first part
-
-    // used to save data which will read from/wirte to storage.
-    // when compress, data in _mem_buf will be converted to format in storage here
-    // when decompress, compressed data is decompressed here, then covert to _mem_buf
-    char* _storage_buf = nullptr;
-    // Size of _storage_buf
-    size_t _storage_buf_bytes = 0;
-    // size of storage row's fixed part
-    size_t _storage_row_fixed_bytes = 0;
-    // Used size. when convert memory buffer to storage buffer, because not all values of
-    // varchar field are max length
-    size_t _storage_buf_used_bytes = 0;
 
     // only used for SegmentReader to covert VectorizedRowBatch to RowBlock
     // Be careful to use this
