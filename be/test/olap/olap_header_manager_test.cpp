@@ -41,14 +41,14 @@ const std::string header_path = "./be/test/olap/test_data/header.txt";
 class OlapHeaderManagerTest : public testing::Test {
 public:
     virtual void SetUp() {
-        std::string root_path = "./store";
-        FileUtils::remove_all(root_path);
-        ASSERT_TRUE(boost::filesystem::create_directory(root_path));
-        _store = new(std::nothrow) OlapStore(root_path);
+        _root_path = "./ut_dir/olap_header_mgr_test";
+        FileUtils::remove_all(_root_path);
+        FileUtils::create_dir(_root_path);
+        _store = new(std::nothrow) OlapStore(_root_path);
         ASSERT_NE(nullptr, _store);
         Status st = _store->load();
         ASSERT_TRUE(st.ok());
-        ASSERT_TRUE(boost::filesystem::exists("./store/meta"));
+        ASSERT_TRUE(boost::filesystem::exists(_root_path + "/meta"));
 
         std::ifstream infile(header_path);
         char buffer[1024];
@@ -63,10 +63,11 @@ public:
 
     virtual void TearDown() {
         delete _store;
-        ASSERT_TRUE(boost::filesystem::remove_all("./store"));
+        ASSERT_TRUE(boost::filesystem::remove_all(_root_path));
     }
 
 private:
+    std::string _root_path;
     OlapStore* _store;
     std::string _json_header;
 };

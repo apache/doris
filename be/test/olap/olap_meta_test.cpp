@@ -18,19 +18,17 @@
 #include <string>
 #include <sstream>
 
-#include "gtest/gtest.h"
-#include "gmock/gmock.h"
+#include <gtest/gtest.h>
+#include <boost/filesystem.hpp>
+
 #include "olap/olap_meta.h"
 #include "olap/olap_define.h"
-#include "boost/filesystem.hpp"
+#include "util/file_utils.h"
 
 #ifndef BE_TEST
 #define BE_TEST
 #endif
 
-using ::testing::_;
-using ::testing::Return;
-using ::testing::SetArgPointee;
 using std::string;
 
 namespace doris {
@@ -38,25 +36,29 @@ namespace doris {
 class OlapMetaTest : public testing::Test {
 public:
     virtual void SetUp() {
-        std::string root_path = "./";
-        _meta = new OlapMeta(root_path);
+        _root_path = "./ut_dir/olap_meta_test";
+        FileUtils::remove_all(_root_path);
+        FileUtils::create_dir(_root_path);
+
+        _meta = new OlapMeta(_root_path);
         OLAPStatus s = _meta->init();
         ASSERT_EQ(OLAP_SUCCESS, s);
-        ASSERT_TRUE(boost::filesystem::exists("./meta"));
+        ASSERT_TRUE(boost::filesystem::exists(_root_path + "/meta"));
     }
 
     virtual void TearDown() {
         delete _meta;
-        ASSERT_TRUE(boost::filesystem::remove_all("./meta"));
+        FileUtils::remove_all(_root_path);
     }
 
 private:
+    std::string _root_path;
     OlapMeta* _meta;
 };
 
 TEST_F(OlapMetaTest, TestGetRootPath) {
     std::string root_path = _meta->get_root_path();
-    ASSERT_EQ("./", root_path);
+    ASSERT_EQ("./ut_dir/olap_meta_test", root_path);
 }
 
 TEST_F(OlapMetaTest, TestPutAndGet) {

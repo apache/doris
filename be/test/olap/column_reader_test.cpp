@@ -130,10 +130,11 @@ public:
         
         ASSERT_TRUE(_column_reader != NULL);
 
-        system("rm ./tmp_file");
+        system("mkdir -p ./ut_dir");
+        system("rm ./ut_dir/tmp_file");
 
         ASSERT_EQ(OLAP_SUCCESS, 
-                  helper.open_with_mode("tmp_file", 
+                  helper.open_with_mode("./ut_dir/tmp_file", 
                                         O_CREAT | O_EXCL | O_WRONLY, 
                                         S_IRUSR | S_IWUSR));
         std::vector<int> off;
@@ -177,7 +178,7 @@ public:
         }
         helper.close();
 
-        ASSERT_EQ(OLAP_SUCCESS, helper.open_with_mode("tmp_file", 
+        ASSERT_EQ(OLAP_SUCCESS, helper.open_with_mode("./ut_dir/tmp_file", 
                 O_RDONLY, S_IRUSR | S_IWUSR)); 
 
         _shared_buffer = StorageByteBuffer::create(
