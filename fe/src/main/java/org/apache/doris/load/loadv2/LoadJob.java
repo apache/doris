@@ -662,6 +662,24 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         }
     }
 
+    public boolean equals(Object obj) {
+        if (obj == this) {
+            return true;
+        }
+
+        if (obj == null || getClass() != obj.getClass()) {
+            return false;
+        }
+
+        LoadJob other = (LoadJob) obj;
+
+        return this.id == other.id
+        && this.dbId == other.dbId
+        && this.label.equals(other.label)
+        && this.state.equals(other.state)
+        && this.jobType.equals(other.jobType);
+    }
+
     @Override
     public void write(DataOutput out) throws IOException {
         // Add the type of load secondly
