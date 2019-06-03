@@ -130,6 +130,7 @@ private:
 
     char _value_separator;
     char _line_delimiter;
+    bool _strict_mode;
 
     // Reader
     FileReader* _cur_file_reader;
@@ -158,6 +159,7 @@ private:
     // Dest tuple descriptor and dest expr context
     const TupleDescriptor* _dest_tuple_desc;
     std::vector<ExprContext*> _dest_expr_ctx;
+    std::vector<bool> _has_expr_columns;
 
     // used to hold current StreamLoadPipe
     std::shared_ptr<StreamLoadPipe> _stream_load_pipe;

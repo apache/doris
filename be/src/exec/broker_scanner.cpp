@@ -148,6 +148,15 @@ Status BrokerScanner::open() {
     _rows_read_counter = ADD_COUNTER(_profile, "RowsRead", TUnit::UNIT);
     _read_timer = ADD_TIMER(_profile, "TotalRawReadTime(*)");
     _materialize_timer = ADD_TIMER(_profile, "MaterializeTupleTime(*)");
+    if (_params.__isset.strict_mode) {
+        _strict_mode = _params.strict_mode;
+    }
+    if (_strict_mode && !_params.__isset.has_expr_column_list) {
+        return Status("Expr column list must be set in strict mode");
+    }
+    if (_params.__isset.has_expr_column_list) {
+        _has_expr_columns = _params.has_expr_column_list;
+    }
 
     return Status::OK;
 }
@@ -585,21 +594,55 @@ bool BrokerScanner::fill_dest_tuple(const Slice& line, Tuple* dest_tuple, MemPoo
             continue;
         }
 
-        ExprContext* ctx = _dest_expr_ctx[ctx_idx++];
+        ExprContext* ctx = _dest_expr_ctx[ctx_idx];
         void* value = ctx->get_value(_src_tuple_row);
-        if (value == nullptr) {
+        // if not in strict mode or ctx is a column function expr     
+        if (!_strict_mode || _has_expr_columns[ctx_idx++]) {
+            if (value == nullptr && !slot_desc->is_nullable()) {
+                 std::stringstream error_msg;
+                error_msg << "column(" << slot_desc->col_name() << ") value is null "
+                          << "while columns is not nullable";
+                _state->append_error_msg_to_file(
+                    std::string(line.data, line.size), error_msg.str());
+                _counter->num_rows_filtered++;
+               return false;
+            }
+            if (value == nullptr) {
+                dest_tuple->set_null(slot_desc->null_indicator_offset());
+                continue;
+            }
+            dest_tuple->set_not_null(slot_desc->null_indicator_offset());
+            void* slot = dest_tuple->get_slot(slot_desc->tuple_offset());
+            RawValue::write(value, slot, slot_desc->type(), mem_pool);
+            continue;
+        }
+        // In strict mode, if ctx is a slot cast expr and src column is null
+        if (_src_tuple_row->get_tuple(0)->is_null(slot_desc->null_indicator_offset())) {
             if (slot_desc->is_nullable()) {
                 dest_tuple->set_null(slot_desc->null_indicator_offset());
                 continue;
             } else {
                 std::stringstream error_msg;
-                error_msg << "column(" << slot_desc->col_name() << ") value is null";
+                error_msg << "column(" << slot_desc->col_name() << ") value is null "
+                          << "while columns is not nullable";
                 _state->append_error_msg_to_file(
                     std::string(line.data, line.size), error_msg.str());
                 _counter->num_rows_filtered++;
                 return false;
             }
         }
+        // In strict mode, src column is a incorrect data when value is null
+        // src line will be filtered
+        if (value == nullptr) {
+            std::stringstream error_msg;
+            error_msg << "column(" << slot_desc->col_name() << ") value is incorrect "
+                      << "while strict mode is " << std::boolalpha << _strict_mode;
+            _state->append_error_msg_to_file(
+                std::string(line.data, line.size), error_msg.str());
+            _counter->num_rows_filtered++;
+            return false;
+        }
+        // value will be loaded 
         dest_tuple->set_not_null(slot_desc->null_indicator_offset());
         void* slot = dest_tuple->get_slot(slot_desc->tuple_offset());
         RawValue::write(value, slot, slot_desc->type(), mem_pool);

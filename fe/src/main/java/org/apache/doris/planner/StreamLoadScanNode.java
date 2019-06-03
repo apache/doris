@@ -240,6 +240,7 @@ public class StreamLoadScanNode extends ScanNode {
 
     private void finalizeParams() throws UserException {
         boolean negative = streamLoadTask.getNegative();
+        List<Boolean> hasExprColumnList = Lists.newArrayList();
         for (SlotDescriptor dstSlotDesc : desc.getSlots()) {
             if (!dstSlotDesc.isMaterialized()) {
                 continue;
@@ -249,6 +250,7 @@ public class StreamLoadScanNode extends ScanNode {
                 expr = exprsByName.get(dstSlotDesc.getColumn().getName());
             }
             if (expr == null) {
+                hasExprColumnList.add(false);
                 SlotDescriptor srcSlotDesc = slotDescByName.get(dstSlotDesc.getColumn().getName());
                 if (srcSlotDesc != null) {
                     // If dest is allow null, we set source to nullable
@@ -268,6 +270,8 @@ public class StreamLoadScanNode extends ScanNode {
                         }
                     }
                 }
+            } else {
+                hasExprColumnList.add(true);
             }
             // check hll_hash
             if (dstSlotDesc.getType().getPrimitiveType() == PrimitiveType.HLL) {
@@ -289,6 +293,7 @@ public class StreamLoadScanNode extends ScanNode {
             expr = castToSlot(dstSlotDesc, expr);
             brokerScanRange.params.putToExpr_of_dest_slot(dstSlotDesc.getId().asInt(), expr.treeToThrift());
         }
+        brokerScanRange.params.setHas_expr_column_list(hasExprColumnList);
         brokerScanRange.params.setDest_tuple_id(desc.getId().asInt());
         // LOG.info("brokerScanRange is {}", brokerScanRange);
 

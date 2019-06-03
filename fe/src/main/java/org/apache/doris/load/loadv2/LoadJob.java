@@ -90,6 +90,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     protected long execMemLimit = 2147483648L; // 2GB;
     protected double maxFilterRatio = 0;
     protected boolean deleteFlag = false;
+    protected boolean strictMode = true;
 
     protected long createTimestamp = System.currentTimeMillis();
     protected long loadStartTimestamp = -1;
@@ -221,6 +222,10 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
                 } catch (NumberFormatException e) {
                     throw new DdlException("Execute memory limit is not Long", e);
                 }
+            }
+
+            if (properties.containsKey(LoadStmt.STRICT_MODE)) {
+                strictMode = Boolean.valueOf(properties.get(LoadStmt.STRICT_MODE));
             }
         }
     }
@@ -686,6 +691,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         }
         out.writeInt(progress);
         loadingStatus.write(out);
+        // TODO: record strict mode in next meta version
     }
 
     @Override
@@ -712,5 +718,6 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         }
         progress = in.readInt();
         loadingStatus.readFields(in);
+        // TODO: read strict mode in next meta version
     }
 }

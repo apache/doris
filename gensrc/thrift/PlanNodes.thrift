@@ -136,6 +136,13 @@ struct TBrokerScanRangeParams {
 
     // If partition_ids is set, data that doesn't in this partition will be filtered.
     8: optional list<i64> partition_ids
+    
+    // hasExprColumnList is a boolean list
+    // the member of list will be set to true when the column has load expr
+    9: optional list<bool> has_expr_column_list
+    // strictMode is a boolean
+    // if strict mode is true, the incorrect data (the result of cast is null) will not be loaded
+    10: optional bool strict_mode
 }
 
 // Broker scan range
