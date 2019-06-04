@@ -18,6 +18,7 @@
 #include "olap/row_cursor.h"
 
 #include <algorithm>
+#include <unordered_set>
 
 using std::min;
 using std::nothrow;
@@ -102,12 +103,16 @@ OLAPStatus RowCursor::_init(const std::vector<FieldInfo>& tablet_schema,
     _owned_fixed_buf = _fixed_buf;
     memset(_fixed_buf, 0, _fixed_len);
 
+    // we must make sure that the offset is the same with RowBlock's
+    std::unordered_set<uint32_t> column_set(_columns.begin(), _columns.end());
     _field_offsets.resize(tablet_schema.size(), -1);
     size_t offset = 0;
-    for (auto cid : _columns) {
-        _field_offsets[cid] = offset;
-        _field_array[cid]->set_offset(offset);
-        offset += field_buf_lens[cid] + 1;
+    for (int cid = 0; cid < tablet_schema.size(); ++cid) {
+        if (column_set.find(cid) != std::end(column_set)) {
+            _field_offsets[cid] = offset;
+            _field_array[cid]->set_offset(offset);
+            offset += field_buf_lens[cid] + 1;
+        }
     }
 
     return OLAP_SUCCESS;
