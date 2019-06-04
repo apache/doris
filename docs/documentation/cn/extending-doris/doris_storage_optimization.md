@@ -15,6 +15,8 @@
 	- 4个字节的FileFooterPB消息长度，用于读取FileFooterPB
 	- 8个字节的MAGIC CODE，之所以在末位存储，是方便不同的场景进行文件类型的识别
 
+文件中的数据按照page的方式进行组织，page是编码和压缩的基本单位。现在的page类型包括以下几种:
+
 ### DataPage ###
 
 DataPage分为两种：nullable和non-nullable的data page。
