@@ -662,6 +662,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         }
     }
 
+    @Override
     public boolean equals(Object obj) {
         if (obj == this) {
             return true;
