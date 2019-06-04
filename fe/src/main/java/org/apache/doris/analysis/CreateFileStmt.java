@@ -33,7 +33,6 @@ import com.google.common.collect.ImmutableSet;
 import java.util.Map;
 import java.util.Optional;
 
-// create a user define function
 public class CreateFileStmt extends DdlStmt {
     public static final String PROP_CATALOG = "catalog";
     public static final String PROP_URL = "url";
