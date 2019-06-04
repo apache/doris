@@ -115,7 +115,7 @@ public class LoadManager implements Writable{
         Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback(loadJob);
     }
 
-    void addLoadJob(LoadJob loadJob) {
+    private void addLoadJob(LoadJob loadJob) {
         idToLoadJob.put(loadJob.getId(), loadJob);
         long dbId = loadJob.getDbId();
         if (!dbIdToLabelToLoadJobs.containsKey(dbId)) {
@@ -294,7 +294,7 @@ public class LoadManager implements Writable{
                 loadJob -> loadJob.state == JobState.PENDING).collect(Collectors.toList()));
     }
 
-    Map<Long, LoadJob> getIdToLoadJobs() {
+    private Map<Long, LoadJob> getIdToLoadJobs() {
         return idToLoadJob;
     }
 

@@ -17,6 +17,7 @@
 
 package org.apache.doris.load.loadv2;
 
+import mockit.Deencapsulation;
 import org.apache.doris.common.Config;
 import org.junit.Assert;
 import org.junit.Before;
@@ -27,15 +28,17 @@ import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.util.Map;
 
 public class LoadManagerTest {
     private LoadManager loadManager;
+    private static final String methodName = "getIdToLoadJobs";
 
     @Before
     public void setUp() throws Exception {
         loadManager = new LoadManager(new LoadJobScheduler());
         LoadJob job1 = new InsertLoadJob("job1", 1L, 1L, System.currentTimeMillis());
-        loadManager.addLoadJob(job1);
+        Deencapsulation.invoke(loadManager, "addLoadJob", job1);
     }
 
     @Test
@@ -44,7 +47,9 @@ public class LoadManagerTest {
 
         LoadManager newLoadManager = deserializeFromFile(file);
 
-        Assert.assertEquals(loadManager.getIdToLoadJobs(), newLoadManager.getIdToLoadJobs());
+        Map<Long, LoadJob> loadJobs = Deencapsulation.invoke(loadManager, methodName);
+        Map<Long, LoadJob> newLoadJobs = Deencapsulation.invoke(newLoadManager, methodName);
+        Assert.assertEquals(loadJobs, newLoadJobs);
     }
 
     @Test
@@ -56,8 +61,9 @@ public class LoadManagerTest {
         File file = serializeToFile(loadManager);
 
         LoadManager newLoadManager = deserializeFromFile(file);
+        Map<Long, LoadJob> newLoadJobs = Deencapsulation.invoke(newLoadManager, methodName);
 
-        Assert.assertEquals(0, newLoadManager.getIdToLoadJobs().size());
+        Assert.assertEquals(0, newLoadJobs.size());
     }
 
     private File serializeToFile(LoadManager loadManager) throws Exception {
