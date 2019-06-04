@@ -417,15 +417,13 @@ OLAPStatus ColumnData::prepare_block_read(
 // ColumnData向上返回的列至少由几部分组成:
 // 1. return_columns中要求返回的列,即Fetch命令中指定要查询的列.
 // 2. condition中涉及的列, 绝大多数情况下这些列都已经在return_columns中.
-// 3. start_keys和end_keys需要读取的列.
 // 在这个函数里,合并上述几种情况
 void ColumnData::set_read_params(
         const std::vector<uint32_t>& return_columns,
+        const std::vector<uint32_t>& seek_solumns,
         const std::set<uint32_t>& load_bf_columns,
         const Conditions& conditions,
         const std::vector<ColumnPredicate*>& col_predicates,
-        const std::vector<RowCursor*>& start_keys,
-        const std::vector<RowCursor*>& end_keys,
         bool is_using_cache,
         RuntimeState* runtime_state) {
     _conditions = &conditions;
@@ -434,34 +432,10 @@ void ColumnData::set_read_params(
     _is_using_cache = is_using_cache;
     _runtime_state = runtime_state;
     _return_columns = return_columns;
+    _seek_columns = seek_solumns;
     _load_bf_columns = load_bf_columns;
 
-    std::unordered_set<uint32_t> column_set(_return_columns.begin(), _return_columns.end());
-
-    for (auto& it : conditions.columns()) {
-        column_set.insert(it.first);
-    }
-
-    uint32_t max_key_column_count = 0;
-    for (auto key : start_keys) {
-        if (key->field_count() > max_key_column_count) {
-            max_key_column_count = key->field_count();
-        }
-    }
-
-    for (auto key : end_keys) {
-        if (key->field_count() > max_key_column_count) {
-            max_key_column_count = key->field_count();
-        }
-    }
-
-    for (uint32_t i = 0; i < _table->tablet_schema().size(); i++) {
-        if (i < max_key_column_count || column_set.find(i) != column_set.end()) {
-            _seek_columns.push_back(i);
-        }
-    }
-
-    auto res = _cursor.init(_table->tablet_schema());
+    auto res = _cursor.init(_table->tablet_schema(), _seek_columns);
     if (res != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("fail to init row_cursor");
     }

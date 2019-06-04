@@ -75,11 +75,10 @@ public:
 
     void set_read_params(
             const std::vector<uint32_t>& return_columns,
+            const std::vector<uint32_t>& seek_columns,
             const std::set<uint32_t>& load_bf_columns,
             const Conditions& conditions,
             const std::vector<ColumnPredicate*>& col_predicates,
-            const std::vector<RowCursor*>& start_keys,
-            const std::vector<RowCursor*>& end_keys,
             bool is_using_cache,
             RuntimeState* runtime_state);
 
@@ -119,6 +118,7 @@ public:
     void set_segment_group(SegmentGroup* segment_group) { _segment_group = segment_group; }
     int64_t num_rows() const { return _segment_group->num_rows(); }
 
+    const std::vector<uint32_t>& seek_columns() const { return _seek_columns; }
 private:
     DISALLOW_COPY_AND_ASSIGN(ColumnData);
 
