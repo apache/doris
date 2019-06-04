@@ -28,12 +28,16 @@ namespace segment_v2 {
 
 class ShortKeyIndexReader {
 public:
+    // parse index data
     bool init(const Slice& data);
 
+    // return the entry number of the index
     size_t count();
 
+    // compare the short key in idx_in_block to the key
     int compare_key(int idx_in_block, const Slice& key);
 
+    // get the ShortKeyIndex from the reader
     std::unique_ptr<ShortKeyIndex> get_short_key_index();
 };
 
@@ -41,8 +45,10 @@ class ShortKeyIndexWriter {
 public:
     bool init();
 
+    // add a short key -> rowid entry to the index
     bool add_entry(doris::Slice* key, rowid_t rowid);
 
+    // return the index data
     dorsi::Slice finish();
 };
 
@@ -50,14 +56,23 @@ class ShortKeyIndex {
 public:
     ShortKeyIndex(ShortKeyIndexReader* reader);
 
+    // seek the the first entry when the short key is equal to or greater than key
+    // if equal, matched will be set to true, else false
     bool seek_at_or_after(const doris::Slice& key, bool* matched);
 
+    // seek the the first entry when the short key is equal to or less than key
+    // if equal, matched will be set to true, else false
     bool seek_at_or_before(const doris::Slice& key, bool* matched);
 
+    // return the current row id of current index entry
     rowid_t get_current_rowid();
 
+    // Seek the index to previous one
+    // If the current index is 0, return false
     bool prev();
 
+    // Seek the index to next one
+    // If the current index is tee last one, return false
     bool next();
 
 private:

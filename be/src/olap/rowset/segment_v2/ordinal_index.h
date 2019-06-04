@@ -29,12 +29,16 @@ namespace segment_v2 {
 
 class OrdinalIndexReader {
 public:
+    // parse the data
     bool init(const Slice& data);
 
+    // return the entry number of the index
     size_t count();
 
+    // compare the row_id in idx_in_block to the row_id
     int compare_key(int idx_in_block, const rowid_t row_id);
 
+    // get the OrdinalIndex from the reader
     std::unique_ptr<OrdinalIndex> get_short_key_index();
 };
 
@@ -42,8 +46,10 @@ class OrdinalIndexWriter {
 public:
     bool init();
 
-    bool add_entry(doris::Slice* key, rowid_t rowid);
+    // add a rowid -> page_pointer entry to the index
+    bool add_entry(rowid_t rowid, const PagePointerPB& page_pointer);
 
+    // return the index data
     dorsi::Slice finish();
 };
 
@@ -51,10 +57,15 @@ class OrdinalIndex {
 public:
     OrdinalIndex(OrdinalIndexReader* reader);
 
+    // seek the the first entry when the rowid is equal to or greater than row_id
+    // if equal, matched will be set to true, else false
     bool seek_at_or_after(const rowid_t row_id, bool* matched);
 
+    // seek the the first entry when the rowid is equal to or less than row_id
+    // if equal, matched will be set to true, else false
     bool seek_at_or_before(const rowid_t row_id, bool* matched);
 
+    // return the current seeked index related page pointer
     void get_current_page_pointer(PagePointerPB* page_pointer);
 
 private:
