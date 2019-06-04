@@ -71,6 +71,7 @@ Status DataSink::create_data_sink(
         break;
 
     case TDataSinkType::MYSQL_TABLE_SINK: {
+#ifdef DORIS_WITH_MYSQL
         if (!thrift_sink.__isset.mysql_table_sink) {
             return Status("Missing data buffer sink.");
         }
@@ -80,6 +81,9 @@ Status DataSink::create_data_sink(
             pool, row_desc, output_exprs);
         sink->reset(mysql_tbl_sink);
         break;
+#else
+        return Status("Don't support MySQL table, you should rebuild Doris with WITH_MYSQL option ON");
+#endif
     }
 
     case TDataSinkType::DATA_SPLIT_SINK: {

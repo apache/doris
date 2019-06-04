@@ -39,7 +39,7 @@ MysqlTableSink::~MysqlTableSink() {
 }
 
 Status MysqlTableSink::init(const TDataSink& t_sink) {
-    RETURN_IF_ERROR(MysqlTableSink::init(t_sink));
+    RETURN_IF_ERROR(DataSink::init(t_sink));
     const TMysqlTableSink& t_mysql_sink = t_sink.mysql_table_sink;
 
     _conn_info.host = t_mysql_sink.host;

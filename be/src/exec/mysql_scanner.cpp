@@ -15,6 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <mysql/mysql.h>
+
+#define __DorisMysql MYSQL
+#define __DorisMysqlRes MYSQL_RES
 #include "mysql_scanner.h"
 
 
@@ -168,6 +172,13 @@ Status MysqlScanner::get_next_row(char** *buf, unsigned long** lengths, bool* eo
     *eos = false;
 
     return Status::OK;
+}
+
+Status MysqlScanner::_error_status(const std::string& prefix) {
+	std::stringstream msg;
+	msg << prefix << " Err: " << mysql_error(_my_conn);
+	LOG(INFO) << msg.str();
+	return Status(msg.str());
 }
 
 }
