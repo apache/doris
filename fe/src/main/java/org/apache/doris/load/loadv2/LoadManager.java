@@ -294,6 +294,10 @@ public class LoadManager implements Writable{
                 loadJob -> loadJob.state == JobState.PENDING).collect(Collectors.toList()));
     }
 
+    private Map<Long, LoadJob> getIdToLoadJobs() {
+        return idToLoadJob;
+    }
+
     private Database checkDb(String dbName) throws DdlException {
         // get db
         Database db = Catalog.getInstance().getDb(dbName);
@@ -347,17 +351,26 @@ public class LoadManager implements Writable{
 
     @Override
     public void write(DataOutput out) throws IOException {
-        long currentTimeMs = System.currentTimeMillis();
+        List<LoadJob> loadJobs = idToLoadJob.values().stream().filter(this::needSave).collect(Collectors.toList());
 
-        out.writeInt(idToLoadJob.size());
-        for (LoadJob loadJob : idToLoadJob.values()) {
-            if (!loadJob.isCompleted()
-                    || (loadJob.isCompleted()
-                    && ((currentTimeMs - loadJob.getFinishTimestamp()) / 1000 <= Config.label_keep_max_second))) {
-                loadJob.write(out);
-            }
-            // If load job will be removed by cleaner later, it will not be saved in image.
+        out.writeInt(loadJobs.size());
+        for (LoadJob loadJob : loadJobs) {
+            loadJob.write(out);
         }
+    }
+
+    // If load job will be removed by cleaner later, it will not be saved in image.
+    private boolean needSave(LoadJob loadJob) {
+        if (!loadJob.isCompleted()) {
+            return true;
+        }
+
+        long currentTimeMs = System.currentTimeMillis();
+        if (loadJob.isCompleted() && ((currentTimeMs - loadJob.getFinishTimestamp()) / 1000 <= Config.label_keep_max_second)) {
+            return true;
+        }
+
+        return false;
     }
 
     @Override
