@@ -21,6 +21,9 @@ import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.optimizer.OptUtils;
 
+// OptItemBinaryPredicate
+// |--- OptItem(left child)
+// |--- OptItem(right child)
 public class OptItemBinaryPredicate extends OptItem {
 
     private BinaryPredicate.Operator op;

@@ -21,6 +21,10 @@ import org.apache.doris.analysis.LikePredicate;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.optimizer.OptUtils;
 
+// This class is used to represent like predicate such as 'c1 like "abc%"'
+// LikePredicate
+// |--- OptItem(left child)
+// |--- OptItem(right child)
 public class OptItemLikePredicate extends OptItem {
     private LikePredicate.Operator op;
 
@@ -28,6 +32,7 @@ public class OptItemLikePredicate extends OptItem {
         super(OptOperatorType.OP_ITEM_LIKE_PREDICATE);
         this.op = op;
     }
+    public LikePredicate.Operator getOp() { return op; }
 
     @Override
     public Type getReturnType() {

@@ -53,9 +53,17 @@ import java.util.List;
 import java.util.Map;
 
 // Used to convert QueryStmt to an OptExpression
-public class StmtToExpressionConvertor {
+public class StmtToExpressionConverter {
     private OptColumnRefFactory columnRefFactory = new OptColumnRefFactory();
     private Map<Integer, OptColumnRef> slotIdToColumnRef = Maps.newHashMap();
+    // map from OptColumnRef to SlotReference
+    private Map<Integer, SlotRef> columnIdToSlotRef = Maps.newHashMap();
+
+    private OptConverterCtx ctx;
+
+    public StmtToExpressionConverter(OptConverterCtx ctx) {
+        this.ctx = ctx;
+    }
 
     public OptExpression convertQuery(QueryStmt stmt) {
         OptExpression root;
@@ -152,7 +160,7 @@ public class StmtToExpressionConvertor {
     }
 
     public OptExpression convertBaseTableRef(BaseTableRef ref) {
-        List<OptColumnRef> columnRefs = convertTuple(ref.getDesc());
+        List<OptColumnRef> columnRefs = ctx.convertTuple(ref.getDesc());
         OptLogical op = null;
         switch (ref.getTable().getType()) {
             case OLAP:
@@ -168,7 +176,7 @@ public class StmtToExpressionConvertor {
 
         List<Expr> resultExprs = ref.getViewStmt().getResultExprs();
 
-        List<OptColumnRef> columnRefs = convertTuple(ref.getDesc());
+        List<OptColumnRef> columnRefs = ctx.convertTuple(ref.getDesc());
 
         List<OptExpression> projElements = Lists.newArrayList();
         for (int i = 0 ; i < columnRefs.size(); ++i) {
@@ -178,17 +186,6 @@ public class StmtToExpressionConvertor {
         OptExpression projList = OptExpression.create(new OptItemProjectList(), projElements);
 
         return OptExpression.create(new OptLogicalProject(), childExpr, projList);
-    }
-
-    private List<OptColumnRef> convertTuple(TupleDescriptor desc) {
-        List<OptColumnRef> refs = Lists.newArrayList();
-        for (SlotDescriptor slot : desc.getSlots())  {
-            OptColumnRef ref = columnRefFactory.create(slot.getLabel(), slot.getType());
-
-            slotIdToColumnRef.put(slot.getId().asInt(), ref);
-            refs.add(ref);
-        }
-        return refs;
     }
 
     public OptExpression convertExpr(Expr expr) {
@@ -236,7 +233,7 @@ public class StmtToExpressionConvertor {
     }
 
     private OptExpression convertSlotRef(SlotRef ref) {
-        OptColumnRef columnRef = slotIdToColumnRef.get(ref.getSlotId().asInt());
+        OptColumnRef columnRef = ctx.getColumnRef(ref.getSlotId().asInt());
         Preconditions.checkArgument(columnRef != null,
                 "Can not find ColumnRef through ref, ref=" + ref.debugString());
 

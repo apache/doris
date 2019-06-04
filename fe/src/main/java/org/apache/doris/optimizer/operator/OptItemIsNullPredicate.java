@@ -20,6 +20,9 @@ package org.apache.doris.optimizer.operator;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.optimizer.OptUtils;
 
+// indicates predicate 'c1 is null' or 'c1 is not null'
+// OptItemIsNullPredicate
+// |--- child
 public class OptItemIsNullPredicate extends OptItem {
     private boolean isNotNull;
 
@@ -27,6 +30,8 @@ public class OptItemIsNullPredicate extends OptItem {
         super(OptOperatorType.OP_ITEM_IS_NULL_PREDICATE);
         this.isNotNull = isNotNull;
     }
+
+    public boolean isNotNull() { return isNotNull; }
 
     @Override
     public Type getReturnType() {

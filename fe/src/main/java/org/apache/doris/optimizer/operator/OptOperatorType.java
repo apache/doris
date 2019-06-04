@@ -28,6 +28,7 @@ public enum OptOperatorType {
     OP_LOGICAL_FULL_OUTER_JOIN("LogicalFullOuterJoin"),
     OP_LOGICAL_PROJECT("LogicalProject"),
     OP_LOGICAL_SCAN("LogicalScan"),
+    OP_LOGICAL_MYSQL_SCAN("LogicalMysqlScan"),
     OP_LOGICAL_SELECT("LogicalSelect"),
     OP_LOGICAL_UNION("LogicalUnion"),
     OP_LOGICAL_LIMIT("LogicalLimit"),
@@ -38,6 +39,7 @@ public enum OptOperatorType {
     OP_PHYSICAL_SORT("PhysicalSort"),
     OP_PHYSICAL_UNION("PhysicalUnion"),
     OP_PHYSICAL_DISTRIBUTION("PhysicalDistribution"),
+    OP_PHYSICAL_MYSQL_SCAN("PhysicalMysqlScan"),
 
     OP_ITEM_AGG_FUNC("ItemAggregateFunction"),
     OP_ITEM_ARITHMETIC("ItemArithmetic"),

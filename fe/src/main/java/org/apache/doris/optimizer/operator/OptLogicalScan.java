@@ -33,7 +33,6 @@ import java.util.BitSet;
 import java.util.List;
 
 public class OptLogicalScan extends OptLogical {
-
     private List<OptColumnRef> outputs;
     private OlapTable table;
 
