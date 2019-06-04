@@ -124,6 +124,7 @@ public:
     }
 
     const OlapReaderStatistics& stats() const { return _stats; }
+    OlapReaderStatistics* mutable_stats() { return &_stats; }
 
 private:
     struct KeysParam {
