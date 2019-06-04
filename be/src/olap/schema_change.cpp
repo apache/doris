@@ -511,7 +511,7 @@ OLAPStatus RowBlockAllocator::allocate(RowBlock** row_block,
         return OLAP_ERR_MALLOC_ERROR;
     }
 
-    RowBlockInfo row_block_info(0U, num_rows, 0);
+    RowBlockInfo row_block_info(0U, num_rows);
     row_block_info.data_file_type = data_file_type;
     row_block_info.null_supported = null_supported;
     OLAPStatus res = OLAP_SUCCESS;
