@@ -73,7 +73,8 @@ private:
         }
 
         OLAPStatus init() {
-            auto res = _row_cursor.init(_data->segment_group()->table()->tablet_schema());
+            auto res = _row_cursor.init(_data->segment_group()->table()->tablet_schema(),
+                                        _data->seek_columns());
             if (res != OLAP_SUCCESS) {
                 LOG(WARNING) << "failed to init row cursor, res=" << res;
                 return res;
@@ -510,11 +511,10 @@ OLAPStatus Reader::_acquire_data_sources(const ReaderParams& read_params) {
         }
         i_data->set_delete_handler(_delete_handler);
         i_data->set_read_params(_return_columns,
+                                _seek_columns,
                                 _load_bf_columns,
                                 _conditions,
                                 _col_predicates,
-                                _keys_param.start_keys,
-                                _keys_param.end_keys,
                                 is_using_cache,
                                 read_params.runtime_state);
         if (i_data->delta_pruning_filter()) {
@@ -572,6 +572,11 @@ OLAPStatus Reader::_init_params(const ReaderParams& read_params) {
     res = _init_return_columns(read_params);
     if (res != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("fail to init return columns. [res=%d]", res);
+        return res;
+    }
+    res = _init_seek_columns();
+    if (res != OLAP_SUCCESS) {
+        OLAP_LOG_WARNING("fail to init seek columns. [res=%d]", res);
         return res;
     }
 
@@ -636,6 +641,30 @@ OLAPStatus Reader::_init_return_columns(const ReaderParams& read_params) {
 
     std::sort(_key_cids.begin(), _key_cids.end(), std::greater<uint32_t>());
 
+    return OLAP_SUCCESS;
+}
+
+OLAPStatus Reader::_init_seek_columns() {
+    std::unordered_set<uint32_t> column_set(_return_columns.begin(), _return_columns.end());
+    for (auto& it : _conditions.columns()) {
+        column_set.insert(it.first);
+    }
+    uint32_t max_key_column_count = 0;
+    for (auto key : _keys_param.start_keys) {
+        if (key->field_count() > max_key_column_count) {
+            max_key_column_count = key->field_count();
+        }
+    }
+    for (auto key : _keys_param.end_keys) {
+        if (key->field_count() > max_key_column_count) {
+            max_key_column_count = key->field_count();
+        }
+    }
+    for (uint32_t i = 0; i < _olap_table->tablet_schema().size(); i++) {
+        if (i < max_key_column_count || column_set.find(i) != column_set.end()) {
+            _seek_columns.push_back(i);
+        }
+    }
     return OLAP_SUCCESS;
 }
 
