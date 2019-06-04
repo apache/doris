@@ -38,6 +38,7 @@ public class ShowSmallFilesStmt extends ShowStmt {
                     .addColumn(new Column("Catalog", ScalarType.createVarchar(32)))
                     .addColumn(new Column("FileName", ScalarType.createVarchar(16)))
                     .addColumn(new Column("FileSize", ScalarType.createVarchar(16)))
+                    .addColumn(new Column("IsContent", ScalarType.createVarchar(16)))
                     .addColumn(new Column("MD5", ScalarType.createVarchar(16)))
                     .build();
 

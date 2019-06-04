@@ -120,9 +120,6 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 // convert FILE:file_name -> FILE:file_id:md5
                 String file = entry.getValue().substring(entry.getValue().indexOf(":") + 1);
                 SmallFile smallFile = smallFileMgr.getSmallFile(dbId, KAFKA_FILE_CATALOG, file, true);
-                if (smallFile == null) {
-                    throw new DdlException("File " + file + " does not exist. Create it first");
-                }
                 convertedCustomProperties.put(entry.getKey(), "FILE:" + smallFile.id + ":" + smallFile.md5);
             } else {
                 convertedCustomProperties.put(entry.getKey(), entry.getValue());
@@ -306,7 +303,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     private List<Integer> getAllKafkaPartitions() throws UserException {
         convertCustomProperties();
-        return KafkaUtil.getAllKafkaPartitions(brokerList, topic, customKafkaProperties);
+        return KafkaUtil.getAllKafkaPartitions(brokerList, topic, convertedCustomProperties);
     }
 
     public static KafkaRoutineLoadJob fromCreateStmt(CreateRoutineLoadStmt stmt) throws UserException {

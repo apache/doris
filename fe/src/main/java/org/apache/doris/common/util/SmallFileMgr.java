@@ -267,17 +267,18 @@ public class SmallFileMgr implements Writable {
         }
     }
 
-    public SmallFile getSmallFile(long dbId, String catalog, String fileName, boolean needContent) {
+    public SmallFile getSmallFile(long dbId, String catalog, String fileName, boolean needContent)
+            throws DdlException {
         synchronized (files) {
             SmallFiles smallFiles = files.get(dbId, catalog);
             if (smallFiles == null) {
-                return null;
+                throw new DdlException("file does not exist with db: " + dbId + " and catalog: " + catalog);
             }
             SmallFile smallFile = smallFiles.getFile(fileName);
             if (smallFile == null) {
-                return null;
+                throw new DdlException("File does not exist");
             } else if (needContent && !smallFile.isContent) {
-                return null;
+                throw new DdlException("File exists but not with content");
             }
             return smallFile;
         }
@@ -485,6 +486,7 @@ public class SmallFileMgr implements Writable {
                         info.add(entry.getKey()); // catalog
                         info.add(entry2.getKey()); // file name
                         info.add(String.valueOf(entry2.getValue().size)); // file size
+                        info.add(String.valueOf(entry2.getValue().isContent));
                         info.add(entry2.getValue().md5);
                         infos.add(info);
                     }
