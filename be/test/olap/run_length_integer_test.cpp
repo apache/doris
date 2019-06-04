@@ -37,7 +37,8 @@ public:
     }
     
     virtual void SetUp() {
-        system("rm tmp_file");
+        system("mkdir -p ./ut_dir");
+        system("rm -rf ./ut_dir/tmp_file");
         _out_stream = new (std::nothrow) OutStream(OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE, NULL);
         ASSERT_TRUE(_out_stream != NULL);
         _writer = new (std::nothrow) RunLengthIntegerWriter(_out_stream, false);
@@ -54,12 +55,12 @@ public:
     }
 
     void CreateReader() {
-        ASSERT_EQ(OLAP_SUCCESS, helper.open_with_mode("tmp_file", 
+        ASSERT_EQ(OLAP_SUCCESS, helper.open_with_mode(_file_path.c_str(), 
                 O_CREAT | O_EXCL | O_WRONLY, S_IRUSR | S_IWUSR));
         _out_stream->write_to_file(&helper, 0);
         helper.close();
 
-        ASSERT_EQ(OLAP_SUCCESS, helper.open_with_mode("tmp_file", 
+        ASSERT_EQ(OLAP_SUCCESS, helper.open_with_mode(_file_path.c_str(), 
                 O_RDONLY, S_IRUSR | S_IWUSR)); 
 
         _shared_buffer = StorageByteBuffer::create(
@@ -87,6 +88,8 @@ public:
     StorageByteBuffer* _shared_buffer;
     ReadOnlyFileStream* _stream;
     OlapReaderStatistics _stats;
+
+    std::string _file_path = "./ut_dir/tmp_file";
 };
 
 
@@ -350,7 +353,8 @@ public:
     }
     
 virtual void SetUp() {
-        system("rm tmp_file");
+        system("mkdir -p ./ut_dir");
+        system("rm ./ut_dir/tmp_file");
         _out_stream = new (std::nothrow) OutStream(OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE, NULL);
         ASSERT_TRUE(_out_stream != NULL);
         _writer = new (std::nothrow) RunLengthIntegerWriter(_out_stream, false);
@@ -366,12 +370,12 @@ virtual void SetUp() {
     }
 
     void CreateReader() {
-        ASSERT_EQ(OLAP_SUCCESS, helper.open_with_mode("tmp_file", 
+        ASSERT_EQ(OLAP_SUCCESS, helper.open_with_mode(_file_path.c_str(),
                 O_CREAT | O_EXCL | O_WRONLY, S_IRUSR | S_IWUSR));
         _out_stream->write_to_file(&helper, 0);
         helper.close();
 
-        ASSERT_EQ(OLAP_SUCCESS, helper.open_with_mode("tmp_file", 
+        ASSERT_EQ(OLAP_SUCCESS, helper.open_with_mode(_file_path.c_str(),
                 O_RDONLY, S_IRUSR | S_IWUSR)); 
 
         _shared_buffer = StorageByteBuffer::create(
@@ -399,6 +403,7 @@ virtual void SetUp() {
     StorageByteBuffer* _shared_buffer;
     ReadOnlyFileStream* _stream;
     OlapReaderStatistics _stats;
+    std::string _file_path = "./ut_dir/tmp_file";
 };
 
 
