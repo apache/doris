@@ -476,6 +476,7 @@ void ColumnData::set_read_params(
     RowBlockInfo block_info;
     block_info.row_num = _num_rows_per_block;
     block_info.null_supported = true;
+    block_info.column_ids = _seek_columns;
     _read_block->init(block_info);
 }
 

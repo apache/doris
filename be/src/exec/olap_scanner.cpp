@@ -465,6 +465,7 @@ void OlapScanner::update_counter() {
 
 void OlapScanner::_update_realtime_counter() {
     COUNTER_UPDATE(_parent->bytes_read_counter(), _reader->stats().bytes_read);
+    _reader->mutable_stats()->bytes_read = 0;
 }
 
 Status OlapScanner::close(RuntimeState* state) {
