@@ -597,7 +597,7 @@
     11. 修改表的 bloom filter 列
         ALTER TABLE example_db.my_table SET ("bloom_filter_columns"="k1,k2,k3");
 
-        也可以合并到上面的 schema change 操作中（注意多子句的语法要少许区别）
+        也可以合并到上面的 schema change 操作中（注意多子句的语法有少许区别）
         ALTER TABLE example_db.my_table
         DROP COLUMN col2
         PROPERTIES ("bloom_filter_columns"="k1,k2,k3");
