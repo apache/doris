@@ -1,3 +1,20 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
 package org.apache.doris.common.util;
 
 import org.apache.doris.analysis.CreateFileStmt;
@@ -53,12 +70,12 @@ public class SmallFileMgrTest {
             }
         };
         
-        SmallFile smallFile = new SmallFile(1L, "kafka", "file1", 10001L, "ABCD", 12, "12345");
+        SmallFile smallFile = new SmallFile(1L, "kafka", "file1", 10001L, "ABCD", 12, "12345", true);
         final SmallFileMgr smallFileMgr = new SmallFileMgr();
         new Expectations(SmallFileMgr.class) {
             {
                 Deencapsulation.invoke(smallFileMgr, "downloadAndCheck", anyLong, anyString, anyString, anyString,
-                        anyString);
+                        anyString, anyBoolean);
                 result = smallFile;
             }
         };
@@ -72,7 +89,7 @@ public class SmallFileMgrTest {
         }
         
         Assert.assertTrue(smallFileMgr.containsFile(1L, "kafka", "file1"));
-        SmallFile gotFile = smallFileMgr.getSmallFile(1L, "kafka", "file1");
+        SmallFile gotFile = smallFileMgr.getSmallFile(1L, "kafka", "file1", true);
         Assert.assertEquals(10001L, gotFile.id);
         gotFile = smallFileMgr.getSmallFile(10001L);
         Assert.assertEquals(10001L, gotFile.id);

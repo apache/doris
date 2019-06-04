@@ -37,6 +37,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.SmallFileMgr.SmallFile;
 import org.apache.doris.ha.MasterInfo;
 import org.apache.doris.journal.Journal;
 import org.apache.doris.journal.JournalCursor;
@@ -692,13 +693,13 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_CREATE_SMALL_FILE: {
-                    SmallFileInfo info = (SmallFileInfo) journal.getData();
-                    Catalog.getCurrentCatalog().getSmallFileMgr().replayCreateFile(info);
+                    SmallFile smallFile = (SmallFile) journal.getData();
+                    Catalog.getCurrentCatalog().getSmallFileMgr().replayCreateFile(smallFile);
                     break;
                 }
                 case OperationType.OP_DROP_SMALL_FILE: {
-                    SmallFileInfo info = (SmallFileInfo) journal.getData();
-                    Catalog.getCurrentCatalog().getSmallFileMgr().replayRemoveFile(info);
+                    SmallFile smallFile = (SmallFile) journal.getData();
+                    Catalog.getCurrentCatalog().getSmallFileMgr().replayRemoveFile(smallFile);
                     break;
                 }
                 default: {
@@ -1212,11 +1213,11 @@ public class EditLog {
         logEdit(OperationType.OP_END_LOAD_JOB, loadJobFinalOperation);
     }
 
-    public void logCreateSmallFile(SmallFileInfo info) {
+    public void logCreateSmallFile(SmallFile info) {
         logEdit(OperationType.OP_CREATE_SMALL_FILE, info);
     }
 
-    public void logDropSmallFile(SmallFileInfo info) {
+    public void logDropSmallFile(SmallFile info) {
         logEdit(OperationType.OP_DROP_SMALL_FILE, info);
     }
 }

@@ -119,7 +119,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             if (entry.getValue().startsWith("FILE:")) {
                 // convert FILE:file_name -> FILE:file_id:md5
                 String file = entry.getValue().substring(entry.getValue().indexOf(":") + 1);
-                SmallFile smallFile = smallFileMgr.getSmallFile(dbId, KAFKA_FILE_CATALOG, file);
+                SmallFile smallFile = smallFileMgr.getSmallFile(dbId, KAFKA_FILE_CATALOG, file, true);
                 if (smallFile == null) {
                     throw new DdlException("File " + file + " does not exist. Create it first");
                 }

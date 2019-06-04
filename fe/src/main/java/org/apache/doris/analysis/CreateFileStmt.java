@@ -37,6 +37,7 @@ public class CreateFileStmt extends DdlStmt {
     public static final String PROP_CATALOG = "catalog";
     public static final String PROP_URL = "url";
     public static final String PROP_MD5 = "md5";
+    public static final String PROP_SAVE_CONTENT = "save_content";
     
     private static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
             .add(PROP_CATALOG).add(PROP_URL).add(PROP_MD5).build();
@@ -49,6 +50,9 @@ public class CreateFileStmt extends DdlStmt {
     private String catalogName;
     private String downloadUrl;
     private String checksum;
+    // if saveContent is true, the file content will be saved in FE memory, so the file size will be limited
+    // by the configuration. If it is false, only URL will be saved.
+    private boolean saveContent = true;
 
     public CreateFileStmt(String fileName, String dbName, Map<String, String> properties) {
         this.fileName = fileName;
@@ -74,6 +78,10 @@ public class CreateFileStmt extends DdlStmt {
 
     public String getChecksum() {
         return checksum;
+    }
+
+    public boolean isSaveContent() {
+        return saveContent;
     }
 
     @Override
@@ -124,6 +132,20 @@ public class CreateFileStmt extends DdlStmt {
 
         if (properties.containsKey(PROP_MD5)) {
             checksum = properties.get(PROP_MD5);
+        }
+        
+        if (properties.containsKey(PROP_SAVE_CONTENT)) {
+            throw new AnalysisException("'save_content' property is not supported yet");
+            /*
+            String val = properties.get(PROP_SAVE_CONTENT);
+            if (val.equalsIgnoreCase("true")) {
+                saveContent = true;
+            } else if (val.equalsIgnoreCase("false")) {
+                saveContent = false;
+            } else {
+                throw new AnalysisException("Invalid 'save_content' property: " + val);
+            }
+            */
         }
     }
 
