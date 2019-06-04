@@ -107,6 +107,7 @@ public class SmallFileMgr implements Writable {
             Text.writeString(out, content);
             out.writeLong(size);
             Text.writeString(out, md5);
+            out.writeBoolean(isContent);
         }
 
         @Override
@@ -118,6 +119,7 @@ public class SmallFileMgr implements Writable {
             content = Text.readString(in);
             size = in.readLong();
             md5 = Text.readString(in);
+            isContent = in.readBoolean();
         }
     }
 
