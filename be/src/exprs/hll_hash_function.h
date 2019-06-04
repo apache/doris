@@ -37,6 +37,9 @@ public:
                               const doris_udf::StringVal& dest_base);
     static BigIntVal hll_cardinality(doris_udf::FunctionContext* ctx,
                                      const doris_udf::HllVal& dest_base);
+    //for backward compatibility, we could remove this method after doris 0.11 version
+    static StringVal hll_cardinality(doris_udf::FunctionContext* ctx,
+                                     const doris_udf::StringVal& dest_base);
     static StringVal create_string_result(doris_udf::FunctionContext* ctx, 
                                           const StringVal& str, const bool is_null);
 
