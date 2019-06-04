@@ -35,7 +35,8 @@ public:
     }
     
     void SetUp() {
-        system("rm tmp_file");
+        system("mkdir -p ./ut_dir/");
+        system("rm ./ut_dir/tmp_file");
         _out_stream = new (std::nothrow) OutStream(OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE, NULL);
         ASSERT_TRUE(_out_stream != NULL);
         _writer = new (std::nothrow) BitFieldWriter(_out_stream);
@@ -52,13 +53,13 @@ public:
     }
 
     void CreateReader() {
-        ASSERT_EQ(OLAP_SUCCESS, _helper.open_with_mode("tmp_file", 
+        ASSERT_EQ(OLAP_SUCCESS, _helper.open_with_mode(_file_path.c_str(), 
                 O_CREAT | O_EXCL | O_WRONLY, 
                 S_IRUSR | S_IWUSR));
         _out_stream->write_to_file(&_helper, 0);
         _helper.close();
 
-        ASSERT_EQ(OLAP_SUCCESS, _helper.open_with_mode("tmp_file", 
+        ASSERT_EQ(OLAP_SUCCESS, _helper.open_with_mode(_file_path.c_str(), 
                 O_RDONLY, S_IRUSR | S_IWUSR)); 
 
         _shared_buffer = StorageByteBuffer::create(
@@ -87,6 +88,8 @@ public:
     StorageByteBuffer* _shared_buffer;
     ReadOnlyFileStream* _stream;
     OlapReaderStatistics _stats;
+
+    std::string _file_path = "./ut_dir/tmp_file";
 };
 
 TEST_F(TestBitField, ReadWriteOneBit) {
