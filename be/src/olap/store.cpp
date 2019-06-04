@@ -118,6 +118,7 @@ Status OlapStore::_check_path_exist() {
         closedir(dirp);
         return Status("readdir failed");
     }
+    closedir(dirp);
     return Status::OK;
 }
 
