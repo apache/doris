@@ -105,8 +105,10 @@ public class OptBinding {
         MultiExpression mExpr;
         if (lastExpr != null) {
             mExpr = lastExpr.getMExpr();
-        } else {
+        } else if (group.isItemGroup()) {
             mExpr = group.getFirstMultiExpression();
+        }  else {
+            mExpr = group.getFirstLogicalMultiExpression();
         }
 
         // Fast path. When pattern is PatternLeaf and lastExpr is not null it means that
@@ -122,7 +124,12 @@ public class OptBinding {
                 return expr;
             }
             lastExpr = null;
-            mExpr = mExpr.next();
+            if (group.isItemGroup()) {
+                mExpr = mExpr.next();
+            } else {
+                mExpr = group.nextLogicalExpr(mExpr);
+            }
+
         } while (mExpr != null);
         return null;
     }

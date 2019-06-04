@@ -18,8 +18,8 @@
 package org.apache.doris.optimizer;
 
 import com.google.common.base.Preconditions;
-import org.apache.doris.optimizer.base.OptColumnRefSet;
-import org.apache.doris.optimizer.base.RequiredLogicalProperty;
+import com.google.common.collect.Lists;
+import org.apache.doris.optimizer.base.*;
 import org.apache.doris.optimizer.operator.OptExpressionHandle;
 import org.apache.doris.optimizer.operator.OptLogical;
 import org.apache.doris.optimizer.operator.OptOperatorType;
@@ -27,13 +27,22 @@ import org.apache.doris.optimizer.rule.OptRuleType;
 import org.apache.doris.optimizer.stat.Statistics;
 
 import java.util.BitSet;
+import java.util.List;
 
 public class OptLogicalUTLeafNode extends OptLogical {
     private int value;
+    private List<OptColumnRef> outputColumns;
 
     public OptLogicalUTLeafNode() {
         super(OptOperatorType.OP_LOGICAL_UNIT_TEST_LEAF);
-        this.value = OptUtils.getUTOperatorId();;
+        this.value = OptUtils.getUTOperatorId();
+        this.outputColumns = Lists.newArrayList();
+    }
+
+    public OptLogicalUTLeafNode(List<OptColumnRef> outputColumns) {
+        super(OptOperatorType.OP_LOGICAL_UNIT_TEST_LEAF);
+        this.value = OptUtils.getUTOperatorId();
+        this.outputColumns = outputColumns;
     }
 
     public int getValue() { return value; }
@@ -57,11 +66,6 @@ public class OptLogicalUTLeafNode extends OptLogical {
     }
 
     @Override
-    public BitSet getCandidateRulesForExplore() {
-        return new BitSet();
-    }
-
-    @Override
     public BitSet getCandidateRulesForImplement() {
         final BitSet set = new BitSet();
         set.set(OptRuleType.RULE_IMP_UT_LEAF.ordinal());
@@ -70,7 +74,12 @@ public class OptLogicalUTLeafNode extends OptLogical {
 
     @Override
     public Statistics deriveStat(OptExpressionHandle expressionHandle, RequiredLogicalProperty property) {
-        return new Statistics();
+        final Statistics statistics = new Statistics(property);
+        for (OptColumnRef column : outputColumns) {
+            statistics.addColumnCardinality(column.getId(), 100);
+        }
+        statistics.setRowCount(1000);
+        return statistics;
     }
 
     @Override
@@ -82,6 +91,9 @@ public class OptLogicalUTLeafNode extends OptLogical {
 
     @Override
     public OptColumnRefSet getOutputColumns(OptExpressionHandle exprHandle) {
-        return new OptColumnRefSet();
+        final OptColumnRefSet columns = new OptColumnRefSet();
+        columns.include(outputColumns);
+        return columns;
     }
+
 }

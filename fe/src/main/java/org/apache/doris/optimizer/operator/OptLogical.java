@@ -80,7 +80,6 @@ public abstract class OptLogical extends OptOperator {
                 // union output and outer columns from children
                 OptLogicalProperty property = exprHandle.getChildLogicalProperty(i);
                 outputColumns.include(property.getOutputColumns());
-
                 outerColumns.include(property.getOuterColumns());
             }
         }

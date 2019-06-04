@@ -81,7 +81,7 @@ public class OptDistributionSpec implements OptPropertySpec {
                 return isRandomSatisfy(distributionSpec);
             case SINGLE:
                 return isSingleSatisfySingle(distributionSpec);
-            case REPLICATE:
+            case Broadcast:
                 return isReplicateSatisfy(distributionSpec);
                 default:
                     Preconditions.checkState(false, "Unkown distribution type.");
@@ -94,7 +94,7 @@ public class OptDistributionSpec implements OptPropertySpec {
             return true;
         }
 
-        if (spec.type == DistributionType.REPLICATE) {
+        if (spec.type == DistributionType.Broadcast) {
             return true;
         }
 
@@ -125,9 +125,21 @@ public class OptDistributionSpec implements OptPropertySpec {
         return type == DistributionType.SINGLE;
     }
 
+    public boolean isHash() {
+        return type == DistributionType.HASH;
+    }
+
+    public boolean isBroadcast() {
+        return type == DistributionType.Broadcast;
+    }
+
     @Override
     public int hashCode() {
-        return OptUtils.combineHash(type.hashCode(), hashItem.hashCode());
+        int hashCode = type.hashCode();
+        if (hashItem != null) {
+            hashCode = OptUtils.combineHash(hashCode, hashItem);
+        }
+        return hashCode;
     }
 
     @Override
@@ -147,7 +159,7 @@ public class OptDistributionSpec implements OptPropertySpec {
     public enum DistributionType {
         HASH,
         SINGLE,
-        REPLICATE,
+        Broadcast,
         RANDOM,
         ANY,
     }

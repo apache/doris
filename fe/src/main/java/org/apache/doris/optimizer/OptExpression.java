@@ -17,14 +17,11 @@
 
 package org.apache.doris.optimizer;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import org.apache.doris.optimizer.base.OptCost;
-import org.apache.doris.optimizer.base.OptItemProperty;
-import org.apache.doris.optimizer.base.OptLogicalProperty;
-import org.apache.doris.optimizer.base.OptPhysicalProperty;
-import org.apache.doris.optimizer.base.OptProperty;
+import org.apache.doris.optimizer.base.*;
+import org.apache.doris.optimizer.cost.OptCost;
 import org.apache.doris.optimizer.operator.OptExpressionHandle;
-import org.apache.doris.optimizer.operator.OptLogicalProject;
 import org.apache.doris.optimizer.operator.OptOperator;
 import org.apache.doris.optimizer.stat.Statistics;
 import org.apache.logging.log4j.LogManager;
@@ -124,9 +121,17 @@ public class OptExpression {
     public OptExpression getInput(int idx) { return inputs.get(idx); }
     public MultiExpression getMExpr() { return mExpr; }
     public void setProperty(OptProperty property) { this.property = property; };
-    public OptProperty getProperty() { return deriveProperty(); }
-    public OptLogicalProperty getLogicalProperty() { return (OptLogicalProperty) deriveProperty(); }
-    public OptItemProperty getItemProperty() { return (OptItemProperty) deriveProperty(); }
+    public OptProperty getProperty() { return property; }
+    public OptLogicalProperty getLogicalProperty() {
+        final OptProperty property = deriveProperty();
+        Preconditions.checkArgument(property instanceof OptLogicalProperty);
+        return (OptLogicalProperty)property;
+    }
+    public OptItemProperty getItemProperty() {
+        final OptProperty property = deriveProperty();
+        Preconditions.checkArgument(property instanceof OptItemProperty);
+        return (OptItemProperty) deriveProperty();
+    }
     public OptPhysicalProperty getPhysicalProperty() { return (OptPhysicalProperty) deriveProperty(); }
     public Statistics getStatistics() { return statistics; }
     public void setStatistics(Statistics statistics) { this.statistics = statistics; }
@@ -174,10 +179,22 @@ public class OptExpression {
         for (OptExpression input : inputs) {
             input.deriveProperty();
         }
-        property = op.createProperty();
         OptExpressionHandle handle = new OptExpressionHandle(this);
-        property.derive(handle);
+        handle.deriveExpressionLogicalOrItemProperty();
+        property = handle.getProperty();
         return property;
+    }
+
+    public Statistics deriveStat(RequiredLogicalProperty requiredProperty) {
+        if (statistics != null
+                && !requiredProperty.isDifferent(statistics.getProperty())) {
+            return statistics;
+        }
+
+        final OptExpressionHandle expressionHandle = new OptExpressionHandle(this);
+        expressionHandle.deriveExpressionStats(requiredProperty);
+        statistics = expressionHandle.getStatistics();
+        return statistics;
     }
 
     @Override

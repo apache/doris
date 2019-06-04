@@ -17,6 +17,7 @@
 
 package org.apache.doris.optimizer.search;
 
+import com.sun.org.apache.xpath.internal.operations.Mult;
 import org.apache.doris.optimizer.MultiExpression;
 import org.apache.doris.optimizer.OptGroup;
 import org.apache.doris.optimizer.base.RequiredLogicalProperty;
@@ -65,12 +66,13 @@ public class TaskGroupImplementation extends Task {
         public void handle(SearchContext sContext) {
             group.setStatus(OptGroup.GState.Implementing);
             boolean hasNew = false;
-            for (int i = 0; i < group.getMultiExpressions().size(); i++) {
-                final MultiExpression mExpr = group.getMultiExpressions().get(i);
-                if (!mExpr.isImplemented()) {
-                    TaskMultiExpressionImplementation.schedule(sContext, mExpr, TaskGroupImplementation.this);
+            MultiExpression firstMExpr = group.getFirstLogicalMultiExpression();
+            while (firstMExpr != null) {
+                if (!firstMExpr.isImplemented()) {
+                    TaskMultiExpressionImplementation.schedule(sContext, firstMExpr, TaskGroupImplementation.this);
                     hasNew = true;
                 }
+                firstMExpr = group.nextLogicalExpr(firstMExpr);
             }
 
             if (hasNew) {

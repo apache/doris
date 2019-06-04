@@ -20,8 +20,10 @@ package org.apache.doris.optimizer.search;
 import org.apache.doris.optimizer.OptGroup;
 import org.apache.doris.optimizer.OptMemo;
 import org.apache.doris.optimizer.Optimizer;
+import org.apache.doris.optimizer.base.OptColumnRefFactory;
 import org.apache.doris.optimizer.base.OptimizationContext;
 import org.apache.doris.optimizer.base.SearchVariable;
+import org.apache.doris.optimizer.cost.CostModel;
 import org.apache.doris.optimizer.rule.OptRule;
 
 import java.util.List;
@@ -31,17 +33,19 @@ public class SearchContext {
     private final Optimizer optimizer;
     private final Scheduler scheduler;
     private final SearchVariable variables;
+    private final OptColumnRefFactory columnRefFactory;
 
-    private SearchContext(Optimizer optimizer, Scheduler scheduler, SearchVariable variables) {
+    private SearchContext(Optimizer optimizer, Scheduler scheduler, SearchVariable variables, OptColumnRefFactory factory) {
         this.optimizer = optimizer;
         this.scheduler = scheduler;
         this.variables = variables;
+        this.columnRefFactory = factory;
     }
 
-    public static SearchContext create(Optimizer optimizer, OptGroup firstGroup,
-                                       OptimizationContext oContext, Scheduler scheduler, SearchVariable variables) {
-        final SearchContext sContext = new SearchContext(optimizer, scheduler, variables);
-        TaskGroupOptimization.schedule(sContext, firstGroup, oContext, null);
+    public static SearchContext create(Optimizer optimizer, OptGroup firstGroup, OptimizationContext oContext,
+                                       Scheduler scheduler, SearchVariable variables, OptColumnRefFactory factory) {
+        final SearchContext sContext = new SearchContext(optimizer, scheduler, variables, factory);
+        TaskGroupOptimization.schedule(sContext, firstGroup, firstGroup.getFirstMultiExpression(), oContext, null);
         return sContext;
     }
 
@@ -50,6 +54,8 @@ public class SearchContext {
     }
 
     public OptMemo getMemo() { return optimizer.getMemo(); }
+    public CostModel getCostModel() { return optimizer.getCostModel(); }
     public List<OptRule> getRules() { return optimizer.getRules(); }
     public SearchVariable getSearchVariables() { return variables; }
+    public OptColumnRefFactory getColumnRefFactory() { return columnRefFactory; }
 }

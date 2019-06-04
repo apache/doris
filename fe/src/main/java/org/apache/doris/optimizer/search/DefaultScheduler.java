@@ -35,8 +35,9 @@ public class DefaultScheduler implements Scheduler {
     private final Set<Task> pendingTasks;
     private long startSearchingTime;
     private long taskTotal;
-    private long tasksSuspendTotal;
-    private long tasksResumeTotal;
+    private long tasksSuspendByChildrenTotal;
+    private long tasksResumeFromChildrenTotal;
+    private long tasksSuspendBySelfTotal;
 
     private DefaultScheduler() {
         this.tasks = new Stack<>();
@@ -52,8 +53,9 @@ public class DefaultScheduler implements Scheduler {
     private void resetEnv() {
         this.startSearchingTime = System.currentTimeMillis();
         this.taskTotal = 0;
-        this.tasksSuspendTotal = 0;
-        this.tasksResumeTotal = 0;
+        this.tasksSuspendByChildrenTotal = 0;
+        this.tasksResumeFromChildrenTotal = 0;
+        this.tasksSuspendBySelfTotal = 0;
     }
 
     /**
@@ -72,14 +74,15 @@ public class DefaultScheduler implements Scheduler {
     }
 
     private void printSearchInfo() {
-        Preconditions.checkState(tasksResumeTotal == tasksSuspendTotal);
+        Preconditions.checkState(tasksResumeFromChildrenTotal == tasksSuspendByChildrenTotal);
         Preconditions.checkState(taskTotal > 0);
         final long finishSearchingTime = System.currentTimeMillis();
-        final StringBuilder strBuilder = new StringBuilder("Searching finished, ");
-        strBuilder.append(" time:").append(finishSearchingTime - startSearchingTime)
-                .append(" task total:").append(taskTotal)
-                .append(" suspend total:").append(tasksSuspendTotal)
-                .append(" resume total:").append(tasksResumeTotal);
+        final StringBuilder strBuilder = new StringBuilder("Searching finished:\n");
+        strBuilder.append(" time:").append(finishSearchingTime - startSearchingTime).append("\n")
+                .append(" task total:").append(taskTotal).append("\n")
+                .append(" suspend by children total:").append(tasksSuspendByChildrenTotal).append("\n")
+                .append(" resume by children total:").append(tasksResumeFromChildrenTotal).append("\n")
+                .append(" suspend and resume by selft:").append(tasksSuspendBySelfTotal);
         LOG.info(strBuilder.toString());
     }
 
@@ -97,14 +100,20 @@ public class DefaultScheduler implements Scheduler {
                     // Schedule parent task again.
                     tasks.push(task.getParent());
                     pendingTasks.remove(task.getParent());
-                    tasksResumeTotal++;
+                    tasksResumeFromChildrenTotal++;
                 }
                 continue;
             } else {
-                // The task will be scheduled again by the last
-                // child when all children finished.
-                tasksSuspendTotal++;
-                pendingTasks.add(task);
+                if (tasks.isEmpty() || tasks.peek().getParent() != task) {
+                    // Task does't schedules any other tasks and does't finishs, need to be scheduled again.
+                    tasks.push(task);
+                    tasksSuspendBySelfTotal++;
+                } else {
+                    // The task will be scheduled again by the last
+                    // child when all children finished.
+                    tasksSuspendByChildrenTotal++;
+                    pendingTasks.add(task);
+                }
             }
         }
         printSearchInfo();

@@ -29,7 +29,7 @@ public class OptLogicalFullOuterJoin extends OptLogicalJoin {
 
     @Override
     public Statistics deriveStat(OptExpressionHandle exprHandle, RequiredLogicalProperty property) {
-        return StatisticsEstimator.estimateFullOuterJoin(exprHandle);
+        return StatisticsEstimator.estimateFullOuterJoin(exprHandle, property);
     }
 
     //------------------------------------------------------------------------

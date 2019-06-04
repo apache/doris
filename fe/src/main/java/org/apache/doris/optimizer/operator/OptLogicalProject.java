@@ -40,7 +40,7 @@ public class OptLogicalProject extends OptLogical {
     @Override
     public Statistics deriveStat(
             OptExpressionHandle exprHandle, RequiredLogicalProperty property) {
-        return StatisticsEstimator.estimateProject(property, exprHandle);
+        return StatisticsEstimator.estimateProject(exprHandle, property);
     }
 
     @Override
@@ -60,7 +60,7 @@ public class OptLogicalProject extends OptLogical {
         final OptItemProperty project = exprHandle.getChildItemProperty(1);
         columns.include(childProperty.getOutputColumns());
         columns.intersects(project.getUsedColumns());
-        columns.include(project.getDefinedColumns());
+        columns.include(project.getGeneratedColumns());
         return columns;
     }
 

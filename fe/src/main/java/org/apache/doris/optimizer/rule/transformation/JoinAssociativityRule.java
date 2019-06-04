@@ -18,10 +18,12 @@
 package org.apache.doris.optimizer.rule.transformation;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 import org.apache.doris.optimizer.OptExpression;
 import org.apache.doris.optimizer.operator.OptLogicalJoin;
 import org.apache.doris.optimizer.operator.OptPatternLeaf;
 import org.apache.doris.optimizer.rule.OptRuleType;
+import org.apache.doris.optimizer.rule.RuleCallContext;
 
 import java.util.List;
 
@@ -47,24 +49,65 @@ public class JoinAssociativityRule extends ExplorationRule {
     }
 
     @Override
-    public void transform(OptExpression expr, List<OptExpression> newExprs) {
-        final OptExpression leftChildJoin = expr.getInput(0);
-        final OptExpression rightChild = expr.getInput(1);
-        Preconditions.checkNotNull(leftChildJoin);
-        Preconditions.checkNotNull(rightChild);
-        final OptExpression leftChildJoinLeftChild = leftChildJoin.getInput(0);
-        final OptExpression leftChildJoinRightChild = leftChildJoin.getInput(1);
-        Preconditions.checkNotNull(leftChildJoinLeftChild);
-        Preconditions.checkNotNull(leftChildJoinRightChild);
+    public void transform(RuleCallContext call) {
+        final OptExpression originExpr = call.getOrigin();
+        final OptExpression outerChildExpr = originExpr.getInput(0);
+        final OptExpression innerChildExpr = originExpr.getInput(1);
+        Preconditions.checkNotNull(outerChildExpr);
+        Preconditions.checkNotNull(innerChildExpr);
+
+        final OptExpression topJoinEqualConjunctExpr = originExpr.getInput(2);
+        final OptExpression topJoinNonequalConjunctExpr = originExpr.getInput(3);
+        final List<OptExpression> equalConjunctExprs = Lists.newArrayList();
+        final List<OptExpression> nonequalConjunctExprs = Lists.newArrayList();
+        for (OptExpression child : topJoinEqualConjunctExpr.getInputs()) {
+            equalConjunctExprs.add(child);
+        }
+        for (OptExpression child : topJoinNonequalConjunctExpr.getInputs()) {
+            nonequalConjunctExprs.add(child);
+        }
+
+        final OptExpression outerChildJoinOuterChild = outerChildExpr.getInput(0);
+        final OptExpression outerChildJoinInnerChild = outerChildExpr.getInput(1);
+        Preconditions.checkNotNull(outerChildJoinOuterChild);
+        Preconditions.checkNotNull(outerChildJoinInnerChild);
+
+        final OptExpression bottomJoinEqualConjunctExpr = originExpr.getInput(2);
+        final OptExpression bottomJoinNonequalConjunctExpr = originExpr.getInput(3);
+        for (OptExpression child : bottomJoinEqualConjunctExpr.getInputs()) {
+            equalConjunctExprs.add(child);
+        }
+        for (OptExpression child : bottomJoinNonequalConjunctExpr.getInputs()) {
+            nonequalConjunctExprs.add(child);
+        }
 
         final OptExpression newLeftChildJoin = OptExpression.create(
                 new OptLogicalJoin(),
-                leftChildJoinLeftChild,
-                rightChild);
+                outerChildJoinOuterChild,
+                innerChildExpr);
         final OptExpression newTopJoin = OptExpression.create(
                 new OptLogicalJoin(),
                 newLeftChildJoin,
-                leftChildJoinRightChild);
-        newExprs.add(newTopJoin);
+                outerChildJoinInnerChild);
+        call.addNewExpr(newTopJoin);
     }
+
+
+//    private void assignJoinConjunct(
+//            OptExpression joinExpr, List<OptExpression> equalConjunctExprs, List<OptExpression> nonequalConjunctExprs) {
+//        final OptExpression outerChildExpr = joinExpr.getInput(0);
+//        final OptExpression innerChildExpr = joinExpr.getInput(1);
+//        final OptLogicalProperty outerChildProperty = outerChildExpr.getProperty();
+//        final OptLogicalProperty innerChildProperty = innerChildExpr.getProperty();
+//        for (OptExpression conjunctExpr : equalConjunctExprs) {
+//            final OptItemProperty property = conjunctExpr.getItemProperty();
+//            final OptColumnRefSet columns = new OptColumnRefSet();
+//            columns.include(property.getUsedColumns());
+//            columns.include(property.getGeneratedColumns());
+//
+//
+//
+//        }
+//        equalConjunctExprs.stream().map()
+//    }
 }

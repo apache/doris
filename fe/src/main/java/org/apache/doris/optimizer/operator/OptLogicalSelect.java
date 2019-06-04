@@ -40,7 +40,7 @@ public class OptLogicalSelect extends OptLogical {
     @Override
     public Statistics deriveStat(
             OptExpressionHandle exprHandle, RequiredLogicalProperty property) {
-        return StatisticsEstimator.estimateSelect(exprHandle);
+        return StatisticsEstimator.estimateSelect(exprHandle, property);
     }
 
     @Override

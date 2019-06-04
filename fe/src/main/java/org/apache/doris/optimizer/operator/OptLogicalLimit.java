@@ -48,7 +48,7 @@ public class OptLogicalLimit extends OptLogical {
 
     @Override
     public Statistics deriveStat(OptExpressionHandle exprHandle, RequiredLogicalProperty property) {
-        return StatisticsEstimator.estimateLimit(property, exprHandle, limit);
+        return StatisticsEstimator.estimateLimit(exprHandle, property, limit);
     }
 
     @Override

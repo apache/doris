@@ -19,6 +19,7 @@ package org.apache.doris.optimizer.stat;
 
 import com.google.common.collect.Maps;
 import org.apache.doris.optimizer.base.OptColumnRefSet;
+import org.apache.doris.optimizer.base.RequiredLogicalProperty;
 
 import java.util.Map;
 
@@ -27,14 +28,16 @@ public class Statistics {
     private long rowCount;
     private OptColumnRefSet statColumns;
     private Map<Integer, Long> columnsCardinalityMap;
+    private RequiredLogicalProperty property;
 
-    public Statistics() {
+    public Statistics(RequiredLogicalProperty property) {
         this.rowCount = 0;
         this.statColumns = new OptColumnRefSet();
         this.columnsCardinalityMap = Maps.newHashMap();
+        this.property = property;
     }
 
-    public void addRow(int id, long cardinality) {
+    public void addColumnCardinality(int id, long cardinality) {
         this.columnsCardinalityMap.put(id, cardinality);
         this.statColumns.include(id);
     }
@@ -43,15 +46,22 @@ public class Statistics {
         return rowCount;
     }
 
+    public void setRowCount(long rowCount) {
+        this.rowCount = rowCount;
+    }
+
     public Long getCardinality(int id) {
         return columnsCardinalityMap.get(id);
     }
 
-    public void setRowCount(long rowCount) {
-        this.rowCount = rowCount;
+    // TODO ch, return width according column type.
+    public int width(OptColumnRefSet columns) {
+        return columns.cardinality();
     }
 
     public OptColumnRefSet getStatColumns() {
         return statColumns;
     }
+
+    public RequiredLogicalProperty getProperty() { return property; }
 }

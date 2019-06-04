@@ -34,7 +34,7 @@ public class OptLogicalJoin extends OptLogical {
 
     @Override
     public Statistics deriveStat(OptExpressionHandle exprHandle, RequiredLogicalProperty property) {
-        return new Statistics();
+        return new Statistics(property);
     }
 
     @Override

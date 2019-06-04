@@ -20,7 +20,6 @@ package org.apache.doris.optimizer.base;
 import com.google.common.collect.Lists;
 import org.apache.doris.optimizer.MultiExpression;
 import org.apache.doris.optimizer.OptGroup;
-import org.apache.doris.optimizer.Optimizer;
 
 import java.util.List;
 
@@ -31,15 +30,19 @@ public class OptimizationContext {
     // only used to debug
     private OptGroup group;
 
-    private RequiredPhysicalProperty reqdPhyProp;
+    // Logical property does't participate in hashcode and equal.
+    private RequiredLogicalProperty requiredLogicalProperty;
+    private RequiredPhysicalProperty requiredPhysicalProperty;
     private OptCostContext bestCostCtx;
 
     private List<OptimizationContext> childrenOptContext;
 
     public OptimizationContext(OptGroup group,
-                               RequiredPhysicalProperty reqdPhyProp) {
+                               RequiredLogicalProperty requiredLogicalProperty,
+                               RequiredPhysicalProperty requiredPhysicalProperty) {
         this.group = group;
-        this.reqdPhyProp = reqdPhyProp;
+        this.requiredLogicalProperty = requiredLogicalProperty;
+        this.requiredPhysicalProperty = requiredPhysicalProperty;
         this.childrenOptContext = Lists.newArrayList();
     }
 
@@ -47,7 +50,9 @@ public class OptimizationContext {
         this.bestCostCtx = costContext;
     }
     public OptGroup getGroup() { return group; }
-    public RequiredPhysicalProperty getReqdPhyProp() { return reqdPhyProp; }
+
+    public RequiredLogicalProperty getRequiredLogicalProperty() { return requiredLogicalProperty; }
+    public RequiredPhysicalProperty getRequiredPhysicalProperty() { return requiredPhysicalProperty; }
     public OptCostContext getBestCostCtx() { return bestCostCtx; }
     public void addChildOptContext(OptimizationContext context) { this.childrenOptContext.add(context); };
     public List<OptimizationContext> getChildrenOptContext() { return childrenOptContext; };
@@ -55,7 +60,7 @@ public class OptimizationContext {
 
     @Override
     public int hashCode() {
-        return reqdPhyProp.hashCode();
+        return requiredPhysicalProperty.hashCode();
     }
 
     @Override
@@ -67,6 +72,6 @@ public class OptimizationContext {
             return true;
         }
         OptimizationContext rhs = (OptimizationContext) obj;
-        return reqdPhyProp.equals(rhs.reqdPhyProp);
+        return requiredPhysicalProperty.equals(rhs.requiredPhysicalProperty);
     }
 }

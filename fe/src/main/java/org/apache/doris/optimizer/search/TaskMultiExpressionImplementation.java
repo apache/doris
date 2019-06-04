@@ -100,15 +100,16 @@ public class TaskMultiExpressionImplementation extends Task {
                 // It's necessary to apply explore rules firstly before apply implement rules. and Scheduling
                 // queue is FILO.
                 final List<OptRule> rules = sContext.getRules();
-                final BitSet candidateRulesForImplement = optLogical.getCandidateRulesForImplement();
-                for (OptRule rule : rules) {
-                    if (candidateRulesForImplement.get(rule.type().ordinal())) {
-                        TaskRuleApplication.schedule(sContext, mExpr, rule,
-                                TaskMultiExpressionImplementation.this);
-                        hasTaskScheduled = true;
+                if (sContext.getSearchVariables().isExecuteOptimization()) {
+                    final BitSet candidateRulesForImplement = optLogical.getCandidateRulesForImplement();
+                    for (OptRule rule : rules) {
+                        if (candidateRulesForImplement.get(rule.type().ordinal())) {
+                            TaskRuleApplication.schedule(sContext, mExpr, rule,
+                                    TaskMultiExpressionImplementation.this);
+                            hasTaskScheduled = true;
+                        }
                     }
                 }
-
                 final BitSet candidateRulesForExplore = optLogical.getCandidateRulesForExplore();
                 for (OptRule rule : rules) {
                     if (candidateRulesForExplore.get(rule.type().ordinal())) {

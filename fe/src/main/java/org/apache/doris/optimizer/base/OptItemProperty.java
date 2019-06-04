@@ -18,34 +18,90 @@
 package org.apache.doris.optimizer.base;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
-import org.apache.doris.optimizer.OptExpression;
-import org.apache.doris.optimizer.operator.OptExpressionHandle;
-import org.apache.doris.optimizer.operator.OptItem;
+import org.apache.doris.optimizer.operator.*;
 
 public class OptItemProperty implements OptProperty {
-    private OptColumnRefSet usedColumns;
-    private OptColumnRefSet definedColumns;
+    private final OptColumnRefSet usedColumns;
+    private final OptColumnRefSet generatedColumns;
+    // These are used for OptItemFunctionCall and OptItemProjectElement.
+    private boolean isDistinctAgg;
+    private boolean isDisintctAggMultiParam;
+
+    // These are used for OptItemProjectList.
+    private int distinctAggCount;
+    private boolean isMultiAggDistinct;
+
+    public OptItemProperty() {
+        this.usedColumns = new OptColumnRefSet();
+        this.generatedColumns = new OptColumnRefSet();
+        this.distinctAggCount = 0;
+        this.isDistinctAgg = false;
+        this.isMultiAggDistinct = false;
+    }
 
     public OptColumnRefSet getUsedColumns() { return usedColumns; }
-    public OptColumnRefSet getDefinedColumns() { return definedColumns; }
+
+    public OptColumnRefSet getGeneratedColumns() { return generatedColumns; }
+
+    public boolean isDistinctAgg() { return isDistinctAgg; }
+
+    public boolean isMultiAggDistinct() { return isMultiAggDistinct; }
+
+    public boolean isHavingSubQuery() {
+        return false;
+    }
 
     @Override
     public void derive(OptExpressionHandle exprHandle) {
         Preconditions.checkArgument(exprHandle.getOp() instanceof OptItem,
                 "op is not item, op=" + exprHandle.getOp());
-        OptItem item = (OptItem) exprHandle.getOp();
-        usedColumns = item.getUsedColumns();
+
+        final OptItem item = (OptItem) exprHandle.getOp();
+        usedColumns.include(item.getUsedColumns());
+        generatedColumns.include(item.getGeneratedColumns());
         for (int i = 0; i < exprHandle.arity(); ++i) {
-            // TODO(zc)
-            /*
-            if (!input.getOp().isItem()) {
-                continue;
+            if (exprHandle.isItemChild(i)) {
+                final OptItemProperty childProperty = exprHandle.getChildItemProperty(i);
+                usedColumns.include(childProperty.getUsedColumns());
+                generatedColumns.include(childProperty.getGeneratedColumns());
+            } else {
+                Preconditions.checkArgument(item.isSubquery());
+                usedColumns.include(exprHandle.getChildLogicalProperty(i).getOuterColumns());
             }
-            OptItemProperty property = (OptItemProperty) input.getProperty();
-            // Include input's used columns
-            usedColumns.include(property.getUsedColumns());
-            */
+        }
+
+        setDistinctAggInfo(item, exprHandle);
+    }
+
+    private void setDistinctAggInfo(OptItem item, OptExpressionHandle exprHandle) {
+        if (item instanceof OptItemFunctionCall) {
+            final OptItemFunctionCall functionCall = (OptItemFunctionCall) item;
+            isDistinctAgg = functionCall.getFunction().isDistinct();
+            isDisintctAggMultiParam = functionCall.getFunction().getFn().getArgs().length > 0 ? true : false;
+        } else if (item instanceof OptItemProjectElement) {
+            isDistinctAgg = exprHandle.getChildItemProperty(0).isDistinctAgg;
+            isDisintctAggMultiParam = exprHandle.getChildItemProperty(0).isDisintctAggMultiParam;
+        } else if (item instanceof OptItemProjectList) {
+            for (int i = 0; i < exprHandle.arity(); i++) {
+                final OptItemProperty childProperty = exprHandle.getChildItemProperty(i);
+                if (childProperty.isDistinctAgg) {
+                    distinctAggCount++;
+                }
+                if (childProperty.isDisintctAggMultiParam) {
+                    isDisintctAggMultiParam = true;
+                }
+            }
+
+            if (distinctAggCount > 1) {
+                isDistinctAgg = true;
+                isMultiAggDistinct = true;
+            } else if (distinctAggCount == 1) {
+                isDistinctAgg = true;
+            } else {
+                Preconditions.checkArgument(distinctAggCount == 0);
+            }
+        } else {
+
         }
     }
 }

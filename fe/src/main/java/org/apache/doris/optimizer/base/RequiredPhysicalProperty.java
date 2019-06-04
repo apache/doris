@@ -22,6 +22,8 @@ import org.apache.doris.optimizer.OptUtils;
 import org.apache.doris.optimizer.operator.OptExpressionHandle;
 import org.apache.doris.optimizer.operator.OptPhysical;
 
+import java.util.List;
+
 public class RequiredPhysicalProperty extends RequiredProperty {
     private OrderEnforcerProperty orderProperty;
     private DistributionEnforcerProperty distributionProperty;
@@ -33,6 +35,7 @@ public class RequiredPhysicalProperty extends RequiredProperty {
         final RequiredPhysicalProperty property = new RequiredPhysicalProperty();
         property.orderProperty = OrderEnforcerProperty.EMPTY;
         property.distributionProperty = DistributionEnforcerProperty.ANY;
+        property.columns = new OptColumnRefSet();
         return property;
     }
 

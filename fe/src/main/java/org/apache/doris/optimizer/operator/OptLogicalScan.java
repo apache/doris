@@ -21,8 +21,10 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.doris.analysis.BaseTableRef;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.optimizer.base.OptColumnRef;
+import org.apache.doris.optimizer.base.OptColumnRefFactory;
 import org.apache.doris.optimizer.base.OptColumnRefSet;
 import org.apache.doris.optimizer.base.RequiredLogicalProperty;
 import org.apache.doris.optimizer.rule.OptRuleType;
@@ -33,16 +35,16 @@ import java.util.BitSet;
 import java.util.List;
 
 public class OptLogicalScan extends OptLogical {
-    private List<OptColumnRef> outputs;
+    private List<OptColumnRef> outputColumns;
     private OlapTable table;
 
     public OptLogicalScan() {
         this(null, null);
     }
 
-    public OptLogicalScan(OlapTable table, List<OptColumnRef> outputs) {
+    public OptLogicalScan(OlapTable table, List<OptColumnRef> outputColumns) {
         super(OptOperatorType.OP_LOGICAL_SCAN);
-        this.outputs = outputs;
+        this.outputColumns = outputColumns;
         this.table = table;
     }
 
@@ -55,7 +57,15 @@ public class OptLogicalScan extends OptLogical {
 
     @Override
     public OptColumnRefSet getOutputColumns(OptExpressionHandle exprHandle) {
-        return new OptColumnRefSet(outputs);
+        return new OptColumnRefSet(outputColumns);
+    }
+
+    public List<OptColumnRef> getOutputColumns() {
+        return outputColumns;
+    }
+
+    public OlapTable getTable() {
+        return table;
     }
 
     @Override

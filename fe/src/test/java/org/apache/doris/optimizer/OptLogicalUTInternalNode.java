@@ -18,12 +18,14 @@
 package org.apache.doris.optimizer;
 
 import org.apache.doris.optimizer.base.OptColumnRefSet;
+import org.apache.doris.optimizer.base.OptLogicalProperty;
 import org.apache.doris.optimizer.base.RequiredLogicalProperty;
 import org.apache.doris.optimizer.operator.OptExpressionHandle;
 import org.apache.doris.optimizer.operator.OptLogical;
 import org.apache.doris.optimizer.operator.OptOperatorType;
 import org.apache.doris.optimizer.rule.OptRuleType;
 import org.apache.doris.optimizer.stat.Statistics;
+import org.apache.doris.optimizer.stat.StatisticsEstimator;
 
 import java.util.BitSet;
 
@@ -62,18 +64,24 @@ public class OptLogicalUTInternalNode extends OptLogical {
 
     @Override
     public OptColumnRefSet getOutputColumns(OptExpressionHandle exprHandle) {
-        return new OptColumnRefSet();
+        final OptColumnRefSet columns = new OptColumnRefSet();
+        columns.include(exprHandle.getChildLogicalProperty(0).getOutputColumns());
+        columns.include(exprHandle.getChildLogicalProperty(1).getOutputColumns());
+        return columns;
     }
 
     @Override
     public Statistics deriveStat(OptExpressionHandle expressionHandle, RequiredLogicalProperty property) {
-        return new Statistics();
+        return StatisticsEstimator.estimateUTInternal(expressionHandle, property);
     }
 
     @Override
     public OptColumnRefSet requiredStatForChild(
             OptExpressionHandle expressionHandle, RequiredLogicalProperty property, int childIndex) {
-        return new OptColumnRefSet();
+        final OptColumnRefSet columns = new OptColumnRefSet();
+        final OptLogicalProperty childLogicalProperty = expressionHandle.getChildLogicalProperty(childIndex);
+        columns.include(childLogicalProperty.getOutputColumns());
+        return columns;
     }
 
 }

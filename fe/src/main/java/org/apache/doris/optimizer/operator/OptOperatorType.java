@@ -38,6 +38,9 @@ public enum OptOperatorType {
     OP_PHYSICAL_HASH_AGG("PhysicalHashAgg"),
     OP_PHYSICAL_SORT("PhysicalSort"),
     OP_PHYSICAL_UNION("PhysicalUnion"),
+    OP_PHYSICAL_FILTER("PhysicalFilter"),
+    OP_PHYSICAL_PROJECT("PhysicalProject"),
+    OP_PHYSICAL_LIMIT("PhysicalLimit"),
     OP_PHYSICAL_DISTRIBUTION("PhysicalDistribution"),
     OP_PHYSICAL_MYSQL_SCAN("PhysicalMysqlScan"),
 
@@ -55,6 +58,7 @@ public enum OptOperatorType {
     OP_ITEM_LIKE_PREDICATE("ItemLikePredicate"),
     OP_ITEM_PROJECT_ELEMENT("ItemProjectElement"),
     OP_ITEM_PROJECT_LIST("ItemProjectList"),
+    OP_ITEM_ARRAY("ItemArray"),
     OP_ITEM_SUBQUERY_ALL("ItemSubqueryAll"),
     OP_ITEM_SUBQUERY_ANY("ItemSubqueryAny"),
     OP_ITEM_SUBQUERY_EXISTS("ItemSubqueryExists"),

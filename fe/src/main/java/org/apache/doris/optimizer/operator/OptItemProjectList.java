@@ -19,9 +19,15 @@ package org.apache.doris.optimizer.operator;
 
 import org.apache.doris.catalog.Type;
 
+import java.util.List;
+
 public class OptItemProjectList extends OptItem {
 
     public OptItemProjectList() {
+        super(OptOperatorType.OP_ITEM_PROJECT_LIST);
+    }
+
+    public OptItemProjectList(List<OptItemProjectElement> elements) {
         super(OptOperatorType.OP_ITEM_PROJECT_LIST);
     }
 

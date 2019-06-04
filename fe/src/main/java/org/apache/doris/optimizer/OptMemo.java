@@ -20,19 +20,18 @@ package org.apache.doris.optimizer;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
-import org.apache.doris.optimizer.base.OptCost;
+import org.apache.doris.optimizer.cost.OptCost;
 import org.apache.doris.optimizer.base.OptimizationContext;
 import org.apache.doris.optimizer.base.RequiredPhysicalProperty;
 import org.apache.doris.optimizer.rule.OptRuleType;
 import org.apache.doris.optimizer.stat.Statistics;
+import org.apache.doris.optimizer.utils.MemoStatus;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 // This is key component of our optimizer. We utilize
 // dynamic programing to search optimal query plan. When
@@ -59,6 +58,7 @@ public class OptMemo {
     private OptGroup root;
 
     public OptMemo() {
+        reset();
     }
 
     // copy an expression into search space, this function will add an MultiExpression for
@@ -68,15 +68,26 @@ public class OptMemo {
     // Scan(A) and Scan(B).
     // We return MultiExpression rather than OptGroup because we can get OptGroup from MultiExpression
     public MultiExpression init(OptExpression originExpr) {
+        reset();
         final MultiExpression rootMExpr = copyIn(null,
                 originExpr, OptRuleType.RULE_NONE, MultiExpression.INVALID_ID);
         this.root = rootMExpr.getGroup();
         return rootMExpr;
     }
 
+    private void reset() {
+        nextGroupId = 1;
+        groups.clear();
+        unusedGroups.clear();
+        unusedMExprs.clear();
+        mExprs.clear();
+        root = null;
+    }
+
     public MultiExpression copyIn(OptExpression expr, OptRuleType type, int sourceMExprid) {
         return copyIn(null, expr, type, sourceMExprid);
     }
+
     public MultiExpression copyIn(OptGroup targetGroup, OptExpression expr) { return copyIn(targetGroup, expr, OptRuleType.RULE_NONE, MultiExpression.INVALID_ID);};
 
     // used to copy an Expression into this memo.
@@ -112,13 +123,18 @@ public class OptMemo {
             return mExpr;
         }
 
+        Preconditions.checkArgument(!expr.getOp().isPhysical());
         // targetGroup is null, we should create new OptGroup
         // we should derive property first to make sure expression has property
         expr.deriveProperty();
 
-        OptGroup newGroup = new OptGroup(nextGroupId++, expr.getProperty());
+        final OptGroup newGroup = new OptGroup(nextGroupId++, expr.getOp().isItem());
         newGroup.addMExpr(mExpr);
-        newGroup.setProperty(expr.getLogicalProperty());
+        newGroup.setProperty(expr.getProperty());
+        if (newGroup.isItemGroup()) {
+            newGroup.createItemExpression();
+        }
+
         groups.add(newGroup);
         return mExpr;
     }
@@ -175,46 +191,9 @@ public class OptMemo {
         }
 
         if (LOG.isDebugEnabled()) {
-            checkLeakInDag();
-        }
-    }
-
-    private void checkLeakInDag() {
-        final Set<Integer> candidateSearchedGroupIds = Sets.newHashSet();
-        final Set<Integer> candidateSearchedMExprIds = Sets.newHashSet();
-        for (OptGroup group : groups) {
-            candidateSearchedGroupIds.add(group.getId());
-        }
-        for (MultiExpression mExpr : mExprs.values()) {
-            candidateSearchedMExprIds.add(mExpr.getId());
-        }
-
-        searchDag(root, candidateSearchedGroupIds, candidateSearchedMExprIds);
-
-        final StringBuilder groupIdsBuilder = new StringBuilder("Leak Group ids:");
-        for (int id : candidateSearchedGroupIds) {
-            groupIdsBuilder.append(id).append(", ");
-        }
-        LOG.info(groupIdsBuilder.toString());
-
-        final StringBuilder mExprIdsBuilder = new StringBuilder("Leak MultiExpression ids:");
-        for (int id : candidateSearchedMExprIds) {
-            mExprIdsBuilder.append(id).append(", ");
-        }
-        LOG.info(mExprIdsBuilder.toString());
-
-        if (!candidateSearchedGroupIds.isEmpty()
-                || !candidateSearchedMExprIds.isEmpty()) {
-            throw new RuntimeException("Exist Leak Group or MultiExpression!");
-        }
-    }
-
-    private void searchDag(OptGroup root, Set<Integer> candidateSearchedGroupIds, Set<Integer> candidateSearchedMExprIds) {
-        candidateSearchedGroupIds.remove(root.getId());
-        for (MultiExpression mExpr : root.getMultiExpressions()) {
-            candidateSearchedMExprIds.remove(mExpr.getId());
-            for (OptGroup input : mExpr.getInputs()) {
-                searchDag(input, candidateSearchedGroupIds, candidateSearchedMExprIds);
+            final MemoStatus ms = new MemoStatus(this);
+            if (ms.checkLeakInDag()) {
+                throw new RuntimeException("Exist Leak Group or MultiExpression!");
             }
         }
     }
@@ -227,6 +206,27 @@ public class OptMemo {
 
     public List<OptGroup> getGroups() { return groups; }
     public Map<MultiExpression, MultiExpression> getMExprs() { return mExprs; }
+
+    public List<MultiExpression> getLogicalMExprs() {
+        final List<MultiExpression> logicalExprs = Lists.newArrayList();
+        for (MultiExpression mExpr : mExprs.keySet()) {
+            if (mExpr.getOp().isLogical()) {
+                logicalExprs.add(mExpr);
+            }
+        }
+        return logicalExprs;
+    }
+
+    public List<MultiExpression> getPhysicalMExprs() {
+        final List<MultiExpression> physicalExprs = Lists.newArrayList();
+        for (MultiExpression mExpr : mExprs.keySet()) {
+            if (mExpr.getOp().isPhysical()) {
+                physicalExprs.add(mExpr);
+            }
+        }
+        return physicalExprs;
+    }
+
     public OptGroup getRoot() { return this.root; }
 
     public void dump() {
@@ -260,8 +260,8 @@ public class OptMemo {
         OptCost cost = null;
         OptimizationContext optCtx = null;
         MultiExpression bestMExpr = null;
-        if (groupRoot.isItem()) {
-            bestMExpr = groupRoot.getFirstMultiExpression();
+        if (groupRoot.isItemGroup()) {
+            bestMExpr = groupRoot.getFirstLogicalMultiExpression();
         } else {
             optCtx = groupRoot.lookupBest(propertyInput);
             bestMExpr = optCtx.getBestMultiExpr();
@@ -277,9 +277,9 @@ public class OptMemo {
         for (int i = 0; i < bestMExpr.arity(); ++i) {
             RequiredPhysicalProperty childProp = null;
             OptGroup childGroup = bestMExpr.getInput(i);
-            if (!childGroup.isItem()) {
+            if (!childGroup.isItemGroup()) {
                 OptimizationContext childOptCtx = optCtx.getBestCostCtx().getInput(i);
-                childProp = childOptCtx.getReqdPhyProp();
+                childProp = childOptCtx.getRequiredPhysicalProperty();
             }
             OptExpression childExpr = extractExpression(childGroup, childProp);
             exprChildren.add(childExpr);

@@ -45,7 +45,6 @@ public class OptLogicalProperty implements OptProperty {
     @Override
     public void derive(OptExpressionHandle exprHandle) {
         OptLogical op = (OptLogical) exprHandle.getOp();
-
         outputColumns = op.getOutputColumns(exprHandle);
         outerColumns = op.getOuterColumns(exprHandle);
         maxcard = op.getMaxcard(exprHandle);

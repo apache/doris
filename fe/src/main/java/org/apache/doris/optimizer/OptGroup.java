@@ -36,24 +36,25 @@ import java.util.Set;
 // and physical MultiExpressions
 public class OptGroup {
     private static final Logger LOG = LogManager.getLogger(OptGroup.class);
-
-    private int id;
-    private boolean isItem;
-    private List<MultiExpression> mExprs = Lists.newArrayList();
     private static int nextMExprId = 1;
+    private int id;
+    private List<MultiExpression> mExprs = Lists.newArrayList();
     private GState status;
     private Map<OptimizationContext, OptimizationContext> optContextMap;
-    private OptProperty property;
+    private OptProperty logicalOrItemProperty;
     private Statistics statistics;
     private OptExpression itemExpression;
     private boolean isItemGroup;
 
-    public OptGroup(int id, OptProperty property) {
+    public OptGroup(int id) {
+        this(id, false);
+    }
+
+    public OptGroup(int id, boolean isItemGroup) {
         this.id = id;
         this.status = GState.Unimplemented;
-        this.property = property;
         this.optContextMap = Maps.newHashMap();
-        this.isItemGroup = false;
+        this.isItemGroup = isItemGroup;
     }
 
     // Add a new MultiExpression which haven't been added to other group.
@@ -83,42 +84,125 @@ public class OptGroup {
         return sb.toString();
     }
 
-    public String getExplain(String headlinePrefix, String detailPrefix) {
+    public String getExplain(String headlinePrefix, String detailPrefix, ExplainType type) {
         StringBuilder sb = new StringBuilder();
-        sb.append(headlinePrefix).append("Group:").append(id).append('\n');
+        sb.append(headlinePrefix).append("Group:").append(id).append(" Status:").append(status.toString()).append('\n');
         String childHeadlinePrefix = detailPrefix + OptUtils.HEADLINE_PREFIX;
         String childDetailPrefix = detailPrefix + OptUtils.DETAIL_PREFIX;
         for (MultiExpression mExpr : mExprs) {
-            sb.append(mExpr.getExplainString(childHeadlinePrefix, childDetailPrefix));
+            if ((type == ExplainType.LOGICAL && !mExpr.getOp().isLogical())
+                    || (type == ExplainType.PHYSICAL && !mExpr.getOp().isPhysical())) {
+                continue;
+            }
+            sb.append(mExpr.getExplainString(childHeadlinePrefix, childDetailPrefix, type));
         }
         return sb.toString();
     }
 
     public String getExplain() {
-        return getExplain("", "");
+        return getExplain("", "", ExplainType.ALL);
     }
+
+    public String getExplain(String headlinePrefix, String detailPrefix) {
+        return getExplain(headlinePrefix, detailPrefix, ExplainType.ALL);
+    }
+
+    public String getPhysicalExplain() {
+        return getExplain("", "", ExplainType.PHYSICAL);
+    }
+
+    public String getLogicalExplain() {
+        return getExplain("", "", ExplainType.LOGICAL);
+    }
+
     public boolean duplicateWith(OptGroup other) {
         return this == other;
     }
 
-
     public MultiExpression getFirstMultiExpression() {
-        if (mExprs.isEmpty()) { return null; }
+        if (mExprs.isEmpty()) {
+            return null;
+        }
         return mExprs.get(0);
     }
 
+    public MultiExpression getFirstLogicalMultiExpression() {
+        if (mExprs.isEmpty()) {
+            return null;
+        }
+        final MultiExpression first = mExprs.get(0);
+        if (first.getOp().isLogical()) {
+            return first;
+        }
+        return nextLogicalExpr(first);
+    }
+
+    public MultiExpression getFirstPhysicalMultiExpression() {
+        if (mExprs.isEmpty()) {
+            return null;
+        }
+        final MultiExpression first = mExprs.get(0);
+        if (first.getOp().isPhysical()) {
+            return first;
+        }
+
+        return nextPhysicalExpr(first);
+    }
+
+    public MultiExpression nextLogicalExpr(MultiExpression mExpr) {
+        if (mExpr == null) {
+            return null;
+        }
+        MultiExpression nextExpr = mExpr;
+        while (nextExpr.next() != null && !nextExpr.next().getOp().isLogical()) {
+            nextExpr = nextExpr.next();
+        }
+        return nextExpr.next();
+    }
+
+    public MultiExpression nextPhysicalExpr(MultiExpression mExpr) {
+        if (mExpr == null) {
+            return null;
+        }
+        MultiExpression nextExpr = mExpr;
+        while (nextExpr.next() != null && !nextExpr.next().getOp().isPhysical()) {
+            nextExpr = nextExpr.next();
+        }
+        return nextExpr.next();
+    }
+
+    public MultiExpression nextExpr(MultiExpression mExpr) {
+        return mExpr.next();
+    }
+
     public int getId() { return id; }
+
     public boolean isImplemented() { return status == GState.Implemented; }
+
     public boolean isOptimized() { return status == GState.Optimized; }
-    public boolean isItem() { return isItem; }
+
     public List<MultiExpression> getMultiExpressions() { return mExprs; }
-    public OptimizationContext lookUp(OptimizationContext newContext) { return optContextMap.get(newContext); }
-    public void setStatus(GState status) { this.status = status; }
+
     public GState getStatus() { return status; }
-    public OptProperty getProperty() { return property; }
-    public void setProperty(OptProperty property) { this.property = property; }
+
+    public void setStatus(GState status) { this.status = status; }
+
+    public OptProperty getProperty() { return logicalOrItemProperty; }
+
+    public void setProperty(OptProperty property) { this.logicalOrItemProperty = property; }
+
     public Statistics getStatistics() { return statistics; }
+
     public void setStatistics(Statistics statistics) { this.statistics = statistics; }
+
+    public boolean isItemGroup() {
+        return isItemGroup;
+    }
+
+    public void setItemGroup(boolean value) {
+        this.isItemGroup = value;
+    }
+
     public OptExpression getItemExpression() { return itemExpression; }
 
     public void mergeGroup(OptGroup other) {
@@ -164,25 +248,116 @@ public class OptGroup {
         }
     }
 
-    public void deriveStat(RequiredLogicalProperty reqLogicalProperty) {
+    public void deriveStat(RequiredLogicalProperty requiredLogicalProperty) {
+        Preconditions.checkNotNull(requiredLogicalProperty, "Required property can't be null.");
         if (isItemGroup) {
             return;
         }
 
-        if (statistics != null && reqLogicalProperty != null) {
-            if (statistics.getStatColumns().contains(reqLogicalProperty.getColumns())) {
+        if (statistics != null && requiredLogicalProperty != null) {
+            if (!requiredLogicalProperty.isDifferent(statistics.getProperty())) {
                 return;
             }
         }
 
         final MultiExpression bestMExpr = getBestPromiseMExpr();
         final OptExpressionHandle exprHandle = new OptExpressionHandle(bestMExpr);
-        exprHandle.deriveStat(reqLogicalProperty);
+        exprHandle.deriveMultiExpressionLogicalOrItemProperty();
+        exprHandle.deriveMultiExpressionStats(requiredLogicalProperty);
         statistics = exprHandle.getStatistics();
     }
 
-    private MultiExpression getBestPromiseMExpr() {
-        return mExprs.get(0);
+    public MultiExpression getBestPromiseMExpr() {
+        MultiExpression candidate = null;
+        for (MultiExpression mExpr : mExprs) {
+            if (mExpr.getOp().isLogical()) {
+                candidate = mExpr;
+                break;
+            }
+        }
+        return candidate;
+    }
+
+    public MultiExpression getBestPromiseMExpr(MultiExpression matchMExpr) {
+        MultiExpression firstLogicalMExpr = getFirstLogicalMultiExpression();
+        MultiExpression bestPromiseMExpr = null;
+        while (firstLogicalMExpr != null) {
+            if (matchNonItemMExprChildren(matchMExpr, firstLogicalMExpr)
+                    && hasBetterPromise(matchMExpr, firstLogicalMExpr)) {
+                bestPromiseMExpr = firstLogicalMExpr;
+            }
+            firstLogicalMExpr = nextLogicalExpr(firstLogicalMExpr);
+        }
+        return bestPromiseMExpr;
+    }
+
+    private boolean hasBetterPromise(MultiExpression matchMExpr, MultiExpression candidateMExpr) {
+        //TODO ch
+        return true;
+    }
+
+    private boolean matchNonItemMExprChildren(MultiExpression matchMExpr, MultiExpression candidateMExpr) {
+        if (matchMExpr.getInputs().size() == 0 && candidateMExpr.getInputs().size() == 0) {
+            return true;
+        }
+
+        if (matchMExpr.getInputs().size() != candidateMExpr.getInputs().size()) {
+            return false;
+        }
+
+        for (int childIndex = 0; childIndex < matchMExpr.getInputs().size(); childIndex++) {
+            if (matchMExpr.getInput(childIndex) != candidateMExpr.getInput(childIndex)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    public void insert(OptimizationContext newContext) {
+        Preconditions.checkArgument(optContextMap.put(newContext, newContext) == null);
+    }
+
+    public OptimizationContext lookUp(OptimizationContext newContext) {
+        return optContextMap.get(newContext);
+    }
+
+
+    public void updateBestCost(OptimizationContext optContext, OptCostContext costContext) {
+        final OptimizationContext existOptContext = optContextMap.get(optContext);
+        if (existOptContext != null) {
+            final OptCostContext existCostContext = existOptContext.getBestCostCtx();
+            if (existCostContext == null || costContext.isBetterThan(existCostContext)) {
+                existOptContext.setBestCostCtx(costContext);
+            }
+        } else {
+            optContext.setBestCostCtx(costContext);
+            optContextMap.put(optContext, optContext);
+        }
+    }
+
+    public OptimizationContext lookupBest(RequiredPhysicalProperty property) {
+        OptimizationContext optCtx = new OptimizationContext(this, null, property);
+        return optContextMap.get(optCtx);
+    }
+
+    public void createItemExpression() {
+        Preconditions.checkArgument(mExprs.size() == 1);
+        Preconditions.checkArgument(isItemGroup);
+
+        final MultiExpression rootItemMExpression = mExprs.get(0);
+        final OptItemProperty property = (OptItemProperty)logicalOrItemProperty;
+        if (property.isHavingSubQuery()){
+            itemExpression = OptExpression.create(rootItemMExpression.getOp());
+            return;
+        }
+
+        final List<OptExpression> childItemExpressions = Lists.newArrayList();
+        for (int i = 0; i < rootItemMExpression.getInputs().size(); i++) {
+            final OptExpression childItemExpression = rootItemMExpression.getInput(i).getItemExpression();
+            childItemExpressions.add(childItemExpression);
+        }
+
+        itemExpression = OptExpression.create(rootItemMExpression.getOp(), childItemExpressions);
     }
 
     public enum GState {
@@ -193,22 +368,10 @@ public class OptGroup {
         Optimized
     }
 
-    public void updateBestCost(OptimizationContext optContext, OptCostContext costContext) {
-        final OptimizationContext existOptContext = optContextMap.get(optContext);
-        if (existOptContext != null) {
-            final OptCostContext existCostContext = existOptContext.getBestCostCtx();
-            if (costContext.isBetterThan(existCostContext)) {
-                existOptContext.setBestCostCtx(costContext);
-            }
-        } else {
-            optContext.setBestCostCtx(costContext);
-            optContextMap.put(optContext, optContext);
-        }
-    }
-
-    public OptimizationContext lookupBest(RequiredPhysicalProperty property) {
-        OptimizationContext optCtx = new OptimizationContext(this, property);
-        return optContextMap.get(optCtx);
+    enum ExplainType {
+        PHYSICAL,
+        LOGICAL,
+        ALL
     }
 
 }

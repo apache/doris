@@ -51,6 +51,10 @@ public class OptLogicalAggregate extends OptLogical {
         super(OptOperatorType.OP_LOGICAL_AGGREGATE);
     }
 
+    public OptLogicalAggregate(List<OptColumnRef> groupByColumns) {
+        this(groupByColumns, AggType.GB_GLOBAL);
+    }
+
     public OptLogicalAggregate(List<OptColumnRef> groupByColumns, AggType aggType) {
         super(OptOperatorType.OP_LOGICAL_AGGREGATE);
         this.aggType = aggType;
@@ -71,13 +75,16 @@ public class OptLogicalAggregate extends OptLogical {
     @Override
     public OptColumnRefSet requiredStatForChild(OptExpressionHandle expressionHandle,
                                                 RequiredLogicalProperty property, int childIndex) {
+        Preconditions.checkArgument(childIndex == 0, "The child can only be logical.");
         final OptColumnRefSet columns = new OptColumnRefSet();
         columns.include(property.getColumns());
         columns.include(groupByColumns);
 
-        // Aggregation functions
-        final OptItemProperty itemProperty = expressionHandle.getChildItemProperty(1);
-        columns.include(itemProperty.getUsedColumns());
+        if (expressionHandle.arity() == 2) {
+            // Aggregation functions and other project list.
+            final OptItemProperty itemProperty = expressionHandle.getChildItemProperty(1);
+            columns.include(itemProperty.getUsedColumns());
+        }
 
         final OptLogicalProperty logical = (OptLogicalProperty) expressionHandle.getChildProperty(childIndex);
         columns.intersects(logical.getOutputColumns());
@@ -90,15 +97,18 @@ public class OptLogicalAggregate extends OptLogical {
 
     @Override
     public OptColumnRefSet getOutputColumns(OptExpressionHandle exprHandle) {
-        Preconditions.checkArgument(exprHandle.arity() == 2);
+        Preconditions.checkArgument(exprHandle.arity() == 2
+                || exprHandle.arity() == 1);
         final OptColumnRefSet columns = new OptColumnRefSet();
         columns.include(groupByColumns);
 
         final OptLogicalProperty childProperty = exprHandle.getChildLogicalProperty(0);
         columns.include(childProperty.getOutputColumns());
 
-        final OptItemProperty itemProperty = exprHandle.getChildItemProperty(1);
-        columns.include(itemProperty.getDefinedColumns());
+        if (exprHandle.arity() == 2) {
+            final OptItemProperty itemProperty = exprHandle.getChildItemProperty(1);
+            columns.include(itemProperty.getGeneratedColumns());
+        }
         return columns;
     }
 
@@ -116,11 +126,6 @@ public class OptLogicalAggregate extends OptLogical {
             return new OptMaxcard(1);
         }
         return new OptMaxcard();
-    }
-
-    @Override
-    public BitSet getCandidateRulesForExplore() {
-        return null;
     }
 
     @Override
@@ -169,16 +174,6 @@ public class OptLogicalAggregate extends OptLogical {
     }
 
     public List<OptColumnRef> getGroupBy() { return groupByColumns; }
-
-    public enum AggType {
-        GB_LOCAL,
-        GB_GLOBAL,
-        GB_INTERMEDIATE
-    }
-
-    public enum AggStage {
-        TWO_STAGE_SCALAR_DQA,
-        THREE_STAGE_SCALAR_DQA,
-        OTHERS
-    }
+    public List<OptColumnRef> getDistinctColumns() { return dqaColumns; }
+    public boolean isDuplicate() { return dqaColumns.isEmpty(); }
 }

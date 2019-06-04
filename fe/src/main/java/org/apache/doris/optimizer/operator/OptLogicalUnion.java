@@ -18,6 +18,7 @@
 package org.apache.doris.optimizer.operator;
 
 import com.google.common.base.Preconditions;
+import org.apache.doris.optimizer.base.OptColumnRef;
 import org.apache.doris.optimizer.base.OptColumnRefSet;
 import org.apache.doris.optimizer.base.OptLogicalProperty;
 import org.apache.doris.optimizer.base.RequiredLogicalProperty;
@@ -26,15 +27,16 @@ import org.apache.doris.optimizer.stat.Statistics;
 import org.apache.doris.optimizer.stat.StatisticsEstimator;
 
 import java.util.BitSet;
+import java.util.List;
 
 public class OptLogicalUnion extends OptLogical {
     private final boolean isUnionAll;
-    private final OptColumnRefSet groupBy;
+    private final List<OptColumnRef> groupBys;
 
-    public OptLogicalUnion(OptColumnRefSet groupBy, boolean isUnionAll) {
+    public OptLogicalUnion(List<OptColumnRef> groupBys, boolean isUnionAll) {
         super(OptOperatorType.OP_LOGICAL_UNION);
         this.isUnionAll = isUnionAll;
-        this.groupBy = groupBy;
+        this.groupBys = groupBys;
     }
 
     @Override
@@ -47,7 +49,9 @@ public class OptLogicalUnion extends OptLogical {
     @Override
     public Statistics deriveStat(OptExpressionHandle exprHandle, RequiredLogicalProperty property) {
         Preconditions.checkArgument(exprHandle.getChildrenStatistics().size() == 2);
-        return StatisticsEstimator.estimateUnion(groupBy, property, exprHandle);
+        final OptColumnRefSet columns = new OptColumnRefSet();
+        columns.include(groupBys);
+        return StatisticsEstimator.estimateUnion(columns, exprHandle, property);
     }
 
     @Override
@@ -56,7 +60,7 @@ public class OptLogicalUnion extends OptLogical {
             RequiredLogicalProperty property, int childIndex) {
         final OptLogicalProperty childProperty = expressionHandle.getChildLogicalProperty(childIndex);
         final OptColumnRefSet columns = new OptColumnRefSet();
-        columns.include(groupBy);
+        columns.include(groupBys);
         columns.intersects(childProperty.getOutputColumns());
         return columns;
     }
@@ -64,7 +68,7 @@ public class OptLogicalUnion extends OptLogical {
     @Override
     public OptColumnRefSet getOutputColumns(OptExpressionHandle exprHandle) {
         OptColumnRefSet columns = new OptColumnRefSet();
-        columns.include(groupBy);
+        columns.include(groupBys);
         return columns;
     }
 
@@ -72,7 +76,7 @@ public class OptLogicalUnion extends OptLogical {
         return this.isUnionAll;
     }
 
-    public OptColumnRefSet getGroupBy() {
-        return groupBy;
+    public List<OptColumnRef> getGroupBy() {
+        return groupBys;
     }
 }

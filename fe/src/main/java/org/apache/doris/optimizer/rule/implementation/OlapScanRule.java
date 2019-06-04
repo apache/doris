@@ -21,6 +21,7 @@ import org.apache.doris.optimizer.OptExpression;
 import org.apache.doris.optimizer.operator.OptLogicalScan;
 import org.apache.doris.optimizer.operator.OptPhysicalOlapScan;
 import org.apache.doris.optimizer.rule.OptRuleType;
+import org.apache.doris.optimizer.rule.RuleCallContext;
 
 import java.util.List;
 
@@ -35,8 +36,10 @@ public class OlapScanRule extends ImplemetationRule {
     }
 
     @Override
-    public void transform(OptExpression expr, List<OptExpression> newExprs) {
-        final OptExpression newExpr = OptExpression.create(new OptPhysicalOlapScan());
-        newExprs.add(newExpr);
+    public void transform(RuleCallContext call) {
+        final OptLogicalScan scan = (OptLogicalScan)call.getOrigin().getOp();
+        final OptExpression newExpression =
+                OptExpression.create(new OptPhysicalOlapScan(scan.getTable(), scan.getOutputColumns()));
+        call.addNewExpr(newExpression);
     }
 }

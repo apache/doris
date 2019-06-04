@@ -24,6 +24,13 @@ import org.apache.doris.optimizer.operator.OptLogical;
 public class RequiredLogicalProperty extends RequiredProperty {
 
     public RequiredLogicalProperty() {
+        this.columns = new OptColumnRefSet();
+    }
+
+    public static RequiredLogicalProperty createEmptyProperty() {
+        final RequiredLogicalProperty property = new RequiredLogicalProperty();
+        property.columns = new OptColumnRefSet();
+        return property;
     }
 
     @Override
@@ -32,6 +39,14 @@ public class RequiredLogicalProperty extends RequiredProperty {
                 "parent can only be logical property.");
         final OptLogical logical = (OptLogical) exprHandle.getOp();
         columns = logical.requiredStatForChild(exprHandle, (RequiredLogicalProperty)parent, childIndex);
+    }
+
+    public boolean isDifferent(RequiredLogicalProperty property) {
+        return columns.isDifferent(property.columns);
+    }
+
+    public boolean isEmpty() {
+        return columns.cardinality() == 0;
     }
 
     @Override

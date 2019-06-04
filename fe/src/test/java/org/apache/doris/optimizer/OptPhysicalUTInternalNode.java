@@ -53,24 +53,22 @@ public class OptPhysicalUTInternalNode extends OptPhysical {
     @Override
     public OrderEnforcerProperty getChildReqdOrder(
             OptExpressionHandle handle, OrderEnforcerProperty reqdOrder, int childIndex) {
-        return null;
+        return OrderEnforcerProperty.EMPTY;
     }
 
     @Override
     public DistributionEnforcerProperty getChildReqdDistribution(
             OptExpressionHandle handle, DistributionEnforcerProperty reqdDistribution, int childIndex) {
-        return null;
-    }
-
-    @Override
-    public EnforcerProperty.EnforceType getOrderEnforceType(
-            OptExpressionHandle exprHandle, OrderEnforcerProperty enforceOrder) {
-        return null;
+        return DistributionEnforcerProperty.ANY;
     }
 
     @Override
     public OptColumnRefSet deriveChildReqdColumns(
             OptExpressionHandle exprHandle, RequiredPhysicalProperty property, int childIndex) {
-        return null;
+        final OptColumnRefSet columns = new OptColumnRefSet();
+        columns.include(property.getColumns());
+        final OptLogicalProperty childLogicalProperty = exprHandle.getChildLogicalProperty(childIndex);
+        columns.intersects(childLogicalProperty.getOutputColumns());
+        return columns;
     }
 }

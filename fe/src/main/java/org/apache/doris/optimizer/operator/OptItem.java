@@ -25,6 +25,8 @@ import org.apache.doris.optimizer.base.OptProperty;
 
 public abstract class OptItem extends OptOperator {
     private static OptColumnRefSet EMPTY_COLUMNS = new OptColumnRefSet();
+//    protected OptColumnRefSet usedColumns;
+//    protected OptColumnRefSet generatedColumns;
 
     protected OptItem(OptOperatorType type) {
         super(type);

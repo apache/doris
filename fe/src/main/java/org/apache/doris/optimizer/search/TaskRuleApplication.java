@@ -22,6 +22,7 @@ import org.apache.doris.optimizer.MultiExpression;
 import org.apache.doris.optimizer.OptBinding;
 import org.apache.doris.optimizer.OptExpression;
 import org.apache.doris.optimizer.rule.OptRule;
+import org.apache.doris.optimizer.rule.RuleCallContext;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -58,6 +59,11 @@ public class TaskRuleApplication extends Task {
         sContext.schedule(new TaskRuleApplication(mExpr, rule, parent));
     }
 
+    private void printOldAndNewExpr(OptExpression oldExpr, OptExpression newExpr) {
+        LOG.info("OldExpr:\n" + oldExpr.getExplainString());
+        LOG.info("NewExpr:\n" + newExpr.getExplainString());
+    }
+
     private class ApplyingStatus extends TaskState {
 
         @Override
@@ -73,7 +79,9 @@ public class TaskRuleApplication extends Task {
             OptExpression extractExpr = OptBinding.bind(pattern, mExpr, lastExpr);
             final List<OptExpression> newExprs = Lists.newArrayList();
             while (extractExpr != null) {
-                rule.transform(extractExpr, newExprs);
+                final RuleCallContext ruleCallCtx = new RuleCallContext(extractExpr, sContext.getColumnRefFactory());
+                rule.transform(ruleCallCtx);
+                newExprs.addAll(ruleCallCtx.getNewExpr());
                 if (rule.isApplyOnce()) {
                     break;
                 }

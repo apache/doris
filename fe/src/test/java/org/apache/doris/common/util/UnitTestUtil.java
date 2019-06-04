@@ -67,9 +67,12 @@ public class UnitTestUtil {
         // replica
         long replicaId = 0;
         Replica replica1 = new Replica(replicaId, backendId, ReplicaState.NORMAL, version, versionHash, 0);
+        replica1.updateStat(1024, 100);
         Replica replica2 = new Replica(replicaId + 1, backendId + 1, ReplicaState.NORMAL, version, versionHash, 0);
+        replica2.updateStat(1024, 100);
         Replica replica3 = new Replica(replicaId + 2, backendId + 2, ReplicaState.NORMAL, version, versionHash, 0);
-        
+        replica3.updateStat(1024, 100);
+
         // tablet
         Tablet tablet = new Tablet(tabletId);
 
@@ -77,6 +80,7 @@ public class UnitTestUtil {
         MaterializedIndex index = new MaterializedIndex(indexId, IndexState.NORMAL);
         TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, 0);
         index.addTablet(tablet, tabletMeta);
+        index.setRowCount(100);
 
         tablet.addReplica(replica1);
         tablet.addReplica(replica2);

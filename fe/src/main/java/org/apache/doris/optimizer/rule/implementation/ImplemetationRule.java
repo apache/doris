@@ -27,6 +27,8 @@ public abstract class ImplemetationRule extends OptRule {
         super(type, pattern);
     }
 
+    public boolean isApplyOnce() { return true; }
+
     @Override
     public boolean isImplementation() { return true; }
 }

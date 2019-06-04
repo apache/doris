@@ -18,17 +18,41 @@
 package org.apache.doris.optimizer.operator;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 import org.apache.doris.optimizer.base.*;
+
+import java.util.List;
 
 public final class OptPhysicalHashAggregate extends OptPhysical {
 
-    private final OptColumnRefSet groupBys;
-    private final HashAggStage type;
+    private static final List<OptColumnRef> EMPTY_GROUPBYS = Lists.newArrayList();
+    private final List<OptColumnRef> groupBys;
+    private final OptOperator.AggType type;
 
-    public OptPhysicalHashAggregate(OptColumnRefSet groupBys, HashAggStage type) {
+    private OptPhysicalHashAggregate(OptOperator.AggType type) {
+        this(EMPTY_GROUPBYS, type);
+    }
+
+    private OptPhysicalHashAggregate(List<OptColumnRef> groupBys, OptOperator.AggType type) {
         super(OptOperatorType.OP_PHYSICAL_HASH_AGG);
         this.groupBys = groupBys;
         this.type = type;
+    }
+
+    public static OptPhysicalHashAggregate createLocalAggregate(List<OptColumnRef> groupBys) {
+        return new OptPhysicalHashAggregate(AggType.GB_LOCAL);
+    }
+
+    public static OptPhysicalHashAggregate createIntermidiateAggregate(List<OptColumnRef> groupBys) {
+        return new OptPhysicalHashAggregate(AggType.GB_INTERMEDIATE);
+    }
+
+    public static OptPhysicalHashAggregate createGlobalAggregate(List<OptColumnRef> groupBys) {
+        return new OptPhysicalHashAggregate(AggType.GB_GLOBAL);
+    }
+
+    public List<OptColumnRef> getGroupBys() {
+        return groupBys;
     }
 
     @Override
@@ -47,8 +71,7 @@ public final class OptPhysicalHashAggregate extends OptPhysical {
     @Override
     public DistributionEnforcerProperty getChildReqdDistribution(
             OptExpressionHandle handle, DistributionEnforcerProperty reqdDistribution, int childIndex) {
-
-        if (type == HashAggStage.Intermediate || (type == HashAggStage.Merge && groupBys.cardinality() != 0)) {
+        if (type == AggType.GB_INTERMEDIATE || (type == AggType.GB_GLOBAL && groupBys.size() != 0)) {
             final OptLogicalProperty logicalProperty = handle.getLogicalProperty();
             final OptColumnRefSet columns = new OptColumnRefSet();
             columns.include(groupBys);
@@ -74,7 +97,7 @@ public final class OptPhysicalHashAggregate extends OptPhysical {
         for (int itemIndex = 1; itemIndex < childrenSize; itemIndex++) {
             final OptItemProperty itemProperty = exprHandle.getChildItemProperty(itemIndex);
             columns.include(itemProperty.getUsedColumns());
-            columns.intersects(itemProperty.getDefinedColumns());
+            columns.intersects(itemProperty.getGeneratedColumns());
         }
 
         final OptLogicalProperty logicalProperty = exprHandle.getChildLogicalProperty(childIndex);

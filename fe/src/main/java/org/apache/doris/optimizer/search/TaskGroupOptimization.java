@@ -17,6 +17,7 @@
 
 package org.apache.doris.optimizer.search;
 
+import com.google.common.base.Preconditions;
 import org.apache.doris.optimizer.MultiExpression;
 import org.apache.doris.optimizer.OptGroup;
 import org.apache.doris.optimizer.base.OptimizationContext;
@@ -59,20 +60,24 @@ public class TaskGroupOptimization extends Task {
     private final static Logger LOG = LogManager.getLogger(TaskGroupOptimization.class);
 
     private final OptGroup group;
+    private final MultiExpression originMExpr;
     private final OptimizationContext optContext;
-    private int lastMexprIndex;
+    private MultiExpression lastMExpr;
 
-    public static void schedule(SearchContext sContext, OptGroup group,
+    public static void schedule(SearchContext sContext, OptGroup group, MultiExpression originMExpr,
                                 OptimizationContext optContext, Task parent) {
-        sContext.schedule(new TaskGroupOptimization(group, optContext, parent));
+        sContext.schedule(new TaskGroupOptimization(group, originMExpr, optContext, parent));
     }
 
-    private TaskGroupOptimization(OptGroup group, OptimizationContext optContext, Task parent) {
+    private TaskGroupOptimization(OptGroup group, MultiExpression originMExpr,
+                                  OptimizationContext optContext, Task parent) {
         super(parent);
         this.group = group;
+        this.originMExpr = originMExpr;
         this.optContext = optContext;
         this.nextState = new InitalizingState();
-        this.lastMexprIndex = 0;
+        this.lastMExpr = null;
+        this.group.insert(optContext);
     }
 
     private class InitalizingState extends TaskState {
@@ -92,35 +97,71 @@ public class TaskGroupOptimization extends Task {
 
         @Override
         public void handle(SearchContext sContext) {
-            boolean isSchedulingMExprTask = false;
-            for (; lastMexprIndex < group.getMultiExpressions().size(); lastMexprIndex++) {
-                final MultiExpression mExpr = group.getMultiExpressions().get(lastMexprIndex);
-                if (!mExpr.getOp().isPhysical() && sContext.getSearchVariables().isExecuteOptimization()
-                        && mExpr.isImplemented()) {
-                    continue;
-                }
-
-                if (isSatifisyRequiredProperty(mExpr, sContext)) {
-                    TaskMultiExpressionOptimization.schedule(sContext, mExpr,
-                            optContext, TaskGroupOptimization.this);
-                    isSchedulingMExprTask = true;
-                }
+            boolean isScheduling = false;
+            if (sContext.getSearchVariables().isExecuteOptimization()) {
+                isScheduling = scheduleOptimizingMExpr(sContext);
+            } else {
+                isScheduling = scheduleExploringMExpr(sContext);
             }
 
-            if (isSchedulingMExprTask) {
+            if (isScheduling) {
                 return;
             }
-
             nextState = new CompletingState();
         }
 
+        private boolean scheduleExploringMExpr(SearchContext sContext) {
+            MultiExpression nextMExpr;
+            if (lastMExpr == null) {
+                nextMExpr = group.getFirstLogicalMultiExpression();
+                Preconditions.checkNotNull(nextMExpr);
+            } else {
+                nextMExpr = group.nextLogicalExpr(lastMExpr);
+            }
+
+            boolean isScheduling = false;
+            while (nextMExpr != null) {
+                    TaskMultiExpressionOptimization.schedule(sContext, nextMExpr,
+                            optContext, TaskGroupOptimization.this);
+                    isScheduling = true;
+                lastMExpr = nextMExpr;
+                nextMExpr = group.nextPhysicalExpr(nextMExpr);
+            }
+            return isScheduling;
+        }
+
+        private boolean scheduleOptimizingMExpr(SearchContext sContext) {
+            MultiExpression nextMExpr;
+            if (lastMExpr == null) {
+                nextMExpr = group.getFirstPhysicalMultiExpression();
+                Preconditions.checkNotNull(nextMExpr);
+            } else {
+                nextMExpr = group.nextPhysicalExpr(lastMExpr);
+            }
+
+            boolean isScheduling = false;
+            while (nextMExpr != null) {
+                if (isSatifisyRequiredProperty(nextMExpr, sContext)) {
+                    TaskMultiExpressionOptimization.schedule(sContext, nextMExpr,
+                            optContext, TaskGroupOptimization.this);
+                    isScheduling = true;
+                }
+                lastMExpr = nextMExpr;
+                nextMExpr = group.nextPhysicalExpr(nextMExpr);
+            }
+            return isScheduling;
+        }
 
         private boolean isSatifisyRequiredProperty(MultiExpression mExpr, SearchContext sContext) {
             if (!sContext.getSearchVariables().isExecuteOptimization()) {
                 return true;
             }
 
-            final RequiredPhysicalProperty requiredProperty = optContext.getReqdPhyProp();
+            if (originMExpr == mExpr) {
+                return false;
+            }
+
+            final RequiredPhysicalProperty requiredProperty = optContext.getRequiredPhysicalProperty();
             if (mExpr.getOp() instanceof OptPhysicalDistribution) {
                 final OptPhysicalDistribution distribution = (OptPhysicalDistribution)mExpr.getOp();
                 return requiredProperty.getDistributionProperty()

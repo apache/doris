@@ -47,6 +47,7 @@ public abstract class OptPhysical extends OptOperator {
         super(type);
         this.distributionSpec = distributionSpec;
         this.orderSpec = orderSpec;
+        this.columnsRequiredForChildrenCache = Lists.newArrayList();
     }
 
     @Override
@@ -68,10 +69,13 @@ public abstract class OptPhysical extends OptOperator {
 
     public OptColumnRefSet getChildReqdColumns(OptExpressionHandle exprHandle,
                                                RequiredPhysicalProperty property, int childIndex) {
-        Map<RequiredPhysicalProperty, OptColumnRefSet> requiredColumnsMap =
-                columnsRequiredForChildrenCache.get(childIndex);
-        if (requiredColumnsMap != null && requiredColumnsMap.get(property) != null) {
-            return requiredColumnsMap.get(property);
+        Map<RequiredPhysicalProperty, OptColumnRefSet> requiredColumnsMap = null;
+        if (childIndex < columnsRequiredForChildrenCache.size()) {
+            requiredColumnsMap =
+                    columnsRequiredForChildrenCache.get(childIndex);
+            if (requiredColumnsMap != null && requiredColumnsMap.get(property) != null) {
+                return requiredColumnsMap.get(property);
+            }
         }
 
         final OptColumnRefSet columns = deriveChildReqdColumns(exprHandle, property, childIndex);

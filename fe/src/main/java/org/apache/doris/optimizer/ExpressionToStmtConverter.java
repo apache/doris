@@ -67,14 +67,14 @@ public class ExpressionToStmtConverter {
         OptOperator op = expr.getOp();
         switch (op.getType()) {
             case OP_PHYSICAL_MYSQL_SCAN:
-                return convertMysqlScan(expr)
+                return convertMysqlScan(expr);
         }
         return null;
     }
 
     public MysqlScanNode convertMysqlScan(OptExpression expr) {
-        OptPhysicalMysqlScan scanOp = (OptPhysicalMysqlScan) expr.getOp();
-        MysqlScanNode node = new MysqlScanNode()
+//        OptPhysicalMysqlScan scanOp = (OptPhysicalMysqlScan) expr.getOp();
+//        MysqlScanNode node = new MysqlScanNode();
         return null;
     }
 
@@ -106,6 +106,7 @@ public class ExpressionToStmtConverter {
             case OP_ITEM_IS_NULL_PREDICATE:
                 return convertIsNullPred(expr);
         }
+        return null;
     }
 
     private Expr convertConst(OptExpression expr) {

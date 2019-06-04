@@ -17,8 +17,16 @@
 
 package org.apache.doris.optimizer;
 
+import org.apache.doris.optimizer.base.OptColumnRef;
+
+import java.util.List;
+
 public class Utils {
     public static OptExpression createUtLeaf() {
+        return OptExpression.create(new OptLogicalUTLeafNode());
+    }
+
+    public static OptExpression createUtLeaf(List<OptColumnRef> outputColumns) {
         return OptExpression.create(new OptLogicalUTLeafNode());
     }
 

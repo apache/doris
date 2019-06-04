@@ -63,12 +63,6 @@ public class OptPhysicalUTLeafNode extends OptPhysical {
     }
 
     @Override
-    public EnforcerProperty.EnforceType getOrderEnforceType(
-            OptExpressionHandle exprHandle, OrderEnforcerProperty enforceOrder) {
-        return null;
-    }
-
-    @Override
     public OptColumnRefSet deriveChildReqdColumns(
             OptExpressionHandle exprHandle, RequiredPhysicalProperty property, int childIndex) {
         return null;

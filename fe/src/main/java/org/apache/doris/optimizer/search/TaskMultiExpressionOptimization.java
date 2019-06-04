@@ -23,10 +23,7 @@ import org.apache.doris.optimizer.MultiExpression;
 import org.apache.doris.optimizer.OptBinding;
 import org.apache.doris.optimizer.OptExpression;
 import org.apache.doris.optimizer.OptGroup;
-import org.apache.doris.optimizer.base.EnforcerProperty;
-import org.apache.doris.optimizer.base.OptCostContext;
-import org.apache.doris.optimizer.base.OptimizationContext;
-import org.apache.doris.optimizer.base.RequiredPhysicalProperty;
+import org.apache.doris.optimizer.base.*;
 import org.apache.doris.optimizer.operator.OptExpressionHandle;
 import org.apache.doris.optimizer.operator.OptOperatorType;
 import org.apache.doris.optimizer.operator.OptPatternLeaf;
@@ -79,7 +76,7 @@ import java.util.List;
  *                |
  *                |
  *                V
- *        Parent StateMachine
+ * Parent StateMachine
  */
 public class TaskMultiExpressionOptimization extends Task {
     private final static Logger LOG = LogManager.getLogger(TaskMultiExpressionOptimization.class);
@@ -87,6 +84,8 @@ public class TaskMultiExpressionOptimization extends Task {
     private final MultiExpression optMExpr;
     private final OptimizationContext optContext;
     private final List<RequiredPhysicalProperty> requriedPropertiesForChildren;
+    private int lastOptimizedChildrenIndex;
+    private OptExpressionHandle logicalExprHandle;
 
     private TaskMultiExpressionOptimization(MultiExpression mExpr, OptimizationContext optContext,
                                             Task parent) {
@@ -95,6 +94,7 @@ public class TaskMultiExpressionOptimization extends Task {
         this.optContext = optContext;
         this.nextState = new InitalizationState();
         this.requriedPropertiesForChildren = Lists.newArrayList();
+        this.lastOptimizedChildrenIndex = -1;
     }
 
     public static void schedule(SearchContext sContext, MultiExpression mExpr,
@@ -106,7 +106,7 @@ public class TaskMultiExpressionOptimization extends Task {
 
         @Override
         public void handle(SearchContext sContext) {
-            final RequiredPhysicalProperty requestProperty = optContext.getReqdPhyProp();
+            final RequiredPhysicalProperty requestProperty = optContext.getRequiredPhysicalProperty();
             if (isUnusedRequiresProperty(requestProperty, sContext)) {
                 LOG.info("");
                 setFinished();
@@ -116,18 +116,31 @@ public class TaskMultiExpressionOptimization extends Task {
                 setFinished();
                 return;
             }
+            final MultiExpression bestMExprForStats = optMExpr.getGroup().getBestPromiseMExpr(optMExpr);
+            logicalExprHandle = new OptExpressionHandle(bestMExprForStats);
+            logicalExprHandle.deriveMultiExpressionLogicalOrItemProperty();
+            logicalExprHandle.computeExpressionRequiredProperty(optContext.getRequiredLogicalProperty());
+
             optMExpr.setStatus(MultiExpression.MEState.Optimizing);
             nextState = new OptimizingChildGroupState();
         }
 
         /**
          * Forbid to optimize unused MultiExpression and dead cycle.
+         *
          * @param reqdProp
          * @return
          */
         private boolean isUnusedRequiresProperty(RequiredPhysicalProperty reqdProp, SearchContext sContext) {
             if (!sContext.getSearchVariables().isExecuteOptimization()) {
                 return false;
+            }
+
+            final OptExpressionHandle expressionHandle = new OptExpressionHandle(optMExpr);
+            expressionHandle.deriveMultiExpressionLogicalOrItemProperty();
+            final OptLogicalProperty logicalProperty = expressionHandle.getLogicalProperty();
+            if (!logicalProperty.getOutputColumns().contains(reqdProp.getColumns())) {
+                return true;
             }
 
             if (reqdProp.getOrderProperty().getPropertySpec().isEmpty()
@@ -152,43 +165,89 @@ public class TaskMultiExpressionOptimization extends Task {
 
         @Override
         public void handle(SearchContext sContext) {
-            boolean schedulingChildrenTask = false;
-            final OptExpressionHandle exprHandle = new OptExpressionHandle(optMExpr);
-            exprHandle.deriveProperty();
-            for (int i = 0; i < optMExpr.getInputs().size(); i++) {
-                final OptGroup childGroup = optMExpr.getInput(i);
-                if (!childGroup.isOptimized()) {
-                    final OptimizationContext childOptContext =
-                            deriveChildOptConext(exprHandle, childGroup, i, sContext);
-                    TaskGroupOptimization.schedule(sContext, childGroup, childOptContext,
-                            TaskMultiExpressionOptimization.this);
-                    schedulingChildrenTask = true;
+            final int childSize = optMExpr.getInputs().size();
+            if (lastOptimizedChildrenIndex >= 0 && lastOptimizedChildrenIndex < childSize
+                    && sContext.getSearchVariables().isExecuteOptimization()) {
+                if (!setOptimizedChildrenOptContext(lastOptimizedChildrenIndex)) {
+                    // Children are optimized failly.
+                    nextState = new CompletingOptimization();
+                    return;
                 }
             }
 
-            if (schedulingChildrenTask) {
-                // Scheduling children group TaskMultiExpressionOptimization task.
+            // Optimize children.
+            final int childIndex = ++lastOptimizedChildrenIndex;
+            if (childIndex < childSize) {
+                optimizedChildren(sContext, childIndex);
                 return;
             }
 
+            // All Children have been optimized successfully.
             if (sContext.getSearchVariables().isExecuteOptimization()) {
                 nextState = new AddingEnforcer();
             } else {
                 nextState = new CompletingOptimization();
             }
+            return;
         }
 
-        private OptimizationContext deriveChildOptConext(
+        private void optimizedChildren(SearchContext sContext, int childIndex) {
+            final OptGroup childGroup = optMExpr.getInput(childIndex);
+
+            if (childGroup.isItemGroup()) {
+                return;
+            }
+            final OptExpressionHandle exprHandle = new OptExpressionHandle(optMExpr);
+            exprHandle.deriveMultiExpressionLogicalOrItemProperty();
+            final OptimizationContext childOptContext =
+                    deriveChildrenRequiredOptContext(exprHandle, childGroup, childIndex, sContext);
+            if (childGroup.lookUp(childOptContext) == null) {
+                TaskGroupOptimization.schedule(sContext, childGroup, optMExpr, childOptContext,
+                        TaskMultiExpressionOptimization.this);
+            }
+            return;
+        }
+
+        private OptimizationContext deriveChildrenRequiredOptContext(
                 OptExpressionHandle exprHandle, OptGroup childGroup, int childIndex, SearchContext sContext) {
             RequiredPhysicalProperty property;
             if (sContext.getSearchVariables().isExecuteOptimization()) {
                 property = new RequiredPhysicalProperty();
-                property.compute(exprHandle, optContext.getReqdPhyProp(), childIndex);
+                property.compute(exprHandle, optContext.getRequiredPhysicalProperty(), childIndex);
             } else {
                 property = RequiredPhysicalProperty.createTestProperty();
             }
             requriedPropertiesForChildren.add(property);
-            return new OptimizationContext(childGroup, property);
+            return new OptimizationContext(childGroup,
+                    (RequiredLogicalProperty)logicalExprHandle.getChildrenRequiredProperty(childIndex), property);
+        }
+
+        private boolean setOptimizedChildrenOptContext(int childIndex) {
+            final RequiredPhysicalProperty requiredProperty = requriedPropertiesForChildren.get(childIndex);
+            final OptGroup childGroup = optMExpr.getInput(childIndex);
+            if (childGroup.isItemGroup()) {
+                return true;
+            }
+
+            final OptimizationContext childOptContext = childGroup.lookupBest(requiredProperty);
+            Preconditions.checkNotNull(childOptContext,
+                    "Optimized children's optimization context can't be null.");
+            final OptCostContext childCostContext = childOptContext.getBestCostCtx();
+            if (childCostContext == null) {
+                // Children are optimized failly.
+                return false;
+            }
+
+            // Try to prune MultiExpression when it's parts have been optimized.
+            if (canPrune()) {
+                nextState = new CompletingOptimization();
+                return false;
+            }
+            return true;
+        }
+
+        private boolean canPrune() {
+            return false;
         }
     }
 
@@ -221,6 +280,7 @@ public class TaskMultiExpressionOptimization extends Task {
 
         /**
          * Check if enforcer need to be add on the top of MultiExpression.
+         *
          * @param multiExpression
          * @param optCtx
          * @param sContext
@@ -238,14 +298,17 @@ public class TaskMultiExpressionOptimization extends Task {
                     return false;
                 }
             }
-            OptCostContext costContext = new OptCostContext(multiExpression, optCtx);
-            costContext.setChildrenCtxs(optCtx.getChildrenOptContext());
+
+            final OptCostContext costContext = new OptCostContext(multiExpression, optCtx);
+            for (OptimizationContext childOptContext : optCtx.getChildrenOptContext()) {
+                costContext.addChildrenOptContext(childOptContext);
+            }
 
             OptExpressionHandle exprHandle = new OptExpressionHandle(costContext);
             exprHandle.derivePhysicalProperty();
 
             OptPhysical physicalOp = (OptPhysical) multiExpression.getOp();
-            RequiredPhysicalProperty physicalProperty = optCtx.getReqdPhyProp();
+            RequiredPhysicalProperty physicalProperty = optCtx.getRequiredPhysicalProperty();
 
             final EnforcerProperty.EnforceType orderEnforceType =
                     physicalProperty.getEnforcerOrderType(physicalOp, exprHandle);
@@ -256,9 +319,9 @@ public class TaskMultiExpressionOptimization extends Task {
             List<OptExpression> enforcerExpressions = Lists.newArrayList();
 
             physicalProperty.getOrderProperty().appendEnforcers(
-                    orderEnforceType,physicalProperty, expr, exprHandle, enforcerExpressions);
+                    orderEnforceType, physicalProperty, expr, exprHandle, enforcerExpressions);
             physicalProperty.getDistributionProperty().appendEnforcers(
-                    distributionType,physicalProperty, expr, exprHandle, enforcerExpressions);
+                    distributionType, physicalProperty, expr, exprHandle, enforcerExpressions);
 
             for (OptExpression enforcer : enforcerExpressions) {
                 sContext.getMemo().copyIn(multiExpression.getGroup(), enforcer);
@@ -273,16 +336,16 @@ public class TaskMultiExpressionOptimization extends Task {
 
         @Override
         public void handle(SearchContext sContext) {
-            final OptCostContext costContext = computeCost();
-            optMExpr.getGroup().updateBestCost(optContext, costContext);
+            if (!optMExpr.getOp().isValidOptimizationContext(optContext)) {
+                nextState = new CompletingOptimization();
+                return;
+            }
+
+            final OptCostContext bestCost = optMExpr.computeCost(optContext, sContext.getCostModel());
+            optMExpr.getGroup().updateBestCost(optContext, bestCost);
             nextState = new CompletingOptimization();
         }
 
-        private OptCostContext computeCost() {
-            final OptCostContext context = new OptCostContext(optMExpr, optContext);
-            context.compute();
-            return context;
-        }
     }
 
     private class CompletingOptimization extends TaskState {

@@ -27,7 +27,7 @@ import org.apache.doris.optimizer.stat.Statistics;
 
 import java.util.List;
 
-public class OptExpressionHandle {
+public final class OptExpressionHandle {
     private OptExpression expression;
     private MultiExpression multiExpr;
     private OptCostContext costContext;
@@ -38,14 +38,16 @@ public class OptExpressionHandle {
 
     private List<OptProperty> childrenProperty = Lists.newArrayList();
     private List<Statistics> childrenStatistics = Lists.newArrayList();
-    private List<RequiredProperty> requiredProperties = Lists.newArrayList();
+    private List<RequiredProperty> childrenRequiredProperties = Lists.newArrayList();
 
     public OptExpressionHandle(OptExpression expression) {
         this.expression = expression;
     }
+
     public OptExpressionHandle(MultiExpression multiExpr) {
         this.multiExpr = multiExpr;
     }
+
     public OptExpressionHandle(OptCostContext costContext) {
         this.costContext = costContext;
         this.multiExpr = costContext.getMultiExpr();
@@ -62,11 +64,13 @@ public class OptExpressionHandle {
         if (expression != null) {
             return expression.getInput(idx).getOp().isItem();
         }
-        return multiExpr.getInput(idx).isItem();
+        return multiExpr.getInput(idx).isItemGroup();
     }
 
     public OptExpression getExpression() { return expression; }
+
     public MultiExpression getMultiExpr() { return multiExpr; }
+
     public OptOperator getOp() {
         if (expression != null) {
             return expression.getOp();
@@ -75,8 +79,11 @@ public class OptExpressionHandle {
     }
 
     public OptProperty getChildProperty(int idx) { return childrenProperty.get(idx); }
+
     public OptPhysicalProperty getChildPhysicalProperty(int idx) { return (OptPhysicalProperty) childrenProperty.get(idx); }
+
     public OptLogicalProperty getChildLogicalProperty(int idx) { return (OptLogicalProperty) childrenProperty.get(idx); }
+
     public OptItemProperty getChildItemProperty(int idx) { return (OptItemProperty) childrenProperty.get(idx); }
 
     public int getChildPropertySize() {
@@ -91,6 +98,8 @@ public class OptExpressionHandle {
         return childrenStatistics;
     }
 
+    public OptProperty getProperty() { return deriveProperty; }
+
     public OptLogicalProperty getLogicalProperty() {
         return (OptLogicalProperty) deriveProperty;
     }
@@ -99,7 +108,53 @@ public class OptExpressionHandle {
         return (OptPhysicalProperty) deriveProperty;
     }
 
+    public RequiredProperty getRequiredProperty() {
+        return requiredProperty;
+    }
+
+    public RequiredProperty getChildrenRequiredProperty(int childIndex) {
+        return childrenRequiredProperties.get(childIndex);
+    }
+
+    /**
+     * Is Expression or Multi Expression's statistics derived.
+     */
+    private boolean isStatsDerived() {
+        Statistics statistics;
+        if (expression != null) {
+            statistics = expression.getStatistics();
+        } else {
+            Preconditions.checkNotNull(multiExpr,
+                    "multiExpr can't be null.");
+            statistics = multiExpr.getGroup().getStatistics();
+        }
+
+        if (statistics == null) {
+            return false;
+        }
+
+        int arity = arity();
+        for (int i = 0; i < arity; ++i) {
+            if (isItemChild(i)) {
+                continue;
+            }
+            if (expression != null) {
+                statistics = expression.getInput(i).getStatistics();
+            } else {
+                statistics = multiExpr.getInput(i).getStatistics();
+            }
+            if (statistics == null) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private void copyStats() {
+        if (!isStatsDerived()) {
+            return;
+        }
+
         if (expression != null) {
             statistics = expression.getStatistics();
         } else {
@@ -125,7 +180,7 @@ public class OptExpressionHandle {
         }
     }
 
-    private void copyProperties() {
+    private void copyLogicalProperty() {
         if (expression != null) {
             deriveProperty = expression.getProperty();
         } else {
@@ -136,9 +191,6 @@ public class OptExpressionHandle {
 
         int arity = arity();
         for (int i = 0; i < arity; ++i) {
-            if (isItemChild(i)) {
-                continue;
-            }
             OptProperty childProperty;
             if (expression != null) {
                 childProperty = expression.getInput(i).getProperty();
@@ -151,22 +203,22 @@ public class OptExpressionHandle {
         }
     }
 
-    private void copyStatsAndProperties() {
-        copyProperties();
+    private void copyStatsAndLogicalProperty() {
+        copyLogicalProperty();
         copyStats();
     }
 
-    private void copyCostCtxProperty() {
-        deriveProperty = costContext.getDerivedPhysicalProperty();
+    private void copyCostCtxPhysicalProperty() {
+        deriveProperty = costContext.getPhysicalProperty();
         int arity = arity();
         for (int i = 0; i < arity; ++i) {
             OptGroup group = multiExpr.getInput(i);
-            if (group.isItem()) {
+            if (group.isItemGroup()) {
                 continue;
             }
             OptimizationContext childOptCtx = costContext.getInput(i);
             OptCostContext childCostCtx = childOptCtx.getBestCostCtx();
-            childrenProperty.add(childCostCtx.getDerivedPhysicalProperty());
+            childrenProperty.add(childCostCtx.getPhysicalProperty());
         }
     }
 
@@ -180,24 +232,24 @@ public class OptExpressionHandle {
                 "Only support MultiExpression to derive physical property.");
         Preconditions.checkState(multiExpr.getOp().isPhysical(),
                 "The MultiExpression derived must be physical.");
-
-        copyStatsAndProperties();
+        copyStats();
 
         // get derived property
-        if (costContext.getDerivedPhysicalProperty() != null) {
-            copyCostCtxProperty();
+        if (costContext.getPhysicalProperty() != null) {
+            copyCostCtxPhysicalProperty();
             return;
         }
 
         int arity = arity();
         for (int i = 0; i < arity; ++i) {
             OptimizationContext childOptCtx = costContext.getInput(i);
-            OptPhysicalProperty childProperty = childOptCtx.getBestCostCtx().getDerivedPhysicalProperty();
+            OptPhysicalProperty childProperty = childOptCtx.getBestCostCtx().getPhysicalProperty();
             childrenProperty.add(childProperty);
         }
 
-        OptPhysicalProperty property = (OptPhysicalProperty)getOp().createProperty();
+        final OptPhysicalProperty property = (OptPhysicalProperty) getOp().createProperty();
         property.derive(this);
+        deriveProperty = property;
         costContext.setDerivedPhysicalProperty(property);
     }
 
@@ -212,44 +264,95 @@ public class OptExpressionHandle {
     }
 
     /**
-     * 1. Derive current operator and children's logical property
-     * 2. save current operator and direct children's logical property.
+     * For logical and item expression deriving property.
      */
-    public void deriveProperty() {
-        if (multiExpr != null) {
-            Preconditions.checkArgument(multiExpr.getOp().isLogical());
-            copyProperties();
+    public void deriveExpressionLogicalOrItemProperty() {
+        Preconditions.checkNotNull(expression, "Expression can't be null.");
+        if (expression.getProperty() != null) {
+            copyLogicalProperty();
             return;
         }
 
-        Preconditions.checkArgument(expression.getOp().isLogical(),
-                "Expression must be logcial.");
-        Preconditions.checkNotNull(expression,
-                "expression is null.");
+//        copyStats();
 
         for (OptExpression input : expression.getInputs()) {
             final OptProperty property = input.deriveProperty();
             childrenProperty.add(property);
         }
 
-        final OptProperty property = expression.getOp().createProperty();
-        deriveProperty = property;
-        property.derive(this);
-        expression.setProperty(property);
+        deriveProperty = expression.getOp().createProperty();
+        deriveProperty.derive(this);
+    }
+
+    public void deriveCostCtxStats() {
+        Preconditions.checkNotNull(costContext, "CostContext can't be null");
+        Preconditions.checkArgument(statistics == null, "Statistics is null.");
+
+        copyStatsAndLogicalProperty();
+        if (statistics != null) {
+            return;
+        }
+
+        for (int i = 0; i < arity(); i++) {
+            final OptGroup childGroup = multiExpr.getInput(i);
+            childrenStatistics.add(childGroup.getStatistics());
+        }
+
+        multiExpr.getGroup().deriveStat(costContext.getOptCtx().getRequiredLogicalProperty());
+        statistics = multiExpr.getGroup().getStatistics();
+    }
+
+    public void computeExpressionRequiredProperty(RequiredProperty requiredProperty) {
+        if (getOp().isItem()) {
+            return;
+        }
+
+        for (int i = 0; i < multiExpr.getInputs().size(); i++) {
+            if (multiExpr.getInput(i).isItemGroup()) {
+                continue;
+            }
+            RequiredProperty childRequiredProperty;
+            if (multiExpr.getOp().isLogical()) {
+                childRequiredProperty = new RequiredLogicalProperty();
+            } else {
+                childRequiredProperty = new RequiredPhysicalProperty();
+            }
+            childRequiredProperty.compute(this, requiredProperty, i);
+            childrenRequiredProperties.add(childRequiredProperty);
+        }
+        this.requiredProperty = requiredProperty;
     }
 
     /**
-     * 1. Derive current operator and children's logical statistics.
-     * 2. save current operator and direct children's statistics.
-     * @param parentReqProperty
-     * @return
+     * For logical and item expression deriving stats.
      */
-    public void deriveStat(RequiredLogicalProperty parentReqProperty) {
-        Preconditions.checkNotNull(multiExpr,
-                "Only support MultiExpression to derive statistics.");
-        Preconditions.checkState(multiExpr.getOp().isLogical(),
-                "multiExpr derived must be logical.");
+    public void deriveExpressionStats(RequiredLogicalProperty parentReqProperty) {
+        Preconditions.checkArgument(expression != null && expression.getOp().isLogical(),
+                " Expression can't be null and can only be logical operator.");
+        if (expression.getStatistics() != null) {
+            copyStats();
+            return;
+        }
 
+        for (int i = 0; i < expression.getInputs().size(); i++) {
+            final OptExpression childExpression = expression.getInput(i);
+            final RequiredLogicalProperty childRequiredProperty = new RequiredLogicalProperty();
+            childRequiredProperty.compute(this, parentReqProperty, i);
+            childExpression.deriveStat(childRequiredProperty);
+        }
+
+        final OptLogical logical = (OptLogical) expression.getOp();
+        statistics = logical.deriveStat(this, parentReqProperty);
+    }
+
+    public void deriveMultiExpressionLogicalOrItemProperty() {
+        Preconditions.checkNotNull(multiExpr, "Multi Expression can't be null.");
+        copyLogicalProperty();
+    }
+
+    public void deriveMultiExpressionStats(RequiredLogicalProperty parentReqProperty) {
+        Preconditions.checkArgument(multiExpr != null && multiExpr.getOp().isLogical(),
+                "Multi Expression can't be null.");
         if (multiExpr.getGroup().getStatistics() != null) {
             copyStats();
             return;
@@ -257,12 +360,21 @@ public class OptExpressionHandle {
 
         for (int i = 0; i < multiExpr.getInputs().size(); i++) {
             final OptGroup childGroup = multiExpr.getInput(i);
+            if (childGroup.isItemGroup()) {
+                continue;
+            }
             final RequiredLogicalProperty childReqProperty = new RequiredLogicalProperty();
             childReqProperty.compute(this, parentReqProperty, i);
+            if (childReqProperty.isEmpty()) {
+                // Only a placeholder
+                childrenStatistics.add(new Statistics(childReqProperty));
+                continue;
+            }
             childGroup.deriveStat(childReqProperty);
             childrenStatistics.add(childGroup.getStatistics());
         }
 
-        statistics = multiExpr.deriveStat(this, parentReqProperty);
+        final OptLogical logical = (OptLogical) multiExpr.getOp();
+        statistics = logical.deriveStat(this, parentReqProperty);
     }
 }

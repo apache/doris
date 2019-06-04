@@ -38,13 +38,5 @@ public class OptMemoTest {
         LOG.info("mExpr=\n{}", mExpr.getExplainString());
         Assert.assertTrue(mExpr.getOp() instanceof OptLogicalUTInternalNode);
         Assert.assertEquals(2, mExpr.arity());
-
-        {
-            // copy another time, should return last MultiExpression
-            MultiExpression otherExpr = memo.init(expr);
-            LOG.info("otherExpr=\n{}", otherExpr.getExplainString());
-            Assert.assertTrue(mExpr.getOp() instanceof OptLogicalUTInternalNode);
-            Assert.assertTrue(otherExpr == mExpr);
-        }
     }
 }

@@ -30,7 +30,7 @@ public class OptLogicalLeftAntiJoin extends OptLogicalJoin {
 
     @Override
     public Statistics deriveStat(OptExpressionHandle exprHandle, RequiredLogicalProperty property) {
-        return StatisticsEstimator.estimateLeftAntiJoin(exprHandle);
+        return StatisticsEstimator.estimateLeftAntiJoin(exprHandle, property);
     }
 
     //------------------------------------------------------------------------

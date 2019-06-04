@@ -48,7 +48,7 @@ public class OptLogicalInnerJoin extends OptLogicalJoin {
 
     @Override
     public Statistics deriveStat(OptExpressionHandle exprHandle, RequiredLogicalProperty property) {
-        return StatisticsEstimator.estimateInnerJoin(exprHandle);
+        return StatisticsEstimator.estimateInnerJoin(exprHandle, property);
     }
 
     //------------------------------------------------------------------------

@@ -46,7 +46,7 @@ public abstract class OptRule {
     public boolean isCompatible(OptRuleType type) { return true; }
 
     // Transform before Expression to other Expressions
-    public abstract void transform(OptExpression expr, List<OptExpression> newExprs);
+    public abstract void transform(RuleCallContext call);
 
     public String debugString() {
         return name();

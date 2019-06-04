@@ -17,13 +17,10 @@
 
 package org.apache.doris.optimizer.stat;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import org.apache.doris.analysis.BaseTableRef;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.optimizer.OptExpression;
 import org.apache.doris.optimizer.base.OptColumnRefSet;
 import org.apache.doris.optimizer.base.RequiredLogicalProperty;
@@ -41,7 +38,7 @@ public class StatisticsEstimator {
     private static Statistics estimateAgg(
             OptColumnRefSet groupBy, RequiredLogicalProperty property,
             OptExpressionHandle exprHandle, int childIndex) {
-        final Statistics statistics = new Statistics();
+        final Statistics statistics = new Statistics(property);
         final Statistics childStatistcs = exprHandle.getChildrenStatistics().get(childIndex);
 
         long rowCount = 1;
@@ -52,19 +49,19 @@ public class StatisticsEstimator {
 
         // TODO aggregate function's disticnt count now is replaced by it's param cardinality.
         for (int id : childStatistcs.getStatColumns().getColumnIds()) {
-            statistics.addRow(id, childStatistcs.getCardinality(id));
+            statistics.addColumnCardinality(id, childStatistcs.getCardinality(id));
         }
         return statistics;
     }
 
-    public static Statistics estimateInnerJoin(OptExpressionHandle exprHandle) {
-        return estimateJoin(exprHandle, false, false,
+    public static Statistics estimateInnerJoin(OptExpressionHandle exprHandle, RequiredLogicalProperty property) {
+        return estimateJoin(exprHandle, property, false, false,
                 false, false);
     }
 
-    public static Statistics estimateJoin(OptExpressionHandle exprHandle,
+    public static Statistics estimateJoin(OptExpressionHandle exprHandle, RequiredLogicalProperty property,
             boolean isSemiJoin, boolean isAntiJoin, boolean isLeftOutJoin, boolean isFullOuterJoin) {
-        final Statistics statistics = new Statistics();
+        final Statistics statistics = new Statistics(property);
         final Statistics outerChild = exprHandle.getChildrenStatistics().get(0);
         final Statistics innerChild = exprHandle.getChildrenStatistics().get(1);
 
@@ -85,68 +82,68 @@ public class StatisticsEstimator {
         statistics.setRowCount((long)rowCount);
 
         for (int id : outerChild.getStatColumns().getColumnIds()) {
-            statistics.addRow(id, getMax((long) ((double) outerChild.getCardinality(id) * selectivity)));
+            statistics.addColumnCardinality(id, getMax((long) ((double) outerChild.getCardinality(id) * selectivity)));
         }
 
         if (!isSemiJoin && !isAntiJoin) {
             for (int id : innerChild.getStatColumns().getColumnIds()) {
-                statistics.addRow(id, getMax((long) ((double) outerChild.getCardinality(id) * selectivity)));
+                statistics.addColumnCardinality(id, getMax((long) ((double) outerChild.getCardinality(id) * selectivity)));
             }
         }
         return statistics;
     }
 
-    public static Statistics estimateLeftSemiJoin(OptExpressionHandle exprHandle) {
-        return estimateJoin(exprHandle, true, false,
+    public static Statistics estimateLeftSemiJoin(OptExpressionHandle exprHandle, RequiredLogicalProperty property) {
+        return estimateJoin(exprHandle, property,true, false,
                 false, false);
     }
 
-    public static Statistics estimateLeftAntiJoin(OptExpressionHandle exprHandle) {
-        return estimateJoin(exprHandle, false, true,
+    public static Statistics estimateLeftAntiJoin(OptExpressionHandle exprHandle, RequiredLogicalProperty property) {
+        return estimateJoin(exprHandle, property,false, true,
                 false, false);
     }
 
-    public static Statistics estimateLeftOuterJoin(OptExpressionHandle exprHandle) {
-        return estimateJoin(exprHandle, false, false,
+    public static Statistics estimateLeftOuterJoin(OptExpressionHandle exprHandle, RequiredLogicalProperty property) {
+        return estimateJoin(exprHandle, property,false, false,
                 true, false);
     }
 
-    public static Statistics estimateFullOuterJoin(OptExpressionHandle exprHandle) {
-        return estimateJoin(exprHandle, false, false,
+    public static Statistics estimateFullOuterJoin(OptExpressionHandle exprHandle, RequiredLogicalProperty property) {
+        return estimateJoin(exprHandle, property,false, false,
                 false, true);
     }
 
-    public static Statistics estimateLimit(
-            RequiredLogicalProperty property, OptExpressionHandle exprHandle, long limit) {
+    public static Statistics estimateLimit(OptExpressionHandle exprHandle,
+                                           RequiredLogicalProperty property, long limit) {
         final Statistics childStatiscs = exprHandle.getChildrenStatistics().get(0);
-        final Statistics limitStatistics = new Statistics();
+        final Statistics limitStatistics = new Statistics(property);
 
         limitStatistics.setRowCount(limit);
 
         for (int id : childStatiscs.getStatColumns().getColumnIds()) {
-            limitStatistics.addRow(id, Math.min(limit, childStatiscs.getCardinality(id)));
+            limitStatistics.addColumnCardinality(id, Math.min(limit, childStatiscs.getCardinality(id)));
         }
         return childStatiscs;
     }
 
     public static Statistics estimateUnion(
-            OptColumnRefSet groupBy, RequiredLogicalProperty property, OptExpressionHandle exprHandle) {
+            OptColumnRefSet groupBy, OptExpressionHandle exprHandle, RequiredLogicalProperty property) {
         final Statistics outerChild = estimateAgg(groupBy, property, exprHandle, 0);
         final Statistics innerChild = estimateAgg(groupBy, property, exprHandle, 1);
-        final Statistics statistics = new Statistics();
+        final Statistics statistics = new Statistics(property);
 
         statistics.setRowCount(outerChild.getRowCount() + innerChild.getRowCount());
 
         for (int id : groupBy.getColumnIds()) {
-            statistics.addRow(id,
+            statistics.addColumnCardinality(id,
                     outerChild.getCardinality(id) + innerChild.getCardinality(id));
         }
         return statistics;
     }
 
-    public static Statistics estimateSelect(OptExpressionHandle exprHandle) {
+    public static Statistics estimateSelect(OptExpressionHandle exprHandle, RequiredLogicalProperty property) {
         final Statistics childStatiscs = exprHandle.getChildrenStatistics().get(0);
-        final Statistics statistics = new Statistics();
+        final Statistics statistics = new Statistics(property);
         double selectivity = 1.0;
         for (int i = 1; i < exprHandle.arity(); i++) {
             final OptExpression predicate = exprHandle.getItemChild(i);
@@ -156,7 +153,7 @@ public class StatisticsEstimator {
         statistics.setRowCount(getMax((long) (childStatiscs.getRowCount() * selectivity)));
 
         for (int id : childStatiscs.getStatColumns().getColumnIds()) {
-            statistics.addRow(id, getMax((long) (childStatiscs.getCardinality(id) * selectivity)));
+            statistics.addColumnCardinality(id, getMax((long) (childStatiscs.getCardinality(id) * selectivity)));
         }
         return statistics;
     }
@@ -166,25 +163,35 @@ public class StatisticsEstimator {
     }
 
     public static Statistics estimateOlapScan(
-            BaseTableRef table, RequiredLogicalProperty property) {
-        Preconditions.checkArgument(table.getTable().getType() == Table.TableType.OLAP);
-        final Statistics statistics = new Statistics();
-        final OlapTable olapTable = (OlapTable) table.getTable();
+            OlapTable olapTable, RequiredLogicalProperty property) {
+        final Statistics statistics = new Statistics(property);
         for (int id : property.getColumns().getColumnIds()) {
-            statistics.addRow(id, estimateCardinalityWithRows(olapTable.getRowCount()));
+            statistics.addColumnCardinality(id, estimateCardinalityWithRows(olapTable.getRowCount()));
         }
         statistics.setRowCount(olapTable.getRowCount());
         return statistics;
     }
 
-    public static Statistics estimateProject(
-            RequiredLogicalProperty property, OptExpressionHandle exprHandle) {
+    public static Statistics estimateProject(OptExpressionHandle exprHandle, RequiredLogicalProperty property) {
         final Statistics childStatiscs = exprHandle.getChildrenStatistics().get(0);
-        final Statistics statistics = new Statistics();
+        final Statistics statistics = new Statistics(property);
         statistics.setRowCount(childStatiscs.getRowCount());
         for (int id : childStatiscs.getStatColumns().getColumnIds()) {
-            statistics.addRow(id, childStatiscs.getCardinality(id));
+            statistics.addColumnCardinality(id, childStatiscs.getCardinality(id));
         }
+        return statistics;
+    }
+
+    public static Statistics estimateUTInternal(OptExpressionHandle expresionHandle, RequiredLogicalProperty property) {
+        final Statistics statistics = new Statistics(property);
+        long rows = 0;
+        for (Statistics childStatistics : expresionHandle.getChildrenStatistics()) {
+            rows += childStatistics.getRowCount();
+            for (int id : childStatistics.getStatColumns().getColumnIds()) {
+                statistics.addColumnCardinality(id, childStatistics.getCardinality(id));
+            }
+        }
+        statistics.setRowCount(rows);
         return statistics;
     }
 

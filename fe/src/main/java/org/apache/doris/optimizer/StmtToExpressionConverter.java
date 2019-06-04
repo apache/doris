@@ -20,33 +20,10 @@ package org.apache.doris.optimizer;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.apache.doris.analysis.AggregateInfo;
-import org.apache.doris.analysis.ArithmeticExpr;
-import org.apache.doris.analysis.BaseTableRef;
-import org.apache.doris.analysis.BinaryPredicate;
-import org.apache.doris.analysis.CaseExpr;
-import org.apache.doris.analysis.CastExpr;
-import org.apache.doris.analysis.CompoundPredicate;
-import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.ExprSubstitutionMap;
-import org.apache.doris.analysis.FunctionCallExpr;
-import org.apache.doris.analysis.InPredicate;
-import org.apache.doris.analysis.InlineViewRef;
-import org.apache.doris.analysis.IsNullPredicate;
-import org.apache.doris.analysis.LikePredicate;
-import org.apache.doris.analysis.LiteralExpr;
-import org.apache.doris.analysis.QueryStmt;
-import org.apache.doris.analysis.SelectStmt;
-import org.apache.doris.analysis.SlotDescriptor;
-import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.analysis.TableRef;
-import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.analysis.UnionStmt;
+import org.apache.doris.analysis.*;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.optimizer.base.ItemUtils;
 import org.apache.doris.optimizer.base.OptColumnRef;
 import org.apache.doris.optimizer.base.OptColumnRefFactory;
-import org.apache.doris.optimizer.base.OptColumnRefSet;
 import org.apache.doris.optimizer.operator.*;
 
 import java.util.List;
@@ -54,15 +31,16 @@ import java.util.Map;
 
 // Used to convert QueryStmt to an OptExpression
 public class StmtToExpressionConverter {
-    private OptColumnRefFactory columnRefFactory = new OptColumnRefFactory();
+    private OptColumnRefFactory columnRefFactory;;
     private Map<Integer, OptColumnRef> slotIdToColumnRef = Maps.newHashMap();
     // map from OptColumnRef to SlotReference
     private Map<Integer, SlotRef> columnIdToSlotRef = Maps.newHashMap();
 
     private OptConverterCtx ctx;
 
-    public StmtToExpressionConverter(OptConverterCtx ctx) {
+    public StmtToExpressionConverter(OptConverterCtx ctx, OptColumnRefFactory columnRefFactory) {
         this.ctx = ctx;
+        this.columnRefFactory = columnRefFactory;
     }
 
     public OptExpression convertQuery(QueryStmt stmt) {
@@ -78,16 +56,17 @@ public class StmtToExpressionConverter {
 
     public OptExpression convertUnion(UnionStmt stmt) {
         List<OptExpression> inputs = Lists.newArrayList();
-        for (UnionStmt.UnionOperand operand : stmt.getOperands()) {
-            OptExpression input = convertQuery(operand.getQueryStmt());
-            inputs.add(input);
-        }
-        final OptColumnRefSet groupBy = new OptColumnRefSet();
-        for (Expr expr : stmt.getDistinctAggInfo().getGroupingExprs()) {
-            ItemUtils.collectSlotId(expr, groupBy, true);
-        }
-        final OptLogicalUnion op = new OptLogicalUnion(groupBy, !stmt.hasDistinctOps());
-        return OptExpression.create(op, inputs);
+//        for (UnionStmt.UnionOperand operand : stmt.getOperands()) {
+//            OptExpression input = convertQuery(operand.getQueryStmt());
+//            inputs.add(input);
+//        }
+//        final OptColumnRefSet groupBy = new OptColumnRefSet();
+//        for (Expr expr : stmt.getDistinctAggInfo().getGroupingExprs()) {
+//            ItemUtils.collectSlotId(expr, groupBy, true);
+//        }
+//        final OptLogicalUnion op = new OptLogicalUnion(groupBy, !stmt.hasDistinctOps());
+//        return OptExpression.create(op, inputs);
+        return null;
     }
 
     public OptExpression convertSelect(SelectStmt stmt) {

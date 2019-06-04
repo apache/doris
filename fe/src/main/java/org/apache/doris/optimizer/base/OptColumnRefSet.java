@@ -91,25 +91,32 @@ public class OptColumnRefSet implements Cloneable {
         bitSet.andNot(set.bitSet);
     }
 
-    public boolean intersects(List<OptColumnRef> refs) {
-        return intersects(new OptColumnRefSet(refs));
+    public void intersects(List<OptColumnRef> refs) {
+        intersects(new OptColumnRefSet(refs));
     }
 
-    public boolean intersects(OptColumnRef column) {
-        return intersects(new OptColumnRefSet(column.getId()));
+    public void intersects(OptColumnRef column) {
+        intersects(new OptColumnRefSet(column.getId()));
     }
 
-    public boolean intersects(int id) {
-        return intersects(new OptColumnRefSet(id));
+    public void intersects(int id) {
+        intersects(new OptColumnRefSet(id));
     }
 
-    public boolean intersects(OptColumnRefSet set) {
-        return bitSet.intersects(set.bitSet);
+    public void intersects(OptColumnRefSet set) {
+        bitSet.and(set.bitSet);
     }
     public int cardinality() { return bitSet.cardinality(); }
 
     public void and(OptColumnRefSet set) {
         bitSet.and(set.bitSet);
+    }
+
+    public boolean isDifferent(OptColumnRefSet columnRefSet) {
+        final OptColumnRefSet tmp = new OptColumnRefSet();
+        tmp.include(columnRefSet);
+        tmp.bitSet.xor(bitSet);
+        return tmp.cardinality() != 0;
     }
 
     public boolean contains(OptColumnRef ref) {

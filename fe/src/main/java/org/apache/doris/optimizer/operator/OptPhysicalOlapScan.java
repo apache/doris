@@ -18,15 +18,19 @@
 package org.apache.doris.optimizer.operator;
 
 import com.google.common.base.Preconditions;
-import org.apache.doris.optimizer.base.DistributionEnforcerProperty;
-import org.apache.doris.optimizer.base.OptColumnRefSet;
-import org.apache.doris.optimizer.base.OrderEnforcerProperty;
-import org.apache.doris.optimizer.base.RequiredPhysicalProperty;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.optimizer.base.*;
+
+import java.util.List;
 
 public class OptPhysicalOlapScan extends OptPhysical {
+    private List<OptColumnRef> outputColumns;
+    private OlapTable table;
 
-    public OptPhysicalOlapScan() {
+    public OptPhysicalOlapScan(OlapTable table, List<OptColumnRef> outputColumns) {
         super(OptOperatorType.OP_PHYSICAL_OLAP_SCAN);
+        this.table = table;
+        this.outputColumns = outputColumns;
     }
 
     @Override

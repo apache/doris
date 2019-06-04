@@ -18,7 +18,9 @@
 package org.apache.doris.optimizer.operator;
 
 import com.google.common.base.Preconditions;
+import org.apache.doris.optimizer.Optimizer;
 import org.apache.doris.optimizer.base.OptProperty;
+import org.apache.doris.optimizer.base.OptimizationContext;
 
 // Base class for operation. Operation can be logical or physical
 // Pattern is a special kind of operation which is only used in rules to
@@ -39,6 +41,7 @@ public abstract class OptOperator {
     public boolean isLogical() { return false; }
     public boolean isPhysical() { return false; }
     public boolean isItem() { return false; }
+    public boolean isLeaf() { return false; }
     // if this operator is pattern
     public boolean isPattern() { return false; }
     // If this operator is pattern and is leaf.
@@ -48,7 +51,7 @@ public abstract class OptOperator {
     public boolean isPatternAndTree() { return false; }
     // If this operator is pattern and is multi tree.
     public boolean isPatternAndMultiTree() { return false; }
-
+    public boolean isValidOptimizationContext(OptimizationContext context) { return true; }
     // If this operator care about its inputs' order. For join operator (A join B) is
     // not equal with (B join A), so it is order sensitive. And for union operator,
     // (A union B) is equal with (B union A), so it's order insensitive.
@@ -88,11 +91,15 @@ public abstract class OptOperator {
     @Override
     public String toString() { return debugString(); }
 
+    public enum AggType {
+        GB_LOCAL,
+        GB_GLOBAL,
+        GB_INTERMEDIATE
+    }
 
-    public enum HashAggStage {
-        Agg,
-        Merge,
-        Intermediate,
-        None
+    public enum AggStage {
+        TWO_STAGE_SCALAR_DQA,
+        THREE_STAGE_SCALAR_DQA,
+        OTHERS
     }
 }

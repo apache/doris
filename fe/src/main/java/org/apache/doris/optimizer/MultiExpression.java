@@ -20,7 +20,10 @@ package org.apache.doris.optimizer;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import org.apache.doris.optimizer.base.OptCostContext;
+import org.apache.doris.optimizer.base.OptimizationContext;
 import org.apache.doris.optimizer.base.RequiredLogicalProperty;
+import org.apache.doris.optimizer.cost.CostModel;
 import org.apache.doris.optimizer.operator.OptExpressionHandle;
 import org.apache.doris.optimizer.operator.OptLogical;
 import org.apache.doris.optimizer.operator.OptOperator;
@@ -81,7 +84,7 @@ public class MultiExpression {
     public OptRuleType getRuleTypeDerivedFrom() { return ruleTypeDerivedFrom; }
     public void setStatus(MEState status) { this.status = status; }
     public MEState getStatus() { return status; }
-    public boolean isImplemented() { return status == MEState.Implemented; }
+    public boolean isImplemented() { return status == MEState.Implemented || op.isPhysical(); }
     public boolean isOptimized() { return status == MEState.Optimized; }
     public void setNext(MultiExpression next) { this.next = next; }
     public void setInvalid() { this.group = null; }
@@ -96,9 +99,12 @@ public class MultiExpression {
         this.implementedMExprs.add(mExpr);
     }
 
-    public Statistics deriveStat(OptExpressionHandle exprHandle, RequiredLogicalProperty property) {
-        final OptLogical logical = (OptLogical)op;
-        return logical.deriveStat(exprHandle, property);
+    public OptCostContext computeCost(OptimizationContext optContext, CostModel costModel) {
+        final OptCostContext costContext = new OptCostContext(this, optContext);
+        optContext.getChildrenOptContext().stream().forEach(
+                childOptContext -> costContext.addChildrenOptContext(childOptContext));
+        costContext.compute(costModel);
+        return costContext;
     }
 
     public String debugString() {
@@ -111,17 +117,27 @@ public class MultiExpression {
     }
 
     public final String getExplainString() {
-        return getExplainString("", "");
+        return getExplainString("", "", OptGroup.ExplainType.ALL);
     }
 
-    public String getExplainString(String headlinePrefix, String detailPrefix) {
+    public String getLogicalExplainString(String headlinePrefix, String detailPrefix) {
+        return getExplainString("", "", OptGroup.ExplainType.LOGICAL);
+    }
+
+    public String getPhysicalExplainString(String headlinePrefix, String detailPrefix) {
+        return getExplainString("", "", OptGroup.ExplainType.PHYSICAL);
+    }
+
+    public String getExplainString(String headlinePrefix, String detailPrefix, OptGroup.ExplainType type) {
         StringBuilder sb = new StringBuilder();
         sb.append(headlinePrefix).append("MultiExpression ").append(id);
         if (ruleTypeDerivedFrom != OptRuleType.RULE_NONE) {
-            sb.append(" (from MultiExpression ")
+            sb.append(" (from MultiExpression: ")
                     .append(sourceMExprId)
                     .append(" rule:")
                     .append(ruleTypeDerivedFrom)
+                    .append(" Status:")
+                    .append(status.toString())
                     .append(")");
         }
         sb.append(' ')
@@ -129,7 +145,7 @@ public class MultiExpression {
         String childHeadlinePrefix = detailPrefix + OptUtils.HEADLINE_PREFIX;
         String childDetailPrefix = detailPrefix + OptUtils.DETAIL_PREFIX;
         for (OptGroup input : inputs) {
-            sb.append(input.getExplain(childHeadlinePrefix, childDetailPrefix));
+            sb.append(input.getExplain(childHeadlinePrefix, childDetailPrefix, type));
         }
         return sb.toString();
     }
