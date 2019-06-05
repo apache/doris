@@ -337,6 +337,15 @@ dst);
     static doris_udf::BigIntVal hll_union_agg_finalize(
                                             doris_udf::FunctionContext*,
                                             const doris_udf::HllVal& src);
+
+    //for backward compatibility, we could remove the following four HLL methods after doris 0.11 version
+    static void hll_union_agg_init(doris_udf::FunctionContext* ctx, doris_udf::StringVal* slot);
+    static void hll_union_agg_update(doris_udf::FunctionContext* ctx, const doris_udf::StringVal& src,
+                                     doris_udf::StringVal* dst);
+    static void hll_union_agg_merge(doris_udf::FunctionContext* ctx,const doris_udf::StringVal& src,
+                                    doris_udf::StringVal* dst);
+    static doris_udf::StringVal hll_union_agg_finalize(doris_udf::FunctionContext* ctx, const StringVal& src);
+
     // calculate result
     static int64_t hll_algorithm(uint8_t *pdata, int data_len);
     static int64_t hll_algorithm(const StringVal &dst) {
