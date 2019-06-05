@@ -23,10 +23,12 @@
 #include <mutex>
 #include <queue>
 
-#include <mysql/mysql.h>
-
 #include "util/load_error_hub.h"
 #include "gen_cpp/PaloInternalService_types.h"
+
+#ifndef __DorisMysql
+#define __DorisMysql void
+#endif
 
 namespace doris {
 
@@ -69,15 +71,15 @@ public:
     virtual std::string debug_string() const;
 
 private:
-    Status open_mysql_conn(MYSQL** my_conn);
+    Status open_mysql_conn(__DorisMysql** my_conn);
 
     Status write_mysql();
 
-    Status gen_sql(MYSQL* my_conn,
+    Status gen_sql(__DorisMysql* my_conn,
                    const LoadErrorHub::ErrorMsg& error_msg,
                    std::stringstream* sql_stream);
 
-    Status error_status(const std::string& prefix, MYSQL* my_conn);
+    Status error_status(const std::string& prefix, __DorisMysql* my_conn);
 
     MysqlInfo _info;
 

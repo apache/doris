@@ -23,8 +23,6 @@
 #include <mutex>
 #include <queue>
 
-#include <mysql/mysql.h>
-
 #include "load_error_hub.h"
 
 namespace doris {
