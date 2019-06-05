@@ -58,6 +58,7 @@ endif()
 set(LLVM_BIN "${LLVM_HOME}/bin")
 
 option(MAKE_TEST "ON for make unit test or OFF for not" OFF)
+option(WITH_MYSQL "Support access MySQL" ON)
 
 # Check gcc
 if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
@@ -154,8 +155,10 @@ set_target_properties(thriftnb PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/li
 add_library(lzo STATIC IMPORTED)
 set_target_properties(lzo PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/liblzo2.a)
 
-add_library(mysql STATIC IMPORTED)
-set_target_properties(mysql PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libmysqlclient.a)
+if (WITH_MYSQL)
+    add_library(mysql STATIC IMPORTED)
+    set_target_properties(mysql PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libmysqlclient.a)
+endif()
 
 add_library(libevent STATIC IMPORTED)
 set_target_properties(libevent PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libevent.a)
@@ -273,6 +276,10 @@ set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_SYSTEM_NO_DEPRECATED")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -msse4.2")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DLLVM_ON_UNIX")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS}  -Wno-attributes -DS2_USE_GFLAGS -DS2_USE_GLOG")
+
+if (WITH_MYSQL)
+    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DDORIS_WITH_MYSQL")
+endif()
 
 if (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 7.0)
     set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -faligned-new")
@@ -443,9 +450,15 @@ set(DORIS_LINK_LIBS
     ${WL_END_GROUP}
 )
 
+if (WITH_MYSQL)
+    set(DORIS_DEPENDENCIES
+        mysql
+        )
+endif()
+
 # Set thirdparty libraries
 set(DORIS_DEPENDENCIES
-    mysql
+    ${DORIS_DEPENDENCIES}
     ${WL_START_GROUP}
     rocksdb
     librdkafka_cpp

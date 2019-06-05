@@ -40,7 +40,7 @@
 #include "util/disk_info.h"
 #include "util/file_utils.h"
 #include "util/pretty_printer.h"
-#include "util/mysql_load_error_hub.h"
+#include "util/load_error_hub.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/bufferpool/reservation_tracker.h"
 
