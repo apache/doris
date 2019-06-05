@@ -159,6 +159,7 @@ enum OLAPStatus {
     OLAP_ERR_INVALID_CLUSTER_INFO = -225,
     OLAP_ERR_TRANSACTION_NOT_EXIST = -226,
     OLAP_ERR_DISK_FAILURE = -227,
+    OLAP_ERR_LZO_DISABLED = -228,
 
     // CommandExecutor
     // [-300, -400)

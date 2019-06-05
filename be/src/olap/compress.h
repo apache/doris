@@ -43,8 +43,10 @@ typedef OLAPStatus(*Compressor)(StorageByteBuffer* in, StorageByteBuffer* out, b
 //     OLAP_ERR_DECOMPRESS_ERROR - 解压缩错误
 typedef OLAPStatus(*Decompressor)(StorageByteBuffer* in, StorageByteBuffer* out);
 
+#ifdef DORIS_WITH_LZO
 OLAPStatus lzo_compress(StorageByteBuffer* in, StorageByteBuffer* out, bool* smaller);
 OLAPStatus lzo_decompress(StorageByteBuffer* in, StorageByteBuffer* out);
+#endif
 
 OLAPStatus lz4_compress(StorageByteBuffer* in, StorageByteBuffer* out, bool* smaller);
 OLAPStatus lz4_decompress(StorageByteBuffer* in, StorageByteBuffer* out);

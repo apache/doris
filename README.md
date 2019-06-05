@@ -115,11 +115,16 @@ sh build.sh
 
 After successfully building, it will install binary files in the directory `output/`.
 
-## 5. Reporting Issues
+## 5. Licence Notice
+
+License of some of third-party dependencies are not compatible with Apache 2.0 License. So you may have to disable
+some features of Doris to be complied with Apache 2.0 License. Details can be found in `thirdparty/LICENSE.txt`
+
+## 6. Reporting Issues
 
 If you find any bugs, please file a [GitHub issue](https://github.com/apache/incubator-doris/issues).
 
-## 6. Links
+## 7. Links
 
 * Doris official site - <http://doris.incubator.apache.org>
 * User Manual (GitHub Wiki) - <https://github.com/apache/incubator-doris/wiki>
