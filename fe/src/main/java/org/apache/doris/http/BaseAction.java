@@ -143,8 +143,11 @@ public abstract class BaseAction implements IAction {
         }
     }
     
+    // Object only support File or byte[]
     protected void writeObjectResponse(BaseRequest request, BaseResponse response, HttpResponseStatus status,
-            Object obj, String fileName) {
+            Object obj, String fileName) throws IOException {
+        Preconditions.checkState((obj instanceof File) || (obj instanceof byte[]));
+        
         HttpResponse responseObj = new DefaultHttpResponse(HttpVersion.HTTP_1_1, status);
 
         if (HttpUtil.isKeepAlive(request.getRequest())) {
@@ -156,8 +159,6 @@ public abstract class BaseAction implements IAction {
         
         ChannelFuture sendFileFuture;
         ChannelFuture lastContentFuture;
-
-        // Read and return file content
 
         try {
             Object writable = null;
@@ -174,12 +175,12 @@ public abstract class BaseAction implements IAction {
                     writable = new ChunkedFile(rafFile, 0, contentLen, 8192);
                 }
             } else if (obj instanceof byte[]) {
+                contentLen = ((byte[]) obj).length;
                 if (!sslEnable) {
-                    writable = obj;
+                    writable = Unpooled.wrappedBuffer((byte[]) obj);
                 } else {
                     writable = new ChunkedStream(new ByteArrayInputStream((byte[]) obj));
                 }
-                contentLen = ((byte[]) obj).length;
             }
 
             response.updateHeader(HttpHeaderNames.CONTENT_LENGTH.toString(), String.valueOf(contentLen));
@@ -189,7 +190,7 @@ public abstract class BaseAction implements IAction {
             // Write headers
             request.getContext().write(responseObj);
 
-            // Write file
+            // Write object
             if (!sslEnable) {
                 sendFileFuture = request.getContext().write(writable, request.getContext().newProgressivePromise());
                 // Write the end marker.
@@ -199,84 +200,6 @@ public abstract class BaseAction implements IAction {
                         new HttpChunkedInput((ChunkedInput<ByteBuf>) writable),
                         request.getContext().newProgressivePromise());
                 // HttpChunkedInput will write the end marker (LastHttpContent) for us.
-                lastContentFuture = sendFileFuture;
-            }
-        } catch (FileNotFoundException ignore) {
-            writeResponse(request, response, HttpResponseStatus.NOT_FOUND);
-            return;
-        } catch (IOException e1) {
-            writeResponse(request, response, HttpResponseStatus.INTERNAL_SERVER_ERROR);
-            return;
-        }
-
-        sendFileFuture.addListener(new ChannelProgressiveFutureListener() {
-            @Override
-            public void operationProgressed(ChannelProgressiveFuture future, long progress, long total) {
-                if (total < 0) { // total unknown
-                    LOG.debug("{} Transfer progress: {}", future.channel(), progress);
-                } else {
-                    LOG.debug("{} Transfer progress: {} / {}", future.channel(), progress, total);
-                }
-            }
-
-            @Override
-            public void operationComplete(ChannelProgressiveFuture future) {
-                LOG.debug("{} Transfer complete.", future.channel());
-                if (!future.isSuccess()) {
-                    Throwable cause = future.cause();
-                    LOG.error("something wrong. ", cause);
-                }
-            }
-        });
-
-        // Decide whether to close the connection or not.
-        boolean keepAlive = HttpUtil.isKeepAlive(request.getRequest());
-        if (!keepAlive) {
-            // Close the connection when the whole content is written out.
-            lastContentFuture.addListener(ChannelFutureListener.CLOSE);
-        }
-    }
-
-    protected void writeFileResponse(BaseRequest request, BaseResponse response, HttpResponseStatus status,
-            File resFile) {
-        HttpResponse responseObj = new DefaultHttpResponse(HttpVersion.HTTP_1_1, status);
-
-        if (HttpUtil.isKeepAlive(request.getRequest())) {
-            response.updateHeader(HttpHeaderNames.CONNECTION.toString(), HttpHeaderValues.KEEP_ALIVE.toString());
-        }
-        response.updateHeader(HttpHeaderNames.CONTENT_TYPE.toString(), HttpHeaderValues.APPLICATION_OCTET_STREAM.toString());
-        response.updateHeader(HttpHeaderNames.CONTENT_DISPOSITION.toString(),
-                HttpHeaderValues.ATTACHMENT.toString() + "; " + HttpHeaderValues.FILENAME.toString() + "="
-                        + resFile.getName());
-        
-        ChannelFuture sendFileFuture;
-        ChannelFuture lastContentFuture;
-
-        // Read and return file content
-        RandomAccessFile rafFile;
-        try {
-            rafFile = new RandomAccessFile(resFile, "r");
-            long fileLength = 0;
-            fileLength = rafFile.length();
-            response.updateHeader(HttpHeaderNames.CONTENT_LENGTH.toString(), String.valueOf(fileLength));
-            writeCookies(response, responseObj);
-            writeCustomHeaders(response, responseObj);
-
-            // Write headers
-            request.getContext().write(responseObj);
-
-            // Write file
-            if (request.getContext().pipeline().get(SslHandler.class) == null) {
-                sendFileFuture = request.getContext().write(new DefaultFileRegion(rafFile.getChannel(), 0, fileLength),
-                        request.getContext().newProgressivePromise());
-                // Write the end marker.
-                lastContentFuture = request.getContext().writeAndFlush(LastHttpContent.EMPTY_LAST_CONTENT);
-            } else {
-                sendFileFuture = request.getContext().writeAndFlush(
-                        new HttpChunkedInput(new ChunkedFile(rafFile, 0, fileLength, 8192)),
-                        request.getContext().newProgressivePromise());
-                // HttpChunkedInput will write the end marker (LastHttpContent)
-                // for us.
                 lastContentFuture = sendFileFuture;
             }
         } catch (FileNotFoundException ignore) {

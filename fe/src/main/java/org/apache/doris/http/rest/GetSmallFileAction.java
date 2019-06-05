@@ -30,6 +30,8 @@ import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
+
 import io.netty.handler.codec.http.HttpMethod;
 import io.netty.handler.codec.http.HttpResponseStatus;
 
@@ -80,21 +82,15 @@ public class GetSmallFileAction extends RestBaseAction {
             return;
         }
 
-        /*
-        String filePath;
-        try {
-            filePath = fileMgr.saveToFile(fileId);
-        } catch (DdlException e) {
-            LOG.warn("failed to get file: {}", fileId, e);
-            response.appendContent("get file failed: " + e.getMessage());
-            writeResponse(request, response, HttpResponseStatus.BAD_REQUEST);
-            return;
-        }
-        */
-
         HttpMethod method = request.getRequest().method();
         if (method.equals(HttpMethod.GET)) {
-            writeObjectResponse(request, response, HttpResponseStatus.OK, smallFile.getContentBytes(), smallFile.name);
+            try {
+                writeObjectResponse(request, response, HttpResponseStatus.OK, smallFile.getContentBytes(), smallFile.name);
+            } catch (IOException e) {
+                // should not happen
+                response.appendContent(new RestBaseResult("internal error").toJson());
+                writeResponse(request, response, HttpResponseStatus.BAD_REQUEST);
+            }
         } else {
             response.appendContent(new RestBaseResult("HTTP method is not allowed.").toJson());
             writeResponse(request, response, HttpResponseStatus.METHOD_NOT_ALLOWED);

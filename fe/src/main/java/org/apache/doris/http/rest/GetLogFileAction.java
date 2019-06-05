@@ -30,6 +30,7 @@ import com.google.common.collect.Sets;
 import org.codehaus.jackson.map.ObjectMapper;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.Map;
 import java.util.Set;
 
@@ -92,7 +93,13 @@ public class GetLogFileAction extends RestBaseAction {
                 writeResponse(request, response, HttpResponseStatus.NOT_FOUND);
                 return;
             }
-            writeFileResponse(request, response, HttpResponseStatus.OK, log);
+            try {
+                writeObjectResponse(request, response, HttpResponseStatus.OK, log, log.getName());
+            } catch (IOException e) {
+                // should not happen
+                response.appendContent(new RestBaseResult("internal error").toJson());
+                writeResponse(request, response, HttpResponseStatus.BAD_REQUEST);
+            }
         } else {
             response.appendContent(new RestBaseResult("HTTP method is not allowed.").toJson());
             writeResponse(request, response, HttpResponseStatus.METHOD_NOT_ALLOWED);
