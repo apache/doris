@@ -62,6 +62,12 @@ StringVal HllHashFunctions::hll_hash(doris_udf::FunctionContext* ctx,
                                      const StringVal& input) {
     return create_string_result(ctx, input, input.is_null);
 }
+
+StringVal HllHashFunctions::hll_cardinality(doris_udf::FunctionContext* ctx,
+                                 const doris_udf::StringVal& dest_base) {
+    BigIntVal intVal = hll_cardinality(ctx, static_cast<const HllVal&> (dest_base));
+    return AnyValUtil::from_string_temp(ctx, std::to_string(intVal.val));
+}
     
 BigIntVal HllHashFunctions::hll_cardinality(doris_udf::FunctionContext* ctx,
                                             const HllVal& input) {
