@@ -48,7 +48,7 @@ public:
     // In the case that the values are themselves references
     // to other memory (eg Slices), the referred-to memory is
     // allocated in the dst column vector's arena.
-    virtual doris::Status next_batch(size_t* n, doris::ColumnVector* dst, MemPool* mem_pool) = 0;
+    virtual doris::Status next_batch(size_t* n, doris::ColumnVector* dst, doris::MemPool* mem_pool) = 0;
 
     // Get current oridinal
     size_t get_current_oridinal();

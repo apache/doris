@@ -61,7 +61,7 @@ public:
     // In the case that the values are themselves references
     // to other memory (eg Slices), the referred-to memory is
     // allocated in the mem_pool.
-    virtual doris::Status next_batch(size_t* n, doris::ColumnVector* dst, MemPool* mem_pool) = 0;
+    virtual doris::Status next_batch(size_t* n, doris::ColumnVector* dst, doris::MemPool* mem_pool) = 0;
 
     // Return the number of elements in this page.
     virtual size_t count() const = 0;
