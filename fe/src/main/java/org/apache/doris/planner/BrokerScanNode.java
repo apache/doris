@@ -67,6 +67,7 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -77,6 +78,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 // Broker scan node
@@ -380,7 +382,7 @@ public class BrokerScanNode extends ScanNode {
     private void finalizeParams(ParamCreateContext context) throws UserException, AnalysisException {
         Map<String, SlotDescriptor> slotDescByName = context.slotDescByName;
         Map<String, Expr> exprMap = context.exprMap;
-        List<Boolean> hasExprColumnList = Lists.newArrayList();
+        Set<Integer> transform_slot_ids = Sets.newHashSet();
         // Analyze expr map
         if (exprMap != null) {
             for (Map.Entry<String, Expr> entry : exprMap.entrySet()) {
@@ -414,7 +416,7 @@ public class BrokerScanNode extends ScanNode {
                 expr = exprMap.get(destSlotDesc.getColumn().getName());
             }
             if (expr == null) {
-                hasExprColumnList.add(false);
+                transform_slot_ids.add(destSlotDesc.getId().asInt());
                 SlotDescriptor srcSlotDesc = slotDescByName.get(destSlotDesc.getColumn().getName());
                 if (srcSlotDesc != null) {
                     // If dest is allow null, we set source to nullable
@@ -435,8 +437,6 @@ public class BrokerScanNode extends ScanNode {
                         }
                     }
                 }
-            } else {
-                hasExprColumnList.add(true);
             }
 
             if (isNegative && destSlotDesc.getColumn().getAggregationType() == AggregateType.SUM) {
@@ -446,7 +446,7 @@ public class BrokerScanNode extends ScanNode {
             expr = castToSlot(destSlotDesc, expr);
             context.params.putToExpr_of_dest_slot(destSlotDesc.getId().asInt(), expr.treeToThrift());
         }
-        context.params.setHas_expr_column_list(hasExprColumnList);
+        context.params.setTransform_slot_ids(transform_slot_ids);
         context.params.setDest_tuple_id(desc.getId().asInt());
         context.params.setStrict_mode(strictMode);
         // Need re compute memory layout after set some slot descriptor to nullable

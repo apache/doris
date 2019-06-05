@@ -50,6 +50,7 @@ import org.apache.doris.thrift.TScanRangeLocations;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -57,6 +58,7 @@ import org.apache.logging.log4j.Logger;
 import java.nio.charset.Charset;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * used to scan from stream
@@ -240,7 +242,7 @@ public class StreamLoadScanNode extends ScanNode {
 
     private void finalizeParams() throws UserException {
         boolean negative = streamLoadTask.getNegative();
-        List<Boolean> hasExprColumnList = Lists.newArrayList();
+        Set<Integer> transform_slot_ids = Sets.newHashSet();
         for (SlotDescriptor dstSlotDesc : desc.getSlots()) {
             if (!dstSlotDesc.isMaterialized()) {
                 continue;
@@ -250,7 +252,7 @@ public class StreamLoadScanNode extends ScanNode {
                 expr = exprsByName.get(dstSlotDesc.getColumn().getName());
             }
             if (expr == null) {
-                hasExprColumnList.add(false);
+                transform_slot_ids.add(dstSlotDesc.getId().asInt());
                 SlotDescriptor srcSlotDesc = slotDescByName.get(dstSlotDesc.getColumn().getName());
                 if (srcSlotDesc != null) {
                     // If dest is allow null, we set source to nullable
@@ -270,8 +272,6 @@ public class StreamLoadScanNode extends ScanNode {
                         }
                     }
                 }
-            } else {
-                hasExprColumnList.add(true);
             }
             // check hll_hash
             if (dstSlotDesc.getType().getPrimitiveType() == PrimitiveType.HLL) {
@@ -293,7 +293,7 @@ public class StreamLoadScanNode extends ScanNode {
             expr = castToSlot(dstSlotDesc, expr);
             brokerScanRange.params.putToExpr_of_dest_slot(dstSlotDesc.getId().asInt(), expr.treeToThrift());
         }
-        brokerScanRange.params.setHas_expr_column_list(hasExprColumnList);
+        brokerScanRange.params.setTransform_slot_ids(transform_slot_ids);
         brokerScanRange.params.setDest_tuple_id(desc.getId().asInt());
         // LOG.info("brokerScanRange is {}", brokerScanRange);
 
