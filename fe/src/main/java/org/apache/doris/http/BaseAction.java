@@ -30,6 +30,7 @@ import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -63,6 +64,8 @@ import io.netty.handler.codec.http.cookie.Cookie;
 import io.netty.handler.codec.http.cookie.ServerCookieEncoder;
 import io.netty.handler.ssl.SslHandler;
 import io.netty.handler.stream.ChunkedFile;
+import io.netty.handler.stream.ChunkedInput;
+import io.netty.handler.stream.ChunkedStream;
 import io.netty.util.CharsetUtil;
 
 public abstract class BaseAction implements IAction {
@@ -137,6 +140,100 @@ public abstract class BaseAction implements IAction {
         } else {
             responseObj.headers().set(HttpHeaderNames.CONNECTION.toString(), HttpHeaderValues.KEEP_ALIVE.toString());
             request.getContext().write(responseObj);
+        }
+    }
+    
+    protected void writeObjectResponse(BaseRequest request, BaseResponse response, HttpResponseStatus status,
+            Object obj, String fileName) {
+        HttpResponse responseObj = new DefaultHttpResponse(HttpVersion.HTTP_1_1, status);
+
+        if (HttpUtil.isKeepAlive(request.getRequest())) {
+            response.updateHeader(HttpHeaderNames.CONNECTION.toString(), HttpHeaderValues.KEEP_ALIVE.toString());
+        }
+        response.updateHeader(HttpHeaderNames.CONTENT_TYPE.toString(), HttpHeaderValues.APPLICATION_OCTET_STREAM.toString());
+        response.updateHeader(HttpHeaderNames.CONTENT_DISPOSITION.toString(),
+                HttpHeaderValues.ATTACHMENT.toString() + "; " + HttpHeaderValues.FILENAME.toString() + "=" + fileName);
+        
+        ChannelFuture sendFileFuture;
+        ChannelFuture lastContentFuture;
+
+        // Read and return file content
+
+        try {
+            Object writable = null;
+            long contentLen = 0;
+            boolean sslEnable = request.getContext().pipeline().get(SslHandler.class) != null;
+            if (obj instanceof File) {
+                RandomAccessFile rafFile = new RandomAccessFile((File) obj, "r");
+                contentLen = rafFile.length();
+                if (!sslEnable) {
+                    // use zero-copy file transfer.
+                    writable = new DefaultFileRegion(rafFile.getChannel(), 0, contentLen);
+                } else {
+                    // cannot use zero-copy file transfer.
+                    writable = new ChunkedFile(rafFile, 0, contentLen, 8192);
+                }
+            } else if (obj instanceof byte[]) {
+                if (!sslEnable) {
+                    writable = obj;
+                } else {
+                    writable = new ChunkedStream(new ByteArrayInputStream((byte[]) obj));
+                }
+                contentLen = ((byte[]) obj).length;
+            }
+
+            response.updateHeader(HttpHeaderNames.CONTENT_LENGTH.toString(), String.valueOf(contentLen));
+            writeCookies(response, responseObj);
+            writeCustomHeaders(response, responseObj);
+
+            // Write headers
+            request.getContext().write(responseObj);
+
+            // Write file
+            if (!sslEnable) {
+                sendFileFuture = request.getContext().write(writable, request.getContext().newProgressivePromise());
+                // Write the end marker.
+                lastContentFuture = request.getContext().writeAndFlush(LastHttpContent.EMPTY_LAST_CONTENT);
+            } else {
+                sendFileFuture = request.getContext().writeAndFlush(
+                        new HttpChunkedInput((ChunkedInput<ByteBuf>) writable),
+                        request.getContext().newProgressivePromise());
+                // HttpChunkedInput will write the end marker (LastHttpContent) for us.
+                lastContentFuture = sendFileFuture;
+            }
+        } catch (FileNotFoundException ignore) {
+            writeResponse(request, response, HttpResponseStatus.NOT_FOUND);
+            return;
+        } catch (IOException e1) {
+            writeResponse(request, response, HttpResponseStatus.INTERNAL_SERVER_ERROR);
+            return;
+        }
+
+        sendFileFuture.addListener(new ChannelProgressiveFutureListener() {
+            @Override
+            public void operationProgressed(ChannelProgressiveFuture future, long progress, long total) {
+                if (total < 0) { // total unknown
+                    LOG.debug("{} Transfer progress: {}", future.channel(), progress);
+                } else {
+                    LOG.debug("{} Transfer progress: {} / {}", future.channel(), progress, total);
+                }
+            }
+
+            @Override
+            public void operationComplete(ChannelProgressiveFuture future) {
+                LOG.debug("{} Transfer complete.", future.channel());
+                if (!future.isSuccess()) {
+                    Throwable cause = future.cause();
+                    LOG.error("something wrong. ", cause);
+                }
+            }
+        });
+
+        // Decide whether to close the connection or not.
+        boolean keepAlive = HttpUtil.isKeepAlive(request.getRequest());
+        if (!keepAlive) {
+            // Close the connection when the whole content is written out.
+            lastContentFuture.addListener(ChannelFutureListener.CLOSE);
         }
     }
 

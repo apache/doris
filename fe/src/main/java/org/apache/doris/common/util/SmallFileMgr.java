@@ -98,6 +98,13 @@ public class SmallFileMgr implements Writable {
             return smallFile;
         }
 
+        public byte[] getContentBytes() {
+            if (!isContent) {
+                return null;
+            }
+            return Base64.getDecoder().decode(content);
+        }
+
         @Override
         public void write(DataOutput out) throws IOException {
             out.writeLong(dbId);
@@ -354,7 +361,7 @@ public class SmallFileMgr implements Writable {
             // check md5sum if necessary
             String checksum = Hex.encodeHexString(digest.digest());
             if (!Strings.isNullOrEmpty(md5sum)) {
-                if (!checksum.equals(md5sum)) {
+                if (!checksum.equalsIgnoreCase(md5sum)) {
                     throw new DdlException("Invalid md5sum of file in url: " + downloadUrl + ", read: " + checksum
                             + ", expected: " + checksum);
                 }
@@ -462,7 +469,7 @@ public class SmallFileMgr implements Writable {
             throw new DdlException("Failed to check md5 of file: " + file.getName());
         }
 
-        return md5sum.equals(expectedMd5);
+        return md5sum.equalsIgnoreCase(expectedMd5);
     }
 
     private File getAbsoluteFile(long dbId, String catalog, String fileName) {

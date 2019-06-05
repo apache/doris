@@ -18,8 +18,8 @@
 package org.apache.doris.http.rest;
 
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.SmallFileMgr;
+import org.apache.doris.common.util.SmallFileMgr.SmallFile;
 import org.apache.doris.http.ActionController;
 import org.apache.doris.http.BaseRequest;
 import org.apache.doris.http.BaseResponse;
@@ -29,8 +29,6 @@ import com.google.common.base.Strings;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
-import java.io.File;
 
 import io.netty.handler.codec.http.HttpMethod;
 import io.netty.handler.codec.http.HttpResponseStatus;
@@ -75,6 +73,14 @@ public class GetSmallFileAction extends RestBaseAction {
         }
         
         SmallFileMgr fileMgr = Catalog.getCurrentCatalog().getSmallFileMgr();
+        SmallFile smallFile = fileMgr.getSmallFile(fileId);
+        if (smallFile == null || !smallFile.isContent) {
+            response.appendContent("File not found or is not content");
+            writeResponse(request, response, HttpResponseStatus.BAD_REQUEST);
+            return;
+        }
+
+        /*
         String filePath;
         try {
             filePath = fileMgr.saveToFile(fileId);
@@ -84,10 +90,11 @@ public class GetSmallFileAction extends RestBaseAction {
             writeResponse(request, response, HttpResponseStatus.BAD_REQUEST);
             return;
         }
+        */
 
         HttpMethod method = request.getRequest().method();
         if (method.equals(HttpMethod.GET)) {
-            writeFileResponse(request, response, HttpResponseStatus.OK, new File(filePath));
+            writeObjectResponse(request, response, HttpResponseStatus.OK, smallFile.getContentBytes(), smallFile.name);
         } else {
             response.appendContent(new RestBaseResult("HTTP method is not allowed.").toJson());
             writeResponse(request, response, HttpResponseStatus.METHOD_NOT_ALLOWED);
