@@ -10,6 +10,7 @@ import org.apache.doris.optimizer.cost.SimpleCostModel;
 import org.apache.doris.optimizer.operator.OptLogicalScan;
 import org.apache.doris.optimizer.rule.implementation.AggToHashAggRule;
 import org.apache.doris.optimizer.rule.implementation.OlapScanRule;
+import org.apache.doris.optimizer.utils.ExpressionFacotry;
 import org.apache.doris.optimizer.utils.MemoStatus;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -100,7 +101,7 @@ public class OptimizeExpressionTest {
         Assert.assertEquals(5, exploreOptimizer.getMemo().getMExprs().size());
 
         final OptGroup scanGroup = exploreOptimizer.getMemo().getGroups().get(0);
-        final OptLogicalProperty scanProperty = (OptLogicalProperty)scanGroup.getProperty();
+        final OptLogicalProperty scanProperty = (OptLogicalProperty) scanGroup.getProperty();
         Assert.assertEquals(true,
                 scanProperty.getOutputColumns().equals(requiredPhysicalProperty.getColumns()));
 

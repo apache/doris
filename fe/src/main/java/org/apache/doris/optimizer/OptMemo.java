@@ -169,6 +169,7 @@ public class OptMemo {
                 newExprsGroupNeedReinserted.add(mExpr.getGroup());
                 mExpr.getGroup().removeMExpr(mExpr);
                 mExpr.getInputs().set(referSrcGroupIndexs.get(0), destGroup);
+                mExpr.setNext(null);
                 newExprsNeedReinserted.add(mExpr);
             }
         }
@@ -261,7 +262,7 @@ public class OptMemo {
         OptimizationContext optCtx = null;
         MultiExpression bestMExpr = null;
         if (groupRoot.isItemGroup()) {
-            bestMExpr = groupRoot.getFirstLogicalMultiExpression();
+            bestMExpr = groupRoot.getFirstMultiExpression();
         } else {
             optCtx = groupRoot.lookupBest(propertyInput);
             bestMExpr = optCtx.getBestMultiExpr();

@@ -97,7 +97,7 @@ public class TaskGroupOptimization extends Task {
 
         @Override
         public void handle(SearchContext sContext) {
-            boolean isScheduling = false;
+            boolean isScheduling;
             if (sContext.getSearchVariables().isExecuteOptimization()) {
                 isScheduling = scheduleOptimizingMExpr(sContext);
             } else {

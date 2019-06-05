@@ -27,7 +27,7 @@ public class Utils {
     }
 
     public static OptExpression createUtLeaf(List<OptColumnRef> outputColumns) {
-        return OptExpression.create(new OptLogicalUTLeafNode());
+        return OptExpression.create(new OptLogicalUTLeafNode(outputColumns));
     }
 
     public static OptExpression createUtInternal(OptExpression... inputs) {

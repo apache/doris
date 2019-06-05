@@ -62,6 +62,7 @@ public class OptGroup {
     public void addMExpr(MultiExpression mExpr) {
         insertMExpr(mExpr);
         mExpr.setId(nextMExprId++);
+        checkMExprListStatus();
     }
 
     // Move a MultiExpression which have been added to other group to this group.
@@ -76,6 +77,7 @@ public class OptGroup {
         }
         mExprs.add(mExpr);
         mExpr.setGroup(this);
+        checkMExprListStatus();
     }
 
     public String debugString() {
@@ -221,6 +223,7 @@ public class OptGroup {
             mExpr.setGroup(this);
         }
         other.mExprs.clear();
+        checkMExprListStatus();
     }
 
     public void removeMExpr(MultiExpression removeMExpr) {
@@ -246,6 +249,7 @@ public class OptGroup {
                 lastMExpr = mExpr;
             }
         }
+        checkMExprListStatus();
     }
 
     public void deriveStat(RequiredLogicalProperty requiredLogicalProperty) {
@@ -358,6 +362,41 @@ public class OptGroup {
         }
 
         itemExpression = OptExpression.create(rootItemMExpression.getOp(), childItemExpressions);
+    }
+
+    private void checkMExprListStatus() {
+        Preconditions.checkState(!checkDeadCycleInMExpr());
+
+        MultiExpression nextMExpr = getFirstMultiExpression();
+        int mExprNum = 1;
+        while (nextMExpr.next() != null) {
+            nextMExpr = nextMExpr.next();
+            mExprNum++;
+        }
+
+        Preconditions.checkState(mExprs.size() == mExprNum);
+    }
+
+    private boolean checkDeadCycleInMExpr() {
+        MultiExpression mExpr1 = getFirstMultiExpression();
+        MultiExpression mExpr2 = mExpr1;
+
+        if (mExpr1 == null || mExpr1.next() == null) {
+            return false;
+        }
+
+        while (mExpr1 != null && mExpr2 != null) {
+            mExpr1 = mExpr1.next();
+            mExpr2 = mExpr2.next();
+            if (mExpr2 != null) {
+                mExpr2 = mExpr2.next();
+            }
+
+            if (mExpr1 == mExpr2 && mExpr1 != null) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public enum GState {

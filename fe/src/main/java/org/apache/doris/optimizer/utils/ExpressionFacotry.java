@@ -1,9 +1,9 @@
-package org.apache.doris.optimizer;
+package org.apache.doris.optimizer.utils;
 
 import com.google.common.collect.Lists;
-import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.optimizer.OptExpression;
 import org.apache.doris.optimizer.base.OptColumnRef;
 import org.apache.doris.optimizer.base.OptColumnRefFactory;
 import org.apache.doris.optimizer.operator.*;

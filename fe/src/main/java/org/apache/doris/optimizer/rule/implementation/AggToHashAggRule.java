@@ -48,7 +48,7 @@ public class AggToHashAggRule extends ImplemetationRule {
     public void transform(RuleCallContext call) {
         final OptExpression expr = call.getOrigin();
         Preconditions.checkArgument(expr.getInput(0) != null
-                        && expr.getInput(0).getOp() instanceof OptPhysical,
+                        && expr.getInput(1) != null,
                 "Aggregate does't have child," + "it's not physical operator.");
 
         // Only need one Agg if child is distributed in one node.

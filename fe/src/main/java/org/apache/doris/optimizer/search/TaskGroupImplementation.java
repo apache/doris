@@ -74,7 +74,6 @@ public class TaskGroupImplementation extends Task {
                 }
                 firstMExpr = group.nextLogicalExpr(firstMExpr);
             }
-
             if (hasNew) {
                 return;
             }
