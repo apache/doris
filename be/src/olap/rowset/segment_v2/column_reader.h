@@ -19,6 +19,7 @@
 #define DORIS_BE_SRC_OLAP_ROWSET_SEGMENT_V2_COLUMN_READER_H
 
 #include "runtime/vectorized_row_batch.h"
+#include "common/status.h"
 
 namespace doris {
 
@@ -28,16 +29,16 @@ class ColumnReader {
 public:
     ColumnReader() { }
 
-    bool init();
+    doris::Status init();
 
     // Seek to the first entry in the column.
-    bool seek_to_first();
+    doris::Status seek_to_first();
 
     // Seek to the given ordinal entry in the column.
     // Entry 0 is the first entry written to the column.
     // If provided seek point is past the end of the file,
     // then returns false.
-    bool seek_to_ordinal(rowid_t ord_idx) override;
+    doris::Status seek_to_ordinal(rowid_t ord_idx) override;
 
     // Fetch the next vector of values from the page into 'dst'.
     // The output vector must have space for up to n cells.
@@ -47,16 +48,17 @@ public:
     // In the case that the values are themselves references
     // to other memory (eg Slices), the referred-to memory is
     // allocated in the dst column vector's arena.
-    virtual size_t next_batch(const size_t n, doris::ColumnVector *dst) = 0;
+    virtual doris::Status next_batch(size_t* n, doris::ColumnVector* dst, MemPool* mem_pool) = 0;
 
+    // Get current oridinal
     size_t get_current_oridinal();
 
     // Call this function every time before next_batch.
     // This function will preload pages from disk into memory if necessary.
-    bool prepare_batch(size_t n);
+    doris::Status prepare_batch(size_t n);
 
     // release next_batch related resource
-    bool finish_batch();
+    doris::Status finish_batch();
 };
 
 } // namespace segment_v2

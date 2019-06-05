@@ -19,6 +19,7 @@
 
 #include "util/slice.h"
 #include "gen_cpp/segment_v2.pb.h"
+#include "common/status.h"
 
 #ifndef DORIS_BE_SRC_OLAP_ROWSET_SEGMENT_V2_ORDINAL_INDEX_H
 #define DORIS_BE_SRC_OLAP_ROWSET_SEGMENT_V2_ORDINAL_INDEX_H
@@ -30,7 +31,7 @@ namespace segment_v2 {
 class OrdinalIndexReader {
 public:
     // parse the data
-    bool init(const Slice& data);
+    doris::Status init(const Slice& data);
 
     // return the entry number of the index
     size_t count();
@@ -44,13 +45,13 @@ public:
 
 class OrdinalIndexWriter {
 public:
-    bool init();
+    doris::Status init();
 
     // add a rowid -> page_pointer entry to the index
-    bool add_entry(rowid_t rowid, const PagePointerPB& page_pointer);
+    doris::Status add_entry(rowid_t rowid, const PagePointerPB& page_pointer);
 
     // return the index data
-    dorsi::Slice finish();
+    doris::Slice finish();
 };
 
 class OrdinalIndex {
@@ -59,11 +60,11 @@ public:
 
     // seek the the first entry when the rowid is equal to or greater than row_id
     // if equal, matched will be set to true, else false
-    bool seek_at_or_after(const rowid_t row_id, bool* matched);
+    doris::Status seek_at_or_after(const rowid_t row_id, bool* matched);
 
     // seek the the first entry when the rowid is equal to or less than row_id
     // if equal, matched will be set to true, else false
-    bool seek_at_or_before(const rowid_t row_id, bool* matched);
+    doris::Status seek_at_or_before(const rowid_t row_id, bool* matched);
 
     // return the current seeked index related page pointer
     void get_current_page_pointer(PagePointerPB* page_pointer);

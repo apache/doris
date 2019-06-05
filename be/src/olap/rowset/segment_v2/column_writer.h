@@ -22,6 +22,7 @@
 
 #include "gen_cpp/doris.pb.h"
 #include "util/slice.h"
+#include "common/status.h"
 
 namespace doris {
 
@@ -34,32 +35,32 @@ public:
             : _builder_options(builder_options),
               _column_schema(column_schema) { }
 
-    bool init();
+    doris::Status init();
 
     // close the writer
-    bool finish();
+    doris::Status finish();
 
     // Caller will loop all the ColumnWriter and call the following get page api
     // to get page data and get the page pointer
-    bool get_data_pages(std::vector<doris::Slice*>* data_buffers);
+    doris::Status get_data_pages(std::vector<doris::Slice*>* data_buffers);
 
     // Get the dictionary page for under dictionary encoding mode column.
-    virtual bool get_dictionary_page(doris::Slice* dictionary_page);
+    doris::Status get_dictionary_page(doris::Slice* dictionary_page);
 
     // Get the bloom filter pages for under bloom filter indexed column.
-    virtual bool get_bloom_filter_pages(std::vector<doris::Slice*>* bf_pages);
+    doris::Status get_bloom_filter_pages(std::vector<doris::Slice*>* bf_pages);
 
     // Get the bitmap page for under bitmap indexed column.
-    virtual bool get_bitmap_page(doris::Slice* bitmap_page);
+    doris::Status get_bitmap_page(doris::Slice* bitmap_page);
 
     // Get the statistic page for under statistic column.
-    virtual bool get_statistic_page(doris::Slice* statistic_page);
+    doris::Status get_statistic_page(doris::Slice* statistic_page);
 
-    bool write_batch(doris::RowBlock* block);
+    doris::Status write_batch(doris::RowBlock* block);
 
     size_t written_size() const;
 
-    int written_value_count() const;
+    size_t written_value_count() const;
 
 private:
     BuilderOptions _builder_options;

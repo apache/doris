@@ -19,6 +19,7 @@
 #define DORIS_BE_SRC_OLAP_ROWSET_SEGMENT_V2_PAGE_DECODER_H
 
 #include "runtime/vectorized_row_batch.h"
+#include "common/status.h"
 
 namespace doris {
 
@@ -31,7 +32,7 @@ public:
 
     // Call this to do some preparation for decoder.
     // eg: parse data page header
-    virtual bool init() = 0;
+    virtual doris::Status init() = 0;
 
     // Seek the decoder to the given positional index of the page.
     // For example, seek_to_position_in_page(0) seeks to the first
@@ -39,7 +40,7 @@ public:
     //
     // It is an error to call this with a value larger than Count().
     // Doing so has undefined results.
-    virtual void seek_to_position_in_page(size_t pos) = 0;
+    virtual doris::Status seek_to_position_in_page(size_t pos) = 0;
 
     // Seek the decoder forward by a given number of rows, or to the end
     // of the page. This is primarily used to skip over data.
@@ -59,8 +60,8 @@ public:
     //
     // In the case that the values are themselves references
     // to other memory (eg Slices), the referred-to memory is
-    // allocated in the dst column vector's arena.
-    virtual size_t next_batch(const size_t n, doris::ColumnVector *dst) = 0;
+    // allocated in the mem_pool.
+    virtual doris::Status next_batch(size_t* n, doris::ColumnVector* dst, MemPool* mem_pool) = 0;
 
     // Return the number of elements in this page.
     virtual size_t count() const = 0;

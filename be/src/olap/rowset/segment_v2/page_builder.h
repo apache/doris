@@ -22,6 +22,7 @@
 #include <vector>
 
 #include "util/slice.h"
+#include "common/status.h"
 
 namespace doris {
 
@@ -47,13 +48,13 @@ public:
     // than requested if the page is full.
     //
     // vals size should be decided according to the page build type
-    virtual int add(const uint8_t* vals, size_t count) = 0;
+    virtual doris::Status add(const uint8_t* vals, size_t count) = 0;
 
     // Get the dictionary page for under dictionary encoding mode column.
-    virtual bool get_dictionary_page(doris::Slice* dictionary_page);
+    virtual doris::Status get_dictionary_page(doris::Slice* dictionary_page);
 
     // Get the bitmap page for under bitmap indexed column.
-    virtual bool get_bitmap_page(doris::Slice* bitmap_page);
+    virtual doris::Status get_bitmap_page(doris::Slice* bitmap_page);
 
     // Return a Slice which represents the encoded data of current page.
     //
