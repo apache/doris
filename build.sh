@@ -48,15 +48,18 @@ usage() {
   echo "
 Usage: $0 <options>
   Optional options:
-     --be       build Backend
-     --fe       build Frontend
-     --clean    clean and build target
+     --be               build Backend
+     --fe               build Frontend
+     --clean            clean and build target
+     --with-mysql        enable MySQL support
+     --without-mysql     disable MySQL support
 
   Eg.
-    $0                      build Backend and Frontend without clean
-    $0 --be                 build Backend without clean
-    $0 --fe --clean         clean and build Frontend
-    $0 --fe --be --clean    clean and build both Frontend and Backend
+    $0                          build Backend and Frontend without clean
+    $0 --be                     build Backend without clean
+    $0 --be --without-mysql     build Backend with MySQL disable
+    $0 --fe --clean             clean and build Frontend
+    $0 --fe --be --clean        clean and build both Frontend and Backend
   "
   exit 1
 }
@@ -64,9 +67,13 @@ Usage: $0 <options>
 OPTS=$(getopt \
   -n $0 \
   -o '' \
+  -o 'h' \
   -l 'be' \
   -l 'fe' \
   -l 'clean' \
+  -l 'with-mysql' \
+  -l 'without-mysql' \
+  -l 'help' \
   -- "$@")
 
 if [ $? != 0 ] ; then
@@ -79,6 +86,8 @@ BUILD_BE=
 BUILD_FE=
 CLEAN=
 RUN_UT=
+WITH_MYSQL=ON
+HELP=0
 if [ $# == 1 ] ; then
     # defuat
     BUILD_BE=1
@@ -96,10 +105,19 @@ else
             --fe) BUILD_FE=1 ; shift ;;
             --clean) CLEAN=1 ; shift ;;
             --ut) RUN_UT=1   ; shift ;;
+            --with-mysql) WITH_MYSQL=ON; shift ;;
+            --without-mysql) WITH_MYSQL=OFF; shift ;;
+            -h) HELP=1; shift ;;
+            --help) HELP=1; shift ;;
             --) shift ;  break ;;
             *) ehco "Internal error" ; exit 1 ;;
         esac
     done
+fi
+
+if [[ ${HELP} -eq 1 ]]; then
+    usage
+    exit
 fi
 
 if [ ${CLEAN} -eq 1 -a ${BUILD_BE} -eq 0 -a ${BUILD_FE} -eq 0 ]; then
@@ -132,7 +150,7 @@ if [ ${BUILD_BE} -eq 1 ] ; then
     fi
     mkdir -p ${DORIS_HOME}/be/build/
     cd ${DORIS_HOME}/be/build/
-    cmake ../
+    cmake -DWITH_MYSQL=${WITH_MYSQL} ../
     make -j${PARALLEL}
     make install
     cd ${DORIS_HOME}

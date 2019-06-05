@@ -21,9 +21,17 @@
 #include <stdlib.h>
 #include <string>
 #include <vector>
-#include <mysql/mysql.h>
 
 #include "common/status.h"
+
+
+#ifndef __DorisMysql
+#define __DorisMysql void
+#endif
+
+#ifndef __DorisMysqlRes
+#define __DorisMysqlRes void
+#endif
 
 namespace doris {
 
@@ -55,16 +63,11 @@ public:
         return _field_num;
     }
 private:
-    Status _error_status(const std::string& prefix) {
-        std::stringstream msg;
-        msg << prefix << " Err: " << mysql_error(_my_conn);
-        LOG(WARNING) << msg.str();
-        return Status(msg.str());
-    }
+    Status _error_status(const std::string& prefix);
 
     const MysqlScannerParam& _my_param;
-    MYSQL* _my_conn;
-    MYSQL_RES* _my_result;
+    __DorisMysql* _my_conn;
+    __DorisMysqlRes* _my_result;
     std::string _sql_str;
     bool _is_open;
     int _field_num;

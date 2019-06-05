@@ -15,6 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <mysql/mysql.h>
+
+#define __DorisMysql MYSQL
 #include "mysql_load_error_hub.h"
 
 #include "util/defer_op.h"
