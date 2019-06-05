@@ -246,7 +246,7 @@ Status KafkaDataConsumer::get_partition_meta(std::vector<int32_t>* partition_ids
     DeferOp delete_topic(std::bind<void>(topic_deleter));
 
     // get topic metadata
-    RdKafka::Metadata *metadata;
+    RdKafka::Metadata* metadata = nullptr;
     RdKafka::ErrorCode err = _k_consumer->metadata(true/* for this topic */, topic, &metadata, 5000);
     if (err != RdKafka::ERR_NO_ERROR) {
         std::stringstream ss;
