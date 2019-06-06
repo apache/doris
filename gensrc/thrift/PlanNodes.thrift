@@ -138,7 +138,7 @@ struct TBrokerScanRangeParams {
     8: optional list<i64> partition_ids
     
     // transform slot isd is a TSlotId list
-    // the member of list will be transform to slot type without expr
+    // the member of list will be transform to slot type by expr
     9: optional set<Types.TSlotId> transform_slot_ids
     // strictMode is a boolean
     // if strict mode is true, the incorrect data (the result of cast is null) will not be loaded

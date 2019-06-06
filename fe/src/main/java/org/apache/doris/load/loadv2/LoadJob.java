@@ -29,6 +29,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
@@ -691,7 +692,9 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         }
         out.writeInt(progress);
         loadingStatus.write(out);
-        // TODO: record strict mode in next meta version
+//        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_52) {
+//            out.writeBoolean(strictMode);
+//        }
     }
 
     @Override
@@ -718,6 +721,8 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         }
         progress = in.readInt();
         loadingStatus.readFields(in);
-        // TODO: read strict mode in next meta version
+//        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_52) {
+//            strictMode = in.readBoolean();
+//        }
     }
 }

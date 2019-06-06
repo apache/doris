@@ -137,10 +137,10 @@ Status BrokerScanner::init_expr_ctxes() {
         if (has_transform_slot_ids) {
             auto it = _params.transform_slot_ids.find(slot_desc->id());
             if (it == std::end(_params.transform_slot_ids)) {
-                _has_expr_columns.emplace_back(true);
+                _has_expr_columns.emplace_back(false);
             }
             else {
-                _has_expr_columns.emplace_back(false);
+                _has_expr_columns.emplace_back(true);
             }
         }
     }
@@ -605,7 +605,7 @@ bool BrokerScanner::fill_dest_tuple(const Slice& line, Tuple* dest_tuple, MemPoo
         void* value = ctx->get_value(_src_tuple_row);
         if (value == nullptr) {
             if (_strict_mode && !_src_tuple->is_null(slot_desc->null_indicator_offset()) 
-                && !_has_expr_columns[ctx_idx++]) {
+                && !_has_expr_columns[ctx_idx]) {
                 std::stringstream error_msg;
                 error_msg << "column(" << slot_desc->col_name() << ") value is incorrect "
                     << "while strict mode is " << std::boolalpha << _strict_mode;
@@ -624,11 +624,13 @@ bool BrokerScanner::fill_dest_tuple(const Slice& line, Tuple* dest_tuple, MemPoo
                 return false;
             }
             dest_tuple->set_null(slot_desc->null_indicator_offset());
+            ctx_idx++;
             continue;
         }
         dest_tuple->set_not_null(slot_desc->null_indicator_offset());
         void* slot = dest_tuple->get_slot(slot_desc->tuple_offset());
         RawValue::write(value, slot, slot_desc->type(), mem_pool);
+        ctx_idx++;
         continue;
     }
     return true;
