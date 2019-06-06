@@ -96,11 +96,11 @@ OLAPStatus AlphaRowsetReader::init(RowsetReaderContext* read_context) {
             return OLAP_ERR_MALLOC_ERROR;
         }
         _dst_cursor->init(*(_current_read_context->tablet_schema),
-                          *(_current_read_context->return_columns));
+                          *(_current_read_context->seek_columns));
         for (size_t i = 0; i < _merge_ctxs.size(); ++i) {
             _merge_ctxs[i].row_cursor.reset(new (std::nothrow) RowCursor());
             _merge_ctxs[i].row_cursor->init(*(_current_read_context->tablet_schema),
-                                            *(_current_read_context->return_columns));
+                                            *(_current_read_context->seek_columns));
         }
     }
     return OLAP_SUCCESS;
@@ -295,11 +295,10 @@ OLAPStatus AlphaRowsetReader::_init_merge_ctxs(RowsetReaderContext* read_context
             }
         } else {
             new_column_data->set_read_params(*read_context->return_columns,
+                    *read_context->seek_columns,
                     *read_context->load_bf_columns,
                     *read_context->conditions,
                     *read_context->predicates,
-                    *read_context->lower_bound_keys,
-                    *read_context->upper_bound_keys,
                     read_context->is_using_cache,
                     read_context->runtime_state);
             // filter
