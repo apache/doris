@@ -52,11 +52,11 @@
 
 ### 编译Doris
 
-在Doris根目录下执行`sh build.sh`就会在`output/udf/`生成对应headers和libs
+在Doris根目录下执行`sh build.sh`就会在`output/udf/`生成对应`headers|libs`
 
 ### 编写CMakeLists.txt
 
-基于上一步生成的headers和libs，用户可以使用CMakeLists等工具引入该依赖；在CMakeLists中，通过像`CMAKE_CXX_FLAGS`添加`-I|L`分别指定headers路径与libs路径；在CMakeLists中通过`add_library`添加动态库。例如，在`be/src/udf_samples/CMakeLists.txt`中，使用`add_library(udfsample SHARED udf_sample.cpp)`增加了一个`udfsample`动态库。后面需要写上涉及的所有源文件（不包含头文件）。
+基于上一步生成的`headers|libs`，用户可以使用`CMakeLists`等工具引入该依赖；在`CMakeLists`中，通过向`CMAKE_CXX_FLAGS`添加`-I|L`分别指定`headers|libs`路径；在CMakeLists中通过`add_library`添加动态库。例如，在`be/src/udf_samples/CMakeLists.txt`中，使用`add_library(udfsample SHARED udf_sample.cpp)`增加了一个`udfsample`动态库。后面需要写上涉及的所有源文件（不包含头文件）。
 
 ### 执行编译
 
