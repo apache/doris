@@ -72,7 +72,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     // current kafka partitions is the actually partition which will be fetched
     private List<Integer> currentKafkaPartitions = Lists.newArrayList();
     // kafka properties ，property prefix will be mapped to kafka custom parameters, which can be extended in the future
-    private Map<String, String> customKafkaProperties = Maps.newHashMap();
+    private Map<String, String> customProperties = Maps.newHashMap();
     private Map<String, String> convertedCustomProperties = Maps.newHashMap();
 
     public KafkaRoutineLoadJob() {
@@ -96,26 +96,29 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         return brokerList;
     }
 
-    public Map<String, String> getCustomKafkaProperties() {
-        return customKafkaProperties;
-    }
-
     public Map<String, String> getConvertedCustomProperties() {
         return convertedCustomProperties;
+    }
+
+    public void resetConvertedCustomProperties() {
+        convertedCustomProperties.clear();
     }
 
     @Override
     public void prepare() throws UserException {
         super.prepare();
+        // should reset converted properties each time the job being prepared.
+        // because the file info can be changed anytime.
+        resetConvertedCustomProperties();
         convertCustomProperties();
     }
 
     private void convertCustomProperties() throws DdlException {
-        if (!convertedCustomProperties.isEmpty() || customKafkaProperties.isEmpty()) {
+        if (!convertedCustomProperties.isEmpty() || customProperties.isEmpty()) {
             return;
         }
         SmallFileMgr smallFileMgr = Catalog.getCurrentCatalog().getSmallFileMgr();
-        for (Map.Entry<String, String> entry : customKafkaProperties.entrySet()) {
+        for (Map.Entry<String, String> entry : customProperties.entrySet()) {
             if (entry.getValue().startsWith("FILE:")) {
                 // convert FILE:file_name -> FILE:file_id:md5
                 String file = entry.getValue().substring(entry.getValue().indexOf(":") + 1);
@@ -348,7 +351,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     private void checkCustomProperties() throws DdlException {
         SmallFileMgr smallFileMgr = Catalog.getCurrentCatalog().getSmallFileMgr();
-        for (Map.Entry<String, String> entry : customKafkaProperties.entrySet()) {
+        for (Map.Entry<String, String> entry : customProperties.entrySet()) {
             if (entry.getValue().startsWith("FILE:")) {
                 String file = entry.getValue().substring(entry.getValue().indexOf(":") + 1);
                 // check and save file to disk
@@ -394,7 +397,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     }
 
     private void setCustomKafkaProperties(Map<String, String> kafkaProperties) {
-        this.customKafkaProperties = kafkaProperties;
+        this.customProperties = kafkaProperties;
     }
 
     @Override
@@ -412,7 +415,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     @Override
     protected String customPropertiesJsonToString() {
         Gson gson = new GsonBuilder().disableHtmlEscaping().create();
-        return gson.toJson(customKafkaProperties);
+        return gson.toJson(customProperties);
     }
 
     @Override
@@ -426,8 +429,8 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             out.writeInt(partitionId);
         }
 
-        out.writeInt(customKafkaProperties.size());
-        for (Map.Entry<String, String> property : customKafkaProperties.entrySet()) {
+        out.writeInt(customProperties.size());
+        for (Map.Entry<String, String> property : customProperties.entrySet()) {
             Text.writeString(out, "property." + property.getKey());
             Text.writeString(out, property.getValue());
         }
@@ -449,7 +452,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 String propertyKey = Text.readString(in);
                 String propertyValue = Text.readString(in);
                 if (propertyKey.startsWith("property.")) {
-                    this.customKafkaProperties.put(propertyKey.substring(propertyKey.indexOf(".") + 1), propertyValue);
+                    this.customProperties.put(propertyKey.substring(propertyKey.indexOf(".") + 1), propertyValue);
                 }
             }
         }

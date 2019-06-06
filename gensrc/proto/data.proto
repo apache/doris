@@ -18,6 +18,7 @@
 syntax="proto2";
 
 package doris;
+option java_package = "org.apache.doris.proto";
 
 message PQueryStatistics {
     optional int64 scan_rows = 1;

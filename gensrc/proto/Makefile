@@ -25,11 +25,20 @@ SOURCES = $(shell find ${CURDIR} -name "*.proto")
 OBJECTS = $(patsubst ${CURDIR}/%.proto, ${BUILD_DIR}/gen_cpp/%.pb.cc, ${SOURCES})
 HEADERS = $(patsubst ${CURDIR}/%.proto, ${BUILD_DIR}/gen_cpp/%.pb.h, ${SOURCES})
 
+#JAVA_OBJECTS = $(patsubst ${CURDIR}/%.proto, ${BUILD_DIR}/java/org/apache/doris/proto/%.java, ${SOURCES})
+
+#all: ${JAVA_OBJECTS} ${OBJECTS} ${HEADERS}
 all: ${OBJECTS} ${HEADERS}
 .PHONY: all
 
 ${BUILD_DIR}/gen_cpp/%.pb.h ${BUILD_DIR}/gen_cpp/%.pb.cc: ${CURDIR}/%.proto | ${BUILD_DIR}/gen_cpp
 	${PROTOC} --proto_path=${CURDIR} --cpp_out=${BUILD_DIR}/gen_cpp $<
 
+#${BUILD_DIR}/java/org/apache/doris/proto/%.java: ${CURDIR}/%.proto | ${BUILD_DIR}/java
+#	${PROTOC} --proto_path=${CURDIR} --java_out=${BUILD_DIR}/java/ $<
+
 ${BUILD_DIR}/gen_cpp:
 	mkdir -p $@
+
+#${BUILD_DIR}/java:
+#	mkdir -p $@

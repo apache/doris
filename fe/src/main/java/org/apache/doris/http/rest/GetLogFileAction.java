@@ -93,13 +93,7 @@ public class GetLogFileAction extends RestBaseAction {
                 writeResponse(request, response, HttpResponseStatus.NOT_FOUND);
                 return;
             }
-            try {
-                writeObjectResponse(request, response, HttpResponseStatus.OK, log, log.getName());
-            } catch (IOException e) {
-                // should not happen
-                response.appendContent(new RestBaseResult("internal error").toJson());
-                writeResponse(request, response, HttpResponseStatus.BAD_REQUEST);
-            }
+			writeObjectResponse(request, response, HttpResponseStatus.OK, log, log.getName());
         } else {
             response.appendContent(new RestBaseResult("HTTP method is not allowed.").toJson());
             writeResponse(request, response, HttpResponseStatus.METHOD_NOT_ALLOWED);

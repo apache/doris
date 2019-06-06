@@ -18,6 +18,7 @@
 syntax="proto2";
 
 package doris;
+option java_package = "org.apache.doris.proto";
 
 message PStatus {
     required int32 status_code = 1;

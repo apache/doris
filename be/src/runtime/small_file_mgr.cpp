@@ -110,7 +110,7 @@ Status SmallFileMgr::get_file(
         Status st = _check_file(entry, md5);
         if (!st.ok()) {
             // check file failed, we should remove this cache and download it from FE again
-            if (!remove(entry.path.c_str())) {
+            if (remove(entry.path.c_str()) != 0) {
                 std::stringstream ss;
                 ss << "failed to remove file: " << file_id << ", err: "<< std::strerror(errno);
                 return Status(ss.str());

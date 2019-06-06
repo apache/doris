@@ -37,8 +37,6 @@ import org.apache.doris.thrift.TMiniLoadEtlStatusRequest;
 import org.apache.doris.thrift.TMiniLoadEtlStatusResult;
 import org.apache.doris.thrift.TMiniLoadEtlTaskRequest;
 import org.apache.doris.thrift.TNetworkAddress;
-import org.apache.doris.thrift.TProxyRequest;
-import org.apache.doris.thrift.TProxyResult;
 import org.apache.doris.thrift.TPullLoadSubTaskInfo;
 import org.apache.doris.thrift.TResultBatch;
 import org.apache.doris.thrift.TRoutineLoadTask;
@@ -223,12 +221,6 @@ public class GenericPoolTest {
 
         @Override
         public TStatus submit_routine_load_task(List<TRoutineLoadTask> tasks) throws TException {
-            // TODO Auto-generated method stub
-            return null;
-        }
-
-        @Override
-        public TProxyResult get_info(TProxyRequest request) throws TException {
             // TODO Auto-generated method stub
             return null;
         }

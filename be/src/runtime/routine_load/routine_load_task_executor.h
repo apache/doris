@@ -25,6 +25,8 @@
 #include "util/thread_pool.hpp"
 #include "util/uid_util.h"
 
+#include "gen_cpp/internal_service.pb.h"
+
 namespace doris {
 
 class ExecEnv;
@@ -56,7 +58,7 @@ public:
     // submit a routine load task
     Status submit_task(const TRoutineLoadTask& task);
     
-    Status get_kafka_partition_meta(const TKafkaMetaProxyRequest& request, std::vector<int32_t>* partition_ids);
+    Status get_kafka_partition_meta(const PKafkaMetaProxyRequest& request, std::vector<int32_t>* partition_ids);
 
 private:
     // execute the task

@@ -44,8 +44,8 @@ import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ResultSink;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.planner.UnionNode;
+import org.apache.doris.proto.PExecPlanFragmentResult;
 import org.apache.doris.rpc.BackendServiceProxy;
-import org.apache.doris.rpc.PExecPlanFragmentResult;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.Backend;
@@ -441,9 +441,9 @@ public class Coordinator {
                     try {
                         PExecPlanFragmentResult result = pair.second.get(Config.remote_fragment_exec_timeout_ms,
                                                                          TimeUnit.MILLISECONDS);
-                        code = TStatusCode.findByValue(result.status.code);
-                        if (result.status.msgs != null && !result.status.msgs.isEmpty()) {
-                            errMsg = result.status.msgs.get(0);
+                        code = TStatusCode.findByValue(result.status.status_code);
+                        if (result.status.error_msgs != null && !result.status.error_msgs.isEmpty()) {
+                            errMsg = result.status.error_msgs.get(0);
                         }
                     } catch (ExecutionException e) {
                         LOG.warn("catch a execute exception", e);

@@ -16,7 +16,10 @@
 // under the License.
 // Define common messages shared by other proto files.
 
+syntax="proto2";
+
 package doris;
+option java_package = "org.apache.doris.proto";
 
 message ColumnMessage {
     required string name = 1;

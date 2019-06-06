@@ -161,7 +161,4 @@ service BackendService {
     TTabletStatResult get_tablet_stat();
 
     Status.TStatus submit_routine_load_task(1:list<TRoutineLoadTask> tasks);
-
-    // This is used for getting some information via Backend
-    TProxyResult get_info(1:TProxyRequest request);
 }

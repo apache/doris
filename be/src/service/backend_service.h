@@ -148,9 +148,6 @@ public:
     virtual void get_tablet_stat(TTabletStatResult& result) override;
 
     virtual void submit_routine_load_task(TStatus& t_status, const std::vector<TRoutineLoadTask>& tasks) override;
-    
-    virtual void get_info(TProxyResult& result, const TProxyRequest& request) override;
-
 private:
     Status start_plan_fragment_execution(const TExecPlanFragmentParams& exec_params);
 

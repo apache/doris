@@ -145,7 +145,7 @@ public abstract class BaseAction implements IAction {
     
     // Object only support File or byte[]
     protected void writeObjectResponse(BaseRequest request, BaseResponse response, HttpResponseStatus status,
-            Object obj, String fileName) throws IOException {
+            Object obj, String fileName) {
         Preconditions.checkState((obj instanceof File) || (obj instanceof byte[]));
         
         HttpResponse responseObj = new DefaultHttpResponse(HttpVersion.HTTP_1_1, status);

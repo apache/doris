@@ -236,7 +236,7 @@ Status KafkaDataConsumer::get_partition_meta(std::vector<int32_t>* partition_ids
     // create topic
     std::string errstr;
     RdKafka::Topic *topic = RdKafka::Topic::create(_k_consumer, _topic, tconf, errstr);
-    if (topic != nullptr) {
+    if (topic == nullptr) {
         std::stringstream ss;
         ss << "failed to create topic: " << errstr;
         LOG(WARNING) << ss.str();

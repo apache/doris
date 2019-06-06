@@ -15,7 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
+syntax="proto2";
+
 package doris;
+option java_package = "org.apache.doris.proto";
 
 import "olap_common.proto";
 

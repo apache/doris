@@ -2313,7 +2313,7 @@ public class Load {
                                 Catalog.getInstance().getEditLog().logLoadQuorum(job);
                             } else {
                                 errMsg = "process loading finished fail";
-                            processCancelled(job, cancelType, errMsg, failedMsg);
+                                processCancelled(job, cancelType, errMsg, failedMsg);
                             }
                             break;
                         case FINISHED:
@@ -2354,7 +2354,7 @@ public class Load {
                             Catalog.getInstance().getEditLog().logLoadDone(job);
                             break;
                         case CANCELLED:
-                        processCancelled(job, cancelType, errMsg, failedMsg);
+                            processCancelled(job, cancelType, errMsg, failedMsg);
                             break;
                         default:
                             Preconditions.checkState(false, "wrong job state: " + destState.name());
