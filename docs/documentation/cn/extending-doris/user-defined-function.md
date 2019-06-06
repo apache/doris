@@ -60,7 +60,6 @@
 
 ### 执行编译
 
-在最外部执行`sh build.sh`就可以生成对应的动态库。生成的动态库的位置，位于`be/build/src/udf_samples/`下。比如`udfsample`就会生成一个文件位于`be/build/src/udf_samples/libudfsample.so`。
 在该目录下创建一个`build`目录并在`build`下执行`cmake ../`生成`Makefile`，并执行`make`就会生成对应动态库。
 
 ## 创建UDF函数
