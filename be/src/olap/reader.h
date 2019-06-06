@@ -185,6 +185,7 @@ private:
     OLAPStatus _init_delete_condition(const ReaderParams& read_params);
 
     OLAPStatus _init_return_columns(const ReaderParams& read_params);
+    OLAPStatus _init_seek_columns();
 
     OLAPStatus _init_load_bf_columns(const ReaderParams& read_params);
 
@@ -199,6 +200,7 @@ private:
     std::unique_ptr<MemPool> _predicate_mem_pool;
     std::set<uint32_t> _load_bf_columns;
     std::vector<uint32_t> _return_columns;
+    std::vector<uint32_t> _seek_columns;
 
     Version _version;
 
