@@ -34,6 +34,7 @@ struct RowsetReaderContext {
         tablet_schema(nullptr),
         preaggregation(false),
         return_columns(nullptr),
+        seek_columns(nullptr),
         load_bf_columns(nullptr),
         conditions(nullptr),
         predicates(nullptr),
@@ -52,6 +53,7 @@ struct RowsetReaderContext {
     bool preaggregation;
     // projection columns
     const std::vector<uint32_t>* return_columns;
+    const std::vector<uint32_t>* seek_columns;
     // columns to load bloom filter index
     // including columns in "=" or "in" conditions
     const std::set<uint32_t>* load_bf_columns;
