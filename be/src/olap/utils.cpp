@@ -29,8 +29,12 @@
 #include <boost/regex.hpp>
 #include <errno.h>
 #include <lz4/lz4.h>
+
+#ifdef DORIS_WITH_LZO
 #include <lzo/lzo1c.h>
 #include <lzo/lzo1x.h>
+#endif
+
 #include <stdarg.h>
 
 #include "common/logging.h"
@@ -266,6 +270,8 @@ OLAPStatus olap_compress(const char* src_buf,
 
     *written_len = dest_len;
     switch (compression_type) {
+
+#ifdef DORIS_WITH_LZO
     case OLAP_COMP_TRANSPORT: {
         // A small buffer(hundreds of bytes) for LZO1X
         unsigned char mem[LZO1X_1_MEM_COMPRESS];
@@ -318,6 +324,8 @@ OLAPStatus olap_compress(const char* src_buf,
         }
         break;
     }
+#endif
+
     case OLAP_COMP_LZ4: {
         // int lz4_res = LZ4_compress_limitedOutput(src_buf, dest_buf, src_len, dest_len);
         int lz4_res = LZ4_compress_default(src_buf, dest_buf, src_len, dest_len);
@@ -355,6 +363,8 @@ OLAPStatus olap_decompress(const char* src_buf,
 
     *written_len = dest_len;
     switch (compression_type) {
+
+#ifdef DORIS_WITH_LZO
     case OLAP_COMP_TRANSPORT: {
         int lzo_res = lzo1x_decompress_safe(reinterpret_cast<const lzo_byte*>(src_buf),
                                             src_len,
@@ -403,6 +413,8 @@ OLAPStatus olap_decompress(const char* src_buf,
         }
         break;
     }
+#endif
+
     case OLAP_COMP_LZ4: {
         int lz4_res = LZ4_decompress_safe(src_buf, dest_buf, src_len, dest_len);
         *written_len = lz4_res;
@@ -419,6 +431,7 @@ OLAPStatus olap_decompress(const char* src_buf,
         break;
     }
     default: 
+        LOG(FATAL) << "unknown compress kind. kind=" << compression_type;
         break;
     }
     return OLAP_SUCCESS;

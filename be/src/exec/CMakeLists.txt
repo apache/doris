@@ -101,6 +101,12 @@ if (WITH_MYSQL)
         )
 endif()
 
+if (WITH_LZO)
+    set(EXEC_FILES ${EXEC_FILES}
+        lzo_decompressor.cpp 
+    )
+endif()
+
 if(EXISTS "${BASE_DIR}/src/exec/kudu_util.cpp")
     set(EXEC_FILES ${EXEC_FILES}
         #kudu_scan_node.cpp

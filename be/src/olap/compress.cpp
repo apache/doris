@@ -22,6 +22,7 @@
 
 namespace doris {
 
+#ifdef DORIS_WITH_LZO
 OLAPStatus lzo_compress(StorageByteBuffer* in, StorageByteBuffer* out, bool* smaller) {
     size_t out_length = 0;
     OLAPStatus res = OLAP_SUCCESS;
@@ -59,6 +60,7 @@ OLAPStatus lzo_decompress(StorageByteBuffer* in, StorageByteBuffer* out) {
 
     return res;
 }
+#endif
 
 OLAPStatus lz4_compress(StorageByteBuffer* in, StorageByteBuffer* out, bool* smaller) {
     size_t out_length = 0;

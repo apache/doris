@@ -562,6 +562,15 @@ OLAPStatus PushHandler::_convert(
             if (_request.__isset.need_decompress && _request.need_decompress) {
                 need_decompress = true;
             }
+
+#ifndef DORIS_WITH_LZO
+            if (need_decompress) {
+                // if lzo is diabled, compressed data is not allowed here
+                res = OLAP_ERR_LZO_DISABLED;
+                break;
+            }
+#endif
+
             if (NULL == (reader = IBinaryReader::create(need_decompress))) {
                 OLAP_LOG_WARNING("fail to create reader. [table='%s' file='%s']",
                                  curr_olap_table->full_name().c_str(),
@@ -948,7 +957,9 @@ OLAPStatus BinaryFile::init(const char* path) {
 IBinaryReader* IBinaryReader::create(bool need_decompress) {
     IBinaryReader* reader = NULL;
     if (need_decompress) {
+#ifdef DORIS_WITH_LZO
         reader = new(std::nothrow) LzoBinaryReader();
+#endif
     } else {
         reader = new(std::nothrow) BinaryReader();
     }

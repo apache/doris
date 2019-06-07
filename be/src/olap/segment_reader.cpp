@@ -168,10 +168,12 @@ OLAPStatus SegmentReader::_set_decompressor() {
         _decompressor = NULL;
         break;
     }
+#ifdef DORIS_WITH_LZO
     case COMPRESS_LZO: {
         _decompressor = lzo_decompress;
         break;
     }
+#endif
     case COMPRESS_LZ4: {
         _decompressor = lz4_decompress;
         break;

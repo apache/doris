@@ -125,9 +125,6 @@ public:
     }
     void change_file_version_to_delta();
 private:
-    // Compute schema hash(all fields name and type, index name and its field
-    // names) using lzo_adler32 function.
-    OLAPStatus _compute_schema_hash(SchemaHash* schema_hash);
     void _convert_file_version_to_delta(const FileVersionMessage& version, PDelta* delta);
 
     // full path of olap header file
