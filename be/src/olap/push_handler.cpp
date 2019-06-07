@@ -563,7 +563,7 @@ OLAPStatus PushHandler::_convert(
                 need_decompress = true;
             }
 
-            #ifndef DORIS_WITH_LZO
+#ifndef DORIS_WITH_LZO
             if (need_decompress) {
                 // if lzo is diabled, compressed data is not allowed here
                 res = OLAP_ERR_LZO_DISABLED;
