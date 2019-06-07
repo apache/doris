@@ -569,7 +569,7 @@ OLAPStatus PushHandler::_convert(
                 res = OLAP_ERR_LZO_DISABLED;
                 break;
             }
-            #endif
+#endif
 
             if (NULL == (reader = IBinaryReader::create(need_decompress))) {
                 OLAP_LOG_WARNING("fail to create reader. [table='%s' file='%s']",
