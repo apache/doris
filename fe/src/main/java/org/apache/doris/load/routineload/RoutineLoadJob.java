@@ -544,7 +544,13 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     abstract RoutineLoadTaskInfo unprotectRenewTask(RoutineLoadTaskInfo routineLoadTaskInfo);
 
-    public void initPlanner() throws UserException {
+    // call before first scheduling
+    // derived class can override this.
+    public void prepare() throws UserException {
+        initPlanner();
+    }
+
+    private void initPlanner() throws UserException {
         StreamLoadTask streamLoadTask = StreamLoadTask.fromRoutineLoadJob(this);
         Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
@@ -702,8 +708,9 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                     if (txnStatusChangeReason != null) {
                         switch (txnStatusChangeReason) {
                             case OFFSET_OUT_OF_RANGE:
+                            case PAUSE:
                                 updateState(JobState.PAUSED, "be " + taskBeId + " abort task "
-                                        + "with reason " + txnStatusChangeReason.toString(), false /* not replay */);
+                                        + "with reason: " + txnStatusChangeReasonString, false /* not replay */);
                                 return;
                             default:
                                 break;

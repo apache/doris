@@ -30,6 +30,7 @@ import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -63,6 +64,8 @@ import io.netty.handler.codec.http.cookie.Cookie;
 import io.netty.handler.codec.http.cookie.ServerCookieEncoder;
 import io.netty.handler.ssl.SslHandler;
 import io.netty.handler.stream.ChunkedFile;
+import io.netty.handler.stream.ChunkedInput;
+import io.netty.handler.stream.ChunkedStream;
 import io.netty.util.CharsetUtil;
 
 public abstract class BaseAction implements IAction {
@@ -139,43 +142,64 @@ public abstract class BaseAction implements IAction {
             request.getContext().write(responseObj);
         }
     }
-
-    protected void writeFileResponse(BaseRequest request, BaseResponse response, HttpResponseStatus status,
-            File resFile) {
+    
+    // Object only support File or byte[]
+    protected void writeObjectResponse(BaseRequest request, BaseResponse response, HttpResponseStatus status,
+            Object obj, String fileName) {
+        Preconditions.checkState((obj instanceof File) || (obj instanceof byte[]));
+        
         HttpResponse responseObj = new DefaultHttpResponse(HttpVersion.HTTP_1_1, status);
 
         if (HttpUtil.isKeepAlive(request.getRequest())) {
             response.updateHeader(HttpHeaderNames.CONNECTION.toString(), HttpHeaderValues.KEEP_ALIVE.toString());
         }
-
+        response.updateHeader(HttpHeaderNames.CONTENT_TYPE.toString(), HttpHeaderValues.APPLICATION_OCTET_STREAM.toString());
+        response.updateHeader(HttpHeaderNames.CONTENT_DISPOSITION.toString(),
+                HttpHeaderValues.ATTACHMENT.toString() + "; " + HttpHeaderValues.FILENAME.toString() + "=" + fileName);
+        
         ChannelFuture sendFileFuture;
         ChannelFuture lastContentFuture;
 
-        // Read and return file content
-        RandomAccessFile rafFile;
         try {
-            rafFile = new RandomAccessFile(resFile, "r");
-            long fileLength = 0;
-            fileLength = rafFile.length();
-            response.updateHeader(HttpHeaderNames.CONTENT_LENGTH.toString(), String.valueOf(fileLength));
+            Object writable = null;
+            long contentLen = 0;
+            boolean sslEnable = request.getContext().pipeline().get(SslHandler.class) != null;
+            if (obj instanceof File) {
+                RandomAccessFile rafFile = new RandomAccessFile((File) obj, "r");
+                contentLen = rafFile.length();
+                if (!sslEnable) {
+                    // use zero-copy file transfer.
+                    writable = new DefaultFileRegion(rafFile.getChannel(), 0, contentLen);
+                } else {
+                    // cannot use zero-copy file transfer.
+                    writable = new ChunkedFile(rafFile, 0, contentLen, 8192);
+                }
+            } else if (obj instanceof byte[]) {
+                contentLen = ((byte[]) obj).length;
+                if (!sslEnable) {
+                    writable = Unpooled.wrappedBuffer((byte[]) obj);
+                } else {
+                    writable = new ChunkedStream(new ByteArrayInputStream((byte[]) obj));
+                }
+            }
+
+            response.updateHeader(HttpHeaderNames.CONTENT_LENGTH.toString(), String.valueOf(contentLen));
             writeCookies(response, responseObj);
             writeCustomHeaders(response, responseObj);
 
             // Write headers
             request.getContext().write(responseObj);
 
-            // Write file
-            if (request.getContext().pipeline().get(SslHandler.class) == null) {
-                sendFileFuture = request.getContext().write(new DefaultFileRegion(rafFile.getChannel(), 0, fileLength),
-                        request.getContext().newProgressivePromise());
+            // Write object
+            if (!sslEnable) {
+                sendFileFuture = request.getContext().write(writable, request.getContext().newProgressivePromise());
                 // Write the end marker.
                 lastContentFuture = request.getContext().writeAndFlush(LastHttpContent.EMPTY_LAST_CONTENT);
             } else {
                 sendFileFuture = request.getContext().writeAndFlush(
-                        new HttpChunkedInput(new ChunkedFile(rafFile, 0, fileLength, 8192)),
+                        new HttpChunkedInput((ChunkedInput<ByteBuf>) writable),
                         request.getContext().newProgressivePromise());
-                // HttpChunkedInput will write the end marker (LastHttpContent)
-                // for us.
+                // HttpChunkedInput will write the end marker (LastHttpContent) for us.
                 lastContentFuture = sendFileFuture;
             }
         } catch (FileNotFoundException ignore) {

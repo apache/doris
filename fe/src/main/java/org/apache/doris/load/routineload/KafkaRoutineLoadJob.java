@@ -21,6 +21,7 @@ import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeMetaVersion;
@@ -30,8 +31,11 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.KafkaUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
+import org.apache.doris.common.util.SmallFileMgr;
+import org.apache.doris.common.util.SmallFileMgr.SmallFile;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Joiner;
@@ -40,8 +44,6 @@ import com.google.common.collect.Maps;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 
-import org.apache.kafka.clients.consumer.KafkaConsumer;
-import org.apache.kafka.common.PartitionInfo;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -52,7 +54,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.Properties;
 import java.util.UUID;
 
 /**
@@ -62,7 +63,7 @@ import java.util.UUID;
 public class KafkaRoutineLoadJob extends RoutineLoadJob {
     private static final Logger LOG = LogManager.getLogger(KafkaRoutineLoadJob.class);
 
-    private static final int FETCH_PARTITIONS_TIMEOUT_SECOND = 5;
+    public static final String KAFKA_FILE_CATALOG = "kafka";
 
     private String brokerList;
     private String topic;
@@ -70,11 +71,9 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     private List<Integer> customKafkaPartitions = Lists.newArrayList();
     // current kafka partitions is the actually partition which will be fetched
     private List<Integer> currentKafkaPartitions = Lists.newArrayList();
-    //kafka properties ，property prefix will be mapped to kafka custom parameters, which can be extended in the future
-    private Map<String, String> customKafkaProperties = Maps.newHashMap();
-
-    // this is the kafka consumer which is used to fetch the number of partitions
-    private KafkaConsumer<String, String> consumer;
+    // kafka properties ，property prefix will be mapped to kafka custom parameters, which can be extended in the future
+    private Map<String, String> customProperties = Maps.newHashMap();
+    private Map<String, String> convertedCustomProperties = Maps.newHashMap();
 
     public KafkaRoutineLoadJob() {
         // for serialization, id is dummy
@@ -87,7 +86,6 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         this.brokerList = brokerList;
         this.topic = topic;
         this.progress = new KafkaProgress();
-        setConsumer();
     }
 
     public String getTopic() {
@@ -98,8 +96,38 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         return brokerList;
     }
 
-    public Map<String, String> getCustomKafkaProperties() {
-        return customKafkaProperties;
+    public Map<String, String> getConvertedCustomProperties() {
+        return convertedCustomProperties;
+    }
+
+    public void resetConvertedCustomProperties() {
+        convertedCustomProperties.clear();
+    }
+
+    @Override
+    public void prepare() throws UserException {
+        super.prepare();
+        // should reset converted properties each time the job being prepared.
+        // because the file info can be changed anytime.
+        resetConvertedCustomProperties();
+        convertCustomProperties();
+    }
+
+    private void convertCustomProperties() throws DdlException {
+        if (!convertedCustomProperties.isEmpty() || customProperties.isEmpty()) {
+            return;
+        }
+        SmallFileMgr smallFileMgr = Catalog.getCurrentCatalog().getSmallFileMgr();
+        for (Map.Entry<String, String> entry : customProperties.entrySet()) {
+            if (entry.getValue().startsWith("FILE:")) {
+                // convert FILE:file_name -> FILE:file_id:md5
+                String file = entry.getValue().substring(entry.getValue().indexOf(":") + 1);
+                SmallFile smallFile = smallFileMgr.getSmallFile(dbId, KAFKA_FILE_CATALOG, file, true);
+                convertedCustomProperties.put(entry.getKey(), "FILE:" + smallFile.id + ":" + smallFile.md5);
+            } else {
+                convertedCustomProperties.put(entry.getKey(), entry.getValue());
+            }
+        }
     }
 
     @Override
@@ -276,17 +304,9 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         return gson.toJson(summary);
     }
 
-    private List<Integer> getAllKafkaPartitions() throws LoadException {
-        List<Integer> result = new ArrayList<>();
-        try {
-            List<PartitionInfo> partitionList = consumer.partitionsFor(topic);
-            for (PartitionInfo partitionInfo : partitionList) {
-                result.add(partitionInfo.partition());
-            }
-        } catch (Exception e) {
-            throw new LoadException("failed to get partitions for topic: " + topic + ". " + e.getMessage());
-        }
-        return result;
+    private List<Integer> getAllKafkaPartitions() throws UserException {
+        convertCustomProperties();
+        return KafkaUtil.getAllKafkaPartitions(brokerList, topic, convertedCustomProperties);
     }
 
     public static KafkaRoutineLoadJob fromCreateStmt(CreateRoutineLoadStmt stmt) throws UserException {
@@ -305,15 +325,42 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             db.readUnlock();
         }
 
-        // TODO(ml): check partition
-
         // init kafka routine load job
         long id = Catalog.getInstance().getNextId();
         KafkaRoutineLoadJob kafkaRoutineLoadJob = new KafkaRoutineLoadJob(id, stmt.getName(),
                 db.getClusterName(), db.getId(), tableId, stmt.getKafkaBrokerList(), stmt.getKafkaTopic());
         kafkaRoutineLoadJob.setOptional(stmt);
+        kafkaRoutineLoadJob.checkCustomProperties();
+        kafkaRoutineLoadJob.checkCustomPartition();
 
         return kafkaRoutineLoadJob;
+    }
+
+    private void checkCustomPartition() throws UserException {
+        if (customKafkaPartitions.isEmpty()) {
+            return;
+        }
+        List<Integer> allKafkaPartitions = getAllKafkaPartitions();
+        for (Integer customPartition : customKafkaPartitions) {
+            if (!allKafkaPartitions.contains(customPartition)) {
+                throw new LoadException("there is a custom kafka partition " + customPartition
+                        + " which is invalid for topic " + topic);
+            }
+        }
+    }
+
+    private void checkCustomProperties() throws DdlException {
+        SmallFileMgr smallFileMgr = Catalog.getCurrentCatalog().getSmallFileMgr();
+        for (Map.Entry<String, String> entry : customProperties.entrySet()) {
+            if (entry.getValue().startsWith("FILE:")) {
+                String file = entry.getValue().substring(entry.getValue().indexOf(":") + 1);
+                // check file
+                if (!smallFileMgr.containsFile(dbId, KAFKA_FILE_CATALOG, file)) {
+                    throw new DdlException("File " + file + " does not exist in db "
+                            + dbId + " with catalog: " + KAFKA_FILE_CATALOG);
+                }
+            }
+        }
     }
 
     private void updateNewPartitionProgress() {
@@ -332,15 +379,6 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         }
     }
 
-    private void setConsumer() {
-        Properties props = new Properties();
-        props.put("bootstrap.servers", this.brokerList);
-        props.put("group.id", UUID.randomUUID().toString());
-        props.put("key.deserializer", "org.apache.kafka.common.serialization.StringDeserializer");
-        props.put("value.deserializer", "org.apache.kafka.common.serialization.StringDeserializer");
-        consumer = new KafkaConsumer<>(props);
-    }
-
     @Override
     protected void setOptional(CreateRoutineLoadStmt stmt) throws UserException {
         super.setOptional(stmt);
@@ -355,20 +393,14 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     // this is a unprotected method which is called in the initialization function
     private void setCustomKafkaPartitions(List<Pair<Integer, Long>> kafkaPartitionOffsets) throws LoadException {
-        // check if custom kafka partition is valid
-        List<Integer> allKafkaPartitions = getAllKafkaPartitions();
         for (Pair<Integer, Long> partitionOffset : kafkaPartitionOffsets) {
-            if (!allKafkaPartitions.contains(partitionOffset.first)) {
-                throw new LoadException("there is a custom kafka partition " + partitionOffset.first
-                        + " which is invalid for topic " + topic);
-            }
             this.customKafkaPartitions.add(partitionOffset.first);
             ((KafkaProgress) progress).addPartitionOffset(partitionOffset);
         }
     }
 
     private void setCustomKafkaProperties(Map<String, String> kafkaProperties) {
-        this.customKafkaProperties = kafkaProperties;
+        this.customProperties = kafkaProperties;
     }
 
     @Override
@@ -386,7 +418,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     @Override
     protected String customPropertiesJsonToString() {
         Gson gson = new GsonBuilder().disableHtmlEscaping().create();
-        return gson.toJson(customKafkaProperties);
+        return gson.toJson(customProperties);
     }
 
     @Override
@@ -400,8 +432,8 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             out.writeInt(partitionId);
         }
 
-        out.writeInt(customKafkaProperties.size());
-        for (Map.Entry<String, String> property : customKafkaProperties.entrySet()) {
+        out.writeInt(customProperties.size());
+        for (Map.Entry<String, String> property : customProperties.entrySet()) {
             Text.writeString(out, "property." + property.getKey());
             Text.writeString(out, property.getValue());
         }
@@ -423,11 +455,9 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 String propertyKey = Text.readString(in);
                 String propertyValue = Text.readString(in);
                 if (propertyKey.startsWith("property.")) {
-                    this.customKafkaProperties.put(propertyKey.substring(propertyKey.indexOf(".") + 1), propertyValue);
+                    this.customProperties.put(propertyKey.substring(propertyKey.indexOf(".") + 1), propertyValue);
                 }
             }
         }
-
-        setConsumer();
     }
 }

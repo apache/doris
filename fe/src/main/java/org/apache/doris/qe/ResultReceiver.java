@@ -17,13 +17,11 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.common.ClientPool;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.Status;
+import org.apache.doris.proto.PFetchDataResult;
+import org.apache.doris.proto.PUniqueId;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.PFetchDataRequest;
-import org.apache.doris.rpc.PFetchDataResult;
-import org.apache.doris.rpc.PUniqueId;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TResultBatch;
@@ -52,7 +50,9 @@ public class ResultReceiver {
     private Thread currentThread;
 
     public ResultReceiver(TUniqueId tid, Long backendId, TNetworkAddress address, int timeoutMs) {
-        this.finstId = new PUniqueId(tid);
+        this.finstId = new PUniqueId();
+        this.finstId.hi = tid.hi;
+        this.finstId.lo = tid.lo;
         this.backendId = backendId;
         this.address = address;
         this.timeoutTs = System.currentTimeMillis() + timeoutMs;
@@ -86,16 +86,16 @@ public class ResultReceiver {
                         }
                     }
                 }
-                TStatusCode code = TStatusCode.findByValue(pResult.status.code);
+                TStatusCode code = TStatusCode.findByValue(pResult.status.status_code);
                 if (code != TStatusCode.OK) {
                     status.setPstatus(pResult.status);
                     return null;
                 } 
  
-                rowBatch.setQueryStatistics(pResult.statistics);
+                rowBatch.setQueryStatistics(pResult.query_statistics);
 
-                if (packetIdx != pResult.packetSeq) {
-                    LOG.warn("receive packet failed, expect={}, receive={}", packetIdx, pResult.packetSeq);
+                if (packetIdx != pResult.packet_seq) {
+                    LOG.warn("receive packet failed, expect={}, receive={}", packetIdx, pResult.packet_seq);
                     status.setRpcStatus("receive error packet");
                     return null;
                 }

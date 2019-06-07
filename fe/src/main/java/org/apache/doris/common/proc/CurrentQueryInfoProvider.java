@@ -17,26 +17,31 @@
 
 package org.apache.doris.common.proc;
 
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Counter;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.RuntimeProfile;
+import org.apache.doris.proto.PTriggerProfileReportResult;
+import org.apache.doris.proto.PUniqueId;
 import org.apache.doris.qe.QueryStatisticsItem;
-import org.apache.doris.rpc.*;
+import org.apache.doris.rpc.BackendServiceProxy;
+import org.apache.doris.rpc.PTriggerProfileReportRequest;
+import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
+
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Collection;
-import java.util.Formatter;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
@@ -198,7 +203,9 @@ public class CurrentQueryInfoProvider {
                 }
                 // specified query instance which will report.
                 if (!allQuery) {
-                    final PUniqueId pUId = new PUniqueId(instanceInfo.getInstanceId());
+                    final PUniqueId pUId = new PUniqueId();
+                    pUId.hi = instanceInfo.getInstanceId().hi;
+                    pUId.lo = instanceInfo.getInstanceId().lo;
                     request.addInstanceId(pUId);
                 }
             }
@@ -230,11 +237,11 @@ public class CurrentQueryInfoProvider {
             try {
                 final PTriggerProfileReportResult result
                         = pair.second.get(2, TimeUnit.SECONDS);
-                final TStatusCode code = TStatusCode.findByValue(result.status.code);
+                final TStatusCode code = TStatusCode.findByValue(result.status.status_code);
                 if (code != TStatusCode.OK) {
                     String errMsg = "";
-                    if (result.status.msgs != null && !result.status.msgs.isEmpty()) {
-                        errMsg = result.status.msgs.get(0);
+                    if (result.status.error_msgs != null && !result.status.error_msgs.isEmpty()) {
+                        errMsg = result.status.error_msgs.get(0);
                     }
                     throw new AnalysisException(reasonPrefix + " backend:" + pair.first.getAddress()
                             + " reason:" + errMsg);

@@ -17,9 +17,6 @@
 
 package org.apache.doris.clone;
 
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Database;
@@ -35,7 +32,10 @@ import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.HashBasedTable;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import org.apache.logging.log4j.LogManager;
@@ -84,7 +84,7 @@ public class ColocateTableBalancer extends Daemon {
      * 4 update colcate backendsPerBucketSeq meta
      * 5 do real data migration by clone job
      * 6 delete redundant replicas after all clone job done
-     * 7 mark colocate group  stable in colocate meta and balance done
+     * 7 mark colocate group stable in colocate meta and balance done
      */
     protected void runOneCycle() {
         checkAndCloneBalancingGroup();

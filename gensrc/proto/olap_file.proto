@@ -16,7 +16,10 @@
 // under the License.
 // Define file format struct, like data header, index header.
 
+syntax="proto2";
+
 package doris;
+option java_package = "org.apache.doris.proto";
 
 import "olap_common.proto";
 import "types.proto";

@@ -118,13 +118,13 @@ PullLoadTaskMgr::~PullLoadTaskMgr() {
 Status PullLoadTaskMgr::init() {
     auto st = load_task_ctxes();
     if (!st.ok()) {
-        LOG(WARNING) << "Load task from directory failed. because " << st.get_error_msg();
         _dir_exist = false;
     }
     return Status::OK;
 }
 
 Status PullLoadTaskMgr::load_task_ctxes() {
+    /*
     // 1. scan all files
     std::vector<std::string> files;
     RETURN_IF_ERROR(FileUtils::scan_dir(_path, &files));
@@ -141,8 +141,9 @@ Status PullLoadTaskMgr::load_task_ctxes() {
                 << ", status:" << status.get_error_msg();
         }
     }
+    */
 
-    return Status::OK;
+    return Status("Not implemented");
 }
 
 Status PullLoadTaskMgr::load_task_ctx(const std::string& file_path) {

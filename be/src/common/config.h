@@ -114,14 +114,10 @@ namespace config {
     CONF_Int32(sleep_one_second, "1");
     // sleep time for five seconds
     CONF_Int32(sleep_five_seconds, "5");
-    // trans file tools dir
-    CONF_String(trans_file_tool_path, "${DORIS_HOME}/tools/trans_file_tool/trans_files.sh");
-    // agent tmp dir
-    CONF_String(agent_tmp_dir, "${DORIS_HOME}/tmp");
 
     // log dir
     CONF_String(sys_log_dir, "${DORIS_HOME}/log");
-    CONF_String(user_function_dir, "${DORIS_HOME}/lib/usr");
+    CONF_String(user_function_dir, "${DORIS_HOME}/lib/udf");
     // INFO, WARNING, ERROR, FATAL
     CONF_String(sys_log_level, "INFO");
     // TIME-DAY, TIME-HOUR, SIZE-MB-nnn
@@ -208,7 +204,7 @@ namespace config {
     CONF_Int32(file_descriptor_cache_clean_interval, "3600");
     CONF_Int32(disk_stat_monitor_interval, "5");
     CONF_Int32(unused_index_monitor_interval, "30");
-    CONF_String(storage_root_path, "${DORIS_HOME}/storage");
+    CONF_String(storage_root_path, "${DORIS_HOME}/data");
     CONF_Int32(min_percentage_of_error_disk, "50");
     CONF_Int32(default_num_rows_per_data_block, "1024");
     CONF_Int32(default_num_rows_per_column_file_block, "1024");
@@ -256,12 +252,8 @@ namespace config {
 
     // Port to start debug webserver on
     CONF_Int32(webserver_port, "8040");
-    // Interface to start debug webserver on. If blank, webserver binds to 0.0.0.0
-    CONF_String(webserver_interface, "");
-    CONF_String(webserver_doc_root, "${DORIS_HOME}");
+    // Number of webserver workers
     CONF_Int32(webserver_num_workers, "5");
-    // If true, webserver may serve static files from the webserver_doc_root
-    CONF_Bool(enable_webserver_doc_root, "true");
     // Period to update rate counters and sampling counters in ms.
     CONF_Int32(periodic_counter_update_period_ms, "500");
 
@@ -419,6 +411,9 @@ namespace config {
     // same cache size configuration.
     // TODO(cmy): use different config to set different client cache if necessary.
     CONF_Int32(max_client_cache_size_per_host, "10");
+
+    // Dir to save files downloaded by SmallFileMgr
+    CONF_String(small_file_dir, "${DORIS_HOME}/lib/small_file/");
 } // namespace config
 
 } // namespace doris

@@ -191,7 +191,8 @@ ${DORIS_TEST_BINARY_DIR}/runtime/stream_load_pipe_test
 ${DORIS_TEST_BINARY_DIR}/runtime/tablet_writer_mgr_test
 ${DORIS_TEST_BINARY_DIR}/runtime/snapshot_loader_test
 ${DORIS_TEST_BINARY_DIR}/runtime/user_function_cache_test
-## Running expr Unittest
+${DORIS_TEST_BINARY_DIR}/runtime/small_file_mgr_test
+# Running expr Unittest
 
 # Running http
 ${DORIS_TEST_BINARY_DIR}/http/metrics_action_test

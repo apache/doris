@@ -190,7 +190,7 @@ public class StaticResourceAction extends WebBaseAction {
         response.updateHeader(HttpHeaders.Names.CONTENT_TYPE, getContentType(resourceAbsolutePath));
         setDateAndCacheHeaders(response, resFile);
 
-        writeFileResponse(request, response, HttpResponseStatus.OK, resFile);
+        writeObjectResponse(request, response, HttpResponseStatus.OK, resFile, resFile.getName());
     }
 
 

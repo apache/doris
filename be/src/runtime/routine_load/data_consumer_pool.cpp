@@ -50,7 +50,7 @@ Status DataConsumerPool::get_consumer(
             break;
         default:
             std::stringstream ss;
-            ss << "unknown routine load task type: " << ctx->load_type;
+            ss << "PAUSE: unknown routine load task type: " << ctx->load_type;
             return Status(ss.str());
     }
     
@@ -66,7 +66,7 @@ Status DataConsumerPool::get_consumer_grp(
         StreamLoadContext* ctx,
         std::shared_ptr<DataConsumerGroup>* ret) {
     if (ctx->load_src_type != TLoadSourceType::KAFKA) {
-        return Status("Currently nly support consumer group for Kafka data source");
+        return Status("PAUSE: Currently only support consumer group for Kafka data source");
     }
     DCHECK(ctx->kafka_info);
 

@@ -17,7 +17,6 @@
 
 package org.apache.doris.qe;
 
-import com.google.common.base.Strings;
 import org.apache.doris.analysis.AdminShowConfigStmt;
 import org.apache.doris.analysis.AdminShowReplicaDistributionStmt;
 import org.apache.doris.analysis.AdminShowReplicaStatusStmt;
@@ -53,6 +52,7 @@ import org.apache.doris.analysis.ShowRolesStmt;
 import org.apache.doris.analysis.ShowRollupStmt;
 import org.apache.doris.analysis.ShowRoutineLoadStmt;
 import org.apache.doris.analysis.ShowRoutineLoadTaskStmt;
+import org.apache.doris.analysis.ShowSmallFilesStmt;
 import org.apache.doris.analysis.ShowSnapshotStmt;
 import org.apache.doris.analysis.ShowStmt;
 import org.apache.doris.analysis.ShowTableStatusStmt;
@@ -112,6 +112,7 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -230,6 +231,8 @@ public class ShowExecutor {
             handleAdminShowTabletDistribution();
         } else if (stmt instanceof AdminShowConfigStmt) {
             handleAdminShowConfig();
+        } else if (stmt instanceof ShowSmallFilesStmt) {
+            handleShowSmallFiles();
         } else {
             handleEmtpy();
         }
@@ -1319,6 +1322,17 @@ public class ShowExecutor {
         List<List<String>> results;
         try {
             results = ConfigBase.getConfigInfo();
+        } catch (DdlException e) {
+            throw new AnalysisException(e.getMessage());
+        }
+        resultSet = new ShowResultSet(showStmt.getMetaData(), results);
+    }
+
+    private void handleShowSmallFiles() throws AnalysisException {
+        ShowSmallFilesStmt showStmt = (ShowSmallFilesStmt) stmt;
+        List<List<String>> results;
+        try {
+            results = Catalog.getCurrentCatalog().getSmallFileMgr().getInfo(showStmt.getDbName());
         } catch (DdlException e) {
             throw new AnalysisException(e.getMessage());
         }

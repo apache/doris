@@ -61,8 +61,8 @@ import org.apache.doris.mysql.MysqlEofPacket;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.Planner;
+import org.apache.doris.proto.PQueryStatistics;
 import org.apache.doris.rewrite.ExprRewriter;
-import org.apache.doris.rpc.PQueryStatistics;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.task.LoadEtlTask;
 import org.apache.doris.thrift.TExplainLevel;
@@ -801,6 +801,12 @@ public class StmtExecutor {
     public PQueryStatistics getQueryStatisticsForAuditLog() {
         if (statisticsForAuditLog == null) {
             statisticsForAuditLog = new PQueryStatistics();
+        }
+        if (statisticsForAuditLog.scan_bytes == null) {
+            statisticsForAuditLog.scan_bytes = 0L;
+        }
+        if (statisticsForAuditLog.scan_rows == null) {
+            statisticsForAuditLog.scan_rows = 0L;
         }
         return statisticsForAuditLog;
     }

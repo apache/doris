@@ -17,6 +17,8 @@
 
 package org.apache.doris.rpc;
 
+import org.apache.doris.proto.PUniqueId;
+
 import com.baidu.bjf.remoting.protobuf.FieldType;
 import com.baidu.bjf.remoting.protobuf.annotation.Protobuf;
 import com.baidu.bjf.remoting.protobuf.annotation.ProtobufClass;

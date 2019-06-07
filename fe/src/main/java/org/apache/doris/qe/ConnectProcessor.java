@@ -35,7 +35,7 @@ import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlPacket;
 import org.apache.doris.mysql.MysqlProto;
 import org.apache.doris.mysql.MysqlSerializer;
-import org.apache.doris.rpc.PQueryStatistics;
+import org.apache.doris.proto.PQueryStatistics;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
 
@@ -95,16 +95,15 @@ public class ConnectProcessor {
         ctx.getState().setOk();
     }
 
-    private void auditAfterExec(String origStmt, StatementBase parsedStmt,
-                PQueryStatistics statistics) {
+    private void auditAfterExec(String origStmt, StatementBase parsedStmt, PQueryStatistics statistics) {
         // slow query
         long elapseMs = System.currentTimeMillis() - ctx.getStartTime();
         // query state log
         ctx.getAuditBuilder().put("State", ctx.getState());
         ctx.getAuditBuilder().put("Time", elapseMs);
         Preconditions.checkNotNull(statistics); 
-        ctx.getAuditBuilder().put("ScanBytes", statistics.scanBytes);
-        ctx.getAuditBuilder().put("ScanRows", statistics.scanRows);
+        ctx.getAuditBuilder().put("ScanBytes", statistics.scan_bytes);
+        ctx.getAuditBuilder().put("ScanRows", statistics.scan_rows);
         ctx.getAuditBuilder().put("ReturnRows", ctx.getReturnRows());
         ctx.getAuditBuilder().put("StmtId", ctx.getStmtId());
         ctx.getAuditBuilder().put("QueryId", ctx.queryId() == null ? "NaN" : DebugUtil.printId(ctx.queryId()));

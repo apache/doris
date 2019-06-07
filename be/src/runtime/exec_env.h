@@ -52,6 +52,7 @@ class TmpFileMgr;
 class WebPageHandler;
 class StreamLoadExecutor;
 class RoutineLoadTaskExecutor;
+class SmallFileMgr;
 
 class BackendServiceClient;
 class FrontendServiceClient;
@@ -112,6 +113,7 @@ public:
     BufferPool* buffer_pool() { return _buffer_pool; }
     TabletWriterMgr* tablet_writer_mgr() { return _tablet_writer_mgr; }
     LoadStreamMgr* load_stream_mgr() { return _load_stream_mgr; }
+    SmallFileMgr* small_file_mgr() { return _small_file_mgr; }
 
     const std::vector<StorePath>& store_paths() const { return _store_paths; }
     void set_store_paths(const std::vector<StorePath>& paths) { _store_paths = paths; }
@@ -167,6 +169,7 @@ private:
 
     StreamLoadExecutor* _stream_load_executor = nullptr;
     RoutineLoadTaskExecutor* _routine_load_task_executor = nullptr;
+    SmallFileMgr* _small_file_mgr = nullptr;
 };
 
 }
