@@ -143,8 +143,8 @@ message PTriggerProfileReportResult {
 };
 
 message PStringPair {
-	required string key = 1;
-	required string val = 2;
+    required string key = 1;
+    required string val = 2;
 };
 
 message PKafkaLoadInfo {
@@ -170,6 +170,8 @@ message PProxyResult {
     optional PKafkaMetaProxyResult kafka_meta_result = 2;
 };
 
+// NOTE(zc): If you want to add new method here,
+// you MUST add same method to palo_internal_service.proto
 service PBackendService {
     rpc transmit_data(PTransmitDataParams) returns (PTransmitDataResult);
     rpc exec_plan_fragment(PExecPlanFragmentRequest) returns (PExecPlanFragmentResult);
@@ -179,6 +181,6 @@ service PBackendService {
     rpc tablet_writer_add_batch(PTabletWriterAddBatchRequest) returns (PTabletWriterAddBatchResult);
     rpc tablet_writer_cancel(PTabletWriterCancelRequest) returns (PTabletWriterCancelResult);
     rpc trigger_profile_report(PTriggerProfileReportRequest) returns (PTriggerProfileReportResult);
-	rpc get_info(PProxyRequest) returns (PProxyResult); 
+    rpc get_info(PProxyRequest) returns (PProxyResult); 
 };
 

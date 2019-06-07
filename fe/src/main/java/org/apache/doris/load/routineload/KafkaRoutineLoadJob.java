@@ -354,8 +354,11 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         for (Map.Entry<String, String> entry : customProperties.entrySet()) {
             if (entry.getValue().startsWith("FILE:")) {
                 String file = entry.getValue().substring(entry.getValue().indexOf(":") + 1);
-                // check and save file to disk
-                smallFileMgr.saveToFile(dbId, KAFKA_FILE_CATALOG, file);
+                // check file
+                if (!smallFileMgr.containsFile(dbId, KAFKA_FILE_CATALOG, file)) {
+                    throw new DdlException("File " + file + " does not exist in db "
+                            + dbId + " with catalog: " + KAFKA_FILE_CATALOG);
+                }
             }
         }
     }

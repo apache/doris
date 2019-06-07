@@ -388,18 +388,6 @@ public class SmallFileMgr implements Writable {
         }
     }
 
-    // this method will only save files with content.
-    public String saveToFile(long fileId) throws DdlException {
-        SmallFile smallFile = getSmallFile(fileId);
-        if (smallFile == null) {
-            throw new DdlException("File does not exist: " + fileId);
-        }
-        if (!smallFile.isContent) {
-            throw new DdlException("File does not contain content: " + fileId);
-        }
-        return saveToFile(smallFile.dbId, smallFile.catalog, smallFile.name);
-    }
-
     // save the specified file to disk. if file already exist, check it.
     // return the absolute file path.
     public String saveToFile(long dbId, String catalog, String fileName) throws DdlException {
