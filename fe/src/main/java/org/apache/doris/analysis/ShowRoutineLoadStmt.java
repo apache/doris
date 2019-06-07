@@ -22,6 +22,8 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
@@ -117,8 +119,7 @@ public class ShowRoutineLoadStmt extends ShowStmt {
         if (Strings.isNullOrEmpty(dbName)) {
             dbFullName = analyzer.getContext().getDatabase();
             if (Strings.isNullOrEmpty(dbFullName)) {
-                throw new AnalysisException("please choose a database firstly "
-                                                    + "such as use db, show routine load db.name etc.");
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
             }
         } else {
             dbFullName = ClusterNamespace.getFullName(getClusterName(), dbName);

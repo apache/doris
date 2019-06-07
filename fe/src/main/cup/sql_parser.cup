@@ -198,10 +198,10 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_A
     KW_DATA, KW_DATABASE, KW_DATABASES, KW_DATE, KW_DATETIME, KW_DECIMAL, KW_DECOMMISSION, KW_DEFAULT, KW_DESC, KW_DESCRIBE,
     KW_DELETE, KW_DISTINCT, KW_DISTINCTPC, KW_DISTINCTPCSA, KW_DISTRIBUTED, KW_DISTRIBUTION, KW_BUCKETS, KW_DIV, KW_DOUBLE, KW_DROP, KW_DROPP, KW_DUPLICATE,
     KW_ELSE, KW_END, KW_ENGINE, KW_ENGINES, KW_ENTER, KW_ERRORS, KW_EVENTS, KW_EXISTS, KW_EXPORT, KW_EXTERNAL, KW_EXTRACT,
-    KW_FALSE, KW_FOLLOWER, KW_FOLLOWING, KW_FREE, KW_FROM, KW_FIRST, KW_FLOAT, KW_FOR, KW_FORMAT, KW_FRONTEND, KW_FRONTENDS, KW_FULL, KW_FUNCTION,
+    KW_FALSE, KW_FOLLOWER, KW_FOLLOWING, KW_FREE, KW_FROM, KW_FILE, KW_FIRST, KW_FLOAT, KW_FOR, KW_FORMAT, KW_FRONTEND, KW_FRONTENDS, KW_FULL, KW_FUNCTION,
     KW_GLOBAL, KW_GRANT, KW_GRANTS, KW_GROUP,
     KW_HASH, KW_HAVING, KW_HELP,KW_HLL, KW_HLL_UNION, KW_HUB,
-    KW_IDENTIFIED, KW_IF, KW_IN, KW_INDEX, KW_INDEXES, KW_INFILE,
+    KW_IDENTIFIED, KW_IF, KW_IN, KW_INDEX, KW_INDEXES, KW_INFILE, 
     KW_INNER, KW_INSERT, KW_INT, KW_INTERMEDIATE, KW_INTERVAL, KW_INTO, KW_IS, KW_ISNULL,  KW_ISOLATION,
     KW_JOIN,
     KW_KEY, KW_KILL,
@@ -905,6 +905,10 @@ create_stmt ::=
     {:
         RESULT = new CreateRoleStmt(role);
     :}
+    | KW_CREATE KW_FILE STRING_LITERAL:fileName opt_db:db KW_PROPERTIES LPAREN key_value_map:properties RPAREN
+    {:
+        RESULT = new CreateFileStmt(fileName, db, properties);
+    :}
     ;
 
 opt_aggregate ::=
@@ -1344,6 +1348,10 @@ drop_stmt ::=
     | KW_DROP KW_ROLE ident:role
     {:
         RESULT = new DropRoleStmt(role);
+    :}
+    | KW_DROP KW_FILE STRING_LITERAL:fileName opt_db:dbName KW_PROPERTIES LPAREN key_value_map:properties RPAREN
+    {:
+        RESULT = new DropFileStmt(fileName, dbName, properties);
     :}
     ;
 
@@ -1905,6 +1913,10 @@ show_param ::=
     | KW_FUNCTION opt_db:dbName
     {:
         RESULT = new ShowFunctionStmt(dbName);
+    :}
+    | KW_FILE opt_db:dbName
+    {:
+        RESULT = new ShowSmallFilesStmt(dbName);
     :}
     ;
 
@@ -3902,6 +3914,8 @@ keyword ::=
     | KW_DISTINCTPCSA:id
     {: RESULT = id; :}
     | KW_BUCKETS:id
+    {: RESULT = id; :}
+    | KW_FILE:id
     {: RESULT = id; :}
     | KW_FIRST:id
     {: RESULT = id; :}

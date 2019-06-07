@@ -798,5 +798,22 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int max_routine_load_task_concurrent_num = 5;
+
+    /*
+     * The max number of files store in SmallFileMgr 
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int max_small_file_number = 100;
+
+    /*
+     * The max size of a single file store in SmallFileMgr 
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int max_small_file_size_bytes = 1024 * 1024; // 1MB
+
+    /*
+     * Save small files
+     */
+    @ConfField public static String small_file_dir = System.getenv("DORIS_HOME") + "/small_files";
 }
 

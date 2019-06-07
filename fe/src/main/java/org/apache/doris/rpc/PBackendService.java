@@ -17,6 +17,14 @@
 
 package org.apache.doris.rpc;
 
+import org.apache.doris.proto.PCancelPlanFragmentRequest;
+import org.apache.doris.proto.PCancelPlanFragmentResult;
+import org.apache.doris.proto.PExecPlanFragmentResult;
+import org.apache.doris.proto.PFetchDataResult;
+import org.apache.doris.proto.PProxyRequest;
+import org.apache.doris.proto.PProxyResult;
+import org.apache.doris.proto.PTriggerProfileReportResult;
+
 import com.baidu.jprotobuf.pbrpc.ProtobufRPC;
 
 import java.util.concurrent.Future;
@@ -38,4 +46,8 @@ public interface PBackendService {
     @ProtobufRPC(serviceName = "PBackendService", methodName = "trigger_profile_report",
             attachmentHandler = ThriftClientAttachmentHandler.class, onceTalkTimeout = 10000)
     Future<PTriggerProfileReportResult> triggerProfileReport(PTriggerProfileReportRequest request);
+
+    @ProtobufRPC(serviceName = "PBackendService", methodName = "get_info", onceTalkTimeout = 10000)
+    Future<PProxyResult> getInfo(PProxyRequest request);
 }
+

@@ -26,6 +26,7 @@ import org.apache.doris.common.util.Daemon;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.http.rest.BootstrapFinishAction;
 import org.apache.doris.persist.HbPackage;
+import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
 import org.apache.doris.thrift.HeartbeatService;
 import org.apache.doris.thrift.TBackendInfo;
@@ -74,9 +75,11 @@ public class HeartbeatMgr extends Daemon {
         this.executor = Executors.newCachedThreadPool();
     }
 
-    public void setMaster(String masterHost, int masterPort, int clusterId, String token, long epoch) {
-        TMasterInfo tMasterInfo = new TMasterInfo(new TNetworkAddress(masterHost, masterPort), clusterId, epoch);
+    public void setMaster(int clusterId, String token, long epoch) {
+        TMasterInfo tMasterInfo = new TMasterInfo(
+                new TNetworkAddress(FrontendOptions.getLocalHostAddress(), Config.rpc_port), clusterId, epoch);
         tMasterInfo.setToken(token);
+        tMasterInfo.setHttp_port(Config.http_port);
         masterInfo.set(tMasterInfo);
     }
 
@@ -218,7 +221,6 @@ public class HeartbeatMgr extends Daemon {
                     TBackendInfo tBackendInfo = result.getBackend_info();
                     int bePort = tBackendInfo.getBe_port();
                     int httpPort = tBackendInfo.getHttp_port();
-                    int beRpcPort = tBackendInfo.getBe_rpc_port();
                     int brpcPort = -1;
                     if (tBackendInfo.isSetBrpc_port()) {
                         brpcPort = tBackendInfo.getBrpc_port();

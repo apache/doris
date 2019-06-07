@@ -259,7 +259,6 @@ public class GenericPoolTest {
             flag = true;
             // pass
         } catch (Exception e) {
-            // can't get here
             Assert.fail();
         }
         Assert.assertTrue(flag);

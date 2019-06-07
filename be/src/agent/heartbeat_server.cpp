@@ -143,6 +143,10 @@ Status HeartbeatServer::_heartbeat(
         }
     }
 
+    if (master_info.__isset.http_port) {
+        _master_info->__set_http_port(master_info.http_port);
+    }
+
     if (need_report) {
         LOG(INFO) << "Master FE is changed or restarted. report tablet and disk info immediately";
         _olap_engine->report_notify(true);

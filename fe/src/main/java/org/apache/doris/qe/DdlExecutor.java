@@ -32,6 +32,7 @@ import org.apache.doris.analysis.CancelBackupStmt;
 import org.apache.doris.analysis.CancelLoadStmt;
 import org.apache.doris.analysis.CreateClusterStmt;
 import org.apache.doris.analysis.CreateDbStmt;
+import org.apache.doris.analysis.CreateFileStmt;
 import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.CreateRepositoryStmt;
 import org.apache.doris.analysis.CreateRoleStmt;
@@ -43,6 +44,7 @@ import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.analysis.DeleteStmt;
 import org.apache.doris.analysis.DropClusterStmt;
 import org.apache.doris.analysis.DropDbStmt;
+import org.apache.doris.analysis.DropFileStmt;
 import org.apache.doris.analysis.DropFunctionStmt;
 import org.apache.doris.analysis.DropRepositoryStmt;
 import org.apache.doris.analysis.DropRoleStmt;
@@ -192,8 +194,13 @@ public class DdlExecutor {
             catalog.getTabletChecker().cancelRepairTable((AdminCancelRepairTableStmt) ddlStmt);
         } else if (ddlStmt instanceof AdminSetConfigStmt) {
             catalog.setConfig((AdminSetConfigStmt) ddlStmt);
+        } else if (ddlStmt instanceof CreateFileStmt) {
+            catalog.getSmallFileMgr().createFile((CreateFileStmt) ddlStmt);
+        } else if (ddlStmt instanceof DropFileStmt) {
+            catalog.getSmallFileMgr().dropFile((DropFileStmt) ddlStmt);
         } else {
             throw new DdlException("Unknown statement.");
+
         }
     }
 }

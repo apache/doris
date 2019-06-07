@@ -86,6 +86,23 @@ struct TRoutineLoadTask {
     13: optional PaloInternalService.TExecPlanFragmentParams params
 }
 
+struct TKafkaMetaProxyRequest {
+    1: optional TKafkaLoadInfo kafka_info
+}
+
+struct TKafkaMetaProxyResult {
+    1: optional list<i32> partition_ids
+}
+
+struct TProxyRequest {
+    1: optional TKafkaMetaProxyRequest kafka_meta_request;
+}
+
+struct TProxyResult {
+    1: required Status.TStatus status;
+    2: optional TKafkaMetaProxyResult kafka_meta_result;
+}
+
 service BackendService {
     // Called by coord to start asynchronous execution of plan fragment in backend.
     // Returns as soon as all incoming data streams have been set up.
