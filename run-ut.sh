@@ -168,7 +168,9 @@ ${DORIS_TEST_BINARY_DIR}/exec/plain_text_line_reader_uncompressed_test
 ${DORIS_TEST_BINARY_DIR}/exec/plain_text_line_reader_gzip_test
 ${DORIS_TEST_BINARY_DIR}/exec/plain_text_line_reader_bzip_test
 ${DORIS_TEST_BINARY_DIR}/exec/plain_text_line_reader_lz4frame_test
-${DORIS_TEST_BINARY_DIR}/exec/plain_text_line_reader_lzop_test
+if [ -f ${DORIS_TEST_BINARY_DIR}/exec/plain_text_line_reader_lzop_test ];then
+    ${DORIS_TEST_BINARY_DIR}/exec/plain_text_line_reader_lzop_test
+fi
 ${DORIS_TEST_BINARY_DIR}/exec/broker_scanner_test
 ${DORIS_TEST_BINARY_DIR}/exec/broker_scan_node_test
 ${DORIS_TEST_BINARY_DIR}/exec/es_scan_node_test

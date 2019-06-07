@@ -155,7 +155,7 @@ OLAPStatus InStream::_assure_data() {
         _compressed->get((char*)&head, sizeof(head));
 
         if (head.length > _compress_buffer_size) {
-            OLAP_LOG_WARNING("chunk size if larger than buffer size. [chunk=%u buffer_size=%u]",
+            OLAP_LOG_WARNING("chunk size is larger than buffer size. [chunk=%u buffer_size=%u]",
                     head.length, _compress_buffer_size);
             return OLAP_ERR_COLUMN_READ_STREAM;
         }
@@ -189,7 +189,7 @@ OLAPStatus InStream::_assure_data() {
         }
     } else {
         OLAP_LOG_WARNING("compressed remaining size less than stream head size. "
-                "[compressed_remaining_size=%lu stream_head_size.=%lu]",
+                "[compressed_remaining_size=%lu stream_head_size=%lu]",
                 _compressed->remaining(), sizeof(StreamHead));
         return OLAP_ERR_COLUMN_READ_STREAM;
     }
