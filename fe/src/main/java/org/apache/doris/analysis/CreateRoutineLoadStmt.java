@@ -211,6 +211,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     public Map<String, String> getCustomKafkaProperties() {
         return customKafkaProperties;
     }
+
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
@@ -278,7 +279,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     }
 
     private void checkJobProperties() throws AnalysisException {
-        Optional<String> optional = jobProperties.keySet().parallelStream().filter(
+        Optional<String> optional = jobProperties.keySet().stream().filter(
                 entity -> !PROPERTIES_SET.contains(entity)).findFirst();
         if (optional.isPresent()) {
             throw new AnalysisException(optional.get() + " is invalid property");
@@ -322,7 +323,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     }
 
     private void checkKafkaProperties() throws AnalysisException {
-        Optional<String> optional = dataSourceProperties.keySet().parallelStream()
+        Optional<String> optional = dataSourceProperties.keySet().stream()
                 .filter(entity -> !KAFKA_PROPERTIES_SET.contains(entity))
                 .filter(entity -> !entity.startsWith("property.")).findFirst();
         if (optional.isPresent()) {
@@ -400,6 +401,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
                 }
             }
         }
+
         // check custom kafka property
         for (Map.Entry<String, String> dataSourceProperty : dataSourceProperties.entrySet()) {
             if (dataSourceProperty.getKey().startsWith("property.")) {

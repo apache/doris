@@ -2,7 +2,7 @@
 ## description
 
     例行导入（Routine Load）功能，支持用户提交一个常驻的导入任务，通过不断的从指定的数据源读取数据，将数据导入到 Doris 中。
-    目前仅支持通过无认证的方式，从 Kakfa 导入文本格式（CSV）的数据。
+    目前仅支持通过无认证或者 SSL 认证方式，从 Kakfa 导入文本格式（CSV）的数据。
 
 语法：
 
@@ -159,12 +159,36 @@
                     "kafka_offsets" = "101,0,OFFSET_BEGINNING,OFFSET_END"
             
             4. property
-                指定自定义kafka参数
-                功能等同于kafka shell中 "--property" 参数
+
+                指定自定义kafka参数。
+                功能等同于kafka shell中 "--property" 参数。
+                当参数的 value 为一个文件时，需要在 value 前加上关键词："FILE:"。
+                关于如何创建文件，请参阅 "HELP CREATE FILE;"
+                更多支持的自定义参数，请参阅 librdkafka 的官方 CONFIGURATION 文档中，client 端的配置项。
                 
                 示例:
-                    "property.client.id" = "12345"
+                    "property.client.id" = "12345",
+                    "property.ssl.ca.location" = "FILE:ca.pem"
 
+                使用 SSL 连接 Kafka 时，需要指定以下参数：
+
+                "property.security.protocol" = "ssl",
+                "property.ssl.ca.location" = "FILE:ca.pem",
+                "property.ssl.certificate.location" = "FILE:client.pem",
+                "property.ssl.key.location" = "FILE:client.key",
+                "property.ssl.key.password" = "abcdefg"
+
+                其中：
+                "property.security.protocol" 和 "property.ssl.ca.location" 为必须，用于指明连接方式为 SSL，以及 CA 证书的位置。
+                
+                如果 Kafka server 端开启了 client 认证，则还需设置：
+
+                "property.ssl.certificate.location"
+                "property.ssl.key.location"
+                "property.ssl.key.password"
+
+                分别用于指定 client 的 public key，private key 以及 private key 的密码。
+                
 
     7. 导入数据格式样例
 
@@ -194,6 +218,30 @@
             "kafka_topic" = "my_topic",
             "kafka_partitions" = "0,1,2,3",
             "kafka_offsets" = "101,0,0,200"
+        );
+
+    2. 通过 SSL 认证方式，从 Kafka 集群导入数据。同时设置 client.id 参数。
+
+        CREATE ROUTINE LOAD example_db.test1 ON example_tbl
+        COLUMNS(k1, k2, k3, v1, v2, v3 = k1 * 100),
+        WHERE k1 > 100 and k2 like "%doris%"
+        PROPERTIES
+        (
+            "desired_concurrent_number"="3",
+            "max_batch_interval" = "20",
+            "max_batch_rows" = "300000",
+            "max_batch_size" = "209715200"
+        )
+        FROM KAFKA
+        (
+            "kafka_broker_list" = "broker1:9092,broker2:9092,broker3:9092",
+            "kafka_topic" = "my_topic",
+            "property.security.protocol" = "ssl",
+            "property.ssl.ca.location" = "FILE:ca.pem",
+            "property.ssl.certificate.location" = "FILE:client.pem",
+            "property.ssl.key.location" = "FILE:client.key",
+            "property.ssl.key.password" = "abcdefg",
+            "property.client.id" = "my_client_id"
         );
 
 ## keyword

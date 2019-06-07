@@ -28,6 +28,7 @@
 #include "util/thrift_util.h"
 #include "runtime/buffer_control_block.h"
 #include "runtime/result_buffer_mgr.h"
+#include "runtime/routine_load/routine_load_task_executor.h"
 
 namespace doris {
 
@@ -182,6 +183,30 @@ void PInternalServiceImpl<T>::trigger_profile_report(
     auto st = _exec_env->fragment_mgr()->trigger_profile_report(request);
     st.to_protobuf(result->mutable_status());
 }
+
+template<typename T>
+void PInternalServiceImpl<T>::get_info(
+    google::protobuf::RpcController* controller,
+    const PProxyRequest* request,
+    PProxyResult* response,
+    google::protobuf::Closure* done) {
+
+    brpc::ClosureGuard closure_guard(done);
+    if (request->has_kafka_meta_request()) {
+        std::vector<int32_t> partition_ids;
+        Status st = _exec_env->routine_load_task_executor()->get_kafka_partition_meta(request->kafka_meta_request(), &partition_ids);
+        if (st.ok()) {
+            PKafkaMetaProxyResult* kafka_result = response->mutable_kafka_meta_result();
+            for (int32_t id : partition_ids) {
+                kafka_result->add_partition_ids(id);
+            } 
+        }
+        st.to_protobuf(response->mutable_status());
+        return;
+    }
+    Status::OK.to_protobuf(response->mutable_status());
+}
+
 
 template class PInternalServiceImpl<PBackendService>;
 template class PInternalServiceImpl<palo::PInternalService>;

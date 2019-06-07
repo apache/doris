@@ -18,6 +18,7 @@
 syntax="proto2";
 
 package doris;
+option java_package = "org.apache.doris.proto";
 
 import "data.proto";
 import "descriptors.proto";
@@ -135,12 +136,42 @@ message PFetchDataResult {
 
 message PTriggerProfileReportRequest {
     repeated PUniqueId instance_ids = 1;
-}
+};
 
 message PTriggerProfileReportResult {
     required PStatus status = 1;
-}
+};
 
+message PStringPair {
+    required string key = 1;
+    required string val = 2;
+};
+
+message PKafkaLoadInfo {
+    required string brokers = 1;
+    required string topic = 2;
+    repeated PStringPair properties = 3;
+};
+
+message PKafkaMetaProxyRequest {
+    optional PKafkaLoadInfo kafka_info = 1;
+};
+
+message PProxyRequest {
+    optional PKafkaMetaProxyRequest kafka_meta_request = 1;
+};
+
+message PKafkaMetaProxyResult {
+    repeated int32 partition_ids = 1;
+};
+
+message PProxyResult {
+    required PStatus status = 1;
+    optional PKafkaMetaProxyResult kafka_meta_result = 2;
+};
+
+// NOTE(zc): If you want to add new method here,
+// you MUST add same method to palo_internal_service.proto
 service PBackendService {
     rpc transmit_data(PTransmitDataParams) returns (PTransmitDataResult);
     rpc exec_plan_fragment(PExecPlanFragmentRequest) returns (PExecPlanFragmentResult);
@@ -150,7 +181,6 @@ service PBackendService {
     rpc tablet_writer_add_batch(PTabletWriterAddBatchRequest) returns (PTabletWriterAddBatchResult);
     rpc tablet_writer_cancel(PTabletWriterCancelRequest) returns (PTabletWriterCancelResult);
     rpc trigger_profile_report(PTriggerProfileReportRequest) returns (PTriggerProfileReportResult);
-    // NOTE(zc): If you want to add new method here,
-    // you MUST add same method to palo_internal_service.proto
+    rpc get_info(PProxyRequest) returns (PProxyResult); 
 };
 

@@ -112,4 +112,6 @@ public final class FeMetaVersion {
     public static final int VERSION_50 = 50;
     // kafka custom properties
     public static final int VERSION_51 = 51;
+    // small files
+    public static final int VERSION_52 = 52;
 }

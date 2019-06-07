@@ -172,6 +172,10 @@ public:
     // consumer_id is used for data consumer cache key.
     // to identified a specified data consumer.
     int64_t consumer_id;
+
+public:
+    ExecEnv* exec_env() { return _exec_env; }
+
 private:
     ExecEnv* _exec_env;
     std::atomic<int> _refs;

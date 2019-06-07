@@ -36,6 +36,7 @@ under the License.
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.source>1.8</maven.compiler.source>
         <maven.compiler.target>1.8</maven.compiler.target>
+        <jprotobuf.version>2.2.11</jprotobuf.version>
     </properties>
 
     <profiles>
@@ -242,7 +243,8 @@ under the License.
         <dependency>
             <groupId>com.baidu</groupId>
             <artifactId>jprotobuf</artifactId>
-            <version>1.11.0</version>
+            <version>${jprotobuf.version}</version>
+            <classifier>jar-with-dependencies</classifier>
         </dependency>
 
         <!-- https://mvnrepository.com/artifact/com.baidu/jprotobuf-rpc-common -->
@@ -256,7 +258,7 @@ under the License.
         <dependency>
             <groupId>com.baidu</groupId>
             <artifactId>jprotobuf-rpc-core</artifactId>
-            <version>3.5.17</version>
+            <version>3.5.21</version>
         </dependency>
 
         <!-- https://mvnrepository.com/artifact/org.json/json -->
@@ -358,7 +360,7 @@ under the License.
         <dependency>
             <groupId>com.google.protobuf</groupId>
             <artifactId>protobuf-java</artifactId>
-            <version>2.5.0</version>
+            <version>3.5.1</version>
         </dependency>
 
         <!-- https://mvnrepository.com/artifact/com.squareup/protoparser -->
@@ -576,6 +578,7 @@ under the License.
             </plugin>
 
             <!-- run make to generate Version and builtin -->
+            <!-- also parse the proto for FE -->
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>exec-maven-plugin</artifactId>
@@ -592,6 +595,24 @@ under the License.
                             <arguments>
                                 <argument>-C</argument>
                                 <argument>${palo.home}/gensrc/</argument>
+                            </arguments>
+                            <skip>${skip.plugin}</skip>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>gen_proto</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <!-- DO NOT use goal 'java', it will terminate the VM after done -->
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <executable>java</executable>
+                            <arguments>
+                                <argument>-jar</argument>
+                                <argument>${settings.localRepository}/com/baidu/jprotobuf/${jprotobuf.version}/jprotobuf-${jprotobuf.version}-jar-with-dependencies.jar</argument>
+                                <argument>--java_out=${palo.home}/gensrc/build/java/</argument>
+                                <argument>${palo.home}/gensrc/proto/internal_service.proto</argument>
                             </arguments>
                             <skip>${skip.plugin}</skip>
                         </configuration>

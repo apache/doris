@@ -37,6 +37,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.SmallFileMgr.SmallFile;
 import org.apache.doris.ha.MasterInfo;
 import org.apache.doris.journal.Journal;
 import org.apache.doris.journal.JournalCursor;
@@ -691,6 +692,16 @@ public class EditLog {
                     Catalog.getCurrentCatalog().getLoadManager().replayEndLoadJob(operation);
                     break;
                 }
+                case OperationType.OP_CREATE_SMALL_FILE: {
+                    SmallFile smallFile = (SmallFile) journal.getData();
+                    Catalog.getCurrentCatalog().getSmallFileMgr().replayCreateFile(smallFile);
+                    break;
+                }
+                case OperationType.OP_DROP_SMALL_FILE: {
+                    SmallFile smallFile = (SmallFile) journal.getData();
+                    Catalog.getCurrentCatalog().getSmallFileMgr().replayRemoveFile(smallFile);
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}", opCode, e);
@@ -1200,5 +1211,13 @@ public class EditLog {
 
     public void logEndLoadJob(LoadJobFinalOperation loadJobFinalOperation) {
         logEdit(OperationType.OP_END_LOAD_JOB, loadJobFinalOperation);
+    }
+
+    public void logCreateSmallFile(SmallFile info) {
+        logEdit(OperationType.OP_CREATE_SMALL_FILE, info);
+    }
+
+    public void logDropSmallFile(SmallFile info) {
+        logEdit(OperationType.OP_DROP_SMALL_FILE, info);
     }
 }

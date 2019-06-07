@@ -22,7 +22,6 @@ import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.ParseNode;
 import org.apache.doris.analysis.PartitionNames;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
@@ -33,6 +32,7 @@ import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.KafkaUtil;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
@@ -44,7 +44,6 @@ import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
-import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.PartitionInfo;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -61,14 +60,13 @@ import java.util.UUID;
 import mockit.Deencapsulation;
 import mockit.Expectations;
 import mockit.Injectable;
+import mockit.Mock;
+import mockit.MockUp;
 import mockit.Mocked;
 import mockit.Verifications;
 
 public class KafkaRoutineLoadJobTest {
-
     private static final Logger LOG = LogManager.getLogger(KafkaRoutineLoadJobTest.class);
-
-    private static final int DEFAULT_TASK_TIMEOUT_SECONDS = 10;
 
     private String jobName = "job1";
     private String dbName = "db1";
@@ -86,8 +84,6 @@ public class KafkaRoutineLoadJobTest {
     ConnectContext connectContext;
     @Mocked
     TResourceInfo tResourceInfo;
-    @Mocked
-    KafkaConsumer kafkaConsumer;
 
     @Before
     public void init() {
@@ -97,8 +93,7 @@ public class KafkaRoutineLoadJobTest {
     }
 
     @Test
-    public void testBeNumMin(@Mocked KafkaConsumer kafkaConsumer,
-                             @Injectable PartitionInfo partitionInfo1,
+    public void testBeNumMin(@Injectable PartitionInfo partitionInfo1,
                              @Injectable PartitionInfo partitionInfo2,
                              @Mocked Catalog catalog,
                              @Mocked SystemInfoService systemInfoService,
@@ -130,36 +125,31 @@ public class KafkaRoutineLoadJobTest {
         RoutineLoadJob routineLoadJob =
                 new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", clusterName1, 1L,
                                         1L, "127.0.0.1:9020", "topic1");
-        Deencapsulation.setField(routineLoadJob, "consumer", kafkaConsumer);
         Deencapsulation.setField(routineLoadJob, "currentKafkaPartitions", partitionList1);
         Assert.assertEquals(1, routineLoadJob.calculateCurrentConcurrentTaskNum());
 
         // 3 partitions, 4 be
         routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", clusterName2, 1L,
                 1L, "127.0.0.1:9020", "topic1");
-        Deencapsulation.setField(routineLoadJob, "consumer", kafkaConsumer);
         Deencapsulation.setField(routineLoadJob, "currentKafkaPartitions", partitionList2);
         Assert.assertEquals(3, routineLoadJob.calculateCurrentConcurrentTaskNum());
 
         // 4 partitions, 4 be
         routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", clusterName2, 1L,
                 1L, "127.0.0.1:9020", "topic1");
-        Deencapsulation.setField(routineLoadJob, "consumer", kafkaConsumer);
         Deencapsulation.setField(routineLoadJob, "currentKafkaPartitions", partitionList3);
         Assert.assertEquals(4, routineLoadJob.calculateCurrentConcurrentTaskNum());
 
         // 7 partitions, 4 be
         routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", clusterName2, 1L,
                 1L, "127.0.0.1:9020", "topic1");
-        Deencapsulation.setField(routineLoadJob, "consumer", kafkaConsumer);
         Deencapsulation.setField(routineLoadJob, "currentKafkaPartitions", partitionList4);
         Assert.assertEquals(4, routineLoadJob.calculateCurrentConcurrentTaskNum());
     }
 
 
     @Test
-    public void testDivideRoutineLoadJob(@Mocked KafkaConsumer kafkaConsumer,
-                                         @Injectable GlobalTransactionMgr globalTransactionMgr,
+    public void testDivideRoutineLoadJob(@Injectable GlobalTransactionMgr globalTransactionMgr,
                                          @Mocked Catalog catalog,
                                          @Injectable RoutineLoadManager routineLoadManager,
                                          @Injectable RoutineLoadTaskScheduler routineLoadTaskScheduler,
@@ -180,7 +170,6 @@ public class KafkaRoutineLoadJobTest {
         };
 
         Deencapsulation.setField(routineLoadJob, "currentKafkaPartitions", Arrays.asList(1, 4, 6));
-        Deencapsulation.setField(routineLoadJob, "consumer", kafkaConsumer);
 
         routineLoadJob.divideRoutineLoadJob(2);
 
@@ -293,8 +282,14 @@ public class KafkaRoutineLoadJobTest {
                 result = tableId;
                 table.getType();
                 result = Table.TableType.OLAP;
-                kafkaConsumer.partitionsFor(anyString);
-                result = kafkaPartitionInfoList;
+            }
+        };
+
+        new MockUp<KafkaUtil>() {
+            @Mock
+            public List<Integer> getAllKafkaPartitions(String brokerList, String topic,
+                    Map<String, String> convertedCustomProperties) throws UserException {
+                return Lists.newArrayList(1, 2, 3);
             }
         };
 
@@ -309,7 +304,6 @@ public class KafkaRoutineLoadJobTest {
     }
 
     private CreateRoutineLoadStmt initCreateRoutineLoadStmt() {
-        TableName tableName = new TableName(dbName, tableNameString);
         List<ParseNode> loadPropertyList = new ArrayList<>();
         loadPropertyList.add(columnSeparator);
         loadPropertyList.add(partitionNames);
