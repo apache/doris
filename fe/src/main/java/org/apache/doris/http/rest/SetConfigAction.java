@@ -93,6 +93,7 @@ public class SetConfigAction extends RestBaseAction {
             try {
                 ConfigBase.setConfigField(f, confVals.get(0));
             } catch (Exception e) {
+                LOG.warn("failed to set config {}:{}", confKey, confVals.get(0),  e);
                 continue;
             }
 

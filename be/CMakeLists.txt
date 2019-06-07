@@ -152,8 +152,10 @@ set_target_properties(thrift PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/
 add_library(thriftnb STATIC IMPORTED)
 set_target_properties(thriftnb PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libthriftnb.a)
 
-add_library(lzo STATIC IMPORTED)
-set_target_properties(lzo PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/liblzo2.a)
+if(WITH_LZO)
+    add_library(lzo STATIC IMPORTED)
+    set_target_properties(lzo PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/liblzo2.a)
+endif()
 
 if (WITH_MYSQL)
     add_library(mysql STATIC IMPORTED)
@@ -279,6 +281,10 @@ set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS}  -Wno-attributes -DS2_USE_GFLAGS -DS2_
 
 if (WITH_MYSQL)
     set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DDORIS_WITH_MYSQL")
+endif()
+
+if (WITH_LZO)
+    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DDORIS_WITH_LZO")
 endif()
 
 if (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 7.0)
@@ -464,7 +470,6 @@ set(DORIS_DEPENDENCIES
     librdkafka_cpp
     librdkafka
     libs2
-    lzo
     snappy
     ${Boost_LIBRARIES}
     ${LLVM_MODULE_LIBS}
@@ -486,6 +491,12 @@ set(DORIS_DEPENDENCIES
     leveldb
     ${WL_END_GROUP}
 )
+
+if(WITH_LZO)
+    set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES}
+        lzo
+    )
+endif()
 
 # Add all external dependencies. They should come after the palo libs.
 # static link gcc's lib

@@ -21,7 +21,6 @@
 #include <string>
 #include <errno.h>
 #include <algorithm>
-#include <lzo/lzo1x.h>
 
 #include "gen_cpp/PaloInternalService_types.h"
 #include "olap_scanner.h"

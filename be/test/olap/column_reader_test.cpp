@@ -67,7 +67,7 @@ public:
         _offsets.push_back(0);
 
         _stream_factory = 
-                new(std::nothrow) OutStreamFactory(COMPRESS_LZO,
+                new(std::nothrow) OutStreamFactory(COMPRESS_LZ4,
                                                    OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE);
         ASSERT_TRUE(_stream_factory != NULL);
         config::column_dictionary_key_ration_threshold = 30;
@@ -191,7 +191,7 @@ public:
                     &_shared_buffer,
                     off[i], 
                     length[i], 
-                    lzo_decompress, 
+                    lz4_decompress, 
                     buffer_size[i],
                     &_stats);
             ASSERT_EQ(OLAP_SUCCESS, in_stream->init());
