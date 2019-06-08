@@ -26,6 +26,7 @@ set(UTIL_FILES
   bfd_parser.cpp
   bitmap.cpp
   codec.cpp
+  coding.cpp
   compress.cpp
   cpu_info.cpp
   dynamic_util.cpp
