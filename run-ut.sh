@@ -150,6 +150,7 @@ ${DORIS_TEST_BINARY_DIR}/util/byte_buffer_test2
 ${DORIS_TEST_BINARY_DIR}/util/uid_util_test
 ${DORIS_TEST_BINARY_DIR}/util/aes_util_test
 ${DORIS_TEST_BINARY_DIR}/util/string_util_test
+${DORIS_TEST_BINARY_DIR}/util/coding_test
 
 ## Running common Unittest
 ${DORIS_TEST_BINARY_DIR}/common/resource_tls_test
