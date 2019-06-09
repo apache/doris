@@ -242,7 +242,7 @@ public class StreamLoadScanNode extends ScanNode {
 
     private void finalizeParams() throws UserException {
         boolean negative = streamLoadTask.getNegative();
-        Set<Integer> transformSlotIds = Sets.newHashSet();
+        Map<Integer, Integer> destSidToSrcSidWithoutTrans = Maps.newHashMap();
         for (SlotDescriptor dstSlotDesc : desc.getSlots()) {
             if (!dstSlotDesc.isMaterialized()) {
                 continue;
@@ -254,6 +254,7 @@ public class StreamLoadScanNode extends ScanNode {
             if (expr == null) {
                 SlotDescriptor srcSlotDesc = slotDescByName.get(dstSlotDesc.getColumn().getName());
                 if (srcSlotDesc != null) {
+                    destSidToSrcSidWithoutTrans.put(srcSlotDesc.getId().asInt(), dstSlotDesc.getId().asInt());
                     // If dest is allow null, we set source to nullable
                     if (dstSlotDesc.getColumn().isAllowNull()) {
                         srcSlotDesc.setIsNullable(true);
@@ -271,8 +272,6 @@ public class StreamLoadScanNode extends ScanNode {
                         }
                     }
                 }
-            } else {
-                transformSlotIds.add(dstSlotDesc.getId().asInt());
             }
             // check hll_hash
             if (dstSlotDesc.getType().getPrimitiveType() == PrimitiveType.HLL) {
@@ -294,7 +293,7 @@ public class StreamLoadScanNode extends ScanNode {
             expr = castToSlot(dstSlotDesc, expr);
             brokerScanRange.params.putToExpr_of_dest_slot(dstSlotDesc.getId().asInt(), expr.treeToThrift());
         }
-        brokerScanRange.params.setTransform_slot_ids(transformSlotIds);
+        brokerScanRange.params.setDest_sid_to_src_sid_without_trans(destSidToSrcSidWithoutTrans);
         brokerScanRange.params.setDest_tuple_id(desc.getId().asInt());
         // LOG.info("brokerScanRange is {}", brokerScanRange);
 

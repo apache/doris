@@ -118,7 +118,7 @@ Status BrokerScanner::init_expr_ctxes() {
         return Status(ss.str());
     }
 
-    bool has_transform_slot_ids = _params.__isset.transform_slot_ids;
+    bool has_slot_id_map = _params.__isset.dest_sid_to_src_sid_without_trans;
     for (auto slot_desc : _dest_tuple_desc->slots()) {
         if (!slot_desc->is_materialized()) {
             continue;
@@ -135,13 +135,25 @@ Status BrokerScanner::init_expr_ctxes() {
         RETURN_IF_ERROR(ctx->prepare(_state, *_row_desc.get(), _mem_tracker.get()));
         RETURN_IF_ERROR(ctx->open(_state));
         _dest_expr_ctx.emplace_back(ctx);
-        if (has_transform_slot_ids) {
-            auto it = _params.transform_slot_ids.find(slot_desc->id());
-            if (it == std::end(_params.transform_slot_ids)) {
-                _has_expr_columns.emplace_back(false);
-            }
-            else {
-                _has_expr_columns.emplace_back(true);
+        if (has_slot_id_map) {
+            auto it = _params.dest_sid_to_src_sid_without_trans.find(slot_desc->id());
+            if (it == std::end(_params.dest_sid_to_src_sid_without_trans)) {
+                _src_slot_index.emplace_back(-1);
+            } else {
+                int index = 0;
+                while (index < _src_slot_descs.size()) {
+                    auto _src_slot = _src_slot_descs[index];
+                    if (_src_slot->id() == it->second) {
+                        _src_slot_index.emplace_back(index);
+                        break;
+                    }
+                    index++;
+                }
+                if (index == _src_slot_descs.size()) {
+                     std::stringstream ss;
+                     ss << "No src slot " << it->second << " in src slot descs";
+                     return Status(ss.str());
+                }
             }
         }
     }
@@ -162,8 +174,8 @@ Status BrokerScanner::open() {
     if (_params.__isset.strict_mode) {
         _strict_mode = _params.strict_mode;
     }
-    if (_strict_mode && !_params.__isset.transform_slot_ids) {
-        return Status("Expr column list must be set in strict mode");
+    if (_strict_mode && !_params.__isset.dest_sid_to_src_sid_without_trans) {
+        return Status("Slot map of dest to src must be set in strict mode");
     }
 
     return Status::OK;
@@ -602,11 +614,12 @@ bool BrokerScanner::fill_dest_tuple(const Slice& line, Tuple* dest_tuple, MemPoo
             continue;
         }
 
-        ExprContext* ctx = _dest_expr_ctx[ctx_idx];
+        int dest_index = ctx_idx++;
+        ExprContext* ctx = _dest_expr_ctx[dest_index];
         void* value = ctx->get_value(_src_tuple_row);
         if (value == nullptr) {
-            if (_strict_mode && !_src_tuple->is_null(slot_desc->null_indicator_offset()) 
-                && !_has_expr_columns[ctx_idx]) {
+            if (_strict_mode && (_src_slot_index[dest_index] != -1) 
+                && !_src_tuple->is_null(_src_slot_descs[_src_slot_index[ctx_idx]]->null_indicator_offset())) {
                 std::stringstream error_msg;
                 error_msg << "column(" << slot_desc->col_name() << ") value is incorrect "
                     << "while strict mode is " << std::boolalpha << _strict_mode;
@@ -625,13 +638,11 @@ bool BrokerScanner::fill_dest_tuple(const Slice& line, Tuple* dest_tuple, MemPoo
                 return false;
             }
             dest_tuple->set_null(slot_desc->null_indicator_offset());
-            ctx_idx++;
             continue;
         }
         dest_tuple->set_not_null(slot_desc->null_indicator_offset());
         void* slot = dest_tuple->get_slot(slot_desc->tuple_offset());
         RawValue::write(value, slot, slot_desc->type(), mem_pool);
-        ctx_idx++;
         continue;
     }
     return true;

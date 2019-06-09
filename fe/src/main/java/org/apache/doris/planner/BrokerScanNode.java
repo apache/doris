@@ -382,7 +382,7 @@ public class BrokerScanNode extends ScanNode {
     private void finalizeParams(ParamCreateContext context) throws UserException, AnalysisException {
         Map<String, SlotDescriptor> slotDescByName = context.slotDescByName;
         Map<String, Expr> exprMap = context.exprMap;
-        Set<Integer> transformSlotIds = Sets.newHashSet();
+        Map<Integer, Integer> destSidToSrcSidWithoutTrans = Maps.newHashMap();
         // Analyze expr map
         if (exprMap != null) {
             for (Map.Entry<String, Expr> entry : exprMap.entrySet()) {
@@ -418,6 +418,7 @@ public class BrokerScanNode extends ScanNode {
             if (expr == null) {
                 SlotDescriptor srcSlotDesc = slotDescByName.get(destSlotDesc.getColumn().getName());
                 if (srcSlotDesc != null) {
+                    destSidToSrcSidWithoutTrans.put(destSlotDesc.getId().asInt(), srcSlotDesc.getId().asInt());
                     // If dest is allow null, we set source to nullable
                     if (destSlotDesc.getColumn().isAllowNull()) {
                         srcSlotDesc.setIsNullable(true);
@@ -436,8 +437,6 @@ public class BrokerScanNode extends ScanNode {
                         }
                     }
                 }
-            } else {
-                transformSlotIds.add(destSlotDesc.getId().asInt());
             }
 
             if (isNegative && destSlotDesc.getColumn().getAggregationType() == AggregateType.SUM) {
@@ -447,7 +446,7 @@ public class BrokerScanNode extends ScanNode {
             expr = castToSlot(destSlotDesc, expr);
             context.params.putToExpr_of_dest_slot(destSlotDesc.getId().asInt(), expr.treeToThrift());
         }
-        context.params.setTransform_slot_ids(transformSlotIds);
+        context.params.setDest_sid_to_src_sid_without_trans(destSidToSrcSidWithoutTrans);
         context.params.setDest_tuple_id(desc.getId().asInt());
         context.params.setStrict_mode(strictMode);
         // Need re compute memory layout after set some slot descriptor to nullable
