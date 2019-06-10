@@ -1277,7 +1277,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
                 if (properties.containsKey(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH)) {
                     String colocateGroup = properties.get(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH);
-                    Catalog.getInstance().modifyTableColocate(db, olapTable, colocateGroup);
+                    Catalog.getInstance().modifyTableColocate(db, olapTable, colocateGroup, false, null);
                     return;
                 }
             }

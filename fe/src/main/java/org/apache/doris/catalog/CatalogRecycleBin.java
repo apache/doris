@@ -25,6 +25,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Daemon;
+import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.persist.RecoverInfo;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
@@ -190,7 +191,7 @@ public class CatalogRecycleBin extends Daemon implements Writable {
 
             if (isExpire(tableId, currentTimeMs)) {
                 if (table.getType() == TableType.OLAP) {
-                    handleOlapTable((OlapTable) table);
+                    onEraseOlapTable((OlapTable) table);
                 }
 
                 // erase table
@@ -204,7 +205,8 @@ public class CatalogRecycleBin extends Daemon implements Writable {
         } // end for tables
     }
 
-    private void handleOlapTable(OlapTable olapTable) {
+    private void onEraseOlapTable(OlapTable olapTable) {
+        // inverted index
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
         for (Partition partition : olapTable.getPartitions()) {
             for (MaterializedIndex index : partition.getMaterializedIndices()) {
@@ -233,6 +235,12 @@ public class CatalogRecycleBin extends Daemon implements Writable {
             } // end for indices
         } // end for partitions
         AgentTaskExecutor.submit(batchTask);
+
+        // colocation
+        if (Catalog.getCurrentColocateIndex().removeTable(olapTable.getId())) {
+            ColocatePersistInfo colocateInfo = ColocatePersistInfo.createForRemoveTable(olapTable.getId());
+            Catalog.getCurrentCatalog().getEditLog().logColocateRemoveTable(colocateInfo);
+        }
     }
 
     private synchronized void eraseTableWithSameName(long dbId, String tableName) {
@@ -246,9 +254,8 @@ public class CatalogRecycleBin extends Daemon implements Writable {
 
             Table table = tableInfo.getTable();
             if (table.getName().equals(tableName)) {
-
                 if (table.getType() == TableType.OLAP) {
-                    handleOlapTable((OlapTable) table);
+                    onEraseOlapTable((OlapTable) table);
                 }
 
                 iterator.remove();

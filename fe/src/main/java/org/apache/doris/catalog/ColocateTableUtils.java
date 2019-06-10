@@ -21,9 +21,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 
-import java.util.List;
-import java.util.Map;
-
 public class ColocateTableUtils {
 
     static Table getColocateTable(Database db, String tableName) {
@@ -57,68 +54,6 @@ public class ColocateTableUtils {
     static void checkTableType(Table colocateTable) throws DdlException {
         if (colocateTable.type != (Table.TableType.OLAP)) {
             ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_MUST_OLAP_TABLE, colocateTable.getName());
-        }
-    }
-
-    static void checkBucketNum(OlapTable parentTable, DistributionInfo childDistributionInfo) throws DdlException {
-        int parentBucketNum = parentTable.getDefaultDistributionInfo().getBucketNum();
-        if (parentBucketNum != childDistributionInfo.getBucketNum()) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_MUST_SAME_BUCKNUM, parentBucketNum);
-        }
-    }
-
-    static void checkBucketNum(DistributionInfo oldDistributionInfo, DistributionInfo newDistributionInfo)
-            throws DdlException {
-        int oldBucketNum = oldDistributionInfo.getBucketNum();
-        if (oldBucketNum != newDistributionInfo.getBucketNum()) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_MUST_SAME_BUCKNUM, oldBucketNum);
-        }
-    }
-
-    public static void checkReplicationNum(PartitionInfo parentInfo, PartitionInfo childInfo) throws DdlException {
-        // tables in same colocation group should have same replication num of all partitions
-        short expectedRepNum = parentInfo.idToReplicationNum.values().stream().findFirst().get();
-        for (Map.Entry<Long, Short> entry : childInfo.idToReplicationNum.entrySet()) {
-            if (entry.getValue() != expectedRepNum) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_MUST_SAME_REPLICAT_NUM, expectedRepNum);
-            }
-        }
-    }
-
-    static void checkReplicationNum(OlapTable parentTable, PartitionInfo childPartitionInfo) throws DdlException {
-        short childReplicationNum = childPartitionInfo.idToReplicationNum.entrySet().iterator().next().getValue();
-        checkReplicationNum(parentTable.getPartitionInfo(), childReplicationNum);
-    }
-
-    static void checkReplicationNum(PartitionInfo rangePartitionInfo, short childReplicationNum) throws DdlException {
-        short oldReplicationNum = rangePartitionInfo.idToReplicationNum.entrySet().iterator().next().getValue();
-        checkReplicationNum(oldReplicationNum, childReplicationNum);
-    }
-
-    private static void checkReplicationNum(short oldReplicationNum, short newReplicationNum) throws DdlException {
-        if (oldReplicationNum != newReplicationNum) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_MUST_SAME_REPLICAT_NUM, oldReplicationNum);
-        }
-    }
-
-    static void checkDistributionColumnSizeAndType(OlapTable parentTable, DistributionInfo childDistributionInfo)
-            throws DdlException {
-        HashDistributionInfo parentDistribution = (HashDistributionInfo) (parentTable).getDefaultDistributionInfo();
-        List<Column> parentColumns = parentDistribution.getDistributionColumns();
-        List<Column> childColumns = ((HashDistributionInfo) childDistributionInfo).getDistributionColumns();
-
-        int parentColumnSize = parentColumns.size();
-        if (parentColumnSize != childColumns.size()) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_SAME_DISTRIBUTED_COLUMNS_SIZE,
-                    parentColumnSize);
-        }
-
-        for (int i = 0; i < parentColumnSize; i++) {
-            Type parentColumnType = parentColumns.get(i).getType();
-            if (!parentColumnType.equals(childColumns.get(i).getType())) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_SAME_DISTRIBUTED_COLUMNS_TYPE,
-                        childColumns.get(i).getName(), parentColumnType);
-            }
         }
     }
 

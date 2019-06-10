@@ -252,6 +252,14 @@ public class Column implements Writable {
         }
     }
 
+    // only return name and type
+    public String brief() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(name).append("[");
+        sb.append(type.toSql()).append("]");
+        return sb.toString();
+    }
+
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("`").append(name).append("` ");

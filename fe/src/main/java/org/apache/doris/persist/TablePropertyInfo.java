@@ -17,8 +17,12 @@
 
 package org.apache.doris.persist;
 
+import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.ColocateTableIndex.GroupId;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+
 import com.google.common.collect.Maps;
 
 import java.io.DataInput;
@@ -33,14 +37,16 @@ public class TablePropertyInfo implements Writable {
     private long dbId;
     private long tableId;
     private Map<String, String> propertyMap;
+    private GroupId groupId;
 
     public TablePropertyInfo() {
 
     }
 
-    public TablePropertyInfo(long dbId, long tableId, Map<String, String> propertyMap) {
+    public TablePropertyInfo(long dbId, long tableId, GroupId groupId, Map<String, String> propertyMap) {
         this.dbId = dbId;
         this.tableId = tableId;
+        this.groupId = groupId;
         this.propertyMap = propertyMap;
     }
 
@@ -48,30 +54,28 @@ public class TablePropertyInfo implements Writable {
         return propertyMap;
     }
 
-    public void setPropertyMap(Map<String, String> propertyMap) {
-        this.propertyMap = propertyMap;
-    }
-
     public long getDbId() {
         return dbId;
-    }
-
-    public void setDbId(long dbId) {
-        this.dbId = dbId;
     }
 
     public long getTableId() {
         return tableId;
     }
 
-    public void setTableId(long tableId) {
-        this.tableId = tableId;
+    public GroupId getGroupId() {
+        return groupId;
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
         out.writeLong(dbId);
         out.writeLong(tableId);
+        if (groupId == null) {
+            out.writeBoolean(false);
+        } else {
+            out.writeBoolean(true);
+            groupId.write(out);
+        }
         int size = propertyMap.size();
         out.writeInt(size);
         for (Map.Entry<String, String> kv : propertyMap.entrySet()) {
@@ -84,6 +88,14 @@ public class TablePropertyInfo implements Writable {
     public void readFields(DataInput in) throws IOException {
         dbId = in.readLong();
         tableId = in.readLong();
+
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_53) {
+            if (in.readBoolean()) {
+                groupId = GroupId.read(in);
+            }
+        } else {
+            groupId = new GroupId(dbId, tableId);
+        }
 
         int size = in.readInt();
         propertyMap = Maps.newHashMap();
@@ -106,7 +118,8 @@ public class TablePropertyInfo implements Writable {
 
         TablePropertyInfo info = (TablePropertyInfo) obj;
 
-        return dbId == info.dbId && tableId == info.tableId && propertyMap.equals(info.propertyMap);
+        return dbId == info.dbId && tableId == info.tableId && groupId.equals(info.groupId)
+                && propertyMap.equals(info.propertyMap);
     }
 
     @Override
@@ -114,6 +127,7 @@ public class TablePropertyInfo implements Writable {
         StringBuilder sb = new StringBuilder();
         sb.append("db id: ").append(dbId);
         sb.append(" table id: ").append(tableId);
+        sb.append(" group id: ").append(groupId);
         sb.append(" propertyMap: ").append(propertyMap);
         return sb.toString();
     }

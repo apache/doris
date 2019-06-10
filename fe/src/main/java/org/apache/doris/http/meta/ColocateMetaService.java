@@ -17,14 +17,9 @@
 
 package org.apache.doris.http.meta;
 
-import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
-import com.google.gson.Gson;
-import com.google.gson.reflect.TypeToken;
-import io.netty.handler.codec.http.HttpMethod;
-import io.netty.handler.codec.http.HttpResponseStatus;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.ColocateTableIndex;
+import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.http.ActionController;
@@ -36,12 +31,21 @@ import org.apache.doris.http.rest.RestBaseResult;
 import org.apache.doris.http.rest.RestResult;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.ColocatePersistInfo;
+
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
+import com.google.gson.Gson;
+import com.google.gson.reflect.TypeToken;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.List;
-import java.lang.reflect.Type;
+
+import io.netty.handler.codec.http.HttpMethod;
+import io.netty.handler.codec.http.HttpResponseStatus;
 
 /*
  * the colocate meta define in {@link ColocateTableIndex}
@@ -54,8 +58,11 @@ public class ColocateMetaService {
 
     private static ColocateTableIndex colocateIndex = Catalog.getCurrentColocateIndex();
 
-    private static long checkAndGetGroupId(BaseRequest request) throws DdlException {
-        long groupId = Long.valueOf(request.getSingleParameter(GROUP_ID).trim());
+    private static GroupId checkAndGetGroupId(BaseRequest request) throws DdlException {
+        long grpId = Long.valueOf(request.getSingleParameter(GROUP_ID).trim());
+        long dbId = Long.valueOf(request.getSingleParameter(DB_ID).trim());
+        GroupId groupId = new GroupId(dbId, grpId);
+
         if (!colocateIndex.isGroupExist(groupId)) {
             throw new DdlException("the group " + groupId + "isn't  exist");
         }
@@ -123,24 +130,20 @@ public class ColocateMetaService {
         @Override
         public void executeInMasterWithAdmin(AuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
                 throws DdlException {
-            long groupId = checkAndGetGroupId(request);
+            GroupId groupId = checkAndGetGroupId(request);
             long tableId = getTableId(request);
-            long dbId = Long.valueOf(request.getSingleParameter(DB_ID).trim());
 
-            Database database = Catalog.getInstance().getDb(dbId);
+            Database database = Catalog.getInstance().getDb(groupId.dbId);
             if (database == null) {
-                throw new DdlException("the db " + dbId + " isn't  exist");
+                throw new DdlException("the db " + groupId.dbId + " isn't  exist");
             }
             if (database.getTable(tableId) == null) {
                 throw new DdlException("the table " + tableId + " isn't  exist");
             }
-            if (database.getTable(groupId) == null) {
-                throw new DdlException("the parent table " + groupId + " isn't  exist");
-            }
 
             LOG.info("will add table {} to group {}", tableId, groupId);
-            colocateIndex.addTableToGroup(dbId, tableId, groupId);
-            ColocatePersistInfo info = ColocatePersistInfo.CreateForAddTable(tableId, groupId, dbId, new ArrayList<>());
+            colocateIndex.addTableToGroup(groupId, tableId);
+            ColocatePersistInfo info = ColocatePersistInfo.createForAddTable(groupId, tableId, new ArrayList<>());
             Catalog.getInstance().getEditLog().logColocateAddTable(info);
             LOG.info("table {} has added to group {}", tableId, groupId);
 
@@ -166,7 +169,7 @@ public class ColocateMetaService {
 
             LOG.info("will delete table {} from colocate meta", tableId);
             if (Catalog.getCurrentColocateIndex().removeTable(tableId)) {
-                ColocatePersistInfo colocateInfo = ColocatePersistInfo.CreateForRemoveTable(tableId);
+                ColocatePersistInfo colocateInfo = ColocatePersistInfo.createForRemoveTable(tableId);
                 Catalog.getInstance().getEditLog().logColocateRemoveTable(colocateInfo);
                 LOG.info("table {}  has deleted from colocate meta", tableId);
             }
@@ -189,7 +192,7 @@ public class ColocateMetaService {
         @Override
         public void executeInMasterWithAdmin(AuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
                 throws DdlException {
-            long groupId = checkAndGetGroupId(request);
+            GroupId groupId = checkAndGetGroupId(request);
 
             HttpMethod method = request.getRequest().method();
             if (method.equals(HttpMethod.POST)) {
@@ -231,7 +234,7 @@ public class ColocateMetaService {
             if (Strings.isNullOrEmpty(clusterName)) {
                 throw new DdlException("No cluster selected.");
             }
-            long groupId = checkAndGetGroupId(request);
+            GroupId groupId = checkAndGetGroupId(request);
 
             String meta = request.getContent();
             Type type = new TypeToken<List<List<Long>>>() {}.getType();
@@ -257,7 +260,7 @@ public class ColocateMetaService {
             sendResult(request, response);
         }
 
-        private void updateBackendPerBucketSeq(Long groupId, List<List<Long>> backendsPerBucketSeq) {
+        private void updateBackendPerBucketSeq(GroupId groupId, List<List<Long>> backendsPerBucketSeq) {
             colocateIndex.markGroupBalancing(groupId);
             ColocatePersistInfo info1 = ColocatePersistInfo.CreateForMarkBalancing(groupId);
             Catalog.getInstance().getEditLog().logColocateMarkBalancing(info1);

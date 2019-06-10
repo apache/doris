@@ -19,6 +19,7 @@ package org.apache.doris.clone;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.ColocateTableIndex;
+import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
@@ -103,19 +104,22 @@ public class ColocateTableBalancer extends Daemon {
         ColocateTableIndex colocateIndex = Catalog.getCurrentColocateIndex();
         Catalog catalog = Catalog.getInstance();
 
-        Set<Long> allGroups = colocateIndex.getAllGroupIds();
-        for (Long group : allGroups) {
+        Set<GroupId> allGroups = colocateIndex.getAllGroupIds();
+        for (GroupId group : allGroups) {
             LOG.info("colocate group: {} backendsPerBucketSeq is {}", group, colocateIndex.getBackendsPerBucketSeq(group));
         }
 
-        Set<Long> balancingGroupIds = colocateIndex.getBalancingGroupIds();
+        Set<GroupId> balancingGroupIds = colocateIndex.getBalancingGroupIds();
         if (balancingGroupIds.size() == 0) {
             LOG.info("All colocate groups are stable. Skip");
             return;
         }
 
-        for (Long groupId : balancingGroupIds) {
-            Database db = catalog.getDb(colocateIndex.getDB(groupId));
+        for (GroupId groupId : balancingGroupIds) {
+            Database db = catalog.getDb(groupId.dbId);
+            if (db == null) {
+                continue;
+            }
 
             boolean isBalancing = false;
             List<Long> allTableIds = colocateIndex.getAllTableIds(groupId);
@@ -131,7 +135,7 @@ public class ColocateTableBalancer extends Daemon {
                 colocateIndex.markGroupStable(groupId);
                 ColocatePersistInfo info = ColocatePersistInfo.CreateForMarkStable(groupId);
                 Catalog.getInstance().getEditLog().logColocateMarkStable(info);
-                LOG.info("colocate group : {} become stable!", db.getTable(groupId).getName());
+                LOG.info("colocate group : {} become stable!", groupId);
             }
         }
     }
@@ -207,14 +211,14 @@ public class ColocateTableBalancer extends Daemon {
         ColocateTableIndex colocateIndex = Catalog.getCurrentColocateIndex();
         Catalog catalog = Catalog.getInstance();
 
-        Set<Long> allGroupIds = colocateIndex.getAllGroupIds();
-        for (Long groupId : allGroupIds) {
+        Set<GroupId> allGroupIds = colocateIndex.getAllGroupIds();
+        for (GroupId groupId : allGroupIds) {
             if (colocateIndex.isGroupBalancing(groupId)) {
                 LOG.info("colocate group {} is balancing", groupId);
                 continue;
             }
 
-            Database db = catalog.getDb(colocateIndex.getDB(groupId));
+            Database db = catalog.getDb(groupId.dbId);
             List<Long> clusterAliveBackendIds = getAliveClusterBackendIds(db.getClusterName());
             Set<Long> allGroupBackendIds = colocateIndex.getBackendsByGroup(groupId);
             List<List<Long>> backendsPerBucketSeq = colocateIndex.getBackendsPerBucketSeq(groupId);
@@ -225,7 +229,7 @@ public class ColocateTableBalancer extends Daemon {
                 removedBackendIds.removeAll(clusterAliveBackendIds);
 
                 // A backend in Colocate group but not alive, which means the backend is removed or down
-                Iterator removedBackendIdsIterator = removedBackendIds.iterator();
+                Iterator<Long> removedBackendIdsIterator = removedBackendIds.iterator();
                 while (removedBackendIdsIterator.hasNext()) {
                     Long removedBackendId = (Long) removedBackendIdsIterator.next();
                     Backend removedBackend = Catalog.getCurrentSystemInfo().getBackend(removedBackendId);
@@ -278,12 +282,12 @@ public class ColocateTableBalancer extends Daemon {
         ColocateTableIndex colocateIndex = Catalog.getCurrentColocateIndex();
         Catalog catalog = Catalog.getInstance();
 
-        Set<Long> allGroupIds = colocateIndex.getAllGroupIds();
-        for (Long groupId : allGroupIds) {
-            Set<Long> balancingGroups = colocateIndex.getBalancingGroupIds();
+        Set<GroupId> allGroupIds = colocateIndex.getAllGroupIds();
+        for (GroupId groupId : allGroupIds) {
+            Set<GroupId> balancingGroups = colocateIndex.getBalancingGroupIds();
             // only delete redundant replica when group is stable
             if (!balancingGroups.contains(groupId)) {
-                Database db = catalog.getDb(colocateIndex.getDB(groupId));
+                Database db = catalog.getDb(groupId.dbId);
                 List<Long> allTableIds = colocateIndex.getAllTableIds(groupId);
                 Set<CloneTabletInfo> deleteTabletSet = Sets.newHashSet();//keep tablets which have redundant replicas.
                 int replicateNum = -1;
@@ -395,9 +399,9 @@ public class ColocateTableBalancer extends Daemon {
      * 2 mark colocate group balancing in colocate meta
      * 3 update colcate backendsPerBucketSeq meta
      */
-    private void balanceForBackendRemoved(Database db, Long groupId, Long removedBackendId) {
+    private void balanceForBackendRemoved(Database db, GroupId groupId, Long removedBackendId) {
         ColocateTableIndex colocateIndex = Catalog.getCurrentColocateIndex();
-        com.google.common.collect.Table<Long, Integer, Long> newGroup2BackendsPerBucketSeq = HashBasedTable.create();
+        com.google.common.collect.Table<GroupId, Integer, Long> newGroup2BackendsPerBucketSeq = HashBasedTable.create();
 
         List<List<Long>> backendsPerBucketSeq = colocateIndex.getBackendsPerBucketSeq(groupId);
         List<Integer> needDeleteBucketSeqs = new ArrayList<>();
@@ -469,9 +473,11 @@ public class ColocateTableBalancer extends Daemon {
     }
 
     // this logic is like CloneChecker.checkTabletForSupplement and CloneChecker.addCloneJob
-    private Long selectCloneBackendIdForRemove(com.google.common.collect.Table<Long, Integer, Long> newGroup2BackendsPerBucketSeq, long group, int bucketSeq, String clusterName, CloneTabletInfo tabletInfo) {
+    private Long selectCloneBackendIdForRemove(
+            com.google.common.collect.Table<GroupId, Integer, Long> newGroup2BackendsPerBucketSeq,
+            GroupId groupId, int bucketSeq, String clusterName, CloneTabletInfo tabletInfo) {
         Long cloneReplicaBackendId = null;
-        cloneReplicaBackendId = newGroup2BackendsPerBucketSeq.get(group, bucketSeq);
+        cloneReplicaBackendId = newGroup2BackendsPerBucketSeq.get(groupId, bucketSeq);
         if (cloneReplicaBackendId == null) {
             // beId -> BackendInfo
             final Map<Long, BackendInfo> backendInfosInCluster = CloneChecker.getInstance().initBackendInfos(clusterName);
@@ -481,9 +487,11 @@ public class ColocateTableBalancer extends Daemon {
             }
 
             // tablet distribution level
-            final Map<CloneChecker.CapacityLevel, Set<List<Long>>> clusterDistributionLevelToBackendIds = CloneChecker.getInstance().initBackendDistributionInfos(backendInfosInCluster);
+            final Map<CloneChecker.CapacityLevel, Set<List<Long>>> clusterDistributionLevelToBackendIds = 
+                    CloneChecker.getInstance().initBackendDistributionInfos(backendInfosInCluster);
 
-            final Map<CloneChecker.CapacityLevel, Set<List<Long>>> clusterCapacityLevelToBackendIds = CloneChecker.getInstance().initBackendCapacityInfos(backendInfosInCluster);
+            final Map<CloneChecker.CapacityLevel, Set<List<Long>>> clusterCapacityLevelToBackendIds =
+                    CloneChecker.getInstance().initBackendCapacityInfos(backendInfosInCluster);
             if (clusterCapacityLevelToBackendIds == null || clusterCapacityLevelToBackendIds.isEmpty()) {
                 LOG.warn("failed to init capacity level map of cluster: {}", clusterName);
                 return -1L;
@@ -499,10 +507,11 @@ public class ColocateTableBalancer extends Daemon {
                 return -1L;
             }
 
-            newGroup2BackendsPerBucketSeq.put(group, bucketSeq, cloneReplicaBackendId);
+            newGroup2BackendsPerBucketSeq.put(groupId, bucketSeq, cloneReplicaBackendId);
         }
 
-        LOG.info("select clone replica dest backend id: {} for groop: {} TabletInfo: {}", cloneReplicaBackendId, group, tabletInfo);
+        LOG.info("select clone replica dest backend id: {} for group: {} TabletInfo: {}", cloneReplicaBackendId,
+                groupId, tabletInfo);
         return cloneReplicaBackendId;
     }
 
@@ -522,7 +531,7 @@ public class ColocateTableBalancer extends Daemon {
      * [[5, 6, 3], [6, 1, 2], [5, 4, 1], [2, 3, 4], [1, 2, 3]]
      *
      */
-    private void balanceForBackendAdded(Long groupId, Database db, List<Long> addedBackendIds) {
+    private void balanceForBackendAdded(GroupId groupId, Database db, List<Long> addedBackendIds) {
         ColocateTableIndex colocateIndex = Catalog.getCurrentColocateIndex();
         List<List<Long>> backendsPerBucketSeq = colocateIndex.getBackendsPerBucketSeq(groupId);
 
@@ -638,7 +647,7 @@ public class ColocateTableBalancer extends Daemon {
         return  Lists.partition(flatBackendsPerBucketSeq, replicaNum);
     }
 
-    private void markGroupBalancing(long groupId) {
+    private void markGroupBalancing(GroupId groupId) {
         if (!Catalog.getCurrentColocateIndex().isGroupBalancing(groupId)) {
             Catalog.getCurrentColocateIndex().markGroupBalancing(groupId);
             ColocatePersistInfo info = ColocatePersistInfo.CreateForMarkBalancing(groupId);
@@ -647,7 +656,7 @@ public class ColocateTableBalancer extends Daemon {
         }
     }
 
-    private void persistBackendsToBucketSeqMeta(long groupId, List<List<Long>> newBackendsPerBucketSeq) {
+    private void persistBackendsToBucketSeqMeta(GroupId groupId, List<List<Long>> newBackendsPerBucketSeq) {
         Catalog.getCurrentColocateIndex().addBackendsPerBucketSeq(groupId, newBackendsPerBucketSeq);
         ColocatePersistInfo info = ColocatePersistInfo.CreateForBackendsPerBucketSeq(groupId, newBackendsPerBucketSeq);
         Catalog.getInstance().getEditLog().logColocateBackendsPerBucketSeq(info);

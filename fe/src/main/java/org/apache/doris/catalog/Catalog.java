@@ -75,6 +75,7 @@ import org.apache.doris.backup.AbstractBackupJob_D;
 import org.apache.doris.backup.BackupHandler;
 import org.apache.doris.backup.BackupJob_D;
 import org.apache.doris.backup.RestoreJob_D;
+import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Database.DbState;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.KuduPartition.KuduRange;
@@ -2928,14 +2929,16 @@ public class Catalog {
                                 + "default is: " + defaultDistriCols);
                     }
                 }
-
             } else {
                 distributionInfo = defaultDistributionInfo;
             }
 
+            // check colocation
             if (Catalog.getCurrentColocateIndex().isColocateTable(olapTable.getId())) {
-                ColocateTableUtils.checkReplicationNum(rangePartitionInfo, singlePartitionDesc.getReplicationNum());
-                ColocateTableUtils.checkBucketNum(olapTable.getDefaultDistributionInfo(), distributionInfo );
+                ColocateGroupSchema groupSchema = colocateTableIndex.getGroupSchema(olapTable.getColocateTable());
+                Preconditions.checkNotNull(groupSchema);
+                groupSchema.checkDistribution(distributionInfo);
+                groupSchema.checkReplicationNum(singlePartitionDesc.getReplicationNum());
             }
 
             indexIdToShortKeyColumnCount = olapTable.getCopiedIndexIdToShortKeyColumnCount();
@@ -3494,22 +3497,15 @@ public class Catalog {
                 if (Config.disable_colocate_join) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_DISABLED);
                 }
-                
-                if (colocateTableIndex.hasColocateGroup(colocateGroup)) {
-                    // group already exist, get an arbitrary table from this group and check.
-                    long arbiTableId = colocateTableIndex.getTableIdByGroup(colocateGroup);
-                    OlapTable arbiTable = (OlapTable) ColocateTableUtils.getTable(db, arbiTableId);
-                    if (arbiTable == null) {
-                        // this should not happen
-                        throw new DdlException("Table " + arbiTableId + " does not eixst");
-                    }
 
-                    ColocateTableUtils.checkBucketNum(arbiTable, distributionInfo);
-                    ColocateTableUtils.checkDistributionColumnSizeAndType(arbiTable, distributionInfo);
-                    ColocateTableUtils.checkReplicationNum(arbiTable.getPartitionInfo(), partitionInfo);
+                ColocateGroupSchema groupSchema = colocateTableIndex.getGroupSchema(colocateGroup);
+                if (groupSchema != null) {
+                    // group already exist, check if this table can be added to this group
+                    groupSchema.checkColocateSchema(olapTable);
                 }
-                getColocateTableIndex().addTableToGroup(db.getId(), tableId, colocateGroup);
-
+                // add table to this group, if group does not exist, create a new one
+                getColocateTableIndex().addTableToGroup(db.getId(), olapTable, colocateGroup,
+                        null /* generate group id inside */);
                 olapTable.setColocateTable(colocateGroup);
             }
         } catch (AnalysisException e) {
@@ -3569,10 +3565,6 @@ public class Catalog {
                     // and then check if there still has unknown properties
                     PropertyAnalyzer.analyzeDataProperty(stmt.getProperties(), DataProperty.DEFAULT_HDD_DATA_PROPERTY);
                     PropertyAnalyzer.analyzeReplicationNum(properties, FeConstants.default_replication_num);
-                    if (getColocateTableIndex().isColocateChildTable(olapTable.getId())) {
-                        Table parentTable = ColocateTableUtils.getColocateTable(db, olapTable.getColocateTable());
-                        ColocateTableUtils.checkReplicationNum((OlapTable)parentTable, partitionInfo);
-                    }
 
                     if (properties != null && !properties.isEmpty()) {
                         // here, all properties should be checked
@@ -3617,15 +3609,9 @@ public class Catalog {
 
                 // we have added these index to memory, only need to persist here
                 if (getColocateTableIndex().isColocateTable(tableId)) {
-                    long colocateTableId = ColocateTableUtils.getColocateTable(db, olapTable.getColocateTable()).getId();
-                    long groupId = getColocateTableIndex().getGroup(colocateTableId);
-                    ColocatePersistInfo info;
-                    if (getColocateTableIndex().isColocateParentTable(tableId)) {
-                        List<List<Long>> backendsPerBucketSeq = getColocateTableIndex().getBackendsPerBucketSeq(groupId);
-                        info = ColocatePersistInfo.CreateForAddTable(tableId, groupId, db.getId(), backendsPerBucketSeq);
-                    } else {
-                        info = ColocatePersistInfo.CreateForAddTable(tableId, groupId, db.getId(), new ArrayList<>());
-                    }
+                    GroupId groupId = getColocateTableIndex().getGroup(tableId);
+                    List<List<Long>> backendsPerBucketSeq = getColocateTableIndex().getBackendsPerBucketSeq(groupId);
+                    ColocatePersistInfo info = ColocatePersistInfo.createForAddTable(groupId, tableId, backendsPerBucketSeq);
                     editLog.logColocateAddTable(info);
                 }
 
@@ -4100,9 +4086,11 @@ public class Catalog {
         if (distributionInfoType == DistributionInfoType.HASH) {
             ColocateTableIndex colocateIndex = Catalog.getCurrentColocateIndex();
             List<List<Long>> backendsPerBucketSeq = null;
+            GroupId groupId = null;
             if (colocateIndex.isColocateTable(tabletMeta.getTableId())) {
+                // if this is a colocate table, try to get backend seqs from colocation index.
                 Database db = Catalog.getInstance().getDb(tabletMeta.getDbId());
-                long groupId = colocateIndex.getGroup(tabletMeta.getTableId());
+                groupId = colocateIndex.getGroup(tabletMeta.getTableId());
                 // Use db write lock here to make sure the backendsPerBucketSeq is consistent when the backendsPerBucketSeq is updating.
                 // This lock will release very fast.
                 db.writeLock();
@@ -4114,7 +4102,8 @@ public class Catalog {
             }
 
             // firstColocateTable is true, means this may be the first table of colocation group,
-            // or this is just a normal table
+            // or this is just a normal table.
+            //
             boolean firstColocateTable = backendsPerBucketSeq == null || backendsPerBucketSeq.isEmpty();
             for (int i = 0; i < distributionInfo.getBucketNum(); ++i) {
                 // create a new tablet with random chosen backends
@@ -4127,7 +4116,8 @@ public class Catalog {
                 // get BackendIds
                 List<Long> chosenBackendIds;
                 if (firstColocateTable) {
-                    // This is the first colocate table in the group. randomly choose backends
+                    // This is the first colocate table in the group, or just a normal table,
+                    // randomly choose backends
                     chosenBackendIds = chosenBackendIdBySeq(replicationNum, clusterName);
                     backendsPerBucketSeq.add(chosenBackendIds);
                 } else {
@@ -4145,8 +4135,8 @@ public class Catalog {
                 Preconditions.checkState(chosenBackendIds.size() == replicationNum, chosenBackendIds.size() + " vs. "+ replicationNum);
             }
 
-            if (backendsPerBucketSeq != null) {
-                colocateIndex.addBackendsPerBucketSeq(tabletMeta.getTableId(), backendsPerBucketSeq);
+            if (backendsPerBucketSeq != null && groupId != null) {
+                colocateIndex.addBackendsPerBucketSeq(groupId, backendsPerBucketSeq);
             }
 
         } else {
@@ -4202,11 +4192,6 @@ public class Catalog {
 
             DropInfo info = new DropInfo(db.getId(), table.getId(), -1L);
             editLog.logDropTable(info);
-            
-            if (Catalog.getCurrentColocateIndex().removeTable(table.getId())) {
-                ColocatePersistInfo colocateInfo = ColocatePersistInfo.CreateForRemoveTable(table.getId());
-                editLog.logColocateRemoveTable(colocateInfo);
-            }
         } finally {
             db.writeUnlock();
         }
@@ -4914,12 +4899,16 @@ public class Catalog {
     }
 
     // the invoker should keep db write lock
-    public void modifyTableColocate(Database db, OlapTable table, String colocateGroup, boolean isReplay)
+    public void modifyTableColocate(Database db, OlapTable table, String colocateGroup, boolean isReplay,
+            GroupId assignedGroupId)
             throws DdlException {
+
         String oldGroup = table.getColocateTable();
-        
+        GroupId groupId = null;
         if (!Strings.isNullOrEmpty(colocateGroup)) {
-            if (!colocateTableIndex.hasColocateGroup(colocateGroup)) {
+            ColocateGroupSchema groupSchema = colocateTableIndex.getGroupSchema(colocateGroup);
+            if (groupSchema == null) {
+                // user set a new colocate group,
                 // check if all partitions all this table has same buckets num and same replication number
                 PartitionInfo partitionInfo = table.getPartitionInfo();
                 if (partitionInfo.getType() == PartitionType.RANGE) {
@@ -4928,7 +4917,7 @@ public class Catalog {
                     for (Partition partition : table.getPartitions()) {
                         if (bucketsNum == -1) {
                             bucketsNum = partition.getDistributionInfo().getBucketNum();
-                        } else if (bucketsNum != partition.getDistributionInfo().getBucketNum() ) {
+                        } else if (bucketsNum != partition.getDistributionInfo().getBucketNum()) {
                             throw new DdlException("Partitions in table " + table.getName() + " have different buckets number");
                         }
                         
@@ -4941,18 +4930,27 @@ public class Catalog {
                 }
             } else {
                 // set to an already exist colocate group, check if this table can be added to this group.
-                OlapTable arbiTable = ColocateTableUtils;
+                groupSchema.checkColocateSchema(table);
             }
+            
+            groupId = colocateTableIndex.changeGroup(db.getId(), table, oldGroup, colocateGroup, assignedGroupId);
+            // set this group as unstable
+            colocateTableIndex.markGroupBalancing(groupId);
+            table.setColocateTable(colocateGroup);
+        } else {
+            // unset colocation group
+            if (Strings.isNullOrEmpty(oldGroup)) {
+                // this table is not a colocate table, do nothing
+                return;
+            }
+            colocateTableIndex.removeTable(table.getId());
+            table.setColocateTable(null);
         }
-        
-        long groupId = colocateTableIndex.addOrMoveTable(db.getId(), table.getId(), oldGroup, colocateGroup);
-        // set this group as unstable
-        colocateTableIndex.markGroupBalancing(groupId);
 
         if (!isReplay) {
             Map<String, String> properties = Maps.newHashMapWithExpectedSize(1);
             properties.put(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH, colocateGroup);
-            TablePropertyInfo info = new TablePropertyInfo(db.getId(), table.getId(), properties);
+            TablePropertyInfo info = new TablePropertyInfo(db.getId(), table.getId(), groupId, properties);
             editLog.logModifyTableColocate(info);
         }
         LOG.info("finished modify table's colocation property. table: {}, is replay: {}",
@@ -4968,7 +4966,11 @@ public class Catalog {
         db.writeLock();
         try {
             OlapTable table = (OlapTable) db.getTable(tableId);
-            modifyTableColocate(db, table, properties.get(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH), true);
+            modifyTableColocate(db, table, properties.get(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH), true,
+                    info.getGroupId());
+        } catch (DdlException e) {
+            // should not happen
+            LOG.warn("failed to replay modify table colocate", e);
         } finally {
             db.writeUnlock();
         }

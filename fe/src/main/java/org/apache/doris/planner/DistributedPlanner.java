@@ -25,6 +25,7 @@ import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.ColocateTableIndex;
+import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.HashDistributionInfo;
@@ -32,8 +33,8 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TPartitionType;
 
@@ -463,7 +464,7 @@ public class DistributedPlanner {
         }
 
         //2 the colocate group must be stable
-        long groupId = colocateIndex.getGroup(leftTable.getId());
+        GroupId groupId = colocateIndex.getGroup(leftTable.getId());
         if (colocateIndex.isGroupBalancing(groupId)) {
             LOG.info("colocate group {} is balancing", leftTable.getColocateTable());
             return false;
