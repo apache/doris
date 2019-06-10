@@ -29,6 +29,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
@@ -90,6 +91,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     protected long execMemLimit = 2147483648L; // 2GB;
     protected double maxFilterRatio = 0;
     protected boolean deleteFlag = false;
+    protected boolean strictMode = true;
 
     protected long createTimestamp = System.currentTimeMillis();
     protected long loadStartTimestamp = -1;
@@ -221,6 +223,10 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
                 } catch (NumberFormatException e) {
                     throw new DdlException("Execute memory limit is not Long", e);
                 }
+            }
+
+            if (properties.containsKey(LoadStmt.STRICT_MODE)) {
+                strictMode = Boolean.valueOf(properties.get(LoadStmt.STRICT_MODE));
             }
         }
     }
@@ -705,6 +711,9 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         }
         out.writeInt(progress);
         loadingStatus.write(out);
+//        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_52) {
+//            out.writeBoolean(strictMode);
+//        }
     }
 
     @Override
@@ -731,5 +740,8 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         }
         progress = in.readInt();
         loadingStatus.readFields(in);
+//        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_52) {
+//            strictMode = in.readBoolean();
+//        }
     }
 }

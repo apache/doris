@@ -59,6 +59,7 @@ public class LoadStmt extends DdlStmt {
     public static final String EXEC_MEM_LIMIT = "exec_mem_limit";
     public static final String CLUSTER_PROPERTY = "cluster";
     private static final String VERSION = "version";
+    public static final String STRICT_MODE = "strict_mode";
     
     // for load data from Baidu Object Store(BOS)
     public static final String BOS_ENDPOINT = "bos_endpoint";
@@ -81,6 +82,7 @@ public class LoadStmt extends DdlStmt {
     private String user;
 
     private String version = "v1";
+    private boolean strictMode = true;
 
     // properties set
     private final static ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
@@ -90,6 +92,7 @@ public class LoadStmt extends DdlStmt {
             .add(EXEC_MEM_LIMIT)
             .add(CLUSTER_PROPERTY)
 //            .add(VERSION)
+            .add(STRICT_MODE)
             .build();
     
     public LoadStmt(LabelName label, List<DataDescription> dataDescriptions,
@@ -182,6 +185,15 @@ public class LoadStmt extends DdlStmt {
         if (versionProperty != null) {
             if (!versionProperty.equalsIgnoreCase(LoadManager.VERSION)) {
                 throw new DdlException(VERSION + " must be " + LoadManager.VERSION);
+            }
+        }
+
+        // strict mode
+        final String strictModeProperty = properties.get(STRICT_MODE);
+        if (strictModeProperty != null) {
+            if (!strictModeProperty.equalsIgnoreCase("true")
+                    && !strictModeProperty.equalsIgnoreCase("false")) {
+                throw new DdlException(STRICT_MODE + " is not a boolean");
             }
         }
 

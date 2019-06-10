@@ -51,6 +51,7 @@ BrokerScanner::BrokerScanner(RuntimeState* state,
         // _splittable(params.splittable),
         _value_separator(static_cast<char>(params.column_separator)),
         _line_delimiter(static_cast<char>(params.line_delimiter)),
+        _strict_mode(false),
         _cur_file_reader(nullptr),
         _cur_line_reader(nullptr),
         _cur_decompressor(nullptr),
@@ -117,6 +118,7 @@ Status BrokerScanner::init_expr_ctxes() {
         return Status(ss.str());
     }
 
+    bool has_slot_id_map = _params.__isset.dest_sid_to_src_sid_without_trans;
     for (auto slot_desc : _dest_tuple_desc->slots()) {
         if (!slot_desc->is_materialized()) {
             continue;
@@ -133,6 +135,20 @@ Status BrokerScanner::init_expr_ctxes() {
         RETURN_IF_ERROR(ctx->prepare(_state, *_row_desc.get(), _mem_tracker.get()));
         RETURN_IF_ERROR(ctx->open(_state));
         _dest_expr_ctx.emplace_back(ctx);
+        if (has_slot_id_map) {
+            auto it = _params.dest_sid_to_src_sid_without_trans.find(slot_desc->id());
+            if (it == std::end(_params.dest_sid_to_src_sid_without_trans)) {
+                _src_slot_descs_order_by_dest.emplace_back(nullptr);
+            } else {
+                auto _src_slot_it = src_slot_desc_map.find(it->second);
+                if (_src_slot_it == std::end(src_slot_desc_map)) {
+                     std::stringstream ss;
+                     ss << "No src slot " << it->second << " in src slot descs";
+                     return Status(ss.str());
+                }
+                _src_slot_descs_order_by_dest.emplace_back(_src_slot_it->second);
+            }
+        }
     }
 
     return Status::OK;
@@ -148,6 +164,12 @@ Status BrokerScanner::open() {
     _rows_read_counter = ADD_COUNTER(_profile, "RowsRead", TUnit::UNIT);
     _read_timer = ADD_TIMER(_profile, "TotalRawReadTime(*)");
     _materialize_timer = ADD_TIMER(_profile, "MaterializeTupleTime(*)");
+    if (_params.__isset.strict_mode) {
+        _strict_mode = _params.strict_mode;
+    }
+    if (_strict_mode && !_params.__isset.dest_sid_to_src_sid_without_trans) {
+        return Status("Slot map of dest to src must be set in strict mode");
+    }
 
     return Status::OK;
 }
@@ -585,24 +607,36 @@ bool BrokerScanner::fill_dest_tuple(const Slice& line, Tuple* dest_tuple, MemPoo
             continue;
         }
 
-        ExprContext* ctx = _dest_expr_ctx[ctx_idx++];
+        int dest_index = ctx_idx++;
+        ExprContext* ctx = _dest_expr_ctx[dest_index];
         void* value = ctx->get_value(_src_tuple_row);
         if (value == nullptr) {
-            if (slot_desc->is_nullable()) {
-                dest_tuple->set_null(slot_desc->null_indicator_offset());
-                continue;
-            } else {
+            if (_strict_mode && (_src_slot_descs_order_by_dest[dest_index] != nullptr) 
+                && !_src_tuple->is_null(_src_slot_descs_order_by_dest[dest_index]->null_indicator_offset())) {
                 std::stringstream error_msg;
-                error_msg << "column(" << slot_desc->col_name() << ") value is null";
+                error_msg << "column(" << slot_desc->col_name() << ") value is incorrect "
+                    << "while strict mode is " << std::boolalpha << _strict_mode;
                 _state->append_error_msg_to_file(
                     std::string(line.data, line.size), error_msg.str());
                 _counter->num_rows_filtered++;
                 return false;
             }
+            if (!slot_desc->is_nullable()) {
+                std::stringstream error_msg;
+                error_msg << "column(" << slot_desc->col_name() << ") value is null "
+                          << "while columns is not nullable";
+                _state->append_error_msg_to_file(
+                    std::string(line.data, line.size), error_msg.str());
+                _counter->num_rows_filtered++;
+                return false;
+            }
+            dest_tuple->set_null(slot_desc->null_indicator_offset());
+            continue;
         }
         dest_tuple->set_not_null(slot_desc->null_indicator_offset());
         void* slot = dest_tuple->get_slot(slot_desc->tuple_offset());
         RawValue::write(value, slot, slot_desc->type(), mem_pool);
+        continue;
     }
     return true;
 }
