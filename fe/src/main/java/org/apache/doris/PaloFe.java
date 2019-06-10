@@ -256,6 +256,7 @@ public class PaloFe {
             pid.deleteOnExit();
 
             String name = ManagementFactory.getRuntimeMXBean().getName();
+            file.setLength(0);
             file.write(name.split("@")[0].getBytes(Charsets.UTF_8));
 
             return true;
