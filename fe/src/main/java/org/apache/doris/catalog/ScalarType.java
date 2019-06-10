@@ -22,11 +22,12 @@ import org.apache.doris.thrift.TScalarType;
 import org.apache.doris.thrift.TTypeDesc;
 import org.apache.doris.thrift.TTypeNode;
 import org.apache.doris.thrift.TTypeNodeType;
+
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 
-import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 /**
  * Describes a scalar type. For most types this class just wraps a PrimitiveType enum,
@@ -329,7 +330,7 @@ public class ScalarType extends Type {
                 stringBuilder.append(type.toString().toLowerCase());
                 break;
             default:
-                stringBuilder.append("unknown");
+                stringBuilder.append("unknown type: " + type.toString());
                 break;
         }
         return stringBuilder.toString();

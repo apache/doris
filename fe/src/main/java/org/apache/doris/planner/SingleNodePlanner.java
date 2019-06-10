@@ -17,17 +17,48 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.analysis.AggregateInfo;
+import org.apache.doris.analysis.AnalyticInfo;
+import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.BaseTableRef;
+import org.apache.doris.analysis.BinaryPredicate;
+import org.apache.doris.analysis.CaseExpr;
+import org.apache.doris.analysis.CastExpr;
+import org.apache.doris.analysis.DescriptorTable;
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprSubstitutionMap;
+import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.analysis.InPredicate;
+import org.apache.doris.analysis.InlineViewRef;
+import org.apache.doris.analysis.IsNullPredicate;
+import org.apache.doris.analysis.JoinOperator;
+import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.NullLiteral;
+import org.apache.doris.analysis.QueryStmt;
+import org.apache.doris.analysis.SelectStmt;
+import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotId;
+import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.TableRef;
+import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.analysis.TupleId;
+import org.apache.doris.analysis.TupleIsNullPredicate;
+import org.apache.doris.analysis.UnionStmt;
+import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.MysqlTable;
+import org.apache.doris.catalog.Table;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Pair;
+import org.apache.doris.common.Reference;
+import org.apache.doris.common.UserException;
+
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.apache.doris.analysis.*;
-import org.apache.doris.catalog.AggregateType;
-import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.MysqlTable;
-import org.apache.doris.catalog.Table;
-import org.apache.doris.common.*;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -809,13 +840,14 @@ public class SingleNodePlanner {
                 if (!isNullPredicate.isSlotRefChildren() || isNullPredicate.isNotNull()) {
                     continue;
                 }
-                if (null == partitionColumnFilter) {
-                    partitionColumnFilter = new PartitionColumnFilter();
-                }
-                // like EQ
+
+                // If we meet a IsNull predicate on partition column, then other predicates are useless
+                // eg: (xxxx) and (col is null), only the IsNull predicate has an effect on partition pruning.
+                partitionColumnFilter = new PartitionColumnFilter();
                 NullLiteral nullLiteral = new NullLiteral();
                 partitionColumnFilter.setLowerBound(nullLiteral, true);
                 partitionColumnFilter.setUpperBound(nullLiteral, true);
+                break;
             }
         }
         LOG.debug("partitionColumnFilter: {}", partitionColumnFilter);
