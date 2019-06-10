@@ -27,6 +27,8 @@ nullable的data page内容包括：
                  +----------------+
                  |  value count   |
                  |----------------|
+                 |  first row id  |
+                 |----------------|
                  | bitmap length  |
                  |----------------|
                  |  null bitmap   |
@@ -41,6 +43,10 @@ non-nullable data page结构如下：
 
 ```
                  |----------------|
+                 |   value count  |
+                 |----------------|
+                 |  first row id  |
+                 |----------------|
                  |     data       |
                  |----------------|
                  |    checksum    |
@@ -51,6 +57,8 @@ non-nullable data page结构如下：
 
 - value count
 	- 表示page中的行数
+- first row id
+	- page中第一行的行号
 - bitmap length
 	- 表示接下来bitmap的字节数
 - null bitmap
@@ -61,7 +69,7 @@ non-nullable data page结构如下：
 	- 各种不同编码的data需要在头部信息写入一些字段信息，以实现数据的解析
 		- TODO：添加各种encoding的header信息
 - checksum
-	- 存储page粒度的校验和，包括page第一个字节和之后的实际数据
+	- 存储page粒度的校验和，包括page的header和之后的实际数据
 
 
 ### Bloom Filter Pages ###
