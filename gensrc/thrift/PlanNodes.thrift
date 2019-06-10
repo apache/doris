@@ -136,6 +136,13 @@ struct TBrokerScanRangeParams {
 
     // If partition_ids is set, data that doesn't in this partition will be filtered.
     8: optional list<i64> partition_ids
+    
+    // This is the mapping of dest slot id and src slot id in load expr
+    // It excludes the slot id which has the transform expr
+    9: optional map<Types.TSlotId, Types.TSlotId> dest_sid_to_src_sid_without_trans
+    // strictMode is a boolean
+    // if strict mode is true, the incorrect data (the result of cast is null) will not be loaded
+    10: optional bool strict_mode
 }
 
 // Broker scan range
