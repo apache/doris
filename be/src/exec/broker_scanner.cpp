@@ -138,22 +138,15 @@ Status BrokerScanner::init_expr_ctxes() {
         if (has_slot_id_map) {
             auto it = _params.dest_sid_to_src_sid_without_trans.find(slot_desc->id());
             if (it == std::end(_params.dest_sid_to_src_sid_without_trans)) {
-                _src_slot_index.emplace_back(-1);
+                _src_slot_descs_order_by_dest.emplace_back(nullptr);
             } else {
-                int index = 0;
-                while (index < _src_slot_descs.size()) {
-                    auto _src_slot = _src_slot_descs[index];
-                    if (_src_slot->id() == it->second) {
-                        _src_slot_index.emplace_back(index);
-                        break;
-                    }
-                    index++;
-                }
-                if (index == _src_slot_descs.size()) {
+                auto _src_slot_it = src_slot_desc_map.find(it->second);
+                if (_src_slot_it == std::end(src_slot_desc_map)) {
                      std::stringstream ss;
                      ss << "No src slot " << it->second << " in src slot descs";
                      return Status(ss.str());
                 }
+                _src_slot_descs_order_by_dest.emplace_back(_src_slot_it->second);
             }
         }
     }
@@ -618,8 +611,8 @@ bool BrokerScanner::fill_dest_tuple(const Slice& line, Tuple* dest_tuple, MemPoo
         ExprContext* ctx = _dest_expr_ctx[dest_index];
         void* value = ctx->get_value(_src_tuple_row);
         if (value == nullptr) {
-            if (_strict_mode && (_src_slot_index[dest_index] != -1) 
-                && !_src_tuple->is_null(_src_slot_descs[_src_slot_index[ctx_idx]]->null_indicator_offset())) {
+            if (_strict_mode && (_src_slot_descs_order_by_dest[dest_index] != nullptr) 
+                && !_src_tuple->is_null(_src_slot_descs_order_by_dest[dest_index]->null_indicator_offset())) {
                 std::stringstream error_msg;
                 error_msg << "column(" << slot_desc->col_name() << ") value is incorrect "
                     << "while strict mode is " << std::boolalpha << _strict_mode;

@@ -159,9 +159,9 @@ private:
     // Dest tuple descriptor and dest expr context
     const TupleDescriptor* _dest_tuple_desc;
     std::vector<ExprContext*> _dest_expr_ctx;
-    // the map values of dest slot id to src slot index
-    // if there is not key of dest slot id in dest_sid_to_src_sid_without_trans, it will be set to -1
-    std::vector<int> _src_slot_index;
+    // the map values of dest slot id to src slot desc
+    // if there is not key of dest slot id in dest_sid_to_src_sid_without_trans, it will be set to nullptr
+    std::vector<SlotDescriptor*> _src_slot_descs_order_by_dest;
 
     // used to hold current StreamLoadPipe
     std::shared_ptr<StreamLoadPipe> _stream_load_pipe;
