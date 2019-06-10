@@ -149,7 +149,7 @@ struct decimal12_t {
         }
 
         // if sign of fraction is different from integer
-        if ((fraction ^ integer) < 0) {
+        if ((fraction != 0) && (integer != 0) && (fraction ^ integer) < 0) {
             bool sign = integer < 0;
             integer += (sign ? 1 : -1);
             fraction += (sign ? -FRAC_RATIO : FRAC_RATIO);
