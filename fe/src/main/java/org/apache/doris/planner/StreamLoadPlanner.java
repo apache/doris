@@ -19,6 +19,7 @@ package org.apache.doris.planner;
 
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.SlotDescriptor;
@@ -140,6 +141,7 @@ public class StreamLoadPlanner {
         params.setParams(execParams);
         TQueryOptions queryOptions = new TQueryOptions();
         queryOptions.setQuery_type(TQueryType.LOAD);
+        queryOptions.setQuery_timeout(Config.stream_load_default_timeout_second);
         params.setQuery_options(queryOptions);
         TQueryGlobals queryGlobals = new TQueryGlobals();
         queryGlobals.setNow_string(DATE_FORMAT.format(new Date()));
