@@ -70,6 +70,33 @@ private:
     bool* _is_null = nullptr;
 };
 
+class ColumnVectorView {
+public:
+    explicit ColumnVectorView(ColumnVector* column_vector, size_t row_offset, MemPool* mem_pool) :
+            : _column_vector(column_vector), _row_offset(row_offset), _mem_pool(mem_pool) { }
+
+    void advance(size_t skip) {
+        _row_offset += skip;
+    }
+
+    size_t first_row_index() const {
+        return _row_offset;
+    }
+
+    ColumnVector* column_vector() {
+        return _column_vector;
+    }
+
+    MemPool* mem_pool() {
+        return _mem_pool;
+    }
+
+private:
+    ColumnVector* _column_vector;
+    size_t _row_offset;
+    MemPool* _mem_pool;
+}
+
 class VectorizedRowBatch {
 public:
     VectorizedRowBatch(
