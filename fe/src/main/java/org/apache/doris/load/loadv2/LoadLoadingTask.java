@@ -53,6 +53,7 @@ public class LoadLoadingTask extends LoadTask {
     private final List<BrokerFileGroup> fileGroups;
     private final long jobDeadlineMs;
     private final long execMemLimit;
+    private final boolean strictMode;
     private final long txnId;
 
     private LoadingTaskPlanner planner;
@@ -61,7 +62,8 @@ public class LoadLoadingTask extends LoadTask {
 
     public LoadLoadingTask(Database db, OlapTable table,
                            BrokerDesc brokerDesc, List<BrokerFileGroup> fileGroups,
-                           long jobDeadlineMs, long execMemLimit, long txnId, LoadTaskCallback callback) {
+                           long jobDeadlineMs, long execMemLimit, boolean strictMode,
+                           long txnId, LoadTaskCallback callback) {
         super(callback);
         this.db = db;
         this.table = table;
@@ -69,13 +71,14 @@ public class LoadLoadingTask extends LoadTask {
         this.fileGroups = fileGroups;
         this.jobDeadlineMs = jobDeadlineMs;
         this.execMemLimit = execMemLimit;
+        this.strictMode = strictMode;
         this.txnId = txnId;
         this.failMsg = new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL);
         this.retryTime = 3;
     }
 
     public void init(List<List<TBrokerFileStatus>> fileStatusList, int fileNum) throws UserException {
-        planner = new LoadingTaskPlanner(txnId, db.getId(), table, brokerDesc, fileGroups);
+        planner = new LoadingTaskPlanner(txnId, db.getId(), table, brokerDesc, fileGroups, strictMode);
         planner.plan(fileStatusList, fileNum);
     }
 

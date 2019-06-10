@@ -63,6 +63,7 @@ public class LoadingTaskPlanner {
     private final OlapTable table;
     private final BrokerDesc brokerDesc;
     private final List<BrokerFileGroup> fileGroups;
+    private final boolean strictMode;
 
     // Something useful
     private Analyzer analyzer = new Analyzer(Catalog.getInstance(), null);
@@ -75,12 +76,14 @@ public class LoadingTaskPlanner {
     private int nextNodeId = 0;
 
     public LoadingTaskPlanner(long txnId, long dbId, OlapTable table,
-                              BrokerDesc brokerDesc, List<BrokerFileGroup> brokerFileGroups) {
+                              BrokerDesc brokerDesc, List<BrokerFileGroup> brokerFileGroups,
+                              boolean strictMode) {
         this.txnId = txnId;
         this.dbId = dbId;
         this.table = table;
         this.brokerDesc = brokerDesc;
         this.fileGroups = brokerFileGroups;
+        this.strictMode = strictMode;
     }
 
     public void plan(List<List<TBrokerFileStatus>> fileStatusesList, int filesAdded) throws UserException {
@@ -103,7 +106,7 @@ public class LoadingTaskPlanner {
         // 1. Broker scan node
         BrokerScanNode scanNode = new BrokerScanNode(new PlanNodeId(nextNodeId++), tupleDesc, "BrokerScanNode",
                                                      fileStatusesList, filesAdded);
-        scanNode.setLoadInfo(table, brokerDesc, fileGroups);
+        scanNode.setLoadInfo(table, brokerDesc, fileGroups, strictMode);
         scanNode.init(analyzer);
         scanNode.finalize(analyzer);
         scanNodes.add(scanNode);
