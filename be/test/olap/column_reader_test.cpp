@@ -68,13 +68,8 @@ public:
         _offsets.push_back(0);
 
         _stream_factory = 
-<<<<<<< HEAD
                 new(std::nothrow) OutStreamFactory(COMPRESS_LZ4,
                                                    OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE);
-=======
-                new(std::nothrow) OutStreamFactory(COMPRESS_LZO,
-                                    OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE);
->>>>>>> Refactor BE
         ASSERT_TRUE(_stream_factory != NULL);
         config::column_dictionary_key_ration_threshold = 30;
         config::column_dictionary_key_size_threshold = 1000;
@@ -193,7 +188,6 @@ public:
 
         for (int i = 0; i < off.size(); ++i) {
             ReadOnlyFileStream* in_stream = new (std::nothrow) ReadOnlyFileStream(
-<<<<<<< HEAD
                     &helper, 
                     &_shared_buffer,
                     off[i], 
@@ -201,15 +195,6 @@ public:
                     lz4_decompress, 
                     buffer_size[i],
                     &_stats);
-=======
-               &helper, 
-               &_shared_buffer,
-               off[i], 
-               length[i], 
-               lzo_decompress, 
-               buffer_size[i],
-               &_stats);
->>>>>>> Refactor BE
             ASSERT_EQ(OLAP_SUCCESS, in_stream->init());
 
             _map_in_streams[name[i]] = in_stream;
