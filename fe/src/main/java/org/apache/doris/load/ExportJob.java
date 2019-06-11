@@ -23,6 +23,7 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.ExportStmt;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableName;
@@ -103,6 +104,7 @@ public class ExportJob implements Writable {
     private String exportPath;
     private String columnSeparator;
     private String lineDelimiter;
+    private Map<String, String> properties = Maps.newHashMap();
     private List<String> partitions;
 
     private TableName tableName;
@@ -181,6 +183,7 @@ public class ExportJob implements Writable {
 
         this.columnSeparator = stmt.getColumnSeparator();
         this.lineDelimiter = stmt.getLineDelimiter();
+        this.properties = stmt.getProperties();
 
         String path = stmt.getPath();
         Preconditions.checkArgument(!Strings.isNullOrEmpty(path));
@@ -294,6 +297,7 @@ public class ExportJob implements Writable {
             TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits() + i, uuid.getLeastSignificantBits());
             Coordinator coord = new Coordinator(
                     id, queryId, desc, Lists.newArrayList(fragment), Lists.newArrayList(scanNode), clusterName);
+            coord.setExecMemoryLimit(getExecMemLimit());
             coords.add(coord);
             this.coordList.add(coord);
         }
@@ -392,6 +396,10 @@ public class ExportJob implements Writable {
 
     public String getLineDelimiter() {
         return this.lineDelimiter;
+    }
+
+    public long getExecMemLimit() {
+        return Long.parseLong(properties.get(LoadStmt.EXEC_MEM_LIMIT));
     }
 
     public List<String> getPartitions() {
@@ -553,6 +561,11 @@ public class ExportJob implements Writable {
         Text.writeString(out, exportPath);
         Text.writeString(out, columnSeparator);
         Text.writeString(out, lineDelimiter);
+        out.writeInt(properties.size());
+        for (Map.Entry<String, String> property : properties.entrySet()) {
+            Text.writeString(out, property.getKey());
+            Text.writeString(out, property.getValue());
+        }
 
         // partitions
         boolean hasPartition = (partitions != null);
@@ -594,6 +607,15 @@ public class ExportJob implements Writable {
         exportPath = Text.readString(in);
         columnSeparator = Text.readString(in);
         lineDelimiter = Text.readString(in);
+
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_53) {
+            int count = in.readInt();
+            for (int i = 0; i < count; i++) {
+                String propertyKey = Text.readString(in);
+                String propertyValue = Text.readString(in);
+                this.properties.put(propertyKey, propertyValue);
+            }
+        }
 
         boolean hasPartition = in.readBoolean();
         if (hasPartition) {

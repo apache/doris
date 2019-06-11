@@ -23,6 +23,7 @@ import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -34,6 +35,7 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.Maps;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -58,7 +60,7 @@ public class ExportStmt extends StatementBase {
     private List<String> partitions;
     private final String path;
     private final BrokerDesc brokerDesc;
-    private final Map<String, String> properties;
+    private Map<String, String> properties = Maps.newHashMap();
     private String columnSeparator;
     private String lineDelimiter;
 
@@ -68,7 +70,9 @@ public class ExportStmt extends StatementBase {
                       Map<String, String> properties, BrokerDesc brokerDesc) {
         this.tableRef = tableRef;
         this.path = path.trim();
-        this.properties = properties;
+        if (properties != null) {
+            this.properties = properties;
+        }
         this.brokerDesc = brokerDesc;
         this.columnSeparator = DEFAULT_COLUMN_SEPARATOR;
         this.lineDelimiter = DEFAULT_LINE_DELIMITER;
@@ -221,10 +225,20 @@ public class ExportStmt extends StatementBase {
         throw new AnalysisException("Invalid export path. please use valid 'HDFS://', 'AFS://' or 'BOS://' path.");
     }
 
-    private void checkProperties(Map<String, String> properties) throws AnalysisException {
+    private void checkProperties(Map<String, String> properties) throws UserException {
         this.columnSeparator = PropertyAnalyzer.analyzeColumnSeparator(
                 properties, ExportStmt.DEFAULT_COLUMN_SEPARATOR);
         this.lineDelimiter = PropertyAnalyzer.analyzeLineDelimiter(properties, ExportStmt.DEFAULT_LINE_DELIMITER);
+        if (properties.containsKey(LoadStmt.EXEC_MEM_LIMIT)) {
+            try {
+                Long.parseLong(properties.get(LoadStmt.EXEC_MEM_LIMIT));
+            } catch (NumberFormatException e) {
+                throw new DdlException("Execute memory limit is not Long", e);
+            }
+        } else {
+            properties.put(LoadStmt.EXEC_MEM_LIMIT,
+                           String.valueOf(ConnectContext.get().getSessionVariable().getMaxExecMemByte()));
+        }
     }
 
     @Override
