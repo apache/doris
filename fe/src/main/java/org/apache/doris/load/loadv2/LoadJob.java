@@ -88,7 +88,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     // optional properties
     // timeout second need to be reset in constructor of subclass
     protected int timeoutSecond = Config.pull_load_task_default_timeout_second;
-    protected long execMemLimit;
+    protected long execMemLimit = 2147483648L; // 2GB;
     protected double maxFilterRatio = 0;
     protected boolean deleteFlag = false;
     protected boolean strictMode = true;
