@@ -273,6 +273,12 @@ private:
     
     std::string _construct_old_file_path(const std::string& path_prefix, int32_t segment_id, const std::string& suffix) const;
 
+    std::string _construct_err_sg_file_path(const std::string& path_prefix, int32_t segment_id, const std::string& suffix) const;
+
+    std::string _construct_err_sg_index_file_path(const std::string& path_prefix, int32_t segment_id) const;
+    
+    std::string _construct_err_sg_data_file_path(const std::string& path_prefix, int32_t segment_id) const;
+
 private:
     int64_t _tablet_id;
     int64_t _rowset_id;

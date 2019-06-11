@@ -563,7 +563,7 @@ OLAPStatus DataDir::_convert_old_tablet() {
         bool parsed = olap_header_msg.ParseFromString(value);
         if (!parsed) {
             LOG(FATAL) << "convert olap header to tablet meta failed when load olap header tablet="
-                         << tablet_id << "." << schema_hash;
+                       << tablet_id << "." << schema_hash;
             return false;
         }
         string old_data_path_prefix = get_absolute_tablet_path(olap_header_msg, true);
@@ -612,16 +612,10 @@ OLAPStatus DataDir::_convert_old_tablet() {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus DataDir::_remove_old_meta_and_files(const std::set<int64_t>& tablet_ids) {
+OLAPStatus DataDir::remove_old_meta_and_files() {
     // clean old meta(olap header message) 
-    auto clean_old_meta_func = [this, &tablet_ids](int64_t tablet_id,
+    auto clean_old_meta_func = [this](int64_t tablet_id,
         int32_t schema_hash, const std::string& value) -> bool {
-        if (tablet_ids.find(tablet_id) == tablet_ids.end()) {
-            LOG(WARNING) << "tablet not load successfully, skip clean meta for tablet=" 
-                      << tablet_id << "." << schema_hash
-                      << " from data dir: " << _path;
-            return true;
-        }
         TabletMetaManager::remove(this, tablet_id, schema_hash, OLD_HEADER_PREFIX);
         LOG(INFO) << "successfully clean old tablet meta(olap header) for tablet=" 
                   << tablet_id << "." << schema_hash
@@ -638,14 +632,8 @@ OLAPStatus DataDir::_remove_old_meta_and_files(const std::set<int64_t>& tablet_i
     }
 
     // clean old files because they have hard links in new file name format
-    auto clean_old_files_func = [this, &tablet_ids](int64_t tablet_id,
+    auto clean_old_files_func = [this](int64_t tablet_id,
         int32_t schema_hash, const std::string& value) -> bool {
-        if (tablet_ids.find(tablet_id) == tablet_ids.end()) {
-            LOG(WARNING) << "tablet not load successfully, skip clean files for tablet=" 
-                  << tablet_id << "." << schema_hash
-                  << " from data dir: " << _path;
-            return true;
-        }
         TabletMetaPB tablet_meta_pb;
         bool parsed = tablet_meta_pb.ParseFromString(value);
         if (!parsed) {
@@ -697,6 +685,19 @@ OLAPStatus DataDir::_remove_old_meta_and_files(const std::set<int64_t>& tablet_i
     return OLAP_SUCCESS;
 }
 
+bool DataDir::convert_old_data_success() {
+    return _convert_old_data_success;
+}
+
+OLAPStatus DataDir::set_convert_finished() {
+    OLAPStatus res = _meta->set_tablet_convert_finished();
+    if (res != OLAP_SUCCESS) {
+        LOG(FATAL) << "save convert flag failed after convert old tablet. dir=" << _path;
+        return res;
+    }
+    return OLAP_SUCCESS;
+}
+
 // TODO(ygl): deal with rowsets and tablets when load failed
 OLAPStatus DataDir::load() {
     // check if this is an old data path
@@ -706,7 +707,7 @@ OLAPStatus DataDir::load() {
         LOG(WARNING) << "get convert flag from meta failed dir=" << _path;
         return res;
     }
-    bool should_remove_old_files = false;
+    _convert_old_data_success = false;
     if (!is_tablet_convert_finished) {
         _clean_unfinished_converting_data();
         res = _convert_old_tablet();
@@ -714,18 +715,11 @@ OLAPStatus DataDir::load() {
             LOG(FATAL) << "convert old tablet failed for  dir = " << _path;
             return res;
         }
-        // TODO(ygl): should load tablet successfully and then set convert flag and clean old files
-        res = _meta->set_tablet_convert_finished();
-        if (res != OLAP_SUCCESS) {
-            LOG(FATAL) << "save convert flag failed after convert old tablet. dir=" << _path;
-            return res;
-        }
-        // convert may be successfully, but crashed before remove old files
-        // depend on gc thread to recycle the old files
-        // _remove_old_meta_and_files(data_dir);
-        should_remove_old_files = true;
+
+        _convert_old_data_success = true;
     } else {
         LOG(INFO) << "tablets have been converted, skip convert process";
+        _convert_old_data_success = true;
     }
 
     LOG(INFO) << "start to load tablets from " << _path;
@@ -852,9 +846,6 @@ OLAPStatus DataDir::load() {
                          << " txn: " << rowset_meta->txn_id()
                          << " current valid tablet uid: " << tablet->tablet_uid();
         }
-    }
-    if (should_remove_old_files) {
-        _remove_old_meta_and_files(tablet_ids);
     }
     return OLAP_SUCCESS;
 }
