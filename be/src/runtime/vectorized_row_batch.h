@@ -72,7 +72,7 @@ private:
 
 class ColumnVectorView {
 public:
-    explicit ColumnVectorView(ColumnVector* column_vector, size_t row_offset, MemPool* mem_pool) :
+    explicit ColumnVectorView(ColumnVector* column_vector, size_t row_offset, MemPool* mem_pool)
             : _column_vector(column_vector), _row_offset(row_offset), _mem_pool(mem_pool) { }
 
     void advance(size_t skip) {
@@ -95,7 +95,7 @@ private:
     ColumnVector* _column_vector;
     size_t _row_offset;
     MemPool* _mem_pool;
-}
+};
 
 class VectorizedRowBatch {
 public:
