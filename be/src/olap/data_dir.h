@@ -113,6 +113,13 @@ public:
     // this function will collect garbage paths scaned by last function
     void perform_path_gc();
 
+
+    OLAPStatus remove_old_meta_and_files();
+
+    bool convert_old_data_success();
+
+    OLAPStatus set_convert_finished();
+
 private:
     std::string _cluster_id_path() const { return _path + CLUSTER_ID_PREFIX; }
     Status _init_cluster_id();
@@ -127,7 +134,6 @@ private:
     Status _write_cluster_id_to_path(const std::string& path, int32_t cluster_id); 
     OLAPStatus _clean_unfinished_converting_data();
     OLAPStatus _convert_old_tablet();
-    OLAPStatus _remove_old_meta_and_files(const std::set<int64_t>& tablet_ids);
 
     void _remove_check_paths_no_lock(const std::set<std::string>& paths);
 
@@ -172,6 +178,9 @@ private:
 
     std::set<std::string> _pending_path_ids;
     RWMutex _pending_path_mutex;
+
+    // used in convert process
+    bool _convert_old_data_success;
 };
 
 } // namespace doris

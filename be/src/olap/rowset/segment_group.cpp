@@ -797,11 +797,28 @@ OLAPStatus SegmentGroup::convert_to_old_files(const std::string& snapshot_path,
 OLAPStatus SegmentGroup::remove_old_files(std::vector<std::string>* links_to_remove) {
     for (int segment_id = 0; segment_id < _num_segments; segment_id++) {
         std::string old_data_file_name = construct_old_data_file_path(_rowset_path_prefix, segment_id);
-        RETURN_NOT_OK(remove_dir(old_data_file_name));
-        links_to_remove->push_back(old_data_file_name);
+        if (check_dir_existed(old_data_file_name)) {
+            RETURN_NOT_OK(remove_dir(old_data_file_name));
+            links_to_remove->push_back(old_data_file_name);
+        }
         std::string old_index_file_name = construct_old_index_file_path(_rowset_path_prefix, segment_id);
-        RETURN_NOT_OK(remove_dir(old_index_file_name));
-        links_to_remove->push_back(old_index_file_name);
+        if (check_dir_existed(old_index_file_name)) {
+            RETURN_NOT_OK(remove_dir(old_index_file_name));
+            links_to_remove->push_back(old_index_file_name);
+        }
+        // if segment group id == 0, it maybe convert from old files which do not have segment group id in file path
+        if (_segment_group_id == 0) {
+            old_data_file_name = _construct_err_sg_data_file_path(_rowset_path_prefix, segment_id);
+            if (check_dir_existed(old_data_file_name)) {
+                RETURN_NOT_OK(remove_dir(old_data_file_name));
+                links_to_remove->push_back(old_data_file_name);
+            }
+            old_index_file_name = _construct_err_sg_index_file_path(_rowset_path_prefix, segment_id);
+            if (check_dir_existed(old_index_file_name)) {
+                RETURN_NOT_OK(remove_dir(old_index_file_name));
+                links_to_remove->push_back(old_index_file_name);
+            }
+        }
     }
     std::string pending_delta_path = _rowset_path_prefix + PENDING_DELTA_PREFIX;
     if (check_dir_existed(pending_delta_path)) {
@@ -857,6 +874,22 @@ std::string SegmentGroup::construct_old_data_file_path(const std::string& path_p
     }
 }
 
+std::string SegmentGroup::_construct_err_sg_index_file_path(const std::string& path_prefix, int32_t segment_id) const {
+    if (_is_pending) {
+        return _construct_old_pending_file_path(path_prefix, segment_id, ".idx");
+    } else {
+        return _construct_err_sg_file_path(path_prefix, segment_id, ".idx");
+    }
+}
+    
+std::string SegmentGroup::_construct_err_sg_data_file_path(const std::string& path_prefix, int32_t segment_id) const {
+    if (_is_pending) {
+        return _construct_old_pending_file_path(path_prefix, segment_id, ".dat");
+    } else {
+        return _construct_err_sg_file_path(path_prefix, segment_id, ".dat");
+    }
+}
+
 std::string SegmentGroup::_construct_old_pending_file_path(const std::string& path_prefix, int32_t segment_id,
     const std::string& suffix) const {
     std::stringstream file_path;
@@ -891,6 +924,23 @@ std::string SegmentGroup::_construct_old_file_path(const std::string& path_prefi
                  _segment_group_id, segment_id,
                  suffix.c_str());
     }
+
+    return file_path;
+}
+
+// construct file path for sg_id == -1
+std::string SegmentGroup::_construct_err_sg_file_path(const std::string& path_prefix, int32_t segment_id, const std::string& suffix) const {
+    char file_path[OLAP_MAX_PATH_LEN];
+    snprintf(file_path,
+                sizeof(file_path),
+                "%s/%ld_%ld_%ld_%ld_%d%s",
+                path_prefix.c_str(),
+                _tablet_id,
+                _version.first,
+                _version.second,
+                _version_hash,
+                segment_id,
+                suffix.c_str());
 
     return file_path;
 }
