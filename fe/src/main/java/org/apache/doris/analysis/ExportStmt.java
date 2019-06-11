@@ -54,7 +54,6 @@ public class ExportStmt extends StatementBase {
 
     private static final String DEFAULT_COLUMN_SEPARATOR = "\t";
     private static final String DEFAULT_LINE_DELIMITER = "\n";
-    private static final long DEFAULT_EXEC_MEM_LIMIT = 2147483648L; // 2GB
 
     private TableName tblName;
     private List<String> partitions;
@@ -63,7 +62,6 @@ public class ExportStmt extends StatementBase {
     private final Map<String, String> properties;
     private String columnSeparator;
     private String lineDelimiter;
-    private long execMemLimit;
 
     private TableRef tableRef;
 
@@ -75,7 +73,6 @@ public class ExportStmt extends StatementBase {
         this.brokerDesc = brokerDesc;
         this.columnSeparator = DEFAULT_COLUMN_SEPARATOR;
         this.lineDelimiter = DEFAULT_LINE_DELIMITER;
-        this.execMemLimit = DEFAULT_EXEC_MEM_LIMIT;
     }
 
     public TableRef getTableRef() {
@@ -108,10 +105,6 @@ public class ExportStmt extends StatementBase {
 
     public String getLineDelimiter() {
         return this.lineDelimiter;
-    }
-
-    public long getExecMemLimit() {
-        return execMemLimit;
     }
 
     @Override
@@ -235,14 +228,9 @@ public class ExportStmt extends StatementBase {
         this.lineDelimiter = PropertyAnalyzer.analyzeLineDelimiter(properties, ExportStmt.DEFAULT_LINE_DELIMITER);
         if (properties != null && properties.containsKey(LoadStmt.EXEC_MEM_LIMIT)) {
             try {
-                this.execMemLimit = Long.parseLong(properties.get(LoadStmt.EXEC_MEM_LIMIT));
+                Long.parseLong(properties.get(LoadStmt.EXEC_MEM_LIMIT));
             } catch (NumberFormatException e) {
                 throw new DdlException("Execute memory limit is not Long", e);
-            }
-        } else {
-            // resource info
-            if (ConnectContext.get() != null) {
-                this.execMemLimit = ConnectContext.get().getSessionVariable().getMaxExecMemByte();
             }
         }
     }

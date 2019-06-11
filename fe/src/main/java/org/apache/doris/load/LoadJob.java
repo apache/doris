@@ -74,7 +74,6 @@ public class LoadJob implements Writable {
 
     private static final int DEFAULT_TIMEOUT_S = 0;
     private static final double DEFAULT_MAX_FILTER_RATIO = 0;
-    private static final long DEFAULT_EXEC_MEM_LIMIT = 2147483648L; // 2GB
 
     private long id;
     private long dbId;
@@ -177,7 +176,6 @@ public class LoadJob implements Writable {
         this.replicaPersistInfos = Maps.newHashMap();
         this.resourceInfo = null;
         this.priority = TPriority.NORMAL;
-        this.execMemLimit = DEFAULT_EXEC_MEM_LIMIT;
         this.finishedReplicas = Maps.newHashMap();
         
         // generate table load info
@@ -222,7 +220,6 @@ public class LoadJob implements Writable {
         this.replicaPersistInfos = Maps.newHashMap();
         this.resourceInfo = null;
         this.priority = TPriority.NORMAL;
-        this.execMemLimit = DEFAULT_EXEC_MEM_LIMIT;
         this.finishedReplicas = Maps.newHashMap();
     }
     

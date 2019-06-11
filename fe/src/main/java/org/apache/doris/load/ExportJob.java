@@ -23,6 +23,7 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.ExportStmt;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableName;
@@ -52,6 +53,7 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.system.Backend;
 import org.apache.doris.task.AgentClient;
@@ -87,7 +89,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 //       because we may change job's member concurrently.
 public class ExportJob implements Writable {
     private static final Logger LOG = LogManager.getLogger(ExportJob.class);
-    private static final long DEFAULT_EXEC_MEM_LIMIT = 2147483648L; // 2GB
 
     public enum JobState {
         PENDING,
@@ -104,7 +105,7 @@ public class ExportJob implements Writable {
     private String exportPath;
     private String columnSeparator;
     private String lineDelimiter;
-    private long execMemLimit;
+    private Map<String, String> properties = Maps.newHashMap();
     private List<String> partitions;
 
     private TableName tableName;
@@ -161,7 +162,6 @@ public class ExportJob implements Writable {
         this.exportPath = "";
         this.columnSeparator = "\t";
         this.lineDelimiter = "\n";
-        this.execMemLimit = DEFAULT_EXEC_MEM_LIMIT;
     }
 
     public ExportJob(long jobId) {
@@ -184,7 +184,9 @@ public class ExportJob implements Writable {
 
         this.columnSeparator = stmt.getColumnSeparator();
         this.lineDelimiter = stmt.getLineDelimiter();
-        this.execMemLimit = stmt.getExecMemLimit();
+        if (stmt.getProperties() != null) {
+            this.properties = stmt.getProperties();
+        }
 
         String path = stmt.getPath();
         Preconditions.checkArgument(!Strings.isNullOrEmpty(path));
@@ -400,7 +402,11 @@ public class ExportJob implements Writable {
     }
 
     public long getExecMemLimit() {
-        return execMemLimit;
+        if (properties.get(LoadStmt.EXEC_MEM_LIMIT) != null) {
+            return Long.parseLong(properties.get(LoadStmt.EXEC_MEM_LIMIT));
+        } else {
+            return ConnectContext.get().getSessionVariable().getMaxExecMemByte();
+        }
     }
 
     public List<String> getPartitions() {
@@ -562,7 +568,11 @@ public class ExportJob implements Writable {
         Text.writeString(out, exportPath);
         Text.writeString(out, columnSeparator);
         Text.writeString(out, lineDelimiter);
-        out.writeLong(execMemLimit);
+        out.writeInt(properties.size());
+        for (Map.Entry<String, String> property : properties.entrySet()) {
+            Text.writeString(out, "property." + property.getKey());
+            Text.writeString(out, property.getValue());
+        }
 
         // partitions
         boolean hasPartition = (partitions != null);
@@ -606,7 +616,14 @@ public class ExportJob implements Writable {
         lineDelimiter = Text.readString(in);
 
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_53) {
-            execMemLimit = in.readLong();
+            int count = in.readInt();
+            for (int i = 0 ;i < count ;i ++) {
+                String propertyKey = Text.readString(in);
+                String propertyValue = Text.readString(in);
+                if (propertyKey.startsWith("property.")) {
+                    this.properties.put(propertyKey.substring(propertyKey.indexOf(".") + 1), propertyValue);
+                }
+            }
         }
 
         boolean hasPartition = in.readBoolean();
