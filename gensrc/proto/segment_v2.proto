@@ -16,6 +16,8 @@
 // under the License.
 // Define file format struct, like data header, index header.
 
+syntax="proto2";
+
 package doris.segment_v2;
 
 message ColumnSchemaPB {
@@ -44,23 +46,23 @@ message MetadataPairPB {
 }
 
 enum EncodingTypePB {
-    PLAIN_ENCODING = 1;
-    PREFIX_ENCODING = 2;
+    UNKNOWN_ENCODING = 0;
+    DEFAULT_ENCODING = 1;
+    PLAIN_ENCODING = 2;
+    PREFIX_ENCODING = 3;
     RLE = 4;
     DICT_ENCODING = 5;
     BIT_SHUFFLE = 6;
-    UNKNOWN_ENCODING = 1000;
 }
 
 enum CompressionTypePB {
-    DEFAULT_COMPRESSION = 0;
-    NO_COMPRESSION = 1;
-    SNAPPY = 2;
-    LZ4 = 3;
-    ZLIB = 4;
-    ZSTB = 5;
-    LZO = 6;
-    UNKNOWN_COMPRESSION = 1000;
+    UNKNOWN_COMPRESSION = 0;
+    DEFAULT_COMPRESSION = 1;
+    NO_COMPRESSION = 2;
+    SNAPPY = 3;
+    LZ4 = 4;
+    ZLIB = 5;
+    ZSTB = 6;
 }
 
 message ZoneMapPB {
@@ -70,23 +72,34 @@ message ZoneMapPB {
 }
 
 message ColumnMetaPB {
-    optional EncodingTypePB encoding = 1;
+    // this field is FieldType's value
+    optional int32 type = 1;
+    optional EncodingTypePB encoding = 2;
+    // compress type for column
+    optional CompressionTypePB compress_type = 3;
+    // if this column can be nullable
+    optional bool is_nullable = 4;
 
-    optional PagePointerPB dict_page = 2;// dictionary page for DICT_ENCODING
-    repeated PagePointerPB bloom_filter_pages = 3; // bloom filter pages for bloom filter column
-    optional PagePointerPB ordinal_index_page = 4; // ordinal index page
-    optional PagePointerPB page_zonemap_page = 5; // page zonemap info of column
+    // // dictionary page for DICT_ENCODING
+    // optional PagePointerPB dict_page = 2;
 
-    optional PagePointerPB bitmap_index_page = 6; // bitmap index page
+    // // bloom filter pages for bloom filter column
+    // repeated PagePointerPB bloom_filter_pages = 3;
 
-    optional uint64 data_footprint = 7; // data footprint of column after encoding and compress
-    optional uint64 index_footprint = 8; // index footprint of column after encoding and compress
-    optional uint64 raw_data_footprint = 9; // raw column data footprint
+    // optional PagePointerPB ordinal_index_page = 4; // ordinal index page
+    // optional PagePointerPB page_zonemap_page = 5; // page zonemap info of column
 
-    optional CompressionTypePB compress_type = 10; // compress type for column
+    // optional PagePointerPB bitmap_index_page = 6; // bitmap index page
 
-    optional ZoneMapPB column_zonemap = 11; // column zonemap info
-    repeated MetadataPairPB column_meta_datas = 12;
+    // // data footprint of column after encoding and compress
+    // optional uint64 data_footprint = 7;
+    // // index footprint of column after encoding and compress
+    // optional uint64 index_footprint = 8;
+    // // raw column data footprint
+    // optional uint64 raw_data_footprint = 9;
+
+    // optional ZoneMapPB column_zonemap = 11; // column zonemap info
+    // repeated MetadataPairPB column_meta_datas = 12;
 }
 
 message FileFooterPB {
