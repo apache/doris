@@ -87,6 +87,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 //       because we may change job's member concurrently.
 public class ExportJob implements Writable {
     private static final Logger LOG = LogManager.getLogger(ExportJob.class);
+    private static final long DEFAULT_EXEC_MEM_LIMIT = 2147483648L; // 2GB
 
     public enum JobState {
         PENDING,
@@ -103,6 +104,7 @@ public class ExportJob implements Writable {
     private String exportPath;
     private String columnSeparator;
     private String lineDelimiter;
+    private long execMemLimit;
     private List<String> partitions;
 
     private TableName tableName;
@@ -159,6 +161,7 @@ public class ExportJob implements Writable {
         this.exportPath = "";
         this.columnSeparator = "\t";
         this.lineDelimiter = "\n";
+        this.execMemLimit = DEFAULT_EXEC_MEM_LIMIT;
     }
 
     public ExportJob(long jobId) {
@@ -181,6 +184,7 @@ public class ExportJob implements Writable {
 
         this.columnSeparator = stmt.getColumnSeparator();
         this.lineDelimiter = stmt.getLineDelimiter();
+        this.execMemLimit = stmt.getExecMemLimit();
 
         String path = stmt.getPath();
         Preconditions.checkArgument(!Strings.isNullOrEmpty(path));
@@ -294,6 +298,7 @@ public class ExportJob implements Writable {
             TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits() + i, uuid.getLeastSignificantBits());
             Coordinator coord = new Coordinator(
                     id, queryId, desc, Lists.newArrayList(fragment), Lists.newArrayList(scanNode), clusterName);
+            coord.setExecMemoryLimit(getExecMemLimit());
             coords.add(coord);
             this.coordList.add(coord);
         }
@@ -392,6 +397,10 @@ public class ExportJob implements Writable {
 
     public String getLineDelimiter() {
         return this.lineDelimiter;
+    }
+
+    public long getExecMemLimit() {
+        return execMemLimit;
     }
 
     public List<String> getPartitions() {
@@ -553,6 +562,7 @@ public class ExportJob implements Writable {
         Text.writeString(out, exportPath);
         Text.writeString(out, columnSeparator);
         Text.writeString(out, lineDelimiter);
+        out.writeLong(execMemLimit);
 
         // partitions
         boolean hasPartition = (partitions != null);
@@ -594,6 +604,10 @@ public class ExportJob implements Writable {
         exportPath = Text.readString(in);
         columnSeparator = Text.readString(in);
         lineDelimiter = Text.readString(in);
+
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_53) {
+            execMemLimit = in.readLong();
+        }
 
         boolean hasPartition = in.readBoolean();
         if (hasPartition) {
