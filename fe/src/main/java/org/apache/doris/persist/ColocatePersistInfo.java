@@ -100,7 +100,7 @@ public class ColocatePersistInfo implements Writable {
     @Override
     public void readFields(DataInput in) throws IOException {
         tableId = in.readLong();
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_53) {
+        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_54) {
             long grpId = in.readLong();
             long dbId = in.readLong();
             groupId = new GroupId(dbId, grpId);

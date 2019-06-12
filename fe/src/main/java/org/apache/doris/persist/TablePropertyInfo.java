@@ -89,7 +89,7 @@ public class TablePropertyInfo implements Writable {
         dbId = in.readLong();
         tableId = in.readLong();
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_53) {
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_54) {
             if (in.readBoolean()) {
                 groupId = GroupId.read(in);
             }
