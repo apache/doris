@@ -1,0 +1,116 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+// Define file format struct, like data header, index header.
+
+syntax="proto2";
+
+package doris.segment_v2;
+
+message ColumnSchemaPB {
+    optional uint32 column_id = 1;
+    optional string type = 2;
+    optional string aggregation = 3;
+    optional uint32 length = 4;
+    optional bool is_key = 5;
+    optional string default_value = 6;
+    optional uint32 precision = 9 [default = 27];
+    optional uint32 frac = 10 [default = 9];
+    optional bool is_nullable = 11 [default=false];
+    optional bool is_bf_column = 15 [default=false]; // is bloom filter indexed column
+    optional bool is_bitmap_column = 16 [default=false];
+}
+
+// page position info
+message PagePointerPB {
+    required uint64 offset = 1; // offset in segment file
+    required uint32 size = 2; // size of page in byte
+}
+
+message MetadataPairPB {
+  optional string key = 1;
+  optional bytes value = 2;
+}
+
+enum EncodingTypePB {
+    UNKNOWN_ENCODING = 0;
+    DEFAULT_ENCODING = 1;
+    PLAIN_ENCODING = 2;
+    PREFIX_ENCODING = 3;
+    RLE = 4;
+    DICT_ENCODING = 5;
+    BIT_SHUFFLE = 6;
+}
+
+enum CompressionTypePB {
+    UNKNOWN_COMPRESSION = 0;
+    DEFAULT_COMPRESSION = 1;
+    NO_COMPRESSION = 2;
+    SNAPPY = 3;
+    LZ4 = 4;
+    ZLIB = 5;
+    ZSTB = 6;
+}
+
+message ZoneMapPB {
+    optional bytes min = 1;
+    optional bytes max = 2;
+    optional bool null_flag = 3;
+}
+
+message ColumnMetaPB {
+    // this field is FieldType's value
+    optional int32 type = 1;
+    optional EncodingTypePB encoding = 2;
+    // compress type for column
+    optional CompressionTypePB compress_type = 3;
+    // if this column can be nullable
+    optional bool is_nullable = 4;
+
+    // // dictionary page for DICT_ENCODING
+    // optional PagePointerPB dict_page = 2;
+
+    // // bloom filter pages for bloom filter column
+    // repeated PagePointerPB bloom_filter_pages = 3;
+
+    // optional PagePointerPB ordinal_index_page = 4; // ordinal index page
+    // optional PagePointerPB page_zonemap_page = 5; // page zonemap info of column
+
+    // optional PagePointerPB bitmap_index_page = 6; // bitmap index page
+
+    // // data footprint of column after encoding and compress
+    // optional uint64 data_footprint = 7;
+    // // index footprint of column after encoding and compress
+    // optional uint64 index_footprint = 8;
+    // // raw column data footprint
+    // optional uint64 raw_data_footprint = 9;
+
+    // optional ZoneMapPB column_zonemap = 11; // column zonemap info
+    // repeated MetadataPairPB column_meta_datas = 12;
+}
+
+message FileFooterPB {
+    optional uint32 version = 1 [default = 1]; // file version
+    repeated ColumnSchemaPB schema = 2; // tablet schema
+    optional uint64 num_values = 3; // number of values
+    optional uint64 index_footprint = 4; // total idnex footprint of all columns
+    optional uint64 data_footprint = 5; // total data footprint of all columns
+    optional uint64 raw_data_footprint = 6; // raw data footprint
+
+    optional CompressionTypePB compress_type = 7 [default = ZSTB]; // default compression type for file columns
+    repeated MetadataPairPB file_meta_datas = 8; // meta data of file
+    optional PagePointerPB key_index_page = 9; // short key index page
+}

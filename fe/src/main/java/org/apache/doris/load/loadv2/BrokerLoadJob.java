@@ -243,7 +243,7 @@ public class BrokerLoadJob extends LoadJob {
                 // Generate loading task and init the plan of task
                 LoadLoadingTask task = new LoadLoadingTask(db, table, brokerDesc,
                                                            entry.getValue(), getDeadlineMs(), execMemLimit,
-                                                           transactionId, this);
+                                                           strictMode, transactionId, this);
                 task.init(attachment.getFileStatusByTable(tableId),
                           attachment.getFileNumByTable(tableId));
                 // Add tasks into list and pool

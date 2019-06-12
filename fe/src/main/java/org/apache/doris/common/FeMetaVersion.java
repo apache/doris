@@ -114,4 +114,6 @@ public final class FeMetaVersion {
     public static final int VERSION_51 = 51;
     // small files
     public static final int VERSION_52 = 52;
+    // Support exec_mem_limit in ExportJob
+    public static final int VERSION_53 = 53;
 }

@@ -133,6 +133,7 @@ cp -r ${DORIS_HOME}/be/test/util/test_data ${DORIS_TEST_BINARY_DIR}/util/
 
 # Running Util Unittest
 ${DORIS_TEST_BINARY_DIR}/util/bit_util_test
+${DORIS_TEST_BINARY_DIR}/util/bitmap_test
 ${DORIS_TEST_BINARY_DIR}/util/path_trie_test
 ${DORIS_TEST_BINARY_DIR}/util/count_down_latch_test
 ${DORIS_TEST_BINARY_DIR}/util/lru_cache_util_test
@@ -228,6 +229,8 @@ ${DORIS_TEST_BINARY_DIR}/olap/olap_header_manager_test
 ${DORIS_TEST_BINARY_DIR}/olap/olap_meta_test
 ${DORIS_TEST_BINARY_DIR}/olap/delta_writer_test
 ${DORIS_TEST_BINARY_DIR}/olap/field_info_test
+${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/encoding_info_test
+${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/ordinal_page_index_test
 
 # Running routine load test
 ${DORIS_TEST_BINARY_DIR}/runtime/kafka_consumer_pipe_test
