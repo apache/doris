@@ -2106,7 +2106,7 @@ OLAPStatus SchemaChangeHandler::_alter_table(SchemaChangeParams* sc_params) {
         sc_params->ref_olap_table->obtain_header_wrlock();
         sc_params->new_olap_table->obtain_header_wrlock();
 
-        if (!sc_params->new_olap_table->has_version((*it)->version())) {
+        if (!sc_params->new_olap_table->has_segment_group((*it)->version(), new_segment_group)) {
             // register version
             std::vector<SegmentGroup*> segment_group_vec;
             segment_group_vec.push_back(new_segment_group);

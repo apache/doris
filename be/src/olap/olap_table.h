@@ -234,7 +234,7 @@ public:
 
     void list_index_files(std::set<std::string>* filenames) const;
 
-    bool has_version(const Version& version) const;
+    bool has_segment_group(const Version& version, const SegmentGroup* new_segment_group) const;
 
     void list_versions(std::vector<Version>* versions) const;
 
