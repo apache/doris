@@ -19,8 +19,8 @@
 
 #include <cstdint>
 
+#include "gen_cpp/segment_v2.pb.h"
 #include "util/coding.h"
-
 
 namespace doris {
 namespace segment_v2 {
@@ -31,11 +31,13 @@ struct PagePointer {
 
     PagePointer() : offset(0), size(0) { }
     PagePointer(uint64_t offset_, uint32_t size_) : offset(offset_), size(size_) { }
-    // PagePointer(const PagePointerPB& from) : offset(from.offset()), size(from.size()) { }
-    // void to_proto(PagePointerPB* to) {
-    //     to->set_offset(offset);
-    //     to->set_size(size);
-    // }
+    PagePointer(const PagePointerPB& from) : offset(from.offset()), size(from.size()) { }
+
+    void to_proto(PagePointerPB* to) {
+        to->set_offset(offset);
+        to->set_size(size);
+    }
+
     const uint8_t* decode_from(const uint8_t* data, const uint8_t* limit) {
         data = decode_varint64_ptr(data, limit, &offset);
         if (data == nullptr) {

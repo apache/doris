@@ -31,7 +31,6 @@ namespace segment_v2 {
 class PageBuilder;
 class PageDecoder;
 
-
 class EncodingInfo {
 public:
     // Get EncodingInfo for TypeInfo and EncodingTypePB

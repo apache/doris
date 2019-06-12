@@ -37,7 +37,7 @@ message ColumnSchemaPB {
 // page position info
 message PagePointerPB {
     required uint64 offset = 1; // offset in segment file
-    required uint32 length = 2; // size of page in byte
+    required uint32 size = 2; // size of page in byte
 }
 
 message MetadataPairPB {

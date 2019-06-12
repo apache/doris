@@ -43,6 +43,7 @@ class OrdinalPageIndexBuilder {
 public:
     OrdinalPageIndexBuilder() : _num_pages(0) {
         _buffer.reserve(4 * 1024);
+        // reserve space for number of elements
         _buffer.resize(4);
     }
 
@@ -55,6 +56,7 @@ public:
     }
 
     Slice finish() {
+        // encoded number of elements
         encode_fixed32_le((uint8_t*)_buffer.data(), _num_pages);
         return Slice(_buffer);
     }
@@ -69,7 +71,7 @@ class OrdinalPageIndexIterator {
 public:
     OrdinalPageIndexIterator(OrdinalPageIndex* index) : _index(index), _cur_idx(-1) { }
     OrdinalPageIndexIterator(OrdinalPageIndex* index, int cur_idx) : _index(index), _cur_idx(cur_idx) { }
-    inline bool has_next() const;
+    inline bool valid() const;
     inline void next();
     inline rowid_t rowid() const;
     inline const PagePointer& page() const;
@@ -110,8 +112,8 @@ private:
     PagePointer* _pages;
 };
 
-inline bool OrdinalPageIndexIterator::has_next() const {
-    return _cur_idx < _index->_num_pages - 1;
+inline bool OrdinalPageIndexIterator::valid() const {
+    return _cur_idx < _index->_num_pages;
 }
 
 inline void OrdinalPageIndexIterator::next() {

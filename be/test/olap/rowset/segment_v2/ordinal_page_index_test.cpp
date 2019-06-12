@@ -54,26 +54,24 @@ TEST_F(OrdinalPageIndexTest, normal) {
     PagePointer page;
     {
         auto iter = index.seek_at_or_before(1);
-        ASSERT_TRUE(iter.has_next());
-        iter.next();
+        ASSERT_TRUE(iter.valid());
         ASSERT_EQ(1, iter.rowid());
         ASSERT_EQ(PagePointer(0, 16 * 1024), iter.page());
     }
     {
         auto iter = index.seek_at_or_before(4095);
-        ASSERT_TRUE(iter.has_next());
-        iter.next();
+        ASSERT_TRUE(iter.valid());
         ASSERT_EQ(1, iter.rowid());
         ASSERT_EQ(PagePointer(0, 16 * 1024), iter.page());
     }
     {
         auto iter = index.seek_at_or_before(4098);
-        ASSERT_TRUE(iter.has_next());
-        iter.next();
+        ASSERT_TRUE(iter.valid());
         ASSERT_EQ(4097, iter.rowid());
         ASSERT_EQ(PagePointer(1 * 16 * 1024, 16 * 1024), iter.page());
 
         iter.next();
+        ASSERT_TRUE(iter.valid());
         ASSERT_EQ(4097 + 4096, iter.rowid());
         ASSERT_EQ(PagePointer(2 * 16 * 1024, 16 * 1024), iter.page());
 
@@ -81,7 +79,7 @@ TEST_F(OrdinalPageIndexTest, normal) {
 
     {
         auto iter = index.seek_at_or_before(0);
-        ASSERT_FALSE(iter.has_next());
+        ASSERT_FALSE(iter.valid());
     }
 }
 

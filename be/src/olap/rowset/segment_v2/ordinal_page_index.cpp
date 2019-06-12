@@ -66,7 +66,7 @@ OrdinalPageIndexIterator OrdinalPageIndex::seek_at_or_before(rowid_t rid) {
     if (_rowids[left] > rid) {
         return OrdinalPageIndexIterator(this, _num_pages);
     }
-    return OrdinalPageIndexIterator(this, left - 1);
+    return OrdinalPageIndexIterator(this, left);
 }
 
 }
