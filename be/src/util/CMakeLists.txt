@@ -75,6 +75,7 @@ set(UTIL_FILES
   string_util.cpp
   md5.cpp
   frontend_helper.cpp
+  faststring.cc
 )
 
 if (WITH_MYSQL)

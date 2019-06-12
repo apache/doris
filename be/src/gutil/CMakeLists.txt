@@ -45,7 +45,8 @@ add_library(Gutil STATIC
   strings/substitute.cc
   strings/util.cc
   strtoint.cc
-  utf/rune.c)
+  utf/rune.c
+  cpu.cc)
 
 set_target_properties(Gutil PROPERTIES COMPILE_FLAGS "-funsigned-char -Wno-deprecated -Wno-char-subscripts")
 # target_link_libraries(Gutil glog protobuf rt)
