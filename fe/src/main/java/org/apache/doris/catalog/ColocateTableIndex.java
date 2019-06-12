@@ -90,7 +90,7 @@ public class ColocateTableIndex implements Writable {
                 return false;
             }
             GroupId other = (GroupId) obj;
-            return dbId == other.dbId && grpId == other.grpId;
+            return dbId.equals(other.dbId) && grpId.equals(other.grpId);
         }
 
         @Override
