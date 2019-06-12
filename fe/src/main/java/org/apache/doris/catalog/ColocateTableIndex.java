@@ -201,6 +201,7 @@ public class ColocateTableIndex implements Writable {
         writeLock();
         try {
             balancingGroups.add(groupId);
+            LOG.info("mark group {} as balancing", groupId);
         } finally {
             writeUnlock();
         }
@@ -210,6 +211,7 @@ public class ColocateTableIndex implements Writable {
         writeLock();
         try {
             balancingGroups.remove(groupId);
+            LOG.info("mark group {} as stable", groupId);
         } finally {
             writeUnlock();
         }

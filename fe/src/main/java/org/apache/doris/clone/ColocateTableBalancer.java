@@ -661,7 +661,6 @@ public class ColocateTableBalancer extends Daemon {
             Catalog.getCurrentColocateIndex().markGroupBalancing(groupId);
             ColocatePersistInfo info = ColocatePersistInfo.CreateForMarkBalancing(groupId);
             Catalog.getInstance().getEditLog().logColocateMarkBalancing(info);
-            LOG.info("mark group {} balancing", groupId);
         }
     }
 
