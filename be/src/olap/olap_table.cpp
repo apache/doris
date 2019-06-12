@@ -1867,8 +1867,19 @@ void OLAPTable::_list_files_with_suffix(const string& file_suffix, set<string>* 
     }
 }
 
-bool OLAPTable::has_version(const Version& version) const {
-    return (_data_sources.find(version) != _data_sources.end());
+bool OLAPTable::has_segment_group(const Version& version, const SegmentGroup* new_segment_group) const {
+    auto it = _data_sources.find(version);
+    if (it == _data_sources.end()) {
+        return false;
+    }
+    bool exist = false;
+    for (auto segment_group : it->second) {
+        if (segment_group->segment_group_id() == new_segment_group->segment_group_id()) {
+            exist = true;
+            break;
+        }
+    }
+    return exist;
 }
 
 void OLAPTable::list_versions(vector<Version>* versions) const {
