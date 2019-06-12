@@ -27,6 +27,8 @@ namespace segment_v2 {
 // PageDecoder is used to decode page page.
 class PageDecoder {
 public:
+    PageDecoder() { }
+
     virtual ~PageDecoder() { }
 
     // Call this to do some preparation for decoder.
