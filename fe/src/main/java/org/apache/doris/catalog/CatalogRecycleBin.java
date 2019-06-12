@@ -284,6 +284,12 @@ public class CatalogRecycleBin extends Daemon implements Writable {
             }
         }
 
+        // colocation
+        if (Catalog.getCurrentColocateIndex().removeTable(tableId)) {
+            ColocatePersistInfo colocateInfo = ColocatePersistInfo.createForRemoveTable(tableId);
+            Catalog.getCurrentCatalog().getEditLog().logColocateRemoveTable(colocateInfo);
+        }
+
         LOG.info("replay erase table[{}]", tableId);
     }
 

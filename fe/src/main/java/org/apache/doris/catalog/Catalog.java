@@ -2550,7 +2550,6 @@ public class Catalog {
     public void unprotectDropDb(Database db) {
         for (Table table : db.getTables()) {
             unprotectDropTable(db, table.getId());
-            Catalog.getCurrentColocateIndex().removeTable(table.getId());
         }
     }
 
@@ -4103,8 +4102,10 @@ public class Catalog {
 
             // firstColocateTable is true, means this may be the first table of colocation group,
             // or this is just a normal table.
-            //
             boolean firstColocateTable = backendsPerBucketSeq == null || backendsPerBucketSeq.isEmpty();
+            if (firstColocateTable) {
+                backendsPerBucketSeq = Lists.newArrayList();
+            }
             for (int i = 0; i < distributionInfo.getBucketNum(); ++i) {
                 // create a new tablet with random chosen backends
                 Tablet tablet = new Tablet(getNextId());

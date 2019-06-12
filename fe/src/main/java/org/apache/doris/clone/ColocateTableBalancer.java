@@ -288,6 +288,9 @@ public class ColocateTableBalancer extends Daemon {
             // only delete redundant replica when group is stable
             if (!balancingGroups.contains(groupId)) {
                 Database db = catalog.getDb(groupId.dbId);
+                if (db == null) {
+                    continue;
+                }
                 List<Long> allTableIds = colocateIndex.getAllTableIds(groupId);
                 Set<CloneTabletInfo> deleteTabletSet = Sets.newHashSet();//keep tablets which have redundant replicas.
                 int replicateNum = -1;
@@ -295,6 +298,9 @@ public class ColocateTableBalancer extends Daemon {
                     db.readLock();
                     try {
                         OlapTable olapTable = (OlapTable) db.getTable(tableId);
+                        if (olapTable == null) {
+                            continue;
+                        }
                         for (Partition partition : olapTable.getPartitions()) {
                             replicateNum = olapTable.getPartitionInfo().getReplicationNum(partition.getId());
                             for (MaterializedIndex index : partition.getMaterializedIndices()) {
