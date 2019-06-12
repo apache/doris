@@ -4934,7 +4934,21 @@ public class Catalog {
                 groupSchema.checkColocateSchema(table);
             }
             
+            List<List<Long>> backendsPerBucketSeq = null;
+            if (groupSchema == null) {
+                // assign to a newly created group, set backends sequence.
+                // we arbitrarily choose a tablet backends sequence from this table,
+                // let the colocation balancer do the work.
+                backendsPerBucketSeq = table.getArbitraryTabletBucketsSeq();
+            }
+            // change group after getting backends sequence(if has), in case 'getArbitraryTabletBucketsSeq' failed
             groupId = colocateTableIndex.changeGroup(db.getId(), table, oldGroup, colocateGroup, assignedGroupId);
+
+            if (groupSchema == null) {
+                Preconditions.checkNotNull(backendsPerBucketSeq);
+                colocateTableIndex.addBackendsPerBucketSeq(groupId, backendsPerBucketSeq);
+            }
+
             // set this group as unstable
             colocateTableIndex.markGroupBalancing(groupId);
             table.setColocateTable(colocateGroup);

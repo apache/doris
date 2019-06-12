@@ -140,6 +140,8 @@ public class ColocateTableIndex implements Writable {
         this.lock.writeLock().unlock();
     }
 
+    // NOTICE: call 'addTableToGroup()' will not modify 'group2BackendsPerBucketSeq'
+    // 'group2BackendsPerBucketSeq' need to be set manually before or after, if necessary.
     public GroupId addTableToGroup(long dbId, OlapTable tbl, String groupName, GroupId assignedGroupId) {
         writeLock();
         try {
@@ -170,6 +172,7 @@ public class ColocateTableIndex implements Writable {
         }
     }
 
+    // This is for manual recovery.
     public void addTableToGroup(GroupId groupId, long tableId) {
         writeLock();
         try {

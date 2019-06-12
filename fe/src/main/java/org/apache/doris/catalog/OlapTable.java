@@ -36,6 +36,7 @@ import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.clone.TabletSchedCtx;
 import org.apache.doris.clone.TabletScheduler;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.DeepCopy;
@@ -995,5 +996,26 @@ public class OlapTable extends Table {
             }
         }
         return true;
+    }
+
+    // arbitrarily choose a partition, and get the buckets backends sequence from base index.
+    public List<List<Long>> getArbitraryTabletBucketsSeq() throws DdlException {
+        List<List<Long>> backendsPerBucketSeq = Lists.newArrayList();
+        for (Partition partition : idToPartition.values()) {
+            short replicationNum = partitionInfo.getReplicationNum(partition.getId());
+            MaterializedIndex baseIdx = partition.getBaseIndex();
+            for (Long tabletId : baseIdx.getTabletIdsInOrder()) {
+                Tablet tablet = baseIdx.getTablet(tabletId);
+                List<Long> replicaBackendIds = tablet.getNormalReplicaBackendIds();
+                if (replicaBackendIds.size() < replicationNum) {
+                    // this should not happen, but in case, throw an exception to terminate this process
+                    throw new DdlException("Normal replica number of tablet " + tabletId + " is: "
+                            + replicaBackendIds.size() + ", which is less than expected: " + replicationNum);
+                }
+                backendsPerBucketSeq.add(replicaBackendIds.subList(0, replicationNum));
+            }
+            break;
+        }
+        return backendsPerBucketSeq;
     }
 }
