@@ -164,7 +164,7 @@ public class ColocateTableBalancer extends Daemon {
                     for (Replica replica : tablet.getReplicas()) {
                         if (replica.getState().equals(Replica.ReplicaState.CLONE)) {
                             isBalancing = true;
-                            LOG.info("colocate group : {} is still balancing, there is clone Replica", olapTable.getColocateTable());
+                            LOG.info("colocate group : {} is still balancing, there is clone Replica", olapTable.getColocateGroup());
                             break out;
                         }
                     }
@@ -174,7 +174,7 @@ public class ColocateTableBalancer extends Daemon {
                     // 2 check the tablet backendIds are consistent with ColocateTableIndex's backendsPerBucketSeq
                     if (!tabletBackends.containsAll(groupBackends)) {
                         isBalancing = true;
-                        LOG.info("colocate group : {} is still balancing, may be clone job hasn't run, try adding a clone job", olapTable.getColocateTable());
+                        LOG.info("colocate group : {} is still balancing, may be clone job hasn't run, try adding a clone job", olapTable.getColocateGroup());
 
                         // try adding a clone job
                         // clone.addCloneJob has duplicated check, so there isn't side-effect

@@ -114,7 +114,7 @@ public class OlapTable extends Table {
     private Set<String> bfColumns;
     private double bfFpp;
 
-    private String colocateTable;
+    private String colocateGroup;
 
     public OlapTable() {
         // for persist
@@ -134,7 +134,7 @@ public class OlapTable extends Table {
         this.bfColumns = null;
         this.bfFpp = 0;
 
-        this.colocateTable = null;
+        this.colocateGroup = null;
     }
 
     public OlapTable(long id, String tableName, List<Column> baseSchema,
@@ -162,7 +162,7 @@ public class OlapTable extends Table {
         this.bfColumns = null;
         this.bfFpp = 0;
 
-        this.colocateTable = null;
+        this.colocateGroup = null;
     }
 
     public void setState(OlapTableState state) {
@@ -536,12 +536,12 @@ public class OlapTable extends Table {
         this.bfFpp = bfFpp;
     }
 
-    public String getColocateTable() {
-        return colocateTable;
+    public String getColocateGroup() {
+        return colocateGroup;
     }
 
-    public void setColocateTable(String colocateTable) {
-        this.colocateTable = colocateTable;
+    public void setColocateGroup(String colocateGroup) {
+        this.colocateGroup = colocateGroup;
     }
     
     // when the table is creating new rollup and enter finishing state, should tell be not auto load to new rollup
@@ -791,11 +791,11 @@ public class OlapTable extends Table {
         }
 
         //colocateTable
-        if (colocateTable == null) {
+        if (colocateGroup == null) {
             out.writeBoolean(false);
         } else {
             out.writeBoolean(true);
-            Text.writeString(out, colocateTable);
+            Text.writeString(out, colocateGroup);
         }
     }
 
@@ -881,7 +881,7 @@ public class OlapTable extends Table {
 
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_46) {
             if (in.readBoolean()) {
-                colocateTable = Text.readString(in);
+                colocateGroup = Text.readString(in);
             }
         }
     }

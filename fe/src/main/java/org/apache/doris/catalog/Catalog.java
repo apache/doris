@@ -2933,7 +2933,7 @@ public class Catalog {
 
             // check colocation
             if (Catalog.getCurrentColocateIndex().isColocateTable(olapTable.getId())) {
-                ColocateGroupSchema groupSchema = colocateTableIndex.getGroupSchema(olapTable.getColocateTable());
+                ColocateGroupSchema groupSchema = colocateTableIndex.getGroupSchema(olapTable.getColocateGroup());
                 Preconditions.checkNotNull(groupSchema);
                 groupSchema.checkDistribution(distributionInfo);
                 groupSchema.checkReplicationNum(singlePartitionDesc.getReplicationNum());
@@ -3504,7 +3504,7 @@ public class Catalog {
                 // add table to this group, if group does not exist, create a new one
                 getColocateTableIndex().addTableToGroup(db.getId(), olapTable, colocateGroup,
                         null /* generate group id inside */);
-                olapTable.setColocateTable(colocateGroup);
+                olapTable.setColocateGroup(colocateGroup);
             }
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
@@ -3889,7 +3889,7 @@ public class Catalog {
             }
 
             // 5. colocateTable
-            String colocateTable = olapTable.getColocateTable();
+            String colocateTable = olapTable.getColocateGroup();
             if (colocateTable != null) {
                 sb.append(",\n \"").append(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH).append("\" = \"");
                 sb.append(colocateTable).append("\"");
@@ -4903,7 +4903,7 @@ public class Catalog {
             GroupId assignedGroupId)
             throws DdlException {
 
-        String oldGroup = table.getColocateTable();
+        String oldGroup = table.getColocateGroup();
         GroupId groupId = null;
         if (!Strings.isNullOrEmpty(colocateGroup)) {
             ColocateGroupSchema groupSchema = colocateTableIndex.getGroupSchema(colocateGroup);
@@ -4950,7 +4950,7 @@ public class Catalog {
 
             // set this group as unstable
             colocateTableIndex.markGroupBalancing(groupId);
-            table.setColocateTable(colocateGroup);
+            table.setColocateGroup(colocateGroup);
         } else {
             // unset colocation group
             if (Strings.isNullOrEmpty(oldGroup)) {
@@ -4958,7 +4958,7 @@ public class Catalog {
                 return;
             }
             colocateTableIndex.removeTable(table.getId());
-            table.setColocateTable(null);
+            table.setColocateGroup(null);
         }
 
         if (!isReplay) {

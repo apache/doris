@@ -415,7 +415,7 @@ public class ColocateTableIndex implements Writable {
             group2BackendsPerBucketSeq.put(info.getGroupId(), info.getBackendsPerBucketSeq());
         }
         
-        addTableToGroup(info.getGroupId().dbId, tbl, tbl.getColocateTable(), info.getGroupId());
+        addTableToGroup(info.getGroupId().dbId, tbl, tbl.getColocateGroup(), info.getGroupId());
     }
 
     public void replayAddBackendsPerBucketSeq(ColocatePersistInfo info) {
