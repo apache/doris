@@ -1109,7 +1109,6 @@ public class Catalog {
 
         // Colocate tables balancer
         if (!Config.disable_colocate_join) {
-            ColocateTableBalancer.getInstance().setInterval(60 * 1000L);
             ColocateTableBalancer.getInstance().start();
         }
 

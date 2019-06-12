@@ -82,7 +82,7 @@ public class ColocateTableBalancer extends Daemon {
      * 1 balance start when found backend removed, down or added
      * 2 compute which bucket seq need to migrate, the migrate source backend, the migrate target backend
      * 3 mark colocate group balancing in colocate meta
-     * 4 update colcate backendsPerBucketSeq meta
+     * 4 update colocate backendsPerBucketSeq meta
      * 5 do real data migration by clone job
      * 6 delete redundant replicas after all clone job done
      * 7 mark colocate group stable in colocate meta and balance done
@@ -125,6 +125,9 @@ public class ColocateTableBalancer extends Daemon {
             List<Long> allTableIds = colocateIndex.getAllTableIds(groupId);
             for (long tableId : allTableIds) {
                 OlapTable olapTable = (OlapTable) db.getTable(tableId);
+                if (olapTable == null) {
+                    continue;
+                }
                 if (checkAndCloneTable(db, olapTable, colocateIndex.getBackendsPerBucketSeq(groupId))) {
                     isBalancing = true;
                     break;

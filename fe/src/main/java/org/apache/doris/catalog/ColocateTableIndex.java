@@ -31,6 +31,9 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
@@ -49,6 +52,7 @@ import java.util.stream.Collectors;
  * maintain the colocate table related indexes and meta
  */
 public class ColocateTableIndex implements Writable {
+    private static final Logger LOG = LogManager.getLogger(ColocateTableIndex.class);
 
     public static class GroupId implements Writable {
         public Long dbId;
