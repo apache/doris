@@ -84,7 +84,7 @@ public:
     bool empty() const { return size == 0; }
 
     /// @return the n-th byte in the referenced data.
-    const char operator[](size_t n) const {
+    const char& operator[](size_t n) const {
         assert(n < size);
         return data[n];
     }

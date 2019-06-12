@@ -27,11 +27,13 @@ namespace segment_v2 {
 // PageDecoder is used to decode page page.
 class PageDecoder {
 public:
+    PageDecoder() { }
+
     virtual ~PageDecoder() { }
 
     // Call this to do some preparation for decoder.
     // eg: parse data page header
-    virtual doris::Status init() = 0;
+    virtual Status init() = 0;
 
     // Seek the decoder to the given positional index of the page.
     // For example, seek_to_position_in_page(0) seeks to the first
@@ -39,7 +41,7 @@ public:
     //
     // It is an error to call this with a value larger than Count().
     // Doing so has undefined results.
-    virtual doris::Status seek_to_position_in_page(size_t pos) = 0;
+    virtual Status seek_to_position_in_page(size_t pos) = 0;
 
     // Seek the decoder forward by a given number of rows, or to the end
     // of the page. This is primarily used to skip over data.
@@ -60,7 +62,7 @@ public:
     // In the case that the values are themselves references
     // to other memory (eg Slices), the referred-to memory is
     // allocated in the column_vector_view's mem_pool.
-    virtual doris::Status next_batch(size_t* n, doris::ColumnVectorView* column_vector_view) = 0;
+    virtual Status next_batch(size_t* n, ColumnVectorView* dst) = 0;
 
     // Return the number of elements in this page.
     virtual size_t count() const = 0;

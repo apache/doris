@@ -79,7 +79,7 @@ void abort_with_bitshuffle_error(int64_t val);
 //
 //    The header is followed by the bitshuffle-compressed element data.
 //
-template<doris::FieldType Type>
+template<FieldType Type>
 class BitshufflePageBuilder : public PageBuilder {
 public:
     BitshufflePageBuilder(const BuilderOptions* options) :
@@ -94,7 +94,7 @@ public:
         return _remain_element_capacity == 0;
     }
 
-    doris::Status add(const uint8_t* vals, size_t* count) override {
+    Status add(const uint8_t* vals, size_t* count) override {
         DCHECK(!_finished);
         int to_add = std::min<int>(_remain_element_capacity, *count);
         _data.append(vals, to_add * SIZE_OF_TYPE);
@@ -126,12 +126,12 @@ public:
         return _count;
     }
 
-    doris::Status get_dictionary_page(doris::Slice* dictionary_page) override {
-        return Status::NOT_IMPLEMENTED;
+    Status get_dictionary_page(Slice* dictionary_page) override {
+        return Status("NOT_IMPLEMENTED");
     }
 
-    doris::Status get_bitmap_page(doris::Slice* bitmap_page) override {
-        return Status::NOT_IMPLEMENTED;
+    Status get_bitmap_page(Slice* bitmap_page) override {
+        return Status("NOT_IMPLEMENTED");
     }
 
 private:
@@ -149,8 +149,8 @@ private:
         _buffer.resize(HEADER_SIZE +
                 bitshuffle::compress_lz4_bound(num_elems_after_padding, final_size_of_type, 0));
 
-        doris::encode_fixed32_le(&_buffer[0], page_first_rowid);
-        doris::encode_fixed32_le(&_buffer[4], _count);
+        encode_fixed32_le(&_buffer[0], page_first_rowid);
+        encode_fixed32_le(&_buffer[4], _count);
         int64_t bytes = bitshuffle::compress_lz4(_data.data(), &_buffer[HEADER_SIZE],
                 num_elems_after_padding, final_size_of_type, 0);
         if (PREDICT_FALSE(bytes < 0)) {
@@ -161,14 +161,14 @@ private:
             // since we have logged fatal in abort_with_bitshuffle_error().
             return Slice();
         }
-        doris::encode_fixed32_le(&_buffer[8], HEADER_SIZE + bytes);
-        doris::encode_fixed32_le(&_buffer[12], num_elems_after_padding);
-        doris::encode_fixed32_le(&_buffer[16], final_size_of_type);
+        encode_fixed32_le(&_buffer[8], HEADER_SIZE + bytes);
+        encode_fixed32_le(&_buffer[12], num_elems_after_padding);
+        encode_fixed32_le(&_buffer[16], final_size_of_type);
         _finished = true;
         return Slice(_buffer.data(), HEADER_SIZE + bytes);
     }
 
-    typedef typename doris::TypeTraits<Type>::CppType CppType;
+    typedef typename TypeTraits<Type>::CppType CppType;
 
     CppType cell(int idx) const {
         DCHECK_GE(idx, 0);
@@ -180,7 +180,7 @@ private:
     // Length of a header.
     static const size_t HEADER_SIZE = sizeof(uint32_t) * 5;
     enum {
-        SIZE_OF_TYPE = doris::TypeTraits<Type>::size
+        SIZE_OF_TYPE = TypeTraits<Type>::size
     };
     const BuilderOptions* _options;
     uint32_t _count;
@@ -190,10 +190,10 @@ private:
     kudu::faststring _buffer;
 };
 
-template<doris::FieldType Type>
+template<FieldType Type>
 class BitShufflePageDecoder : public PageDecoder {
     public:
-        BitShufflePageDecoder(doris::Slice data) : _data(data),
+        BitShufflePageDecoder(Slice data) : _data(data),
         _parsed(false),
         _page_first_ordinal(0),
         _num_elements(0),
@@ -202,23 +202,23 @@ class BitShufflePageDecoder : public PageDecoder {
         _size_of_element(0),
         _cur_index(0) { }
 
-        doris::Status init() override {
+        Status init() override {
             CHECK(!_parsed);
             if (_data.size < HEADER_SIZE) {
                 std::stringstream ss;
                 ss << "file corrupton: invalid data size:" << _data.size << ", header size:" << HEADER_SIZE;
                 return Status(ss.str());
             }
-            _page_first_ordinal = doris::decode_fixed32_le((const uint8_t*)&_data[0]);
-            _num_elements = doris::decode_fixed32_le((const uint8_t*)&_data[4]);
-            _compressed_size   = doris::decode_fixed32_le((const uint8_t*)&_data[8]);
+            _page_first_ordinal = decode_fixed32_le((const uint8_t*)&_data[0]);
+            _num_elements = decode_fixed32_le((const uint8_t*)&_data[4]);
+            _compressed_size   = decode_fixed32_le((const uint8_t*)&_data[8]);
             if (_compressed_size != _data.size) {
                 std::stringstream ss;
                 ss << "Size information unmatched, _compressed_size:" << _compressed_size
                     << ", data size:" << _data.size;
                 return Status(ss.str());
             }
-            _num_element_after_padding = doris::decode_fixed32_le((const uint8_t*)&_data[12]);
+            _num_element_after_padding = decode_fixed32_le((const uint8_t*)&_data[12]);
             if (_num_element_after_padding != ALIGN_UP(_num_elements, 8)) {
                 std::stringstream ss;
                 ss << "num of element information corrupted,"
@@ -226,7 +226,7 @@ class BitShufflePageDecoder : public PageDecoder {
                     << ", _num_elements:" << _num_elements;
                 return Status(ss.str());
             }
-            _size_of_element = doris::decode_fixed32_le((const uint8_t*)&_data[16]);
+            _size_of_element = decode_fixed32_le((const uint8_t*)&_data[16]);
             switch (_size_of_element) {
                 case 1:
                 case 2:
@@ -260,7 +260,7 @@ class BitShufflePageDecoder : public PageDecoder {
         return Status::OK;
     }
 
-    doris::Status seek_to_position_in_page(size_t pos) override {
+    Status seek_to_position_in_page(size_t pos) override {
         CHECK(_parsed) << "Must call init()";
         if (PREDICT_FALSE(_num_elements == 0)) {
             DCHECK_EQ(0, pos);
@@ -272,7 +272,7 @@ class BitShufflePageDecoder : public PageDecoder {
         return Status::OK;
     }
 
-    doris::Status next_batch(size_t* n, doris::ColumnVector* dst, doris::MemPool* mem_pool) override {
+    Status next_batch(size_t* n, ColumnVectorView* dst) override {
         DCHECK(_parsed);
         if (PREDICT_FALSE(*n == 0 || _cur_index >= _num_elements)) {
             *n = 0;
@@ -280,7 +280,7 @@ class BitShufflePageDecoder : public PageDecoder {
         }
 
         size_t max_fetch = std::min(*n, static_cast<size_t>(_num_elements - _cur_index));
-        memcpy(dst->col_data(), &_decoded[_cur_index * SIZE_OF_TYPE], max_fetch * SIZE_OF_TYPE);
+        _copy_next_values(max_fetch, dst->column_vector()->col_data());
         *n = max_fetch;
         _cur_index += max_fetch;
 
@@ -300,6 +300,10 @@ class BitShufflePageDecoder : public PageDecoder {
     }
 
 private:
+    void _copy_next_values(size_t n, void* data) {
+        memcpy(data, &_decoded[_cur_index * SIZE_OF_TYPE], n * SIZE_OF_TYPE);
+    }
+
     Status _decode() {
         if (_num_elements > 0) {
             int64_t bytes;
@@ -316,15 +320,15 @@ private:
         return Status::OK;
     }
 
-    typedef typename doris::TypeTraits<Type>::CppType CppType;
+    typedef typename TypeTraits<Type>::CppType CppType;
 
     // Length of a header.
     static const size_t HEADER_SIZE = sizeof(uint32_t) * 5;
     enum {
-        SIZE_OF_TYPE = doris::TypeTraits<Type>::size
+        SIZE_OF_TYPE = TypeTraits<Type>::size
     };
 
-    doris::Slice _data;
+    Slice _data;
     bool _parsed;
     rowid_t _page_first_ordinal;
     size_t _num_elements;

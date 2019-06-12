@@ -18,8 +18,6 @@
 #include "olap/rowset/segment_v2/bitshuffle_page.h"
 #include "olap/rowset/segment_v2/common.h"
 
-using doris::Status;
-
 namespace doris {
 
 namespace segment_v2 {
@@ -67,7 +65,7 @@ Slice BitshufflePageBuilder<OLAP_FIELD_TYPE_UNSIGNED_INT>::finish(rowid_t page_f
             memcpy(&_data[i * sizeof(converted_value)], &converted_value, sizeof(converted_value));
         }
         ret = _finish(page_first_rowid, sizeof(uint8_t));
-        doris::encode_fixed32_le((uint8_t*)ret.mutable_data() + 16, sizeof(uint8_t));
+        encode_fixed32_le((uint8_t*)ret.mutable_data() + 16, sizeof(uint8_t));
     } else if (max_value <= std::numeric_limits<uint16_t>::max()) {
         for (int i = 0; i < _count; i++) {
             uint32_t value = cell(i);
@@ -75,10 +73,10 @@ Slice BitshufflePageBuilder<OLAP_FIELD_TYPE_UNSIGNED_INT>::finish(rowid_t page_f
             memcpy(&_data[i * sizeof(converted_value)], &converted_value, sizeof(converted_value));
         }
         ret = _finish(page_first_rowid, sizeof(uint16_t));
-        doris::encode_fixed32_le((uint8_t*)ret.mutable_data() + 16, sizeof(uint16_t));
+        encode_fixed32_le((uint8_t*)ret.mutable_data() + 16, sizeof(uint16_t));
     } else {
         ret = _finish(page_first_rowid, sizeof(uint32_t));
-        doris::encode_fixed32_le((uint8_t*)ret.mutable_data() + 16, sizeof(uint32_t));
+        encode_fixed32_le((uint8_t*)ret.mutable_data() + 16, sizeof(uint32_t));
     }
     return ret;
 }
