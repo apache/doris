@@ -1868,11 +1868,11 @@ void OLAPTable::_list_files_with_suffix(const string& file_suffix, set<string>* 
 }
 
 bool OLAPTable::has_segment_group(const Version& version, const SegmentGroup* new_segment_group) const {
-    if (_data_sources.find(version) == _data_sources.end()) {
+    auto it = _data_sources.find(version);
+    if (it == _data_sources.end()) {
         return false;
     }
     bool exist = false;
-    auto it = _data_sources.find(version);
     for (auto segment_group : it->second) {
         if (segment_group->segment_group_id() == new_segment_group->segment_group_id()) {
             exist = true;
