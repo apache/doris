@@ -460,6 +460,7 @@ set(DORIS_LINK_LIBS
     Webserver
     TestUtil
     Geo
+    SegmentV2
     ${WL_END_GROUP}
 )
 
@@ -496,6 +497,8 @@ set(DORIS_DEPENDENCIES
     openssl
     crypto
     leveldb
+    bitshuffle
+    roaring
     ${WL_END_GROUP}
 )
 

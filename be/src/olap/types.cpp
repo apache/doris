@@ -60,6 +60,7 @@ TypeInfoResolver::TypeInfoResolver() {
     add_mapping<OLAP_FIELD_TYPE_TINYINT>();
     add_mapping<OLAP_FIELD_TYPE_SMALLINT>();
     add_mapping<OLAP_FIELD_TYPE_INT>();
+    add_mapping<OLAP_FIELD_TYPE_UNSIGNED_INT>();
     add_mapping<OLAP_FIELD_TYPE_BIGINT>();
     add_mapping<OLAP_FIELD_TYPE_LARGEINT>();
     add_mapping<OLAP_FIELD_TYPE_FLOAT>();

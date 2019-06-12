@@ -287,6 +287,44 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_INT> {
 };
 
 template<>
+struct FieldTypeTraits<OLAP_FIELD_TYPE_UNSIGNED_INT> {
+    typedef uint32_t CppType;
+    static const char* name() {
+        return "uint32_t";
+    }
+    static int equal(const void* left, const void* right) {
+        return generic_equal<OLAP_FIELD_TYPE_UNSIGNED_INT>(left, right);
+    }
+    static int cmp(const void* left, const void* right) {
+        return generic_compare<OLAP_FIELD_TYPE_UNSIGNED_INT>(left, right);
+    }
+    static std::string to_string(char* src) {
+        return generic_to_string<OLAP_FIELD_TYPE_UNSIGNED_INT>(src);
+    }
+    static OLAPStatus from_string(char* buf, const std::string& scan_key) {
+        return generic_from_string<OLAP_FIELD_TYPE_UNSIGNED_INT>(buf, scan_key);
+    }
+    static void copy_with_pool(char* dest, const char* src, MemPool* mem_pool) {
+        generic_copy<OLAP_FIELD_TYPE_UNSIGNED_INT>(dest, src);
+    }
+    static void copy_without_pool(char* dest, const char* src) {
+        generic_copy<OLAP_FIELD_TYPE_UNSIGNED_INT>(dest, src);
+    }
+    static void set_to_max(char* buf) {
+        generic_set_to_max<OLAP_FIELD_TYPE_UNSIGNED_INT>(buf);
+    }
+    static void set_to_min(char* buf) {
+        generic_set_to_min<OLAP_FIELD_TYPE_UNSIGNED_INT>(buf);
+    }
+    static bool is_min(char* buf) {
+        return generic_is_min<OLAP_FIELD_TYPE_UNSIGNED_INT>(buf);
+    }
+    static uint32_t hash_code(char* data, uint32_t seed) {
+        return generic_hash_code<OLAP_FIELD_TYPE_UNSIGNED_INT>(data, seed);
+    }
+};
+
+template<>
 struct FieldTypeTraits<OLAP_FIELD_TYPE_BIGINT> {
     typedef int64_t CppType;
     static const char* name() {

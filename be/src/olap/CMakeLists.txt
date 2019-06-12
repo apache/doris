@@ -20,7 +20,9 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/olap")
 
 # where to put generated binaries
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/olap")
-  
+
+add_subdirectory(rowset/segment_v2)
+
 add_library(Olap STATIC
     aggregate_func.cpp
     base_compaction.cpp
@@ -83,6 +85,4 @@ add_library(Olap STATIC
     types.cpp 
     utils.cpp
     wrapper_field.cpp
-    rowset/segment_v2/ordinal_page_index.cpp
-    rowset/segment_v2/encoding_info.cpp
 )
