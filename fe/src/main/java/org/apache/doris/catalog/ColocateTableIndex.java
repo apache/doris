@@ -44,7 +44,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
@@ -120,7 +119,7 @@ public class ColocateTableIndex implements Writable {
     // group_id -> bucketSeq -> backend ids
     private Map<GroupId, List<List<Long>>> group2BackendsPerBucketSeq = Maps.newHashMap();
     // the colocate group is balancing
-    private Set<GroupId> balancingGroups = new CopyOnWriteArraySet<GroupId>();
+    private Set<GroupId> balancingGroups = Sets.newHashSet();
 
     private transient ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
@@ -199,11 +198,21 @@ public class ColocateTableIndex implements Writable {
     }
 
     public void markGroupBalancing(GroupId groupId) {
-        balancingGroups.add(groupId);
+        writeLock();
+        try {
+            balancingGroups.add(groupId);
+        } finally {
+            writeUnlock();
+        }
     }
 
     public void markGroupStable(GroupId groupId) {
-        balancingGroups.remove(groupId);
+        writeLock();
+        try {
+            balancingGroups.remove(groupId);
+        } finally {
+            writeUnlock();
+        }
     }
 
     public boolean removeTable(long tableId) {
@@ -231,7 +240,12 @@ public class ColocateTableIndex implements Writable {
     }
 
     public boolean isGroupBalancing(GroupId groupId) {
-        return balancingGroups.contains(groupId);
+        readLock();
+        try {
+            return balancingGroups.contains(groupId);
+        } finally {
+            readUnlock();
+        }
     }
 
     public boolean isColocateTable(long tableId) {
@@ -265,7 +279,12 @@ public class ColocateTableIndex implements Writable {
     }
 
     public Set<GroupId> getBalancingGroupIds() {
-        return balancingGroups;
+        readLock();
+        try {
+            return Sets.newHashSet(balancingGroups);
+        } finally {
+            readUnlock();
+        }
     }
 
     public GroupId getGroup(long tableId) {

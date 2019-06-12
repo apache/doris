@@ -25,6 +25,8 @@ import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.CopyOnWriteArraySet;
 
 /*
  * Author: Chenmingyu
@@ -42,5 +44,11 @@ public class ColocateTableIndexTest {
         Assert.assertTrue(groupId1.hashCode() == groupId2.hashCode());
         map.put(groupId1, 1000L);
         Assert.assertTrue(map.containsKey(groupId2));
+
+        Set<GroupId> balancingGroups = new CopyOnWriteArraySet<GroupId>();
+        balancingGroups.add(groupId1);
+        Assert.assertTrue(balancingGroups.size() == 1);
+        balancingGroups.remove(groupId2);
+        Assert.assertTrue(balancingGroups.isEmpty());
     }
 }
