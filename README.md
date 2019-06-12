@@ -44,7 +44,14 @@ $ docker images
 REPOSITORY              TAG                 IMAGE ID            CREATED             SIZE
 apachedoris/doris-dev   build-env           f8bc5d4024e0        21 hours ago        3.28GB
 ```
-**NOTE**: If you want to compile soure code which is later than 0.10, such as master, you should use apachedoris/doris-dev:build-env-0.11 image
+> NOTE: You may have to use different images to compile from source.
+> 
+> | image version | commit id | release version |
+> |---|---|---|
+> | apachedoris/doris-dev:build-env | before [ff0dd0d](https://github.com/apache/incubator-doris/commit/ff0dd0d2daa588f18b6db56f947e813a56d8ec81) | 0.8.x, 0.9.x |
+> | apachedoris/doris-dev:build-env-1.1 | [ff0dd0d](https://github.com/apache/incubator-doris/commit/ff0dd0d2daa588f18b6db56f947e813a56d8ec81) or later | 0.10.x or later |
+
+
 
 
 #### Step2: Run the Docker image 
