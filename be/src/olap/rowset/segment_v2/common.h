@@ -17,12 +17,13 @@
 
 #pragma once
 
-namespace doris {
+#include <cstdint>
+#include <limits>
 
+namespace doris {
 namespace segment_v2 {
 
-typedef uint32_t rowid_t;
+using rowid_t = uint32_t;
 
-}  // namespace segment_v2
-
-}  // namespace doris
+}
+}
