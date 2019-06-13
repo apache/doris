@@ -191,6 +191,7 @@ public class TabletChecker extends Daemon {
 
             db.readLock();
             try {
+                int availableBackendsNum = infoService.getClusterBackendIds(db.getClusterName(), true).size();
                 for (Table table : db.getTables()) {
                     if (!table.needSchedule()) {
                         continue;
@@ -210,11 +211,12 @@ public class TabletChecker extends Daemon {
                                 }
                                 
                                 Pair<TabletStatus, TabletSchedCtx.Priority> statusWithPrio = tablet.getHealthStatusWithPriority(
-                                    infoService,
-                                    db.getClusterName(),
-                                    partition.getVisibleVersion(),
-                                    partition.getVisibleVersionHash(),
-                                    olapTbl.getPartitionInfo().getReplicationNum(partition.getId()));
+                                        infoService,
+                                        db.getClusterName(),
+                                        partition.getVisibleVersion(),
+                                        partition.getVisibleVersionHash(),
+                                        olapTbl.getPartitionInfo().getReplicationNum(partition.getId()),
+                                        availableBackendsNum);
 
                                 if (statusWithPrio.first == TabletStatus.HEALTHY) {
                                     // Only set last status check time when status is healthy.

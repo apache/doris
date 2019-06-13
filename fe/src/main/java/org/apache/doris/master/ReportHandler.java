@@ -928,9 +928,10 @@ public class ReportHandler extends Daemon {
                 return;
             }
 
+            int availableBackendsNum = infoService.getClusterBackendIds(db.getClusterName(), true).size();
             Pair<TabletStatus, TabletSchedCtx.Priority> status = tablet.getHealthStatusWithPriority(infoService,
                     db.getClusterName(), visibleVersion, visibleVersionHash,
-                    replicationNum);
+                    replicationNum, availableBackendsNum);
             
             if (status.first == TabletStatus.VERSION_INCOMPLETE || status.first == TabletStatus.REPLICA_MISSING) {
                 long lastFailedVersion = -1L;

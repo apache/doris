@@ -97,6 +97,7 @@ public class StatisticProcDir implements ProcDirInterface {
             }
 
             ++totalDbNum;
+            int availableBackendsNum = infoService.getClusterBackendIds(db.getClusterName(), true).size();
             db.readLock();
             try {
                 int dbTableNum = 0;
@@ -125,7 +126,7 @@ public class StatisticProcDir implements ProcDirInterface {
                                 Pair<TabletStatus, Priority> res = tablet.getHealthStatusWithPriority(
                                         infoService, db.getClusterName(),
                                         partition.getVisibleVersion(), partition.getVisibleVersionHash(),
-                                        replicationNum);
+                                        replicationNum, availableBackendsNum);
 
                                 // here we treat REDUNDANT as HEALTHY, for user friendly.
                                 if (res.first != TabletStatus.HEALTHY && res.first != TabletStatus.REDUNDANT) {

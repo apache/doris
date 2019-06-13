@@ -471,11 +471,13 @@ public class TabletScheduler extends Daemon {
             Tablet tablet = idx.getTablet(tabletCtx.getTabletId());
             Preconditions.checkNotNull(tablet);
 
+            int availableBackendsNum = infoService.getClusterBackendIds(db.getClusterName(), true).size();
             statusPair = tablet.getHealthStatusWithPriority(
                     infoService, tabletCtx.getCluster(),
                     partition.getVisibleVersion(),
                     partition.getVisibleVersionHash(),
-                    tbl.getPartitionInfo().getReplicationNum(partition.getId()));
+                    tbl.getPartitionInfo().getReplicationNum(partition.getId()),
+                    availableBackendsNum);
 
             if (tabletCtx.getType() == TabletSchedCtx.Type.BALANCE && tableState != OlapTableState.NORMAL) {
                 // If table is under ALTER process, do not allow to do balance.
@@ -494,9 +496,9 @@ public class TabletScheduler extends Daemon {
                 throw new SchedException(Status.UNRECOVERABLE, "tablet is healthy");
             } else if (statusPair.first != TabletStatus.HEALTHY
                     && tabletCtx.getType() == TabletSchedCtx.Type.BALANCE) {
-                tabletCtx.releaseResource(this);
                 // we select an unhealthy tablet to do balance, which is not right.
                 // so here we change it to a REPAIR task, and also reset its priority
+                tabletCtx.releaseResource(this);
                 tabletCtx.setType(TabletSchedCtx.Type.REPAIR);
                 tabletCtx.setOrigPriority(statusPair.second);
                 tabletCtx.setLastSchedTime(currentTime);
@@ -531,6 +533,7 @@ public class TabletScheduler extends Daemon {
                     handleReplicaRelocating(tabletCtx, batchTask);
                     break;
                 case REDUNDANT:
+                case FORCE_REDUNDANT:
                     handleRedundantReplica(tabletCtx);
                     break;
                 case REPLICA_MISSING_IN_CLUSTER:
