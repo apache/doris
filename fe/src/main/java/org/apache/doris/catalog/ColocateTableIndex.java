@@ -462,8 +462,8 @@ public class ColocateTableIndex implements Writable {
                 info.add(String.valueOf(groupSchema.getBucketsNum()));
                 info.add(String.valueOf(groupSchema.getReplicationNum()));
                 info.add(String.valueOf(balancingGroups.contains(groupId)));
-                List<String> cols = groupSchema.getDistributionCols().stream().map(e -> e.brief()).collect(
-                        Collectors.toList());
+                List<String> cols = groupSchema.getDistributionCols().stream().map(
+                        e -> e.getDataType().toString()).collect(Collectors.toList());
                 info.add(Joiner.on(", ").join(cols));
                 infos.add(info);
             }

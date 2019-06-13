@@ -53,7 +53,7 @@ public class ColocateTableUtils {
 
     static void checkTableType(Table colocateTable) throws DdlException {
         if (colocateTable.type != (Table.TableType.OLAP)) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_MUST_OLAP_TABLE, colocateTable.getName());
+            ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_MUST_BE_OLAP_TABLE, colocateTable.getName());
         }
     }
 

@@ -55,22 +55,21 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 /**
- * when backend remove, down, and add, balance colocate tablets
- * some work delegate to {@link CloneChecker}
- * CloneChecker don't handle colocate tablets
+ * ColocateTableBalancer is responsible for tablets' repair and balance of colocated tables
  */
 public class ColocateTableBalancer extends Daemon {
     private static final Logger LOG = LogManager.getLogger(ColocateTableBalancer.class);
+
+    private static final long CHECK_INTERVAL_MS = 20 * 1000L; // 20 second
 
     private ColocateTableBalancer(long intervalMs) {
         super("colocate group clone checker", intervalMs);
     }
 
     private static ColocateTableBalancer INSTANCE = null;
-
     public static ColocateTableBalancer getInstance() {
         if (INSTANCE == null) {
-            INSTANCE = new ColocateTableBalancer(Config.clone_checker_interval_second * 1000L);
+            INSTANCE = new ColocateTableBalancer(CHECK_INTERVAL_MS);
         }
         return INSTANCE;
     }
@@ -155,7 +154,7 @@ public class ColocateTableBalancer extends Daemon {
     private boolean checkAndCloneTable(Database db, OlapTable olapTable, List<List<Long>> backendsPerBucketSeq) {
         boolean isBalancing = false;
         out: for (Partition partition : olapTable.getPartitions()) {
-            short replicateNum = olapTable.getPartitionInfo().getReplicationNum(partition.getId());
+            short replicationNum = olapTable.getPartitionInfo().getReplicationNum(partition.getId());
             for (MaterializedIndex index : partition.getMaterializedIndices()) {
                 List<Tablet> tablets = index.getTablets();
                 for (int i = 0; i < tablets.size(); i++) {
@@ -185,15 +184,15 @@ public class ColocateTableBalancer extends Daemon {
                         if (clusterAliveBackendIds.containsAll(tabletBackends)) {
                             // we can ignore tabletSizeB parameter here
                             CloneTabletInfo tabletInfo = new CloneTabletInfo(db.getId(), olapTable.getId(), partition.getId(),
-                                    index.getId(), tablet.getId(), replicateNum, replicateNum, 0, tabletBackends);
+                                    index.getId(), tablet.getId(), replicationNum, replicationNum, 0, tabletBackends);
 
                             for (Long cloneBackend : groupBackends) {
                                 AddMigrationJob(tabletInfo, cloneBackend);
                             }
                         } else { // for backend down or removed
-                            short onlineReplicaNum = (short) (replicateNum - groupBackends.size());
+                            short onlineReplicaNum = (short) (replicationNum - groupBackends.size());
                             CloneTabletInfo tabletInfo = new CloneTabletInfo(db.getId(), olapTable.getId(), partition.getId(),
-                                    index.getId(), tablet.getId(), replicateNum, onlineReplicaNum, 0, tabletBackends);
+                                    index.getId(), tablet.getId(), replicationNum, onlineReplicaNum, 0, tabletBackends);
 
                             for (Long cloneBackend : groupBackends) {
                                 AddSupplementJob(tabletInfo, cloneBackend);

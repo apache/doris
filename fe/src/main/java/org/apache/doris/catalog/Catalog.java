@@ -3208,7 +3208,7 @@ public class Catalog {
         if (newReplicationNum == oldReplicationNum) {
             newReplicationNum = (short) -1;
         } else if (Catalog.getCurrentColocateIndex().isColocateTable(olapTable.getId())) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_MUST_SAME_REPLICAT_NUM, oldReplicationNum);
+            ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_MUST_HAS_SAME_REPLICATION_NUM, oldReplicationNum);
         }
 
         // check if has other undefined properties
@@ -3493,7 +3493,7 @@ public class Catalog {
             String colocateGroup = PropertyAnalyzer.analyzeColocate(properties);
             if (colocateGroup != null) {
                 if (Config.disable_colocate_join) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_DISABLED);
+                    ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_FEATURE_DISABLED);
                 }
 
                 ColocateGroupSchema groupSchema = colocateTableIndex.getGroupSchema(colocateGroup);
