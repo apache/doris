@@ -111,10 +111,6 @@ public:
     // just check if the txn exists
     bool has_txn(TPartitionId partition_id, TTransactionId transaction_id,
                  TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid);
-    
-    // check if the txn exists and has related rowset
-    bool has_committed_txn(TPartitionId partition_id, TTransactionId transaction_id,
-                           TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid);
 
     bool get_expire_txns(TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid, std::vector<int64_t>* transaction_ids);
 
