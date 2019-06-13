@@ -344,6 +344,7 @@ enum OLAPStatus {
     OLAP_ERR_META_PUT = -3004,
     OLAP_ERR_META_ITERATOR = -3005,
     OLAP_ERR_META_DELETE = -3006,
+    OLAP_ERR_META_ALREADY_EXIST  = -3007,
 
     // Rowset
     // [-3100, -3200)
