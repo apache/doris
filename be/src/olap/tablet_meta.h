@@ -237,7 +237,7 @@ inline const int16_t TabletMeta::shard_id() const {
     return _shard_id;
 }
 
-inline void TabletMeta::set_shard_id(int32_t shard_id) {\
+inline void TabletMeta::set_shard_id(int32_t shard_id) {
     _shard_id = shard_id;
 }
 
