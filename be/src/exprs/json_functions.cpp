@@ -153,7 +153,7 @@ rapidjson::Value* JsonFunctions::get_json_object(
     //rapidjson::Document document;
     document->Parse(json_string.c_str());
     if (UNLIKELY(document->HasParseError())) {
-        LOG(ERROR) << "Error at offset " << document->GetErrorOffset()
+        VLOG(1) << "Error at offset " << document->GetErrorOffset()
             << ": " << GetParseError_En(document->GetParseError());
         document->SetNull();
         return document;
@@ -251,8 +251,8 @@ void JsonFunctions::json_path_prepare(
         return;
     }
 
-    boost::tokenizer<boost::escaped_list_separator<char> > tok(
-            std::string(reinterpret_cast<char*>(path->ptr), path->len),
+    std::string path_str(reinterpret_cast<char*>(path->ptr), path->len);
+    boost::tokenizer<boost::escaped_list_separator<char> > tok(path_str,
             boost::escaped_list_separator<char>("\\", ".", "\""));
     std::vector<std::string> path_exprs(tok.begin(), tok.end());
     std::vector<JsonPath>* parsed_paths = new std::vector<JsonPath>();
