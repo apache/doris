@@ -245,14 +245,26 @@ private:
 //
 class ReadLock {
 public:
-    explicit ReadLock(RWMutex* mutex)
-            : _mutex(mutex) {
-        this->_mutex->rdlock();
+    explicit ReadLock(RWMutex* mutex, bool try_lock = false)
+            : _mutex(mutex), own_lock(false) {
+        if (try_lock) {
+            own_lock = this->_mutex->tryrdlock() == OLAP_SUCCESS;
+        } else {
+            this->_mutex->rdlock();
+            own_lock = true;
+        }
     }
-    ~ReadLock() { this->_mutex->unlock(); }
+    ~ReadLock() { 
+        if (own_lock) {
+            this->_mutex->unlock(); 
+        }
+    }
+
+    bool has_own_lock() { return own_lock; }
 
 private:
     RWMutex* _mutex;
+    bool own_lock;
     DISALLOW_COPY_AND_ASSIGN(ReadLock);
 };
 
@@ -263,14 +275,26 @@ private:
 //
 class WriteLock {
 public:
-    explicit WriteLock(RWMutex* mutex)
-            : _mutex(mutex) {
-        this->_mutex->wrlock();
+    explicit WriteLock(RWMutex* mutex, bool try_lock = false)
+            : _mutex(mutex), own_lock(false) {
+        if (try_lock) {
+            own_lock = this->_mutex->trywrlock() == OLAP_SUCCESS;
+        } else {
+            this->_mutex->wrlock();
+            own_lock = true;
+        }
     }
-    ~WriteLock() { this->_mutex->unlock(); }
+    ~WriteLock() { 
+        if (own_lock) {
+            this->_mutex->unlock();
+        } 
+    }
+
+    bool has_own_lock() { return own_lock; }
 
 private:
     RWMutex* _mutex;
+    bool own_lock;
     DISALLOW_COPY_AND_ASSIGN(WriteLock);
 };
 
