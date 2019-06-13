@@ -187,6 +187,8 @@ public:
 
     RowsetId get_cur_rowset_id();
 
+    std::string full_name() const;
+
 private:
     OLAPStatus _save_meta(DataDir* data_dir);
 
@@ -210,7 +212,7 @@ private:
     vector<RowsetMetaSharedPtr> _inc_rs_metas;
     DelPredicateArray _del_pred_array;
     AlterTabletTaskSharedPtr _alter_task;
-    bool _in_restore_mode;
+    bool _in_restore_mode = false;
 
     RWMutex _meta_lock;
 };
