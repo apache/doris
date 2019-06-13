@@ -572,11 +572,10 @@ void StorageEngine::perform_cumulative_compaction(DataDir* data_dir) {
     if (res != OLAP_SUCCESS) {
         if (res != OLAP_ERR_CUMULATIVE_REPEAT_INIT && res != OLAP_ERR_CE_TRY_CE_LOCK_ERROR) {
             best_tablet->set_last_compaction_failure_time(UnixMillis());
-            LOG(WARNING) << "failed to init cumulative compaction"
-                << ", table=" << best_tablet->full_name()
-                << ", res=" << res;
-
             if (res != OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS) {
+                LOG(WARNING) << "failed to init cumulative compaction"
+                             << ", table=" << best_tablet->full_name()
+                             << ", res=" << res;
                 DorisMetrics::cumulative_compaction_request_failed.increment(1);
             }
         }

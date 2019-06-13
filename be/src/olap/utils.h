@@ -41,6 +41,8 @@
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 
+#define TRY_LOCK true
+
 namespace doris {
 void write_log_info(char* buf, size_t buf_len, const char* fmt, ...);
 
@@ -246,25 +248,25 @@ private:
 class ReadLock {
 public:
     explicit ReadLock(RWMutex* mutex, bool try_lock = false)
-            : _mutex(mutex), own_lock(false) {
+            : _mutex(mutex), locked(false) {
         if (try_lock) {
-            own_lock = this->_mutex->tryrdlock() == OLAP_SUCCESS;
+            locked = this->_mutex->tryrdlock() == OLAP_SUCCESS;
         } else {
             this->_mutex->rdlock();
-            own_lock = true;
+            locked = true;
         }
     }
     ~ReadLock() { 
-        if (own_lock) {
+        if (locked) {
             this->_mutex->unlock(); 
         }
     }
 
-    bool has_own_lock() { return own_lock; }
+    bool own_lock() { return locked; }
 
 private:
     RWMutex* _mutex;
-    bool own_lock;
+    bool locked;
     DISALLOW_COPY_AND_ASSIGN(ReadLock);
 };
 
@@ -276,25 +278,25 @@ private:
 class WriteLock {
 public:
     explicit WriteLock(RWMutex* mutex, bool try_lock = false)
-            : _mutex(mutex), own_lock(false) {
+            : _mutex(mutex), locked(false) {
         if (try_lock) {
-            own_lock = this->_mutex->trywrlock() == OLAP_SUCCESS;
+            locked = this->_mutex->trywrlock() == OLAP_SUCCESS;
         } else {
             this->_mutex->wrlock();
-            own_lock = true;
+            locked = true;
         }
     }
     ~WriteLock() { 
-        if (own_lock) {
+        if (locked) {
             this->_mutex->unlock();
         } 
     }
 
-    bool has_own_lock() { return own_lock; }
+    bool own_lock() { return locked; }
 
 private:
     RWMutex* _mutex;
-    bool own_lock;
+    bool locked;
     DISALLOW_COPY_AND_ASSIGN(WriteLock);
 };
 
