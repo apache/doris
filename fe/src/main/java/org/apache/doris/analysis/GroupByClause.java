@@ -99,6 +99,12 @@ public class GroupByClause implements ParseNode {
                         "The expresions in GROUPING CUBE or ROLLUP can not be empty");
             }
 
+            // remove repeated element
+            Set<Expr> groupingExprSet = new LinkedHashSet<>();
+            groupingExprSet.addAll(groupingExprs);
+            groupingExprs.clear();
+            groupingExprs.addAll(groupingExprSet);
+
             buildGroupingClause(analyzer);
 
         } else if (groupingType == GroupingType.GROUPING_SETS) {
