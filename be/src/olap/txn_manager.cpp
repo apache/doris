@@ -444,29 +444,6 @@ bool TxnManager::has_txn(TPartitionId partition_id, TTransactionId transaction_i
     return found;
 }
 
-
-bool TxnManager::has_committed_txn(TPartitionId partition_id, TTransactionId transaction_id,
-                       TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid) {
-
-    pair<int64_t, int64_t> key(partition_id, transaction_id);
-    TabletInfo tablet_info(tablet_id, schema_hash, tablet_uid);
-    ReadLock rdlock(_get_txn_lock(transaction_id));
-    ReadLock txn_rdlock(&_txn_map_lock);
-    auto it = _txn_tablet_map.find(key);
-    if (it != _txn_tablet_map.end()) {
-        auto load_itr = it->second.find(tablet_info);
-        if (load_itr != it->second.end()) {
-            // found load for txn,tablet
-            // case 1: user commit rowset, then the load id must be equal
-            TabletTxnInfo& load_info = load_itr->second;
-            if (load_info.rowset != nullptr) {
-                return true;
-            }
-        }
-    }
-    return false;
-}
-
 bool TxnManager::get_expire_txns(TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid, 
     std::vector<int64_t>* transaction_ids) {
     if (transaction_ids == nullptr) {

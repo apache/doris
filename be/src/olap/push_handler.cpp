@@ -85,6 +85,10 @@ OLAPStatus PushHandler::_do_streaming_ingestion(
   if (tablet == nullptr) {
     return OLAP_ERR_TABLE_NOT_FOUND;
   }
+  ReadLock base_migration_rlock(tablet->get_migration_lock_ptr(), TRY_LOCK);
+  if (!base_migration_rlock.own_lock()) {
+      return OLAP_ERR_RWLOCK_ERROR;
+  }
   tablet->obtain_push_lock();
   PUniqueId load_id;
   load_id.set_hi(0);
@@ -130,6 +134,10 @@ OLAPStatus PushHandler::_do_streaming_ingestion(
                      << "tablet=" << tablet->full_name()
                      << " related_tablet=" << related_tablet->full_name();
       } else {
+        ReadLock new_migration_rlock(related_tablet->get_migration_lock_ptr(), TRY_LOCK);
+        if (!new_migration_rlock.own_lock()) {
+            return OLAP_ERR_RWLOCK_ERROR;
+        }
         PUniqueId load_id;
         load_id.set_hi(0);
         load_id.set_lo(0);
