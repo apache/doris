@@ -189,7 +189,7 @@ OLAPStatus CumulativeCompaction::_calculate_need_merged_versions() {
     Versions delta_versions;
     OLAPStatus res = _get_delta_versions(&delta_versions);
     if (res != OLAP_SUCCESS) {
-        LOG(INFO) << "failed to get delta versions.";
+        LOG(INFO) << "failed to get delta versions. res=" << res;
         return res;
     }
 

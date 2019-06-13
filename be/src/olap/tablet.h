@@ -175,6 +175,8 @@ public:
     inline void obtain_cumulative_lock() { _cumulative_lock.lock(); }
     inline void release_cumulative_lock() { _cumulative_lock.unlock(); }
 
+    inline RWMutex* get_migration_lock_ptr() { return &_migration_lock; }
+
     // operation for compaction
     bool can_do_compaction();
     const uint32_t calc_cumulative_compaction_score() const;
