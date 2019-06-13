@@ -974,6 +974,7 @@ public class OlapTable extends Table {
     }
 
     public boolean isStable(SystemInfoService infoService, TabletScheduler tabletScheduler, String clusterName) {
+        int availableBackendsNum = infoService.getClusterBackendIds(clusterName, true).size();
         for (Partition partition : idToPartition.values()) {
             long visibleVersion = partition.getVisibleVersion();
             long visibleVersionHash = partition.getVisibleVersionHash();
@@ -985,7 +986,8 @@ public class OlapTable extends Table {
                     }
 
                     Pair<TabletStatus, TabletSchedCtx.Priority> statusPair = tablet.getHealthStatusWithPriority(
-                            infoService, clusterName, visibleVersion, visibleVersionHash, replicationNum);
+                            infoService, clusterName, visibleVersion, visibleVersionHash, replicationNum,
+                            availableBackendsNum);
                     if (statusPair.first != TabletStatus.HEALTHY) {
                         return false;
                     }

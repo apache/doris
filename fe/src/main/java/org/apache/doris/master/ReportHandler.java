@@ -627,7 +627,8 @@ public class ReportHandler extends Daemon {
             TTablet backendTablet = backendTablets.get(tabletId);
             for (TTabletInfo backendTabletInfo : backendTablet.getTablet_infos()) {
                 boolean needDelete = false;
-                if (!foundTabletsWithValidSchema.contains(tabletId)) {
+                if (!foundTabletsWithValidSchema.contains(tabletId)
+                        && isBackendReplicaHealthy(backendTabletInfo)) {
                     // if this tablet is not in meta. try adding it.
                     // if add failed. delete this tablet from backend.
                     try {
@@ -667,6 +668,17 @@ public class ReportHandler extends Daemon {
         
         LOG.info("delete {} tablet(s) from backend[{}]", deleteFromBackendCounter, backendId);
         LOG.info("add {} replica(s) to meta. backend[{}]", addToMetaCounter, backendId);
+    }
+
+    // replica is used and no version missing
+    private static boolean isBackendReplicaHealthy(TTabletInfo backendTabletInfo) {
+        if (backendTabletInfo.isSetUsed() && !backendTabletInfo.isUsed()) {
+            return false;
+        }
+        if (backendTabletInfo.isSetVersion_miss() && backendTabletInfo.isVersion_miss()) {
+            return false;
+        }
+        return true;
     }
 
     private static void handleMigration(ListMultimap<TStorageMedium, Long> tabletMetaMigrationMap,

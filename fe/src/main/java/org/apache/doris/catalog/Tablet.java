@@ -412,10 +412,16 @@ public class Tablet extends MetaObject implements Writable {
         }
 
         // 1. alive replicas are not enough
-        if (alive < replicationNum && replicas.size() >= availableBackendsNum && replicationNum > 1) {
+        if (alive < replicationNum && replicas.size() >= availableBackendsNum
+                && availableBackendsNum >= replicationNum && replicationNum > 1) {
             // there is no enough backend for us to create a new replica, so we have to delete an existing replica,
             // so there can be available backend for us to create a new replica.
             // And if there is only one replica, we will not handle it(maybe need human interference)
+            // condition explain:
+            // 1. alive < replicationNum: replica is missing or bad
+            // 2. replicas.size() >= availableBackendsNum: the existing replicas occupies all available backends
+            // 3. availableBackendsNum >= replicationNum: make sure after deleting, there will be a backend for new replica.
+            // 4. replicationNum > 1: if replication num is set to 1, do not delete any replica, for safety reason
             return Pair.create(TabletStatus.FORCE_REDUNDANT, TabletSchedCtx.Priority.VERY_HIGH);
         } else if (alive < (replicationNum / 2) + 1) {
             return Pair.create(TabletStatus.REPLICA_MISSING, TabletSchedCtx.Priority.HIGH);
