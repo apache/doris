@@ -762,7 +762,7 @@ public class TabletScheduler extends Daemon {
             // NOTICE: only delete the replica from meta may not work. sometimes we can depends on tablet report
             // to delete these replicas, but in FORCE_REDUNDANT case, replica may be added to meta again in report
             // process.
-            sendDeleteReplicaTask(replica.getBackendId(), replica.getBackendId(), tabletCtx.getSchemaHash());
+            sendDeleteReplicaTask(replica.getBackendId(), tabletCtx.getTabletId(), tabletCtx.getSchemaHash());
         }
 
         // write edit log
