@@ -730,25 +730,29 @@ OLAPStatus SegmentGroup::copy_files_to_path(const std::string& dest_path,
     }
     for (int segment_id = 0; segment_id < _num_segments; segment_id++) {
         std::string dest_data_file = construct_data_file_path(dest_path, segment_id);
-        if (!check_dir_existed(dest_data_file)) {
-            std::string data_file_to_copy = construct_data_file_path(segment_id);
-            if (copy_file(data_file_to_copy, dest_data_file) != 0) {
-                LOG(WARNING) << "fail to copy data file. from=" << data_file_to_copy
-                             << ", to=" << dest_data_file
-                             << ", errno=" << Errno::no();
-                return OLAP_ERR_OS_ERROR;
-            }
+        if (check_dir_existed(dest_data_file)) {
+            LOG(WARNING) << "file already exists:" << dest_data_file;
+            return OLAP_ERR_FILE_ALREADY_EXIST;
+        }
+        std::string data_file_to_copy = construct_data_file_path(segment_id);
+        if (copy_file(data_file_to_copy, dest_data_file) != OLAP_SUCCESS) {
+            LOG(WARNING) << "fail to copy data file. from=" << data_file_to_copy
+                         << ", to=" << dest_data_file
+                         << ", errno=" << Errno::no();
+            return OLAP_ERR_OS_ERROR;
         }
         success_files->push_back(dest_data_file);
         std::string dest_index_file = construct_index_file_path(dest_path, segment_id);
-        if (!check_dir_existed(dest_index_file)) {
-            std::string index_file_to_copy = construct_index_file_path(segment_id);
-            if (copy_file(index_file_to_copy, dest_index_file) != 0) {
-                LOG(WARNING) << "fail to copy index file. from=" << index_file_to_copy
-                             << ", to=" << dest_index_file
-                             << ", errno=" << Errno::no();
-                return OLAP_ERR_OS_ERROR;
-            }
+        if (check_dir_existed(dest_index_file)) {
+            LOG(WARNING) << "file already exists:" << dest_index_file;
+            return OLAP_ERR_FILE_ALREADY_EXIST;
+        }
+        std::string index_file_to_copy = construct_index_file_path(segment_id);
+        if (copy_file(index_file_to_copy, dest_index_file) != OLAP_SUCCESS) {
+            LOG(WARNING) << "fail to copy index file. from=" << index_file_to_copy
+                         << ", to=" << dest_index_file
+                         << ", errno=" << Errno::no();
+            return OLAP_ERR_OS_ERROR;
         }
         success_files->push_back(dest_index_file);
     }
