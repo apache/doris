@@ -190,7 +190,7 @@ OLAPStatus Tablet::revise_tablet_meta(
     do {
         // load new local tablet_meta to operate on
         TabletMetaSharedPtr new_tablet_meta(new (nothrow) TabletMeta());
-        TabletMetaManager::get_header(_data_dir, tablet_id(), schema_hash(), new_tablet_meta);
+        RETURN_NOT_OK(TabletMetaManager::get_header(_data_dir, tablet_id(), schema_hash(), new_tablet_meta));
 
         // delete versions from new local tablet_meta
         for (const Version& version : versions_to_delete) {
@@ -222,7 +222,7 @@ OLAPStatus Tablet::revise_tablet_meta(
        VLOG(3) << "load rowsets successfully when clone. tablet=" << full_name()
                 << ", added rowset size=" << rowsets_to_clone.size();
         // save and reload tablet_meta
-        res = TabletMetaManager::save(_data_dir, tablet_id(), schema_hash(), new_tablet_meta);
+        res = new_tablet_meta->save_meta(_data_dir);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "failed to save new local tablet_meta when clone. res:" << res;
             break;

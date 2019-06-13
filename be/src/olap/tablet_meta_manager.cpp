@@ -99,6 +99,13 @@ OLAPStatus TabletMetaManager::save(DataDir* store,
     std::string key = key_stream.str();
     VLOG(3) << "save tablet meta to meta store: key = " << key;
     OlapMeta* meta = store->get_meta();
+
+    TabletMetaPB de_tablet_meta_pb;
+    bool parsed = de_tablet_meta_pb.ParseFromString(meta_binary);
+    if (!parsed) {
+        LOG(FATAL) << "deserialize from previous serialize result failed";
+    }
+
     LOG(INFO) << "save tablet meta " 
               << " tablet_id=" << tablet_id
               << " schema_hash=" << schema_hash

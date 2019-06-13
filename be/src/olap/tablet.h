@@ -238,6 +238,7 @@ private:
     Mutex _ingest_lock;
     Mutex _base_lock;
     Mutex _cumulative_lock;
+    RWMutex _migration_lock;
     std::unordered_map<Version, RowsetSharedPtr, HashOfVersion> _rs_version_map;
     std::unordered_map<Version, RowsetSharedPtr, HashOfVersion> _inc_rs_version_map;
 
@@ -377,6 +378,18 @@ inline size_t Tablet::field_index(const string& field_name) const {
 
 inline size_t Tablet::row_size() const {
     return _schema.row_size();
+}
+
+inline OLAPStatus Tablet::try_migration_rdlock() {
+    return _migration_lock.tryrdlock();
+}
+
+inline OLAPStatus Tablet::try_migration_wrlock() {
+    return _migration_lock.trywrlock();
+}
+
+inline void Tablet::release_migration_lock() {
+    _migration_lock.unlock();
 }
 
 }
