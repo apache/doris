@@ -25,6 +25,7 @@
 #include "olap/rowset/alpha_rowset_meta.h"
 #include "olap/tablet_meta_manager.h"
 #include "util/uid_util.h"
+#include "util/url_coding.h"
 
 namespace doris {
 
@@ -266,6 +267,7 @@ OLAPStatus TabletMeta::_save_meta(DataDir* data_dir) {
     for (auto& rs_meta : _rs_metas) {
         if (rs_meta->rowset_id() >= _next_rowset_id) {
             LOG(FATAL) << "meta contains invalid rowsetid " 
+                       << " tablet=" << full_name() 
                        << " rowset_id=" <<  rs_meta->rowset_id()
                        << " next_rowset_id=" << _next_rowset_id;
         }
@@ -273,12 +275,25 @@ OLAPStatus TabletMeta::_save_meta(DataDir* data_dir) {
     for (auto& rs_meta : _inc_rs_metas) {
         if (rs_meta->rowset_id() >= _next_rowset_id) {
             LOG(FATAL) << "meta contains invalid rowsetid " 
+                       << " tablet=" << full_name() 
                        << " rowset_id=" <<  rs_meta->rowset_id()
                        << " next_rowset_id=" << _next_rowset_id;
         }
     }
+    // check if _end_rowset_id > 10000
+    if (_end_rowset_id < 10000) {
+        LOG(FATAL) << "end_rowset_id is invalid" 
+                   << " tablet=" << full_name() 
+                   << " end_rowset_id=" << _end_rowset_id; 
+    }
+    // check if tablet uid is valid
+    if (_tablet_uid.hi == 0 && _tablet_uid.lo == 0) {
+        LOG(FATAL) << "tablet_uid is invalid" 
+                   << " tablet=" << full_name() 
+                   << " _tablet_uid=" << _tablet_uid.to_string(); 
+    }
     string meta_binary;
-    serialize(&meta_binary);
+    RETURN_NOT_OK(serialize(&meta_binary));
     OLAPStatus status = TabletMetaManager::save(data_dir, tablet_id(), schema_hash(), meta_binary);
     if (status != OLAP_SUCCESS) {
        LOG(FATAL) << "fail to save tablet_meta. status=" << status
@@ -291,7 +306,16 @@ OLAPStatus TabletMeta::_save_meta(DataDir* data_dir) {
 OLAPStatus TabletMeta::serialize(string* meta_binary) {
     TabletMetaPB tablet_meta_pb;
     RETURN_NOT_OK(to_meta_pb(&tablet_meta_pb));
-    tablet_meta_pb.SerializeToString(meta_binary);
+    bool serialize_success = tablet_meta_pb.SerializeToString(meta_binary);
+    if (!serialize_success) {
+        LOG(FATAL) << "failed to serialize meta " << full_name();
+    }
+    // deserialize the meta to check the result is correct
+    TabletMetaPB de_tablet_meta_pb;
+    bool parsed = de_tablet_meta_pb.ParseFromString(*meta_binary);
+    if (!parsed) {
+        LOG(FATAL) << "deserialize from previous serialize result failed " << full_name();
+    }
     return OLAP_SUCCESS;
 };
 
@@ -723,6 +747,14 @@ OLAPStatus TabletMeta::set_alter_state(AlterTabletState alter_state) {
         _alter_task.reset(alter_tablet_task);
         return OLAP_SUCCESS;
     }
+}
+
+std::string TabletMeta::full_name() const {
+    std::stringstream ss;
+    ss << _tablet_id 
+       << "." << _schema_hash 
+       << "." << _tablet_uid.to_string();
+    return ss.str();
 }
 
 }  // namespace doris

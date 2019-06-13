@@ -187,6 +187,8 @@ public:
 
     RowsetId get_cur_rowset_id();
 
+    std::string full_name() const;
+
 private:
     OLAPStatus _save_meta(DataDir* data_dir);
 
@@ -210,7 +212,7 @@ private:
     vector<RowsetMetaSharedPtr> _inc_rs_metas;
     DelPredicateArray _del_pred_array;
     AlterTabletTaskSharedPtr _alter_task;
-    bool _in_restore_mode;
+    bool _in_restore_mode = false;
 
     RWMutex _meta_lock;
 };
@@ -235,7 +237,7 @@ inline const int16_t TabletMeta::shard_id() const {
     return _shard_id;
 }
 
-inline void TabletMeta::set_shard_id(int32_t shard_id) {
+inline void TabletMeta::set_shard_id(int32_t shard_id) {\
     _shard_id = shard_id;
 }
 

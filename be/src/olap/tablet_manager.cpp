@@ -770,6 +770,20 @@ OLAPStatus TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tab
         return OLAP_ERR_HEADER_PB_PARSE_FAILED;
     }
 
+    // check if tablet meta is valid
+    if (tablet_meta->tablet_id() != tablet_id || tablet_meta->schema_hash() != schema_hash) {
+        LOG(WARNING) << "tablet meta load from meta is invalid"
+                   << " input tablet id=" << tablet_id
+                   << " input tablet schema_hash=" << schema_hash
+                   << " meta tablet=" << tablet_meta->full_name();
+        return OLAP_ERR_HEADER_PB_PARSE_FAILED;
+    }
+    if (tablet_meta->tablet_uid().hi == 0 && tablet_meta->tablet_uid().lo == 0) {
+        LOG(WARNING) << "not load this tablet because uid == 0"
+                  << " tablet=" << tablet_meta->full_name();
+        return OLAP_ERR_HEADER_PB_PARSE_FAILED;
+    }
+
     // init must be called
     TabletSharedPtr tablet = Tablet::create_tablet_from_meta(tablet_meta, data_dir);
     if (tablet == nullptr) {
@@ -1279,6 +1293,8 @@ OLAPStatus TabletManager::_drop_tablet_directly_unlocked(
             TabletSharedPtr tablet = *it;
             it = _tablet_map[tablet_id].table_arr.erase(it);
             if (!keep_files) {
+                // drop tablet will update tablet meta, should lock
+                WriteLock wrlock(tablet->get_header_lock_ptr()); 
                 LOG(INFO) << "set tablet to shutdown state and remove it from memory"
                           << " tablet_id=" << tablet_id
                           << " schema_hash=" << schema_hash
