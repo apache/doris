@@ -831,7 +831,7 @@ public class StmtRewriter {
             if (stmt.hasGroupByClause()) {
                 stmt.groupByClause.getGroupingExprs().addAll(groupByExprs);
             } else {
-                stmt.groupByClause.setGroupingExprs(groupByExprs);
+                stmt.groupByClause = new GroupByClause(groupByExprs, GroupByClause.GroupingType.GROUP_BY);
             }
         }
     }

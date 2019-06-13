@@ -78,7 +78,7 @@ public class GroupByClause implements ParseNode {
 
     protected GroupByClause(GroupByClause other) {
         this.groupingType = other.groupingType;
-        this.groupingExprs = Expr.cloneAndResetList(groupingExprs);
+        this.groupingExprs = (other.groupingExprs != null)? Expr.cloneAndResetList(other.groupingExprs) : null;
         this.groupingIdList = other.groupingIdList;
         this.groupingSetList = other.groupingSetList;
     }
