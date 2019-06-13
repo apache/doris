@@ -723,6 +723,39 @@ OLAPStatus SegmentGroup::make_snapshot(const std::string& snapshot_path,
     return OLAP_SUCCESS;
 }
 
+OLAPStatus SegmentGroup::copy_files_to_path(const std::string& dest_path,
+                                            std::vector<std::string>* success_files) {
+    if (_empty) {
+        return OLAP_SUCCESS;
+    }
+    for (int segment_id = 0; segment_id < _num_segments; segment_id++) {
+        std::string dest_data_file = construct_data_file_path(dest_path, segment_id);
+        if (!check_dir_existed(dest_data_file)) {
+            std::string data_file_to_copy = construct_data_file_path(segment_id);
+            if (copy_file(data_file_to_copy, dest_data_file) != 0) {
+                LOG(WARNING) << "fail to copy data file. from=" << data_file_to_copy
+                             << ", to=" << dest_data_file
+                             << ", errno=" << Errno::no();
+                return OLAP_ERR_OS_ERROR;
+            }
+        }
+        success_files->push_back(dest_data_file);
+        std::string dest_index_file = construct_index_file_path(dest_path, segment_id);
+        if (!check_dir_existed(dest_index_file)) {
+            std::string index_file_to_copy = construct_index_file_path(segment_id);
+            if (copy_file(index_file_to_copy, dest_index_file) != 0) {
+                LOG(WARNING) << "fail to copy index file. from=" << index_file_to_copy
+                             << ", to=" << dest_index_file
+                             << ", errno=" << Errno::no();
+                return OLAP_ERR_OS_ERROR;
+            }
+        }
+        success_files->push_back(dest_index_file);
+    }
+    return OLAP_SUCCESS;
+}
+
+
 OLAPStatus SegmentGroup::convert_from_old_files(const std::string& snapshot_path,
                                        std::vector<std::string>* success_links) {
     if (_empty) {
@@ -828,7 +861,7 @@ OLAPStatus SegmentGroup::remove_old_files(std::vector<std::string>* links_to_rem
     return OLAP_SUCCESS;
 }
 
-OLAPStatus SegmentGroup::copy_segments_to_path(const std::string& dest_path, int64_t rowset_id) {
+OLAPStatus SegmentGroup::link_segments_to_path(const std::string& dest_path, int64_t rowset_id) {
     if (dest_path.empty()) {
         LOG(WARNING) << "dest path is empty, return error";
         return OLAP_ERR_INPUT_PARAMETER_ERROR;

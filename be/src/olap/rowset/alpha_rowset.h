@@ -85,7 +85,9 @@ public:
     int64_t ref_count() const override;
 
     OLAPStatus make_snapshot(const std::string& snapshot_path,
-                             std::vector<std::string>* success_files) override;
+                             std::vector<std::string>* success_links) override;
+    OLAPStatus copy_files_to_path(const std::string& dest_path,
+                                  std::vector<std::string>* success_files);
 
     OLAPStatus convert_from_old_files(const std::string& snapshot_path,
                                  std::vector<std::string>* success_files);
