@@ -380,18 +380,6 @@ inline size_t Tablet::row_size() const {
     return _schema.row_size();
 }
 
-inline OLAPStatus Tablet::try_migration_rdlock() {
-    return _migration_lock.tryrdlock();
-}
-
-inline OLAPStatus Tablet::try_migration_wrlock() {
-    return _migration_lock.trywrlock();
-}
-
-inline void Tablet::release_migration_lock() {
-    _migration_lock.unlock();
-}
-
 }
 
 #endif // DORIS_BE_SRC_OLAP_TABLET_H
