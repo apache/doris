@@ -119,8 +119,8 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
             remove_all_dir(schema_hash_path);
         }
         TabletMetaSharedPtr new_tablet_meta(new(std::nothrow) TabletMeta());
-        TabletMetaManager::get_header(stores[0], tablet->tablet_id(), tablet->schema_hash(), new_tablet_meta);
-        if (new_tablet_meta != nullptr) {
+        res = TabletMetaManager::get_header(stores[0], tablet->tablet_id(), tablet->schema_hash(), new_tablet_meta);
+        if (res != OLAP_ERR_META_KEY_NOT_FOUND) {
             LOG(WARNING) << "tablet_meta already exists. "
                          << "data_dir:" << stores[0]->path()
                          << "tablet:" << tablet->full_name();
