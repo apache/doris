@@ -153,7 +153,7 @@ rapidjson::Value* JsonFunctions::get_json_object(
     //rapidjson::Document document;
     document->Parse(json_string.c_str());
     if (UNLIKELY(document->HasParseError())) {
-        LOG(ERROR) << "Error at offset " << document->GetErrorOffset()
+        VLOG(1) << "Error at offset " << document->GetErrorOffset()
             << ": " << GetParseError_En(document->GetParseError());
         document->SetNull();
         return document;
