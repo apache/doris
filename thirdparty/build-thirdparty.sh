@@ -577,6 +577,61 @@ build_s2() {
     make -j$PARALLEL && make install
 }
 
+# bitshuffle
+build_bitshuffle() {
+    check_if_source_exist $BITSHUFFLE_SOURCE
+    cd $TP_SOURCE_DIR/$BITSHUFFLE_SOURCE
+    PREFIX=$TP_INSTALL_DIR
+    arches="default avx2"
+    to_link=""
+    for arch in $arches ; do
+        arch_flag=""
+        if [ "$arch" == "avx2" ]; then
+            arch_flag="-mavx2"
+        fi  
+        tmp_obj=bitshuffle_${arch}_tmp.o
+        dst_obj=bitshuffle_${arch}.o
+        ${CC:-gcc} $EXTRA_CFLAGS $arch_flag -std=c99 -I$PREFIX/include/lz4/ -O3 -DNDEBUG -fPIC -c \
+            "src/bitshuffle_core.c" \
+            "src/bitshuffle.c" \
+            "src/iochain.c"
+        # Merge the object files together to produce a combined .o file.
+        ld -r -o $tmp_obj bitshuffle_core.o bitshuffle.o iochain.o
+        # For the AVX2 symbols, suffix them.
+        if [ "$arch" == "avx2" ]; then
+            # Create a mapping file with '<old_sym> <suffixed_sym>' on each line.
+            nm --defined-only --extern-only $tmp_obj | while read addr type sym ; do
+              echo ${sym} ${sym}_${arch}
+            done > renames.txt
+            objcopy --redefine-syms=renames.txt $tmp_obj $dst_obj
+        else
+            mv $tmp_obj $dst_obj
+        fi  
+        to_link="$to_link $dst_obj"
+    done
+    rm -f libbitshuffle.a
+    ar rs libbitshuffle.a $to_link
+    mkdir -p $PREFIX/include/bitshuffle
+    cp libbitshuffle.a $PREFIX/lib/
+    cp $TP_SOURCE_DIR/$BITSHUFFLE_SOURCE/src/bitshuffle.h $PREFIX/include/bitshuffle/bitshuffle.h
+    cp $TP_SOURCE_DIR/$BITSHUFFLE_SOURCE/src/bitshuffle_core.h $PREFIX/include/bitshuffle/bitshuffle_core.h
+}
+
+# croaring bitmap
+build_croaringbitmap() {
+    check_if_source_exist $CROARINGBITMAP_SOURCE
+    cd $TP_SOURCE_DIR/CRoaring-0.2.60
+    mkdir build -p && cd build
+    rm -rf CMakeCache.txt CMakeFiles/
+    CXXFLAGS="-O3" \
+    LDFLAGS="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc" \
+    $CMAKE_CMD -v -DROARING_BUILD_STATIC=ON -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR \
+    -DCMAKE_INCLUDE_PATH="$TP_INSTALL_DIR/include" \
+    -DENABLE_ROARING_TESTS=OFF \
+    -DCMAKE_LIBRARY_PATH="$TP_INSTALL_DIR/lib;$TP_INSTALL_DIR/lib64" ..
+    make -j$PARALLEL && make install
+}
+
 build_llvm
 build_libevent
 build_zlib
@@ -602,6 +657,8 @@ build_rocksdb
 build_librdkafka
 build_arrow
 build_s2
+build_bitshuffle
+build_croaringbitmap
 
 echo "Finihsed to build all thirdparties"
 
