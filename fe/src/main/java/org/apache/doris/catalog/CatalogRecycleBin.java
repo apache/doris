@@ -25,7 +25,6 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Daemon;
-import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.persist.RecoverInfo;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
@@ -237,10 +236,7 @@ public class CatalogRecycleBin extends Daemon implements Writable {
         AgentTaskExecutor.submit(batchTask);
 
         // colocation
-        if (Catalog.getCurrentColocateIndex().removeTable(olapTable.getId())) {
-            ColocatePersistInfo colocateInfo = ColocatePersistInfo.createForRemoveTable(olapTable.getId());
-            Catalog.getCurrentCatalog().getEditLog().logColocateRemoveTable(colocateInfo);
-        }
+        Catalog.getCurrentColocateIndex().removeTable(olapTable.getId());
     }
 
     private synchronized void eraseTableWithSameName(long dbId, String tableName) {
@@ -285,10 +281,7 @@ public class CatalogRecycleBin extends Daemon implements Writable {
         }
 
         // colocation
-        if (Catalog.getCurrentColocateIndex().removeTable(tableId)) {
-            ColocatePersistInfo colocateInfo = ColocatePersistInfo.createForRemoveTable(tableId);
-            Catalog.getCurrentCatalog().getEditLog().logColocateRemoveTable(colocateInfo);
-        }
+        Catalog.getCurrentColocateIndex().removeTable(tableId);
 
         LOG.info("replay erase table[{}]", tableId);
     }
