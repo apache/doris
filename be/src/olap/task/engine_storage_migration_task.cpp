@@ -69,7 +69,7 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
         return OLAP_SUCCESS;
     }
 
-    WriteLock migration_wlock(tablet->get_migration_lock_ptr(), true);
+    WriteLock migration_wlock(tablet->get_migration_lock_ptr(), TRY_LOCK);
     if (!migration_wlock.own_lock()) {
         return OLAP_ERR_RWLOCK_ERROR;
     }

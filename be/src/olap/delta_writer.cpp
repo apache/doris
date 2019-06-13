@@ -79,7 +79,7 @@ OLAPStatus DeltaWriter::init() {
     }
 
     {
-        ReadLock base_migration_rlock(_tablet->get_migration_lock_ptr(), true);
+        ReadLock base_migration_rlock(_tablet->get_migration_lock_ptr(), TRY_LOCK);
         if (!base_migration_rlock.own_lock()) {
             return OLAP_ERR_RWLOCK_ERROR;
         }
@@ -103,7 +103,7 @@ OLAPStatus DeltaWriter::init() {
                                  << ", schema_hash: " << new_schema_hash;
                     return OLAP_ERR_TABLE_NOT_FOUND;
                 }
-                ReadLock new_migration_rlock(_new_tablet->get_migration_lock_ptr(), true);
+                ReadLock new_migration_rlock(_new_tablet->get_migration_lock_ptr(), TRY_LOCK);
                 if (!new_migration_rlock.own_lock()) {
                     return OLAP_ERR_RWLOCK_ERROR;
                 }

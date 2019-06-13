@@ -41,6 +41,8 @@
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 
+#define TRY_LOCK true
+
 namespace doris {
 void write_log_info(char* buf, size_t buf_len, const char* fmt, ...);
 
