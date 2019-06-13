@@ -69,6 +69,21 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
         return OLAP_SUCCESS;
     }
 
+    WriteLock migration_wlock(tablet->get_migration_lock_ptr(), true);
+    if (!migration_wlock.own_lock()) {
+        return OLAP_ERR_RWLOCK_ERROR;
+    }
+
+    int64_t partition_id;
+    std::set<int64_t> transaction_ids;
+    StorageEngine::instance()->txn_manager()->get_tablet_related_txns(tablet->tablet_id(), 
+        tablet->schema_hash(), tablet->tablet_uid(), &partition_id, &transaction_ids);
+    if (transaction_ids.size() > 0) {
+        LOG(WARNING) << "could not migration because has unfinished txns, "
+                     << " tablet=" << tablet->full_name();
+        return OLAP_ERR_HEADER_HAS_PENDING_DATA;
+    }
+
     tablet->obtain_push_lock();
 
     // TODO(ygl): the tablet should not under schema change or rollup or load

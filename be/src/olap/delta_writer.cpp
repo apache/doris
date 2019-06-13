@@ -79,6 +79,10 @@ OLAPStatus DeltaWriter::init() {
     }
 
     {
+        ReadLock base_migration_rlock(_tablet->get_migration_lock_ptr(), true);
+        if (!base_migration_rlock.own_lock()) {
+            return OLAP_ERR_RWLOCK_ERROR;
+        }
         MutexLock push_lock(_tablet->get_push_lock());
         RETURN_NOT_OK(StorageEngine::instance()->txn_manager()->prepare_txn(
                             _req.partition_id, _req.txn_id,
@@ -98,6 +102,10 @@ OLAPStatus DeltaWriter::init() {
                     LOG(WARNING) << "find alter task, but could not find new tablet tablet_id: " << new_tablet_id
                                  << ", schema_hash: " << new_schema_hash;
                     return OLAP_ERR_TABLE_NOT_FOUND;
+                }
+                ReadLock new_migration_rlock(_new_tablet->get_migration_lock_ptr(), true);
+                if (!new_migration_rlock.own_lock()) {
+                    return OLAP_ERR_RWLOCK_ERROR;
                 }
                 StorageEngine::instance()->txn_manager()->prepare_txn(
                                     _req.partition_id, _req.txn_id,

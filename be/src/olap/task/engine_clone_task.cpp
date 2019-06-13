@@ -64,6 +64,10 @@ OLAPStatus EngineCloneTask::execute() {
     bool is_new_tablet = tablet == nullptr;
     // try to repair a tablet with missing version
     if (tablet != nullptr) {
+        ReadLock migration_rlock(tablet->get_migration_lock_ptr(), true);
+        if (!migration_rlock.own_lock()) {
+            return OLAP_ERR_RWLOCK_ERROR;
+        }
         LOG(INFO) << "clone tablet exist yet, begin to incremental clone. "
                     << "signature:" << _signature
                     << ", tablet_id:" << _clone_req.tablet_id

@@ -1194,6 +1194,15 @@ OLAPStatus SchemaChangeHandler::process_alter_tablet(AlterTabletType type,
         return OLAP_ERR_TABLE_CREATE_META_ERROR;
     }
 
+    ReadLock base_migration_rlock(base_tablet->get_migration_lock_ptr(), true);
+    if (!base_migration_rlock.own_lock()) {
+        return OLAP_ERR_RWLOCK_ERROR;
+    }
+    ReadLock new_migration_rlock(new_tablet->get_migration_lock_ptr(), true);
+    if (!new_migration_rlock.own_lock()) {
+        return OLAP_ERR_RWLOCK_ERROR;
+    }
+
     base_tablet->obtain_push_lock();
     base_tablet->obtain_header_wrlock();
     new_tablet->obtain_header_wrlock();
