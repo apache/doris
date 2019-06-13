@@ -207,9 +207,9 @@ int64_t AlphaRowset::ref_count() const {
 }
 
 OLAPStatus AlphaRowset::make_snapshot(const std::string& snapshot_path,
-                                      std::vector<std::string>* success_files) {
+                                      std::vector<std::string>* success_links) {
     for (auto& segment_group : _segment_groups) {
-        OLAPStatus status = segment_group->make_snapshot(snapshot_path, success_files);
+        OLAPStatus status = segment_group->make_snapshot(snapshot_path, success_links);
         if (status != OLAP_SUCCESS) {
             LOG(WARNING) << "create hard links failed for segment group:"
                          << segment_group->segment_group_id();
@@ -219,6 +219,20 @@ OLAPStatus AlphaRowset::make_snapshot(const std::string& snapshot_path,
     return OLAP_SUCCESS;
 }
                                     
+OLAPStatus AlphaRowset::copy_files_to_path(const std::string& dest_path,
+                                           std::vector<std::string>* success_files) {
+    for (auto& segment_group : _segment_groups) {
+        OLAPStatus status = segment_group->copy_files_to_path(dest_path, success_files);
+        if (status != OLAP_SUCCESS) {
+            LOG(WARNING) << "copy files failed for segment group."
+                         << " segment_group_id:" << segment_group->segment_group_id()
+                         << ", dest_path:" << dest_path;
+            return status;
+        }
+    }
+    return OLAP_SUCCESS;
+}
+
 OLAPStatus AlphaRowset::convert_from_old_files(const std::string& snapshot_path,
                                       std::vector<std::string>* success_files) {
     for (auto& segment_group : _segment_groups) {
