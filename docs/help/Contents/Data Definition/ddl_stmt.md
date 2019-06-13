@@ -82,7 +82,8 @@
         agg_type：聚合类型，如果不指定，则该列为 key 列。否则，该列为 value 列
                             SUM、MAX、MIN、REPLACE、HLL_UNION(仅用于HLL列，为HLL独有的聚合方式)
                             该类型只对聚合模型(key_desc的type为AGGREGATE KEY)有用，其它模型不需要指定这个。
-        是否允许为NULL: 默认允许为NULL，导入时用\N来表示
+
+        是否允许为NULL: 默认不允许为 NULL。NULL 值在导入数据中用 \N 来表示
 
     2. ENGINE 类型
         默认为 olap。可选 mysql, broker
