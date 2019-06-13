@@ -118,6 +118,14 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
                     << "schema_hash_path=" << schema_hash_path;
             remove_all_dir(schema_hash_path);
         }
+        TabletMetaSharedPtr new_tablet_meta(new(std::nothrow) TabletMeta());
+        res = TabletMetaManager::get_header(stores[0], tablet->tablet_id(), tablet->schema_hash(), new_tablet_meta);
+        if (res != OLAP_ERR_META_KEY_NOT_FOUND) {
+            LOG(WARNING) << "tablet_meta already exists. "
+                         << "data_dir:" << stores[0]->path()
+                         << "tablet:" << tablet->full_name();
+            return OLAP_ERR_META_ALREADY_EXIST;
+        }
         create_dirs(schema_hash_path);
 
         // migrate all index and data files but header file
@@ -127,12 +135,6 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
             break;
         }
 
-        // generate new header file from the old
-        TabletMetaSharedPtr new_tablet_meta(new(std::nothrow) TabletMeta());
-        if (new_tablet_meta == nullptr) {
-            LOG(WARNING) << "new olap header failed";
-            return OLAP_ERR_BUFFER_OVERFLOW;
-        }
         res = _generate_new_header(stores[0], shard, tablet, consistent_rowsets, new_tablet_meta);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to generate new header file from the old. res=" << res;
@@ -219,12 +221,19 @@ OLAPStatus EngineStorageMigrationTask::_copy_index_and_data_files(
         const string& schema_hash_path,
         const TabletSharedPtr& ref_tablet,
         std::vector<RowsetSharedPtr>& consistent_rowsets) {
-    // TODO(lcy). copy function should be implemented
+    std::vector<std::string> success_files;
+    OLAPStatus status = OLAP_SUCCESS;
     for (auto& rs : consistent_rowsets) {
-        std::vector<std::string> success_files;
-        RETURN_NOT_OK(rs->make_snapshot(schema_hash_path, &success_files));
+        status = rs->copy_files_to_path(schema_hash_path, &success_files);
+        if (status != OLAP_SUCCESS) {
+            if (remove_all_dir(schema_hash_path) != OLAP_SUCCESS) {
+                LOG(FATAL) << "remove storage migration path failed. "
+                           << "schema_hash_path:" << schema_hash_path;
+            }
+            break;
+        }
     }
-    return OLAP_SUCCESS;
+    return status;
 }
 
 } // doris

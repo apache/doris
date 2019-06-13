@@ -99,7 +99,9 @@ public:
     virtual int64_t ref_count() const = 0;
 
     virtual OLAPStatus make_snapshot(const std::string& snapshot_path,
-                                     std::vector<std::string>* success_files) = 0;
+                                     std::vector<std::string>* success_links) = 0;
+    virtual OLAPStatus copy_files_to_path(const std::string& dest_path,
+                                          std::vector<std::string>* success_files) = 0;
 
     virtual OLAPStatus remove_old_files(std::vector<std::string>* files_to_remove) = 0;
 
