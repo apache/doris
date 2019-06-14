@@ -61,7 +61,7 @@ SchemaTablesScanner::~SchemaTablesScanner() {
 
 Status SchemaTablesScanner::start(RuntimeState *state) {
     if (!_is_init) {
-        return Status("used before initialized.");
+        return Status::InternalError("used before initialized.");
     }
     TGetDbsParams db_params;
     if (NULL != _param->db) {
@@ -78,9 +78,9 @@ Status SchemaTablesScanner::start(RuntimeState *state) {
         RETURN_IF_ERROR(SchemaHelper::get_db_names(*(_param->ip),
                     _param->port, db_params, &_db_result)); 
     } else {
-        return Status("IP or port dosn't exists");
+        return Status::InternalError("IP or port dosn't exists");
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status SchemaTablesScanner::fill_one_row(Tuple *tuple, MemPool *pool) {
@@ -108,7 +108,7 @@ Status SchemaTablesScanner::fill_one_row(Tuple *tuple, MemPool *pool) {
         str_slot->len = src->length();
         str_slot->ptr = (char *)pool->allocate(str_slot->len);
         if (NULL == str_slot->ptr) {
-            return Status("Allocate memcpy failed.");
+            return Status::InternalError("Allocate memcpy failed.");
         }
         memcpy(str_slot->ptr, src->c_str(), str_slot->len);
     }
@@ -120,7 +120,7 @@ Status SchemaTablesScanner::fill_one_row(Tuple *tuple, MemPool *pool) {
         str_slot->len = src->length();
         str_slot->ptr = (char *)pool->allocate(str_slot->len);
         if (NULL == str_slot->ptr) {
-            return Status("Allocate memcpy failed.");
+            return Status::InternalError("Allocate memcpy failed.");
         }
         memcpy(str_slot->ptr, src->c_str(), str_slot->len);
     }
@@ -132,7 +132,7 @@ Status SchemaTablesScanner::fill_one_row(Tuple *tuple, MemPool *pool) {
         str_slot->len = src->length();
         str_slot->ptr = (char *)pool->allocate(str_slot->len);
         if (NULL == str_slot->ptr) {
-            return Status("Allocate memcpy failed.");
+            return Status::InternalError("Allocate memcpy failed.");
         }
         memcpy(str_slot->ptr, src->c_str(), str_slot->len);
     } else {
@@ -209,13 +209,13 @@ Status SchemaTablesScanner::fill_one_row(Tuple *tuple, MemPool *pool) {
         } else {
             str_slot->ptr = (char *)pool->allocate(str_slot->len);
             if (NULL == str_slot->ptr) {
-                return Status("Allocate memcpy failed.");
+                return Status::InternalError("Allocate memcpy failed.");
             }
             memcpy(str_slot->ptr, src->c_str(), str_slot->len);
         }
     }
     _table_index++;
-    return Status::OK;
+    return Status::OK();
 }
 
 Status SchemaTablesScanner::get_new_table() {
@@ -235,25 +235,25 @@ Status SchemaTablesScanner::get_new_table() {
         RETURN_IF_ERROR(SchemaHelper::list_table_status(*(_param->ip),
                 _param->port, table_params, &_table_result)); 
     } else {
-        return Status("IP or port dosn't exists");
+        return Status::InternalError("IP or port dosn't exists");
     }
     _table_index = 0;
-    return Status::OK;
+    return Status::OK();
 }
 
 Status SchemaTablesScanner::get_next_row(Tuple *tuple, MemPool *pool, bool *eos) {
     if (!_is_init) {
-        return Status("Used before initialized.");
+        return Status::InternalError("Used before initialized.");
     }
     if (NULL == tuple || NULL == pool || NULL == eos) {
-        return Status("input pointer is NULL.");
+        return Status::InternalError("input pointer is NULL.");
     }
     while (_table_index >= _table_result.tables.size()) {
         if (_db_index < _db_result.dbs.size()) {
             RETURN_IF_ERROR(get_new_table());
         } else {
             *eos = true;
-            return Status::OK;
+            return Status::OK();
         }
     }
     *eos = false;

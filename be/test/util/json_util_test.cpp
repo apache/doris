@@ -41,7 +41,7 @@ TEST_F(JsonUtilTest, success) {
 }
 
 TEST_F(JsonUtilTest, normal_fail) {
-    Status status("so bad");
+    Status status = Status::InternalError("so bad");
 
     auto str = to_json(status);
 
@@ -52,7 +52,7 @@ TEST_F(JsonUtilTest, normal_fail) {
 }
 
 TEST_F(JsonUtilTest, normal_fail_str) {
-    Status status("\"so bad\"");
+    Status status = Status::InternalError("\"so bad\"");
 
     auto str = to_json(status);
 

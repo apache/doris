@@ -310,7 +310,7 @@ Status MergeSorter::Run::init() {
     if (!_is_sorted) {
         _sorter->_initial_runs_counter->update(1);
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 template <bool has_var_len_data>
@@ -351,7 +351,7 @@ Status MergeSorter::Run::add_batch(RowBatch* batch, int start_index, int* num_pr
                     ss << "Variable length data in a single tuple larger than block size ";
                     ss << total_var_len;
                     ss << " > " << _sorter->_block_mgr->max_block_size();
-                    return Status(TStatusCode::INTERNAL_ERROR, ss.str(), false);
+                    return Status::InternalError(ss.str());
                 }
             }
 
@@ -368,7 +368,7 @@ Status MergeSorter::Run::add_batch(RowBatch* batch, int start_index, int* num_pr
                         // dhc: we can't get here, because we can get the new block. If we can't get new block,
                         // we will exit in tryAddBlock(MemTracker exceed).
                         cur_fixed_len_block->return_allocation(_sort_tuple_size);
-                        return Status::OK;
+                        return Status::OK();
                     }
                 }
 
@@ -391,12 +391,12 @@ Status MergeSorter::Run::add_batch(RowBatch* batch, int start_index, int* num_pr
             if (added) {
                 cur_fixed_len_block = _fixed_len_blocks.back();
             } else {
-                return Status::OK;
+                return Status::OK();
             }
         }
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status MergeSorter::Run::prepare_read() {
@@ -405,7 +405,7 @@ Status MergeSorter::Run::prepare_read() {
     //var_len_blocks_index_ = 0;
     _num_tuples_returned = 0;
 
-    return Status::OK;
+    return Status::OK();
 }
 
 template <bool convert_offset_to_ptr>
@@ -413,7 +413,7 @@ Status MergeSorter::Run::get_next(RowBatch* output_batch, bool* eos) {
     if (_fixed_len_blocks_index == _fixed_len_blocks.size()) {
         *eos = true;
         DCHECK_EQ(_num_tuples_returned, _num_tuples);
-        return Status::OK;
+        return Status::OK();
     } else {
         *eos = false;
     }
@@ -438,7 +438,7 @@ Status MergeSorter::Run::get_next(RowBatch* output_batch, bool* eos) {
         _fixed_len_block_offset = 0;
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status MergeSorter::Run::try_add_block(std::vector<BufferedBlockMgr::Block*>* block_sequence,
@@ -456,7 +456,7 @@ Status MergeSorter::Run::try_add_block(std::vector<BufferedBlockMgr::Block*>* bl
     } else {
         *added = false;
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 void MergeSorter::Run::copy_var_len_data(char* dest, const std::vector<StringValue*>& var_values) {
@@ -611,10 +611,10 @@ Status MergeSorter::add_batch(RowBatch* batch) {
 
         cur_batch_index += num_processed;
         if (cur_batch_index < batch->num_rows()) {
-            return Status("run is full");
+            return Status::InternalError("run is full");
         }
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status MergeSorter::input_done() {
@@ -627,7 +627,7 @@ Status MergeSorter::input_done() {
 // from the sorted run.
     _sorted_runs.back()->prepare_read();
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status MergeSorter::get_next(RowBatch* output_batch, bool* eos) {
@@ -637,7 +637,7 @@ Status MergeSorter::get_next(RowBatch* output_batch, bool* eos) {
     // in the pinned blocks in the single sorted run.
     RETURN_IF_ERROR(_sorted_runs.back()->get_next<false>(output_batch, eos));
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status MergeSorter::sort_run() {
@@ -664,6 +664,6 @@ Status MergeSorter::sort_run() {
     }
     _sorted_runs.push_back(_unsorted_run);
     _unsorted_run = NULL;
-    return Status::OK;
+    return Status::OK();
 }
 } // namespace doris

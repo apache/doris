@@ -70,13 +70,13 @@ Status EsHttpScanner::open() {
     if (_tuple_desc == nullptr) {
         std::stringstream ss;
         ss << "Unknown tuple descriptor, tuple_id=" << _tuple_id;
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
     const std::string& host = _properties.at(ESScanReader::KEY_HOST_PORT);
     _es_reader.reset(new ESScanReader(host, _properties));
     if (_es_reader == nullptr) {
-        return Status("Es reader construct failed.");
+        return Status::InternalError("Es reader construct failed.");
     }
 
     RETURN_IF_ERROR(_es_reader->open());
@@ -85,14 +85,14 @@ Status EsHttpScanner::open() {
     _read_timer = ADD_TIMER(_profile, "TotalRawReadTime(*)");
     _materialize_timer = ADD_TIMER(_profile, "MaterializeTupleTime(*)");
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status EsHttpScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
     SCOPED_TIMER(_read_timer);
     if (_line_eof && _batch_eof) {
         *eof = true;
-        return Status::OK;
+        return Status::OK();
     }
 
     while (!_batch_eof) {
@@ -100,7 +100,7 @@ Status EsHttpScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
             RETURN_IF_ERROR(_es_reader->get_next(&_batch_eof, _es_scroll_parser));
             if (_batch_eof) {
                 *eof = true;
-                return Status::OK;
+                return Status::OK();
             }
         }
 
@@ -113,7 +113,7 @@ Status EsHttpScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
         }
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 void EsHttpScanner::close() {

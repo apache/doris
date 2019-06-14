@@ -47,7 +47,7 @@ SmallFileMgr::~SmallFileMgr() {
 
 Status SmallFileMgr::init() {
     RETURN_IF_ERROR(_load_local_files());
-    return Status::OK;
+    return Status::OK();
 }
 
 Status SmallFileMgr::_load_local_files() {
@@ -62,7 +62,7 @@ Status SmallFileMgr::_load_local_files() {
     };
 
     RETURN_IF_ERROR(FileUtils::scan_dir(_local_path, scan_cb));
-    return Status::OK;
+    return Status::OK();
 }
 
 Status SmallFileMgr::_load_single_file(
@@ -73,19 +73,19 @@ Status SmallFileMgr::_load_single_file(
     std::vector<std::string> parts;
     boost::split(parts, file_name, boost::is_any_of("."));
     if (parts.size() != 2) {
-        return Status("Not a valid file name: " + file_name);
+        return Status::InternalError("Not a valid file name: " + file_name);
     }
     int64_t file_id = std::stol(parts[0]);
     std::string md5 = parts[1];
     
     if (_file_cache.find(file_id) != _file_cache.end()) {
-        return Status("File with same id is already been loaded: " + file_id);
+        return Status::InternalError("File with same id is already been loaded: " + file_id);
     }
 
     std::string file_md5;
     RETURN_IF_ERROR(FileUtils::md5sum(path + "/" + file_name, &file_md5));
     if (file_md5 != md5) {
-        return Status("Invalid md5 of file: " + file_name);
+        return Status::InternalError("Invalid md5 of file: " + file_name);
     }
 
     CacheEntry entry;
@@ -93,7 +93,7 @@ Status SmallFileMgr::_load_single_file(
     entry.md5 = file_md5;
     
     _file_cache.emplace(file_id, entry);
-    return Status::OK;
+    return Status::OK();
 }
 
 Status SmallFileMgr::get_file(
@@ -113,30 +113,30 @@ Status SmallFileMgr::get_file(
             if (remove(entry.path.c_str()) != 0) {
                 std::stringstream ss;
                 ss << "failed to remove file: " << file_id << ", err: "<< std::strerror(errno);
-                return Status(ss.str());
+                return Status::InternalError(ss.str());
             }
             _file_cache.erase(it);
         } else {
             // check ok, return the path
             *file_path = entry.path;
-            return Status::OK;
+            return Status::OK();
         }
     }
 
     // file not found in cache. download it from FE
     RETURN_IF_ERROR(_download_file(file_id, md5, file_path));
 
-    return Status::OK; 
+    return Status::OK(); 
 }
 
 Status SmallFileMgr::_check_file(const CacheEntry& entry, const std::string& md5) {
     if (!FileUtils::check_exist(entry.path)) {
-        return Status("file not exist");
+        return Status::InternalError("file not exist");
     }
     if (!boost::iequals(md5, entry.md5)) {
-        return Status("invalid MD5");
+        return Status::InternalError("invalid MD5");
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status SmallFileMgr::_download_file(
@@ -156,7 +156,7 @@ Status SmallFileMgr::_download_file(
     std::unique_ptr<FILE, decltype(fp_closer)> fp(fopen(tmp_file.c_str(), "w"), fp_closer);
     if (fp == nullptr) {
         LOG(WARNING) << "fail to open file, file=" << tmp_file;
-        return Status("fail to open file");
+        return Status::InternalError("fail to open file");
     }
 
     HttpClient client;
@@ -183,7 +183,7 @@ Status SmallFileMgr::_download_file(
         if (res != 1) {
             LOG(WARNING) << "fail to write data to file, file=" << tmp_file
                 << ", error=" << ferror(fp.get());
-            status = Status("fail to write data when download");
+            status = Status::InternalError("fail to write data when download");
             return false;
         }
         return true;
@@ -195,7 +195,7 @@ Status SmallFileMgr::_download_file(
     if (!boost::iequals(digest.hex(), md5)) {
         LOG(WARNING) << "file's checksum is not equal, download: " << digest.hex()
             << ", expected: " << md5 << ", file: " << file_id;
-        return Status("download with invalid md5");
+        return Status::InternalError("download with invalid md5");
     }
 
     // close this file
@@ -213,7 +213,7 @@ Status SmallFileMgr::_download_file(
             << ", errno=" << errno << ", errmsg=" << strerror_r(errno, buf, 64);
         remove(tmp_file.c_str());
         remove(real_file_path.c_str());
-        return Status("fail to rename file");
+        return Status::InternalError("fail to rename file");
     }
 
     // add to file cache
@@ -225,7 +225,7 @@ Status SmallFileMgr::_download_file(
     *file_path = real_file_path; 
 
     LOG(INFO) << "finished to download file: " << file_path;
-    return Status::OK;
+    return Status::OK();
 }
 
 } // end namespace doris

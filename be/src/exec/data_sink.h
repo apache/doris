@@ -65,7 +65,7 @@ public:
     virtual Status close(RuntimeState* state, Status exec_status) {
         _expr_mem_tracker->close();
         _closed = true;   
-        return Status::OK;
+        return Status::OK();
     }
 
     // Creates a new data sink from thrift_sink. A pointer to the

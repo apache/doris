@@ -288,7 +288,7 @@ Status ArithmeticExpr::codegen_binary_op(
             val = builder.CreateFAdd(lhs_val.get_val(), rhs_val.get_val(), "val");
             break;
         default:
-            return Status("Unk");
+            return Status::InternalError("Unk");
         }
         break;
     }
@@ -306,7 +306,7 @@ Status ArithmeticExpr::codegen_binary_op(
             val = builder.CreateFSub(lhs_val.get_val(), rhs_val.get_val(), "val");
             break;
         default:
-            return Status("Unk");
+            return Status::InternalError("Unk");
         }
         break;
     }
@@ -324,7 +324,7 @@ Status ArithmeticExpr::codegen_binary_op(
             val = builder.CreateFMul(lhs_val.get_val(), rhs_val.get_val(), "val");
             break;
         default:
-            return Status("Unk");
+            return Status::InternalError("Unk");
         }
         break;
     }
@@ -342,7 +342,7 @@ Status ArithmeticExpr::codegen_binary_op(
             val = builder.CreateFDiv(lhs_val.get_val(), rhs_val.get_val(), "val");
             break;
         default:
-            return Status("Unk");
+            return Status::InternalError("Unk");
         }
         break;
     }
@@ -360,7 +360,7 @@ Status ArithmeticExpr::codegen_binary_op(
             val = builder.CreateFRem(lhs_val.get_val(), rhs_val.get_val(), "val");
             break;
         default:
-            return Status("Unk");
+            return Status::InternalError("Unk");
         }
         break;
     }
@@ -374,7 +374,7 @@ Status ArithmeticExpr::codegen_binary_op(
             val = builder.CreateAnd(lhs_val.get_val(), rhs_val.get_val(), "val");
             break;
         default:
-            return Status("Unk");
+            return Status::InternalError("Unk");
         }
         break;
     }
@@ -388,7 +388,7 @@ Status ArithmeticExpr::codegen_binary_op(
             val = builder.CreateOr(lhs_val.get_val(), rhs_val.get_val(), "val");
             break;
         default:
-            return Status("Unk");
+            return Status::InternalError("Unk");
         }
         break;
     }
@@ -402,12 +402,12 @@ Status ArithmeticExpr::codegen_binary_op(
             val = builder.CreateXor(lhs_val.get_val(), rhs_val.get_val(), "val");
             break;
         default:
-            return Status("Unk");
+            return Status::InternalError("Unk");
         }
         break;
     }
     default:
-        return Status("Unknow operato");
+        return Status::InternalError("Unknow operato");
     }
     builder.CreateBr(ret_block);
 
@@ -432,87 +432,87 @@ Status ArithmeticExpr::codegen_binary_op(
     builder.CreateRet(result.value());
 
     *fn = codegen->finalize_function(*fn);
-    return Status::OK;
+    return Status::OK();
 }
 
 Status AddExpr::get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn) {
     if (_ir_compute_fn != NULL) {
         *fn = _ir_compute_fn;
-        return Status::OK;
+        return Status::OK();
     }
     RETURN_IF_ERROR(codegen_binary_op(state, fn , BinaryOpType::ADD));
     _ir_compute_fn = *fn;
-    return Status::OK;
+    return Status::OK();
 }
 
 Status SubExpr::get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn) {
     if (_ir_compute_fn != NULL) {
         *fn = _ir_compute_fn;
-        return Status::OK;
+        return Status::OK();
     }
     RETURN_IF_ERROR(codegen_binary_op(state, fn , BinaryOpType::SUB));
     _ir_compute_fn = *fn;
-    return Status::OK;
+    return Status::OK();
 }
 
 Status MulExpr::get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn) {
     if (_ir_compute_fn != NULL) {
         *fn = _ir_compute_fn;
-        return Status::OK;
+        return Status::OK();
     }
     RETURN_IF_ERROR(codegen_binary_op(state, fn , BinaryOpType::MUL));
     _ir_compute_fn = *fn;
-    return Status::OK;
+    return Status::OK();
 }
 
 Status DivExpr::get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn) {
     if (_ir_compute_fn != NULL) {
         *fn = _ir_compute_fn;
-        return Status::OK;
+        return Status::OK();
     }
     RETURN_IF_ERROR(codegen_binary_op(state, fn , BinaryOpType::DIV));
     _ir_compute_fn = *fn;
-    return Status::OK;
+    return Status::OK();
 }
 
 Status ModExpr::get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn) {
     if (_ir_compute_fn != NULL) {
         *fn = _ir_compute_fn;
-        return Status::OK;
+        return Status::OK();
     }
     RETURN_IF_ERROR(codegen_binary_op(state, fn , BinaryOpType::MOD));
     _ir_compute_fn = *fn;
-    return Status::OK;
+    return Status::OK();
 }
 
 Status BitAndExpr::get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn) {
     if (_ir_compute_fn != NULL) {
         *fn = _ir_compute_fn;
-        return Status::OK;
+        return Status::OK();
     }
     RETURN_IF_ERROR(codegen_binary_op(state, fn , BinaryOpType::BIT_AND));
     _ir_compute_fn = *fn;
-    return Status::OK;
+    return Status::OK();
 }
 
 Status BitOrExpr::get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn) {
     if (_ir_compute_fn != NULL) {
         *fn = _ir_compute_fn;
-        return Status::OK;
+        return Status::OK();
     }
     RETURN_IF_ERROR(codegen_binary_op(state, fn , BinaryOpType::BIT_OR));
     _ir_compute_fn = *fn;
-    return Status::OK;
+    return Status::OK();
 }
 
 Status BitXorExpr::get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn) {
     if (_ir_compute_fn != NULL) {
         *fn = _ir_compute_fn;
-        return Status::OK;
+        return Status::OK();
     }
     RETURN_IF_ERROR(codegen_binary_op(state, fn , BinaryOpType::BIT_XOR));
     _ir_compute_fn = *fn;
-    return Status::OK;
+    return Status::OK();
 }
 
 // IR codegen for compound add predicates.  Compound predicate has non trivial 
@@ -538,7 +538,7 @@ Status BitXorExpr::get_codegend_compute_fn(RuntimeState* state, llvm::Function**
 Status BitNotExpr::get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn) {
     if (_ir_compute_fn != NULL) {
         *fn = _ir_compute_fn;
-        return Status::OK;
+        return Status::OK();
     }
     LlvmCodeGen* codegen = NULL;
     RETURN_IF_ERROR(state->get_codegen(&codegen));
@@ -590,7 +590,7 @@ Status BitNotExpr::get_codegend_compute_fn(RuntimeState* state, llvm::Function**
 
     *fn = codegen->finalize_function(*fn);
     _ir_compute_fn = *fn;
-    return Status::OK;
+    return Status::OK();
 }
 
 }

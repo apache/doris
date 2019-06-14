@@ -52,7 +52,7 @@ public:
         RETURN_IF_ERROR(serialize<T>(obj, &len, &buffer));
         result->resize(len);
         memcpy(&((*result)[0]), buffer, len);
-        return Status::OK;
+        return Status::OK();
     }
 
     // serialize obj into a memory buffer.  The result is returned in buffer/len.  The
@@ -66,11 +66,11 @@ public:
         } catch (std::exception& e) {
             std::stringstream msg;
             msg << "Couldn't serialize thrift object:\n" << e.what();
-            return Status(msg.str());
+            return Status::InternalError(msg.str());
         }
 
         _mem_buffer->getBuffer(buffer, len);
-        return Status::OK;
+        return Status::OK();
     }
 
     template <class T>
@@ -81,11 +81,11 @@ public:
         } catch (apache::thrift::TApplicationException& e) {
             std::stringstream msg;
             msg << "Couldn't serialize thrift object:\n" << e.what();
-            return Status(msg.str());
+            return Status::InternalError(msg.str());
         }
 
         *result = _mem_buffer->getBufferAsString();
-        return Status::OK;
+        return Status::OK();
     }
 
     template <class T>
@@ -96,10 +96,10 @@ public:
         } catch (apache::thrift::TApplicationException& e) {
             std::stringstream msg;
             msg << "Couldn't serialize thrift object:\n" << e.what();
-            return Status(msg.str());
+            return Status::InternalError(msg.str());
         }
 
-        return Status::OK;
+        return Status::OK();
     }
 
     void get_buffer(uint8_t** buffer, uint32_t* length) {
@@ -149,15 +149,15 @@ Status deserialize_thrift_msg(
     } catch (std::exception& e) {
         std::stringstream msg;
         msg << "couldn't deserialize thrift msg:\n" << e.what();
-        return Status(msg.str());
+        return Status::InternalError(msg.str());
     } catch (...) {
         // TODO: Find the right exception for 0 bytes
-        return Status("Unknown exception");
+        return Status::InternalError("Unknown exception");
     }
 
     uint32_t bytes_left = tmem_transport->available_read();
     *len = *len - bytes_left;
-    return Status::OK;
+    return Status::OK();
 }
 
 // Redirects all Thrift logging to VLOG(1)

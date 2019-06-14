@@ -70,7 +70,7 @@ Status ClientCacheHelper::get_client(
         _used_clients->increment(1);
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status ClientCacheHelper::reopen_client(client_factory factory_method, void** client_key,
@@ -103,7 +103,7 @@ Status ClientCacheHelper::reopen_client(client_factory factory_method, void** cl
 
     _client_map[*client_key]->set_send_timeout(timeout_ms);
     _client_map[*client_key]->set_recv_timeout(timeout_ms);
-    return Status::OK;
+    return Status::OK();
 }
 
 Status ClientCacheHelper::create_client(
@@ -129,7 +129,7 @@ Status ClientCacheHelper::create_client(
         _opened_clients->increment(1);
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 void ClientCacheHelper::release_client(void** client_key) {

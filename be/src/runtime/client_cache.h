@@ -247,7 +247,7 @@ private:
 
     // Obtains a pointer to a Thrift interface object (of type T),
     // backed by a live transport which is already open. Returns
-    // Status::OK unless there was an error opening the transport.
+    // Status::OK() unless there was an error opening the transport.
     Status get_client(const TNetworkAddress& hostport, T** iface, int timeout_ms) {
         return _client_cache_helper.get_client(hostport, _client_factory,
                                               reinterpret_cast<void**>(iface), timeout_ms);

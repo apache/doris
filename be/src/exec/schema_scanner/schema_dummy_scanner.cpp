@@ -35,12 +35,12 @@ SchemaDummyScanner::~SchemaDummyScanner() {
 }
 
 Status SchemaDummyScanner::start() {
-    return Status::OK;
+    return Status::OK();
 }
 
 Status SchemaDummyScanner::get_next_row(Tuple *tuple, MemPool *pool, bool *eos) {
     *eos = true;
-    return Status::OK;
+    return Status::OK();
 }
 
 }

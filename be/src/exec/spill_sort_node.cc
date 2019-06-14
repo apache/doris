@@ -39,7 +39,7 @@ Status SpillSortNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(_sort_exec_exprs.init(tnode.sort_node.sort_info, _pool));
     _is_asc_order = tnode.sort_node.sort_info.is_asc_order;
     _nulls_first = tnode.sort_node.sort_info.nulls_first;
-    return Status::OK;
+    return Status::OK();
 }
 
 Status SpillSortNode::prepare(RuntimeState* state) {
@@ -48,7 +48,7 @@ Status SpillSortNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(_sort_exec_exprs.prepare(
             state, child(0)->row_desc(), _row_descriptor, expr_mem_tracker()));
     // AddExprCtxsToFree(_sort_exec_exprs);
-    return Status::OK;
+    return Status::OK();
 }
 
 Status SpillSortNode::open(RuntimeState* state) {
@@ -80,7 +80,7 @@ Status SpillSortNode::open(RuntimeState* state) {
     // if (!IsInSubplan()) {
     child(0)->close(state);
     // }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status SpillSortNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
@@ -93,7 +93,7 @@ Status SpillSortNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* e
 
     if (reached_limit()) {
         *eos = true;
-        return Status::OK;
+        return Status::OK();
     } else {
         *eos = false;
     }
@@ -123,7 +123,7 @@ Status SpillSortNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* e
     }
 
     COUNTER_SET(_rows_returned_counter, _num_rows_returned);
-    return Status::OK;
+    return Status::OK();
 }
 
 Status SpillSortNode::reset(RuntimeState* state) {
@@ -132,17 +132,17 @@ Status SpillSortNode::reset(RuntimeState* state) {
         _sorter->reset();
     }
     // return ExecNode::reset(state);
-    return Status::OK;
+    return Status::OK();
 }
 
 Status SpillSortNode::close(RuntimeState* state) {
     if (is_closed()) {
-        return Status::OK;
+        return Status::OK();
     }
     _sort_exec_exprs.close(state);
     _sorter.reset();
     ExecNode::close(state);
-    return Status::OK;
+    return Status::OK();
 }
 
 void SpillSortNode::debug_string(int indentation_level, stringstream* out) const {
@@ -171,7 +171,7 @@ Status SpillSortNode::sort_input(RuntimeState* state) {
     } while (!eos);
 
     RETURN_IF_ERROR(_sorter->input_done());
-    return Status::OK;
+    return Status::OK();
 }
 
 } // end namespace doris

@@ -30,7 +30,7 @@ namespace doris {
 
 // Mock fragment mgr
 Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, FinishCallback cb) {
-    return Status::OK;
+    return Status::OK();
 }
 
 FragmentMgr::FragmentMgr(ExecEnv* exec_env) :
@@ -70,7 +70,7 @@ TEST_F(ExportTaskMgrTest, NormalCase) {
     // make it finishing
     ExportTaskResult task_result;
     task_result.files.push_back("path/file1");
-    ASSERT_TRUE(mgr.finish_task(id, Status::OK, task_result).ok());
+    ASSERT_TRUE(mgr.finish_task(id, Status::OK(), task_result).ok());
     ASSERT_TRUE(mgr.get_task_state(id, &res).ok());
     ASSERT_EQ(TExportState::FINISHED, res.state);
     ASSERT_EQ(TStatusCode::OK, res.status.status_code);
@@ -125,7 +125,7 @@ TEST_F(ExportTaskMgrTest, RunAfterSuccess) {
     // make it finishing
     ExportTaskResult task_result;
     task_result.files.push_back("path/file1");
-    ASSERT_TRUE(mgr.finish_task(id, Status::OK, task_result).ok());
+    ASSERT_TRUE(mgr.finish_task(id, Status::OK(), task_result).ok());
     ASSERT_TRUE(mgr.get_task_state(id, &res).ok());
     ASSERT_EQ(TExportState::FINISHED, res.state);
     ASSERT_EQ(TStatusCode::OK, res.status.status_code);
@@ -159,7 +159,7 @@ TEST_F(ExportTaskMgrTest, RunAfterFail) {
 
     // make it finishing
     ExportTaskResult task_result;
-    ASSERT_TRUE(mgr.finish_task(id, Status::THRIFT_RPC_ERROR, task_result).ok());
+    ASSERT_TRUE(mgr.finish_task(id, Status::ThriftRpcError("Thrift rpc error"), task_result).ok());
     ASSERT_TRUE(mgr.get_task_state(id, &res).ok());
     ASSERT_EQ(TExportState::CANCELLED, res.state);
     ASSERT_EQ(TStatusCode::OK, res.status.status_code);
@@ -211,7 +211,7 @@ TEST_F(ExportTaskMgrTest, FinishUnknowJob) {
 
     // make it finishing
     ExportTaskResult task_result;
-    ASSERT_FALSE(mgr.finish_task(id, Status::THRIFT_RPC_ERROR, task_result).ok());
+    ASSERT_FALSE(mgr.finish_task(id, Status::ThriftRpcError("Thrift rpc error"), task_result).ok());
     ASSERT_TRUE(mgr.get_task_state(id, &res).ok());
     ASSERT_EQ(TExportState::CANCELLED, res.state);
     ASSERT_EQ(TStatusCode::OK, res.status.status_code);

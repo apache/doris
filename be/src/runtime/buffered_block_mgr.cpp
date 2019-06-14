@@ -39,7 +39,7 @@ Status BufferedBlockMgr::create(RuntimeState* state,
         int64_t block_size, boost::shared_ptr<BufferedBlockMgr>* block_mgr) {
     block_mgr->reset(new BufferedBlockMgr(state, block_size));
     (*block_mgr)->init(state);
-    return Status::OK;
+    return Status::OK();
 }
 
 void BufferedBlockMgr::init(RuntimeState* state) {
@@ -63,12 +63,12 @@ Status BufferedBlockMgr::get_new_block(Block** block, int64_t len) {
     *block = NULL;
     Block* new_block = _obj_pool.add(new Block());
     if (UNLIKELY(new_block == NULL)) {
-        return Status("Allocate memory failed.");
+        return Status::InternalError("Allocate memory failed.");
     }
 
     uint8_t* buffer = _tuple_pool->allocate(len);
     if (UNLIKELY(buffer == NULL)) {
-        return Status("Allocate memory failed.");
+        return Status::InternalError("Allocate memory failed.");
     }
 
     //new_block->set_buffer_desc(_obj_pool.Add(new BufferDescriptor(buffer, len));
@@ -77,15 +77,15 @@ Status BufferedBlockMgr::get_new_block(Block** block, int64_t len) {
     *block = new_block;
 
     if (UNLIKELY(_state->instance_mem_tracker()->any_limit_exceeded())) {
-        return Status::MEM_LIMIT_EXCEEDED;
+        return Status::MemoryLimitExceeded("Memory limit exceeded");
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 //Status BufferedBlockMgr::Block::delete() {
   //// TODO: delete block or not,we should delete the new BLOCK
-  //return Status::OK;
+  //return Status::OK();
 //}
 
 Status BufferedBlockMgr::get_new_block(Block** block) {

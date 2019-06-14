@@ -44,22 +44,22 @@ namespace doris {
 
         if (_is_open) {
             LOG(INFO) << "this scanner already opened";
-            return Status::OK;
+            return Status::OK();
         }
 
         if (_file_paths.empty()) {
-            return Status("no file specified.");
+            return Status::InternalError("no file specified.");
         }
 
         _is_open = true;
-        return Status::OK;
+        return Status::OK();
     }
 
     // TODO(lingbin): read more than one line at a time to reduce IO comsumption
     Status CsvScanner::get_next_row(std::string* line_str, bool* eos) {
         if (_current_file == nullptr && _current_file_idx == _file_paths.size()) {
             *eos = true;
-            return Status::OK;
+            return Status::OK();
         }
 
         if (_current_file == nullptr && _current_file_idx < _file_paths.size()) {
@@ -68,7 +68,7 @@ namespace doris {
 
             _current_file = new std::ifstream(file_path, std::ifstream::in);
             if (!_current_file->is_open()) {
-                return Status("Fail to read csv file: " + file_path);
+                return Status::InternalError("Fail to read csv file: " + file_path);
             }
             ++_current_file_idx;
         }
@@ -81,12 +81,12 @@ namespace doris {
 
             if (_current_file_idx == _file_paths.size()) {
                 *eos = true;
-                return Status::OK;
+                return Status::OK();
             }
         }
 
         *eos = false;
-        return Status::OK;
+        return Status::OK();
     }
 } // end namespace doris
 

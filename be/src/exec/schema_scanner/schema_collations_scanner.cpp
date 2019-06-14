@@ -53,7 +53,7 @@ Status SchemaCollationsScanner::fill_one_row(Tuple *tuple, MemPool *pool) {
         int len = strlen(_s_collations[_index].name);
         str_slot->ptr = (char *)pool->allocate(len + 1);
         if (NULL == str_slot->ptr) {
-            return Status("No Memory.");
+            return Status::InternalError("No Memory.");
         }
         memcpy(str_slot->ptr, _s_collations[_index].name, len + 1);
         str_slot->len = len;
@@ -65,7 +65,7 @@ Status SchemaCollationsScanner::fill_one_row(Tuple *tuple, MemPool *pool) {
         int len = strlen(_s_collations[_index].charset);
         str_slot->ptr = (char *)pool->allocate(len + 1);
         if (NULL == str_slot->ptr) {
-            return Status("No Memory.");
+            return Status::InternalError("No Memory.");
         }
         memcpy(str_slot->ptr, _s_collations[_index].charset, len + 1);
         str_slot->len = len;
@@ -82,7 +82,7 @@ Status SchemaCollationsScanner::fill_one_row(Tuple *tuple, MemPool *pool) {
         int len = strlen(_s_collations[_index].is_default);
         str_slot->ptr = (char *)pool->allocate(len + 1);
         if (NULL == str_slot->ptr) {
-            return Status("No Memory.");
+            return Status::InternalError("No Memory.");
         }
         memcpy(str_slot->ptr, _s_collations[_index].is_default, len + 1);
         str_slot->len = len;
@@ -94,7 +94,7 @@ Status SchemaCollationsScanner::fill_one_row(Tuple *tuple, MemPool *pool) {
         int len = strlen(_s_collations[_index].is_compile);
         str_slot->ptr = (char *)pool->allocate(len + 1);
         if (NULL == str_slot->ptr) {
-            return Status("No Memory.");
+            return Status::InternalError("No Memory.");
         }
         memcpy(str_slot->ptr, _s_collations[_index].is_compile, len + 1);
         str_slot->len = len;
@@ -105,19 +105,19 @@ Status SchemaCollationsScanner::fill_one_row(Tuple *tuple, MemPool *pool) {
         *(int64_t*)slot = _s_collations[_index].sortlen;
     }
     _index++;
-    return Status::OK;
+    return Status::OK();
 }
 
 Status SchemaCollationsScanner::get_next_row(Tuple *tuple, MemPool *pool, bool *eos) {
     if (!_is_init) {
-        return Status("call this before initial.");
+        return Status::InternalError("call this before initial.");
     }
     if (NULL == _s_collations[_index].name) {
         *eos = true;
-        return Status::OK;
+        return Status::OK();
     }
     if (NULL == tuple || NULL == pool || NULL == eos) {
-        return Status("invalid parameter.");
+        return Status::InternalError("invalid parameter.");
     }
     *eos = false;
     return fill_one_row(tuple, pool);

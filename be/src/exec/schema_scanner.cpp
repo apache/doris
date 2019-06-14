@@ -41,39 +41,39 @@ SchemaScanner::~SchemaScanner() {
 
 Status SchemaScanner::start(RuntimeState* state) {
     if (!_is_init) {
-        return Status("call Start before Init.");
+        return Status::InternalError("call Start before Init.");
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status SchemaScanner::get_next_row(Tuple* tuple, MemPool* pool, bool* eos) {
     if (!_is_init) {
-        return Status("used before initialized.");
+        return Status::InternalError("used before initialized.");
     }
 
     if (NULL == tuple || NULL == pool || NULL == eos) {
-        return Status("input pointer is NULL.");
+        return Status::InternalError("input pointer is NULL.");
     }
 
     *eos = true;
-    return Status::OK;
+    return Status::OK();
 }
 
 Status SchemaScanner::init(SchemaScannerParam* param, ObjectPool* pool) {
     if (_is_init) {
-        return Status::OK;
+        return Status::OK();
     }
 
     if (NULL == param || NULL == pool || NULL == _columns) {
-        return Status("invalid parameter");
+        return Status::InternalError("invalid parameter");
     }
 
     RETURN_IF_ERROR(create_tuple_desc(pool));
     _param = param;
     _is_init = true;
 
-    return Status::OK;
+    return Status::OK();
 }
 
 SchemaScanner* SchemaScanner::create(TSchemaTableType::type type) {
@@ -139,7 +139,7 @@ Status SchemaScanner::create_tuple_desc(ObjectPool* pool) {
         SlotDescriptor* slot = pool->add(new(std::nothrow) SlotDescriptor(t_slot_desc));
 
         if (NULL == slot) {
-            return Status("no memory for _tuple_desc.");
+            return Status::InternalError("no memory for _tuple_desc.");
         }
 
         slots.push_back(slot);
@@ -152,14 +152,14 @@ Status SchemaScanner::create_tuple_desc(ObjectPool* pool) {
     _tuple_desc = pool->add(new(std::nothrow) TupleDescriptor(t_tuple_desc));
 
     if (NULL == _tuple_desc) {
-        return Status("no memory for _tuple_desc.");
+        return Status::InternalError("no memory for _tuple_desc.");
     }
 
     for (int i = 0; i < slots.size(); ++i) {
         _tuple_desc->add_slot(slots[i]);
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 }

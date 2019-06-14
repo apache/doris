@@ -70,10 +70,10 @@ Status ESScanReader::open() {
         std::stringstream ss;
         ss << "Failed to connect to ES server, errmsg is: " << status.get_error_msg();
         LOG(WARNING) << ss.str();
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
     VLOG(1) << "open _cached response: " << _cached_response;
-    return Status::OK;
+    return Status::OK();
 }
 
 Status ESScanReader::get_next(bool* scan_eos, std::unique_ptr<ScrollParser>& scroll_parser) {
@@ -81,7 +81,7 @@ Status ESScanReader::get_next(bool* scan_eos, std::unique_ptr<ScrollParser>& scr
     // if is first scroll request, should return the cached response
     *scan_eos = true;
     if (_eos) {
-        return Status::OK;
+        return Status::OK();
     }
 
     if (_is_first) {
@@ -98,16 +98,16 @@ Status ESScanReader::get_next(bool* scan_eos, std::unique_ptr<ScrollParser>& scr
         if (status == 404) {
             LOG(WARNING) << "request scroll search failure 404[" 
                          << ", response: " << (response.empty() ? "empty response" : response);
-            return Status("No search context found for " + _scroll_id);
+            return Status::InternalError("No search context found for " + _scroll_id);
         }
         if (status != 200) {
             LOG(WARNING) << "request scroll search failure[" 
                          << "http status" << status
                          << ", response: " << (response.empty() ? "empty response" : response);
             if (status == 404) {
-                    return Status("No search context found for " + _scroll_id);
+                    return Status::InternalError("No search context found for " + _scroll_id);
                 }
-            return Status("request scroll search failure: " + (response.empty() ? "empty response" : response));        
+            return Status::InternalError("request scroll search failure: " + (response.empty() ? "empty response" : response));        
         }
     }
 
@@ -122,7 +122,7 @@ Status ESScanReader::get_next(bool* scan_eos, std::unique_ptr<ScrollParser>& scr
     _scroll_id = scroll_parser->get_scroll_id();
     if (scroll_parser->get_total() == 0) {
         _eos = true;
-        return Status::OK;
+        return Status::OK();
     }
 
     if (scroll_parser->get_size() < _batch_size) {
@@ -132,12 +132,12 @@ Status ESScanReader::get_next(bool* scan_eos, std::unique_ptr<ScrollParser>& scr
     }
 
     *scan_eos = false;
-    return Status::OK;
+    return Status::OK();
 }
 
 Status ESScanReader::close() {
     if (_scroll_id.empty()) {
-        return Status::OK;
+        return Status::OK();
     }
 
     std::string scratch_target = _target + REQUEST_SEARCH_SCROLL_PATH;
@@ -149,9 +149,9 @@ Status ESScanReader::close() {
     std::string response;
     RETURN_IF_ERROR(_network_client.execute_delete_request(ESScrollQueryBuilder::build_clear_scroll_body(_scroll_id), &response));
     if (_network_client.get_http_status() == 200) {
-        return Status::OK;
+        return Status::OK();
     } else {
-        return Status("es_scan_reader delete scroll context failure");
+        return Status::InternalError("es_scan_reader delete scroll context failure");
     }
 }
 }

@@ -46,12 +46,12 @@ bool KuduIsAvailable() { return CheckKuduAvailability().ok(); }
 Status CheckKuduAvailability() {
   if (KuduClientIsSupported()) {
     if (config::disable_kudu) {
-      return Status(TStatusCode::KUDU_NOT_ENABLED);
+      return Status::InternalError(TStatusCode::KUDU_NOT_ENABLED);
     } else{
-      return Status::OK;
+      return Status::OK();
     }
   }
-  return Status(TStatusCode::KUDU_NOT_SUPPORTED_ON_OS);
+  return Status::InternalError(TStatusCode::KUDU_NOT_SUPPORTED_ON_OS);
 }
 
 Status CreateKuduClient(const std::vector<std::string>& master_addrs,
@@ -61,7 +61,7 @@ Status CreateKuduClient(const std::vector<std::string>& master_addrs,
         b.add_master_server_addr(address);
     }
     KUDU_RETURN_IF_ERROR(b.Build(client), "Unable to create Kudu client");
-    return Status::OK;
+    return Status::OK();
 }
 
 std::string KuduSchemaDebugString(const KuduSchema& schema) {

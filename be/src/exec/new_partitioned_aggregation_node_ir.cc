@@ -32,7 +32,7 @@ Status NewPartitionedAggregationNode::ProcessBatchNoGrouping(RowBatch* batch) {
   FOREACH_ROW(batch, 0, batch_iter) {
     UpdateTuple(agg_fn_evals_.data(), output_tuple, batch_iter.get());
   }
-  return Status::OK;
+  return Status::OK();
 }
 
 template<bool AGGREGATED_ROWS>
@@ -60,7 +60,7 @@ Status NewPartitionedAggregationNode::ProcessBatch(RowBatch* batch,
     }
     DCHECK(expr_vals_cache->AtEnd());
   }
-  return Status::OK;
+  return Status::OK();
 }
 
 template<bool AGGREGATED_ROWS>
@@ -101,7 +101,7 @@ Status NewPartitionedAggregationNode::ProcessRow(TupleRow* row,
   // Hoist lookups out of non-null branch to speed up non-null case.
   const uint32_t hash = expr_vals_cache->CurExprValuesHash();
   const uint32_t partition_idx = hash >> (32 - NUM_PARTITIONING_BITS);
-  if (expr_vals_cache->IsRowNull()) return Status::OK;
+  if (expr_vals_cache->IsRowNull()) return Status::OK();
   // To process this row, we first see if it can be aggregated or inserted into this
   // partition's hash table. If we need to insert it and that fails, due to OOM, we
   // spill the partition. The partition to spill is not necessarily dst_partition,
@@ -129,7 +129,7 @@ Status NewPartitionedAggregationNode::ProcessRow(TupleRow* row,
   } else if (found) {
     // Row is already in hash table. Do the aggregation and we're done.
     UpdateTuple(dst_partition->agg_fn_evals.data(), it.GetTuple(), row);
-    return Status::OK;
+    return Status::OK();
   }
 
   // If we are seeing this result row for the first time, we need to construct the
@@ -149,7 +149,7 @@ Status NewPartitionedAggregationNode::AddIntermediateTuple(Partition* partition,
       UpdateTuple(partition->agg_fn_evals.data(), intermediate_tuple, row, AGGREGATED_ROWS);
       // After copying and initializing the tuple, insert it into the hash table.
       insert_it.SetTuple(intermediate_tuple, hash);
-      return Status::OK;
+      return Status::OK();
     } else if (!process_batch_status_.ok()) {
       return std::move(process_batch_status_);
     }
@@ -209,7 +209,7 @@ Status NewPartitionedAggregationNode::ProcessBatchStreaming(bool needs_serialize
     }
   }
 
-  return Status::OK;
+  return Status::OK();
 }
 
 bool NewPartitionedAggregationNode::TryAddToHashTable(

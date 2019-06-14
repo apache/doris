@@ -90,7 +90,7 @@ QSorter::QSorter(
 Status QSorter::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(Expr::clone_if_not_exists(_order_expr_ctxs, state, &_lhs_expr_ctxs));
     RETURN_IF_ERROR(Expr::clone_if_not_exists(_order_expr_ctxs, state, &_rhs_expr_ctxs));
-    return Status::OK;
+    return Status::OK();
 }
 
 // Insert if either not at the limit or it's a new TopN tuple_row
@@ -99,17 +99,17 @@ Status QSorter::insert_tuple_row(TupleRow* input_row) {
             _row_desc.tuple_descriptors(),
             _tuple_pool.get());
     if (insert_tuple_row == NULL) {
-        return Status("deep copy failed.");
+        return Status::InternalError("deep copy failed.");
     }
     _sorted_rows.push_back(insert_tuple_row);
-    return Status::OK;
+    return Status::OK();
 }
 
 Status QSorter::add_batch(RowBatch* batch) {
     for (int i = 0; i < batch->num_rows(); ++i) {
         RETURN_IF_ERROR(insert_tuple_row(batch->get_row(i)));
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 // Reverse result in priority_queue
@@ -117,7 +117,7 @@ Status QSorter::input_done() {
     std::sort(_sorted_rows.begin(), _sorted_rows.end(),
               TupleRowLessThan(_lhs_expr_ctxs, _rhs_expr_ctxs));
     _next_iter = _sorted_rows.begin();
-    return Status::OK;
+    return Status::OK();
 }
 
 Status QSorter::get_next(RowBatch* batch, bool* eos) {
@@ -131,14 +131,14 @@ Status QSorter::get_next(RowBatch* batch, bool* eos) {
     }
 
     *eos = _next_iter == _sorted_rows.end();
-    return Status::OK;
+    return Status::OK();
 }
 
 Status QSorter::close(RuntimeState* state) {
     _tuple_pool.reset();
     Expr::close(_lhs_expr_ctxs, state);
     Expr::close(_rhs_expr_ctxs, state);
-    return Status::OK;
+    return Status::OK();
 }
 
 }

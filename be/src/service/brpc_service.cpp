@@ -45,9 +45,9 @@ Status BRpcService::start(int port) {
         char buf[64];
         LOG(WARNING) << "start brpc failed, errno=" << errno
             << ", errmsg=" << strerror_r(errno, buf, 64) << ", port=" << port;
-        return Status("start brpc service failed");
+        return Status::InternalError("start brpc service failed");
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 void BRpcService::join() {

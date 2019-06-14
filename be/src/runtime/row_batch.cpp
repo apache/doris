@@ -441,7 +441,7 @@ Status RowBatch::resize_and_allocate_tuple_buffer(RuntimeState* state,
     LOG(WARNING) << ss.str();
     return state->set_mem_limit_exceeded(ss.str());
   }
-  return Status::OK;
+  return Status::OK();
 }
 
 void RowBatch::add_tuple_stream(BufferedTupleStream2* stream) {

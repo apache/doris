@@ -115,7 +115,7 @@ Status ThriftServer::ThriftServerEventProcessor::start_and_wait_for_server() {
                << _thrift_server->_port << ") did not start within "
                << TIMEOUT_MS << "ms";
             LOG(ERROR) << ss.str();
-            return Status(ss.str());
+            return Status::InternalError(ss.str());
         }
     }
 
@@ -126,10 +126,10 @@ Status ThriftServer::ThriftServerEventProcessor::start_and_wait_for_server() {
         ss << "ThriftServer '" << _thrift_server->_name << "' (on port: "
            << _thrift_server->_port << ") did not start correctly ";
         LOG(ERROR) << ss.str();
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 void ThriftServer::ThriftServerEventProcessor::supervise() {
@@ -352,7 +352,7 @@ Status ThriftServer::start() {
         std::stringstream error_msg;
         error_msg << "Unsupported server type: " << _server_type;
         LOG(ERROR) << error_msg.str();
-        return Status(error_msg.str());
+        return Status::InternalError(error_msg.str());
     }
 
     boost::shared_ptr<ThriftServer::ThriftServerEventProcessor> event_processor(
@@ -364,7 +364,7 @@ Status ThriftServer::start() {
     LOG(INFO) << "ThriftServer '" << _name << "' started on port: " << _port;
 
     DCHECK(_started);
-    return Status::OK;
+    return Status::OK();
 }
 
 void ThriftServer::stop() {

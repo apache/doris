@@ -108,7 +108,7 @@ Status DataStreamMgr::transmit_data(const PTransmitDataParams* request, ::google
         // in acquiring _lock.
         // TODO: Rethink the lifecycle of DataStreamRecvr to distinguish
         // errors from receiver-initiated teardowns.
-        return Status::OK;
+        return Status::OK();
     }
 
     // request can only be used before calling recvr's add_batch or when request 
@@ -127,7 +127,7 @@ Status DataStreamMgr::transmit_data(const PTransmitDataParams* request, ::google
     if (eos) {
         recvr->remove_sender(request->sender_id(), request->be_number());            
     } 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status DataStreamMgr::deregister_recvr(
@@ -147,7 +147,7 @@ Status DataStreamMgr::deregister_recvr(
             _fragment_stream_set.erase(std::make_pair(recvr->fragment_instance_id(),
                         recvr->dest_node_id()));
             _receiver_map.erase(range.first);
-            return Status::OK;
+            return Status::OK();
         }
         ++range.first;
     }
@@ -156,7 +156,7 @@ Status DataStreamMgr::deregister_recvr(
     err << "unknown row receiver id: fragment_instance_id=" << fragment_instance_id
         << " node_id=" << node_id;
     LOG(ERROR) << err.str();
-    return Status(err.str());
+    return Status::InternalError(err.str());
 }
 
 void DataStreamMgr::cancel(const TUniqueId& fragment_instance_id) {

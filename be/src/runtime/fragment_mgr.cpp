@@ -206,14 +206,14 @@ Status FragmentExecState::execute() {
     }
     DorisMetrics::fragment_requests_total.increment(1);
     DorisMetrics::fragment_request_duration_us.increment(duration_ns / 1000);
-    return Status::OK;
+    return Status::OK();
 }
 
 Status FragmentExecState::cancel() {
     std::lock_guard<std::mutex> l(_status_lock);
     RETURN_IF_ERROR(_exec_status);
     _executor.cancel();
-    return Status::OK;
+    return Status::OK();
 }
 
 void FragmentExecState::callback(const Status& status, RuntimeProfile* profile, bool done) {
@@ -245,7 +245,7 @@ void FragmentExecState::coordinator_callback(
     if (!coord_status.ok()) {
         std::stringstream ss;
         ss << "couldn't get a client for " << _coord_addr;
-        update_status(Status(TStatusCode::INTERNAL_ERROR, ss.str(), false));
+        update_status(Status::InternalError(ss.str()));
         return;
     }
 
@@ -325,7 +325,7 @@ void FragmentExecState::coordinator_callback(
         std::stringstream msg;
         msg << "ReportExecStatus() to " << _coord_addr << " failed:\n" << e.what();
         LOG(WARNING) << msg.str();
-        rpc_status = Status(TStatusCode::INTERNAL_ERROR, msg.str(), false);
+        rpc_status = Status::InternalError(msg.str());
     }
 
     if (!rpc_status.ok()) {
@@ -405,7 +405,7 @@ Status FragmentMgr::exec_plan_fragment(
         auto iter = _fragment_map.find(fragment_instance_id);
         if (iter != _fragment_map.end()) {
             // Duplicated
-            return Status::OK;
+            return Status::OK();
         }
     }
     exec_state.reset(new FragmentExecState(
@@ -421,7 +421,7 @@ Status FragmentMgr::exec_plan_fragment(
         auto iter = _fragment_map.find(fragment_instance_id);
         if (iter != _fragment_map.end()) {
             // Duplicated
-            return Status("Double execute");
+            return Status::InternalError("Double execute");
         }
         // register exec_state before starting exec thread
         _fragment_map.insert(std::make_pair(fragment_instance_id, exec_state));
@@ -440,7 +440,7 @@ Status FragmentMgr::exec_plan_fragment(
                 std::lock_guard<std::mutex> lock(_lock);
                 _fragment_map.erase(fragment_instance_id);
             }
-            return Status("Put planfragment to failed.");
+            return Status::InternalError("Put planfragment to failed.");
         }
     } else {
         pthread_t id;
@@ -454,12 +454,12 @@ Status FragmentMgr::exec_plan_fragment(
             err_msg.append(strerror(ret));
             err_msg.append(",");
             err_msg.append(std::to_string(ret));
-            return Status(err_msg);
+            return Status::InternalError(err_msg);
         }
         pthread_detach(id);
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status FragmentMgr::cancel(const TUniqueId& id) {
@@ -469,13 +469,13 @@ Status FragmentMgr::cancel(const TUniqueId& id) {
         auto iter = _fragment_map.find(id);
         if (iter == _fragment_map.end()) {
             // No match
-            return Status::OK;
+            return Status::OK();
         }
         exec_state = iter->second;
     }
     exec_state->cancel();
 
-    return Status::OK;
+    return Status::OK();
 }
 
 //
@@ -525,7 +525,7 @@ Status FragmentMgr::trigger_profile_report(const PTriggerProfileReportRequest* r
             iter->second->executor()->report_profile_once();
         }
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 

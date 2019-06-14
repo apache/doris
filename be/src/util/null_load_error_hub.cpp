@@ -27,18 +27,18 @@ NullLoadErrorHub::~NullLoadErrorHub() {
 
 Status NullLoadErrorHub::prepare() {
     _is_valid = true;
-    return Status::OK;
+    return Status::OK();
 }
 
 Status NullLoadErrorHub::export_error(const ErrorMsg& error_msg) {
     std::lock_guard<std::mutex> lock(_mtx);
     ++_total_error_num;
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status NullLoadErrorHub::close() {
-    return Status::OK;
+    return Status::OK();
 }
 
 std::string NullLoadErrorHub::debug_string() const {

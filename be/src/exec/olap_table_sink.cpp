@@ -60,7 +60,7 @@ Status NodeChannel::init(RuntimeState* state) {
     if (_node_info == nullptr) {
         std::stringstream ss;
         ss << "unknown node id, id=" << _node_id;
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
     RowDescriptor row_desc(_tuple_desc, false);
     _batch.reset(new RowBatch(row_desc, state->batch_size(), _parent->_mem_tracker));
@@ -70,7 +70,7 @@ Status NodeChannel::init(RuntimeState* state) {
     if (_stub == nullptr) {
         LOG(WARNING) << "Get rpc stub failed, host=" << _node_info->host
             << ", port=" << _node_info->brpc_port;
-        return Status("get rpc stub failed");
+        return Status::InternalError("get rpc stub failed");
     }
 
     // Initialize _add_batch_request
@@ -78,7 +78,7 @@ Status NodeChannel::init(RuntimeState* state) {
     _add_batch_request.set_index_id(_index_id);
     _add_batch_request.set_sender_id(_parent->_sender_id);
 
-    return Status::OK;
+    return Status::OK();
 }
 
 void NodeChannel::open() {
@@ -115,7 +115,7 @@ Status NodeChannel::open_wait() {
         LOG(WARNING) << "failed to open tablet writer, error="
             << berror(_open_closure->cntl.ErrorCode())
             << ", error_text=" << _open_closure->cntl.ErrorText();
-        return Status("failed to open tablet writer");
+        return Status::InternalError("failed to open tablet writer");
     }
     Status status(_open_closure->result.status());
     if (_open_closure->unref()) {
@@ -141,7 +141,7 @@ Status NodeChannel::add_row(Tuple* input_tuple, int64_t tablet_id) {
     _batch->get_row(row_no)->set_tuple(0, tuple);
     _batch->commit_last_row();
     _add_batch_request.add_tablet_ids(tablet_id);
-    return Status::OK;
+    return Status::OK();
 }
 
 Status NodeChannel::close(RuntimeState* state) {
@@ -194,7 +194,7 @@ void NodeChannel::cancel() {
 
 Status NodeChannel::_wait_in_flight_packet() {
     if (!_has_in_flight_packet) {
-        return Status::OK;
+        return Status::OK();
     }
     _add_batch_closure->join();
     _has_in_flight_packet = false;
@@ -202,7 +202,7 @@ Status NodeChannel::_wait_in_flight_packet() {
         LOG(WARNING) << "failed to send batch, error="
             << berror(_add_batch_closure->cntl.ErrorCode())
             << ", error_text=" << _add_batch_closure->cntl.ErrorText();
-        return Status("failed to send batch");
+        return Status::InternalError("failed to send batch");
     }
     return {_add_batch_closure->result.status()};
 }
@@ -239,7 +239,7 @@ Status NodeChannel::_send_cur_batch(bool eos) {
     _next_packet_seq++;
 
     _batch->reset();
-    return Status::OK;
+    return Status::OK();
 }
 
 IndexChannel::~IndexChannel() {
@@ -253,7 +253,7 @@ Status IndexChannel::init(RuntimeState* state,
         auto location = _parent->_location->find_tablet(tablet.tablet_id);
         if (location == nullptr) {
             LOG(WARNING) << "unknow tablet, tablet_id=" << tablet.tablet_id;
-            return Status("unknown tablet");
+            return Status::InternalError("unknown tablet");
         }
         std::vector<NodeChannel*> channels;
         for (auto& node_id : location->node_ids) {
@@ -274,7 +274,7 @@ Status IndexChannel::init(RuntimeState* state,
     for (auto& it : _node_channels) {
         RETURN_IF_ERROR(it.second->init(state));
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status IndexChannel::open() {
@@ -295,7 +295,7 @@ Status IndexChannel::open() {
             }
         }
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status IndexChannel::add_row(Tuple* tuple, int64_t tablet_id) {
@@ -318,7 +318,7 @@ Status IndexChannel::add_row(Tuple* tuple, int64_t tablet_id) {
             }
         }
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status IndexChannel::close(RuntimeState* state) {
@@ -411,7 +411,7 @@ Status OlapTableSink::init(const TDataSink& t_sink) {
     _location = _pool->add(new OlapTableLocationParam(table_sink.location));
     _nodes_info = _pool->add(new DorisNodesInfo(table_sink.nodes_info));
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status OlapTableSink::prepare(RuntimeState* state) {
@@ -435,14 +435,14 @@ Status OlapTableSink::prepare(RuntimeState* state) {
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_desc_id);
     if (_output_tuple_desc == nullptr) {
         LOG(WARNING) << "unknown destination tuple descriptor, id=" << _tuple_desc_id;
-        return Status("unknown destination tuple descriptor");
+        return Status::InternalError("unknown destination tuple descriptor");
     }
     if (!_output_expr_ctxs.empty()) {
         if (_output_expr_ctxs.size() != _output_tuple_desc->slots().size()) {
             LOG(WARNING) << "number of exprs is not same with slots, num_exprs="
                 << _output_expr_ctxs.size()
                 << ", num_slots=" << _output_tuple_desc->slots().size();
-            return Status("number of exprs is not same with slots");
+            return Status::InternalError("number of exprs is not same with slots");
         }
         for (int i = 0; i < _output_expr_ctxs.size(); ++i) {
             if (!is_type_compatible(_output_expr_ctxs[i]->root()->type().type,
@@ -451,7 +451,7 @@ Status OlapTableSink::prepare(RuntimeState* state) {
                     << _output_expr_ctxs[i]->root()->type().type
                     << ", slot_type=" << _output_tuple_desc->slots()[i]->type().type
                     << ", slot_name=" << _output_tuple_desc->slots()[i]->col_name();
-                return Status("expr's type is not same with slot's");
+                return Status::InternalError("expr's type is not same with slot's");
             }
         }
     }
@@ -518,7 +518,7 @@ Status OlapTableSink::prepare(RuntimeState* state) {
         _channels.emplace_back(channel);
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status OlapTableSink::open(RuntimeState* state) {
@@ -530,7 +530,7 @@ Status OlapTableSink::open(RuntimeState* state) {
     for (auto channel : _channels) {
         RETURN_IF_ERROR(channel->open());
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status OlapTableSink::send(RuntimeState* state, RowBatch* input_batch) {
@@ -579,7 +579,7 @@ Status OlapTableSink::send(RuntimeState* state, RowBatch* input_batch) {
             _number_output_rows++;
         }
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status OlapTableSink::close(RuntimeState* state, Status close_status) {

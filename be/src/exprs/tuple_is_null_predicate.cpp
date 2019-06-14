@@ -44,7 +44,7 @@ Status TupleIsNullPredicate::prepare(
         }
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 BooleanVal TupleIsNullPredicate::get_boolean_val(ExprContext* ctx, TupleRow* row) {

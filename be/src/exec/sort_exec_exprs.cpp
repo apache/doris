@@ -38,14 +38,14 @@ Status SortExecExprs::init(
     } else {
         _materialize_tuple = false;
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status SortExecExprs::init(const std::vector<ExprContext*>& lhs_ordering_expr_ctxs,
         const std::vector<ExprContext*>& rhs_ordering_expr_ctxs) {
     _lhs_ordering_expr_ctxs = lhs_ordering_expr_ctxs;
     _rhs_ordering_expr_ctxs = rhs_ordering_expr_ctxs;
-    return Status::OK;
+    return Status::OK();
 }
 
 Status SortExecExprs::prepare(RuntimeState* state, const RowDescriptor& child_row_desc,
@@ -57,7 +57,7 @@ Status SortExecExprs::prepare(RuntimeState* state, const RowDescriptor& child_ro
     }
     RETURN_IF_ERROR(Expr::prepare(
             _lhs_ordering_expr_ctxs, state, output_row_desc, expr_mem_tracker));
-    return Status::OK;
+    return Status::OK();
 }
 
 Status SortExecExprs::open(RuntimeState* state) {
@@ -67,7 +67,7 @@ Status SortExecExprs::open(RuntimeState* state) {
     RETURN_IF_ERROR(Expr::open(_lhs_ordering_expr_ctxs, state));
     RETURN_IF_ERROR(Expr::clone_if_not_exists(
             _lhs_ordering_expr_ctxs, state, &_rhs_ordering_expr_ctxs));
-    return Status::OK;
+    return Status::OK();
 }
 
 void SortExecExprs::close(RuntimeState* state) {

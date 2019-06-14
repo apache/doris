@@ -50,10 +50,10 @@ Status GzipCompressor::init() {
 
     if ((ret = deflateInit2(&_stream, Z_DEFAULT_COMPRESSION, Z_DEFLATED,
                             window_bits, 9, Z_DEFAULT_STRATEGY)) != Z_OK) {
-        return Status("zlib deflateInit failed: " +  std::string(_stream.msg));
+        return Status::InternalError("zlib deflateInit failed: " +  std::string(_stream.msg));
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 int GzipCompressor::max_compressed_len(int input_length) {
@@ -76,16 +76,16 @@ Status GzipCompressor::compress(
     if ((ret = deflate(&_stream, Z_FINISH)) != Z_STREAM_END) {
         std::stringstream ss;
         ss << "zlib deflate failed: " << _stream.msg;
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
     *output_length = *output_length - _stream.avail_out;
 
     if (deflateReset(&_stream) != Z_OK) {
-        return Status("zlib deflateReset failed: " + std::string(_stream.msg));
+        return Status::InternalError("zlib deflateReset failed: " + std::string(_stream.msg));
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status GzipCompressor::process_block(
@@ -110,7 +110,7 @@ Status GzipCompressor::process_block(
 
     RETURN_IF_ERROR(compress(input_length, input, output_length, _out_buffer));
     *output = _out_buffer;
-    return Status::OK;
+    return Status::OK();
 }
 
 BzipCompressor::BzipCompressor(MemPool* mem_pool, bool reuse_buffer) : 
@@ -153,7 +153,7 @@ Status BzipCompressor::process_block(
             DCHECK_EQ(*output_length, 0);
 
             if (*output_length != 0) {
-                return Status("Too small buffer passed to BzipCompressor");
+                return Status::InternalError("Too small buffer passed to BzipCompressor");
             }
 
             _out_buffer = NULL;
@@ -163,14 +163,14 @@ Status BzipCompressor::process_block(
     if (ret !=  BZ_OK) {
         std::stringstream ss;
         ss << "bzlib BZ2_bzBuffToBuffCompressor failed: " << ret;
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
 
     }
 
     *output = _out_buffer;
     *output_length = outlen;
     _memory_pool->acquire_data(&_temp_memory_pool, false);
-    return Status::OK;
+    return Status::OK();
 }
 
 // Currently this is only use for testing of the decompressor.
@@ -223,7 +223,7 @@ Status SnappyBlockCompressor::process_block(
 
     *output = _out_buffer;
     *output_length = outp - _out_buffer;
-    return Status::OK;
+    return Status::OK();
 }
 
 SnappyCompressor::SnappyCompressor(MemPool* mem_pool, bool reuse_buffer) : 
@@ -242,7 +242,7 @@ Status SnappyCompressor::compress(int input_len, uint8_t* input,
                         static_cast<size_t>(input_len),
                         reinterpret_cast<char*>(output), &out_len);
     *output_len = out_len;
-    return Status::OK;
+    return Status::OK();
 }
 
 Status SnappyCompressor::process_block(int input_length, uint8_t* input,
@@ -250,7 +250,7 @@ Status SnappyCompressor::process_block(int input_length, uint8_t* input,
     int max_compressed_len = this->max_compressed_len(input_length);
 
     if (*output_length != 0 && *output_length < max_compressed_len) {
-        return Status("process_block: output length too small");
+        return Status::InternalError("process_block: output length too small");
     }
 
     if (*output_length != 0) {

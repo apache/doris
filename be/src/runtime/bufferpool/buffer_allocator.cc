@@ -225,7 +225,7 @@ Status BufferPool::BufferAllocator::Allocate(
   RETURN_IF_ERROR(AllocateInternal(len, buffer));
   DCHECK(buffer->is_open());
   buffer->client_ = client;
-  return Status::OK;
+  return Status::OK();
 }
 
 Status BufferPool::BufferAllocator::AllocateInternal(int64_t len, BufferHandle* buffer) {
@@ -237,18 +237,18 @@ Status BufferPool::BufferAllocator::AllocateInternal(int64_t len, BufferHandle* 
   if (UNLIKELY(len > MAX_BUFFER_BYTES)) {
     err_stream << "Tried to allocate buffer of " << len << " bytes"
                << " max of " << MAX_BUFFER_BYTES << " bytes";
-    return Status(err_stream.str());
+    return Status::InternalError(err_stream.str());
   }
   if (UNLIKELY(len > system_bytes_limit_)) {
     err_stream << "Tried to allocate buffer of " << len << " bytes"
                << " > buffer pool limit of  " << MAX_BUFFER_BYTES << " bytes";
-    return Status(err_stream.str());
+    return Status::InternalError(err_stream.str());
   }
 
   const int current_core = CpuInfo::get_current_core();
   // Fast path: recycle a buffer of the correct size from this core's arena.
   FreeBufferArena* current_core_arena = per_core_arenas_[current_core].get();
-  if (current_core_arena->PopFreeBuffer(len, buffer)) return Status::OK;
+  if (current_core_arena->PopFreeBuffer(len, buffer)) return Status::OK();
 
   // Fast-ish path: allocate a new buffer if there is room in 'system_bytes_remaining_'.
   int64_t delta = DecreaseBytesRemaining(len, true, &system_bytes_remaining_);
@@ -266,7 +266,7 @@ Status BufferPool::BufferAllocator::AllocateInternal(int64_t len, BufferHandle* 
       // Each core should start searching from a different point to avoid hot-spots.
       int other_core = numa_node_cores[(numa_node_core_idx + i) % numa_node_cores.size()];
       FreeBufferArena* other_core_arena = per_core_arenas_[other_core].get();
-      if (other_core_arena->PopFreeBuffer(len, buffer)) return Status::OK;
+      if (other_core_arena->PopFreeBuffer(len, buffer)) return Status::OK();
     }
 
 /*
@@ -274,7 +274,7 @@ Status BufferPool::BufferAllocator::AllocateInternal(int64_t len, BufferHandle* 
     for (int i = 0; i < numa_node_cores.size(); ++i) {
       int other_core = numa_node_cores[(numa_node_core_idx + i) % numa_node_cores.size()];
       FreeBufferArena* other_core_arena = per_core_arenas_[other_core].get();
-      if (other_core_arena->EvictCleanPage(len, buffer)) return Status::OK;
+      if (other_core_arena->EvictCleanPage(len, buffer)) return Status::OK();
     }
 */
     // Slow path: scavenge buffers of different sizes from free buffer lists and clean
@@ -296,7 +296,7 @@ Status BufferPool::BufferAllocator::AllocateInternal(int64_t len, BufferHandle* 
                  <<  "bytes: was only able to free up "
                  << delta << " bytes after " << max_scavenge_attempts_
                  << " attempts:\n" << pool_->DebugString();
-      return Status(err_stream.str());
+      return Status::InternalError(err_stream.str());
     }
   }
   // We have headroom to allocate a new buffer at this point.
@@ -306,7 +306,7 @@ Status BufferPool::BufferAllocator::AllocateInternal(int64_t len, BufferHandle* 
     system_bytes_remaining_.add(len);
     return status;
   }
-  return Status::OK;
+  return Status::OK();
 }
 
 int64_t DecreaseBytesRemaining(

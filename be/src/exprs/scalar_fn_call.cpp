@@ -63,7 +63,7 @@ Status ScalarFnCall::prepare(
         DCHECK_EQ(_fn.binary_type, TFunctionBinaryType::BUILTIN);
         std::stringstream ss;
         ss << "Function " << _fn.name.function_name << " is not implemented.";
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
     FunctionContext::TypeDesc return_type = AnyValUtil::column_type_to_type_desc(_type);
@@ -86,7 +86,7 @@ Status ScalarFnCall::prepare(
     _fn_context_index = context->register_func(
             state, return_type, arg_types, varargs_buffer_size);
     // _scalar_fn = OpcodeRegistry::instance()->get_function_ptr(_opcode);
-    Status status = Status::OK;
+    Status status = Status::OK();
     if (_scalar_fn == NULL) {
         if (SymbolsUtil::is_mangled(_fn.scalar_fn.symbol)) {
             status = UserFunctionCache::instance()->get_function_ptr(
@@ -129,7 +129,7 @@ Status ScalarFnCall::prepare(
                 return status;
             } else {
                 DCHECK_EQ(_fn.binary_type, TFunctionBinaryType::NATIVE);
-                return Status(Substitute("Problem loading UDF '$0':\n$1",
+                return Status::InternalError(Substitute("Problem loading UDF '$0':\n$1",
                                          _fn.name.function_name, status.GetDetail()));
                 return status;
             }
@@ -201,12 +201,12 @@ Status ScalarFnCall::open(
         if (scope == FunctionContext::FRAGMENT_LOCAL) {
             _prepare_fn(fn_ctx, FunctionContext::FRAGMENT_LOCAL);
             if (fn_ctx->has_error()) {
-                return Status(fn_ctx->error_msg());
+                return Status::InternalError(fn_ctx->error_msg());
             }
         }
         _prepare_fn(fn_ctx, FunctionContext::THREAD_LOCAL);
         if (fn_ctx->has_error()) {
-            return Status(fn_ctx->error_msg());
+            return Status::InternalError(fn_ctx->error_msg());
         }
     }
 
@@ -222,7 +222,7 @@ Status ScalarFnCall::open(
         }
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 void ScalarFnCall::close(
@@ -274,12 +274,12 @@ bool ScalarFnCall::is_constant() const {
 Status ScalarFnCall::get_codegend_compute_fn(RuntimeState* state, Function** fn) {
     if (_ir_compute_fn != NULL) {
         *fn = _ir_compute_fn;
-        return Status::OK;
+        return Status::OK();
     }
     for (int i = 0; i < get_num_children(); ++i) {
         if (_children[i]->type().type == TYPE_CHAR) {
             *fn = NULL;
-            return Status("ScalarFnCall Codegen not supported for CHAR");
+            return Status::InternalError("ScalarFnCall Codegen not supported for CHAR");
         }
     }
 
@@ -403,7 +403,7 @@ Status ScalarFnCall::get_codegend_compute_fn(RuntimeState* state, Function** fn)
     *fn = codegen->finalize_function(*fn);
     DCHECK(*fn != NULL);
     _ir_compute_fn = *fn;
-    return Status::OK;
+    return Status::OK();
 }
 
 Status ScalarFnCall::get_udf(RuntimeState* state, Function** udf) {
@@ -488,7 +488,7 @@ Status ScalarFnCall::get_udf(RuntimeState* state, Function** udf) {
             ss << "Builtin '" << _fn.name.function_name << "' with symbol '"
                 << _fn.scalar_fn.symbol << "' does not exist. "
                 << "Verify that all your impalads are the same version.";
-            return Status(ss.str());
+            return Status::InternalError(ss.str());
         }
 #else 
         if (!SymbolsUtil::is_mangled(symbol)) {
@@ -508,7 +508,7 @@ Status ScalarFnCall::get_udf(RuntimeState* state, Function** udf) {
             ss << "Builtin '" << _fn.name.function_name << "' with symbol '"
                 << symbol << "' does not exist. "
                 << "Verify that all your impalads are the same version.";
-            return Status(ss.str());
+            return Status::InternalError(ss.str());
         }
         // Builtin functions may use Expr::GetConstant(). Clone the function in case we need
         // to use it again, and rename it to something more manageable than the mangled name.
@@ -526,16 +526,16 @@ Status ScalarFnCall::get_udf(RuntimeState* state, Function** udf) {
             std::stringstream ss;
             ss << "Unable to locate function " << _fn.scalar_fn.symbol
                 << " from LLVM module " << _fn.hdfs_location;
-            return Status(ss.str());
+            return Status::InternalError(ss.str());
         }
         *udf = codegen->finalize_function(*udf);
         if (*udf == NULL) {
-            return Status("udf verify failed");
+            return Status::InternalError("udf verify failed");
             // TODO(zc)
             // TErrorCode::UDF_VERIFY_FAILED, _fn.scalar_fn.symbol, _fn.hdfs_location);
         }
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status ScalarFnCall::get_function(RuntimeState* state, const std::string& symbol, void** fn) {
@@ -553,13 +553,13 @@ Status ScalarFnCall::get_function(RuntimeState* state, const std::string& symbol
             std::stringstream ss;
             ss << "Unable to locate function " << symbol
                 << " from LLVM module " << _fn.hdfs_location;
-            return Status(ss.str());
+            return Status::InternalError(ss.str());
         }
         codegen->AddFunctionToJit(ir_fn, fn);
-        return Status::OK();
+        return Status::OK()();
 #endif
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 void ScalarFnCall::evaluate_children(
