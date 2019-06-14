@@ -674,20 +674,20 @@ public class SystemInfoService {
     /**
      * get cluster's backend id list
      *
-     * @param name
+     * @param clusterName
      * @return
      */
-    public List<Long> getClusterBackendIds(String name, boolean needAlive) {
+    public List<Long> getClusterBackendIds(String clusterName, boolean needAlive) {
         final Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef.get());
         final List<Long> ret = new ArrayList<Long>();
 
-        if (Strings.isNullOrEmpty(name)) {
+        if (Strings.isNullOrEmpty(clusterName)) {
             return null;
         }
 
         if (needAlive) {
             for (Backend backend : copiedBackends.values()) {
-                if (name.equals(backend.getOwnerClusterName())) {
+                if (clusterName.equals(backend.getOwnerClusterName())) {
                     if (backend != null && backend.isAlive()) {
                         ret.add(backend.getId());
                     }
@@ -695,7 +695,7 @@ public class SystemInfoService {
             }
         } else {
             for (Backend backend : copiedBackends.values()) {
-                if (name.equals(backend.getOwnerClusterName())) {
+                if (clusterName.equals(backend.getOwnerClusterName())) {
                     ret.add(backend.getId());
                 }
             }

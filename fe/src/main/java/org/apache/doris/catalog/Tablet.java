@@ -54,6 +54,8 @@ public class Tablet extends MetaObject implements Writable {
         REPLICA_RELOCATING, // replica is healthy, but is under relocating (eg. BE is decommission)
         REDUNDANT, // too much replicas
         REPLICA_MISSING_IN_CLUSTER, // not enough healthy replicas in correct cluster
+        FORCE_REDUNDANT, // some replica is missing or bad, but there is no other backends for repair,
+                         // at least one replica has to be deleted first to make room for new replica.
     }
 
     private long id;
@@ -371,13 +373,14 @@ public class Tablet extends MetaObject implements Writable {
      */
     public Pair<TabletStatus, TabletSchedCtx.Priority> getHealthStatusWithPriority(
             SystemInfoService systemInfoService, String clusterName,
-            long visibleVersion, long visibleVersionHash, int replicationNum) {
+            long visibleVersion, long visibleVersionHash, int replicationNum,
+            int availableBackendsNum) {
 
         int alive = 0;
         int aliveAndVersionComplete = 0;
         int stable = 0;
         int availableInCluster = 0;
-
+        
         for (Replica replica : replicas) {
             long backendId = replica.getBackendId();
             Backend backend = systemInfoService.getBackend(backendId);
@@ -409,7 +412,18 @@ public class Tablet extends MetaObject implements Writable {
         }
 
         // 1. alive replicas are not enough
-        if (alive < (replicationNum / 2) + 1) {
+        if (alive < replicationNum && replicas.size() >= availableBackendsNum
+                && availableBackendsNum >= replicationNum && replicationNum > 1) {
+            // there is no enough backend for us to create a new replica, so we have to delete an existing replica,
+            // so there can be available backend for us to create a new replica.
+            // And if there is only one replica, we will not handle it(maybe need human interference)
+            // condition explain:
+            // 1. alive < replicationNum: replica is missing or bad
+            // 2. replicas.size() >= availableBackendsNum: the existing replicas occupies all available backends
+            // 3. availableBackendsNum >= replicationNum: make sure after deleting, there will be a backend for new replica.
+            // 4. replicationNum > 1: if replication num is set to 1, do not delete any replica, for safety reason
+            return Pair.create(TabletStatus.FORCE_REDUNDANT, TabletSchedCtx.Priority.VERY_HIGH);
+        } else if (alive < (replicationNum / 2) + 1) {
             return Pair.create(TabletStatus.REPLICA_MISSING, TabletSchedCtx.Priority.HIGH);
         } else if (alive < replicationNum) {
             return Pair.create(TabletStatus.REPLICA_MISSING, TabletSchedCtx.Priority.NORMAL);
