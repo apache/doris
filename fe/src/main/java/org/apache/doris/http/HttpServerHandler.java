@@ -24,6 +24,8 @@ import org.apache.doris.qe.QeService;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.net.URISyntaxException;
+
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
@@ -31,13 +33,11 @@ import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.handler.codec.http.DefaultFullHttpResponse;
 import io.netty.handler.codec.http.FullHttpRequest;
 import io.netty.handler.codec.http.FullHttpResponse;
-import io.netty.handler.codec.http.HttpHeaders;
+import io.netty.handler.codec.http.HttpHeaderNames;
 import io.netty.handler.codec.http.HttpRequest;
 import io.netty.handler.codec.http.HttpResponseStatus;
 import io.netty.handler.codec.http.HttpVersion;
 import io.netty.util.ReferenceCountUtil;
-
-import java.net.URISyntaxException;
 
 public class HttpServerHandler extends ChannelInboundHandlerAdapter {
     private static final Logger LOG = LogManager.getLogger(HttpServerHandler.class);
@@ -90,8 +90,8 @@ public class HttpServerHandler extends ChannelInboundHandlerAdapter {
                 HttpVersion.HTTP_1_1, 
                 status, 
                 Unpooled.wrappedBuffer(content.getBytes()));
-        responseObj.headers().set(HttpHeaders.Names.CONTENT_TYPE, "text/html");
-        responseObj.headers().set(HttpHeaders.Names.CONTENT_LENGTH, responseObj.content().readableBytes());
+        responseObj.headers().set(HttpHeaderNames.CONTENT_TYPE.toString(), "text/html");
+        responseObj.headers().set(HttpHeaderNames.CONTENT_LENGTH.toString(), responseObj.content().readableBytes());
         context.writeAndFlush(responseObj).addListener(ChannelFutureListener.CLOSE);
     }
 
