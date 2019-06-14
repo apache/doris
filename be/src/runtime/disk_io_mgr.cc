@@ -215,7 +215,7 @@ void DiskIoMgr::BufferDescriptor::reset(RequestContext* reader,
     _buffer_len = buffer_len;
     _len = 0;
     _eosr = false;
-    _status = Status::OK;
+    _status = Status::OK();
     _mem_tracker = NULL;
 }
 
@@ -404,7 +404,7 @@ Status DiskIoMgr::init(MemTracker* process_mem_tracker) {
     // ret = hadoopRzOptionsSetByteBufferPool(_cached_read_options, NULL);
     // DCHECK_EQ(ret, 0);
 
-    return Status::OK;
+    return Status::OK();
 }
 
 // Status DiskIoMgr::register_context(RequestContext** request_context, MemTracker* mem_tracker) {
@@ -412,7 +412,7 @@ Status DiskIoMgr::register_context(RequestContext** request_context, MemTracker*
     DCHECK(_request_context_cache.get() != NULL) << "Must call init() first.";
     *request_context = _request_context_cache->get_new_context();
     (*request_context)->reset(mem_tracker);
-    return Status::OK;
+    return Status::OK();
 }
 
 void DiskIoMgr::unregister_context(RequestContext* reader) {
@@ -449,7 +449,7 @@ void DiskIoMgr::unregister_context(RequestContext* reader) {
 // is on.
 // If wait_for_disks_completion is true, wait for the number of active disks to become 0.
 void DiskIoMgr::cancel_context(RequestContext* context, bool wait_for_disks_completion) {
-    context->cancel(Status::CANCELLED);
+    context->cancel(Status::Cancelled("Cancelled"));
 
     if (wait_for_disks_completion) {
         unique_lock<mutex> lock(context->_lock);
@@ -521,15 +521,15 @@ Status DiskIoMgr::validate_scan_range(ScanRange* range) {
         stringstream ss;
         ss << "Invalid scan range.  Bad disk id: " << disk_id;
         DCHECK(false) << ss.str();
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status DiskIoMgr::add_scan_ranges(RequestContext* reader,
         const vector<ScanRange*>& ranges, bool schedule_immediately) {
     if (ranges.empty()) {
-        return Status::OK;
+        return Status::OK();
     }
 
     // Validate and initialize all ranges
@@ -570,7 +570,7 @@ Status DiskIoMgr::add_scan_ranges(RequestContext* reader,
     }
     DCHECK(reader->validate()) << endl << reader->debug_string();
 
-    return Status::OK;
+    return Status::OK();
 }
 
 // This function returns the next scan range the reader should work on, checking
@@ -580,7 +580,7 @@ Status DiskIoMgr::get_next_range(RequestContext* reader, ScanRange** range) {
     DCHECK(reader != NULL);
     DCHECK(range != NULL);
     *range = NULL;
-    Status status = Status::OK;
+    Status status = Status::OK();
 
     unique_lock<mutex> reader_lock(reader->_lock);
     DCHECK(reader->validate()) << endl << reader->debug_string();
@@ -605,7 +605,7 @@ Status DiskIoMgr::get_next_range(RequestContext* reader, ScanRange** range) {
         //     DCHECK((*range)->_try_cache);
         //     // bool cached_read_succeeded;
         //     // RETURN_IF_ERROR((*range)->read_from_cache(&cached_read_succeeded));
-        //     // if (cached_read_succeeded) return Status::OK;
+        //     // if (cached_read_succeeded) return Status::OK();
 
         //     // This range ended up not being cached. Loop again and pick up a new range.
         //     reader->add_request_range(*range, false);
@@ -640,7 +640,7 @@ Status DiskIoMgr::read(RequestContext* reader, ScanRange* range, BufferDescripto
         stringstream error_msg;
         error_msg << "Cannot perform sync read larger than " << _max_buffer_size
                 << ". Request was " << range->len();
-            return Status(error_msg.str());
+            return Status::InternalError(error_msg.str());
     }
 
     vector<DiskIoMgr::ScanRange*> ranges;
@@ -649,7 +649,7 @@ Status DiskIoMgr::read(RequestContext* reader, ScanRange* range, BufferDescripto
     RETURN_IF_ERROR(range->get_next(buffer));
     DCHECK((*buffer) != NULL);
     DCHECK((*buffer)->eosr());
-    return Status::OK;
+    return Status::OK();
 }
 
 void DiskIoMgr::return_buffer(BufferDescriptor* buffer_desc) {
@@ -867,7 +867,7 @@ bool DiskIoMgr::get_next_request_range(DiskQueue* disk_queue, RequestRange** ran
         //     ? (*request_context)->_mem_tracker->limit_exceeded() : false;
 
         if (process_limit_exceeded || reader_limit_exceeded) {
-            (*request_context)->cancel(Status::MEM_LIMIT_EXCEEDED);
+            (*request_context)->cancel(Status::MemoryLimitExceeded("Memory limit exceeded"));
         }
 
         unique_lock<mutex> request_lock((*request_context)->_lock);
@@ -1145,7 +1145,7 @@ void DiskIoMgr::write(RequestContext* writer_context, WriteRange* write_range) {
         stringstream error_msg;
         error_msg << "fopen(" << write_range->_file << ", \"rb+\") failed with errno="
                 << errno << " description=" << get_str_err_msg();
-        ret_status = Status(error_msg.str());
+        ret_status = Status::InternalError(error_msg.str());
     } else {
         ret_status = write_range_helper(file_handle, write_range);
 
@@ -1153,7 +1153,7 @@ void DiskIoMgr::write(RequestContext* writer_context, WriteRange* write_range) {
         if (ret_status.ok() && success != 0) {
             stringstream error_msg;
             error_msg << "fclose(" << write_range->_file << ") failed";
-            ret_status = Status(error_msg.str());
+            ret_status = Status::InternalError(error_msg.str());
         }
     }
 
@@ -1168,7 +1168,7 @@ Status DiskIoMgr::write_range_helper(FILE* file_handle, WriteRange* write_range)
         error_msg << "fseek(" << write_range->_file << ", "
                 << write_range->offset() << " SEEK_SET) failed with errno="
                 << errno << " description=" << get_str_err_msg();
-        return Status(error_msg.str());
+        return Status::InternalError(error_msg.str());
     }
 
     int64_t bytes_written = fwrite(write_range->_data, 1, write_range->_len, file_handle);
@@ -1177,7 +1177,7 @@ Status DiskIoMgr::write_range_helper(FILE* file_handle, WriteRange* write_range)
         error_msg << "fwrite(buffer, 1, " << write_range->_len << ", "
                 << write_range->_file << ") failed with errno="
                 << errno << " description=" << get_str_err_msg();
-        return Status(error_msg.str());
+        return Status::InternalError(error_msg.str());
     }
 #if 0
     if (DorisMetrics::io_mgr_bytes_written() != NULL) {
@@ -1185,7 +1185,7 @@ Status DiskIoMgr::write_range_helper(FILE* file_handle, WriteRange* write_range)
     }
 #endif
 
-    return Status::OK;
+    return Status::OK();
 }
 
 int DiskIoMgr::free_buffers_idx(int64_t buffer_size) {
@@ -1206,7 +1206,7 @@ Status DiskIoMgr::add_write_range(RequestContext* writer, WriteRange* write_rang
     }
 
     writer->add_request_range(write_range, false);
-    return Status::OK;
+    return Status::OK();
 }
 
 /*

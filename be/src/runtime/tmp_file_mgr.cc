@@ -139,7 +139,7 @@ Status TmpFileMgr::init_custom(
             << "directories in list: " << join(tmp_dirs, ",")
             << ". See previous warnings for information on causes.";
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status TmpFileMgr::get_file(
@@ -152,7 +152,7 @@ Status TmpFileMgr::get_file(
     if (is_blacklisted(device_id)) {
         std::stringstream error_msg;
         error_msg << "path is blacklist. path: " << _tmp_dirs[device_id].path();
-        return Status(error_msg.str());
+        return Status::InternalError(error_msg.str());
     }
 
     // Generate the full file path.
@@ -163,7 +163,7 @@ Status TmpFileMgr::get_file(
     new_file_path /= file_name.str();
 
     *new_file = new File(this, device_id, new_file_path.string());
-    return Status::OK;
+    return Status::OK();
 }
 
 string TmpFileMgr::get_tmp_dir_path(DeviceId device_id) const {
@@ -236,7 +236,7 @@ Status TmpFileMgr::File::allocate_space(int64_t write_size, int64_t* offset) {
         _blacklisted = true;
         std::stringstream error_msg;
         error_msg << "path is blacklist. path: " << _path;
-        return Status(error_msg.str());
+        return Status::InternalError(error_msg.str());
     }
     if (_current_size == 0) {
         // First call to AllocateSpace. Create the file.
@@ -255,7 +255,7 @@ Status TmpFileMgr::File::allocate_space(int64_t write_size, int64_t* offset) {
     }
     *offset = _current_size;
     _current_size = new_size;
-    return Status::OK;
+    return Status::OK();
 }
 
 void TmpFileMgr::File::report_io_error(const std::string& error_msg) {
@@ -275,7 +275,7 @@ Status TmpFileMgr::File::remove() {
     if (_current_size > 0) {
         FileSystemUtil::remove_paths(vector<string>(1, _path));
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 } //namespace doris

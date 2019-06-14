@@ -102,7 +102,7 @@ Status BrokerWriter::open() {
         std::stringstream ss;
         ss << "Open broker writer failed, broker:" << broker_addr << " failed:" << e.what();
         LOG(WARNING) << ss.str();
-        return Status(TStatusCode::THRIFT_RPC_ERROR, ss.str(), false);
+        return Status::ThriftRpcError(ss.str());
     }
 
     VLOG_ROW << "debug: send broker open writer response: "
@@ -113,17 +113,17 @@ Status BrokerWriter::open() {
         ss << "Open broker writer failed, broker:" << broker_addr
             << " failed:" << response.opStatus.message;
         LOG(WARNING) << ss.str();
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
     _fd = response.fd;
-    return Status::OK;
+    return Status::OK();
 }
 
 Status BrokerWriter::write(const uint8_t* buf, size_t buf_len, size_t* written_len) {
     if (buf_len == 0) {
         *written_len = 0;
-        return Status::OK;
+        return Status::OK();
     }
 
     const TNetworkAddress& broker_addr = _addresses[_addr_idx];
@@ -156,13 +156,13 @@ Status BrokerWriter::write(const uint8_t* buf, size_t buf_len, size_t* written_l
             std::stringstream ss;
             ss << "Fail to write to broker, broker:" << broker_addr << " failed:" << e.what();
             LOG(WARNING) << ss.str();
-            return Status(TStatusCode::THRIFT_RPC_ERROR, ss.str());
+            return Status::ThriftRpcError(ss.str());
         }
     } catch (apache::thrift::TException& e) {
         std::stringstream ss;
         ss << "Fail to write to broker, broker:" << broker_addr << " failed:" << e.what();
         LOG(WARNING) << ss.str();
-        return Status(TStatusCode::THRIFT_RPC_ERROR, ss.str());
+        return Status::ThriftRpcError(ss.str());
     }
 
     VLOG_ROW << "debug: send broker pwrite response: "
@@ -173,13 +173,13 @@ Status BrokerWriter::write(const uint8_t* buf, size_t buf_len, size_t* written_l
         ss << "Fail to write to broker, broker:" << broker_addr
             << " msg:" << response.message;
         LOG(WARNING) << ss.str();
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
     *written_len = buf_len;
     _cur_offset += buf_len;
 
-    return Status::OK;
+    return Status::OK();
 }
 
 void BrokerWriter::close() {

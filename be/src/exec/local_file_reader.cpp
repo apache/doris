@@ -34,7 +34,7 @@ Status LocalFileReader::open() {
         std::stringstream ss;
         ss << "Open file failed. path=" << _path 
             << ", error=" << strerror_r(errno, err_buf, 64);
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
     if (_start_offset != 0) {
@@ -44,18 +44,18 @@ Status LocalFileReader::open() {
             std::stringstream ss;
             ss << "Seek to start_offset failed. offset=" << _start_offset
                 << ", error=" << strerror_r(errno, err_buf, 64);
-            return Status(ss.str());
+            return Status::InternalError(ss.str());
         }
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status LocalFileReader::read(uint8_t* buf, size_t* buf_len, bool* eof) {
     if (_eof) {
         *buf_len = 0;
         *eof = true;
-        return Status::OK;
+        return Status::OK();
     }
     size_t read_len = fread(buf, 1, *buf_len, _fp);
     if (read_len < *buf_len) {
@@ -64,7 +64,7 @@ Status LocalFileReader::read(uint8_t* buf, size_t* buf_len, bool* eof) {
             std::stringstream ss;
             ss << "Read file failed. path=" << _path 
                 << ", error=" << strerror_r(errno, err_buf, 64);
-            return Status(ss.str());
+            return Status::InternalError(ss.str());
         } else if (feof(_fp)) {
             *buf_len = read_len;
             _eof = true;
@@ -72,10 +72,10 @@ Status LocalFileReader::read(uint8_t* buf, size_t* buf_len, bool* eof) {
                 *eof = true;
             }
         } else {
-            return Status("Unknown read failed.");
+            return Status::InternalError("Unknown read failed.");
         }
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 void LocalFileReader::close() {

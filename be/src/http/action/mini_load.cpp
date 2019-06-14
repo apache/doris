@@ -108,16 +108,16 @@ static Status check_request(HttpRequest* req) {
 
     // check params
     if (!is_name_valid(params[DB_KEY])) {
-        return Status("Database name is not valid.");
+        return Status::InternalError("Database name is not valid.");
     }
     if (!is_name_valid(params[TABLE_KEY])) {
-        return Status("Table name is not valid.");
+        return Status::InternalError("Table name is not valid.");
     }
     if (!is_name_valid(params[LABEL_KEY])) {
-        return Status("Label name is not valid.");
+        return Status::InternalError("Label name is not valid.");
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status MiniLoadAction::data_saved_dir(const LoadHandle& desc,
@@ -137,7 +137,7 @@ Status MiniLoadAction::data_saved_dir(const LoadHandle& desc,
     ss << prefix << "/" << table << "." << desc.sub_label
         << "." << buf << "." << tv.tv_usec;
     *file_path = ss.str();
-    return Status::OK;
+    return Status::OK();
 }
 
 Status MiniLoadAction::_load(
@@ -220,7 +220,7 @@ Status MiniLoadAction::_load(
             << master_address.hostname << ":" << master_address.port
             << ") because: " << e.what();
         LOG(WARNING) << ss.str();
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
     return Status(res.status);
@@ -300,7 +300,7 @@ Status MiniLoadAction::check_auth(
             << master_address.hostname << ":" << master_address.port
             << ") because: " << e.what();
         LOG(WARNING) << ss.str();
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
     return Status(res.status);
@@ -334,7 +334,7 @@ Status MiniLoadAction::_on_header(HttpRequest* req) {
         if (body_bytes > max_body_bytes) {
             std::stringstream ss;
             ss << "file size exceed max body size, max_body_bytes=" << max_body_bytes;
-            return Status(ss.str());
+            return Status::InternalError(ss.str());
         }
     } else {
         evhttp_connection_set_max_body_size(
@@ -356,7 +356,7 @@ Status MiniLoadAction::_on_header(HttpRequest* req) {
     {
         std::lock_guard<std::mutex> l(_lock);
         if (_current_load.find(ctx->load_handle) != _current_load.end()) {
-            return Status("Duplicate mini load request.");
+            return Status::InternalError("Duplicate mini load request.");
         }
         _current_load.insert(ctx->load_handle);
         ctx->need_remove_handle = true;
@@ -376,11 +376,11 @@ Status MiniLoadAction::_on_header(HttpRequest* req) {
         char buf[64];
         LOG(WARNING) << "open file failed, path=" << ctx->file_path
             << ", errno=" << errno << ", errmsg=" << strerror_r(errno, buf, sizeof(buf));
-        return Status("open file failed");
+        return Status::InternalError("open file failed");
     }
 
     req->set_handler_ctx(ctx.release());
-    return Status::OK;
+    return Status::OK();
 }
 
 void MiniLoadAction::on_chunk_data(HttpRequest* http_req) {
@@ -464,7 +464,7 @@ Status MiniLoadAction::generate_check_load_req(
     const char k_basic[] = "Basic ";
     const std::string& auth = http_req->header(HttpHeaders::AUTHORIZATION);
     if (auth.compare(0, sizeof(k_basic) - 1, k_basic, sizeof(k_basic) - 1) != 0) {
-        return Status("Not support Basic authorization.");
+        return Status::InternalError("Not support Basic authorization.");
     }
 
     check_load_req->protocolVersion = FrontendServiceVersion::V1;
@@ -473,7 +473,7 @@ Status MiniLoadAction::generate_check_load_req(
     std::string cluster;
     if (!parse_auth(str, &(check_load_req->user), &(check_load_req->passwd), &cluster)) {
         LOG(WARNING) << "parse auth string failed." << auth << " and str " << str;
-        return Status("Parse authorization failed.");
+        return Status::InternalError("Parse authorization failed.");
     }
     if (!cluster.empty()) {
         check_load_req->__set_cluster(cluster);
@@ -490,7 +490,7 @@ Status MiniLoadAction::generate_check_load_req(
         check_load_req->__set_user_ip(user_ip);
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 bool LoadHandleCmp::operator() (const LoadHandle& lhs, const LoadHandle& rhs) const {

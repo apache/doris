@@ -77,15 +77,15 @@ Status BlockingJoinNode::prepare(RuntimeState* state) {
     _build_tuple_row_size = num_build_tuples * sizeof(Tuple*);
 
     _left_batch.reset(new RowBatch(child(0)->row_desc(), state->batch_size(), mem_tracker()));
-    return Status::OK;
+    return Status::OK();
 }
 
 Status BlockingJoinNode::close(RuntimeState* state) {
     // TODO(zhaochun): avoid double close
-    // if (is_closed()) return Status::OK;
+    // if (is_closed()) return Status::OK();
     _left_batch.reset();
     ExecNode::close(state);
-    return Status::OK;
+    return Status::OK();
 }
 
 void BlockingJoinNode::build_side_thread(RuntimeState* state, boost::promise<Status>* status) {
@@ -163,7 +163,7 @@ Status BlockingJoinNode::open(RuntimeState* state) {
         }
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 void BlockingJoinNode::debug_string(int indentation_level, std::stringstream* out) const {

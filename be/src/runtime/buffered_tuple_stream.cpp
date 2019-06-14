@@ -125,7 +125,7 @@ Status BufferedTupleStream::init(RuntimeProfile* profile) {
     RETURN_IF_ERROR(new_block_for_write(_fixed_tuple_row_size, &got_block));
 
     if (!got_block) {
-        return Status("Allocate memory failed. %d", _fixed_tuple_row_size);
+        return Status::InternalError("Allocate memory failed.");
     }
 
     DCHECK(_write_block != NULL);
@@ -134,7 +134,7 @@ Status BufferedTupleStream::init(RuntimeProfile* profile) {
         RETURN_IF_ERROR(prepare_for_read());
     };
 
-    return Status::OK;
+    return Status::OK();
 }
 
 void BufferedTupleStream::close() {
@@ -155,7 +155,7 @@ Status BufferedTupleStream::new_block_for_write(int min_size, bool* got_block) {
         err_msg <<  "Cannot process row that is bigger than the IO size "
                 << "(row_size=" << PrettyPrinter::print(min_size, TUnit::BYTES)
                 << ". To run this query, increase the io size";
-        return Status(err_msg.str());
+        return Status::InternalError(err_msg.str());
     }
 
     int64_t block_len = _block_mgr->max_block_size();
@@ -177,7 +177,7 @@ Status BufferedTupleStream::new_block_for_write(int min_size, bool* got_block) {
     _total_byte_size += block_len;
 
     *got_block = (new_block != NULL);
-    return Status::OK;
+    return Status::OK();
 }
 
 Status BufferedTupleStream::next_block_for_read() {
@@ -197,14 +197,14 @@ Status BufferedTupleStream::next_block_for_read() {
         _read_ptr = (*_read_block)->buffer() + _null_indicators_read_block;
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status BufferedTupleStream::prepare_for_read(bool* got_buffer) {
     DCHECK(!_closed);
 
     if (_blocks.empty()) {
-        return Status::OK;
+        return Status::OK();
     }
 
     _read_block = _blocks.begin();
@@ -221,7 +221,7 @@ Status BufferedTupleStream::prepare_for_read(bool* got_buffer) {
         *got_buffer = true;
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 int BufferedTupleStream::compute_num_null_indicator_bytes(int block_size) const {
@@ -257,7 +257,7 @@ Status BufferedTupleStream::get_next_internal(RowBatch* batch, bool* eos,
     *eos = (_rows_returned == _num_rows);
 
     if (*eos) {
-        return Status::OK;
+        return Status::OK();
     }
 
     DCHECK_GE(_null_indicators_read_block, 0);
@@ -404,7 +404,7 @@ Status BufferedTupleStream::get_next_internal(RowBatch* batch, bool* eos,
     }
 
     DCHECK_EQ(indices->size(), i);
-    return Status::OK;
+    return Status::OK();
 }
 
 // TODO: Move this somewhere in general. We don't want this function inlined

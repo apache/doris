@@ -43,7 +43,7 @@ public:
     OlapTableSinkTest() { }
     virtual ~OlapTableSinkTest() { }
     void SetUp() override {
-        k_add_batch_status = Status::OK;
+        k_add_batch_status = Status::OK();
 
         _env._thread_mgr = new ThreadResourceMgr();
         _env._master_info = new TMasterInfo();
@@ -412,7 +412,7 @@ TEST_F(OlapTableSinkTest, normal) {
     st = sink.send(&state, &batch);
     ASSERT_TRUE(st.ok());
     // close
-    st = sink.close(&state, Status::OK);
+    st = sink.close(&state, Status::OK());
     ASSERT_TRUE(st.ok());
 
     // each node has a eof
@@ -546,7 +546,7 @@ TEST_F(OlapTableSinkTest, convert) {
     st = sink.send(&state, &batch);
     ASSERT_TRUE(st.ok());
     // close
-    st = sink.close(&state, Status::OK);
+    st = sink.close(&state, Status::OK());
     ASSERT_TRUE(st.ok());
 
     // each node has a eof
@@ -821,11 +821,11 @@ TEST_F(OlapTableSinkTest, add_batch_failed) {
         memcpy(str_val->ptr, "abc", str_val->len);
         batch.commit_last_row();
     }
-    k_add_batch_status = Status("dummy failed");
+    k_add_batch_status = Status::InternalError("dummy failed");
     st = sink.send(&state, &batch);
     ASSERT_TRUE(st.ok());
     // close
-    st = sink.close(&state, Status::OK);
+    st = sink.close(&state, Status::OK());
     ASSERT_FALSE(st.ok());
 
     server->Stop(100);
@@ -918,7 +918,7 @@ TEST_F(OlapTableSinkTest, decimal) {
     st = sink.send(&state, &batch);
     ASSERT_TRUE(st.ok());
     // close
-    st = sink.close(&state, Status::OK);
+    st = sink.close(&state, Status::OK());
     ASSERT_TRUE(st.ok());
 
     ASSERT_EQ(2, output_set.size());

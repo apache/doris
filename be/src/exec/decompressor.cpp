@@ -45,10 +45,10 @@ Status Decompressor::create_decompressor(CompressType type,
     default:
         std::stringstream ss;
         ss << "Unknown compress type: " << type;
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
-    Status st = Status::OK;
+    Status st = Status::OK();
     if (*decompressor != nullptr) {
         st = (*decompressor)->init();
     }
@@ -84,10 +84,10 @@ Status GzipDecompressor::init() {
     if (ret < 0) {
         std::stringstream ss;
         ss << "Failed to init inflate. status code: " << ret;
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status GzipDecompressor::decompress(
@@ -124,7 +124,7 @@ Status GzipDecompressor::decompress(
             // produce more output. inflate() can be called again with more output space
             // or more available input
             // ATTN: even if ret == Z_OK, decompressed_len may also be zero
-            return Status::OK;
+            return Status::OK();
         } else if (ret == Z_STREAM_END) {
             *stream_end = true;
             // reset _z_strm to continue decoding a subsequent gzip stream
@@ -132,12 +132,12 @@ Status GzipDecompressor::decompress(
             if (ret != Z_OK) {
                 std::stringstream ss;
                 ss << "Failed to inflateRset. return code: " << ret;
-                return Status(ss.str());
+                return Status::InternalError(ss.str());
             }
         } else if (ret != Z_OK) {
             std::stringstream ss;
             ss << "Failed to inflate. return code: " << ret;
-            return Status(ss.str());
+            return Status::InternalError(ss.str());
         } else {
             // here ret must be Z_OK.
             // we continue if avail_out and avail_in > 0.
@@ -145,7 +145,7 @@ Status GzipDecompressor::decompress(
         }
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 std::string GzipDecompressor::debug_info() {
@@ -165,10 +165,10 @@ Status Bzip2Decompressor::init() {
     if (ret != BZ_OK) {
         std::stringstream ss;
         ss << "Failed to init bz2. status code: " << ret;
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status Bzip2Decompressor::decompress(
@@ -195,32 +195,32 @@ Status Bzip2Decompressor::decompress(
                       << " decompressed_len: " << *decompressed_len;
             std::stringstream ss;
             ss << "Failed to bz2 decompress. status code: " << ret;
-            return Status(ss.str());
+            return Status::InternalError(ss.str());
         } else if (ret == BZ_STREAM_END) {
             *stream_end = true;
             ret = BZ2_bzDecompressEnd(&_bz_strm);
             if (ret != BZ_OK) {
                 std::stringstream ss;
                 ss << "Failed to end bz2 after meet BZ_STREAM_END. status code: " << ret;
-                return Status(ss.str());
+                return Status::InternalError(ss.str());
             }
 
             ret = BZ2_bzDecompressInit(&_bz_strm, 0, 0);
             if (ret != BZ_OK) {
                 std::stringstream ss;
                 ss << "Failed to init bz2 after meet BZ_STREAM_END. status code: " << ret;
-                return Status(ss.str());
+                return Status::InternalError(ss.str());
             }
         } else if (ret != BZ_OK) {
             std::stringstream ss;
             ss << "Failed to bz2 decompress. status code: " << ret;
-            return Status(ss.str());
+            return Status::InternalError(ss.str());
         } else {
             // continue
         }
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 std::string Bzip2Decompressor::debug_info() {
@@ -243,13 +243,13 @@ Status Lz4FrameDecompressor::init() {
     if (LZ4F_isError(ret)) {
         std::stringstream ss;
         ss << "LZ4F_dctx creation error: " << std::string(LZ4F_getErrorName(ret));
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
     // init as -1
     _expect_dec_buf_size = -1;
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status Lz4FrameDecompressor::decompress(
@@ -273,7 +273,7 @@ Status Lz4FrameDecompressor::decompress(
             std::stringstream ss;
             ss << "Lz4 header size is between 7 and 15 bytes. "
                << "but input size is only: " << input_len;
-            return Status(ss.str());
+            return Status::InternalError(ss.str());
         }
 
         LZ4F_frameInfo_t info;
@@ -281,7 +281,7 @@ Status Lz4FrameDecompressor::decompress(
         if (LZ4F_isError(ret)) {
             std::stringstream ss;
             ss << "LZ4F_getFrameInfo error: " << std::string(LZ4F_getErrorName(ret));
-            return Status(ss.str());
+            return Status::InternalError(ss.str());
         }
 
         _expect_dec_buf_size = get_block_size(&info);
@@ -289,7 +289,7 @@ Status Lz4FrameDecompressor::decompress(
             std::stringstream ss;
             ss << "Impossible lz4 block size unless more block sizes are allowed"
                << std::string(LZ4F_getErrorName(ret));
-            return Status(ss.str());
+            return Status::InternalError(ss.str());
         }
 
         *input_bytes_read = src_size;
@@ -307,7 +307,7 @@ Status Lz4FrameDecompressor::decompress(
     if (LZ4F_isError(ret)) {
         std::stringstream ss;
         ss << "Decompression error: " << std::string(LZ4F_getErrorName(ret));
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
     // update
@@ -319,7 +319,7 @@ Status Lz4FrameDecompressor::decompress(
         *stream_end = false;
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 std::string Lz4FrameDecompressor::debug_info() {

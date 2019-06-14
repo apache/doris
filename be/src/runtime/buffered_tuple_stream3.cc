@@ -211,7 +211,7 @@ string BufferedTupleStream3::Page::DebugString() const {
 Status BufferedTupleStream3::Init(int node_id, bool pinned) {
 //  if (!pinned) UnpinStream(UNPIN_ALL_EXCEPT_CURRENT);
   node_id_ = node_id;
-  return Status::OK;
+  return Status::OK();
 }
 
 Status BufferedTupleStream3::PrepareForWrite(bool* got_reservation) {
@@ -223,12 +223,12 @@ Status BufferedTupleStream3::PrepareForWrite(bool* got_reservation) {
   CHECK_CONSISTENCY_FULL();
 
   *got_reservation = buffer_pool_client_->IncreaseReservationToFit(default_page_len_);
-  if (!*got_reservation) return Status::OK;
+  if (!*got_reservation) return Status::OK();
   has_write_iterator_ = true;
   // Save reservation for the write iterators.
   buffer_pool_client_->SaveReservation(&write_page_reservation_, default_page_len_);
   CHECK_CONSISTENCY_FULL();
-  return Status::OK;
+  return Status::OK();
 }
 
 Status BufferedTupleStream3::PrepareForReadWrite(
@@ -241,13 +241,13 @@ Status BufferedTupleStream3::PrepareForReadWrite(
   CHECK_CONSISTENCY_FULL();
 
   *got_reservation = buffer_pool_client_->IncreaseReservationToFit(2 * default_page_len_);
-  if (!*got_reservation) return Status::OK;
+  if (!*got_reservation) return Status::OK();
   has_write_iterator_ = true;
   // Save reservation for both the read and write iterators.
   buffer_pool_client_->SaveReservation(&read_page_reservation_, default_page_len_);
   buffer_pool_client_->SaveReservation(&write_page_reservation_, default_page_len_);
   RETURN_IF_ERROR(PrepareForReadInternal(delete_on_read));
-  return Status::OK;
+  return Status::OK();
 }
 
 void BufferedTupleStream3::Close(RowBatch* batch, RowBatch::FlushMode flush) {
@@ -281,7 +281,7 @@ int64_t BufferedTupleStream3::CalcBytesPinned() const {
 Status BufferedTupleStream3::PinPage(Page* page) {
   RETURN_IF_ERROR(buffer_pool_->Pin(buffer_pool_client_, &page->handle));
   bytes_pinned_ += page->len();
-  return Status::OK;
+  return Status::OK();
 }
 
 int BufferedTupleStream3::ExpectedPinCount(bool stream_pinned, const Page* page) const {
@@ -294,7 +294,7 @@ Status BufferedTupleStream3::PinPageIfNeeded(Page* page, bool stream_pinned) {
     DCHECK_EQ(new_pin_count, page->pin_count() + 1);
     RETURN_IF_ERROR(PinPage(page));
   }
-  return Status::OK;
+  return Status::OK();
 }
 
 void BufferedTupleStream3::UnpinPageIfNeeded(Page* page, bool stream_pinned) {
@@ -379,7 +379,7 @@ Status BufferedTupleStream3::NewWritePage(int64_t page_len) noexcept {
   DCHECK_EQ(write_page_->num_rows, 0);
   write_ptr_ = write_buffer->data();
   write_end_ptr_ = write_ptr_ + page_len;
-  return Status::OK;
+  return Status::OK();
 }
 
 Status BufferedTupleStream3::CalcPageLenForRow(int64_t row_size, int64_t* page_len) {
@@ -391,10 +391,10 @@ Status BufferedTupleStream3::CalcPageLenForRow(int64_t row_size, int64_t* page_l
        //<< " query option max row size:" 
        //<< PrettyPrinter::print
        //    (state_->query_options().max_row_size, TUnit::BYTES);
-    return Status(ss.str());
+    return Status::InternalError(ss.str());
   }
   *page_len = max(default_page_len_, BitUtil::RoundUpToPowerOfTwo(row_size));
-  return Status::OK;
+  return Status::OK();
 }
 
 Status BufferedTupleStream3::AdvanceWritePage(
@@ -438,7 +438,7 @@ Status BufferedTupleStream3::AdvanceWritePage(
         << "If the stream is unpinned, this should only fail for large pages";
     CHECK_CONSISTENCY_FAST();
     *got_reservation = false;
-    return Status::OK;
+    return Status::OK();
   }
   if (write_reservation_to_restore > 0) {
     buffer_pool_client_->RestoreReservation(
@@ -455,7 +455,7 @@ Status BufferedTupleStream3::AdvanceWritePage(
      return status;
   }
   *got_reservation = true;
-  return Status::OK;
+  return Status::OK();
 }
 
 void BufferedTupleStream3::ResetWritePage() {
@@ -517,7 +517,7 @@ Status BufferedTupleStream3::NextReadPage() {
 
   if (read_page_ == pages_.end()) {
     CHECK_CONSISTENCY_FULL();
-    return Status::OK;
+    return Status::OK();
   }
 
   if (!pinned_ && read_page_->len() > default_page_len_
@@ -530,7 +530,7 @@ Status BufferedTupleStream3::NextReadPage() {
     err_stream << "Internal error: couldn't pin large page of " << read_page_->len()
                << " bytes, client only had " << buffer_pool_client_->GetUnusedReservation()
                << " bytes of unused reservation:" << buffer_pool_client_->DebugString() << "\n";
-    return Status(err_stream.str());
+    return Status::InternalError(err_stream.str());
   }
   // Ensure the next page is pinned for reading. By this point we should have enough
   // reservation to pin the page. If the stream is pinned, the page is already pinned.
@@ -556,7 +556,7 @@ Status BufferedTupleStream3::NextReadPage() {
     buffer_pool_client_->SaveReservation(&write_page_reservation_, default_page_len_);
   }
   CHECK_CONSISTENCY_FAST();
-  return Status::OK;
+  return Status::OK();
 }
 
 void BufferedTupleStream3::InvalidateReadIterator() {
@@ -586,7 +586,7 @@ Status BufferedTupleStream3::PrepareForRead(bool delete_on_read, bool* got_reser
   // If already pinned, no additional pin is needed (see ExpectedPinCount()).
   *got_reservation = pinned_ || pages_.empty()
       || buffer_pool_client_->IncreaseReservationToFit(default_page_len_);
-  if (!*got_reservation) return Status::OK;
+  if (!*got_reservation) return Status::OK();
   return PrepareForReadInternal(delete_on_read);
 }
 
@@ -618,7 +618,7 @@ Status BufferedTupleStream3::PrepareForReadInternal(bool delete_on_read) {
   rows_returned_ = 0;
   delete_on_read_ = delete_on_read;
   CHECK_CONSISTENCY_FULL();
-  return Status::OK;
+  return Status::OK();
 }
 
 Status BufferedTupleStream3::PinStream(bool* pinned) {
@@ -626,7 +626,7 @@ Status BufferedTupleStream3::PinStream(bool* pinned) {
   CHECK_CONSISTENCY_FULL();
   if (pinned_) {
     *pinned = true;
-    return Status::OK;
+    return Status::OK();
   }
   *pinned = false;
   // First, make sure we have the reservation to pin all the pages for reading.
@@ -645,7 +645,7 @@ Status BufferedTupleStream3::PinStream(bool* pinned) {
       - (restore_read_reservation ? default_page_len_ : 0);
   bool reservation_granted =
       buffer_pool_client_->IncreaseReservationToFit(increase_needed);
-  if (!reservation_granted) return Status::OK;
+  if (!reservation_granted) return Status::OK();
 
   // If there is no current write page we should have some saved reservation to use.
   // Only continue saving it if the stream is empty and need it to pin the first page.
@@ -664,7 +664,7 @@ Status BufferedTupleStream3::PinStream(bool* pinned) {
   pinned_ = true;
   *pinned = true;
   CHECK_CONSISTENCY_FULL();
-  return Status::OK;
+  return Status::OK();
 }
 /*
 void BufferedTupleStream3::UnpinStream(UnpinMode mode) {
@@ -698,12 +698,11 @@ Status BufferedTupleStream3::GetRows(
     MemTracker* tracker, scoped_ptr<RowBatch>* batch, bool* got_rows) {
   if (num_rows() > numeric_limits<int>::max()) {
     // RowBatch::num_rows_ is a 32-bit int, avoid an overflow.
-    return Status(Substitute("Trying to read $0 rows into in-memory batch failed. Limit "
-                             "is $1",
-        num_rows(), numeric_limits<int>::max()));
+    return Status::InternalError(Substitute("Trying to read $0 rows into in-memory batch failed. Limit "
+                                            "is $1", num_rows(), numeric_limits<int>::max()));
   }
   RETURN_IF_ERROR(PinStream(got_rows));
-  if (!*got_rows) return Status::OK;
+  if (!*got_rows) return Status::OK();
   bool got_reservation;
   RETURN_IF_ERROR(PrepareForRead(false, &got_reservation));
   DCHECK(got_reservation) << "Stream was pinned";
@@ -719,7 +718,7 @@ Status BufferedTupleStream3::GetRows(
   while (!eos) {
     RETURN_IF_ERROR(GetNext(batch->get(), &eos));
   }
-  return Status::OK;
+  return Status::OK();
 }
 
 Status BufferedTupleStream3::GetNext(RowBatch* batch, bool* eos) {
@@ -749,7 +748,7 @@ Status BufferedTupleStream3::GetNextInternal(
   DCHECK(is_pinned() || !FILL_FLAT_ROWS)
       << "FlatRowPtrs are only valid for pinned streams";
   *eos = (rows_returned_ == num_rows_);
-  if (*eos) return Status::OK;
+  if (*eos) return Status::OK();
 
   if (UNLIKELY(read_page_ == pages_.end()
           || read_page_rows_returned_ == read_page_->num_rows)) {
@@ -822,7 +821,7 @@ Status BufferedTupleStream3::GetNextInternal(
   }
   if (FILL_FLAT_ROWS) DCHECK_EQ(flat_rows->size(), rows_to_fill);
   DCHECK_LE(read_ptr_, read_end_ptr_);
-  return Status::OK;
+  return Status::OK();
 }
 
 void BufferedTupleStream3::FixUpStringsForRead(

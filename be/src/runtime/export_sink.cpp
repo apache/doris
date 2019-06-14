@@ -52,7 +52,7 @@ Status ExportSink::init(const TDataSink& t_sink) {
 
     // From the thrift expressions create the real exprs.
     RETURN_IF_ERROR(Expr::create_expr_trees(_pool, _t_output_expr, &_output_expr_ctxs));
-    return Status::OK;
+    return Status::OK();
 }
 
 Status ExportSink::prepare(RuntimeState* state) {
@@ -76,7 +76,7 @@ Status ExportSink::prepare(RuntimeState* state) {
     _rows_written_counter = ADD_COUNTER(profile(), "RowsExported", TUnit::UNIT);
     _write_timer = ADD_TIMER(profile(), "WriteTime");
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status ExportSink::open(RuntimeState* state) {
@@ -84,7 +84,7 @@ Status ExportSink::open(RuntimeState* state) {
     RETURN_IF_ERROR(Expr::open(_output_expr_ctxs, state));
     // open broker
     RETURN_IF_ERROR(open_file_writer());
-    return Status::OK;
+    return Status::OK();
 }
 
 Status ExportSink::send(RuntimeState* state, RowBatch* batch) {
@@ -112,7 +112,7 @@ Status ExportSink::send(RuntimeState* state, RowBatch* batch) {
         COUNTER_UPDATE(_bytes_written_counter, buf.size());
     }
     COUNTER_UPDATE(_rows_written_counter, num_rows);
-    return Status::OK;
+    return Status::OK();
 }
 
 Status ExportSink::gen_row_buffer(TupleRow* row, std::stringstream* ss) {
@@ -197,7 +197,7 @@ Status ExportSink::gen_row_buffer(TupleRow* row, std::stringstream* ss) {
                 default: {
                     std::stringstream err_ss;
                     err_ss << "can't export this type. type = " << _output_expr_ctxs[i]->root()->type();
-                    return Status(err_ss.str());
+                    return Status::InternalError(err_ss.str());
                 }
             }
         }
@@ -208,7 +208,7 @@ Status ExportSink::gen_row_buffer(TupleRow* row, std::stringstream* ss) {
     }
     (*ss) << _t_export_sink.line_delimiter;
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status ExportSink::close(RuntimeState* state, Status exec_status) {
@@ -217,12 +217,12 @@ Status ExportSink::close(RuntimeState* state, Status exec_status) {
         _file_writer->close();
         _file_writer = nullptr;
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status ExportSink::open_file_writer() {
     if (_file_writer != nullptr) {
-        return Status::OK;
+        return Status::OK();
     }
 
     std::string file_name = gen_file_name();
@@ -249,12 +249,12 @@ Status ExportSink::open_file_writer() {
     default: {
         std::stringstream ss;
         ss << "Unknown file type, type=" << _t_export_sink.file_type;
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
     }
 
     _state->add_export_output_file(_t_export_sink.export_path + "/" + file_name);
-    return Status::OK;
+    return Status::OK();
 }
 
 // TODO(lingbin): add some other info to file name, like partition

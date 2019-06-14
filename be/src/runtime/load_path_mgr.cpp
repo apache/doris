@@ -53,7 +53,7 @@ Status LoadPathMgr::init() {
     _idx = 0;
     _reserved_hours = std::max(config::load_data_reserve_hours, 1L);
     pthread_create(&_cleaner_id, nullptr, LoadPathMgr::cleaner, this);
-    return Status::OK;
+    return Status::OK();
 }
 
 void* LoadPathMgr::cleaner(void* param) {
@@ -72,12 +72,12 @@ Status LoadPathMgr::allocate_dir(
         const std::string& label,
         std::string* prefix) {
     if (_path_vec.empty()) {
-        return Status("No load path configed.");
+        return Status::InternalError("No load path configed.");
     }
     std::string path;
     auto size = _path_vec.size();
     auto retry = size;
-    Status status = Status::OK;
+    Status status = Status::OK();
     while (retry--) {
         {
             // add SHARD_PREFIX for compatible purpose
@@ -89,7 +89,7 @@ Status LoadPathMgr::allocate_dir(
         status = FileUtils::create_dir(path);
         if (LIKELY(status.ok())) {
             *prefix = path;
-            return Status::OK;
+            return Status::OK();
         } else {
             LOG(WARNING) << "create dir failed:" << path << ", error msg:" << status.get_error_msg();
         }
@@ -144,7 +144,7 @@ Status LoadPathMgr::get_load_error_file_name(
         << "_" << std::hex << fragment_instance_id.hi
         << "_" << fragment_instance_id.lo;
     *error_path = ss.str();
-    return Status::OK;
+    return Status::OK();
 }
 
 std::string LoadPathMgr::get_load_error_absolute_path(const std::string& file_path) {

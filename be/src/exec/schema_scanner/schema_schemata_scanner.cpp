@@ -41,7 +41,7 @@ SchemaSchemataScanner::~SchemaSchemataScanner() {
 
 Status SchemaSchemataScanner::start(RuntimeState *state) {
     if (!_is_init) {
-        return Status("used before initial.");
+        return Status::InternalError("used before initial.");
     }
     TGetDbsParams db_params;
     if (NULL != _param->wild) {
@@ -57,10 +57,10 @@ Status SchemaSchemataScanner::start(RuntimeState *state) {
         RETURN_IF_ERROR(SchemaHelper::get_db_names(*(_param->ip),
                     _param->port, db_params, &_db_result)); 
     } else {
-        return Status("IP or port dosn't exists");
+        return Status::InternalError("IP or port dosn't exists");
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status SchemaSchemataScanner::fill_one_row(Tuple *tuple, MemPool *pool) {
@@ -87,7 +87,7 @@ Status SchemaSchemataScanner::fill_one_row(Tuple *tuple, MemPool *pool) {
         str_slot->len = strlen("utf8") + 1;
         str_slot->ptr = (char *)pool->allocate(str_slot->len);
         if (NULL == str_slot->ptr) {
-            return Status("Allocate memory failed.");
+            return Status::InternalError("Allocate memory failed.");
         }
         memcpy(str_slot->ptr, "utf8", str_slot->len);
     }
@@ -98,7 +98,7 @@ Status SchemaSchemataScanner::fill_one_row(Tuple *tuple, MemPool *pool) {
         str_slot->len = strlen("utf8_general_ci") + 1;
         str_slot->ptr = (char *)pool->allocate(str_slot->len);
         if (NULL == str_slot->ptr) {
-            return Status("Allocate memory failed.");
+            return Status::InternalError("Allocate memory failed.");
         }
         memcpy(str_slot->ptr, "utf8_general_ci", str_slot->len);
     }
@@ -107,19 +107,19 @@ Status SchemaSchemataScanner::fill_one_row(Tuple *tuple, MemPool *pool) {
         tuple->set_null(_tuple_desc->slots()[4]->null_indicator_offset());
     }
     _db_index++;
-    return Status::OK;
+    return Status::OK();
 }
 
 Status SchemaSchemataScanner::get_next_row(Tuple *tuple, MemPool *pool, bool *eos) {
     if (!_is_init) {
-        return Status("Used before Initialized.");
+        return Status::InternalError("Used before Initialized.");
     }
     if (NULL == tuple || NULL == pool || NULL == eos) {
-        return Status("input pointer is NULL.");
+        return Status::InternalError("input pointer is NULL.");
     }
     if (_db_index >= _db_result.dbs.size()) {
         *eos = true;
-        return Status::OK;
+        return Status::OK();
     }
     *eos = false;
     return fill_one_row(tuple, pool);

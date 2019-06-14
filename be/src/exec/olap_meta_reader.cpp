@@ -50,7 +50,7 @@ Status EngineMetaReader::get_hints(
         ss << "failed to get tablet: " << tablet_id << "with schema hash: "
             << schema_hash << ", reason: " << err;
         LOG(WARNING) << ss.str();
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
     RuntimeProfile::Counter* show_hints_timer = profile->get_counter("ShowHintsTime");
@@ -70,7 +70,7 @@ Status EngineMetaReader::get_hints(
                                  block_row_count, &range);
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to show hints by split range. [res=%d]", res);
-            return Status("fail to show hints");
+            return Status::InternalError("fail to show hints");
         }
         ranges.emplace_back(std::move(range));
         have_valid_range = true;
@@ -81,7 +81,7 @@ Status EngineMetaReader::get_hints(
         auto res = table->split_range({}, {}, block_row_count, &range);
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to show hints by split range. [res=%d]", res);
-            return Status("fail to show hints");
+            return Status::InternalError("fail to show hints");
         }
         ranges.emplace_back(std::move(range));
     }
@@ -110,7 +110,7 @@ Status EngineMetaReader::get_hints(
         }
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 } // namespace doris

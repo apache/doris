@@ -81,10 +81,9 @@ Status FrontendHelper::rpc(
         client.reopen(timeout_ms);
         LOG(WARNING) << "call frontend service failed, address=" << address
             << ", reason=" << e.what();
-        return Status(TStatusCode::THRIFT_RPC_ERROR,
-                      "failed to call frontend service", false);
+        return Status::ThriftRpcError("failed to call frontend service");
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 }

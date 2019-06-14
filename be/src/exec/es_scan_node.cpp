@@ -71,11 +71,11 @@ Status EsScanNode::prepare(RuntimeState* state) {
         std::stringstream ss;
         ss << "es tuple descriptor is null, _tuple_id=" << _tuple_id;
         LOG(WARNING) << ss.str();
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
     _env = state->exec_env();
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status EsScanNode::open(RuntimeState* state) {
@@ -119,7 +119,7 @@ Status EsScanNode::open(RuntimeState* state) {
             std::stringstream ss;
             ss << "es fail to open: hosts empty";
             LOG(WARNING) << ss.str();
-            return Status(ss.str());
+            return Status::InternalError(ss.str());
         }
 
 
@@ -178,7 +178,7 @@ Status EsScanNode::open(RuntimeState* state) {
             std::stringstream ss;
             ss << "es open error: scan_range_idx=" << i
                << ", can't find shard on any node";
-            return Status(ss.str());
+            return Status::InternalError(ss.str());
         }
     }
 
@@ -193,11 +193,11 @@ Status EsScanNode::open(RuntimeState* state) {
 
     for (int i = 0; i < _conjunct_ctxs.size(); ++i) {
         if (!check_left_conjuncts(_conjunct_ctxs[i]->root())) {
-            return Status("esquery could only be executed on es, but could not push down to es");
+            return Status::InternalError("esquery could only be executed on es, but could not push down to es");
         }
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status EsScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
@@ -252,11 +252,11 @@ Status EsScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos)
         *eos = true;
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status EsScanNode::close(RuntimeState* state) {
-    if (is_closed()) return Status::OK;
+    if (is_closed()) return Status::OK();
     VLOG(1) << "EsScanNode::Close";
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::CLOSE));
     SCOPED_TIMER(_runtime_profile->total_time_counter());
@@ -293,7 +293,7 @@ Status EsScanNode::close(RuntimeState* state) {
             ss << "es close error: scan_range_idx=" << i
                << ", msg=" << e.what();
             LOG(WARNING) << ss.str();
-            return Status(TStatusCode::THRIFT_RPC_ERROR, ss.str(), false);
+            return Status::ThriftRpcError(ss.str());
         }
 
         VLOG(1) << "es close result=" << apache::thrift::ThriftDebugString(result);
@@ -309,7 +309,7 @@ Status EsScanNode::close(RuntimeState* state) {
 #endif
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 void EsScanNode::debug_string(int indentation_level, stringstream* out) const {
@@ -331,7 +331,7 @@ Status EsScanNode::set_scan_ranges(const vector<TScanRangeParams>& scan_ranges) 
     }
 
     _offsets.resize(scan_ranges.size(), 0);
-    return Status::OK;
+    return Status::OK();
 }
 
 Status EsScanNode::open_es(TNetworkAddress& address, TExtOpenResult& result, TExtOpenParams& params) {
@@ -346,7 +346,7 @@ Status EsScanNode::open_es(TNetworkAddress& address, TExtOpenResult& result, TEx
             std::stringstream ss;
             ss << "es create client error: address=" << address
                << ", msg=" << status.get_error_msg();
-            return Status(ss.str());
+            return Status::InternalError(ss.str());
         }
 
         try {
@@ -361,7 +361,7 @@ Status EsScanNode::open_es(TNetworkAddress& address, TExtOpenResult& result, TEx
     } catch (apache::thrift::TException &e) {
         std::stringstream ss;
         ss << "es open error: address=" << address << ", msg=" << e.what();
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 #else
     TStatus status;
@@ -704,14 +704,14 @@ Status EsScanNode::get_next_from_es(TExtGetNextResult& result) {
                << ", msg=" << e.what();
             LOG(WARNING) << ss.str();
             RETURN_IF_ERROR(client.reopen());
-            return Status(TStatusCode::THRIFT_RPC_ERROR, ss.str(), false);
+            return Status::ThriftRpcError(ss.str());
         }
     } catch (apache::thrift::TException &e) {
         std::stringstream ss;
         ss << "es get_next error: scan_range_idx=" << _scan_range_idx
            << ", msg=" << e.what();
         LOG(WARNING) << ss.str();
-        return Status(TStatusCode::THRIFT_RPC_ERROR, ss.str(), false);
+        return Status::ThriftRpcError(ss.str());
     }
 #else
     TStatus status;
@@ -748,10 +748,10 @@ Status EsScanNode::get_next_from_es(TExtGetNextResult& result) {
         ss << "es get_next error: scan_range_idx=" << _scan_range_idx
            << ", msg=rows or num_rows not in result";
         LOG(WARNING) << ss.str();
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status EsScanNode::materialize_row(MemPool* tuple_pool, Tuple* tuple,
@@ -781,7 +781,7 @@ Status EsScanNode::materialize_row(MemPool* tuple_pool, Tuple* tuple,
       case TYPE_CHAR:
       case TYPE_VARCHAR: {
           if (val_idx >= col.string_vals.size()) {
-            return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "STRING"));
+            return Status::InternalError(strings::Substitute(ERROR_INVALID_COL_DATA, "STRING"));
           }
           const string& val = col.string_vals[val_idx];
           size_t val_size = val.size();
@@ -798,70 +798,70 @@ Status EsScanNode::materialize_row(MemPool* tuple_pool, Tuple* tuple,
         }
       case TYPE_TINYINT:
         if (val_idx >= col.byte_vals.size()) {
-          return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "TINYINT"));
+          return Status::InternalError(strings::Substitute(ERROR_INVALID_COL_DATA, "TINYINT"));
         }
         *reinterpret_cast<int8_t*>(slot) = col.byte_vals[val_idx];
         break;
       case TYPE_SMALLINT:
         if (val_idx >= col.short_vals.size()) {
-          return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "SMALLINT"));
+          return Status::InternalError(strings::Substitute(ERROR_INVALID_COL_DATA, "SMALLINT"));
         }
         *reinterpret_cast<int16_t*>(slot) = col.short_vals[val_idx];
         break;
       case TYPE_INT:
         if (val_idx >= col.int_vals.size()) {
-          return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "INT"));
+          return Status::InternalError(strings::Substitute(ERROR_INVALID_COL_DATA, "INT"));
         }
         *reinterpret_cast<int32_t*>(slot) = col.int_vals[val_idx];
         break;
       case TYPE_BIGINT:
         if (val_idx >= col.long_vals.size()) {
-          return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "BIGINT"));
+          return Status::InternalError(strings::Substitute(ERROR_INVALID_COL_DATA, "BIGINT"));
         }
         *reinterpret_cast<int64_t*>(slot) = col.long_vals[val_idx];
         break;
       case TYPE_LARGEINT:
         if (val_idx >= col.long_vals.size()) {
-          return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "LARGEINT"));
+          return Status::InternalError(strings::Substitute(ERROR_INVALID_COL_DATA, "LARGEINT"));
         }
         *reinterpret_cast<int128_t*>(slot) = col.long_vals[val_idx];
         break;
       case TYPE_DOUBLE:
         if (val_idx >= col.double_vals.size()) {
-          return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "DOUBLE"));
+          return Status::InternalError(strings::Substitute(ERROR_INVALID_COL_DATA, "DOUBLE"));
         }
         *reinterpret_cast<double*>(slot) = col.double_vals[val_idx];
         break;
       case TYPE_FLOAT:
         if (val_idx >= col.double_vals.size()) {
-          return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "FLOAT"));
+          return Status::InternalError(strings::Substitute(ERROR_INVALID_COL_DATA, "FLOAT"));
         }
         *reinterpret_cast<float*>(slot) = col.double_vals[val_idx];
         break;
       case TYPE_BOOLEAN:
         if (val_idx >= col.bool_vals.size()) {
-          return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "BOOLEAN"));
+          return Status::InternalError(strings::Substitute(ERROR_INVALID_COL_DATA, "BOOLEAN"));
         }
         *reinterpret_cast<int8_t*>(slot) = col.bool_vals[val_idx];
         break;
       case TYPE_DATE:
         if (val_idx >= col.long_vals.size() ||
             !reinterpret_cast<DateTimeValue*>(slot)->from_unixtime(col.long_vals[val_idx])) {
-          return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "TYPE_DATE"));
+          return Status::InternalError(strings::Substitute(ERROR_INVALID_COL_DATA, "TYPE_DATE"));
         }
         reinterpret_cast<DateTimeValue*>(slot)->cast_to_date();
         break;
       case TYPE_DATETIME: {
         if (val_idx >= col.long_vals.size() ||
             !reinterpret_cast<DateTimeValue*>(slot)->from_unixtime(col.long_vals[val_idx])) {
-          return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "TYPE_DATETIME"));
+          return Status::InternalError(strings::Substitute(ERROR_INVALID_COL_DATA, "TYPE_DATETIME"));
         }
         reinterpret_cast<DateTimeValue*>(slot)->set_type(TIME_DATETIME);
         break;
       }
       case TYPE_DECIMAL: {
         if (val_idx >= col.binary_vals.size()) {
-          return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "DECIMAL"));
+          return Status::InternalError(strings::Substitute(ERROR_INVALID_COL_DATA, "DECIMAL"));
         }
         const string& val = col.binary_vals[val_idx];
         *reinterpret_cast<DecimalValue*>(slot) = *reinterpret_cast<const DecimalValue*>(&val);
@@ -871,7 +871,7 @@ Status EsScanNode::materialize_row(MemPool* tuple_pool, Tuple* tuple,
         DCHECK(false);
     }
   }
-  return Status::OK;
+  return Status::OK();
 }
 
 }

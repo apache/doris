@@ -82,7 +82,7 @@ Status HeartbeatServer::_heartbeat(
                     << master_info.backend_ip << " vs. " << BackendOptions::get_localhost();
             std::stringstream ss;
             ss << "actual backend local ip: " << BackendOptions::get_localhost();
-            return Status(ss.str());
+            return Status::InternalError(ss.str());
         }
     }
 
@@ -93,7 +93,7 @@ Status HeartbeatServer::_heartbeat(
         auto st = _olap_engine->set_cluster_id(master_info.cluster_id);
         if (!st.ok()) {
             LOG(WARNING) << "fail to set cluster id. status=" << st.get_error_msg();
-            return Status("fail to set cluster id.");
+            return Status::InternalError("fail to set cluster id.");
         } else {
             _master_info->cluster_id = master_info.cluster_id;
             LOG(INFO) << "record cluster id. host: " << master_info.network_address.hostname
@@ -102,7 +102,7 @@ Status HeartbeatServer::_heartbeat(
     } else {
         if (_master_info->cluster_id != master_info.cluster_id) {
             OLAP_LOG_WARNING("invalid cluster id: %d. ignore.", master_info.cluster_id);
-            return Status("invalid cluster id. ignore.");
+            return Status::InternalError("invalid cluster id. ignore.");
         }
     }
 
@@ -121,7 +121,7 @@ Status HeartbeatServer::_heartbeat(
                          << _master_info->network_address.hostname
                          << " port: " <<  _master_info->network_address.port
                          << " local epoch: " << _epoch << " received epoch: " << master_info.epoch;
-            return Status("epoch is not greater than local. ignore heartbeat.");
+            return Status::InternalError("epoch is not greater than local. ignore heartbeat.");
         }
     } else {
         // when Master FE restarted, host and port remains the same, but epoch will be increased.
@@ -139,7 +139,7 @@ Status HeartbeatServer::_heartbeat(
         } else if (_master_info->token != master_info.token) {
             LOG(WARNING) << "invalid token. local_token:" << _master_info->token
                          << ". token:" << master_info.token;
-            return Status("invalid token.");
+            return Status::InternalError("invalid token.");
         }
     }
 
@@ -152,7 +152,7 @@ Status HeartbeatServer::_heartbeat(
         _olap_engine->report_notify(true);
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 AgentStatus create_heartbeat_server(

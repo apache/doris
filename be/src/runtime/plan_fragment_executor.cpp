@@ -233,7 +233,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
 
     _query_statistics.reset(new QueryStatistics());
     _sink->set_query_statistics(_query_statistics);
-    return Status::OK;
+    return Status::OK();
 }
 
 void PlanFragmentExecutor::optimize_llvm_module() {
@@ -298,7 +298,7 @@ Status PlanFragmentExecutor::open_internal() {
     }
 
     if (_sink.get() == NULL) {
-        return Status::OK;
+        return Status::OK();
     }
     RETURN_IF_ERROR(_sink->open(runtime_state()));
 
@@ -358,7 +358,7 @@ Status PlanFragmentExecutor::open_internal() {
     stop_report_thread();
     send_report(true);
 
-    return Status::OK;
+    return Status::OK();
 }
 
 void PlanFragmentExecutor::collect_query_statistics() {
@@ -473,7 +473,7 @@ Status PlanFragmentExecutor::get_next(RowBatch** batch) {
 Status PlanFragmentExecutor::get_next_internal(RowBatch** batch) {
     if (_done) {
         *batch = NULL;
-        return Status::OK;
+        return Status::OK();
     }
 
     while (!_done) {
@@ -490,7 +490,7 @@ Status PlanFragmentExecutor::get_next_internal(RowBatch** batch) {
         *batch = NULL;
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 void PlanFragmentExecutor::update_status(const Status& status) {
@@ -556,7 +556,7 @@ void PlanFragmentExecutor::close() {
             if (_prepared) {
                 _sink->close(runtime_state(), _status);
             } else {
-                _sink->close(runtime_state(), Status("prepare failed"));
+                _sink->close(runtime_state(), Status::InternalError("prepare failed"));
             }
         }
 

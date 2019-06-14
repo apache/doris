@@ -51,13 +51,13 @@ ExchangeNode::ExchangeNode(
 Status ExchangeNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
     if (!_is_merging) {
-        return Status::OK;
+        return Status::OK();
     }
 
     RETURN_IF_ERROR(_sort_exec_exprs.init(tnode.exchange_node.sort_info, _pool));
     _is_asc_order = tnode.exchange_node.sort_info.is_asc_order;
     _nulls_first = tnode.exchange_node.sort_info.nulls_first;
-    return Status::OK;
+    return Status::OK();
 }
 
 Status ExchangeNode::prepare(RuntimeState* state) {
@@ -76,7 +76,7 @@ Status ExchangeNode::prepare(RuntimeState* state) {
                     state, _row_descriptor, _row_descriptor, expr_mem_tracker()));
         // AddExprCtxsToFree(_sort_exec_exprs);
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status ExchangeNode::open(RuntimeState* state) {
@@ -91,18 +91,18 @@ Status ExchangeNode::open(RuntimeState* state) {
     } else {
         RETURN_IF_ERROR(fill_input_row_batch(state));
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status ExchangeNode::collect_query_statistics(QueryStatistics* statistics) {
     RETURN_IF_ERROR(ExecNode::collect_query_statistics(statistics));
     statistics->merge(_sub_plan_query_statistics_recvr.get());
-    return Status::OK;
+    return Status::OK();
 }
 
 Status ExchangeNode::close(RuntimeState* state) {
     if (is_closed()) {
-        return Status::OK;
+        return Status::OK();
     }
     if (_is_merging) {
         _sort_exec_exprs.close(state);
@@ -135,7 +135,7 @@ Status ExchangeNode::get_next(RuntimeState* state, RowBatch* output_batch, bool*
     if (reached_limit()) {
         _stream_recvr->transfer_all_resources(output_batch);
         *eos = true;
-        return Status::OK;
+        return Status::OK();
     } else {
         *eos = false;
     }
@@ -183,12 +183,12 @@ Status ExchangeNode::get_next(RuntimeState* state, RowBatch* output_batch, bool*
             if (reached_limit()) {
                 _stream_recvr->transfer_all_resources(output_batch);
                 *eos = true;
-                return Status::OK;
+                return Status::OK();
             }
 
             if (output_batch->at_capacity()) {
                 *eos = false;
-                return Status::OK;
+                return Status::OK();
             }
         }
 
@@ -200,7 +200,7 @@ Status ExchangeNode::get_next(RuntimeState* state, RowBatch* output_batch, bool*
         RETURN_IF_ERROR(fill_input_row_batch(state));
         *eos = (_input_batch == NULL);
         if (*eos) {
-            return Status::OK;
+            return Status::OK();
         }
 
         _next_row_idx = 0;
@@ -244,7 +244,7 @@ Status ExchangeNode::get_next_merging(RuntimeState* state, RowBatch* output_batc
     }
 
     COUNTER_SET(_rows_returned_counter, _num_rows_returned);
-    return Status::OK;
+    return Status::OK();
 }
 
 void ExchangeNode::debug_string(int indentation_level, std::stringstream* out) const {

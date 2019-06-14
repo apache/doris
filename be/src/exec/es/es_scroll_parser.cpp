@@ -46,7 +46,7 @@ static const string ERROR_COL_DATA_IS_ARRAY = "Data source returned an array for
 #define RETURN_ERROR_IF_COL_IS_ARRAY(col, type) \
     do { \
         if (col.IsArray()) { \
-            return Status(strings::Substitute(ERROR_COL_DATA_IS_ARRAY, type_to_string(type))); \
+            return Status::InternalError(strings::Substitute(ERROR_COL_DATA_IS_ARRAY, type_to_string(type))); \
         } \
     } while (false)
 
@@ -54,7 +54,7 @@ static const string ERROR_COL_DATA_IS_ARRAY = "Data source returned an array for
 #define RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type) \
     do { \
         if (!col.IsString()) { \
-            return Status(strings::Substitute(ERROR_INVALID_COL_DATA, type_to_string(type))); \
+            return Status::InternalError(strings::Substitute(ERROR_INVALID_COL_DATA, type_to_string(type))); \
         } \
     } while (false)
 
@@ -62,7 +62,7 @@ static const string ERROR_COL_DATA_IS_ARRAY = "Data source returned an array for
 #define RETURN_ERROR_IF_PARSING_FAILED(result, type) \
     do { \
         if (result != StringParser::PARSE_SUCCESS) { \
-            return Status(strings::Substitute(ERROR_INVALID_COL_DATA, type_to_string(type))); \
+            return Status::InternalError(strings::Substitute(ERROR_INVALID_COL_DATA, type_to_string(type))); \
         } \
     } while (false)
 
@@ -70,7 +70,7 @@ template <typename T>
 static Status get_int_value(const rapidjson::Value &col, PrimitiveType type, void* slot) {
     if (col.IsNumber()) {
         *reinterpret_cast<T*>(slot) = (T)(sizeof(T) < 8 ? col.GetInt() : col.GetInt64());
-        return Status::OK;
+        return Status::OK();
     }
 
     RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
@@ -89,7 +89,7 @@ static Status get_int_value(const rapidjson::Value &col, PrimitiveType type, voi
         memcpy(slot, &v, sizeof(v));
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 template <typename T>
@@ -97,7 +97,7 @@ static Status get_float_value(const rapidjson::Value &col, PrimitiveType type, v
     DCHECK(sizeof(T) == 4 || sizeof(T) == 8);
     if (col.IsNumber()) {
         *reinterpret_cast<T*>(slot) = (T)(sizeof(T) == 4 ? col.GetFloat() : col.GetDouble());
-        return Status::OK;
+        return Status::OK();
     }
 
     RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
@@ -110,7 +110,7 @@ static Status get_float_value(const rapidjson::Value &col, PrimitiveType type, v
     RETURN_ERROR_IF_PARSING_FAILED(result, type);
     *reinterpret_cast<T*>(slot) = v;
 
-    return Status::OK;
+    return Status::OK();
 }
 
 ScrollParser::ScrollParser() :
@@ -128,11 +128,11 @@ Status ScrollParser::parse(const std::string& scroll_result) {
     if (_document_node.HasParseError()) {
         std::stringstream ss;
         ss << "Parsing json error, json is: " << scroll_result;
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
     if (!_document_node.HasMember(FIELD_SCROLL_ID)) {
-        return Status("Document has not a scroll id field");
+        return Status::InternalError("Document has not a scroll id field");
     }
 
     const rapidjson::Value &scroll_node = _document_node[FIELD_SCROLL_ID];
@@ -142,20 +142,20 @@ Status ScrollParser::parse(const std::string& scroll_result) {
     const rapidjson::Value &field_total = outer_hits_node[FIELD_TOTAL];
     _total = field_total.GetInt();
     if (_total == 0) {
-        return Status::OK;
+        return Status::OK();
     }
 
     VLOG(1) << "es_scan_reader total hits: " << _total << " documents";
     const rapidjson::Value &inner_hits_node = outer_hits_node[FIELD_INNER_HITS];
     if (!inner_hits_node.IsArray()) {
-        return Status("inner hits node is not an array");
+        return Status::InternalError("inner hits node is not an array");
     }
 
     rapidjson::Document::AllocatorType& a = _document_node.GetAllocator();
     _inner_hits_node.CopyFrom(inner_hits_node, a);
     _size = _inner_hits_node.Size();
 
-    return Status::OK;
+    return Status::OK();
 }
 
 int ScrollParser::get_size() {
@@ -174,13 +174,13 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
             Tuple* tuple, MemPool* tuple_pool, bool* line_eof) {
     *line_eof = true;
     if (_size <= 0 || _line_index >= _size) {
-        return Status::OK;
+        return Status::OK();
     }
 
     const rapidjson::Value& obj = _inner_hits_node[_line_index++];
     const rapidjson::Value& line = obj[FIELD_SOURCE];
     if (!line.IsObject()) {
-        return Status("Parse inner hits failed");
+        return Status::InternalError("Parse inner hits failed");
     }
 
     tuple->init(tuple_desc->byte_size());
@@ -307,7 +307,7 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
             case TYPE_DATETIME: {
                 if (col.IsNumber()) {
                     if (!reinterpret_cast<DateTimeValue*>(slot)->from_unixtime(col.GetInt64())) {
-                        return Status(strings::Substitute(ERROR_INVALID_COL_DATA, type_to_string(type)));
+                        return Status::InternalError(strings::Substitute(ERROR_INVALID_COL_DATA, type_to_string(type)));
                     }
 
                     if (type == TYPE_DATE) {
@@ -325,11 +325,11 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
                 const std::string& val = col.GetString();
                 size_t val_size = col.GetStringLength();
                 if (!ts_slot->from_date_str(val.c_str(), val_size)) {
-                    return Status(strings::Substitute(ERROR_INVALID_COL_DATA, type_to_string(type)));
+                    return Status::InternalError(strings::Substitute(ERROR_INVALID_COL_DATA, type_to_string(type)));
                 }
 
                 if (ts_slot->year() < 1900) {
-                    return Status(strings::Substitute(ERROR_INVALID_COL_DATA, type_to_string(type)));
+                    return Status::InternalError(strings::Substitute(ERROR_INVALID_COL_DATA, type_to_string(type)));
                 }
 
                 if (type == TYPE_DATE) {
@@ -348,6 +348,6 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
     }
 
     *line_eof = false;
-    return Status::OK;
+    return Status::OK();
 }
 }

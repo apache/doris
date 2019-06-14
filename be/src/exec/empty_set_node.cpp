@@ -26,7 +26,7 @@ EmptySetNode::EmptySetNode(ObjectPool* pool, const TPlanNode& tnode,
 
 Status EmptySetNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
   *eos = true;
-  return Status::OK;
+  return Status::OK();
 }
 
 }

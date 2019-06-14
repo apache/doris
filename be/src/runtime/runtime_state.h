@@ -294,12 +294,10 @@ public:
     // Sets _process_status with err_msg if no error has been set yet.
     void set_process_status(const std::string& err_msg) {
         boost::lock_guard<boost::mutex> l(_process_status_lock);
-
         if (!_process_status.ok()) {
             return;
         }
-
-        _process_status = Status(err_msg);
+        _process_status = Status::InternalError(err_msg);
     }
 
     void set_process_status(const Status& status) {
@@ -643,7 +641,7 @@ private:
 
 #define RETURN_IF_CANCELLED(state) \
   do { \
-    if (UNLIKELY((state)->is_cancelled())) return Status::CANCELLED; \
+    if (UNLIKELY((state)->is_cancelled())) return Status::Cancelled("Cancelled"); \
   } while (false)
 
 }

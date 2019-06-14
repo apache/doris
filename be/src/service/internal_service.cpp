@@ -204,7 +204,7 @@ void PInternalServiceImpl<T>::get_info(
         st.to_protobuf(response->mutable_status());
         return;
     }
-    Status::OK.to_protobuf(response->mutable_status());
+    Status::OK().to_protobuf(response->mutable_status());
 }
 
 

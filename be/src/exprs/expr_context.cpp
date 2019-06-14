@@ -28,6 +28,7 @@
 #include "runtime/raw_value.h"
 #include "udf/udf_internal.h"
 #include "util/debug_util.h"
+#include "util/stack_util.h"
 #include "exprs/anyval_util.h"
 
 namespace doris {
@@ -65,7 +66,7 @@ Status ExprContext::prepare(RuntimeState* state, const RowDescriptor& row_desc,
 Status ExprContext::open(RuntimeState* state) {
     DCHECK(_prepared);
     if (_opened) {
-        return Status::OK;
+        return Status::OK();
     }
     _opened = true;
     // Fragment-local state is only initialized for original contexts. Clones inherit the
@@ -80,7 +81,7 @@ Status ExprContext::open(std::vector<ExprContext*> evals, RuntimeState* state) {
     for (int i = 0; i < evals.size(); ++i) {
         RETURN_IF_ERROR(evals[i]->open(state));
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 void ExprContext::close(RuntimeState* state) {
@@ -468,7 +469,7 @@ Status ExprContext::get_const_value(RuntimeState* state, Expr& expr,
   DCHECK(_opened);
   if (!expr.is_constant()) {
     *const_val = nullptr;
-    return Status::OK;
+    return Status::OK();
   }
 
   // A constant expression shouldn't have any SlotRefs expr in it.
@@ -478,7 +479,7 @@ Status ExprContext::get_const_value(RuntimeState* state, Expr& expr,
   ObjectPool* obj_pool = state->obj_pool();
   *const_val = create_any_val(obj_pool, result_type);
   if (*const_val == NULL) {
-      return Status("Could not create any val");
+      return Status::InternalError("Could not create any val");
   }
 
   const void* result = ExprContext::get_value(&expr, nullptr);
@@ -508,8 +509,8 @@ Status ExprContext::get_error(int start_idx, int end_idx) const {
   for (int idx = start_idx; idx < end_idx; ++idx) {
     DCHECK_LT(idx, _fn_contexts.size());
     FunctionContext* fn_ctx = _fn_contexts[idx];
-    if (fn_ctx->has_error()) return Status(fn_ctx->error_msg());
+    if (fn_ctx->has_error()) return Status::InternalError(fn_ctx->error_msg());
   }
-  return Status::OK;
+  return Status::OK();
 }
 }

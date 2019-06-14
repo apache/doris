@@ -53,7 +53,7 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
             if (it == std::end(slots_map)) {
                 std::stringstream ss;
                 ss << "unknown index column, column=" << col;
-                return Status(ss.str());
+                return Status::InternalError(ss.str());
             }
             index->slots.emplace_back(it->second);
         }
@@ -64,7 +64,7 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
               [] (const OlapTableIndexSchema* lhs, const OlapTableIndexSchema* rhs) {
               return lhs->index_id < rhs->index_id;
               });
-    return Status::OK;
+    return Status::OK();
 }
 
 Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
@@ -87,7 +87,7 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
             if (it == std::end(slots_map)) {
                 std::stringstream ss;
                 ss << "unknown index column, column=" << col;
-                return Status(ss.str());
+                return Status::InternalError(ss.str());
             }
             index->slots.emplace_back(it->second);
         }
@@ -98,7 +98,7 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
               [] (const OlapTableIndexSchema* lhs, const OlapTableIndexSchema* rhs) {
               return lhs->index_id < rhs->index_id;
               });
-    return Status::OK;
+    return Status::OK();
 }
 
 void OlapTableSchemaParam::to_protobuf(POlapTableSchemaParam* pschema) const {
@@ -168,7 +168,7 @@ Status OlapTablePartitionParam::init() {
         if (it == std::end(slots_map)) {
             std::stringstream ss;
             ss << "partition column not found, column=" << _t_param.partition_column;
-            return Status(ss.str());
+            return Status::InternalError(ss.str());
         }
         _partition_slot_desc = it->second;
     }
@@ -181,7 +181,7 @@ Status OlapTablePartitionParam::init() {
             if (it == std::end(slots_map)) {
                 std::stringstream ss;
                 ss << "distributed column not found, columns=" << col;
-                return Status(ss.str());
+                return Status::InternalError(ss.str());
             }
             _distributed_slot_descs.emplace_back(it->second);
         }
@@ -204,7 +204,7 @@ Status OlapTablePartitionParam::init() {
             ss << "number of partition's index is not equal with schema's"
                 << ", num_part_indexes=" << t_part.indexes.size()
                 << ", num_schema_indexes=" << num_indexes;
-            return Status(ss.str());
+            return Status::InternalError(ss.str());
         }
         part->indexes = t_part.indexes;
         std::sort(part->indexes.begin(), part->indexes.end(),
@@ -218,13 +218,13 @@ Status OlapTablePartitionParam::init() {
                 ss << "partition's index is not equal with schema's"
                     << ", part_index=" << part->indexes[j].index_id
                     << ", schema_index=" << _schema->indexes()[j]->index_id;
-                return Status(ss.str());
+                return Status::InternalError(ss.str());
             }
         }
         _partitions.emplace_back(part);
         _partitions_map->emplace(part->end_key, part);
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 bool OlapTablePartitionParam::find_tablet(Tuple* tuple,
@@ -252,7 +252,7 @@ Status OlapTablePartitionParam::_create_partition_key(const TExprNode& t_expr, T
                 t_expr.date_literal.value.c_str(), t_expr.date_literal.value.size())) {
             std::stringstream ss;
             ss << "invalid date literal in partition column, date=" << t_expr.date_literal;
-            return Status(ss.str());
+            return Status::InternalError(ss.str());
         }
         break;
     }
@@ -290,11 +290,11 @@ Status OlapTablePartitionParam::_create_partition_key(const TExprNode& t_expr, T
     default: {
         std::stringstream ss;
         ss << "unsupported partition column node type, type=" << t_expr.node_type;
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
     }
     *part_key = tuple;
-    return Status::OK;
+    return Status::OK();
 }
 
 std::string OlapTablePartitionParam::debug_string() const {

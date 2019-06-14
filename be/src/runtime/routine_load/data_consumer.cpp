@@ -37,7 +37,7 @@ Status KafkaDataConsumer::init(StreamLoadContext* ctx) {
     std::unique_lock<std::mutex> l(_lock); 
     if (_init) {
         // this consumer has already been initialized.
-        return Status::OK;
+        return Status::OK();
     }
 
     RdKafka::Conf *conf = RdKafka::Conf::create(RdKafka::Conf::CONF_GLOBAL);
@@ -56,19 +56,19 @@ Status KafkaDataConsumer::init(StreamLoadContext* ctx) {
         RdKafka::Conf::ConfResult res = conf->set(conf_key, conf_val, errstr);
         if (res == RdKafka::Conf::CONF_UNKNOWN) {
             // ignore unknown config
-            return Status::OK;
+            return Status::OK();
         } else if (errstr.find("not supported") != std::string::npos) {
             // some java-only properties may be passed to here, and librdkafak will return 'xxx' not supported
             // ignore it
-            return Status::OK;
+            return Status::OK();
         } else if (res != RdKafka::Conf::CONF_OK) {
             std::stringstream ss;
             ss << "PAUSE: failed to set '" << conf_key << "', value: '" << conf_val << "', err: " << errstr;
             LOG(WARNING) << ss.str();
-            return Status(ss.str());
+            return Status::InternalError(ss.str());
         }
         VLOG(3) << "set " << conf_key << ": " << conf_val;
-        return Status::OK;
+        return Status::OK();
     };
 
     RETURN_IF_ERROR(set_conf("metadata.broker.list", ctx->kafka_info->brokers));
@@ -87,7 +87,7 @@ Status KafkaDataConsumer::init(StreamLoadContext* ctx) {
             std::vector<std::string> parts;
             boost::split(parts, item.second, boost::is_any_of(":"));
             if (parts.size() != 3) {
-                return Status("PAUSE: Invalid file property of kafka: " + item.second);
+                return Status::InternalError("PAUSE: Invalid file property of kafka: " + item.second);
             }
             int64_t file_id = std::stol(parts[1]);
             std::string file_path;
@@ -95,7 +95,7 @@ Status KafkaDataConsumer::init(StreamLoadContext* ctx) {
             if (!st.ok()) {
                 std::stringstream ss;
                 ss << "PAUSE: failed to get file for config: " << item.first << ", error: " << st.get_error_msg();
-                return Status(ss.str());
+                return Status::InternalError(ss.str());
             }
             RETURN_IF_ERROR(set_conf(item.first, file_path));
         } else {
@@ -108,20 +108,20 @@ Status KafkaDataConsumer::init(StreamLoadContext* ctx) {
         std::stringstream ss;
         ss << "PAUSE: failed to set 'event_cb'";
         LOG(WARNING) << ss.str();
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
     // create consumer
     _k_consumer = RdKafka::KafkaConsumer::create(conf, errstr); 
     if (!_k_consumer) {
         LOG(WARNING) << "PAUSE: failed to create kafka consumer: " << errstr;
-        return Status("PAUSE: failed to create kafka consumer: " + errstr);
+        return Status::InternalError("PAUSE: failed to create kafka consumer: " + errstr);
     }
 
     VLOG(3) << "finished to init kafka consumer. " << ctx->brief();
 
     _init = true;
-    return Status::OK;
+    return Status::OK();
 }
 
 Status KafkaDataConsumer::assign_topic_partitions(
@@ -155,10 +155,10 @@ Status KafkaDataConsumer::assign_topic_partitions(
     if (err) {
         LOG(WARNING) << "failed to assign topic partitions: " << ctx->brief(true)
                 << ", err: " << RdKafka::err2str(err);
-        return Status("failed to assign topic partitions");
+        return Status::InternalError("failed to assign topic partitions");
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status KafkaDataConsumer::group_consume(
@@ -171,7 +171,7 @@ Status KafkaDataConsumer::group_consume(
 
     int64_t received_rows = 0;
     int64_t put_rows = 0;
-    Status st = Status::OK;
+    Status st = Status::OK();
     MonotonicStopWatch consumer_watch;
     MonotonicStopWatch watch;
     watch.start();
@@ -208,7 +208,7 @@ Status KafkaDataConsumer::group_consume(
                 LOG(WARNING) << "kafka consume failed: " << _id
                         << ", msg: " << msg->errstr();
                 done = true;
-                st = Status(msg->errstr());
+                st = Status::InternalError(msg->errstr());
                 break;
         }
 
@@ -240,7 +240,7 @@ Status KafkaDataConsumer::get_partition_meta(std::vector<int32_t>* partition_ids
         std::stringstream ss;
         ss << "failed to create topic: " << errstr;
         LOG(WARNING) << ss.str();
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
     auto topic_deleter = [topic] () { delete topic; };
     DeferOp delete_topic(std::bind<void>(topic_deleter));
@@ -252,7 +252,7 @@ Status KafkaDataConsumer::get_partition_meta(std::vector<int32_t>* partition_ids
         std::stringstream ss;
         ss << "failed to get partition meta: " << RdKafka::err2str(err);
         LOG(WARNING) << ss.str();
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
     auto meta_deleter = [metadata] () { delete metadata; };
     DeferOp delete_meta(std::bind<void>(meta_deleter));
@@ -271,7 +271,7 @@ Status KafkaDataConsumer::get_partition_meta(std::vector<int32_t>* partition_ids
                 ss << ", try again";
             }
             LOG(WARNING) << ss.str();
-            return Status(ss.str());
+            return Status::InternalError(ss.str());
         }
 
         RdKafka::TopicMetadata::PartitionMetadataIterator ip;
@@ -281,27 +281,27 @@ Status KafkaDataConsumer::get_partition_meta(std::vector<int32_t>* partition_ids
     }
 
     if (partition_ids->empty()) {
-        return Status("no partition in this topic");
+        return Status::InternalError("no partition in this topic");
     }
 
-    return Status::OK;    
+    return Status::OK();    
 }
 
 Status KafkaDataConsumer::cancel(StreamLoadContext* ctx) {
     std::unique_lock<std::mutex> l(_lock);
     if (!_init) {
-        return Status("consumer is not initialized");
+        return Status::InternalError("consumer is not initialized");
     }
 
     _cancelled = true;
     LOG(INFO) << "kafka consumer cancelled. " << _id;
-    return Status::OK;
+    return Status::OK();
 }
 
 Status KafkaDataConsumer::reset() {
     std::unique_lock<std::mutex> l(_lock);
     _cancelled = false;
-    return Status::OK;
+    return Status::OK();
 }
 
 // if the kafka brokers and topic are same,

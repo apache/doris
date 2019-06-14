@@ -119,18 +119,18 @@ Status UserFunctionCache::init(const std::string& lib_dir) {
     RETURN_IF_ERROR(dynamic_open(nullptr, &_current_process_handle));
     // 2. load all cached 
     RETURN_IF_ERROR(_load_cached_lib());
-    return Status::OK;
+    return Status::OK();
 }
 
 Status UserFunctionCache::_load_entry_from_lib(const std::string& dir, const std::string& file) {
     if (!boost::algorithm::ends_with(file, ".so")) {
-        return Status("unknown library file format");
+        return Status::InternalError("unknown library file format");
     }
 
     std::vector<std::string> split_parts;
     boost::split(split_parts, file, boost::is_any_of("."));
     if (split_parts.size() != 3) {
-        return Status("user function's name should be function_id.checksum.so");
+        return Status::InternalError("user function's name should be function_id.checksum.so");
     }
     int64_t function_id = std::stol(split_parts[0]);
     std::string checksum = split_parts[1];
@@ -138,7 +138,7 @@ Status UserFunctionCache::_load_entry_from_lib(const std::string& dir, const std
     if (it != _entry_map.end()) {
         LOG(WARNING) << "meet a same function id user function library, function_id=" << function_id
             << ", one_checksum=" << checksum << ", other_checksum=" << it->second->checksum;
-        return Status("duplicate function id");
+        return Status::InternalError("duplicate function id");
     }
     // create a cache entry and put it into entry map
     UserFunctionCacheEntry* entry = new UserFunctionCacheEntry(
@@ -148,7 +148,7 @@ Status UserFunctionCache::_load_entry_from_lib(const std::string& dir, const std
     entry->ref();
     _entry_map[function_id] = entry;
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status UserFunctionCache::_load_cached_lib() {
@@ -167,7 +167,7 @@ Status UserFunctionCache::_load_cached_lib() {
         RETURN_IF_ERROR(FileUtils::create_dir(sub_dir));
         RETURN_IF_ERROR(FileUtils::scan_dir(sub_dir, scan_cb));
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 std::string get_real_symbol(const std::string& symbol) {
@@ -189,7 +189,7 @@ Status UserFunctionCache::get_function_ptr(
     if (fid == 0) {
         // Just loading a function ptr in the current process. No need to take any locks.
         RETURN_IF_ERROR(dynamic_lookup(_current_process_handle, symbol.c_str(), fn_ptr));
-        return Status::OK;
+        return Status::OK();
     }
 
     // if we need to unref entry
@@ -264,7 +264,7 @@ Status UserFunctionCache::_get_cache_entry(
     }
 
     *output_entry = entry;
-    return Status::OK;
+    return Status::OK();
 }
 
 void UserFunctionCache::_destroy_cache_entry(UserFunctionCacheEntry* entry) {
@@ -287,7 +287,7 @@ void UserFunctionCache::_destroy_cache_entry(UserFunctionCacheEntry* entry) {
 Status UserFunctionCache::_load_cache_entry(
         const std::string& url, UserFunctionCacheEntry* entry) {
     if (entry->is_loaded.load()) {
-        return Status::OK;
+        return Status::OK();
     }
 
     std::unique_lock<std::mutex> l(entry->load_lock);
@@ -296,7 +296,7 @@ Status UserFunctionCache::_load_cache_entry(
     }
 
     RETURN_IF_ERROR(_load_cache_entry_internal(entry));
-    return Status::OK;
+    return Status::OK();
 }
 
 // entry's lock must be held
@@ -311,7 +311,7 @@ Status UserFunctionCache::_download_lib(
     if (fp == nullptr) {
         LOG(WARNING) << "fail to open file, file=" << tmp_file
             << ", error=" << ferror(fp.get());
-        return Status("fail to open file");
+        return Status::InternalError("fail to open file");
     }
 
     Md5Digest digest;
@@ -324,7 +324,7 @@ Status UserFunctionCache::_download_lib(
         if (res != 1) {
             LOG(WARNING) << "fail to write data to file, file=" << tmp_file
                 << ", error=" << ferror(fp.get());
-            status = Status("fail to write data when download");
+            status = Status::InternalError("fail to write data when download");
             return false;
         }
         return true;
@@ -335,7 +335,7 @@ Status UserFunctionCache::_download_lib(
     if (!boost::iequals(digest.hex(), entry->checksum)) {
         LOG(WARNING) << "UDF's checksum is not equal, one=" << digest.hex()
             << ", other=" << entry->checksum;
-        return Status("UDF's library checksum is not match");
+        return Status::InternalError("UDF's library checksum is not match");
     }
     // close this file
     fp.reset();
@@ -346,19 +346,19 @@ Status UserFunctionCache::_download_lib(
         char buf[64];
         LOG(WARNING) << "fail to rename file from=" << tmp_file << ", to=" << entry->lib_file
             << ", errno=" << errno << ", errmsg=" << strerror_r(errno, buf, 64);
-        return Status("fail to rename file");
+        return Status::InternalError("fail to rename file");
     }
     
     // check download
     entry->is_downloaded = true;
-    return Status::OK;
+    return Status::OK();
 }
 
 // entry's lock must be held
 Status UserFunctionCache::_load_cache_entry_internal(UserFunctionCacheEntry* entry) {
     RETURN_IF_ERROR(dynamic_open(entry->lib_file.c_str(), &entry->lib_handle));
     entry->is_loaded.store(true);
-    return Status::OK;
+    return Status::OK();
 }
 
 std::string UserFunctionCache::_make_lib_file(int64_t function_id, const std::string& checksum) {

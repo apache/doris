@@ -56,7 +56,7 @@ Status MergeNode::init(const TPlanNode& tnode, RuntimeState* state) {
         _result_expr_ctx_lists.push_back(ctxs);
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status MergeNode::prepare(RuntimeState* state) {
@@ -87,7 +87,7 @@ Status MergeNode::prepare(RuntimeState* state) {
         DCHECK_EQ(_result_expr_ctx_lists[i].size(), _materialized_slots.size());
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status MergeNode::open(RuntimeState* state) {
@@ -102,7 +102,7 @@ Status MergeNode::open(RuntimeState* state) {
         RETURN_IF_ERROR(Expr::open(_result_expr_ctx_lists[i], state));
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status MergeNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
@@ -124,7 +124,7 @@ Status MergeNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) 
         *eos = reached_limit();
 
         if (*eos || row_batch->is_full()) {
-            return Status::OK;
+            return Status::OK();
         }
     }
 
@@ -157,7 +157,7 @@ Status MergeNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) 
                     _child_idx = INVALID_CHILD_IDX;
                 }
 
-                return Status::OK;
+                return Status::OK();
             }
 
             // Fetch new batch if one is available, otherwise move on to next child.
@@ -179,12 +179,12 @@ Status MergeNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) 
 
     _child_idx = INVALID_CHILD_IDX;
     *eos = true;
-    return Status::OK;
+    return Status::OK();
 }
 
 Status MergeNode::close(RuntimeState* state) {
     if (is_closed()) {
-        return Status::OK;
+        return Status::OK();
     }
     // don't call ExecNode::close(), it always closes all children
     _child_row_batch.reset(NULL);

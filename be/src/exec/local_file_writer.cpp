@@ -35,7 +35,7 @@ Status LocalFileWriter::open() {
         ss << "Open file failed. path=" << _path
             << ", errno= " << errno
             << ", description=" << get_str_err_msg();
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
     if (_start_offset != 0) {
@@ -45,11 +45,11 @@ Status LocalFileWriter::open() {
             ss << "Seek to start_offset failed. offset=" << _start_offset
                 << ", errno= " << errno
                 << ", description=" << get_str_err_msg();
-            return Status(ss.str());
+            return Status::InternalError(ss.str());
         }
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status LocalFileWriter::write(const uint8_t* buf, size_t buf_len, size_t* written_len) {
@@ -61,11 +61,11 @@ Status LocalFileWriter::write(const uint8_t* buf, size_t buf_len, size_t* writte
                 << ", path=" << _path
                 << ", failed with errno=" << errno
                 << ", description=" << get_str_err_msg();
-        return Status(error_msg.str());
+        return Status::InternalError(error_msg.str());
     }
 
     *written_len = bytes_written;
-    return Status::OK;
+    return Status::OK();
 }
 
 void LocalFileWriter::close() {

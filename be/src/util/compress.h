@@ -83,7 +83,7 @@ public:
                                 int* output_length, uint8_t** output);
     // Initialize the compressor.
     virtual Status init() {
-        return Status::OK;
+        return Status::OK();
     }
 };
 
@@ -99,7 +99,7 @@ public:
 protected:
     // Snappy does not need initialization
     virtual Status init() {
-        return Status::OK;
+        return Status::OK();
     }
 };
 
@@ -125,7 +125,7 @@ public:
 protected:
     // Snappy does not need initialization
     virtual Status init() {
-        return Status::OK;
+        return Status::OK();
     }
 };
 

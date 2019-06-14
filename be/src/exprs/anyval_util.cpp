@@ -47,7 +47,7 @@ Status allocate_any_val(RuntimeState* state, MemPool* pool, const TypeDescriptor
         state, mem_limit_exceeded_msg, anyval_size);
   }
   memset(*result, 0, anyval_size);
-  return Status::OK;
+  return Status::OK();
 }
 
 AnyVal* create_any_val(ObjectPool* pool, const TypeDescriptor& type) {

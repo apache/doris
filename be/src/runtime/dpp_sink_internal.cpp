@@ -51,7 +51,7 @@ Status RollupSchema::from_thrift(
         std::stringstream ss;
         ss << "values size(" << t_schema.values.size() << ") not equal with value_ops size("
             << t_schema.value_ops.size() << ")";
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
     schema->_keys_type = t_schema.keys_type;
     if (false == t_schema.__isset.keys_type) {
@@ -66,7 +66,7 @@ Status RollupSchema::from_thrift(
             pool, t_schema.values, &schema->_value_ctxs));
     schema->_value_ops.assign(t_schema.value_ops.begin(), t_schema.value_ops.end());
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status RollupSchema::prepare(
@@ -75,19 +75,19 @@ Status RollupSchema::prepare(
             _key_ctxs, state, row_desc, mem_tracker));
     RETURN_IF_ERROR(Expr::prepare(
             _value_ctxs, state, row_desc, mem_tracker));
-    return Status::OK;
+    return Status::OK();
 }
 
 Status RollupSchema::open(RuntimeState* state) {
     RETURN_IF_ERROR(Expr::open(_key_ctxs, state));
     RETURN_IF_ERROR(Expr::open(_value_ctxs, state));
-    return Status::OK;
+    return Status::OK();
 }
 
 Status RollupSchema::close(RuntimeState* state) {
     Expr::close(_key_ctxs, state);
     Expr::close(_value_ctxs, state);
-    return Status::OK;
+    return Status::OK();
 }
 
 Status PartRangeKey::from_thrift(
@@ -96,7 +96,7 @@ Status PartRangeKey::from_thrift(
         PartRangeKey* key) {
     key->_sign = t_key.sign;
     if (key->_sign != 0) {
-        return Status::OK;
+        return Status::OK();
     }
 
     key->_type = thrift_to_type(t_key.type);
@@ -150,7 +150,7 @@ Status PartRangeKey::from_thrift(
         if (!(datetime->from_date_str(t_key.key.c_str(), t_key.key.length()))) {
             std::stringstream error_msg;
             error_msg << "Fail to convert date string:" << t_key.key;
-            return Status(error_msg.str());
+            return Status::InternalError(error_msg.str());
         }
         datetime->cast_to_date();
         break;
@@ -162,7 +162,7 @@ Status PartRangeKey::from_thrift(
         if (!(datetime->from_date_str(t_key.key.c_str(), t_key.key.length()))) {
             std::stringstream error_msg;
             error_msg << "Fail to convert datetime string:" << t_key.key;
-            return Status(error_msg.str());
+            return Status::InternalError(error_msg.str());
         }
         datetime->to_datetime();
         break;
@@ -175,10 +175,10 @@ Status PartRangeKey::from_thrift(
     if (parse_result != StringParser::PARSE_SUCCESS) {
         std::stringstream error_msg;
         error_msg << "Fail to convert string:" << t_key.key;
-        return Status(error_msg.str());
+        return Status::InternalError(error_msg.str());
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status PartRangeKey::from_value(
@@ -189,7 +189,7 @@ Status PartRangeKey::from_value(
     key->_type = type;
     key->_key = value;
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status PartRange::from_thrift(
@@ -204,7 +204,7 @@ Status PartRange::from_thrift(
     range->_include_start_key = t_part_range.include_start_key;
     range->_include_end_key = t_part_range.include_end_key;
     VLOG_ROW << "after construct: " << range->debug_string();
-    return Status::OK;
+    return Status::OK();
 }
 
 Status PartitionInfo::from_thrift(
@@ -216,12 +216,12 @@ Status PartitionInfo::from_thrift(
     if (t_partition.__isset.distributed_exprs) {
         partition->_distributed_bucket = t_partition.distribute_bucket;
         if (partition->_distributed_bucket == 0) {
-            return Status("Distributed bucket is 0.");
+            return Status::InternalError("Distributed bucket is 0.");
         }
         RETURN_IF_ERROR(Expr::create_expr_trees(
                 pool, t_partition.distributed_exprs, &partition->_distributed_expr_ctxs));
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status PartitionInfo::prepare(
@@ -230,21 +230,21 @@ Status PartitionInfo::prepare(
         RETURN_IF_ERROR(Expr::prepare(
                 _distributed_expr_ctxs, state, row_desc, mem_tracker));
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status PartitionInfo::open(RuntimeState* state) {
     if (_distributed_expr_ctxs.size() > 0) {
         return Expr::open(_distributed_expr_ctxs, state);
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status PartitionInfo::close(RuntimeState* state) {
     if (_distributed_expr_ctxs.size() > 0) {
         Expr::close(_distributed_expr_ctxs, state);
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 }

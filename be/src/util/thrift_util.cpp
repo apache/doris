@@ -110,7 +110,7 @@ Status wait_for_server(
             socket.setConnTimeout(500);
             socket.open();
             socket.close();
-            return Status::OK;
+            return Status::OK();
         } catch (apache::thrift::transport::TTransportException& e) {
             VLOG_QUERY << "Connection failed: " << e.what();
         }
@@ -123,7 +123,7 @@ Status wait_for_server(
         usleep(retry_interval_ms * 1000);
     }
 
-    return Status("Server did not come up");
+    return Status::InternalError("Server did not come up");
 }
 
 void t_network_address_to_string(const TNetworkAddress& address, std::string* out) {

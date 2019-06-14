@@ -75,7 +75,7 @@ Status BackendService::create_service(ExecEnv* exec_env, int port, ThriftServer*
 
     LOG(INFO) << "DorisInternalService listening on " << port;
 
-    return Status::OK;
+    return Status::OK();
 }
 
 void BackendService::exec_plan_fragment(TExecPlanFragmentResult& return_val,
@@ -89,7 +89,7 @@ void BackendService::exec_plan_fragment(TExecPlanFragmentResult& return_val,
 
 Status BackendService::start_plan_fragment_execution(const TExecPlanFragmentParams& exec_params) {
     if (!exec_params.fragment.__isset.output_sink) {
-        return Status("missing sink in plan fragment");
+        return Status::InternalError("missing sink in plan fragment");
     }
     return _exec_env->fragment_mgr()->exec_plan_fragment(exec_params);
 }
@@ -242,7 +242,7 @@ void BackendService::submit_routine_load_task(
 
     // we do not care about each task's submit result. just return OK.
     // FE will handle the failure.
-    return Status::OK.to_thrift(&t_status);
+    return Status::OK().to_thrift(&t_status);
 }
 
 } // namespace doris

@@ -45,7 +45,7 @@ Status FileSystemUtil::create_directory(const string& directory) {
         std::stringstream error_msg;
         error_msg << "Encountered error checking existence of directory: "
                 << directory << ": " << errcode.message();
-        return Status(error_msg.str());
+        return Status::InternalError(error_msg.str());
     }
     if (exists) {
         // Attempt to remove the directory and its contents so that we can create a fresh
@@ -54,16 +54,16 @@ Status FileSystemUtil::create_directory(const string& directory) {
         if (errcode != errc::success) {
             std::stringstream error_msg;
             error_msg << "Encountered error removing directory " << directory << errcode.message();
-            return Status(error_msg.str());
+            return Status::InternalError(error_msg.str());
         }
     }
     filesystem::create_directories(directory, errcode);
     if (errcode != errc::success) {
         std::stringstream error_msg;
         error_msg << "Encountered error creating directory " << directory << errcode.message();
-        return Status(error_msg.str());
+        return Status::InternalError(error_msg.str());
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status FileSystemUtil::remove_paths(const vector<string>& directories) {
@@ -74,11 +74,11 @@ Status FileSystemUtil::remove_paths(const vector<string>& directories) {
             std::stringstream error_msg;
             error_msg << "Encountered error removing directory "
                     << directories[i] << ": " << errcode.message();
-            return Status(error_msg.str());
+            return Status::InternalError(error_msg.str());
         }
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status FileSystemUtil::create_file(const string& file_path) {
@@ -89,7 +89,7 @@ Status FileSystemUtil::create_file(const string& file_path) {
         error_msg << "Create file " << file_path.c_str()
                 << " failed with errno=" << errno
                 << "description=" << get_str_err_msg();
-        return Status(error_msg.str());
+        return Status::InternalError(error_msg.str());
     }
 
     int success = close(fd);
@@ -98,10 +98,10 @@ Status FileSystemUtil::create_file(const string& file_path) {
         error_msg << "Close file " << file_path.c_str()
                 << " failed with errno=" << errno
                 << " description=" << get_str_err_msg();
-        return Status(error_msg.str());
+        return Status::InternalError(error_msg.str());
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status FileSystemUtil::resize_file(const string& file_path, int64_t trunc_len) {
@@ -110,10 +110,10 @@ Status FileSystemUtil::resize_file(const string& file_path, int64_t trunc_len) {
         std::stringstream error_msg;
         error_msg << "Truncate file " << file_path << " to length " << trunc_len
             << " failed with " << errno << " (" << get_str_err_msg() << ")";
-        return Status(error_msg.str());
+        return Status::InternalError(error_msg.str());
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status FileSystemUtil::verify_is_directory(const string& directory_path) {
@@ -123,26 +123,26 @@ Status FileSystemUtil::verify_is_directory(const string& directory_path) {
         std::stringstream error_msg;
         error_msg << "Encountered exception while verifying existence of directory path "
                 << directory_path << ": " << errcode.message();
-        return Status(error_msg.str());
+        return Status::InternalError(error_msg.str());
     }
     if (!exists) {
         std::stringstream error_msg;
         error_msg << "Directory path " << directory_path << " does not exist ";
-        return Status(error_msg.str());
+        return Status::InternalError(error_msg.str());
     }
     bool is_dir = filesystem::is_directory(directory_path, errcode);
     if (errcode != errc::success) {
         std::stringstream error_msg;
         error_msg << "Encountered exception while verifying existence of directory path "
                 << directory_path << ": " << errcode.message();
-        return Status(error_msg.str());
+        return Status::InternalError(error_msg.str());
     }
     if (!is_dir) {
         std::stringstream error_msg;
         error_msg << "Path " << directory_path << " is not a directory";
-        return Status(error_msg.str());
+        return Status::InternalError(error_msg.str());
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status FileSystemUtil::get_space_available(const string& directory_path,
@@ -153,10 +153,10 @@ Status FileSystemUtil::get_space_available(const string& directory_path,
         std::stringstream error_msg;
         error_msg << "Encountered exception while checking available space for path "
                 << directory_path << ": " << errcode.message();
-        return Status(error_msg.str());
+        return Status::InternalError(error_msg.str());
     }
     *available_bytes = info.available;
-    return Status::OK;
+    return Status::OK();
 }
 
 uint64_t FileSystemUtil::max_num_file_handles() {

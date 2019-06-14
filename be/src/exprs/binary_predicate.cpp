@@ -351,7 +351,7 @@ Status BinaryPredicate::codegen_compare_fn(
     builder.CreateRet(result.value());
 
     *fn = codegen->finalize_function(*fn);
-    return Status::OK;
+    return Status::OK();
 }
 
 #define BINARY_PRED_FN(CLASS, TYPE, FN, OP, LLVM_PRED) \
@@ -369,11 +369,11 @@ Status BinaryPredicate::codegen_compare_fn(
     Status CLASS::get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn) { \
         if (_ir_compute_fn != NULL) { \
             *fn = _ir_compute_fn; \
-            return Status::OK; \
+            return Status::OK(); \
         } \
         RETURN_IF_ERROR(codegen_compare_fn(state, fn, LLVM_PRED)); \
         _ir_compute_fn = *fn; \
-        return Status::OK; \
+        return Status::OK(); \
     } \
 
 // add '/**/' to pass codestyle check of cooder
@@ -448,11 +448,11 @@ COMPLICATE_BINARY_PRED_FNS(DecimalV2Val, get_decimalv2_val, DecimalV2Value, from
     Status CLASS::get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn) { \
         if (_ir_compute_fn != NULL) { \
             *fn = _ir_compute_fn; \
-            return Status::OK; \
+            return Status::OK(); \
         } \
         RETURN_IF_ERROR(codegen_compare_fn(state, fn , LLVM_PRED)); \
         _ir_compute_fn = *fn; \
-        return Status::OK; \
+        return Status::OK(); \
     } \
 
 #define DATETIME_BINARY_PRED_FNS() \
@@ -600,7 +600,7 @@ Status EqStringValPred::get_codegend_compute_fn(RuntimeState* state, llvm::Funct
     builder.CreateRet(result.value());
 
     *fn = codegen->finalize_function(*fn);
-    return Status::OK;
+    return Status::OK();
 }
 
 #endif
