@@ -86,7 +86,7 @@ public class LoadManager implements Writable{
         LoadJob loadJob = null;
         writeLock();
         try {
-            isLabelUsed(dbId, stmt.getLabel().getLabelName());
+            checkLabelUsed(dbId, stmt.getLabel().getLabelName());
             if (stmt.getBrokerDesc() == null) {
                 throw new DdlException("LoadManager only support the broker load.");
             }
@@ -119,7 +119,7 @@ public class LoadManager implements Writable{
         Database database = checkDb(stmt.getLabel().getDbName());
         writeLock();
         try {
-            isLabelUsed(database.getId(), stmt.getLabel().getLabelName());
+            checkLabelUsed(database.getId(), stmt.getLabel().getLabelName());
             Catalog.getCurrentCatalog().getLoadInstance().addLoadJob(stmt, jobType, timestamp);
         } finally {
             writeUnlock();
@@ -341,7 +341,7 @@ public class LoadManager implements Writable{
      * @param label
      * @throws DdlException throw exception when label has been used by an unfinished job.
      */
-    private void isLabelUsed(long dbId, String label)
+    private void checkLabelUsed(long dbId, String label)
             throws DdlException {
         // if label has been used in old load jobs
         Catalog.getCurrentCatalog().getLoadInstance().isLabelUsed(dbId, label);
