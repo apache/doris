@@ -119,7 +119,7 @@ public class DdlExecutor {
             if (loadStmt.getVersion().equals(LoadManager.VERSION)) {
                 catalog.getLoadManager().createLoadJobFromStmt(loadStmt);
             } else {
-                catalog.getLoadInstance().addLoadJob(loadStmt, jobType, System.currentTimeMillis());
+                catalog.getLoadManager().createLoadJobV1FromStmt(loadStmt, jobType, System.currentTimeMillis());
             }
         } else if (ddlStmt instanceof CancelLoadStmt) {
             if (catalog.getLoadInstance().isLabelExist(
