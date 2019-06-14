@@ -74,7 +74,41 @@ public class ColocateTableBalancer extends Daemon {
         return INSTANCE;
     }
 
+    /*
+     * 1. Check all group healthy before doing balance
+     */
     @Override
+    protected void runOneCycle() {
+        checkGroupHealth();
+    }
+
+    private void checkGroupHealth() {
+        Catalog catalog = Catalog.getCurrentCatalog();
+        ColocateTableIndex colocateIndex = catalog.getColocateTableIndex();
+
+        Set<GroupId> groupIds = colocateIndex.getAllGroupIds();
+        for (GroupId groupId : groupIds) {
+            List<Long> tableIds = colocateIndex.getAllTableIds(groupId);
+            Database db = catalog.getDb(groupId.dbId);
+            if (db == null) {
+                continue;
+            }
+            db.readLock();
+            try {
+                for (Long tableId : tableIds) {
+                    OlapTable olapTable = (OlapTable) db.getTable(tableId);
+                    if (olapTable == null) {
+                        continue;
+                    }
+
+                }
+            } finally {
+                db.readUnlock();
+            }
+        }
+
+    }
+
     /**
      * The colocate table balance flow:
      *
@@ -86,7 +120,7 @@ public class ColocateTableBalancer extends Daemon {
      * 6 delete redundant replicas after all clone job done
      * 7 mark colocate group stable in colocate meta and balance done
      */
-    protected void runOneCycle() {
+    protected void runOneCycle2() {
         checkAndCloneBalancingGroup();
 
         tryDeleteRedundantReplicas();
@@ -526,7 +560,7 @@ public class ColocateTableBalancer extends Daemon {
     /**
      * 1 compute which bucket seq need to migrate, the migrate source backend, the migrate target backend
      * 2 mark colocate group balancing in colocate meta
-     * 3 update colcate backendsPerBucketSeq meta
+     * 3 update colocate backendsPerBucketSeq meta
      *
      * For example:
      *

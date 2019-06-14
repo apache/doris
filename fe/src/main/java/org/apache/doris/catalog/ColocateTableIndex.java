@@ -325,7 +325,9 @@ public class ColocateTableIndex implements Writable {
     public List<Long> getAllTableIds(GroupId groupId) {
         readLock();
         try {
-            Preconditions.checkState(group2Tables.containsKey(groupId));
+            if (!group2Tables.containsKey(groupId)) {
+                return Lists.newArrayList();
+            }
             return Lists.newArrayList(group2Tables.get(groupId));
         } finally {
             readUnlock();
