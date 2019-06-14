@@ -36,7 +36,6 @@
 #include "olap/rowset/segment_v2/bitshuffle_wrapper.h"
 
 namespace doris {
-
 namespace segment_v2 {
 
 void abort_with_bitshuffle_error(int64_t val);
@@ -341,5 +340,4 @@ private:
 };
 
 } // namespace segment_v2
-
 } // namespace doris

@@ -31,5 +31,5 @@ namespace segment_v2 {
 
 using rowid_t = uint32_t;
 
-}
-}
+} // namespace segment_v2
+} // namespace doris

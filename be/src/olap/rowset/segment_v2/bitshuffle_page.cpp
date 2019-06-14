@@ -19,7 +19,6 @@
 #include "olap/rowset/segment_v2/common.h"
 
 namespace doris {
-
 namespace segment_v2 {
 
 void abort_with_bitshuffle_error(int64_t val) {
@@ -82,5 +81,4 @@ Slice BitshufflePageBuilder<OLAP_FIELD_TYPE_UNSIGNED_INT>::finish(rowid_t page_f
 }
 
 } // namespace segment_v2
-
 } // namespace doris

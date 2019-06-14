@@ -20,7 +20,6 @@
 #include "gen_cpp/segment_v2.pb.h"
 
 namespace doris {
-
 namespace segment_v2 {
 
 struct BuilderOptions {
@@ -40,5 +39,4 @@ struct BuilderOptions {
 };
 
 } // namespace segment_v2
-
 } // namespace doris

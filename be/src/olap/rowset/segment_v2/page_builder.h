@@ -25,7 +25,6 @@
 #include "olap/rowset/segment_v2/common.h"
 
 namespace doris {
-
 namespace segment_v2 {
 
 // PageBuilder is used to build page
@@ -76,5 +75,4 @@ private:
 };
 
 } // namespace segment_v2
-
 } // namespace doris

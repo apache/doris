@@ -21,7 +21,6 @@
 #include "common/status.h"
 
 namespace doris {
-
 namespace segment_v2 {
 
 // PageDecoder is used to decode page page.
@@ -79,5 +78,4 @@ private:
 };
 
 } // namespace segment_v2
-
 } // namespace doris
