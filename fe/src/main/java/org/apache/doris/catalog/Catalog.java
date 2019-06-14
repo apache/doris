@@ -4099,10 +4099,11 @@ public class Catalog {
                 }
             }
 
-            // firstColocateTable is true, means this may be the first table of colocation group,
-            // or this is just a normal table.
-            boolean firstColocateTable = backendsPerBucketSeq == null || backendsPerBucketSeq.isEmpty();
-            if (firstColocateTable) {
+            // chooseBackendsArbitrary is true, means this may be the first table of colocation group,
+            // or this is just a normal table, and we can choose backends arbitrary.
+            // otherwise, backends should be chosen from backendsPerBucketSeq;
+            boolean chooseBackendsArbitrary = backendsPerBucketSeq == null || backendsPerBucketSeq.isEmpty();
+            if (chooseBackendsArbitrary) {
                 backendsPerBucketSeq = Lists.newArrayList();
             }
             for (int i = 0; i < distributionInfo.getBucketNum(); ++i) {
@@ -4115,7 +4116,7 @@ public class Catalog {
 
                 // get BackendIds
                 List<Long> chosenBackendIds;
-                if (firstColocateTable) {
+                if (chooseBackendsArbitrary) {
                     // This is the first colocate table in the group, or just a normal table,
                     // randomly choose backends
                     chosenBackendIds = chosenBackendIdBySeq(replicationNum, clusterName);
