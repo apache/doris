@@ -223,7 +223,7 @@ TEST_F(DiskIoMgrTest, SingleWriter) {
                 DiskIoMgr::WriteRange** new_range = _pool->add(new DiskIoMgr::WriteRange*);
                 DiskIoMgr::WriteRange::WriteDoneCallback callback =
                     bind(mem_fn(&DiskIoMgrTest::write_validate_callback), this, num_ranges,
-                            new_range, read_io_mgr.get(), reader, data, Status::OK, _1);
+                            new_range, read_io_mgr.get(), reader, data, Status::OK(), _1);
                 *new_range = _pool->add(new DiskIoMgr::WriteRange(tmp_file, cur_offset,
                             num_ranges % num_disks, callback));
                 (*new_range)->set_data(reinterpret_cast<uint8_t*>(data), sizeof(int32_t));
@@ -267,7 +267,7 @@ TEST_F(DiskIoMgrTest, InvalidWrite) {
     DiskIoMgr::WriteRange::WriteDoneCallback callback =
         bind(mem_fn(&DiskIoMgrTest::write_validate_callback), this, 2,
                 new_range, (DiskIoMgr*)NULL, (DiskIoMgr::RequestContext*)NULL,
-                data, Status("Test Failure"), _1);
+                data, Status::InternalError("Test Failure"), _1);
     *new_range = _pool->add(new DiskIoMgr::WriteRange(tmp_file, rand(), 0, callback));
 
     (*new_range)->set_data(reinterpret_cast<uint8_t*>(data), sizeof(int32_t));
@@ -285,7 +285,7 @@ TEST_F(DiskIoMgrTest, InvalidWrite) {
     new_range = _pool->add(new DiskIoMgr::WriteRange*);
     callback = bind(mem_fn(&DiskIoMgrTest::write_validate_callback), this, 2,
             new_range, (DiskIoMgr*)NULL, (DiskIoMgr::RequestContext*)NULL,
-            data, Status("Test Failure"), _1);
+            data, Status::InternalError("Test Failure"), _1);
 
     *new_range = _pool->add(new DiskIoMgr::WriteRange(tmp_file, -1, 0, callback));
     (*new_range)->set_data(reinterpret_cast<uint8_t*>(data), sizeof(int32_t));
@@ -334,11 +334,11 @@ TEST_F(DiskIoMgrTest, SingleWriterCancel) {
             status = io_mgr.init(&mem_tracker);
             DiskIoMgr::RequestContext* writer;
             io_mgr.register_context(&writer, &mem_tracker);
-            Status validate_status = Status::OK;
+            Status validate_status = Status::OK();
             for (int i = 0; i < num_ranges; ++i) {
                 if (i == num_ranges_before_cancel) {
                     io_mgr.cancel_context(writer);
-                    validate_status = Status::CANCELLED;
+                    validate_status = Status::Cancelled("");
                 }
                 int32_t* data = _pool->add(new int32_t);
                 *data = rand();
@@ -346,7 +346,7 @@ TEST_F(DiskIoMgrTest, SingleWriterCancel) {
                 DiskIoMgr::WriteRange::WriteDoneCallback callback =
                     bind(mem_fn(&DiskIoMgrTest::write_validate_callback), this,
                             num_ranges_before_cancel, new_range, read_io_mgr.get(), reader, data,
-                            Status::CANCELLED, _1);
+                            Status::Cancelled(""), _1);
                 *new_range = _pool->add(new DiskIoMgr::WriteRange(tmp_file, cur_offset,
                             num_ranges % num_disks, callback));
                 (*new_range)->set_data(reinterpret_cast<uint8_t*>(data), sizeof(int32_t));
@@ -418,7 +418,7 @@ TEST_F(DiskIoMgrTest, SingleReader) {
                     thread_group threads;
                     for (int i = 0; i < num_read_threads; ++i) {
                         threads.add_thread(new thread(scan_range_thread, &io_mgr, reader, data,
-                                    len, Status::OK, 0, &num_ranges_processed));
+                                    len, Status::OK(), 0, &num_ranges_processed));
                     }
                     threads.join_all();
 
@@ -482,7 +482,7 @@ TEST_F(DiskIoMgrTest, AddScanRangeTest) {
                 ASSERT_TRUE(status.ok());
 
                 // Read a couple of them
-                scan_range_thread(&io_mgr, reader, data, strlen(data), Status::OK, 2,
+                scan_range_thread(&io_mgr, reader, data, strlen(data), Status::OK(), 2,
                         &num_ranges_processed);
 
                 // Issue second half
@@ -493,7 +493,7 @@ TEST_F(DiskIoMgrTest, AddScanRangeTest) {
                 thread_group threads;
                 for (int i = 0; i < 3; ++i) {
                     threads.add_thread(new thread(scan_range_thread, &io_mgr, reader, data,
-                                strlen(data), Status::CANCELLED, 0, &num_ranges_processed));
+                                strlen(data), Status::Cancelled(""), 0, &num_ranges_processed));
                 }
 
                 threads.join_all();
@@ -561,7 +561,7 @@ TEST_F(DiskIoMgrTest, SyncReadTest) {
                 thread_group threads;
                 for (int i = 0; i < 5; ++i) {
                     threads.add_thread(new thread(scan_range_thread, &io_mgr, reader, data,
-                                strlen(data), Status::OK, 0, &num_ranges_processed));
+                                strlen(data), Status::OK(), 0, &num_ranges_processed));
                 }
 
                 // Issue some more sync ranges
@@ -627,7 +627,7 @@ TEST_F(DiskIoMgrTest, SingleReaderCancel) {
                 int num_succesful_ranges = ranges.size() / 2;
                 // Read half the ranges
                 for (int i = 0; i < num_succesful_ranges; ++i) {
-                    scan_range_thread(&io_mgr, reader, data, strlen(data), Status::OK, 1,
+                    scan_range_thread(&io_mgr, reader, data, strlen(data), Status::OK(), 1,
                             &num_ranges_processed);
                 }
                 EXPECT_EQ(num_ranges_processed, num_succesful_ranges);
@@ -636,7 +636,7 @@ TEST_F(DiskIoMgrTest, SingleReaderCancel) {
                 thread_group threads;
                 for (int i = 0; i < 3; ++i) {
                     threads.add_thread(new thread(scan_range_thread, &io_mgr, reader, data,
-                                strlen(data), Status::CANCELLED, 0, &num_ranges_processed));
+                                strlen(data), Status::Cancelled(""), 0, &num_ranges_processed));
                 }
 
                 io_mgr.cancel_context(reader);
@@ -696,7 +696,7 @@ TEST_F(DiskIoMgrTest, MemTrackers) {
         vector<DiskIoMgr::BufferDescriptor*> buffers;
 
         AtomicInt<int> num_ranges_processed;
-        scan_range_thread(&io_mgr, reader, data, strlen(data), Status::MEM_LIMIT_EXCEEDED,
+        scan_range_thread(&io_mgr, reader, data, strlen(data), Status::MemoryLimitExceeded("Mem"),
                 1, &num_ranges_processed);
 
         char result[strlen(data) + 1];
@@ -782,7 +782,7 @@ TEST_F(DiskIoMgrTest, CachedReads) {
         thread_group threads;
         for (int i = 0; i < 5; ++i) {
             threads.add_thread(new thread(scan_range_thread, &io_mgr, reader, data,
-                        strlen(data), Status::OK, 0, &num_ranges_processed));
+                        strlen(data), Status::OK(), 0, &num_ranges_processed));
         }
 
         // Issue some more sync ranges
@@ -855,7 +855,7 @@ TEST_F(DiskIoMgrTest, MultipleReaderWriter) {
                             threads.add_thread(new thread(scan_range_thread, &io_mgr,
                                         contexts[context_index],
                                         reinterpret_cast<const char*>(data + (read_offset % strlen(data))), 1,
-                                        Status::OK, num_scan_ranges, &num_ranges_processed));
+                                        Status::OK(), num_scan_ranges, &num_ranges_processed));
                             ++read_offset;
                         }
 
@@ -973,7 +973,7 @@ TEST_F(DiskIoMgrTest, MultipleReader) {
                     for (int i = 0; i < NUM_READERS; ++i) {
                         for (int j = 0; j < NUM_THREADS_PER_READER; ++j) {
                             threads.add_thread(new thread(scan_range_thread, &io_mgr, readers[i],
-                                        data[i].c_str(), data[i].size(), Status::OK, 0,
+                                        data[i].c_str(), data[i].size(), Status::OK(), 0,
                                         &num_ranges_processed));
                         }
                     }

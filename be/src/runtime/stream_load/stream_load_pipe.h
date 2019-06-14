@@ -46,7 +46,7 @@ public:
         if (_write_buf != nullptr) {
             if (size < _write_buf->remaining()) {
                 _write_buf->put_bytes(data, size);
-                return Status::OK;
+                return Status::OK();
             } else {
                 pos = _write_buf->remaining();
                 _write_buf->put_bytes(data, pos);
@@ -61,7 +61,7 @@ public:
         chunk_size = BitUtil::RoundUpToPowerOfTwo(chunk_size);
         _write_buf = ByteBuffer::allocate(chunk_size);
         _write_buf->put_bytes(data + pos, size - pos);
-        return Status::OK;
+        return Status::OK();
     }
 
     Status append(const ByteBufferPtr& buf) override {
@@ -82,14 +82,14 @@ public:
             }
             // cancelled
             if (_cancelled) {
-                return Status("cancelled");
+                return Status::InternalError("cancelled");
             }
             // finished
             if (_buf_queue.empty()) {
                 DCHECK(_finished);
                 *data_size = bytes_read;
                 *eof = (bytes_read == 0);
-                return Status::OK;
+                return Status::OK();
             }
             auto buf = _buf_queue.front();
             size_t copy_size = std::min(*data_size - bytes_read, buf->remaining());
@@ -104,7 +104,7 @@ public:
         DCHECK(bytes_read == *data_size)
             << "bytes_read=" << bytes_read << ", *data_size=" << *data_size;
         *eof = false;
-        return Status::OK;
+        return Status::OK();
     }
 
     // called when comsumer finished
@@ -124,7 +124,7 @@ public:
             _finished = true;
         }
         _get_cond.notify_all();
-        return Status::OK;
+        return Status::OK();
     }
 
     // called when producer/comsumer failed
@@ -148,13 +148,13 @@ private:
                 _put_cond.wait(l);
             }
             if (_cancelled) {
-                return Status("cancelled");
+                return Status::InternalError("cancelled");
             }
             _buf_queue.push_back(buf);
             _buffered_bytes += buf->remaining();
         }
         _get_cond.notify_one();
-        return Status::OK;
+        return Status::OK();
     }
 
     // Blocking queue

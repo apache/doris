@@ -140,7 +140,7 @@ Status AnalyticEvalNode::init(const TPlanNode& tnode, RuntimeState* state) {
                 _pool, analytic_node.order_by_eq, &_order_by_eq_expr_ctx));
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status AnalyticEvalNode::prepare(RuntimeState* state) {
@@ -186,7 +186,7 @@ Status AnalyticEvalNode::prepare(RuntimeState* state) {
 
     _child_tuple_cmp_row = reinterpret_cast<TupleRow*>(
                                _mem_pool->allocate(sizeof(Tuple*) * 2));
-    return Status::OK;
+    return Status::OK();
 }
 
 Status AnalyticEvalNode::open(RuntimeState* state) {
@@ -250,7 +250,7 @@ Status AnalyticEvalNode::open(RuntimeState* state) {
         _curr_child_batch.reset();
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 string debug_window_bound_string(const TAnalyticWindowBoundary& b) {
@@ -612,7 +612,7 @@ Status AnalyticEvalNode::process_child_batches(RuntimeState* state) {
         RETURN_IF_ERROR(child(0)->get_next(state, _curr_child_batch.get(), &_input_eos));
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status AnalyticEvalNode::process_child_batch(RuntimeState* state) {
@@ -711,7 +711,7 @@ Status AnalyticEvalNode::process_child_batch(RuntimeState* state) {
                   << _prev_pool_last_window_idx;
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status AnalyticEvalNode::get_next_output_batch(RuntimeState* state, RowBatch* output_batch,
@@ -722,7 +722,7 @@ Status AnalyticEvalNode::get_next_output_batch(RuntimeState* state, RowBatch* ou
 
     if (_input_stream->rows_returned() == _input_stream->num_rows()) {
         *eos = true;
-        return Status::OK;
+        return Status::OK();
     }
 
     const int num_child_tuples = child(0)->row_desc().tuple_descriptors().size();
@@ -770,7 +770,7 @@ Status AnalyticEvalNode::get_next_output_batch(RuntimeState* state, RowBatch* ou
         *eos = true;
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 inline int64_t AnalyticEvalNode::num_output_rows_ready() const {
@@ -805,7 +805,7 @@ Status AnalyticEvalNode::get_next(RuntimeState* state, RowBatch* row_batch, bool
 
     if (reached_limit()) {
         *eos = true;
-        return Status::OK;
+        return Status::OK();
     } else {
         *eos = false;
     }
@@ -833,12 +833,12 @@ Status AnalyticEvalNode::get_next(RuntimeState* state, RowBatch* row_batch, bool
     }
 
     COUNTER_SET(_rows_returned_counter, _num_rows_returned);
-    return Status::OK;
+    return Status::OK();
 }
 
 Status AnalyticEvalNode::close(RuntimeState* state) {
     if (is_closed()) {
-        return Status::OK;
+        return Status::OK();
     }
 
     if (_input_stream.get() != NULL) {
@@ -888,7 +888,7 @@ Status AnalyticEvalNode::close(RuntimeState* state) {
         _mem_pool->free_all();
     }
     ExecNode::close(state);
-    return Status::OK;
+    return Status::OK();
 }
 
 void AnalyticEvalNode::debug_string(int indentation_level, stringstream* out) const {

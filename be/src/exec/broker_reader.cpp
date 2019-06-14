@@ -102,7 +102,7 @@ Status BrokerReader::open() {
         std::stringstream ss;
         ss << "Open broker reader failed, broker:" << broker_addr << " failed:" << e.what();
         LOG(WARNING) << ss.str();
-        return Status(TStatusCode::THRIFT_RPC_ERROR, ss.str(), false);
+        return Status::ThriftRpcError(ss.str());
     }
 
     if (response.opStatus.statusCode != TBrokerOperationStatusCode::OK) {
@@ -110,18 +110,18 @@ Status BrokerReader::open() {
         ss << "Open broker reader failed, broker:" << broker_addr 
             << " failed:" << response.opStatus.message;
         LOG(WARNING) << ss.str();
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
     _fd = response.fd;
     _is_fd_valid = true;
-    return Status::OK;
+    return Status::OK();
 }
 
 Status BrokerReader::read(uint8_t* buf, size_t* buf_len, bool* eof) {
     if (_eof) {
         *eof = true;
-        return Status::OK;
+        return Status::OK();
     }
     
     const TNetworkAddress& broker_addr = _addresses[_addr_idx];
@@ -153,19 +153,19 @@ Status BrokerReader::read(uint8_t* buf, size_t* buf_len, bool* eof) {
         std::stringstream ss;
         ss << "Read from broker failed, broker:" << broker_addr << " failed:" << e.what();
         LOG(WARNING) << ss.str();
-        return Status(TStatusCode::THRIFT_RPC_ERROR, ss.str(), false);
+        return Status::ThriftRpcError(ss.str());
     }
 
     if (response.opStatus.statusCode == TBrokerOperationStatusCode::END_OF_FILE) {
         // read the end of broker's file
         *eof = _eof = true;
-        return Status::OK;
+        return Status::OK();
     } else if (response.opStatus.statusCode != TBrokerOperationStatusCode::OK) {
         std::stringstream ss;
         ss << "Read from broker failed, broker:" << broker_addr 
             << " failed:" << response.opStatus.message;
         LOG(WARNING) << ss.str();
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
     *buf_len = response.data.size();
@@ -173,7 +173,7 @@ Status BrokerReader::read(uint8_t* buf, size_t* buf_len, bool* eof) {
     _cur_offset += *buf_len; 
     *eof = false;
 
-    return Status::OK;
+    return Status::OK();
 }
 
 void BrokerReader::close() {

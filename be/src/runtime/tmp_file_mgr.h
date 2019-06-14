@@ -54,7 +54,7 @@ public:
         // Allocates 'write_size' bytes in this file for a new block of data.
         // The file size is increased by a call to truncate() if necessary.
         // The physical file is created on the first call to AllocateSpace().
-        // Returns Status::OK() and sets offset on success.
+        // Returns Status::OK()() and sets offset on success.
         // Returns an error status if an unexpected error occurs.
         // If an error status is returned, the caller can try a different temporary file.
         Status allocate_space(int64_t write_size, int64_t* offset);

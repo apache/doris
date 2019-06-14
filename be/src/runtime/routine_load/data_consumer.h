@@ -128,7 +128,7 @@ public:
 
     virtual Status init(StreamLoadContext* ctx) override;
     // TODO(cmy): currently do not implement single consumer start method, using group_consume
-    virtual Status consume(StreamLoadContext* ctx) override { return Status::OK; }
+    virtual Status consume(StreamLoadContext* ctx) override { return Status::OK(); }
     virtual Status cancel(StreamLoadContext* ctx) override;
     // reassign partition topics
     virtual Status reset() override;

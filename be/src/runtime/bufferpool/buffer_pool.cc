@@ -104,7 +104,7 @@ Status BufferPool::PageHandle::GetBuffer(const BufferHandle** buffer) const {
   DCHECK(!page_->pin_in_flight);
   *buffer = &page_->buffer;
   DCHECK((*buffer)->is_open());
-  return Status::OK;
+  return Status::OK();
 }
 
 BufferPool::BufferPool(int64_t min_buffer_len, int64_t buffer_bytes_limit,
@@ -126,7 +126,7 @@ Status BufferPool::RegisterClient(const string& name, //TmpFileMgr::FileGroup* f
   client->impl_ = new Client(this, //file_group, 
           name, parent_reservation, mem_tracker,
       reservation_limit, profile);
-  return Status::OK;
+  return Status::OK();
 }
 
 void BufferPool::DeregisterClient(ClientHandle* client) {
@@ -148,7 +148,7 @@ Status BufferPool::CreatePage(
   Page* page = client->impl_->CreatePinnedPage(move(new_buffer));
   handle->Open(page, client);
   if (buffer != nullptr) *buffer = &page->buffer;
-  return Status::OK;
+  return Status::OK();
 }
 
 void BufferPool::DestroyPage(ClientHandle* client, PageHandle* handle) {
@@ -185,7 +185,7 @@ Status BufferPool::Pin(ClientHandle* client, PageHandle* handle) {
   // Update accounting last to avoid complicating the error return path above.
   ++page->pin_count;
   client->impl_->reservation()->AllocateFrom(page->len);
-  return Status::OK;
+  return Status::OK();
 }
 
 void BufferPool::Unpin(ClientHandle* client, PageHandle* handle) {
@@ -225,7 +225,7 @@ Status BufferPool::ExtractBuffer(
   // Destroy the page and extract the buffer.
   client->impl_->DestroyPageInternal(page_handle, buffer_handle);
   DCHECK(buffer_handle->is_open());
-  return Status::OK;
+  return Status::OK();
 }
 
 Status BufferPool::AllocateBuffer(
@@ -259,7 +259,7 @@ Status BufferPool::TransferBuffer(ClientHandle* src_client, BufferHandle* src,
   src_client->impl_->reservation()->ReleaseTo(src->len());
   *dst = std::move(*src);
   dst->client_ = dst_client;
-  return Status::OK;
+  return Status::OK();
 }
 
 void BufferPool::Maintenance() {
@@ -478,10 +478,10 @@ Status BufferPool::Client::StartMoveToPinned(ClientHandle* client, Page* page) {
   if (dirty_unpinned_pages_.remove(page)) {
     // No writes were initiated for the page - just move it back to the pinned state.
     pinned_pages_.enqueue(page);
-    return Status::OK;
+    return Status::OK();
   }
 
-  return Status("start move to pinned error, page is not in dirty.");
+  return Status::InternalError("start move to pinned error, page is not in dirty.");
 /*
   if (in_flight_write_pages_.contains(page)) {
     // A write is in flight. If so, wait for it to complete - then we only have to
@@ -523,7 +523,7 @@ Status BufferPool::Client::StartMoveEvictedToPinned(
   pinned_pages_.enqueue(page);
   page->pin_in_flight = true;
   DCHECK_CONSISTENCY();
-  return Status::OK;
+  return Status::OK();
 }
 
 void BufferPool::Client::UndoMoveEvictedToPinned(Page* page) {
@@ -555,7 +555,7 @@ Status BufferPool::Client::FinishMoveEvictedToPinned(Page* page) {
       file_group_->WaitForAsyncRead(page->write_handle.get(), page->buffer.mem_range()));
   file_group_->DestroyWriteHandle(move(page->write_handle));
   page->pin_in_flight = false;
-  return Status::OK;
+  return Status::OK();
 }
 */
 Status BufferPool::Client::PrepareToAllocateBuffer(int64_t len) {
@@ -566,7 +566,7 @@ Status BufferPool::Client::PrepareToAllocateBuffer(int64_t len) {
   reservation_.AllocateFrom(len);
   buffers_allocated_bytes_ += len;
   DCHECK_CONSISTENCY();
-  return Status::OK;
+  return Status::OK();
 }
 
 Status BufferPool::Client::DecreaseReservationTo(int64_t target_bytes) {
@@ -575,11 +575,11 @@ Status BufferPool::Client::DecreaseReservationTo(int64_t target_bytes) {
   DCHECK_GE(current_reservation, target_bytes);
   int64_t amount_to_free =
       min(reservation_.GetUnusedReservation(), current_reservation - target_bytes);
-  if (amount_to_free == 0) return Status::OK;
+  if (amount_to_free == 0) return Status::OK();
   // Clean enough pages to allow us to safely release reservation.
   //RETURN_IF_ERROR(CleanPages(&lock, amount_to_free));
   reservation_.DecreaseReservation(amount_to_free);
-  return Status::OK;
+  return Status::OK();
 }
 
 Status BufferPool::Client::CleanPages(unique_lock<mutex>* client_lock, int64_t len) {
@@ -610,7 +610,7 @@ Status BufferPool::Client::CleanPages(unique_lock<mutex>* client_lock, int64_t l
     RETURN_IF_ERROR(write_status_); // Check if error occurred while waiting.
   }
 */
-  return Status::OK;
+  return Status::OK();
 }
 /*
 void BufferPool::Client::WriteDirtyPagesAsync(int64_t min_bytes_to_write) {

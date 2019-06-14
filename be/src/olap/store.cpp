@@ -77,19 +77,19 @@ Status OlapStore::load() {
                        DIRECT_IO_ALIGNMENT,
                        TEST_FILE_BUF_SIZE) != 0) {
         LOG(WARNING) << "fail to allocate memory. size=" <<  TEST_FILE_BUF_SIZE;
-        return Status("No memory");
+        return Status::InternalError("No memory");
     }
     if (posix_memalign((void**)&_test_file_read_buf,
                        DIRECT_IO_ALIGNMENT,
                        TEST_FILE_BUF_SIZE) != 0) {
         LOG(WARNING) << "fail to allocate memory. size=" <<  TEST_FILE_BUF_SIZE;
-        return Status("No memory");
+        return Status::InternalError("No memory");
     }
     RETURN_IF_ERROR(_check_path_exist());
     std::string align_tag_path = _path + ALIGN_TAG_PREFIX;
     if (access(align_tag_path.c_str(), F_OK) == 0) {
         LOG(WARNING) << "align tag was found, path=" << _path;
-        return Status("invalid root path: ");
+        return Status::InternalError("invalid root path: ");
     }
 
     RETURN_IF_ERROR(_init_cluster_id());
@@ -98,7 +98,7 @@ Status OlapStore::load() {
     RETURN_IF_ERROR(_init_meta());
 
     _is_used = true;
-    return Status::OK;
+    return Status::OK();
 }
 
 Status OlapStore::_check_path_exist() {
@@ -107,7 +107,7 @@ Status OlapStore::_check_path_exist() {
         char buf[64];
         LOG(WARNING) << "opendir failed, path=" << _path
             << ", errno=" << errno << ", errmsg=" << strerror_r(errno, buf, 64);
-        return Status("opendir failed");
+        return Status::InternalError("opendir failed");
     }
     struct dirent dirent;
     struct dirent* result = nullptr;
@@ -116,10 +116,10 @@ Status OlapStore::_check_path_exist() {
         LOG(WARNING) << "readdir failed, path=" << _path
             << ", errno=" << errno << ", errmsg=" << strerror_r(errno, buf, 64);
         closedir(dirp);
-        return Status("readdir failed");
+        return Status::InternalError("readdir failed");
     }
     closedir(dirp);
-    return Status::OK;
+    return Status::OK();
 }
 
 Status OlapStore::_init_cluster_id() {
@@ -130,7 +130,7 @@ Status OlapStore::_init_cluster_id() {
             char errmsg[64];
             LOG(WARNING) << "fail to create file. [path='" << cluster_id_path
                 << "' err='" << strerror_r(errno, errmsg, 64) << "']";
-            return Status("invalid store path: create cluster id failed");
+            return Status::InternalError("invalid store path: create cluster id failed");
         }
     }
 
@@ -139,7 +139,7 @@ Status OlapStore::_init_cluster_id() {
     fp = fopen(cluster_id_path.c_str(), "r+b");
     if (fp == NULL) {
         LOG(WARNING) << "fail to open cluster id path. path=" << cluster_id_path;
-        return Status("invalid store path: open cluster id failed");
+        return Status::InternalError("invalid store path: open cluster id failed");
     }
 
     int lock_res = flock(fp->_fileno, LOCK_EX | LOCK_NB);
@@ -147,7 +147,7 @@ Status OlapStore::_init_cluster_id() {
         LOG(WARNING) << "fail to lock file descriptor. path=" << cluster_id_path;
         fclose(fp);
         fp = NULL;
-        return Status("invalid store path: flock cluster id failed");
+        return Status::InternalError("invalid store path: flock cluster id failed");
     }
 
     // obtain cluster id of all root paths
@@ -162,7 +162,7 @@ Status OlapStore::_read_cluster_id(const std::string& path, int32_t* cluster_id)
     std::fstream fs(path.c_str(), std::fstream::in);
     if (!fs.is_open()) {
         LOG(WARNING) << "fail to open cluster id path. [path='" << path << "']";
-        return Status("open file failed");
+        return Status::InternalError("open file failed");
     }
 
     fs >> tmp_cluster_id;
@@ -179,9 +179,9 @@ Status OlapStore::_read_cluster_id(const std::string& path, int32_t* cluster_id)
                          fs.rdstate() & std::fstream::eofbit,
                          fs.rdstate() & std::fstream::failbit,
                          fs.rdstate() & std::fstream::badbit);
-        return Status("cluster id file corrupt");
+        return Status::InternalError("cluster id file corrupt");
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status OlapStore::_init_extension_and_capacity() {
@@ -194,7 +194,7 @@ Status OlapStore::_init_extension_and_capacity() {
             _storage_medium = TStorageMedium::HDD;
         } else {
             LOG(WARNING) << "store path has wrong extension. path=" << _path;
-            return Status("invalid sotre path: invalid extension");
+            return Status::InternalError("invalid sotre path: invalid extension");
         }
     } else {
         _storage_medium = TStorageMedium::HDD;
@@ -208,16 +208,16 @@ Status OlapStore::_init_extension_and_capacity() {
             << "path=" << _path
             << ", capacity_bytes=" << _capacity_bytes
             << ", disk_capacity=" << disk_capacity;
-        return Status("invalid store path: invalid capacity");
+        return Status::InternalError("invalid store path: invalid capacity");
     }
 
     std::string data_path = _path + DATA_PREFIX;
     if (!check_dir_existed(data_path) && create_dir(data_path) != OLAP_SUCCESS) {
         LOG(WARNING) << "failed to create data root path. path=" << data_path;
-        return Status("invalid store path: failed to create data directory");
+        return Status::InternalError("invalid store path: failed to create data directory");
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status OlapStore::_init_file_system() {
@@ -226,7 +226,7 @@ Status OlapStore::_init_file_system() {
         char errmsg[64];
         LOG(WARNING) << "stat failed, path=" << _path
             << ", errno=" << errno << ", errmsg=" << strerror_r(errno, errmsg, 64);
-        return Status("invalid store path: stat failed");
+        return Status::InternalError("invalid store path: stat failed");
     }
 
     dev_t mount_device;
@@ -241,7 +241,7 @@ Status OlapStore::_init_file_system() {
         char errmsg[64];
         LOG(WARNING) << "setmntent failed, path=" << kMtabPath
             << ", errno=" << errno << ", errmsg=" << strerror_r(errno, errmsg, 64);
-        return Status("invalid store path: setmntent failed");
+        return Status::InternalError("invalid store path: setmntent failed");
     }
 
     bool is_find = false;
@@ -268,12 +268,12 @@ Status OlapStore::_init_file_system() {
 
     if (!is_find) {
         LOG(WARNING) << "fail to find file system, path=" << _path;
-        return Status("invalid store path: find file system failed");
+        return Status::InternalError("invalid store path: find file system failed");
     }
 
     _file_system = mount_entry->mnt_fsname;
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status OlapStore::_init_meta() {
@@ -286,24 +286,24 @@ Status OlapStore::_init_meta() {
     _meta = new(std::nothrow) OlapMeta(_path);
     if (_meta == nullptr) {
         LOG(WARNING) << "new olap meta failed";
-        return Status("new olap meta failed");
+        return Status::InternalError("new olap meta failed");
     }
     OLAPStatus res = _meta->init();
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "init meta failed";
-        return Status("init meta failed");
+        return Status::InternalError("init meta failed");
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status OlapStore::set_cluster_id(int32_t cluster_id) {
     if (_cluster_id != -1) {
         if (_cluster_id == cluster_id) {
-            return Status::OK;
+            return Status::OK();
         }
         LOG(ERROR) << "going to set cluster id to already assigned store, cluster_id="
             << _cluster_id << ", new_cluster_id=" << cluster_id;
-        return Status("going to set cluster id to already assigned store");
+        return Status::InternalError("going to set cluster id to already assigned store");
     }
     return _write_cluster_id_to_path(_cluster_id_path(), cluster_id);
 }
@@ -312,11 +312,11 @@ Status OlapStore::_write_cluster_id_to_path(const std::string& path, int32_t clu
     std::fstream fs(path.c_str(), std::fstream::out);
     if (!fs.is_open()) {
         LOG(WARNING) << "fail to open cluster id path. path=" << path;
-        return Status("IO Error");
+        return Status::InternalError("IO Error");
     }
     fs << cluster_id;
     fs.close();
-    return Status::OK;
+    return Status::OK();
 }
 
 void OlapStore::health_check() {

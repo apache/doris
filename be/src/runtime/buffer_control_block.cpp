@@ -80,14 +80,14 @@ BufferControlBlock::~BufferControlBlock() {
 }
 
 Status BufferControlBlock::init() {
-    return Status::OK;
+    return Status::OK();
 }
 
 Status BufferControlBlock::add_batch(TFetchDataResult* result) {
     boost::unique_lock<boost::mutex> l(_lock);
 
     if (_is_cancelled) {
-        return Status::CANCELLED;
+        return Status::Cancelled("Cancelled");
     }
 
     int num_rows = result->result_batch.rows.size();
@@ -98,7 +98,7 @@ Status BufferControlBlock::add_batch(TFetchDataResult* result) {
     }
 
     if (_is_cancelled) {
-        return Status::CANCELLED;
+        return Status::Cancelled("Cancelled");
     }
 
     if (_waiting_rpc.empty()) {
@@ -112,7 +112,7 @@ Status BufferControlBlock::add_batch(TFetchDataResult* result) {
         delete result;
         _packet_num++;
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status BufferControlBlock::get_batch(TFetchDataResult* result) {
@@ -129,7 +129,7 @@ Status BufferControlBlock::get_batch(TFetchDataResult* result) {
 
         // cancelled
         if (_is_cancelled) {
-            return Status::CANCELLED;
+            return Status::Cancelled("Cancelled");
         }
 
         if (_batch_queue.empty()) {
@@ -138,10 +138,10 @@ Status BufferControlBlock::get_batch(TFetchDataResult* result) {
                 result->eos = true;
                 result->__set_packet_num(_packet_num);
                 _packet_num++;
-                return Status::OK;
+                return Status::OK();
             } else {
                 // can not get here
-                return Status("Internal error, can not Get here!");
+                return Status::InternalError("Internal error, can not Get here!");
             }
         }
 
@@ -158,7 +158,7 @@ Status BufferControlBlock::get_batch(TFetchDataResult* result) {
     delete item;
     item = NULL;
 
-    return Status::OK;
+    return Status::OK();
 }
 
 void BufferControlBlock::get_batch(GetResultBatchCtx* ctx) {
@@ -168,7 +168,7 @@ void BufferControlBlock::get_batch(GetResultBatchCtx* ctx) {
         return;
     }
     if (_is_cancelled) {
-        ctx->on_failure(Status::CANCELLED);
+        ctx->on_failure(Status::Cancelled("Cancelled"));
         return;
     }
     if (!_batch_queue.empty()) {
@@ -213,7 +213,7 @@ Status BufferControlBlock::close(Status exec_status) {
         }
         _waiting_rpc.clear();
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status BufferControlBlock::cancel() {
@@ -222,10 +222,10 @@ Status BufferControlBlock::cancel() {
     _data_removal.notify_all();
     _data_arriaval.notify_all();
     for (auto& ctx : _waiting_rpc) {
-        ctx->on_failure(Status::CANCELLED);
+        ctx->on_failure(Status::Cancelled("Cancelled"));
     }
     _waiting_rpc.clear();
-    return Status::OK;
+    return Status::OK();
 }
 
 }

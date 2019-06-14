@@ -29,7 +29,7 @@ Status PartitionedAggregationNode::process_batch_no_grouping(
     for (int i = 0; i < batch->num_rows(); ++i) {
         update_tuple(&_agg_fn_ctxs[0], _singleton_output_tuple, batch->get_row(i));
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 template<bool AGGREGATED_ROWS>
@@ -48,7 +48,7 @@ Status PartitionedAggregationNode::process_batch(RowBatch* batch, PartitionedHas
         RETURN_IF_ERROR(process_row<AGGREGATED_ROWS>(batch->get_row(i), ht_ctx));
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 template<bool AGGREGATED_ROWS>
@@ -56,11 +56,11 @@ Status PartitionedAggregationNode::process_row(TupleRow* row, PartitionedHashTab
     uint32_t hash = 0;
     if (AGGREGATED_ROWS) {
         if (!ht_ctx->eval_and_hash_build(row, &hash)) {
-            return Status::OK;
+            return Status::OK();
         }
     } else {
         if (!ht_ctx->eval_and_hash_probe(row, &hash)) {
-            return Status::OK;
+            return Status::OK();
         }
     }
 
@@ -90,7 +90,7 @@ Status PartitionedAggregationNode::process_row(TupleRow* row, PartitionedHashTab
     } else if (found) {
         // Row is already in hash table. Do the aggregation and we're done.
         update_tuple(&dst_partition->agg_fn_ctxs[0], it.get_tuple(), row);
-        return Status::OK;
+        return Status::OK();
     }
 
     // If we are seeing this result row for the first time, we need to construct the
@@ -114,7 +114,7 @@ Status PartitionedAggregationNode::add_intermediate_tuple(
             update_tuple(&partition->agg_fn_ctxs[0], intermediate_tuple, row, AGGREGATED_ROWS);
             // After copying and initializing the tuple, insert it into the hash table.
             insert_it.set_tuple(intermediate_tuple, hash);
-            return Status::OK;
+            return Status::OK();
         } else if (!_process_batch_status.ok()) {
             return _process_batch_status;
         }

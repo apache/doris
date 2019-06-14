@@ -86,7 +86,7 @@ Status OlapScanner::_prepare(
             ss << "failed to get tablet: " << tablet_id << " with schema hash: " << schema_hash
                << ", reason: " << err;
             LOG(WARNING) << ss.str();
-            return Status(ss.str());
+            return Status::InternalError(ss.str());
         }
         {
             ReadLock rdlock(_olap_table->get_header_lock_ptr());
@@ -95,7 +95,7 @@ Status OlapScanner::_prepare(
                 std::stringstream ss;
                 ss << "fail to get latest version of tablet: " << tablet_id;
                 OLAP_LOG_WARNING(ss.str().c_str());
-                return Status(ss.str());
+                return Status::InternalError(ss.str());
             }
 
             if (delta->end_version() == _version
@@ -106,7 +106,7 @@ Status OlapScanner::_prepare(
 
                 std::stringstream ss;
                 ss << "fail to check version hash of tablet: " << tablet_id;
-                return Status(ss.str());
+                return Status::InternalError(ss.str());
             }
         }
     }
@@ -116,7 +116,7 @@ Status OlapScanner::_prepare(
         RETURN_IF_ERROR(_init_params(key_ranges, filters, is_nulls));
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status OlapScanner::open() {
@@ -133,9 +133,9 @@ Status OlapScanner::open() {
         std::stringstream ss;
         ss << "failed to initialize storage reader. tablet=" << _params.olap_table->full_name()
            << ", res=" << res << ", backend=" << BackendOptions::get_localhost();
-        return Status(ss.str().c_str());
+        return Status::InternalError(ss.str().c_str());
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status OlapScanner::_init_params(
@@ -193,14 +193,14 @@ Status OlapScanner::_init_params(
     OLAPStatus res = _read_row_cursor.init(_olap_table->tablet_schema(), _params.return_columns);
     if (res != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("fail to init row cursor.[res=%d]", res);
-        return Status("failed to initialize storage read row cursor");
+        return Status::InternalError("failed to initialize storage read row cursor");
     }
     _read_row_cursor.allocate_memory_for_string_type(_olap_table->tablet_schema());
     for (auto cid : _return_columns) {
         _query_fields.push_back(_read_row_cursor.get_field_by_index(cid));
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status OlapScanner::_init_return_columns() {
@@ -213,7 +213,7 @@ Status OlapScanner::_init_return_columns() {
             std::stringstream ss;
             ss << "field name is invalied. field="  << slot->col_name();
             LOG(WARNING) << ss.str();
-            return Status(ss.str());
+            return Status::InternalError(ss.str());
         }
         _return_columns.push_back(index);
         if (_olap_table->tablet_schema()[index].type == OLAP_FIELD_TYPE_VARCHAR ||
@@ -226,9 +226,9 @@ Status OlapScanner::_init_return_columns() {
         _query_slots.push_back(slot);
     }
     if (_return_columns.empty()) {
-        return Status("failed to build storage scanner, no materialized slot!");
+        return Status::InternalError("failed to build storage scanner, no materialized slot!");
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status OlapScanner::get_batch(
@@ -251,7 +251,7 @@ Status OlapScanner::get_batch(
             // Read one row from reader
             auto res = _reader->next_row_with_aggregation(&_read_row_cursor, eof);
             if (res != OLAP_SUCCESS) {
-                return Status("Internal Error: read storage fail.");
+                return Status::InternalError("Internal Error: read storage fail.");
             }
             // If we reach end of this scanner, break
             if (UNLIKELY(*eof)) {
@@ -347,7 +347,7 @@ Status OlapScanner::get_batch(
         }
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 void OlapScanner::_convert_row_to_tuple(Tuple* tuple) {
@@ -470,13 +470,13 @@ void OlapScanner::_update_realtime_counter() {
 
 Status OlapScanner::close(RuntimeState* state) {
     if (_is_closed) {
-        return Status::OK;
+        return Status::OK();
     }
     update_counter();
     _reader.reset();
     Expr::close(_conjunct_ctxs, state);
     _is_closed = true;
-    return Status::OK;
+    return Status::OK();
 }
 
 } // namespace doris

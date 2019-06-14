@@ -44,7 +44,7 @@ ExportTaskMgr::~ExportTaskMgr() {
 }
 
 Status ExportTaskMgr::init() {
-    return Status::OK;
+    return Status::OK();
 }
 
 Status ExportTaskMgr::start_task(const TExportTaskRequest& request) {
@@ -54,15 +54,15 @@ Status ExportTaskMgr::start_task(const TExportTaskRequest& request) {
     if (it != _running_tasks.end()) {
         // Already have this task, return what???
         LOG(INFO) << "Duplicated export task(" << id << ")";
-        return Status::OK;
+        return Status::OK();
     }
 
-    // If already success, we return Status::OK
+    // If already success, we return Status::OK()
     // and wait master ask me success information
     if (_success_tasks.exists(id)) {
         // Already success
         LOG(INFO) << "Already successful export task(" << id << ")";
-        return Status::OK;
+        return Status::OK();
     }
 
     RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(
@@ -77,7 +77,7 @@ Status ExportTaskMgr::start_task(const TExportTaskRequest& request) {
     VLOG_EXPORT << "accept one export Task. id=" << id;
     _running_tasks.insert(id);
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status ExportTaskMgr::cancel_task(const TUniqueId& id) {
@@ -86,14 +86,14 @@ Status ExportTaskMgr::cancel_task(const TUniqueId& id) {
     if (it == _running_tasks.end()) {
         // Nothing to do
         LOG(INFO) << "No such export task id, just print to info " << id;
-        return Status::OK;
+        return Status::OK();
     }
     _running_tasks.erase(it);
     VLOG_EXPORT << "task id(" << id << ") have been removed from ExportTaskMgr.";
     ExportTaskCtx ctx;
-    ctx.status = Status::CANCELLED;
+    ctx.status = Status::Cancelled("Cancelled");
     _failed_tasks.put(id, ctx);
-    return Status::OK;
+    return Status::OK();
 }
 
 Status ExportTaskMgr::erase_task(const TUniqueId& id) {
@@ -102,12 +102,12 @@ Status ExportTaskMgr::erase_task(const TUniqueId& id) {
     if (it != _running_tasks.end()) {
         std::stringstream ss;
         ss << "Task(" << id << ") is running, can not be deleted.";
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
     _success_tasks.erase(id);
     _failed_tasks.erase(id);
 
-    return Status::OK;
+    return Status::OK();
 }
 
 void ExportTaskMgr::finalize_task(PlanFragmentExecutor* executor) {
@@ -133,7 +133,7 @@ Status ExportTaskMgr::finish_task(const TUniqueId& id,
     if (it == _running_tasks.end()) {
         std::stringstream ss;
         ss << "Unknown task id(" << id << ").";
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
     _running_tasks.erase(it);
 
@@ -149,7 +149,7 @@ Status ExportTaskMgr::finish_task(const TUniqueId& id,
     VLOG_EXPORT << "Move task(" << id << ") from running to "
         << (status.ok() ? "success tasks" : "failed tasks");
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status ExportTaskMgr::get_task_state(const TUniqueId& id, TExportStatusResult* result) {
@@ -158,7 +158,7 @@ Status ExportTaskMgr::get_task_state(const TUniqueId& id, TExportStatusResult* r
     if (it != _running_tasks.end()) {
         result->status.__set_status_code(TStatusCode::OK);
         result->__set_state(TExportState::RUNNING);
-        return Status::OK;
+        return Status::OK();
     }
 
     // Successful
@@ -168,7 +168,7 @@ Status ExportTaskMgr::get_task_state(const TUniqueId& id, TExportStatusResult* r
         result->status.__set_status_code(TStatusCode::OK);
         result->__set_state(TExportState::FINISHED);
         result->__set_files(ctx.result.files);
-        return Status::OK;
+        return Status::OK();
     }
 
     // failed information
@@ -177,13 +177,13 @@ Status ExportTaskMgr::get_task_state(const TUniqueId& id, TExportStatusResult* r
         _success_tasks.get(id, &ctx);
         result->status.__set_status_code(TStatusCode::OK);
         result->__set_state(TExportState::CANCELLED);
-        return Status::OK;
+        return Status::OK();
     }
 
     // NO this task
     result->status.__set_status_code(TStatusCode::OK);
     result->__set_state(TExportState::CANCELLED);
-    return Status::OK;
+    return Status::OK();
 }
 
 void ExportTaskMgr::report_to_master(PlanFragmentExecutor* executor) {

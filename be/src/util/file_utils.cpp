@@ -45,21 +45,21 @@ Status FileUtils::create_dir(const std::string& dir_path) {
             if (!boost::filesystem::is_directory(dir_path.c_str())) {
                 std::stringstream ss;
                 ss << "Path(" << dir_path << ") already exists, but not a directory.";
-                return Status(ss.str());
+                return Status::InternalError(ss.str());
             }
         } else {
             if (!boost::filesystem::create_directories(dir_path.c_str())) {
                 std::stringstream ss;
                 ss << "make directory failed. path=" << dir_path;
-                return Status(ss.str());
+                return Status::InternalError(ss.str());
             }
         }
     } catch (...) {
         std::stringstream ss;
         ss << "make directory failed. path=" << dir_path;
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status FileUtils::remove_all(const std::string& file_path) {
@@ -71,14 +71,14 @@ Status FileUtils::remove_all(const std::string& file_path) {
             std::stringstream ss;
             ss << "remove all(" << file_path << ") failed, because: "
                 << ec;
-            return Status(ss.str());
+            return Status::InternalError(ss.str());
         }
     } catch (...) {
         std::stringstream ss;
         ss << "remove all(" << file_path << ") failed, because: exception";
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status FileUtils::scan_dir(
@@ -90,7 +90,7 @@ Status FileUtils::scan_dir(
         char buf[64];
         std::stringstream ss;
         ss << "opendir(" << dir_path << ") failed, because: " << strerror_r(errno, buf, 64);
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
     DeferOp close_dir(std::bind<void>(&closedir, dir));
 
@@ -115,7 +115,7 @@ Status FileUtils::scan_dir(
         *file_count = count;
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status FileUtils::scan_dir(
@@ -126,7 +126,7 @@ Status FileUtils::scan_dir(
     if (dir == nullptr) {
         char buf[64];
         LOG(WARNING) << "fail to open dir, dir=" << dir_path << ", errmsg=" << strerror_r(errno, buf, 64);
-        return Status("fail to opendir");
+        return Status::InternalError("fail to opendir");
     }
 
     while (true) {
@@ -144,7 +144,7 @@ Status FileUtils::scan_dir(
         }
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 bool FileUtils::is_dir(const std::string& path) {
@@ -181,7 +181,7 @@ Status FileUtils::split_pathes(const char* path, std::vector<std::string>* path_
     } catch (...) {
         std::stringstream ss;
         ss << "Boost split path failed.[path=" << path << "]";
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
     for (std::vector<std::string>::iterator it = path_vec->begin(); it != path_vec->end();) {
@@ -200,16 +200,16 @@ Status FileUtils::split_pathes(const char* path, std::vector<std::string>* path_
     if (std::unique(path_vec->begin(), path_vec->end()) != path_vec->end()) {
         std::stringstream ss;
         ss << "Same path in path.[path=" << path << "]";
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
     if (path_vec->size() == 0) {
         std::stringstream ss;
         ss << "Size of vector after split is zero.[path=" << path << "]";
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status FileUtils::copy_file(const std::string& src_path, const std::string& dest_path) {
@@ -218,7 +218,7 @@ Status FileUtils::copy_file(const std::string& src_path, const std::string& dest
     if (src_file.open(src_path.c_str(), O_RDONLY) != OLAP_SUCCESS) {
         char errmsg[64];
         LOG(ERROR) << "open file failed: " << src_path << strerror_r(errno, errmsg, 64);
-        return Status("Internal Error");
+        return Status::InternalError("Internal Error");
     }
     // create dest file and overwrite existing file
     FileHandler dest_file;
@@ -226,7 +226,7 @@ Status FileUtils::copy_file(const std::string& src_path, const std::string& dest
         != OLAP_SUCCESS) {
         char errmsg[64];
         LOG(ERROR) << "open file failed: " << dest_path << strerror_r(errno, errmsg, 64);
-        return Status("Internal Error");
+        return Status::InternalError("Internal Error");
     }
     
     const int64_t BUF_SIZE = 8192;
@@ -237,28 +237,28 @@ Status FileUtils::copy_file(const std::string& src_path, const std::string& dest
     while (src_length > 0) {
         int64_t to_read = BUF_SIZE < src_length ? BUF_SIZE : src_length;
         if (OLAP_SUCCESS != (src_file.pread(buf, to_read, offset))) {
-            return Status("Internal Error");
+            return Status::InternalError("Internal Error");
         }
         if (OLAP_SUCCESS != (dest_file.pwrite(buf, to_read, offset))) {
-            return Status("Internal Error");
+            return Status::InternalError("Internal Error");
         }
 
         offset += to_read;
         src_length -= to_read;
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status FileUtils::md5sum(const std::string& file, std::string* md5sum) {
     int fd = open(file.c_str(), O_RDONLY);
     if (fd < 0) {
-        return Status("failed to open file");
+        return Status::InternalError("failed to open file");
     }
     
     struct stat statbuf;
     if (fstat(fd, &statbuf) < 0) {
         close(fd);
-        return Status("failed to stat file");
+        return Status::InternalError("failed to stat file");
     }
     size_t file_len = statbuf.st_size;
     void* buf = mmap(0, file_len, PROT_READ, MAP_SHARED, fd, 0);
@@ -274,7 +274,7 @@ Status FileUtils::md5sum(const std::string& file, std::string* md5sum) {
     ss >> *md5sum;
     
     close(fd);
-    return Status::OK;
+    return Status::OK();
 }
 
 bool FileUtils::check_exist(const std::string& path) {

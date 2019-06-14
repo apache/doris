@@ -172,7 +172,7 @@ inline bool ReadWriteUtil::read_zlong(uint8_t** buf, int* buf_len, int64_t* val,
         DCHECK_LE(shift, 64);
 
         if (UNLIKELY(*buf_len < 1)) {
-            *status = Status("Insufficient buffer length");
+            *status = Status::InternalError("Insufficient buffer length");
             return false;
         }
 
@@ -194,7 +194,7 @@ inline bool ReadWriteUtil::read(uint8_t** buf, int* buf_len, T* val, Status* sta
     if (UNLIKELY(val_len > *buf_len)) {
         std::stringstream ss;
         ss << "Cannot read " << val_len << " bytes, buffer length is " << *buf_len;
-        *status = Status(ss.str());
+        *status = Status::InternalError(ss.str());
         return false;
     }
 
@@ -211,7 +211,7 @@ inline bool ReadWriteUtil::skip_bytes(uint8_t** buf, int* buf_len, int num_bytes
     if (UNLIKELY(num_bytes > *buf_len)) {
         std::stringstream ss;
         ss << "Cannot skip " << num_bytes << " bytes, buffer length is " << *buf_len;
-        *status = Status(ss.str());
+        *status = Status::InternalError(ss.str());
         return false;
     }
 

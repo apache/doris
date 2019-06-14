@@ -29,10 +29,10 @@ Status dynamic_lookup(void* handle, const char* symbol, void** fn_ptr) {
     if (error != NULL) {
         std::stringstream ss;
         ss << "Unable to find " << symbol << "\ndlerror: " << error;
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status dynamic_open(const char* library, void** handle) {
@@ -43,10 +43,10 @@ Status dynamic_open(const char* library, void** handle) {
     if (*handle == NULL) {
         std::stringstream ss;
         ss << "Unable to load " << library << "\ndlerror: " << dlerror();
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 void dynamic_close(void* handle) {

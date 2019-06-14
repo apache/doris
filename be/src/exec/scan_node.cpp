@@ -63,7 +63,7 @@ Status ScanNode::prepare(RuntimeState* state) {
     _num_disks_accessed_counter =
         ADD_COUNTER(runtime_profile(), _s_num_disks_accessed_counter, TUnit::UNIT);
 
-    return Status::OK;
+    return Status::OK();
 }
 
 }

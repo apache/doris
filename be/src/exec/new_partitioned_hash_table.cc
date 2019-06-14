@@ -118,7 +118,7 @@ Status NewPartitionedHashTableCtx::Init(ObjectPool* pool, RuntimeState* state, i
   int scratch_row_size = sizeof(Tuple*) * num_build_tuples;
   scratch_row_ = reinterpret_cast<TupleRow*>(malloc(scratch_row_size));
   if (UNLIKELY(scratch_row_ == NULL)) {
-    return Status(Substitute("Failed to allocate $0 bytes for scratch row of "
+    return Status::InternalError(Substitute("Failed to allocate $0 bytes for scratch row of "
         "NewPartitionedHashTableCtx.", scratch_row_size));
   }
 
@@ -127,7 +127,7 @@ Status NewPartitionedHashTableCtx::Init(ObjectPool* pool, RuntimeState* state, i
       ExprContext* context = pool->add(new ExprContext(build_exprs_[i]));
       context->prepare(state, row_desc, tracker); 
       if (context == nullptr) {
-          return Status("Hashtable init error.");
+          return Status::InternalError("Hashtable init error.");
       }
       build_expr_evals_.push_back(context);
   }
@@ -137,7 +137,7 @@ Status NewPartitionedHashTableCtx::Init(ObjectPool* pool, RuntimeState* state, i
       ExprContext* context = pool->add(new ExprContext(probe_exprs_[i]));
       context->prepare(state, row_desc_probe, tracker);
       if (context == nullptr) {
-          return Status("Hashtable init error.");
+          return Status::InternalError("Hashtable init error.");
       }
       probe_expr_evals_.push_back(context);
   }
@@ -166,7 +166,7 @@ Status NewPartitionedHashTableCtx::Open(RuntimeState* state) {
     for (int i = 0; i < probe_expr_evals_.size(); i++) {
         RETURN_IF_ERROR(probe_expr_evals_[i]->open(state));
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 void NewPartitionedHashTableCtx::Close(RuntimeState* state) {
@@ -322,7 +322,7 @@ Status NewPartitionedHashTableCtx::ExprValuesCache::Init(RuntimeState* state,
       &expr_values_offsets_, &var_result_offset_);
   if (expr_values_bytes_per_row_ == 0) {
     DCHECK_EQ(num_exprs_, 0);
-    return Status::OK;
+    return Status::OK();
   }
   DCHECK_GT(expr_values_bytes_per_row_, 0);
   // Compute the maximum number of cached rows which can fit in the memory budget.
@@ -355,7 +355,7 @@ Status NewPartitionedHashTableCtx::ExprValuesCache::Init(RuntimeState* state,
   memset(cur_expr_values_hash_, 0, sizeof(uint32) * capacity_);
 
   null_bitmap_.Reset(capacity_);
-  return Status::OK;
+  return Status::OK();
 }
 
 void NewPartitionedHashTableCtx::ExprValuesCache::Close(MemTracker* tracker) {
@@ -453,12 +453,12 @@ Status NewPartitionedHashTable::Init(bool* got_memory) {
   if (bucket_allocation_ == nullptr) {
     num_buckets_ = 0;
     *got_memory = false;
-    return Status::OK;
+    return Status::OK();
   }
   buckets_ = reinterpret_cast<Bucket*>(bucket_allocation_->data());
   memset(buckets_, 0, buckets_byte_size);
   *got_memory = true;
-  return Status::OK;
+  return Status::OK();
 }
 
 void NewPartitionedHashTable::Close() {
@@ -485,7 +485,7 @@ Status NewPartitionedHashTable::CheckAndResize(
   }
   if (shift > 0) return ResizeBuckets(num_buckets_ << shift, ht_ctx, got_memory);
   *got_memory = true;
-  return Status::OK;
+  return Status::OK();
 }
 
 Status NewPartitionedHashTable::ResizeBuckets(
@@ -499,7 +499,7 @@ Status NewPartitionedHashTable::ResizeBuckets(
           << " buckets.";
   if (max_num_buckets_ != -1 && num_buckets > max_num_buckets_) {
     *got_memory = false;
-    return Status::OK;
+    return Status::OK();
   }
   ++num_resizes_;
 
@@ -515,7 +515,7 @@ Status NewPartitionedHashTable::ResizeBuckets(
   RETURN_IF_ERROR(allocator_->Allocate(new_size, &new_allocation));
   if (new_allocation == NULL) {
     *got_memory = false;
-    return Status::OK;
+    return Status::OK();
   }
   Bucket* new_buckets = reinterpret_cast<Bucket*>(new_allocation->data());
   memset(new_buckets, 0, new_size);
@@ -541,7 +541,7 @@ Status NewPartitionedHashTable::ResizeBuckets(
   bucket_allocation_ = std::move(new_allocation);
   buckets_ = reinterpret_cast<Bucket*>(bucket_allocation_->data());
   *got_memory = true;
-  return Status::OK;
+  return Status::OK();
 }
 
 bool NewPartitionedHashTable::GrowNodeArray(Status* status) {
@@ -760,7 +760,7 @@ Status NewPartitionedHashTableCtx::CodegenEvalRow(LlvmCodeGen* codegen, bool bui
   for (int i = 0; i < ctxs.size(); ++i) {
     // Disable codegen for CHAR
     if (ctxs[i]->root()->type().type == TYPE_CHAR) {
-      return Status("NewPartitionedHashTableCtx::CodegenEvalRow(): CHAR NYI");
+      return Status::InternalError("NewPartitionedHashTableCtx::CodegenEvalRow(): CHAR NYI");
     }
   }
 
@@ -816,7 +816,7 @@ Status NewPartitionedHashTableCtx::CodegenEvalRow(LlvmCodeGen* codegen, bool bui
     if (!status.ok()) {
       (*fn)->eraseFromParent(); // deletes function
       *fn = NULL;
-      return Status(Substitute(
+      return Status::InternalError(Substitute(
           "Problem with NewPartitionedHashTableCtx::CodegenEvalRow(): $0", status.GetDetail()));
     }
 
@@ -871,10 +871,10 @@ Status NewPartitionedHashTableCtx::CodegenEvalRow(LlvmCodeGen* codegen, bool bui
 
   *fn = codegen->FinalizeFunction(*fn);
   if (*fn == NULL) {
-    return Status("Codegen'd NewPartitionedHashTableCtx::EvalRow() function failed verification, "
+    return Status::InternalError("Codegen'd NewPartitionedHashTableCtx::EvalRow() function failed verification, "
                   "see log");
   }
-  return Status::OK;
+  return Status::OK();
 }
 
 // Codegen for hashing the current row.  In the case with both string and non-string data
@@ -915,7 +915,7 @@ Status NewPartitionedHashTableCtx::CodegenHashRow(LlvmCodeGen* codegen, bool use
   for (int i = 0; i < build_expr_ctxs_.size(); ++i) {
     // Disable codegen for CHAR
     if (build_expr_ctxs_[i]->root()->type().type == TYPE_CHAR) {
-      return Status("NewPartitionedHashTableCtx::CodegenHashRow(): CHAR NYI");
+      return Status::InternalError("NewPartitionedHashTableCtx::CodegenHashRow(): CHAR NYI");
     }
   }
 
@@ -1046,10 +1046,10 @@ Status NewPartitionedHashTableCtx::CodegenHashRow(LlvmCodeGen* codegen, bool use
   }
   *fn = codegen->FinalizeFunction(*fn);
   if (*fn == NULL) {
-    return Status(
+    return Status::InternalError(
         "Codegen'd NewPartitionedHashTableCtx::HashRow() function failed verification, see log");
   }
-  return Status::OK;
+  return Status::OK();
 }
 
 // Codegen for NewPartitionedHashTableCtx::Equals.  For a group by with (bigint, string),
@@ -1123,7 +1123,7 @@ Status NewPartitionedHashTableCtx::CodegenEquals(LlvmCodeGen* codegen, bool forc
   for (int i = 0; i < build_expr_ctxs_.size(); ++i) {
     // Disable codegen for CHAR
     if (build_expr_ctxs_[i]->root()->type().type == TYPE_CHAR) {
-      return Status("NewPartitionedHashTableCtx::CodegenEquals(): CHAR NYI");
+      return Status::InternalError("NewPartitionedHashTableCtx::CodegenEquals(): CHAR NYI");
     }
   }
 
@@ -1167,7 +1167,7 @@ Status NewPartitionedHashTableCtx::CodegenEquals(LlvmCodeGen* codegen, bool forc
     if (!status.ok()) {
       (*fn)->eraseFromParent(); // deletes function
       *fn = NULL;
-      return Status(
+      return Status::InternalError(
           Substitute("Problem with NewPartitionedHashTableCtx::CodegenEquals: $0", status.GetDetail()));
     }
     if (build_expr_ctxs_.size() > LlvmCodeGen::CODEGEN_INLINE_EXPRS_THRESHOLD) {
@@ -1236,10 +1236,10 @@ Status NewPartitionedHashTableCtx::CodegenEquals(LlvmCodeGen* codegen, bool forc
   }
   *fn = codegen->FinalizeFunction(*fn);
   if (*fn == NULL) {
-    return Status("Codegen'd NewPartitionedHashTableCtx::Equals() function failed verification, "
+    return Status::InternalError("Codegen'd NewPartitionedHashTableCtx::Equals() function failed verification, "
                   "see log");
   }
-  return Status::OK;
+  return Status::OK();
 }
 
 Status NewPartitionedHashTableCtx::ReplaceHashTableConstants(LlvmCodeGen* codegen,
@@ -1256,7 +1256,7 @@ Status NewPartitionedHashTableCtx::ReplaceHashTableConstants(LlvmCodeGen* codege
       fn, stores_duplicates, "stores_duplicates");
   replacement_counts->quadratic_probing = codegen->ReplaceCallSitesWithBoolConst(
       fn, FLAGS_enable_quadratic_probing, "quadratic_probing");
-  return Status::OK;
+  return Status::OK();
 }
 
 #endif

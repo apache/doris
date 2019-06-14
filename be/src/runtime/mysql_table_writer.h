@@ -52,17 +52,17 @@ public:
     Status open(const MysqlConnInfo& conn_info, const std::string& tbl);
 
     Status begin_trans() {
-        return Status::OK;
+        return Status::OK();
     }
 
     Status append(RowBatch* batch);
 
     Status abort_tarns() {
-        return Status::OK;
+        return Status::OK();
     }
 
     Status finish_tarns() {
-        return Status::OK;
+        return Status::OK();
     }
 
 private:

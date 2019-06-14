@@ -397,7 +397,7 @@ private:
     do { \
         /* if (UNLIKELY(MemTracker::limit_exceeded(*(state)->mem_trackers()))) { */ \
         if (UNLIKELY(state->instance_mem_tracker()->any_limit_exceeded())) { \
-            return Status::MEM_LIMIT_EXCEEDED; \
+            return Status::MemoryLimitExceeded("Memory limit exceeded"); \
         } \
     } while (false)
 }

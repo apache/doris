@@ -44,16 +44,16 @@ ResultWriter::~ResultWriter() {
 
 Status ResultWriter::init(RuntimeState* state) {
     if (NULL == _sinker) {
-        return Status("sinker is NULL pointer.");
+        return Status::InternalError("sinker is NULL pointer.");
     }
 
     _row_buffer = new(std::nothrow) MysqlRowBuffer();
 
     if (NULL == _row_buffer) {
-        return Status("no memory to alloc.");
+        return Status::InternalError("no memory to alloc.");
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status ResultWriter::add_one_row(TupleRow* row) {
@@ -173,15 +173,15 @@ Status ResultWriter::add_one_row(TupleRow* row) {
     }
 
     if (0 != buf_ret) {
-        return Status("pack mysql buffer failed.");
+        return Status::InternalError("pack mysql buffer failed.");
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status ResultWriter::append_row_batch(RowBatch* batch) {
     if (NULL == batch || 0 == batch->num_rows()) {
-        return Status::OK;
+        return Status::OK();
     }
 
     Status status;

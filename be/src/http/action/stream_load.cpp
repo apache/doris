@@ -139,7 +139,7 @@ Status StreamLoadAction::_handle(StreamLoadContext* ctx) {
         LOG(WARNING) << "recevie body don't equal with body bytes, body_bytes="
             << ctx->body_bytes << ", receive_bytes=" << ctx->receive_bytes
             << ", id=" << ctx->id;
-        return Status("receive body dont't equal with body bytes");
+        return Status::InternalError("receive body dont't equal with body bytes");
     }
     if (!ctx->use_streaming) {
         // if we use non-streaming, we need to close file first,
@@ -157,7 +157,7 @@ Status StreamLoadAction::_handle(StreamLoadContext* ctx) {
     // If put file succeess we need commit this load
     RETURN_IF_ERROR(_exec_env->stream_load_executor()->commit_txn(ctx));
 
-    return Status::OK;
+    return Status::OK();
 }
 
 int StreamLoadAction::on_header(HttpRequest* req) {
@@ -202,7 +202,7 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, StreamLoadContext* ct
     // auth information
     if (!parse_basic_auth(*http_req, &ctx->auth)) {
         LOG(WARNING) << "parse basic authorization failed." << ctx->brief();
-        return Status("no valid Basic authorization");
+        return Status::InternalError("no valid Basic authorization");
     }
     // check content length
     ctx->body_bytes = 0;
@@ -214,7 +214,7 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, StreamLoadContext* ct
 
             std::stringstream ss;
             ss << "body exceed max size, max_body_bytes=" << max_body_bytes;
-            return Status(ss.str());
+            return Status::InternalError(ss.str());
         }
     } else {
 #ifndef BE_TEST
@@ -232,7 +232,7 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, StreamLoadContext* ct
             LOG(WARNING) << "unknown data format." << ctx->brief();
             std::stringstream ss;
             ss << "unknown data format, format=" << http_req->header(HTTP_FORMAT_KEY);
-            return Status(ss.str());
+            return Status::InternalError(ss.str());
         }
     }
 
@@ -353,7 +353,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
     // if we not use streaming, we must download total content before we begin
     // to process this load
     if (!ctx->use_streaming) {
-        return Status::OK;
+        return Status::OK();
     }
     return _exec_env->stream_load_executor()->execute_plan_fragment(ctx);
 }
@@ -371,7 +371,7 @@ Status StreamLoadAction::_data_saved_path(HttpRequest* req, std::string* file_pa
     std::stringstream ss;
     ss << prefix << "/" << req->param(HTTP_TABLE_KEY) << "." << buf << "." << tv.tv_usec;
     *file_path = ss.str();
-    return Status::OK;
+    return Status::OK();
 }
 
 }

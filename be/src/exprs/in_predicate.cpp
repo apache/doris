@@ -41,15 +41,15 @@ InPredicate::~InPredicate() {
 
 Status InPredicate::prepare(RuntimeState* state, const TypeDescriptor& type) {
     if (_is_prepare) {
-        return Status::OK;
+        return Status::OK();
     }
     _hybird_set.reset(HybirdSetBase::create_set(type.type));
     if (NULL == _hybird_set.get()) {
-        return Status("Unknown column type.");
+        return Status::InternalError("Unknown column type.");
     }
     _is_prepare = true;
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status InPredicate::open(
@@ -61,11 +61,11 @@ Status InPredicate::open(
     for (int i = 1; i < _children.size(); ++i) {
         if (_children[0]->type().is_string_type()) {
             if (!_children[i]->type().is_string_type()) {
-                return Status("InPredicate type not same");
+                return Status::InternalError("InPredicate type not same");
             }
         } else {
             if (_children[i]->type().type != _children[0]->type().type) {
-                return Status("InPredicate type not same");
+                return Status::InternalError("InPredicate type not same");
             }
         }
 
@@ -76,7 +76,7 @@ Status InPredicate::open(
         }
         _hybird_set->insert(value);
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status InPredicate::prepare(
@@ -85,19 +85,19 @@ Status InPredicate::prepare(
         RETURN_IF_ERROR(_children[i]->prepare(state, row_desc, context));
     }
     if (_is_prepare) {
-        return Status::OK;
+        return Status::OK();
     }
     if (_children.size() < 1) {
-        return Status("no Function operator in.");
+        return Status::InternalError("no Function operator in.");
     }
     _hybird_set.reset(HybirdSetBase::create_set(_children[0]->type().type));
     if (NULL == _hybird_set.get()) {
-        return Status("Unknown column type.");
+        return Status::InternalError("Unknown column type.");
     }
 
     _is_prepare = true;
 
-    return Status::OK;
+    return Status::OK();
 }
 
 void InPredicate::insert(void* value) {

@@ -131,6 +131,9 @@ if [ -d ${DORIS_TEST_BINARY_DIR}/util/test_data ]; then
 fi
 cp -r ${DORIS_HOME}/be/test/util/test_data ${DORIS_TEST_BINARY_DIR}/util/
 
+# Running common Unittest
+${DORIS_TEST_BINARY_DIR}/common/status_test
+
 # Running Util Unittest
 ${DORIS_TEST_BINARY_DIR}/util/bit_util_test
 ${DORIS_TEST_BINARY_DIR}/util/bitmap_test

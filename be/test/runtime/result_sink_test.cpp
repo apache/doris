@@ -86,7 +86,7 @@ TEST_F(ResultSinkTest, init_normal) {
     row_batch.add_row();
     row_batch.commit_last_row();
     ASSERT_TRUE(sink.send(_runtime_state, &row_batch).ok());
-    ASSERT_TRUE(sink.close(_runtime_state, Status::OK).ok());
+    ASSERT_TRUE(sink.close(_runtime_state, Status::OK()).ok());
 }
 
 }

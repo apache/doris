@@ -528,13 +528,13 @@ Status DescriptorTbl::create(ObjectPool* pool, const TDescriptorTable& thrift_tb
         TupleDescriptorMap::iterator entry = (*tbl)->_tuple_desc_map.find(tdesc.parent);
 
         if (entry == (*tbl)->_tuple_desc_map.end()) {
-            return Status("unknown tid in slot descriptor msg");
+            return Status::InternalError("unknown tid in slot descriptor msg");
         }
 
         entry->second->add_slot(slot_d);
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 TableDescriptor* DescriptorTbl::get_table_descriptor(TableId id) const {

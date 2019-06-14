@@ -359,7 +359,7 @@ public:
 
         // Returns the next buffer for this scan range. buffer is an output parameter.
         // This function blocks until a buffer is ready or an error occurred. If this is
-        // called when all buffers have been returned, *buffer is set to NULL and Status::OK
+        // called when all buffers have been returned, *buffer is set to NULL and Status::OK()
         // is returned.
         // Only one thread can be in get_next() at any time.
         Status get_next(BufferDescriptor** buffer);
@@ -507,7 +507,7 @@ public:
 
         // This callback is invoked on each WriteRange after the write is complete or the
         // context is cancelled. The status returned by the callback parameter indicates
-        // if the write was successful (i.e. Status::OK), if there was an error
+        // if the write was successful (i.e. Status::OK()), if there was an error
         // TStatusCode::RUNTIME_ERROR) or if the context was cancelled
         // (TStatusCode::CANCELLED). The callback is only invoked if this WriteRange was
         // successfully added (i.e. add_write_range() succeeded). No locks are held while

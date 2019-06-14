@@ -399,10 +399,7 @@ Status SpillSorter::Run::init() {
     RETURN_IF_ERROR(
             _sorter->_block_mgr->get_new_block(_sorter->_block_mgr_client, NULL, &block));
     if (block == NULL) {
-        Status status = Status::MEM_LIMIT_EXCEEDED;
-        // status.AddDetail(Substitute(MEM_ALLOC_FAILED_ERROR_MSG, "fixed"));
-        status.add_error_msg(get_mem_alloc_failed_error_msg("fixed"));
-        return status;
+        return Status::MemoryLimitExceeded(get_mem_alloc_failed_error_msg("fixed"));
     }
     _fixed_len_blocks.push_back(block);
 
@@ -410,10 +407,7 @@ Status SpillSorter::Run::init() {
         RETURN_IF_ERROR(
                 _sorter->_block_mgr->get_new_block(_sorter->_block_mgr_client, NULL, &block));
         if (block == NULL) {
-            Status status = Status::MEM_LIMIT_EXCEEDED;
-            // status.AddDetail(Substitute(MEM_ALLOC_FAILED_ERROR_MSG, "variable"));
-            status.add_error_msg(get_mem_alloc_failed_error_msg("variable"));
-            return status;
+            return Status::MemoryLimitExceeded(get_mem_alloc_failed_error_msg("variable"));
         }
         _var_len_blocks.push_back(block);
 
@@ -421,17 +415,14 @@ Status SpillSorter::Run::init() {
             RETURN_IF_ERROR(_sorter->_block_mgr->get_new_block(
                         _sorter->_block_mgr_client, NULL, &_var_len_copy_block));
             if (_var_len_copy_block == NULL) {
-                Status status = Status::MEM_LIMIT_EXCEEDED;
-                // status.AddDetail(Substitute(MEM_ALLOC_FAILED_ERROR_MSG, "variable"));
-                status.add_error_msg(get_mem_alloc_failed_error_msg("variable"));
-                return status;
+                return Status::MemoryLimitExceeded(get_mem_alloc_failed_error_msg("variable"));
             }
         }
     }
     if (!_is_sorted) {
         _sorter->_initial_runs_counter->update(1);
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 template <bool has_var_len_data>
@@ -478,7 +469,7 @@ Status SpillSorter::Run::add_batch(RowBatch* batch, int start_index, int* num_pr
                     std::stringstream error_msg;
                     error_msg << "Variable length data in a single tuple larger than block size "
                             << total_var_len << " > " << _sorter->_block_mgr->max_block_size();
-                    return Status(error_msg.str());
+                    return Status::InternalError(error_msg.str());
                 }
             } else {
                 memcpy(new_tuple, input_row->get_tuple(0), _sort_tuple_size);
@@ -499,7 +490,7 @@ Status SpillSorter::Run::add_batch(RowBatch* batch, int start_index, int* num_pr
                         // There was not enough space in the last var-len block for this tuple, and
                         // the run could not be extended. Return the fixed-len allocation and exit.
                         cur_fixed_len_block->return_allocation(_sort_tuple_size);
-                        return Status::OK;
+                        return Status::OK();
                     }
                 }
 
@@ -532,11 +523,11 @@ Status SpillSorter::Run::add_batch(RowBatch* batch, int start_index, int* num_pr
             if (added) {
                 cur_fixed_len_block = _fixed_len_blocks.back();
             } else {
-                return Status::OK;
+                return Status::OK();
             }
         }
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 void SpillSorter::Run::transfer_resources(RowBatch* row_batch) {
@@ -633,7 +624,7 @@ Status SpillSorter::Run::unpin_all_blocks() {
     // needed.
     _var_len_copy_block = NULL;
     _is_pinned = false;
-    return Status::OK;
+    return Status::OK();
 }
 
 Status SpillSorter::Run::prepare_read() {
@@ -652,7 +643,7 @@ Status SpillSorter::Run::prepare_read() {
     // If the run is pinned, merge is not invoked, so _buffered_batch is not needed
     // and the individual blocks do not need to be pinned.
     if (_is_pinned) {
-        return Status::OK;
+        return Status::OK();
     }
 
     // Attempt to pin the first fixed and var-length blocks. In either case, pinning may
@@ -663,10 +654,7 @@ Status SpillSorter::Run::prepare_read() {
         // Temporary work-around for IMPALA-1868. Fail the query with OOM rather than
         // DCHECK in case block pin fails.
         if (!pinned) {
-            Status status = Status::MEM_LIMIT_EXCEEDED;
-            // status.AddDetail(Substitute(PIN_FAILED_ERROR_MSG, "fixed"));
-            status.add_error_msg(get_pin_failed_error_msg("fixed"));
-            return status;
+            return Status::MemoryLimitExceeded(get_pin_failed_error_msg("fixed"));
         }
     }
 
@@ -676,13 +664,10 @@ Status SpillSorter::Run::prepare_read() {
         // Temporary work-around for IMPALA-1590. Fail the query with OOM rather than
         // DCHECK in case block pin fails.
         if (!pinned) {
-            Status status = Status::MEM_LIMIT_EXCEEDED;
-            // status.AddDetail(Substitute(PIN_FAILED_ERROR_MSG, "variable"));
-            status.add_error_msg(get_pin_failed_error_msg("variable"));
-            return status;
+            return Status::MemoryLimitExceeded(get_pin_failed_error_msg("variable"));
         }
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status SpillSorter::Run::get_next_batch(RowBatch** output_batch) {
@@ -717,7 +702,7 @@ Status SpillSorter::Run::get_next_batch(RowBatch** output_batch) {
 
     // *output_batch == NULL indicates eos.
     *output_batch = _buffered_batch.get();
-    return Status::OK;
+    return Status::OK();
 }
 
 template <bool convert_offset_to_ptr>
@@ -725,7 +710,7 @@ Status SpillSorter::Run::get_next(RowBatch* output_batch, bool* eos) {
     if (_fixed_len_blocks_index == _fixed_len_blocks.size()) {
         *eos = true;
         DCHECK_EQ(_num_tuples_returned, _num_tuples);
-        return Status::OK;
+        return Status::OK();
     } else {
         *eos = false;
     }
@@ -743,10 +728,7 @@ Status SpillSorter::Run::get_next(RowBatch* output_batch, bool* eos) {
             // Temporary work-around for IMPALA-2344. Fail the query with OOM rather than
             // DCHECK in case block pin fails.
             if (!pinned) {
-                Status status = Status::MEM_LIMIT_EXCEEDED;
-                // status.AddDetail(Substitute(PIN_FAILED_ERROR_MSG, "fixed"));
-                status.add_error_msg(get_pin_failed_error_msg("fixed"));
-                return status;
+                return Status::MemoryLimitExceeded(get_pin_failed_error_msg("fixed"));
             }
             _pin_next_fixed_len_block = false;
         }
@@ -758,10 +740,7 @@ Status SpillSorter::Run::get_next(RowBatch* output_batch, bool* eos) {
             // Temporary work-around for IMPALA-2344. Fail the query with OOM rather than
             // DCHECK in case block pin fails.
             if (!pinned) {
-                Status status = Status::MEM_LIMIT_EXCEEDED;
-                // status.AddDetail(Substitute(PIN_FAILED_ERROR_MSG, "variable"));
-                status.add_error_msg(get_pin_failed_error_msg("variable"));
-                return status;
+                return Status::MemoryLimitExceeded(get_pin_failed_error_msg("variable"));
             }
             _pin_next_var_len_block = false;
         }
@@ -831,7 +810,7 @@ Status SpillSorter::Run::get_next(RowBatch* output_batch, bool* eos) {
         ++_fixed_len_blocks_index;
         _fixed_len_block_offset = 0;
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 void SpillSorter::Run::collect_non_null_varslots(
@@ -868,7 +847,7 @@ Status SpillSorter::Run::try_add_block(
     } else {
         *added = false;
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 void SpillSorter::Run::copy_var_len_data(char* dest, const vector<StringValue*>& string_values) {
@@ -1073,7 +1052,7 @@ Status SpillSorter::init() {
 
     DCHECK(_unsorted_run != NULL);
     RETURN_IF_ERROR(_unsorted_run->init());
-    return Status::OK;
+    return Status::OK();
 }
 
 Status SpillSorter::add_batch(RowBatch* batch) {
@@ -1097,7 +1076,7 @@ Status SpillSorter::add_batch(RowBatch* batch) {
             RETURN_IF_ERROR(_unsorted_run->init());
         }
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status SpillSorter::input_done() {
@@ -1141,7 +1120,7 @@ Status SpillSorter::input_done() {
         // Create the final merger.
         RETURN_IF_ERROR(create_merger(_sorted_runs.size()));
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status SpillSorter::get_next(RowBatch* output_batch, bool* eos) {
@@ -1157,7 +1136,7 @@ Status SpillSorter::get_next(RowBatch* output_batch, bool* eos) {
         // In this case, rows are deep copied into output_batch.
         RETURN_IF_ERROR(_merger->get_next(output_batch, eos));
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status SpillSorter::reset() {
@@ -1169,7 +1148,7 @@ Status SpillSorter::reset() {
     _unsorted_run = _obj_pool.add(
             new Run(this, _output_row_desc->tuple_descriptors()[0], true));
     RETURN_IF_ERROR(_unsorted_run->init());
-    return Status::OK;
+    return Status::OK();
 }
 
 Status SpillSorter::sort_run() {
@@ -1201,7 +1180,7 @@ Status SpillSorter::sort_run() {
     }
     _sorted_runs.push_back(_unsorted_run);
     _unsorted_run = NULL;
-    return Status::OK;
+    return Status::OK();
 }
 
 uint64_t SpillSorter::estimate_merge_mem(
@@ -1284,7 +1263,7 @@ Status SpillSorter::merge_intermediate_runs() {
         _sorted_runs.push_back(merged_run);
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status SpillSorter::create_merger(int num_runs) {
@@ -1313,7 +1292,7 @@ Status SpillSorter::create_merger(int num_runs) {
     RETURN_IF_ERROR(_merger->prepare(merge_runs));
 
     _num_merges_counter->update(1);
-    return Status::OK;
+    return Status::OK();
 }
 
 } // namespace impala

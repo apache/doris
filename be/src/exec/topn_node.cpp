@@ -56,7 +56,7 @@ Status TopNNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
     DCHECK_EQ(_conjuncts.size(), 0) << "TopNNode should never have predicates to evaluate.";
     _abort_on_default_limit_exceeded = tnode.sort_node.is_default_limit;
-    return Status::OK;
+    return Status::OK();
 }
 
 Status TopNNode::prepare(RuntimeState* state) {
@@ -80,7 +80,7 @@ Status TopNNode::prepare(RuntimeState* state) {
     _abort_on_default_limit_exceeded = _abort_on_default_limit_exceeded &&
                                        state->abort_on_default_limit_exceeded();
     _materialized_tuple_desc = _row_descriptor.tuple_descriptors()[0];
-    return Status::OK;
+    return Status::OK();
 }
 
 Status TopNNode::open(RuntimeState* state) {
@@ -115,7 +115,7 @@ Status TopNNode::open(RuntimeState* state) {
             RETURN_IF_ERROR(child(0)->get_next(state, &batch, &eos));
 
             if (_abort_on_default_limit_exceeded && child(0)->rows_returned() > _limit) {
-                return Status("DEFAULT_ORDER_BY_LIMIT has been exceeded.");
+                return Status::InternalError("DEFAULT_ORDER_BY_LIMIT has been exceeded.");
             }
 
             for (int i = 0; i < batch.num_rows(); ++i) {
@@ -135,7 +135,7 @@ Status TopNNode::open(RuntimeState* state) {
     // if (!is_in_subplan()) {
     child(0)->close(state);
     // }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status TopNNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
@@ -177,12 +177,12 @@ Status TopNNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
             COUNTER_UPDATE(memory_used_counter(), _tuple_pool->peak_allocated_bytes());
         }
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status TopNNode::close(RuntimeState* state) {
     if (is_closed()) {
-        return Status::OK;
+        return Status::OK();
     }
     if (_tuple_pool.get() != NULL) {
         _tuple_pool->free_all();
