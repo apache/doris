@@ -86,7 +86,7 @@ public class LoadManager implements Writable{
         LoadJob loadJob = null;
         writeLock();
         try {
-            isLabelUsed(dbId, stmt.getLabel().getLabelName());
+            checkLabelUsed(dbId, stmt.getLabel().getLabelName());
             if (stmt.getBrokerDesc() == null) {
                 throw new DdlException("LoadManager only support the broker load.");
             }
@@ -99,6 +99,31 @@ public class LoadManager implements Writable{
         }
         // persistent
         Catalog.getCurrentCatalog().getEditLog().logCreateLoadJob(loadJob);
+    }
+
+    /**
+     * This method will be invoked by load version1 which is used to check the label of v1 and v2 at the same time.
+     * Step1: lock the load manager
+     * Step2: check the label in load manager
+     * Step3: call the addLoadJob of load class
+     *     Step3.1: lock the load
+     *     Step3.2: check the label in load
+     *     Step3.3: add the loadJob in load rather then load manager
+     *     Step3.4: unlock the load
+     * Step4: unlock the load manager
+     * @param stmt
+     * @param timestamp
+     * @throws DdlException
+     */
+    public void createLoadJobV1FromStmt(LoadStmt stmt, EtlJobType jobType, long timestamp) throws DdlException {
+        Database database = checkDb(stmt.getLabel().getDbName());
+        writeLock();
+        try {
+            checkLabelUsed(database.getId(), stmt.getLabel().getLabelName());
+            Catalog.getCurrentCatalog().getLoadInstance().addLoadJob(stmt, jobType, timestamp);
+        } finally {
+            writeUnlock();
+        }
     }
 
     public void replayCreateLoadJob(LoadJob loadJob) {
@@ -316,7 +341,7 @@ public class LoadManager implements Writable{
      * @param label
      * @throws DdlException throw exception when label has been used by an unfinished job.
      */
-    private void isLabelUsed(long dbId, String label)
+    private void checkLabelUsed(long dbId, String label)
             throws DdlException {
         // if label has been used in old load jobs
         Catalog.getCurrentCatalog().getLoadInstance().isLabelUsed(dbId, label);

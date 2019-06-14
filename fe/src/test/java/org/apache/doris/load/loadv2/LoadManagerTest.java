@@ -18,7 +18,22 @@
 package org.apache.doris.load.loadv2;
 
 import mockit.Deencapsulation;
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mocked;
+
+import org.apache.doris.analysis.LabelName;
+import org.apache.doris.analysis.LoadStmt;
+import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.LabelAlreadyUsedException;
+import org.apache.doris.load.EtlJobType;
+
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -28,6 +43,7 @@ import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.util.List;
 import java.util.Map;
 
 public class LoadManagerTest {
@@ -39,6 +55,46 @@ public class LoadManagerTest {
         loadManager = new LoadManager(new LoadJobScheduler());
         LoadJob job1 = new InsertLoadJob("job1", 1L, 1L, System.currentTimeMillis());
         Deencapsulation.invoke(loadManager, "addLoadJob", job1);
+    }
+
+    @Test
+    public void testCreateHadoopJob(@Mocked LoadJobScheduler loadJobScheduler,
+                                    @Injectable LoadStmt stmt,
+                                    @Injectable LabelName labelName,
+                                    @Mocked Catalog catalog,
+                                    @Injectable Database database,
+                                    @Injectable BrokerLoadJob brokerLoadJob) {
+        Map<Long, Map<String, List<LoadJob>>> dbIdToLabelToLoadJobs = Maps.newHashMap();
+        Map<String, List<LoadJob>> labelToLoadJobs = Maps.newHashMap();
+        String label1 = "label1";
+        List<LoadJob> loadJobs = Lists.newArrayList();
+        loadJobs.add(brokerLoadJob);
+        labelToLoadJobs.put(label1, loadJobs);
+        dbIdToLabelToLoadJobs.put(1L, labelToLoadJobs);
+        loadManager = new LoadManager(loadJobScheduler);
+        Deencapsulation.setField(loadManager, "dbIdToLabelToLoadJobs", dbIdToLabelToLoadJobs);
+        new Expectations() {
+            {
+                stmt.getLabel();
+                result = labelName;
+                labelName.getLabelName();
+                result = "label1";
+                catalog.getDb(anyString);
+                result = database;
+                database.getId();
+                result = 1L;
+            }
+        };
+
+        try {
+            loadManager.createLoadJobV1FromStmt(stmt, EtlJobType.HADOOP, System.currentTimeMillis());
+            Assert.fail("duplicated label is not be allowed");
+        } catch (LabelAlreadyUsedException e) {
+            // successful
+        } catch (DdlException e) {
+            Assert.fail(e.getMessage());
+        }
+
     }
 
     @Test
