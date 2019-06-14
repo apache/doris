@@ -15,6 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
+// Copyright (c) 2011 The LevelDB Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file. See the AUTHORS file for names of contributors.
+
 #include "common/status.h"
 
 #include "gutil/strings/fastmem.h" // for memcpy_inlined

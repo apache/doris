@@ -15,8 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_COMMON_COMMON_STATUS_H
-#define DORIS_BE_SRC_COMMON_COMMON_STATUS_H
+// Copyright (c) 2011 The LevelDB Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file. See the AUTHORS file for names of contributors.
+
+#pragma once
 
 #include <string>
 #include <vector>
@@ -237,5 +240,3 @@ private:
 }
 
 #define WARN_UNUSED_RESULT __attribute__((warn_unused_result))
-
-#endif
