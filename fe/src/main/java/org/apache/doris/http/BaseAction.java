@@ -145,7 +145,7 @@ public abstract class BaseAction implements IAction {
     
     // Object only support File or byte[]
     protected void writeObjectResponse(BaseRequest request, BaseResponse response, HttpResponseStatus status,
-            Object obj, String fileName) {
+            Object obj, String fileName, boolean isOctStream) {
         Preconditions.checkState((obj instanceof File) || (obj instanceof byte[]));
         
         HttpResponse responseObj = new DefaultHttpResponse(HttpVersion.HTTP_1_1, status);
@@ -153,9 +153,12 @@ public abstract class BaseAction implements IAction {
         if (HttpUtil.isKeepAlive(request.getRequest())) {
             response.updateHeader(HttpHeaderNames.CONNECTION.toString(), HttpHeaderValues.KEEP_ALIVE.toString());
         }
-        response.updateHeader(HttpHeaderNames.CONTENT_TYPE.toString(), HttpHeaderValues.APPLICATION_OCTET_STREAM.toString());
-        response.updateHeader(HttpHeaderNames.CONTENT_DISPOSITION.toString(),
-                HttpHeaderValues.ATTACHMENT.toString() + "; " + HttpHeaderValues.FILENAME.toString() + "=" + fileName);
+        
+        if (isOctStream) {
+            response.updateHeader(HttpHeaderNames.CONTENT_TYPE.toString(), HttpHeaderValues.APPLICATION_OCTET_STREAM.toString());
+            response.updateHeader(HttpHeaderNames.CONTENT_DISPOSITION.toString(),
+                    HttpHeaderValues.ATTACHMENT.toString() + "; " + HttpHeaderValues.FILENAME.toString() + "=" + fileName);
+        }
         
         ChannelFuture sendFileFuture;
         ChannelFuture lastContentFuture;
