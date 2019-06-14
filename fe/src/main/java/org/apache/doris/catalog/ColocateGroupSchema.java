@@ -29,6 +29,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /*
  * Author: Chenmingyu
@@ -40,7 +41,7 @@ import java.util.List;
  */
 public class ColocateGroupSchema implements Writable {
     private GroupId groupId;
-    private List<Column> distributionCols = Lists.newArrayList();
+    private List<Type> distributionColTypes = Lists.newArrayList();
     private int bucketsNum;
     private short replicationNum;
 
@@ -50,7 +51,7 @@ public class ColocateGroupSchema implements Writable {
 
     public ColocateGroupSchema(GroupId groupId, List<Column> distributionCols, int bucketsNum, short replicationNum) {
         this.groupId = groupId;
-        this.distributionCols = distributionCols;
+        this.distributionColTypes = distributionCols.stream().map(c -> c.getType()).collect(Collectors.toList());
         this.bucketsNum = bucketsNum;
         this.replicationNum = replicationNum;
     }
@@ -67,8 +68,8 @@ public class ColocateGroupSchema implements Writable {
         return replicationNum;
     }
 
-    public List<Column> getDistributionCols() {
-        return distributionCols;
+    public List<Type> getDistributionColTypes() {
+        return distributionColTypes;
     }
 
     public void checkColocateSchema(OlapTable tbl) throws DdlException {
@@ -84,13 +85,13 @@ public class ColocateGroupSchema implements Writable {
                 ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_MUST_HAS_SAME_BUCKET_NUM, bucketsNum);
             }
             // distribution col size
-            if (info.getDistributionColumns().size() != distributionCols.size()) {
+            if (info.getDistributionColumns().size() != distributionColTypes.size()) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_MUST_HAS_SAME_DISTRIBUTION_COLUMN_SIZE,
-                        distributionCols.size());
+                        distributionColTypes.size());
             }
             // distribution col type
-            for (int i = 0; i < distributionCols.size(); i++) {
-                Type targetColType = distributionCols.get(i).getType();
+            for (int i = 0; i < distributionColTypes.size(); i++) {
+                Type targetColType = distributionColTypes.get(i);
                 if (!targetColType.equals(info.getDistributionColumns().get(i).getType())) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_MUST_HAS_SAME_DISTRIBUTION_COLUMN_TYPE,
                             info.getDistributionColumns().get(i).getName(), targetColType);
@@ -122,9 +123,9 @@ public class ColocateGroupSchema implements Writable {
     @Override
     public void write(DataOutput out) throws IOException {
         groupId.write(out);
-        out.writeInt(distributionCols.size());
-        for (Column column : distributionCols) {
-            column.write(out);
+        out.writeInt(distributionColTypes.size());
+        for (Type type : distributionColTypes) {
+            ColumnType.write(out, type);
         }
         out.writeInt(bucketsNum);
         out.writeShort(replicationNum);
@@ -135,8 +136,7 @@ public class ColocateGroupSchema implements Writable {
         groupId = GroupId.read(in);
         int size = in.readInt();
         for (int i = 0; i < size; i++) {
-            Column col = Column.read(in);
-            distributionCols.add(col);
+            distributionColTypes.add(ColumnType.read(in));
         }
         bucketsNum = in.readInt();
         replicationNum = in.readShort();

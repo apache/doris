@@ -77,8 +77,7 @@ public class ColocateTableBalancer extends Daemon {
     /*
      * 1. Check all group healthy before doing balance
      */
-    @Override
-    protected void runOneCycle() {
+    protected void runOneCycleTODO() {
         checkGroupHealth();
     }
 
@@ -109,6 +108,7 @@ public class ColocateTableBalancer extends Daemon {
 
     }
 
+    @Override
     /**
      * The colocate table balance flow:
      *
@@ -120,7 +120,7 @@ public class ColocateTableBalancer extends Daemon {
      * 6 delete redundant replicas after all clone job done
      * 7 mark colocate group stable in colocate meta and balance done
      */
-    protected void runOneCycle2() {
+    protected void runOneCycle() {
         checkAndCloneBalancingGroup();
 
         tryDeleteRedundantReplicas();

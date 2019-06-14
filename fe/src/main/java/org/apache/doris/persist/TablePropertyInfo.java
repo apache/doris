@@ -34,7 +34,6 @@ import java.util.Map;
  * PersistInfo for Table properties
  */
 public class TablePropertyInfo implements Writable {
-    private long dbId;
     private long tableId;
     private Map<String, String> propertyMap;
     private GroupId groupId;
@@ -43,8 +42,7 @@ public class TablePropertyInfo implements Writable {
 
     }
 
-    public TablePropertyInfo(long dbId, long tableId, GroupId groupId, Map<String, String> propertyMap) {
-        this.dbId = dbId;
+    public TablePropertyInfo(long tableId, GroupId groupId, Map<String, String> propertyMap) {
         this.tableId = tableId;
         this.groupId = groupId;
         this.propertyMap = propertyMap;
@@ -52,10 +50,6 @@ public class TablePropertyInfo implements Writable {
 
     public Map<String, String> getPropertyMap() {
         return propertyMap;
-    }
-
-    public long getDbId() {
-        return dbId;
     }
 
     public long getTableId() {
@@ -68,7 +62,6 @@ public class TablePropertyInfo implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        out.writeLong(dbId);
         out.writeLong(tableId);
         if (groupId == null) {
             out.writeBoolean(false);
@@ -86,7 +79,10 @@ public class TablePropertyInfo implements Writable {
 
     @Override
     public void readFields(DataInput in) throws IOException {
-        dbId = in.readLong();
+        long dbId = -1;
+        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_54) {
+            dbId = in.readLong();
+        }
         tableId = in.readLong();
 
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_54) {
@@ -118,14 +114,13 @@ public class TablePropertyInfo implements Writable {
 
         TablePropertyInfo info = (TablePropertyInfo) obj;
 
-        return dbId == info.dbId && tableId == info.tableId && groupId.equals(info.groupId)
+        return tableId == info.tableId && groupId.equals(info.groupId)
                 && propertyMap.equals(info.propertyMap);
     }
 
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
-        sb.append("db id: ").append(dbId);
         sb.append(" table id: ").append(tableId);
         sb.append(" group id: ").append(groupId);
         sb.append(" propertyMap: ").append(propertyMap);

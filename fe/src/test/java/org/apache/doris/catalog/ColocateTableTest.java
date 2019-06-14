@@ -53,7 +53,6 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicLong;
 
 import mockit.Deencapsulation;
 import mockit.Expectations;
@@ -80,8 +79,6 @@ public class ColocateTableTest {
     private Database db;
     private Analyzer analyzer;
 
-    private static AtomicLong idGenerator = new AtomicLong(10000);
-
     @Injectable
     private ConnectContext connectContext;
     @Injectable
@@ -90,11 +87,6 @@ public class ColocateTableTest {
     private PaloAuth paloAuth;
     @Injectable
     private EditLog editLog;
-
-    private synchronized long getId() {
-        System.out.println("cmy get id");
-        return idGenerator.incrementAndGet();
-    }
 
     @Rule
     public ExpectedException expectedEx = ExpectedException.none();
@@ -319,7 +311,7 @@ public class ColocateTableTest {
         secondStmt.analyze(analyzer);
 
         expectedEx.expect(DdlException.class);
-        expectedEx.expectMessage("Colocate tables must have the same bucket num: 1");
+        expectedEx.expectMessage("Colocate tables must have same bucket num: 1");
 
         catalog.createTable(secondStmt);
     }
@@ -338,7 +330,7 @@ public class ColocateTableTest {
         secondStmt.analyze(analyzer);
 
         expectedEx.expect(DdlException.class);
-        expectedEx.expectMessage("Colocate tables must have the same replication num: 3");
+        expectedEx.expectMessage("Colocate tables must have same replication num: 3");
 
         catalog.createTable(secondStmt);
     }
@@ -355,7 +347,7 @@ public class ColocateTableTest {
         childStmt.analyze(analyzer);
 
         expectedEx.expect(DdlException.class);
-        expectedEx.expectMessage("Colocate table distribution columns size must be same : 1");
+        expectedEx.expectMessage("Colocate tables distribution columns size must be same : 1");
 
         catalog.createTable(childStmt);
     }
@@ -373,7 +365,8 @@ public class ColocateTableTest {
         childStmt.analyze(analyzer);
 
         expectedEx.expect(DdlException.class);
-        expectedEx.expectMessage("Colocate table distribution columns must have the same data type: key2 should be INT");
+        expectedEx.expectMessage(
+                "Colocate tables distribution columns must have the same data type: key2 should be INT");
 
         catalog.createTable(childStmt);
     }

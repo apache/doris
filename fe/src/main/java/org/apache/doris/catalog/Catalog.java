@@ -4964,7 +4964,7 @@ public class Catalog {
         if (!isReplay) {
             Map<String, String> properties = Maps.newHashMapWithExpectedSize(1);
             properties.put(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH, colocateGroup);
-            TablePropertyInfo info = new TablePropertyInfo(db.getId(), table.getId(), groupId, properties);
+            TablePropertyInfo info = new TablePropertyInfo(table.getId(), groupId, properties);
             editLog.logModifyTableColocate(info);
         }
         LOG.info("finished modify table's colocation property. table: {}, is replay: {}",
@@ -4972,11 +4972,10 @@ public class Catalog {
     }
 
     public void replayModifyTableColocate(TablePropertyInfo info) {
-        long dbId = info.getDbId();
         long tableId = info.getTableId();
         Map<String, String> properties = info.getPropertyMap();
 
-        Database db = getDb(dbId);
+        Database db = getDb(info.getGroupId().dbId);
         db.writeLock();
         try {
             OlapTable table = (OlapTable) db.getTable(tableId);

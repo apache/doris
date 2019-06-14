@@ -108,8 +108,6 @@ public class ColocateTableIndex implements Writable {
 
     // group_name -> group_id
     private Map<String, GroupId> groupName2Id = Maps.newHashMap();
-    // group_id -> group_name
-    private Map<GroupId, String> groupId2Name = Maps.newHashMap();
     // group_id -> table_ids
     private Multimap<GroupId, Long> group2Tables = ArrayListMultimap.create();
     // table_id -> group_id
@@ -160,7 +158,6 @@ public class ColocateTableIndex implements Writable {
                     groupId = new GroupId(dbId, Catalog.getCurrentCatalog().getNextId());
                 }
                 groupName2Id.put(groupName, groupId);
-                groupId2Name.put(groupId, groupName);
                 HashDistributionInfo distributionInfo = (HashDistributionInfo) tbl.getDefaultDistributionInfo();
                 ColocateGroupSchema groupSchema = new ColocateGroupSchema(groupId,
                         distributionInfo.getDistributionColumns(), distributionInfo.getBucketNum(),
@@ -231,8 +228,16 @@ public class ColocateTableIndex implements Writable {
                 group2BackendsPerBucketSeq.remove(groupId);
                 group2Schema.remove(groupId);
                 balancingGroups.remove(groupId);
-                String grpName = groupId2Name.remove(groupId);
-                groupName2Id.remove(grpName);
+                String groupName = null;
+                for (Map.Entry<String, GroupId> entry : groupName2Id.entrySet()) {
+                    if (entry.getValue().equals(groupId)) {
+                        groupName = entry.getKey();
+                        break;
+                    }
+                }
+                if (groupName != null) {
+                    groupName2Id.remove(groupName);
+                }
             }
         } finally {
             writeUnlock();
@@ -464,8 +469,8 @@ public class ColocateTableIndex implements Writable {
                 info.add(String.valueOf(groupSchema.getBucketsNum()));
                 info.add(String.valueOf(groupSchema.getReplicationNum()));
                 info.add(String.valueOf(balancingGroups.contains(groupId)));
-                List<String> cols = groupSchema.getDistributionCols().stream().map(
-                        e -> e.getDataType().toString()).collect(Collectors.toList());
+                List<String> cols = groupSchema.getDistributionColTypes().stream().map(
+                        e -> e.toSql()).collect(Collectors.toList());
                 info.add(Joiner.on(", ").join(cols));
                 infos.add(info);
             }
@@ -571,7 +576,6 @@ public class ColocateTableIndex implements Writable {
                 String grpName = Text.readString(in);
                 GroupId grpId = GroupId.read(in);
                 groupName2Id.put(grpName, grpId);
-                groupId2Name.put(grpId, grpName);
                 int tableSize = in.readInt();
                 for (int j = 0; j < tableSize; j++) {
                     long tblId = in.readLong();
@@ -623,7 +627,6 @@ public class ColocateTableIndex implements Writable {
                     if (tblId == groupId.grpId) {
                         // this is a parent table, use its name as group name
                         groupName2Id.put(tbl.getName(), groupId);
-                        groupId2Name.put(groupId, tbl.getName());
                         
                         ColocateGroupSchema groupSchema = new ColocateGroupSchema(groupId,
                                 ((HashDistributionInfo)tbl.getDefaultDistributionInfo()).getDistributionColumns(), 
