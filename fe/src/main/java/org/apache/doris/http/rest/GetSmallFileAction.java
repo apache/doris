@@ -30,8 +30,6 @@ import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.IOException;
-
 import io.netty.handler.codec.http.HttpMethod;
 import io.netty.handler.codec.http.HttpResponseStatus;
 
@@ -84,7 +82,8 @@ public class GetSmallFileAction extends RestBaseAction {
 
         HttpMethod method = request.getRequest().method();
         if (method.equals(HttpMethod.GET)) {
-			writeObjectResponse(request, response, HttpResponseStatus.OK, smallFile.getContentBytes(), smallFile.name);
+            writeObjectResponse(request, response, HttpResponseStatus.OK, smallFile.getContentBytes(),
+                    smallFile.name, true);
         } else {
             response.appendContent(new RestBaseResult("HTTP method is not allowed.").toJson());
             writeResponse(request, response, HttpResponseStatus.METHOD_NOT_ALLOWED);
