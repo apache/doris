@@ -17,13 +17,8 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.*;
 import org.apache.doris.catalog.Table.TableType;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ColumnAliasGenerator;
@@ -860,6 +855,32 @@ public class SelectStmt extends QueryStmt {
             groupingExprsCopy = Expr.cloneList(groupByClause.getGroupingExprs());
             substituteOrdinalsAliases(groupingExprsCopy, "GROUP BY", analyzer);
         }
+
+        //List<Expr> params;
+        //FunctionCallExpr functionCallExpr = new FunctionCallExpr("grouping_id", params);
+        for(Expr expr: resultExprs) {
+            if (expr instanceof FunctionCallExpr) {
+                FunctionCallExpr functionCallExpr = (FunctionCallExpr) expr;
+                if (functionCallExpr.getFnName().getFunction().equals("grouping_id")) {
+                    if (groupByClause == null || !groupByClause.isGroupByExtension()) {
+                        throw new AnalysisException("grouping_id function only used in group by extension statesment");
+                    } else {
+                        FunctionParams functionParams = functionCallExpr.getParams();
+                        if (functionParams != null && functionParams.exprs() != null) {
+                            if (functionParams.exprs().size() != 0) {
+                                throw new AnalysisException("grouping_id function has no param.");
+                            }
+                        }
+                        List<Expr> params = new ArrayList<>();
+                        params.add(groupByClause.getGroupingIdSlotRef());
+                        functionCallExpr.setParams(new FunctionParams(params));
+                        functionCallExpr.resetAnalysisState();
+                        functionCallExpr.analyze(analyzer);
+                    }
+                }
+            }
+        }
+
         createAggInfo(groupingExprsCopy, aggExprs, analyzer);
 
         // combine avg smap with the one that produces the final agg output

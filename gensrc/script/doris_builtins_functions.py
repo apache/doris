@@ -640,7 +640,12 @@ visible_functions = [
     [['ST_Contains'], 'BOOLEAN', ['VARCHAR', 'VARCHAR'],
         '_ZN5doris12GeoFunctions11st_containsEPN9doris_udf15FunctionContextERKNS1_9StringValES6_',
         '_ZN5doris12GeoFunctions19st_contains_prepareEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE',
-        '_ZN5doris12GeoFunctions17st_contains_closeEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE']
+        '_ZN5doris12GeoFunctions17st_contains_closeEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE'],
+
+    # grouping sets functions
+    [['grouping_id'], 'BIGINT', [], ''],
+    [['grouping_id'], 'BIGINT', ['BIGINT'],
+        '_ZN5doris21GroupingSetsFunctions11grouping_idEPN9doris_udf15FunctionContextERKNS1_9BigIntValE']
 ]
 
 invisible_functions = [

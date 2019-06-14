@@ -49,6 +49,7 @@
 #include "exprs/utility_functions.h"
 #include "exprs/json_functions.h"
 #include "exprs/hll_hash_function.h"
+#include "exprs/grouping_sets_functions.h"
 #include "geo/geo_functions.h"
 #include "olap/options.h"
 #include "util/time.h"
@@ -266,6 +267,7 @@ void init_daemon(int argc, char** argv, const std::vector<StorePath>& paths) {
     HllHashFunctions::init();
     ESFunctions::init();
     GeoFunctions::init();
+    GroupingSetsFunctions::init();
 
     pthread_t tc_malloc_pid;
     pthread_create(&tc_malloc_pid, NULL, tcmalloc_gc_thread, NULL);
