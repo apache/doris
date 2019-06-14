@@ -72,13 +72,13 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
     if (_task_map.find(task.id) != _task_map.end()) {
         // already submitted
         LOG(INFO) << "routine load task " << UniqueId(task.id) << " has already been submitted";
-        return Status::OK;
+        return Status::OK();
     }
 
     // the max queue size of thread pool is 100, here we use 80 as a very conservative limit
     if (_thread_pool.get_queue_size() >= 80) {
         LOG(INFO) << "too many tasks in queue: " << _thread_pool.get_queue_size() << ", reject task: " << UniqueId(task.id);
-        return Status("too many tasks");
+        return Status::InternalError("too many tasks");
     }
 
     // create the context
@@ -119,7 +119,7 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
         default:
             LOG(WARNING) << "unknown load source type: " << task.type;
             delete ctx;
-            return Status("unknown load source type");
+            return Status::InternalError("unknown load source type");
     }
 
     VLOG(1) << "receive a new routine load task: " << ctx->brief();
@@ -148,11 +148,11 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
         if (ctx->unref()) {
             delete ctx;
         }
-        return Status("failed to submit routine load task");
+        return Status::InternalError("failed to submit routine load task");
     } else {
         LOG(INFO) << "submit a new routine load task: " << ctx->brief()
                   << ", current tasks num: " << _task_map.size();
-        return Status::OK;
+        return Status::OK();
     }
 }
 
@@ -193,7 +193,7 @@ void RoutineLoadTaskExecutor::exec_task(
         default: {
             std::stringstream ss;
             ss << "unknown routine load task type: " << ctx->load_type;
-            err_handler(ctx, Status::CANCELLED, ss.str());
+            err_handler(ctx, Status::Cancelled("Cancelled"), ss.str());
             cb(ctx);
             return;
         }
@@ -265,7 +265,7 @@ Status RoutineLoadTaskExecutor::_execute_plan_for_test(StreamLoadContext* ctx) {
             }
 
             if (eof) {
-                ctx->promise.set_value(Status::OK);
+                ctx->promise.set_value(Status::OK());
                 break;
             }
 
@@ -281,7 +281,7 @@ Status RoutineLoadTaskExecutor::_execute_plan_for_test(StreamLoadContext* ctx) {
 
     std::thread t1(mock_consumer);
     t1.detach();
-    return Status::OK;
+    return Status::OK();
 }
 
 } // end namespace

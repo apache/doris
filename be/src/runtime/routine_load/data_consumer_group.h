@@ -51,7 +51,7 @@ public:
     }
 
     // start all consumers
-    virtual Status start_all(StreamLoadContext* ctx) { return Status::OK; }
+    virtual Status start_all(StreamLoadContext* ctx) { return Status::OK(); }
 
 protected:
     UniqueId _grp_id;

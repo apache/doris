@@ -123,7 +123,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _small_file_mgr->init();
     _init_mem_tracker();
     RETURN_IF_ERROR(_tablet_writer_mgr->start_bg_worker());
-    return Status::OK;
+    return Status::OK();
 }
 
 Status ExecEnv::_init_mem_tracker() {
@@ -135,12 +135,12 @@ Status ExecEnv::_init_mem_tracker() {
     bytes_limit = ParseUtil::parse_mem_spec(config::mem_limit, &is_percent);
     if (bytes_limit < 0) {
         ss << "Failed to parse mem limit from '" + config::mem_limit + "'.";
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
     if (!BitUtil::IsPowerOf2(config::min_buffer_size)) {
         ss << "--min_buffer_size must be a power-of-two: " << config::min_buffer_size;
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
     int64_t buffer_pool_limit = ParseUtil::parse_mem_spec(
@@ -148,7 +148,7 @@ Status ExecEnv::_init_mem_tracker() {
     if (buffer_pool_limit <= 0) {
         ss << "Invalid --buffer_pool_limit value, must be a percentage or "
            "positive bytes value or percentage: " << config::buffer_pool_limit;
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
     buffer_pool_limit = BitUtil::RoundDown(buffer_pool_limit, config::min_buffer_size);
 
@@ -157,7 +157,7 @@ Status ExecEnv::_init_mem_tracker() {
     if (clean_pages_limit <= 0) {
         ss << "Invalid --buffer_pool_clean_pages_limit value, must be a percentage or "
               "positive bytes value or percentage: " << config::buffer_pool_clean_pages_limit;
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
     _init_buffer_pool(config::min_buffer_size, buffer_pool_limit, clean_pages_limit);
@@ -178,7 +178,7 @@ Status ExecEnv::_init_mem_tracker() {
     LOG(INFO) << "Using global memory limit: " << PrettyPrinter::print(bytes_limit, TUnit::BYTES);
     RETURN_IF_ERROR(_disk_io_mgr->init(_mem_tracker));
     RETURN_IF_ERROR(_tmp_file_mgr->init(DorisMetrics::metrics()));
-    return Status::OK;
+    return Status::OK();
 }
 
 void ExecEnv::_init_buffer_pool(int64_t min_page_size,

@@ -61,7 +61,7 @@ public:
 protected:
     // Bzip does not need initialization
     virtual Status init() {
-        return Status::OK;
+        return Status::OK();
     }
 };
 
@@ -77,7 +77,7 @@ public:
 protected:
     // Snappy does not need initialization
     virtual Status init() {
-        return Status::OK;
+        return Status::OK();
     }
 
 };
@@ -94,7 +94,7 @@ public:
 protected:
     // Snappy does not need initialization
     virtual Status init() {
-        return Status::OK;
+        return Status::OK();
     }
 };
 

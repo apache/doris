@@ -113,7 +113,7 @@ Status HttpService::start() {
 #endif
 
     RETURN_IF_ERROR(_ev_http_server->start());
-    return Status::OK;
+    return Status::OK();
 }
 
 }

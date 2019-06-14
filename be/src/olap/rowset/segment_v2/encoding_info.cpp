@@ -34,10 +34,10 @@ struct TypeEncodingTraits { };
 template<FieldType type>
 struct TypeEncodingTraits<type, PLAIN_ENCODING> {
     static Status create_page_builder(PageBuilder** builder) {
-        return Status::OK;
+        return Status::OK();
     }
     static Status create_page_decoder(PageDecoder** decoder) {
-        return Status::OK;
+        return Status::OK();
     }
 };
 
@@ -101,10 +101,10 @@ Status EncodingInfoResolver::get(
     auto key = std::make_pair(data_type, encoding_type);
     auto it = _encoding_map.find(key);
     if (it == std::end(_encoding_map)) {
-        return Status("fail to find valid type encoding");
+        return Status::InternalError("fail to find valid type encoding");
     }
     *out = it->second;
-    return Status::OK;
+    return Status::OK();
 }
 
 static EncodingInfoResolver s_encoding_info_resolver;

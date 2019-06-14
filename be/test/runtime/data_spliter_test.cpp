@@ -263,7 +263,7 @@ TEST_F(DataSplitTest, NoData) {
         batch.commit_last_row();
     }
     ASSERT_TRUE(spliter.send(_state, &batch).ok());
-    ASSERT_TRUE(spliter.close(_state, Status::OK).ok());
+    ASSERT_TRUE(spliter.close(_state, Status::OK()).ok());
 }
 
 }

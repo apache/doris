@@ -190,7 +190,7 @@ StringVal Literal::get_string_val(ExprContext* context, TupleRow* row) {
 Status Literal::get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn) {
     if (_ir_compute_fn != NULL) {
         *fn = _ir_compute_fn;
-        return Status::OK;
+        return Status::OK();
     }
 
     DCHECK_EQ(get_num_children(), 0);
@@ -249,13 +249,13 @@ Status Literal::get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn
         std::stringstream ss;
         ss << "Invalid type: " << _type;
         DCHECK(false) << ss.str();
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
     builder.CreateRet(v.value());
     *fn = codegen->finalize_function(*fn);
     _ir_compute_fn = *fn;
-    return Status::OK;
+    return Status::OK();
 }
 
 }

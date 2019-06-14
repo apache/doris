@@ -67,9 +67,9 @@ void init_mock() {
     db_num = 0;
     table_num = 0;
     desc_num = 0;
-    s_db_result = Status::OK;
-    s_table_result = Status::OK;
-    s_desc_result = Status::OK;
+    s_db_result = Status::OK();
+    s_table_result = Status::OK();
+    s_desc_result = Status::OK();
 }
 
 class SchemaSchemataScannerTest : public testing::Test {
@@ -161,7 +161,7 @@ TEST_F(SchemaSchemataScannerTest, start_fail) {
     SchemaSchemataScanner scanner;
     Status status = scanner.init(&_param, &_obj_pool);
     ASSERT_TRUE(status.ok());
-    s_db_result = Status("get db failed.");
+    s_db_result = Status::InternalError("get db failed.");
     status = scanner.start((RuntimeState *)1);
     ASSERT_FALSE(status.ok());
 }

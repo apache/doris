@@ -38,14 +38,14 @@ Status OrdinalPageIndex::load() {
     for (int i = 0; i < _num_pages; ++i) {
         ptr = decode_varint32_ptr(ptr, limit, &_rowids[i]);
         if (ptr == nullptr) {
-            return Status("Data corruption");
+            return Status::InternalError("Data corruption");
         }
         ptr = _pages[i].decode_from(ptr, limit);
         if (ptr == nullptr) {
-            return Status("Data corruption");
+            return Status::InternalError("Data corruption");
         }
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 OrdinalPageIndexIterator OrdinalPageIndex::seek_at_or_before(rowid_t rid) {

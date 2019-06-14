@@ -259,7 +259,7 @@ Status PprofActions::setup(ExecEnv* exec_env, EvHttpServer* http_server) {
     http_server->register_handler(HttpMethod::GET, "/pprof/symbol", action);
     http_server->register_handler(HttpMethod::HEAD, "/pprof/symbol", action);
     http_server->register_handler(HttpMethod::POST, "/pprof/symbol", action);
-    return Status::OK;
+    return Status::OK();
 }
 
 }

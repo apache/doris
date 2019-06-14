@@ -690,7 +690,7 @@ class NewPartitionedHashTable {
   /// max fill factor.
   /// If 'got_memory' is true, then it is guaranteed at least 'rows_to_add' rows can be
   /// inserted without need to resize. If there is not enough memory available to
-  /// resize the hash table, Status::OK() is returned and 'got_memory' is false. If a
+  /// resize the hash table, Status::OK()() is returned and 'got_memory' is false. If a
   /// another error occurs, an error status may be returned.
   Status CheckAndResize(uint64_t buckets_to_fill, const NewPartitionedHashTableCtx* ht_ctx,
       bool* got_memory);

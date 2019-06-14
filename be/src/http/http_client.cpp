@@ -37,7 +37,7 @@ Status HttpClient::init(const std::string& url) {
     if (_curl == nullptr) {
         _curl = curl_easy_init();
         if (_curl == nullptr) {
-            return Status("fail to initalize curl");
+            return Status::InternalError("fail to initalize curl");
         }
     } else {
         curl_easy_reset(_curl);
@@ -52,30 +52,30 @@ Status HttpClient::init(const std::string& url) {
     auto code = curl_easy_setopt(_curl, CURLOPT_ERRORBUFFER, _error_buf);
     if (code != CURLE_OK) {
         LOG(WARNING) << "fail to set CURLOPT_ERRORBUFFER, msg=" << _to_errmsg(code);
-        return Status("fail to set error buffer");
+        return Status::InternalError("fail to set error buffer");
     }
     // forbid signals
     code = curl_easy_setopt(_curl, CURLOPT_NOSIGNAL, 1L);
     if (code != CURLE_OK) {
         LOG(WARNING) << "fail to set CURLOPT_NOSIGNAL, msg=" << _to_errmsg(code);
-        return Status("fail to set CURLOPT_NOSIGNAL");
+        return Status::InternalError("fail to set CURLOPT_NOSIGNAL");
     }
     // set fail on error
     code = curl_easy_setopt(_curl, CURLOPT_FAILONERROR, 1L);
     if (code != CURLE_OK) {
         LOG(WARNING) << "fail to set CURLOPT_FAILONERROR, msg=" << _to_errmsg(code);
-        return Status("fail to set CURLOPT_FAILONERROR");
+        return Status::InternalError("fail to set CURLOPT_FAILONERROR");
     }
     // set redirect 
     code = curl_easy_setopt(_curl, CURLOPT_FOLLOWLOCATION, 1L);
     if (code != CURLE_OK) {
         LOG(WARNING) << "fail to set CURLOPT_FOLLOWLOCATION, msg=" << _to_errmsg(code);
-        return Status("fail to set CURLOPT_FOLLOWLOCATION");
+        return Status::InternalError("fail to set CURLOPT_FOLLOWLOCATION");
     }
     code = curl_easy_setopt(_curl, CURLOPT_MAXREDIRS, 20);
     if (code != CURLE_OK) {
         LOG(WARNING) << "fail to set CURLOPT_MAXREDIRS, msg=" << _to_errmsg(code);
-        return Status("fail to set CURLOPT_MAXREDIRS");
+        return Status::InternalError("fail to set CURLOPT_MAXREDIRS");
     }
 
     curl_write_callback callback = [] (char* buffer, size_t size, size_t nmemb, void* param) {
@@ -87,21 +87,21 @@ Status HttpClient::init(const std::string& url) {
     code = curl_easy_setopt(_curl, CURLOPT_WRITEFUNCTION, callback);
     if (code != CURLE_OK) {
         LOG(WARNING) << "fail to set CURLOPT_WRITEFUNCTION, msg=" << _to_errmsg(code);
-        return Status("fail to set CURLOPT_WRITEFUNCTION");
+        return Status::InternalError("fail to set CURLOPT_WRITEFUNCTION");
     }
     code = curl_easy_setopt(_curl, CURLOPT_WRITEDATA, (void*) this);
     if (code != CURLE_OK) {
         LOG(WARNING) << "fail to set CURLOPT_WRITEDATA, msg=" << _to_errmsg(code);
-        return Status("fail to set CURLOPT_WRITEDATA");
+        return Status::InternalError("fail to set CURLOPT_WRITEDATA");
     }
     // set url
     code = curl_easy_setopt(_curl, CURLOPT_URL, url.c_str());
     if (code != CURLE_OK) {
         LOG(WARNING) << "failed to set CURLOPT_URL, errmsg=" << _to_errmsg(code);
-        return Status("fail to set CURLOPT_URL");
+        return Status::InternalError("fail to set CURLOPT_URL");
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 void HttpClient::set_method(HttpMethod method) {
@@ -162,9 +162,9 @@ Status HttpClient::execute(const std::function<bool(const void* data, size_t len
     auto code = curl_easy_perform(_curl);
     if (code != CURLE_OK) {
         LOG(WARNING) << "fail to execute HTTP client, errmsg=" << _to_errmsg(code);
-        return Status(_to_errmsg(code));
+        return Status::InternalError(_to_errmsg(code));
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status HttpClient::download(const std::string& local_path) {
@@ -183,7 +183,7 @@ Status HttpClient::download(const std::string& local_path) {
     std::unique_ptr<FILE, decltype(fp_closer)> fp(fopen(local_path.c_str(), "w"), fp_closer);
     if (fp == nullptr) {
         LOG(WARNING) << "open file failed, file=" << local_path;
-        return Status("open file failed");
+        return Status::InternalError("open file failed");
     }
     Status status;
     auto callback = [&status, &fp, &local_path] (const void* data, size_t length) {
@@ -191,7 +191,7 @@ Status HttpClient::download(const std::string& local_path) {
         if (res != 1) {
             LOG(WARNING) << "fail to write data to file, file=" << local_path
                 << ", error=" << ferror(fp.get());
-            status = Status("fail to write data when download");
+            status = Status::InternalError("fail to write data when download");
             return false;
         }
         return true;

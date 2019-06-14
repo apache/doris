@@ -44,10 +44,10 @@ Status GzipDecompressor::init() {
     int window_bits = _is_deflate ? -WINDOW_BITS : WINDOW_BITS | DETECT_CODEC;
 
     if ((ret = inflateInit2(&_stream, window_bits)) != Z_OK) {
-        return Status("zlib inflateInit failed: " +  std::string(_stream.msg));
+        return Status::InternalError("zlib inflateInit failed: " +  std::string(_stream.msg));
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status GzipDecompressor::process_block(int input_length, uint8_t* input,
@@ -63,7 +63,7 @@ Status GzipDecompressor::process_block(int input_length, uint8_t* input,
         _buffer_length = input_length * 2;
 
         if (_buffer_length > MAX_BLOCK_SIZE) {
-            return Status("Decompressor: block size is too big");
+            return Status::InternalError("Decompressor: block size is too big");
         }
 
         _out_buffer = _temp_memory_pool.allocate(_buffer_length);
@@ -86,31 +86,31 @@ Status GzipDecompressor::process_block(int input_length, uint8_t* input,
                 DCHECK_EQ(*output_length, 0);
 
                 if (*output_length != 0) {
-                    return Status("Too small a buffer passed to GzipDecompressor");
+                    return Status::InternalError("Too small a buffer passed to GzipDecompressor");
                 }
 
                 _temp_memory_pool.clear();
                 _buffer_length *= 2;
 
                 if (_buffer_length > MAX_BLOCK_SIZE) {
-                    return Status("Decompressor: block size is too big");
+                    return Status::InternalError("Decompressor: block size is too big");
                 }
 
                 _out_buffer = _temp_memory_pool.allocate(_buffer_length);
 
                 if (inflateReset(&_stream) != Z_OK) {
-                    return Status("zlib inflateEnd failed: " + std::string(_stream.msg));
+                    return Status::InternalError("zlib inflateEnd failed: " + std::string(_stream.msg));
                 }
 
                 continue;
             }
 
-            return Status("zlib inflate failed: " + std::string(_stream.msg));
+            return Status::InternalError("zlib inflate failed: " + std::string(_stream.msg));
         }
     }
 
     if (inflateReset(&_stream) != Z_OK) {
-        return Status("zlib inflateEnd failed: " + std::string(_stream.msg));
+        return Status::InternalError("zlib inflateEnd failed: " + std::string(_stream.msg));
     }
 
     *output = _out_buffer;
@@ -125,7 +125,7 @@ Status GzipDecompressor::process_block(int input_length, uint8_t* input,
         _memory_pool->acquire_data(&_temp_memory_pool, _reuse_buffer);
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 BzipDecompressor::BzipDecompressor(MemPool* mem_pool, bool reuse_buffer) : 
@@ -145,7 +145,7 @@ Status BzipDecompressor::process_block(int input_length, uint8_t* input,
         _buffer_length = input_length * 2;
 
         if (_buffer_length > MAX_BLOCK_SIZE) {
-            return Status("Decompressor: block size is too big");
+            return Status::InternalError("Decompressor: block size is too big");
         }
 
         _out_buffer = _temp_memory_pool.allocate(_buffer_length);
@@ -162,7 +162,7 @@ Status BzipDecompressor::process_block(int input_length, uint8_t* input,
             _buffer_length = _buffer_length * 2;
 
             if (_buffer_length > MAX_BLOCK_SIZE) {
-                return Status("Decompressor: block size is too big");
+                return Status::InternalError("Decompressor: block size is too big");
             }
 
             _out_buffer = _temp_memory_pool.allocate(_buffer_length);
@@ -178,7 +178,7 @@ Status BzipDecompressor::process_block(int input_length, uint8_t* input,
             DCHECK_EQ(*output_length, 0);
 
             if (*output_length != 0) {
-                return Status("Too small a buffer passed to BzipDecompressor");
+                return Status::InternalError("Too small a buffer passed to BzipDecompressor");
             }
 
             _out_buffer = NULL;
@@ -188,7 +188,7 @@ Status BzipDecompressor::process_block(int input_length, uint8_t* input,
     if (ret !=  BZ_OK) {
         std::stringstream ss;
         ss << "bzlib BZ2_bzBuffToBuffDecompressor failed: " << ret;
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
 
     }
 
@@ -202,7 +202,7 @@ Status BzipDecompressor::process_block(int input_length, uint8_t* input,
         _memory_pool->acquire_data(&_temp_memory_pool, _reuse_buffer);
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 SnappyDecompressor::SnappyDecompressor(MemPool* mem_pool, bool reuse_buffer)
@@ -221,14 +221,14 @@ Status SnappyDecompressor::process_block(int input_length, uint8_t* input,
         // Snappy saves the uncompressed length so we never have to retry.
         if (!snappy::GetUncompressedLength(reinterpret_cast<const char*>(input),
                                            input_length, &uncompressed_length)) {
-            return Status("Snappy: GetUncompressedLength failed");
+            return Status::InternalError("Snappy: GetUncompressedLength failed");
         }
 
         if (!_reuse_buffer || _out_buffer == NULL || _buffer_length < uncompressed_length) {
             _buffer_length = uncompressed_length;
 
             if (_buffer_length > MAX_BLOCK_SIZE) {
-                return Status("Decompressor: block size is too big");
+                return Status::InternalError("Decompressor: block size is too big");
             }
 
             _out_buffer = _memory_pool->allocate(_buffer_length);
@@ -238,7 +238,7 @@ Status SnappyDecompressor::process_block(int input_length, uint8_t* input,
     if (!snappy::RawUncompress(
             reinterpret_cast<const char*>(input),
             static_cast<size_t>(input_length), reinterpret_cast<char*>(_out_buffer))) {
-        return Status("Snappy: RawUncompress failed");
+        return Status::InternalError("Snappy: RawUncompress failed");
     }
 
     if (*output_length == 0) {
@@ -246,7 +246,7 @@ Status SnappyDecompressor::process_block(int input_length, uint8_t* input,
         *output = _out_buffer;
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 SnappyBlockDecompressor::SnappyBlockDecompressor(MemPool* mem_pool, bool reuse_buffer) : 
@@ -290,7 +290,7 @@ static Status snappy_block_decompress(int input_len, uint8_t* input, bool size_o
                 std::stringstream ss;
                 ss << "Decompressor: block size is too big.  Data is likely corrupt. "
                    << "Size: " << uncompressed_block_len;
-                return Status(ss.str());
+                return Status::InternalError(ss.str());
             }
 
             break;
@@ -309,7 +309,7 @@ static Status snappy_block_decompress(int input_len, uint8_t* input, bool size_o
 
             if (compressed_len == 0 || compressed_len > input_len) {
                 if (uncompressed_total_len == 0) {
-                    return Status(
+                    return Status::InternalError(
                                "Decompressor: invalid compressed length.  Data is likely corrupt.");
                 }
 
@@ -323,7 +323,7 @@ static Status snappy_block_decompress(int input_len, uint8_t* input, bool size_o
             if (!snappy::GetUncompressedLength(reinterpret_cast<char*>(input),
                                                input_len, &uncompressed_len)) {
                 if (uncompressed_total_len == 0) {
-                    return Status("Snappy: GetUncompressedLength failed");
+                    return Status::InternalError("Snappy: GetUncompressedLength failed");
                 }
 
                 input_len = 0;
@@ -336,7 +336,7 @@ static Status snappy_block_decompress(int input_len, uint8_t* input, bool size_o
                 // Decompress this snappy block
                 if (!snappy::RawUncompress(reinterpret_cast<char*>(input),
                                            compressed_len, output)) {
-                    return Status("Snappy: RawUncompress failed");
+                    return Status::InternalError("Snappy: RawUncompress failed");
                 }
 
                 output += uncompressed_len;
@@ -352,10 +352,10 @@ static Status snappy_block_decompress(int input_len, uint8_t* input, bool size_o
     if (size_only) {
         *output_len = uncompressed_total_len;
     } else if (*output_len != uncompressed_total_len) {
-        return Status("Snappy: Decompressed size is not correct.");
+        return Status::InternalError("Snappy: Decompressed size is not correct.");
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status SnappyBlockDecompressor::process_block(int input_len, uint8_t* input,
@@ -381,12 +381,12 @@ Status SnappyBlockDecompressor::process_block(int input_len, uint8_t* input,
         std::stringstream ss;
         ss << "Decompressor: block size is too big.  Data is likely corrupt. "
            << "Size: " << *output_len;
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
     char* out_ptr = reinterpret_cast<char*>(*output);
     RETURN_IF_ERROR(snappy_block_decompress(input_len, input, false, output_len, out_ptr));
-    return Status::OK;
+    return Status::OK();
 }
 
 }

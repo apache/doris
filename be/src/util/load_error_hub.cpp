@@ -36,7 +36,7 @@ Status LoadErrorHub::create_hub(
         tmp_hub = new NullLoadErrorHub();
         tmp_hub->prepare();
         hub->reset(tmp_hub);
-        return Status::OK;
+        return Status::OK();
     }
 
     VLOG_ROW << "create_hub: " << apache::thrift::ThriftDebugString(*t_hub_info).c_str();
@@ -49,7 +49,7 @@ Status LoadErrorHub::create_hub(
         hub->reset(tmp_hub);
         break;
 #else
-        return Status("Don't support MySQL table, you should rebuild Doris with WITH_MYSQL option ON");
+        return Status::InternalError("Don't support MySQL table, you should rebuild Doris with WITH_MYSQL option ON");
 #endif
     case TErrorHubType::BROKER: {
         // the origin file name may contains __shard_0/xxx
@@ -70,10 +70,10 @@ Status LoadErrorHub::create_hub(
     default:
         std::stringstream err;
         err << "Unknown hub type." << t_hub_info->type;
-        return Status(err.str());
+        return Status::InternalError(err.str());
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 } // end namespace doris

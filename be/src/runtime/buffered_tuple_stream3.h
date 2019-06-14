@@ -387,7 +387,7 @@ class BufferedTupleStream3 {
     Status GetBuffer(const BufferPool::BufferHandle** buffer) {
       RETURN_IF_ERROR(handle.GetBuffer(buffer));
       retrieved_buffer = true;
-      return Status::OK;
+      return Status::OK();
     }
     std::string DebugString() const;
 

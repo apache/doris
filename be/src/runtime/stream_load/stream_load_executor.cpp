@@ -61,10 +61,10 @@ Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx) {
                 int64_t num_selected_rows =
                     ctx->number_total_rows - ctx->number_unselected_rows;
                 if ((0.0 + ctx->number_filtered_rows) / num_selected_rows > ctx->max_filter_ratio) {
-                    status = Status("too many filtered rows");
+                    status = Status::InternalError("too many filtered rows");
                 }
                 else if(ctx->number_loaded_rows == 0){
-                    status = Status("all partitions have no load data");
+                    status = Status::InternalError("all partitions have no load data");
                 }
                 if (ctx->number_filtered_rows > 0 &&
                     !executor->runtime_state()->get_error_log_file_path().empty()) {
@@ -108,7 +108,7 @@ Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx) {
 #else
     ctx->promise.set_value(k_stream_load_plan_status);
 #endif
-    return Status::OK;
+    return Status::OK();
 }
 
 Status StreamLoadExecutor::begin_txn(StreamLoadContext* ctx) {
@@ -142,7 +142,7 @@ Status StreamLoadExecutor::begin_txn(StreamLoadContext* ctx) {
     ctx->txn_id = result.txnId;
     ctx->need_rollback = true;
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status StreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
@@ -185,7 +185,7 @@ Status StreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
     }
     // commit success, set need_rollback to false
     ctx->need_rollback = false;
-    return Status::OK;
+    return Status::OK();
 }
 
 void StreamLoadExecutor::rollback_txn(StreamLoadContext* ctx) {

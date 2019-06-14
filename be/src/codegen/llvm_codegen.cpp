@@ -123,7 +123,7 @@ Status LlvmCodeGen::load_from_file(
     if (err.value() != 0) {
         std::stringstream ss;
         ss << "Could not load module " << file << ": " << err.message();
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
     COUNTER_UPDATE((*codegen)->_module_file_size, file_buffer->getBufferSize());
@@ -135,7 +135,7 @@ Status LlvmCodeGen::load_from_file(
     if (loaded_module == NULL) {
         std::stringstream ss;
         ss << "Could not parse module " << file << ": " << error;
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
     (*codegen)->_module = loaded_module;
@@ -167,9 +167,9 @@ Status LlvmCodeGen::load_module_from_memory(
     if (*module == NULL) {
         std::stringstream ss;
         ss << "Could not parse module " << module_name << ": " << error;
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status LlvmCodeGen::load_doris_ir(
@@ -213,7 +213,7 @@ Status LlvmCodeGen::load_doris_ir(
 
     if (layout->getSizeInBytes() != sizeof(StringValue)) {
         DCHECK_EQ(layout->getSizeInBytes(), sizeof(StringValue));
-        return Status("Could not create llvm struct type for StringVal");
+        return Status::InternalError("Could not create llvm struct type for StringVal");
     }
 
     // Parse functions from module
@@ -231,7 +231,7 @@ Status LlvmCodeGen::load_doris_ir(
             // undoing the mangling is no fun either.
             if (fn_name.find(FN_MAPPINGS[j].fn_name) != std::string::npos) {
                 if (codegen->_loaded_functions[FN_MAPPINGS[j].fn] != NULL) {
-                    return Status("Duplicate definition found for function: " + fn_name);
+                    return Status::InternalError("Duplicate definition found for function: " + fn_name);
                 }
 
                 codegen->_loaded_functions[FN_MAPPINGS[j].fn] = functions[i];
@@ -256,10 +256,10 @@ Status LlvmCodeGen::load_doris_ir(
             }
         }
 
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status LlvmCodeGen::init() {
@@ -286,7 +286,7 @@ Status LlvmCodeGen::init() {
         delete _module;
         std::stringstream ss;
         ss << "Could not create ExecutionEngine: " << _error_string;
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
     _void_type = llvm::Type::getVoidTy(context());
     _ptr_type = llvm::PointerType::get(get_type(TYPE_TINYINT), 0);
@@ -295,7 +295,7 @@ Status LlvmCodeGen::init() {
 
     RETURN_IF_ERROR(load_intrinsics());
 
-    return Status::OK;
+    return Status::OK();
 }
 
 LlvmCodeGen::~LlvmCodeGen() {
@@ -681,7 +681,7 @@ Status LlvmCodeGen::finalize_module() {
 #endif
 
     if (_is_corrupt) {
-        return Status("Module is corrupt.");
+        return Status::InternalError("Module is corrupt.");
     }
     SCOPED_TIMER(_profile.total_time_counter());
 
@@ -710,7 +710,7 @@ Status LlvmCodeGen::finalize_module() {
     }
 #endif
 
-    return Status::OK;
+    return Status::OK();
 }
 
 void LlvmCodeGen::optimize_module() {
@@ -995,7 +995,7 @@ Status LlvmCodeGen::load_intrinsics() {
                 module(), llvm::Intrinsic::memcpy, types);
 
         if (fn == NULL) {
-            return Status("Could not find memcpy intrinsic.");
+            return Status::InternalError("Could not find memcpy intrinsic.");
         }
 
         _llvm_intrinsics[llvm::Intrinsic::memcpy] = fn;
@@ -1021,13 +1021,13 @@ Status LlvmCodeGen::load_intrinsics() {
         if (fn == NULL) {
             std::stringstream ss;
             ss << "Could not find " << non_overloaded_intrinsics[i].error << " intrinsic";
-            return Status(ss.str());
+            return Status::InternalError(ss.str());
         }
 
         _llvm_intrinsics[id] = fn;
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 void LlvmCodeGen::codegen_memcpy(LlvmBuilder* builder, llvm::Value* dst, llvm::Value* src, int size) {

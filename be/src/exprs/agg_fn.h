@@ -136,7 +136,7 @@ class AggFn : public Expr {
       WARN_UNUSED_RESULT;
 
   Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn) {
-      return Status::OK;
+      return Status::OK();
   }
 
   /// Releases all cache entries to libCache for all nodes in the expr tree.

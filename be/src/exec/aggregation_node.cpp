@@ -89,7 +89,7 @@ Status AggregationNode::init(const TPlanNode& tnode, RuntimeState* state) {
             _pool, tnode.agg_node.aggregate_functions[i], &evaluator);
         _aggregate_evaluators.push_back(evaluator);
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status AggregationNode::prepare(RuntimeState* state) {
@@ -172,7 +172,7 @@ Status AggregationNode::prepare(RuntimeState* state) {
         }
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status AggregationNode::open(RuntimeState* state) {
@@ -255,7 +255,7 @@ Status AggregationNode::open(RuntimeState* state) {
     VLOG_ROW << "id=" << id() << " aggregated " << num_input_rows << " input rows into "
               << num_agg_rows << " output rows";
     _output_iterator = _hash_tbl->begin();
-    return Status::OK;
+    return Status::OK();
 }
 
 Status AggregationNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
@@ -267,7 +267,7 @@ Status AggregationNode::get_next(RuntimeState* state, RowBatch* row_batch, bool*
 
     if (reached_limit()) {
         *eos = true;
-        return Status::OK;
+        return Status::OK();
     }
 
     ExprContext** ctxs = &_conjunct_ctxs[0];
@@ -312,12 +312,12 @@ Status AggregationNode::get_next(RuntimeState* state, RowBatch* row_batch, bool*
         }
     }
     COUNTER_SET(_rows_returned_counter, _num_rows_returned);
-    return Status::OK;
+    return Status::OK();
 }
 
 Status AggregationNode::close(RuntimeState* state) {
     if (is_closed()) {
-        return Status::OK;
+        return Status::OK();
     }
 
     // Iterate through the remaining rows in the hash table and call Serialize/Finalize on

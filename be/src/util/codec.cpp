@@ -71,14 +71,14 @@ Status Codec::create_compressor(RuntimeState* runtime_state, MemPool* mem_pool,
     if (type == CODEC_MAP.end()) {
         std::stringstream ss;
         ss << UNKNOWN_CODEC_ERROR << codec;
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
     Codec* comp = NULL;
     RETURN_IF_ERROR(
             create_compressor(runtime_state, mem_pool, reuse, type->second, &comp));
     compressor->reset(comp);
-    return Status::OK;
+    return Status::OK();
 }
 
 Status Codec::create_compressor(RuntimeState* runtime_state, MemPool* mem_pool,
@@ -88,7 +88,7 @@ Status Codec::create_compressor(RuntimeState* runtime_state, MemPool* mem_pool,
     RETURN_IF_ERROR(
             create_compressor(runtime_state, mem_pool, reuse, format, &comp));
     compressor->reset(comp);
-    return Status::OK;
+    return Status::OK();
 }
 
 Status Codec::create_compressor(RuntimeState* runtime_state, MemPool* mem_pool,
@@ -97,7 +97,7 @@ Status Codec::create_compressor(RuntimeState* runtime_state, MemPool* mem_pool,
     switch (format) {
     case THdfsCompression::NONE:
         *compressor = NULL;
-        return Status::OK;
+        return Status::OK();
 
     case THdfsCompression::GZIP:
         *compressor = new GzipCompressor(GzipCompressor::GZIP, mem_pool, reuse);
@@ -136,14 +136,14 @@ Status Codec::create_decompressor(RuntimeState* runtime_state, MemPool* mem_pool
     if (type == CODEC_MAP.end()) {
         std::stringstream ss;
         ss << UNKNOWN_CODEC_ERROR << codec;
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
     Codec* decom = NULL;
     RETURN_IF_ERROR(
         create_decompressor(runtime_state, mem_pool, reuse, type->second, &decom));
     decompressor->reset(decom);
-    return Status::OK;
+    return Status::OK();
 }
 
 Status Codec::create_decompressor(RuntimeState* runtime_state, MemPool* mem_pool,
@@ -153,7 +153,7 @@ Status Codec::create_decompressor(RuntimeState* runtime_state, MemPool* mem_pool
     RETURN_IF_ERROR(
         create_decompressor(runtime_state, mem_pool, reuse, format, &decom));
     decompressor->reset(decom);
-    return Status::OK;
+    return Status::OK();
 }
 
 Status Codec::create_decompressor(RuntimeState* runtime_state, MemPool* mem_pool,
@@ -162,7 +162,7 @@ Status Codec::create_decompressor(RuntimeState* runtime_state, MemPool* mem_pool
     switch (format) {
     case THdfsCompression::NONE:
         *decompressor = NULL;
-        return Status::OK;
+        return Status::OK();
 
     case THdfsCompression::DEFAULT:
     case THdfsCompression::GZIP:

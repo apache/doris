@@ -53,7 +53,7 @@ private:
     Status sort_input(RuntimeState* state);
 
     // Create a block manager object and set it in block_mgr_.
-    // Returns and sets the query status to Status::MEM_LIMIT_EXCEEDED if there is not
+    // Returns and sets the query status to Status::MemoryLimitExceeded("Memory limit exceeded") if there is not
     // enough memory for the sort.
     Status create_block_mgr(RuntimeState* state);
 

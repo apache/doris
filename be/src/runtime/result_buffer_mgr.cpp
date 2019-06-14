@@ -44,7 +44,7 @@ Status ResultBufferMgr::init() {
     _cancel_thread.reset(
             new boost::thread(
                     boost::bind<void>(boost::mem_fn(&ResultBufferMgr::cancel_thread), this)));
-    return Status::OK;
+    return Status::OK();
 }
 
 Status ResultBufferMgr::create_sender(
@@ -54,7 +54,7 @@ Status ResultBufferMgr::create_sender(
     if (*sender != nullptr) {
         LOG(WARNING) << "already have buffer control block for this instance "
                      << query_id;
-        return Status::OK;
+        return Status::OK();
     }
 
     boost::shared_ptr<BufferControlBlock> control_block(
@@ -64,7 +64,7 @@ Status ResultBufferMgr::create_sender(
         _buffer_map.insert(std::make_pair(query_id, control_block));
     }
     *sender = control_block;
-    return Status::OK;
+    return Status::OK();
 }
 
 boost::shared_ptr<BufferControlBlock> ResultBufferMgr::find_control_block(
@@ -86,7 +86,7 @@ Status ResultBufferMgr::fetch_data(
 
     if (NULL == cb) {
         // the sender tear down its buffer block
-        return Status("no result for this query.");
+        return Status::InternalError("no result for this query.");
     }
 
     return cb->get_batch(result);
@@ -99,7 +99,7 @@ void ResultBufferMgr::fetch_data(const PUniqueId& finst_id, GetResultBatchCtx* c
     boost::shared_ptr<BufferControlBlock> cb = find_control_block(tid);
     if (cb == nullptr) {
         LOG(WARNING) << "no result for this query, id=" << tid;
-        ctx->on_failure(Status("no result for this query"));
+        ctx->on_failure(Status::InternalError("no result for this query"));
         return;
     }
     cb->get_batch(ctx);
@@ -114,7 +114,7 @@ Status ResultBufferMgr::cancel(const TUniqueId& query_id) {
         _buffer_map.erase(iter);
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status ResultBufferMgr::cancel_at_time(time_t cancel_time, const TUniqueId& query_id) {
@@ -128,7 +128,7 @@ Status ResultBufferMgr::cancel_at_time(time_t cancel_time, const TUniqueId& quer
     }
 
     iter->second.push_back(query_id);
-    return Status::OK;
+    return Status::OK();
 }
 
 void ResultBufferMgr::cancel_thread() {

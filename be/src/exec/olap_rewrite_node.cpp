@@ -45,7 +45,7 @@ Status OlapRewriteNode::init(const TPlanNode& tnode, RuntimeState* state) {
             _pool, tnode.olap_rewrite_node.columns, &_columns));
     _column_types = tnode.olap_rewrite_node.column_types;
     _output_tuple_id = tnode.olap_rewrite_node.output_tuple_id;
-    return Status::OK;
+    return Status::OK();
 }
 
 Status OlapRewriteNode::prepare(RuntimeState* state) {
@@ -68,14 +68,14 @@ Status OlapRewriteNode::prepare(RuntimeState* state) {
                 _column_types[i].precision, _column_types[i].scale);
         }
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status OlapRewriteNode::open(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::open(state));
     RETURN_IF_ERROR(Expr::open(_columns, state));
     RETURN_IF_ERROR(child(0)->open(state));
-    return Status::OK;
+    return Status::OK();
 }
 
 Status OlapRewriteNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
@@ -86,7 +86,7 @@ Status OlapRewriteNode::get_next(RuntimeState* state, RowBatch* row_batch, bool*
         // we're already done or we exhausted the last child batch and there won't be any
         // new ones
         *eos = true;
-        return Status::OK;
+        return Status::OK();
     }
 
     // start (or continue) consuming row batches from child
@@ -103,17 +103,17 @@ Status OlapRewriteNode::get_next(RuntimeState* state, RowBatch* row_batch, bool*
         if (copy_rows(state, row_batch)) {
             *eos = reached_limit()
                    || (_child_row_idx == _child_row_batch->num_rows() && _child_eos);
-            return Status::OK;
+            return Status::OK();
         }
 
         if (_child_eos) {
             // finished w/ last child row batch, and child eos is true
             *eos = true;
-            return Status::OK;
+            return Status::OK();
         }
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 bool OlapRewriteNode::copy_one_row(TupleRow* src_row, Tuple* tuple, 
@@ -261,7 +261,7 @@ bool OlapRewriteNode::copy_rows(RuntimeState* state, RowBatch* output_batch) {
 
 Status OlapRewriteNode::close(RuntimeState* state) {
     if (is_closed()) {
-        return Status::OK;
+        return Status::OK();
     }
     _child_row_batch.reset();
     // RETURN_IF_ERROR(child(0)->close(state));

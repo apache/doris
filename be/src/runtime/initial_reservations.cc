@@ -50,17 +50,15 @@ Status InitialReservations::Init(
     const TUniqueId& query_id, int64_t query_min_reservation) {
   DCHECK_EQ(0, initial_reservations_.GetReservation()) << "Already inited";
   if (!initial_reservations_.IncreaseReservation(query_min_reservation)) {
-      Status status;
       std::stringstream ss;
       ss  << "Minimum reservation unavaliable: " << query_min_reservation
           << " query id:" << query_id; 
-      status.add_error_msg(TStatusCode::MINIMUM_RESERVATION_UNAVAILABLE, ss.str());
-      return status;
+      return Status::MinimumReservationUnavailable(ss.str());
   }
   VLOG_QUERY << "Successfully claimed initial reservations ("
             << PrettyPrinter::print(query_min_reservation, TUnit::BYTES) << ") for"
             << " query " << print_id(query_id);
-  return Status::OK;
+  return Status::OK();
 }
 
 void InitialReservations::Claim(BufferPool::ClientHandle* dst, int64_t bytes) {
