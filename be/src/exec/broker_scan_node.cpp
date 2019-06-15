@@ -320,7 +320,11 @@ Status BrokerScanNode::scanner_scan(
                 continue;
             }
 
-            if (scan_range.params.__isset.partition_ids) {
+            // The reason we check if partition_expr_ctxs is empty is when loading data to
+            // a unpartitioned table who has no partition_expr_ctxs, user can specify
+            // a partition name. And we check here to aovid this check and make our
+            // process run as normal
+            if (scan_range.params.__isset.partition_ids && !partition_expr_ctxs.empty()) {
                 int64_t partition_id = get_partition_id(partition_expr_ctxs, row);
                 if (partition_id == -1 || 
                         !std::binary_search(scan_range.params.partition_ids.begin(), 
