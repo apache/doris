@@ -667,6 +667,13 @@ public class Load {
                 throw new DdlException("Table [" + tableName + "] is not olap table");
             }
 
+            // check partition
+            if (dataDescription.getPartitionNames() != null &&
+                    !dataDescription.getPartitionNames().isEmpty() &&
+                    ((OlapTable) table).getPartitionInfo().getType() == PartitionType.UNPARTITIONED) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_PARTITION_CLAUSE_NO_ALLOWED);
+            }
+
             if (((OlapTable) table).getState() == OlapTableState.RESTORE) {
                 throw new DdlException("Table [" + tableName + "] is under restore");
             }
