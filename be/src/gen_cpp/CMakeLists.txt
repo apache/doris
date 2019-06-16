@@ -82,6 +82,7 @@ set(SRC_FILES
     ${GEN_CPP_DIR}/palo_internal_service.pb.cc
     ${GEN_CPP_DIR}/types.pb.cc
     ${GEN_CPP_DIR}/status.pb.cc
+    ${GEN_CPP_DIR}/segment_v2.pb.cc
     #$${GEN_CPP_DIR}/opcode/functions.cc
     #$${GEN_CPP_DIR}/opcode/vector-functions.cc
     #$${GEN_CPP_DIR}/opcode/opcode-registry-init.cc

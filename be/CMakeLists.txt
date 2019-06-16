@@ -447,6 +447,7 @@ set(DORIS_LINK_LIBS
     Agent
     CodeGen
     Common
+    Env
     Exec
     Exprs
     Gutil
@@ -555,23 +556,24 @@ if (${MAKE_TEST} STREQUAL "ON")
     add_definitions(-DBE_TEST)
 endif ()
 
+add_subdirectory(${SRC_DIR}/agent)
 add_subdirectory(${SRC_DIR}/codegen)
 add_subdirectory(${SRC_DIR}/common)
-add_subdirectory(${SRC_DIR}/util)
-add_subdirectory(${SRC_DIR}/gen_cpp)
-add_subdirectory(${SRC_DIR}/gutil)
-add_subdirectory(${SRC_DIR}/olap)
-add_subdirectory(${SRC_DIR}/agent)
-add_subdirectory(${SRC_DIR}/http)
-add_subdirectory(${SRC_DIR}/service)
+add_subdirectory(${SRC_DIR}/env)
 add_subdirectory(${SRC_DIR}/exec)
 add_subdirectory(${SRC_DIR}/exprs)
-add_subdirectory(${SRC_DIR}/udf)
+add_subdirectory(${SRC_DIR}/gen_cpp)
+add_subdirectory(${SRC_DIR}/geo)
+add_subdirectory(${SRC_DIR}/gutil)
+add_subdirectory(${SRC_DIR}/http)
+add_subdirectory(${SRC_DIR}/olap)
 add_subdirectory(${SRC_DIR}/runtime)
+add_subdirectory(${SRC_DIR}/service)
 add_subdirectory(${SRC_DIR}/testutil)
 add_subdirectory(${SRC_DIR}/tools)
+add_subdirectory(${SRC_DIR}/udf)
 add_subdirectory(${SRC_DIR}/udf_samples)
-add_subdirectory(${SRC_DIR}/geo)
+add_subdirectory(${SRC_DIR}/util)
 
 # Utility CMake function to make specifying tests and benchmarks less verbose
 FUNCTION(ADD_BE_TEST TEST_NAME)
@@ -592,15 +594,16 @@ ENDFUNCTION()
 
 if (${MAKE_TEST} STREQUAL "ON")
     add_subdirectory(${TEST_DIR}/agent)
-    add_subdirectory(${TEST_DIR}/olap)
     add_subdirectory(${TEST_DIR}/common)
-    add_subdirectory(${TEST_DIR}/util)
-    add_subdirectory(${TEST_DIR}/udf)
+    add_subdirectory(${TEST_DIR}/env)
     add_subdirectory(${TEST_DIR}/exec)
     add_subdirectory(${TEST_DIR}/exprs)
-    add_subdirectory(${TEST_DIR}/runtime)
-    add_subdirectory(${TEST_DIR}/http)
     add_subdirectory(${TEST_DIR}/geo)
+    add_subdirectory(${TEST_DIR}/http)
+    add_subdirectory(${TEST_DIR}/olap)
+    add_subdirectory(${TEST_DIR}/runtime)
+    add_subdirectory(${TEST_DIR}/udf)
+    add_subdirectory(${TEST_DIR}/util)
 endif ()
 
 # Install be
