@@ -359,6 +359,15 @@ Parts of be/src/runtime/string_search.hpp: Python Software License V2
 
 --------------------------------------------------------------------------------
 
+be/src/env (some portions): 3-clause BSD
+
+Some portions of this module are derived from code from RocksDB
+( https://github.com/facebook/rocksdb ). RocksDB is dual-licensed
+ under both the GPLv2 and Apache 2.0 License. We select Apache 2.0
+License.
+
+--------------------------------------------------------------------------------
+
 be/src/util/coding.*, be/src/util/status.*: 3-clause BSD
 
 Copyright (c) 2011 The LevelDB Authors. All rights reserved.
