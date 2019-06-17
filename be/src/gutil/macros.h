@@ -262,4 +262,26 @@ enum LinkerInitialized { LINKER_INITIALIZED };
 #define FALLTHROUGH_INTENDED do { } while (0)
 #endif
 
+// Retry on EINTR for functions like read() that return -1 on error.
+#define RETRY_ON_EINTR(err, expr) do { \
+  static_assert(std::is_signed<decltype(err)>::value, \
+                #err " must be a signed integer"); \
+  (err) = (expr); \
+} while ((err) == -1 && errno == EINTR)
+
+// Same as above but for stream API calls like fread() and fwrite().
+#define STREAM_RETRY_ON_EINTR(nread, stream, expr) do { \
+  static_assert(std::is_unsigned<decltype(nread)>::value == true, \
+                #nread " must be an unsigned integer"); \
+  (nread) = (expr); \
+} while ((nread) == 0 && ferror(stream) == EINTR)
+
+// Same as above but for functions that return pointer types (like
+// fopen() and freopen()).
+#define POINTER_RETRY_ON_EINTR(ptr, expr) do { \
+  static_assert(std::is_pointer<decltype(ptr)>::value == true, \
+                #ptr " must be a pointer"); \
+  (ptr) = (expr); \
+} while ((ptr) == nullptr && errno == EINTR)
+
 #endif  // BASE_MACROS_H_

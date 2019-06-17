@@ -71,55 +71,70 @@ public:
 
     static Status OK() { return Status(); }
 
-    static Status PublishTimeout(const Slice& msg, int16_t sub_code = 1, const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::PUBLISH_TIMEOUT, msg, sub_code, msg2);
+    static Status PublishTimeout(const Slice& msg, int16_t precise_code = 1, const Slice& msg2 = Slice()) {
+        return Status(TStatusCode::PUBLISH_TIMEOUT, msg, precise_code, msg2);
     }
-    static Status MemoryAllocFailed(const Slice& msg, int16_t sub_code = 1, const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::MEM_ALLOC_FAILED, msg, sub_code, msg2);
+    static Status MemoryAllocFailed(const Slice& msg, int16_t precise_code = 1, const Slice& msg2 = Slice()) {
+        return Status(TStatusCode::MEM_ALLOC_FAILED, msg, precise_code, msg2);
     }
-    static Status BufferAllocFailed(const Slice& msg, int16_t sub_code = 1, const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::BUFFER_ALLOCATION_FAILED, msg, sub_code, msg2);
+    static Status BufferAllocFailed(const Slice& msg, int16_t precise_code = 1, const Slice& msg2 = Slice()) {
+        return Status(TStatusCode::BUFFER_ALLOCATION_FAILED, msg, precise_code, msg2);
     }
-    static Status InvalidArgument(const Slice& msg, int16_t sub_code = 1, const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::INVALID_ARGUMENT, msg, sub_code, msg2);
+    static Status InvalidArgument(const Slice& msg, int16_t precise_code = 1, const Slice& msg2 = Slice()) {
+        return Status(TStatusCode::INVALID_ARGUMENT, msg, precise_code, msg2);
     }
-    static Status MinimumReservationUnavailable(const Slice& msg, int16_t sub_code = 1, const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::INVALID_ARGUMENT, msg, sub_code, msg2);
+    static Status MinimumReservationUnavailable(const Slice& msg, int16_t precise_code = 1, const Slice& msg2 = Slice()) {
+        return Status(TStatusCode::INVALID_ARGUMENT, msg, precise_code, msg2);
     }
-    static Status IoError(const Slice& msg,
-                               int16_t sub_code = 1,
+    static Status IOError(const Slice& msg,
+                               int16_t precise_code = 1,
                                const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::IO_ERROR, msg, sub_code, msg2);
+        return Status(TStatusCode::IO_ERROR, msg, precise_code, msg2);
+    }
+    static Status NotFound(const Slice& msg,
+                               int16_t precise_code = 1,
+                               const Slice& msg2 = Slice()) {
+        return Status(TStatusCode::NOT_FOUND, msg, precise_code, msg2);
+    }
+    static Status AlreadyExist(const Slice& msg,
+                               int16_t precise_code = 1,
+                               const Slice& msg2 = Slice()) {
+        return Status(TStatusCode::ALREADY_EXIST, msg, precise_code, msg2);
+    }
+    static Status NotSupported(const Slice& msg,
+                               int16_t precise_code = 1,
+                               const Slice& msg2 = Slice()) {
+        return Status(TStatusCode::NOT_IMPLEMENTED_ERROR, msg, precise_code, msg2);
     }
     static Status EndOfFile(const Slice& msg,
-                            int16_t sub_code = 1,
+                            int16_t precise_code = 1,
                             const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::END_OF_FILE, msg, sub_code, msg2);
+        return Status(TStatusCode::END_OF_FILE, msg, precise_code, msg2);
     }
     static Status InternalError(const Slice& msg,
-                               int16_t sub_code = 1,
+                               int16_t precise_code = 1,
                                const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::INTERNAL_ERROR, msg, sub_code, msg2);
+        return Status(TStatusCode::INTERNAL_ERROR, msg, precise_code, msg2);
     }
     static Status RuntimeError(const Slice& msg,
-                               int16_t sub_code = 1,
+                               int16_t precise_code = 1,
                                const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::RUNTIME_ERROR, msg, sub_code, msg2);
+        return Status(TStatusCode::RUNTIME_ERROR, msg, precise_code, msg2);
     }
-    static Status Cancelled(const Slice& msg, int16_t sub_code = 1, const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::CANCELLED, msg, sub_code, msg2);
-    }
-
-    static Status MemoryLimitExceeded(const Slice& msg, int16_t sub_code = 1, const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::MEM_LIMIT_EXCEEDED, msg, sub_code, msg2);
+    static Status Cancelled(const Slice& msg, int16_t precise_code = 1, const Slice& msg2 = Slice()) {
+        return Status(TStatusCode::CANCELLED, msg, precise_code, msg2);
     }
 
-    static Status ThriftRpcError(const Slice& msg, int16_t sub_code = 1, const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::THRIFT_RPC_ERROR, msg, sub_code, msg2);
+    static Status MemoryLimitExceeded(const Slice& msg, int16_t precise_code = 1, const Slice& msg2 = Slice()) {
+        return Status(TStatusCode::MEM_LIMIT_EXCEEDED, msg, precise_code, msg2);
     }
 
-    static Status TimedOut(const Slice& msg, int16_t sub_code = 1, const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::TIMEOUT, msg, sub_code, msg2);
+    static Status ThriftRpcError(const Slice& msg, int16_t precise_code = 1, const Slice& msg2 = Slice()) {
+        return Status(TStatusCode::THRIFT_RPC_ERROR, msg, precise_code, msg2);
+    }
+
+    static Status TimedOut(const Slice& msg, int16_t precise_code = 1, const Slice& msg2 = Slice()) {
+        return Status(TStatusCode::TIMEOUT, msg, precise_code, msg2);
     }
 
     bool ok() const { return _state == nullptr; }
@@ -198,7 +213,7 @@ public:
 private:
     const char* copy_state(const char* state);
 
-    Status(TStatusCode::type code, const Slice& msg, int16_t sub_code, const Slice& msg2);
+    Status(TStatusCode::type code, const Slice& msg, int16_t precise_code, const Slice& msg2);
 
 private:
     // OK status has a nullptr _state.  Otherwise, _state is a new[] array
@@ -213,7 +228,7 @@ private:
 // some generally useful macros
 #define RETURN_IF_ERROR(stmt) \
     do { \
-        Status _status_ = (stmt); \
+        const Status& _status_ = (stmt); \
         if (UNLIKELY(!_status_.ok())) { \
             return _status_; \
         } \
@@ -229,13 +244,22 @@ private:
 
 #define EXIT_IF_ERROR(stmt) \
     do { \
-        Status _status_ = (stmt); \
+        const Status& _status_ = (stmt); \
         if (UNLIKELY(!_status_.ok())) { \
             string msg = _status_.get_error_msg(); \
             LOG(ERROR) << msg;            \
             exit(1); \
         } \
     } while (false)
+
+/// @brief Emit a warning if @c to_call returns a bad status.
+#define WARN_IF_ERROR(to_call, warning_prefix) \
+    do { \
+        const Status& _s = (to_call);  \
+        if (PREDICT_FALSE(!_s.ok())) { \
+            LOG(WARNING) << (warning_prefix) << ": " << _s.to_string();  \
+        } \
+    } while (0);
 
 }
 

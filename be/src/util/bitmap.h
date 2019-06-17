@@ -120,9 +120,21 @@ inline bool BitmapEquals(const uint8_t* bm1, const uint8_t* bm2, size_t bitmap_s
 //   }
 class BitmapIterator {
 public:
-    BitmapIterator(const uint8_t *map, size_t num_bits)
+    BitmapIterator(const uint8_t* map, size_t num_bits)
         : offset_(0), num_bits_(num_bits), map_(map)
     {}
+
+    void Reset(const uint8_t* map, size_t num_bits) {
+        offset_ = 0;
+        num_bits_ = num_bits_;
+        map_ = map;
+    }
+
+    void Reset() {
+        offset_ = 0;
+        num_bits_ = 0;
+        map_ = nullptr;
+    }
 
     bool done() const {
         return (num_bits_ - offset_) == 0;
