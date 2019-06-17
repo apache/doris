@@ -37,7 +37,6 @@
 using base::CPU;
 
 namespace doris {
-
 namespace bitshuffle {
 
 // Function pointers which will be assigned the correct implementation
@@ -79,5 +78,4 @@ size_t compress_lz4_bound(size_t size, size_t elem_size, size_t block_size) {
 }
 
 } // namespace bitshuffle
-
 } // namespace doris

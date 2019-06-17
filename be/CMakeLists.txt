@@ -460,7 +460,6 @@ set(DORIS_LINK_LIBS
     Webserver
     TestUtil
     Geo
-    SegmentV2
     ${WL_END_GROUP}
 )
 

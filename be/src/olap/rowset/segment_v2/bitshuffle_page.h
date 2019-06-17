@@ -185,8 +185,8 @@ private:
     uint32_t _count;
     int _remain_element_capacity;
     bool _finished;
-    kudu::faststring _data;
-    kudu::faststring _buffer;
+    faststring _data;
+    faststring _buffer;
 };
 
 template<FieldType Type>
@@ -260,7 +260,7 @@ class BitShufflePageDecoder : public PageDecoder {
     }
 
     Status seek_to_position_in_page(size_t pos) override {
-        CHECK(_parsed) << "Must call init()";
+        DCHECK(_parsed) << "Must call init()";
         if (PREDICT_FALSE(_num_elements == 0)) {
             DCHECK_EQ(0, pos);
             return Status("invalid pos");
@@ -336,7 +336,7 @@ private:
 
     int _size_of_element;
     size_t _cur_index;
-    kudu::faststring _decoded;
+    faststring _decoded;
 };
 
 } // namespace segment_v2

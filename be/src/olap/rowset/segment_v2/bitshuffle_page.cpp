@@ -24,31 +24,31 @@ namespace segment_v2 {
 void abort_with_bitshuffle_error(int64_t val) {
     switch (val) {
     case -1:
-      LOG(FATAL) << "Failed to allocate memory";
+      LOG(WARNING) << "Failed to allocate memory";
       break;
     case -11:
-      LOG(FATAL) << "Missing SSE";
+      LOG(WARNING) << "Missing SSE";
       break;
     case -12:
-      LOG(FATAL) << "Missing AVX";
+      LOG(WARNING) << "Missing AVX";
       break;
     case -80:
-      LOG(FATAL) << "Input size not a multiple of 8";
+      LOG(WARNING) << "Input size not a multiple of 8";
       break;
     case -81:
-      LOG(FATAL) << "block_size not multiple of 8";
+      LOG(WARNING) << "block_size not multiple of 8";
       break;
     case -91:
-      LOG(FATAL) << "Decompression error, wrong number of bytes processed";
+      LOG(WARNING) << "Decompression error, wrong number of bytes processed";
       break;
     default:
-      LOG(FATAL) << "Error internal to compression routine";
+      LOG(WARNING) << "Error internal to compression routine";
     }
 }
 
 template<>
-Slice BitshufflePageBuilder<OLAP_FIELD_TYPE_UNSIGNED_INT>::finish(rowid_t page_first_rowid) {
-    uint32_t max_value = 0;
+Slice BitshufflePageBuilder<OLAP_FIELD_TYPE_INT>::finish(rowid_t page_first_rowid) {
+    int32_t max_value = 0;
     for (int i = 0; i < _count; i++) {
         max_value = std::max(max_value, cell(i));
     }
@@ -57,25 +57,25 @@ Slice BitshufflePageBuilder<OLAP_FIELD_TYPE_UNSIGNED_INT>::finish(rowid_t page_f
     // set the header information accordingly, so that the decoder can recover the
     // encoded data.
     Slice ret;
-    if (max_value <= std::numeric_limits<uint8_t>::max()) {
+    if (max_value <= std::numeric_limits<int8_t>::max()) {
         for (int i = 0; i < _count; i++) {
-            uint32_t value = cell(i);
-            uint8_t converted_value = static_cast<uint8_t>(value);
+            int32_t value = cell(i);
+            int8_t converted_value = static_cast<int8_t>(value);
             memcpy(&_data[i * sizeof(converted_value)], &converted_value, sizeof(converted_value));
         }
-        ret = _finish(page_first_rowid, sizeof(uint8_t));
-        encode_fixed32_le((uint8_t*)ret.mutable_data() + 16, sizeof(uint8_t));
-    } else if (max_value <= std::numeric_limits<uint16_t>::max()) {
+        ret = _finish(page_first_rowid, sizeof(int8_t));
+        encode_fixed32_le((uint8_t*)ret.mutable_data() + 16, sizeof(int8_t));
+    } else if (max_value <= std::numeric_limits<int16_t>::max()) {
         for (int i = 0; i < _count; i++) {
-            uint32_t value = cell(i);
-            uint16_t converted_value = static_cast<uint16_t>(value);
+            int32_t value = cell(i);
+            int16_t converted_value = static_cast<int16_t>(value);
             memcpy(&_data[i * sizeof(converted_value)], &converted_value, sizeof(converted_value));
         }
-        ret = _finish(page_first_rowid, sizeof(uint16_t));
-        encode_fixed32_le((uint8_t*)ret.mutable_data() + 16, sizeof(uint16_t));
+        ret = _finish(page_first_rowid, sizeof(int16_t));
+        encode_fixed32_le((uint8_t*)ret.mutable_data() + 16, sizeof(int16_t));
     } else {
-        ret = _finish(page_first_rowid, sizeof(uint32_t));
-        encode_fixed32_le((uint8_t*)ret.mutable_data() + 16, sizeof(uint32_t));
+        ret = _finish(page_first_rowid, sizeof(int32_t));
+        encode_fixed32_le((uint8_t*)ret.mutable_data() + 16, sizeof(int32_t));
     }
     return ret;
 }
