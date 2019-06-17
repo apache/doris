@@ -657,7 +657,7 @@ Status MiniLoadAction::_begin_mini_load(StreamLoadContext* ctx) {
     ctx->txn_id = res.txn_id;
     // txn has been begun in fe
     ctx->need_rollback = true;
-    return Status::OK;
+    return Status::OK();
 }
 
 Status MiniLoadAction::_process_put(HttpRequest* req, StreamLoadContext* ctx) {
@@ -672,6 +672,11 @@ Status MiniLoadAction::_process_put(HttpRequest* req, StreamLoadContext* ctx) {
     put_request.fileType = TFileType::FILE_STREAM;
     std::map<std::string, std::string> params(
             req->query_params().begin(), req->query_params().end());
+    /* merge params of columns and hll
+     * for example:
+     * input: columns=c1,tmp_c2,tmp_c3\&hll=hll_c2,tmp_c2:hll_c3,tmp_c3
+     * output: columns=c1,tmp_c2,tmp_c3,hll_c2=hll_hash(tmp_c2),hll_c3=hll_hash(tmp_c3)
+     */
     std::map<std::string, std::string>::iterator columns_it = params.find(COLUMNS_KEY);
     if (columns_it != params.end()) {
         std::string columns_value = columns_it->second;
@@ -679,15 +684,15 @@ Status MiniLoadAction::_process_put(HttpRequest* req, StreamLoadContext* ctx) {
         if (hll_it != params.end()) {
             std::string hll_value = hll_it->second;
             if (hll_value.empty()) {
-                return Status("Hll value could not be empty when hll key is exists!"); 
+                return Status::InvalidArgument("Hll value could not be empty when hll key is exists!"); 
             }
-            std::map<std::string, std::string>* hll_map = new std::map<std::string, std::string>;
-            split_string_to_map(hll_value, ":", ",", hll_map);
-            if (hll_map->empty()) {
-                return Status("Hll value could not tranform to hll expr: " + hll_value);
+            std::map<std::string, std::string> hll_map;
+            split_string_to_map(hll_value, ":", ",", &hll_map);
+            if (hll_map.empty()) {
+                return Status::InvalidArgument("Hll value could not tranform to hll expr: " + hll_value);
             }
-            auto hll_map_it = hll_map->begin();
-            while (hll_map_it != hll_map->end()) {
+            auto hll_map_it = hll_map.begin();
+            while (hll_map_it != hll_map.end()) {
                 columns_value += "," + hll_map_it->first 
                                      + "=hll_hash(" + hll_map_it->second + ")";
                 ++hll_map_it;
@@ -702,14 +707,10 @@ Status MiniLoadAction::_process_put(HttpRequest* req, StreamLoadContext* ctx) {
 
     // plan this load
     TNetworkAddress master_addr = _exec_env->master_info()->network_address;
-#ifndef BE_TEST
     RETURN_IF_ERROR(FrontendHelper::rpc(master_addr.hostname, master_addr.port,
                     [&put_request, ctx] (FrontendServiceConnection& client) {
                     client->streamLoadPut(ctx->put_result, put_request);
                     }));
-#else
-    ctx->put_result = k_stream_load_put_result;
-#endif
     Status plan_status(ctx->put_result.status);
     if (!plan_status.ok()) {
         LOG(WARNING) << "plan streaming load failed. errmsg=" << plan_status.get_error_msg()
@@ -717,7 +718,7 @@ Status MiniLoadAction::_process_put(HttpRequest* req, StreamLoadContext* ctx) {
         return plan_status;
     }
     VLOG(3) << "params is " << apache::thrift::ThriftDebugString(ctx->put_result.params);
-    return Status::OK;
+    return Status::OK();
 }
 
 // new on_header of mini load
@@ -729,7 +730,7 @@ Status MiniLoadAction::_on_new_header(HttpRequest* req) {
         if (body_bytes > max_body_bytes) {
             std::stringstream ss;
             ss << "file size exceed max body size, max_body_bytes=" << max_body_bytes;
-            return Status(ss.str());
+            return Status::InvalidArgument(ss.str());
         }
     } else {
         evhttp_connection_set_max_body_size(
@@ -746,7 +747,7 @@ Status MiniLoadAction::_on_new_header(HttpRequest* req) {
     // auth information
     if (!parse_basic_auth(*req, &ctx->auth)) {
         LOG(WARNING) << "parse basic authorization failed." << ctx->brief();
-        return Status("no valid Basic authorization");
+        return Status::InvalidArgument("no valid Basic authorization");
     }
 
     ctx->load_type = TLoadType::MINI_LOAD;
@@ -790,10 +791,8 @@ Status MiniLoadAction::_on_new_header(HttpRequest* req) {
 
 void MiniLoadAction::_new_handle(HttpRequest* req) {
     StreamLoadContext* ctx = (StreamLoadContext*) req->handler_ctx();
-    if (ctx == nullptr) {
-        return;
-    }
-    
+    DCHECK(ctx != nullptr);   
+ 
     if (ctx->status.ok()) {
         ctx->status = _on_new_handle(ctx);
         if (!ctx->status.ok()) {
@@ -833,7 +832,7 @@ Status MiniLoadAction::_on_new_handle(StreamLoadContext* ctx) {
         LOG(WARNING) << "recevie body don't equal with body bytes, body_bytes="
             << ctx->body_bytes << ", receive_bytes=" << ctx->receive_bytes
             << ", id=" << ctx->id;
-        return Status("receive body dont't equal with body bytes");
+        return Status::InternalError("receive body dont't equal with body bytes");
     }
     
     // wait stream load sink finish
@@ -845,7 +844,7 @@ Status MiniLoadAction::_on_new_handle(StreamLoadContext* ctx) {
     // commit this load with mini load attachment
     RETURN_IF_ERROR(_exec_env->stream_load_executor()->commit_txn(ctx));
 
-    return Status::OK;
+    return Status::OK();
 }
 
 }

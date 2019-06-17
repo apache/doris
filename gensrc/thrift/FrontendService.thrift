@@ -455,7 +455,7 @@ struct TMiniLoadBeginRequest {
     9: optional i64 timeout_second
     10: optional double max_filter_ratio 
     11: optional i64 auth_code
-	12: required i64 create_timestamp;
+    12: required i64 create_timestamp;
 }
 
 struct TMiniLoadBeginResult {
