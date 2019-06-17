@@ -111,7 +111,7 @@ std::string Status::code_as_string() const {
     case TStatusCode::CANCELLED:
         return "Cancelled";
     case TStatusCode::NOT_IMPLEMENTED_ERROR:
-        return "Not implemented";
+        return "Not supported";
     case TStatusCode::RUNTIME_ERROR:
         return "Runtime error";
     case TStatusCode::MEM_LIMIT_EXCEEDED:

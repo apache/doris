@@ -33,6 +33,7 @@ set(UTIL_FILES
   debug_util.cpp
   decompress.cpp
   disk_info.cpp
+  errno.cpp
   hash_util.hpp
   json_util.cpp
   doris_metrics.cpp
