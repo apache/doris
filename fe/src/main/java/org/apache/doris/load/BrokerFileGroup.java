@@ -165,10 +165,6 @@ public class BrokerFileGroup implements Writable {
         return partitionIds;
     }
 
-    public List<String> getPartitionNames(){
-        return dataDescription.getPartitionNames();
-    }
-
     public List<String> getFilePaths() {
         return filePaths;
     }

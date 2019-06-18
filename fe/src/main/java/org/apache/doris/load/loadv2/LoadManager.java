@@ -92,13 +92,14 @@ public class LoadManager implements Writable{
             }
             loadJob = BrokerLoadJob.fromLoadStmt(stmt);
             createLoadJob(loadJob);
-            // submit it
-            loadJobScheduler.submitJob(loadJob);
         } finally {
             writeUnlock();
         }
+
         // persistent
         Catalog.getCurrentCatalog().getEditLog().logCreateLoadJob(loadJob);
+        // submit it
+        loadJobScheduler.submitJob(loadJob);
     }
 
     /**

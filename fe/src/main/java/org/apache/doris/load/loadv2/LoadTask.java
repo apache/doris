@@ -78,7 +78,8 @@ public abstract class LoadTask extends MasterTask {
         return retryTime;
     }
 
-    public void resetSignature() {
+    public void updateRetryInfo() {
+        this.retryTime--;
         this.signature = Catalog.getCurrentCatalog().getNextId();
     }
 }
