@@ -332,7 +332,7 @@ public class DataDescription {
         }
         
         String format = args.get(0);
-        String regex = "^(%[YmdHMS][ -:]?){0,5}%[YmdHMS]$";
+        String regex = "^(%[YMmdHhiSs][ -:]?){0,5}%[YMmdHhiSs]$";
         if (!format.matches(regex)) {
             throw new AnalysisException("Date format error. regex: " + regex + ", arg: " + format);
         }
@@ -353,7 +353,7 @@ public class DataDescription {
 
         String outputFormat = args.get(0);
         String inputFormat = args.get(1);
-        String regex = "^(%[YmdHMS][ -:]?){0,5}%[YmdHMS]$";
+        String regex = "^(%[YMmdHhiSs][ -:]?){0,5}%[YMmdHhiSs]$";
         if (!outputFormat.matches(regex)) {
             throw new AnalysisException("Date format error. regex: " + regex + ", arg: " + outputFormat);
         }
