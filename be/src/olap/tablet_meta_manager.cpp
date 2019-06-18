@@ -86,9 +86,9 @@ OLAPStatus TabletMetaManager::save(DataDir* store,
     std::string value;
     tablet_meta->serialize(&value);
     OlapMeta* meta = store->get_meta();
-    LOG(INFO) << "save tablet meta " 
-              << " tablet_id=" << tablet_id
-              << " schema_hash=" << schema_hash;
+    LOG(INFO) << "save tablet meta"
+              << ", key:" << key
+              << ", meta length:" << value.length();
     return meta->put(META_COLUMN_FAMILY_INDEX, key, value);
 }
 
@@ -98,6 +98,7 @@ OLAPStatus TabletMetaManager::save(DataDir* store,
     key_stream << header_prefix << tablet_id << "_" << schema_hash;
     std::string key = key_stream.str();
     VLOG(3) << "save tablet meta to meta store: key = " << key;
+    std::cout << "save tablet meta to meta store: key = " << key << std::endl;
     OlapMeta* meta = store->get_meta();
 
     TabletMetaPB de_tablet_meta_pb;
@@ -107,8 +108,7 @@ OLAPStatus TabletMetaManager::save(DataDir* store,
     }
 
     LOG(INFO) << "save tablet meta " 
-              << " tablet_id=" << tablet_id
-              << " schema_hash=" << schema_hash
+              << ", key:" << key
               << " meta_size=" << meta_binary.length();
     return meta->put(META_COLUMN_FAMILY_INDEX, key, meta_binary);
 }
@@ -145,22 +145,26 @@ OLAPStatus TabletMetaManager::traverse_headers(OlapMeta* meta,
 
 OLAPStatus TabletMetaManager::load_json_header(DataDir* store, const std::string& header_path) {
     std::ifstream infile(header_path);
-    char buffer[1024];
+    char buffer[100000];
     std::string json_header;
+    std::cout << "start to read json file" << std::endl;
     while (!infile.eof()) {
-        infile.getline(buffer, 1024);
+        infile.getline(buffer, 100000);
         json_header = json_header + buffer;
     }
+    std::cout << "json_header:" << json_header << std::endl;
     boost::algorithm::trim(json_header);
     TabletMetaPB tablet_meta_pb;
     bool ret = json2pb::JsonToProtoMessage(json_header, &tablet_meta_pb);
     if (!ret) {
         return OLAP_ERR_HEADER_LOAD_JSON_HEADER;
     }
+
     std::string meta_binary;
     tablet_meta_pb.SerializeToString(&meta_binary);
     TTabletId tablet_id = tablet_meta_pb.tablet_id();
     TSchemaHash schema_hash = tablet_meta_pb.schema_hash();
+    std::cout << "start to save meta" << std::endl;
     return save(store, tablet_id, schema_hash, meta_binary);
 }
 
