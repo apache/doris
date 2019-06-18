@@ -26,7 +26,7 @@
 #include "gutil/port.h"
 #include "gutil/strings/fastmem.h"
 
-namespace kudu {
+namespace doris {
 
 // A faststring is similar to a std::string, except that it is faster for many
 // common use cases (in particular, resize() will fill with uninitialized data
@@ -254,4 +254,4 @@ class faststring {
   size_t capacity_;
 };
 
-} // namespace kudu
+} // namespace doris

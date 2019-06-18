@@ -20,7 +20,7 @@
 #include <glog/logging.h>
 #include <memory>
 
-namespace kudu {
+namespace doris {
 
 void faststring::GrowByAtLeast(size_t count) {
   // Not enough space, need to reserve more.
@@ -69,4 +69,4 @@ void faststring::ShrinkToFitInternal() {
   }
 }
 
-} // namespace kudu
+} // namespace doris
