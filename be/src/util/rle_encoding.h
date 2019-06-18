@@ -19,7 +19,7 @@
 #include <glog/logging.h>
 
 #include "gutil/port.h"
-#include "util/bit-stream-utils.inline.h"
+#include "util/bit_stream_utils.inline.h"
 #include "util/bit_util.h"
 
 namespace doris {

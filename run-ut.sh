@@ -156,6 +156,7 @@ ${DORIS_TEST_BINARY_DIR}/util/aes_util_test
 ${DORIS_TEST_BINARY_DIR}/util/string_util_test
 ${DORIS_TEST_BINARY_DIR}/util/coding_test
 ${DORIS_TEST_BINARY_DIR}/util/faststring_test
+${DORIS_TEST_BINARY_DIR}/util/rle_encoding_test
 
 ## Running common Unittest
 ${DORIS_TEST_BINARY_DIR}/common/resource_tls_test

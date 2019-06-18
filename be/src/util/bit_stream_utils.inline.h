@@ -20,7 +20,7 @@
 #include <algorithm>
 
 #include "glog/logging.h"
-#include "util/bit-stream-utils.h"
+#include "util/bit_stream_utils.h"
 #include "util/alignment.h"
 
 using doris::BitUtil;
