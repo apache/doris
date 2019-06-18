@@ -25,7 +25,7 @@
 #include "util/faststring.h"
 #include "util/random.h"
 
-namespace kudu {
+namespace doris {
 class FaststringTest : public ::testing::Test {};
 
 void RandomString(void* dest, size_t n, doris::Random* rng) {
@@ -75,7 +75,7 @@ TEST_F(FaststringTest, TestShrinkToFit_Random) {
   }
 }
 
-} // namespace kudu
+} // namespace doris
 
 int main(int argc, char** argv) {
     testing::InitGoogleTest(&argc, argv);
