@@ -70,6 +70,12 @@ public:
     // Return the number of entries that have been added to the page.
     virtual size_t count() const = 0;
 
+    // This api is for release the resource owned by builder
+    // It means it will transfer the ownership of some resource to other.
+    // This api is always called after finish
+    // and should be followed by reset() before reuse the builder
+    virtual void release() = 0;
+
 private:
     DISALLOW_COPY_AND_ASSIGN(PageBuilder);
 };

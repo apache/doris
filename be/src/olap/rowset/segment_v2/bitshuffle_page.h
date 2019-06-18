@@ -104,6 +104,14 @@ public:
         return Status::OK;
     }
 
+    Status get_dictionary_page(Slice* dictionary_page) override {
+        return Status("NOT_IMPLEMENTED");
+    }
+
+    Status get_bitmap_page(Slice* bitmap_page) override {
+        return Status("NOT_IMPLEMENTED");
+    }
+
     Slice finish(rowid_t page_first_rowid) override {
         return _finish(page_first_rowid, SIZE_OF_TYPE);
     }
@@ -125,12 +133,13 @@ public:
         return _count;
     }
 
-    Status get_dictionary_page(Slice* dictionary_page) override {
-        return Status("NOT_IMPLEMENTED");
-    }
-
-    Status get_bitmap_page(Slice* bitmap_page) override {
-        return Status("NOT_IMPLEMENTED");
+    // this api will release the memory ownership of encoded data
+    // Note:
+    //     release() should be called after finish
+    //     reset() should be called after this function before reuse the builder
+    void release() override {
+        uint8_t* ret = _buffer.release();
+        (void)ret;
     }
 
 private:
