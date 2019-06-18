@@ -223,7 +223,7 @@ public class ColocateTableTest {
         Assert.assertEquals(1, Deencapsulation.<Map<Long, GroupId>>getField(index, "table2Group").size());
         Assert.assertEquals(1, Deencapsulation.<Map<GroupId, List<List<Long>>>>getField(index, "group2BackendsPerBucketSeq").size());
         Assert.assertEquals(1, Deencapsulation.<Map<GroupId, ColocateGroupSchema>>getField(index, "group2Schema").size());
-        Assert.assertEquals(0, index.getBalancingGroupIds().size());
+        Assert.assertEquals(0, index.getUnstableGroupIds().size());
 
         Assert.assertTrue(index.isColocateTable(tableId));
 
@@ -265,7 +265,7 @@ public class ColocateTableTest {
         Assert.assertEquals(2, Deencapsulation.<Map<Long, GroupId>>getField(index, "table2Group").size());
         Assert.assertEquals(1, Deencapsulation.<Map<GroupId, List<List<Long>>>>getField(index, "group2BackendsPerBucketSeq").size());
         Assert.assertEquals(1, Deencapsulation.<Map<GroupId, ColocateGroupSchema>>getField(index, "group2Schema").size());
-        Assert.assertEquals(0, index.getBalancingGroupIds().size());
+        Assert.assertEquals(0, index.getUnstableGroupIds().size());
 
         Assert.assertTrue(index.isColocateTable(firstTblId));
         Assert.assertTrue(index.isColocateTable(secondTblId));
@@ -279,7 +279,7 @@ public class ColocateTableTest {
         Assert.assertEquals(1, Deencapsulation.<Map<Long, GroupId>>getField(index, "table2Group").size());
         Assert.assertEquals(1,
                 Deencapsulation.<Map<GroupId, List<List<Long>>>>getField(index, "group2BackendsPerBucketSeq").size());
-        Assert.assertEquals(0, index.getBalancingGroupIds().size());
+        Assert.assertEquals(0, index.getUnstableGroupIds().size());
 
         Assert.assertFalse(index.isColocateTable(firstTblId));
         Assert.assertTrue(index.isColocateTable(secondTblId));
@@ -292,7 +292,7 @@ public class ColocateTableTest {
         Assert.assertEquals(0, Deencapsulation.<Map<Long, GroupId>>getField(index, "table2Group").size());
         Assert.assertEquals(0,
                 Deencapsulation.<Map<GroupId, List<List<Long>>>>getField(index, "group2BackendsPerBucketSeq").size());
-        Assert.assertEquals(0, index.getBalancingGroupIds().size());
+        Assert.assertEquals(0, index.getUnstableGroupIds().size());
 
         Assert.assertFalse(index.isColocateTable(firstTblId));
         Assert.assertFalse(index.isColocateTable(secondTblId));

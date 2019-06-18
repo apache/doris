@@ -116,8 +116,8 @@ public class ColocateTableIndex implements Writable {
     private Map<GroupId, ColocateGroupSchema> group2Schema = Maps.newHashMap();
     // group_id -> bucketSeq -> backend ids
     private Map<GroupId, List<List<Long>>> group2BackendsPerBucketSeq = Maps.newHashMap();
-    // the colocate group is balancing
-    private Set<GroupId> balancingGroups = Sets.newHashSet();
+    // the colocate group is unstable
+    private Set<GroupId> unstableGroups = Sets.newHashSet();
 
     private transient ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
@@ -186,9 +186,7 @@ public class ColocateTableIndex implements Writable {
     public void addBackendsPerBucketSeq(GroupId groupId, List<List<Long>> backendsPerBucketSeq) {
         writeLock();
         try {
-            if (!group2BackendsPerBucketSeq.containsKey(groupId)) {
-                group2BackendsPerBucketSeq.put(groupId, backendsPerBucketSeq);
-            }
+            group2BackendsPerBucketSeq.put(groupId, backendsPerBucketSeq);
         } finally {
             writeUnlock();
         }
@@ -197,7 +195,7 @@ public class ColocateTableIndex implements Writable {
     public void markGroupBalancing(GroupId groupId) {
         writeLock();
         try {
-            balancingGroups.add(groupId);
+            unstableGroups.add(groupId);
             LOG.info("mark group {} as balancing", groupId);
         } finally {
             writeUnlock();
@@ -207,8 +205,33 @@ public class ColocateTableIndex implements Writable {
     public void markGroupStable(GroupId groupId) {
         writeLock();
         try {
-            balancingGroups.remove(groupId);
+            unstableGroups.remove(groupId);
             LOG.info("mark group {} as stable", groupId);
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    public void markGroupStable(GroupId groupId, boolean isGroupStable) {
+        writeLock();
+        try {
+            if (!group2Tables.containsKey(groupId)) {
+                return;
+            }
+
+            if (isGroupStable) {
+                if (unstableGroups.remove(groupId)) {
+                    ColocatePersistInfo info = ColocatePersistInfo.createForMarkStable(groupId);
+                    Catalog.getInstance().getEditLog().logColocateMarkStable(info);
+                    LOG.info("mark group {} as stable", groupId);
+                }
+            } else {
+                if (unstableGroups.add(groupId)) {
+                    ColocatePersistInfo info = ColocatePersistInfo.createForMarkBalancing(groupId);
+                    Catalog.getInstance().getEditLog().logColocateMarkBalancing(info);
+                    LOG.info("mark group {} as unstable", groupId);
+                }
+            }
         } finally {
             writeUnlock();
         }
@@ -227,7 +250,7 @@ public class ColocateTableIndex implements Writable {
                 // all tables of this group are removed, remove the group
                 group2BackendsPerBucketSeq.remove(groupId);
                 group2Schema.remove(groupId);
-                balancingGroups.remove(groupId);
+                unstableGroups.remove(groupId);
                 String groupName = null;
                 for (Map.Entry<String, GroupId> entry : groupName2Id.entrySet()) {
                     if (entry.getValue().equals(groupId)) {
@@ -246,10 +269,10 @@ public class ColocateTableIndex implements Writable {
         return true;
     }
 
-    public boolean isGroupBalancing(GroupId groupId) {
+    public boolean isGroupUnstable(GroupId groupId) {
         readLock();
         try {
-            return balancingGroups.contains(groupId);
+            return unstableGroups.contains(groupId);
         } finally {
             readUnlock();
         }
@@ -285,10 +308,10 @@ public class ColocateTableIndex implements Writable {
         }
     }
 
-    public Set<GroupId> getBalancingGroupIds() {
+    public Set<GroupId> getUnstableGroupIds() {
         readLock();
         try {
-            return Sets.newHashSet(balancingGroups);
+            return Sets.newHashSet(unstableGroups);
         } finally {
             readUnlock();
         }
@@ -352,6 +375,23 @@ public class ColocateTableIndex implements Writable {
         }
     }
 
+    public List<Set<Long>> getBackendsPerBucketSeqSet(GroupId groupId) {
+        readLock();
+        try {
+            List<List<Long>> backendsPerBucketSeq = group2BackendsPerBucketSeq.get(groupId);
+            if (backendsPerBucketSeq == null) {
+                return Lists.newArrayList();
+            }
+            List<Set<Long>> sets = Lists.newArrayList();
+            for (List<Long> backends : backendsPerBucketSeq) {
+                sets.add(Sets.newHashSet(backends));
+            }
+            return sets;
+        } finally {
+            readUnlock();
+        }
+    }
+
     public List<List<Long>> getBackendsPerBucketSeq(String groupName) {
         readLock();
         try {
@@ -363,6 +403,23 @@ public class ColocateTableIndex implements Writable {
                 return Lists.newArrayList();
             }
             return backendsPerBucketSeq;
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public Set<Long> getTabletBackendsByGroup(GroupId groupId, int tabletOrderIdx) {
+        readLock();
+        try {
+            List<List<Long>> backendsPerBucketSeq = group2BackendsPerBucketSeq.get(groupId);
+            if (backendsPerBucketSeq == null) {
+                return Sets.newHashSet();
+            }
+            if (tabletOrderIdx >= backendsPerBucketSeq.size()) {
+                return Sets.newHashSet();
+            }
+
+            return Sets.newHashSet(backendsPerBucketSeq.get(tabletOrderIdx));
         } finally {
             readUnlock();
         }
@@ -417,12 +474,17 @@ public class ColocateTableIndex implements Writable {
         OlapTable tbl = (OlapTable)db.getTable(info.getTableId());
         Preconditions.checkNotNull(tbl);
         
-        if (!group2BackendsPerBucketSeq.containsKey(info.getGroupId())) {
-            Preconditions.checkState(!info.getBackendsPerBucketSeq().isEmpty());
-            group2BackendsPerBucketSeq.put(info.getGroupId(), info.getBackendsPerBucketSeq());
+        writeLock();
+        try {
+            if (!group2BackendsPerBucketSeq.containsKey(info.getGroupId())) {
+                Preconditions.checkState(!info.getBackendsPerBucketSeq().isEmpty());
+                group2BackendsPerBucketSeq.put(info.getGroupId(), info.getBackendsPerBucketSeq());
+            }
+
+            addTableToGroup(info.getGroupId().dbId, tbl, tbl.getColocateGroup(), info.getGroupId());
+        } finally {
+            writeUnlock();
         }
-        
-        addTableToGroup(info.getGroupId().dbId, tbl, tbl.getColocateGroup(), info.getGroupId());
     }
 
     public void replayAddBackendsPerBucketSeq(ColocatePersistInfo info) {
@@ -449,7 +511,7 @@ public class ColocateTableIndex implements Writable {
             table2Group.clear();
             group2BackendsPerBucketSeq.clear();
             group2Schema.clear();
-            balancingGroups.clear();
+            unstableGroups.clear();
         } finally {
             writeUnlock();
         }
@@ -468,7 +530,7 @@ public class ColocateTableIndex implements Writable {
                 ColocateGroupSchema groupSchema = group2Schema.get(groupId);
                 info.add(String.valueOf(groupSchema.getBucketsNum()));
                 info.add(String.valueOf(groupSchema.getReplicationNum()));
-                info.add(String.valueOf(balancingGroups.contains(groupId)));
+                info.add(String.valueOf(!unstableGroups.contains(groupId)));
                 List<String> cols = groupSchema.getDistributionColTypes().stream().map(
                         e -> e.toSql()).collect(Collectors.toList());
                 info.add(Joiner.on(", ").join(cols));
@@ -506,9 +568,9 @@ public class ColocateTableIndex implements Writable {
             }
         }
 
-        size = balancingGroups.size();
+        size = unstableGroups.size();
         out.writeInt(size);
-        for (GroupId groupId : balancingGroups) {
+        for (GroupId groupId : unstableGroups) {
             groupId.write(out);
         }
     }
@@ -601,7 +663,7 @@ public class ColocateTableIndex implements Writable {
 
             size = in.readInt();
             for (int i = 0; i < size; i++) {
-                balancingGroups.add(GroupId.read(in));
+                unstableGroups.add(GroupId.read(in));
             }
         }
     }
@@ -642,6 +704,22 @@ public class ColocateTableIndex implements Writable {
             } finally {
                 db.readUnlock();
             }
+        }
+    }
+
+    public void setBackendsSetForGroup(GroupId groupId, int tabletOrderIdx, Set<Long> newBackends) {
+        writeLock();
+        try {
+            List<List<Long>> backends = group2BackendsPerBucketSeq.get(groupId);
+            if (backends == null) {
+                return;
+            }
+            Preconditions.checkState(tabletOrderIdx < backends.size(), tabletOrderIdx + " vs. " + backends.size());
+            backends.set(tabletOrderIdx, Lists.newArrayList(newBackends));
+            ColocatePersistInfo info = ColocatePersistInfo.createForBackendsPerBucketSeq(groupId, backends);
+            Catalog.getCurrentCatalog().getEditLog().logColocateBackendsPerBucketSeq(info);
+        } finally {
+            writeUnlock();
         }
     }
 }

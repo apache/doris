@@ -197,12 +197,12 @@ public class ColocateMetaService {
             HttpMethod method = request.getRequest().method();
             if (method.equals(HttpMethod.POST)) {
                 colocateIndex.markGroupBalancing(groupId);
-                ColocatePersistInfo info = ColocatePersistInfo.CreateForMarkBalancing(groupId);
+                ColocatePersistInfo info = ColocatePersistInfo.createForMarkBalancing(groupId);
                 Catalog.getInstance().getEditLog().logColocateMarkBalancing(info);
                 LOG.info("mark colocate group {}  balancing", groupId);
             } else if (method.equals(HttpMethod.DELETE)) {
                 colocateIndex.markGroupStable(groupId);
-                ColocatePersistInfo info = ColocatePersistInfo.CreateForMarkStable(groupId);
+                ColocatePersistInfo info = ColocatePersistInfo.createForMarkStable(groupId);
                 Catalog.getInstance().getEditLog().logColocateMarkStable(info);
                 LOG.info("mark colocate group {}  stable", groupId);
             } else {
@@ -262,11 +262,11 @@ public class ColocateMetaService {
 
         private void updateBackendPerBucketSeq(GroupId groupId, List<List<Long>> backendsPerBucketSeq) {
             colocateIndex.markGroupBalancing(groupId);
-            ColocatePersistInfo info1 = ColocatePersistInfo.CreateForMarkBalancing(groupId);
+            ColocatePersistInfo info1 = ColocatePersistInfo.createForMarkBalancing(groupId);
             Catalog.getInstance().getEditLog().logColocateMarkBalancing(info1);
 
             colocateIndex.addBackendsPerBucketSeq(groupId, backendsPerBucketSeq);
-            ColocatePersistInfo info2 = ColocatePersistInfo.CreateForBackendsPerBucketSeq(groupId,
+            ColocatePersistInfo info2 = ColocatePersistInfo.createForBackendsPerBucketSeq(groupId,
                     backendsPerBucketSeq);
             Catalog.getInstance().getEditLog().logColocateBackendsPerBucketSeq(info2);
         }

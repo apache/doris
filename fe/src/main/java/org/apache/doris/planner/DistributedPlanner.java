@@ -475,7 +475,7 @@ public class DistributedPlanner {
 
         //2 the colocate group must be stable
         GroupId groupId = colocateIndex.getGroup(leftTable.getId());
-        if (colocateIndex.isGroupBalancing(groupId)) {
+        if (colocateIndex.isGroupUnstable(groupId)) {
             cannotReason.add("group is not stable");
             return false;
         }

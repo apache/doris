@@ -46,16 +46,16 @@ public class ColocatePersistInfo implements Writable {
         return new ColocatePersistInfo(groupId, tableId, backendsPerBucketSeq);
     }
 
-    public static ColocatePersistInfo CreateForBackendsPerBucketSeq(GroupId groupId,
+    public static ColocatePersistInfo createForBackendsPerBucketSeq(GroupId groupId,
             List<List<Long>> backendsPerBucketSeq) {
         return new ColocatePersistInfo(groupId, -1L, backendsPerBucketSeq);
     }
 
-    public static ColocatePersistInfo CreateForMarkBalancing(GroupId groupId) {
+    public static ColocatePersistInfo createForMarkBalancing(GroupId groupId) {
         return new ColocatePersistInfo(groupId, -1L, new ArrayList<>());
     }
 
-    public static ColocatePersistInfo CreateForMarkStable(GroupId groupId) {
+    public static ColocatePersistInfo createForMarkStable(GroupId groupId) {
         return new ColocatePersistInfo(groupId, -1L, new ArrayList<>());
     }
 

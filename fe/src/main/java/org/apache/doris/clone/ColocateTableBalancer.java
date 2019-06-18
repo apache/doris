@@ -26,6 +26,9 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.Tablet.TabletStatus;
+import org.apache.doris.clone.TabletSchedCtx.Priority;
+import org.apache.doris.clone.TabletScheduler.AddResult;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.Daemon;
 import org.apache.doris.persist.ColocatePersistInfo;
@@ -74,17 +77,209 @@ public class ColocateTableBalancer extends Daemon {
         return INSTANCE;
     }
 
+    @Override
     /*
-     * 1. Check all group healthy before doing balance
+     * Each round, we do 2 steps:
+     * 1. Relocate backends of each group
+     *      1. Backend is not available, find a new backend to replace it.
+     *      2. All backends are good, try to balance at most one bucket.
+     *      
+     * 2. check health of replicas in each group, based on backends relocated in first step.
      */
-    protected void runOneCycleTODO() {
+    protected void runOneCycle() {
+        relocateGroup();
         checkGroupHealth();
     }
 
+    private void relocateGroup() {
+        checkBackendAvailable();
+        checkBackendBalance();
+    }
+
+    /*
+     * Traverse all colocate groups, for each group:
+     * 1. Check if there are backends dead or unavailable(decommission)
+     * If yes, for each buckets in this group, if the unavailable backend belongs to this bucket, we will find
+     * a new backend to replace the unavailable one.
+     * 
+     * eg:
+     *      original bucket backends sequence is
+     *      [[1, 2, 3], [4, 1, 2], [3, 4, 1], [2, 3, 4], [1, 2, 3]]
+     *      
+     *      and backend 3 is dead, so we will find an available backend(eg. backend 4) to replace backend 3.
+     *      
+     *      [[1, 2, 4], [4, 1, 2], [3, 4, 1], [2, 3, 4], [1, 2, 3]]
+     *      
+     *      notice that we only replace the backends in first buckets. that is, we only replace
+     *      one bucket in one group at each round. because we need to use newly-updated cluster load statistic to
+     *      find next available backend. and cluster load statistic is updated every 20 seconds.
+     */
+    private void checkBackendAvailable() {
+        Catalog catalog = Catalog.getCurrentCatalog();
+        ColocateTableIndex colocateIndex = catalog.getColocateTableIndex();
+        SystemInfoService infoService = Catalog.getCurrentSystemInfo();
+        Map<String, ClusterLoadStatistic> statisticMap = Catalog.getCurrentCatalog().getTabletScheduler().getStatisticMap();
+        long currTime = System.currentTimeMillis();
+        
+        // get all groups
+        Set<GroupId> groupIds = colocateIndex.getAllGroupIds();
+        for (GroupId groupId : groupIds) {
+            // get all backends in this group
+            Set<Long> backends = colocateIndex.getBackendsByGroup(groupId);
+            long unavailableBeId = -1;
+            for (Long backendId : backends) {
+                // find an unavailable backend. even if there are than one unavailable backend,
+                // we just handle the first one.
+                Backend be = infoService.getBackend(backendId);
+                if (be == null) {
+                    unavailableBeId = backendId;
+                    break;
+                } else if (!be.isAvailable()) {
+                    // 1. BE is dead for a long time
+                    // 2. BE is under decommission
+                    if ((!be.isAlive() && (currTime - be.getLastUpdateMs()) > Config.tablet_repair_delay_factor_second * 1000 * 2)
+                        || be.isDecommissioned()) {
+                        unavailableBeId = backendId;
+                        break;
+                    }
+                }
+            }
+
+            if (unavailableBeId == -1) {
+                // all backends in this group are available, check next group
+                continue;
+            }
+
+            // find the first bucket which contains the unavailable backend
+            LOG.info("backend {} is unavailable in colocate group {}", unavailableBeId, groupId);
+            List<Set<Long>> bucketBackendsSeq = colocateIndex.getBackendsPerBucketSeqSet(groupId);
+            int tabletOrderIdx = 0;
+            for (Set<Long> set : bucketBackendsSeq) {
+                if (set.contains(unavailableBeId)) {
+                    break;
+                }
+                tabletOrderIdx++;
+            }
+
+            // select a new backend to replace the unavailable one
+            long newBackendId = selectSubstituteBackend(tabletOrderIdx, groupId, unavailableBeId, 
+                    bucketBackendsSeq.get(tabletOrderIdx), statisticMap);
+            if (newBackendId != -1) {
+                // replace backend
+                bucketBackendsSeq.get(tabletOrderIdx).remove(unavailableBeId);
+                bucketBackendsSeq.get(tabletOrderIdx).add(newBackendId);
+                colocateIndex.setBackendsSetForGroup(groupId, tabletOrderIdx, bucketBackendsSeq.get(tabletOrderIdx));
+                LOG.info("select backend {} to replace backend {} for bucket {} in group {}. now backends set is: {}",
+                        newBackendId, unavailableBeId, tabletOrderIdx, groupId, bucketBackendsSeq.get(tabletOrderIdx));
+            }
+
+            // only handle one backend at a time
+            break;
+        }
+    }
+
+    /*
+     * Select a substitute backend for specified bucket and colocate group.
+     * return -1 if backend not found.
+     * we need to move all replicas of this bucket to the new backend, so we have to check if the new
+     * backend can save all these replicas.
+     */
+    private long selectSubstituteBackend(int tabletOrderIdx, GroupId groupId, long unavailableBeId, 
+            Set<Long> excludeBeIds, Map<String, ClusterLoadStatistic> statisticMap) {
+        ColocateTableIndex colocateIndex = Catalog.getCurrentColocateIndex();
+        Database db = Catalog.getInstance().getDb(groupId.dbId);
+        if (db == null) {
+            LOG.info("db {} does not exist", groupId.dbId);
+            return -1;
+        }
+        ClusterLoadStatistic statistic = statisticMap.get(db.getClusterName());
+        if (statistic == null) {
+            LOG.info("cluster {} statistic does not exist", db.getClusterName());
+            return -1;
+        }
+        
+        // calculate the total replica size of this bucket
+        List<Long> tableIds = colocateIndex.getAllTableIds(groupId);
+        long totalReplicaNum = 0;
+        long totalReplicaSize = 0;
+        db.readLock();
+        try {
+            for (Long tblId : tableIds) {
+                OlapTable tbl = (OlapTable) db.getTable(tblId);
+                if (tbl == null) {
+                    continue;
+                }
+
+                for (Partition partition : tbl.getPartitions()) {
+                    for (MaterializedIndex index : partition.getMaterializedIndices()) {
+                        long tabletId = index.getTabletIdsInOrder().get(tabletOrderIdx);
+                        Tablet tablet = index.getTablet(tabletId);
+                        Replica replica = tablet.getReplicaByBackendId(unavailableBeId);
+                        if (replica != null) {
+                            totalReplicaNum++;
+                            totalReplicaSize += replica.getDataSize();
+                        }
+                    }
+                }
+            }
+        } finally {
+            db.readUnlock();
+        }
+        LOG.debug("the number and size of replicas on backend {} of bucket {} is: {} and {}",
+                unavailableBeId, tabletOrderIdx, totalReplicaNum, totalReplicaSize);
+        
+        /*
+         * There are some unsolved problems of finding a new backend for data migration:
+         * 1. Different table(partition) in this group may in different storage medium(SSD or HDD). If one backend
+         *    is down, the best solution is to find a backend which has both SSD and HDD, and replicas can be
+         *    relocated in corresponding medium.
+         *    But in fact, backends can be heterogeneous, which may only has SSD or HDD. If we choose to strictly
+         *    find backends with expecting storage medium, this may lead to a consequence that most of replicas
+         *    are gathered in a small portion of backends.
+         *    
+         *    So for simplicity, we ignore the storage medium property, just find a low load backend which has
+         *    capacity to save these replicas.
+         */
+        List<BackendLoadStatistic> beStats = statistic.getSortedBeLoadStats(null /* mix medium */);
+        if (beStats.isEmpty()) {
+            LOG.warn("failed to relocate backend for colocate group: {}, no backends found", groupId);
+            return -1;
+        }
+        // beStats is ordered by load score, ascend. so finding the available from first to last
+        BackendLoadStatistic choosenBe = null;
+        for (BackendLoadStatistic beStat : beStats) {
+            if (beStat.isAvailable() && beStat.getBeId() != unavailableBeId && !excludeBeIds.contains(beStat.getBeId())) {
+                choosenBe = beStat;
+                break;
+            }
+        }
+        if (choosenBe == null) {
+            LOG.warn("failed to find an available backend to relocate for colocate group: {}", groupId);
+            return -1;
+        }
+
+        // check if there is enough capacity to save all these replicas
+        if (!choosenBe.canFitInColocate(totalReplicaSize)) {
+            LOG.warn("no backend has enough capacity to save replics in group {} with bucket: {}", groupId, tabletOrderIdx);
+            return -1;
+        }
+
+        return choosenBe.getBeId();
+    }
+
+    private void checkBackendBalance() {
+
+    }
+
+    /*
+     * We 
+     */
     private void checkGroupHealth() {
         Catalog catalog = Catalog.getCurrentCatalog();
         ColocateTableIndex colocateIndex = catalog.getColocateTableIndex();
+        TabletScheduler tabletScheduler = catalog.getTabletScheduler();
 
+        // check each group
         Set<GroupId> groupIds = colocateIndex.getAllGroupIds();
         for (GroupId groupId : groupIds) {
             List<Long> tableIds = colocateIndex.getAllTableIds(groupId);
@@ -92,23 +287,67 @@ public class ColocateTableBalancer extends Daemon {
             if (db == null) {
                 continue;
             }
+
+            List<Set<Long>> backendBucketsSeq = colocateIndex.getBackendsPerBucketSeqSet(groupId);
+            boolean isGroupStable = true;
             db.readLock();
             try {
-                for (Long tableId : tableIds) {
+                OUT: for (Long tableId : tableIds) {
                     OlapTable olapTable = (OlapTable) db.getTable(tableId);
-                    if (olapTable == null) {
+                    if (olapTable == null || !colocateIndex.isColocateTable(olapTable.getId())) {
                         continue;
                     }
 
-                }
+                    for (Partition partition : olapTable.getPartitions()) {
+                        short replicationNum = olapTable.getPartitionInfo().getReplicationNum(partition.getId());
+                        long visibleVersion = partition.getVisibleVersion();
+                        long visibleVersionHash = partition.getVisibleVersionHash();
+                        for (MaterializedIndex index : partition.getMaterializedIndices()) {
+                            Preconditions.checkState(backendBucketsSeq.size() == index.getTablets().size(),
+                                    backendBucketsSeq.size() + " vs. " + index.getTablets().size());
+                            int idx = 0;
+                            for (Long tabletId : index.getTabletIdsInOrder()) {
+                                Set<Long> bucketsSeq = backendBucketsSeq.get(idx);
+                                Preconditions.checkState(bucketsSeq.size() == replicationNum, bucketsSeq.size() + " vs. " + replicationNum);
+                                Tablet tablet = index.getTablet(tabletId);
+                                TabletStatus st = tablet.getColocateHealthStatus(visibleVersion, visibleVersionHash, replicationNum, bucketsSeq);
+                                if (st != TabletStatus.HEALTHY) {
+                                    isGroupStable = false;
+                                    LOG.debug("get unhealthy tablet {} in colocate table. status: {}", tablet.getId(), st);
+
+                                    TabletSchedCtx tabletCtx = new TabletSchedCtx(
+                                            TabletSchedCtx.Type.REPAIR, db.getClusterName(),
+                                            db.getId(), tableId, partition.getId(), index.getId(), tablet.getId(),
+                                            System.currentTimeMillis());
+                                    // the tablet status will be set again when being scheduled
+                                    tabletCtx.setTabletStatus(st);
+                                    // using HIGH priority, cause we want to stabilize the colocate group as soon as possible
+                                    tabletCtx.setOrigPriority(Priority.HIGH);
+                                    tabletCtx.setTabletOrderIdx(idx);
+
+                                    AddResult res = tabletScheduler.addTablet(tabletCtx, false /* not force */);
+                                    if (res == AddResult.LIMIT_EXCEED) {
+                                        // tablet in scheduler exceed limit, skip this group and check next one.
+                                        LOG.info("number of scheduling tablets in tablet scheduler"
+                                                + " exceed to limit. stop colocate table check");
+                                        break OUT;
+                                    }
+                                }
+                                idx++;
+                            }
+                        }
+                    }
+                } // end for tables
+
+                // mark group as stable or unstable
+                LOG.debug("begin to mark group {} as {}", groupId, isGroupStable ? "stable" : "unstable");
+                colocateIndex.markGroupStable(groupId, isGroupStable);
             } finally {
                 db.readUnlock();
             }
-        }
-
+        } // end for group
     }
 
-    @Override
     /**
      * The colocate table balance flow:
      *
@@ -120,7 +359,7 @@ public class ColocateTableBalancer extends Daemon {
      * 6 delete redundant replicas after all clone job done
      * 7 mark colocate group stable in colocate meta and balance done
      */
-    protected void runOneCycle() {
+    protected void runOneCycle_D() {
         checkAndCloneBalancingGroup();
 
         tryDeleteRedundantReplicas();
@@ -142,7 +381,7 @@ public class ColocateTableBalancer extends Daemon {
             LOG.info("colocate group: {} backendsPerBucketSeq is {}", group, colocateIndex.getBackendsPerBucketSeq(group));
         }
 
-        Set<GroupId> balancingGroupIds = colocateIndex.getBalancingGroupIds();
+        Set<GroupId> balancingGroupIds = colocateIndex.getUnstableGroupIds();
         if (balancingGroupIds.size() == 0) {
             LOG.info("All colocate groups are stable. Skip");
             return;
@@ -169,7 +408,7 @@ public class ColocateTableBalancer extends Daemon {
 
             if (!isBalancing) {
                 colocateIndex.markGroupStable(groupId);
-                ColocatePersistInfo info = ColocatePersistInfo.CreateForMarkStable(groupId);
+                ColocatePersistInfo info = ColocatePersistInfo.createForMarkStable(groupId);
                 Catalog.getInstance().getEditLog().logColocateMarkStable(info);
                 LOG.info("colocate group : {} become stable!", groupId);
             }
@@ -249,7 +488,7 @@ public class ColocateTableBalancer extends Daemon {
 
         Set<GroupId> allGroupIds = colocateIndex.getAllGroupIds();
         for (GroupId groupId : allGroupIds) {
-            if (colocateIndex.isGroupBalancing(groupId)) {
+            if (colocateIndex.isGroupUnstable(groupId)) {
                 LOG.info("colocate group {} is balancing", groupId);
                 continue;
             }
@@ -320,7 +559,7 @@ public class ColocateTableBalancer extends Daemon {
 
         Set<GroupId> allGroupIds = colocateIndex.getAllGroupIds();
         for (GroupId groupId : allGroupIds) {
-            Set<GroupId> balancingGroups = colocateIndex.getBalancingGroupIds();
+            Set<GroupId> balancingGroups = colocateIndex.getUnstableGroupIds();
             // only delete redundant replica when group is stable
             if (!balancingGroups.contains(groupId)) {
                 Database db = catalog.getDb(groupId.dbId);
@@ -690,16 +929,16 @@ public class ColocateTableBalancer extends Daemon {
     }
 
     private void markGroupBalancing(GroupId groupId) {
-        if (!Catalog.getCurrentColocateIndex().isGroupBalancing(groupId)) {
+        if (!Catalog.getCurrentColocateIndex().isGroupUnstable(groupId)) {
             Catalog.getCurrentColocateIndex().markGroupBalancing(groupId);
-            ColocatePersistInfo info = ColocatePersistInfo.CreateForMarkBalancing(groupId);
+            ColocatePersistInfo info = ColocatePersistInfo.createForMarkBalancing(groupId);
             Catalog.getInstance().getEditLog().logColocateMarkBalancing(info);
         }
     }
 
     private void persistBackendsToBucketSeqMeta(GroupId groupId, List<List<Long>> newBackendsPerBucketSeq) {
         Catalog.getCurrentColocateIndex().addBackendsPerBucketSeq(groupId, newBackendsPerBucketSeq);
-        ColocatePersistInfo info = ColocatePersistInfo.CreateForBackendsPerBucketSeq(groupId, newBackendsPerBucketSeq);
+        ColocatePersistInfo info = ColocatePersistInfo.createForBackendsPerBucketSeq(groupId, newBackendsPerBucketSeq);
         Catalog.getInstance().getEditLog().logColocateBackendsPerBucketSeq(info);
         LOG.info("persist backendsPerBucketSeq {} for group {}", newBackendsPerBucketSeq, groupId);
     }
