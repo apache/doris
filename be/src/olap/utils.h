@@ -154,36 +154,6 @@ OLAPStatus split_string(const std::string& base,
 }
 
 template <typename T>
-OLAPStatus split_string_to_map(const std::string& base, const T element_separator,
-                               const T key_value_separator, 
-							   std::map<std::string, std::string>* result) {
-    if (result == nullptr) {
-	  return OLAP_ERR_OTHER_ERROR;
-    }
-
-    int key_pos = 0;
-    int key_end;
-    int val_pos;
-    int val_end;
-
-    while ((key_end = base.find(key_value_separator, key_pos)) != std::string::npos) {
-        if ((val_pos = base.find_first_not_of(key_value_separator, key_end)) == std::string::npos) {
-            break;
-        }
-	    if ((val_end = base.find(element_separator, val_pos)) == std::string::npos) {
-            val_end = base.size();
-        }
-        result->insert(std::make_pair(base.substr(key_pos, key_end - key_pos), base.substr(val_pos, val_end - val_pos)));
-        key_pos = val_end;
-        if (key_pos != std::string::npos) {
-      	    ++key_pos;
-        }
-    }
-
-    return OLAP_SUCCESS;
-}
-
-template <typename T>
 void _destruct_object(const void* obj, void*) {
     delete((const T*)obj);
 }

@@ -116,4 +116,6 @@ public final class FeMetaVersion {
     public static final int VERSION_52 = 52;
     // Support exec_mem_limit in ExportJob
     public static final int VERSION_53 = 53;
+    // support strict mode and change timeout to long
+    public static final int VERSION_54 = 54;
 }

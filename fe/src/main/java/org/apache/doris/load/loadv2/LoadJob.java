@@ -757,9 +757,9 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         }
         out.writeInt(progress);
         loadingStatus.write(out);
-//        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_52) {
-//            out.writeBoolean(strictMode);
-//        }
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_54) {
+            out.writeBoolean(strictMode);
+        }
     }
 
     @Override
@@ -773,7 +773,11 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         dbId = in.readLong();
         label = Text.readString(in);
         state = JobState.valueOf(Text.readString(in));
-        timeoutSecond = in.readLong();
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_54) {
+            timeoutSecond = in.readLong();
+        } else {
+            timeoutSecond = in.readInt();
+        }
         execMemLimit = in.readLong();
         maxFilterRatio = in.readDouble();
         deleteFlag = in.readBoolean();
@@ -786,8 +790,8 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         }
         progress = in.readInt();
         loadingStatus.readFields(in);
-//        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_52) {
-//            strictMode = in.readBoolean();
-//        }
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_54) {
+            strictMode = in.readBoolean();
+        }
     }
 }

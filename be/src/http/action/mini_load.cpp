@@ -51,7 +51,9 @@
 #include "util/url_coding.h"
 #include "util/file_utils.h"
 #include "util/frontend_helper.h"
+#include "util/json_util.h"
 #include "util/time.h"
+#include "util/string_parser.hpp"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/load_path_mgr.h"
@@ -351,31 +353,22 @@ bool MiniLoadAction::_is_streaming(HttpRequest* req) {
         return false;
     }
 
+
     const TNetworkAddress& master_address = _exec_env->master_info()->network_address;
-    Status status;
-    FrontendServiceConnection client(
-            _exec_env->frontend_client_cache(), master_address, config::thrift_rpc_timeout_ms, &status);
+    TFeResult res;
+    Status status = FrontendHelper::rpc(
+            master_address.hostname, master_address.port,
+            [&res] (FrontendServiceConnection& client) {
+            client->isMiniLoadStreaming(res);
+            });
     if (!status.ok()) {
         std::stringstream ss;
-        ss << "Connect master failed, with address("
-            << master_address.hostname << ":" << master_address.port << ")";
+        ss << "This mini load is not streaming because: " << status.get_error_msg()
+		    << " with address(" << master_address.hostname << ":" << master_address.port << ")";
         LOG(WARNING) << ss.str();
         return false;
     }
-
-    TFeResult res;
-    try {
-        client->isMiniLoadStreaming(res);
-        return true;
-    } catch (apache::thrift::TException& e) {
-        // reopen to disable this connection
-        client.reopen(config::thrift_rpc_timeout_ms);
-        std::stringstream ss;
-        ss << "This mini load is not streaming because: " << e.what()
-		   << " from master " << master_address.hostname << ":" << master_address.port;
-        LOG(INFO) << ss.str();
-        return false;
-    }
+    return true;
 }
 
 Status MiniLoadAction::_on_header(HttpRequest* req) {
@@ -546,20 +539,7 @@ void MiniLoadAction::_handle(HttpRequest* http_req) {
     }
     auto st = _load(
         http_req, ctx->file_path, ctx->load_check_req.user, ctx->load_check_req.cluster);
-    std::string status_str = "Success";
-    std::string msg = "OK";
-    if (!st.ok()) {
-        // we do not send 500 reply to client, send 200 with error msg
-        status_str = "FAILED";
-        msg = st.get_error_msg();
-    }
-
-    std::stringstream ss;
-    ss << "{\n";
-    ss << "\t\"status\": \"" << status_str << "\",\n";
-    ss << "\t\"msg\": \"" << msg << "\"\n";
-    ss << "}\n";
-    std::string str = ss.str();
+    std::string str = to_json(st);
     HttpChannel::send_reply(http_req, str);
 }
 
@@ -687,7 +667,7 @@ Status MiniLoadAction::_process_put(HttpRequest* req, StreamLoadContext* ctx) {
                 return Status::InvalidArgument("Hll value could not be empty when hll key is exists!"); 
             }
             std::map<std::string, std::string> hll_map;
-            split_string_to_map(hll_value, ":", ",", &hll_map);
+            RETURN_IF_ERROR(StringParser::split_string_to_map(hll_value, ":", ",", &hll_map));
             if (hll_map.empty()) {
                 return Status::InvalidArgument("Hll value could not tranform to hll expr: " + hll_value);
             }
@@ -810,20 +790,8 @@ void MiniLoadAction::_new_handle(HttpRequest* req) {
             ctx->body_sink->cancel();
         }
     }
-    
-    std::string status_str = "Success";
-    std::string msg = "OK";
-    if (!ctx->status.ok()) {
-        // we do not send 500 reply to client, send 200 with error msg
-        status_str = "FAILED";
-        msg = ctx->status.get_error_msg();
-    }
-    std::stringstream ss;
-    ss << "{\n";
-    ss << "\t\"status\": \"" << status_str << "\",\n";
-    ss << "\t\"msg\": \"" << msg << "\"\n";
-    ss << "}\n";
-    std::string str = ss.str();
+
+    std::string str = to_json(ctx->status);
     HttpChannel::send_reply(req, str);
 }
 
