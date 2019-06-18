@@ -25,6 +25,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Return value of the grammar production that parses function
@@ -106,5 +107,16 @@ public class FunctionParams implements Writable {
         FunctionParams params = new FunctionParams();
         params.readFields(in);
         return params;
+    }
+
+    @Override
+    public int hashCode() {
+        int result = 0;
+        result = 31 * result + (isStar ? 1 : 0);
+        result = 31 * result + (isDistinct ? 1 : 0);
+        for (Expr expr : exprs) {
+            result = 31 * result + Objects.hashCode(expr);
+        }
+        return result;
     }
 }

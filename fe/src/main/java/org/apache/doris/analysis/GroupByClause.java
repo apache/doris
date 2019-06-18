@@ -113,7 +113,7 @@ public class GroupByClause implements ParseNode {
                         "The expresions in GROUPINGING SETS can not be empty");
             }
             // collect all Expr elements
-            Set<Expr> groupingExprSet = new HashSet<>();
+            Set<Expr> groupingExprSet = new LinkedHashSet<>();
             for(ArrayList<Expr> list: groupingSetList) {
                 groupingExprSet.addAll(list);
             }

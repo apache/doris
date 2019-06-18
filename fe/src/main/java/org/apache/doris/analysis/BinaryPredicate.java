@@ -40,6 +40,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Objects;
 
 /**
  * Most predicates with two operands..
@@ -528,6 +529,15 @@ public class BinaryPredicate extends Predicate implements Writable {
                 Preconditions.checkState(false, "No defined binary operator.");
         }
         return this;
+    }
+
+    @Override
+    public int hashCode() {
+        int result = 0;
+        result = 31 * result + Objects.hashCode(op);
+        result = 31 * result + (slotIsleft  == null ? 0 : (slotIsleft ? 1 : 2));
+        result = 31 * result + (isInferred_ ? 1 : 0);
+        return result;
     }
 }
 

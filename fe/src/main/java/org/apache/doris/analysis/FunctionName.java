@@ -33,6 +33,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Objects;
 
 /**
  * Class to represent a function name. Function names are specified as
@@ -203,5 +204,13 @@ public class FunctionName implements Writable {
         FunctionName functionName = new FunctionName();
         functionName.readFields(in);
         return functionName;
+    }
+
+    @Override
+    public int hashCode() {
+        int result = 0;
+        result = 31 * result + Objects.hashCode(db_);
+        result = 31 * result + Objects.hashCode(fn_);
+        return result;
     }
 }

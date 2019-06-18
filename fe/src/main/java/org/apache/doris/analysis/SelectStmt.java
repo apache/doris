@@ -17,22 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.*;
-import org.apache.doris.catalog.Table.TableType;
-import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.ColumnAliasGenerator;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.UserException;
-import org.apache.doris.common.Pair;
-import org.apache.doris.common.TableAliasGenerator;
-import org.apache.doris.common.TreeNode;
-import org.apache.doris.common.util.SqlUtils;
-import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.rewrite.ExprRewriter;
-
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
 import com.google.common.base.Strings;
@@ -40,17 +24,18 @@ import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-
+import org.apache.doris.catalog.*;
+import org.apache.doris.catalog.Table.TableType;
+import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.*;
+import org.apache.doris.common.util.SqlUtils;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
 /**
  * Representation of a single select block, including GROUP BY, ORDER BY and HAVING
@@ -854,30 +839,9 @@ public class SelectStmt extends QueryStmt {
             // exprs during analysis (in case we need to print them later)
             groupingExprsCopy = Expr.cloneList(groupByClause.getGroupingExprs());
             substituteOrdinalsAliases(groupingExprsCopy, "GROUP BY", analyzer);
-        }
 
-        //List<Expr> params;
-        //FunctionCallExpr functionCallExpr = new FunctionCallExpr("grouping_id", params);
-        for(Expr expr: resultExprs) {
-            if (expr instanceof FunctionCallExpr) {
-                FunctionCallExpr functionCallExpr = (FunctionCallExpr) expr;
-                if (functionCallExpr.getFnName().getFunction().equals("grouping_id")) {
-                    if (groupByClause == null || !groupByClause.isGroupByExtension()) {
-                        throw new AnalysisException("grouping_id function only used in group by extension statesment");
-                    } else {
-                        FunctionParams functionParams = functionCallExpr.getParams();
-                        if (functionParams != null && functionParams.exprs() != null) {
-                            if (functionParams.exprs().size() != 0) {
-                                throw new AnalysisException("grouping_id function has no param.");
-                            }
-                        }
-                        List<Expr> params = new ArrayList<>();
-                        params.add(groupByClause.getGroupingIdSlotRef());
-                        functionCallExpr.setParams(new FunctionParams(params));
-                        functionCallExpr.resetAnalysisState();
-                        functionCallExpr.analyze(analyzer);
-                    }
-                }
+            if (groupByClause.isGroupByExtension()) {
+                substituteExtensionGroupingsClause(analyzer);
             }
         }
 
@@ -952,6 +916,82 @@ public class SelectStmt extends QueryStmt {
                 throw new AnalysisException(
                   "HAVING clause not produced by aggregation output " + "(missing from GROUP BY " +
                     "clause?): " + havingClause.toSql());
+            }
+        }
+    }
+
+    /**
+     * Build smap :
+     * expr -> if(bitand(pos, grouping_id)=0, expr, null)) for expr in extension grouping clause
+     * grouping_id() -> grouping_id(grouping_id) for grouping_id function
+     */
+    private void substituteExtensionGroupingsClause(Analyzer analyzer) throws AnalysisException {
+        if (groupByClause == null) return;
+        ArrayList<Expr> groupingExprs = groupByClause.getGroupingExprs();
+        if (groupingExprs == null) return;
+
+        List<FunctionCallExpr> funcs = Lists.newArrayList();
+        ExprSubstitutionMap smap = new ExprSubstitutionMap();
+        for(int i = 0; i < groupingExprs.size(); i++) {
+            Expr expr = groupingExprs.get(i);
+            expr.collect(FunctionCallExpr.class, funcs);
+            if (expr instanceof SlotRef) {
+                continue;
+            }
+
+            List<Expr> bitandParams = new ArrayList<>();
+            bitandParams.add(new IntLiteral(i + 1));
+            bitandParams.add(groupByClause.getGroupingIdSlotRef());
+            Expr bitandFunc = new FunctionCallExpr("bitand", new FunctionParams(bitandParams));
+
+            List<Expr> ifParams = new ArrayList<>();
+            ifParams.add(bitandFunc);
+            ifParams.add(expr);
+            ifParams.add(new NullLiteral());
+            Expr replaceExpr = new FunctionCallExpr("if", new FunctionParams(ifParams));
+
+            replaceExpr.analyze(analyzer);
+            smap.put(expr, replaceExpr);
+        }
+
+        if (whereClause != null) {
+            whereClause.collect(FunctionCallExpr.class, funcs);
+            whereClause.clone(smap);
+            //List<Subquery> subqueryExprs = Lists.newArrayList();
+            //whereClause.collect(Subquery.class, subqueryExprs);
+        }
+
+        if (havingClause != null) {
+            havingClause.collect(FunctionCallExpr.class, funcs);
+            havingClause.clone(smap);
+        }
+
+        if (orderByElements != null) {
+            for (OrderByElement orderByElem: orderByElements) {
+                orderByElem.getExpr().collect(FunctionCallExpr.class, funcs);
+                orderByElem.getExpr().clone(smap);
+            }
+        }
+
+        for(Expr expr: resultExprs) {
+            expr.collect(FunctionCallExpr.class, funcs);
+            expr.clone(smap);
+        }
+
+        for (FunctionCallExpr fn : funcs) {
+            String functionName = fn.getFnName().getFunction();
+            if (functionName.equalsIgnoreCase("grouping_id")) {
+                FunctionParams functionParams = fn.getParams();
+                if (functionParams != null && functionParams.exprs() != null) {
+                    if (functionParams.exprs().size() != 0) {
+                        throw new AnalysisException("grouping_id function has no param.");
+                    }
+                }
+                List<Expr> params = new ArrayList<>();
+                params.add(groupByClause.getGroupingIdSlotRef());
+                fn.setParams(new FunctionParams(params));
+                fn.resetAnalysisState();
+                fn.analyze(analyzer);
             }
         }
     }

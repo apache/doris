@@ -670,4 +670,13 @@ public class FunctionCallExpr extends Expr {
         }
         return false;
     }
+
+    @Override
+    public int hashCode() {
+        int result = 0;
+        result = 31 * result + Objects.hashCode(opcode);
+        result = 31 * result + Objects.hashCode(fnName);
+        result = 31 * result + Objects.hashCode(fnParams);
+        return result;
+    }
 }

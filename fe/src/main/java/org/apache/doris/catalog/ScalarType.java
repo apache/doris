@@ -29,6 +29,8 @@ import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Objects;
+
 /**
  * Describes a scalar type. For most types this class just wraps a PrimitiveType enum,
  * but for types like CHAR and DECIMAL, this class contain additional information.
@@ -758,5 +760,14 @@ public class ScalarType extends Type {
             thrift.setScale(scale);
         }
         return thrift;
+    }
+
+    @Override
+    public int hashCode() {
+        int result = 0;
+        result = 31 * result + Objects.hashCode(type);
+        result = 31 * result + precision;
+        result = 31 * result + scale;
+        return result;
     }
 }

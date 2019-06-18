@@ -29,6 +29,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.Objects;
 
 public class NullLiteral extends LiteralExpr {
 
@@ -143,5 +144,10 @@ public class NullLiteral extends LiteralExpr {
         NullLiteral literal = new NullLiteral();
         literal.readFields(in);
         return literal;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hashCode(type);
     }
 }
