@@ -74,13 +74,13 @@
             目前支持的函数有：
 
                 strftime(fmt, column) 日期转换函数
-                    fmt: 日期格式，形如%Y%m%d%H%M%S (年月日时分秒)
+                    fmt: 日期格式，形如%Y%m%d%H%i%S (年月日时分秒)
                     column: column_list中的列，即输入文件中的列。存储内容应为数字型的时间戳。
                         如果没有column_list，则按照palo表的列顺序默认输入文件的列。
 
                 time_format(output_fmt, input_fmt, column) 日期格式转化
-                    output_fmt: 转化后的日期格式，形如%Y%m%d%H%M%S (年月日时分秒)
-                    input_fmt: 转化前column列的日期格式，形如%Y%m%d%H%M%S (年月日时分秒)
+                    output_fmt: 转化后的日期格式，形如%Y%m%d%H%i%S (年月日时分秒)
+                    input_fmt: 转化前column列的日期格式，形如%Y%m%d%H%i%S (年月日时分秒)
                     column: column_list中的列，即输入文件中的列。存储内容应为input_fmt格式的日期字符串。
                         如果没有column_list，则按照palo表的列顺序默认输入文件的列。
 
@@ -298,8 +298,8 @@
         COLUMNS TERMINATED BY ","
         (tmp_k1, tmp_k2, tmp_k3, k6, v1)
         SET (
-          k1 = strftime("%Y-%m-%d %H:%M:%S", tmp_k1),
-          k2 = time_format("%Y-%m-%d %H:%M:%S", "%Y-%m-%d", tmp_k2),
+          k1 = strftime("%Y-%m-%d %H:%i:%S", tmp_k1),
+          k2 = time_format("%Y-%m-%d %H:%i:%S", "%Y-%m-%d", tmp_k2),
           k3 = alignment_timestamp("day", tmp_k3), 
           k4 = default_value("1"), 
           k5 = md5sum(tmp_k1, tmp_k2, tmp_k3),
