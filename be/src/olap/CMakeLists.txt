@@ -85,6 +85,5 @@ add_library(Olap STATIC
     wrapper_field.cpp
     rowset/segment_v2/ordinal_page_index.cpp
     rowset/segment_v2/encoding_info.cpp
-    rowset/segment_v2/bitshuffle_page.cpp
     rowset/segment_v2/bitshuffle_wrapper.cpp
 )

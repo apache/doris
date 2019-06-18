@@ -38,7 +38,30 @@
 namespace doris {
 namespace segment_v2 {
 
-void abort_with_bitshuffle_error(int64_t val);
+void warn_with_bitshuffle_error(int64_t val) {
+    switch (val) {
+    case -1:
+      LOG(WARNING) << "Failed to allocate memory";
+      break;
+    case -11:
+      LOG(WARNING) << "Missing SSE";
+      break;
+    case -12:
+      LOG(WARNING) << "Missing AVX";
+      break;
+    case -80:
+      LOG(WARNING) << "Input size not a multiple of 8";
+      break;
+    case -81:
+      LOG(WARNING) << "block_size not multiple of 8";
+      break;
+    case -91:
+      LOG(WARNING) << "Decompression error, wrong number of bytes processed";
+      break;
+    default:
+      LOG(WARNING) << "Error internal to compression routine";
+    }
+}
 
 // BitshufflePageBuilder bitshuffles and compresses the bits of fixed
 // size type blocks with lz4.
@@ -81,8 +104,8 @@ void abort_with_bitshuffle_error(int64_t val);
 template<FieldType Type>
 class BitshufflePageBuilder : public PageBuilder {
 public:
-    BitshufflePageBuilder(const BuilderOptions* options) :
-            _options(options),
+    BitshufflePageBuilder(PageBuilderOptions options) :
+            _options(std::move(options)),
             _count(0),
             _remain_element_capacity(0),
             _finished(false) {
@@ -117,7 +140,7 @@ public:
     }
 
     void reset() override {
-        auto block_size = _options->data_page_size;
+        auto block_size = _options.data_page_size;
         _count = 0;
         _data.clear();
         _data.reserve(block_size);
@@ -164,9 +187,9 @@ private:
         if (PREDICT_FALSE(bytes < 0)) {
             // This means the bitshuffle function fails.
             // Ideally, this should not happen.
-            abort_with_bitshuffle_error(bytes);
+            warn_with_bitshuffle_error(bytes);
             // It does not matter what will be returned here,
-            // since we have logged fatal in abort_with_bitshuffle_error().
+            // since we have logged fatal in warn_with_bitshuffle_error().
             return Slice();
         }
         encode_fixed32_le(&_buffer[8], HEADER_SIZE + bytes);
@@ -190,7 +213,7 @@ private:
     enum {
         SIZE_OF_TYPE = TypeTraits<Type>::size
     };
-    const BuilderOptions* _options;
+    PageBuilderOptions _options;
     uint32_t _count;
     int _remain_element_capacity;
     bool _finished;
@@ -200,50 +223,50 @@ private:
 
 template<FieldType Type>
 class BitShufflePageDecoder : public PageDecoder {
-    public:
-        BitShufflePageDecoder(Slice data) : _data(data),
-        _parsed(false),
-        _page_first_ordinal(0),
-        _num_elements(0),
-        _compressed_size(0),
-        _num_element_after_padding(0),
-        _size_of_element(0),
-        _cur_index(0) { }
+public:
+    BitShufflePageDecoder(Slice data) : _data(data),
+    _parsed(false),
+    _page_first_ordinal(0),
+    _num_elements(0),
+    _compressed_size(0),
+    _num_element_after_padding(0),
+    _size_of_element(0),
+    _cur_index(0) { }
 
-        Status init() override {
-            CHECK(!_parsed);
-            if (_data.size < HEADER_SIZE) {
+    Status init() override {
+        CHECK(!_parsed);
+        if (_data.size < HEADER_SIZE) {
+            std::stringstream ss;
+            ss << "file corrupton: invalid data size:" << _data.size << ", header size:" << HEADER_SIZE;
+            return Status(ss.str());
+        }
+        _page_first_ordinal = decode_fixed32_le((const uint8_t*)&_data[0]);
+        _num_elements = decode_fixed32_le((const uint8_t*)&_data[4]);
+        _compressed_size   = decode_fixed32_le((const uint8_t*)&_data[8]);
+        if (_compressed_size != _data.size) {
+            std::stringstream ss;
+            ss << "Size information unmatched, _compressed_size:" << _compressed_size
+                << ", data size:" << _data.size;
+            return Status(ss.str());
+        }
+        _num_element_after_padding = decode_fixed32_le((const uint8_t*)&_data[12]);
+        if (_num_element_after_padding != ALIGN_UP(_num_elements, 8)) {
+            std::stringstream ss;
+            ss << "num of element information corrupted,"
+                << " _num_element_after_padding:" << _num_element_after_padding
+                << ", _num_elements:" << _num_elements;
+            return Status(ss.str());
+        }
+        _size_of_element = decode_fixed32_le((const uint8_t*)&_data[16]);
+        switch (_size_of_element) {
+            case 1:
+            case 2:
+            case 4:
+            case 8:
+            case 16:
+                break;
+            default:
                 std::stringstream ss;
-                ss << "file corrupton: invalid data size:" << _data.size << ", header size:" << HEADER_SIZE;
-                return Status(ss.str());
-            }
-            _page_first_ordinal = decode_fixed32_le((const uint8_t*)&_data[0]);
-            _num_elements = decode_fixed32_le((const uint8_t*)&_data[4]);
-            _compressed_size   = decode_fixed32_le((const uint8_t*)&_data[8]);
-            if (_compressed_size != _data.size) {
-                std::stringstream ss;
-                ss << "Size information unmatched, _compressed_size:" << _compressed_size
-                    << ", data size:" << _data.size;
-                return Status(ss.str());
-            }
-            _num_element_after_padding = decode_fixed32_le((const uint8_t*)&_data[12]);
-            if (_num_element_after_padding != ALIGN_UP(_num_elements, 8)) {
-                std::stringstream ss;
-                ss << "num of element information corrupted,"
-                    << " _num_element_after_padding:" << _num_element_after_padding
-                    << ", _num_elements:" << _num_elements;
-                return Status(ss.str());
-            }
-            _size_of_element = decode_fixed32_le((const uint8_t*)&_data[16]);
-            switch (_size_of_element) {
-                case 1:
-                case 2:
-                case 4:
-                case 8:
-                case 16:
-                    break;
-                default:
-                    std::stringstream ss;
                 ss << "invalid size_of_elem:" << _size_of_element;
                 return Status(ss.str());
         }
@@ -321,7 +344,7 @@ private:
                     _size_of_element, 0);
             if (PREDICT_FALSE(bytes < 0)) {
                 // Ideally, this should not happen.
-                abort_with_bitshuffle_error(bytes);
+                warn_with_bitshuffle_error(bytes);
                 return Status(TStatusCode::RUNTIME_ERROR, "Unshuffle Process failed", true);
             }
         }

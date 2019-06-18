@@ -24,19 +24,13 @@
 #include "olap/rowset/segment_v2/bitshuffle_page.h"
 #include "util/logging.h"
 
-using doris::segment_v2::BuilderOptions;
+using doris::segment_v2::PageBuilderOptions;
 
 namespace doris {
 
 class BitShufflePageTest : public testing::Test {
 public:
     virtual ~BitShufflePageTest() {}
-
-    BuilderOptions* new_builder_options() {
-        auto ret = new BuilderOptions();
-        ret->data_page_size = 256 * 1024;
-        return ret;
-    }
 
     template<FieldType type, class PageDecoderType>
     void copy_one(PageDecoderType* decoder, typename TypeTraits<type>::CppType* ret) {
@@ -55,8 +49,9 @@ public:
                 size_t size) {
         typedef typename TypeTraits<Type>::CppType CppType;
         const size_t ordinal_pos_base = 12345;
-        std::unique_ptr<BuilderOptions> opts(new_builder_options());
-        PageBuilderType page_builder(opts.get());
+        PageBuilderOptions options;
+        options.data_page_size = 256 * 1024;
+        PageBuilderType page_builder(options);
 
         page_builder.add(reinterpret_cast<const uint8_t *>(src), &size);
         Slice s = page_builder.finish(ordinal_pos_base);

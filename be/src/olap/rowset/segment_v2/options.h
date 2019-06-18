@@ -22,20 +22,10 @@
 namespace doris {
 namespace segment_v2 {
 
-struct BuilderOptions {
-    size_t data_page_size;
+struct PageBuilderOptions {
+    size_t data_page_size = 0;
 
-    size_t dict_page_size;
-
-    bool write_posidx;
-
-    EncodingTypePB encoding;
-
-    CompressionTypePB compression_type;
-
-    bool is_nullable;
-
-    bool has_dictionary;
+    size_t dict_page_size = 0;
 };
 
 } // namespace segment_v2
