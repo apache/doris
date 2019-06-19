@@ -41,6 +41,7 @@ public class StringLiteral extends LiteralExpr {
     private String value;
     
     public StringLiteral() {
+        type = Type.VARCHAR;
     }
 
     public StringLiteral(String value) {
