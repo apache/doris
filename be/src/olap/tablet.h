@@ -222,6 +222,8 @@ public:
     OLAPStatus next_rowset_id(RowsetId* id);
     OLAPStatus set_next_rowset_id(RowsetId new_rowset_id);
 
+    OLAPStatus set_partition_id(int64_t partition_id);
+
 private:
     void _print_missed_versions(const std::vector<Version>& missed_versions) const;
     OLAPStatus _check_added_rowset(const RowsetSharedPtr& rowset);
