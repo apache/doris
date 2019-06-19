@@ -105,7 +105,7 @@ OLAPStatus EngineCloneTask::execute() {
             LOG(INFO) << "current tablet has invalid rowset that's version == commit_version but version hash not equal"
                       << " clone req commit_version=" <<  _clone_req.committed_version
                       << " clone req commit_version_hash=" <<  _clone_req.committed_version_hash
-                      << " cur rowset version=" clone_rowset->version_hash()
+                      << " cur rowset version=" << clone_rowset->version_hash()
                       << " tablet info = " << tablet->full_name();
         }
         if (status == DORIS_SUCCESS && allow_incremental_clone) {
