@@ -43,13 +43,12 @@ using doris::TabletMetaManager;
 
 const std::string HEADER_PREFIX = "tabletmeta_";
 
-DECLARE_bool(help);
 DEFINE_string(root_path, "", "storage root path");
 DEFINE_string(operation, "get_meta",
               "valid operation: get_meta, flag, load_meta, delete_meta, show_meta");
 DEFINE_int64(tablet_id, 0, "tablet_id for tablet meta");
 DEFINE_int32(schema_hash, 0, "schema_hash for tablet meta");
-DEFINE_string(json_meta_path, "", "json meta file path");
+DEFINE_string(json_meta_path, "", "absolute json meta file path");
 DEFINE_string(pb_meta_path, "", "pb meta file path");
 
 std::string get_usage(std::string progname) {
@@ -116,10 +115,8 @@ void delete_meta(DataDir *data_dir) {
 
 int main(int argc, char **argv) {
     std::string usage = get_usage(argv[0]);
-    std::cout << "usage:" << usage << std::endl;
     gflags::SetUsageMessage(usage);
     google::ParseCommandLineFlags(&argc, &argv, true);
-    std::cout << "FLAGS_help:" << FLAGS_help << std::endl;
 
     if (FLAGS_operation == "show_meta") {
         show_meta();
@@ -163,10 +160,8 @@ int main(int argc, char **argv) {
         } else if (FLAGS_operation == "delete_meta") {
             delete_meta(data_dir.get());
         } else {
-            std::cout << "shit usage:" << usage << std::endl;
             std::cout << "invalid operation:" << FLAGS_operation << "\n"
                     << usage << std::endl;
-            std::cout << "finished print usage" << std::endl;
             return -1;
         }
     }

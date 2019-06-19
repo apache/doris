@@ -145,14 +145,12 @@ OLAPStatus TabletMetaManager::traverse_headers(OlapMeta* meta,
 
 OLAPStatus TabletMetaManager::load_json_header(DataDir* store, const std::string& header_path) {
     std::ifstream infile(header_path);
-    char buffer[100000];
+    char buffer[102400];
     std::string json_header;
-    std::cout << "start to read json file" << std::endl;
     while (!infile.eof()) {
-        infile.getline(buffer, 100000);
+        infile.getline(buffer, 102400);
         json_header = json_header + buffer;
     }
-    std::cout << "json_header:" << json_header << std::endl;
     boost::algorithm::trim(json_header);
     TabletMetaPB tablet_meta_pb;
     bool ret = json2pb::JsonToProtoMessage(json_header, &tablet_meta_pb);
