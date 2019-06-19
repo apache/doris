@@ -98,7 +98,8 @@ OLAPStatus EnginePublishVersionTask::finish() {
             if (publish_status != OLAP_SUCCESS) {
                 LOG(WARNING) << "add visible rowset to tablet failed rowset_id:" << rowset->rowset_id()
                              << "tablet id: " << tablet_info.tablet_id
-                             << "txn id:" << transaction_id;
+                             << "txn id:" << transaction_id
+                             << "res:" << publish_status;
                 _error_tablet_ids->push_back(tablet_info.tablet_id);
                 res = publish_status;
                 continue;
