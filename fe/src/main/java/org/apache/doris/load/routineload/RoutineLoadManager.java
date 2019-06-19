@@ -57,6 +57,7 @@ import java.util.stream.Collectors;
 public class RoutineLoadManager implements Writable {
     private static final Logger LOG = LogManager.getLogger(RoutineLoadManager.class);
     private static final int DEFAULT_BE_CONCURRENT_TASK_NUM = 10;
+    private static final int desiredMaxWaitingSize = 100;
 
     // Long is beId, integer is the size of tasks in be
     private Map<Long, Integer> beIdToMaxConcurrentTasks = Maps.newHashMap();
@@ -148,9 +149,11 @@ public class RoutineLoadManager implements Writable {
                 throw new DdlException("Name " + routineLoadJob.getName() + " already used in db "
                         + dbName);
             }
+            if (getRoutineLoadJobByState(RoutineLoadJob.JobState.NEED_SCHEDULE).size() > desiredMaxWaitingSize) {
+                throw new DdlException("There are too many routine load job in waiting queue, please retry later");
+            }
 
             unprotectedAddJob(routineLoadJob);
-
             Catalog.getInstance().getEditLog().logCreateRoutineLoadJob(routineLoadJob);
             LOG.info("create routine load job: id: {}, name: {}", routineLoadJob.getId(), routineLoadJob.getName());
         } finally {

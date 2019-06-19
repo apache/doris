@@ -90,6 +90,9 @@ public class LoadManager implements Writable{
             if (stmt.getBrokerDesc() == null) {
                 throw new DdlException("LoadManager only support the broker load.");
             }
+            if (loadJobScheduler.isQueueFull()) {
+                throw new DdlException("There are too many load job in waiting queue, please retry later.");
+            }
             loadJob = BrokerLoadJob.fromLoadStmt(stmt);
             createLoadJob(loadJob);
             // submit it
