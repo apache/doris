@@ -697,9 +697,12 @@ public class SingleNodePlanner {
                 SlotId slotId = slotDesc.getId();
                 if (slotId == null) continue;
                 for(int i = 0; i < exprList.size(); i++) {
-                    if (bitSet.get(i) && exprList.get(i).isBound(slotId)) {
-                        slotIdSet.add(slotId);
-                        break;
+                    if (exprList.get(i) instanceof SlotRef) {
+                        SlotRef slotRef = (SlotRef)(exprList.get(i));
+                        if (bitSet.get(i) && slotRef.getSlotId() == slotId) {
+                            slotIdSet.add(slotId);
+                            break;
+                        }
                     }
                 }
             }

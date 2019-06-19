@@ -323,5 +323,8 @@ public class GroupByClause implements ParseNode {
         return groupingIdList;
     }
 
+    public void substituteGroupingExprs(ExprSubstitutionMap smap, Analyzer analyzer) {
+        groupingExprs = Expr.substituteList(groupingExprs, smap, analyzer, true);
+    }
 }
 

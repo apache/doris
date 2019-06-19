@@ -835,14 +835,14 @@ public class SelectStmt extends QueryStmt {
             // must do it before copying for createAggInfo()
             groupByClause.analyze(analyzer);
 
+            if (groupByClause.isGroupByExtension()) {
+                substituteExtensionGroupingsClause(analyzer);
+            }
+
             // make a deep copy here, we don't want to modify the original
             // exprs during analysis (in case we need to print them later)
             groupingExprsCopy = Expr.cloneList(groupByClause.getGroupingExprs());
             substituteOrdinalsAliases(groupingExprsCopy, "GROUP BY", analyzer);
-
-            if (groupByClause.isGroupByExtension()) {
-                substituteExtensionGroupingsClause(analyzer);
-            }
         }
 
         createAggInfo(groupingExprsCopy, aggExprs, analyzer);
@@ -922,7 +922,7 @@ public class SelectStmt extends QueryStmt {
 
     /**
      * Build smap :
-     * expr -> if(bitand(pos, grouping_id)=0, expr, null)) for expr in extension grouping clause
+     * expr -> if(bitand(pos, grouping_id)=0, null, expr) for expr in extension grouping clause
      * grouping_id() -> grouping_id(grouping_id) for grouping_id function
      */
     private void substituteExtensionGroupingsClause(Analyzer analyzer) throws AnalysisException {
@@ -943,39 +943,43 @@ public class SelectStmt extends QueryStmt {
             bitandParams.add(new IntLiteral(i + 1));
             bitandParams.add(groupByClause.getGroupingIdSlotRef());
             Expr bitandFunc = new FunctionCallExpr("bitand", new FunctionParams(bitandParams));
+            BinaryPredicate predicate = new BinaryPredicate(BinaryPredicate.Operator.EQ, bitandFunc, new IntLiteral(0));
 
             List<Expr> ifParams = new ArrayList<>();
-            ifParams.add(bitandFunc);
-            ifParams.add(expr);
+            ifParams.add(predicate);
             ifParams.add(new NullLiteral());
+            ifParams.add(expr);
             Expr replaceExpr = new FunctionCallExpr("if", new FunctionParams(ifParams));
 
             replaceExpr.analyze(analyzer);
             smap.put(expr, replaceExpr);
         }
+        groupByClause.substituteGroupingExprs(smap, analyzer);
 
         if (whereClause != null) {
+            whereClause = whereClause.substitute(smap);
             whereClause.collect(FunctionCallExpr.class, funcs);
-            whereClause.clone(smap);
             //List<Subquery> subqueryExprs = Lists.newArrayList();
             //whereClause.collect(Subquery.class, subqueryExprs);
         }
 
         if (havingClause != null) {
+            havingClause = havingClause.substitute(smap);
             havingClause.collect(FunctionCallExpr.class, funcs);
-            havingClause.clone(smap);
         }
 
         if (orderByElements != null) {
+            if (sortInfo != null) {
+                sortInfo.substituteOrderingExprs(smap, analyzer);
+            }
             for (OrderByElement orderByElem: orderByElements) {
                 orderByElem.getExpr().collect(FunctionCallExpr.class, funcs);
-                orderByElem.getExpr().clone(smap);
             }
         }
 
+        substituteResultExprs(smap, analyzer);
         for(Expr expr: resultExprs) {
             expr.collect(FunctionCallExpr.class, funcs);
-            expr.clone(smap);
         }
 
         for (FunctionCallExpr fn : funcs) {
