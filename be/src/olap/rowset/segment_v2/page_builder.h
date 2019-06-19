@@ -25,7 +25,6 @@
 #include "olap/rowset/segment_v2/common.h"
 
 namespace doris {
-
 namespace segment_v2 {
 
 // PageBuilder is used to build page
@@ -37,6 +36,8 @@ namespace segment_v2 {
 // 5. Bitmap Index Page: store bitmap index of data
 class PageBuilder {
 public:
+    PageBuilder() { }
+
     virtual ~PageBuilder() { }
 
     // Used by column writer to determine whether the current page is full.
@@ -51,10 +52,7 @@ public:
     virtual doris::Status add(const uint8_t* vals, size_t* count) = 0;
 
     // Get the dictionary page for dictionary encoding mode column.
-    virtual doris::Status get_dictionary_page(doris::Slice* dictionary_page);
-
-    // Get the bitmap page for bitmap indexed column.
-    virtual doris::Status get_bitmap_page(doris::Slice* bitmap_page);
+    virtual doris::Status get_dictionary_page(doris::Slice* dictionary_page) = 0;
 
     // Return a Slice which represents the encoded data of current page.
     //
@@ -69,10 +67,15 @@ public:
     // Return the number of entries that have been added to the page.
     virtual size_t count() const = 0;
 
+    // This api is for release the resource owned by builder
+    // It means it will transfer the ownership of some resource to other.
+    // This api is always called after finish
+    // and should be followed by reset() before reuse the builder
+    virtual void release() = 0;
+
 private:
     DISALLOW_COPY_AND_ASSIGN(PageBuilder);
 };
 
 } // namespace segment_v2
-
 } // namespace doris
