@@ -588,7 +588,7 @@ build_bitshuffle() {
         arch_flag=""
         if [ "$arch" == "avx2" ]; then
             arch_flag="-mavx2"
-        fi  
+        fi
         tmp_obj=bitshuffle_${arch}_tmp.o
         dst_obj=bitshuffle_${arch}.o
         ${CC:-gcc} $EXTRA_CFLAGS $arch_flag -std=c99 -I$PREFIX/include/lz4/ -O3 -DNDEBUG -fPIC -c \
