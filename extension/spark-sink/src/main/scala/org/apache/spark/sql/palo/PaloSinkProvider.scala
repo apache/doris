@@ -49,6 +49,7 @@ private[palo] class PaloSinkProvider extends StreamSinkProvider
    * @param outputMode  user specified mode, only support APPEND/UPDATE mode
    */
   def checkValidity(parameters: Map[String, String], outputMode: OutputMode) {
+    import org.apache.spark.sql.palo.PaloSinkProvider._
     check(PaloConfig.COMPUTENODEURL, parameters)
     check(PaloConfig.MYSQLURL, parameters)
     check(PaloConfig.USERNAME, parameters)
@@ -60,10 +61,13 @@ private[palo] class PaloSinkProvider extends StreamSinkProvider
       throw new IllegalArgumentException("outputMode must be Append/Update for palo sink")
     }
   }
+}
 
-  private def check(key: String, parameters: Map[String, String]) {
+object PaloSinkProvider {
+  def check(key: String, parameters: Map[String, String]) {
     if (!parameters.contains(key) || parameters(key).isEmpty ) {
       throw new IllegalArgumentException(s"$key must be specified!")
     }
   }
+
 }

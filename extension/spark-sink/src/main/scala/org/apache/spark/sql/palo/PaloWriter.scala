@@ -53,21 +53,26 @@ private[palo] object PaloWriter extends Logging {
     //
     // if parameters contains key "loadway", use the specified loadway
     // otherwise use the default way "LOAD"
-    val loadWay: LoadWay = parameters.getOrElse(PaloConfig.LOADWAY, "LOAD") match {
-       case "LOAD" => LOAD
+    val loadWay: LoadWay = parameters.getOrElse(PaloConfig.LOADWAY, "BULK_LOAD") match {
        case "BULK_LOAD" => BULK_LOAD
+       case "LOAD" => LOAD
        case way =>
          logWarning(s"loadway must be LOAD or BULK_LOAD, should not be $way, will use LOAD way")
          LOAD
     }
 
+    if (loadWay == LOAD) {
+      PaloSinkProvider.check(PaloConfig.BROKER_NAME, parameters)
+    }
+    logInfo(s"use $loadWay to sink data to palo")
+
     SQLExecution.withNewExecutionId(sparkSession, queryExecution) {
       queryExecution.toRdd.foreachPartition { iter =>
         val writeTask: PaloWriteTask = loadWay match {
-          case LOAD =>
-            new PaloDfsLoadTask(sparkSession, batchId, checkpointRoot, parameters, schema)
           case BULK_LOAD =>
             new PaloBulkLoadTask(sparkSession, batchId, checkpointRoot, parameters, schema)
+          case LOAD =>
+            new PaloDfsLoadTask(sparkSession, batchId, checkpointRoot, parameters, schema)
         }
         Utils.tryWithSafeFinally(block = writeTask.execute(iter))(
           finallyBlock = writeTask.close())

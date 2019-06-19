@@ -42,7 +42,7 @@ private[palo] class PaloDfsLoadTask(
     batchId: Long,
     checkpointRoot: String,
     parameters: Map[String, String],
-    schema: StructType) 
+    schema: StructType)
   extends PaloWriteTask(sparkSession, batchId, checkpointRoot, parameters, schema) with Logging {
 
   // we use the {{Configuration}} to get ugi, and in order to unify the way to
@@ -53,6 +53,7 @@ private[palo] class PaloDfsLoadTask(
   private val dataDir = checkAndInit(PaloConfig.PALO_DATA_DIR) // hdfs or afs
   private val loadCmd = checkAndInit(PaloConfig.LOADCMD)
   private val ugi = checkAndInit("hadoop.job.ugi")
+  private val broker = checkAndInit(PaloConfig.BROKER_NAME)
 
   private[palo] val paloTimeout = conf.getInt(PaloConfig.PALO_TIME_OUT, 0)
   private[palo] val maxFilterRatio = conf.getDouble(PaloConfig.MAX_FILTER_RATIO, 0)
@@ -164,12 +165,6 @@ private[palo] class PaloDfsLoadTask(
     val hdfsPattern = "hdfs://.*".r
     val localPattern = "file://.*".r // for unit test
     val defaultFs = conf.get("fs.defaultFS")
-    val broker = defaultFs match {
-      case afsPattern(_*) => "baidu_afs"
-      case hdfsPattern(_*) => "baidu_hdfs"
-      case localPattern(_*) => "UT"  // for unit test
-    }
-
     val isNegative = if (is_negative) "NEGATIVE"; else ""
 
     val sql = s"""LOAD LABEL ${database}.${label}

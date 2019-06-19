@@ -76,7 +76,7 @@ private[palo] abstract class PaloWriteTask (
     assert(str != null && str.length >= 1)
     val tmp = str match {
       case s if (s(0) == '/') => s.substring(1, s.length)
-      case s if (s.length >= 7 && s.substring(0, 7) == "hdfs://") => 
+      case s if (s.length >= 7 && s.substring(0, 7) == "hdfs://") =>
         val index = s.indexOf("/", 7)
         s.substring(index + 1, s.length)
       case _ => str
@@ -101,8 +101,8 @@ private[palo] abstract class PaloWriteTask (
     if (length > 128) {
       logWarning("palo label size larger than 128!, we truncate it!")
       resultStr.substring(length - 128, length)
-    } else { 
-      resultStr 
+    } else {
+      resultStr
     }
   }
 

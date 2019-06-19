@@ -55,6 +55,7 @@ object PaloConfig {
   // specific for "LOAD" way
   val PALO_DATA_DIR: String = "palo.data.dir"
   val LOADCMD: String = "loadcmd"
+  val BROKER_NAME: String = toLowerCase("brokerName")
 
   // specific for "BULK_LOAD(Mini load)" way
   val HTTP_MAX_RETRIES: String = toLowerCase("httpMaxRetries")
