@@ -426,10 +426,24 @@ public class ColocateTableIndex implements Writable {
     }
 
     public ColocateGroupSchema getGroupSchema(String groupName) {
-        if (!groupName2Id.containsKey(groupName)) {
-            return null;
+        readLock();
+        try {
+            if (!groupName2Id.containsKey(groupName)) {
+                return null;
+            }
+            return group2Schema.get(groupName2Id.get(groupName));
+        } finally {
+            readUnlock();
         }
-        return group2Schema.get(groupName2Id.get(groupName));
+    }
+
+    public ColocateGroupSchema getGroupSchema(GroupId groupId) {
+        readLock();
+        try {
+            return group2Schema.get(groupId);
+        } finally {
+            readUnlock();
+        }
     }
 
     public boolean hasColocateGroup(String group) {
@@ -707,7 +721,7 @@ public class ColocateTableIndex implements Writable {
         }
     }
 
-    public void setBackendsSetForGroup(GroupId groupId, int tabletOrderIdx, Set<Long> newBackends) {
+    public void setBackendsSetByIdxForGroup(GroupId groupId, int tabletOrderIdx, Set<Long> newBackends) {
         writeLock();
         try {
             List<List<Long>> backends = group2BackendsPerBucketSeq.get(groupId);

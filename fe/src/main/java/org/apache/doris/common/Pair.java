@@ -17,10 +17,14 @@
 
 package org.apache.doris.common;
 
+import java.util.Comparator;
+
 /**
  * The equivalent of C++'s std::pair<>.
  */
 public class Pair<F, S> {
+    public static PairComparator<Pair<?, Comparable>> PAIR_VALUE_COMPARATOR = new PairComparator<>();
+
     public F first;
     public S second;
 
@@ -56,5 +60,12 @@ public class Pair<F, S> {
     @Override
     public String toString() {
         return first.toString() + ":" + second.toString();
+    }
+
+    public static class PairComparator<T extends Pair<?, Comparable>> implements Comparator<T> {
+        @Override
+        public int compare(T o1, T o2) {
+            return o1.second.compareTo(o2.second);
+        }
     }
 }

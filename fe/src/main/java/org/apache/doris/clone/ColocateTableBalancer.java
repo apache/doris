@@ -18,6 +18,7 @@
 package org.apache.doris.clone;
 
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.ColocateGroupSchema;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Database;
@@ -80,25 +81,25 @@ public class ColocateTableBalancer extends Daemon {
     @Override
     /*
      * Each round, we do 2 steps:
-     * 1. Relocate backends of each group
-     *      1. Backend is not available, find a new backend to replace it.
-     *      2. All backends are good, try to balance at most one bucket.
+     * 1. Relocate group:
+     *      Backend is not available, find a new backend to replace it.
+     *      Relocate at most one group at a time
      *      
-     * 2. check health of replicas in each group, based on backends relocated in first step.
+     * 2. Match group:
+     *      If replica mismatch backends in a group, that group will be marked as unstable.
+     * 
+     * 3. Balance group:
+     *      Skip groups which contains unavailable backends.
      */
     protected void runOneCycle() {
         relocateGroup();
-        checkGroupHealth();
-    }
-
-    private void relocateGroup() {
-        checkBackendAvailable();
-        checkBackendBalance();
+        matchGroup();
+        balanceGroup();
     }
 
     /*
      * Traverse all colocate groups, for each group:
-     * 1. Check if there are backends dead or unavailable(decommission)
+     * Check if there are backends dead or unavailable(decommission)
      * If yes, for each buckets in this group, if the unavailable backend belongs to this bucket, we will find
      * a new backend to replace the unavailable one.
      * 
@@ -110,11 +111,11 @@ public class ColocateTableBalancer extends Daemon {
      *      
      *      [[1, 2, 4], [4, 1, 2], [3, 4, 1], [2, 3, 4], [1, 2, 3]]
      *      
-     *      notice that we only replace the backends in first buckets. that is, we only replace
+     *      NOTICE that we only replace the backends in first buckets. that is, we only replace
      *      one bucket in one group at each round. because we need to use newly-updated cluster load statistic to
      *      find next available backend. and cluster load statistic is updated every 20 seconds.
      */
-    private void checkBackendAvailable() {
+    private void relocateGroup() {
         Catalog catalog = Catalog.getCurrentCatalog();
         ColocateTableIndex colocateIndex = catalog.getColocateTableIndex();
         SystemInfoService infoService = Catalog.getCurrentSystemInfo();
@@ -168,7 +169,7 @@ public class ColocateTableBalancer extends Daemon {
                 // replace backend
                 bucketBackendsSeq.get(tabletOrderIdx).remove(unavailableBeId);
                 bucketBackendsSeq.get(tabletOrderIdx).add(newBackendId);
-                colocateIndex.setBackendsSetForGroup(groupId, tabletOrderIdx, bucketBackendsSeq.get(tabletOrderIdx));
+                colocateIndex.setBackendsSetByIdxForGroup(groupId, tabletOrderIdx, bucketBackendsSeq.get(tabletOrderIdx));
                 LOG.info("select backend {} to replace backend {} for bucket {} in group {}. now backends set is: {}",
                         newBackendId, unavailableBeId, tabletOrderIdx, groupId, bucketBackendsSeq.get(tabletOrderIdx));
             }
@@ -229,8 +230,8 @@ public class ColocateTableBalancer extends Daemon {
                 unavailableBeId, tabletOrderIdx, totalReplicaNum, totalReplicaSize);
         
         /*
-         * There are some unsolved problems of finding a new backend for data migration:
-         * 1. Different table(partition) in this group may in different storage medium(SSD or HDD). If one backend
+         * There is an unsolved problem of finding a new backend for data migration:
+         *    Different table(partition) in this group may in different storage medium(SSD or HDD). If one backend
          *    is down, the best solution is to find a backend which has both SSD and HDD, and replicas can be
          *    relocated in corresponding medium.
          *    But in fact, backends can be heterogeneous, which may only has SSD or HDD. If we choose to strictly
@@ -267,14 +268,12 @@ public class ColocateTableBalancer extends Daemon {
         return choosenBe.getBeId();
     }
 
-    private void checkBackendBalance() {
-
-    }
-
     /*
-     * We 
+     * Check every tablet of a group, if replica's location does not match backends in group, relocating those
+     * replicas, and mark that group as unstable.
+     * If every replicas match the backends in group, mark that group as stable.
      */
-    private void checkGroupHealth() {
+    private void matchGroup() {
         Catalog catalog = Catalog.getCurrentCatalog();
         ColocateTableIndex colocateIndex = catalog.getColocateTableIndex();
         TabletScheduler tabletScheduler = catalog.getTabletScheduler();
@@ -348,6 +347,257 @@ public class ColocateTableBalancer extends Daemon {
         } // end for group
     }
 
+    /*
+     * Balance colocate groups which are unstable
+     *  here we just let replicas in colocate table evenly distributed in cluster, not consider the
+     *  cluster load statistic.
+     *  for example:
+     *  currently there are 4 backends A B C D with following load:
+     *  
+     *                +-+
+     *                | |
+     * +-+  +-+  +-+  | |
+     * | |  | |  | |  | |
+     * +-+  +-+  +-+  +-+
+     *  A    B    C    D
+     *  
+     *  And colocate group balancer will still evenly distribute the replicas to all 4 backends, not 
+     *  just 3 low load backends.
+     *  
+     *                 X
+     *                 X
+     *  X    X    X   +-+
+     *  X    X    X   | |
+     * +-+  +-+  +-+  | |
+     * | |  | |  | |  | |
+     * +-+  +-+  +-+  +-+
+     * A    B    C    D
+     *  
+     *  So After colocate balance, the cluster may still 'unbalanced' from a global perspective.
+     *  And the LoadBalancer will balance the non-colocate table's replicas to make the 
+     *  cluster balance, eventually.
+     *  
+     *  X    X    X    X
+     *  X    X    X    X
+     * +-+  +-+  +-+  +-+
+     * | |  | |  | |  | |
+     * | |  | |  | |  | |
+     * +-+  +-+  +-+  +-+
+     *  A    B    C    D
+     */
+    private void balanceGroup() {
+        Catalog catalog = Catalog.getCurrentCatalog();
+        SystemInfoService infoService = Catalog.getCurrentSystemInfo();
+        ColocateTableIndex colocateIndex = catalog.getColocateTableIndex();
+
+        Set<GroupId> groupIds = colocateIndex.getAllGroupIds();
+        for (GroupId groupId : groupIds) {
+            // skip unstable groups
+            if (colocateIndex.isGroupUnstable(groupId)) {
+                continue;
+            }
+
+            // skip backend unavailable groups
+            Set<Long> backendIds = colocateIndex.getBackendsByGroup(groupId);
+            boolean isAllBackendsAvailable = true;
+            for (Long beId : backendIds) {
+                Backend be = infoService.getBackend(beId);
+                if (be == null || !be.isAvailable()) {
+                    isAllBackendsAvailable = false;
+                    break;
+                }
+            }
+            if (!isAllBackendsAvailable) {
+                continue;
+            }
+
+            // all backends are good
+            Database db = catalog.getDb(groupId.dbId);
+            if (db == null) {
+                continue;
+            }
+
+            List<Long> allBackendIds = infoService.getClusterBackendIds(db.getClusterName(), true);
+            List<List<Long>> balancedBackendsPerBucketSeq = Lists.newArrayList();
+            if (balance(groupId, allBackendIds, colocateIndex, infoService, balancedBackendsPerBucketSeq)) {
+                colocateIndex.addBackendsPerBucketSeq(groupId, balancedBackendsPerBucketSeq);
+                ColocatePersistInfo info = ColocatePersistInfo.createForBackendsPerBucketSeq(groupId, balancedBackendsPerBucketSeq);
+                Catalog.getCurrentCatalog().getEditLog().logColocateBackendsPerBucketSeq(info);
+                LOG.info("balance group {}. now backends per bucket sequence is: {}", groupId, balancedBackendsPerBucketSeq);
+            }
+        }
+    }
+
+    /*
+     * The balance logic is as follow:
+     * 
+     * All backends: A,B,C,D,E,F,G,H,I,J
+     * 
+     * One group's buckets sequence:
+     * 
+     * Buckets sequence:    0  1  2  3
+     * Backend set:         A  A  A  A
+     *                      B  D  F  H
+     *                      C  E  G  I
+     *           
+     * Then each backend has different replica num:
+     * 
+     * Backends:    A B C D E F G H I J
+     * Replica num: 4 1 1 1 1 1 1 1 1 0
+     * 
+     * The goal of balance is to evenly distribute replicas on all backends. For this example, we want the
+     * following result (one possible result):
+     * 
+     * Backends:    A B C D E F G H I J
+     * Replica num: 2 2 1 1 1 1 1 1 1 1
+     * 
+     * Algorithm:
+     * 0. Generate the flat list of backends per bucket sequence:
+     *      A B C A D E A F G A H I
+     * 1. Sort the backend in this order by replication num, descending:
+     *      A B C D E F G H I J
+     * 2. Check the diff of the first backend(A)'s replica num and last backend(J)'s replica num.
+     *      If diff is less or equal than 1, we consider this group as balance. Jump to step 5.
+     * 3. Else, Replace the first occurrence of Backend A in flat list with Backend J.
+     *      J B C A D E A F G A H I
+     * 4. Recalculate the replica num of each backend and go to step 1.
+     * 5. We should get the following flat list(one possible result):
+     *      J B C J D E A F G A H I
+     *    Partition this flat list by replication num:
+     *      [J B C] [J D E] [A F G] [A H I]
+     *    And this is our new balanced backends per bucket sequence.
+     *    
+     *  Return true if backends per bucket sequence change and new sequence is saved in balancedBackendsPerBucketSeq.
+     *  Return false if nothing changed.
+     */
+    private boolean balance(GroupId groupId, List<Long> allAvailBackendIds, ColocateTableIndex colocateIndex,
+            SystemInfoService infoService, List<List<Long>> balancedBackendsPerBucketSeq) {
+        ColocateGroupSchema groupSchema = colocateIndex.getGroupSchema(groupId);
+        int replicationNum = groupSchema.getReplicationNum();
+        List<List<Long>> backendsPerBucketSeq = Lists.newArrayList(colocateIndex.getBackendsPerBucketSeq(groupId));
+        // [[A,B,C],[B,C,D]] -> [A,B,C,B,C,D]
+        List<Long> flatBackendsPerBucketSeq = backendsPerBucketSeq.stream().flatMap(List::stream).collect(Collectors.toList());
+
+        boolean isChanged = false;
+        OUT: while (true) {
+            // update backends and hosts at each round
+            backendsPerBucketSeq = Lists.partition(flatBackendsPerBucketSeq, replicationNum);
+            List<List<String>> hostsPerBucketSeq = getHostsPerBucketSeq(backendsPerBucketSeq, infoService);
+            if (hostsPerBucketSeq == null) {
+                // error happens, change nothing
+                return false;
+            }
+            Preconditions.checkState(backendsPerBucketSeq.size() == hostsPerBucketSeq.size());
+
+            // sort backends with replica num
+            List<Map.Entry<Long, Long>> backendWithReplicaNum =
+                    getSortedBackendReplicaNumPairs(allAvailBackendIds, flatBackendsPerBucketSeq);
+
+            int i = 0;
+            int j = backendWithReplicaNum.size() - 1;
+            while (i < j) {
+                // we try to use a low backend to replace the high backend.
+                // if replace failed(eg: both backends are on some host), select next low backend and try(j--)
+                Map.Entry<Long, Long> highBackend = backendWithReplicaNum.get(i);
+                Map.Entry<Long, Long> lowBackend = backendWithReplicaNum.get(j);
+                if (highBackend.getValue() - lowBackend.getValue() <= 1) {
+                    // balanced
+                    break OUT;
+                }
+
+                long srcBeId = highBackend.getKey();
+                long destBeId = lowBackend.getKey();
+                Backend destBe = infoService.getBackend(destBeId);
+                if (destBe == null) {
+                    LOG.info("backend {} does not exist", destBeId);
+                    return false;
+                }
+
+                /* 
+                 * get the array indexes of elements in flatBackendsPerBucketSeq which equals to srcBeId
+                 * eg:
+                 * flatBackendsPerBucketSeq:
+                 *      A B C A D E A F G A H I
+                 * and srcBeId is A.
+                 * so seqIndexes is:
+                 *      0 3 6 9
+                 */
+                List<Integer> seqIndexes = IntStream.range(0, flatBackendsPerBucketSeq.size()).boxed().filter(
+                        idx -> flatBackendsPerBucketSeq.get(idx).equals(srcBeId)).collect(Collectors.toList());
+
+                for (int seqIndex : seqIndexes) {
+                    // the bucket index.
+                    // eg: 0 / 3 = 0, so that the bucket index of the 4th backend id in flatBackendsPerBucketSeq is 0.
+                    int bucketIndex = seqIndex / replicationNum;
+                    List<Long> backendsSet = backendsPerBucketSeq.get(bucketIndex);
+                    List<String> hostsSet = hostsPerBucketSeq.get(bucketIndex);
+                    // the replicas of a tablet can not locate in same Backend or same host
+                    if (!backendsSet.contains(destBeId) && !hostsSet.contains(destBe.getHost())) {
+                        Preconditions.checkState(backendsSet.contains(srcBeId), srcBeId);
+                        flatBackendsPerBucketSeq.set(seqIndex, destBeId);
+                        LOG.info("replace backend {} with backend {} in colocate group {}", srcBeId, destBeId, groupId);
+                        // just replace one backend at a time, src and dest BE id should be recalculated because
+                        // flatBackendsPerBucketSeq is changed.
+                        isChanged = true;
+                        break;
+                    }
+                }
+
+                if (!isChanged) {
+                    // select another load backend and try again
+                    LOG.info("unable to replace backend {} with backend {} in colocate group {}",
+                            srcBeId, destBeId, groupId);
+                    j--;
+                    continue;
+                }
+
+                break;
+            } // end inner loop
+        }
+
+        if (isChanged) {
+            balancedBackendsPerBucketSeq.addAll(Lists.partition(flatBackendsPerBucketSeq, replicationNum));
+        }
+        return isChanged;
+    }
+
+    // change the backend id to backend host
+    // return null if some of backends do not exist
+    private List<List<String>> getHostsPerBucketSeq(List<List<Long>> backendsPerBucketSeq,
+            SystemInfoService infoService) {
+        List<List<String>> hostsPerBucketSeq = Lists.newArrayList();
+        for (List<Long> backendIds : backendsPerBucketSeq) {
+            List<String> hosts = Lists.newArrayList();
+            for (Long beId : backendIds) {
+                Backend be = infoService.getBackend(beId);
+                if (be == null) {
+                    LOG.info("backend {} does not exist", beId);
+                    return null;
+                }
+                hosts.add(be.getHost());
+            }
+            hostsPerBucketSeq.add(hosts);
+        }
+        return hostsPerBucketSeq;
+    }
+
+    private List<Map.Entry<Long, Long>> getSortedBackendReplicaNumPairs(List<Long> allAvailBackendIds,
+            List<Long> flatBackendsPerBucketSeq) {
+        // backend id -> replica num, and sorted by replica num, descending.
+        Map<Long, Long> backendToReplicaNum = flatBackendsPerBucketSeq.stream()
+                .collect(Collectors.groupingBy(Function.identity(), Collectors.counting()));
+        // add backends which are not in flatBackendsPerBucketSeq, with replication number 0
+        for (Long backendId : allAvailBackendIds) {
+            if (!backendToReplicaNum.containsKey(backendId)) {
+                backendToReplicaNum.put(backendId, 0L);
+            }
+        }
+        List<Map.Entry<Long, Long>> backendWithReplicaNum = backendToReplicaNum.entrySet().stream().sorted(
+                Collections.reverseOrder(Map.Entry.comparingByValue())).collect(Collectors.toList());
+        return backendWithReplicaNum;
+    }
+
+    @Deprecated
     /**
      * The colocate table balance flow:
      *
