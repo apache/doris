@@ -17,6 +17,7 @@
 
 package org.apache.doris.common.proc;
 
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.load.Load;
 
@@ -46,6 +47,9 @@ public class LoadJobProcNode implements ProcNodeInterface {
         result.setNames(TITLE_NAMES);
 
         List<List<Comparable>> infos = load.getLoadJobUnfinishedInfo(jobId);
+        if (infos.isEmpty()) {
+            Catalog.getCurrentCatalog().getLoadManager().getLoadJobUnfinishedInfo(jobId);
+        }
         for (List<Comparable> info : infos) {
             List<String> oneInfo = new ArrayList<String>(TITLE_NAMES.size());
             for (Comparable element : info) {

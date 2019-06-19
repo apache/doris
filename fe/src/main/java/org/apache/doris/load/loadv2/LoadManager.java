@@ -314,6 +314,12 @@ public class LoadManager implements Writable{
         }
     }
 
+    // the meta version info of load could not be presented
+    public List<List<Comparable>> getLoadJobUnfinishedInfo(long jobId) {
+        LinkedList<List<Comparable>> infos = new LinkedList<List<Comparable>>();
+        return infos;
+    }
+
     public void submitJobs() {
         loadJobScheduler.submitJob(idToLoadJob.values().stream().filter(
                 loadJob -> loadJob.state == JobState.PENDING).collect(Collectors.toList()));
