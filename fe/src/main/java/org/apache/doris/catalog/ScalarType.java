@@ -630,26 +630,13 @@ public class ScalarType extends Type {
             return t1;
         }
 
-        if (t1.type == PrimitiveType.VARCHAR || t2.type == PrimitiveType.VARCHAR) {
-            if (t1.isStringType() && t2.isStringType()) {
-                return createVarcharType(Math.max(t1.len, t2.len));
-            }
-            return INVALID;
-        }
-
         if (t1.type == PrimitiveType.HLL || t2.type == PrimitiveType.HLL) {
-                return createHllType();
-        } 
-
-        if (t1.type == PrimitiveType.CHAR || t2.type == PrimitiveType.CHAR) {
-            Preconditions.checkState(t1.type != PrimitiveType.VARCHAR);
-            Preconditions.checkState(t2.type != PrimitiveType.VARCHAR);
-            if (t1.type == PrimitiveType.CHAR && t2.type == PrimitiveType.CHAR) {
-                return createCharType(Math.max(t1.len, t2.len));
-            }
-            return INVALID;
+            return createHllType();
         }
 
+        if (t1.isStringType() || t2.isStringType()) {
+            return createVarcharType(Math.max(t1.len, t2.len));
+        }
 
         if ((t1.isDecimal() || t1.isDecimalV2()) && t2.isDate()
                 || t1.isDate() && (t2.isDecimal() || t2.isDecimalV2())) {
