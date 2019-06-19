@@ -54,9 +54,6 @@ public:
     // Get the dictionary page for dictionary encoding mode column.
     virtual doris::Status get_dictionary_page(doris::Slice* dictionary_page) = 0;
 
-    // Get the bitmap page for bitmap indexed column.
-    virtual doris::Status get_bitmap_page(doris::Slice* bitmap_page) = 0;
-
     // Return a Slice which represents the encoded data of current page.
     //
     // This Slice points to internal data of this builder.

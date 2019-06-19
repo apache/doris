@@ -124,15 +124,11 @@ public:
         _remain_element_capacity -= to_add;
         // return added number through count
         *count = to_add;
-        return Status::OK;
+        return Status::OK();
     }
 
     Status get_dictionary_page(Slice* dictionary_page) override {
-        return Status("NOT_IMPLEMENTED");
-    }
-
-    Status get_bitmap_page(Slice* bitmap_page) override {
-        return Status("NOT_IMPLEMENTED");
+        return Status::NotSupported("get_dictionary_page not supported in bitshuffle page builder");
     }
 
     Slice finish(rowid_t page_first_rowid) override {
@@ -238,7 +234,7 @@ public:
         if (_data.size < HEADER_SIZE) {
             std::stringstream ss;
             ss << "file corrupton: invalid data size:" << _data.size << ", header size:" << HEADER_SIZE;
-            return Status(ss.str());
+            return Status::InternalError(ss.str());
         }
         _page_first_ordinal = decode_fixed32_le((const uint8_t*)&_data[0]);
         _num_elements = decode_fixed32_le((const uint8_t*)&_data[4]);
@@ -247,7 +243,7 @@ public:
             std::stringstream ss;
             ss << "Size information unmatched, _compressed_size:" << _compressed_size
                 << ", data size:" << _data.size;
-            return Status(ss.str());
+            return Status::InternalError(ss.str());
         }
         _num_element_after_padding = decode_fixed32_le((const uint8_t*)&_data[12]);
         if (_num_element_after_padding != ALIGN_UP(_num_elements, 8)) {
@@ -255,7 +251,7 @@ public:
             ss << "num of element information corrupted,"
                 << " _num_element_after_padding:" << _num_element_after_padding
                 << ", _num_elements:" << _num_elements;
-            return Status(ss.str());
+            return Status::InternalError(ss.str());
         }
         _size_of_element = decode_fixed32_le((const uint8_t*)&_data[16]);
         switch (_size_of_element) {
@@ -268,7 +264,7 @@ public:
             default:
                 std::stringstream ss;
                 ss << "invalid size_of_elem:" << _size_of_element;
-                return Status(ss.str());
+                return Status::InternalError(ss.str());
         }
 
         // Currently, only the UINT32 block encoder supports expanding size:
@@ -277,37 +273,37 @@ public:
             ss << "invalid size info. size of element:" << _size_of_element
                 << ", SIZE_OF_TYPE:" << SIZE_OF_TYPE
                 << ", type:" << Type;
-            return Status(ss.str());
+            return Status::InternalError(ss.str());
         }
         if (UNLIKELY(_size_of_element > SIZE_OF_TYPE)) {
             std::stringstream ss;
             ss << "invalid size info. size of element:" << _size_of_element
                 << ", SIZE_OF_TYPE:" << SIZE_OF_TYPE;
-            return Status(ss.str());
+            return Status::InternalError(ss.str());
         }
 
         RETURN_IF_ERROR(_decode());
         _parsed = true;
-        return Status::OK;
+        return Status::OK();
     }
 
     Status seek_to_position_in_page(size_t pos) override {
         DCHECK(_parsed) << "Must call init()";
         if (PREDICT_FALSE(_num_elements == 0)) {
             DCHECK_EQ(0, pos);
-            return Status("invalid pos");
+            return Status::InvalidArgument("invalid pos");
         }
 
         DCHECK_LE(pos, _num_elements);
         _cur_index = pos;
-        return Status::OK;
+        return Status::OK();
     }
 
     Status next_batch(size_t* n, ColumnVectorView* dst) override {
         DCHECK(_parsed);
         if (PREDICT_FALSE(*n == 0 || _cur_index >= _num_elements)) {
             *n = 0;
-            return Status::OK;
+            return Status::OK();
         }
 
         size_t max_fetch = std::min(*n, static_cast<size_t>(_num_elements - _cur_index));
@@ -315,7 +311,7 @@ public:
         *n = max_fetch;
         _cur_index += max_fetch;
 
-        return Status::OK;
+        return Status::OK();
     }
 
     size_t count() const override {
@@ -345,10 +341,10 @@ private:
             if (PREDICT_FALSE(bytes < 0)) {
                 // Ideally, this should not happen.
                 warn_with_bitshuffle_error(bytes);
-                return Status(TStatusCode::RUNTIME_ERROR, "Unshuffle Process failed", true);
+                return Status::RuntimeError("Unshuffle Process failed");
             }
         }
-        return Status::OK;
+        return Status::OK();
     }
 
     typedef typename TypeTraits<Type>::CppType CppType;
