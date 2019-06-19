@@ -102,6 +102,7 @@ Status RepeatNode::get_repeated_batch(
             }
             dst_row->set_tuple(j, dst_tuples[j]);
             memset(dst_tuples[j], 0, (*dst_it)->num_null_bytes());
+            src_tuple->deep_copy(dst_tuples[j], **dst_it, tuple_pool);
 
             for (int k = 0; k < (*src_it)->slots().size(); k++) {
                 SlotDescriptor* src_slot_desc = (*src_it)->slots()[k];
@@ -116,11 +117,6 @@ Status RepeatNode::get_repeated_batch(
                         continue;
                     }
                 }
-
-                bool src_slot_null = src_tuple->is_null(src_slot_desc->null_indicator_offset());
-                void* src_slot = NULL;
-                if (!src_slot_null) src_slot = src_tuple->get_slot(src_slot_desc->tuple_offset());
-                RawValue::write(src_slot, dst_tuples[j], dst_slot_desc, tuple_pool);
             }
         }
         row_batch->commit_last_row();
