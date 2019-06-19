@@ -1613,7 +1613,7 @@ public class Catalog {
                 long tableId = dis.readLong();
                 newChecksum ^= tableId;
                 AlterJob job = AlterJob.read(dis);
-                if ((currentTimeMs - job.getCreateTimeMs()) / 1000 <= Config.label_keep_max_second) {
+                if ((currentTimeMs - job.getCreateTimeMs()) / 1000 <= Config.history_job_keep_max_second) {
                     // delete history jobs
                     finishedOrCancelledAlterJobs.add(job);
                 }

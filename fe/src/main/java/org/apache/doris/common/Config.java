@@ -87,7 +87,13 @@ public class Config extends ConfigBase {
      * (Because all load jobs' info is kept in memory before being removed)
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int label_keep_max_second = 7 * 24 * 3600; // 7 days
+    public static int label_keep_max_second = 3 * 24 * 3600; // 3 days
+    /*
+     * The max keep time of some kind of jobs.
+     * like schema change job and rollup job.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int history_job_keep_max_second = 7 * 24 * 3600; // 7 days
     /*
      * Load label cleaner will run every *label_clean_interval_second* to clean the outdated jobs.
      */

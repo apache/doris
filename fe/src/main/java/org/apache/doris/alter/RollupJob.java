@@ -598,8 +598,8 @@ public class RollupJob extends AlterJob {
         setReplicaFinished(partitionId, rollupReplicaId);
         rollupReplica.setState(ReplicaState.NORMAL);
 
-        LOG.info("finished rollup replica[{}]. index[{}]. tablet[{}]. backend[{}]",
-                 rollupReplicaId, rollupIndexId, rollupTabletId, task.getBackendId());
+        LOG.info("finished rollup replica[{}]. index[{}]. tablet[{}]. backend[{}], version: {}-{}",
+                rollupReplicaId, rollupIndexId, rollupTabletId, task.getBackendId(), version, versionHash);
     }
 
     /*
