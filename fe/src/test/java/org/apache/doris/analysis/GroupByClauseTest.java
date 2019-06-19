@@ -64,7 +64,7 @@ public class GroupByClauseTest {
         bitSetList.remove(0);
 
         {
-            String[] answer = {"{1, 3}", "{0, 3}", "{2}"};
+            String[] answer = {"{0, 1}", "{0, 2}", "{3}"};
             Set<String> answerSet = new HashSet<String>(Arrays.asList(answer));
             Set<String> resultSet = new HashSet<>();
             for (BitSet aBitSetList : bitSetList) {
@@ -75,7 +75,7 @@ public class GroupByClauseTest {
         }
 
         {
-            Long[] answer = {4L, 9L ,10L};
+            Long[] answer = {3L, 5L ,8L};
             Set<Long> answerSet = new HashSet<Long>(Arrays.asList(answer));
             List<Long> groupingIds = RepeatNode.convertToLongList(bitSetList);
             Set<Long> resultSet = new HashSet<>();
