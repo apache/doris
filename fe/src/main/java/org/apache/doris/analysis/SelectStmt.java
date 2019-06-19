@@ -24,10 +24,22 @@ import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import org.apache.doris.catalog.*;
+import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table.TableType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.*;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ColumnAliasGenerator;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.Pair;
+import org.apache.doris.common.TableAliasGenerator;
+import org.apache.doris.common.TreeNode;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -35,7 +47,13 @@ import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * Representation of a single select block, including GROUP BY, ORDER BY and HAVING
