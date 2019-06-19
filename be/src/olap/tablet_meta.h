@@ -189,6 +189,8 @@ public:
 
     std::string full_name() const;
 
+    OLAPStatus set_partition_id(int64_t partition_id);
+
 private:
     OLAPStatus _save_meta(DataDir* data_dir);
 

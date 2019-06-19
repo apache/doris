@@ -875,7 +875,21 @@ void Tablet::_print_missed_versions(const std::vector<Version>& missed_versions)
                    << " next_id=" << _tablet_meta->get_cur_rowset_id();
         return OLAP_ERR_ROWSET_INVALID;
     }
+    Version version = {rowset->start_version(), rowset->end_version()};
+    RowsetSharedPtr exist_rs = get_rowset_by_version(version);
+    // if there exist a 
+    if (exist_rs != nullptr && exist_rs->version_hash() == 0) {
+        vector<RowsetSharedPtr> to_add;
+        vector<RowsetSharedPtr> to_delete;
+        to_delete.push_back(exist_rs);
+        RETURN_NOT_OK(modify_rowsets(to_add, to_delete));
+    }
+
     return OLAP_SUCCESS;
- }
+}
+
+OLAPStatus Tablet::set_partition_id(int64_t partition_id) {
+    return _tablet_meta->set_partition_id(partition_id);
+}
 
 }  // namespace doris
