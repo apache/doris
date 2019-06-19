@@ -158,7 +158,7 @@ void StorageEngine::load_data_dirs(const std::vector<DataDir*>& data_dirs) {
     }
 
     for (auto& thread : clean_old_file_threads) {
-        thread.join();
+        thread.detach();
     }
 }
 
