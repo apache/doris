@@ -25,6 +25,8 @@ import org.apache.doris.builtins.ScalarBuiltins;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import com.google.common.base.Preconditions;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -535,7 +537,7 @@ public class FunctionSet {
 
         // Next check for strict supertypes
         for (Function f : fns) {
-            if (f.compare(desc, Function.CompareMode.IS_SUPERTYPE_OF)) {
+            if (f.compare(desc, Function.CompareMode.IS_SUPERTYPE_OF) && isCastMatchAllowed(desc, f)) {
                 return f;
             }
         }
@@ -545,11 +547,34 @@ public class FunctionSet {
 
         // Finally check for non-strict supertypes
         for (Function f : fns) {
-            if (f.compare(desc, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF)) {
+            if (f.compare(desc, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF) && isCastMatchAllowed(desc, f)) {
                 return f;
             }
         }
         return null;
+    }
+
+    /**
+     * There are essential differences in the implementation of some functions for different 
+     * types params, which should be prohibited.
+     * @param desc
+     * @param candicate
+     * @return
+     */
+    public static boolean isCastMatchAllowed(Function desc, Function candicate) {
+        if (desc.getFunctionName().getFunction().equalsIgnoreCase("hex")) {
+            final Type[] descArgTypes = desc.getArgs();
+            final Type[] candicateArgTypes = candicate.getArgs();
+            Preconditions.checkArgument(descArgTypes.length == candicateArgTypes.length);
+
+            final ScalarType descArgType = (ScalarType)descArgTypes[0];
+            final ScalarType candicateArgType = (ScalarType)candicateArgTypes[0];
+            if (!descArgType.isStringType() && candicateArgType.isStringType()) {
+                // The implementations of hex for string and int are different.
+                return false;
+            }
+        }
+        return true;
     }
 
     public Function getFunction(String signatureString) {
