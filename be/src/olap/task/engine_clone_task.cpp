@@ -74,28 +74,37 @@ OLAPStatus EngineCloneTask::execute() {
                     << ", schema_hash:" << _clone_req.schema_hash
                     << ", committed_version:" << _clone_req.committed_version;
 
-        // try to incremental clone
-        vector<Version> missed_versions;
-        tablet->calc_missed_versions(_clone_req.committed_version, &missed_versions);
-        LOG(INFO) << "finish to calculate missed versions when clone. "
-                  << "tablet=" << tablet->full_name()
-                  << ", committed_version=" << _clone_req.committed_version
-                  << ", missed_versions_size=" << missed_versions.size();
-        // if missed version size is 0, then it is useless to clone from remote be, it means local data is 
-        // completed. Or remote be will just return header not the rowset files. clone will failed.
-        if (missed_versions.size() == 0) {
-            LOG(INFO) << "missed version size = 0, skip clone and reture success";
-            return OLAP_SUCCESS;
-        }
         // get download path
         string local_data_path = tablet->tablet_path() + CLONE_PREFIX;
-
         bool allow_incremental_clone = false;
-        status = _clone_copy(*(tablet->data_dir()), _clone_req, _signature, local_data_path,
-                            &src_host, &src_file_path, _error_msgs,
-                            &missed_versions,
-                            &allow_incremental_clone, 
-                            tablet);
+        // check if current tablet has version == 2 and version hash == 0
+        // version 2 may be an invalid rowset
+        Version version_2 = {2, 2};
+        RowsetSharedPtr rowset_version2 = tablet->get_rowset_by_version(version_2);
+        if (rowset_version2 == nullptr || rowset_version2->version_hash() != 0) {
+            // try to incremental clone
+            vector<Version> missed_versions;
+            tablet->calc_missed_versions(_clone_req.committed_version, &missed_versions);
+            LOG(INFO) << "finish to calculate missed versions when clone. "
+                    << "tablet=" << tablet->full_name()
+                    << ", committed_version=" << _clone_req.committed_version
+                    << ", missed_versions_size=" << missed_versions.size();
+            // if missed version size is 0, then it is useless to clone from remote be, it means local data is 
+            // completed. Or remote be will just return header not the rowset files. clone will failed.
+            if (missed_versions.size() == 0) {
+                LOG(INFO) << "missed version size = 0, skip clone and return success";
+                _set_tablet_info(DORIS_SUCCESS, is_new_tablet);
+                return OLAP_SUCCESS;
+            }
+            status = _clone_copy(*(tablet->data_dir()), _clone_req, _signature, local_data_path,
+                                &src_host, &src_file_path, _error_msgs,
+                                &missed_versions,
+                                &allow_incremental_clone, 
+                                tablet);
+        } else {
+            LOG(INFO) << "current tablet has invalid rowset with version == 2 and version_hash == 0, try to full clone"
+                      << " tablet info = " << tablet->full_name();
+        }
         if (status == DORIS_SUCCESS && allow_incremental_clone) {
             OLAPStatus olap_status = _finish_clone(tablet, local_data_path, _clone_req.committed_version, allow_incremental_clone);
             if (olap_status != OLAP_SUCCESS) {
@@ -209,7 +218,11 @@ OLAPStatus EngineCloneTask::execute() {
             }
         }
     }
+    _set_tablet_info(status, is_new_tablet);
+    return OLAP_SUCCESS;
+}
 
+void EngineCloneTask::_set_tablet_info(AgentStatus status, bool is_new_tablet) {
     // Get clone tablet info
     if (status == DORIS_SUCCESS || status == DORIS_CREATE_TABLE_EXIST) {
         TTabletInfo tablet_info;
@@ -267,7 +280,6 @@ OLAPStatus EngineCloneTask::execute() {
         }
     }
     *_res_status = status;
-    return OLAP_SUCCESS;
 }
 
 AgentStatus EngineCloneTask::_clone_copy(
