@@ -465,7 +465,8 @@ OLAPStatus TabletMeta::add_rs_meta(const RowsetMetaSharedPtr& rs_meta) {
             if (rs->rowset_id() != rs_meta->rowset_id()) {
                 LOG(WARNING) << "version already exist. rowset_id=" << rs->rowset_id()
                             << " start_version=" << rs_meta->start_version()
-                            << ", end_version=" << rs_meta->end_version();
+                            << ", end_version=" << rs_meta->end_version()
+                            << ", tablet=" << full_name();
                 return OLAP_ERR_PUSH_VERSION_ALREADY_EXIST;
             } else {
                 // rowsetid,version is equal, it is a duplicate req, skip it
@@ -755,6 +756,16 @@ std::string TabletMeta::full_name() const {
        << "." << _schema_hash 
        << "." << _tablet_uid.to_string();
     return ss.str();
+}
+
+OLAPStatus TabletMeta::set_partition_id(int64_t partition_id) {
+    if ((_partition_id > 0 && _partition_id != partition_id) || partition_id < 1) {
+        LOG(FATAL) << "cur partition id=" << _partition_id
+                   << " new partition id=" << partition_id
+                   << " not equal";
+    }
+    _partition_id = partition_id;
+    return OLAP_SUCCESS;
 }
 
 }  // namespace doris
