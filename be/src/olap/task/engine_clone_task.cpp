@@ -79,9 +79,9 @@ OLAPStatus EngineCloneTask::execute() {
         bool allow_incremental_clone = false;
         // check if current tablet has version == 2 and version hash == 0
         // version 2 may be an invalid rowset
-        Version version_2 = {2, 2};
-        RowsetSharedPtr rowset_version2 = tablet->get_rowset_by_version(version_2);
-        if (rowset_version2 == nullptr || rowset_version2->version_hash() != 0) {
+        Version clone_version = {_clone_req.committed_version, _clone_req.committed_version};
+        RowsetSharedPtr clone_rowset = tablet->get_rowset_by_version(clone_version);
+        if (clone_rowset == nullptr || clone_rowset->version_hash() == _clone_req.committed_version_hash) {
             // try to incremental clone
             vector<Version> missed_versions;
             tablet->calc_missed_versions(_clone_req.committed_version, &missed_versions);
@@ -102,7 +102,10 @@ OLAPStatus EngineCloneTask::execute() {
                                 &allow_incremental_clone, 
                                 tablet);
         } else {
-            LOG(INFO) << "current tablet has invalid rowset with version == 2 and version_hash == 0, try to full clone"
+            LOG(INFO) << "current tablet has invalid rowset that's version == commit_version but version hash not equal"
+                      << " clone req commit_version=" <<  _clone_req.committed_version
+                      << " clone req commit_version_hash=" <<  _clone_req.committed_version_hash
+                      << " cur rowset version=" clone_rowset->version_hash()
                       << " tablet info = " << tablet->full_name();
         }
         if (status == DORIS_SUCCESS && allow_incremental_clone) {
