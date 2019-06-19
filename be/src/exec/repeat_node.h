@@ -42,8 +42,11 @@ protected:
 private:
     Status get_repeated_batch(RowBatch* child_row_batch, int repeat_id_idx, RowBatch* row_batch);
 
+    // Slot id set used to indicate those slots need to set to null.
     std::vector<std::set<SlotId>> _slot_id_set_list;
+    // An integer bitmap list, it indicates the bit position of the exprs not null.
     std::vector<int64_t> _repeat_id_list;
+    // Tulple id used for output, it has new slots.
     TupleId _output_tuple_id;
     const TupleDescriptor* _tuple_desc;
 

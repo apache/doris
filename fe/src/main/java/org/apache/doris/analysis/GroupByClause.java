@@ -58,12 +58,14 @@ public class GroupByClause implements ParseNode {
     public GroupByClause(List<ArrayList<Expr>> groupingSetList, GroupingType type) {
         this.groupingType = type;
         this.groupingSetList = groupingSetList;
+        this.groupingIdList = new ArrayList<>();
         Preconditions.checkState(type == GroupingType.GROUPING_SETS);
     }
 
     public GroupByClause(ArrayList<Expr> groupingExprs, GroupingType type) {
         this.groupingType = type;
         this.groupingExprs = groupingExprs;
+        this.groupingIdList = new ArrayList<>();
         Preconditions.checkState(type != GroupingType.GROUPING_SETS);
     }
 
@@ -72,17 +74,25 @@ public class GroupByClause implements ParseNode {
         return groupingExprs;
     }
 
-    public void setGroupingExprs(ArrayList<Expr> groupingExprs) {
-        this.groupingExprs = groupingExprs;
-    }
-
     protected GroupByClause(GroupByClause other) {
         this.groupingType = other.groupingType;
         this.groupingExprs = (other.groupingExprs != null)? Expr.cloneAndResetList(other.groupingExprs) : null;
-        this.groupingIdList = other.groupingIdList;
-        this.groupingSetList = other.groupingSetList;
-    }
+        if (other.groupingIdList != null) {
+            this.groupingIdList = new ArrayList<>();
+            for (BitSet bitSet : other.groupingIdList) {
+                this.groupingIdList.add((BitSet)bitSet.clone());
+            }
+        } else {
+            this.groupingIdList = new ArrayList<>();
+        }
 
+        if (other.groupingSetList != null) {
+            this.groupingSetList = new ArrayList<>();
+            for (List<Expr> exprList : other.groupingSetList) {
+                this.groupingSetList.add(Expr.cloneAndResetList(exprList));
+            }
+        }
+    }
 
     public SlotRef getGroupingIdSlotRef() {
         Preconditions.checkState(groupingIdSlotRef != null);
@@ -268,7 +278,6 @@ public class GroupByClause implements ParseNode {
     }
 
     private void buildGroupingClause(Analyzer analyzer) throws AnalysisException {
-        groupingIdList = new ArrayList<>();
         BitSet bitSetAll = new BitSet();
         bitSetAll.set(0, groupingExprs.size(), true);
         switch (groupingType) {

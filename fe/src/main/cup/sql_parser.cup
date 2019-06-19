@@ -340,7 +340,7 @@ nonterminal ArrayList<String> opt_plan_hints;
 nonterminal ArrayList<String> opt_sort_hints;
 nonterminal Expr sign_chain_expr;
 nonterminal Qualifier union_op;
-nonterminal GroupByClause group_by_clause, grouping_element;
+nonterminal GroupByClause group_by_clause, grouping_elements;
 
 nonterminal ArrayList<PartitionName> opt_partition_name_list, partition_name_list;
 nonterminal PartitionName partition_name;
@@ -3138,7 +3138,7 @@ grouping_set_list ::=
   :}
   ;
 
-grouping_element ::=
+grouping_elements ::=
   expr_list:l
   {: 
     RESULT = new GroupByClause(l, GroupByClause.GroupingType.GROUP_BY); 
@@ -3158,7 +3158,7 @@ grouping_element ::=
   ;
 
 group_by_clause ::=
-  KW_GROUP KW_BY grouping_element:e
+  KW_GROUP KW_BY grouping_elements:e
   {: RESULT = e; :}
   | /* empty */
   {: RESULT = null; :}

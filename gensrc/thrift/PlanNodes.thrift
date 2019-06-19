@@ -356,8 +356,11 @@ struct TAggregationNode {
 }
 
 struct TRepeatNode {
+  // Tulple id used for output, it has new slots.
   1: required Types.TTupleId output_tuple_id
+  // Slot id set used to indicate those slots need to set to null.
   2: required list<set<Types.TSlotId>> slot_id_set_list
+  // An integer bitmap list, it indicates the bit position of the exprs not null.
   3: required list<i64> repeat_id_list
 }
 

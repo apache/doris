@@ -959,8 +959,8 @@ public class SelectStmt extends QueryStmt {
         if (whereClause != null) {
             whereClause = whereClause.substitute(smap);
             whereClause.collect(FunctionCallExpr.class, funcs);
-            //List<Subquery> subqueryExprs = Lists.newArrayList();
-            //whereClause.collect(Subquery.class, subqueryExprs);
+            List<Subquery> subqueryExprs = Lists.newArrayList();
+            whereClause.collect(Subquery.class, subqueryExprs);
         }
 
         if (havingClause != null) {

@@ -79,8 +79,8 @@ Status RepeatNode::get_repeated_batch(
         TupleRow* dst_row = row_batch->get_row(row_idx);
         TupleRow* src_row = child_row_batch->get_row(i);
 
-        vector<TupleDescriptor*>::const_iterator src_it = src_tuple_descs.begin();
-        vector<TupleDescriptor*>::const_iterator dst_it = dst_tuple_descs.begin();
+        auto src_it = src_tuple_descs.begin();
+        auto dst_it = dst_tuple_descs.begin();
         for (int j = 0; src_it != src_tuple_descs.end() && dst_it != dst_tuple_descs.end(); 
                     ++src_it, ++dst_it, ++j) {
             Tuple* src_tuple = src_row->get_tuple(j);
@@ -111,7 +111,7 @@ Status RepeatNode::get_repeated_batch(
                 DCHECK_EQ(src_slot_desc->col_name(), dst_slot_desc->col_name());
 
                 if (_slot_id_set_list[0].find(src_slot_desc->id()) != _slot_id_set_list[0].end()) {
-                    std::set<SlotId> repeat_ids = _slot_id_set_list[repeat_id_idx];
+                    std::set<SlotId>& repeat_ids = _slot_id_set_list[repeat_id_idx];
                     if (repeat_ids.find(src_slot_desc->id()) == repeat_ids.end()) {
                         dst_tuples[j]->set_null(dst_slot_desc->null_indicator_offset());
                         continue;
@@ -194,6 +194,7 @@ Status RepeatNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK;
     }
+    _child_row_batch.reset(nullptr);
     RETURN_IF_ERROR(child(0)->close(state));
     return ExecNode::close(state);
 }

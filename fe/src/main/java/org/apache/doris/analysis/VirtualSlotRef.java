@@ -25,6 +25,9 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.IOException;
 
+/**
+ * It like a SlotRef except that it is not a real column exist in table.
+ */
 public class VirtualSlotRef extends SlotRef {
     private static final Logger LOG = LogManager.getLogger(VirtualSlotRef.class);
     // results of analysis slot

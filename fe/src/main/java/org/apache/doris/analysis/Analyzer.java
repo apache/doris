@@ -584,6 +584,10 @@ public class Analyzer {
         return result;
     }
 
+    /**
+     * Register a virtual column, and it is not a real column exist in table, 
+     * so it does not need to resolve.
+     */
     public SlotDescriptor registerVirtualColumnRef(String colName, Type type, TupleDescriptor tupleDescriptor)
             throws AnalysisException {
         // Make column name case insensitive
