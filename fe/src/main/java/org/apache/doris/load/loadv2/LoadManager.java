@@ -222,6 +222,21 @@ public class LoadManager implements Writable{
                 .collect(Collectors.toList());
     }
 
+    public int getLoadJobNum(JobState jobState, long dbId) {
+        readLock();
+        try {
+            Map<String, List<LoadJob>> labelToLoadJobs = dbIdToLabelToLoadJobs.get(dbId);
+            if (labelToLoadJobs == null) {
+                return 0;
+            }
+            List<LoadJob> loadJobList = labelToLoadJobs.values().stream()
+                    .flatMap(entity -> entity.stream()).collect(Collectors.toList());
+            return (int) loadJobList.stream().filter(entity -> entity.getState() == jobState).count();
+        } finally {
+            readUnlock();
+        }
+    }
+
     public void removeOldLoadJob() {
         long currentTimeMs = System.currentTimeMillis();
 
