@@ -118,4 +118,6 @@ public final class FeMetaVersion {
     public static final int VERSION_53 = 53;
     // support strict mode and change timeout to long
     public static final int VERSION_54 = 54;
+    // txn id has been record in load job
+    public static final int VERSION_55 = 55;
 }

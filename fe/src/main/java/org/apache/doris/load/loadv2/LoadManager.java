@@ -27,7 +27,6 @@ import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.DuplicatedRequestException;
@@ -43,7 +42,6 @@ import org.apache.doris.load.Load;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TMiniLoadBeginRequest;
 import org.apache.doris.thrift.TMiniLoadRequest;
-import org.apache.doris.transaction.BeginTransactionException;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -140,8 +138,6 @@ public class LoadManager implements Writable{
         } finally {
             writeUnlock();
         }
-        // persistent
-        Catalog.getCurrentCatalog().getEditLog().logCreateLoadJob(loadJob);
 
         try {
             loadJob.execute();
@@ -149,6 +145,11 @@ public class LoadManager implements Writable{
             loadJob.cancelJobWithoutCheck(new FailMsg(LOAD_RUN_FAIL, e.getMessage()), false);
             throw e;
         }
+
+        // The persistence of mini load must be the final step of create mini load.
+        // After mini load was executed, the txn id has been set and state has been changed to loading.
+        // Those two need to be record in persistence.
+        Catalog.getCurrentCatalog().getEditLog().logCreateLoadJob(loadJob);
         return loadJob.getTransactionId();
     }
 
