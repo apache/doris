@@ -562,11 +562,12 @@ public class FunctionSet {
      * @return
      */
     public static boolean isCastMatchAllowed(Function desc, Function candicate) {
-        if (desc.getFunctionName().getFunction().equalsIgnoreCase("hex")) {
-            final Type[] descArgTypes = desc.getArgs();
-            final Type[] candicateArgTypes = candicate.getArgs();
-            Preconditions.checkArgument(descArgTypes.length == candicateArgTypes.length);
-
+        final String functionName = desc.getFunctionName().getFunction();
+        final Type[] descArgTypes = desc.getArgs();
+        final Type[] candicateArgTypes = candicate.getArgs();
+        if (functionName.equalsIgnoreCase("hex") 
+                || functionName.equalsIgnoreCase("greast")
+                || functionName.equalsIgnoreCase("least")) {
             final ScalarType descArgType = (ScalarType)descArgTypes[0];
             final ScalarType candicateArgType = (ScalarType)candicateArgTypes[0];
             if (!descArgType.isStringType() && candicateArgType.isStringType()) {
