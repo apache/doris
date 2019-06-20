@@ -45,6 +45,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 public class LoadJobScheduler extends Daemon {
 
     private static final Logger LOG = LogManager.getLogger(LoadJobScheduler.class);
+
     private LinkedBlockingQueue<LoadJob> needScheduleJobs = Queues.newLinkedBlockingQueue();
 
     public LoadJobScheduler() {
@@ -86,6 +87,10 @@ public class LoadJobScheduler extends Daemon {
                 return;
             }
         }
+    }
+
+    public boolean isQueueFull() {
+        return needScheduleJobs.size() > Config.desired_max_waiting_jobs;
     }
 
     public void submitJob(LoadJob job) {
