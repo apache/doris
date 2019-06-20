@@ -590,15 +590,15 @@ OLAPStatus Reader::_init_params(const ReaderParams& read_params) {
         return res;
     }
 
-    res = _init_seek_columns();
+    res = _init_keys_param(read_params);
     if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to init seek columns. [res=%d]", res);
+        LOG(WARNING) << "fail to init keys param. res=" << res;
         return res;
     }
 
-    res = _init_keys_param(read_params);
+    res = _init_seek_columns();
     if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to init keys param. [res=%d]", res);
+        LOG(WARNING) << "fail to init seek columns. res=" << res;
         return res;
     }
 
