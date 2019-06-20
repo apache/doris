@@ -95,10 +95,10 @@ public class LoadManager implements Writable{
         } finally {
             writeUnlock();
         }
-
-        // persistent
         Catalog.getCurrentCatalog().getEditLog().logCreateLoadJob(loadJob);
-        // submit it
+
+        // The job must be submitted after edit log.
+        // It guarantee that load job has not been changed before edit log.
         loadJobScheduler.submitJob(loadJob);
     }
 
