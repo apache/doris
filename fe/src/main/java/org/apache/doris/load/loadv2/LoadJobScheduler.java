@@ -46,7 +46,6 @@ public class LoadJobScheduler extends Daemon {
 
     private static final Logger LOG = LogManager.getLogger(LoadJobScheduler.class);
 
-    private static final int desiredMaxWaitingSize = 100;
     private LinkedBlockingQueue<LoadJob> needScheduleJobs = Queues.newLinkedBlockingQueue();
 
     public LoadJobScheduler() {
@@ -91,7 +90,7 @@ public class LoadJobScheduler extends Daemon {
     }
 
     public boolean isQueueFull() {
-        return needScheduleJobs.size() > desiredMaxWaitingSize;
+        return needScheduleJobs.size() > Config.max_waiting_jobs;
     }
 
     public void submitJob(LoadJob job) {

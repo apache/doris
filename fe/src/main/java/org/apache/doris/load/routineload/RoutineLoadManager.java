@@ -23,6 +23,7 @@ import org.apache.doris.analysis.ResumeRoutineLoadStmt;
 import org.apache.doris.analysis.StopRoutineLoadStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -57,7 +58,6 @@ import java.util.stream.Collectors;
 public class RoutineLoadManager implements Writable {
     private static final Logger LOG = LogManager.getLogger(RoutineLoadManager.class);
     private static final int DEFAULT_BE_CONCURRENT_TASK_NUM = 10;
-    private static final int desiredMaxWaitingSize = 100;
 
     // Long is beId, integer is the size of tasks in be
     private Map<Long, Integer> beIdToMaxConcurrentTasks = Maps.newHashMap();
@@ -149,8 +149,9 @@ public class RoutineLoadManager implements Writable {
                 throw new DdlException("Name " + routineLoadJob.getName() + " already used in db "
                         + dbName);
             }
-            if (getRoutineLoadJobByState(RoutineLoadJob.JobState.NEED_SCHEDULE).size() > desiredMaxWaitingSize) {
-                throw new DdlException("There are too many routine load job in waiting queue, please retry later");
+            if (getRoutineLoadJobByState(RoutineLoadJob.JobState.NEED_SCHEDULE).size() > Config.max_waiting_jobs) {
+                throw new DdlException("There are more then " + Config.max_waiting_jobs
+                                               + " routine load jobs in waiting queue, please retry later");
             }
 
             unprotectedAddJob(routineLoadJob);

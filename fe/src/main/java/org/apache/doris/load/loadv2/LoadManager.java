@@ -91,7 +91,8 @@ public class LoadManager implements Writable{
                 throw new DdlException("LoadManager only support the broker load.");
             }
             if (loadJobScheduler.isQueueFull()) {
-                throw new DdlException("There are too many load job in waiting queue, please retry later.");
+                throw new DdlException("There are more then " + Config.max_waiting_jobs + " load jobs in waiting queue, "
+                                               + "please retry later.");
             }
             loadJob = BrokerLoadJob.fromLoadStmt(stmt);
             createLoadJob(loadJob);
@@ -330,12 +331,6 @@ public class LoadManager implements Writable{
         } finally {
             readUnlock();
         }
-    }
-
-    // the meta version info of load could not be presented
-    public List<List<Comparable>> getLoadJobUnfinishedInfo(long jobId) {
-        LinkedList<List<Comparable>> infos = new LinkedList<List<Comparable>>();
-        return infos;
     }
 
     public void submitJobs() {
