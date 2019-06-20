@@ -1,12 +1,9 @@
 #pragma once
 
-#include <cstddef>
-#include <gutil/port.h>
-#include <olap/olap_common.h>
-#include <olap/types.h>
-
 #include "util/coding.h"
 #include "util/faststring.h"
+#include "olap/olap_common.h"
+#include "olap/types.h"
 #include "olap/rowset/segment_v2/page_builder.h"
 #include "olap/rowset/segment_v2/page_decoder.h"
 #include "olap/rowset/segment_v2/options.h"
