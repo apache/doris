@@ -361,7 +361,7 @@ void MiniLoadAction::_set_is_streaming(HttpRequest* req) {
     Status status = FrontendHelper::rpc(
             master_address.hostname, master_address.port,
             [&request, &res] (FrontendServiceConnection& client) {
-            client->isMiniLoadStreaming(res, request);
+            client->isSupportedFunction(res, request);
             });
     if (!status.ok()) {
         std::stringstream ss; 
