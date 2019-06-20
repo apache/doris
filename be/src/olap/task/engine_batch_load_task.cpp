@@ -198,7 +198,7 @@ AgentStatus EngineBatchLoadTask::_process() {
                 VLOG(3) << "check time out. time_out:" << _push_req.timeout
                     << ", now:" << now;
                 is_timeout = true;
-                return Status::OK;
+                return Status::OK();
             }
 
             RETURN_IF_ERROR(client->init(_remote_file_path));
@@ -220,12 +220,12 @@ AgentStatus EngineBatchLoadTask::_process() {
                 if (file_size != local_file_size) {
                     LOG(WARNING) << "download_file size error. file_size=" << file_size
                         << ", local_file_size=" << local_file_size;
-                    return Status("downloaded file's size isn't right");
+                    return Status::InternalError("downloaded file's size isn't right");
                 }
             }
             // NOTE: change http_file_path is not good design
             _push_req.http_file_path = _local_file_path;
-            return Status::OK;
+            return Status::OK();
         };
         
         MonotonicStopWatch stopwatch;

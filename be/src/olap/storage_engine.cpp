@@ -80,9 +80,9 @@ StorageEngine* StorageEngine::_s_instance = nullptr;
 
 static Status _validate_options(const EngineOptions& options) {
     if (options.store_paths.empty()) {
-        return Status("store paths is empty");;
+        return Status::InternalError("store paths is empty");;
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status StorageEngine::open(const EngineOptions& options, StorageEngine** engine_ptr) {
@@ -91,15 +91,15 @@ Status StorageEngine::open(const EngineOptions& options, StorageEngine** engine_
     auto st = engine->open();
     if (st != OLAP_SUCCESS) {
         LOG(WARNING) << "engine open failed, res=" << st;
-        return Status("open engine failed");
+        return Status::InternalError("open engine failed");
     }
     st = engine->_start_bg_worker();
     if (st != OLAP_SUCCESS) {
         LOG(WARNING) << "engine start background failed, res=" << st;
-        return Status("open engine failed");
+        return Status::InternalError("open engine failed");
     }
     *engine_ptr = engine.release();
-    return Status::OK;
+    return Status::OK();
 }
 
 StorageEngine::StorageEngine(const EngineOptions& options)
@@ -416,7 +416,7 @@ Status StorageEngine::set_cluster_id(int32_t cluster_id) {
     }
     _effective_cluster_id = cluster_id;
     _is_all_cluster_id_exist = true;
-    return Status::OK;
+    return Status::OK();
 }
 
 std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
