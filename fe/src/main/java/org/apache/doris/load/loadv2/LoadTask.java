@@ -54,9 +54,7 @@ public abstract class LoadTask extends MasterTask {
             callback.onTaskFinished(attachment);
             isFinished = true;
         } catch (Exception e) {
-            if (e.getMessage() != null) {
-                failMsg.setMsg(e.getMessage());
-            }
+            failMsg.setMsg(e.getMessage() == null ? "" : e.getMessage());
             LOG.warn(new LogBuilder(LogKey.LOAD_JOB, callback.getCallbackId())
                              .add("error_msg", "Failed to execute load task").build(), e);
         } finally {
