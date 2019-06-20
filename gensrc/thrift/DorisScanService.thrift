@@ -18,6 +18,33 @@
 namespace java org.apache.doris.thrift
 namespace cpp doris
 
+enum TScanPrimitiveType {
+  INVALID_TYPE,
+  NULL_TYPE,
+  BOOLEAN,
+  TINYINT,
+  SMALLINT,
+  INT,
+  BIGINT,
+  FLOAT,
+  DOUBLE,
+  DATE,
+  DATETIME,
+  BINARY,
+  DECIMAL,
+  // CHAR(n). Currently only supported in UDAs
+  CHAR,
+  LARGEINT,
+  VARCHAR,
+  HLL,
+}
+
+struct TScanColumnDesc {
+  // The column name
+  1: optional string name
+  // The column type. Always set.
+  2: optional TScanPrimitiveType type
+}
 
 enum TScanStatusCode {
     OK,
@@ -54,7 +81,7 @@ struct TScanRowBatch {
   // selected_columns + cols = data frame
   // Each TScanColumnData contains the data for an entire column. Always set.
   1: optional list<TScanColumnData> cols
-  2: optional list<string> selected_columns
+  2: optional list<TScanColumnDesc> selected_columns
   // The number of rows returned.
   3: optional i32 num_rows
 }
