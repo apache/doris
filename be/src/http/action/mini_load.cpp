@@ -331,7 +331,7 @@ int MiniLoadAction::on_header(HttpRequest* req) {
         return -1;
     }
 	
-    _is_streaming = _is_streaming(req);
+    _set_is_streaming(req);
     Status status;
     if (_is_streaming) {
         status = _on_new_header(req);
@@ -347,10 +347,11 @@ int MiniLoadAction::on_header(HttpRequest* req) {
     return 0;
 }
 
-bool MiniLoadAction::_is_streaming(HttpRequest* req) {
+void MiniLoadAction::_set_is_streaming(HttpRequest* req) {
     // multi load must be non-streaming
     if (!req->param(SUB_LABEL_KEY).empty()) {
-        return false;
+        _is_streaming = false;
+        return;
     }
 
     TIsSupportedFunctionRequest request;
@@ -367,7 +368,8 @@ bool MiniLoadAction::_is_streaming(HttpRequest* req) {
         ss << "This mini load is not streaming because: " << status.get_error_msg()
 		    << " with address(" << master_address.hostname << ":" << master_address.port << ")";
         LOG(INFO) << ss.str();
-        return false;
+        _is_streaming = false;
+        return;
     }
    
     if (!res.status.ok()) {
@@ -376,9 +378,11 @@ bool MiniLoadAction::_is_streaming(HttpRequest* req) {
 		    << " with address(" << master_address.hostname << ":" << master_address.port 
                     << ")";
         LOG(INFO) << ss.str();
-        return false;
+        _is_streaming = false;
+        return;
     }
-    return true;
+    _is_streaming = true;
+    return;
 }
 
 Status MiniLoadAction::_on_header(HttpRequest* req) {

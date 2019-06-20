@@ -105,7 +105,7 @@ private:
     
     Status _on_new_handle(StreamLoadContext* ctx);
    
-    bool _is_streaming(HttpRequest* req);
+    void _set_is_streaming(HttpRequest* req);
 
     bool _is_streaming = true;
 
