@@ -90,6 +90,10 @@ public class LoadManager implements Writable{
             if (stmt.getBrokerDesc() == null) {
                 throw new DdlException("LoadManager only support the broker load.");
             }
+            if (loadJobScheduler.isQueueFull()) {
+                throw new DdlException("There are more then " + Config.desired_max_waiting_jobs + " load jobs in waiting queue, "
+                                               + "please retry later.");
+            }
             loadJob = BrokerLoadJob.fromLoadStmt(stmt);
             createLoadJob(loadJob);
             // submit it
@@ -217,6 +221,21 @@ public class LoadManager implements Writable{
         return idToLoadJob.values().stream()
                 .filter(entity -> entity.getState() == jobState)
                 .collect(Collectors.toList());
+    }
+
+    public int getLoadJobNum(JobState jobState, long dbId) {
+        readLock();
+        try {
+            Map<String, List<LoadJob>> labelToLoadJobs = dbIdToLabelToLoadJobs.get(dbId);
+            if (labelToLoadJobs == null) {
+                return 0;
+            }
+            List<LoadJob> loadJobList = labelToLoadJobs.values().stream()
+                    .flatMap(entity -> entity.stream()).collect(Collectors.toList());
+            return (int) loadJobList.stream().filter(entity -> entity.getState() == jobState).count();
+        } finally {
+            readUnlock();
+        }
     }
 
     public void removeOldLoadJob() {
