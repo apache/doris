@@ -526,7 +526,7 @@ Status SnapshotLoader::move(
         std::stringstream ss;
         ss << "failed to get store by path: " << store_path;
         LOG(WARNING) << ss.str();
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
     boost::filesystem::path tablet_dir(tablet_path);
@@ -553,7 +553,7 @@ Status SnapshotLoader::move(
         ss << "failed to convert rowsetids in snapshot: " << snapshot_path
             << ", tablet path: " << tablet_path;
         LOG(WARNING) << ss.str();
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
     if (overwrite) {
@@ -611,7 +611,7 @@ Status SnapshotLoader::move(
         std::stringstream ss;
         ss << "failed to reload header of tablet: " << tablet_id;
         LOG(WARNING) << ss.str();
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
     LOG(INFO) << "finished to reload header of tablet: " << tablet_id;
 
