@@ -190,7 +190,7 @@ OLAPStatus Tablet::revise_tablet_meta(
     do {
         // load new local tablet_meta to operate on
         TabletMetaSharedPtr new_tablet_meta(new (nothrow) TabletMeta());
-        RETURN_NOT_OK(TabletMetaManager::get_header(_data_dir, tablet_id(), schema_hash(), new_tablet_meta));
+        RETURN_NOT_OK(TabletMetaManager::get_meta(_data_dir, tablet_id(), schema_hash(), new_tablet_meta));
 
         // delete versions from new local tablet_meta
         for (const Version& version : versions_to_delete) {

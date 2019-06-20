@@ -33,11 +33,11 @@ const std::string HEADER_PREFIX = "tabletmeta_";
 // Helper Class for managing tablet headers of one root path.
 class TabletMetaManager {
 public:
-    static OLAPStatus get_header(DataDir* store, TTabletId tablet_id,
+    static OLAPStatus get_meta(DataDir* store, TTabletId tablet_id,
                                  TSchemaHash schema_hash, TabletMetaSharedPtr tablet_meta);
 
-    static OLAPStatus get_json_header(DataDir* store, TTabletId tablet_id,
-            TSchemaHash schema_hash, std::string* json_header);
+    static OLAPStatus get_json_meta(DataDir* store, TTabletId tablet_id,
+            TSchemaHash schema_hash, std::string* json_meta);
 
     static OLAPStatus save(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash, 
                            TabletMetaSharedPtr tablet_meta, const string& header_prefix = "tabletmeta_");
@@ -50,7 +50,7 @@ public:
     static OLAPStatus traverse_headers(OlapMeta* meta,
             std::function<bool(long, long, const std::string&)> const& func, const string& header_prefix = "tabletmeta_");
 
-    static OLAPStatus load_json_header(DataDir* store, const std::string& header_path);
+    static OLAPStatus load_json_meta(DataDir* store, const std::string& meta_path);
 
     static OLAPStatus dump_header(DataDir* store, TTabletId tablet_id,
             TSchemaHash schema_hash, const std::string& path);

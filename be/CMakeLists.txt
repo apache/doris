@@ -575,6 +575,7 @@ add_subdirectory(${SRC_DIR}/service)
 add_subdirectory(${SRC_DIR}/testutil)
 #add_subdirectory(${SRC_DIR}/tools)
 add_subdirectory(${SRC_DIR}/udf)
+add_subdirectory(${SRC_DIR}/tools)
 add_subdirectory(${SRC_DIR}/udf_samples)
 add_subdirectory(${SRC_DIR}/util)
 
