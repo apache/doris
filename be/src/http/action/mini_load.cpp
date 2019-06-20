@@ -372,9 +372,10 @@ void MiniLoadAction::_set_is_streaming(HttpRequest* req) {
         return;
     }
    
-    if (!res.status.ok()) {
+    status = Status(res.status);
+    if (!status.ok()) {
         std::stringstream ss; 
-        ss << "This streaming mini load is not be supportd because: " << res.status.get_error_msg()
+        ss << "This streaming mini load is not be supportd because: " << status.get_error_msg()
 		    << " with address(" << master_address.hostname << ":" << master_address.port 
                     << ")";
         LOG(INFO) << ss.str();
@@ -633,7 +634,7 @@ Status MiniLoadAction::_begin_mini_load(StreamLoadContext* ctx) {
     if (ctx->max_filter_ratio != 0.0) {
         request.__set_max_filter_ratio(ctx->max_filter_ratio);
     }
-    request.__set_create_timestamp = GetCurrentTimeMicros();
+    request.__set_create_timestamp(GetCurrentTimeMicros());
     // begin load by master
     const TNetworkAddress& master_addr = _exec_env->master_info()->network_address;
     TMiniLoadBeginResult res;
@@ -686,8 +687,8 @@ Status MiniLoadAction::_process_put(HttpRequest* req, StreamLoadContext* ctx) {
                 return Status::InvalidArgument("Hll value could not tranform to hll expr: " + hll_value);
             }
             for (auto& hll_element: hll_map) {
-                columns_value += "," + hll_element->first 
-                                     + "=hll_hash(" + hll_element->second + ")";
+                columns_value += "," + hll_element.first 
+                                     + "=hll_hash(" + hll_element.second + ")";
             }
         }
         put_request.__set_columns(columns_value);

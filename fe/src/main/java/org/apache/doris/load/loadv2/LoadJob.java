@@ -757,12 +757,8 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         }
         out.writeInt(progress);
         loadingStatus.write(out);
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_54) {
-            out.writeBoolean(strictMode);
-        }
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_55) {
-            out.writeLong(transactionId);
-        }
+        out.writeBoolean(strictMode);
+        out.writeLong(transactionId);
     }
 
     @Override
