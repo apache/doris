@@ -79,7 +79,6 @@ public class FEFunctionsTest {
 
     @Test
     public void addDateTest() throws AnalysisException {
-
         DateLiteral actualResult = FEFunctions.addDate(new StringLiteral("2018-08-08"), new IntLiteral(1));
         DateLiteral expectedResult = new DateLiteral("2018-08-09", Type.DATE);
         Assert.assertEquals(expectedResult, actualResult);
@@ -255,7 +254,6 @@ public class FEFunctionsTest {
         IntLiteral expectedResult = new IntLiteral(8);
         Assert.assertEquals(expectedResult, actualResult);
 
-
         actualResult = FEFunctions.month(new StringLiteral("1970-01-02 11:46:40"));
         expectedResult = new IntLiteral(1);
         Assert.assertEquals(expectedResult, actualResult);
@@ -266,7 +264,6 @@ public class FEFunctionsTest {
         IntLiteral actualResult = FEFunctions.day(new StringLiteral("2018-08-08"));
         IntLiteral expectedResult = new IntLiteral(8);
         Assert.assertEquals(expectedResult, actualResult);
-
 
         actualResult = FEFunctions.day(new StringLiteral("1970-01-02 11:46:40"));
         expectedResult = new IntLiteral(2);
