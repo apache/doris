@@ -163,7 +163,7 @@ public class BrokerLoadJob extends LoadJob {
             } else {
                 // retry task
                 idToTasks.remove(loadTask.getSignature());
-                loadTask.resetSignature();
+                loadTask.updateRetryInfo();
                 idToTasks.put(loadTask.getSignature(), loadTask);
                 Catalog.getCurrentCatalog().getLoadTaskScheduler().submit(loadTask);
                 return;
