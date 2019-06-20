@@ -19,6 +19,7 @@ package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.ColocateTableIndex;
+import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.common.AnalysisException;
 
 import com.google.common.collect.ImmutableList;
@@ -30,7 +31,7 @@ import java.util.List;
  */
 public class ColocationGroupProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("GroupName").add("GroupId").add("TableIds")
+            .add("GroupId").add("GroupName").add("TableIds")
             .add("BucketsNum").add("ReplicationNum").add("DistCols").add("IsStable").build();
 
     @Override
@@ -39,9 +40,24 @@ public class ColocationGroupProcDir implements ProcDirInterface {
     }
 
     @Override
-    public ProcNodeInterface lookup(String name) throws AnalysisException {
+    public ProcNodeInterface lookup(String groupIdStr) throws AnalysisException {
+        String[] parts = groupIdStr.split(".");
+        if (parts.length != 2) {
+            throw new AnalysisException("Invalid group id: " + groupIdStr);
+        }
+
+        long dbId = -1;
+        long grpId = -1;
+        try {
+            dbId = Long.valueOf(parts[0]);
+            grpId = Long.valueOf(parts[1]);
+        } catch (NumberFormatException e) {
+            throw new AnalysisException("Invalid group id: " + groupIdStr);
+        }
+
+        GroupId groupId = new GroupId(dbId, grpId);
         ColocateTableIndex index = Catalog.getCurrentColocateIndex();
-        List<List<Long>> beSeqs = index.getBackendsPerBucketSeq(name);
+        List<List<Long>> beSeqs = index.getBackendsPerBucketSeq(groupId);
         return new ColocationGroupBackendSeqsProcNode(beSeqs);
     }
 

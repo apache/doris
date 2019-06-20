@@ -278,7 +278,7 @@ public class HashJoinNode extends PlanNode {
           detailPrefix + "join op: " + joinOp.toString() + distrModeStr + "\n").append(
           detailPrefix + "hash predicates:\n");
 
-        output.append(detailPrefix + "colocate: " + isColocate + ", reason: " + colocateReason + "\n");
+        output.append(detailPrefix + "colocate: " + isColocate + (isColocate? "" : ", reason: " + colocateReason) + "\n");
 
         for (Pair<Expr, Expr> entry : eqJoinConjuncts) {
             output.append(detailPrefix + "  " +

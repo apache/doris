@@ -529,8 +529,8 @@ public class ColocateTableIndex implements Writable {
             for (Map.Entry<String, GroupId> entry : groupName2Id.entrySet()) {
                 List<String> info = Lists.newArrayList();
                 GroupId groupId = entry.getValue();
-                info.add(entry.getKey());
                 info.add(groupId.toString());
+                info.add(entry.getKey());
                 info.add(Joiner.on(", ").join(group2Tables.get(groupId)));
                 ColocateGroupSchema groupSchema = group2Schema.get(groupId);
                 info.add(String.valueOf(groupSchema.getBucketsNum()));

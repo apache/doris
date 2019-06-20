@@ -18,6 +18,7 @@
 package org.apache.doris.http.meta;
 
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.ColocateGroupSchema;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.common.DdlException;
@@ -185,9 +186,19 @@ public class ColocateMetaService {
             List<List<Long>> backendsPerBucketSeq = new Gson().fromJson(meta, type);
             LOG.info("get buckets sequence: {}", backendsPerBucketSeq);
 
+            ColocateGroupSchema groupSchema = Catalog.getCurrentColocateIndex().getGroupSchema(groupId);
+            if (backendsPerBucketSeq.size() != groupSchema.getBucketsNum()) {
+                throw new DdlException("Invalid bucket num. expected: " + groupSchema.getBucketsNum() + ", actual: "
+                        + backendsPerBucketSeq.size());
+            }
+
             List<Long> clusterBackendIds = Catalog.getCurrentSystemInfo().getClusterBackendIds(clusterName, true);
             //check the Backend id
             for (List<Long> backendIds : backendsPerBucketSeq) {
+                if (backendIds.size() != groupSchema.getReplicationNum()) {
+                    throw new DdlException("Invalid backend num per bucket. expected: "
+                            + groupSchema.getReplicationNum() + ", actual: " + backendIds.size());
+                }
                 for (Long beId : backendIds) {
                     if (!clusterBackendIds.contains(beId)) {
                         throw new DdlException("The backend " + beId + " does not exist or not available");
