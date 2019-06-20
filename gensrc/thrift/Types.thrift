@@ -18,6 +18,8 @@
 namespace cpp doris
 namespace java org.apache.doris.thrift
 
+include "PrimitiveType.thrift"
+
 typedef i64 TTimestamp
 typedef i32 TPlanNodeId
 typedef i32 TTupleId
@@ -52,28 +54,6 @@ enum TVarType {
     GLOBAL
 }
 
-enum TPrimitiveType {
-  INVALID_TYPE,
-  NULL_TYPE,
-  BOOLEAN,
-  TINYINT,
-  SMALLINT,
-  INT,
-  BIGINT,
-  FLOAT,
-  DOUBLE,
-  DATE,
-  DATETIME,
-  BINARY,
-  DECIMAL,
-  // CHAR(n). Currently only supported in UDAs
-  CHAR,
-  LARGEINT,
-  VARCHAR,
-  HLL,
-  DECIMALV2
-}
-
 enum TTypeNodeType {
     SCALAR,
     ARRAY,
@@ -82,7 +62,7 @@ enum TTypeNodeType {
 }
 
 struct TScalarType {
-    1: required TPrimitiveType type
+    1: required PrimitiveType.TPrimitiveType type
 
     // Only set if type == CHAR or type == VARCHAR
     2: optional i32 len
@@ -175,7 +155,7 @@ enum TExplainLevel {
 }
 
 struct TColumnType {
-  1: required TPrimitiveType type
+  1: required PrimitiveType.TPrimitiveType type
   // Only set if type == CHAR_ARRAY
   2: optional i32 len
   3: optional i32 index_len
