@@ -17,6 +17,8 @@
 
 package org.apache.doris.analysis;
 
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.ScalarFunction;
@@ -28,6 +30,7 @@ import org.apache.doris.thrift.TExprNodeType;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
+import java.util.Objects;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 
@@ -133,5 +136,10 @@ public class LikePredicate extends Predicate {
                 throw new AnalysisException("Invalid regular expression in '" + this.toSql() + "'");
             }
         }
+    }
+
+    @Override
+    public int hashCode() {
+        return 31 * super.hashCode() + Objects.hashCode(op);
     }
 }

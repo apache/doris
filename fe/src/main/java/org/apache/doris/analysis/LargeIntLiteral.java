@@ -36,6 +36,7 @@ import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.Objects;
 
 // large int for the num that native types can not
 public class LargeIntLiteral extends LiteralExpr {
@@ -221,5 +222,10 @@ public class LargeIntLiteral extends LiteralExpr {
         LargeIntLiteral largeIntLiteral = new LargeIntLiteral();
         largeIntLiteral.readFields(in);
         return largeIntLiteral;
+    }
+
+    @Override
+    public int hashCode() {
+        return 31 * super.hashCode() + Objects.hashCode(value);
     }
 }

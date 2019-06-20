@@ -277,6 +277,6 @@ public class ArithmeticExpr extends Expr {
 
     @Override
     public int hashCode() {
-        return Objects.hashCode(op);
+        return 31 * super.hashCode() + Objects.hashCode(op);
     }
 }

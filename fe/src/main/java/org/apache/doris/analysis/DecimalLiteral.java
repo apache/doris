@@ -37,6 +37,7 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.Objects;
 
 public class DecimalLiteral extends LiteralExpr {
     private static final Logger LOG = LogManager.getLogger(DecimalLiteral.class);
@@ -234,4 +235,8 @@ public class DecimalLiteral extends LiteralExpr {
         return super.uncheckedCastTo(targetType);
     }
 
+    @Override
+    public int hashCode() {
+        return 31 * super.hashCode() + Objects.hashCode(value);
+    }
 }

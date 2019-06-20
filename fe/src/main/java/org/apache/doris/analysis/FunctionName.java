@@ -208,9 +208,6 @@ public class FunctionName implements Writable {
 
     @Override
     public int hashCode() {
-        int result = 0;
-        result = 31 * result + Objects.hashCode(db_);
-        result = 31 * result + Objects.hashCode(fn_);
-        return result;
+        return 31 * Objects.hashCode(db_) + Objects.hashCode(fn_);
     }
 }

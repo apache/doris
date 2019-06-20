@@ -187,5 +187,10 @@ public class FloatLiteral extends LiteralExpr {
         literal.readFields(in);
         return literal;
     }
+
+    @Override
+    public int hashCode() {
+        return 31 * super.hashCode() + Double.hashCode(value);
+    }
 }
 

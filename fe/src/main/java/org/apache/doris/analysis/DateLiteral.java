@@ -35,6 +35,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Date;
+import java.util.Objects;
 
 public class DateLiteral extends LiteralExpr {
     private static final Logger LOG = LogManager.getLogger(DateLiteral.class);
@@ -200,5 +201,10 @@ public class DateLiteral extends LiteralExpr {
         DateLiteral literal = new DateLiteral();
         literal.readFields(in);
         return literal;
+    }
+
+    @Override
+    public int hashCode() {
+        return 31 * super.hashCode() + Objects.hashCode(date);
     }
 }

@@ -533,11 +533,7 @@ public class BinaryPredicate extends Predicate implements Writable {
 
     @Override
     public int hashCode() {
-        int result = 0;
-        result = 31 * result + Objects.hashCode(op);
-        result = 31 * result + (slotIsleft  == null ? 0 : (slotIsleft ? 1 : 2));
-        result = 31 * result + (isInferred_ ? 1 : 0);
-        return result;
+        return 31 * super.hashCode() + Objects.hashCode(op);
     }
 }
 

@@ -35,6 +35,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
+import java.util.Objects;
 
 public class StringLiteral extends LiteralExpr {
     private static final Logger LOG = LogManager.getLogger(StringLiteral.class);
@@ -222,5 +223,10 @@ public class StringLiteral extends LiteralExpr {
         StringLiteral literal = new StringLiteral();
         literal.readFields(in);
         return literal;
+    }
+
+    @Override
+    public int hashCode() {
+        return 31 * super.hashCode() + Objects.hashCode(value);
     }
 }

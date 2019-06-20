@@ -119,4 +119,9 @@ public class BoolLiteral extends LiteralExpr {
         literal.readFields(in);
         return literal;
     }
+
+    @Override
+    public int hashCode() {
+        return 31 * super.hashCode() + Boolean.hashCode(value);
+    }
 }

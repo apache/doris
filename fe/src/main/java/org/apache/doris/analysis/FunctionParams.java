@@ -111,9 +111,7 @@ public class FunctionParams implements Writable {
 
     @Override
     public int hashCode() {
-        int result = 0;
-        result = 31 * result + (isStar ? 1 : 0);
-        result = 31 * result + (isDistinct ? 1 : 0);
+        int result = 31 * Boolean.hashCode(isStar) + Boolean.hashCode(isDistinct);
         for (Expr expr : exprs) {
             result = 31 * result + Objects.hashCode(expr);
         }
