@@ -134,7 +134,7 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
             remove_all_dir(schema_hash_path);
         }
         TabletMetaSharedPtr new_tablet_meta(new(std::nothrow) TabletMeta());
-        res = TabletMetaManager::get_header(stores[0], tablet->tablet_id(), tablet->schema_hash(), new_tablet_meta);
+        res = TabletMetaManager::get_meta(stores[0], tablet->tablet_id(), tablet->schema_hash(), new_tablet_meta);
         if (res != OLAP_ERR_META_KEY_NOT_FOUND) {
             LOG(WARNING) << "tablet_meta already exists. "
                          << "data_dir:" << stores[0]->path()
@@ -218,7 +218,7 @@ OLAPStatus EngineStorageMigrationTask::_generate_new_header(
         return OLAP_ERR_HEADER_INIT_FAILED;
     }
     OLAPStatus res = OLAP_SUCCESS;
-    TabletMetaManager::get_header(tablet->data_dir(), tablet->tablet_id(), tablet->schema_hash(), new_tablet_meta);
+    TabletMetaManager::get_meta(tablet->data_dir(), tablet->tablet_id(), tablet->schema_hash(), new_tablet_meta);
 
     vector<RowsetMetaSharedPtr> rs_metas;
     for (auto& rs : consistent_rowsets) {
