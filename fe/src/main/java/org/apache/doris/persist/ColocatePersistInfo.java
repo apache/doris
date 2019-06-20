@@ -51,7 +51,7 @@ public class ColocatePersistInfo implements Writable {
         return new ColocatePersistInfo(groupId, -1L, backendsPerBucketSeq);
     }
 
-    public static ColocatePersistInfo createForMarkBalancing(GroupId groupId) {
+    public static ColocatePersistInfo createForMarkUnstable(GroupId groupId) {
         return new ColocatePersistInfo(groupId, -1L, new ArrayList<>());
     }
 

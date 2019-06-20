@@ -192,45 +192,36 @@ public class ColocateTableIndex implements Writable {
         }
     }
 
-    public void markGroupBalancing(GroupId groupId) {
-        writeLock();
-        try {
-            unstableGroups.add(groupId);
-            LOG.info("mark group {} as balancing", groupId);
-        } finally {
-            writeUnlock();
-        }
-    }
-
-    public void markGroupStable(GroupId groupId) {
-        writeLock();
-        try {
-            unstableGroups.remove(groupId);
-            LOG.info("mark group {} as stable", groupId);
-        } finally {
-            writeUnlock();
-        }
-    }
-
-    public void markGroupStable(GroupId groupId, boolean isGroupStable) {
+    public void markGroupUnstable(GroupId groupId, boolean needEditLog) {
         writeLock();
         try {
             if (!group2Tables.containsKey(groupId)) {
                 return;
             }
+            if (unstableGroups.add(groupId)) {
+                if (needEditLog) {
+                    ColocatePersistInfo info = ColocatePersistInfo.createForMarkUnstable(groupId);
+                    Catalog.getInstance().getEditLog().logColocateMarkUnstable(info);
+                }
+                LOG.info("mark group {} as unstable", groupId);
+            }
+        } finally {
+            writeUnlock();
+        }
+    }
 
-            if (isGroupStable) {
-                if (unstableGroups.remove(groupId)) {
+    public void markGroupStable(GroupId groupId, boolean needEditLog) {
+        writeLock();
+        try {
+            if (!group2Tables.containsKey(groupId)) {
+                return;
+            }
+            if (unstableGroups.remove(groupId)) {
+                if (needEditLog) {
                     ColocatePersistInfo info = ColocatePersistInfo.createForMarkStable(groupId);
-                    Catalog.getInstance().getEditLog().logColocateMarkStable(info);
-                    LOG.info("mark group {} as stable", groupId);
+                    Catalog.getInstance().getEditLog().logColocateMarkUnstable(info);
                 }
-            } else {
-                if (unstableGroups.add(groupId)) {
-                    ColocatePersistInfo info = ColocatePersistInfo.createForMarkBalancing(groupId);
-                    Catalog.getInstance().getEditLog().logColocateMarkBalancing(info);
-                    LOG.info("mark group {} as unstable", groupId);
-                }
+                LOG.info("mark group {} as stable", groupId);
             }
         } finally {
             writeUnlock();
@@ -505,12 +496,12 @@ public class ColocateTableIndex implements Writable {
         addBackendsPerBucketSeq(info.getGroupId(), info.getBackendsPerBucketSeq());
     }
 
-    public void replayMarkGroupBalancing(ColocatePersistInfo info) {
-        markGroupBalancing(info.getGroupId());
+    public void replayMarkGroupUnstable(ColocatePersistInfo info) {
+        markGroupUnstable(info.getGroupId(), false);
     }
 
     public void replayMarkGroupStable(ColocatePersistInfo info) {
-        markGroupStable(info.getGroupId());
+        markGroupStable(info.getGroupId(), false);
     }
 
     public void replayRemoveTable(ColocatePersistInfo info) {
@@ -544,10 +535,10 @@ public class ColocateTableIndex implements Writable {
                 ColocateGroupSchema groupSchema = group2Schema.get(groupId);
                 info.add(String.valueOf(groupSchema.getBucketsNum()));
                 info.add(String.valueOf(groupSchema.getReplicationNum()));
-                info.add(String.valueOf(!unstableGroups.contains(groupId)));
                 List<String> cols = groupSchema.getDistributionColTypes().stream().map(
                         e -> e.toSql()).collect(Collectors.toList());
                 info.add(Joiner.on(", ").join(cols));
+                info.add(String.valueOf(!unstableGroups.contains(groupId)));
                 infos.add(info);
             }
         } finally {

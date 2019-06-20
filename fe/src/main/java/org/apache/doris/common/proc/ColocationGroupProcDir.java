@@ -31,7 +31,7 @@ import java.util.List;
 public class ColocationGroupProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("GroupName").add("GroupId").add("TableIds")
-            .add("BucketsNum").add("ReplicationNum").add("IsStable").add("DistCols").build();
+            .add("BucketsNum").add("ReplicationNum").add("DistCols").add("IsStable").build();
 
     @Override
     public boolean register(String name, ProcNodeInterface node) {

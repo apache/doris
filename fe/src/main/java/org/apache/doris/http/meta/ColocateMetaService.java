@@ -49,6 +49,8 @@ import io.netty.handler.codec.http.HttpResponseStatus;
 
 /*
  * the colocate meta define in {@link ColocateTableIndex}
+ * The actions in ColocateMetaService is for modifying colocate group info manually.
+ * In most cases, it is for fixing some unrecoverable bugs
  */
 public class ColocateMetaService {
     private static final Logger LOG = LogManager.getLogger(ColocateMetaService.class);
@@ -196,9 +198,9 @@ public class ColocateMetaService {
 
             HttpMethod method = request.getRequest().method();
             if (method.equals(HttpMethod.POST)) {
-                colocateIndex.markGroupBalancing(groupId);
-                ColocatePersistInfo info = ColocatePersistInfo.createForMarkBalancing(groupId);
-                Catalog.getInstance().getEditLog().logColocateMarkBalancing(info);
+                colocateIndex.markGroupUnstable(groupId);
+                ColocatePersistInfo info = ColocatePersistInfo.createForMarkUnstable(groupId);
+                Catalog.getInstance().getEditLog().logColocateMarkUnstable(info);
                 LOG.info("mark colocate group {}  balancing", groupId);
             } else if (method.equals(HttpMethod.DELETE)) {
                 colocateIndex.markGroupStable(groupId);
@@ -261,9 +263,9 @@ public class ColocateMetaService {
         }
 
         private void updateBackendPerBucketSeq(GroupId groupId, List<List<Long>> backendsPerBucketSeq) {
-            colocateIndex.markGroupBalancing(groupId);
-            ColocatePersistInfo info1 = ColocatePersistInfo.createForMarkBalancing(groupId);
-            Catalog.getInstance().getEditLog().logColocateMarkBalancing(info1);
+            colocateIndex.markGroupUnstable(groupId);
+            ColocatePersistInfo info1 = ColocatePersistInfo.createForMarkUnstable(groupId);
+            Catalog.getInstance().getEditLog().logColocateMarkUnstable(info1);
 
             colocateIndex.addBackendsPerBucketSeq(groupId, backendsPerBucketSeq);
             ColocatePersistInfo info2 = ColocatePersistInfo.createForBackendsPerBucketSeq(groupId,
