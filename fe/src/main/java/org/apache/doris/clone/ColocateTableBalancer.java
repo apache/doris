@@ -51,7 +51,7 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 /**
- * ColocateTableBalancer is responsible for tablets' repair and balance of colocated tables
+ * ColocateTableBalancer is responsible for tablets' repair and balance of colocated tables.
  */
 public class ColocateTableBalancer extends Daemon {
     private static final Logger LOG = LogManager.getLogger(ColocateTableBalancer.class);
@@ -78,7 +78,9 @@ public class ColocateTableBalancer extends Daemon {
      *      Relocate at most one bucket in one group at a time.
      *      
      * 2. Match group:
-     *      If replica mismatch backends in a group, that group will be marked as unstable.
+     *      If replica mismatch backends in a group, that group will be marked as unstable, and pass that 
+     *      tablet to TabletScheduler.
+     *      Otherwise, mark the group as stable
      * 
      * 3. Balance group:
      *      Try balance group, and skip groups which contains unavailable backends.
@@ -107,6 +109,9 @@ public class ColocateTableBalancer extends Daemon {
      *      find next available backend. and cluster load statistic is updated every 20 seconds.
      */
     private void relocateGroup() {
+        if (Config.disable_colocate_relocate) {
+            return;
+        }
         Catalog catalog = Catalog.getCurrentCatalog();
         ColocateTableIndex colocateIndex = catalog.getColocateTableIndex();
         SystemInfoService infoService = Catalog.getCurrentSystemInfo();
@@ -380,6 +385,9 @@ public class ColocateTableBalancer extends Daemon {
      *  A    B    C    D
      */
     private void balanceGroup() {
+        if (Config.disable_colocate_balance) {
+            return;
+        }
         Catalog catalog = Catalog.getCurrentCatalog();
         SystemInfoService infoService = Catalog.getCurrentSystemInfo();
         ColocateTableIndex colocateIndex = catalog.getColocateTableIndex();
@@ -490,6 +498,7 @@ public class ColocateTableBalancer extends Daemon {
             int i = 0;
             int j = backendWithReplicaNum.size() - 1;
             while (i < j) {
+                boolean isThisRoundChanged = false;
                 // we try to use a low backend to replace the high backend.
                 // if replace failed(eg: both backends are on some host), select next low backend and try(j--)
                 Map.Entry<Long, Long> highBackend = backendWithReplicaNum.get(i);
@@ -533,11 +542,12 @@ public class ColocateTableBalancer extends Daemon {
                         // just replace one backend at a time, src and dest BE id should be recalculated because
                         // flatBackendsPerBucketSeq is changed.
                         isChanged = true;
+                        isThisRoundChanged = true;
                         break;
                     }
                 }
 
-                if (!isChanged) {
+                if (!isThisRoundChanged) {
                     // select another load backend and try again
                     LOG.info("unable to replace backend {} with backend {} in colocate group {}",
                             srcBeId, destBeId, groupId);

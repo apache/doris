@@ -20,7 +20,6 @@ package org.apache.doris.http.meta;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
-import org.apache.doris.catalog.Database;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.http.ActionController;
 import org.apache.doris.http.BaseRequest;
@@ -41,7 +40,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.lang.reflect.Type;
-import java.util.ArrayList;
 import java.util.List;
 
 import io.netty.handler.codec.http.HttpMethod;
@@ -49,8 +47,23 @@ import io.netty.handler.codec.http.HttpResponseStatus;
 
 /*
  * the colocate meta define in {@link ColocateTableIndex}
- * The actions in ColocateMetaService is for modifying colocate group info manually.
- * In most cases, it is for fixing some unrecoverable bugs
+ * The actions in ColocateMetaService is for modifying or showing colocate group info manually.
+ * 
+ * ColocateMetaAction:
+ *  get all information in ColocateTableIndex, as a json string
+ *      eg:
+ *          GET /api/colocate
+ *      return:
+ *          {"colocate_meta":{"groupName2Id":{...},"group2Tables":{}, ...},"status":"OK"}
+ * 
+ *      eg:
+ *          POST    /api/colocate/group_stable?db_id=123&group_id=456  (mark group[123.456] as unstable)
+ *          DELETE  /api/colocate/group_stable?db_id=123&group_id=456  (mark group[123.456] as stable)
+ *          
+ * BucketSeqAction:
+ *  change the backends per bucket sequence of a group
+ *      eg:
+ *          POST    /api/colocate/bucketseq?db_id=123&group_id=456
  */
 public class ColocateMetaService {
     private static final Logger LOG = LogManager.getLogger(ColocateMetaService.class);
@@ -71,10 +84,6 @@ public class ColocateMetaService {
         return groupId;
     }
 
-    private static long getTableId(BaseRequest request) throws DdlException {
-        return Long.valueOf(request.getSingleParameter(TABLE_ID).trim());
-    }
-
     public static class ColocateMetaBaseAction extends RestBaseAction {
         ColocateMetaBaseAction(ActionController controller) {
             super(controller);
@@ -90,12 +99,12 @@ public class ColocateMetaService {
             executeInMasterWithAdmin(authInfo, request, response);
         }
 
+        // implement in derived classes
         protected void executeInMasterWithAdmin(AuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
                 throws DdlException {
             throw new DdlException("Not implemented");
         }
     }
-
 
     // get all colocate meta
     public static class ColocateMetaAction extends ColocateMetaBaseAction {
@@ -118,77 +127,16 @@ public class ColocateMetaService {
         }
     }
 
-    // add a table to a colocate group
-    public static class TableGroupAction extends ColocateMetaBaseAction {
-        TableGroupAction(ActionController controller) {
+    // mark a colocate group as stable or unstable
+    public static class MarkGroupStableAction extends ColocateMetaBaseAction {
+        MarkGroupStableAction(ActionController controller) {
             super(controller);
         }
 
         public static void registerAction(ActionController controller) throws IllegalArgException {
-            TableGroupAction action = new TableGroupAction(controller);
-            controller.registerHandler(HttpMethod.POST, "/api/colocate/table_group", action);
-        }
-
-        @Override
-        public void executeInMasterWithAdmin(AuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
-                throws DdlException {
-            GroupId groupId = checkAndGetGroupId(request);
-            long tableId = getTableId(request);
-
-            Database database = Catalog.getInstance().getDb(groupId.dbId);
-            if (database == null) {
-                throw new DdlException("the db " + groupId.dbId + " isn't  exist");
-            }
-            if (database.getTable(tableId) == null) {
-                throw new DdlException("the table " + tableId + " isn't  exist");
-            }
-
-            LOG.info("will add table {} to group {}", tableId, groupId);
-            colocateIndex.addTableToGroup(groupId, tableId);
-            ColocatePersistInfo info = ColocatePersistInfo.createForAddTable(groupId, tableId, new ArrayList<>());
-            Catalog.getInstance().getEditLog().logColocateAddTable(info);
-            LOG.info("table {} has added to group {}", tableId, groupId);
-
-            sendResult(request, response);
-        }
-    }
-
-    // remove a table from a colocate group
-    public static class TableAction extends ColocateMetaBaseAction {
-        TableAction(ActionController controller) {
-            super(controller);
-        }
-
-        public static void registerAction(ActionController controller) throws IllegalArgException {
-            TableAction action = new TableAction(controller);
-            controller.registerHandler(HttpMethod.DELETE, "/api/colocate/table", action);
-        }
-
-        @Override
-        public void executeInMasterWithAdmin(AuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
-                throws DdlException {
-            long tableId = getTableId(request);
-
-            LOG.info("will delete table {} from colocate meta", tableId);
-            if (Catalog.getCurrentColocateIndex().removeTable(tableId)) {
-                ColocatePersistInfo colocateInfo = ColocatePersistInfo.createForRemoveTable(tableId);
-                Catalog.getInstance().getEditLog().logColocateRemoveTable(colocateInfo);
-                LOG.info("table {}  has deleted from colocate meta", tableId);
-            }
-            sendResult(request, response);
-        }
-    }
-
-    // mark a colocate group to balancing or stable
-    public static class BalancingGroupAction extends ColocateMetaBaseAction {
-        BalancingGroupAction(ActionController controller) {
-            super(controller);
-        }
-
-        public static void registerAction(ActionController controller) throws IllegalArgException {
-            BalancingGroupAction action = new BalancingGroupAction(controller);
-            controller.registerHandler(HttpMethod.POST, "/api/colocate/balancing_group", action);
-            controller.registerHandler(HttpMethod.DELETE, "/api/colocate/balancing_group", action);
+            MarkGroupStableAction action = new MarkGroupStableAction(controller);
+            controller.registerHandler(HttpMethod.POST, "/api/colocate/group_stable", action);
+            controller.registerHandler(HttpMethod.DELETE, "/api/colocate/group_stable", action);
         }
 
         @Override
@@ -198,15 +146,9 @@ public class ColocateMetaService {
 
             HttpMethod method = request.getRequest().method();
             if (method.equals(HttpMethod.POST)) {
-                colocateIndex.markGroupUnstable(groupId);
-                ColocatePersistInfo info = ColocatePersistInfo.createForMarkUnstable(groupId);
-                Catalog.getInstance().getEditLog().logColocateMarkUnstable(info);
-                LOG.info("mark colocate group {}  balancing", groupId);
+                colocateIndex.markGroupUnstable(groupId, true);
             } else if (method.equals(HttpMethod.DELETE)) {
-                colocateIndex.markGroupStable(groupId);
-                ColocatePersistInfo info = ColocatePersistInfo.createForMarkStable(groupId);
-                Catalog.getInstance().getEditLog().logColocateMarkStable(info);
-                LOG.info("mark colocate group {}  stable", groupId);
+                colocateIndex.markGroupStable(groupId, true);
             } else {
                 response.appendContent(new RestBaseResult("HTTP method is not allowed.").toJson());
                 writeResponse(request, response, HttpResponseStatus.METHOD_NOT_ALLOWED);
@@ -241,35 +183,30 @@ public class ColocateMetaService {
             String meta = request.getContent();
             Type type = new TypeToken<List<List<Long>>>() {}.getType();
             List<List<Long>> backendsPerBucketSeq = new Gson().fromJson(meta, type);
-            LOG.info("HttpServer {}", backendsPerBucketSeq);
+            LOG.info("get buckets sequence: {}", backendsPerBucketSeq);
 
             List<Long> clusterBackendIds = Catalog.getCurrentSystemInfo().getClusterBackendIds(clusterName, true);
             //check the Backend id
             for (List<Long> backendIds : backendsPerBucketSeq) {
                 for (Long beId : backendIds) {
                     if (!clusterBackendIds.contains(beId)) {
-                        throw new DdlException("The backend " + beId + " is not exist or alive");
+                        throw new DdlException("The backend " + beId + " does not exist or not available");
                     }
                 }
             }
 
-            int metaSize = colocateIndex.getBackendsPerBucketSeq(groupId).size();
-            Preconditions.checkState(backendsPerBucketSeq.size() == metaSize,
-                    backendsPerBucketSeq.size() + " vs. " + metaSize);
+            int bucketsNum = colocateIndex.getBackendsPerBucketSeq(groupId).size();
+            Preconditions.checkState(backendsPerBucketSeq.size() == bucketsNum,
+                    backendsPerBucketSeq.size() + " vs. " + bucketsNum);
             updateBackendPerBucketSeq(groupId, backendsPerBucketSeq);
-            LOG.info("the group {} backendsPerBucketSeq meta has updated", groupId);
+            LOG.info("the group {} backendsPerBucketSeq meta has been changed to {}", groupId, backendsPerBucketSeq);
 
             sendResult(request, response);
         }
 
         private void updateBackendPerBucketSeq(GroupId groupId, List<List<Long>> backendsPerBucketSeq) {
-            colocateIndex.markGroupUnstable(groupId);
-            ColocatePersistInfo info1 = ColocatePersistInfo.createForMarkUnstable(groupId);
-            Catalog.getInstance().getEditLog().logColocateMarkUnstable(info1);
-
             colocateIndex.addBackendsPerBucketSeq(groupId, backendsPerBucketSeq);
-            ColocatePersistInfo info2 = ColocatePersistInfo.createForBackendsPerBucketSeq(groupId,
-                    backendsPerBucketSeq);
+            ColocatePersistInfo info2 = ColocatePersistInfo.createForBackendsPerBucketSeq(groupId, backendsPerBucketSeq);
             Catalog.getInstance().getEditLog().logColocateBackendsPerBucketSeq(info2);
         }
     }
