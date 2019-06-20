@@ -126,10 +126,8 @@ struct TScanCloseResult {
 service TDorisScanService {
     // doris will build  a scan context for this session, context_id returned if success
     TScanOpenResult open(1: TScanOpenParams params);
-    // 1. palo be will send a search context id to es 
-    // 2. es will find the search context and find a batch rows and send to palo
-    // 3. palo will run the remaining predicates when receving data
-    // 4. es should check the offset when receive the request
+
+    // return the batch_size of data
     TScanBatchResult getNext(1: TScanNextBatchParams params);
 
     // release the context resource associated with the context_id
