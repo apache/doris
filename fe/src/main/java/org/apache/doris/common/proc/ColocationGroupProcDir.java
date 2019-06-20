@@ -41,7 +41,7 @@ public class ColocationGroupProcDir implements ProcDirInterface {
 
     @Override
     public ProcNodeInterface lookup(String groupIdStr) throws AnalysisException {
-        String[] parts = groupIdStr.split(".");
+        String[] parts = groupIdStr.split("\\.");
         if (parts.length != 2) {
             throw new AnalysisException("Invalid group id: " + groupIdStr);
         }

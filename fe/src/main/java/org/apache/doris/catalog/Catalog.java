@@ -2933,7 +2933,8 @@ public class Catalog {
 
             // check colocation
             if (Catalog.getCurrentColocateIndex().isColocateTable(olapTable.getId())) {
-                ColocateGroupSchema groupSchema = colocateTableIndex.getGroupSchema(olapTable.getColocateGroup());
+                String fullGroupName = db.getId() + "_" + olapTable.getColocateGroup();
+                ColocateGroupSchema groupSchema = colocateTableIndex.getGroupSchema(fullGroupName);
                 Preconditions.checkNotNull(groupSchema);
                 groupSchema.checkDistribution(distributionInfo);
                 groupSchema.checkReplicationNum(singlePartitionDesc.getReplicationNum());
@@ -3495,8 +3496,8 @@ public class Catalog {
                 if (Config.disable_colocate_join) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_FEATURE_DISABLED);
                 }
-
-                ColocateGroupSchema groupSchema = colocateTableIndex.getGroupSchema(colocateGroup);
+                String fullGroupName = db.getId() + "_" + colocateGroup;
+                ColocateGroupSchema groupSchema = colocateTableIndex.getGroupSchema(fullGroupName);
                 if (groupSchema != null) {
                     // group already exist, check if this table can be added to this group
                     groupSchema.checkColocateSchema(olapTable);
@@ -4907,7 +4908,8 @@ public class Catalog {
         String oldGroup = table.getColocateGroup();
         GroupId groupId = null;
         if (!Strings.isNullOrEmpty(colocateGroup)) {
-            ColocateGroupSchema groupSchema = colocateTableIndex.getGroupSchema(colocateGroup);
+            String fullGroupName = db.getId() + "_" + colocateGroup;
+            ColocateGroupSchema groupSchema = colocateTableIndex.getGroupSchema(fullGroupName);
             if (groupSchema == null) {
                 // user set a new colocate group,
                 // check if all partitions all this table has same buckets num and same replication number

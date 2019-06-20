@@ -65,7 +65,7 @@ PROPERTIES(
 ```
     
 如果指定的 Group 不存在，则 Doris 会自动创建一个只包含当前这张表的 Group。如果 Group 已存在，则 Doris 会检查当前表是否满足 Colocation Group Schema。如果满足，则会创建该表，并将该表加入 Group。同时，表会根据已存在的 Group 中的数据分布规则创建分片和副本。
-Group 归属于一个 Database，Group 的名字在一个 Database 内唯一。
+Group 归属于一个 Database，Group 的名字在一个 Database 内唯一。在内部存储是 Group 的全名为 `dbId_groupName`，但用户只感知 groupName。
 
 ### 删表
 
@@ -78,15 +78,15 @@ Group 归属于一个 Database，Group 的名字在一个 Database 内唯一。
 ```
 SHOW PROC '/colocation_group';
 
-+-------------+-------------+--------------+------------+----------------+----------+----------+
-| GroupId     | GroupName   | TableIds     | BucketsNum | ReplicationNum | DistCols | IsStable |
-+-------------+-------------+--------------+------------+----------------+----------+----------+
-| 10005.10008 | group1      | 10007, 10040 | 10         | 3              | int(11)  | true     |
-+-------------+-------------+--------------+------------+----------------+----------+----------+
++-------------+--------------+--------------+------------+----------------+----------+----------+
+| GroupId     | GroupName    | TableIds     | BucketsNum | ReplicationNum | DistCols | IsStable |
++-------------+--------------+--------------+------------+----------------+----------+----------+
+| 10005.10008 | 10005_group1 | 10007, 10040 | 10         | 3              | int(11)  | true     |
++-------------+--------------+--------------+------------+----------------+----------+----------+
 ```
 
 * GroupId：          一个 Group 的全集群唯一标识，前半部分为 db id，后半部分为 group id。
-* GroupName：        Group 的名称。
+* GroupName：        Group 的全名。
 * TabletIds：        该 Group 包含的 Table 的 id 列表。
 * BucketsNum：       分桶数。
 * ReplicationNum：   副本数。

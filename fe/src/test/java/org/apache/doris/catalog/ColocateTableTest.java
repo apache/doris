@@ -234,8 +234,9 @@ public class ColocateTableTest {
         List<Long> backendIds = index.getBackendsPerBucketSeq(groupId).get(0);
         Assert.assertEquals(beIds, backendIds);
 
-        Assert.assertEquals(tableId, index.getTableIdByGroup(groupName1));
-        ColocateGroupSchema groupSchema = index.getGroupSchema(groupName1);
+        String fullGroupName = dbId + "_" + groupName1;
+        Assert.assertEquals(tableId, index.getTableIdByGroup(fullGroupName));
+        ColocateGroupSchema groupSchema = index.getGroupSchema(fullGroupName);
         Assert.assertNotNull(groupSchema);
         Assert.assertEquals(dbId, groupSchema.getGroupId().dbId);
         Assert.assertEquals(numBucket, groupSchema.getBucketsNum());

@@ -147,8 +147,9 @@ public class ColocateTableIndex implements Writable {
         writeLock();
         try {
             GroupId groupId = null;
-            if (groupName2Id.containsKey(groupName)) {
-                groupId = groupName2Id.get(groupName);
+            String fullGroupName = dbId + "_" + groupName;
+            if (groupName2Id.containsKey(fullGroupName)) {
+                groupId = groupName2Id.get(fullGroupName);
             } else {
                 if (assignedGroupId != null) {
                     // use the given group id, eg, in replay process
@@ -157,7 +158,7 @@ public class ColocateTableIndex implements Writable {
                     // generate a new one
                     groupId = new GroupId(dbId, Catalog.getCurrentCatalog().getNextId());
                 }
-                groupName2Id.put(groupName, groupId);
+                groupName2Id.put(fullGroupName, groupId);
                 HashDistributionInfo distributionInfo = (HashDistributionInfo) tbl.getDefaultDistributionInfo();
                 ColocateGroupSchema groupSchema = new ColocateGroupSchema(groupId,
                         distributionInfo.getDistributionColumns(), distributionInfo.getBucketNum(),
@@ -242,15 +243,15 @@ public class ColocateTableIndex implements Writable {
                 group2BackendsPerBucketSeq.remove(groupId);
                 group2Schema.remove(groupId);
                 unstableGroups.remove(groupId);
-                String groupName = null;
+                String fullGroupName = null;
                 for (Map.Entry<String, GroupId> entry : groupName2Id.entrySet()) {
                     if (entry.getValue().equals(groupId)) {
-                        groupName = entry.getKey();
+                        fullGroupName = entry.getKey();
                         break;
                     }
                 }
-                if (groupName != null) {
-                    groupName2Id.remove(groupName);
+                if (fullGroupName != null) {
+                    groupName2Id.remove(fullGroupName);
                 }
             }
         } finally {
@@ -383,22 +384,6 @@ public class ColocateTableIndex implements Writable {
         }
     }
 
-    public List<List<Long>> getBackendsPerBucketSeq(String groupName) {
-        readLock();
-        try {
-            if (!groupName2Id.containsKey(groupName)) {
-                return Lists.newArrayList();
-            }
-            List<List<Long>> backendsPerBucketSeq = group2BackendsPerBucketSeq.get(groupName2Id.get(groupName));
-            if (backendsPerBucketSeq == null) {
-                return Lists.newArrayList();
-            }
-            return backendsPerBucketSeq;
-        } finally {
-            readUnlock();
-        }
-    }
-
     public Set<Long> getTabletBackendsByGroup(GroupId groupId, int tabletOrderIdx) {
         readLock();
         try {
@@ -416,13 +401,13 @@ public class ColocateTableIndex implements Writable {
         }
     }
 
-    public ColocateGroupSchema getGroupSchema(String groupName) {
+    public ColocateGroupSchema getGroupSchema(String fullGroupName) {
         readLock();
         try {
-            if (!groupName2Id.containsKey(groupName)) {
+            if (!groupName2Id.containsKey(fullGroupName)) {
                 return null;
             }
-            return group2Schema.get(groupName2Id.get(groupName));
+            return group2Schema.get(groupName2Id.get(fullGroupName));
         } finally {
             readUnlock();
         }
@@ -437,20 +422,11 @@ public class ColocateTableIndex implements Writable {
         }
     }
 
-    public boolean hasColocateGroup(String group) {
+    public long getTableIdByGroup(String fullGroupName) {
         readLock();
         try {
-            return groupName2Id.containsKey(group);
-        } finally {
-            readUnlock();
-        }
-    }
-
-    public long getTableIdByGroup(String groupName) {
-        readLock();
-        try {
-            if (groupName2Id.containsKey(groupName)) {
-                GroupId groupId = groupName2Id.get(groupName);
+            if (groupName2Id.containsKey(fullGroupName)) {
+                GroupId groupId = groupName2Id.get(fullGroupName);
                 Optional<Long> tblId = group2Tables.get(groupId).stream().findFirst();
                 return tblId.isPresent() ? tblId.get() : -1;
             }
@@ -640,9 +616,9 @@ public class ColocateTableIndex implements Writable {
                     tmpBalancingGroups);
         } else {
             for (int i = 0; i < size; i++) {
-                String grpName = Text.readString(in);
+                String fullGrpName = Text.readString(in);
                 GroupId grpId = GroupId.read(in);
-                groupName2Id.put(grpName, grpId);
+                groupName2Id.put(fullGrpName, grpId);
                 int tableSize = in.readInt();
                 for (int j = 0; j < tableSize; j++) {
                     long tblId = in.readLong();
@@ -677,6 +653,12 @@ public class ColocateTableIndex implements Writable {
             Map<Long, Long> tmpGroup2Db, Map<Long, List<List<Long>>> tmpGroup2BackendsPerBucketSeq,
             Set<Long> tmpBalancingGroups) {
 
+        LOG.debug("debug: tmpGroup2Tables {}", tmpGroup2Tables);
+        LOG.debug("debug: tmpTable2Group {}", tmpTable2Group);
+        LOG.debug("debug: tmpGroup2Db {}", tmpGroup2Db);
+        LOG.debug("debug: tmpGroup2BackendsPerBucketSeq {}", tmpGroup2BackendsPerBucketSeq);
+        LOG.debug("debug: tmpBalancingGroups {}", tmpBalancingGroups);
+
         for (Map.Entry<Long, Long> entry : tmpGroup2Db.entrySet()) {
             GroupId groupId = new GroupId(entry.getValue(), entry.getKey());
             Database db = Catalog.getCurrentCatalog().getDb(groupId.dbId);
@@ -691,9 +673,9 @@ public class ColocateTableIndex implements Writable {
                     if (tbl == null) {
                         continue;
                     }
-                    if (tblId == groupId.grpId) {
+                    if (tblId.equals(groupId.grpId)) {
                         // this is a parent table, use its name as group name
-                        groupName2Id.put(tbl.getName(), groupId);
+                        groupName2Id.put(groupId.dbId + "_" + tbl.getName(), groupId);
                         
                         ColocateGroupSchema groupSchema = new ColocateGroupSchema(groupId,
                                 ((HashDistributionInfo)tbl.getDefaultDistributionInfo()).getDistributionColumns(), 
