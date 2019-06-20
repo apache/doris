@@ -96,13 +96,14 @@ public class LoadManager implements Writable{
             }
             loadJob = BrokerLoadJob.fromLoadStmt(stmt);
             createLoadJob(loadJob);
-            // submit it
-            loadJobScheduler.submitJob(loadJob);
         } finally {
             writeUnlock();
         }
-        // persistent
         Catalog.getCurrentCatalog().getEditLog().logCreateLoadJob(loadJob);
+
+        // The job must be submitted after edit log.
+        // It guarantee that load job has not been changed before edit log.
+        loadJobScheduler.submitJob(loadJob);
     }
 
     /**
