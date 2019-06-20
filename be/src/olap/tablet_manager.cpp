@@ -1015,7 +1015,7 @@ OLAPStatus TabletManager::start_trash_sweep() {
                 ++it;
                 continue;
             }
-            OLAPStatus check_st = TabletMetaManager::get_header((*it)->data_dir(), 
+            OLAPStatus check_st = TabletMetaManager::get_meta((*it)->data_dir(), 
                 (*it)->tablet_id(), (*it)->schema_hash(), new_tablet_meta);
             if (check_st == OLAP_SUCCESS) {
                 if (new_tablet_meta->tablet_state() != TABLET_SHUTDOWN

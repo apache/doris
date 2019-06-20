@@ -38,7 +38,7 @@ namespace doris {
 
 const static std::string HEADER_JSON = "application/json";
 
-Status MetaAction::_handle_header(HttpRequest *req, std::string* json_header) {
+Status MetaAction::_handle_header(HttpRequest *req, std::string* json_meta) {
     req->add_output_header(HttpHeaders::CONTENT_TYPE, HEADER_JSON.c_str());
     std::string req_tablet_id = req->param(TABLET_ID_KEY);
     std::string req_schema_hash = req->param(TABLET_SCHEMA_HASH_KEY);
@@ -54,7 +54,7 @@ Status MetaAction::_handle_header(HttpRequest *req, std::string* json_header) {
         LOG(WARNING) << "no tablet for tablet_id:" << tablet_id << " schema hash:" << schema_hash;
         return Status("no tablet exist");
     }
-    OLAPStatus s = TabletMetaManager::get_json_header(tablet->data_dir(), tablet_id, schema_hash, json_header);
+    OLAPStatus s = TabletMetaManager::get_json_meta(tablet->data_dir(), tablet_id, schema_hash, json_meta);
     if (s == OLAP_ERR_META_KEY_NOT_FOUND) {
         return Status("no header exist");
     } else if (s != OLAP_SUCCESS) {
@@ -65,12 +65,12 @@ Status MetaAction::_handle_header(HttpRequest *req, std::string* json_header) {
 
 void MetaAction::handle(HttpRequest *req) {
     if (_meta_type == META_TYPE::HEADER) {
-        std::string json_header;
-        Status status = _handle_header(req, &json_header);
+        std::string json_meta;
+        Status status = _handle_header(req, &json_meta);
         std::string status_result = to_json(status);
         LOG(INFO) << "handle request result:" << status_result;
         if (status.ok()) {
-            HttpChannel::send_reply(req, HttpStatus::OK, json_header);
+            HttpChannel::send_reply(req, HttpStatus::OK, json_meta);
         } else {
             HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, status_result);
         }

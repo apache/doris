@@ -51,7 +51,7 @@ DEFINE_int32(schema_hash, 0, "schema_hash for tablet meta");
 DEFINE_string(json_meta_path, "", "absolute json meta file path");
 DEFINE_string(pb_meta_path, "", "pb meta file path");
 
-std::string get_usage(std::string progname) {
+std::string get_usage(const std::string& progname) {
     std::stringstream ss;
     ss << progname << " is the Doris BE Meta tool.\n";
     ss << "Stop BE first before use this tool.\n";
@@ -77,13 +77,12 @@ void show_meta() {
     doris::TabletMetaPB tablet_meta_pb;
     tablet_meta.to_meta_pb(&tablet_meta_pb);
     json2pb::ProtoMessageToJson(tablet_meta_pb, &json_meta, json_options);
-    std::cout << "tablet meta:" << std::endl;
     std::cout << json_meta << std::endl;
 }
 
 void get_meta(DataDir *data_dir) {
     std::string value;
-    OLAPStatus s = TabletMetaManager::get_json_header(data_dir, FLAGS_tablet_id, FLAGS_schema_hash, &value);
+    OLAPStatus s = TabletMetaManager::get_json_meta(data_dir, FLAGS_tablet_id, FLAGS_schema_hash, &value);
     if (s == doris::OLAP_ERR_META_KEY_NOT_FOUND) {
         std::cout << "no tablet meta for tablet_id:" << FLAGS_tablet_id
                   << ", schema_hash:" << FLAGS_schema_hash << std::endl;
@@ -94,7 +93,7 @@ void get_meta(DataDir *data_dir) {
 
 void load_meta(DataDir *data_dir) {
     // load json tablet meta into meta
-    OLAPStatus s = TabletMetaManager::load_json_header(data_dir, FLAGS_json_meta_path);
+    OLAPStatus s = TabletMetaManager::load_json_meta(data_dir, FLAGS_json_meta_path);
     if (s != OLAP_SUCCESS) {
         std::cout << "load meta failed, status:" << s << std::endl;
         return;

@@ -44,7 +44,7 @@ using rocksdb::kDefaultColumnFamilyName;
 
 namespace doris {
 
-OLAPStatus TabletMetaManager::get_header(
+OLAPStatus TabletMetaManager::get_meta(
         DataDir* store, TTabletId tablet_id,
         TSchemaHash schema_hash,
         TabletMetaSharedPtr tablet_meta) {
@@ -64,16 +64,16 @@ OLAPStatus TabletMetaManager::get_header(
     return tablet_meta->deserialize(value);
 }
 
-OLAPStatus TabletMetaManager::get_json_header(DataDir* store,
-        TTabletId tablet_id, TSchemaHash schema_hash, std::string* json_header) {
+OLAPStatus TabletMetaManager::get_json_meta(DataDir* store,
+        TTabletId tablet_id, TSchemaHash schema_hash, std::string* json_meta) {
     TabletMetaSharedPtr tablet_meta(new TabletMeta());
-    OLAPStatus s = get_header(store, tablet_id, schema_hash, tablet_meta);
+    OLAPStatus s = get_meta(store, tablet_id, schema_hash, tablet_meta);
     if (s != OLAP_SUCCESS) {
         return s;
     }
     json2pb::Pb2JsonOptions json_options;
     json_options.pretty_json = true;
-    tablet_meta->to_json(json_header, json_options);
+    tablet_meta->to_json(json_meta, json_options);
     return OLAP_SUCCESS;
 }
 
@@ -143,17 +143,17 @@ OLAPStatus TabletMetaManager::traverse_headers(OlapMeta* meta,
     return status;
 }
 
-OLAPStatus TabletMetaManager::load_json_header(DataDir* store, const std::string& header_path) {
-    std::ifstream infile(header_path);
+OLAPStatus TabletMetaManager::load_json_meta(DataDir* store, const std::string& meta_path) {
+    std::ifstream infile(meta_path);
     char buffer[102400];
-    std::string json_header;
+    std::string json_meta;
     while (!infile.eof()) {
         infile.getline(buffer, 102400);
-        json_header = json_header + buffer;
+        json_meta = json_meta + buffer;
     }
-    boost::algorithm::trim(json_header);
+    boost::algorithm::trim(json_meta);
     TabletMetaPB tablet_meta_pb;
-    bool ret = json2pb::JsonToProtoMessage(json_header, &tablet_meta_pb);
+    bool ret = json2pb::JsonToProtoMessage(json_meta, &tablet_meta_pb);
     if (!ret) {
         return OLAP_ERR_HEADER_LOAD_JSON_HEADER;
     }
@@ -162,14 +162,13 @@ OLAPStatus TabletMetaManager::load_json_header(DataDir* store, const std::string
     tablet_meta_pb.SerializeToString(&meta_binary);
     TTabletId tablet_id = tablet_meta_pb.tablet_id();
     TSchemaHash schema_hash = tablet_meta_pb.schema_hash();
-    std::cout << "start to save meta" << std::endl;
     return save(store, tablet_id, schema_hash, meta_binary);
 }
 
 OLAPStatus TabletMetaManager::dump_header(DataDir* store, TTabletId tablet_id,
         TSchemaHash schema_hash, const std::string& dump_path) {
     TabletMetaSharedPtr tablet_meta(new TabletMeta());
-    OLAPStatus res = TabletMetaManager::get_header(store, tablet_id, schema_hash, tablet_meta);
+    OLAPStatus res = TabletMetaManager::get_meta(store, tablet_id, schema_hash, tablet_meta);
     if (res != OLAP_SUCCESS) {
         return res;
     }
