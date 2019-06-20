@@ -91,7 +91,7 @@ public class LoadManager implements Writable{
                 throw new DdlException("LoadManager only support the broker load.");
             }
             if (loadJobScheduler.isQueueFull()) {
-                throw new DdlException("There are more then " + Config.max_waiting_jobs + " load jobs in waiting queue, "
+                throw new DdlException("There are more then " + Config.desired_max_waiting_jobs + " load jobs in waiting queue, "
                                                + "please retry later.");
             }
             loadJob = BrokerLoadJob.fromLoadStmt(stmt);

@@ -90,7 +90,7 @@ public class LoadJobScheduler extends Daemon {
     }
 
     public boolean isQueueFull() {
-        return needScheduleJobs.size() > Config.max_waiting_jobs;
+        return needScheduleJobs.size() > Config.desired_max_waiting_jobs;
     }
 
     public void submitJob(LoadJob job) {

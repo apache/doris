@@ -149,8 +149,8 @@ public class RoutineLoadManager implements Writable {
                 throw new DdlException("Name " + routineLoadJob.getName() + " already used in db "
                         + dbName);
             }
-            if (getRoutineLoadJobByState(RoutineLoadJob.JobState.NEED_SCHEDULE).size() > Config.max_waiting_jobs) {
-                throw new DdlException("There are more then " + Config.max_waiting_jobs
+            if (getRoutineLoadJobByState(RoutineLoadJob.JobState.NEED_SCHEDULE).size() > Config.desired_max_waiting_jobs) {
+                throw new DdlException("There are more then " + Config.desired_max_waiting_jobs
                                                + " routine load jobs in waiting queue, please retry later");
             }
 

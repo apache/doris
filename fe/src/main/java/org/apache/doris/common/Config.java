@@ -380,9 +380,11 @@ public class Config extends ConfigBase {
 
     /*
      * Default number of waiting jobs for routine load and version 2 of load
+     * This is a desired number.
+     * In some situation, such as switch the master, the current number is maybe more then desired_max_waiting_jobs
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int max_waiting_jobs = 100;
+    public static int desired_max_waiting_jobs = 100;
 
     /*
      * Same meaning as *tablet_create_timeout_second*, but used when delete a tablet.
