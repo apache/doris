@@ -399,7 +399,7 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
             if (res != OLAP_SUCCESS) {
                 break;
             }
-            res = TabletMetaManager::get_header(data_dir, ref_tablet->tablet_id(),
+            res = TabletMetaManager::get_meta(data_dir, ref_tablet->tablet_id(),
                                                 ref_tablet->schema_hash(), new_tablet_meta);
             if (res != OLAP_SUCCESS) {
                 LOG(WARNING) << "fail to load header. res=" << res
@@ -443,7 +443,7 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
                 break;
             }
 
-            res = TabletMetaManager::get_header(data_dir, ref_tablet->tablet_id(),
+            res = TabletMetaManager::get_meta(data_dir, ref_tablet->tablet_id(),
                                                 ref_tablet->schema_hash(), new_tablet_meta);
             if (res != OLAP_SUCCESS) {
                 LOG(WARNING) << "fail to load header. res=" << res
@@ -547,7 +547,7 @@ OLAPStatus SnapshotManager::_append_single_delta(
         return OLAP_ERR_MALLOC_ERROR;
     }
 
-    res = TabletMetaManager::get_header(store, request.tablet_id, request.schema_hash, new_tablet_meta);
+    res = TabletMetaManager::get_meta(store, request.tablet_id, request.schema_hash, new_tablet_meta);
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to create tablet from header file. " 
                      << " tablet_id=" << request.tablet_id

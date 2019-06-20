@@ -35,7 +35,7 @@ using std::string;
 
 namespace doris {
 
-const std::string header_path = "./be/test/olap/test_data/header.txt";
+const std::string meta_path = "./be/test/olap/test_data/header.txt";
 
 class TabletMetaManagerTest : public testing::Test {
 public:
@@ -48,7 +48,7 @@ public:
         ASSERT_TRUE(st.ok());
         ASSERT_TRUE(boost::filesystem::exists(root_path + "/meta"));
 
-        std::ifstream infile(header_path);
+        std::ifstream infile(meta_path);
         char buffer[1024];
         while (!infile.eof()) {
             infile.getline(buffer, 1024);
@@ -83,26 +83,26 @@ TEST_F(TabletMetaManagerTest, TestSaveAndGetAndRemove) {
 
     s = TabletMetaManager::save(_data_dir, tablet_id, schema_hash, tablet_meta);
     ASSERT_EQ(OLAP_SUCCESS, s);
-    std::string json_header_read;
-    s = TabletMetaManager::get_json_header(_data_dir, tablet_id, schema_hash, &json_header_read);
+    std::string json_meta_read;
+    s = TabletMetaManager::get_json_meta(_data_dir, tablet_id, schema_hash, &json_meta_read);
     ASSERT_EQ(OLAP_SUCCESS, s);
-    ASSERT_EQ(_json_header, json_header_read);
+    ASSERT_EQ(_json_header, json_meta_read);
     s = TabletMetaManager::remove(_data_dir, tablet_id, schema_hash);
     ASSERT_EQ(OLAP_SUCCESS, s);
-    TabletMetaSharedPtr header_read(new TabletMeta());
-    s = TabletMetaManager::get_header(_data_dir, tablet_id, schema_hash, header_read);
+    TabletMetaSharedPtr meta_read(new TabletMeta());
+    s = TabletMetaManager::get_meta(_data_dir, tablet_id, schema_hash, meta_read);
     ASSERT_EQ(OLAP_ERR_META_KEY_NOT_FOUND, s);
 }
 
 TEST_F(TabletMetaManagerTest, TestLoad) {
     const TTabletId tablet_id = 15672;
     const TSchemaHash schema_hash = 567997577;
-    OLAPStatus s = TabletMetaManager::load_json_header(_data_dir, header_path);
+    OLAPStatus s = TabletMetaManager::load_json_meta(_data_dir, meta_path);
     ASSERT_EQ(OLAP_SUCCESS, s);
-    std::string json_header_read;
-    s = TabletMetaManager::get_json_header(_data_dir, tablet_id, schema_hash, &json_header_read);
+    std::string json_meta_read;
+    s = TabletMetaManager::get_json_meta(_data_dir, tablet_id, schema_hash, &json_meta_read);
     ASSERT_EQ(OLAP_SUCCESS, s);
-    ASSERT_EQ(_json_header, json_header_read);
+    ASSERT_EQ(_json_header, json_meta_read);
 }
 
 }  // namespace doris

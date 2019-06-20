@@ -132,7 +132,7 @@ TEST_F(TabletMgrTest, CreateTablet) {
     ASSERT_TRUE(dir_exist);
     // check meta has this tablet
     TabletMetaSharedPtr new_tablet_meta(new TabletMeta());
-    OLAPStatus check_meta_st = TabletMetaManager::get_header(_data_dir, 111, 3333, new_tablet_meta);
+    OLAPStatus check_meta_st = TabletMetaManager::get_meta(_data_dir, 111, 3333, new_tablet_meta);
     ASSERT_TRUE(check_meta_st == OLAP_SUCCESS);
 
     // retry create should be successfully
