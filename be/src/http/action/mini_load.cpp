@@ -359,8 +359,8 @@ bool MiniLoadAction::_is_streaming(HttpRequest* req) {
     TFeResult res;
     Status status = FrontendHelper::rpc(
             master_address.hostname, master_address.port,
-            [&res, &request] (FrontendServiceConnection& client) {
-            client->isMiniLoadStreaming(request, res);
+            [&request, &res] (FrontendServiceConnection& client) {
+            client->isMiniLoadStreaming(res, request);
             });
     if (!status.ok()) {
         std::stringstream ss; 
