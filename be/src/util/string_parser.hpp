@@ -126,8 +126,8 @@ public:
    
     template <typename T>
     static Status split_string_to_map(const std::string& base, const T element_separator,
-                                   const T key_value_separator, 
-    							   std::map<std::string, std::string>* result) {
+                                      const T key_value_separator, 
+                                      std::map<std::string, std::string>* result) {
         if (result == nullptr) {
     	    return Status::InternalError("result is a null ptr");
         }

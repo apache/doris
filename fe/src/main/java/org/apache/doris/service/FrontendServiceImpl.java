@@ -17,6 +17,8 @@
 
 package org.apache.doris.service;
 
+import static org.apache.doris.thrift.TStatusCode.NOT_IMPLEMENTED_ERROR;
+
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
@@ -508,9 +510,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     @Override
-    public TFeResult isMiniLoadStreaming() throws TException {
+    public TFeResult isSupportedFunction(TIsSupportedFunctionRequest request) throws TException {
         TStatus status = new TStatus(TStatusCode.OK);
         TFeResult result = new TFeResult(FrontendServiceVersion.V1, status);
+        switch (request.getFunction_name()){
+            case "STREAMING_MINI_LOAD":
+                break;
+            default:
+                status.setStatus_code(NOT_IMPLEMENTED_ERROR);
+                break;
+        }
         return result;
     }
 

@@ -227,7 +227,7 @@ void StreamLoadExecutor::rollback_txn(StreamLoadContext* ctx) {
 
 bool StreamLoadExecutor::collect_load_stat(StreamLoadContext* ctx, TTxnCommitAttachment* attach) {
     if (ctx->load_type != TLoadType::ROUTINE_LOAD && ctx->load_type != TLoadType::MINI_LOAD) {
-        // currently, only routine load need to set attachment
+        // currently, only routine load and mini load need to be set attachment
         return false;
     }
     switch(ctx->load_type) {

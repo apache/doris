@@ -1,4 +1,4 @@
-// Licensed to the Apache Software Foundation (ASF) under one
+s// Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
 // regarding copyright ownership.  The ASF licenses this file
@@ -331,9 +331,9 @@ int MiniLoadAction::on_header(HttpRequest* req) {
         return -1;
     }
 	
-    isStreaming = _is_streaming(req);
+    _is_streaming = _is_streaming(req);
     Status status;
-    if (isStreaming) {
+    if (_is_streaming) {
         status = _on_new_header(req);
         StreamLoadContext* ctx = (StreamLoadContext*)req->handler_ctx();
         ctx->status = status;
@@ -353,19 +353,29 @@ bool MiniLoadAction::_is_streaming(HttpRequest* req) {
         return false;
     }
 
-
+    TIsSupportedFunctionRequest request;
+    request.function_name = _streaming_function_name;
     const TNetworkAddress& master_address = _exec_env->master_info()->network_address;
     TFeResult res;
     Status status = FrontendHelper::rpc(
             master_address.hostname, master_address.port,
-            [&res] (FrontendServiceConnection& client) {
-            client->isMiniLoadStreaming(res);
+            [&res, &request] (FrontendServiceConnection& client) {
+            client->isMiniLoadStreaming(request, res);
             });
     if (!status.ok()) {
-        std::stringstream ss;
+        std::stringstream ss; 
         ss << "This mini load is not streaming because: " << status.get_error_msg()
 		    << " with address(" << master_address.hostname << ":" << master_address.port << ")";
-        LOG(WARNING) << ss.str();
+        LOG(INFO) << ss.str();
+        return false;
+    }
+   
+    if (!res.status.ok()) {
+        std::stringstream ss; 
+        ss << "This streaming mini load is not be supportd because: " << res.status.get_error_msg()
+		    << " with address(" << master_address.hostname << ":" << master_address.port 
+                    << ")";
+        LOG(INFO) << ss.str();
         return false;
     }
     return true;
@@ -429,7 +439,7 @@ Status MiniLoadAction::_on_header(HttpRequest* req) {
 }
 
 void MiniLoadAction::on_chunk_data(HttpRequest* http_req) {
-    if (isStreaming) {
+    if (_is_streaming) {
         _on_new_chunk_data(http_req);
     } else {
         _on_chunk_data(http_req);
@@ -493,7 +503,7 @@ void MiniLoadAction::_on_new_chunk_data(HttpRequest* http_req) {
 }
 
 void MiniLoadAction::free_handler_ctx(void* param) {
-    if (isStreaming) {
+    if (_is_streaming) {
         StreamLoadContext* ctx = (StreamLoadContext*) param;
         if (ctx == nullptr) {
             return;
@@ -512,7 +522,7 @@ void MiniLoadAction::free_handler_ctx(void* param) {
 }
 
 void MiniLoadAction::handle(HttpRequest *http_req) {
-    if (isStreaming) {
+    if (_is_streaming) {
         _new_handle(http_req);
     } else {
         _handle(http_req);
@@ -619,7 +629,7 @@ Status MiniLoadAction::_begin_mini_load(StreamLoadContext* ctx) {
     if (ctx->max_filter_ratio != 0.0) {
         request.__set_max_filter_ratio(ctx->max_filter_ratio);
     }
-    request.create_timestamp = GetCurrentTimeMicros();
+    request.__set_create_timestamp = GetCurrentTimeMicros();
     // begin load by master
     const TNetworkAddress& master_addr = _exec_env->master_info()->network_address;
     TMiniLoadBeginResult res;
@@ -657,10 +667,10 @@ Status MiniLoadAction::_process_put(HttpRequest* req, StreamLoadContext* ctx) {
      * input: columns=c1,tmp_c2,tmp_c3\&hll=hll_c2,tmp_c2:hll_c3,tmp_c3
      * output: columns=c1,tmp_c2,tmp_c3,hll_c2=hll_hash(tmp_c2),hll_c3=hll_hash(tmp_c3)
      */
-    std::map<std::string, std::string>::iterator columns_it = params.find(COLUMNS_KEY);
+    auto columns_it = params.find(COLUMNS_KEY);
     if (columns_it != params.end()) {
         std::string columns_value = columns_it->second;
-        std::map<std::string, std::string>::iterator hll_it = params.find(HLL_KEY);
+        auto hll_it = params.find(HLL_KEY);
         if (hll_it != params.end()) {
             std::string hll_value = hll_it->second;
             if (hll_value.empty()) {
@@ -671,16 +681,14 @@ Status MiniLoadAction::_process_put(HttpRequest* req, StreamLoadContext* ctx) {
             if (hll_map.empty()) {
                 return Status::InvalidArgument("Hll value could not tranform to hll expr: " + hll_value);
             }
-            auto hll_map_it = hll_map.begin();
-            while (hll_map_it != hll_map.end()) {
-                columns_value += "," + hll_map_it->first 
-                                     + "=hll_hash(" + hll_map_it->second + ")";
-                ++hll_map_it;
+            for (auto& hll_element: hll_map) {
+                columns_value += "," + hll_element->first 
+                                     + "=hll_hash(" + hll_element->second + ")";
             }
         }
         put_request.__set_columns(columns_value);
     }
-    std::map<std::string, std::string>::iterator column_separator_it = params.find(COLUMN_SEPARATOR_KEY);
+    auto column_separator_it = params.find(COLUMN_SEPARATOR_KEY);
     if (column_separator_it != params.end()) {
         put_request.__set_columnSeparator(column_separator_it->second);
     }
@@ -742,11 +750,11 @@ Status MiniLoadAction::_on_new_header(HttpRequest* req) {
     ctx->format = TFileFormatType::FORMAT_CSV_PLAIN;
     std::map<std::string, std::string> params(
             req->query_params().begin(), req->query_params().end());
-    std::map<std::string, std::string>::iterator max_filter_ratio_it = params.find(MAX_FILTER_RATIO_KEY);
+    auto max_filter_ratio_it = params.find(MAX_FILTER_RATIO_KEY);
     if (max_filter_ratio_it != params.end()) {
         ctx->max_filter_ratio = strtod(max_filter_ratio_it->second.c_str(), nullptr);
     }
-    std::map<std::string, std::string>::iterator timeout_it = params.find(TIMEOUT_KEY);
+    auto timeout_it = params.find(TIMEOUT_KEY);
     if (timeout_it != params.end()) {
         ctx->timeout_second = std::stoi(timeout_it->second);
     }
