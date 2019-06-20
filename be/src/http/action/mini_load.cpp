@@ -354,14 +354,14 @@ void MiniLoadAction::_set_is_streaming(HttpRequest* req) {
         return;
     }
 
-    TIsSupportedFunctionRequest request;
-    request.function_name = _streaming_function_name;
+    TIsMethodSupportedRequest request;
+    request.__set_function_name(_streaming_function_name);
     const TNetworkAddress& master_address = _exec_env->master_info()->network_address;
     TFeResult res;
     Status status = FrontendHelper::rpc(
             master_address.hostname, master_address.port,
             [&request, &res] (FrontendServiceConnection& client) {
-            client->isSupportedFunction(res, request);
+            client->isMethodSupported(res, request);
             });
     if (!status.ok()) {
         std::stringstream ss; 

@@ -458,8 +458,8 @@ struct TMiniLoadBeginRequest {
     12: optional i64 create_timestamp;
 }
 
-struct TIsSupportedFunctionRequest {
-    1: required string function_name
+struct TIsMethodSupportedRequest {
+    1: optional string function_name
 }
 
 struct TMiniLoadBeginResult {
@@ -619,7 +619,7 @@ service FrontendService {
     TFeResult loadCheck(1:TLoadCheckRequest request)
     // this method is used for streaming mini load
     TMiniLoadBeginResult miniLoadBegin(TMiniLoadBeginRequest request)
-    TFeResult isSupportedFunction(TIsSupportedFunctionRequest request)
+    TFeResult isMethodSupported(TIsMethodSupportedRequest request)
 
     TMasterOpResult forward(TMasterOpRequest params)
 

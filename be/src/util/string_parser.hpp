@@ -128,10 +128,6 @@ public:
     static Status split_string_to_map(const std::string& base, const T element_separator,
                                       const T key_value_separator, 
                                       std::map<std::string, std::string>* result) {
-        if (result == nullptr) {
-    	    return Status::InternalError("result is a null ptr");
-        }
-    
         int key_pos = 0;
         int key_end;
         int val_pos;

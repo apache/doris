@@ -64,7 +64,7 @@ import org.apache.doris.thrift.TGetDbsParams;
 import org.apache.doris.thrift.TGetDbsResult;
 import org.apache.doris.thrift.TGetTablesParams;
 import org.apache.doris.thrift.TGetTablesResult;
-import org.apache.doris.thrift.TIsSupportedFunctionRequest;
+import org.apache.doris.thrift.TIsMethodSupportedRequest;
 import org.apache.doris.thrift.TListTableStatusResult;
 import org.apache.doris.thrift.TLoadCheckRequest;
 import org.apache.doris.thrift.TLoadTxnBeginRequest;
@@ -511,7 +511,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     @Override
-    public TFeResult isSupportedFunction(TIsSupportedFunctionRequest request) throws TException {
+    public TFeResult isMethodSupported(TIsMethodSupportedRequest request) throws TException {
         TStatus status = new TStatus(TStatusCode.OK);
         TFeResult result = new TFeResult(FrontendServiceVersion.V1, status);
         switch (request.getFunction_name()){
