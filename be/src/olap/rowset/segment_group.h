@@ -314,7 +314,6 @@ private:
     // 以下是写入流程时需要的一些中间状态
     // 当前写入文件的FileHandler
     FileHandler _current_file_handler;
-    bool _file_created;
     bool _new_segment_created;
     // 当前写入的FileHeader
     FileHeader<OLAPIndexHeaderMessage, OLAPIndexFixedHeader> _file_header;
