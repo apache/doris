@@ -298,7 +298,7 @@ private:
     static StorageEngine* _s_instance;
 
     std::unordered_map<SegmentGroup*, std::vector<std::string>> _gc_files;
-    std::unordered_map<int64_t, RowsetSharedPtr> _unused_rowsets;
+    std::unordered_map<std::string, RowsetSharedPtr> _unused_rowsets;
     Mutex _gc_mutex;
 
     std::thread _unused_rowset_monitor_thread;

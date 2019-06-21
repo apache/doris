@@ -761,10 +761,14 @@ void StorageEngine::start_delete_unused_rowset() {
 void StorageEngine::add_unused_rowset(RowsetSharedPtr rowset) {
     if (rowset == nullptr) { return; }
     _gc_mutex.lock();
-    auto it = _unused_rowsets.find(rowset->rowset_id());
+    LOG(INFO) << "add unused rowset, rowset id:" << rowset->rowset_id()
+            << ", version:" << rowset->version().first
+            << "-" << rowset->version().second
+            << ", unique id:" << rowset->unique_id();
+    auto it = _unused_rowsets.find(rowset->unique_id());
     if (it == _unused_rowsets.end()) {
         rowset->set_need_delete_file(true);
-        _unused_rowsets[rowset->rowset_id()] = rowset;
+        _unused_rowsets[rowset->unique_id()] = rowset;
     }
     _gc_mutex.unlock();
 }
