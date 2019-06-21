@@ -48,10 +48,7 @@ OLAPStatus Merger::merge(const vector<RowsetReaderSharedPtr>& rs_readers,
     reader_params.tablet = _tablet;
     reader_params.reader_type = _reader_type;
     reader_params.rs_readers = rs_readers;
-
-    if (_reader_type == READER_BASE_COMPACTION) {
-        reader_params.version = _rs_writer->version();
-    }
+    reader_params.version = _rs_writer->version();
 
     if (OLAP_SUCCESS != reader.init(reader_params)) {
         LOG(WARNING) << "fail to initiate reader. tablet=" << _tablet->full_name();
