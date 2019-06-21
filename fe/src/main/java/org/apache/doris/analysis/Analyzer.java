@@ -602,7 +602,6 @@ public class Analyzer {
         Column col = new Column(colName, type);
         result.setColumn(col);
         result.setIsNullable(true);
-        tupleDescriptor.addSlot(result);
         slotRefMap.put(key, result);
         return result;
     }

@@ -103,6 +103,11 @@ public class GroupByClause implements ParseNode {
         return groupingIdSlotRef;
     }
 
+    public TupleId getGroupingIdTupleId() {
+        if (!isGroupByExtension()) return null;
+        return groupingIdSlotRef.getDesc().getParent().getId();
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
         if (analyzed_) return;

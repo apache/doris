@@ -202,11 +202,6 @@ public class FunctionCallExpr extends Expr {
         return fnParams;
     }
 
-    public void setParams(FunctionParams params) {
-        fnParams = params;
-        children.addAll(params.exprs());
-    }
-
     public boolean isScalarFunction() {
         Preconditions.checkState(fn != null);
         return fn instanceof ScalarFunction ;

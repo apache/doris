@@ -849,12 +849,15 @@ public class SelectStmt extends QueryStmt {
         TreeNode.collect(substitutedAggs, Expr.isAggregatePredicate(), aggExprs);
 
         ArrayList<Expr> groupingExprsCopy = Lists.newArrayList();
+        ExprSubstitutionMap extensionGroupingSmap = null;
+        List<TupleId> groupingByTupleIds = new ArrayList<>();
         if (groupByClause != null) {
             // must do it before copying for createAggInfo()
             groupByClause.analyze(analyzer);
 
             if (groupByClause.isGroupByExtension()) {
-                substituteExtensionGroupingsClause(analyzer);
+                extensionGroupingSmap = createExtensionGroupingSmap(analyzer);
+                groupingByTupleIds.add(groupByClause.getGroupingIdTupleId());
             }
 
             // make a deep copy here, we don't want to modify the original
@@ -871,8 +874,14 @@ public class SelectStmt extends QueryStmt {
                         ? aggInfo.getSecondPhaseDistinctAggInfo()
                         : aggInfo;
 
-        ExprSubstitutionMap combinedSmap =
-                ExprSubstitutionMap.compose(countAllMap, finalAggInfo.getOutputSmap(), analyzer);
+        groupingByTupleIds.add(finalAggInfo.getOutputTupleId());
+        ExprSubstitutionMap combinedSmap = null;
+        if (extensionGroupingSmap != null && extensionGroupingSmap.size() > 0) {
+            combinedSmap = ExprSubstitutionMap.compose(countAllMap, finalAggInfo.getOutputSmap(), analyzer);
+            combinedSmap = ExprSubstitutionMap.compose(combinedSmap, extensionGroupingSmap, analyzer);
+        } else {
+            combinedSmap = ExprSubstitutionMap.compose(countAllMap, finalAggInfo.getOutputSmap(), analyzer);
+        }
 
         // change select list, having and ordering exprs to point to agg output. We need
         // to reanalyze the exprs at this point.
@@ -907,16 +916,17 @@ public class SelectStmt extends QueryStmt {
 
         // check that all post-agg exprs point to agg output
         for (int i = 0; i < selectList.getItems().size(); ++i) {
-            if (!resultExprs.get(i).isBound(finalAggInfo.getOutputTupleId())) {
+            if (!resultExprs.get(i).isBoundByTupleIds(groupingByTupleIds)) {
                 throw new AnalysisException(
                   "select list expression not produced by aggregation output " + "(missing from " +
                     "GROUP BY clause?): " + selectList.getItems().get(
                     i).getExpr().toSql());
             }
         }
+
         if (orderByElements != null) {
             for (int i = 0; i < orderByElements.size(); ++i) {
-                if (!sortInfo.getOrderingExprs().get(i).isBound(finalAggInfo.getOutputTupleId())) {
+                if (!sortInfo.getOrderingExprs().get(i).isBoundByTupleIds(groupingByTupleIds)) {
                     throw new AnalysisException(
                       "ORDER BY expression not produced by aggregation output " + "(missing from " +
                         "GROUP BY clause?): " + orderByElements.get(
@@ -930,7 +940,7 @@ public class SelectStmt extends QueryStmt {
             }
         }
         if (havingPred != null) {
-            if (!havingPred.isBound(finalAggInfo.getOutputTupleId())) {
+            if (!havingPred.isBoundByTupleIds(groupingByTupleIds)) {
                 throw new AnalysisException(
                   "HAVING clause not produced by aggregation output " + "(missing from GROUP BY " +
                     "clause?): " + havingClause.toSql());
@@ -943,13 +953,13 @@ public class SelectStmt extends QueryStmt {
      * expr -> if(bitand(pos, grouping_id)=0, null, expr) for expr in extension grouping clause
      * grouping_id() -> grouping_id(grouping_id) for grouping_id function
      */
-    private void substituteExtensionGroupingsClause(Analyzer analyzer) throws AnalysisException {
-        if (groupByClause == null) return;
+    private ExprSubstitutionMap createExtensionGroupingSmap(Analyzer analyzer) throws AnalysisException {
+        if (groupByClause == null) return null;
         ArrayList<Expr> groupingExprs = groupByClause.getGroupingExprs();
-        if (groupingExprs == null) return;
+        if (groupingExprs == null) return null;
 
-        List<FunctionCallExpr> funcs = Lists.newArrayList();
         ExprSubstitutionMap smap = new ExprSubstitutionMap();
+        List<FunctionCallExpr> funcs = Lists.newArrayList();
         for(int i = 0; i < groupingExprs.size(); i++) {
             Expr expr = groupingExprs.get(i);
             expr.collect(FunctionCallExpr.class, funcs);
@@ -974,48 +984,16 @@ public class SelectStmt extends QueryStmt {
         }
         groupByClause.substituteGroupingExprs(smap, analyzer);
 
-        if (whereClause != null) {
-            whereClause = whereClause.substitute(smap);
-            whereClause.collect(FunctionCallExpr.class, funcs);
-            List<Subquery> subqueryExprs = Lists.newArrayList();
-            whereClause.collect(Subquery.class, subqueryExprs);
-        }
-
-        if (havingClause != null) {
-            havingClause = havingClause.substitute(smap);
-            havingClause.collect(FunctionCallExpr.class, funcs);
-        }
-
-        if (orderByElements != null) {
-            if (sortInfo != null) {
-                sortInfo.substituteOrderingExprs(smap, analyzer);
-            }
-            for (OrderByElement orderByElem: orderByElements) {
-                orderByElem.getExpr().collect(FunctionCallExpr.class, funcs);
-            }
-        }
-
+        FunctionCallExpr groupingIdFn = new FunctionCallExpr("grouping_id", new ArrayList<>());
+        groupingIdFn.analyze(analyzer);
+        List<Expr> params = new ArrayList<>();
+        params.add(groupByClause.getGroupingIdSlotRef());
+        FunctionCallExpr replaceGroupingIdFn = new FunctionCallExpr("grouping_id", params);
+        replaceGroupingIdFn.analyze(analyzer);
+        smap.put(groupingIdFn, replaceGroupingIdFn);
         substituteResultExprs(smap, analyzer);
-        for(Expr expr: resultExprs) {
-            expr.collect(FunctionCallExpr.class, funcs);
-        }
 
-        for (FunctionCallExpr fn : funcs) {
-            String functionName = fn.getFnName().getFunction();
-            if (functionName.equalsIgnoreCase("grouping_id")) {
-                FunctionParams functionParams = fn.getParams();
-                if (functionParams != null && functionParams.exprs() != null) {
-                    if (functionParams.exprs().size() != 0) {
-                        throw new AnalysisException("grouping_id function has no param.");
-                    }
-                }
-                List<Expr> params = new ArrayList<>();
-                params.add(groupByClause.getGroupingIdSlotRef());
-                fn.setParams(new FunctionParams(params));
-                fn.resetAnalysisState();
-                fn.analyze(analyzer);
-            }
-        }
+        return smap;
     }
 
     /**
