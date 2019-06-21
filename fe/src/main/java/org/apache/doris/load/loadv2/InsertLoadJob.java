@@ -23,7 +23,6 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.load.EtlJobType;
-import org.apache.doris.load.FailMsg;
 
 import java.io.DataInput;
 import java.io.DataOutput;
