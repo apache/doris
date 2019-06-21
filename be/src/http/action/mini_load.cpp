@@ -35,6 +35,7 @@
 #include <event2/buffer.h>
 #include <event2/bufferevent.h>
 #include <event2/http.h>
+#include <thrift/protocol/TDebugProtocol.h>
 
 #include "agent/cgroups_mgr.h"
 #include "common/status.h"
@@ -44,18 +45,24 @@
 #include "http/http_response.h"
 #include "http/http_channel.h"
 #include "http/http_parser.h"
+#include "http/utils.h"
 #include "olap/file_helper.h"
 #include "service/backend_options.h"
 #include "util/url_coding.h"
 #include "util/file_utils.h"
+#include "util/frontend_helper.h"
+#include "util/json_util.h"
 #include "util/time.h"
+#include "util/string_parser.hpp"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/load_path_mgr.h"
 #include "runtime/client_cache.h"
+#include "runtime/stream_load/stream_load_context.h"
 #include "gen_cpp/MasterService_types.h"
 #include "gen_cpp/HeartbeatService_types.h"
 #include "gen_cpp/FrontendService.h"
+#include "gen_cpp/FrontendService_types.h"
 
 namespace doris {
 
@@ -93,6 +100,11 @@ const std::string TABLE_KEY = "table";
 const std::string LABEL_KEY = "label";
 const std::string SUB_LABEL_KEY = "sub_label";
 const std::string FILE_PATH_KEY = "file_path";
+const std::string COLUMNS_KEY = "columns";
+const std::string HLL_KEY = "hll";
+const std::string COLUMN_SEPARATOR_KEY = "column_separator";
+const std::string MAX_FILTER_RATIO_KEY = "max_filter_ratio";
+const std::string TIMEOUT_KEY = "timeout";
 const char* k_100_continue = "100-continue";
 
 MiniLoadAction::MiniLoadAction(ExecEnv* exec_env) :
@@ -318,12 +330,60 @@ int MiniLoadAction::on_header(HttpRequest* req) {
         HttpChannel::send_basic_challenge(req, "mini_load");
         return -1;
     }
-    auto st = _on_header(req);
-    if (!st.ok()) {
-        HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, st.get_error_msg());
+	
+    _set_is_streaming(req);
+    Status status;
+    if (_is_streaming) {
+        status = _on_new_header(req);
+        StreamLoadContext* ctx = (StreamLoadContext*)req->handler_ctx();
+        ctx->status = status;
+    } else {
+        status = _on_header(req);
+    }
+    if (!status.ok()) {
+        HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, status.get_error_msg());
         return -1;
     }
     return 0;
+}
+
+void MiniLoadAction::_set_is_streaming(HttpRequest* req) {
+    // multi load must be non-streaming
+    if (!req->param(SUB_LABEL_KEY).empty()) {
+        _is_streaming = false;
+        return;
+    }
+
+    TIsMethodSupportedRequest request;
+    request.__set_function_name(_streaming_function_name);
+    const TNetworkAddress& master_address = _exec_env->master_info()->network_address;
+    TFeResult res;
+    Status status = FrontendHelper::rpc(
+            master_address.hostname, master_address.port,
+            [&request, &res] (FrontendServiceConnection& client) {
+            client->isMethodSupported(res, request);
+            });
+    if (!status.ok()) {
+        std::stringstream ss; 
+        ss << "This mini load is not streaming because: " << status.get_error_msg()
+		    << " with address(" << master_address.hostname << ":" << master_address.port << ")";
+        LOG(INFO) << ss.str();
+        _is_streaming = false;
+        return;
+    }
+   
+    status = Status(res.status);
+    if (!status.ok()) {
+        std::stringstream ss; 
+        ss << "This streaming mini load is not be supportd because: " << status.get_error_msg()
+		    << " with address(" << master_address.hostname << ":" << master_address.port 
+                    << ")";
+        LOG(INFO) << ss.str();
+        _is_streaming = false;
+        return;
+    }
+    _is_streaming = true;
+    return;
 }
 
 Status MiniLoadAction::_on_header(HttpRequest* req) {
@@ -384,6 +444,14 @@ Status MiniLoadAction::_on_header(HttpRequest* req) {
 }
 
 void MiniLoadAction::on_chunk_data(HttpRequest* http_req) {
+    if (_is_streaming) {
+        _on_new_chunk_data(http_req);
+    } else {
+        _on_chunk_data(http_req);
+    }
+}
+
+void MiniLoadAction::_on_chunk_data(HttpRequest* http_req) {
     MiniLoadCtx* ctx = (MiniLoadCtx*)http_req->handler_ctx();
     if (ctx == nullptr) {
         return;
@@ -414,12 +482,59 @@ void MiniLoadAction::on_chunk_data(HttpRequest* http_req) {
     }
 }
 
+void MiniLoadAction::_on_new_chunk_data(HttpRequest* http_req) {
+    StreamLoadContext* ctx = (StreamLoadContext*)http_req->handler_ctx();
+    if (ctx == nullptr || !ctx->status.ok()) {
+        return;
+    }
+
+    struct evhttp_request* ev_req = http_req->get_evhttp_request();
+    auto evbuf = evhttp_request_get_input_buffer(ev_req);
+
+    while (evbuffer_get_length(evbuf) > 0) {
+        auto bb = ByteBuffer::allocate(4096);
+        auto remove_bytes = evbuffer_remove(evbuf, bb->ptr, bb->capacity);
+        bb->pos = remove_bytes;
+        bb->flip();
+        auto st = ctx->body_sink->append(bb);
+        if (!st.ok()) {
+            LOG(WARNING) << "append body content failed. errmsg=" << st.get_error_msg()
+                    << ctx->brief();
+            ctx->status = st;
+            return;
+        }
+        ctx->receive_bytes += remove_bytes;
+    }
+}
+
 void MiniLoadAction::free_handler_ctx(void* param) {
-    MiniLoadCtx* ctx = (MiniLoadCtx*)param;
-    delete ctx;
+    if (_is_streaming) {
+        StreamLoadContext* ctx = (StreamLoadContext*) param;
+        if (ctx == nullptr) {
+            return;
+        }
+        // sender is going, make receiver know it
+        if (ctx->body_sink != nullptr) {
+            ctx->body_sink->cancel();
+        }
+        if (ctx->unref()) {
+            delete ctx;
+        }
+    } else {
+        MiniLoadCtx* ctx = (MiniLoadCtx*)param;
+        delete ctx;
+    }
 }
 
 void MiniLoadAction::handle(HttpRequest *http_req) {
+    if (_is_streaming) {
+        _new_handle(http_req);
+    } else {
+        _handle(http_req);
+    }
+}
+
+void MiniLoadAction::_handle(HttpRequest* http_req) {
     MiniLoadCtx* ctx = (MiniLoadCtx*)http_req->handler_ctx();
     if (ctx == nullptr) {
         // when ctx is nullptr, there must be error happend when on_chunk_data
@@ -439,21 +554,7 @@ void MiniLoadAction::handle(HttpRequest *http_req) {
     }
     auto st = _load(
         http_req, ctx->file_path, ctx->load_check_req.user, ctx->load_check_req.cluster);
-
-    std::string status_str = "Success";
-    std::string msg = "OK";
-    if (!st.ok()) {
-        // we do not send 500 reply to client, send 200 with error msg
-        status_str = "FAILED";
-        msg = st.get_error_msg();
-    }
-
-    std::stringstream ss;
-    ss << "{\n";
-    ss << "\t\"status\": \"" << status_str << "\",\n";
-    ss << "\t\"msg\": \"" << msg << "\"\n";
-    ss << "}\n";
-    std::string str = ss.str();
+    std::string str = to_json(st);
     HttpChannel::send_reply(http_req, str);
 }
 
@@ -514,6 +615,217 @@ bool LoadHandleCmp::operator() (const LoadHandle& lhs, const LoadHandle& rhs) co
     }
 
     return false;
+}
+
+// fe will begin the txn and record the metadata of load 
+Status MiniLoadAction::_begin_mini_load(StreamLoadContext* ctx) {
+    // prepare begin mini load request params
+    TMiniLoadBeginRequest request;
+    set_request_auth(&request, ctx->auth);
+    request.db = ctx->db;
+    request.tbl = ctx->table;
+    request.label = ctx->label;
+    if (!ctx->sub_label.empty()) {
+        request.__set_sub_label(ctx->sub_label);
+    }
+    if (ctx->timeout_second != -1) {
+        request.__set_timeout_second(ctx->timeout_second);
+    }
+    if (ctx->max_filter_ratio != 0.0) {
+        request.__set_max_filter_ratio(ctx->max_filter_ratio);
+    }
+    request.__set_create_timestamp(GetCurrentTimeMicros());
+    // begin load by master
+    const TNetworkAddress& master_addr = _exec_env->master_info()->network_address;
+    TMiniLoadBeginResult res;
+    RETURN_IF_ERROR(FrontendHelper::rpc(
+            master_addr.hostname, master_addr.port,
+            [&request, &res] (FrontendServiceConnection& client) {
+            client->miniLoadBegin(res, request);
+            }));
+    Status begin_status(res.status);
+    if (!begin_status.ok()) {
+        LOG(INFO) << "failed to begin mini load " << ctx->label << " with error msg:"
+                  << begin_status.get_error_msg();
+        return begin_status;
+    }
+    ctx->txn_id = res.txn_id;
+    // txn has been begun in fe
+    ctx->need_rollback = true;
+    return Status::OK();
+}
+
+Status MiniLoadAction::_process_put(HttpRequest* req, StreamLoadContext* ctx) {
+    // prepare request parameters
+    TStreamLoadPutRequest put_request;
+    set_request_auth(&put_request, ctx->auth);
+    put_request.db = ctx->db;
+    put_request.tbl = ctx->table;
+    put_request.txnId = ctx->txn_id;
+    put_request.formatType = ctx->format;
+    put_request.__set_loadId(ctx->id.to_thrift());
+    put_request.fileType = TFileType::FILE_STREAM;
+    std::map<std::string, std::string> params(
+            req->query_params().begin(), req->query_params().end());
+    /* merge params of columns and hll
+     * for example:
+     * input: columns=c1,tmp_c2,tmp_c3\&hll=hll_c2,tmp_c2:hll_c3,tmp_c3
+     * output: columns=c1,tmp_c2,tmp_c3,hll_c2=hll_hash(tmp_c2),hll_c3=hll_hash(tmp_c3)
+     */
+    auto columns_it = params.find(COLUMNS_KEY);
+    if (columns_it != params.end()) {
+        std::string columns_value = columns_it->second;
+        auto hll_it = params.find(HLL_KEY);
+        if (hll_it != params.end()) {
+            std::string hll_value = hll_it->second;
+            if (hll_value.empty()) {
+                return Status::InvalidArgument("Hll value could not be empty when hll key is exists!"); 
+            }
+            std::map<std::string, std::string> hll_map;
+            RETURN_IF_ERROR(StringParser::split_string_to_map(hll_value, ":", ",", &hll_map));
+            if (hll_map.empty()) {
+                return Status::InvalidArgument("Hll value could not tranform to hll expr: " + hll_value);
+            }
+            for (auto& hll_element: hll_map) {
+                columns_value += "," + hll_element.first 
+                                     + "=hll_hash(" + hll_element.second + ")";
+            }
+        }
+        put_request.__set_columns(columns_value);
+    }
+    auto column_separator_it = params.find(COLUMN_SEPARATOR_KEY);
+    if (column_separator_it != params.end()) {
+        put_request.__set_columnSeparator(column_separator_it->second);
+    }
+
+    // plan this load
+    TNetworkAddress master_addr = _exec_env->master_info()->network_address;
+    RETURN_IF_ERROR(FrontendHelper::rpc(master_addr.hostname, master_addr.port,
+                    [&put_request, ctx] (FrontendServiceConnection& client) {
+                    client->streamLoadPut(ctx->put_result, put_request);
+                    }));
+    Status plan_status(ctx->put_result.status);
+    if (!plan_status.ok()) {
+        LOG(WARNING) << "plan streaming load failed. errmsg=" << plan_status.get_error_msg()
+                << ctx->brief();
+        return plan_status;
+    }
+    VLOG(3) << "params is " << apache::thrift::ThriftDebugString(ctx->put_result.params);
+    return Status::OK();
+}
+
+// new on_header of mini load
+Status MiniLoadAction::_on_new_header(HttpRequest* req) {
+    size_t body_bytes = 0;
+    size_t max_body_bytes = config::mini_load_max_mb * 1024 * 1024;
+    if (!req->header(HttpHeaders::CONTENT_LENGTH).empty()) {
+        body_bytes = std::stol(req->header(HttpHeaders::CONTENT_LENGTH));
+        if (body_bytes > max_body_bytes) {
+            std::stringstream ss;
+            ss << "file size exceed max body size, max_body_bytes=" << max_body_bytes;
+            return Status::InvalidArgument(ss.str());
+        }
+    } else {
+        evhttp_connection_set_max_body_size(
+                evhttp_request_get_connection(req->get_evhttp_request()),
+                max_body_bytes);
+    }
+
+    RETURN_IF_ERROR(check_request(req));
+
+    StreamLoadContext* ctx = new StreamLoadContext(_exec_env);
+    ctx->ref();
+    req->set_handler_ctx(ctx);
+
+    // auth information
+    if (!parse_basic_auth(*req, &ctx->auth)) {
+        LOG(WARNING) << "parse basic authorization failed." << ctx->brief();
+        return Status::InvalidArgument("no valid Basic authorization");
+    }
+
+    ctx->load_type = TLoadType::MINI_LOAD;
+    ctx->load_src_type = TLoadSourceType::RAW;
+
+    ctx->db = req->param(DB_KEY);
+    ctx->table = req->param(TABLE_KEY);
+    ctx->label = req->param(LABEL_KEY);
+    if(!req->param(SUB_LABEL_KEY).empty()) {
+        ctx->sub_label = req->param(SUB_LABEL_KEY);
+    }
+    ctx->format = TFileFormatType::FORMAT_CSV_PLAIN;
+    std::map<std::string, std::string> params(
+            req->query_params().begin(), req->query_params().end());
+    auto max_filter_ratio_it = params.find(MAX_FILTER_RATIO_KEY);
+    if (max_filter_ratio_it != params.end()) {
+        ctx->max_filter_ratio = strtod(max_filter_ratio_it->second.c_str(), nullptr);
+    }
+    auto timeout_it = params.find(TIMEOUT_KEY);
+    if (timeout_it != params.end()) {
+        ctx->timeout_second = std::stoi(timeout_it->second);
+    }
+    
+    LOG(INFO) << "new income mini load request." << ctx->brief()
+              << ", db: " << ctx->db << ", tbl: " << ctx->table;
+
+    // record metadata in frontend
+    RETURN_IF_ERROR(_begin_mini_load(ctx));
+
+    // open sink 
+    auto pipe = std::make_shared<StreamLoadPipe>();
+    RETURN_IF_ERROR(_exec_env->load_stream_mgr()->put(ctx->id, pipe));
+    ctx->body_sink = pipe;
+
+    // get plan from fe
+    RETURN_IF_ERROR(_process_put(req, ctx));
+
+    // execute plan
+    return _exec_env->stream_load_executor()->execute_plan_fragment(ctx);
+}
+
+void MiniLoadAction::_new_handle(HttpRequest* req) {
+    StreamLoadContext* ctx = (StreamLoadContext*) req->handler_ctx();
+    DCHECK(ctx != nullptr);   
+ 
+    if (ctx->status.ok()) {
+        ctx->status = _on_new_handle(ctx);
+        if (!ctx->status.ok()) {
+            LOG(WARNING) << "handle mini load failed, id=" << ctx->id
+                << ", errmsg=" << ctx->status.get_error_msg();
+        }
+    }
+
+    if (!ctx->status.ok()) {
+        if (ctx->need_rollback) {
+            _exec_env->stream_load_executor()->rollback_txn(ctx);
+            ctx->need_rollback = false;
+        }
+        if (ctx->body_sink.get() != nullptr) {
+            ctx->body_sink->cancel();
+        }
+    }
+
+    std::string str = to_json(ctx->status);
+    HttpChannel::send_reply(req, str);
+}
+
+Status MiniLoadAction::_on_new_handle(StreamLoadContext* ctx) {
+    if (ctx->body_bytes > 0 && ctx->receive_bytes != ctx->body_bytes) {
+        LOG(WARNING) << "recevie body don't equal with body bytes, body_bytes="
+            << ctx->body_bytes << ", receive_bytes=" << ctx->receive_bytes
+            << ", id=" << ctx->id;
+        return Status::InternalError("receive body dont't equal with body bytes");
+    }
+    
+    // wait stream load sink finish
+    RETURN_IF_ERROR(ctx->body_sink->finish());
+
+    // wait stream load finish
+    RETURN_IF_ERROR(ctx->future.get());
+
+    // commit this load with mini load attachment
+    RETURN_IF_ERROR(_exec_env->stream_load_executor()->commit_txn(ctx));
+
+    return Status::OK();
 }
 
 }

@@ -357,6 +357,7 @@ struct TTabletCommitInfo {
 enum TLoadType {
     MANUL_LOAD,
     ROUTINE_LOAD,
+    MINI_LOAD
 }
 
 enum TLoadSourceType {

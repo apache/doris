@@ -1,38 +1,44 @@
-/*
- * Licensed to the Apache Software Foundation (ASF) under one
- * or more contributor license agreements.  See the NOTICE file
- * distributed with this work for additional information
- * regarding copyright ownership.  The ASF licenses this file
- * to you under the Apache License, Version 2.0 (the
- * "License"); you may not use this file except in compliance
- * with the License.  You may obtain a copy of the License at
- *
- *   http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
- *
- */
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
 
 package org.apache.doris.load.loadv2;
+
+import static org.apache.doris.load.FailMsg.CancelType.LOAD_RUN_FAIL;
 
 import org.apache.doris.analysis.CancelLoadStmt;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
+import org.apache.doris.load.Load;
+import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.TMiniLoadBeginRequest;
+import org.apache.doris.thrift.TMiniLoadRequest;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -86,7 +92,7 @@ public class LoadManager implements Writable{
         LoadJob loadJob = null;
         writeLock();
         try {
-            checkLabelUsed(dbId, stmt.getLabel().getLabelName());
+            checkLabelUsed(dbId, stmt.getLabel().getLabelName(), -1);
             if (stmt.getBrokerDesc() == null) {
                 throw new DdlException("LoadManager only support the broker load.");
             }
@@ -107,13 +113,58 @@ public class LoadManager implements Writable{
     }
 
     /**
-     * This method will be invoked by load version1 which is used to check the label of v1 and v2 at the same time.
+     * This method will be invoked by streaming mini load.
+     * It will begin the txn of mini load immediately without any scheduler .
+     *
+     * @param request
+     * @return
+     * @throws UserException
+     */
+    public long createLoadJobFromMiniLoad(TMiniLoadBeginRequest request) throws UserException {
+        String cluster = SystemInfoService.DEFAULT_CLUSTER;
+        if (request.isSetCluster()) {
+            cluster = request.getCluster();
+        }
+        Database database = checkDb(ClusterNamespace.getFullName(cluster, request.getDb()));
+        checkTable(database, request.getTbl());
+        LoadJob loadJob = null;
+        writeLock();
+        try {
+            checkLabelUsed(database.getId(), request.getLabel(), request.getCreate_timestamp());
+            loadJob = new MiniLoadJob(database.getId(), request);
+            createLoadJob(loadJob);
+        } catch (DuplicatedRequestException e) {
+            return dbIdToLabelToLoadJobs.get(database.getId()).get(request.getLabel())
+                    .stream().filter(entity -> entity.getState() != JobState.CANCELLED).findFirst()
+                    .get().getTransactionId();
+        } finally {
+            writeUnlock();
+        }
+
+        try {
+            loadJob.execute();
+        } catch (UserException e) {
+            loadJob.cancelJobWithoutCheck(new FailMsg(LOAD_RUN_FAIL, e.getMessage()), false);
+            throw e;
+        }
+
+        // The persistence of mini load must be the final step of create mini load.
+        // After mini load was executed, the txn id has been set and state has been changed to loading.
+        // Those two need to be record in persistence.
+        Catalog.getCurrentCatalog().getEditLog().logCreateLoadJob(loadJob);
+        return loadJob.getTransactionId();
+    }
+
+    /**
+     * This method will be invoked by version1 of broker or hadoop load.
+     * It is used to check the label of v1 and v2 at the same time.
+     * Finally, the v1 of broker or hadoop load will belongs to load class.
      * Step1: lock the load manager
      * Step2: check the label in load manager
      * Step3: call the addLoadJob of load class
      *     Step3.1: lock the load
      *     Step3.2: check the label in load
-     *     Step3.3: add the loadJob in load rather then load manager
+     *     Step3.3: add the loadJob in load rather than load manager
      *     Step3.4: unlock the load
      * Step4: unlock the load manager
      * @param stmt
@@ -124,8 +175,45 @@ public class LoadManager implements Writable{
         Database database = checkDb(stmt.getLabel().getDbName());
         writeLock();
         try {
-            checkLabelUsed(database.getId(), stmt.getLabel().getLabelName());
+            checkLabelUsed(database.getId(), stmt.getLabel().getLabelName(), -1);
             Catalog.getCurrentCatalog().getLoadInstance().addLoadJob(stmt, jobType, timestamp);
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    /**
+     * This method will be invoked by non-streaming of mini load.
+     * It is used to check the label of v1 and v2 at the same time.
+     * Finally, the non-streaming mini load will belongs to load class.
+     *
+     * @param request
+     * @return if: mini load is a duplicated load, return false.
+     *         else: return true.
+     * @throws DdlException
+     */
+    public boolean createLoadJobV1FromRequest(TMiniLoadRequest request) throws DdlException {
+        String cluster = SystemInfoService.DEFAULT_CLUSTER;
+        if (request.isSetCluster()) {
+            cluster = request.getCluster();
+        }
+        Database database = checkDb(ClusterNamespace.getFullName(cluster, request.getDb()));
+        writeLock();
+        try {
+            checkLabelUsed(database.getId(), request.getLabel(), -1);
+            return Catalog.getCurrentCatalog().getLoadInstance().addLoadJob(request);
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    public void createLoadJobV1FromMultiStart(String fullDbName, String label) throws DdlException {
+        Database database = checkDb(fullDbName);
+        writeLock();
+        try {
+            checkLabelUsed(database.getId(), label, -1);
+            Catalog.getCurrentCatalog().getLoadInstance()
+                    .registerMiniLabel(fullDbName, label, System.currentTimeMillis());
         } finally {
             writeUnlock();
         }
@@ -334,6 +422,29 @@ public class LoadManager implements Writable{
         }
     }
 
+    public void getLoadJobInfo(Load.JobInfo info) throws DdlException, MetaNotFoundException {
+        String fullDbName = ClusterNamespace.getFullName(info.clusterName, info.dbName);
+        info.dbName = fullDbName;
+        Database database = checkDb(info.dbName);
+        readLock();
+        try {
+            // find the latest load job by info
+            Map<String, List<LoadJob>> labelToLoadJobs = dbIdToLabelToLoadJobs.get(database.getId());
+            if (labelToLoadJobs == null) {
+                throw new DdlException("No jobs belong to database(" + info.dbName + ")");
+            }
+            List<LoadJob> loadJobList = labelToLoadJobs.get(info.label);
+            if (loadJobList == null || loadJobList.isEmpty()) {
+                throw new DdlException("Unknown job(" + info.label + ")");
+            }
+
+            LoadJob loadJob = loadJobList.get(loadJobList.size() - 1);
+            loadJob.getJobInfo(info);
+        } finally {
+            readUnlock();
+        }
+    }
+
     public void submitJobs() {
         loadJobScheduler.submitJob(idToLoadJob.values().stream().filter(
                 loadJob -> loadJob.state == JobState.PENDING).collect(Collectors.toList()));
@@ -353,15 +464,29 @@ public class LoadManager implements Writable{
         return db;
     }
 
+    private void checkTable(Database database, String tableName) throws DdlException {
+        database.readLock();
+        try {
+            if (database.getTable(tableName) == null) {
+                LOG.info("Table {} is not belongs to database {}", tableName, database.getFullName());
+                throw new DdlException("Table[" + tableName + "] does not exist");
+            }
+        } finally {
+            database.readUnlock();
+        }
+    }
+
     /**
      * step1: if label has been used in old load jobs which belong to load class
      * step2: if label has been used in v2 load jobs
+     *     step2.1: if label has been user in v2 load jobs, the create timestamp will be checked
      *
      * @param dbId
      * @param label
-     * @throws DdlException throw exception when label has been used by an unfinished job.
+     * @param createTimestamp the create timestamp of stmt of request
+     * @throws LabelAlreadyUsedException throw exception when label has been used by an unfinished job.
      */
-    private void checkLabelUsed(long dbId, String label)
+    private void checkLabelUsed(long dbId, String label, long createTimestamp)
             throws DdlException {
         // if label has been used in old load jobs
         Catalog.getCurrentCatalog().getLoadInstance().isLabelUsed(dbId, label);
@@ -370,7 +495,13 @@ public class LoadManager implements Writable{
             Map<String, List<LoadJob>> labelToLoadJobs = dbIdToLabelToLoadJobs.get(dbId);
             if (labelToLoadJobs.containsKey(label)) {
                 List<LoadJob> labelLoadJobs = labelToLoadJobs.get(label);
-                if (labelLoadJobs.stream().filter(entity -> entity.getState() != JobState.CANCELLED).count() != 0) {
+                Optional<LoadJob> loadJobOptional =
+                        labelLoadJobs.stream().filter(entity -> entity.getState() != JobState.CANCELLED).findFirst();
+                if (loadJobOptional.isPresent()) {
+                    LoadJob loadJob = loadJobOptional.get();
+                    if (loadJob.getCreateTimestamp() == createTimestamp) {
+                        throw new DuplicatedRequestException("The request is duplicated with " + loadJob.getId());
+                    }
                     LOG.warn("Failed to add load job when label {} has been used.", label);
                     throw new LabelAlreadyUsedException(label);
                 }
