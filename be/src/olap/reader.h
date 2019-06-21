@@ -69,12 +69,19 @@ struct ReaderParams {
     ReaderParams() :
             reader_type(READER_QUERY),
             aggregation(false),
+            version(-1, 0),
             profile(NULL),
             runtime_state(NULL) {
         start_key.clear();
         end_key.clear();
         conditions.clear();
         rs_readers.clear();
+    }
+
+    void check_validation() const {
+        if (version.first == -1) {
+            LOG(FATAL) << "verison is not set. tablet=" << tablet->full_name();
+        }
     }
 
     std::string to_string() {
