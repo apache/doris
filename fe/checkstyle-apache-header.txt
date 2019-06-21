@@ -14,38 +14,3 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-
-
-package org.apache.doris.analysis;
-
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.UserException;
-
-/*
-  Stop routine load job by name
-
-  syntax:
-      STOP ROUTINE LOAD [database.]name
- */
-public class StopRoutineLoadStmt extends DdlStmt {
-
-    private final LabelName labelName;
-
-    public StopRoutineLoadStmt(LabelName labelName) {
-        this.labelName = labelName;
-    }
-
-    public String getName() {
-        return labelName.getLabelName();
-    }
-
-    public String getDbFullName() {
-        return labelName.getDbName();
-    }
-
-    @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
-        super.analyze(analyzer);
-        labelName.analyze(analyzer);
-    }
-}

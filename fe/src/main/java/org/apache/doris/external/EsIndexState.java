@@ -27,7 +27,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.JSONArray;
 import org.json.JSONObject;
-import org.mortbay.util.ajax.JSON;
 
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.SingleRangePartitionDesc;

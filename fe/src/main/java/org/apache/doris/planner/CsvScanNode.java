@@ -27,7 +27,6 @@ import org.apache.logging.log4j.Logger;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ColumnType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Pair;

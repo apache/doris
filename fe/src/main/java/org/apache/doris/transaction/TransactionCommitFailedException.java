@@ -17,7 +17,6 @@
 
 package org.apache.doris.transaction;
 
-import org.apache.doris.common.UserException;
 
 public class TransactionCommitFailedException extends TransactionException {
     

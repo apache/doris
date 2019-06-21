@@ -21,10 +21,8 @@ import java.util.ArrayList;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.TupleId;
-import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
-import org.apache.doris.thrift.TQueryOptions;
 
 import com.google.common.base.Preconditions;
 

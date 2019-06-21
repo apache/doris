@@ -33,7 +33,6 @@ import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TSnapshotRequest;
 import org.apache.doris.thrift.TStatusCode;
 
-import com.google.common.collect.Lists;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
