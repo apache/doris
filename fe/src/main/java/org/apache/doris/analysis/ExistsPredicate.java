@@ -20,7 +20,6 @@ package org.apache.doris.analysis;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TExprNode;
 import com.google.common.base.Preconditions;
 

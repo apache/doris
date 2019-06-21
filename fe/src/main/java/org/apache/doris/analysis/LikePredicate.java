@@ -24,8 +24,6 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
-import org.apache.doris.thrift.TExprOpcode;
-import org.apache.doris.thrift.TLikePredicate;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
