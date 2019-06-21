@@ -20,7 +20,7 @@ namespace java org.apache.doris.thrift
 
 include "Exprs.thrift"
 include "Types.thrift"
-include "PrimitiveType.thrift"
+include "Types.thrift"
 
 enum TPartitionType {
   UNPARTITIONED,
@@ -52,7 +52,7 @@ enum TDistributionType {
 // Move the following to Partitions
 struct TPartitionKey {
     1: required i16 sign
-    2: optional PrimitiveType.TPrimitiveType type
+    2: optional Types.TPrimitiveType type
     3: optional string key
 }
 

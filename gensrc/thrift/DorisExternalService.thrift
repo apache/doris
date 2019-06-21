@@ -18,14 +18,14 @@
 namespace java org.apache.doris.thrift
 namespace cpp doris
 
-include "PrimitiveType.thrift"
+include "Types.thrift"
 include "Status.thrift"
 
 struct TScanColumnDesc {
   // The column name
   1: optional string name
   // The column type. Always set.
-  2: optional PrimitiveType.TPrimitiveType type
+  2: optional Types.TPrimitiveType type
 }
 
 struct TScanColumnData {

@@ -20,7 +20,7 @@ namespace java org.apache.doris.thrift
 
 include "Types.thrift"
 include "Opcodes.thrift"
-include "PrimitiveType.thrift"
+include "Types.thrift"
 
 enum TExprNodeType {
   AGG_EXPR,
@@ -178,7 +178,7 @@ struct TExprNode {
   26: optional Types.TFunction fn
   // If set, child[vararg_start_idx] is the first vararg child.
   27: optional i32 vararg_start_idx
-  28: optional PrimitiveType.TPrimitiveType child_type
+  28: optional Types.TPrimitiveType child_type
 }
 
 // A flattened representation of a tree of Expr nodes, obtained by depth-first

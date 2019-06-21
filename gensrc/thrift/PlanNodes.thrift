@@ -21,7 +21,7 @@ namespace java org.apache.doris.thrift
 include "Exprs.thrift"
 include "Types.thrift"
 include "Partitions.thrift"
-include "PrimitiveType.thrift"
+include "Types.thrift"
 
 enum TPlanNodeType {
   OLAP_SCAN_NODE,
@@ -66,7 +66,7 @@ enum TDebugAction {
 struct TKeyRange {
   1: required i64 begin_key
   2: required i64 end_key
-  3: required PrimitiveType.TPrimitiveType column_type
+  3: required Types.TPrimitiveType column_type
   4: required string column_name
 }
 
@@ -245,7 +245,7 @@ struct TMetaScanNode {
 struct TOlapScanNode {
   1: required Types.TTupleId tuple_id
   2: required list<string> key_column_name
-  3: required list<PrimitiveType.TPrimitiveType> key_column_type
+  3: required list<Types.TPrimitiveType> key_column_type
   4: required bool is_preaggregation
   5: optional string sort_column
 }

@@ -29,7 +29,7 @@ include "Exprs.thrift"
 include "RuntimeProfile.thrift"
 include "MasterService.thrift"
 include "AgentService.thrift"
-include "PrimitiveType.thrift"
+include "Types.thrift"
 
 // These are supporting structs for JniFrontend.java, which serves as the glue
 // between our C++ execution environment and the Java frontend.
@@ -45,7 +45,7 @@ struct TAuthenticateParams {
 
 struct TColumnDesc {
   1: required string columnName
-  2: required PrimitiveType.TPrimitiveType columnType
+  2: required Types.TPrimitiveType columnType
   3: optional i32 columnLength
   4: optional i32 columnPrecision
   5: optional i32 columnScale
