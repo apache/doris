@@ -28,8 +28,10 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.load.EtlJobType;
+import org.apache.doris.meta.MetaContext;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -98,7 +100,14 @@ public class LoadManagerTest {
     }
 
     @Test
-    public void testSerializationNormal() throws Exception {
+    public void testSerializationNormal(@Mocked MetaContext metaContext) throws Exception {
+        new Expectations(){
+            {
+                metaContext.getMetaVersion();
+                result = FeMetaVersion.VERSION_54;
+            }
+        };
+
         File file = serializeToFile(loadManager);
 
         LoadManager newLoadManager = deserializeFromFile(file);

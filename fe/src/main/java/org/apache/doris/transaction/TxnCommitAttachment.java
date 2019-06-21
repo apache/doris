@@ -20,6 +20,7 @@ package org.apache.doris.transaction;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.load.loadv2.LoadJobFinalOperation;
+import org.apache.doris.load.loadv2.MiniLoadTxnCommitAttachment;
 import org.apache.doris.load.routineload.RLTaskTxnCommitAttachment;
 import org.apache.doris.thrift.TTxnCommitAttachment;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
@@ -41,24 +42,13 @@ public abstract class TxnCommitAttachment implements Writable {
         this.isTypeRead = isTypeRead;
     }
 
-    public static TxnCommitAttachment readTxnCommitAttachment(DataInput in,
-                                                              TransactionState.LoadJobSourceType sourceType)
-            throws IOException {
-        switch (sourceType) {
-            case ROUTINE_LOAD_TASK:
-                RLTaskTxnCommitAttachment RLTaskTxnCommitAttachment = new RLTaskTxnCommitAttachment();
-                RLTaskTxnCommitAttachment.readFields(in);
-                return RLTaskTxnCommitAttachment;
-            default:
-                return null;
-        }
-    }
-
     public static TxnCommitAttachment fromThrift(TTxnCommitAttachment txnCommitAttachment) {
         if (txnCommitAttachment != null) {
             switch (txnCommitAttachment.getLoadType()) {
                 case ROUTINE_LOAD:
                     return new RLTaskTxnCommitAttachment(txnCommitAttachment.getRlTaskTxnCommitAttachment());
+                case MINI_LOAD:
+                    return new MiniLoadTxnCommitAttachment(txnCommitAttachment.getMlTxnCommitAttachment());
                 default:
                     return null;
             }
@@ -74,6 +64,8 @@ public abstract class TxnCommitAttachment implements Writable {
             attachment = new RLTaskTxnCommitAttachment();
         } else if (type == LoadJobSourceType.BATCH_LOAD_JOB) {
             attachment = new LoadJobFinalOperation();
+        } else if (type == LoadJobSourceType.BACKEND_STREAMING) {
+            attachment = new MiniLoadTxnCommitAttachment();
         } else {
             throw new IOException("Unknown load job source type: " + type.name());
         }
