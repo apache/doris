@@ -24,7 +24,6 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 
 import org.apache.commons.lang.NotImplementedException;
