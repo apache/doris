@@ -21,6 +21,7 @@
 
 #include "common/status.h"
 #include "gen_cpp/segment_v2.pb.h"
+#include "olap/types.h"
 
 namespace doris {
 
@@ -30,6 +31,7 @@ namespace segment_v2 {
 
 class PageBuilder;
 class PageDecoder;
+class PageBuilderOptions;
 
 class EncodingInfo {
 public:
@@ -40,23 +42,28 @@ public:
     // Get default type info
     static EncodingTypePB get_default_encoding_type(const TypeInfo* type_info);
 
-    Status create_page_builder(PageBuilder** builder) const {
-        return _create_buidler_func(builder);
+    Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) const {
+        return _create_buidler_func(opts, builder);
     }
-    Status create_page_decoder(PageDecoder** decoder) const {
-        return _create_decoder_func(decoder);
+    Status create_page_decoder(const Slice& data, PageDecoder** decoder) const {
+        return _create_decoder_func(data, decoder);
     }
+    FieldType type() const { return _type; }
+    EncodingTypePB encoding() const { return _encoding; }
 private:
     friend class EncodingInfoResolver;
 
     template<typename TypeEncodingTraits>
     EncodingInfo(TypeEncodingTraits traits);
 
-    using CreateBuilderFunc = std::function<Status(PageBuilder**)>;
+    using CreateBuilderFunc = std::function<Status(const PageBuilderOptions&, PageBuilder**)>;
     CreateBuilderFunc _create_buidler_func;
 
-    using CreateDecoderFunc = std::function<Status(PageDecoder**)>;
+    using CreateDecoderFunc = std::function<Status(const Slice&, PageDecoder**)>;
     CreateDecoderFunc _create_decoder_func;
+
+    FieldType _type;
+    EncodingTypePB _encoding;
 };
 
 }

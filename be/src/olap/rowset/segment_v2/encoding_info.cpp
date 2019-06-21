@@ -18,6 +18,7 @@
 #include "olap/rowset/segment_v2/encoding_info.h"
 
 #include "olap/olap_common.h"
+#include "olap/rowset/segment_v2/bitshuffle_page.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -33,13 +34,32 @@ struct TypeEncodingTraits { };
 
 template<FieldType type>
 struct TypeEncodingTraits<type, PLAIN_ENCODING> {
-    static Status create_page_builder(PageBuilder** builder) {
+    static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
         return Status::OK();
     }
-    static Status create_page_decoder(PageDecoder** decoder) {
+    static Status create_page_decoder(const Slice& data, PageDecoder** decoder) {
         return Status::OK();
     }
 };
+
+template<FieldType type>
+struct TypeEncodingTraits<type, BIT_SHUFFLE> {
+    static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
+        *builder = new BitshufflePageBuilder<type>(opts);
+        return Status::OK();
+    }
+    static Status create_page_decoder(const Slice& data, PageDecoder** decoder) {
+        *decoder = new BitShufflePageDecoder<type>(data);
+        return Status::OK();
+    }
+};
+
+template<FieldType Type, EncodingTypePB Encoding>
+struct EncodingTraits : TypeEncodingTraits<Type, Encoding> {
+    static const FieldType type = Type;
+    static const EncodingTypePB encoding = Encoding;
+};
+
 
 class EncodingInfoResolver {
 public:
@@ -59,7 +79,7 @@ public:
 private:
     template<FieldType type, EncodingTypePB encoding_type>
     void _add_map() {
-        TypeEncodingTraits<type, encoding_type> traits;
+        EncodingTraits<type, encoding_type> traits;
         std::unique_ptr<EncodingInfo> encoding(new EncodingInfo(traits));
         if (_default_encoding_type_map.find(type) == std::end(_default_encoding_type_map)) {
             _default_encoding_type_map[type] = encoding_type;
@@ -75,12 +95,19 @@ private:
 };
 
 EncodingInfoResolver::EncodingInfoResolver() {
+    _add_map<OLAP_FIELD_TYPE_TINYINT, BIT_SHUFFLE>();
     _add_map<OLAP_FIELD_TYPE_TINYINT, PLAIN_ENCODING>();
+    _add_map<OLAP_FIELD_TYPE_SMALLINT, BIT_SHUFFLE>();
     _add_map<OLAP_FIELD_TYPE_SMALLINT, PLAIN_ENCODING>();
+    _add_map<OLAP_FIELD_TYPE_INT, BIT_SHUFFLE>();
     _add_map<OLAP_FIELD_TYPE_INT, PLAIN_ENCODING>();
+    _add_map<OLAP_FIELD_TYPE_BIGINT, BIT_SHUFFLE>();
     _add_map<OLAP_FIELD_TYPE_BIGINT, PLAIN_ENCODING>();
+    _add_map<OLAP_FIELD_TYPE_LARGEINT, BIT_SHUFFLE>();
     _add_map<OLAP_FIELD_TYPE_LARGEINT, PLAIN_ENCODING>();
+    _add_map<OLAP_FIELD_TYPE_FLOAT, BIT_SHUFFLE>();
     _add_map<OLAP_FIELD_TYPE_FLOAT, PLAIN_ENCODING>();
+    _add_map<OLAP_FIELD_TYPE_DOUBLE, BIT_SHUFFLE>();
     _add_map<OLAP_FIELD_TYPE_DOUBLE, PLAIN_ENCODING>();
 }
 
@@ -112,19 +139,19 @@ static EncodingInfoResolver s_encoding_info_resolver;
 template<typename TraitsClass>
 EncodingInfo::EncodingInfo(TraitsClass traits)
         : _create_buidler_func(TraitsClass::create_page_builder),
-        _create_decoder_func(TraitsClass::create_page_decoder) {
+        _create_decoder_func(TraitsClass::create_page_decoder),
+        _type(TraitsClass::type),
+        _encoding(TraitsClass::encoding) {
 }
 
 Status EncodingInfo::get(const TypeInfo* type_info,
                          EncodingTypePB encoding_type,
                          const EncodingInfo** out) {
-    // TODO(zc): use BIGINT
-    return s_encoding_info_resolver.get(OLAP_FIELD_TYPE_BIGINT, encoding_type, out);
+    return s_encoding_info_resolver.get(type_info->type(), encoding_type, out);
 }
 
 EncodingTypePB EncodingInfo::get_default_encoding_type(const TypeInfo* type_info) {
-    // TODO(zc): use BIGINT
-    return s_encoding_info_resolver.get_default_encoding_type(OLAP_FIELD_TYPE_BIGINT);
+    return s_encoding_info_resolver.get_default_encoding_type(type_info->type());
 }
 
 }

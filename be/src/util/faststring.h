@@ -87,7 +87,7 @@ class faststring {
   // Releases the underlying array; after this, the buffer is left empty.
   //
   // NOTE: the data pointer returned by release() is not necessarily the pointer
-  uint8_t *release() WARN_UNUSED_RESULT {
+  uint8_t *release() {
     uint8_t *ret = data_;
     if (ret == initial_data_) {
       ret = new uint8_t[len_];
