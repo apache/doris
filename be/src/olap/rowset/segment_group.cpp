@@ -84,7 +84,6 @@ SegmentGroup::SegmentGroup(int64_t tablet_id, int64_t rowset_id, const TabletSch
     _short_key_length = 0;
     _new_short_key_length = 0;
     _short_key_buf = nullptr;
-    _file_created = false;
     _new_segment_created = false;
     _empty = false;
 
@@ -121,7 +120,6 @@ SegmentGroup::SegmentGroup(int64_t tablet_id, int64_t rowset_id, const TabletSch
     _short_key_length = 0;
     _new_short_key_length = 0;
     _short_key_buf = NULL;
-    _file_created = false;
     _new_segment_created = false;
     _empty = false;
 
@@ -208,7 +206,9 @@ bool SegmentGroup::is_in_use() {
 // you can not use SegmentGroup after delete_all_files(), or else unknown behavior occurs.
 bool SegmentGroup::delete_all_files() {
     bool success = true;
-    if (!_file_created) { return success; }
+    if (_empty) {
+        return success;
+    }
     for (uint32_t seg_id = 0; seg_id < _num_segments; ++seg_id) {
         // get full path for one segment
         string index_path = construct_index_file_path(seg_id);
@@ -341,7 +341,6 @@ OLAPStatus SegmentGroup::load() {
 
     _delete_flag = _index.delete_flag();
     _index_loaded = true;
-    _file_created = true;
 
     return OLAP_SUCCESS;
 }
@@ -578,7 +577,6 @@ OLAPStatus SegmentGroup::add_short_key(const RowCursor& short_key, const uint32_
                 << "' err='" << strerror_r(errno, errmsg, 64) << "']";
             return res;
         }
-        _file_created = true;
         _new_segment_created = true;
 
         // 准备FileHeader
