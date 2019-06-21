@@ -27,6 +27,7 @@ class GroupingSetsFunctions {
 public:
     static void init();
 
+    static doris_udf::BigIntVal grouping_id(doris_udf::FunctionContext* ctx);
     static doris_udf::BigIntVal grouping_id(
         doris_udf::FunctionContext* ctx, const doris_udf::BigIntVal& grouping_id);
 

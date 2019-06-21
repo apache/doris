@@ -22,6 +22,10 @@ namespace doris {
 void GroupingSetsFunctions::init() {
 }
 
+BigIntVal GroupingSetsFunctions::grouping_id(doris_udf::FunctionContext* ctx) {
+    return BigIntVal::null();
+}
+
 BigIntVal GroupingSetsFunctions::grouping_id(
             doris_udf::FunctionContext* ctx, const doris_udf::BigIntVal& grouping_id) {
     return grouping_id;
