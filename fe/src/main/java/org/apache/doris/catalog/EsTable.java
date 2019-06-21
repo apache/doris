@@ -25,12 +25,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.zip.Adler32;
 
-import org.apache.doris.external.EsNodeInfo;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.external.EsTableState;
@@ -38,9 +35,6 @@ import org.apache.doris.thrift.TEsTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 import com.google.common.base.Strings;
-import com.google.common.collect.Maps;
-
-import javax.xml.soap.Node;
 
 public class EsTable extends Table {
     private static final Logger LOG = LogManager.getLogger(EsTable.class);

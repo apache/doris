@@ -19,7 +19,6 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.thrift.TNetworkAddress;
 
 import com.google.common.collect.Maps;
 
