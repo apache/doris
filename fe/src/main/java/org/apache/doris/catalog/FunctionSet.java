@@ -30,7 +30,6 @@ import org.apache.doris.builtins.ScalarBuiltins;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import com.google.common.base.Preconditions;
 
 import java.util.ArrayList;
 import java.util.HashMap;
