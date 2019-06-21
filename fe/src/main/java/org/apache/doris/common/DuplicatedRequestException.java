@@ -15,14 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.load.loadv2;
+package org.apache.doris.common;
 
-import org.apache.doris.load.FailMsg;
+public class DuplicatedRequestException extends DdlException {
 
-public interface LoadTaskCallback {
-    long getCallbackId();
-
-    void onTaskFinished(TaskAttachment attachment);
-
-    void onTaskFailed(long taskId, FailMsg failMsg);
+    public DuplicatedRequestException(String msg) {
+        super(msg);
+    }
 }

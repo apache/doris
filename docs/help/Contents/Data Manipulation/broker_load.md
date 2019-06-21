@@ -77,6 +77,7 @@
                     fmt: 日期格式，形如%Y%m%d%H%i%S (年月日时分秒)
                     column: column_list中的列，即输入文件中的列。存储内容应为数字型的时间戳。
                         如果没有column_list，则按照palo表的列顺序默认输入文件的列。
+                        注意：数字型的时间戳单位为秒。
 
                 time_format(output_fmt, input_fmt, column) 日期格式转化
                     output_fmt: 转化后的日期格式，形如%Y%m%d%H%i%S (年月日时分秒)

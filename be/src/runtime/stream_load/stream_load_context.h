@@ -126,7 +126,10 @@ public:
     std::string db;
     std::string table;
     std::string label;
-
+    // optional
+    std::string sub_label;
+    double max_filter_ratio = 0.0;
+    int64_t timeout_second = -1;
     AuthInfo auth;
 
     // the following members control the max progress of a consuming
@@ -150,7 +153,7 @@ public:
     std::shared_ptr<MessageBodySink> body_sink;
 
     TStreamLoadPutResult put_result;
-    double max_filter_ratio = 0.0;
+
     std::vector<TTabletCommitInfo> commit_infos;
 
     std::promise<Status> promise;
