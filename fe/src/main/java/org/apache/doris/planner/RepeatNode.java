@@ -118,10 +118,16 @@ public class RepeatNode extends PlanNode {
         return groupingIdList;
     }
 
-    public static long convert(BitSet bits) {
+    public static long convert(BitSet bits, BitSet base) {
         long value = 0L;
-        for (int i = 0; i < bits.length(); ++i) {
-            value += bits.get(i) ? (1L << i) : 0L;
+        BitSet newBitSet = new BitSet();
+        for (int i = 0; i < base.length(); ++i) {
+            newBitSet.set(i, bits.get(base.length() - i - 1));
+        }
+        newBitSet.flip(0, base.length());
+        newBitSet.and(base);
+        for (int i = 0; i < newBitSet.length(); ++i) {
+            value += newBitSet.get(i) ? (1L << i) : 0L;
         }
         return value;
     }

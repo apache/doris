@@ -723,6 +723,7 @@ public class SingleNodePlanner {
         List<Long> groupingIdValueList = new ArrayList<>();
         List<Expr> exprList = groupByClause.getGroupingExprs();
         Preconditions.checkState(exprList.size() >= 2);
+        BitSet base = (BitSet)groupByClause.getGroupingIdList().get(0);
         for(BitSet bitSet : groupByClause.getGroupingIdList()) {
             Set<SlotId> slotIdSet = new HashSet<>();
             for(SlotDescriptor slotDesc : slotDescSet) {
@@ -739,7 +740,7 @@ public class SingleNodePlanner {
                 }
             }
             groupingIdList.add(slotIdSet);
-            groupingIdValueList.add(RepeatNode.convert(bitSet));
+            groupingIdValueList.add(RepeatNode.convert(bitSet, base));
         }
 
         root = new RepeatNode(ctx_.getNextNodeId(), root, groupingIdList, repeatNodeTupleDesc,

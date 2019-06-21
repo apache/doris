@@ -950,7 +950,7 @@ public class SelectStmt extends QueryStmt {
 
     /**
      * Build smap :
-     * expr -> if(bitand(pos, grouping_id)=0, null, expr) for expr in extension grouping clause
+     * expr -> if(bitand(pos, grouping_id)=0, expr, null) for expr in extension grouping clause
      * grouping_id() -> grouping_id(grouping_id) for grouping_id function
      */
     private ExprSubstitutionMap createExtensionGroupingSmap(Analyzer analyzer) throws AnalysisException {
@@ -968,15 +968,15 @@ public class SelectStmt extends QueryStmt {
             }
 
             List<Expr> bitandParams = new ArrayList<>();
-            bitandParams.add(new IntLiteral(i + 1));
+            bitandParams.add(new IntLiteral(1 << (groupingExprs.size() - i - 2)));
             bitandParams.add(groupByClause.getGroupingIdSlotRef());
             Expr bitandFunc = new FunctionCallExpr("bitand", new FunctionParams(bitandParams));
             BinaryPredicate predicate = new BinaryPredicate(BinaryPredicate.Operator.EQ, bitandFunc, new IntLiteral(0));
 
             List<Expr> ifParams = new ArrayList<>();
             ifParams.add(predicate);
-            ifParams.add(new NullLiteral());
             ifParams.add(expr);
+            ifParams.add(new NullLiteral());
             Expr replaceExpr = new FunctionCallExpr("if", new FunctionParams(ifParams));
 
             replaceExpr.analyze(analyzer);
