@@ -69,18 +69,18 @@ struct TScanRowBatch {
 // Parameters to open().
 struct TScanOpenParams {
 
+  // cluster.database.table or database.table(cluster=default)
+  1: required string full_qualified_table
+
   // tablets to scan
-  1: required list<i64> tablet_ids
+  2: required list<i64> tablet_ids
 
   // base64 encoded binary plan fragment
-  2: required string opaqued_query_plan
+  3: required string opaqued_query_plan
 
   // A string specified for the table that is passed to the external data source.
   // Always set, may be an empty string.
-  3: optional i32 batch_size
-
-  // reserved params for use
-  4: optional map<string,string> properties
+  4: optional i32 batch_size
 
   // The query limit, if specified.
   5: optional i64 limit
@@ -90,6 +90,9 @@ struct TScanOpenParams {
   6: optional string user
 
   7: optional string passwd
+
+    // reserved params for use
+  8: optional map<string,string> properties
 }
 
 
