@@ -250,10 +250,10 @@ public class Config extends ConfigBase {
     public static int tablet_create_timeout_second = 1;
     
     /*
-     * Maximal waiting time for publish version message to backend
+     * Maximal waiting time for all publish version tasks of one transaction to be finished
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int publish_version_timeout_second = 3;
+    public static int publish_version_timeout_second = 60; // 1 min
     
     /*
      * minimal intervals between two publish version action

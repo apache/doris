@@ -118,6 +118,7 @@ public class PublishVersionDaemon extends Daemon {
                 transactionState.addPublishVersionTask(backendId, task);
             }
             transactionState.setHasSendTask(true);
+            LOG.info("send publish tasks for transaction: {}", transactionState.getTransactionId());
         }
         if (!batchTask.getAllTasks().isEmpty()) {
             AgentTaskExecutor.submit(batchTask);
