@@ -183,9 +183,7 @@ public class GroupByClauseTest {
         } catch (AnalysisException execption) {
             Assert.assertTrue(false);
         }
-        List<BitSet> bitSetList = groupByClause.getGroupingIdList();
 
-        Assert.assertEquals(bitSetList, null);
         Assert.assertEquals(groupByClause.getGroupingExprs(), groupingExprs);
     }
 }
