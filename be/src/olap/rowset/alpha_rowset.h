@@ -124,7 +124,7 @@ public:
     // info by using segment's info
     OLAPStatus reset_sizeinfo();
 
-    uint32_t unique_id() override;
+    std::string unique_id() override;
 
 private:
     OLAPStatus _init_segment_groups();

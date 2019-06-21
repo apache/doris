@@ -515,12 +515,9 @@ OLAPStatus AlphaRowset::reset_sizeinfo() {
     return OLAP_SUCCESS;
 }
 
-uint32_t AlphaRowset::unique_id() {
+std::string AlphaRowset::unique_id() {
     // rowset path + rowset_id is unique for a rowset
-    std::string unique_path = _rowset_path + std::to_string(rowset_id());
-    uint32_t seed = 0;
-    seed = HashUtil::crc_hash(unique_path.data(), unique_path.length(), seed);
-    return seed;
+    return _rowset_path + "/" + std::to_string(rowset_id());
 }
 
 }  // namespace doris
