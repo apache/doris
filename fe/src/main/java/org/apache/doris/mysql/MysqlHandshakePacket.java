@@ -30,7 +30,7 @@ public class MysqlHandshakePacket extends MysqlPacket {
     private static final MysqlCapability CAPABILITY = MysqlCapability.DEFAULT_CAPABILITY;
     // status flags not supported in palo
     private static final int STATUS_FLAGS = 0;
-    private static final String AUTH_PLUGIN_NAME = "";
+    private static final String AUTH_PLUGIN_NAME = "mysql_native_password";
 
     // connection id used in KILL statement.
     private int connectionId;
@@ -63,7 +63,7 @@ public class MysqlHandshakePacket extends MysqlPacket {
         // upper 2 byte of capability flags
         serializer.writeInt2(capability.getFlags() >> 16);
         if (capability.isPluginAuth()) {
-            serializer.writeInt1(authPluginData.length);
+            serializer.writeInt1(authPluginData.length + 1); // 1 byte is '\0'
         } else {
             serializer.writeInt1(0);
         }
