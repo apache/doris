@@ -77,7 +77,7 @@ public class MysqlHandshakePacketTest {
         flags |= MysqlProto.readInt2(buffer) << 16;
         Assert.assertEquals(MysqlCapability.DEFAULT_CAPABILITY.getFlags(), flags);
         // length of plugin data
-        Assert.assertEquals(0, MysqlProto.readInt1(buffer));
+        Assert.assertEquals(21, MysqlProto.readInt1(buffer));
         // length of plugin data
         byte[] toCheck = new byte[10];
         byte[] reserved = MysqlProto.readFixedString(buffer, 10);
@@ -92,7 +92,7 @@ public class MysqlHandshakePacketTest {
 
         // one byte
         Assert.assertEquals(0, MysqlProto.readInt1(buffer));
-        Assert.assertEquals(0, buffer.remaining());
+        Assert.assertEquals(22, buffer.remaining());
     }
 
 }
