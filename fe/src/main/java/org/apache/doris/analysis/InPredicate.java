@@ -241,6 +241,21 @@ public class InPredicate extends Predicate {
     }
 
     @Override
+    public Expr getResultValue() throws AnalysisException {
+        final Expr leftChildValue = getChild(0).getResultValue();
+        if (!(leftChildValue instanceof LiteralExpr) || !isLiteralChildren()) {
+            return this;
+        }
+
+        List<Expr> inListChildren = children.subList(1, children.size());
+        if (inListChildren.contains(leftChildValue)) {
+            return new BoolLiteral(true);
+        } else {
+            return new BoolLiteral(false);
+        }
+    }
+
+    @Override
     public boolean equals(Object obj) {
         if (super.equals(obj)) {
             InPredicate expr = (InPredicate) obj;
