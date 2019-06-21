@@ -19,6 +19,7 @@ namespace java org.apache.doris.thrift
 namespace cpp doris
 
 include "PrimitiveType.thrift"
+include "Status.thrift"
 
 struct TScanColumnDesc {
   // The column name
@@ -26,19 +27,6 @@ struct TScanColumnDesc {
   // The column type. Always set.
   2: optional PrimitiveType.TPrimitiveType type
 }
-
-enum TScanStatusCode {
-    OK,
-    INVALID_TABLE,
-    INVALID_CONTEXT,
-    INTERNAL_EROOR
-}
-
-struct TScanStatus {
-  1: required TScanStatusCode status_code
-  2: optional string error_msg
-}
-
 
 struct TScanColumnData {
   // One element in the list for every row in the column indicating if there is
@@ -101,7 +89,7 @@ struct TScanOpenParams {
 
 // Returned by open().
 struct TScanOpenResult {
-  1: required TScanStatus status
+  1: required Status.TStatus status
   // An opaque context_id used in subsequent getNext()/close() calls. Required.
   2: optional string context_id
   // selected fields
@@ -118,7 +106,7 @@ struct TScanNextBatchParams {
 
 // Returned by getNext().
 struct TScanBatchResult {
-  1: required TScanStatus status
+  1: required Status.TStatus status
 
   // If true, reached the end of the result stream; subsequent calls to
   // getNext() won’t return any more results. Required.
@@ -137,7 +125,7 @@ struct TScanCloseParams {
 
 // Returned by close().
 struct TScanCloseResult {
-  1: required TScanStatus status
+  1: required Status.TStatus status
 }
 
 // scan service expose ability of scanning data ability to other compute system
