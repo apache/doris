@@ -122,6 +122,8 @@ public:
 
     virtual bool check_path(const std::string& path) = 0;
 
+    virtual std::string unique_id() = 0;
+
     bool need_delete_file() {
         return _need_delete_file;
     }
