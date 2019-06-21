@@ -39,9 +39,10 @@ struct TScanColumnData {
   4: optional list<i16> short_vals;
   5: optional list<i32> int_vals;
   6: optional list<i64> long_vals;
-  7: optional list<double> double_vals;
-  8: optional list<string> string_vals;
-  9: optional list<binary> binary_vals;
+  7: optional list<double> float_vals;
+  8: optional list<string> double_vals;
+  9: optional list<string> string_vals;
+  10: optional list<binary> binary_vals;
 }
 
 // Serialized batch of rows returned by getNext().
