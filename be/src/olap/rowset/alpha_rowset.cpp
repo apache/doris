@@ -18,6 +18,7 @@
 #include "olap/rowset/alpha_rowset.h"
 #include "olap/rowset/alpha_rowset_meta.h"
 #include "olap/rowset/rowset_meta_manager.h"
+#include "util/hash_util.hpp"
 
 namespace doris {
 
@@ -512,6 +513,11 @@ OLAPStatus AlphaRowset::reset_sizeinfo() {
         alpha_rowset_meta->add_segment_group(segment_group_meta);
     }
     return OLAP_SUCCESS;
+}
+
+std::string AlphaRowset::unique_id() {
+    // rowset path + rowset_id is unique for a rowset
+    return _rowset_path + "/" + std::to_string(rowset_id());
 }
 
 }  // namespace doris
