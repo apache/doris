@@ -63,8 +63,8 @@ public:
     }
 
     void from_pb(const PQueryStatistics& statistics) {
-        scan_rows = statistics.scan_rows();
-        scan_bytes = statistics.scan_bytes();
+        scan_rows += statistics.scan_rows();
+        scan_bytes += statistics.scan_bytes();
     }
 
 private:
