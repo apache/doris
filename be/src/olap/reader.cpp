@@ -560,6 +560,7 @@ OLAPStatus Reader::_capture_rs_readers(const ReaderParams& read_params) {
 }
 
 OLAPStatus Reader::_init_params(const ReaderParams& read_params) {
+    read_params.check_validation();
     OLAPStatus res = OLAP_SUCCESS;
     _aggregation = read_params.aggregation;
     _reader_type = read_params.reader_type;

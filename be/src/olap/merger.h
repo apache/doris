@@ -49,7 +49,6 @@ private:
     RowsetWriterSharedPtr _rs_writer;
     ReaderType _reader_type;
     uint64_t _row_count;
-    Version _simple_merge_version;
 
     DISALLOW_COPY_AND_ASSIGN(Merger);
 };
