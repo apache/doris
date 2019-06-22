@@ -31,6 +31,9 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
@@ -40,6 +43,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 public class TransactionState implements Writable {
+    private static final Logger LOG = LogManager.getLogger(TransactionState.class);
     
     public enum LoadJobSourceType {
         FRONTEND(1),        // old dpp load, mini load, insert stmt(not streaming type) use this type
@@ -129,6 +133,9 @@ public class TransactionState implements Writable {
     
     private long callbackId = -1;
     private long timeoutMs = Config.stream_load_default_timeout_second;
+
+    // is set to true, we will double the publish timeout
+    private boolean prolongPublishTimeout = false;
 
     // optional
     private TxnCommitAttachment txnCommitAttachment;
@@ -430,13 +437,19 @@ public class TransactionState implements Writable {
     }
     
     public boolean isPublishTimeout() {
-        // timeout is between 3 to Config.max_txn_publish_waiting_time_ms seconds.
-        long timeoutMillis = Math.min(Config.publish_version_timeout_second * publishVersionTasks.size() * 1000,
-                                      Config.load_straggler_wait_second * 1000);
-        timeoutMillis = Math.max(timeoutMillis, 3000);
+        // the max timeout is Config.publish_version_timeout_second * 2;
+        long timeoutMillis = Config.publish_version_interval_ms;
+        if (prolongPublishTimeout) {
+            timeoutMillis *= 2;
+        }
         return System.currentTimeMillis() - publishVersionTime > timeoutMillis;
     }
     
+    public void prolongPublishTimeout() {
+        this.prolongPublishTimeout = true;
+        LOG.info("prolong the timeout of publish version task for transaction: {}", transactionId);
+    }
+
     @Override
     public void write(DataOutput out) throws IOException {
         out.writeLong(transactionId);
