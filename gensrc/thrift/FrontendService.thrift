@@ -29,7 +29,6 @@ include "Exprs.thrift"
 include "RuntimeProfile.thrift"
 include "MasterService.thrift"
 include "AgentService.thrift"
-include "Types.thrift"
 
 // These are supporting structs for JniFrontend.java, which serves as the glue
 // between our C++ execution environment and the Java frontend.

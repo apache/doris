@@ -20,7 +20,6 @@ namespace java org.apache.doris.thrift
 
 include "Exprs.thrift"
 include "Types.thrift"
-include "Types.thrift"
 
 enum TPartitionType {
   UNPARTITIONED,

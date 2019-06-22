@@ -20,7 +20,6 @@ namespace java org.apache.doris.thrift
 
 include "Types.thrift"
 include "Opcodes.thrift"
-include "Types.thrift"
 
 enum TExprNodeType {
   AGG_EXPR,

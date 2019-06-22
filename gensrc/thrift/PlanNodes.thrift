@@ -21,7 +21,6 @@ namespace java org.apache.doris.thrift
 include "Exprs.thrift"
 include "Types.thrift"
 include "Partitions.thrift"
-include "Types.thrift"
 
 enum TPlanNodeType {
   OLAP_SCAN_NODE,
