@@ -718,6 +718,16 @@ OLAPStatus OLAPEngine::storage_medium_migrate(
                     << "schema_hash_path=" << schema_hash_path;
             remove_all_dir(schema_hash_path);
         }
+
+        OLAPHeader new_olap_header;
+        res = OlapHeaderManager::get_header(stores[0], tablet->tablet_id(), tablet->schema_hash(), &new_olap_header);
+        if (res != OLAP_ERR_META_KEY_NOT_FOUND) {
+            LOG(WARNING) << "olap_header already exists. "
+                         << "data_dir:" << stores[0]->path()
+                         << "tablet:" << tablet->full_name();
+            return OLAP_ERR_META_ALREADY_EXIST;
+        }
+
         create_dirs(schema_hash_path);
 
         // migrate all index and data files but header file
@@ -727,21 +737,14 @@ OLAPStatus OLAPEngine::storage_medium_migrate(
             break;
         }
 
-        // generate new header file from the old
-        OLAPHeader* new_olap_header = new(std::nothrow) OLAPHeader();
-        if (new_olap_header == NULL) {
-            OLAP_LOG_WARNING("new olap header failed");
-            res = OLAP_ERR_BUFFER_OVERFLOW;
-            break;
-        }
-        res = _generate_new_header(stores[0], shard, tablet, version_entity_vec, new_olap_header);
+        res = _generate_new_header(stores[0], shard, tablet, version_entity_vec, &new_olap_header);
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to generate new header file from the old. [res=%d]", res);
             break;
         }
 
         // load the new tablet into OLAPEngine
-        auto olap_table = OLAPTable::create_from_header(new_olap_header, stores[0]);
+        auto olap_table = OLAPTable::create_from_header(&new_olap_header, stores[0]);
         if (olap_table == NULL) {
             OLAP_LOG_WARNING("failed to create from header");
             res = OLAP_ERR_TABLE_CREATE_FROM_HEADER_ERROR;
@@ -793,7 +796,13 @@ OLAPStatus OLAPEngine::_generate_new_header(
 
     OlapStore* ref_store =
             OLAPEngine::get_instance()->get_store(tablet->storage_root_path_name());
-    OlapHeaderManager::get_header(ref_store, tablet->tablet_id(), tablet->schema_hash(), new_olap_header);
+    res = OlapHeaderManager::get_header(ref_store, tablet->tablet_id(), tablet->schema_hash(), new_olap_header);
+    if (res == OLAP_ERR_META_KEY_NOT_FOUND) {
+        LOG(WARNING) << "olap_header has already been dropped. "
+                     << "data_dir:" << ref_store->path()
+                     << "tablet:" << tablet->full_name();
+        return res;
+    }
     _update_header_file_info(version_entity_vec, new_olap_header);
     new_olap_header->set_shard(new_shard);
 
