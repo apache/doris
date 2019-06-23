@@ -218,7 +218,13 @@ OLAPStatus EngineStorageMigrationTask::_generate_new_header(
         return OLAP_ERR_HEADER_INIT_FAILED;
     }
     OLAPStatus res = OLAP_SUCCESS;
-    TabletMetaManager::get_meta(tablet->data_dir(), tablet->tablet_id(), tablet->schema_hash(), new_tablet_meta);
+    res = TabletMetaManager::get_meta(tablet->data_dir(), tablet->tablet_id(), tablet->schema_hash(), new_tablet_meta);
+    if (res == OLAP_ERR_META_KEY_NOT_FOUND) {
+        LOG(WARNING) << "tablet_meta has already been dropped. "
+                     << "data_dir:" << tablet->data_dir()->path()
+                     << "tablet:" << tablet->full_name();
+        return res;
+    }
 
     vector<RowsetMetaSharedPtr> rs_metas;
     for (auto& rs : consistent_rowsets) {
