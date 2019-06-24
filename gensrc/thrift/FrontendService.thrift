@@ -617,7 +617,9 @@ struct TCheckPrivilegeRequst {
     1: required string cluster
     2: required string database
     3: required string table
-    4: required Privilege privilege
+    4: required string user
+    5: required string pass
+    6: required Privilege privilege
 }
 
 struct TCheckPrivilegeResult {
