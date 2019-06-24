@@ -80,12 +80,12 @@ public class TablePropertyInfo implements Writable {
     @Override
     public void readFields(DataInput in) throws IOException {
         long dbId = -1;
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_54) {
+        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_55) {
             dbId = in.readLong();
         }
         tableId = in.readLong();
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_54) {
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_55) {
             if (in.readBoolean()) {
                 groupId = GroupId.read(in);
             }
