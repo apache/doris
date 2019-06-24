@@ -602,6 +602,28 @@ struct TSnapshotLoaderReportRequest {
     5: optional i32 total_num
 }
 
+enum Privilege {
+    NODE_PRIV,
+    ADMIN_PRIV,
+    GRANT_PRIV,
+    SELECT_PRIV,
+    LOAD_PRIV,
+    ALTER_PRIV,
+    CREATE_PRIV,
+    DROP_PRIV
+}
+
+struct TCheckPrivilegeRequst {
+    1: required string cluster
+    2: required string database
+    3: required string table
+    4: required Privilege privilege
+}
+
+struct TCheckPrivilegeResult {
+    1: required Status.TStatus status
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1:TGetDbsParams params)
     TGetTablesResult getTableNames(1:TGetTablesParams params)
@@ -634,4 +656,6 @@ service FrontendService {
     TStreamLoadPutResult streamLoadPut(1: TStreamLoadPutRequest request)
 
     Status.TStatus snapshotLoaderReport(1: TSnapshotLoaderReportRequest request)
+
+    Status.TStatus checkPrivilege(1: TCheckPrivilegeRequst request)
 }
