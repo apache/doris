@@ -403,10 +403,6 @@ OLAPStatus SegmentGroup::validate() {
 }
 
 bool SegmentGroup::check() {
-    if (!_file_created && !_empty || _file_created && _empty) {
-        LOG(FATAL) << "file created " << _file_created
-                   << " empty " << _empty;
-    }
     // if the segment group is converted from old files, _empty == false but _num_segments == 0
     if (_empty && (_num_segments > 0 || !zero_num_rows())) {
         LOG(WARNING) << "invalid num segments for empty segment group, _num_segments:" << _num_segments
