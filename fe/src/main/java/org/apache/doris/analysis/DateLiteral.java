@@ -178,7 +178,7 @@ public class DateLiteral extends LiteralExpr {
         if (targetType.isDateType()) {
             return this;
         } else if (targetType.isStringType()) {
-            return new StringLiteral(date.toString()); 
+            return new StringLiteral(getStringValue()); 
         }
         Preconditions.checkState(false);
         return this;
