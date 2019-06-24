@@ -48,13 +48,12 @@ public:
     void test_encode_decode_page_template(typename TypeTraits<Type>::CppType* src,
             size_t size) {
         typedef typename TypeTraits<Type>::CppType CppType;
-        const size_t ordinal_pos_base = 12345;
         PageBuilderOptions options;
         options.data_page_size = 256 * 1024;
         PageBuilderType page_builder(options);
 
         page_builder.add(reinterpret_cast<const uint8_t *>(src), &size);
-        Slice s = page_builder.finish(ordinal_pos_base);
+        Slice s = page_builder.finish();
         LOG(INFO) << "RLE Encoded size for 10k values: " << s.size
                 << ", original size:" << size * sizeof(CppType);
 

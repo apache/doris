@@ -28,7 +28,7 @@ namespace doris {
 namespace segment_v2 {
 
 enum {
-    RLE_BLOCK_HEADER_SIZE = 8
+    RLE_BLOCK_HEADER_SIZE = 4
 };
 
 // RLE builder for generic integer and bool types. What is missing is some way
@@ -36,13 +36,10 @@ enum {
 //
 // The page format is as follows:
 //
-// 1. Header: (8 bytes total)
+// 1. Header: (4 bytes total)
 //
 //    <num_elements> [32-bit]
 //      The number of elements encoded in the page.
-//
-//    <first_ordinal> [32-bit]
-//      The ordinal offset of the first element in the page.
 //
 //    NOTE: all on-disk ints are encoded little-endian
 //
@@ -104,10 +101,15 @@ public:
         return Status::NotSupported("get_dictionary_page not implemented");
     }
 
-    Slice finish(rowid_t page_first_rowid) override {
+    Slice finish() override {
+        LOG(INFO) << "_count:" << _count;
         encode_fixed32_le(&_buf[0], _count);
-        encode_fixed32_le(&_buf[4], page_first_rowid);
         _rle_encoder->Flush();
+        LOG(INFO) << "_buf[0]:" << ((uint8_t)_buf[0] == 0)
+                << ", _buf[1]:" << ((uint8_t)_buf[1] == 0)
+                << ", _buf[2]:" << ((uint8_t)_buf[2] == 0)
+                << ", _buf[3]:" << ((uint8_t)_buf[3] == 0)
+                << ", size:" << _buf.size();
         return Slice(_buf.data(), _buf.size());
     }
 
@@ -152,7 +154,6 @@ public:
         _options(options),
         _parsed(false),
         _num_elements(0),
-        _page_first_ordinal(0),
         _cur_index(0),
         _bit_width(0) { }
 
@@ -163,9 +164,11 @@ public:
             return Status::Corruption(
                 "not enough bytes for header in RleBitMapBlockDecoder");
         }
-
+        LOG(INFO) << std::hex << "_data[0]:" << (uint8_t)_data[0]
+                << ", _data[1]:" << (uint8_t)_data[1]
+                << ", _data[2]:" << (uint8_t)_data[2]
+                << ", _data[3]:" << (uint8_t)_data[3];
         _num_elements = decode_fixed32_le((const uint8_t*)&_data[0]);
-        _page_first_ordinal = decode_fixed32_le((const uint8_t*)&_data[4]);
 
         _parsed = true;
 
@@ -212,6 +215,7 @@ public:
 
     Status next_batch(size_t* n, ColumnVectorView* dst) override {
         DCHECK(_parsed);
+        LOG(INFO) << "_cur_index:" << _cur_index << ", _num_elements:" << _num_elements;
         if (PREDICT_FALSE(*n == 0 || _cur_index >= _num_elements)) {
             *n = 0;
             return Status::OK();
@@ -251,7 +255,6 @@ private:
     PageDecoderOptions _options;
     bool _parsed;
     uint32_t _num_elements;
-    rowid_t _page_first_ordinal;
     size_t _cur_index;
     int _bit_width;
     RleDecoder<CppType> _rle_decoder;

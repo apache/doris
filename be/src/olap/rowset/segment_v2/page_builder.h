@@ -57,7 +57,7 @@ public:
     // Return a Slice which represents the encoded data of current page.
     //
     // This Slice points to internal data of this builder.
-    virtual Slice finish(const rowid_t page_first_rowid) = 0;
+    virtual Slice finish() = 0;
 
     // Reset the internal state of the page builder.
     //
