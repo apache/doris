@@ -1,3 +1,20 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
 #pragma once
 
 #include "util/coding.h"
@@ -9,24 +26,23 @@
 #include "olap/rowset/segment_v2/options.h"
 
 namespace doris {
-
 namespace segment_v2 {
 
-static const size_t plainPageHeaderSize = sizeof(uint32_t) * 2;
+static const size_t PLAIN_PAGE_HEADER_SIZE = sizeof(uint32_t) * 2;
 
 template<FieldType Type>
 class PlainPageBuilder : public PageBuilder {
 public:
-    PlainPageBuilder(const PageBuilderOptions *options) :
-            _options(options) {
+    PlainPageBuilder(const PageBuilderOptions options) :
+            _options(std::move(options)) {
         // Reserve enough space for the block, plus a bit of slop since
         // we often overrun the block by a few values.
-        _buffer.reserve(plainPageHeaderSize + _options->data_page_size + 1024);
+        _buffer.reserve(PLAIN_PAGE_HEADER_SIZE + _options.data_page_size + 1024);
         reset();
     }
 
     bool is_page_full() override {
-        return _buffer.size() > _options->data_page_size;
+        return _buffer.size() > _options.data_page_size;
     }
 
     Status add(const uint8_t *vals, size_t *count) override {
@@ -44,13 +60,13 @@ public:
     Slice finish(const rowid_t page_first_rowid) override {
         encode_fixed32_le((uint8_t *) &_buffer[0], _count);
         encode_fixed32_le((uint8_t *) &_buffer[4], page_first_rowid);
-        return Slice(_buffer.data(),  plainPageHeaderSize + _count * SIZE_OF_TYPE);
+        return Slice(_buffer.data(),  PLAIN_PAGE_HEADER_SIZE + _count * SIZE_OF_TYPE);
     }
 
     void reset() override {
         _count = 0;
         _buffer.clear();
-        _buffer.resize(plainPageHeaderSize);
+        _buffer.resize(PLAIN_PAGE_HEADER_SIZE);
     }
 
     size_t count() const {
@@ -63,12 +79,13 @@ public:
     //     reset() should be called after this function before reuse the builder
     void release() override {
         uint8_t *ret = _buffer.release();
+        _buffer.reserve(PLAIN_PAGE_HEADER_SIZE + _options.data_page_size + 1024);
         (void) ret;
     }
 
 private:
     faststring _buffer;
-    const PageBuilderOptions *_options;
+    const PageBuilderOptions _options;
     size_t _count;
     typedef typename TypeTraits<Type>::CppType CppType;
     enum {
@@ -89,17 +106,17 @@ public:
     Status init() override {
         CHECK(!_parsed);
 
-        if (_data.size < plainPageHeaderSize) {
+        if (_data.size < PLAIN_PAGE_HEADER_SIZE) {
             std::stringstream ss;
             ss << "file corrupton: not enough bytes for header in PlainBlockDecoder ."
-                  "invalid data size:" << _data.size << ", header size:" << plainPageHeaderSize;
+                  "invalid data size:" << _data.size << ", header size:" << PLAIN_PAGE_HEADER_SIZE;
             return Status::InternalError(ss.str());
         }
 
         _num_elems = decode_fixed32_le((const uint8_t *) &_data[0]);
         _page_first_ordinal = decode_fixed32_le((const uint8_t *) &_data[4]);
 
-        if (_data.size != plainPageHeaderSize + _num_elems * SIZE_OF_TYPE) {
+        if (_data.size != PLAIN_PAGE_HEADER_SIZE + _num_elems * SIZE_OF_TYPE) {
             std::stringstream ss;
             ss << "file corrupton: unexpected data size.";
             return Status::InternalError(ss.str());
@@ -135,7 +152,7 @@ public:
 
         size_t max_fetch = std::min(*n, static_cast<size_t>(_num_elems - _cur_idx));
         memcpy(dst->column_vector()->col_data(),
-               &_data[plainPageHeaderSize + _cur_idx * SIZE_OF_TYPE],
+               &_data[PLAIN_PAGE_HEADER_SIZE + _cur_idx * SIZE_OF_TYPE],
                max_fetch * SIZE_OF_TYPE);
         _cur_idx += max_fetch;
         *n = max_fetch;
@@ -166,5 +183,5 @@ private:
     };
 };
 
-}
-}
+} // namespace segment_v2
+} // namespace doris

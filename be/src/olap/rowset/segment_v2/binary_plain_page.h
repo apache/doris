@@ -1,0 +1,284 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+
+// Simplistic block encoding for strings.
+//
+// The block consists of:
+// Header:
+//   ordinal_pos (32-bit fixed)
+//   num_elems (32-bit fixed)
+//   offsets_pos (32-bit fixed): position of the first offset, relative to block start
+// Strings:
+//   raw strings that were written
+// Offsets:  [pointed to by offsets_pos]
+//   gvint-encoded offsets pointing to the beginning of each string
+
+#pragma once
+
+#include "util/coding.h"
+#include "util/faststring.h"
+#include "olap/olap_common.h"
+#include "olap/types.h"
+#include "olap/rowset/segment_v2/page_builder.h"
+#include "olap/rowset/segment_v2/page_decoder.h"
+#include "olap/rowset/segment_v2/options.h"
+
+namespace doris {
+namespace segment_v2 {
+
+class BinaryPlainPageBuilder : public PageBuilder {
+public:
+    BinaryPlainPageBuilder(const PageBuilderOptions options) :
+            _end_of_data_offset(0),
+            _size_estimate(0),
+            _options(std::move(options)) {
+        reset();
+    }
+
+    bool is_page_full() override {
+        return _size_estimate > _options.data_page_size;
+    }
+
+    Status add(const uint8_t *vals, size_t *count) override {
+        DCHECK(!_finished);
+        DCHECK_GT(*count, 0);
+        size_t i = 0;
+
+        // If the block is full, should stop adding more items.
+        while (!is_page_full() && i < *count) {
+            const Slice *src = reinterpret_cast<const Slice *>(vals);
+            size_t offset = _buffer.size();
+            std::cout<< "add offset : " << offset << std::endl;
+            _offsets.push_back(offset);
+            _buffer.append(src->data, src->size);
+            _size_estimate += src->size;
+
+            i++;
+            vals += sizeof(Slice);
+        }
+
+        _end_of_data_offset = _buffer.size();
+
+        *count = i;
+    }
+
+    Status get_dictionary_page(Slice *dictionary_page) override {
+        return Status::NotSupported("get_dictionary_page not supported in binary plain page builder");
+    }
+
+    Slice finish(const rowid_t page_first_rowid) override {
+        _finished = true;
+
+        size_t offsets_pos = _buffer.size();
+
+        // Set up the header
+        encode_fixed32_le(&_buffer[0], page_first_rowid);
+        encode_fixed32_le(&_buffer[4], _offsets.size());
+        encode_fixed32_le(&_buffer[8], offsets_pos);
+
+        _buffer.append(&_offsets[0], _offsets.size() * 4);
+
+        return Slice(_buffer.data(), _buffer.size());
+    }
+
+    void reset() override {
+        _offsets.clear();
+        _buffer.clear();
+        _buffer.resize(kMaxHeaderSize);
+        _buffer.reserve(_options.data_page_size);
+
+        _size_estimate = kMaxHeaderSize;
+        _end_of_data_offset = kMaxHeaderSize;
+        _finished = false;
+    }
+
+    size_t count() const {
+        return _offsets.size();
+    }
+
+    // this api will release the memory ownership of encoded data
+    // Note:
+    //     release() should be called after finish
+    //     reset() should be called after this function before reuse the builder
+    void release() override {
+        uint8_t *ret = _buffer.release();
+        _buffer.reserve(_options.data_page_size);
+        (void) ret;
+    }
+
+    // Length of a header.
+    static const size_t kMaxHeaderSize = sizeof(uint32_t) * 3;
+private:
+    faststring _buffer;
+    size_t _end_of_data_offset;
+    size_t _size_estimate;
+    // Offsets of each entry, relative to the start of the block
+    std::vector<uint32_t> _offsets;
+    bool _finished;
+    const PageBuilderOptions _options;
+};
+
+
+class BinaryPlainPageDecoder : public PageDecoder {
+public:
+    BinaryPlainPageDecoder(Slice data) : _data(data),
+                                   _parsed(false),
+                                   _num_elems(0),
+                                   _ordinal_pos_base(0),
+                                   _cur_idx(0) { }
+
+    Status init() override {
+        CHECK(!_parsed);
+
+        if (_data.size < kMinHeaderSize) {
+            std::stringstream ss;
+            ss << "file corrupton: not enough bytes for header in BinaryPlainPageDecoder ."
+                  "invalid data size:" << _data.size << ", header size:" << kMinHeaderSize;
+            return Status::InternalError(ss.str());
+        }
+
+        // Decode header.
+        _ordinal_pos_base  = decode_fixed32_le((const uint8_t *)&_data[0]);
+        _num_elems         = decode_fixed32_le((const uint8_t *)&_data[4]);
+        size_t offsets_pos = decode_fixed32_le((const uint8_t *)&_data[8]);
+
+        std::cout<< " init : num_elems : " << _num_elems << " : " << offsets_pos << std::endl;
+
+        // Sanity check.
+        if (offsets_pos > _data.size) {
+            std::stringstream ss;
+            ss << "offsets_pos %ld > block size %ld in plain string block",
+                    offsets_pos, _data.size;
+            return Status::InternalError(ss.str());
+        }
+
+        // Decode the string offsets themselves
+        const uint8_t *p = (const uint8_t*)(_data.data + offsets_pos);
+        const uint8_t *limit = (const uint8_t*)(_data.data + _data.size);
+
+        // Reserve one extra element, which we'll fill in at the end
+        // with an offset past the last element.
+        _offsets_buf.resize(sizeof(uint32_t) * (_num_elems + 1));
+        uint32_t* dst_ptr = reinterpret_cast<uint32_t*>(_offsets_buf.data());
+        std::cout<< "num_elems : " << _num_elems << std::endl; 
+        for (int i = 0 ;i < _num_elems ;i++) {
+            dst_ptr[i] = *((uint32_t*)p);
+            std::cout << "dst" << i <<" : " << dst_ptr[i] << std::endl;
+            p += 4;
+        }
+
+        // Add one extra entry pointing after the last item to make the indexing easier.
+        dst_ptr[_num_elems] = offsets_pos;
+
+        _parsed = true;
+
+        return Status::OK();
+    }
+
+    Status seek_to_position_in_page(size_t pos) override {
+        /*
+        if (PREDICT_FALSE(_num_elems == 0)) {
+            DCHECK_EQ(0, pos);
+            return;
+        }
+         */
+
+        DCHECK_LE(pos, _num_elems);
+        _cur_idx = pos;
+        return Status::OK();
+    }
+
+    Status next_batch(size_t *n, ColumnVectorView *dst) override {
+        DCHECK(_parsed);
+        if (PREDICT_FALSE(*n == 0 || _cur_idx >= _num_elems)) {
+            *n = 0;
+            return Status::OK();
+        }
+        size_t max_fetch = std::min(*n, static_cast<size_t>(_num_elems - _cur_idx));
+
+        Slice *out = reinterpret_cast<Slice*>(dst->column_vector()->col_data());
+        for (size_t i = 0; i < max_fetch; i++, out++, _cur_idx++) {
+            Slice elem(string_at_index(_cur_idx));
+            std::cout<<"elem size" << elem.size<<" ,msg : " <<elem.to_string()<<std::endl;
+            out->relocate((char*)elem.get_data());
+            out->truncate(elem.size);
+            std::cout<<"elem size" << elem.size<<" ,msg : " <<elem.to_string()<<std::endl;
+        }
+        *n = max_fetch;
+        return Status::OK();
+    }
+
+    size_t count() const override {
+        return _num_elems;
+    }
+
+    size_t current_index() const override {
+        return _cur_idx;
+    }
+
+    rowid_t get_first_rowid() const override {
+        return 0;
+    }
+
+    Slice string_at_index(size_t idx) const {
+        const uint32_t str_offset = offset(idx);
+        uint32_t len = offset(idx + 1) - str_offset;
+        return Slice(&_data[str_offset], len);
+    }
+
+    // Minimum length of a header.
+    static const size_t kMinHeaderSize = sizeof(uint32_t) * 3;
+
+private:
+
+    // Return the offset within 'data_' where the string value with index 'idx'
+    // can be found.
+    uint32_t offset(int idx) const {
+        //const uint32_t* dst_ptr = reinterpret_cast<uint32_t *>(_offsets_buf.data());
+        //std::cout<<"offset : " << dst_ptr[idx] << std::endl;
+
+        const uint8_t *p = &_offsets_buf[idx * sizeof(uint32_t)];
+        uint32_t ret;
+        memcpy(&ret, p, sizeof(uint32_t));
+        std::cout<<"idx : " << idx <<" : offset ret "<< ret <<std::endl;
+        return ret;
+    }
+
+    Slice _data;
+    bool _parsed;
+
+    // A buffer for an array of 32-bit integers for the offsets of the underlying
+    // strings in 'data_'.
+    //
+    // This array also contains one extra offset at the end, pointing
+    // _after_ the last entry. This makes the code much simpler.
+    //
+    // The array is stored inside a 'faststring' instead of a vector<uint32_t> to
+    // avoid the overhead of calling vector::push_back -- one would think it would
+    // be fully inlined away, but it's actually a perf win to do this.
+    faststring _offsets_buf;
+
+    uint32_t _num_elems;
+    rowid_t _ordinal_pos_base;
+
+    // Index of the currently seeked element in the block.
+    uint32_t _cur_idx;
+};
+
+} // namespace segment_v2
+} // namespace doris
