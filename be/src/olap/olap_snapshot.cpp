@@ -719,12 +719,13 @@ OLAPStatus OLAPEngine::storage_medium_migrate(
             remove_all_dir(schema_hash_path);
         }
 
-        OLAPHeader new_olap_header;
-        res = OlapHeaderManager::get_header(stores[0], tablet->tablet_id(), tablet->schema_hash(), &new_olap_header);
+        OLAPHeader* new_olap_header = new(std::nothrow) OLAPHeader();
+        res = OlapHeaderManager::get_header(stores[0], tablet->tablet_id(), tablet->schema_hash(), new_olap_header);
         if (res != OLAP_ERR_META_KEY_NOT_FOUND) {
             LOG(WARNING) << "olap_header already exists. "
                          << "data_dir:" << stores[0]->path()
                          << "tablet:" << tablet->full_name();
+            delete new_olap_header;
             return OLAP_ERR_META_ALREADY_EXIST;
         }
 
@@ -734,17 +735,19 @@ OLAPStatus OLAPEngine::storage_medium_migrate(
         res = _copy_index_and_data_files(schema_hash_path, tablet, version_entity_vec);
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to copy index and data files when migrate. [res=%d]", res);
+            delete new_olap_header;
             break;
         }
 
-        res = _generate_new_header(stores[0], shard, tablet, version_entity_vec, &new_olap_header);
+        res = _generate_new_header(stores[0], shard, tablet, version_entity_vec, new_olap_header);
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to generate new header file from the old. [res=%d]", res);
+            delete new_olap_header;
             break;
         }
 
         // load the new tablet into OLAPEngine
-        auto olap_table = OLAPTable::create_from_header(&new_olap_header, stores[0]);
+        auto olap_table = OLAPTable::create_from_header(new_olap_header, stores[0]);
         if (olap_table == NULL) {
             OLAP_LOG_WARNING("failed to create from header");
             res = OLAP_ERR_TABLE_CREATE_FROM_HEADER_ERROR;
