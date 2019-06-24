@@ -32,6 +32,8 @@ import org.apache.doris.load.Load;
 import org.apache.doris.load.PullLoadSourceInfo;
 import org.apache.doris.load.Source;
 import org.apache.doris.task.MasterTaskExecutor;
+import org.apache.doris.transaction.TransactionState;
+import org.apache.doris.transaction.TxnCommitAttachment;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -365,5 +367,56 @@ public class BrokerLoadJobTest {
         Assert.assertEquals("0", loadingStatus.getCounters().get(BrokerLoadJob.DPP_ABNORMAL_ALL));
         int progress = Deencapsulation.getField(brokerLoadJob, "progress");
         Assert.assertEquals(99, progress);
+    }
+
+    @Test
+    public void testExecuteReplayOnAborted(@Injectable TransactionState txnState,
+                                           @Injectable LoadJobFinalOperation attachment,
+                                           @Injectable EtlStatus etlStatus) {
+        BrokerLoadJob brokerLoadJob = new BrokerLoadJob();
+        new Expectations() {
+            {
+                txnState.getTxnCommitAttachment();
+                result = attachment;
+                attachment.getLoadingStatus();
+                result = etlStatus;
+                attachment.getProgress();
+                result = 99;
+                attachment.getFinishTimestamp();
+                result = 1;
+                attachment.getJobState();
+                result = JobState.CANCELLED;
+            }
+        };
+        brokerLoadJob.executeReplayOnAborted(txnState);
+        Assert.assertEquals(99, (int) Deencapsulation.getField(brokerLoadJob, "progress"));
+        Assert.assertEquals(1, brokerLoadJob.getFinishTimestamp());
+        Assert.assertEquals(JobState.CANCELLED, brokerLoadJob.getState());
+    }
+
+
+    @Test
+    public void testExecuteReplayOnVisible(@Injectable TransactionState txnState,
+                                           @Injectable LoadJobFinalOperation attachment,
+                                           @Injectable EtlStatus etlStatus) {
+        BrokerLoadJob brokerLoadJob = new BrokerLoadJob();
+        new Expectations() {
+            {
+                txnState.getTxnCommitAttachment();
+                result = attachment;
+                attachment.getLoadingStatus();
+                result = etlStatus;
+                attachment.getProgress();
+                result = 99;
+                attachment.getFinishTimestamp();
+                result = 1;
+                attachment.getJobState();
+                result = JobState.LOADING;
+            }
+        };
+        brokerLoadJob.executeReplayOnAborted(txnState);
+        Assert.assertEquals(99, (int) Deencapsulation.getField(brokerLoadJob, "progress"));
+        Assert.assertEquals(1, brokerLoadJob.getFinishTimestamp());
+        Assert.assertEquals(JobState.LOADING, brokerLoadJob.getState());
     }
 }
