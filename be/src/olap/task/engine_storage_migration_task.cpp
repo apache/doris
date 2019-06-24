@@ -128,18 +128,23 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
         stringstream root_path_stream;
         root_path_stream << stores[0]->path() << DATA_PREFIX << "/" << shard;
         string schema_hash_path = SnapshotManager::instance()->get_schema_hash_full_path(tablet, root_path_stream.str());
+        // if dir already exist then return err, it should not happen
+        // should not remove the dir directly
         if (check_dir_existed(schema_hash_path)) {
-            VLOG(3) << "schema hash path already exist, remove it. "
-                    << "schema_hash_path=" << schema_hash_path;
-            remove_all_dir(schema_hash_path);
+            LOG(INFO) << "schema hash path already exist, skip this path. "
+                      << "schema_hash_path=" << schema_hash_path;
+            res = OLAP_ERR_FILE_ALREADY_EXIST;
+            break;
         }
+
         TabletMetaSharedPtr new_tablet_meta(new(std::nothrow) TabletMeta());
         res = TabletMetaManager::get_meta(stores[0], tablet->tablet_id(), tablet->schema_hash(), new_tablet_meta);
         if (res != OLAP_ERR_META_KEY_NOT_FOUND) {
             LOG(WARNING) << "tablet_meta already exists. "
                          << "data_dir:" << stores[0]->path()
                          << "tablet:" << tablet->full_name();
-            return OLAP_ERR_META_ALREADY_EXIST;
+            res = OLAP_ERR_META_ALREADY_EXIST;
+            break;
         }
         create_dirs(schema_hash_path);
 
@@ -190,7 +195,8 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
         if (new_tablet == nullptr) {
             LOG(WARNING) << "get null tablet. tablet_id=" << tablet_id
                          << " schema_hash=" << schema_hash;
-            return OLAP_ERR_TABLE_NOT_FOUND;
+            res = OLAP_ERR_TABLE_NOT_FOUND;
+            break;
         }
         AlterTabletTaskSharedPtr alter_task = tablet->alter_task();
         if (alter_task != nullptr) {
