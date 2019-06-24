@@ -220,7 +220,8 @@ private:
 template<FieldType Type>
 class BitShufflePageDecoder : public PageDecoder {
 public:
-    BitShufflePageDecoder(Slice data) : _data(data),
+    BitShufflePageDecoder(Slice data, const PageDecoderOptions& options) : _data(data),
+    _options(options),
     _parsed(false),
     _page_first_ordinal(0),
     _num_elements(0),
@@ -322,10 +323,6 @@ public:
         return _cur_index;
     }
 
-    rowid_t get_first_rowid() const override {
-        return _page_first_ordinal;
-    }
-
 private:
     void _copy_next_values(size_t n, void* data) {
         memcpy(data, &_decoded[_cur_index * SIZE_OF_TYPE], n * SIZE_OF_TYPE);
@@ -356,6 +353,7 @@ private:
     };
 
     Slice _data;
+    PageDecoderOptions _options;
     bool _parsed;
     rowid_t _page_first_ordinal;
     size_t _num_elements;

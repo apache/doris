@@ -46,7 +46,7 @@ public:
 
     template <FieldType Type, class PageBuilderType, class PageDecoderType>
     void test_encode_decode_page_template(typename TypeTraits<Type>::CppType* src,
-                size_t size) {
+            size_t size) {
         typedef typename TypeTraits<Type>::CppType CppType;
         const size_t ordinal_pos_base = 12345;
         PageBuilderOptions options;
@@ -55,11 +55,13 @@ public:
 
         page_builder.add(reinterpret_cast<const uint8_t *>(src), &size);
         Slice s = page_builder.finish(ordinal_pos_base);
+        LOG(INFO) << "RLE Encoded size for 10k values: " << s.size
+                << ", original size:" << size * sizeof(CppType);
 
-        PageDecoderType page_decoder(s);
+        segment_v2::PageDecoderOptions decoder_options;
+        PageDecoderType page_decoder(s, decoder_options);
         Status status = page_decoder.init();
         ASSERT_TRUE(status.ok());
-        ASSERT_EQ(ordinal_pos_base, page_decoder.get_first_rowid());
         ASSERT_EQ(0, page_decoder.current_index());
 
         std::unique_ptr<ColumnVector> dst_vector(new ColumnVector());
@@ -179,6 +181,18 @@ TEST_F(BitShufflePageTest, TestBitShuffleInt32BlockEncoderEqual) {
         segment_v2::BitShufflePageDecoder<OLAP_FIELD_TYPE_INT> >(ints.get(), size);
 }
 
+TEST_F(BitShufflePageTest, TestBitShuffleInt32BlockEncoderMaxNumberEqual) {
+    const uint32_t size = 10000;
+
+    std::unique_ptr<int32_t[]> ints(new int32_t[size]);
+    for (int i = 0; i < size; i++) {
+        ints.get()[i] = 1234567890;
+    }
+
+    test_encode_decode_page_template<OLAP_FIELD_TYPE_INT, segment_v2::BitshufflePageBuilder<OLAP_FIELD_TYPE_INT>,
+        segment_v2::BitShufflePageDecoder<OLAP_FIELD_TYPE_INT> >(ints.get(), size);
+}
+
 TEST_F(BitShufflePageTest, TestBitShuffleInt32BlockEncoderSequence) {
     const uint32_t size = 10000;
 
@@ -186,6 +200,20 @@ TEST_F(BitShufflePageTest, TestBitShuffleInt32BlockEncoderSequence) {
     int32_t number = 0;
     for (int i = 0; i < size; i++) {
         ints.get()[i] = ++number;
+    }
+
+    test_encode_decode_page_template<OLAP_FIELD_TYPE_INT, segment_v2::BitshufflePageBuilder<OLAP_FIELD_TYPE_INT>,
+        segment_v2::BitShufflePageDecoder<OLAP_FIELD_TYPE_INT> >(ints.get(), size);
+}
+
+TEST_F(BitShufflePageTest, TestBitShuffleInt32BlockEncoderMaxNumberSequence) {
+    const uint32_t size = 10000;
+
+    std::unique_ptr<int32_t[]> ints(new int32_t[size]);
+    int32_t number = 0;
+    for (int i = 0; i < size; i++) {
+        ints.get()[i] = 1234567890 + number;
+        ++number;
     }
 
     test_encode_decode_page_template<OLAP_FIELD_TYPE_INT, segment_v2::BitshufflePageBuilder<OLAP_FIELD_TYPE_INT>,

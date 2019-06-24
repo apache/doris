@@ -66,8 +66,9 @@ public:
 
         page_builder.add(reinterpret_cast<const uint8_t *>(src), &size);
         Slice s = page_builder.finish(ordinal_pos_base);
-    
-        PageDecoderType page_decoder(s);
+
+        PageDecoderOptions decoder_options;
+        PageDecoderType page_decoder(s, decoder_options);
         Status status = page_decoder.init();
         ASSERT_TRUE(status.ok());
         

@@ -41,9 +41,9 @@ namespace segment_v2 {
 
 class BinaryPlainPageBuilder : public PageBuilder {
 public:
-    BinaryPlainPageBuilder(const PageBuilderOptions options) :
+    BinaryPlainPageBuilder(const PageBuilderOptions& options) :
             _size_estimate(0),
-            _options(std::move(options)) {
+            _options(options) {
         _buffer.reserve(_options.data_page_size);
         reset();
     }
@@ -123,16 +123,17 @@ private:
     // Offsets of each entry, relative to the start of the page
     std::vector<uint32_t> _offsets;
     bool _finished;
-    const PageBuilderOptions _options;
+    PageBuilderOptions _options;
 };
 
 
 class BinaryPlainPageDecoder : public PageDecoder {
 public:
-    BinaryPlainPageDecoder(Slice data) : _data(data),
-                                   _parsed(false),
-                                   _num_elems(0),
-                                   _cur_idx(0) { }
+    BinaryPlainPageDecoder(Slice data, const PageDecoderOptions& options) : _data(data),
+            _options(options),
+            _parsed(false),
+            _num_elems(0),
+            _cur_idx(0) { }
 
     Status init() override {
         CHECK(!_parsed);
@@ -208,10 +209,6 @@ public:
         return _cur_idx;
     }
 
-    rowid_t get_first_rowid() const override {
-        return 0;
-    }
-
     Slice string_at_index(size_t idx) const {
         const uint32_t str_offset = offset(idx);
         uint32_t len = offset(idx + 1) - str_offset;
@@ -232,6 +229,7 @@ private:
     }
 
     Slice _data;
+    PageDecoderOptions _options;
     bool _parsed;
 
     // A buffer for an array of 32-bit integers for the offsets of the underlying strings in '_data'.

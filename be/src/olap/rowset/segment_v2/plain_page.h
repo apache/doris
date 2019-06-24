@@ -33,8 +33,8 @@ static const size_t PLAIN_PAGE_HEADER_SIZE = sizeof(uint32_t);
 template<FieldType Type>
 class PlainPageBuilder : public PageBuilder {
 public:
-    PlainPageBuilder(const PageBuilderOptions options) :
-            _options(std::move(options)) {
+    PlainPageBuilder(const PageBuilderOptions& options) :
+            _options(options) {
         // Reserve enough space for the page, plus a bit of slop since
         // we often overrun the page by a few values.
         _buffer.reserve(_options.data_page_size + 1024);
@@ -88,7 +88,7 @@ public:
 
 private:
     faststring _buffer;
-    const PageBuilderOptions _options;
+    PageBuilderOptions _options;
     size_t _count;
     typedef typename TypeTraits<Type>::CppType CppType;
     enum {
@@ -100,10 +100,11 @@ private:
 template<FieldType Type>
 class PlainPageDecoder : public PageDecoder {
 public:
-    PlainPageDecoder(Slice data) : _data(data),
-              _parsed(false),
-              _num_elems(0),
-              _cur_idx(0) { }
+    PlainPageDecoder(Slice data, const PageDecoderOptions& options) : _data(data),
+            _options(options),
+            _parsed(false),
+            _num_elems(0),
+            _cur_idx(0) { }
 
     Status init() override {
         CHECK(!_parsed);
@@ -170,12 +171,9 @@ public:
         return _cur_idx;
     }
 
-    rowid_t get_first_rowid() const override {
-        return 0;
-    }
-
 private:
     Slice _data;
+    PageDecoderOptions _options;
     bool _parsed;
     uint32_t _num_elems;
     uint32_t _cur_idx;
