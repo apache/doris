@@ -43,7 +43,7 @@ public:
     static EncodingTypePB get_default_encoding_type(const TypeInfo* type_info);
 
     Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) const {
-        return _create_buidler_func(opts, builder);
+        return _create_builder_func(opts, builder);
     }
     Status create_page_decoder(const Slice& data, PageDecoder** decoder) const {
         return _create_decoder_func(data, decoder);
@@ -57,7 +57,7 @@ private:
     EncodingInfo(TypeEncodingTraits traits);
 
     using CreateBuilderFunc = std::function<Status(const PageBuilderOptions&, PageBuilder**)>;
-    CreateBuilderFunc _create_buidler_func;
+    CreateBuilderFunc _create_builder_func;
 
     using CreateDecoderFunc = std::function<Status(const Slice&, PageDecoder**)>;
     CreateDecoderFunc _create_decoder_func;

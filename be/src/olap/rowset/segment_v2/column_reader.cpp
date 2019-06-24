@@ -17,7 +17,7 @@
 
 #include "olap/rowset/segment_v2/column_reader.h"
 
-#include "env/env.h" // for RleDecoder
+#include "env/env.h" // for RandomAccessFile
 #include "gutil/strings/substitute.h" // for Substitute
 #include "olap/rowset/segment_v2/encoding_info.h" // for EncodingInfo
 #include "olap/rowset/segment_v2/page_decoder.h" // for PagePointer
@@ -56,6 +56,7 @@ struct ParsedPage {
     uint32_t num_rows = 0;
 
     // current offset when read this page
+    // this means next row we will read
     uint32_t offset_in_page = 0;
     
     bool contains(rowid_t rid) { return rid >= first_rowid && rid < (first_rowid + num_rows); }

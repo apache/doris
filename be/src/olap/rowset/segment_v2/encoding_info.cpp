@@ -138,7 +138,7 @@ static EncodingInfoResolver s_encoding_info_resolver;
 
 template<typename TraitsClass>
 EncodingInfo::EncodingInfo(TraitsClass traits)
-        : _create_buidler_func(TraitsClass::create_page_builder),
+        : _create_builder_func(TraitsClass::create_page_builder),
         _create_decoder_func(TraitsClass::create_page_decoder),
         _type(TraitsClass::type),
         _encoding(TraitsClass::encoding) {
