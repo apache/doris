@@ -1,14 +1,26 @@
-# cast to big int
+# cast
 
 ## Syntax
 
-``` cast (input as BIGINT) ```
+```
+cast (input as type)
+```
 
 ## Description
 
+将 input 转成 指定的 type 
+
+## BIGINT type 
+
+### Syntax
+
+``` cast (input as BIGINT) ```
+
+### Description
+
 将当前列 input 转换为 BIGINT 类型
 
-## Examples
+### Examples
 
 1. 转常量，或表中某列
 
