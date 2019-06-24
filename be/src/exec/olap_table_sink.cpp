@@ -669,6 +669,7 @@ int OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitmap* 
                 if (str_val->len > desc->type().len) {
                     std::stringstream ss;
                     ss << "the length of input is too long than schema. "
+                        << "column_name: " << desc->col_name() << "; "
                         << "input_str: [" << std::string(str_val->ptr, str_val->len) << "] "
                         << "schema length: " << desc->type().len << "; "
                         << "actual length: " << str_val->len << "; ";
