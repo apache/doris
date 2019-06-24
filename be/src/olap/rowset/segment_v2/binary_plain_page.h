@@ -47,6 +47,7 @@ public:
             _end_of_data_offset(0),
             _size_estimate(0),
             _options(std::move(options)) {
+        _buffer.reserve(_options.data_page_size);
         reset();
     }
 
@@ -63,10 +64,11 @@ public:
         while (!is_page_full() && i < *count) {
             const Slice *src = reinterpret_cast<const Slice *>(vals);
             size_t offset = _buffer.size();
-            std::cout<< "add offset : " << offset << std::endl;
             _offsets.push_back(offset);
             _buffer.append(src->data, src->size);
+
             _size_estimate += src->size;
+            _size_estimate += sizeof(uint32_t);
 
             i++;
             vals += sizeof(Slice);
@@ -75,6 +77,7 @@ public:
         _end_of_data_offset = _buffer.size();
 
         *count = i;
+        return Status::OK();
     }
 
     Status get_dictionary_page(Slice *dictionary_page) override {
@@ -91,7 +94,7 @@ public:
         encode_fixed32_le(&_buffer[4], _offsets.size());
         encode_fixed32_le(&_buffer[8], offsets_pos);
 
-        _buffer.append(&_offsets[0], _offsets.size() * 4);
+        _buffer.append(&_offsets[0], _offsets.size() * sizeof(uint32_t));
 
         return Slice(_buffer.data(), _buffer.size());
     }
@@ -99,11 +102,9 @@ public:
     void reset() override {
         _offsets.clear();
         _buffer.clear();
-        _buffer.resize(kMaxHeaderSize);
-        _buffer.reserve(_options.data_page_size);
-
-        _size_estimate = kMaxHeaderSize;
-        _end_of_data_offset = kMaxHeaderSize;
+        _buffer.resize(MAX_HEADER_SIZE);
+        _size_estimate = MAX_HEADER_SIZE;
+        _end_of_data_offset = MAX_HEADER_SIZE;
         _finished = false;
     }
 
@@ -122,7 +123,7 @@ public:
     }
 
     // Length of a header.
-    static const size_t kMaxHeaderSize = sizeof(uint32_t) * 3;
+    static const size_t MAX_HEADER_SIZE = sizeof(uint32_t) * 3;
 private:
     faststring _buffer;
     size_t _end_of_data_offset;
@@ -145,10 +146,10 @@ public:
     Status init() override {
         CHECK(!_parsed);
 
-        if (_data.size < kMinHeaderSize) {
+        if (_data.size < MIN_HEADER_SIZE) {
             std::stringstream ss;
             ss << "file corrupton: not enough bytes for header in BinaryPlainPageDecoder ."
-                  "invalid data size:" << _data.size << ", header size:" << kMinHeaderSize;
+                  "invalid data size:" << _data.size << ", header size:" << MIN_HEADER_SIZE;
             return Status::InternalError(ss.str());
         }
 
@@ -156,8 +157,6 @@ public:
         _ordinal_pos_base  = decode_fixed32_le((const uint8_t *)&_data[0]);
         _num_elems         = decode_fixed32_le((const uint8_t *)&_data[4]);
         size_t offsets_pos = decode_fixed32_le((const uint8_t *)&_data[8]);
-
-        std::cout<< " init : num_elems : " << _num_elems << " : " << offsets_pos << std::endl;
 
         // Sanity check.
         if (offsets_pos > _data.size) {
@@ -175,13 +174,10 @@ public:
         // with an offset past the last element.
         _offsets_buf.resize(sizeof(uint32_t) * (_num_elems + 1));
         uint32_t* dst_ptr = reinterpret_cast<uint32_t*>(_offsets_buf.data());
-        std::cout<< "num_elems : " << _num_elems << std::endl; 
         for (int i = 0 ;i < _num_elems ;i++) {
             dst_ptr[i] = *((uint32_t*)p);
-            std::cout << "dst" << i <<" : " << dst_ptr[i] << std::endl;
             p += 4;
         }
-
         // Add one extra entry pointing after the last item to make the indexing easier.
         dst_ptr[_num_elems] = offsets_pos;
 
@@ -214,20 +210,20 @@ public:
         Slice *out = reinterpret_cast<Slice*>(dst->column_vector()->col_data());
         for (size_t i = 0; i < max_fetch; i++, out++, _cur_idx++) {
             Slice elem(string_at_index(_cur_idx));
-            std::cout<<"elem size" << elem.size<<" ,msg : " <<elem.to_string()<<std::endl;
             out->relocate((char*)elem.get_data());
             out->truncate(elem.size);
-            std::cout<<"elem size" << elem.size<<" ,msg : " <<elem.to_string()<<std::endl;
         }
         *n = max_fetch;
         return Status::OK();
     }
 
     size_t count() const override {
+        DCHECK(_parsed);
         return _num_elems;
     }
 
     size_t current_index() const override {
+        DCHECK(_parsed);
         return _cur_idx;
     }
 
@@ -242,7 +238,7 @@ public:
     }
 
     // Minimum length of a header.
-    static const size_t kMinHeaderSize = sizeof(uint32_t) * 3;
+    static const size_t MIN_HEADER_SIZE = sizeof(uint32_t) * 3;
 
 private:
 

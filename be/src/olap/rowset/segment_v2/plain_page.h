@@ -46,6 +46,10 @@ public:
     }
 
     Status add(const uint8_t *vals, size_t *count) override {
+        if (is_page_full()) {
+            *count = 0;
+            return Status::OK();
+        }
         size_t old_size = _buffer.size();
         _buffer.resize(old_size + *count * SIZE_OF_TYPE);
         memcpy(&_buffer[old_size], vals, *count * SIZE_OF_TYPE);
@@ -70,6 +74,7 @@ public:
     }
 
     size_t count() const {
+        DCHECK(_parsed);
         return _count;
     }
 
