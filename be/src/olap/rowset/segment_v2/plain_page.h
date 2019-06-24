@@ -74,7 +74,6 @@ public:
     }
 
     size_t count() const {
-        DCHECK(_parsed);
         return _count;
     }
 
@@ -165,10 +164,12 @@ public:
     }
 
     size_t count() const override {
+        DCHECK(_parsed);
         return _num_elems;
     }
 
     size_t current_index() const override {
+        DCHECK(_parsed);
         return _cur_idx;
     }
 
