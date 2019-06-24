@@ -373,10 +373,6 @@ bool SegmentGroup::index_loaded() {
 }
 
 OLAPStatus SegmentGroup::validate() {
-    if (!_file_created && !_empty || _file_created && _empty) {
-        LOG(FATAL) << "file created " << _file_created
-                   << " empty " << _empty;
-    }
     if (_empty) {
         return OLAP_SUCCESS;
     }
