@@ -1127,14 +1127,15 @@ OLAPStatus SchemaChangeHandler::process_alter_tablet(AlterTabletType type,
               << ", new_tablet_id=" << request.new_tablet_req.tablet_id
               << ", new_schema_hash=" << request.new_tablet_req.tablet_schema.schema_hash;
     OLAPStatus res = OLAP_SUCCESS;
-    // 1. Lock schema_change_lock util schema change info is stored in tablet header
+
+    // Lock schema_change_lock util schema change info is stored in tablet header
     if (!StorageEngine::instance()->tablet_manager()->try_schema_change_lock(request.base_tablet_id)) {
         LOG(WARNING) << "failed to obtain schema change lock. "
                      << "base_tablet=" << request.base_tablet_id;
         return OLAP_ERR_TRY_LOCK_FAILED;
     }
 
-    // 2. Get base tablet
+    // Get base tablet
     TabletSharedPtr base_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
             request.base_tablet_id, request.base_schema_hash);
     if (base_tablet == nullptr) {
@@ -1196,10 +1197,12 @@ OLAPStatus SchemaChangeHandler::process_alter_tablet(AlterTabletType type,
 
     ReadLock base_migration_rlock(base_tablet->get_migration_lock_ptr(), TRY_LOCK);
     if (!base_migration_rlock.own_lock()) {
+        StorageEngine::instance()->tablet_manager()->release_schema_change_lock(request.base_tablet_id);
         return OLAP_ERR_RWLOCK_ERROR;
     }
     ReadLock new_migration_rlock(new_tablet->get_migration_lock_ptr(), TRY_LOCK);
     if (!new_migration_rlock.own_lock()) {
+        StorageEngine::instance()->tablet_manager()->release_schema_change_lock(request.base_tablet_id);
         return OLAP_ERR_RWLOCK_ERROR;
     }
 
