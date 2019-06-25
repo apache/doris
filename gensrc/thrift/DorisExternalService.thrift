@@ -57,7 +57,7 @@ struct TScanRowBatch {
   2: optional i32 num_rows
 }
 
-struct TTabletInfo {
+struct TTabletVersionInfo {
   1: required i64 tablet_id
   2: required i64 version
   3: required i64 versionHash
@@ -65,7 +65,7 @@ struct TTabletInfo {
 
 struct TQueryPlanInfo {
   1: required Planner.TPlanFragment encode_plan_fragment
-  2: required list<TTabletInfo> tablet_ids
+  2: required list<TTabletVersionInfo> tablet_ids
   3: required Descriptors.TDescriptorTable desc_tbl
 }
 
