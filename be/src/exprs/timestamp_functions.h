@@ -60,6 +60,8 @@ public:
         doris_udf::FunctionContext* context, const doris_udf::DateTimeVal& ts_val);
     static doris_udf::IntVal month(
         doris_udf::FunctionContext* context, const doris_udf::DateTimeVal& ts_val);
+    static doris_udf::IntVal day_of_week(
+        doris_udf::FunctionContext* context, const doris_udf::DateTimeVal& ts_val);
     static doris_udf::IntVal day_of_month(
         doris_udf::FunctionContext* context, const doris_udf::DateTimeVal& ts_val);
     static doris_udf::IntVal day_of_year(
