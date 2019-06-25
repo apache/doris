@@ -503,35 +503,22 @@ public class Config extends ConfigBase {
      */
     @ConfField public static int export_checker_interval_second = 5;
     /*
-     * Concurrency of pending export jobs.
-     */
-    @ConfField public static int export_pending_thread_num = 5;
-    /*
-     * Num of thread to handle export jobs.
-     */
-    @ConfField public static int export_exporting_thread_num = 10;
-    /*
      * Limitation of the concurrency of running export jobs.
-     * Default is no limit.
+     * Default is 5.
+     * 0 is unlimited
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int export_running_job_num_limit = 0; // 0 is no limit
+    public static int export_running_job_num_limit = 5;
     /*
      * Default timeout of export jobs.
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int export_task_default_timeout_second = 24 * 3600; // 24h
+    public static int export_task_default_timeout_second = 2 * 3600; // 2h
     /*
-     * Concurrency of exporting tablets.
+     * Number of tablets per export query plan
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int export_parallel_tablet_num = 5;
-    /*
-     * Labels of finished or cancelled export jobs will be removed after *label_keep_max_second*.
-     * The removed labels can be reused.
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static int export_keep_max_second = 3 * 24 * 3600; // 3 days
+    public static int export_tablet_num_per_task = 5;
 
     // Configurations for consistency check
     /*

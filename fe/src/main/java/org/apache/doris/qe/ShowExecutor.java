@@ -1166,7 +1166,6 @@ public class ShowExecutor {
 
     private void handleShowExport() throws AnalysisException {
         ShowExportStmt showExportStmt = (ShowExportStmt) stmt;
-
         Catalog catalog = Catalog.getInstance();
         Database db = catalog.getDb(showExportStmt.getDbName());
         if (db == null) {
@@ -1181,25 +1180,10 @@ public class ShowExecutor {
         if (state != null) {
             states = Sets.newHashSet(state);
         }
-        List<List<Comparable>> infos = exportMgr.getExportJobInfosByIdOrState(
-                dbId, showExportStmt.getJobId(),
-                states, showExportStmt.getOrderByPairs());
-        List<List<String>> rows = Lists.newArrayList();
-        for (List<Comparable> loadInfo : infos) {
-            List<String> oneInfo = new ArrayList<String>(loadInfo.size());
-            for (Comparable element : loadInfo) {
-                oneInfo.add(element.toString());
-            }
-            rows.add(oneInfo);
-        }
+        List<List<String>> infos = exportMgr.getExportJobInfosByIdOrState(
+                dbId, showExportStmt.getJobId(), states, showExportStmt.getOrderByPairs(), showExportStmt.getLimit());
 
-        // filter by limit
-        long limit = showExportStmt.getLimit();
-        if (limit != -1L && limit < rows.size()) {
-            rows = rows.subList(0, (int) limit);
-        }
-
-        resultSet = new ShowResultSet(showExportStmt.getMetaData(), rows);
+        resultSet = new ShowResultSet(showExportStmt.getMetaData(), infos);
     }
 
     private void handleShowBackends() {

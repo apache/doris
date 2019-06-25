@@ -21,14 +21,13 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.Version;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.common.Version;
 import org.apache.doris.load.ExportFailMsg;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.qe.Coordinator;
@@ -76,19 +75,20 @@ public class ExportExportingTask extends MasterTask {
         if (job.getState() != ExportJob.JobState.EXPORTING) {
             return;
         }
-        LOG.warn("begin exec export job. job: {}", job);
+        LOG.info("begin execute export job in exporting state. job: {}", job);
 
         synchronized (job) {
             if (job.getDoExportingThread() != null) {
-                LOG.warn("export task already executing.");
+                LOG.warn("export task is already being executed.");
                 return;
             }
             job.setDoExportingThread(Thread.currentThread());
         }
 
-        // Check exec fragments should already generated
         if (job.isReplayed()) {
-            String failMsg = "do not have exec request.";
+            // If the job is created from replay thread, all plan info will be lost.
+            // so the job has to be cancelled.
+            String failMsg = "FE restarted or Master changed during exporting. Job must be cancalled.";
             job.cancel(ExportFailMsg.CancelType.RUN_FAIL, failMsg);
             return;
         }
@@ -108,25 +108,31 @@ public class ExportExportingTask extends MasterTask {
                 }
                 if (j < RETRY_NUM - 1) {
                     TUniqueId queryId = coord.getQueryId();
-                    LOG.info("export exporting job fail. query_id: {}, job: {}. Retry.", queryId, job);
                     coord.clearExportStatus();
 
-                    // gen one new queryId here, to avoid being rejected by BE,
+                    // generate one new queryId here, to avoid being rejected by BE,
                     // because the request is considered as a repeat request.
                     // we make the high part of query id unchanged to facilitate tracing problem by log.
                     UUID uuid = UUID.randomUUID();
                     TUniqueId newQueryId = new TUniqueId(queryId.hi, uuid.getLeastSignificantBits());
                     coord.setQueryId(newQueryId);
+                    LOG.warn("export exporting job fail. err: {}. query_id: {}, job: {}. retry. {}, new query id: {}",
+                            coord.getExecStatus().getErrorMsg(), DebugUtil.printId(queryId), job.getId(), j,
+                            DebugUtil.printId(newQueryId));
                 }
             }
+
             if (!coord.getExecStatus().ok()) {
-                onFailed(coord.getExecStatus());
+                onFailed(coord);
+            } else {
+                int progress = (int) (i + 1) * 100 / coordSize;
+                if (progress >= 100) {
+                    progress = 99;
+                }
+                job.setProgress(progress);
+                LOG.info("finish coordinator with query id {}, export job: {}. progress: {}",
+                        DebugUtil.printId(coord.getQueryId()), job.getId(), progress);
             }
-            int progress = (int) (i + 1) * 100 / coordSize;
-            if (progress >= 100) {
-                progress = 99;
-            }
-            job.setProgress(progress);
 
             coord.getQueryProfile().getCounterTotalTime().setValue(TimeUtils.getEstimatedTime(job.getStartTimeMs()));
             coord.endProfile();
@@ -134,21 +140,7 @@ public class ExportExportingTask extends MasterTask {
         }
 
         if (isCancelled) {
-            String failMsg = "export exporting job fail. ";
-            failMsg += failStatus.getErrorMsg();
-            job.cancel(cancelType, failMsg);
-            LOG.warn("export exporting job fail. job: {}", job);
-            registerProfile();
-            return;
-        }
-
-        // release snapshot
-        Status releaseSnapshotStatus = job.releaseSnapshotPaths();
-        if (!releaseSnapshotStatus.ok()) {
-            String failMsg = "release snapshot fail.";
-            failMsg += releaseSnapshotStatus.getErrorMsg();
-            job.cancel(ExportFailMsg.CancelType.RUN_FAIL, failMsg);
-            LOG.warn("release snapshot fail. job:{}", job);
+            job.cancel(cancelType, null /* error msg is already set */);
             registerProfile();
             return;
         }
@@ -162,6 +154,15 @@ public class ExportExportingTask extends MasterTask {
             LOG.warn("move tmp file to final destination fail. job:{}", job);
             registerProfile();
             return;
+        }
+
+        // release snapshot
+        Status releaseSnapshotStatus = job.releaseSnapshotPaths();
+        if (!releaseSnapshotStatus.ok()) {
+            // even if release snapshot failed, do nothing cancel this job.
+            // snapshot will be removed by GC thread on BE, finally.
+            LOG.warn("failed to release snapshot for export job: {}. err: {}", job.getId(),
+                    releaseSnapshotStatus.getErrorMsg());
         }
 
         if (job.updateState(ExportJob.JobState.FINISHED)) {
@@ -178,35 +179,34 @@ public class ExportExportingTask extends MasterTask {
         TUniqueId queryId = coord.getQueryId();
         boolean needUnregister = false;
         try {
-            QeProcessorImpl.INSTANCE
-                        .registerQuery(queryId, coord);
+            QeProcessorImpl.INSTANCE.registerQuery(queryId, coord);
             needUnregister = true;
             actualExecCoord(queryId, coord);
         } catch (UserException e) {
-            LOG.warn("export exporting internal error. {}", e.getMessage());
+            LOG.warn("export exporting internal error, job: {}", job.getId(), e);
+            return new Status(TStatusCode.INTERNAL_ERROR, e.getMessage());
         } finally {
             if (needUnregister) {
                 QeProcessorImpl.INSTANCE.unregisterQuery(queryId);
             }
         }
-
         return Status.OK;
     }
 
     private void actualExecCoord(TUniqueId queryId, Coordinator coord) {
-        int waitSecond = Config.export_task_default_timeout_second;
-        if (waitSecond <= 0) {
+        int leftTimeSecond = getLeftTimeSecond();
+        if (leftTimeSecond <= 0) {
             onTimeout();
             return;
         }
-
+        
         try {
             coord.exec();
         } catch (Exception e) {
-            LOG.warn("export Coordinator execute failed.");
+            LOG.warn("export Coordinator execute failed. job: {}", job.getId(), e);
         }
 
-        if (coord.join(waitSecond)) {
+        if (coord.join(leftTimeSecond)) {
             Status status = coord.getExecStatus();
             if (status.ok()) {
                 onSubTaskFinished(coord.getExportFiles());
@@ -216,25 +216,29 @@ public class ExportExportingTask extends MasterTask {
         }
     }
 
+    private int getLeftTimeSecond() {
+        return (int) (job.getTimeoutSecond() - (System.currentTimeMillis() - job.getCreateTimeMs()) / 1000);
+    }
+
     private synchronized void onSubTaskFinished(List<String> exportFiles) {
         job.addExportedFiles(exportFiles);
     }
 
-    private synchronized void onFailed(Status failStatus) {
+    private synchronized void onFailed(Coordinator coordinator) {
         isCancelled = true;
-        this.failStatus = failStatus;
+        this.failStatus = coordinator.getExecStatus();
         cancelType = ExportFailMsg.CancelType.RUN_FAIL;
-        String failMsg = "export exporting job fail. ";
+        String failMsg = "export exporting job fail. query id: " + DebugUtil.printId(coordinator.getQueryId())
+                + ", ";
         failMsg += failStatus.getErrorMsg();
         job.setFailMsg(new ExportFailMsg(cancelType, failMsg));
-        LOG.warn("export exporting job fail. job: {}", job);
+        LOG.warn("export exporting job fail. err: {}. job: {}", failMsg, job);
     }
 
     public synchronized void onTimeout() {
         isCancelled = true;
         this.failStatus = new Status(TStatusCode.TIMEOUT, "timeout");
         cancelType = ExportFailMsg.CancelType.TIMEOUT;
-        String failMsg = "export exporting job timeout";
         LOG.warn("export exporting job timeout. job: {}", job);
     }
 
@@ -273,7 +277,7 @@ public class ExportExportingTask extends MasterTask {
             String localIP = FrontendOptions.getLocalHostAddress();
             broker = Catalog.getInstance().getBrokerMgr().getBroker(job.getBrokerDesc().getName(), localIP);
         } catch (AnalysisException e) {
-            String failMsg = "get broker failed. msg=" + e.getMessage();
+            String failMsg = "get broker failed. export job: " + job.getId() + ". msg: " + e.getMessage();
             LOG.warn(failMsg);
             return new Status(TStatusCode.CANCELLED, failMsg);
         }
@@ -295,9 +299,10 @@ public class ExportExportingTask extends MasterTask {
         List<String> newFiles = Lists.newArrayList();
         String exportPath = job.getExportPath();
         for (String exportedFile : exportedFiles) {
+            // move exportPath/__doris_tmp/file to exportPath/file
             String file = exportedFile.substring(exportedFile.lastIndexOf("/") + 1);
             String destPath = exportPath + "/" + file;
-            LOG.debug("rename {} to {}", exportedFile, destPath);
+            LOG.debug("rename {} to {}, export job: {}", exportedFile, destPath, job.getId());
             String failMsg = "";
             try {
                 TBrokerRenamePathRequest request = new TBrokerRenamePathRequest(

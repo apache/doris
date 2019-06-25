@@ -17,7 +17,6 @@
 
 package org.apache.doris.load;
 
-import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.ExportStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Catalog;
@@ -29,9 +28,9 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.gson.Gson;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -44,6 +43,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.stream.Collectors;
 
 public class ExportMgr {
     private static final Logger LOG = LogManager.getLogger(ExportJob.class);
@@ -89,7 +89,7 @@ public class ExportMgr {
         } finally {
             writeUnlock();
         }
-        LOG.debug("debug: add export job. {}", job);
+        LOG.info("add export job. {}", job);
     }
 
     public void unprotectAddJob(ExportJob job) {
@@ -119,14 +119,15 @@ public class ExportMgr {
     }
 
     // NOTE: jobid and states may both specified, or only one of them, or neither
-    public LinkedList<List<Comparable>> getExportJobInfosByIdOrState(
+    public List<List<String>> getExportJobInfosByIdOrState(
             long dbId, long jobId, Set<ExportJob.JobState> states,
-            ArrayList<OrderByPair> orderByPairs) {
+            ArrayList<OrderByPair> orderByPairs, long limit) {
 
+        long resultNum = limit == -1L ? Integer.MAX_VALUE : limit;
         LinkedList<List<Comparable>> exportJobInfos = new LinkedList<List<Comparable>>();
-
         readLock();
         try {
+            int counter = 0;
             for (ExportJob job : idToJob.values()) {
                 long id = job.getId();
                 ExportJob.JobState state = job.getState();
@@ -142,7 +143,6 @@ public class ExportMgr {
                 }
 
                 // check auth
-
                 TableName tableName = job.getTableName();
                 if (tableName == null || tableName.getTbl().equals("DUMMY")) {
                     // forward compatibility, no table name is saved before
@@ -161,8 +161,7 @@ public class ExportMgr {
                         continue;
                     }
                 }
-                
-                
+
                 if (states != null) {
                     if (!states.contains(state)) {
                         continue;
@@ -170,28 +169,35 @@ public class ExportMgr {
                 }
 
                 List<Comparable> jobInfo = new ArrayList<Comparable>();
-                // add slot in order
+
                 jobInfo.add(id);
                 jobInfo.add(state.name());
                 jobInfo.add(job.getProgress() + "%");
+
                 // task infos
-                StringBuilder sb = new StringBuilder();
-                sb.append(" PARTITION:");
+                Map<String, Object> infoMap = Maps.newHashMap();
                 List<String> partitions = job.getPartitions();
                 if (partitions == null) {
-                    sb.append("ALL");
-                } else {
-                    Joiner.on(",").appendTo(sb, partitions);
+                    partitions = Lists.newArrayList();
+                    partitions.add("*");
                 }
-                sb.append("; ");
+                infoMap.put("db", job.getTableName().getDb());
+                infoMap.put("tbl", job.getTableName().getTbl());
+                infoMap.put("partitions", partitions);
+                infoMap.put("broker", job.getBrokerDesc().getName());
+                infoMap.put("column separator", job.getColumnSeparator());
+                infoMap.put("line delimiter", job.getLineDelimiter());
+                infoMap.put("exec mem limit", job.getExecMemLimit());
+                infoMap.put("coord num", job.getCoordList().size());
+                infoMap.put("tablet num", job.getTabletLocations() == null ? -1 : job.getTabletLocations().size());
+                jobInfo.add(new Gson().toJson(infoMap));
+                // path
+                jobInfo.add(job.getExportPath());
 
-                BrokerDesc brokerDesc = job.getBrokerDesc();
-                if (brokerDesc != null) {
-                    sb.append("BROKER:").append(brokerDesc.getName());
-                }
-                jobInfo.add(sb.toString());
-
-                sb.append("PATH:").append(job.getExportPath());
+                jobInfo.add(TimeUtils.longToTimeString(job.getCreateTimeMs()));
+                jobInfo.add(TimeUtils.longToTimeString(job.getStartTimeMs()));
+                jobInfo.add(TimeUtils.longToTimeString(job.getFinishTimeMs()));
+                jobInfo.add(job.getTimeoutSecond());
 
                 // error msg
                 if (job.getState() == ExportJob.JobState.CANCELLED) {
@@ -201,12 +207,11 @@ public class ExportMgr {
                     jobInfo.add("N/A");
                 }
 
-                jobInfo.add(TimeUtils.longToTimeString(job.getCreateTimeMs()));
-                jobInfo.add(TimeUtils.longToTimeString(job.getStartTimeMs()));
-                jobInfo.add(TimeUtils.longToTimeString(job.getFinishTimeMs()));
-                jobInfo.add(job.getExportPath());
-
                 exportJobInfos.add(jobInfo);
+
+                if (counter++ >= resultNum) {
+                    break;
+                }
             }
         } finally {
             readUnlock();
@@ -223,7 +228,12 @@ public class ExportMgr {
         }
         Collections.sort(exportJobInfos, comparator);
 
-        return exportJobInfos;
+        List<List<String>> results = Lists.newArrayList();
+        for (List<Comparable> list : exportJobInfos) {
+            results.add(list.stream().map(e -> e.toString()).collect(Collectors.toList()));
+        }
+
+        return results;
     }
 
     public void removeOldExportJobs() {
@@ -235,7 +245,7 @@ public class ExportMgr {
             while (iter.hasNext()) {
                 Map.Entry<Long, ExportJob> entry = iter.next();
                 ExportJob job = entry.getValue();
-                if ((currentTimeMs - job.getCreateTimeMs()) / 1000 > Config.export_keep_max_second
+                if ((currentTimeMs - job.getCreateTimeMs()) / 1000 > Config.history_job_keep_max_second
                         && (job.getState() == ExportJob.JobState.CANCELLED
                             || job.getState() == ExportJob.JobState.FINISHED)) {
                     iter.remove();

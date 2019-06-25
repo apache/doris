@@ -105,17 +105,7 @@ public class ShowExportStmt extends ShowStmt {
 
         // analyze where clause if not null
         if (whereClause != null) {
-            if (whereClause instanceof CompoundPredicate) {
-                CompoundPredicate cp = (CompoundPredicate) whereClause;
-                if (cp.getOp() != CompoundPredicate.Operator.AND) {
-                    throw new AnalysisException("Only allow compound predicate with operator AND");
-                }
-
-                analyzeSubPredicate(cp.getChild(0));
-                analyzeSubPredicate(cp.getChild(1));
-            } else {
-                analyzeSubPredicate(whereClause);
-            }
+            analyzePredicate(whereClause);
         }
 
         // order by
@@ -133,8 +123,8 @@ public class ShowExportStmt extends ShowStmt {
         }
     }
 
-    private void analyzeSubPredicate(Expr subExpr) throws AnalysisException {
-        if (subExpr == null) {
+    private void analyzePredicate(Expr whereExpr) throws AnalysisException {
+        if (whereExpr == null) {
             return;
         }
 
@@ -144,15 +134,9 @@ public class ShowExportStmt extends ShowStmt {
         
         CHECK: {
             // check predicate type
-            if (subExpr instanceof BinaryPredicate) {
-                BinaryPredicate binaryPredicate = (BinaryPredicate) subExpr;
+            if (whereExpr instanceof BinaryPredicate) {
+                BinaryPredicate binaryPredicate = (BinaryPredicate) whereExpr;
                 if (binaryPredicate.getOp() != Operator.EQ) {
-                    valid = false;
-                    break CHECK;
-                }
-            } else if (subExpr instanceof LikePredicate) {
-                LikePredicate likePredicate = (LikePredicate) subExpr;
-                if (likePredicate.getOp() != LikePredicate.Operator.LIKE) {
                     valid = false;
                     break CHECK;
                 }
@@ -162,12 +146,12 @@ public class ShowExportStmt extends ShowStmt {
             }
             
             // left child
-            if (!(subExpr.getChild(0) instanceof SlotRef)) {
+            if (!(whereExpr.getChild(0) instanceof SlotRef)) {
                 valid = false;
                 break CHECK;
             }
-            String leftKey = ((SlotRef) subExpr.getChild(0)).getColumnName();
-            if (leftKey.equalsIgnoreCase("export_job_id")) {
+            String leftKey = ((SlotRef) whereExpr.getChild(0)).getColumnName();
+            if (leftKey.equalsIgnoreCase("id")) {
                 hasJobId = true;
             } else if (leftKey.equalsIgnoreCase("state")) {
                 hasState = true;
@@ -178,17 +162,12 @@ public class ShowExportStmt extends ShowStmt {
             
             // right child
             if (hasState) {
-                if (!(subExpr instanceof BinaryPredicate)) {
+                if (!(whereExpr.getChild(1) instanceof StringLiteral)) {
                     valid = false;
                     break CHECK;
                 }
 
-                if (!(subExpr.getChild(1) instanceof StringLiteral)) {
-                    valid = false;
-                    break CHECK;
-                }
-
-                String value = ((StringLiteral) subExpr.getChild(1)).getStringValue();
+                String value = ((StringLiteral) whereExpr.getChild(1)).getStringValue();
                 if (Strings.isNullOrEmpty(value)) {
                     valid = false;
                     break CHECK;
@@ -204,27 +183,18 @@ public class ShowExportStmt extends ShowStmt {
                     break CHECK;
                 }
             } else if (hasJobId) {
-                if (!(subExpr.getChild(1) instanceof IntLiteral)) {
+                if (!(whereExpr.getChild(1) instanceof IntLiteral)) {
                     valid = false;
                     break CHECK;
                 }
-
-                if (!(subExpr.getChild(1) instanceof IntLiteral)) {
-                    LOG.warn("job_id is not IntLiteral. value: {}", subExpr.toSql());
-                    valid = false;
-                    break CHECK;
-                }
-
-                jobId = ((IntLiteral) subExpr.getChild(1)).getLongValue();
+                jobId = ((IntLiteral) whereExpr.getChild(1)).getLongValue();
             }
         }
         
 
         if (!valid) {
             throw new AnalysisException("Where clause should looks like below: "
-                    + " EXPORT_JOB_ID = $your_job_id,"
-                    + " or STATE = \"PENDING|EXPORTING|FINISHED|CANCELLED\", "
-                    + " or compound predicate with operator AND");
+                    + " job_id = $your_job_id, or STATE = \"PENDING|EXPORTING|FINISHED|CANCELLED\"");
         }
     }
 
