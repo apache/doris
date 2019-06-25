@@ -340,8 +340,8 @@ int MiniLoadAction::on_header(HttpRequest* req) {
     }
 	
     Status status;
-         MiniLoadCtx* mini_load_ctx = new MiniLoadCtx(_is_streaming(req));
-        req->set_handler_ctx(mini_load_ctx);	
+    MiniLoadCtx* mini_load_ctx = new MiniLoadCtx(_is_streaming(req));
+    req->set_handler_ctx(mini_load_ctx);	
     if (((MiniLoadCtx*) req->handler_ctx())->is_streaming) {
         status = _on_new_header(req);
         StreamLoadContext* ctx = ((MiniLoadCtx*) req->handler_ctx())->stream_load_ctx;
@@ -358,12 +358,10 @@ int MiniLoadAction::on_header(HttpRequest* req) {
     return 0;
 }
 
-void MiniLoadAction::_set_is_streaming(HttpRequest* req) { 
+bool MiniLoadAction::_is_streaming(HttpRequest* req) { 
     // multi load must be non-streaming
     if (!req->param(SUB_LABEL_KEY).empty()) {
-        MiniLoadCtx* mini_load_ctx = new MiniLoadCtx(false);
-        req->set_handler_ctx(mini_load_ctx);
-        return;
+        return false;
     }
 
     TIsMethodSupportedRequest request;
@@ -380,9 +378,7 @@ void MiniLoadAction::_set_is_streaming(HttpRequest* req) {
         ss << "This mini load is not streaming because: " << status.get_error_msg()
 		    << " with address(" << master_address.hostname << ":" << master_address.port << ")";
         LOG(INFO) << ss.str();
-        MiniLoadCtx* mini_load_ctx = new MiniLoadCtx(false);
-        req->set_handler_ctx(mini_load_ctx);
-        return;
+        return false;
     }
    
     status = Status(res.status);
@@ -392,13 +388,11 @@ void MiniLoadAction::_set_is_streaming(HttpRequest* req) {
 		    << " with address(" << master_address.hostname << ":" << master_address.port 
                     << ")";
         LOG(INFO) << ss.str();
-        MiniLoadCtx* mini_load_ctx = new MiniLoadCtx(false);
-        req->set_handler_ctx(mini_load_ctx);
-        return;
+        return false;
     }
     MiniLoadCtx* mini_load_ctx = new MiniLoadCtx(true);
     req->set_handler_ctx(mini_load_ctx);
-    return;
+    return true;
 }
 
 Status MiniLoadAction::_on_header(HttpRequest* req) {
