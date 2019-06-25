@@ -71,7 +71,6 @@ public:
         Status status = page_decoder.init();
         ASSERT_TRUE(status.ok());
         
-        ASSERT_EQ(ordinal_pos_base, page_decoder.get_first_rowid());
         ASSERT_EQ(0, page_decoder.current_index());
         
         std::unique_ptr<ColumnVector> dst_vector(new ColumnVector());
