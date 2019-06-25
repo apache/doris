@@ -233,6 +233,8 @@ ${DORIS_TEST_BINARY_DIR}/olap/field_info_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/encoding_info_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/ordinal_page_index_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/bitshuffle_page_test
+${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/plain_page_test
+${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/binary_plain_page_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/column_reader_writer_test
 
 # Running routine load test
