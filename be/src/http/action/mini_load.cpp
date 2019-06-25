@@ -66,17 +66,10 @@
 
 namespace doris {
 
-struct MiniLoadCtx {
-    MiniLoadCtx(bool is_streaming_) : is_streaming(is_streaming_) {} 
-
-    bool is_streaming;
-    void* ctx;
-};
-
 // context used to handle mini-load in asynchronous mode
-struct MiniLoadAsynCtx {
-    MiniLoadAsynCtx(MiniLoadAction* handler_) : handler(handler_) { }
-    ~MiniLoadAsynCtx() {
+struct MiniLoadAsyncCtx {
+    MiniLoadAsyncCtx(MiniLoadAction* handler_) : handler(handler_) { }
+    ~MiniLoadAsyncCtx() {
         if (need_remove_handle) {
             handler->erase_handle(load_handle);
         }
@@ -99,6 +92,14 @@ struct MiniLoadAsynCtx {
     size_t bytes_written = 0;
 
     TLoadCheckRequest load_check_req;
+};
+
+struct MiniLoadCtx {
+    MiniLoadCtx(bool is_streaming_) : is_streaming(is_streaming_) {} 
+
+    bool is_streaming = false;
+    MiniLoadAsyncCtx* mini_load_async_ctx = nullptr;
+	StreamLoadContext* stream_load_ctx = nullptr;
 };
 
 const std::string CLUSTER_KEY = "cluster";
@@ -342,7 +343,7 @@ int MiniLoadAction::on_header(HttpRequest* req) {
     _set_is_streaming(req);	
     if (((MiniLoadCtx*) req->handler_ctx())->is_streaming) {
         status = _on_new_header(req);
-        StreamLoadContext* ctx = (StreamLoadContext*) ((MiniLoadCtx*) req->handler_ctx())->ctx;
+        StreamLoadContext* ctx = ((MiniLoadCtx*) req->handler_ctx())->stream_load_ctx;
         if (ctx != nullptr) {
             ctx->status = status;
         }
@@ -417,42 +418,42 @@ Status MiniLoadAction::_on_header(HttpRequest* req) {
 
     RETURN_IF_ERROR(check_request(req));
 
-    std::unique_ptr<MiniLoadAsynCtx> mini_load_asyn_ctx(new MiniLoadAsynCtx(this));
-    mini_load_asyn_ctx->body_bytes = body_bytes;
-    mini_load_asyn_ctx->load_handle.db = req->param(DB_KEY);
-    mini_load_asyn_ctx->load_handle.label = req->param(LABEL_KEY);
-    mini_load_asyn_ctx->load_handle.sub_label = req->param(SUB_LABEL_KEY);
+    std::unique_ptr<MiniLoadAsyncCtx> mini_load_async_ctx(new MiniLoadAsyncCtx(this));
+    mini_load_async_ctx->body_bytes = body_bytes;
+    mini_load_async_ctx->load_handle.db = req->param(DB_KEY);
+    mini_load_async_ctx->load_handle.label = req->param(LABEL_KEY);
+    mini_load_async_ctx->load_handle.sub_label = req->param(SUB_LABEL_KEY);
 
     // check if duplicate
     // Use this to prevent that two callback function write to one file
     // that file may be writen bad
     {
         std::lock_guard<std::mutex> l(_lock);
-        if (_current_load.find(mini_load_asyn_ctx->load_handle) != _current_load.end()) {
+        if (_current_load.find(mini_load_async_ctx->load_handle) != _current_load.end()) {
             return Status::InternalError("Duplicate mini load request.");
         }
-        _current_load.insert(mini_load_asyn_ctx->load_handle);
-        mini_load_asyn_ctx->need_remove_handle = true;
+        _current_load.insert(mini_load_async_ctx->load_handle);
+        mini_load_async_ctx->need_remove_handle = true;
     }
     // generate load check request
-    RETURN_IF_ERROR(generate_check_load_req(req, &mini_load_asyn_ctx->load_check_req));
+    RETURN_IF_ERROR(generate_check_load_req(req, &mini_load_async_ctx->load_check_req));
 
     // Check auth
-    RETURN_IF_ERROR(check_auth(req, mini_load_asyn_ctx->load_check_req));
+    RETURN_IF_ERROR(check_auth(req, mini_load_async_ctx->load_check_req));
 
     // Receive data first, keep things easy.
-    RETURN_IF_ERROR(data_saved_dir(mini_load_asyn_ctx->load_handle, req->param(TABLE_KEY),
-                                   &mini_load_asyn_ctx->file_path));
+    RETURN_IF_ERROR(data_saved_dir(mini_load_async_ctx->load_handle, req->param(TABLE_KEY),
+                                   &mini_load_async_ctx->file_path));
     // destructor will close the file handle, not depend on DeferOp any more
-    mini_load_asyn_ctx->fd = open(mini_load_asyn_ctx->file_path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0660);
-    if (mini_load_asyn_ctx->fd < 0) {
+    mini_load_async_ctx->fd = open(mini_load_async_ctx->file_path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0660);
+    if (mini_load_async_ctx->fd < 0) {
         char buf[64];
-        LOG(WARNING) << "open file failed, path=" << mini_load_asyn_ctx->file_path
+        LOG(WARNING) << "open file failed, path=" << mini_load_async_ctx->file_path
             << ", errno=" << errno << ", errmsg=" << strerror_r(errno, buf, sizeof(buf));
         return Status::InternalError("open file failed");
     }
 
-    ((MiniLoadCtx*) req->handler_ctx())->ctx = mini_load_asyn_ctx.release();
+    ((MiniLoadCtx*) req->handler_ctx())->mini_load_async_ctx = mini_load_async_ctx.release();
     return Status::OK();
 }
 
@@ -466,7 +467,7 @@ void MiniLoadAction::on_chunk_data(HttpRequest* http_req) {
 }
 
 void MiniLoadAction::_on_chunk_data(HttpRequest* http_req) {
-    MiniLoadAsynCtx* ctx = (MiniLoadAsynCtx*) ((MiniLoadCtx*) http_req->handler_ctx())->ctx;
+    MiniLoadAsyncCtx* ctx = ((MiniLoadCtx*) http_req->handler_ctx())->mini_load_async_ctx;
     if (ctx == nullptr) {
         return;
     }
@@ -497,7 +498,7 @@ void MiniLoadAction::_on_chunk_data(HttpRequest* http_req) {
 }
 
 void MiniLoadAction::_on_new_chunk_data(HttpRequest* http_req) {
-    StreamLoadContext* ctx = (StreamLoadContext*) ((MiniLoadCtx*) http_req->handler_ctx())->ctx;
+    StreamLoadContext* ctx = ((MiniLoadCtx*) http_req->handler_ctx())->stream_load_ctx;
     if (ctx == nullptr || !ctx->status.ok()) {
         return;
     }
@@ -524,22 +525,21 @@ void MiniLoadAction::_on_new_chunk_data(HttpRequest* http_req) {
 void MiniLoadAction::free_handler_ctx(void* param) {
     MiniLoadCtx* ctx = (MiniLoadCtx*) param;
     if (ctx->is_streaming) {
-        StreamLoadContext* streaming_ctx = (StreamLoadContext*) ((MiniLoadCtx*) param)->ctx;
-        if (streaming_ctx == nullptr) {
-            return;
-        }
-        // sender is going, make receiver know it
-        if (streaming_ctx->body_sink != nullptr) {
-            streaming_ctx->body_sink->cancel();
-        }
-        if (streaming_ctx->unref()) {
-            delete streaming_ctx;
-        }
+        StreamLoadContext* streaming_ctx = ((MiniLoadCtx*) param)->stream_load_ctx;
+        if (streaming_ctx != nullptr) {
+            // sender is going, make receiver know it
+            if (streaming_ctx->body_sink != nullptr) {
+                streaming_ctx->body_sink->cancel();
+            }
+            if (streaming_ctx->unref()) {
+                delete streaming_ctx;
+            }
+		}
     } else {
-        MiniLoadAsynCtx* asyn_ctx = (MiniLoadAsynCtx*) ((MiniLoadCtx*) param)->ctx;
-        delete asyn_ctx;
+        MiniLoadAsyncCtx* async_ctx = ((MiniLoadCtx*) param)->mini_load_async_ctx;
+        delete async_ctx;
     }
-	delete ctx;
+    delete ctx;
 }
 
 void MiniLoadAction::handle(HttpRequest *http_req) {
@@ -552,7 +552,7 @@ void MiniLoadAction::handle(HttpRequest *http_req) {
 }
 
 void MiniLoadAction::_handle(HttpRequest* http_req) {
-    MiniLoadAsynCtx* ctx = (MiniLoadAsynCtx*) ((MiniLoadCtx*) http_req->handler_ctx())->ctx;
+    MiniLoadAsyncCtx* ctx = ((MiniLoadCtx*) http_req->handler_ctx())->mini_load_async_ctx;
     if (ctx == nullptr) {
         // when ctx is nullptr, there must be error happend when on_chunk_data
         // and reply is sent, we just return with no operation
@@ -752,7 +752,7 @@ Status MiniLoadAction::_on_new_header(HttpRequest* req) {
 
     StreamLoadContext* ctx = new StreamLoadContext(_exec_env);
     ctx->ref();
-    ((MiniLoadCtx*) req->handler_ctx())->ctx = ctx;
+    ((MiniLoadCtx*) req->handler_ctx())->stream_load_ctx = ctx;
 
     // auth information
     if (!parse_basic_auth(*req, &ctx->auth)) {
@@ -800,7 +800,7 @@ Status MiniLoadAction::_on_new_header(HttpRequest* req) {
 }
 
 void MiniLoadAction::_new_handle(HttpRequest* req) {
-    StreamLoadContext* ctx = (StreamLoadContext*) ((MiniLoadCtx*) req->handler_ctx())->ctx;
+    StreamLoadContext* ctx = ((MiniLoadCtx*) req->handler_ctx())->stream_load_ctx;
     DCHECK(ctx != nullptr);   
  
     if (ctx->status.ok()) {
