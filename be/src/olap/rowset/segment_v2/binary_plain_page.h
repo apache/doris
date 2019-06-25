@@ -15,13 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-
-// Simplistic block encoding for strings.
+// Simplistic page encoding for strings.
 //
-// The block consists of:
+// The page consists of:
 // Header:
 //   num_elems (32-bit fixed)
-//   offsets_pos (32-bit fixed): position of the first offset, relative to block start
+//   offsets_pos (32-bit fixed): position of the first offset, relative to page start
 // Strings:
 //   raw strings that were written
 // Offsets:  [pointed to by offsets_pos]
@@ -59,7 +58,7 @@ public:
         DCHECK_GT(*count, 0);
         size_t i = 0;
 
-        // If the block is full, should stop adding more items.
+        // If the page is full, should stop adding more items.
         while (!is_page_full() && i < *count) {
             const Slice *src = reinterpret_cast<const Slice *>(vals);
             size_t offset = _buffer.size();
@@ -126,7 +125,7 @@ private:
     faststring _buffer;
     size_t _end_of_data_offset;
     size_t _size_estimate;
-    // Offsets of each entry, relative to the start of the block
+    // Offsets of each entry, relative to the start of the page
     std::vector<uint32_t> _offsets;
     bool _finished;
     const PageBuilderOptions _options;
@@ -254,7 +253,7 @@ private:
     uint32_t _num_elems;
     rowid_t _ordinal_pos_base;
 
-    // Index of the currently seeked element in the block.
+    // Index of the currently seeked element in the page.
     uint32_t _cur_idx;
 };
 

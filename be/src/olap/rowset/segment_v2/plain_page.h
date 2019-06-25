@@ -35,8 +35,8 @@ class PlainPageBuilder : public PageBuilder {
 public:
     PlainPageBuilder(const PageBuilderOptions options) :
             _options(std::move(options)) {
-        // Reserve enough space for the block, plus a bit of slop since
-        // we often overrun the block by a few values.
+        // Reserve enough space for the page, plus a bit of slop since
+        // we often overrun the page by a few values.
         _buffer.reserve(PLAIN_PAGE_HEADER_SIZE + _options.data_page_size + 1024);
         reset();
     }
@@ -112,7 +112,7 @@ public:
 
         if (_data.size < PLAIN_PAGE_HEADER_SIZE) {
             std::stringstream ss;
-            ss << "file corrupton: not enough bytes for header in PlainBlockDecoder ."
+            ss << "file corrupton: not enough bytes for header in PlainPageDecoder ."
                   "invalid data size:" << _data.size << ", header size:" << PLAIN_PAGE_HEADER_SIZE;
             return Status::InternalError(ss.str());
         }
