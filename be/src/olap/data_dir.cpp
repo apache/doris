@@ -932,6 +932,52 @@ void DataDir::perform_path_gc() {
     LOG(INFO) << "finished one time path gc.";
 }
 
+void DataDir::perform_path_gc_by_rowsetid() {
+    // init the set of valid path
+    // validate the path in data dir
+    std::unique_lock<std::mutex> lck(_check_path_mutex);
+    cv.wait(lck, [this]{return _all_check_paths.size() > 0;});
+    LOG(INFO) << "start to path gc by rowsetid.";
+    int counter = 0;
+    for (auto& path : _all_check_paths) {
+        ++counter;
+        if (config::path_gc_check_step > 0 && counter % config::path_gc_check_step == 0) {
+            usleep(config::path_gc_check_step_interval_ms * 1000);
+        }
+        TTabletId tablet_id = -1;
+        TSchemaHash schema_hash = -1;
+        bool is_valid = _tablet_manager->get_tablet_id_and_schema_hash_from_path(path,
+                &tablet_id, &schema_hash);
+        if (!is_valid) {
+            LOG(WARNING) << "unknown path:" << path;
+            continue;
+        }
+        if (tablet_id > 0 && schema_hash > 0) {
+            // tablet schema hash path or rowset file path
+            // gc thread should get tablet include deleted tablet
+            // or it will delete rowset file before tablet is garbage collected
+            RowsetId rowset_id = -1;
+            bool is_rowset_file = _tablet_manager->get_rowset_id_from_path(path, &rowset_id);
+            if (is_rowset_file) {
+                TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id, schema_hash, true);
+                if (tablet != nullptr) {
+                    bool valid = tablet->check_path(path);
+                    if (!valid) {
+                        // if the rowset id is less than tablet's initial end rowset id
+                        // and the path is not in unused_rowsets, delete the path.
+                        if (rowset_id < tablet->initial_end_rowset_id()
+                                && !StorageEngine::instance()->check_path_in_unused_rowsets(path)) {
+                            _process_garbage_path(path);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    _all_check_paths.clear();
+    LOG(INFO) << "finished one time path gc by rowsetid.";
+}
+
 // path producer
 void DataDir::perform_path_scan() {
     {

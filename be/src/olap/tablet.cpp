@@ -839,6 +839,12 @@ bool Tablet::check_path(const std::string& path_to_check) {
             return true;
         }
     }
+    for (auto& inc_version_rowset : _inc_rs_version_map) {
+        bool ret = inc_version_rowset.second->check_path(path_to_check);
+        if (ret) {
+            return true;
+        }
+    }
     return false;
 }
 

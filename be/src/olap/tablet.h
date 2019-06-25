@@ -224,6 +224,10 @@ public:
 
     OLAPStatus set_partition_id(int64_t partition_id);
 
+    RowsetId initial_end_rowset_id() {
+        return _tablet_meta->initial_end_rowset_id();
+    }
+
 private:
     void _print_missed_versions(const std::vector<Version>& missed_versions) const;
     OLAPStatus _check_added_rowset(const RowsetSharedPtr& rowset);
@@ -248,6 +252,7 @@ private:
 
     std::atomic<bool> _is_bad;   // if this tablet is broken, set to true. default is false
     std::atomic<int64_t> _last_compaction_failure_time; // timestamp of last compaction failure
+    RowsetId _start_rowset_id;
 
     DISALLOW_COPY_AND_ASSIGN(Tablet);
 };
