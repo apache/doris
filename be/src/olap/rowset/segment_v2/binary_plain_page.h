@@ -132,7 +132,6 @@ public:
     BinaryPlainPageDecoder(Slice data) : _data(data),
                                    _parsed(false),
                                    _num_elems(0),
-                                   _ordinal_pos_base(0),
                                    _cur_idx(0) { }
 
     Status init() override {
@@ -246,7 +245,6 @@ private:
     faststring _offsets_buf;
 
     uint32_t _num_elems;
-    rowid_t _ordinal_pos_base;
 
     // Index of the currently seeked element in the page.
     uint32_t _cur_idx;
