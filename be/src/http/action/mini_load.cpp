@@ -522,7 +522,9 @@ void MiniLoadAction::free_handler_ctx(void* param) {
         }
     } else {
         MiniLoadCtx* ctx = (MiniLoadCtx*)param;
-        delete ctx;
+        if (ctx->unref()) {
+            delete ctx;
+        }
     }
 }
 
