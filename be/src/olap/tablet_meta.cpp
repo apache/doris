@@ -339,6 +339,7 @@ OLAPStatus TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
     _cumulative_layer_point = tablet_meta_pb.cumulative_layer_point();
     _tablet_uid = TabletUid(tablet_meta_pb.tablet_uid());
     _end_rowset_id = tablet_meta_pb.end_rowset_id();
+    _initial_end_rowset_id = tablet_meta_pb.end_rowset_id();
     _next_rowset_id = _end_rowset_id + 1;
 
     // init _tablet_state

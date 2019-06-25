@@ -193,6 +193,8 @@ public:
     TabletManager* tablet_manager() { return _tablet_manager.get(); }
     TxnManager* txn_manager() { return _txn_manager.get(); }
 
+    bool check_rowset_id_in_unused_rowsets(RowsetId rowset_id);
+
 private:
     OLAPStatus check_all_root_path_cluster_id();
 
