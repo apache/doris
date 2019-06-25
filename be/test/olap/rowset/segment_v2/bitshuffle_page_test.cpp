@@ -38,7 +38,7 @@ public:
         dst_vector->set_col_data((void*)ret);
         std::unique_ptr<MemTracker> mem_tracer(new MemTracker(-1)); 
         std::unique_ptr<MemPool> mem_pool(new MemPool(mem_tracer.get()));
-        ColumnVectorView column_vector_view(dst_vector.get(), 0, mem_pool.get());
+        ColumnVectorView column_vector_view(dst_vector.get(), mem_pool.get(), get_type_info(type));
         size_t n = 1;
         decoder->_copy_next_values(n, column_vector_view.column_vector()->col_data());
         ASSERT_EQ(1, n);
@@ -67,7 +67,7 @@ public:
         std::unique_ptr<MemPool> mem_pool(new MemPool(mem_tracer.get()));
         CppType* values = reinterpret_cast<CppType*>(mem_pool->allocate(size * sizeof(CppType)));
         dst_vector->set_col_data(values);
-        ColumnVectorView column_vector_view(dst_vector.get(), 0, mem_pool.get());
+        ColumnVectorView column_vector_view(dst_vector.get(), mem_pool.get(), get_type_info(Type));
         status = page_decoder.next_batch(&size, &column_vector_view);
         ASSERT_TRUE(status.ok());
 

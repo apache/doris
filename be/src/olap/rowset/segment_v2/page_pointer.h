@@ -33,6 +33,11 @@ struct PagePointer {
     PagePointer(uint64_t offset_, uint32_t size_) : offset(offset_), size(size_) { }
     PagePointer(const PagePointerPB& from) : offset(from.offset()), size(from.size()) { }
 
+    void reset() {
+        offset = 0;
+        size = 0;
+    }
+
     void to_proto(PagePointerPB* to) {
         to->set_offset(offset);
         to->set_size(size);
