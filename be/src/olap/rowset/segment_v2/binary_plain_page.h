@@ -158,14 +158,12 @@ public:
         // Sanity check.
         if (offsets_pos > _data.size) {
             std::stringstream ss;
-            ss << "offsets_pos %ld > block size %ld in plain string block",
-                    offsets_pos, _data.size;
+            ss << "offsets_pos "<< offsets_pos << " > page size " << _data.size << " in plain string page";
             return Status::InternalError(ss.str());
         }
 
         // Decode the string offsets themselves
         const uint8_t *p = (const uint8_t*)(_data.data + offsets_pos);
-        const uint8_t *limit = (const uint8_t*)(_data.data + _data.size);
 
         // Reserve one extra element, which we'll fill in at the end
         // with an offset past the last element.

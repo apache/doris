@@ -59,11 +59,13 @@ public:
         std::unique_ptr<ColumnVector> dst_vector(new ColumnVector());
         std::unique_ptr<MemTracker> mem_tracer(new MemTracker(-1));
         std::unique_ptr<MemPool> mem_pool(new MemPool(mem_tracer.get()));
-
+        
         size_t size = 3;
+        
         Slice* values = reinterpret_cast<Slice*>(mem_pool->allocate(size * sizeof(Slice)));
         dst_vector->set_col_data(values);
         ColumnVectorView column_vector_view(dst_vector.get(), 0, mem_pool.get());
+
         status = page_decoder.next_batch(&size, &column_vector_view);
         ASSERT_TRUE(status.ok());
 
@@ -72,54 +74,22 @@ public:
         ASSERT_EQ ("Hello", value[0].to_string());
         ASSERT_EQ (",", value[1].to_string());
         ASSERT_EQ ("Doris", value[2].to_string());
-    }
-
-    template <class PageBuilderType, class PageDecoderType>
-    void TestBinarySeekToPosition() {
-        vector<Slice> slices;
-        slices.emplace_back("Hello");
-        slices.emplace_back(",");
-        slices.emplace_back("Doris");
-
-        PageBuilderOptions options;
-        options.data_page_size = 256 * 1024;
-        PageBuilderType page_builder(options);
-        size_t count = slices.size();
-
-        Slice *ptr = &slices[0];
-        Status ret = page_builder.add(reinterpret_cast<const uint8_t *>(ptr), &count);
-
-        Slice s = page_builder.finish(0);
-        PageDecoderType page_decoder(s);
-        Status status = page_decoder.init();
+        
+        Slice* values2 = reinterpret_cast<Slice*>(mem_pool->allocate(size * sizeof(Slice)));
+        dst_vector->set_col_data(values2);
+        ColumnVectorView column_vector_view2(dst_vector.get(), 0, mem_pool.get());
+        size_t fetch_num = 1;
+        page_decoder.seek_to_position_in_page(2);
+        status = page_decoder.next_batch(&fetch_num, &column_vector_view2);
         ASSERT_TRUE(status.ok());
-
-        std::unique_ptr<ColumnVector> dst_vector(new ColumnVector());
-        std::unique_ptr<MemTracker> mem_tracer(new MemTracker(-1));
-        std::unique_ptr<MemPool> mem_pool(new MemPool(mem_tracer.get()));
-
-        size_t size = 2;
-        Slice* values = reinterpret_cast<Slice*>(mem_pool->allocate(size * sizeof(Slice)));
-        dst_vector->set_col_data(values);
-        ColumnVectorView column_vector_view(dst_vector.get(), 0, mem_pool.get());
-
-        page_decoder.seek_to_position_in_page(1);
-        status = page_decoder.next_batch(&size, &column_vector_view);
-        ASSERT_TRUE(status.ok());
-
-        Slice* value = reinterpret_cast<Slice*>(dst_vector->col_data());
-        ASSERT_EQ (2, size);
-        ASSERT_EQ (",", value[0].to_string());
-        ASSERT_EQ ("Doris", value[1].to_string());
+        Slice* value2 = reinterpret_cast<Slice*>(dst_vector->col_data());
+        ASSERT_EQ (1, fetch_num);
+        ASSERT_EQ ("Doris", value2[0].to_string());
     }
 };
 
 TEST_F(BinaryPlainPageTest, TestBinaryPlainPageBuilderSeekByValueSmallPage) {
     TestBinarySeekByValueSmallPage<BinaryPlainPageBuilder, BinaryPlainPageDecoder>();
-}
-
-TEST_F(BinaryPlainPageTest, TestBinaryPlainPageBuilderSeekToPosition) {
-    TestBinarySeekToPosition<BinaryPlainPageBuilder, BinaryPlainPageDecoder>();
 }
 
 }
