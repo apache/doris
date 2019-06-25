@@ -37,8 +37,8 @@ public:
     void copy_one(PageDecoderType* decoder, typename TypeTraits<type>::CppType* ret) {
         std::unique_ptr<ColumnVector> dst_vector(new ColumnVector());
         dst_vector->set_col_data((void*)ret);
-        std::unique_ptr<MemTracker> mem_tracer(new MemTracker(-1)); 
-        std::unique_ptr<MemPool> mem_pool(new MemPool(mem_tracer.get()));
+        std::unique_ptr<MemTracker> mem_tracker(new MemTracker(-1)); 
+        std::unique_ptr<MemPool> mem_pool(new MemPool(mem_tracker.get()));
         ColumnVectorView column_vector_view(dst_vector.get(), 0, mem_pool.get());
         size_t n = 1;
         decoder->next_batch(&n, &column_vector_view);
@@ -66,8 +66,8 @@ public:
         ASSERT_EQ(size, rle_page_decoder.count());
 
         std::unique_ptr<ColumnVector> dst_vector(new ColumnVector());
-        std::unique_ptr<MemTracker> mem_tracer(new MemTracker(-1)); 
-        std::unique_ptr<MemPool> mem_pool(new MemPool(mem_tracer.get()));
+        std::unique_ptr<MemTracker> mem_tracker(new MemTracker(-1)); 
+        std::unique_ptr<MemPool> mem_pool(new MemPool(mem_tracker.get()));
         CppType* values = reinterpret_cast<CppType*>(mem_pool->allocate(size * sizeof(CppType)));
         dst_vector->set_col_data(values);
         ColumnVectorView column_vector_view(dst_vector.get(), 0, mem_pool.get());
@@ -107,7 +107,8 @@ TEST_F(RlePageTest, TestRleInt32BlockEncoderRandom) {
 
     test_encode_decode_page_template<OLAP_FIELD_TYPE_INT, segment_v2::RlePageBuilder<OLAP_FIELD_TYPE_INT>,
         segment_v2::RlePageDecoder<OLAP_FIELD_TYPE_INT> >(ints.get(), size);
-}*/
+}
+*/
 
 TEST_F(RlePageTest, TestRleInt32BlockEncoderEqual) {
     const uint32_t size = 10000;

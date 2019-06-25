@@ -28,7 +28,7 @@ namespace doris {
 namespace segment_v2 {
 
 enum {
-    RLE_BLOCK_HEADER_SIZE = 4
+    RLE_BLOCK_HEADER_SIZE = 8
 };
 
 // RLE builder for generic integer and bool types. What is missing is some way
@@ -102,14 +102,8 @@ public:
     }
 
     Slice finish() override {
-        LOG(INFO) << "_count:" << _count;
         encode_fixed32_le(&_buf[0], _count);
         _rle_encoder->Flush();
-        LOG(INFO) << "_buf[0]:" << ((uint8_t)_buf[0] == 0)
-                << ", _buf[1]:" << ((uint8_t)_buf[1] == 0)
-                << ", _buf[2]:" << ((uint8_t)_buf[2] == 0)
-                << ", _buf[3]:" << ((uint8_t)_buf[3] == 0)
-                << ", size:" << _buf.size();
         return Slice(_buf.data(), _buf.size());
     }
 
@@ -164,10 +158,6 @@ public:
             return Status::Corruption(
                 "not enough bytes for header in RleBitMapBlockDecoder");
         }
-        LOG(INFO) << std::hex << "_data[0]:" << (uint8_t)_data[0]
-                << ", _data[1]:" << (uint8_t)_data[1]
-                << ", _data[2]:" << (uint8_t)_data[2]
-                << ", _data[3]:" << (uint8_t)_data[3];
         _num_elements = decode_fixed32_le((const uint8_t*)&_data[0]);
 
         _parsed = true;
@@ -215,7 +205,6 @@ public:
 
     Status next_batch(size_t* n, ColumnVectorView* dst) override {
         DCHECK(_parsed);
-        LOG(INFO) << "_cur_index:" << _cur_index << ", _num_elements:" << _num_elements;
         if (PREDICT_FALSE(*n == 0 || _cur_index >= _num_elements)) {
             *n = 0;
             return Status::OK();
