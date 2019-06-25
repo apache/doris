@@ -307,7 +307,7 @@ public:
         }
 
         size_t max_fetch = std::min(*n, static_cast<size_t>(_num_elements - _cur_index));
-        _copy_next_values(max_fetch, dst->column_vector()->col_data());
+        _copy_next_values(max_fetch, dst->data());
         *n = max_fetch;
         _cur_index += max_fetch;
 

@@ -67,6 +67,7 @@ public:
     inline uint32_t hash_code(char* data, uint32_t seed) { return _hash_code(data, seed); }
     inline const size_t size() const { return _size; }
 
+    inline FieldType type() const { return _field_type; }
 private:
     int (*_equal)(const void* left, const void* right);
     int (*_cmp)(const void* left, const void* right);
@@ -84,6 +85,7 @@ private:
     uint32_t (*_hash_code)(char* data, uint32_t seed);
 
     const size_t _size;
+    const FieldType _field_type;
 
     friend class TypeInfoResolver;
     template<typename TypeTraitsClass> TypeInfo(TypeTraitsClass t);
