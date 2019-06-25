@@ -515,10 +515,10 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int export_task_default_timeout_second = 2 * 3600; // 2h
     /*
-     * Concurrency of exporting tablets.
+     * Number of tablets per export query plan
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int export_parallel_tablet_num = 5;
+    public static int export_tablet_num_per_task = 5;
 
     // Configurations for consistency check
     /*

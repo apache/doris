@@ -552,6 +552,7 @@
             line_delimiter: 指定导出的行分隔符，默认为\n。
             exec_mem_limit: 导出在单个 BE 节点的内存使用上限，默认为 2GB，单位为字节。
             timeout：导入作业的超时时间，默认为1天，单位是秒。
+            tablet_num_per_task：每个子任务能分配的最大 Tablet 数量。
 
     5. broker
       用于指定导出使用的broker
@@ -563,13 +564,13 @@
 
 ## example
 
-    1. 将testTbl表中的所有数据导出到hdfs上
+    1. 将 testTbl 表中的所有数据导出到 hdfs 上
         EXPORT TABLE testTbl TO "hdfs://hdfs_host:port/a/b/c" WITH BROKER "broker_name" ("username"="xxx", "password"="yyy");
 
-    2. 将testTbl表中的分区p1,p2导出到hdfs上
+    2. 将 testTbl 表中的分区p1,p2导出到 hdfs 上
 
         EXPORT TABLE testTbl PARTITION (p1,p2) TO "hdfs://hdfs_host:port/a/b/c" WITH BROKER "broker_name" ("username"="xxx", "password"="yyy");
-    3. 将testTbl表中的所有数据导出到hdfs上，以","作为列分隔符
+    3. 将 testTbl 表中的所有数据导出到 hdfs 上，以","作为列分隔符
 
         EXPORT TABLE testTbl TO "hdfs://hdfs_host:port/a/b/c" PROPERTIES ("column_separator"=",") WITH BROKER "broker_name" ("username"="xxx", "password"="yyy");
 

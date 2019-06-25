@@ -56,6 +56,8 @@ import java.util.Map;
 public class ExportStmt extends StatementBase {
     private final static Logger LOG = LogManager.getLogger(ExportStmt.class);
 
+    public static final String TABLET_NUMBER_PER_TASK_PROP = "tablet_num_per_task";
+
     private static final String DEFAULT_COLUMN_SEPARATOR = "\t";
     private static final String DEFAULT_LINE_DELIMITER = "\n";
 
@@ -252,6 +254,18 @@ public class ExportStmt extends StatementBase {
         } else {
             // use session variables
             properties.put(LoadStmt.TIMEOUT_PROPERTY, String.valueOf(Config.export_task_default_timeout_second));
+        }
+
+        // tablet num per task
+        if (properties.containsKey(TABLET_NUMBER_PER_TASK_PROP)) {
+            try {
+                Long.parseLong(properties.get(TABLET_NUMBER_PER_TASK_PROP));
+            } catch (NumberFormatException e) {
+                throw new DdlException("Invalid tablet num per task value: " + e.getMessage());
+            }
+        } else {
+            // use session variables
+            properties.put(TABLET_NUMBER_PER_TASK_PROP, String.valueOf(Config.export_tablet_num_per_task));
         }
     }
 

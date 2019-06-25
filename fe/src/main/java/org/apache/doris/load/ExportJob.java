@@ -36,7 +36,6 @@ import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
@@ -252,7 +251,7 @@ public class ExportJob implements Writable {
             }
 
             int size = tabletLocations.size();
-            int tabletNum = Config.export_parallel_tablet_num;
+            int tabletNum = getTabletNumberPerTask();
             for (int i = 0; i < size; i += tabletNum) {
                 OlapScanNode olapScanNode = null;
                 if (i + tabletNum <= size) {
@@ -402,6 +401,10 @@ public class ExportJob implements Writable {
 
     public int getTimeoutSecond() {
         return Integer.parseInt(properties.get(LoadStmt.TIMEOUT_PROPERTY));
+    }
+
+    public int getTabletNumberPerTask() {
+        return Integer.parseInt(properties.get(ExportStmt.TABLET_NUMBER_PER_TASK_PROP));
     }
 
     public List<String> getPartitions() {
