@@ -949,12 +949,10 @@ bool StorageEngine::check_rowset_id_in_unused_rowsets(RowsetId rowset_id) {
     _gc_mutex.lock();
     for (auto& _unused_rowset_pair : _unused_rowsets) {
         if (_unused_rowset_pair.second->rowset_id() == rowset_id) {
-            LOG(INFO) << "rowset is found in unused rowsets, rowset_id:" << rowset_id;
             _gc_mutex.unlock();
             return true;
         }
     }
-    LOG(INFO) << "rowset is not found in unused rowsets, rowset_id:" << rowset_id;
     _gc_mutex.unlock();
     return false;
 }
