@@ -15,7 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-
 #include <gtest/gtest.h>
 #include <iostream>
 
@@ -47,7 +46,6 @@ public:
         options.data_page_size = 256 * 1024;
         PageBuilderType page_builder(options);
         size_t count = slices.size();
-        std::cout<< count <<std::endl;
 
         Slice *ptr = &slices[0];
         Status ret = page_builder.add(reinterpret_cast<const uint8_t *>(ptr), &count);
@@ -57,7 +55,7 @@ public:
         Status status = page_decoder.init();
         ASSERT_TRUE(status.ok());
         
-        
+        //test1
         std::unique_ptr<ColumnVector> dst_vector(new ColumnVector());
         std::unique_ptr<MemTracker> mem_tracer(new MemTracker(-1));
         std::unique_ptr<MemPool> mem_pool(new MemPool(mem_tracer.get()));
@@ -70,9 +68,29 @@ public:
         ASSERT_TRUE(status.ok());
 
         Slice* value = reinterpret_cast<Slice*>(dst_vector->col_data());
+        ASSERT_EQ (3, size);
         ASSERT_EQ ("Hello", value[0].to_string());
         ASSERT_EQ (",", value[1].to_string());
         ASSERT_EQ ("Doris", value[2].to_string());
+
+        //test2
+        std::unique_ptr<ColumnVector> dst_vector(new ColumnVector());
+        std::unique_ptr<MemTracker> mem_tracer(new MemTracker(-1));
+        std::unique_ptr<MemPool> mem_pool(new MemPool(mem_tracer.get()));
+
+        size_t size = 2;
+        Slice* values = reinterpret_cast<Slice*>(mem_pool->allocate(size * sizeof(Slice)));
+        dst_vector->set_col_data(values);
+        ColumnVectorView column_vector_view(dst_vector.get(), 0, mem_pool.get());
+
+        page_decoder.seek_to_position_in_page(1);
+        status = page_decoder.next_batch(&size, &column_vector_view);
+        ASSERT_TRUE(status.ok());
+
+        Slice* value = reinterpret_cast<Slice*>(dst_vector->col_data());
+        ASSERT_EQ (2, size);
+        ASSERT_EQ (",", value[0].to_string());
+        ASSERT_EQ ("Doris", value[1].to_string());
     }
 };
 
