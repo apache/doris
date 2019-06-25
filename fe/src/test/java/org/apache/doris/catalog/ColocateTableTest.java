@@ -17,22 +17,15 @@
 
 package org.apache.doris.catalog;
 
-import com.google.common.collect.Lists;
-import mockit.Deencapsulation;
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mock;
-import mockit.MockUp;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.analysis.DropDbStmt;
-import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TypeDef;
+import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -43,6 +36,10 @@ import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentBatchTask;
+
+import com.google.common.collect.Lists;
+import com.google.common.collect.Multimap;
+
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -57,11 +54,18 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
+import mockit.Deencapsulation;
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mock;
+import mockit.MockUp;
+
 public class ColocateTableTest {
     private TableName dbTableName1;
     private TableName dbTableName2;
     private TableName dbTableName3;
     private String dbName = "default:testDb";
+    private String groupName1 = "group1";
     private String tableName1 = "t1";
     private String tableName2 = "t2";
     private String tableName3 = "t3";
@@ -93,17 +97,20 @@ public class ColocateTableTest {
         dbTableName2 = new TableName(dbName, tableName2);
         dbTableName3 = new TableName(dbName, tableName3);
 
+        beIds.clear();
         beIds.add(1L);
         beIds.add(2L);
         beIds.add(3L);
 
+        columnNames.clear();
         columnNames.add("key1");
         columnNames.add("key2");
 
+        columnDefs.clear();
         columnDefs.add(new ColumnDef("key1", new TypeDef(ScalarType.createType(PrimitiveType.INT))));
         columnDefs.add(new ColumnDef("key2", new TypeDef(ScalarType.createVarchar(10))));
 
-        catalog = Catalog.getInstance();
+        catalog = Deencapsulation.newInstance(Catalog.class);
         analyzer = new Analyzer(catalog, connectContext);
 
         new Expectations(analyzer) {
@@ -119,10 +126,14 @@ public class ColocateTableTest {
 
         Config.disable_colocate_join = false;
 
-        Catalog.getInstance().getColocateTableIndex().clear();
-
         new Expectations(catalog) {
             {
+                Catalog.getCurrentCatalog();
+                result = catalog;
+
+                Catalog.getInstance();
+                result = catalog;
+
                 Catalog.getCurrentSystemInfo();
                 result = systemInfoService;
 
@@ -145,7 +156,7 @@ public class ColocateTableTest {
             }
         };
 
-        InitDataBase();
+        initDatabase();
         db = catalog.getDb(dbName);
 
         new MockUp<AgentBatchTask>() {
@@ -163,7 +174,7 @@ public class ColocateTableTest {
         };
     }
 
-    private void InitDataBase() throws Exception {
+    private void initDatabase() throws Exception {
         CreateDbStmt dbStmt = new CreateDbStmt(true, dbName);
         new Expectations(dbStmt) {
             {
@@ -188,274 +199,156 @@ public class ColocateTableTest {
         catalog.clear();
     }
 
-    private void CreateParentTable(int numBecket, Map<String, String> properties) throws Exception {
-        properties.put(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH, tableName1);
+    private void createOneTable(int numBucket, Map<String, String> properties) throws Exception {
+        properties.put(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH, groupName1);
 
         CreateTableStmt stmt = new CreateTableStmt(false, false, dbTableName1, columnDefs, "olap",
                 new KeysDesc(KeysType.AGG_KEYS, columnNames), null,
-                new HashDistributionDesc(numBecket, Lists.newArrayList("key1")), properties, null);
+                new HashDistributionDesc(numBucket, Lists.newArrayList("key1")), properties, null);
         stmt.analyze(analyzer);
         catalog.createTable(stmt);
     }
 
     @Test
-    public void testCreateAndDropParentTable() throws Exception {
-        int numBecket = 1;
+    public void testCreateOneTable() throws Exception {
+        int numBucket = 1;
 
-        CreateParentTable(numBecket, properties);
+        createOneTable(numBucket, properties);
 
         ColocateTableIndex index = Catalog.getCurrentColocateIndex();
         long tableId = db.getTable(tableName1).getId();
 
-        Assert.assertEquals(1, index.getGroup2DB().size());
-        Assert.assertEquals(1, index.getGroup2Tables().size());
+        Assert.assertEquals(1, Deencapsulation.<Multimap<GroupId, Long>>getField(index, "group2Tables").size());
         Assert.assertEquals(1, index.getAllGroupIds().size());
-        Assert.assertEquals(1, index.getTable2Group().size());
-        Assert.assertEquals(1, index.getGroup2BackendsPerBucketSeq().size());
-        Assert.assertEquals(0, index.getBalancingGroupIds().size());
+        Assert.assertEquals(1, Deencapsulation.<Map<Long, GroupId>>getField(index, "table2Group").size());
+        Assert.assertEquals(1, Deencapsulation.<Map<GroupId, List<List<Long>>>>getField(index, "group2BackendsPerBucketSeq").size());
+        Assert.assertEquals(1, Deencapsulation.<Map<GroupId, ColocateGroupSchema>>getField(index, "group2Schema").size());
+        Assert.assertEquals(0, index.getUnstableGroupIds().size());
 
         Assert.assertTrue(index.isColocateTable(tableId));
-        Assert.assertTrue(index.isColocateParentTable(tableId));
-        Assert.assertFalse(index.isColocateChildTable(tableId));
-
-        Assert.assertEquals(tableId, index.getGroup(tableId));
 
         Long dbId = db.getId();
-        Assert.assertEquals(index.getDB(tableId), dbId);
+        Assert.assertEquals(dbId, index.getGroup(tableId).dbId);
 
-        List<Long> backendIds = index.getBackendsPerBucketSeq(tableId).get(0);
+        GroupId groupId = index.getGroup(tableId);
+        List<Long> backendIds = index.getBackendsPerBucketSeq(groupId).get(0);
         Assert.assertEquals(beIds, backendIds);
 
-        DropTableStmt dropTableStmt = new DropTableStmt(false, dbTableName1);
-        dropTableStmt.analyze(analyzer);
-        catalog.dropTable(dropTableStmt);
+        String fullGroupName = dbId + "_" + groupName1;
+        Assert.assertEquals(tableId, index.getTableIdByGroup(fullGroupName));
+        ColocateGroupSchema groupSchema = index.getGroupSchema(fullGroupName);
+        Assert.assertNotNull(groupSchema);
+        Assert.assertEquals(dbId, groupSchema.getGroupId().dbId);
+        Assert.assertEquals(numBucket, groupSchema.getBucketsNum());
+        Assert.assertEquals(3, groupSchema.getReplicationNum());
+    }
 
-        Assert.assertEquals(0, index.getGroup2DB().size());
-        Assert.assertEquals(0, index.getGroup2Tables().size());
+    @Test
+    public void testCreateTwoTableWithSameGroup() throws Exception {
+        int numBucket = 1;
+
+        createOneTable(numBucket, properties);
+
+        // create second table
+        properties.put(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH, groupName1);
+        CreateTableStmt secondStmt = new CreateTableStmt(false, false, dbTableName2, columnDefs, "olap",
+                new KeysDesc(KeysType.AGG_KEYS, columnNames), null,
+                new HashDistributionDesc(numBucket, Lists.newArrayList("key1")), properties, null);
+        secondStmt.analyze(analyzer);
+        catalog.createTable(secondStmt);
+
+        ColocateTableIndex index = Catalog.getCurrentColocateIndex();
+        long firstTblId = db.getTable(tableName1).getId();
+        long secondTblId = db.getTable(tableName2).getId();
+        
+        Assert.assertEquals(2, Deencapsulation.<Multimap<GroupId, Long>>getField(index, "group2Tables").size());
+        Assert.assertEquals(1, index.getAllGroupIds().size());
+        Assert.assertEquals(2, Deencapsulation.<Map<Long, GroupId>>getField(index, "table2Group").size());
+        Assert.assertEquals(1, Deencapsulation.<Map<GroupId, List<List<Long>>>>getField(index, "group2BackendsPerBucketSeq").size());
+        Assert.assertEquals(1, Deencapsulation.<Map<GroupId, ColocateGroupSchema>>getField(index, "group2Schema").size());
+        Assert.assertEquals(0, index.getUnstableGroupIds().size());
+
+        Assert.assertTrue(index.isColocateTable(firstTblId));
+        Assert.assertTrue(index.isColocateTable(secondTblId));
+
+        Assert.assertTrue(index.isSameGroup(firstTblId, secondTblId));
+
+        // drop first
+        index.removeTable(firstTblId);
+        Assert.assertEquals(1, Deencapsulation.<Multimap<GroupId, Long>>getField(index, "group2Tables").size());
+        Assert.assertEquals(1, index.getAllGroupIds().size());
+        Assert.assertEquals(1, Deencapsulation.<Map<Long, GroupId>>getField(index, "table2Group").size());
+        Assert.assertEquals(1,
+                Deencapsulation.<Map<GroupId, List<List<Long>>>>getField(index, "group2BackendsPerBucketSeq").size());
+        Assert.assertEquals(0, index.getUnstableGroupIds().size());
+
+        Assert.assertFalse(index.isColocateTable(firstTblId));
+        Assert.assertTrue(index.isColocateTable(secondTblId));
+        Assert.assertFalse(index.isSameGroup(firstTblId, secondTblId));
+
+        // drop second
+        index.removeTable(secondTblId);
+        Assert.assertEquals(0, Deencapsulation.<Multimap<GroupId, Long>>getField(index, "group2Tables").size());
         Assert.assertEquals(0, index.getAllGroupIds().size());
-        Assert.assertEquals(0, index.getTable2Group().size());
-        Assert.assertEquals(0, index.getGroup2BackendsPerBucketSeq().size());
-        Assert.assertEquals(0, index.getBalancingGroupIds().size());
-    }
+        Assert.assertEquals(0, Deencapsulation.<Map<Long, GroupId>>getField(index, "table2Group").size());
+        Assert.assertEquals(0,
+                Deencapsulation.<Map<GroupId, List<List<Long>>>>getField(index, "group2BackendsPerBucketSeq").size());
+        Assert.assertEquals(0, index.getUnstableGroupIds().size());
 
-    @Test
-    public void testCreateAndDropParentTableWithOneChild() throws Exception {
-        int numBecket = 1;
-
-        CreateParentTable(numBecket, properties);
-
-        properties.put(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH, tableName1);
-        CreateTableStmt childStmt = new CreateTableStmt(false, false, dbTableName2, columnDefs, "olap",
-                new KeysDesc(KeysType.AGG_KEYS, columnNames), null,
-                new HashDistributionDesc(numBecket, Lists.newArrayList("key1")), properties, null);
-        childStmt.analyze(analyzer);
-        catalog.createTable(childStmt);
-
-        ColocateTableIndex index = Catalog.getCurrentColocateIndex();
-        long parentId = db.getTable(tableName1).getId();
-        long childId = db.getTable(tableName2).getId();
-
-        Assert.assertEquals(1, index.getGroup2DB().size());
-        Assert.assertEquals(2, index.getGroup2Tables().size());
-        Assert.assertEquals(1, index.getAllGroupIds().size());
-        Assert.assertEquals(2, index.getTable2Group().size());
-        Assert.assertEquals(1, index.getGroup2BackendsPerBucketSeq().size());
-        Assert.assertEquals(0, index.getBalancingGroupIds().size());
-
-        Assert.assertTrue(index.isColocateTable(parentId));
-        Assert.assertTrue(index.isColocateParentTable(parentId));
-        Assert.assertFalse(index.isColocateChildTable(parentId));
-
-        Assert.assertTrue(index.isColocateTable(childId));
-        Assert.assertFalse(index.isColocateParentTable(childId));
-        Assert.assertTrue(index.isColocateChildTable(childId));
-
-        Assert.assertEquals(parentId, index.getGroup(parentId));
-        Assert.assertEquals(parentId, index.getGroup(childId));
-
-        Assert.assertTrue(index.isSameGroup(parentId, childId));
-
-        DropTableStmt dropTableStmt = new DropTableStmt(false, dbTableName2);
-        dropTableStmt.analyze(analyzer);
-        catalog.dropTable(dropTableStmt);
-
-        Assert.assertEquals(1, index.getGroup2DB().size());
-        Assert.assertEquals(1, index.getGroup2Tables().size());
-        Assert.assertEquals(1, index.getTable2Group().size());
-        Assert.assertEquals(1, index.getGroup2BackendsPerBucketSeq().size());
-        Assert.assertEquals(0, index.getBalancingGroupIds().size());
-
-        Assert.assertTrue(index.isColocateTable(parentId));
-        Assert.assertTrue(index.isColocateParentTable(parentId));
-        Assert.assertFalse(index.isColocateChildTable(parentId));
-
-        Assert.assertFalse(index.isColocateTable(childId));
-        Assert.assertFalse(index.isColocateParentTable(childId));
-        Assert.assertFalse(index.isColocateChildTable(childId));
-
-        Assert.assertFalse(index.isSameGroup(parentId, childId));
-    }
-
-    @Test
-    // C -> B, B -> A
-    public void testCreateAndDropMultilevelColocateTable() throws Exception {
-        int numBecket = 1;
-
-        CreateParentTable(numBecket, properties);
-
-        properties.put(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH, tableName1);
-        CreateTableStmt childStmt = new CreateTableStmt(false, false, dbTableName2, columnDefs, "olap",
-                new KeysDesc(KeysType.AGG_KEYS, columnNames), null,
-                new HashDistributionDesc(numBecket, Lists.newArrayList("key1")), properties, null);
-        childStmt.analyze(analyzer);
-        catalog.createTable(childStmt);
-
-        properties.put(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH, tableName2);
-        CreateTableStmt grandchildStmt = new CreateTableStmt(false, false, dbTableName3, columnDefs, "olap",
-                new KeysDesc(KeysType.AGG_KEYS, columnNames), null,
-                new HashDistributionDesc(numBecket, Lists.newArrayList("key1")), properties, null);
-        grandchildStmt.analyze(analyzer);
-        catalog.createTable(grandchildStmt);
-
-        ColocateTableIndex index = Catalog.getCurrentColocateIndex();
-
-        long parentId = db.getTable(tableName1).getId();
-        long childId = db.getTable(tableName2).getId();
-        long grandchildId = db.getTable(tableName3).getId();
-
-        Assert.assertEquals(1, index.getGroup2DB().size());
-        Assert.assertEquals(3, index.getGroup2Tables().size());
-        Assert.assertEquals(1, index.getAllGroupIds().size());
-        Assert.assertEquals(3, index.getTable2Group().size());
-        Assert.assertEquals(1, index.getGroup2BackendsPerBucketSeq().size());
-        Assert.assertEquals(0, index.getBalancingGroupIds().size());
-
-        Assert.assertTrue(index.isColocateTable(parentId));
-        Assert.assertTrue(index.isColocateParentTable(parentId));
-        Assert.assertFalse(index.isColocateChildTable(parentId));
-
-        Assert.assertTrue(index.isColocateTable(childId));
-        Assert.assertFalse(index.isColocateParentTable(childId));
-        Assert.assertTrue(index.isColocateChildTable(childId));
-
-        Assert.assertTrue(index.isColocateTable(grandchildId));
-        Assert.assertFalse(index.isColocateParentTable(grandchildId));
-        Assert.assertTrue(index.isColocateChildTable(grandchildId));
-
-        Assert.assertEquals(parentId, index.getGroup(parentId));
-        Assert.assertEquals(parentId, index.getGroup(childId));
-        Assert.assertEquals(parentId, index.getGroup(grandchildId));
-
-        Assert.assertTrue(index.isSameGroup(parentId, childId));
-        Assert.assertTrue(index.isSameGroup(parentId, grandchildId));
-        Assert.assertTrue(index.isSameGroup(childId, grandchildId));
-
-        DropTableStmt dropTableStmt = new DropTableStmt(false, dbTableName2);
-        dropTableStmt.analyze(analyzer);
-        catalog.dropTable(dropTableStmt);
-
-        Assert.assertEquals(1, index.getGroup2DB().size());
-        Assert.assertEquals(2, index.getGroup2Tables().size());
-        Assert.assertEquals(2, index.getTable2Group().size());
-        Assert.assertEquals(1, index.getGroup2BackendsPerBucketSeq().size());
-        Assert.assertEquals(0, index.getBalancingGroupIds().size());
-
-        Assert.assertTrue(index.isColocateTable(parentId));
-        Assert.assertTrue(index.isColocateParentTable(parentId));
-        Assert.assertFalse(index.isColocateChildTable(parentId));
-
-        Assert.assertFalse(index.isColocateTable(childId));
-        Assert.assertFalse(index.isColocateParentTable(childId));
-        Assert.assertFalse(index.isColocateChildTable(childId));
-
-        Assert.assertTrue(index.isColocateTable(grandchildId));
-        Assert.assertFalse(index.isColocateParentTable(grandchildId));
-        Assert.assertTrue(index.isColocateChildTable(grandchildId));
-
-        Assert.assertEquals(parentId, index.getGroup(parentId));
-        expectedEx.expect(IllegalStateException.class);
-        index.getGroup(childId);
-        Assert.assertEquals(parentId, index.getGroup(grandchildId));
-
-        Assert.assertFalse(index.isSameGroup(parentId, childId));
-        Assert.assertTrue(index.isSameGroup(parentId, grandchildId));
-        Assert.assertFalse(index.isSameGroup(childId, grandchildId));
-    }
-
-    @Test
-    public void testDropDbWithColocateTable() throws Exception {
-        int numBecket = 1;
-
-        CreateParentTable(numBecket, properties);
-
-        ColocateTableIndex index = Catalog.getCurrentColocateIndex();
-        long tableId = db.getTable(tableName1).getId();
-
-        Assert.assertEquals(1, index.getGroup2DB().size());
-        Assert.assertEquals(1, index.getAllGroupIds().size());
-
-        Long dbId = db.getId();
-        Assert.assertEquals(index.getDB(tableId), dbId);
-
-        DropDbStmt stmt = new DropDbStmt(false, dbName);
-        catalog.dropDb(stmt);
-
-        Assert.assertEquals(0, index.getGroup2DB().size());
-        Assert.assertEquals(0, index.getAllGroupIds().size());
+        Assert.assertFalse(index.isColocateTable(firstTblId));
+        Assert.assertFalse(index.isColocateTable(secondTblId));
     }
 
     @Test
     public void testBucketNum() throws Exception {
-        int parentBecketNum = 1;
+        int firstBucketNum = 1;
+        createOneTable(firstBucketNum, properties);
 
-        CreateParentTable(parentBecketNum, properties);
-
-        properties.put(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH, tableName1);
-        int childBecketNum = 2;
-        CreateTableStmt childStmt = new CreateTableStmt(false, false, dbTableName2, columnDefs, "olap",
+        properties.put(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH, groupName1);
+        int secondBucketNum = 2;
+        CreateTableStmt secondStmt = new CreateTableStmt(false, false, dbTableName2, columnDefs, "olap",
                 new KeysDesc(KeysType.AGG_KEYS, columnNames), null,
-                new HashDistributionDesc(childBecketNum, Lists.newArrayList("key1")), properties, null);
-        childStmt.analyze(analyzer);
+                new HashDistributionDesc(secondBucketNum, Lists.newArrayList("key1")), properties, null);
+        secondStmt.analyze(analyzer);
 
         expectedEx.expect(DdlException.class);
-        expectedEx.expectMessage("Colocate tables must have the same bucket num: 1");
+        expectedEx.expectMessage("Colocate tables must have same bucket num: 1");
 
-        catalog.createTable(childStmt);
+        catalog.createTable(secondStmt);
     }
 
     @Test
     public void testReplicationNum() throws Exception {
         int bucketNum = 1;
 
-        CreateParentTable(bucketNum, properties);
+        createOneTable(bucketNum, properties);
 
-        properties.put(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH, tableName1);
+        properties.put(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH, groupName1);
         properties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, "2");
-        CreateTableStmt childStmt = new CreateTableStmt(false, false, dbTableName2, columnDefs, "olap",
+        CreateTableStmt secondStmt = new CreateTableStmt(false, false, dbTableName2, columnDefs, "olap",
                 new KeysDesc(KeysType.AGG_KEYS, columnNames), null,
                 new HashDistributionDesc(bucketNum, Lists.newArrayList("key1")), properties, null);
-        childStmt.analyze(analyzer);
+        secondStmt.analyze(analyzer);
 
         expectedEx.expect(DdlException.class);
-        expectedEx.expectMessage("Colocate tables must have the same replication num: 3");
+        expectedEx.expectMessage("Colocate tables must have same replication num: 3");
 
-        catalog.createTable(childStmt);
+        catalog.createTable(secondStmt);
     }
 
     @Test
     public void testDistributionColumnsSize() throws Exception {
         int bucketNum = 1;
+        createOneTable(bucketNum, properties);
 
-        CreateParentTable(bucketNum, properties);
-
-        properties.put(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH, tableName1);
+        properties.put(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH, groupName1);
         CreateTableStmt childStmt = new CreateTableStmt(false, false, dbTableName2, columnDefs, "olap",
                 new KeysDesc(KeysType.AGG_KEYS, columnNames), null,
                 new HashDistributionDesc(bucketNum, Lists.newArrayList("key1", "key2")), properties, null);
         childStmt.analyze(analyzer);
 
         expectedEx.expect(DdlException.class);
-        expectedEx.expectMessage("Colocate table distribution columns size must be same : 1");
+        expectedEx.expectMessage("Colocate tables distribution columns size must be same : 1");
 
         catalog.createTable(childStmt);
     }
@@ -464,75 +357,18 @@ public class ColocateTableTest {
     public void testDistributionColumnsType() throws Exception {
         int bucketNum = 1;
 
-        CreateParentTable(bucketNum, properties);
+        createOneTable(bucketNum, properties);
 
-        properties.put(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH, tableName1);
+        properties.put(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH, groupName1);
         CreateTableStmt childStmt = new CreateTableStmt(false, false, dbTableName2, columnDefs, "olap",
                 new KeysDesc(KeysType.AGG_KEYS, columnNames), null,
                 new HashDistributionDesc(bucketNum, Lists.newArrayList("key2")), properties, null);
         childStmt.analyze(analyzer);
 
         expectedEx.expect(DdlException.class);
-        expectedEx.expectMessage("Colocate table distribution columns must have the same data type: key2 should be INT");
+        expectedEx.expectMessage(
+                "Colocate tables distribution columns must have the same data type: key2 should be INT");
 
         catalog.createTable(childStmt);
-    }
-
-    @Test
-    public void testParentTableNotExist() throws Exception {
-        testParentTableNotExist("t8");
-    }
-
-    @Test
-    public void testParentTableNotExistCaseSensitive() throws Exception {
-        testParentTableNotExist(tableName1.toUpperCase());
-    }
-
-    private void testParentTableNotExist(String tableName) throws Exception {
-        Map<String, String> properties = new HashMap<String, String>();
-        properties.put(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH, tableName);
-
-        int bucketNum = 1;
-        CreateTableStmt parentStmt = new CreateTableStmt(false, false, dbTableName1, columnDefs, "olap",
-                new KeysDesc(KeysType.AGG_KEYS, columnNames), null,
-                new HashDistributionDesc(bucketNum, Lists.newArrayList("key1")), properties, null);
-        parentStmt.analyze(analyzer);
-
-        expectedEx.expect(DdlException.class);
-        expectedEx.expectMessage(String.format("Colocate table '%s' no exist", tableName));
-
-        catalog.createTable(parentStmt);
-    }
-
-    @Test
-    public void testParentTableType() throws Exception {
-        Table mysqlTable = new MysqlTable();
-        String mysqlTableName = "mysqlTable";
-
-        new Expectations(mysqlTable) {
-            {
-                mysqlTable.getName();
-                result = mysqlTableName;
-            }
-        };
-
-        new Expectations(db) {
-            {
-                db.getTable(tableName1);
-                result = mysqlTable;
-            }
-        };
-
-        Map<String, String> properties = new HashMap<String, String>();
-        properties.put(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH, tableName1);
-        CreateTableStmt parentStmt = new CreateTableStmt(false, false, dbTableName2, columnDefs, "olap",
-                new KeysDesc(KeysType.AGG_KEYS, columnNames), null,
-                new HashDistributionDesc(1, Lists.newArrayList("key1")), properties, null);
-        parentStmt.analyze(analyzer);
-
-        expectedEx.expect(DdlException.class);
-        expectedEx.expectMessage(String.format("Colocate tables '%s' must be OLAP table", mysqlTableName));
-
-        catalog.createTable(parentStmt);
     }
 }

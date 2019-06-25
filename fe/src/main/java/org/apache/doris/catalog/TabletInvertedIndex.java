@@ -48,7 +48,7 @@ import java.util.stream.Collectors;
 /*
  * this class stores a inverted index
  * key is tablet id. value is the related ids of this tablet
- * Checkpoint thread is no need to modify this inverted index, because this inverted index will no be wrote
+ * Checkpoint thread is no need to modify this inverted index, because this inverted index will not be wrote
  * into images, all meta data are in catalog, and the inverted index will be rebuild when FE restart.
  */
 public class TabletInvertedIndex {

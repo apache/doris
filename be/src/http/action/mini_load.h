@@ -26,6 +26,7 @@
 #include "common/status.h"
 #include "http/http_handler.h"
 #include "util/defer_op.h"
+#include "runtime/stream_load/stream_load_context.h"
 #include "gen_cpp/FrontendService.h"
 
 namespace doris {
@@ -43,6 +44,7 @@ struct LoadHandleCmp {
 
 class TMasterResult;
 class ExecEnv;
+class StreamLoadContext;
 
 // This a handler for mini load
 // path is /api/{db}/{table}/_load
@@ -63,6 +65,8 @@ public:
     void free_handler_ctx(void* ctx) override;
     
     void erase_handle(const LoadHandle& handle);
+
+
 private:
     Status _load(
             HttpRequest* req, 
@@ -83,6 +87,27 @@ private:
     Status check_auth(
             const HttpRequest* http_req,
             const TLoadCheckRequest& load_check_req);
+
+    void _on_chunk_data(HttpRequest* http_req);
+
+    void _handle(HttpRequest* http_req);
+
+    // streaming mini load
+    Status _on_new_header(HttpRequest* req);
+
+    Status _begin_mini_load(StreamLoadContext* ctx);
+
+    Status _process_put(HttpRequest* req, StreamLoadContext* ctx);
+ 
+    void _on_new_chunk_data(HttpRequest* http_req);
+
+    void _new_handle(HttpRequest* req);
+    
+    Status _on_new_handle(StreamLoadContext* ctx);
+   
+    bool _is_streaming(HttpRequest* req);
+
+    const std::string _streaming_function_name = "STREAMING_MINI_LOAD";
 
     ExecEnv* _exec_env;
 

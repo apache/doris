@@ -60,6 +60,7 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MarkedCountDownLatch;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.TimeUtils;
@@ -1040,7 +1041,7 @@ public class Load {
     public boolean isLabelUsed(long dbId, String label) throws DdlException {
         readLock();
         try {
-            return unprotectIsLabelUsed(dbId, label, -1, false);
+            return unprotectIsLabelUsed(dbId, label, -1, true);
         } finally {
             readUnlock();
         }
@@ -1805,12 +1806,12 @@ public class Load {
 
     // Get job state
     // result saved in info
-    public void getJobInfo(JobInfo info) throws DdlException {
+    public void getJobInfo(JobInfo info) throws DdlException, MetaNotFoundException {
         String fullDbName = ClusterNamespace.getFullName(info.clusterName, info.dbName);
         info.dbName = fullDbName;
         Database db = Catalog.getInstance().getDb(fullDbName);
         if (db == null) {
-            throw new DdlException("Unknown database(" + info.dbName + ")");
+            throw new MetaNotFoundException("Unknown database(" + info.dbName + ")");
         }
         readLock();
         try {

@@ -17,6 +17,8 @@
 
 package org.apache.doris.service;
 
+import static org.apache.doris.thrift.TStatusCode.NOT_IMPLEMENTED_ERROR;
+
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
@@ -62,6 +64,7 @@ import org.apache.doris.thrift.TGetDbsParams;
 import org.apache.doris.thrift.TGetDbsResult;
 import org.apache.doris.thrift.TGetTablesParams;
 import org.apache.doris.thrift.TGetTablesResult;
+import org.apache.doris.thrift.TIsMethodSupportedRequest;
 import org.apache.doris.thrift.TListTableStatusResult;
 import org.apache.doris.thrift.TLoadCheckRequest;
 import org.apache.doris.thrift.TLoadTxnBeginRequest;
@@ -73,6 +76,8 @@ import org.apache.doris.thrift.TLoadTxnRollbackResult;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TMasterResult;
+import org.apache.doris.thrift.TMiniLoadBeginRequest;
+import org.apache.doris.thrift.TMiniLoadBeginResult;
 import org.apache.doris.thrift.TMiniLoadEtlStatusResult;
 import org.apache.doris.thrift.TMiniLoadRequest;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -356,7 +361,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 ExecuteEnv.getInstance().getMultiLoadMgr().load(request);
             } else {
                 // try to add load job, label will be checked here.
-                if (Catalog.getInstance().getLoadInstance().addLoadJob(request)) {
+                if (Catalog.getInstance().getLoadManager().createLoadJobV1FromRequest(request)) {
                     try {
                         // generate mini load audit log
                         logMiniLoadStmt(request);
@@ -465,6 +470,56 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             if (statusResult.isSetFile_map()) {
                 taskStatus.setFileMap(statusResult.getFile_map());
             }
+        }
+        return result;
+    }
+
+    @Override
+    public TMiniLoadBeginResult miniLoadBegin(TMiniLoadBeginRequest request) throws TException {
+        LOG.info("receive mini load begin request. label: {}, user: {}, ip: {}",
+                 request.getLabel(), request.getUser(), request.getUser_ip());
+
+        TMiniLoadBeginResult result = new TMiniLoadBeginResult();
+        TStatus status = new TStatus(TStatusCode.OK);
+        result.setStatus(status);
+        try {
+            String cluster = SystemInfoService.DEFAULT_CLUSTER;
+            if (request.isSetCluster()) {
+                cluster = request.cluster;
+            }
+            // step1: check password and privs
+            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
+                                  request.getTbl(), request.getUser_ip(), PrivPredicate.LOAD);
+            // step2: check label and record metadata in load manager
+            if (request.isSetSub_label()) {
+                // TODO(ml): multi mini load
+            } else {
+                // add load metadata in loadManager
+                result.setTxn_id(Catalog.getCurrentCatalog().getLoadManager().createLoadJobFromMiniLoad(request));
+            }
+            return result;
+        } catch (UserException e) {
+            status.setStatus_code(TStatusCode.ANALYSIS_ERROR);
+            status.addToError_msgs(e.getMessage());
+            return result;
+        } catch (Throwable e) {
+            LOG.warn("catch unknown result.", e);
+            status.setStatus_code(TStatusCode.INTERNAL_ERROR);
+            status.addToError_msgs(Strings.nullToEmpty(e.getMessage()));
+            return result;
+        }
+    }
+
+    @Override
+    public TFeResult isMethodSupported(TIsMethodSupportedRequest request) throws TException {
+        TStatus status = new TStatus(TStatusCode.OK);
+        TFeResult result = new TFeResult(FrontendServiceVersion.V1, status);
+        switch (request.getFunction_name()){
+            case "STREAMING_MINI_LOAD":
+                break;
+            default:
+                status.setStatus_code(NOT_IMPLEMENTED_ERROR);
+                break;
         }
         return result;
     }

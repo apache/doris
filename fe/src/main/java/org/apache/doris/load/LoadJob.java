@@ -51,7 +51,6 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -640,11 +639,8 @@ public class LoadJob implements Writable {
     }
     
     public long getDeleteJobTimeout() {
-        long timeout = Math.max(idToTabletLoadInfo.size() 
-                * Config.tablet_delete_timeout_second * 1000L,
-                60000L);
-        timeout = Math.min(timeout, 300000L);
-        return timeout;
+        return Math.min(idToTabletLoadInfo.size() * Config.tablet_delete_timeout_second * 1000L,
+                Config.load_straggler_wait_second * 1000L);
     }
     
     @Override

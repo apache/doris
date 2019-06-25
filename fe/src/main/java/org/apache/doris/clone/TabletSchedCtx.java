@@ -51,6 +51,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /*
  * TabletSchedCtx contains all information which is created during tablet scheduler processing.
@@ -195,6 +196,9 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     // the total size of clone files and the total cost time in ms.
     private long copySize = 0;
     private long copyTimeMs = 0;
+
+    private Set<Long> colocateBackendsSet = null;
+    private int tabletOrderIdx = -1;
 
     private SystemInfoService infoService;
     
@@ -417,6 +421,22 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         return false;
     }
     
+    public void setColocateGroupBackendIds(Set<Long> backendsSet) {
+        this.colocateBackendsSet = backendsSet;
+    }
+
+    public Set<Long> getColocateBackendsSet() {
+        return colocateBackendsSet;
+    }
+
+    public void setTabletOrderIdx(int idx) {
+        this.tabletOrderIdx = idx;
+    }
+
+    public int getTabletOrderIdx() {
+        return tabletOrderIdx;
+    }
+
     // database lock should be held.
     public void chooseSrcReplica(Map<Long, PathSlot> backendsWorkingSlots) throws SchedException {
         /*
@@ -643,7 +663,8 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         // if this is a balance task, or this is a repair task with REPLICA_MISSING/REPLICA_RELOCATING or REPLICA_MISSING_IN_CLUSTER,
         // we create a new replica with state CLONE
         if (tabletStatus == TabletStatus.REPLICA_MISSING || tabletStatus == TabletStatus.REPLICA_MISSING_IN_CLUSTER
-                || tabletStatus == TabletStatus.REPLICA_RELOCATING || type == Type.BALANCE) {
+                || tabletStatus == TabletStatus.REPLICA_RELOCATING || type == Type.BALANCE
+                || tabletStatus == TabletStatus.COLOCATE_MISMATCH) {
             Replica cloneReplica = new Replica(
                     Catalog.getCurrentCatalog().getNextId(), destBackendId,
                     -1 /* version */, 0 /* version hash */, schemaHash,

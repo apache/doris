@@ -76,9 +76,13 @@ message ColumnMetaPB {
     optional int32 type = 1;
     optional EncodingTypePB encoding = 2;
     // compress type for column
-    optional CompressionTypePB compress_type = 3;
+    optional CompressionTypePB compression = 3;
     // if this column can be nullable
     optional bool is_nullable = 4;
+    // if this column has checksum for each page
+    optional bool has_checksum = 5;
+    // ordinal index page
+    optional PagePointerPB ordinal_index_page = 6;
 
     // // dictionary page for DICT_ENCODING
     // optional PagePointerPB dict_page = 2;
@@ -86,7 +90,6 @@ message ColumnMetaPB {
     // // bloom filter pages for bloom filter column
     // repeated PagePointerPB bloom_filter_pages = 3;
 
-    // optional PagePointerPB ordinal_index_page = 4; // ordinal index page
     // optional PagePointerPB page_zonemap_page = 5; // page zonemap info of column
 
     // optional PagePointerPB bitmap_index_page = 6; // bitmap index page

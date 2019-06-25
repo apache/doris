@@ -18,6 +18,7 @@
 namespace cpp doris
 namespace java org.apache.doris.thrift
 
+
 typedef i64 TTimestamp
 typedef i32 TPlanNodeId
 typedef i32 TTupleId
@@ -357,6 +358,7 @@ struct TTabletCommitInfo {
 enum TLoadType {
     MANUL_LOAD,
     ROUTINE_LOAD,
+    MINI_LOAD
 }
 
 enum TLoadSourceType {

@@ -1,22 +1,19 @@
-/*
- * Licensed to the Apache Software Foundation (ASF) under one
- * or more contributor license agreements.  See the NOTICE file
- * distributed with this work for additional information
- * regarding copyright ownership.  The ASF licenses this file
- * to you under the Apache License, Version 2.0 (the
- * "License"); you may not use this file except in compliance
- * with the License.  You may obtain a copy of the License at
- *
- *   http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
- *
- */
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
 
 package org.apache.doris.load.loadv2;
 
@@ -29,7 +26,12 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Table;
+import org.apache.doris.common.LoadException;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.BrokerFileGroup;
@@ -150,19 +152,51 @@ public class LoadingTaskPlanner {
         return scanNodes;
     }
 
-    private String convertBrokerDescPartitionInfo() {
+    private String convertBrokerDescPartitionInfo() throws LoadException, MetaNotFoundException {
         String result = "";
         for (BrokerFileGroup brokerFileGroup : fileGroups) {
-            if (brokerFileGroup.getPartitionNames() == null) {
+            List<String> partitionNames = getPartitionNames(brokerFileGroup);
+            if (partitionNames == null) {
                 continue;
             }
-            result += Joiner.on(",").join(brokerFileGroup.getPartitionNames());
+            result += Joiner.on(",").join(partitionNames);
             result += ",";
         }
         if (Strings.isNullOrEmpty(result)) {
             return null;
         }
         result = result.substring(0, result.length() - 1);
+        return result;
+    }
+
+    private List<String> getPartitionNames(BrokerFileGroup brokerFileGroup)
+            throws MetaNotFoundException, LoadException {
+        Database database = Catalog.getCurrentCatalog().getDb(dbId);
+        if (database == null) {
+            throw new MetaNotFoundException("Database " + dbId + " has been deleted when broker loading");
+        }
+        Table table = database.getTable(brokerFileGroup.getTableId());
+        if (table == null) {
+            throw new MetaNotFoundException("Table " + brokerFileGroup.getTableId()
+                                                    + " has been deleted when broker loading");
+        }
+        if (!(table instanceof OlapTable)) {
+            throw new LoadException("Only olap table is supported in broker load");
+        }
+        OlapTable olapTable = (OlapTable) table;
+        List<Long> partitionIds = brokerFileGroup.getPartitionIds();
+        if (partitionIds == null || partitionIds.isEmpty()) {
+            return null;
+        }
+        List<String> result = Lists.newArrayList();
+        for (long partitionId : brokerFileGroup.getPartitionIds()) {
+            Partition partition = olapTable.getPartition(partitionId);
+            if (partition == null) {
+                throw new MetaNotFoundException("Unknown partition(" + partitionId + ") in table("
+                                                        + table.getName() + ")");
+            }
+            result.add(partition.getName());
+        }
         return result;
     }
 }

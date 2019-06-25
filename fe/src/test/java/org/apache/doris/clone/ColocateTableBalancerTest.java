@@ -17,89 +17,138 @@
 
 package org.apache.doris.clone;
 
+import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.ColocateGroupSchema;
+import org.apache.doris.catalog.ColocateTableIndex;
+import org.apache.doris.catalog.ColocateTableIndex.GroupId;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.system.Backend;
+import org.apache.doris.system.SystemInfoService;
+
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
 import org.junit.Assert;
+import org.junit.Before;
 import org.junit.Test;
 
 import java.util.List;
+import java.util.Map;
+
+import mockit.Deencapsulation;
+import mockit.Expectations;
+import mockit.Mocked;
 
 public class ColocateTableBalancerTest {
+    
+    @Mocked
+    private Catalog catalog;
+    @Mocked
+    private SystemInfoService infoService;
+    @Mocked
+    private TabletScheduler tabletScheduler;
+    
+    private ColocateTableBalancer balancer = ColocateTableBalancer.getInstance();
+    
+    private Backend backend1;
+    private Backend backend2;
+    private Backend backend3;
+    private Backend backend4;
+    private Backend backend5;
+    private Backend backend6;
+    private Backend backend7;
+    private Backend backend8;
+    private Backend backend9;
 
-    private static final int replicateNum = 3;
-    // [[1, 2, 3], [4, 1, 2], [3, 4, 1], [2, 3, 4], [1, 2, 3]]
-    private static final List<List<Long>> backendsPerBucketSeq =
-    Lists.partition(Lists.newArrayList(1L, 2L, 3L, 4L, 1L, 2L, 3L, 4L, 1L, 2L, 3L, 4L, 1L, 2L, 3L), replicateNum);
+    @Before
+    public void setUp() {
+        backend1 = new Backend(1L, "192.168.1.1", 9050);
+        backend2 = new Backend(2L, "192.168.1.2", 9050);
+        backend3 = new Backend(3L, "192.168.1.3", 9050);
+        backend4 = new Backend(4L, "192.168.1.4", 9050);
+        backend5 = new Backend(5L, "192.168.1.5", 9050);
+        backend6 = new Backend(6L, "192.168.1.6", 9050);
+        // 7,8,9 are on same host
+        backend7 = new Backend(7L, "192.168.1.8", 9050);
+        backend8 = new Backend(8L, "192.168.1.8", 9050);
+        backend9 = new Backend(9L, "192.168.1.8", 9050);
 
-    @Test
-    /*
-     * backends: [1,2,3,4]
-     * bucket num: 5
-     * replicateNum: 3
-     * new backends: [5]
-     */
-    public void testBalanceNormalWithOneBackend() {
-        List<Long> newBackends = Lists.newArrayList(5L);
-        System.out.println("newBackends: " + newBackends);
+        new Expectations() {
+            {
+                infoService.getBackend(1L);
+                result = backend1;
+                minTimes = 0;
+                infoService.getBackend(2L);
+                result = backend2;
+                minTimes = 0;
+                infoService.getBackend(3L);
+                result = backend3;
+                minTimes = 0;
+                infoService.getBackend(4L);
+                result = backend4;
+                minTimes = 0;
+                infoService.getBackend(5L);
+                result = backend5;
+                minTimes = 0;
+                infoService.getBackend(6L);
+                result = backend6;
+                minTimes = 0;
+                infoService.getBackend(7L);
+                result = backend7;
+                minTimes = 0;
+                infoService.getBackend(8L);
+                result = backend8;
+                minTimes = 0;
+                infoService.getBackend(9L);
+                result = backend9;
+                minTimes = 0;
+            }
+        };
+    }
 
-        List<List<Long>> newBackendsPerBucketSeq = ColocateTableBalancer.balance(backendsPerBucketSeq, newBackends);
-        System.out.println("new backendsPerBucketSeq: " + newBackendsPerBucketSeq);
-
-        List<List<Long>> expectBackendsPerBucketSeq  = Lists.partition(Lists.newArrayList(5L, 2L, 3L, 4L, 1L, 5L, 5L, 4L, 1L, 2L, 3L, 4L, 1L, 2L, 3L), replicateNum);
-        Assert.assertEquals(expectBackendsPerBucketSeq, newBackendsPerBucketSeq);
+    private ColocateTableIndex createColocateIndex(GroupId groupId, List<Long> flatList) {
+        ColocateTableIndex colocateTableIndex = new ColocateTableIndex();
+        int replicationNum = 3;
+        List<List<Long>> backendsPerBucketSeq = Lists.partition(flatList, replicationNum);
+        colocateTableIndex.addBackendsPerBucketSeq(groupId, backendsPerBucketSeq);
+        return colocateTableIndex;
     }
 
     @Test
-    /*
-     * backends: [1,2,3,4]
-     * bucket num: 5
-     * replicateNum: 3
-     * new backends: [5,6]
-     */
-    public void testBalanceNormalWithTwoBackend() {
-        List<Long> newBackends = Lists.newArrayList(5L, 6L);
-        System.out.println("newBackends: " + newBackends);
+    public void testBalance() {
+        GroupId groupId = new GroupId(10000, 10001);
+        List<Column> distributionCols = Lists.newArrayList();
+        distributionCols.add(new Column("k1", PrimitiveType.INT));
+        ColocateGroupSchema groupSchema = new ColocateGroupSchema(groupId, distributionCols, 5, (short) 3);
+        Map<GroupId, ColocateGroupSchema> group2Schema = Maps.newHashMap();
+        group2Schema.put(groupId, groupSchema);
 
-        List<List<Long>> newBackendsPerBucketSeq = ColocateTableBalancer.balance(backendsPerBucketSeq, newBackends);
-        System.out.println("new backendsPerBucketSeq: " + newBackendsPerBucketSeq);
+        // 1. balance a imbalance group
+        // [[1, 2, 3], [4, 1, 2], [3, 4, 1], [2, 3, 4], [1, 2, 3]]
+        ColocateTableIndex colocateTableIndex = createColocateIndex(groupId,
+                Lists.newArrayList(1L, 2L, 3L, 4L, 1L, 2L, 3L, 4L, 1L, 2L, 3L, 4L, 1L, 2L, 3L));
+        Deencapsulation.setField(colocateTableIndex, "group2Schema", group2Schema);
 
-        List<List<Long>> expectBackendsPerBucketSeq  = Lists.partition(Lists.newArrayList(5L, 6L, 3L, 6L, 1L, 2L, 5L, 4L, 1L, 2L, 3L, 4L, 1L, 2L, 3L), replicateNum);
-        Assert.assertEquals(expectBackendsPerBucketSeq, newBackendsPerBucketSeq);
-    }
+        List<List<Long>> balancedBackendsPerBucketSeq = Lists.newArrayList();
+        List<Long> allAvailBackendIds = Lists.newArrayList(1L, 2L, 3L, 4L, 5L, 6L, 7L, 8L, 9L);
+        boolean changed = (Boolean) Deencapsulation.invoke(balancer, "balance", groupId, allAvailBackendIds,
+                colocateTableIndex, infoService, balancedBackendsPerBucketSeq);
+        System.out.println(balancedBackendsPerBucketSeq);
+        List<List<Long>> expected = Lists.partition(
+                Lists.newArrayList(9L, 5L, 3L, 4L, 6L, 8L, 7L, 6L, 1L, 2L, 9L, 4L, 1L, 2L, 3L), 3);
+        Assert.assertTrue(changed);
+        Assert.assertEquals(expected, balancedBackendsPerBucketSeq);
 
-    @Test
-    /*
-     * backends: [1,2,3,4]
-     * bucket num: 5
-     * replicateNum: 3
-     * new backends: [5,6,7,8,9,10,11,12,13,14,15]
-     */
-    public void testBalanceNormalWithManyBackendEqualReplicateNum() {
-        List<Long> newBackends = Lists.newArrayList(5L, 6L, 7L, 8L, 9L, 10L, 11L, 12L, 13L, 14L, 15L);
-        System.out.println("newBackends: " + newBackends);
-
-        List<List<Long>> newBackendsPerBucketSeq = ColocateTableBalancer.balance(backendsPerBucketSeq, newBackends);
-        System.out.println("new backendsPerBucketSeq: " + newBackendsPerBucketSeq);
-
-        List<List<Long>> expectBackendsPerBucketSeq  = Lists.partition(Lists.newArrayList(5L, 6L, 7L, 8L, 9L, 10L, 11L, 12L, 13L, 14L, 15L, 4L, 1L, 2L, 3L), replicateNum);
-        Assert.assertEquals(expectBackendsPerBucketSeq, newBackendsPerBucketSeq);
-    }
-
-
-    @Test
-    /*
-     * backends: [1,2,3,4]
-     * bucket num: 5
-     * replicateNum: 3
-     * new backends: [5,6,7,8,9,10,11,12,13,14,15,16]
-     */
-    public void testBalanceNormalWithManyBackendExceedReplicateNum() {
-        List<Long> newBackends = Lists.newArrayList(5L, 6L, 7L, 8L, 9L, 10L, 11L, 12L, 13L, 14L, 15L, 16L);
-        System.out.println("newBackends: " + newBackends);
-
-        List<List<Long>> newBackendsPerBucketSeq = ColocateTableBalancer.balance(backendsPerBucketSeq, newBackends);
-        System.out.println("new backendsPerBucketSeq: " + newBackendsPerBucketSeq);
-
-        List<List<Long>> expectBackendsPerBucketSeq  = Lists.partition(Lists.newArrayList(5L, 6L, 7L, 8L, 9L, 10L, 11L, 12L, 13L, 14L, 15L, 4L, 1L, 2L, 3L), replicateNum);
-        Assert.assertEquals(expectBackendsPerBucketSeq, newBackendsPerBucketSeq);
+        // 2. balance a already balanced group
+        colocateTableIndex = createColocateIndex(groupId,
+                Lists.newArrayList(9L, 8L, 7L, 8L, 6L, 5L, 9L, 4L, 1L, 2L, 3L, 4L, 1L, 2L, 3L));
+        Deencapsulation.setField(colocateTableIndex, "group2Schema", group2Schema);
+        balancedBackendsPerBucketSeq.clear();
+        changed = (Boolean) Deencapsulation.invoke(balancer, "balance", groupId, allAvailBackendIds,
+                colocateTableIndex, infoService, balancedBackendsPerBucketSeq);
+        System.out.println(balancedBackendsPerBucketSeq);
+        Assert.assertFalse(changed);
+        Assert.assertTrue(balancedBackendsPerBucketSeq.isEmpty());
     }
 }

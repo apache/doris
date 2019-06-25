@@ -197,21 +197,22 @@ public enum ErrorCode {
             "Incorrect %s name '%s'"),
     ERR_COMMON_ERROR(5064, new byte[] { '4', '2', '0', '0', '0' },
             "%s"),
-    ERR_COLOCATE_TABLE_DISABLED(5063, new byte[] { '4', '2', '0', '0', '0' },
-            "Colocate table is disabled by Admin"),
-    ERR_COLOCATE_TABLE_NO_EXIT(5063, new byte[] { '4', '2', '0', '0', '0' },
-            "Colocate table '%s' no exist"),
-    ERR_COLOCATE_TABLE_MUST_OLAP_TABLE(5063, new byte[] { '4', '2', '0', '0', '0' },
-            "Colocate tables '%s' must be OLAP table"),
-    ERR_COLOCATE_TABLE_MUST_SAME_REPLICAT_NUM(5063, new byte[] { '4', '2', '0', '0', '0' },
-            "Colocate tables must have the same replication num: %s"),
-    ERR_COLOCATE_TABLE_MUST_SAME_BUCKNUM(5063, new byte[] { '4', '2', '0', '0', '0' },
-            "Colocate tables must have the same bucket num: %s"),
-    ERR_COLOCATE_TABLE_SAME_DISTRIBUTED_COLUMNS_SIZE(5063, new byte[] { '4', '2', '0', '0', '0' },
-            "Colocate table distribution columns size must be same : %s"),
-    ERR_COLOCATE_TABLE_SAME_DISTRIBUTED_COLUMNS_TYPE(5063, new byte[] { '4', '2', '0', '0', '0' },
-            "Colocate table distribution columns must have the same data type: %s should be %s");
-
+    ERR_COLOCATE_FEATURE_DISABLED(5063, new byte[] { '4', '2', '0', '0', '0' },
+            "Colocate feature is disabled by Admin"),
+    ERR_COLOCATE_TABLE_NOT_EXIST(5063, new byte[] { '4', '2', '0', '0', '0' },
+            "Colocate table '%s' does not exist"),
+    ERR_COLOCATE_TABLE_MUST_BE_OLAP_TABLE(5063, new byte[] { '4', '2', '0', '0', '0' },
+            "Colocate table '%s' must be OLAP table"),
+    ERR_COLOCATE_TABLE_MUST_HAS_SAME_REPLICATION_NUM(5063, new byte[] { '4', '2', '0', '0', '0' },
+            "Colocate tables must have same replication num: %s"),
+    ERR_COLOCATE_TABLE_MUST_HAS_SAME_BUCKET_NUM(5063, new byte[] { '4', '2', '0', '0', '0' },
+            "Colocate tables must have same bucket num: %s"),
+    ERR_COLOCATE_TABLE_MUST_HAS_SAME_DISTRIBUTION_COLUMN_SIZE(5063, new byte[] { '4', '2', '0', '0', '0' },
+            "Colocate tables distribution columns size must be same : %s"),
+    ERR_COLOCATE_TABLE_MUST_HAS_SAME_DISTRIBUTION_COLUMN_TYPE(5063, new byte[] { '4', '2', '0', '0', '0' },
+            "Colocate tables distribution columns must have the same data type: %s should be %s"), 
+    ERR_COLOCATE_NOT_COLOCATE_TABLE(5064, new byte[] { '4', '2', '0', '0', '0' },
+            "Table %s is not a colocated table"),;
 
     ErrorCode(int code, byte[] sqlState, String errorMsg) {
         this.code = code;

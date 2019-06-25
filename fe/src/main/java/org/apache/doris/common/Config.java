@@ -250,10 +250,10 @@ public class Config extends ConfigBase {
     public static int tablet_create_timeout_second = 1;
     
     /*
-     * Maximal waiting time for publish version message to backend
+     * Maximal waiting time for all publish version tasks of one transaction to be finished
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int publish_version_timeout_second = 3;
+    public static int publish_version_timeout_second = 30; // 30 seconds
     
     /*
      * minimal intervals between two publish version action
@@ -383,6 +383,14 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int hadoop_load_default_timeout_second = 86400 * 3; // 3 day
+
+    /*
+     * Default number of waiting jobs for routine load and version 2 of load
+     * This is a desired number.
+     * In some situation, such as switch the master, the current number is maybe more then desired_max_waiting_jobs
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int desired_max_waiting_jobs = 100;
 
     /*
      * Same meaning as *tablet_create_timeout_second*, but used when delete a tablet.
@@ -821,5 +829,13 @@ public class Config extends ConfigBase {
      * Save small files
      */
     @ConfField public static String small_file_dir = System.getenv("DORIS_HOME") + "/small_files";
+    
+    /*
+     * The following 2 configs can set to true to disable the automatic colocate tables's relocate and balance.
+     * if 'disable_colocate_relocate' is set to true, ColocateTableBalancer will not relocate colocate tables when Backend unavailable.
+     * if 'disable_colocate_balance' is set to true, ColocateTableBalancer will not balance colocate tables.
+     */
+    @ConfField(mutable = true, masterOnly = true) public static boolean disable_colocate_relocate = false;
+    @ConfField(mutable = true, masterOnly = true) public static boolean disable_colocate_balance = false;
 }
 

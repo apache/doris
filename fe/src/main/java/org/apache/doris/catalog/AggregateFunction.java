@@ -23,7 +23,6 @@ import static org.apache.doris.common.io.IOUtils.writeOptionString;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
 import org.apache.doris.analysis.CreateFunctionStmt;
-import org.apache.doris.common.io.IOUtils;
 
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.HdfsURI;

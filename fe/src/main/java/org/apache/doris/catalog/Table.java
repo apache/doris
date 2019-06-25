@@ -24,7 +24,6 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 
 import org.apache.commons.lang.NotImplementedException;
@@ -279,7 +278,7 @@ public class Table extends MetaObject implements Writable {
         OlapTable olapTable = (OlapTable) this;
         
         if (Catalog.getCurrentColocateIndex().isColocateTable(olapTable.getId())) {
-            LOG.info("table {} is a colocate table, skip tablet scheduler.", name);
+            LOG.debug("table {} is a colocate table, skip tablet checker.", name);
             return false;
         }
 

@@ -20,12 +20,16 @@ package org.apache.doris.catalog;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.apache.doris.analysis.*;
+import org.apache.doris.analysis.ArithmeticExpr;
+import org.apache.doris.analysis.BinaryPredicate;
+import org.apache.doris.analysis.CastExpr;
+import org.apache.doris.analysis.InPredicate;
+import org.apache.doris.analysis.IsNullPredicate;
+import org.apache.doris.analysis.LikePredicate;
 import org.apache.doris.builtins.ScalarBuiltins;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import com.google.common.base.Preconditions;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -562,11 +566,12 @@ public class FunctionSet {
      * @return
      */
     public static boolean isCastMatchAllowed(Function desc, Function candicate) {
-        if (desc.getFunctionName().getFunction().equalsIgnoreCase("hex")) {
-            final Type[] descArgTypes = desc.getArgs();
-            final Type[] candicateArgTypes = candicate.getArgs();
-            Preconditions.checkArgument(descArgTypes.length == candicateArgTypes.length);
-
+        final String functionName = desc.getFunctionName().getFunction();
+        final Type[] descArgTypes = desc.getArgs();
+        final Type[] candicateArgTypes = candicate.getArgs();
+        if (functionName.equalsIgnoreCase("hex") 
+                || functionName.equalsIgnoreCase("greast")
+                || functionName.equalsIgnoreCase("least")) {
             final ScalarType descArgType = (ScalarType)descArgTypes[0];
             final ScalarType candicateArgType = (ScalarType)candicateArgTypes[0];
             if (!descArgType.isStringType() && candicateArgType.isStringType()) {

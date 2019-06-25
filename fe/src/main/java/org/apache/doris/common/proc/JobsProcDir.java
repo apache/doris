@@ -26,6 +26,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.ExportMgr;
 import org.apache.doris.load.Load;
+import org.apache.doris.load.loadv2.LoadManager;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -33,7 +34,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 /*
- * SHOW PROC '/jobs/dbName/'
+ * SHOW PROC '/jobs/dbId/'
  * show job type
  */
 public class JobsProcDir implements ProcDirInterface {
@@ -105,12 +106,17 @@ public class JobsProcDir implements ProcDirInterface {
 
         // load
         Load load = Catalog.getInstance().getLoadInstance();
-        pendingNum = load.getLoadJobNum(org.apache.doris.load.LoadJob.JobState.PENDING, dbId);
+        LoadManager loadManager = Catalog.getCurrentCatalog().getLoadManager();
+        pendingNum = load.getLoadJobNum(org.apache.doris.load.LoadJob.JobState.PENDING, dbId)
+                + loadManager.getLoadJobNum(org.apache.doris.load.loadv2.JobState.PENDING, dbId);
         runningNum = load.getLoadJobNum(org.apache.doris.load.LoadJob.JobState.ETL, dbId)
-                + load.getLoadJobNum(org.apache.doris.load.LoadJob.JobState.LOADING, dbId);
+                + load.getLoadJobNum(org.apache.doris.load.LoadJob.JobState.LOADING, dbId)
+                + loadManager.getLoadJobNum(org.apache.doris.load.loadv2.JobState.LOADING, dbId);
         finishedNum = load.getLoadJobNum(org.apache.doris.load.LoadJob.JobState.QUORUM_FINISHED, dbId)
-                + load.getLoadJobNum(org.apache.doris.load.LoadJob.JobState.FINISHED, dbId);
-        cancelledNum = load.getLoadJobNum(org.apache.doris.load.LoadJob.JobState.CANCELLED, dbId);
+                + load.getLoadJobNum(org.apache.doris.load.LoadJob.JobState.FINISHED, dbId)
+                + loadManager.getLoadJobNum(org.apache.doris.load.loadv2.JobState.FINISHED, dbId);
+        cancelledNum = load.getLoadJobNum(org.apache.doris.load.LoadJob.JobState.CANCELLED, dbId)
+                + loadManager.getLoadJobNum(org.apache.doris.load.loadv2.JobState.CANCELLED, dbId);
         totalNum = pendingNum + runningNum + finishedNum + cancelledNum;
         result.addRow(Lists.newArrayList(LOAD, pendingNum.toString(), runningNum.toString(), finishedNum.toString(),
                                          cancelledNum.toString(), totalNum.toString()));
