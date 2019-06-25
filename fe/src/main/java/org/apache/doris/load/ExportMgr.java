@@ -30,6 +30,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.gson.Gson;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -180,13 +181,16 @@ public class ExportMgr {
                     partitions = Lists.newArrayList();
                     partitions.add("*");
                 }
-                infoMap.put("partitions", infoMap);
+                infoMap.put("db", job.getDbId());
+                infoMap.put("tbl", job.getTableName());
+                infoMap.put("partitions", partitions);
                 infoMap.put("broker", job.getBrokerDesc().getName());
                 infoMap.put("column separator", job.getColumnSeparator());
                 infoMap.put("line delimiter", job.getLineDelimiter());
                 infoMap.put("exec mem limit", job.getExecMemLimit());
                 infoMap.put("coord num", job.getCoordList().size());
-                infoMap.put("tablet num", job.getTabletLocations() == null ? -1 : job.getTabletLocations());
+                infoMap.put("tablet num", job.getTabletLocations() == null ? -1 : job.getTabletLocations().size());
+                jobInfo.add(new Gson().toJson(infoMap));
                 // path
                 jobInfo.add(job.getExportPath());
 

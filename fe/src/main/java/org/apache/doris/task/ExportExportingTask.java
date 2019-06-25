@@ -85,10 +85,10 @@ public class ExportExportingTask extends MasterTask {
             job.setDoExportingThread(Thread.currentThread());
         }
 
-        // Check exec fragments should already generated
-        // WTF??
         if (job.isReplayed()) {
-            String failMsg = "do not have exec request.";
+            // If the job is created from replay thread, all plan info will be lost.
+            // so the job has to be cancelled.
+            String failMsg = "FE restarted or Master changed during exporting. Job must be cancalled.";
             job.cancel(ExportFailMsg.CancelType.RUN_FAIL, failMsg);
             return;
         }

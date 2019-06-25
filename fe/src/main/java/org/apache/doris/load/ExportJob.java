@@ -135,6 +135,7 @@ public class ExportJob implements Writable {
 
     private AtomicInteger nextId = new AtomicInteger(0);
 
+    // when set to true, means this job instance is created by replay thread(FE restarted or master changed)
     private boolean isReplayed = false;
 
     private Thread doExportingThread;
