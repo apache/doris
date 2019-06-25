@@ -106,6 +106,10 @@ public class TabletSchedulerStat {
     public AtomicLong counterReplicaMissingInClusterErr = new AtomicLong(0L);
     @StatField("num of balance scheduled")
     public AtomicLong counterBalanceSchedule = new AtomicLong(0L);
+    @StatField("num of colocate replica mismatch")
+    public AtomicLong counterReplicaColocateMismatch = new AtomicLong(0L);
+    @StatField("num of colocate replica redundant")
+    public AtomicLong counterReplicaColocateRedundant = new AtomicLong(0L);
 
     private TabletSchedulerStat lastSnapshot = null;
 

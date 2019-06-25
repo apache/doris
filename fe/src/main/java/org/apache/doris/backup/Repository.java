@@ -389,6 +389,9 @@ public class Repository implements Writable {
         // rename tmp file with checksum named file
         String finalRemotePath = assembleFileNameWithSuffix(remoteFilePath, md5sum);
         st = storage.rename(tmpRemotePath, finalRemotePath);
+        if (!st.ok()) {
+            return st;
+        }
         LOG.info("finished to upload local file {} to remote file: {}", localFilePath, finalRemotePath);
         return st;
     }

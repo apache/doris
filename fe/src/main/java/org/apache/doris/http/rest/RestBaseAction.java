@@ -33,7 +33,6 @@ import java.net.URI;
 import java.net.URISyntaxException;
 
 import io.netty.handler.codec.http.HttpHeaderNames;
-import io.netty.handler.codec.http.HttpHeaders;
 import io.netty.handler.codec.http.HttpResponseStatus;
 
 public class RestBaseAction extends BaseAction {
@@ -95,7 +94,7 @@ public class RestBaseAction extends BaseAction {
             LOG.warn(e.getMessage());
             throw new DdlException(e.getMessage());
         }
-        response.updateHeader(HttpHeaders.Names.LOCATION, resultUriObj.toString());
+        response.updateHeader(HttpHeaderNames.LOCATION.toString(), resultUriObj.toString());
         writeResponse(request, response, HttpResponseStatus.TEMPORARY_REDIRECT);
     }
 

@@ -2,6 +2,8 @@
 
 从 0.9.0 版本开始，Doris 引入了优化后的副本管理策略，同时支持了更为丰富的副本状态查看工具。本文档主要介绍 Doris 数据副本均衡、修复方面的调度策略，以及副本管理的运维方法。帮助用户更方便的掌握和管理集群中的副本状态。
 
+> Colocation 属性的表的副本修复和均衡可以参阅 `docs/documentation/cn/administrator-guide/colocation-join.md`
+
 ## 名词解释
 
 1. Tablet：Doris 表的逻辑分片，一个表有多个分片。
@@ -74,7 +76,15 @@
 
     这是一个特殊状态。只会出现在当期望副本数大于等于可用节点数时，并且 Tablet 处于副本缺失状态时出现。这种情况下，需要先删除一个副本，以保证有可用节点用于创建新副本。
     
-7. HEALTHY
+7. COLOCATE\_MISMATCH
+
+    针对 Colocation 属性的表的分片状态。表示分片副本与 Colocation Group 的指定的分布不一致。
+
+8. COLOCATE\_REDUNDANT
+
+    针对 Colocation 属性的表的分片状态。表示 Colocation 表的分片副本冗余。
+       
+8. HEALTHY
 
     健康分片，即条件[1-5]都不满足。
     
@@ -115,6 +125,14 @@ TabletChecker 作为常驻的后台进程，会定期检查所有分片的状态
 
     不同于 REDUNDANT，因为此时虽然 Tablet 有副本缺失，但是因为已经没有额外的可用节点用于创建新的副本了。所以此时必须先删除一个副本，以腾出一个可用节点用于创建新的副本。
     删除副本的顺序同 REDUNDANT。
+    
+6. COLOCATE\_MISMATCH
+
+    从 Colocation Group 中指定的副本分布 BE 节点中选择一个作为目的节点进行副本补齐。
+
+7. COLOCATE\_REDUNDANT
+
+    删除一个非 Colocation Group 中指定的副本分布 BE 节点上的副本。
 
 ### 调度优先级
 
@@ -129,6 +147,8 @@ TabletScheduler 里等待被调度的分片会根据状态不同，赋予不同�
 
     * REPLICA\_MISSING 且多数副本缺失（比如3副本丢失了2个）
     * VERSION\_INCOMPLETE 且多数副本的版本缺失
+    * COLOCATE\_MISMATCH 我们希望 Colocation 表相关的分片能够尽快修复完成。
+    * COLOCATE\_REDUNDANT
 
 3. NORMAL
 

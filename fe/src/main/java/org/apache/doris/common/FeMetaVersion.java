@@ -118,4 +118,6 @@ public final class FeMetaVersion {
     public static final int VERSION_53 = 53;
     // support strict mode, change timeout to long, and record txn id in load job
     public static final int VERSION_54 = 54;
+    // modify colocation join
+    public static final int VERSION_55 = 55;
 }
