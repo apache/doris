@@ -181,8 +181,8 @@ public class ExportMgr {
                     partitions = Lists.newArrayList();
                     partitions.add("*");
                 }
-                infoMap.put("db", job.getDbId());
-                infoMap.put("tbl", job.getTableName());
+                infoMap.put("db", job.getTableName().getDb());
+                infoMap.put("tbl", job.getTableName().getTbl());
                 infoMap.put("partitions", partitions);
                 infoMap.put("broker", job.getBrokerDesc().getName());
                 infoMap.put("column separator", job.getColumnSeparator());

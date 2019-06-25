@@ -76,6 +76,8 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -205,9 +207,14 @@ public class ExportJob implements Writable {
 
     private void genExecFragment() throws UserException {
         registerToDesc();
-        exportSink = new ExportSink(
-                getExportPath() + "/__doris_export_tmp/", getColumnSeparator(),
-                getLineDelimiter(), brokerDesc);
+        String tmpExportPathStr = getExportPath() + "/__doris_export_tmp_" + id + "/";
+        try {
+            URI uri = new URI(tmpExportPathStr);
+            tmpExportPathStr = uri.normalize().toString();
+        } catch (URISyntaxException e) {
+            throw new DdlException("Invalid export path: " + getExportPath());
+        }
+        exportSink = new ExportSink(tmpExportPathStr, getColumnSeparator(), getLineDelimiter(), brokerDesc);
         plan();
     }
 
