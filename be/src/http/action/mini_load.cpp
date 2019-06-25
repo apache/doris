@@ -340,7 +340,8 @@ int MiniLoadAction::on_header(HttpRequest* req) {
     }
 	
     Status status;
-    _set_is_streaming(req);	
+         MiniLoadCtx* mini_load_ctx = new MiniLoadCtx(_is_streaming(req));
+        req->set_handler_ctx(mini_load_ctx);	
     if (((MiniLoadCtx*) req->handler_ctx())->is_streaming) {
         status = _on_new_header(req);
         StreamLoadContext* ctx = ((MiniLoadCtx*) req->handler_ctx())->stream_load_ctx;
