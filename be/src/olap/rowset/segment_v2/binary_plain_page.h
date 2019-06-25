@@ -31,10 +31,10 @@
 #include "util/coding.h"
 #include "util/faststring.h"
 #include "olap/olap_common.h"
-#include "olap/types.h"
 #include "olap/rowset/segment_v2/page_builder.h"
 #include "olap/rowset/segment_v2/page_decoder.h"
 #include "olap/rowset/segment_v2/options.h"
+#include "olap/types.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -42,7 +42,6 @@ namespace segment_v2 {
 class BinaryPlainPageBuilder : public PageBuilder {
 public:
     BinaryPlainPageBuilder(const PageBuilderOptions options) :
-            _end_of_data_offset(0),
             _size_estimate(0),
             _options(std::move(options)) {
         _buffer.reserve(_options.data_page_size);
@@ -72,8 +71,6 @@ public:
             vals += sizeof(Slice);
         }
 
-        _end_of_data_offset = _buffer.size();
-
         *count = i;
         return Status::OK();
     }
@@ -101,7 +98,6 @@ public:
         _buffer.clear();
         _buffer.resize(MAX_HEADER_SIZE);
         _size_estimate = MAX_HEADER_SIZE;
-        _end_of_data_offset = MAX_HEADER_SIZE;
         _finished = false;
     }
 
@@ -123,7 +119,6 @@ public:
     static const size_t MAX_HEADER_SIZE = sizeof(uint32_t) * 2;
 private:
     faststring _buffer;
-    size_t _end_of_data_offset;
     size_t _size_estimate;
     // Offsets of each entry, relative to the start of the page
     std::vector<uint32_t> _offsets;
