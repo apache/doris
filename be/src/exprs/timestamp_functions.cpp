@@ -165,6 +165,14 @@ IntVal TimestampFunctions::month(
     const DateTimeValue& ts_value = DateTimeValue::from_datetime_val(ts_val);
     return IntVal(ts_value.month());
 }
+IntVal TimestampFunctions::day_of_week(
+        FunctionContext* context, const DateTimeVal& ts_val) {
+    if (ts_val.is_null) {
+        return IntVal::null();
+    }
+    const DateTimeValue& ts_value = DateTimeValue::from_datetime_val(ts_val);
+    return IntVal((ts_value.weekday() + 1 ) % 7 + 1);
+}
 
 IntVal TimestampFunctions::day_of_month(
         FunctionContext* context, const DateTimeVal& ts_val) {
