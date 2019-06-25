@@ -548,8 +548,10 @@
           [PROPERTIES ("key"="value", ...)]
         
           可以指定如下参数：
-            column_separator：指定导出的列分隔符，默认为\t。
-            line_delimiter:指定导出的行分隔符，默认为\n。
+            column_separator: 指定导出的列分隔符，默认为\t。
+            line_delimiter: 指定导出的行分隔符，默认为\n。
+            exec_mem_limit: 导出在单个 BE 节点的内存使用上限，默认为 2GB，单位为字节。
+            timeout：导入作业的超时时间，默认为1天，单位是秒。
 
     5. broker
       用于指定导出使用的broker

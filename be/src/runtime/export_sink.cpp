@@ -121,7 +121,7 @@ Status ExportSink::gen_row_buffer(TupleRow* row, std::stringstream* ss) {
     for (int i = 0; i < num_columns; ++i) {
         void* item = _output_expr_ctxs[i]->get_value(row);
         if (item == nullptr) {
-            (*ss) << "NULL";
+            (*ss) << "\\N";
         } else {
             switch (_output_expr_ctxs[i]->root()->type().type) {
                 case TYPE_BOOLEAN:
@@ -161,7 +161,7 @@ Status ExportSink::gen_row_buffer(TupleRow* row, std::stringstream* ss) {
                     if (string_val->ptr == NULL) {
                         if (string_val->len == 0) {
                         } else {
-                            (*ss) << "NULL";
+                            (*ss) << "\\N";
                         }
                     } else {
                         (*ss) << std::string(string_val->ptr, string_val->len);
