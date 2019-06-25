@@ -139,7 +139,7 @@ public class OperationType {
     public static final short OP_COLOCATE_ADD_TABLE = 94;
     public static final short OP_COLOCATE_REMOVE_TABLE = 95;
     public static final short OP_COLOCATE_BACKENDS_PER_BUCKETSEQ = 96;
-    public static final short OP_COLOCATE_MARK_BALANCING = 97;
+    public static final short OP_COLOCATE_MARK_UNSTABLE = 97;
     public static final short OP_COLOCATE_MARK_STABLE = 98;
     public static final short OP_MODIFY_TABLE_COLOCATE = 99;
 

@@ -31,13 +31,12 @@ import org.apache.commons.lang.time.DateFormatUtils;
 import org.apache.commons.lang.time.DateUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.joda.time.format.DateTimeFormatter;
+import org.joda.time.format.DateTimeFormatterBuilder;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.text.ParseException;
-import org.joda.time.format.DateTimeFormatter;
-import org.joda.time.format.DateTimeFormatterBuilder;
-
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.Date;
@@ -291,7 +290,6 @@ public class FEFunctions {
             throw new AnalysisException(e.getLocalizedMessage());
         }
     }
-
 
     private static int calFirstWeekDay(int year, int firstWeekDay) {
         Calendar calendar = Calendar.getInstance();

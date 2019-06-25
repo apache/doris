@@ -18,6 +18,7 @@
 package org.apache.doris.clone;
 
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
@@ -112,6 +113,7 @@ public class LoadBalancer {
                 b -> b.getAvailPathNum(medium)).sum();
         LOG.info("get number of low load paths: {}, with medium: {}", numOfLowPaths, medium);
 
+        ColocateTableIndex colocateTableIndex = Catalog.getCurrentColocateIndex();
         // choose tablets from high load backends.
         // BackendLoadStatistic is sorted by load score in ascend order,
         // so we need to traverse it from last to first
@@ -157,6 +159,10 @@ public class LoadBalancer {
                         continue;
                     }
                     
+                    if (colocateTableIndex.isColocateTable(tabletMeta.getTableId())) {
+                        continue;
+                    }
+
                     TabletSchedCtx tabletCtx = new TabletSchedCtx(TabletSchedCtx.Type.BALANCE, clusterName,
                             tabletMeta.getDbId(), tabletMeta.getTableId(), tabletMeta.getPartitionId(),
                             tabletMeta.getIndexId(), tabletId, System.currentTimeMillis());

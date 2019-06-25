@@ -631,9 +631,9 @@ public class EditLog {
                     catalog.getColocateTableIndex().replayAddBackendsPerBucketSeq(info);
                     break;
                 }
-                case OperationType.OP_COLOCATE_MARK_BALANCING: {
+                case OperationType.OP_COLOCATE_MARK_UNSTABLE: {
                     final ColocatePersistInfo info = (ColocatePersistInfo) journal.getData();
-                    catalog.getColocateTableIndex().replayMarkGroupBalancing(info);
+                    catalog.getColocateTableIndex().replayMarkGroupUnstable(info);
                     break;
                 }
                 case OperationType.OP_COLOCATE_MARK_STABLE: {
@@ -1165,8 +1165,8 @@ public class EditLog {
         logEdit(OperationType.OP_COLOCATE_BACKENDS_PER_BUCKETSEQ, info);
     }
 
-    public void logColocateMarkBalancing(ColocatePersistInfo info) {
-        logEdit(OperationType.OP_COLOCATE_MARK_BALANCING, info);
+    public void logColocateMarkUnstable(ColocatePersistInfo info) {
+        logEdit(OperationType.OP_COLOCATE_MARK_UNSTABLE, info);
     }
 
     public void logColocateMarkStable(ColocatePersistInfo info) {

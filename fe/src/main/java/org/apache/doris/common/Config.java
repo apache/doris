@@ -829,5 +829,13 @@ public class Config extends ConfigBase {
      * Save small files
      */
     @ConfField public static String small_file_dir = System.getenv("DORIS_HOME") + "/small_files";
+    
+    /*
+     * The following 2 configs can set to true to disable the automatic colocate tables's relocate and balance.
+     * if 'disable_colocate_relocate' is set to true, ColocateTableBalancer will not relocate colocate tables when Backend unavailable.
+     * if 'disable_colocate_balance' is set to true, ColocateTableBalancer will not balance colocate tables.
+     */
+    @ConfField(mutable = true, masterOnly = true) public static boolean disable_colocate_relocate = false;
+    @ConfField(mutable = true, masterOnly = true) public static boolean disable_colocate_balance = false;
 }
 

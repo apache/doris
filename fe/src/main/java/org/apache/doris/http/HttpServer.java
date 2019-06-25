@@ -146,9 +146,7 @@ public class HttpServer {
         MetaReplayerCheckAction.registerAction(controller);
         ColocateMetaService.BucketSeqAction.registerAction(controller);
         ColocateMetaService.ColocateMetaAction.registerAction(controller);
-        ColocateMetaService.BalancingGroupAction.registerAction(controller);
-        ColocateMetaService.TableAction.registerAction(controller);
-        ColocateMetaService.TableGroupAction.registerAction(controller);
+        ColocateMetaService.MarkGroupStableAction.registerAction(controller);
 
         // meta service action
         File imageDir = MetaHelper.getMasterImageDir();
