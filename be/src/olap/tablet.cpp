@@ -848,6 +848,24 @@ bool Tablet::check_path(const std::string& path_to_check) {
     return false;
 }
 
+bool Tablet::check_rowset_id(RowsetId rowset_id) {
+    bool ret = false;
+    for (auto& version_rowset : _rs_version_map) {
+        ret = version_rowset.second->rowset_id() == rowset_id;
+        if (ret) {
+            return true;
+        }
+    }
+
+    for (auto& inc_version_rowset : _inc_rs_version_map) {
+        ret = inc_version_rowset.second->rowset_id() == rowset_id;
+        if (ret) {
+            return true;
+        }
+    }
+    return false;
+}
+
 // lock here, function that call next_rowset_id should not have meta lock
 OLAPStatus Tablet::next_rowset_id(RowsetId* id) {
     WriteLock wrlock(&_meta_lock);

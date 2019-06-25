@@ -219,6 +219,9 @@ public:
 
     bool check_path(const std::string& check_path);
 
+    // check rowset_id is valid
+    bool check_rowset_id(RowsetId rowset_id);
+
     OLAPStatus next_rowset_id(RowsetId* id);
     OLAPStatus set_next_rowset_id(RowsetId new_rowset_id);
 
@@ -252,7 +255,6 @@ private:
 
     std::atomic<bool> _is_bad;   // if this tablet is broken, set to true. default is false
     std::atomic<int64_t> _last_compaction_failure_time; // timestamp of last compaction failure
-    RowsetId _start_rowset_id;
 
     DISALLOW_COPY_AND_ASSIGN(Tablet);
 };

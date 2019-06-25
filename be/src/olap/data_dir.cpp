@@ -961,12 +961,12 @@ void DataDir::perform_path_gc_by_rowsetid() {
             if (is_rowset_file) {
                 TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id, schema_hash, true);
                 if (tablet != nullptr) {
-                    bool valid = tablet->check_path(path);
+                    bool valid = tablet->check_rowset_id(rowset_id);
                     if (!valid) {
                         // if the rowset id is less than tablet's initial end rowset id
                         // and the path is not in unused_rowsets, delete the path.
                         if (rowset_id < tablet->initial_end_rowset_id()
-                                && !StorageEngine::instance()->check_path_in_unused_rowsets(path)) {
+                                && !StorageEngine::instance()->check_rowset_id_in_unused_rowsets(rowset_id)) {
                             _process_garbage_path(path);
                         }
                     }

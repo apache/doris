@@ -944,16 +944,17 @@ OLAPStatus StorageEngine::execute_task(EngineTask* task) {
     }
 }
 
-bool StorageEngine::check_path_in_unused_rowsets(const string& path) {
+// check whether any unused rowsets's id equal to rowset_id
+bool StorageEngine::check_rowset_id_in_unused_rowsets(RowsetId rowset_id) {
     _gc_mutex.lock();
     for (auto& _unused_rowset_pair : _unused_rowsets) {
-        if (_unused_rowset_pair.second->check_path(path)) {
-            LOG(INFO) << "path is found in unused rowsets, path:" << path;
+        if (_unused_rowset_pair.second->rowset_id() == rowset_id) {
+            LOG(INFO) << "rowset is found in unused rowsets, rowset_id:" << rowset_id;
             _gc_mutex.unlock();
             return true;
         }
     }
-    LOG(INFO) << "path is not found in unused rowsets, path:" << path;
+    LOG(INFO) << "rowset is not found in unused rowsets, rowset_id:" << rowset_id;
     _gc_mutex.unlock();
     return false;
 }
