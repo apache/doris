@@ -26,6 +26,7 @@
 #include "runtime/row_batch.h"
 #include "util/runtime_profile.h"
 #include "util/types.h"
+#include "util/uid_util.h"
 #include "exec/local_file_writer.h"
 #include "exec/broker_writer.h"
 #include <thrift/protocol/TDebugProtocol.h>
@@ -121,7 +122,7 @@ Status ExportSink::gen_row_buffer(TupleRow* row, std::stringstream* ss) {
     for (int i = 0; i < num_columns; ++i) {
         void* item = _output_expr_ctxs[i]->get_value(row);
         if (item == nullptr) {
-            (*ss) << "NULL";
+            (*ss) << "\\N";
         } else {
             switch (_output_expr_ctxs[i]->root()->type().type) {
                 case TYPE_BOOLEAN:
@@ -161,7 +162,7 @@ Status ExportSink::gen_row_buffer(TupleRow* row, std::stringstream* ss) {
                     if (string_val->ptr == NULL) {
                         if (string_val->len == 0) {
                         } else {
-                            (*ss) << "NULL";
+                            (*ss) << "\\N";
                         }
                     } else {
                         (*ss) << std::string(string_val->ptr, string_val->len);
@@ -265,7 +266,7 @@ std::string ExportSink::gen_file_name() {
     gettimeofday(&tv, NULL);
 
     std::stringstream file_name;
-    file_name << "export_data_" << id.hi << "_" << id.lo << "_" 
+    file_name << "export-data-" << print_id(id) << "-"
             << (tv.tv_sec * 1000 + tv.tv_usec / 1000);
     return file_name.str();
 }
