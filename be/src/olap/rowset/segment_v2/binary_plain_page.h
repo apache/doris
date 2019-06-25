@@ -20,13 +20,12 @@
 //
 // The block consists of:
 // Header:
-//   ordinal_pos (32-bit fixed)
 //   num_elems (32-bit fixed)
 //   offsets_pos (32-bit fixed): position of the first offset, relative to block start
 // Strings:
 //   raw strings that were written
 // Offsets:  [pointed to by offsets_pos]
-//   gvint-encoded offsets pointing to the beginning of each string
+//   offsets pointing to the beginning of each string
 
 #pragma once
 
@@ -90,9 +89,8 @@ public:
         size_t offsets_pos = _buffer.size();
 
         // Set up the header
-        encode_fixed32_le(&_buffer[0], page_first_rowid);
-        encode_fixed32_le(&_buffer[4], _offsets.size());
-        encode_fixed32_le(&_buffer[8], offsets_pos);
+        encode_fixed32_le(&_buffer[0], _offsets.size());
+        encode_fixed32_le(&_buffer[4], offsets_pos);
 
         _buffer.append(&_offsets[0], _offsets.size() * sizeof(uint32_t));
 
@@ -123,7 +121,7 @@ public:
     }
 
     // Length of a header.
-    static const size_t MAX_HEADER_SIZE = sizeof(uint32_t) * 3;
+    static const size_t MAX_HEADER_SIZE = sizeof(uint32_t) * 2;
 private:
     faststring _buffer;
     size_t _end_of_data_offset;
@@ -154,9 +152,8 @@ public:
         }
 
         // Decode header.
-        _ordinal_pos_base  = decode_fixed32_le((const uint8_t *)&_data[0]);
-        _num_elems         = decode_fixed32_le((const uint8_t *)&_data[4]);
-        size_t offsets_pos = decode_fixed32_le((const uint8_t *)&_data[8]);
+        _num_elems         = decode_fixed32_le((const uint8_t *)&_data[0]);
+        size_t offsets_pos = decode_fixed32_le((const uint8_t *)&_data[4]);
 
         // Sanity check.
         if (offsets_pos > _data.size) {
@@ -187,13 +184,6 @@ public:
     }
 
     Status seek_to_position_in_page(size_t pos) override {
-        /*
-        if (PREDICT_FALSE(_num_elems == 0)) {
-            DCHECK_EQ(0, pos);
-            return;
-        }
-         */
-
         DCHECK_LE(pos, _num_elems);
         _cur_idx = pos;
         return Status::OK();
@@ -210,7 +200,7 @@ public:
         Slice *out = reinterpret_cast<Slice*>(dst->column_vector()->col_data());
         for (size_t i = 0; i < max_fetch; i++, out++, _cur_idx++) {
             Slice elem(string_at_index(_cur_idx));
-            out->relocate((char*)elem.get_data());
+            out->relocate((char*) elem.get_data());
             out->truncate(elem.size);
         }
         *n = max_fetch;
@@ -238,28 +228,22 @@ public:
     }
 
     // Minimum length of a header.
-    static const size_t MIN_HEADER_SIZE = sizeof(uint32_t) * 3;
+    static const size_t MIN_HEADER_SIZE = sizeof(uint32_t) * 2;
 
 private:
 
-    // Return the offset within 'data_' where the string value with index 'idx'
-    // can be found.
+    // Return the offset within '_data' where the string value with index 'idx' can be found.
     uint32_t offset(int idx) const {
-        //const uint32_t* dst_ptr = reinterpret_cast<uint32_t *>(_offsets_buf.data());
-        //std::cout<<"offset : " << dst_ptr[idx] << std::endl;
-
         const uint8_t *p = &_offsets_buf[idx * sizeof(uint32_t)];
         uint32_t ret;
         memcpy(&ret, p, sizeof(uint32_t));
-        std::cout<<"idx : " << idx <<" : offset ret "<< ret <<std::endl;
         return ret;
     }
 
     Slice _data;
     bool _parsed;
 
-    // A buffer for an array of 32-bit integers for the offsets of the underlying
-    // strings in 'data_'.
+    // A buffer for an array of 32-bit integers for the offsets of the underlying strings in '_data'.
     //
     // This array also contains one extra offset at the end, pointing
     // _after_ the last entry. This makes the code much simpler.
