@@ -107,8 +107,6 @@ private:
    
     void _set_is_streaming(HttpRequest* req);
 
-    bool _is_streaming = true;
-
     const std::string _streaming_function_name = "STREAMING_MINI_LOAD";
 
     ExecEnv* _exec_env;
