@@ -18,6 +18,8 @@
 package org.apache.doris.clone;
 
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.ColocateTableIndex;
+import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DiskInfo.DiskState;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -129,6 +131,7 @@ public class TabletScheduler extends Daemon {
     private Catalog catalog;
     private SystemInfoService infoService;
     private TabletInvertedIndex invertedIndex;
+    private ColocateTableIndex colocateTableIndex;
     private TabletSchedulerStat stat;
     
     // result of adding a tablet to pendingTablets
@@ -144,6 +147,7 @@ public class TabletScheduler extends Daemon {
         this.catalog = catalog;
         this.infoService = infoService;
         this.invertedIndex = invertedIndex;
+        this.colocateTableIndex = catalog.getColocateTableIndex();
         this.stat = stat;
     }
 
@@ -457,6 +461,8 @@ public class TabletScheduler extends Daemon {
                 throw new SchedException(Status.UNRECOVERABLE, "tbl does not exist");
             }
 
+            boolean isColocateTable = colocateTableIndex.isColocateTable(tbl.getId());
+
             OlapTableState tableState = tbl.getState();
 
             Partition partition = tbl.getPartition(tabletCtx.getPartitionId());
@@ -472,13 +478,35 @@ public class TabletScheduler extends Daemon {
             Tablet tablet = idx.getTablet(tabletCtx.getTabletId());
             Preconditions.checkNotNull(tablet);
 
-            int availableBackendsNum = infoService.getClusterBackendIds(db.getClusterName(), true).size();
-            statusPair = tablet.getHealthStatusWithPriority(
-                    infoService, tabletCtx.getCluster(),
-                    partition.getVisibleVersion(),
-                    partition.getVisibleVersionHash(),
-                    tbl.getPartitionInfo().getReplicationNum(partition.getId()),
-                    availableBackendsNum);
+            if (isColocateTable) {
+                GroupId groupId = colocateTableIndex.getGroup(tbl.getId());
+                if (groupId == null) {
+                    throw new SchedException(Status.UNRECOVERABLE, "colocate group does not exist");
+                }
+
+                int tabletOrderIdx = tabletCtx.getTabletOrderIdx();
+                if (tabletOrderIdx == -1) {
+                    tabletOrderIdx = idx.getTabletOrderIdx(tablet.getId());
+                }
+                Preconditions.checkState(tabletOrderIdx != -1);
+
+                Set<Long> backendsSet = colocateTableIndex.getTabletBackendsByGroup(groupId, tabletOrderIdx);
+                TabletStatus st = tablet.getColocateHealthStatus(
+                        partition.getVisibleVersion(),
+                        partition.getVisibleVersionHash(),
+                        tbl.getPartitionInfo().getReplicationNum(partition.getId()),
+                        backendsSet);
+                statusPair = Pair.create(st, Priority.HIGH);
+                tabletCtx.setColocateGroupBackendIds(backendsSet);
+            } else {
+                int availableBackendsNum = infoService.getClusterBackendIds(db.getClusterName(), true).size();
+                statusPair = tablet.getHealthStatusWithPriority(
+                        infoService, tabletCtx.getCluster(),
+                        partition.getVisibleVersion(),
+                        partition.getVisibleVersionHash(),
+                        tbl.getPartitionInfo().getReplicationNum(partition.getId()),
+                        availableBackendsNum);
+            }
 
             if (tabletCtx.getType() == TabletSchedCtx.Type.BALANCE && tableState != OlapTableState.NORMAL) {
                 // If table is under ALTER process, do not allow to do balance.
@@ -542,6 +570,12 @@ public class TabletScheduler extends Daemon {
                 case REPLICA_MISSING_IN_CLUSTER:
                     handleReplicaClusterMigration(tabletCtx, batchTask);
                     break;
+                case COLOCATE_MISMATCH:
+                    handleColocateMismatch(tabletCtx, batchTask);
+                    break;
+                case COLOCATE_REDUNDANT:
+                    handleColocateRedundant(tabletCtx);
+                    break;
                 default:
                     break;
             }
@@ -569,7 +603,7 @@ public class TabletScheduler extends Daemon {
     private void handleReplicaMissing(TabletSchedCtx tabletCtx, AgentBatchTask batchTask) throws SchedException {
         stat.counterReplicaMissingErr.incrementAndGet();
         // find an available dest backend and path
-        RootPathLoadStatistic destPath = chooseAvailableDestPath(tabletCtx);
+        RootPathLoadStatistic destPath = chooseAvailableDestPath(tabletCtx, false /* not for colocate */);
         Preconditions.checkNotNull(destPath);
         tabletCtx.setDest(destPath.getBeId(), destPath.getPathHash());
 
@@ -751,6 +785,23 @@ public class TabletScheduler extends Daemon {
         return false;
     }
 
+    /*
+     * Just delete replica which does not located in colocate backends set.
+     * return true if delete one replica, otherwise, return false.
+     */
+    private boolean handleColocateRedundant(TabletSchedCtx tabletCtx) throws SchedException {
+        Preconditions.checkNotNull(tabletCtx.getColocateBackendsSet());
+        for (Replica replica : tabletCtx.getReplicas()) {
+            if (tabletCtx.getColocateBackendsSet().contains(replica.getBackendId())) {
+                continue;
+            }
+
+            deleteReplicaInternal(tabletCtx, replica, "colocate redundant", false);
+            throw new SchedException(Status.FINISHED, "colocate redundant replica is deleted");
+        }
+        throw new SchedException(Status.SCHEDULE_FAILED, "unable to delete any colocate redundant replicas");
+    }
+
     private void deleteReplicaInternal(TabletSchedCtx tabletCtx, Replica replica, String reason, boolean force) {
         // delete this replica from catalog.
         // it will also delete replica from tablet inverted index.
@@ -775,8 +826,8 @@ public class TabletScheduler extends Daemon {
 
         Catalog.getInstance().getEditLog().logDeleteReplica(info);
 
-        LOG.info("delete replica. tablet id: {}, backend id: {}. reason: {}",
-                 tabletCtx.getTabletId(), replica.getBackendId(), reason);
+        LOG.info("delete replica. tablet id: {}, backend id: {}. reason: {}, force: {}",
+                tabletCtx.getTabletId(), replica.getBackendId(), reason, force);
     }
 
     private void sendDeleteReplicaTask(long backendId, long tabletId, int schemaHash) {
@@ -798,6 +849,33 @@ public class TabletScheduler extends Daemon {
             throws SchedException {
         stat.counterReplicaMissingInClusterErr.incrementAndGet();
         handleReplicaMissing(tabletCtx, batchTask);
+    }
+
+    /*
+     * Replicas of colocate table's tablet does not locate on right backends set.
+     *      backends set:       1,2,3
+     *      tablet replicas:    1,2,5
+     *      
+     *      backends set:       1,2,3
+     *      tablet replicas:    1,2
+     *      
+     *      backends set:       1,2,3
+     *      tablet replicas:    1,2,4,5
+     */
+    private void handleColocateMismatch(TabletSchedCtx tabletCtx, AgentBatchTask batchTask) throws SchedException {
+        Preconditions.checkNotNull(tabletCtx.getColocateBackendsSet());
+
+        stat.counterReplicaColocateMismatch.incrementAndGet();
+        // find an available dest backend and path
+        RootPathLoadStatistic destPath = chooseAvailableDestPath(tabletCtx, true /* for colocate */);
+        Preconditions.checkNotNull(destPath);
+        tabletCtx.setDest(destPath.getBeId(), destPath.getPathHash());
+
+        // choose a source replica for cloning from
+        tabletCtx.chooseSrcReplica(backendsWorkingSlots);
+
+        // create clone task
+        batchTask.addTask(tabletCtx.createCloneReplicaAndTask());
     }
 
     /*
@@ -834,7 +912,8 @@ public class TabletScheduler extends Daemon {
     }
 
     // choose a path on a backend which is fit for the tablet
-    private RootPathLoadStatistic chooseAvailableDestPath(TabletSchedCtx tabletCtx) throws SchedException {
+    private RootPathLoadStatistic chooseAvailableDestPath(TabletSchedCtx tabletCtx, boolean forColocate)
+            throws SchedException {
         ClusterLoadStatistic statistic = statisticMap.get(tabletCtx.getCluster());
         if (statistic == null) {
             throw new SchedException(Status.UNRECOVERABLE, "cluster does not exist");
@@ -851,6 +930,10 @@ public class TabletScheduler extends Daemon {
             }
             // exclude BE which already has replica of this tablet
             if (tabletCtx.containsBE(bes.getBeId())) {
+                continue;
+            }
+
+            if (forColocate && !tabletCtx.getColocateBackendsSet().contains(bes.getBeId())) {
                 continue;
             }
 

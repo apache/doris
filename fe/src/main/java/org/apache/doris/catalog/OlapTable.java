@@ -36,6 +36,7 @@ import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.clone.TabletSchedCtx;
 import org.apache.doris.clone.TabletScheduler;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.DeepCopy;
@@ -113,7 +114,7 @@ public class OlapTable extends Table {
     private Set<String> bfColumns;
     private double bfFpp;
 
-    private String colocateTable;
+    private String colocateGroup;
 
     public OlapTable() {
         // for persist
@@ -133,7 +134,7 @@ public class OlapTable extends Table {
         this.bfColumns = null;
         this.bfFpp = 0;
 
-        this.colocateTable = null;
+        this.colocateGroup = null;
     }
 
     public OlapTable(long id, String tableName, List<Column> baseSchema,
@@ -161,7 +162,7 @@ public class OlapTable extends Table {
         this.bfColumns = null;
         this.bfFpp = 0;
 
-        this.colocateTable = null;
+        this.colocateGroup = null;
     }
 
     public void setState(OlapTableState state) {
@@ -535,12 +536,12 @@ public class OlapTable extends Table {
         this.bfFpp = bfFpp;
     }
 
-    public String getColocateTable() {
-        return colocateTable;
+    public String getColocateGroup() {
+        return colocateGroup;
     }
 
-    public void setColocateTable(String colocateTable) {
-        this.colocateTable = colocateTable;
+    public void setColocateGroup(String colocateGroup) {
+        this.colocateGroup = colocateGroup;
     }
     
     // when the table is creating new rollup and enter finishing state, should tell be not auto load to new rollup
@@ -790,11 +791,11 @@ public class OlapTable extends Table {
         }
 
         //colocateTable
-        if (colocateTable == null) {
+        if (colocateGroup == null) {
             out.writeBoolean(false);
         } else {
             out.writeBoolean(true);
-            Text.writeString(out, colocateTable);
+            Text.writeString(out, colocateGroup);
         }
     }
 
@@ -880,7 +881,7 @@ public class OlapTable extends Table {
 
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_46) {
             if (in.readBoolean()) {
-                colocateTable = Text.readString(in);
+                colocateGroup = Text.readString(in);
             }
         }
     }
@@ -995,5 +996,26 @@ public class OlapTable extends Table {
             }
         }
         return true;
+    }
+
+    // arbitrarily choose a partition, and get the buckets backends sequence from base index.
+    public List<List<Long>> getArbitraryTabletBucketsSeq() throws DdlException {
+        List<List<Long>> backendsPerBucketSeq = Lists.newArrayList();
+        for (Partition partition : idToPartition.values()) {
+            short replicationNum = partitionInfo.getReplicationNum(partition.getId());
+            MaterializedIndex baseIdx = partition.getBaseIndex();
+            for (Long tabletId : baseIdx.getTabletIdsInOrder()) {
+                Tablet tablet = baseIdx.getTablet(tabletId);
+                List<Long> replicaBackendIds = tablet.getNormalReplicaBackendIds();
+                if (replicaBackendIds.size() < replicationNum) {
+                    // this should not happen, but in case, throw an exception to terminate this process
+                    throw new DdlException("Normal replica number of tablet " + tabletId + " is: "
+                            + replicaBackendIds.size() + ", which is less than expected: " + replicationNum);
+                }
+                backendsPerBucketSeq.add(replicaBackendIds.subList(0, replicationNum));
+            }
+            break;
+        }
+        return backendsPerBucketSeq;
     }
 }

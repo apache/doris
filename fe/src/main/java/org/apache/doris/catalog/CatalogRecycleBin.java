@@ -190,7 +190,7 @@ public class CatalogRecycleBin extends Daemon implements Writable {
 
             if (isExpire(tableId, currentTimeMs)) {
                 if (table.getType() == TableType.OLAP) {
-                    handleOlapTable((OlapTable) table);
+                    onEraseOlapTable((OlapTable) table);
                 }
 
                 // erase table
@@ -204,7 +204,8 @@ public class CatalogRecycleBin extends Daemon implements Writable {
         } // end for tables
     }
 
-    private void handleOlapTable(OlapTable olapTable) {
+    private void onEraseOlapTable(OlapTable olapTable) {
+        // inverted index
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
         for (Partition partition : olapTable.getPartitions()) {
             for (MaterializedIndex index : partition.getMaterializedIndices()) {
@@ -233,6 +234,9 @@ public class CatalogRecycleBin extends Daemon implements Writable {
             } // end for indices
         } // end for partitions
         AgentTaskExecutor.submit(batchTask);
+
+        // colocation
+        Catalog.getCurrentColocateIndex().removeTable(olapTable.getId());
     }
 
     private synchronized void eraseTableWithSameName(long dbId, String tableName) {
@@ -246,9 +250,8 @@ public class CatalogRecycleBin extends Daemon implements Writable {
 
             Table table = tableInfo.getTable();
             if (table.getName().equals(tableName)) {
-
                 if (table.getType() == TableType.OLAP) {
-                    handleOlapTable((OlapTable) table);
+                    onEraseOlapTable((OlapTable) table);
                 }
 
                 iterator.remove();
@@ -276,6 +279,9 @@ public class CatalogRecycleBin extends Daemon implements Writable {
                 }
             }
         }
+
+        // colocation
+        Catalog.getCurrentColocateIndex().removeTable(tableId);
 
         LOG.info("replay erase table[{}]", tableId);
     }

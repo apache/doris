@@ -25,6 +25,7 @@ import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.ColocateTableIndex;
+import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.HashDistributionInfo;
@@ -32,8 +33,8 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TPartitionType;
 
@@ -341,14 +342,17 @@ public class DistributedPlanner {
             doBroadcast = false;
         }
 
-        if (canColocateJoin(node, leftChildFragment, rightChildFragment)) {
-            node.setColocate(true);
+        List<String> reason = Lists.newArrayList();
+        if (canColocateJoin(node, leftChildFragment, rightChildFragment, reason)) {
+            node.setColocate(true, "");
             //node.setDistributionMode(HashJoinNode.DistributionMode.PARTITIONED);
             node.setChild(0, leftChildFragment.getPlanRoot());
             node.setChild(1, rightChildFragment.getPlanRoot());
             leftChildFragment.setPlanRoot(node);
             fragments.remove(rightChildFragment);
             return leftChildFragment;
+        } else {
+            node.setColocate(false, reason.get(0));
         }
 
         if (doBroadcast) {
@@ -415,12 +419,15 @@ public class DistributedPlanner {
         }
     }
 
-    private boolean canColocateJoin(HashJoinNode node, PlanFragment leftChildFragment, PlanFragment rightChildFragment) {
+    private boolean canColocateJoin(HashJoinNode node, PlanFragment leftChildFragment, PlanFragment rightChildFragment,
+            List<String> cannotReason) {
         if (Config.disable_colocate_join) {
+            cannotReason.add("Disabled");
             return false;
         }
 
         if (ConnectContext.get().getSessionVariable().isDisableColocateJoin()) {
+            cannotReason.add("Session disabled");
             return false;
         }
 
@@ -429,7 +436,7 @@ public class DistributedPlanner {
 
         //leftRoot should be ScanNode or HashJoinNode, rightRoot should be ScanNode
         if (leftRoot instanceof OlapScanNode && rightRoot instanceof OlapScanNode) {
-            return canColocateJoin(node, leftRoot, rightRoot);
+            return canColocateJoin(node, leftRoot, rightRoot, cannotReason);
         }
 
         if (leftRoot instanceof HashJoinNode && rightRoot instanceof OlapScanNode) {
@@ -437,21 +444,24 @@ public class DistributedPlanner {
                 if (((HashJoinNode)leftRoot).isColocate()) {
                     leftRoot = leftRoot.getChild(0);
                 } else {
+                    cannotReason.add("left hash join node can not do colocate");
                     return false;
                 }
             }
             if (leftRoot instanceof OlapScanNode) {
-                return canColocateJoin(node, leftRoot, rightRoot);
+                return canColocateJoin(node, leftRoot, rightRoot, cannotReason);
             }
         }
 
+        cannotReason.add("Node type not match");
         return false;
     }
 
     //the table must be colocate
     //the colocate group must be stable
     //the eqJoinConjuncts must contain the distributionColumns
-    private boolean canColocateJoin(HashJoinNode node, PlanNode leftRoot, PlanNode rightRoot) {
+    private boolean canColocateJoin(HashJoinNode node, PlanNode leftRoot, PlanNode rightRoot,
+            List<String> cannotReason) {
         OlapTable leftTable = ((OlapScanNode) leftRoot).getOlapTable();
         OlapTable rightTable = ((OlapScanNode) rightRoot).getOlapTable();
 
@@ -459,13 +469,14 @@ public class DistributedPlanner {
 
         //1 the table must be colocate
         if (!colocateIndex.isSameGroup(leftTable.getId(), rightTable.getId())) {
+            cannotReason.add("table not in same group");
             return false;
         }
 
         //2 the colocate group must be stable
-        long groupId = colocateIndex.getGroup(leftTable.getId());
-        if (colocateIndex.isGroupBalancing(groupId)) {
-            LOG.info("colocate group {} is balancing", leftTable.getColocateTable());
+        GroupId groupId = colocateIndex.getGroup(leftTable.getId());
+        if (colocateIndex.isGroupUnstable(groupId)) {
+            cannotReason.add("group is not stable");
             return false;
         }
 
@@ -492,6 +503,7 @@ public class DistributedPlanner {
             }
         }
 
+        cannotReason.add("column not match");
         return false;
     }
 
