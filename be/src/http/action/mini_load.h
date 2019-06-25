@@ -105,9 +105,7 @@ private:
     
     Status _on_new_handle(StreamLoadContext* ctx);
    
-    void _set_is_streaming(HttpRequest* req);
-
-    bool _is_streaming = true;
+    bool _is_streaming(HttpRequest* req);
 
     const std::string _streaming_function_name = "STREAMING_MINI_LOAD";
 
