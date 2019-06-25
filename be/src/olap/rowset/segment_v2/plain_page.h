@@ -28,7 +28,7 @@
 namespace doris {
 namespace segment_v2 {
 
-static const size_t PLAIN_PAGE_HEADER_SIZE = sizeof(uint32_t) * 2;
+static const size_t PLAIN_PAGE_HEADER_SIZE = sizeof(uint32_t);
 
 template<FieldType Type>
 class PlainPageBuilder : public PageBuilder {
@@ -37,7 +37,7 @@ public:
             _options(std::move(options)) {
         // Reserve enough space for the page, plus a bit of slop since
         // we often overrun the page by a few values.
-        _buffer.reserve(PLAIN_PAGE_HEADER_SIZE + _options.data_page_size + 1024);
+        _buffer.reserve(_options.data_page_size + 1024);
         reset();
     }
 
@@ -63,7 +63,6 @@ public:
 
     Slice finish(const rowid_t page_first_rowid) override {
         encode_fixed32_le((uint8_t *) &_buffer[0], _count);
-        encode_fixed32_le((uint8_t *) &_buffer[4], page_first_rowid);
         return Slice(_buffer.data(),  PLAIN_PAGE_HEADER_SIZE + _count * SIZE_OF_TYPE);
     }
 
@@ -83,7 +82,7 @@ public:
     //     reset() should be called after this function before reuse the builder
     void release() override {
         uint8_t *ret = _buffer.release();
-        _buffer.reserve(PLAIN_PAGE_HEADER_SIZE + _options.data_page_size + 1024);
+        _buffer.reserve(_options.data_page_size + 1024);
         (void) ret;
     }
 
@@ -104,7 +103,6 @@ public:
     PlainPageDecoder(Slice data) : _data(data),
               _parsed(false),
               _num_elems(0),
-              _page_first_ordinal(0),
               _cur_idx(0) { }
 
     Status init() override {
@@ -118,7 +116,6 @@ public:
         }
 
         _num_elems = decode_fixed32_le((const uint8_t *) &_data[0]);
-        _page_first_ordinal = decode_fixed32_le((const uint8_t *) &_data[4]);
 
         if (_data.size != PLAIN_PAGE_HEADER_SIZE + _num_elems * SIZE_OF_TYPE) {
             std::stringstream ss;
@@ -174,14 +171,13 @@ public:
     }
 
     rowid_t get_first_rowid() const override {
-        return _page_first_ordinal;
+        return 0;
     }
 
 private:
     Slice _data;
     bool _parsed;
     uint32_t _num_elems;
-    rowid_t _page_first_ordinal;
     uint32_t _cur_idx;
     typedef typename TypeTraits<Type>::CppType CppType;
     enum {
