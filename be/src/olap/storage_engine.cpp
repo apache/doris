@@ -944,6 +944,19 @@ OLAPStatus StorageEngine::execute_task(EngineTask* task) {
     }
 }
 
+// check whether any unused rowsets's id equal to rowset_id
+bool StorageEngine::check_rowset_id_in_unused_rowsets(RowsetId rowset_id) {
+    _gc_mutex.lock();
+    for (auto& _unused_rowset_pair : _unused_rowsets) {
+        if (_unused_rowset_pair.second->rowset_id() == rowset_id) {
+            _gc_mutex.unlock();
+            return true;
+        }
+    }
+    _gc_mutex.unlock();
+    return false;
+}
+
 void* StorageEngine::_path_gc_thread_callback(void* arg) {
 #ifdef GOOGLE_PROFILER
     ProfilerRegisterThread();
@@ -959,12 +972,12 @@ void* StorageEngine::_path_gc_thread_callback(void* arg) {
 
     while (true) {
         LOG(INFO) << "try to perform path gc!";
-        // TODO(ygl): stop gc temp because could not define all pending dirs currently
-        // ((DataDir*)arg)->perform_path_gc();
+        // perform path gc by rowset id
+        ((DataDir*)arg)->perform_path_gc_by_rowsetid();
         usleep(interval * 1000000);
     }
 
-    return NULL;
+    return nullptr;
 }
 
 void* StorageEngine::_path_scan_thread_callback(void* arg) {
@@ -986,7 +999,7 @@ void* StorageEngine::_path_scan_thread_callback(void* arg) {
         usleep(interval * 1000000);
     }
 
-    return NULL;
+    return nullptr;
 }
 
 }  // namespace doris

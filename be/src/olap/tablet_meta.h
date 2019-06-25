@@ -191,6 +191,10 @@ public:
 
     OLAPStatus set_partition_id(int64_t partition_id);
 
+    RowsetId initial_end_rowset_id() {
+        return _initial_end_rowset_id;
+    }
+
 private:
     OLAPStatus _save_meta(DataDir* data_dir);
 
@@ -205,6 +209,7 @@ private:
     TabletUid _tablet_uid;
     RowsetId _next_rowset_id = 10000;
     RowsetId _end_rowset_id;
+    RowsetId _initial_end_rowset_id;
     RowsetId _batch_interval = 10000;
 
 
