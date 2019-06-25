@@ -839,6 +839,28 @@ bool Tablet::check_path(const std::string& path_to_check) {
             return true;
         }
     }
+    for (auto& inc_version_rowset : _inc_rs_version_map) {
+        bool ret = inc_version_rowset.second->check_path(path_to_check);
+        if (ret) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool Tablet::check_rowset_id(RowsetId rowset_id) {
+    ReadLock rdlock(&_meta_lock);
+    for (auto& version_rowset : _rs_version_map) {
+        if (version_rowset.second->rowset_id() == rowset_id) {
+            return true;
+        }
+    }
+
+    for (auto& inc_version_rowset : _inc_rs_version_map) {
+        if (inc_version_rowset.second->rowset_id() == rowset_id) {
+            return true;
+        }
+    }
     return false;
 }
 
