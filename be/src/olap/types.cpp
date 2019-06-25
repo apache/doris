@@ -31,7 +31,9 @@ TypeInfo::TypeInfo(TypeTraitsClass t)
         _set_to_min(TypeTraitsClass::set_to_min),
         _is_min(TypeTraitsClass::is_min),
         _hash_code(TypeTraitsClass::hash_code),
-        _size(TypeTraitsClass::size) {}
+        _size(TypeTraitsClass::size),
+        _field_type(TypeTraitsClass::type) {
+}
 
 class TypeInfoResolver {
     DECLARE_SINGLETON(TypeInfoResolver);

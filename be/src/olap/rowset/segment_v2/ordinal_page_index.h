@@ -69,7 +69,8 @@ private:
 class OrdinalPageIndex;
 class OrdinalPageIndexIterator {
 public:
-    OrdinalPageIndexIterator(OrdinalPageIndex* index) : _index(index), _cur_idx(-1) { }
+    OrdinalPageIndexIterator() : _index(nullptr), _cur_idx(-1) { }
+    OrdinalPageIndexIterator(OrdinalPageIndex* index) : _index(index), _cur_idx(0) { }
     OrdinalPageIndexIterator(OrdinalPageIndex* index, int cur_idx) : _index(index), _cur_idx(cur_idx) { }
     inline bool valid() const;
     inline void next();
