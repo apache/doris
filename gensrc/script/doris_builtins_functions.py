@@ -126,7 +126,7 @@ visible_functions = [
         '_ZN5doris18TimestampFunctions5monthEPN9doris_udf15FunctionContextERKNS1_11DateTimeValE'],
     [['quarter'], 'INT', ['DATETIME'],
         '_ZN5doris18TimestampFunctions7quarterEPN9doris_udf15FunctionContextERKNS1_11DateTimeValE'],
-      [['dayofweek'], 'INT', ['DATETIME'],
+    [['dayofweek'], 'INT', ['DATETIME'],
         '_ZN5doris18TimestampFunctions11day_of_weekEPN9doris_udf15FunctionContextERKNS1_11DateTimeValE'],
     [['day', 'dayofmonth'], 'INT', ['DATETIME'],
         '_ZN5doris18TimestampFunctions12day_of_monthEPN9doris_udf'
