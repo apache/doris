@@ -52,11 +52,12 @@ public final class ExportChecker extends Daemon {
         checkers.put(JobState.PENDING, new ExportChecker(JobState.PENDING, intervalMs));
         checkers.put(JobState.EXPORTING, new ExportChecker(JobState.EXPORTING, intervalMs));
 
-        MasterTaskExecutor pendingTaskExecutor = new MasterTaskExecutor(Config.export_pending_thread_num);
+        int poolSize = Config.export_running_job_num_limit == 0 ? 5 : Config.export_running_job_num_limit;
+        MasterTaskExecutor pendingTaskExecutor = new MasterTaskExecutor(poolSize);
         executors.put(JobState.PENDING, pendingTaskExecutor);
 
-        MasterTaskExecutor exporingTaskExecutor = new MasterTaskExecutor(Config.export_exporting_thread_num);
-        executors.put(JobState.EXPORTING, exporingTaskExecutor);
+        MasterTaskExecutor exportingTaskExecutor = new MasterTaskExecutor(poolSize);
+        executors.put(JobState.EXPORTING, exportingTaskExecutor);
     }
 
     public static void startAll() {
@@ -92,7 +93,7 @@ public final class ExportChecker extends Daemon {
             int runningJobNum = executors.get(JobState.PENDING).getTaskNum()
                     + executors.get(JobState.EXPORTING).getTaskNum();
             if (runningJobNum >= runningJobNumLimit) {
-                LOG.debug("running export job num {} exceeds system limit {}", runningJobNum, runningJobNumLimit);
+                LOG.info("running export job num {} exceeds system limit {}", runningJobNum, runningJobNumLimit);
                 return;
             }
 
