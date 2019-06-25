@@ -99,7 +99,7 @@ struct MiniLoadCtx {
 
     bool is_streaming = false;
     MiniLoadAsyncCtx* mini_load_async_ctx = nullptr;
-	StreamLoadContext* stream_load_ctx = nullptr;
+    StreamLoadContext* stream_load_ctx = nullptr;
 };
 
 const std::string CLUSTER_KEY = "cluster";
@@ -534,7 +534,7 @@ void MiniLoadAction::free_handler_ctx(void* param) {
             if (streaming_ctx->unref()) {
                 delete streaming_ctx;
             }
-		}
+        }
     } else {
         MiniLoadAsyncCtx* async_ctx = ((MiniLoadCtx*) param)->mini_load_async_ctx;
         delete async_ctx;
