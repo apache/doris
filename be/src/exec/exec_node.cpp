@@ -454,7 +454,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
 
     case TPlanNodeType::REPEAT_NODE:
         *node = pool->add(new RepeatNode(pool, tnode, descs));
-        return Status::OK;
+        return Status::OK();
 
     default:
         map<int, const char*>::const_iterator i =

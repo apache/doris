@@ -48,10 +48,10 @@ Status RepeatNode::prepare(RuntimeState* state) {
     _runtime_state = state;
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
     if (_tuple_desc == NULL) {
-        return Status("Failed to get tuple descriptor.");
+        return Status::InternalError("Failed to get tuple descriptor.");
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status RepeatNode::open(RuntimeState* state) {
@@ -59,7 +59,7 @@ Status RepeatNode::open(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::open(state));
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(child(0)->open(state));
-    return Status::OK;
+    return Status::OK();
 }
 
 Status RepeatNode::get_repeated_batch(
@@ -92,7 +92,7 @@ Status RepeatNode::get_repeated_batch(
                 int size = row_batch->capacity() * (*dst_it)->byte_size();
                 void* tuple_buffer = tuple_pool->allocate(size);
                 if (tuple_buffer == nullptr) {
-                    return Status("Allocate memory for row batch failed.");
+                    return Status::InternalError("Allocate memory for row batch failed.");
                 }
                 dst_tuples[j] = reinterpret_cast<Tuple*>(tuple_buffer);
             } else {
@@ -133,7 +133,7 @@ Status RepeatNode::get_repeated_batch(
             int size = row_batch->capacity() * _tuple_desc->byte_size();
             void* tuple_buffer = tuple_pool->allocate(size);
             if (tuple_buffer == nullptr) {
-                return Status("Allocate memory for row batch failed.");
+                return Status::InternalError("Allocate memory for row batch failed.");
             }
             tuple = reinterpret_cast<Tuple*>(tuple_buffer);
         } else {
@@ -151,7 +151,7 @@ Status RepeatNode::get_repeated_batch(
         RawValue::write(&groupingId, tuple, slot_desc, tuple_pool);
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status RepeatNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
@@ -163,7 +163,7 @@ Status RepeatNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos)
     if (_child_row_batch.get() == nullptr) {
         if (_child_eos) {
             *eos = true;
-            return Status::OK;
+            return Status::OK();
         }
 
         _child_row_batch.reset(
@@ -173,7 +173,7 @@ Status RepeatNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos)
         if (_child_row_batch->num_rows() <= 0) {
             _child_row_batch.reset(nullptr);
             *eos = true;
-            return Status::OK;
+            return Status::OK();
         }
     }
 
@@ -187,12 +187,12 @@ Status RepeatNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos)
         _repeat_id_idx = 0;
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status RepeatNode::close(RuntimeState* state) {
     if (is_closed()) {
-        return Status::OK;
+        return Status::OK();
     }
     _child_row_batch.reset(nullptr);
     RETURN_IF_ERROR(child(0)->close(state));
