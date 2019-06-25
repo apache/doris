@@ -20,6 +20,8 @@ namespace cpp doris
 
 include "Types.thrift"
 include "Status.thrift"
+include "Planner.thrift"
+include "Descriptors.thrift"
 
 struct TScanColumnDesc {
   // The column name
@@ -54,6 +56,19 @@ struct TScanRowBatch {
   // The number of rows returned.
   2: optional i32 num_rows
 }
+
+struct TTabletInfo {
+  1: required i64 tablet_id
+  2: required i64 version
+  3: required i64 versionHash
+}
+
+struct TQueryPlanInfo {
+  1: required Planner.TPlanFragment encode_plan_fragment
+  2: required list<TTabletInfo> tablet_ids
+  3: required Descriptors.TDescriptorTable desc_tbl
+}
+
 
 // Parameters to open().
 struct TScanOpenParams {
