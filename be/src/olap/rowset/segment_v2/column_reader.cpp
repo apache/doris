@@ -262,7 +262,6 @@ Status FileColumnIterator::next_batch(size_t* n, ColumnVector* dst, MemPool* mem
             }
 
             // set null bits to
-            remaining -= nrows_to_read;
             _page->offset_in_page += nrows_to_read;
             column_view.advance(nrows_to_read);
             _current_rowid += nrows_to_read;
