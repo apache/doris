@@ -64,6 +64,17 @@ public:
     static void count_star_update(doris_udf::FunctionContext*, doris_udf::BigIntVal* dst);
 
     static void count_star_remove(FunctionContext*, BigIntVal* dst);
+
+    // Impementation of percentile_approx
+    static void percentile_init(doris_udf::FunctionContext* ctx, doris_udf::StringVal* dst);
+
+    template <typename T>
+    static void percentile_update(FunctionContext* ctx, const T& src, const StringVal* dst);
+
+    static void percentile_merge(FunctionContext* ctx, const StringVal& src,
+                                              StringVal* dst);
+    static DoubleVal percentile_finalize(FunctionContext* ctx, const StringVal& src);
+
     // Implementation of Avg.
     // TODO: Change this to use a fixed-sized BufferVal as intermediate type.
     static void avg_init(doris_udf::FunctionContext* ctx, doris_udf::StringVal* dst);

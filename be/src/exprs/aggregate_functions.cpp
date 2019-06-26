@@ -21,6 +21,7 @@
 #include <math.h>
 #include <sstream>
 #include <unordered_set>
+#include <util/tdigest.h>
 
 #include "common/logging.h"
 #include "runtime/string_value.h"
@@ -191,11 +192,24 @@ struct DecimalV2AvgState {
     int64_t count;
 };
 
+struct PercentileState {
+public:
+    TDigest digest {1000};
+    double targetQuantile = -1.0;
+};
+
 void AggregateFunctions::avg_init(FunctionContext* ctx, StringVal* dst) {
     dst->is_null = false;
     dst->len = sizeof(AvgState);
     dst->ptr = ctx->allocate(dst->len);
     memset(dst->ptr, 0, sizeof(AvgState));
+}
+
+void AggregateFunctions::percentile_init(FunctionContext* ctx, StringVal* dst) {
+    auto intermediate = new PercentileState();
+    dst->is_null = false;
+    dst->len = sizeof(PercentileState);
+    dst->ptr = (uint8_t*) intermediate;
 }
 
 void AggregateFunctions::decimal_avg_init(FunctionContext* ctx, StringVal* dst) {
@@ -229,6 +243,20 @@ void AggregateFunctions::avg_update(FunctionContext* ctx, const T& src, StringVa
     AvgState* avg = reinterpret_cast<AvgState*>(dst->ptr);
     avg->sum += src.val;
     ++avg->count;
+}
+
+template <typename T>
+void AggregateFunctions::percentile_update(FunctionContext* ctx, const T& src, const StringVal* dst) {
+    if (src.is_null) {
+        return;
+    }
+    // add value to TDigest
+    auto intermediate = reinterpret_cast<PercentileState*>(dst->ptr);
+    intermediate->digest.add(src.val);
+
+    if (intermediate->targetQuantile == -1.0) {
+        intermediate->targetQuantile = checkQuantileArg(context, quantile);
+    }
 }
 
 void AggregateFunctions::decimal_avg_update(FunctionContext* ctx,
@@ -324,6 +352,19 @@ void AggregateFunctions::decimalv2_avg_remove(doris_udf::FunctionContext* ctx,
     DCHECK_GE(avg->count, 0);
 }
 
+void AggregateFunctions::percentile_merge(FunctionContext* ctx, const StringVal& src,
+                                       StringVal* dst) {
+    if (src.is_null) {
+        return;
+    }
+    auto src_percentile_state = reinterpret_cast<PercentileState*>(src.ptr);
+
+    // merge into destination Intermediate
+    auto dst_percentile_state = reinterpret_cast<PercentileState*>(dst->ptr);
+    dst_percentile_state->digest.merge(&src_percentile_state->digest);
+    dst_percentile_state->targetQuantile = src_percentile_state->targetQuantile;
+}
+
 void AggregateFunctions::avg_merge(FunctionContext* ctx, const StringVal& src,
         StringVal* dst) {
     const AvgState* src_struct = reinterpret_cast<const AvgState*>(src.ptr);
@@ -394,6 +435,19 @@ DecimalV2Val AggregateFunctions::decimalv2_avg_get_value(FunctionContext* ctx, c
     v.to_decimal_val(&res);
 
     return res;
+}
+
+DoubleVal AggregateFunctions::percentile_finalize(FunctionContext* ctx, const StringVal& src) {
+    // get user-provided quantile param: would be the way to go, but does not work in Finalize for some reason
+    //  auto quantileParam = reinterpret_cast<DoubleVal*>(context->GetConstantArg(1));
+    // retrieve approx percentile from Intermediate
+    auto intermediate = reinterpret_cast<PercentileState*>(src.ptr);
+    double quantile = intermediate->targetQuantile;
+    double result = intermediate->digest.quantile(quantile);
+
+    // delete the tdigest and return result
+    delete intermediate;
+    return DoubleVal(result);
 }
 
 DoubleVal AggregateFunctions::avg_finalize(FunctionContext* ctx, const StringVal& src) {
