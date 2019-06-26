@@ -96,7 +96,6 @@ public:
 };
 
 // Test for rle block, for INT32, BOOL
-/*
 TEST_F(RlePageTest, TestRleInt32BlockEncoderRandom) {
     const uint32_t size = 10000;
 
@@ -108,7 +107,6 @@ TEST_F(RlePageTest, TestRleInt32BlockEncoderRandom) {
     test_encode_decode_page_template<OLAP_FIELD_TYPE_INT, segment_v2::RlePageBuilder<OLAP_FIELD_TYPE_INT>,
         segment_v2::RlePageDecoder<OLAP_FIELD_TYPE_INT> >(ints.get(), size);
 }
-*/
 
 TEST_F(RlePageTest, TestRleInt32BlockEncoderEqual) {
     const uint32_t size = 10000;
@@ -121,7 +119,7 @@ TEST_F(RlePageTest, TestRleInt32BlockEncoderEqual) {
     test_encode_decode_page_template<OLAP_FIELD_TYPE_INT, segment_v2::RlePageBuilder<OLAP_FIELD_TYPE_INT>,
         segment_v2::RlePageDecoder<OLAP_FIELD_TYPE_INT> >(ints.get(), size);
 }
-/*
+
 TEST_F(RlePageTest, TestRleInt32BlockEncoderSequence) {
     const uint32_t size = 10000;
 
@@ -185,7 +183,6 @@ TEST_F(RlePageTest, TestRleBoolBlockEncoderSize) {
     // 1 bytes values
     ASSERT_EQ(7, s.size);
 }
-*/
 
 }
 

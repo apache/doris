@@ -28,7 +28,7 @@ namespace doris {
 namespace segment_v2 {
 
 enum {
-    RLE_BLOCK_HEADER_SIZE = 8
+    RLE_BLOCK_HEADER_SIZE = 4
 };
 
 // RLE builder for generic integer and bool types. What is missing is some way
@@ -102,8 +102,10 @@ public:
     }
 
     Slice finish() override {
-        encode_fixed32_le(&_buf[0], _count);
+        // here should Flush first and then encode the count header
+        // or it will lead to a bug if the header is less than 8 byte and the data is small
         _rle_encoder->Flush();
+        encode_fixed32_le(&_buf[0], _count);
         return Slice(_buf.data(), _buf.size());
     }
 
