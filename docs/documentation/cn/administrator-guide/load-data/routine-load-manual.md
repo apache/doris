@@ -63,7 +63,7 @@ FE 中的 JobScheduler 根据汇报结果，继续生成后续新的 Task，或�
 
 ### 创建例行导入任务
 
-创建例行导入任务的的详细语法可以参照 [这里]()。或者连接到 Doris 后，执行 `HELP CREATE ROUTINE LOAD;` 查看语法帮助。这里主要详细介绍，创建作业时的注意事项。
+创建例行导入任务的的详细语法可以连接到 Doris 后，执行 `HELP CREATE ROUTINE LOAD;` 查看语法帮助。这里主要详细介绍，创建作业时的注意事项。
 
 * columns_mapping
 
