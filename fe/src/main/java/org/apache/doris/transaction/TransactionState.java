@@ -438,7 +438,7 @@ public class TransactionState implements Writable {
     
     public boolean isPublishTimeout() {
         // the max timeout is Config.publish_version_timeout_second * 2;
-        long timeoutMillis = Config.publish_version_interval_ms;
+        long timeoutMillis = Config.publish_version_timeout_second * 1000;
         if (prolongPublishTimeout) {
             timeoutMillis *= 2;
         }
