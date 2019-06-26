@@ -77,6 +77,10 @@ public class RestBaseAction extends BaseAction {
         writeResponse(request, response, HttpResponseStatus.OK);
     }
 
+    public void sendResult(BaseRequest request, BaseResponse response, HttpResponseStatus status) {
+        writeResponse(request, response, status);
+    }
+
     public void sendResult(BaseRequest request, BaseResponse response) {
         writeResponse(request, response, HttpResponseStatus.OK);
     }

@@ -147,6 +147,10 @@ public class StmtExecutor {
         }
     }
 
+    public Planner planner() {
+        return planner;
+    }
+
     public boolean isForwardToMaster() {
         if (Catalog.getInstance().isMaster()) {
             return false;
@@ -204,7 +208,7 @@ public class StmtExecutor {
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
         try {
             // analyze this query
-            analyze();
+            analyze(context.getSessionVariable().toThrift());
 
             if (isForwardToMaster()) {
                 forwardToMaster();
@@ -333,7 +337,7 @@ public class StmtExecutor {
     }
 
     // Analyze one statement to structure in memory.
-    private void analyze() throws AnalysisException, UserException,
+    public void analyze(TQueryOptions tQueryOptions) throws AnalysisException, UserException,
                                                NotImplementedException {
         LOG.info("begin to analyze stmt: {}", context.getStmtId());
 
@@ -444,7 +448,7 @@ public class StmtExecutor {
                 // create plan
                 planner = new Planner();
                 if (parsedStmt instanceof QueryStmt || parsedStmt instanceof InsertStmt) {
-                    planner.plan(parsedStmt, analyzer, context.getSessionVariable().toThrift());
+                    planner.plan(parsedStmt, analyzer, tQueryOptions);
                 } else {
                     planner.plan(((CreateTableAsSelectStmt) parsedStmt).getInsertStmt(),
                             analyzer, new TQueryOptions());
