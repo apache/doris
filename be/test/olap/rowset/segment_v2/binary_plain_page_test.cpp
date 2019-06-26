@@ -50,7 +50,7 @@ public:
         Slice *ptr = &slices[0];
         Status ret = page_builder.add(reinterpret_cast<const uint8_t *>(ptr), &count);
         
-        Slice s = page_builder.finish(0);
+        Slice s = page_builder.finish();
         PageDecoderOptions decoder_options;
         PageDecoderType page_decoder(s, decoder_options);
         Status status = page_decoder.init();

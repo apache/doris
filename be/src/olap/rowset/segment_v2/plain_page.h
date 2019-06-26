@@ -61,7 +61,7 @@ public:
         return Status::NotSupported("get_dictionary_page not supported in plain page builder");
     }
 
-    Slice finish(const rowid_t page_first_rowid) override {
+    Slice finish() override {
         encode_fixed32_le((uint8_t *) &_buffer[0], _count);
         return Slice(_buffer.data(),  PLAIN_PAGE_HEADER_SIZE + _count * SIZE_OF_TYPE);
     }

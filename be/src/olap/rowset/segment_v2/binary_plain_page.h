@@ -79,7 +79,7 @@ public:
         return Status::NotSupported("get_dictionary_page not supported in binary plain page builder");
     }
 
-    Slice finish(const rowid_t page_first_rowid) override {
+    Slice finish() override {
         _finished = true;
 
         size_t offsets_pos = _buffer.size();
