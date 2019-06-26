@@ -1145,15 +1145,13 @@ public class SchemaChangeHandler extends AlterHandler {
                         LOG.info("schema change job has finished, send clear tasks to all be {}", alterJob);
                         // if all previous load job finished, then send clear alter tasks to all related be
                         int res = schemaChangeJob.checkOrResendClearTasks();
-                        if (res != 0) {
-                            if (res == -1) {
-                                LOG.warn("schema change job is in finishing state,but could not finished, " 
-                                        + "just finish it, maybe a fatal error {}", alterJob);
-                            } else {
-                                LOG.info("send clear tasks to all be for job [{}] successfully, "
-                                        + "set status to finished", alterJob);
-                            }
-                            
+                        if (res == -1) {
+                            LOG.warn("schema change job is in finishing state,but could not finished, "
+                                + "set the status to CANCELLED {}", alterJob);
+                            cancelledJobs.add(alterJob);
+                        } else if (res == 1) {
+                            LOG.info("send clear tasks to all be for job [{}] successfully, "
+                                + "set status to finished", alterJob);
                             finishedJobs.add(alterJob);
                         }
                     } else {

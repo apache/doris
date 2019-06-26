@@ -287,7 +287,7 @@ public class SchemaChangeJob extends AlterJob {
     
     /*
      * return
-     * 0:  sending clear tasks
+     * 0:  sending clear tasks or the clear tasks are running
      * 1:  all clear tasks are finished, the job is done normally.
      * -1: job meet some fatal error, like db or table is missing.
      */
@@ -307,8 +307,12 @@ public class SchemaChangeJob extends AlterJob {
                 // not remove the task from batch task, remove it by gc
             }
         }
-        if (!clearFailed && batchClearAlterTask != null) {
-            return 1;
+        if (batchClearAlterTask != null) {
+            if (!clearFailed) {
+                return 1;
+            } else {
+                return 0;
+            }
         }
 
         Database db = Catalog.getInstance().getDb(dbId);
