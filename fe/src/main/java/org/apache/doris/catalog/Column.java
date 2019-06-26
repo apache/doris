@@ -260,7 +260,9 @@ public class Column implements Writable {
         if (aggregationType != null && aggregationType != AggregateType.NONE && !isAggregationTypeImplicit) {
             sb.append(aggregationType.name()).append(" ");
         }
-        if (!isAllowNull) {
+        if (isAllowNull) {
+            sb.append("NULL ");
+        } else {
             sb.append("NOT NULL ");
         }
         if (defaultValue != null && getDataType() != PrimitiveType.HLL) {
