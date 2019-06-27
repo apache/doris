@@ -18,6 +18,7 @@
 #pragma once
 
 #include "gen_cpp/segment_v2.pb.h"
+#include "olap/rowset/segment_v2/page_decoder.h" // for PageDecoder
 
 namespace doris {
 namespace segment_v2 {
@@ -26,6 +27,10 @@ struct PageBuilderOptions {
     size_t data_page_size = 0;
 
     size_t dict_page_size = 0;
+};
+
+struct PageDecoderOptions {
+    PageDecoder* dict_decoder = nullptr;
 };
 
 } // namespace segment_v2

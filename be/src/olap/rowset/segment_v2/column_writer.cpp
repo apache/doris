@@ -274,7 +274,7 @@ Status ColumnWriter::_finish_current_page() {
     Page* page = new Page();
     page->first_rowid = _last_first_rowid;
     page->num_rows = _next_rowid - _last_first_rowid;
-    page->data = _page_builder->finish(_last_first_rowid);
+    page->data = _page_builder->finish();
     _page_builder->release();
     _page_builder->reset();
     if (_is_nullable) {
