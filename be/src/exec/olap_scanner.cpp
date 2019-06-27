@@ -84,8 +84,8 @@ Status OlapScanner::_prepare(
         if (_tablet.get() == nullptr) {
             std::stringstream ss;
             ss << "failed to get tablet. tablet_id=" << tablet_id
-                << ", with schema_hash=" << schema_hash
-                << ", reason=" << err;
+               << ", with schema_hash=" << schema_hash
+               << ", reason=" << err;
             LOG(WARNING) << ss.str();
             return Status::InternalError(ss.str());
         }
