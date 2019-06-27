@@ -380,13 +380,13 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             // forward compatibility
             if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), db.getFullName(),
                                                                    PrivPredicate.LOAD)) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "CANCEL LOAD");
+                ErrorReport.reportDdlException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR);
             }
         } else {
             for (String tblName : tableNames) {
                 if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), db.getFullName(),
                                                                         tblName, PrivPredicate.LOAD)) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "CANCEL LOAD",
+                    ErrorReport.reportDdlException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR,
                                                    ConnectContext.get().getQualifiedUser(),
                                                    ConnectContext.get().getRemoteIP(), tblName);
                 }
