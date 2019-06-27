@@ -66,7 +66,7 @@ struct TTabletVersionInfo {
 }
 
 struct TQueryPlanInfo {
-  1: required Planner.TPlanFragment encode_plan_fragment
+  1: required Planner.TPlanFragment plan_fragment
   // tablet_id -> TTabletVersionInfo
   2: required map<i64, TTabletVersionInfo> tablet_info
   3: required Descriptors.TDescriptorTable desc_tbl
