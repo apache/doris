@@ -63,12 +63,13 @@ struct TTabletVersionInfo {
   1: required i64 tablet_id
   2: required i64 version
   3: required i64 versionHash
+  4: required string schema_hash
 }
 
 struct TQueryPlanInfo {
   1: required Planner.TPlanFragment plan_fragment
   // tablet_id -> TTabletVersionInfo
-  2: required map<i64, TTabletVersionInfo> tablet_info
+  2: required map<i64, TTabletVersionInfo> tablets
   3: required Descriptors.TDescriptorTable desc_tbl
   // all tablet scan should share one query_id
   4: required Types.TUniqueId query_id
