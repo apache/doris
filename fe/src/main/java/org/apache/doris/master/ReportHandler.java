@@ -254,7 +254,8 @@ public class ReportHandler extends Daemon {
         // storage medium -> tablet id
         ListMultimap<TStorageMedium, Long> tabletMigrationMap = LinkedListMultimap.create();
         
-        ListMultimap<Long, TPartitionVersionInfo> transactionsToPublish = LinkedListMultimap.create();
+        // dbid -> txn id -> [partition info]
+        Map<Long, ListMultimap<Long, TPartitionVersionInfo>> transactionsToPublish = Maps.newHashMap();
         ListMultimap<Long, Long> transactionsToClear = LinkedListMultimap.create();
         
         // db id -> tablet id
@@ -697,16 +698,18 @@ public class ReportHandler extends Daemon {
 
         AgentTaskExecutor.submit(batchTask);
     }
-    private static void handleRepublishVersionInfo(ListMultimap<Long, TPartitionVersionInfo> transactionsToPublish, 
+
+    private static void handleRepublishVersionInfo(Map<Long, ListMultimap<Long, TPartitionVersionInfo>> transactionsToPublish, 
             long backendId) {
         AgentBatchTask batchTask = new AgentBatchTask();
-        for (Long transactionId : transactionsToPublish.keySet()) {
-            PublishVersionTask task = new PublishVersionTask(backendId, 
-                                                            transactionId, 
-                                                            transactionsToPublish.get(transactionId));
-            batchTask.addTask(task);
-            // add to AgentTaskQueue for handling finish report.
-            AgentTaskQueue.addTask(task);
+        for (Long dbId : transactionsToPublish.keySet()) {
+            ListMultimap<Long, TPartitionVersionInfo> map = transactionsToPublish.get(dbId);
+            for (long txnId : map.keySet()) {
+                PublishVersionTask task = new PublishVersionTask(backendId, txnId, dbId, map.get(txnId));
+                batchTask.addTask(task);
+                // add to AgentTaskQueue for handling finish report.
+                AgentTaskQueue.addTask(task);
+            }
         }
         AgentTaskExecutor.submit(batchTask);
     }
