@@ -449,23 +449,11 @@ void Reader::close() {
 }
 
 OLAPStatus Reader::_capture_rs_readers(const ReaderParams& read_params) {
-    const std::vector<RowsetReaderSharedPtr>* rs_readers;
-    if (read_params.reader_type == READER_ALTER_TABLE
-            || read_params.reader_type == READER_BASE_COMPACTION
-            || read_params.reader_type == READER_CUMULATIVE_COMPACTION) {
-        rs_readers = &read_params.rs_readers;
-    } else {
-        _tablet->obtain_header_rdlock();
-        OLAPStatus status = _tablet->capture_rs_readers(_version, &_own_rs_readers);
-        _tablet->release_header_lock();
-        RETURN_NOT_OK(status);
-
-        if (_own_rs_readers.size() < 1) {
-            LOG(WARNING) << "fail to acquire data sources. tablet=" << _tablet->full_name()
-                         << ", version=" << _version.first << "-" << _version.second;
-            return OLAP_ERR_VERSION_NOT_EXIST;
-        }
-        rs_readers = &_own_rs_readers;
+    const std::vector<RowsetReaderSharedPtr>* rs_readers = &read_params.rs_readers;
+    if (rs_readers->size() < 1) {
+        LOG(WARNING) << "fail to acquire data sources. tablet=" << _tablet->full_name()
+                        << ", version=" << _version.first << "-" << _version.second;
+        return OLAP_ERR_VERSION_NOT_EXIST;
     }
     
     // do not use index stream cache when be/ce/alter/checksum,

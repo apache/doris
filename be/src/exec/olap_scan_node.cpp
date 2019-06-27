@@ -356,6 +356,20 @@ Status OlapScanNode::close(RuntimeState* state) {
     return ScanNode::close(state);
 }
 
+// PlanFragmentExecutor will call this method to set scan range
+// Doris scan range is defined in thrift file like this
+// struct TPaloScanRange {
+//  1: required list<Types.TNetworkAddress> hosts
+//  2: required string schema_hash
+//  3: required string version
+//  4: required string version_hash
+//  5: required Types.TTabletId tablet_id
+//  6: required string db_name
+//  7: optional list<TKeyRange> partition_column_ranges
+//  8: optional string index_name
+//  9: optional string table_name
+//}
+// every doris_scan_range is related with one tablet so that one olap scan node contains multiple tablet
 Status OlapScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {
     for (auto& scan_range : scan_ranges) {
         DCHECK(scan_range.scan_range.__isset.palo_scan_range);
@@ -588,6 +602,8 @@ Status OlapScanNode::split_scan_range() {
     std::vector<OlapScanRange> sub_ranges;
     VLOG(1) << "_doris_scan_ranges.size()=" << _doris_scan_ranges.size();
 
+    // doris scan range is related with one tablet
+    // split scan range for every tablet
     for (auto scan_range : _doris_scan_ranges) {
         sub_ranges.clear();
         RETURN_IF_ERROR(get_sub_scan_range(scan_range, &sub_ranges));
@@ -597,6 +613,7 @@ Status OlapScanNode::split_scan_range() {
                     << sub_range.begin_scan_range
                     << " : " << sub_range.end_scan_range <<
                     (sub_range.end_include ? "]" : ")");
+            // just to get sub_range related scan_range? why not create a object?
             _query_key_ranges.push_back(sub_range);
             _query_scan_ranges.push_back(scan_range);
         }
