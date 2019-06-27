@@ -964,10 +964,17 @@ void DataDir::perform_path_gc_by_rowsetid() {
                     bool valid = tablet->check_rowset_id(rowset_id);
                     if (!valid) {
                         // if the rowset id is less than tablet's initial end rowset id
-                        // and the path is not in unused_rowsets, delete the path.
+                        // and the rowsetid is not in unused_rowsets
+                        // and the rowsetid is not in committed rowsets
+                        // then delete the path.
                         if (rowset_id < tablet->initial_end_rowset_id()
                                 && !StorageEngine::instance()->check_rowset_id_in_unused_rowsets(rowset_id)) {
-                            _process_garbage_path(path);
+                            RowsetMetaSharedPtr rowset_meta = nullptr;
+                            OLAPStatus status = RowsetMetaManager::get_rowset_meta(
+                                    _meta, tablet->tablet_uid(), rowset_id, rowset_meta);
+                            if (status == OLAP_ERR_META_KEY_NOT_FOUND) {
+                                _process_garbage_path(path);
+                            }
                         }
                     }
                 }
@@ -983,6 +990,7 @@ void DataDir::perform_path_scan() {
     {
         std::unique_lock<std::mutex> lck(_check_path_mutex);
         if (_all_check_paths.size() > 0) {
+            LOG(INFO) << "_all_check_paths is not empty when path scan.";
             return;
         }
         LOG(INFO) << "start to scan data dir path:" << _path;
