@@ -40,11 +40,13 @@ struct TScanColumnData {
   3: optional list<byte> byte_vals;
   4: optional list<i16> short_vals;
   5: optional list<i32> int_vals;
+  // for date and long value
   6: optional list<i64> long_vals;
-  7: optional list<double> float_vals;
-  8: optional list<string> double_vals;
-  9: optional list<string> string_vals;
-  10: optional list<binary> binary_vals;
+  // for float and double
+  7: optional list<double> double_vals;
+  // for char, varchar, decimal
+  8: optional list<string> string_vals;
+  9: optional list<binary> binary_vals;
 }
 
 // Serialized batch of rows returned by getNext().
@@ -65,8 +67,11 @@ struct TTabletVersionInfo {
 
 struct TQueryPlanInfo {
   1: required Planner.TPlanFragment encode_plan_fragment
-  2: required list<TTabletVersionInfo> tablet_ids
+  // tablet_id -> TTabletVersionInfo
+  2: required map<i64, TTabletVersionInfo> tablet_info
   3: required Descriptors.TDescriptorTable desc_tbl
+  // all tablet scan should share one query_id
+  4: required Types.TUniqueId query_id
 }
 
 
