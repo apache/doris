@@ -95,15 +95,16 @@ Status OlapScanner::_prepare(
             if (rowset == nullptr) {
                 std::stringstream ss;
                 ss << "fail to get latest version of tablet: " << tablet_id;
-                OLAP_LOG_WARNING(ss.str().c_str());
+                LOG(WARNING) << ss.str();
                 return Status::InternalError(ss.str());
             }
 
             if (rowset->end_version() == _version
                 && rowset->version_hash() != version_hash) {
-                OLAP_LOG_WARNING("fail to check latest version hash. "
-                                    "[tablet_id=%ld version_hash=%ld request_version_hash=%ld]",
-                                    tablet_id, rowset->version_hash(), version_hash);
+                LOG(WARNING) << "fail to check latest version hash. "
+                             << " tablet_id=" << tablet_id
+                             << " version_hash=" << rowset->version_hash()
+                             << " request_version_hash=" << version_hash;
 
                 std::stringstream ss;
                 ss << "fail to check version hash of tablet: " << tablet_id;
