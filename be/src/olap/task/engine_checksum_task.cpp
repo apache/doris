@@ -56,6 +56,13 @@ OLAPStatus EngineChecksumTask::_compute_checksum() {
         return OLAP_ERR_TABLE_NOT_FOUND;
     }
 
+
+    Reader reader;
+    ReaderParams reader_params;
+    reader_params.tablet = tablet;
+    reader_params.reader_type = READER_CHECKSUM;
+    reader_params.version = Version(0, _version);
+
     {
         ReadLock rdlock(tablet->get_header_lock_ptr());
         const RowsetSharedPtr message = tablet->rowset_with_max_version();
@@ -71,13 +78,13 @@ OLAPStatus EngineChecksumTask::_compute_checksum() {
                              res, _tablet_id, message->version_hash(), _version_hash);
             return OLAP_ERR_CE_CMD_PARAMS_ERROR;
         }
+        OLAPStatus acquire_reader_st = tablet->capture_rs_readers(reader_params.version, &reader_params.rs_readers);
+        if (acquire_reader_st != OLAP_SUCCESS) {
+            LOG(WARNING) << "fail to init reader. tablet=" << tablet->full_name()
+                         << "res=" << acquire_reader_st;
+            return acquire_reader_st;
+        }
     }
-
-    Reader reader;
-    ReaderParams reader_params;
-    reader_params.tablet = tablet;
-    reader_params.reader_type = READER_CHECKSUM;
-    reader_params.version = Version(0, _version);
 
     // ignore float and double type considering to precision lose
     for (size_t i = 0; i < tablet->tablet_schema().num_columns(); ++i) {

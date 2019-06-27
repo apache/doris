@@ -92,28 +92,42 @@ Status OlapScanner::_prepare(
         {
             ReadLock rdlock(_tablet->get_header_lock_ptr());
             const RowsetSharedPtr rowset = _tablet->rowset_with_max_version();
-            if (rowset == NULL) {
+            if (rowset == nullptr) {
                 std::stringstream ss;
                 ss << "fail to get latest version of tablet: " << tablet_id;
-                OLAP_LOG_WARNING(ss.str().c_str());
+                LOG(WARNING) << ss.str();
                 return Status::InternalError(ss.str());
             }
 
             if (rowset->end_version() == _version
                 && rowset->version_hash() != version_hash) {
-                OLAP_LOG_WARNING("fail to check latest version hash. "
-                                 "[tablet_id=%ld version_hash=%ld request_version_hash=%ld]",
-                                 tablet_id, rowset->version_hash(), version_hash);
+                LOG(WARNING) << "fail to check latest version hash. "
+                             << " tablet_id=" << tablet_id
+                             << " version_hash=" << rowset->version_hash()
+                             << " request_version_hash=" << version_hash;
 
                 std::stringstream ss;
                 ss << "fail to check version hash of tablet: " << tablet_id;
                 return Status::InternalError(ss.str());
             }
+
+            // acquire tablet rowset readers at the beginning of the scan node 
+            // to prevent this case: when there are lots of olap scanners to run for example 10000
+            // the rowsets maybe compacted when the last olap scanner starts
+            Version rd_version(0, _version);
+            OLAPStatus acquire_reader_st = _tablet->capture_rs_readers(rd_version, &_params.rs_readers);
+            if (acquire_reader_st != OLAP_SUCCESS) {
+                LOG(WARNING) << "fail to init reader.res=" << acquire_reader_st;
+                std::stringstream ss;
+                ss << "failed to initialize storage reader. tablet=" << _params.tablet->full_name()
+                << ", res=" << acquire_reader_st << ", backend=" << BackendOptions::get_localhost();
+                return Status::InternalError(ss.str().c_str());
+            }
         }
     }
-
-    // Initialize _params
+    
     {
+        // Initialize _params
         RETURN_IF_ERROR(_init_params(key_ranges, filters, is_nulls));
     }
 
@@ -139,6 +153,7 @@ Status OlapScanner::open() {
     return Status::OK();
 }
 
+// it will be called under tablet read lock because capture rs readers need 
 Status OlapScanner::_init_params(
         const std::vector<OlapScanRange>& key_ranges,
         const std::vector<TCondition>& filters,
@@ -476,6 +491,13 @@ Status OlapScanner::close(RuntimeState* state) {
     if (_is_closed) {
         return Status::OK();
     }
+    // olap scan node will call scanner.close() when finished
+    // will release resources here
+    // if not clear rowset readers in read_params here
+    // readers will be release when runtime state deconstructed but 
+    // deconstructor in reader references runtime state 
+    // so that it will core
+    _params.rs_readers.clear();
     update_counter();
     _reader.reset();
     Expr::close(_conjunct_ctxs, state);
