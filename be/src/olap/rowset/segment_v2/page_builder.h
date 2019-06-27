@@ -52,12 +52,14 @@ public:
     virtual doris::Status add(const uint8_t* vals, size_t* count) = 0;
 
     // Get the dictionary page for dictionary encoding mode column.
-    virtual doris::Status get_dictionary_page(doris::Slice* dictionary_page) = 0;
+    virtual Status get_dictionary_page(Slice* dictionary_page) {
+        return Status::NotSupported("get_dictionary_page not implemented");
+    }
 
     // Return a Slice which represents the encoded data of current page.
     //
     // This Slice points to internal data of this builder.
-    virtual Slice finish(const rowid_t page_first_rowid) = 0;
+    virtual Slice finish() = 0;
 
     // Reset the internal state of the page builder.
     //

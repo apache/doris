@@ -38,6 +38,10 @@
 namespace doris {
 namespace segment_v2 {
 
+enum {
+    BITSHUFFLE_BLOCK_HEADER_SIZE = 16
+};
+
 void warn_with_bitshuffle_error(int64_t val) {
     switch (val) {
     case -1:
@@ -68,10 +72,7 @@ void warn_with_bitshuffle_error(int64_t val) {
 //
 // The page format is as follows:
 //
-// 1. Header: (20 bytes total)
-//
-//    <first_ordinal> [32-bit]
-//      The ordinal offset of the first element in the page.
+// 1. Header: (16 bytes total)
 //
 //    <num_elements> [32-bit]
 //      The number of elements encoded in the page.
@@ -127,12 +128,8 @@ public:
         return Status::OK();
     }
 
-    Status get_dictionary_page(Slice* dictionary_page) override {
-        return Status::NotSupported("get_dictionary_page not supported in bitshuffle page builder");
-    }
-
-    Slice finish(rowid_t page_first_rowid) override {
-        return _finish(page_first_rowid, SIZE_OF_TYPE);
+    Slice finish() override {
+        return _finish(SIZE_OF_TYPE);
     }
 
     void reset() override {
@@ -143,7 +140,7 @@ public:
         DCHECK_EQ(reinterpret_cast<uintptr_t>(_data.data()) & (alignof(CppType) - 1), 0)
             << "buffer must be naturally-aligned";
         _buffer.clear();
-        _buffer.resize(HEADER_SIZE);
+        _buffer.resize(BITSHUFFLE_BLOCK_HEADER_SIZE);
         _finished = false;
         _remain_element_capacity = block_size / SIZE_OF_TYPE;
     }
@@ -162,8 +159,8 @@ public:
     }
 
 private:
-    Slice _finish(rowid_t page_first_rowid, int final_size_of_type) {
-        _data.resize(HEADER_SIZE + final_size_of_type * _count);
+    Slice _finish(int final_size_of_type) {
+        _data.resize(BITSHUFFLE_BLOCK_HEADER_SIZE + final_size_of_type * _count);
 
         // Do padding so that the input num of element is multiple of 8.
         int num_elems_after_padding = ALIGN_UP(_count, 8);
@@ -173,12 +170,11 @@ private:
             _data.push_back(0);
         }
 
-        _buffer.resize(HEADER_SIZE +
+        _buffer.resize(BITSHUFFLE_BLOCK_HEADER_SIZE +
                 bitshuffle::compress_lz4_bound(num_elems_after_padding, final_size_of_type, 0));
 
-        encode_fixed32_le(&_buffer[0], page_first_rowid);
-        encode_fixed32_le(&_buffer[4], _count);
-        int64_t bytes = bitshuffle::compress_lz4(_data.data(), &_buffer[HEADER_SIZE],
+        encode_fixed32_le(&_buffer[0], _count);
+        int64_t bytes = bitshuffle::compress_lz4(_data.data(), &_buffer[BITSHUFFLE_BLOCK_HEADER_SIZE],
                 num_elems_after_padding, final_size_of_type, 0);
         if (PREDICT_FALSE(bytes < 0)) {
             // This means the bitshuffle function fails.
@@ -188,11 +184,11 @@ private:
             // since we have logged fatal in warn_with_bitshuffle_error().
             return Slice();
         }
-        encode_fixed32_le(&_buffer[8], HEADER_SIZE + bytes);
-        encode_fixed32_le(&_buffer[12], num_elems_after_padding);
-        encode_fixed32_le(&_buffer[16], final_size_of_type);
+        encode_fixed32_le(&_buffer[4], BITSHUFFLE_BLOCK_HEADER_SIZE + bytes);
+        encode_fixed32_le(&_buffer[8], num_elems_after_padding);
+        encode_fixed32_le(&_buffer[12], final_size_of_type);
         _finished = true;
-        return Slice(_buffer.data(), HEADER_SIZE + bytes);
+        return Slice(_buffer.data(), BITSHUFFLE_BLOCK_HEADER_SIZE + bytes);
     }
 
     typedef typename TypeTraits<Type>::CppType CppType;
@@ -204,8 +200,6 @@ private:
         return ret;
     }
 
-    // Length of a header.
-    static const size_t HEADER_SIZE = sizeof(uint32_t) * 5;
     enum {
         SIZE_OF_TYPE = TypeTraits<Type>::size
     };
@@ -220,9 +214,9 @@ private:
 template<FieldType Type>
 class BitShufflePageDecoder : public PageDecoder {
 public:
-    BitShufflePageDecoder(Slice data) : _data(data),
+    BitShufflePageDecoder(Slice data, const PageDecoderOptions& options) : _data(data),
+    _options(options),
     _parsed(false),
-    _page_first_ordinal(0),
     _num_elements(0),
     _compressed_size(0),
     _num_element_after_padding(0),
@@ -231,21 +225,20 @@ public:
 
     Status init() override {
         CHECK(!_parsed);
-        if (_data.size < HEADER_SIZE) {
+        if (_data.size < BITSHUFFLE_BLOCK_HEADER_SIZE) {
             std::stringstream ss;
-            ss << "file corrupton: invalid data size:" << _data.size << ", header size:" << HEADER_SIZE;
+            ss << "file corrupton: invalid data size:" << _data.size << ", header size:" << BITSHUFFLE_BLOCK_HEADER_SIZE;
             return Status::InternalError(ss.str());
         }
-        _page_first_ordinal = decode_fixed32_le((const uint8_t*)&_data[0]);
-        _num_elements = decode_fixed32_le((const uint8_t*)&_data[4]);
-        _compressed_size   = decode_fixed32_le((const uint8_t*)&_data[8]);
+        _num_elements = decode_fixed32_le((const uint8_t*)&_data[0]);
+        _compressed_size   = decode_fixed32_le((const uint8_t*)&_data[4]);
         if (_compressed_size != _data.size) {
             std::stringstream ss;
             ss << "Size information unmatched, _compressed_size:" << _compressed_size
                 << ", data size:" << _data.size;
             return Status::InternalError(ss.str());
         }
-        _num_element_after_padding = decode_fixed32_le((const uint8_t*)&_data[12]);
+        _num_element_after_padding = decode_fixed32_le((const uint8_t*)&_data[8]);
         if (_num_element_after_padding != ALIGN_UP(_num_elements, 8)) {
             std::stringstream ss;
             ss << "num of element information corrupted,"
@@ -253,7 +246,7 @@ public:
                 << ", _num_elements:" << _num_elements;
             return Status::InternalError(ss.str());
         }
-        _size_of_element = decode_fixed32_le((const uint8_t*)&_data[16]);
+        _size_of_element = decode_fixed32_le((const uint8_t*)&_data[12]);
         switch (_size_of_element) {
             case 1:
             case 2:
@@ -322,10 +315,6 @@ public:
         return _cur_index;
     }
 
-    rowid_t get_first_rowid() const override {
-        return _page_first_ordinal;
-    }
-
 private:
     void _copy_next_values(size_t n, void* data) {
         memcpy(data, &_decoded[_cur_index * SIZE_OF_TYPE], n * SIZE_OF_TYPE);
@@ -335,7 +324,7 @@ private:
         if (_num_elements > 0) {
             int64_t bytes;
             _decoded.resize(_num_element_after_padding * _size_of_element);
-            char* in = const_cast<char*>(&_data[HEADER_SIZE]);
+            char* in = const_cast<char*>(&_data[BITSHUFFLE_BLOCK_HEADER_SIZE]);
             bytes = bitshuffle::decompress_lz4(in, _decoded.data(), _num_element_after_padding,
                     _size_of_element, 0);
             if (PREDICT_FALSE(bytes < 0)) {
@@ -349,15 +338,13 @@ private:
 
     typedef typename TypeTraits<Type>::CppType CppType;
 
-    // Length of a header.
-    static const size_t HEADER_SIZE = sizeof(uint32_t) * 5;
     enum {
         SIZE_OF_TYPE = TypeTraits<Type>::size
     };
 
     Slice _data;
+    PageDecoderOptions _options;
     bool _parsed;
-    rowid_t _page_first_ordinal;
     size_t _num_elements;
     size_t _compressed_size;
     size_t _num_element_after_padding;

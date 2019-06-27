@@ -58,16 +58,16 @@ public:
     void test_encode_decode_page_template(typename TypeTraits<Type>::CppType* src,
                     size_t size) {
         typedef typename TypeTraits<Type>::CppType CppType;
-        const size_t ordinal_pos_base = 12345;
         
         PageBuilderOptions options;
         options.data_page_size = 256 * 1024;
         PageBuilderType page_builder(options);
 
         page_builder.add(reinterpret_cast<const uint8_t *>(src), &size);
-        Slice s = page_builder.finish(ordinal_pos_base);
-    
-        PageDecoderType page_decoder(s);
+        Slice s = page_builder.finish();
+
+        PageDecoderOptions decoder_options;
+        PageDecoderType page_decoder(s, decoder_options);
         Status status = page_decoder.init();
         ASSERT_TRUE(status.ok());
         

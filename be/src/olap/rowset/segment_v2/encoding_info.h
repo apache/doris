@@ -32,6 +32,7 @@ namespace segment_v2 {
 class PageBuilder;
 class PageDecoder;
 class PageBuilderOptions;
+class PageDecoderOptions;
 
 class EncodingInfo {
 public:
@@ -45,8 +46,8 @@ public:
     Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) const {
         return _create_builder_func(opts, builder);
     }
-    Status create_page_decoder(const Slice& data, PageDecoder** decoder) const {
-        return _create_decoder_func(data, decoder);
+    Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts, PageDecoder** decoder) const {
+        return _create_decoder_func(data, opts, decoder);
     }
     FieldType type() const { return _type; }
     EncodingTypePB encoding() const { return _encoding; }
@@ -59,7 +60,7 @@ private:
     using CreateBuilderFunc = std::function<Status(const PageBuilderOptions&, PageBuilder**)>;
     CreateBuilderFunc _create_builder_func;
 
-    using CreateDecoderFunc = std::function<Status(const Slice&, PageDecoder**)>;
+    using CreateDecoderFunc = std::function<Status(const Slice&, const PageDecoderOptions& opts, PageDecoder**)>;
     CreateDecoderFunc _create_decoder_func;
 
     FieldType _type;
