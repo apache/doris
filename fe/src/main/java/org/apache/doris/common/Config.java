@@ -483,9 +483,8 @@ public class Config extends ConfigBase {
      * After dropping database(table/partition), you can recover it by using RECOVER stmt.
      * And this specifies the maximal data retention time. After time, the data will be deleted permanently.
      */
-    // TODO(ygl): temp modify it for test !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     @ConfField(mutable = true, masterOnly = true)
-    public static long catalog_trash_expire_second = 10L; // 1day
+    public static long catalog_trash_expire_second = 86400L; // 1day
     /*
      * Maximal bytes that a single broker scanner will read.
      * Do not set this if you know what you are doing.

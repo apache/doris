@@ -150,6 +150,20 @@ Status OlapScanner::_init_params(
     _params.aggregation = _aggregation;
     _params.version = Version(0, _version);
 
+    // acquire tablet rowset readers at the beginning of the scan node 
+    // to prevent this case: when there are lots of olap scanners to run for example 10000
+    // the rowsets maybe compacted when the last olap scanner starts
+    _tablet->obtain_header_rdlock();
+    OLAPStatus acquire_reader_st = _tablet->capture_rs_readers(_params.version, &_params.rs_readers);
+    _tablet->release_header_lock();
+    if (acquire_reader_st != OLAP_SUCCESS) {
+        LOG(WARNING) << "fail to init reader.res=" << acquire_reader_st;
+        std::stringstream ss;
+        ss << "failed to initialize storage reader. tablet=" << _params.tablet->full_name()
+           << ", res=" << acquire_reader_st << ", backend=" << BackendOptions::get_localhost();
+        return Status::InternalError(ss.str().c_str());
+    }
+
     // Condition
     for (auto& filter : filters) {
         _params.conditions.push_back(filter);
@@ -474,6 +488,13 @@ Status OlapScanner::close(RuntimeState* state) {
     if (_is_closed) {
         return Status::OK();
     }
+    // olap scan node will call scanner.close() when finished
+    // will release resources here
+    // if not clear rowset readers in read_params here
+    // readers will be release when runtime state deconstructed but 
+    // deconstructor in reader references runtime state 
+    // so that it will core
+    _params.rs_readers.clear();
     update_counter();
     _reader.reset();
     Expr::close(_conjunct_ctxs, state);

@@ -452,7 +452,8 @@ OLAPStatus Reader::_capture_rs_readers(const ReaderParams& read_params) {
     const std::vector<RowsetReaderSharedPtr>* rs_readers;
     if (read_params.reader_type == READER_ALTER_TABLE
             || read_params.reader_type == READER_BASE_COMPACTION
-            || read_params.reader_type == READER_CUMULATIVE_COMPACTION) {
+            || read_params.reader_type == READER_CUMULATIVE_COMPACTION
+            || read_params.reader_type == READER_QUERY) {
         rs_readers = &read_params.rs_readers;
     } else {
         _tablet->obtain_header_rdlock();
