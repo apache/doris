@@ -78,44 +78,38 @@ Status OlapScanner::_prepare(
         strtoul(scan_range->scan_range().version.c_str(), nullptr, 10);
     VersionHash version_hash =
         strtoul(scan_range->scan_range().version_hash.c_str(), nullptr, 10);
-    {
-        std::string err;
-        _tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash, true, &err);
-        if (_tablet.get() == nullptr) {
-            std::stringstream ss;
-            ss << "failed to get tablet. tablet_id=" << tablet_id
-               << ", with schema_hash=" << schema_hash
-               << ", reason=" << err;
-            LOG(WARNING) << ss.str();
-            return Status::InternalError(ss.str());
-        }
-        {
-            ReadLock rdlock(_tablet->get_header_lock_ptr());
-            const RowsetSharedPtr rowset = _tablet->rowset_with_max_version();
-            if (rowset == NULL) {
-                std::stringstream ss;
-                ss << "fail to get latest version of tablet: " << tablet_id;
-                OLAP_LOG_WARNING(ss.str().c_str());
-                return Status::InternalError(ss.str());
-            }
-
-            if (rowset->end_version() == _version
-                && rowset->version_hash() != version_hash) {
-                OLAP_LOG_WARNING("fail to check latest version hash. "
-                                 "[tablet_id=%ld version_hash=%ld request_version_hash=%ld]",
-                                 tablet_id, rowset->version_hash(), version_hash);
-
-                std::stringstream ss;
-                ss << "fail to check version hash of tablet: " << tablet_id;
-                return Status::InternalError(ss.str());
-            }
-        }
+    std::string err;
+    _tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash, true, &err);
+    if (_tablet.get() == nullptr) {
+        std::stringstream ss;
+        ss << "failed to get tablet. tablet_id=" << tablet_id
+            << ", with schema_hash=" << schema_hash
+            << ", reason=" << err;
+        LOG(WARNING) << ss.str();
+        return Status::InternalError(ss.str());
+    }
+    ReadLock rdlock(_tablet->get_header_lock_ptr());
+    const RowsetSharedPtr rowset = _tablet->rowset_with_max_version();
+    if (rowset == nullptr) {
+        std::stringstream ss;
+        ss << "fail to get latest version of tablet: " << tablet_id;
+        OLAP_LOG_WARNING(ss.str().c_str());
+        return Status::InternalError(ss.str());
     }
 
-    // Initialize _params
-    {
-        RETURN_IF_ERROR(_init_params(key_ranges, filters, is_nulls));
+    if (rowset->end_version() == _version
+        && rowset->version_hash() != version_hash) {
+        OLAP_LOG_WARNING("fail to check latest version hash. "
+                            "[tablet_id=%ld version_hash=%ld request_version_hash=%ld]",
+                            tablet_id, rowset->version_hash(), version_hash);
+
+        std::stringstream ss;
+        ss << "fail to check version hash of tablet: " << tablet_id;
+        return Status::InternalError(ss.str());
     }
+
+    // Initialize _params under read lock
+    RETURN_IF_ERROR(_init_params(key_ranges, filters, is_nulls));
 
     return Status::OK();
 }
@@ -139,6 +133,7 @@ Status OlapScanner::open() {
     return Status::OK();
 }
 
+// it will be called under tablet read lock because capture rs readers need rdlock
 Status OlapScanner::_init_params(
         const std::vector<OlapScanRange>& key_ranges,
         const std::vector<TCondition>& filters,
@@ -153,9 +148,7 @@ Status OlapScanner::_init_params(
     // acquire tablet rowset readers at the beginning of the scan node 
     // to prevent this case: when there are lots of olap scanners to run for example 10000
     // the rowsets maybe compacted when the last olap scanner starts
-    _tablet->obtain_header_rdlock();
     OLAPStatus acquire_reader_st = _tablet->capture_rs_readers(_params.version, &_params.rs_readers);
-    _tablet->release_header_lock();
     if (acquire_reader_st != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to init reader.res=" << acquire_reader_st;
         std::stringstream ss;
