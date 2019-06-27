@@ -90,18 +90,15 @@ public:
 
         const CppType* new_vals = reinterpret_cast<const CppType*>(vals);
         for (int i = 0; i < *count; ++i) {
-            _rle_encoder->Put(new_vals[i], 1);
+            _rle_encoder->Put(new_vals[i]);
         }
         
         _count += *count;
         return Status::OK();
     }
 
-    Status get_dictionary_page(Slice* dictionary_page) override {
-        return Status::NotSupported("get_dictionary_page not implemented");
-    }
-
     Slice finish() override {
+        _finished = true;
         // here should Flush first and then encode the count header
         // or it will lead to a bug if the header is less than 8 byte and the data is small
         _rle_encoder->Flush();

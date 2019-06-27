@@ -75,10 +75,6 @@ public:
         return Status::OK();
     }
 
-    Status get_dictionary_page(Slice *dictionary_page) override {
-        return Status::NotSupported("get_dictionary_page not supported in binary plain page builder");
-    }
-
     Slice finish() override {
         _finished = true;
 

@@ -128,10 +128,6 @@ public:
         return Status::OK();
     }
 
-    Status get_dictionary_page(Slice* dictionary_page) override {
-        return Status::NotSupported("get_dictionary_page not supported in bitshuffle page builder");
-    }
-
     Slice finish() override {
         return _finish(SIZE_OF_TYPE);
     }
