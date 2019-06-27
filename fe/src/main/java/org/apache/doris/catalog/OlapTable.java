@@ -990,6 +990,8 @@ public class OlapTable extends Table {
                             infoService, clusterName, visibleVersion, visibleVersionHash, replicationNum,
                             availableBackendsNum);
                     if (statusPair.first != TabletStatus.HEALTHY) {
+                        LOG.debug("table {} is not stable because tablet {} status is {}. replicas: {}",
+                                id, tablet.getId(), statusPair.first, tablet.getReplicas());
                         return false;
                     }
                 }
