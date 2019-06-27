@@ -33,6 +33,16 @@ namespace doris {
 
 const std::string ROWSET_PREFIX = "rst_";
 
+bool RowsetMetaManager::check_rowset_meta(OlapMeta* meta, TabletUid tablet_uid, int64_t rowset_id) {
+    std::string key = ROWSET_PREFIX + tablet_uid.to_string() + "_" + std::to_string(rowset_id);
+    std::string value;
+    OLAPStatus s = meta->get(META_COLUMN_FAMILY_INDEX, key, &value);
+    if (s != OLAP_SUCCESS) {
+        return false; 
+    }
+    return true;
+}
+
 OLAPStatus RowsetMetaManager::get_rowset_meta(OlapMeta* meta, TabletUid tablet_uid, int64_t rowset_id, RowsetMetaSharedPtr rowset_meta) {
     std::string key = ROWSET_PREFIX + tablet_uid.to_string() + "_" + std::to_string(rowset_id);
     std::string value;

@@ -609,6 +609,7 @@ TabletSharedPtr TabletManager::_get_tablet(TTabletId tablet_id, SchemaHash schem
     tablet = _get_tablet_with_no_lock(tablet_id, schema_hash);
     if (tablet == nullptr && include_deleted) {
         for (auto& deleted_tablet : _shutdown_tablets) {
+            CHECK(deleted_tablet != nullptr) << "deleted tablet in nullptr";
             if (deleted_tablet->tablet_id() == tablet_id && deleted_tablet->schema_hash() == schema_hash) {
                 tablet = deleted_tablet;
                 break;
@@ -1350,6 +1351,7 @@ TabletSharedPtr TabletManager::_get_tablet_with_no_lock(TTabletId tablet_id, Sch
     tablet_map_t::iterator it = _tablet_map.find(tablet_id);
     if (it != _tablet_map.end()) {
         for (TabletSharedPtr tablet : it->second.table_arr) {
+            CHECK(tablet != nullptr) << "tablet is nullptr:" << tablet;
             if (tablet->equal(tablet_id, schema_hash)) {
                 VLOG(3) << "get tablet success. tablet_id=" << tablet_id
                         << ", schema_hash=" << schema_hash;

@@ -959,7 +959,7 @@ void DataDir::perform_path_gc_by_rowsetid() {
             RowsetId rowset_id = -1;
             bool is_rowset_file = _tablet_manager->get_rowset_id_from_path(path, &rowset_id);
             if (is_rowset_file) {
-                TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id, schema_hash, true);
+                TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id, schema_hash);
                 if (tablet != nullptr) {
                     bool valid = tablet->check_rowset_id(rowset_id);
                     if (!valid) {
@@ -968,13 +968,9 @@ void DataDir::perform_path_gc_by_rowsetid() {
                         // and the rowsetid is not in committed rowsets
                         // then delete the path.
                         if (rowset_id < tablet->initial_end_rowset_id()
-                                && !StorageEngine::instance()->check_rowset_id_in_unused_rowsets(rowset_id)) {
-                            RowsetMetaSharedPtr rowset_meta = nullptr;
-                            OLAPStatus status = RowsetMetaManager::get_rowset_meta(
-                                    _meta, tablet->tablet_uid(), rowset_id, rowset_meta);
-                            if (status == OLAP_ERR_META_KEY_NOT_FOUND) {
-                                _process_garbage_path(path);
-                            }
+                                && !StorageEngine::instance()->check_rowset_id_in_unused_rowsets(rowset_id)
+                                && !RowsetMetaManager::check_rowset_meta(_meta, tablet->tablet_uid(), rowset_id)) {
+                            _process_garbage_path(path);
                         }
                     }
                 }
