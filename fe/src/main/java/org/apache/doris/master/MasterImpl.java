@@ -559,9 +559,17 @@ public class MasterImpl {
         if (request.isSetError_tablet_ids()) {
             errorTabletIds = request.getError_tablet_ids();
         }
+
+        if (request.isSetReport_version()) {
+            // report version is required. here we check if set, for compatibility.
+            long reportVersion = request.getReport_version();
+            Catalog.getCurrentSystemInfo().updateBackendReportVersion(task.getBackendId(), reportVersion, task.getDbId());
+        }
+
         PublishVersionTask publishVersionTask = (PublishVersionTask) task;
         publishVersionTask.addErrorTablets(errorTabletIds);
         publishVersionTask.setIsFinished(true);
+
         AgentTaskQueue.removeTask(publishVersionTask.getBackendId(), 
                                   publishVersionTask.getTaskType(), 
                                   publishVersionTask.getSignature());

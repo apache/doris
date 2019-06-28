@@ -52,7 +52,6 @@ public class DppSchedulerTest {
         // mock palo home env
         PowerMock.mockStatic(System.class);
         EasyMock.expect(System.getenv("DORIS_HOME")).andReturn(".").anyTimes();
-        EasyMock.expect(System.currentTimeMillis()).andReturn(1000L).anyTimes();
         PowerMock.replay(System.class);
 
         UnitTestUtil.initDppConfig();
@@ -221,7 +220,7 @@ public class DppSchedulerTest {
         DppConfig dppConfig = Load.dppDefaultConfig.getCopiedDppConfig();
         long dbId = 0;
         String loadLabel = "test_label";
-        String etlOutputDir = String.valueOf(System.currentTimeMillis());
+        String etlOutputDir = "10000";
 
         String actualPath = DppScheduler.getEtlOutputPath(dppConfig.getFsDefaultName(), dppConfig.getOutputPath(),
                 dbId, loadLabel, etlOutputDir);
