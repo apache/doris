@@ -957,6 +957,16 @@ public class FunctionSet {
                     null, false, true, false));
         }
 
+        //Percentile
+        addBuiltin(AggregateFunction.createBuiltin("percentile_approx",
+                Lists.<Type>newArrayList(Type.BIGINT, Type.DOUBLE), Type.DOUBLE, Type.DOUBLE,
+                prefix + "15percentile_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
+                prefix + "17percentile_updateEPN9doris_udf15FunctionContextERKNS1_9BigIntValERKNS1_9DoubleValEPKNS1_9StringValE",
+                prefix + "16percentile_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                null,
+                prefix + "19percentile_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                false, false, false));
+
 
         // Avg
         // TODO: switch to CHAR(sizeof(AvgIntermediateType) when that becomes available
