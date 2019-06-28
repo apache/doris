@@ -245,8 +245,7 @@ void AggregateFunctions::avg_update(FunctionContext* ctx, const T& src, StringVa
     ++avg->count;
 }
 
-template <typename T>
-void AggregateFunctions::percentile_update(FunctionContext* ctx, const T& src, const DoubleVal& quantile, const StringVal* dst) {
+void AggregateFunctions::percentile_update(FunctionContext* ctx, const BigIntVal& src, const DoubleVal& quantile, const StringVal* dst) {
     if (src.is_null) {
         return;
     }
