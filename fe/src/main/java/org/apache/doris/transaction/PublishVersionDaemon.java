@@ -108,9 +108,10 @@ public class PublishVersionDaemon extends Daemon {
             }
 
             for (long backendId : publishBackends) {
-                PublishVersionTask task = new PublishVersionTask(backendId, 
-                                                                 transactionState.getTransactionId(), 
-                                                                 partitionVersionInfos);
+                PublishVersionTask task = new PublishVersionTask(backendId,
+                        transactionState.getTransactionId(),
+                        transactionState.getDbId(),
+                        partitionVersionInfos);
                 // add to AgentTaskQueue for handling finish report.
                 // not check return value, because the add will success
                 AgentTaskQueue.addTask(task);
