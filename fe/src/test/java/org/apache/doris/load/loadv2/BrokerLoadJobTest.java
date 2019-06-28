@@ -24,7 +24,9 @@ import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.EtlStatus;
@@ -33,7 +35,6 @@ import org.apache.doris.load.PullLoadSourceInfo;
 import org.apache.doris.load.Source;
 import org.apache.doris.task.MasterTaskExecutor;
 import org.apache.doris.transaction.TransactionState;
-import org.apache.doris.transaction.TxnCommitAttachment;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -42,7 +43,6 @@ import com.google.common.collect.Sets;
 import org.junit.Assert;
 import org.junit.Test;
 
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -159,15 +159,27 @@ public class BrokerLoadJobTest {
     }
 
     @Test
-    public void testGetTableNames(@Injectable DataDescription dataDescription) {
+    public void testGetTableNames(@Injectable PullLoadSourceInfo dataSourceInfo,
+                                  @Injectable BrokerFileGroup brokerFileGroup,
+                                  @Mocked Catalog catalog,
+                                  @Injectable Database database,
+                                  @Injectable Table table) throws MetaNotFoundException {
+        List<BrokerFileGroup> brokerFileGroups = Lists.newArrayList();
+        brokerFileGroups.add(brokerFileGroup);
+        Map<Long, List<BrokerFileGroup>> idToFileGroups = Maps.newHashMap();
+        idToFileGroups.put(1L, brokerFileGroups);
         BrokerLoadJob brokerLoadJob = new BrokerLoadJob();
-        List<DataDescription> dataDescriptionList = Lists.newArrayList();
-        dataDescriptionList.add(dataDescription);
-        Deencapsulation.setField(brokerLoadJob, "dataDescriptions", dataDescriptionList);
+        Deencapsulation.setField(brokerLoadJob, "dataSourceInfo", dataSourceInfo);
         String tableName = "table";
         new Expectations() {
             {
-                dataDescription.getTableName();
+                dataSourceInfo.getIdToFileGroups();
+                result = idToFileGroups;
+                catalog.getDb(anyLong);
+                result = database;
+                database.getTable(1L);
+                result = table;
+                table.getName();
                 result = tableName;
             }
         };
