@@ -92,7 +92,7 @@ void update_sum<int128_t>(SlotRef* ref, TupleRow* agg_row, TupleRow *row) {
     bool agg_row_null = ref->is_null_bit_set(agg_row);
     void* value = SlotRef::get_value(ref, row);
     if (!agg_row_null && value != NULL) {
-	    int128_t l_val, r_val;
+        int128_t l_val, r_val;
         memcpy(&l_val, slot, sizeof(int128_t));
         memcpy(&r_val, value, sizeof(int128_t));
         l_val += r_val;
