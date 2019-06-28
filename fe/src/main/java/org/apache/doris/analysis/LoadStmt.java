@@ -81,7 +81,6 @@ public class LoadStmt extends DdlStmt {
     private final Map<String, String> properties;
     private String user;
 
-    private boolean strictMode = true;
     private String version = "v2";
 
     // properties set
