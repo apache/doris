@@ -191,7 +191,7 @@ public:
             Slice elem(string_at_index(_cur_idx));
             out->data = reinterpret_cast<char*>(dst->mem_pool()->allocate(elem.size * sizeof(uint8_t)));
             out->truncate(elem.size);
-            elem.relocate((char*) (out->get_data()));
+            memcpy(out->data, elem.data, elem.size);
         }
 
         *n = max_fetch;
