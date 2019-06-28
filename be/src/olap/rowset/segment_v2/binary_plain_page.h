@@ -190,7 +190,7 @@ public:
         for (size_t i = 0; i < max_fetch; i++, out++, _cur_idx++) {
             Slice elem(string_at_index(_cur_idx));
             out->data = reinterpret_cast<char*>(dst->mem_pool()->allocate(elem.size * sizeof(uint8_t)));
-            out->truncate(elem.size);
+            out->size = elem.size;
             memcpy(out->data, elem.data, elem.size);
         }
 
