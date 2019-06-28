@@ -246,17 +246,19 @@ void AggregateFunctions::avg_update(FunctionContext* ctx, const T& src, StringVa
 }
 
 template <typename T>
-void AggregateFunctions::percentile_update(FunctionContext* ctx, const T& src, const StringVal* dst) {
+void AggregateFunctions::percentile_update(FunctionContext* ctx, const T& src, const DoubleVal& quantile, const StringVal* dst) {
     if (src.is_null) {
         return;
     }
     // add value to TDigest
     auto intermediate = reinterpret_cast<PercentileState*>(dst->ptr);
     intermediate->digest.add(src.val);
-
+    intermediate->targetQuantile = quantile.val;
+    /*
     if (intermediate->targetQuantile == -1.0) {
         intermediate->targetQuantile = checkQuantileArg(context, quantile);
     }
+     */
 }
 
 void AggregateFunctions::decimal_avg_update(FunctionContext* ctx,
