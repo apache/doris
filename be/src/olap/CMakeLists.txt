@@ -75,6 +75,7 @@ add_library(Olap STATIC
     segment_reader.cpp
     segment_writer.cpp
     serialize.cpp
+    short_key_index.cpp
     store.cpp
     stream_index_common.cpp
     stream_index_reader.cpp

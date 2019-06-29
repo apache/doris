@@ -1687,7 +1687,7 @@ OLAPStatus OLAPTable::split_range(
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
-    EntrySlice entry;
+    Slice entry;
     RowCursor start_key;
     RowCursor end_key;
     RowCursor helper_cursor;
@@ -1772,7 +1772,7 @@ OLAPStatus OLAPTable::split_range(
     }
 
     step_pos = start_pos;
-    VLOG(3) << "start_pos=" << start_pos.segment << ", " << start_pos.index_offset;
+    VLOG(3) << "start_pos=" << start_pos.segment << ", " << start_pos.data_offset;
 
     //find last row_block is end_key is given, or using last_row_block
     if (base_index->find_short_key(end_key, &helper_cursor, false, &end_pos) != OLAP_SUCCESS) {
@@ -1782,7 +1782,7 @@ OLAPStatus OLAPTable::split_range(
         }
     }
 
-    VLOG(3) << "end_pos=" << end_pos.segment << ", " << end_pos.index_offset;
+    VLOG(3) << "end_pos=" << end_pos.segment << ", " << end_pos.data_offset;
 
     //get rows between first and last
     OLAPStatus res = OLAP_SUCCESS;

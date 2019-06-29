@@ -26,6 +26,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/status.h"
 #include "gen_cpp/olap_file.pb.h"
 #include "gen_cpp/column_data_file.pb.h"
 #include "olap/atomic.h"
@@ -36,6 +37,7 @@
 #include "olap/olap_table.h"
 #include "olap/row_cursor.h"
 #include "olap/utils.h"
+#include "util/slice.h"
 
 namespace doris {
 class IndexComparator;
@@ -54,12 +56,6 @@ struct OLAPIndexFixedHeader {
 
     uint32_t data_length;
     uint64_t num_rows;
-};
-
-struct EntrySlice {
-    char* data;
-    size_t length;
-    EntrySlice() : data(nullptr), length(0) {}
 };
 
 // Range of offset in one segment
@@ -87,13 +83,11 @@ struct OLAPIndexOffset {
 
 // 唯一标识一个RowBlock在Data文件和Index文件中的位置
 struct RowBlockPosition {
-    RowBlockPosition() : segment(0), block_size(0), data_offset(0), index_offset(0) {}
+    RowBlockPosition() : segment(0), data_offset(0) {}
 
     bool operator==(const RowBlockPosition& other) const {
         return (segment == other.segment
-                    && data_offset == other.data_offset
-                    && block_size == other.block_size
-                    && index_offset == other.index_offset);
+                    && data_offset == other.data_offset);
     }
 
     bool operator!=(const RowBlockPosition& other) const {
@@ -133,26 +127,22 @@ struct RowBlockPosition {
         char message[1024] = {'\0'};
         snprintf(message,
                  sizeof(message),
-                 "{segment=%u block_size=%u data_offset=%u index_offset=%u}",
+                 "{segment=%u data_offset=%u}",
                  segment,
-                 block_size,
-                 data_offset,
-                 index_offset);
+                 data_offset);
         return std::string(message);
     }
 
     uint32_t segment;
-    uint32_t block_size;
     uint32_t data_offset;   // offset in data file
-    uint32_t index_offset;  // offset in index file
 };
 
 // In memory presentation of index meta information
 struct SegmentMetaInfo {
     SegmentMetaInfo() {
         range.first = range.last = 0;
-        buffer.length = 0;
-        buffer.data = NULL;
+        buffer.size = 0;
+        buffer.data = nullptr;
     }
 
     const size_t count() const {
@@ -160,9 +150,11 @@ struct SegmentMetaInfo {
     }
 
     IDRange     range;
-    EntrySlice       buffer;
+    Slice       buffer;
     FileHeader<OLAPIndexHeaderMessage, OLAPIndexFixedHeader>  file_header;
 };
+
+class MemIndex;
 
 // In memory index structure, all index hold here
 class MemIndex {
@@ -180,6 +172,9 @@ public:
 
     // 加载一个segment到内存
     OLAPStatus load_segment(const char* file, size_t *current_num_rows_per_row_block);
+
+    Status load_segment(const FileHeader<OLAPIndexHeaderMessage, OLAPIndexFixedHeader>& header,
+                        const Slice& index_data);
 
     // Return the IndexOffset of the first element, physically, it's (0, 0)
     const OLAPIndexOffset begin() const {
@@ -246,7 +241,7 @@ public:
     const OLAPIndexOffset get_relative_offset(iterator_offset_t absolute_offset) const;
 
     // Return content of index item, which IndexOffset is pos
-    OLAPStatus get_entry(const OLAPIndexOffset& pos, EntrySlice* slice) const;
+    OLAPStatus get_entry(const OLAPIndexOffset& pos, Slice* slice) const;
 
     // Return RowBlockPosition from IndexOffset
     OLAPStatus get_row_block_position(const OLAPIndexOffset& pos, RowBlockPosition* rbp) const;
@@ -370,7 +365,7 @@ private:
     bool _compare(const iterator_offset_t& index,
                   const RowCursor& key,
                   ComparatorEnum comparator) {
-        EntrySlice slice;
+        Slice slice;
         OLAPIndexOffset offset(_cur_seg, index);
         _index->get_entry(offset, &slice);
 
@@ -410,10 +405,9 @@ private:
     bool _compare(const iterator_offset_t& index,
                   const RowCursor& key,
                   ComparatorEnum comparator) {
-        EntrySlice slice;
+        Slice slice;
         slice.data = _index->_meta[index].buffer.data;
-        //slice.length = _index->short_key_length();
-        slice.length = _index->new_short_key_length();
+        slice.size = _index->new_short_key_length();
 
         _helper_cursor->attach(slice.data);
 

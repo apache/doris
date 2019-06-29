@@ -64,8 +64,9 @@ public:
        data(const_cast<char*>(reinterpret_cast<const char*>(s))), size(n) { }
 
     /// Create a slice that refers to the contents of the given string.
-    Slice(const std::string& s) : // NOLINT(runtime/explicit)
-        data(const_cast<char*>(s.data())), size(s.size()) { }
+    template<typename StringType>
+    Slice(const StringType& s) : // NOLINT(runtime/explicit)
+        data((char*)s.data()), size(s.size()) { }
 
     /// Create a slice that refers to a C-string s[0,strlen(s)-1].
     Slice(const char* s) : // NOLINT(runtime/explicit)

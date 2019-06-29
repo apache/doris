@@ -302,10 +302,9 @@ OLAPStatus ColumnData::_seek_to_row(const RowCursor& key, bool find_last_key, bo
     res = _seek_to_block(position, without_filter);
     if (res != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("fail to get row block. "
-                         "[res=%d segment=%d block_size=%d data_offset=%d index_offset=%d]",
+                         "[res=%d segment=%d data_offset=%d]",
                          res,
-                         position.segment, position.block_size,
-                         position.data_offset, position.index_offset);
+                         position.segment, position.data_offset);
         return res;
     }
     res = _get_block(without_filter);

@@ -430,7 +430,7 @@ OLAPStatus SegmentGroup::find_short_key(const RowCursor& key,
     return _index.get_row_block_position(offset, pos);
 }
 
-OLAPStatus SegmentGroup::get_row_block_entry(const RowBlockPosition& pos, EntrySlice* entry) const {
+OLAPStatus SegmentGroup::get_row_block_entry(const RowBlockPosition& pos, Slice* entry) const {
     TABLE_PARAM_VALIDATE();
     SLICE_PARAM_VALIDATE(entry);
     

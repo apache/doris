@@ -208,6 +208,8 @@ public:
         memset(&_fixed_file_header, 0, sizeof(_fixed_file_header));
         memset(&_extra_fixed_header, 0, sizeof(_extra_fixed_header));
         _fixed_file_header_size = sizeof(_fixed_file_header);
+        _fixed_file_header.magic_number = OLAP_FIX_HEADER_MAGIC_NUMBER;
+        _fixed_file_header.version = OLAP_DATA_VERSION_APPLIED;
     }
     ~FileHeader() {}
 
@@ -257,6 +259,9 @@ public:
     }
 
 private:
+    friend class ShortKeyIndexBuilder;
+    friend class ShortKeyIndexDecoder;
+
     FixedFileHeaderV2 _fixed_file_header;
     uint32_t _fixed_file_header_size;
 

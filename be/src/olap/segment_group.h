@@ -124,7 +124,7 @@ public:
 
     OLAPStatus find_prev_point(const RowBlockPosition& current, RowBlockPosition* prev) const;
 
-    OLAPStatus get_row_block_entry(const RowBlockPosition& pos, EntrySlice* entry) const;
+    OLAPStatus get_row_block_entry(const RowBlockPosition& pos, Slice* entry) const;
 
     // Given a starting row block position, advances the position by
     // num_row_blocks, then stores back the new position through the
