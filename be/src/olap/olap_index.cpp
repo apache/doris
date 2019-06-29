@@ -22,16 +22,19 @@
 #include <cmath>
 #include <fstream>
 
+#include "gutil/strings/substitute.h"
 #include "olap/column_data.h"
 #include "olap/olap_table.h"
 #include "olap/row_block.h"
 #include "olap/row_cursor.h"
 #include "olap/utils.h"
 #include "olap/wrapper_field.h"
+#include "olap/short_key_index.h"
 
 using std::ifstream;
 using std::string;
 using std::vector;
+using strings::Substitute;
 
 namespace doris {
 
@@ -50,41 +53,64 @@ MemIndex::~MemIndex() {
     for (vector<SegmentMetaInfo>::iterator it = _meta.begin(); it != _meta.end(); ++it) {
         free(it->buffer.data);
         it->buffer.data = NULL;
-        it->buffer.length = 0;
+        it->buffer.size = 0;
     }
 }
 
 OLAPStatus MemIndex::load_segment(const char* file, size_t *current_num_rows_per_row_block) {
-    OLAPStatus res = OLAP_SUCCESS;
-
-    SegmentMetaInfo meta;
-    OLAPIndexHeaderMessage pb;
-    uint32_t adler_checksum = 0;
-    uint32_t num_entries = 0;
-
-    if (file == NULL) {
-        res = OLAP_ERR_INPUT_PARAMETER_ERROR;
-        OLAP_LOG_WARNING("load segment for loading index error. [file=%s; res=%d]", file, res);
-        return res;
-    }
-
     FileHandler file_handler;
+    OLAPStatus res = OLAP_SUCCESS;
     if ((res = file_handler.open_with_cache(file, O_RDONLY)) != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("fail to open index file. [file='%s']", file);
         OLAP_LOG_WARNING("load segment for loading index error. [file=%s; res=%d]", file, res);
         return res;
     }
+    auto file_length = file_handler.length();
+    std::string file_content;
+    file_content.resize(file_length);
 
-    if ((res = meta.file_header.unserialize(&file_handler)) != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to read index file header. [file='%s']", file);
-        OLAP_LOG_WARNING("load segment for loading index error. [file=%s; res=%d]", file, res);
-        file_handler.close();
+    res = file_handler.pread((char*)file_content.data(), file_content.size(), 0);
+    file_handler.close();
+    if (res != OLAP_SUCCESS) {
+        char errmsg[64];
+        LOG(WARNING) << "fail to read data from file. file="
+                     << file << ", err=" << strerror_r(errno, errmsg, 64);
         return res;
     }
+
+    ShortKeyIndexDecoder decoder(file_content);
+    auto st = decoder.parse();
+    if (!st.ok()) {
+        LOG(WARNING) << "failed to parse index, file=" << file
+            << ", msg=" << st.to_string();
+        return OLAP_ERR_INDEX_LOAD_ERROR;
+    }
+    st = load_segment(decoder.header(), decoder.index_data());
+    if (!st.ok()) {
+        LOG(WARNING) << "Failed to load segment, file=" << file << ", msg=" << st.to_string();
+        return OLAP_ERR_INDEX_LOAD_ERROR;
+    }
+
+    (current_num_rows_per_row_block == NULL
+     || (*current_num_rows_per_row_block = decoder.header().message().num_rows_per_block()));
+    return OLAP_SUCCESS;
+}
+
+Status MemIndex::load_segment(
+        const FileHeader<OLAPIndexHeaderMessage, OLAPIndexFixedHeader>& header, const Slice& data) {
+    SegmentMetaInfo meta;
+    meta.file_header = header;
+
 
     // 允许索引内容为空
     // 索引长度必须为索引项长度的整数倍
     size_t storage_length = meta.file_header.file_length() - meta.file_header.size();
+    if (data.size < storage_length) {
+        return Status::Corruption(
+            Substitute("Failed to load index, data is too small, expect=$0 vs real=$1",
+                       storage_length, data.size));
+    }
+
     bool null_supported = false;
     //null_supported是为了兼容之前没有NULL字节的数据。
     //目前索引里面都加入了NULL的标志位，entry length都算了NULL标志位构成的bytes
@@ -102,20 +128,17 @@ OLAPStatus MemIndex::load_segment(const char* file, size_t *current_num_rows_per
         is_align = (0 == storage_length % entry_length());
     }
     if (!is_align) {
-        res = OLAP_ERR_INDEX_LOAD_ERROR;
-        OLAP_LOG_WARNING("fail to load_segment, buffer length is not correct.");
-        OLAP_LOG_WARNING("load segment for loading index error. [file=%s; res=%d]", file, res);
-        file_handler.close();
-        return res;
+        return Status::Corruption("Failed to load index, becuase data isn't align");
     }
 
+    uint32_t num_entries = 0;
     // calculate the total size of all segments
     if (!null_supported) {
-        _index_size += meta.file_header.file_length() + num_entries * num_short_key_fields;
         num_entries = storage_length / (entry_length() - num_short_key_fields);
+        _index_size += meta.file_header.file_length() + num_entries * num_short_key_fields;
     } else {
-        _index_size += meta.file_header.file_length();
         num_entries = storage_length / entry_length();
+        _index_size += meta.file_header.file_length();
     }
     _data_size += meta.file_header.extra().data_length;
     _num_rows += meta.file_header.extra().num_rows;
@@ -125,46 +148,22 @@ OLAPStatus MemIndex::load_segment(const char* file, size_t *current_num_rows_per
     _num_entries = meta.range.last;
     _meta.push_back(meta);
 
-    (current_num_rows_per_row_block == NULL
-     || (*current_num_rows_per_row_block = meta.file_header.message().num_rows_per_block()));
-
     if (OLAP_UNLIKELY(num_entries == 0)) {
-        file_handler.close();
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
 
     // convert index memory layout for string type
     // previous layout is size|data,
     // target type is ptr|size, ptr pointer to data
-    char* storage_data = reinterpret_cast<char*>(calloc(storage_length, 1));
-    if (storage_data == nullptr) {
-        res = OLAP_ERR_MALLOC_ERROR;
-        OLAP_LOG_WARNING("load segment for loading index error. [file=%s; res=%d]", file, res);
-        file_handler.close();
-        return res;
-    }
-
-    // 读取索引内容
-    // 为了启动加速，此处可使用mmap方式。
-    if (file_handler.pread(storage_data,
-                           storage_length,
-                           meta.file_header.size()) != OLAP_SUCCESS) {
-        res = OLAP_ERR_IO_ERROR;
-        OLAP_LOG_WARNING("load segment for loading index error. [file=%s; res=%d]", file, res);
-        file_handler.close();
-        free(storage_data);
-        return res;
-    }
+    char* storage_data = data.data;
 
     // checksum validation
-    adler_checksum = olap_adler32(ADLER32_INIT, storage_data, storage_length);
-    if (adler_checksum != meta.file_header.checksum()) {
-        res = OLAP_ERR_INDEX_CHECKSUM_ERROR;
-        OLAP_LOG_WARNING("checksum validation error.");
-        OLAP_LOG_WARNING("load segment for loading index error. [file=%s; res=%d]", file, res);
-        file_handler.close();
-        free(storage_data);
-        return res;
+    auto index_checksum = olap_adler32(ADLER32_INIT, storage_data, storage_length);
+    if (index_checksum != meta.file_header.checksum()) {
+        return Status::Corruption(
+            Substitute("Short key index checksum not match, expect=$0, real=$1",
+                       meta.file_header.checksum(),
+                       index_checksum));
     }
 
     /*
@@ -263,11 +262,9 @@ OLAPStatus MemIndex::load_segment(const char* file, size_t *current_num_rows_per
     }
 
     _meta.back().buffer.data = mem_buf;
-    _meta.back().buffer.length = num_entries * mem_row_bytes;
-    free(storage_data);
+    _meta.back().buffer.size = num_entries * mem_row_bytes;
 
-    file_handler.close();
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 OLAPStatus MemIndex::init(size_t short_key_len, size_t new_short_key_len,
@@ -401,26 +398,22 @@ const OLAPIndexOffset MemIndex::prev(const OLAPIndexOffset& pos) const {
 }
 
 const OLAPIndexOffset MemIndex::get_offset(const RowBlockPosition& pos) const {
-    uint32_t file_header_size = _meta[pos.segment].file_header.size();
-    if (pos.segment >= segment_count()
-            || pos.index_offset > file_header_size + _meta[pos.segment].buffer.length
-            || (pos.index_offset - file_header_size) % new_entry_length() != 0) {
+    if (pos.segment >= segment_count() || pos.data_offset >= _meta[pos.segment].count()) {
         return end();
     }
 
     OLAPIndexOffset off;
     off.segment = pos.segment;
-    off.offset = (pos.index_offset - _meta[pos.segment].file_header.size()) / new_entry_length();
-
+    off.offset = pos.data_offset;
     return off;
 }
 
-OLAPStatus MemIndex::get_entry(const OLAPIndexOffset& pos, EntrySlice* slice) const {
+OLAPStatus MemIndex::get_entry(const OLAPIndexOffset& pos, Slice* slice) const {
     if (pos.segment >= segment_count() || pos.offset >= _meta[pos.segment].count()) {
         return OLAP_ERR_INDEX_EOF;
     }
 
-    slice->length = new_entry_length();
+    slice->size = new_entry_length();
     slice->data = _meta[pos.segment].buffer.data + pos.offset * new_entry_length();
 
     return OLAP_SUCCESS;
@@ -443,11 +436,9 @@ OLAPStatus MemIndex::get_row_block_position(
     }
 
     rbp->segment = pos.segment;
-    rbp->data_offset = *reinterpret_cast<uint32_t*>(
-                            _meta[pos.segment].buffer.data +
-                            pos.offset * new_entry_length() + new_short_key_length());
-    rbp->index_offset = _meta[pos.segment].file_header.size() + pos.offset * new_entry_length();
+    rbp->data_offset = pos.offset;
 
+#if 0
     if (pos.offset == _meta[pos.segment].count() - 1) {
         rbp->block_size = _meta[pos.segment].file_header.extra().data_length - rbp->data_offset;
     } else {
@@ -456,6 +447,7 @@ OLAPStatus MemIndex::get_row_block_position(
                                    (pos.offset + 1) * new_entry_length() + new_short_key_length());
         rbp->block_size = next_offset - rbp->data_offset;
     }
+#endif
 
     return OLAP_SUCCESS;
 }

@@ -224,6 +224,7 @@ ${DORIS_TEST_BINARY_DIR}/olap/file_utils_test
 ${DORIS_TEST_BINARY_DIR}/olap/delete_handler_test
 ${DORIS_TEST_BINARY_DIR}/olap/column_reader_test
 ${DORIS_TEST_BINARY_DIR}/olap/row_cursor_test
+${DORIS_TEST_BINARY_DIR}/olap/short_key_index_test
 ${DORIS_TEST_BINARY_DIR}/olap/skiplist_test
 ${DORIS_TEST_BINARY_DIR}/olap/serialize_test
 ${DORIS_TEST_BINARY_DIR}/olap/olap_header_manager_test
