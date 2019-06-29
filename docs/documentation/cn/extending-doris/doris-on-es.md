@@ -1,4 +1,4 @@
-# Doris-On-ES使用手册
+# Doris On ES
 
 Doris-On-ES将Doris的分布式查询规划能力和ES(Elasticsearch)的全文检索能力相结合，提供更完善的OLAP分析场景解决方案：
  

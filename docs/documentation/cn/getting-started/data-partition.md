@@ -10,7 +10,7 @@
 
 一张表包括行（Row）和列（Column）。Row 即用户的一行数据。Column 用于描述一行数据中不同的字段。
 
-Column 可以分为两大类：Key 和 Value。从业务角度看，Key 和 Value 可以分别对应维度列和指标列。从聚合模型的角度来说，Key 列相同的行，会聚合成一行。其中 Value 列的聚合方式由用户在建表时指定。关于更多聚合模型的介绍，可以参阅 [Doris 数据模型](../Data-Model%2C-Rollup-%26-Prefix-Index)。
+Column 可以分为两大类：Key 和 Value。从业务角度看，Key 和 Value 可以分别对应维度列和指标列。从聚合模型的角度来说，Key 列相同的行，会聚合成一行。其中 Value 列的聚合方式由用户在建表时指定。关于更多聚合模型的介绍，可以参阅 [Doris 数据模型](./data-model-rollup.md)。
 
 ### Tablet & Partition
 
@@ -64,7 +64,7 @@ PROPERTIES
 
 ### 列定义
 
-这里我们只以 AGGREGATE KEY 数据模型为例进行说明。更多数据模型参阅 [Doris 数据模型](../Data-Model%2C-Rollup-%26-Prefix-Index)。
+这里我们只以 AGGREGATE KEY 数据模型为例进行说明。更多数据模型参阅 [Doris 数据模型](./data-model-rollup.md)。
 
 列的基本类型，可以通过在 mysql-client 中执行 `HELP CREATE TABLE;` 查看。
 

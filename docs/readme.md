@@ -51,6 +51,7 @@ Documentations will be written once, and will be converted to other format accor
 5. sql-references
 6. best-practices
 7. internals
+8. community
 
 Each directory, or its sub directories should contain a file `index.rst`, for constructing the navibar of the website. For example:
 

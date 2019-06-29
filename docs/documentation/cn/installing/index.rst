@@ -3,6 +3,7 @@
 ===========
 
 .. toctree::
-    :glob:
 
-    *
+    compilation.md
+    install-deploy.md
+    upgrade.md

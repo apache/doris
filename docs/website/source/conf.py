@@ -139,7 +139,7 @@ latex_elements = {
 # (source start file, target name, title,
 #  author, documentclass [howto, manual, or own class]).
 latex_documents = [
-    (master_doc, 'doris.tex', u'doris Documentation',
+    (master_doc, 'doris.tex', u'Doris Documentation',
      u'Apache Doris(Incubating)', 'manual'),
 ]
 
@@ -161,7 +161,7 @@ man_pages = [
 #  dir menu entry, description, category)
 texinfo_documents = [
     (master_doc, 'Doris', u'Doris Documentation',
-     author, 'Apache Doris(Incubating)', 'One line description of project.',
+     author, 'Apache Doris(Incubating)', 'An MPP-based interactive SQL data warehouse for reporting and analysis',
      'Miscellaneous'),
 ]
 

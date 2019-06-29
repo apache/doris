@@ -1,4 +1,4 @@
-# cast
+# CAST
 
 ## Syntax
 

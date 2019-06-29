@@ -155,7 +155,7 @@ BROKER 当前没有，也不需要 priority\_networks 这个选项。Broker 的�
    	
    	其中 host 为 BE 所在节点 ip；port 为 be/conf/be.conf 中的 heartbeat_service_port。
    	
-   	如果不添加 FREE 关键字，BE 默认进入自动生成的 cluster，添加了 FREE 关键字后新的 BE 不属于任何 cluster，这样创建新 cluster 的时候就可以从这些空闲的be中选取，详细见[多租户设计文档](../multi-tenant)
+   	如果不添加 FREE 关键字，BE 默认进入自动生成的 cluster，添加了 FREE 关键字后新的 BE 不属于任何 cluster，这样创建新 cluster 的时候就可以从这些空闲的be中选取，详细见[多租户设计文档](../administrator-guide/operation/multi-tenant.md)
 
 * 启动 BE
 
@@ -265,11 +265,11 @@ FE 分为 Leader，Follower 和 Observer 三种角色。 默认一个集群，�
 
 以上方式，都需要 Doris 的 root 用户权限。
 
-BE 节点的扩容和缩容过程，不影响当前系统运行以及正在执行的任务，并且不会影响当前系统的性能。数据均衡会自动进行。根据集群现有数据量的大小，集群会在几个小时到1天不等的时间内，恢复到负载均衡的状态。集群负载情况，可以参见 Tablet 负载均衡文档。
+BE 节点的扩容和缩容过程，不影响当前系统运行以及正在执行的任务，并且不会影响当前系统的性能。数据均衡会自动进行。根据集群现有数据量的大小，集群会在几个小时到1天不等的时间内，恢复到负载均衡的状态。集群负载情况，可以参见 [Tablet 负载均衡文档](../administrator-guide/operation/tablet_repair_and_balance.md)。
 
 #### 增加 BE 节点
 
-BE 节点的增加方式同 [安装编译文档](https://github.com/apache/incubator-doris/wiki/Doris-Install) 中 **多 BE 部署** 一节中的方式相同。
+BE 节点的增加方式同 **BE 部署** 一节中的方式，通过 `ALTER SYSTEM ADD BACKEND` 命令增加 BE 节点。
 
 > BE 扩容注意事项：  
 > 1. BE 扩容后，Doris 会自动根据负载情况，进行数据均衡，期间不影响使用。
@@ -297,7 +297,7 @@ DECOMMISSION 语句如下：
 > 		```CANCEL ALTER SYSTEM DECOMMISSION BACKEND "be_host:be_heartbeat_service_port";```  
 > 	命令取消。取消后，该 BE 上的数据将维持当前剩余的数据量。后续 Doris 重新进行负载均衡
 
-**对于多租户部署环境下，BE 节点的扩容和缩容，请参阅 [多租户设计文档](..multi-tenant)。**
+**对于多租户部署环境下，BE 节点的扩容和缩容，请参阅 [多租户设计文档](../administrator-guide/operation/multi-tenant.md)。**
 
 ### Broker 扩容缩容
 
@@ -370,7 +370,11 @@ Broker 是无状态的进程，可以随意启停。当然，停止后，正在�
 	心跳中同时会包含 Master FE 的 ip。当 FE 切主时，新的 Master FE 会携带自身的 ip 发送心跳给 BE，BE 会更新自身保存的 Master FE 的 ip。
 
 	> **priority\_network**  
+    >
 	> priority\_network 是 FE 和 BE 都有一个配置，其主要目的是在多网卡的情况下，协助 FE 或 BE 识别自身 ip 地址。priority\_network 采用 CIDR 表示法：[RFC 4632](https://tools.ietf.org/html/rfc4632)  
+    >
 	> 当确认 FE 和 BE 连通性正常后，如果仍然出现建表 Timeout 的情况，并且 FE 的日志中有 `backend does not found. host: xxx.xxx.xxx.xxx` 字样的错误信息。则表示 Doris 自动识别的 IP 地址有问题，需要手动设置 priority\_network 参数。  
+    >
 	> 出现这个问题的主要原因是：当用户通过 `ADD BACKEND` 语句添加 BE 后，FE 会识别该语句中指定的是 hostname 还是 IP。如果是 hostname，则 FE 会自动将其转换为 IP 地址并存储到元数据中。当 BE 在汇报任务完成信息时，会携带自己的 IP 地址。而如果 FE 发现 BE 汇报的 IP 地址和元数据中不一致时，就会出现如上错误。  
+    >
 	> 这个错误的解决方法：1）分别在 FE 和 BE 设置 **priority\_network** 参数。通常 FE 和 BE 都处于一个网段，所以该参数设置为相同即可。2）在 `ADD BACKEND` 语句中直接填写 BE 正确的 IP 地址而不是 hostname，以避免 FE 获取到错误的 IP 地址。
