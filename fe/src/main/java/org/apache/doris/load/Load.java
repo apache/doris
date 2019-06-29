@@ -121,6 +121,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class Load {
     private static final Logger LOG = LogManager.getLogger(Load.class);
+    public static final String VERSION = "v1";
 
     // valid state change map
     private static final Map<JobState, Set<JobState>> STATE_CHANGE_MAP = Maps.newHashMap();
