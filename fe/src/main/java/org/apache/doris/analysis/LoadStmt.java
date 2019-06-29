@@ -21,7 +21,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
-import org.apache.doris.load.loadv2.LoadManager;
+import org.apache.doris.load.Load;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Function;
@@ -81,8 +81,7 @@ public class LoadStmt extends DdlStmt {
     private final Map<String, String> properties;
     private String user;
 
-    private String version = "v1";
-    private boolean strictMode = true;
+    private String version = "v2";
 
     // properties set
     private final static ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
@@ -91,8 +90,8 @@ public class LoadStmt extends DdlStmt {
             .add(LOAD_DELETE_FLAG_PROPERTY)
             .add(EXEC_MEM_LIMIT)
             .add(CLUSTER_PROPERTY)
-//            .add(VERSION)
             .add(STRICT_MODE)
+            .add(VERSION)
             .build();
     
     public LoadStmt(LabelName label, List<DataDescription> dataDescriptions,
@@ -181,10 +180,9 @@ public class LoadStmt extends DdlStmt {
 
         // version
         final String versionProperty = properties.get(VERSION);
-        // TODO(ml): only support v1
         if (versionProperty != null) {
-            if (!versionProperty.equalsIgnoreCase(LoadManager.VERSION)) {
-                throw new DdlException(VERSION + " must be " + LoadManager.VERSION);
+            if (!versionProperty.equalsIgnoreCase(Load.VERSION)) {
+                throw new DdlException(VERSION + " must be " + Load.VERSION);
             }
         }
 
@@ -205,7 +203,7 @@ public class LoadStmt extends DdlStmt {
         }
         final String versionProperty = properties.get(VERSION);
         if (versionProperty != null) {
-            version = LoadManager.VERSION;
+            version = Load.VERSION;
         }
     }
 
