@@ -24,6 +24,7 @@ import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -112,10 +113,23 @@ public class BrokerLoadJob extends LoadJob {
     }
 
     @Override
-    protected Set<String> getTableNames() {
+    protected Set<String> getTableNames() throws MetaNotFoundException {
         Set<String> result = Sets.newHashSet();
-        for (DataDescription dataDescription : dataDescriptions) {
-            result.add(dataDescription.getTableName());
+        Database database = Catalog.getCurrentCatalog().getDb(dbId);
+        if (database == null) {
+            throw new MetaNotFoundException("Database " + dbId + "has been deleted");
+        }
+        database.readLock();
+        try {
+            for (long tableId : dataSourceInfo.getIdToFileGroups().keySet()) {
+                Table table = database.getTable(tableId);
+                if (table == null) {
+                    throw new MetaNotFoundException("Failed to find table " + tableId + " in db " + dbId);
+                }
+                result.add(table.getName());
+            }
+        } finally {
+            database.readUnlock();
         }
         return result;
     }
