@@ -28,6 +28,7 @@ import org.apache.doris.load.Load;
 import org.apache.doris.metric.LongCounterMetric;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.task.MasterTaskExecutor;
 import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.TransactionState;
@@ -97,7 +98,9 @@ public class LoadJobTest {
     }
 
     @Test
-    public void testExecute(@Mocked GlobalTransactionMgr globalTransactionMgr) throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException {
+    public void testExecute(@Mocked GlobalTransactionMgr globalTransactionMgr,
+                            @Mocked MasterTaskExecutor masterTaskExecutor)
+            throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException {
         LoadJob loadJob = new BrokerLoadJob();
         new Expectations() {
             {
