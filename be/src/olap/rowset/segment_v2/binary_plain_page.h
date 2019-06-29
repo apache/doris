@@ -186,11 +186,14 @@ public:
         size_t max_fetch = std::min(*n, static_cast<size_t>(_num_elems - _cur_idx));
 
         Slice *out = reinterpret_cast<Slice*>(dst->column_vector()->col_data());
+        
         for (size_t i = 0; i < max_fetch; i++, out++, _cur_idx++) {
             Slice elem(string_at_index(_cur_idx));
-            out->relocate((char*) elem.get_data());
-            out->truncate(elem.size);
+            out->data = reinterpret_cast<char*>(dst->mem_pool()->allocate(elem.size * sizeof(uint8_t)));
+            out->size = elem.size;
+            memcpy(out->data, elem.data, elem.size);
         }
+
         *n = max_fetch;
         return Status::OK();
     }
