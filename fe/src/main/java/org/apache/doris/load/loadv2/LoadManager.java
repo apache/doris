@@ -69,7 +69,6 @@ import java.util.stream.Collectors;
  */
 public class LoadManager implements Writable{
     private static final Logger LOG = LogManager.getLogger(LoadManager.class);
-    public static final String VERSION = "v2";
 
     private Map<Long, LoadJob> idToLoadJob = Maps.newConcurrentMap();
     private Map<Long, Map<String, List<LoadJob>>> dbIdToLabelToLoadJobs = Maps.newConcurrentMap();
