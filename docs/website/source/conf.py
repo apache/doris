@@ -25,9 +25,9 @@ copyright = u'2019, Apache Doris(Incubating)'
 author = u'Apache Doris(Incubating)'
 
 # The short X.Y version
-version = u'0.1.0'
+version = u'0.11.0'
 # The full version, including alpha/beta/rc tags
-release = u'0.1.0'
+release = u'0.11.0'
 
 
 # -- General configuration ---------------------------------------------------
