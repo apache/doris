@@ -1,8 +1,4 @@
-title=Apache Doris 发布流程
-date=2019-03-12
-type=policy
-status=published
-~~~~~~
+# Apache Doris 发布流程
 
 Apache 的发布必须至少是 IPMC 成员，拥有 apache 邮箱的commiter，这个角色叫做 release manager。
 
