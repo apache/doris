@@ -4,9 +4,9 @@
 
 .. toctree::
 
-    basic_usage.md
-    advance_usage.md
-    best_practice.md
+    basic-usage.md
+    advance-usage.md
+    best-practice.md
     data-partition.md
     data-model-rollup.md
     hit-the-rollup.md

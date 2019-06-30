@@ -38,6 +38,7 @@
 
 ALTER TABLE 完成之后, 可以通过 `DESC TABLE` 查看最新的 Schema。
 
+```
 mysql> DESC table1;
 +----------+-------------+------+-------+---------+-------+
 | Field    | Type        | Null | Key   | Default | Extra |
@@ -49,6 +50,7 @@ mysql> DESC table1;
 | uv       | bigint(20)  | No   | false | 0       | SUM   |
 +----------+-------------+------+-------+---------+-------+
 5 rows in set (0.00 sec)
+```
 
 可以使用以下命令取消当前正在执行的作业:
 
@@ -64,6 +66,7 @@ Rollup 可以理解为 Table 的一个物化索引结构。**物化** 是因为�
 
 原表table1的Schema如下:
 
+```
 +----------+-------------+------+-------+---------+-------+
 | Field    | Type        | Null | Key   | Default | Extra |
 +----------+-------------+------+-------+---------+-------+
@@ -73,6 +76,7 @@ Rollup 可以理解为 Table 的一个物化索引结构。**物化** 是因为�
 | pv       | bigint(20)  | No   | false | 0       | SUM   |
 | uv       | bigint(20)  | No   | false | 0       | SUM   |
 +----------+-------------+------+-------+---------+-------+
+```
 
 对于 table1 明细数据是 siteid, citycode, username 三者构成一组 key，从而对 pv 字段进行聚合；如果业务方经常有看城市 pv 总量的需求，可以建立一个只有 citycode, pv 的rollup。
 
@@ -125,6 +129,7 @@ Rollup 建立之后，查询不需要指定 Rollup 进行查询。还是指定�
 
 显示查询内存限制:
 
+```
 mysql> SHOW VARIABLES LIKE "%mem_limit%";
 +---------------+------------+
 | Variable_name | Value      |
@@ -132,11 +137,13 @@ mysql> SHOW VARIABLES LIKE "%mem_limit%";
 | exec_mem_limit| 2147483648 |
 +---------------+------------+
 1 row in set (0.00 sec)
+```
 
 `exec_mem_limit` 的单位是 byte，可以通过 `SET` 命令改变 `exec_mem_limit` 的值。如改为 8GB。
 
 `SET exec_mem_limit = 8589934592;`
 
+```
 mysql> SHOW VARIABLES LIKE "%mem_limit%";
 +---------------+------------+
 | Variable_name | Value      |
@@ -144,6 +151,7 @@ mysql> SHOW VARIABLES LIKE "%mem_limit%";
 | exec_mem_limit| 8589934592 |
 +---------------+------------+
 1 row in set (0.00 sec)
+```
 
 > * 以上该修改为 session 级别，仅在当前连接 session 内有效。断开重连则会变回默认值。
 > * 如果需要修改全局变量，可以这样设置：`SET GLOBAL exec_mem_limit = 8589934592;`。设置完成后，断开 session 重新登录，参数将永久生效。
@@ -227,7 +235,9 @@ mysql> select sum(table1.pv) from table1 join [shuffle] table2 where table1.site
 
 如果使用 mysql jdbc connector 来连接Doris，可以使用 jdbc 的自动重试机制:
 
-`jdbc:mysql://[host:port],[host:port].../[database][?propertyName1][=propertyValue1][&propertyName2][=propertyValue2]...`
+```
+jdbc:mysql://[host:port],[host:port].../[database][?propertyName1][=propertyValue1][&propertyName2][=propertyValue2]...
+```
 
 **第三种**
 

@@ -6,7 +6,7 @@
 
 ## 重要提示
 
-* 当前元数据的设计是无法向后兼容的。即如果新版本有新增的元数据结构变动（可以查看 FE 代码中的 `FeMetaVersion.java` 文件中是否有新增的 VERSION），那么在升级到新版本后，通常是无法在回滚到旧版本的。所以，在升级 FE 之前，请务必按照 [升级文档](https://github.com/apache/incubator-doris/wiki/Doris-Deploy-%26-Upgrade) 中 `Doris 升级` 一节中的操作，测试元数据兼容性。
+* 当前元数据的设计是无法向后兼容的。即如果新版本有新增的元数据结构变动（可以查看 FE 代码中的 `FeMetaVersion.java` 文件中是否有新增的 VERSION），那么在升级到新版本后，通常是无法在回滚到旧版本的。所以，在升级 FE 之前，请务必按照 [升级文档](../../installing/upgrade.md) 中的操作，测试元数据兼容性。
 
 ## 元数据目录结构
 
@@ -235,7 +235,7 @@ FE 目前有以下几个端口
     
 ## 最佳实践
 
-FE 的部署推荐，在 [Doris 部署和升级文档](https://github.com/apache/incubator-doris/wiki/Doris-Deploy-%26-Upgrade) 中有部分介绍，这里再做一些补充。
+FE 的部署推荐，在 [安装与部署文档](../../installing/install-deploy.md) 中有介绍，这里再做一些补充。
 
 * **如果你并不十分了解 FE 元数据的运行逻辑，或者没有足够 FE 元数据的运维经验，我们强烈建议在实际使用中，只部署一个 FOLLOWER 类型的 FE 作为 MASTER，其余 FE 都是 OBSERVER，这样可以减少很多复杂的运维问题！** 不用过于担心 MASTER 单点故障导致无法进行元数据写操作。首先，如果你配置合理，FE 作为 java 进程很难挂掉。其次，如果 MASTER 磁盘损坏（概率非常低），我们也可以用 OBSERVER 上的元数据，通过 `故障恢复` 的方式手动恢复。
 
@@ -288,4 +288,10 @@ FE 的部署推荐，在 [Doris 部署和升级文档](https://github.com/apache
     1. 对于单 Follower FE 部署，`master_sync_policy` 设置为 `SYNC`，防止 FE 系统宕机导致元数据丢失。
     2. 对于多 Follower FE 部署，可以将 `master_sync_policy` 和 `replica_sync_policy` 设为 `WRITE_NO_SYNC`，因为我们认为多个系统同时宕机的概率非常低。
 
-    如果在单 Follower FE 部署中，`master_sync_policy` 设置为 `WRITE_NO_SYNC`，则可能出现 FE 系统宕机导致元数据丢失。这时如果有其他 Observer FE 尝试重启时，可能会报错：`Node xxx must rollback xx total commits(numPassedDurableCommits of which were durable) to the earliest point indicated by transaction xxxx in order to rejoin the replication group, but the transaction rollback limit of xxx prohibits this.`，意思有部分已经持久化的事务需要回滚，但条数超过上限。这里我们的默认上限是 100，可以通过设置 `txn_rollback_limit` 改变。该操作仅用于尝试正常启动 FE，但已丢失的元数据无法恢复。
+    如果在单 Follower FE 部署中，`master_sync_policy` 设置为 `WRITE_NO_SYNC`，则可能出现 FE 系统宕机导致元数据丢失。这时如果有其他 Observer FE 尝试重启时，可能会报错：
+
+    ```
+    Node xxx must rollback xx total commits(numPassedDurableCommits of which were durable) to the earliest point indicated by transaction xxxx in order to rejoin the replication group, but the transaction rollback limit of xxx prohibits this.
+    ```
+
+    意思有部分已经持久化的事务需要回滚，但条数超过上限。这里我们的默认上限是 100，可以通过设置 `txn_rollback_limit` 改变。该操作仅用于尝试正常启动 FE，但已丢失的元数据无法恢复。

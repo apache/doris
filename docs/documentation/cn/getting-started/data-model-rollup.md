@@ -329,85 +329,85 @@ ROLLUP 表的基本作用，在于在 Base 表的基础上，获得更粗粒度�
 
 1. 示例1：获得每个用户的总消费
 
-    接**Aggregate 模型**小节的**示例2**，Base 表结构如下：
+接**Aggregate 模型**小节的**示例2**，Base 表结构如下：
 
-    |ColumnName|Type|AggregationType|Comment|
-    |---|---|---|---|
-    |user_id|LARGEINT||用户id|
-    |date|DATE||数据灌入日期|
-    |timestamp|DATETIME||数据灌入时间，精确到秒|
-    |city|VARCHAR(20)||用户所在城市|
-    |age|SMALLINT||用户年龄|
-    |sex|TINYINT||用户性别|
-    |last_visit_date|DATETIME|REPLACE|用户最后一次访问时间|
-    |cost|BIGINT|SUM|用户总消费|
-    |max\_dwell\_time|INT|MAX|用户最大停留时间|
-    |min\_dwell\_time|INT|MIN|用户最小停留时间|
+|ColumnName|Type|AggregationType|Comment|
+|---|---|---|---|
+|user_id|LARGEINT||用户id|
+|date|DATE||数据灌入日期|
+|timestamp|DATETIME||数据灌入时间，精确到秒|
+|city|VARCHAR(20)||用户所在城市|
+|age|SMALLINT||用户年龄|
+|sex|TINYINT||用户性别|
+|last_visit_date|DATETIME|REPLACE|用户最后一次访问时间|
+|cost|BIGINT|SUM|用户总消费|
+|max\_dwell\_time|INT|MAX|用户最大停留时间|
+|min\_dwell\_time|INT|MIN|用户最小停留时间|
 
-    存储的数据如下：
+存储的数据如下：
 
-    |user_id|date|timestamp|city|age|sex|last\_visit\_date|cost|max\_dwell\_time|min\_dwell\_time|
-    |---|---|---|---|---|---|---|---|---|---|
-    |10000|2017-10-01|2017-10-01 08:00:05|北京|20|0|2017-10-01 06:00:00|20|10|10|
-    |10000|2017-10-01|2017-10-01 09:00:05|北京|20|0|2017-10-01 07:00:00|15|2|2|
-    |10001|2017-10-01|2017-10-01 18:12:10|北京|30|1|2017-10-01 17:05:45|2|22|22|
-    |10002|2017-10-02|2017-10-02 13:10:00|上海|20|1|2017-10-02 12:59:12|200|5|5|
-    |10003|2017-10-02|2017-10-02 13:15:00|广州|32|0|2017-10-02 11:20:00|30|11|11|
-    |10004|2017-10-01|2017-10-01 12:12:48|深圳|35|0|2017-10-01 10:00:15|100|3|3|
-    |10004|2017-10-03|2017-10-03 12:38:20|深圳|35|0|2017-10-03 10:20:22|11|6|6|
+|user_id|date|timestamp|city|age|sex|last\_visit\_date|cost|max\_dwell\_time|min\_dwell\_time|
+|---|---|---|---|---|---|---|---|---|---|
+|10000|2017-10-01|2017-10-01 08:00:05|北京|20|0|2017-10-01 06:00:00|20|10|10|
+|10000|2017-10-01|2017-10-01 09:00:05|北京|20|0|2017-10-01 07:00:00|15|2|2|
+|10001|2017-10-01|2017-10-01 18:12:10|北京|30|1|2017-10-01 17:05:45|2|22|22|
+|10002|2017-10-02|2017-10-02 13:10:00|上海|20|1|2017-10-02 12:59:12|200|5|5|
+|10003|2017-10-02|2017-10-02 13:15:00|广州|32|0|2017-10-02 11:20:00|30|11|11|
+|10004|2017-10-01|2017-10-01 12:12:48|深圳|35|0|2017-10-01 10:00:15|100|3|3|
+|10004|2017-10-03|2017-10-03 12:38:20|深圳|35|0|2017-10-03 10:20:22|11|6|6|
 
-    在此基础上，我们创建一个 ROLLUP：
+在此基础上，我们创建一个 ROLLUP：
 
-    |ColumnName|
-    |---|
-    |user_id|
-    |cost|
+|ColumnName|
+|---|
+|user_id|
+|cost|
 
-    该 ROLLUP 只包含两列：user_id 和 cost。则创建完成后，该 ROLLUP  中存储的数据如下：
+该 ROLLUP 只包含两列：user_id 和 cost。则创建完成后，该 ROLLUP  中存储的数据如下：
 
-    |user\_id|cost|
-    |---|---|
-    |10000|35|
-    |10001|2|
-    |10002|200|
-    |10003|30|
-    |10004|111|
+|user\_id|cost|
+|---|---|
+|10000|35|
+|10001|2|
+|10002|200|
+|10003|30|
+|10004|111|
 
-    可以看到，ROLLUP 中仅保留了每个 user_id，在 cost 列上的 SUM 的结果。那么当我们进行如下查询时:
+可以看到，ROLLUP 中仅保留了每个 user_id，在 cost 列上的 SUM 的结果。那么当我们进行如下查询时:
 
-    `SELECT user_id, sum(cost) FROM table GROUP BY user_id;`
+`SELECT user_id, sum(cost) FROM table GROUP BY user_id;`
 
-    Doris 会自动命中这个 ROLLUP     表，从而只需扫描极少的数据量，即可完成这次聚合查询。
+Doris 会自动命中这个 ROLLUP     表，从而只需扫描极少的数据量，即可完成这次聚合查询。
 
 2. 示例2：获得不同城市，不同年龄段用户的总消费、最长和最短页面驻留时间
 
-    紧接示例1。我们在 Base 表基础之上，再创建一个 ROLLUP：
+紧接示例1。我们在 Base 表基础之上，再创建一个 ROLLUP：
 
-    |ColumnName|Type|AggregationType|Comment|
-    |---|---|---|---|
-    |city|VARCHAR(20)||用户所在城市|
-    |age|SMALLINT||用户年龄|
-    |cost|BIGINT|SUM|用户总消费|
-    |max\_dwell\_time|INT|MAX|用户最大停留时间|
-    |min\_dwell\_time|INT|MIN|用户最小停留时间|
+|ColumnName|Type|AggregationType|Comment|
+|---|---|---|---|
+|city|VARCHAR(20)||用户所在城市|
+|age|SMALLINT||用户年龄|
+|cost|BIGINT|SUM|用户总消费|
+|max\_dwell\_time|INT|MAX|用户最大停留时间|
+|min\_dwell\_time|INT|MIN|用户最小停留时间|
 
-    则创建完成后，该 ROLLUP 中存储的数据如下：
+则创建完成后，该 ROLLUP 中存储的数据如下：
 
-    |city|age|cost|max\_dwell\_time|min\_dwell\_time|
-    |---|---|---|---|---|
-    |北京|20|0|30|10|2|
-    |北京|30|1|2|22|22|
-    |上海|20|1|200|5|5|
-    |广州|32|0|30|11|11|
-    |深圳|35|0|111|6|3|
+|city|age|cost|max\_dwell\_time|min\_dwell\_time|
+|---|---|---|---|---|
+|北京|20|0|30|10|2|
+|北京|30|1|2|22|22|
+|上海|20|1|200|5|5|
+|广州|32|0|30|11|11|
+|深圳|35|0|111|6|3|
 
-    当我们进行如下这些查询时:
+当我们进行如下这些查询时:
 
-    * `SELECT city, age, sum(cost), max(max_dwell_time), min(min_dwell_time) FROM table GROUP BY city, age;`  
-    * `SELECT city, sum(cost), max(max_dwell_time), min(min_dwell_time) FROM table GROUP BY city;`  
-    * `SELECT city, age, sum(cost), min(min_dwell_time) FROM table GROUP BY city, age;`  
+* `SELECT city, age, sum(cost), max(max_dwell_time), min(min_dwell_time) FROM table GROUP BY city, age;`  
+* `SELECT city, sum(cost), max(max_dwell_time), min(min_dwell_time) FROM table GROUP BY city;`  
+* `SELECT city, age, sum(cost), min(min_dwell_time) FROM table GROUP BY city, age;`  
 
-    Doris 会自动命中这个 ROLLUP 表。
+Doris 会自动命中这个 ROLLUP 表。
 
 #### Duplicate 模型中的 ROLLUP
 
@@ -428,23 +428,23 @@ ROLLUP 表的基本作用，在于在 Base 表的基础上，获得更粗粒度�
 
 1. 以下表结构的前缀索引为 user_id(8Byte) + age(8Bytes) + message(prefix 20 Bytes)。
 
-    |ColumnName|Type|
-    |---|---|
-    |user_id|BIGINT|
-    |age|INT|
-    |message|VARCHAR(100)|
-    |max\_dwell\_time|DATETIME|
-    |min\_dwell\_time|DATETIME|
+|ColumnName|Type|
+|---|---|
+|user_id|BIGINT|
+|age|INT|
+|message|VARCHAR(100)|
+|max\_dwell\_time|DATETIME|
+|min\_dwell\_time|DATETIME|
 
 2. 以下表结构的前缀索引为 user_name(20 Bytes)。即使没有达到 36 个字节，因为遇到 VARCHAR，所以直接截断，不再往后继续。
 
-    |ColumnName|Type|
-    |---|---|
-    |user_name|VARCHAR(20)|
-    |age|INT|
-    |message|VARCHAR(100)|
-    |max\_dwell\_time|DATETIME|
-    |min\_dwell\_time|DATETIME|
+|ColumnName|Type|
+|---|---|
+|user_name|VARCHAR(20)|
+|age|INT|
+|message|VARCHAR(100)|
+|max\_dwell\_time|DATETIME|
+|min\_dwell\_time|DATETIME|
 
 当我们的查询条件，是**前缀索引的前缀**时，可以极大的加快查询速度。比如在第一个例子中，我们执行如下查询：
 

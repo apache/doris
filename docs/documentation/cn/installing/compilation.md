@@ -9,7 +9,7 @@
 1. 下载 Docker 镜像
 
     `$ docker pull apachedoris/doris-dev:build-env`
-
+    
     检查镜像下载完成：
     
     ```
@@ -17,13 +17,13 @@
     REPOSITORY              TAG                 IMAGE ID            CREATED             SIZE
     apachedoris/doris-dev   build-env           f8bc5d4024e0        21 hours ago        3.28GB
     ```
+    
+注: 针对不同的 Doris 版本，需要下载对应的镜像版本
 
-    > 注: 针对不同的 Doris 版本，需要下载对应的镜像版本
-    > 
-    > | image version | commit id | release version |
-    > |---|---|---|
-    > | apachedoris/doris-dev:build-env | before [ff0dd0d](https://github.com/apache/incubator-doris/commit/ff0dd0d2daa588f18b6db56f947e813a56d8ec81) | 0.8.x, 0.9.x |
-    > | apachedoris/doris-dev:build-env-1.1 | [ff0dd0d](https://github.com/apache/incubator-doris/commit/ff0dd0d2daa588f18b6db56f947e813a56d8ec81) or later | 0.10.x or later |
+| image version | commit id | release version |
+|---|---|---|
+| apachedoris/doris-dev:build-env | before [ff0dd0d](https://github.com/apache/incubator-doris/commit/ff0dd0d2daa588f18b6db56f947e813a56d8ec81) | 0.8.x, 0.9.x |
+| apachedoris/doris-dev:build-env-1.1 | [ff0dd0d](https://github.com/apache/incubator-doris/commit/ff0dd0d2daa588f18b6db56f947e813a56d8ec81) or later | 0.10.x or later |
 
 2. 运行镜像
 
@@ -31,7 +31,9 @@
     
     如果你希望编译本地 Doris 源码，则可以挂载路径：
     
-    `$ docker run -it -v /your/local/path/incubator-doris-DORIS-x.x.x-release/:/root/incubator-doris-DORIS-x.x.x-release/ apachedoris/doris-dev:build-env`
+    ```
+    $ docker run -it -v /your/local/incubator-doris-DORIS-x.x.x-release/:/root/incubator-doris-DORIS-x.x.x-release/ apachedoris/doris-dev:build-env
+    ```
     
 3. 下载源码
 

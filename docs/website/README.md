@@ -14,8 +14,9 @@
     ```
     pip install sphinx                      # Sphinx main program
     pip install recommonmark                # Sphinx markdown extension
-    pip install sphinx_rtd_theme            # Sphinx Read-the-Docs theme
     pip install sphinx-markdown-tables      # Sphinx markdown table render extension
+    pip install jieba                       # Sphinx Chinese tokenizer
+    pip install sphinx_rtd_theme            # Sphinx Read-the-Docs theme
     ```
 
 ## Build the website
