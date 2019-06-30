@@ -6,7 +6,7 @@
 
 进入 apache/incubator-doris 的 [github 页面](https://github.com/apache/incubator-doris) ，点击右上角按钮 `Fork` 进行 Fork。
 
-![Fork](../../../resources/fork-repo.png)
+![Fork](../../../resources/images/fork-repo.png)
 
 ### 2. 配置git和提交修改
 
@@ -61,12 +61,12 @@ git push origin <your_branch_name>
 #### （1）新建 PR
 在浏览器切换到自己的 github 页面，切换分支到提交的分支 \<your\_branch\_name\> ，点击 `New pull request` 按钮进行创建，如下图所示：
 
-![new PR](../../../resources/new-pr.png)
+![new PR](../../../resources/images/new-pr.png)
 
 #### （2）准备分支
 这时候，会出现 `Create pull request` 按钮，如果没有请检查是否正确选择了分支，也可以点击 “compare across forks” 重新选择 repo 和分支。
 
-![create PR](../../../resources//create-pr.png)
+![create PR](../../../resources/images//create-pr.png)
 
 #### （3）填写 Commit Message
 这里请填写 comment 的总结和详细内容，然后点击 `Create pull request` 进行创建。
@@ -83,12 +83,12 @@ git push origin <your_branch_name>
 
 更详细的内容请参考 <https://chris.beams.io/posts/git-commit>
 
-![create PR](../../../resources/create-pr2.png)
+![create PR](../../../resources/images/create-pr2.png)
 
 #### （4）完成创建
 创建成功后，您可以看到 Doris 项目需要 review，您可以等待我们 review 和合入，您也可以直接联系我们。
 
-![create PR](../../../resources/create-pr3.png)
+![create PR](../../../resources/images/create-pr3.png)
 
 至此，您的PR创建完成，更多关于 PR 请阅读 [collaborating-with-issues-and-pull-requests](https://help.github.com/categories/collaborating-with-issues-and-pull-requests/) 。
 
