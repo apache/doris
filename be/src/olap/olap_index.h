@@ -137,6 +137,8 @@ struct RowBlockPosition {
     uint32_t data_offset;   // offset in data file
 };
 
+using IndexFileHeaderV1 = FileHeader<OLAPIndexHeaderMessage, OLAPIndexFixedHeader>;
+
 // In memory presentation of index meta information
 struct SegmentMetaInfo {
     SegmentMetaInfo() {
@@ -151,10 +153,8 @@ struct SegmentMetaInfo {
 
     IDRange     range;
     Slice       buffer;
-    FileHeader<OLAPIndexHeaderMessage, OLAPIndexFixedHeader>  file_header;
+    IndexFileHeaderV1 file_header;
 };
-
-class MemIndex;
 
 // In memory index structure, all index hold here
 class MemIndex {
@@ -173,7 +173,7 @@ public:
     // 加载一个segment到内存
     OLAPStatus load_segment(const char* file, size_t *current_num_rows_per_row_block);
 
-    Status load_segment(const FileHeader<OLAPIndexHeaderMessage, OLAPIndexFixedHeader>& header,
+    Status load_segment(const IndexFileHeaderV1& header,
                         const Slice& index_data);
 
     // Return the IndexOffset of the first element, physically, it's (0, 0)

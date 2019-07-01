@@ -52,12 +52,12 @@ MemIndex::~MemIndex() {
     _num_entries = 0;
     for (vector<SegmentMetaInfo>::iterator it = _meta.begin(); it != _meta.end(); ++it) {
         free(it->buffer.data);
-        it->buffer.data = NULL;
+        it->buffer.data = nullptr;
         it->buffer.size = 0;
     }
 }
 
-OLAPStatus MemIndex::load_segment(const char* file, size_t *current_num_rows_per_row_block) {
+OLAPStatus MemIndex::load_segment(const char* file, size_t* current_num_rows_per_row_block) {
     FileHandler file_handler;
     OLAPStatus res = OLAP_SUCCESS;
     if ((res = file_handler.open_with_cache(file, O_RDONLY)) != OLAP_SUCCESS) {
@@ -91,16 +91,14 @@ OLAPStatus MemIndex::load_segment(const char* file, size_t *current_num_rows_per
         return OLAP_ERR_INDEX_LOAD_ERROR;
     }
 
-    (current_num_rows_per_row_block == NULL
+    (current_num_rows_per_row_block == nullptr
      || (*current_num_rows_per_row_block = decoder.header().message().num_rows_per_block()));
     return OLAP_SUCCESS;
 }
 
-Status MemIndex::load_segment(
-        const FileHeader<OLAPIndexHeaderMessage, OLAPIndexFixedHeader>& header, const Slice& data) {
+Status MemIndex::load_segment(const IndexFileHeaderV1& header, const Slice& data) {
     SegmentMetaInfo meta;
     meta.file_header = header;
-
 
     // 允许索引内容为空
     // 索引长度必须为索引项长度的整数倍
@@ -128,7 +126,7 @@ Status MemIndex::load_segment(
         is_align = (0 == storage_length % entry_length());
     }
     if (!is_align) {
-        return Status::Corruption("Failed to load index, becuase data isn't align");
+        return Status::Corruption("Failed to load index, because data isn't align");
     }
 
     uint32_t num_entries = 0;

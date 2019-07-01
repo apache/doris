@@ -72,17 +72,21 @@ message ZoneMapPB {
 }
 
 message ColumnMetaPB {
+    // column id in table schema
+    optional uint32 column_id = 1;
+    // unique column id
+    optional uint32 unique_id = 2;
     // this field is FieldType's value
-    optional int32 type = 1;
-    optional EncodingTypePB encoding = 2;
+    optional int32 type = 3;
+    optional EncodingTypePB encoding = 4;
     // compress type for column
-    optional CompressionTypePB compression = 3;
+    optional CompressionTypePB compression = 5;
     // if this column can be nullable
-    optional bool is_nullable = 4;
+    optional bool is_nullable = 6;
     // if this column has checksum for each page
-    optional bool has_checksum = 5;
+    optional bool has_checksum = 7;
     // ordinal index page
-    optional PagePointerPB ordinal_index_page = 6;
+    optional PagePointerPB ordinal_index_page = 8;
 
     // // dictionary page for DICT_ENCODING
     // optional PagePointerPB dict_page = 2;
@@ -105,15 +109,21 @@ message ColumnMetaPB {
     // repeated MetadataPairPB column_meta_datas = 12;
 }
 
-message FileFooterPB {
+message SegmentHeaderPB {
+}
+
+message SegmentFooterPB {
     optional uint32 version = 1 [default = 1]; // file version
-    repeated ColumnSchemaPB schema = 2; // tablet schema
-    optional uint64 num_values = 3; // number of values
+    repeated ColumnMetaPB columns = 2; // tablet schema
+    optional uint64 num_rows = 3; // number of values
     optional uint64 index_footprint = 4; // total idnex footprint of all columns
     optional uint64 data_footprint = 5; // total data footprint of all columns
     optional uint64 raw_data_footprint = 6; // raw data footprint
 
     optional CompressionTypePB compress_type = 7 [default = ZSTB]; // default compression type for file columns
     repeated MetadataPairPB file_meta_datas = 8; // meta data of file
-    optional PagePointerPB key_index_page = 9; // short key index page
+
+    // Short key index's page
+    optional PagePointerPB short_key_index_page = 9;
 }
+

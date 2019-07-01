@@ -72,6 +72,9 @@ public:
     Slice(const char* s) : // NOLINT(runtime/explicit)
         data(const_cast<char*>(s)), size(strlen(s)) { }
 
+    Slice(char* s) :
+        data(const_cast<char*>(s)), size(strlen(s)) { }
+
     /// @return A pointer to the beginning of the referenced data.
     const char* get_data() const { return data; }
 

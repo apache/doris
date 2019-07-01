@@ -30,7 +30,7 @@ Status ShortKeyIndexBuilder::init() {
     _key_length = 0;
     for (auto& key : _key_fields) {
         // +1 for null bit, we should improve this some day
-        _key_length += key.index_length + 1;
+        _key_length += key.field_info().index_length + 1;
     }
     _tmp_key_buf.resize(_key_length);
     return Status::OK();
@@ -53,7 +53,7 @@ Status ShortKeyIndexBuilder::add_item(const RowCursor& short_key, uint32_t block
 
 Status ShortKeyIndexBuilder::finalize(uint32_t data_length,
                                       uint32_t num_rows,
-                                      std::vector<Slice>* Slices) {
+                                      std::vector<Slice>* slices) {
     // extra fixed part
     _header.mutable_extra()->data_length = data_length;
     _header.mutable_extra()->num_rows = num_rows;
@@ -97,8 +97,8 @@ Status ShortKeyIndexBuilder::finalize(uint32_t data_length,
 
     memcpy(ptr, proto_string.data(), proto_string.size());
 
-    Slices->emplace_back(_header_buf);
-    Slices->emplace_back(_index_buf);
+    slices->emplace_back(_header_buf);
+    slices->emplace_back(_index_buf);
     return Status::OK();
 }
 
@@ -108,7 +108,7 @@ Status ShortKeyIndexDecoder::parse() {
     // parse fix
     auto fixed_length = _header._fixed_file_header_size;
     if (data.size < fixed_length) {
-        return Status::Corruption("Header length is too small");
+        return Status::Corruption(Substitute("Header length is too small, size=$0", data.size));
     }
     memcpy(&_header._fixed_file_header, data.data, fixed_length);
 
@@ -122,7 +122,7 @@ Status ShortKeyIndexDecoder::parse() {
     // parse extra
     auto extra_size = sizeof(_header._extra_fixed_header);
     if (data.size < extra_size) {
-        return Status::Corruption("Header length is too small");
+        return Status::Corruption(Substitute("Header length is too small, size=$0", data.size));
     }
     memcpy(&_header._extra_fixed_header, data.data, extra_size);
     data.remove_prefix(extra_size);

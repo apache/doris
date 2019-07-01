@@ -130,6 +130,8 @@ public:
         return _columns.size();
     }
 
+    const std::vector<uint32_t>& columns() const { return _columns; }
+
     // 以string格式输出rowcursor内容，仅供log及debug使用
     std::string to_string() const;
     std::string to_string(std::string sep) const;

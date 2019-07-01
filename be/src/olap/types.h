@@ -46,25 +46,25 @@ public:
         return _cmp(left, right);
     }
 
-    inline void copy_with_pool(char* dest, const char* src, MemPool* mem_pool) {
+    inline void copy_with_pool(char* dest, const char* src, MemPool* mem_pool) const {
         _copy_with_pool(dest, src, mem_pool);
     }
 
-    inline void copy_without_pool(char* dest, const char* src) {
+    inline void copy_without_pool(char* dest, const char* src) const {
         _copy_without_pool(dest, src);
     }
 
-    OLAPStatus from_string(char* buf, const std::string& scan_key) {
+    OLAPStatus from_string(char* buf, const std::string& scan_key) const {
         return _from_string(buf, scan_key);
     }
 
-    std::string to_string(char* src) { return _to_string(src); }
+    std::string to_string(char* src) const { return _to_string(src); }
 
-    inline void set_to_max(char* buf) { _set_to_max(buf); }
-    inline void set_to_min(char* buf) { _set_to_min(buf); }
-    inline bool is_min(char* buf) { return _is_min(buf); }
+    inline void set_to_max(char* buf) const { _set_to_max(buf); }
+    inline void set_to_min(char* buf) const { _set_to_min(buf); }
+    inline bool is_min(char* buf) const { return _is_min(buf); }
 
-    inline uint32_t hash_code(char* data, uint32_t seed) { return _hash_code(data, seed); }
+    inline uint32_t hash_code(char* data, uint32_t seed) const { return _hash_code(data, seed); }
     inline const size_t size() const { return _size; }
 
     inline FieldType type() const { return _field_type; }

@@ -65,6 +65,7 @@ add_library(Olap STATIC
     push_handler.cpp
     reader.cpp
     row_block.cpp
+    row_block2.cpp
     row_cursor.cpp
     segment_group.cpp
     run_length_byte_reader.cpp
@@ -89,4 +90,8 @@ add_library(Olap STATIC
     rowset/segment_v2/column_writer.cpp
     rowset/segment_v2/encoding_info.cpp
     rowset/segment_v2/ordinal_page_index.cpp
+    rowset/segment_v2/segment.cpp
+    rowset/segment_v2/segment_writer.cpp
+    rowset/segment_v2/segment_iterator.cpp
 )
+

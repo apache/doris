@@ -25,12 +25,21 @@
 #include "olap/file_helper.h"
 #include "olap/row_cursor.h"
 #include "olap/olap_index.h"
+#include "olap/schema2.h"
 #include "util/faststring.h"
 #include "util/slice.h"
 
 namespace doris {
 
-// Used to encode a segment short key indices to 
+// Used to encode a segment short key indices to binary format. This builder
+// is now compatible with old version's format. For V1 segment, indices are
+// saved in a single file. And _header contains information about indeces,
+// which is stored at the begin of the index file.
+// NOTE: actuallly some information saved in header is not a good choice,
+// for example protobuf message, which we can't known its length until all
+// keys has been written. So we can reserve a certain space for it. which
+// make us must write index file after all indices has been added.
+// index file
 // Usage:
 //      ShortKeyIndexBuilder builder(schema, segment_id, num_rows, delete_flag);
 //      builder.init();
@@ -40,7 +49,7 @@ namespace doris {
 //      builder.finalize(segment_size, num_rows, &slices);
 class ShortKeyIndexBuilder {
 public:
-    ShortKeyIndexBuilder(const std::vector<FieldInfo>& key_fields,
+    ShortKeyIndexBuilder(const std::vector<ColumnSchemaV2>& key_fields,
                          uint32_t segment_id,
                          uint32_t num_rows_per_block,
                          bool delete_flag)
@@ -55,7 +64,7 @@ public:
     Status finalize(uint32_t segment_size, uint32_t num_rows, std::vector<Slice>* slices);
 
 private:
-    std::vector<FieldInfo> _key_fields;
+    std::vector<ColumnSchemaV2> _key_fields;
     uint32_t _segment_id = 0;
     uint32_t _num_rows_per_block;
     bool _delete_flag;
@@ -69,10 +78,10 @@ private:
     faststring _header_buf;
     faststring _index_buf;
 
-    // NOTE: most of these two fields are useless.
+    // NOTE: most of this field is useless.
     // put here just for compatible. I will remove this one day
     // only used to compatible with old version
-    FileHeader<OLAPIndexHeaderMessage, OLAPIndexFixedHeader> _header;
+    IndexFileHeaderV1 _header;
 };
 
 // Used to decode short key to header and encoded index data.
@@ -87,7 +96,7 @@ class ShortKeyIndexDecoder {
 public:
     ShortKeyIndexDecoder(const Slice& data) : _data(data) { }
     Status parse();
-    const FileHeader<OLAPIndexHeaderMessage, OLAPIndexFixedHeader>& header() const {
+    const IndexFileHeaderV1& header() const {
         return _header;
     }
     const Slice& index_data() const { return _index_data; }
@@ -99,7 +108,7 @@ private:
     Slice _index_data;
 
     // only used to compatible with old version
-    FileHeader<OLAPIndexHeaderMessage, OLAPIndexFixedHeader>  _header;
+    IndexFileHeaderV1 _header;
 };
 
 class ShortKeyIndexIterator {
@@ -112,6 +121,11 @@ public:
     inline void seek_to(const RowCursor& key) {
         auto offset = _index->find(key, &_helper, false);
         if (offset.offset > 0) {
+            // The logic of MemIndex sarch is that it will find segment first
+            // and then find item in the segment. Then if it can't not find
+            // valid key in the segment, it will return with offset.offset
+            // set to the segment's num_items, which is not a valid offset.
+            // So we need to normalize it to a valid offset.
             offset.offset -= 1;
             offset = _index->next(offset);
         }
@@ -123,6 +137,7 @@ public:
     inline void seek_after(const RowCursor& key) {
         auto offset = _index->find(key, &_helper, true);
         if (offset.offset > 0) {
+            // Same with seek_to's logic
             offset.offset -= 1;
             offset = _index->next(offset);
         }
@@ -135,6 +150,10 @@ public:
         seek_to(key);
         if (valid()) {
             prev();
+        } else {
+            auto offset = _index->find_last();
+            _segment = offset.segment;
+            _block = offset.offset;
         }
     }
 
@@ -142,6 +161,9 @@ public:
         return _segment < _index->segment_count();
     }
 
+    // Move iterator to prev index item.
+    // When iterator at the first item, it will keep it position
+    // and still be at the first item.
     inline void prev() {
         DCHECK(valid());
         OLAPIndexOffset offset(_segment, _block);
@@ -150,6 +172,9 @@ public:
         _block = new_offset.offset;
     }
 
+    // Move iterator to next index item.
+    // When iterator at the last item, it will turn to a invalid
+    // position with valid() return false.
     inline void next() {
         DCHECK(valid());
         OLAPIndexOffset offset(_segment, _block);
