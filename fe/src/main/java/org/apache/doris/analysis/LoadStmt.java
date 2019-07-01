@@ -17,17 +17,16 @@
 
 package org.apache.doris.analysis;
 
+import com.google.common.base.Function;
+import com.google.common.base.Joiner;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.load.Load;
 import org.apache.doris.qe.ConnectContext;
-
-import com.google.common.base.Function;
-import com.google.common.base.Joiner;
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Map;
@@ -73,7 +72,7 @@ public class LoadStmt extends DdlStmt {
     public static final String KEY_IN_PARAM_COLUMN_SEPARATOR = "column_separator";
     public static final String KEY_IN_PARAM_LINE_DELIMITER = "line_delimiter";
     public static final String KEY_IN_PARAM_PARTITIONS = "partitions";
-
+    public static final String KEY_IN_PARAM_FORMAT_TYPE = "format";
     private final LabelName label;
     private final List<DataDescription> dataDescriptions;
     private final BrokerDesc brokerDesc;

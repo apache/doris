@@ -41,6 +41,10 @@ public:
     }
     virtual ~StreamLoadPipe() { }
 
+    Status open() override {
+        return Status::OK();
+    }
+
     Status append(const char* data, size_t size) override {
         size_t pos = 0;
         if (_write_buf != nullptr) {
@@ -107,9 +111,29 @@ public:
         return Status::OK();
     }
 
+    Status readat(int64_t position, int64_t nbytes, int64_t* bytes_read, void* out) {
+        return Status::InternalError("Not implemented");
+    }
+
+    int64_t size () override {
+        return 0;
+    }
+
+    Status seek(int64_t position) override {
+        return Status::InternalError("Not implemented");
+    }
+
+    Status tell(int64_t* position) override {
+        return Status::InternalError("Not implemented");
+    }
+
     // called when comsumer finished
     void close() override {
         cancel();
+    }
+
+    bool closed() override {
+        return _cancelled;
     }
 
     // called when producer finished

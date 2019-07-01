@@ -25,6 +25,7 @@
 #include "runtime/row_batch.h"
 #include "runtime/dpp_sink_internal.h"
 #include "exec/broker_scanner.h"
+#include "exec/parquet_scanner.h"
 #include "exprs/expr.h"
 #include "util/runtime_profile.h"
 
@@ -267,18 +268,39 @@ void BrokerScanNode::debug_string(int ident_level, std::stringstream* out) const
     (*out) << "BrokerScanNode";
 }
 
+std::unique_ptr<BaseScanner> BrokerScanNode::create_scanner(const TBrokerScanRange& scan_range,
+        ScannerCounter* counter) {
+    BaseScanner *scan = nullptr;
+    switch (scan_range.ranges[0].format_type) {
+    case TFileFormatType::FORMAT_PARQUET:
+        scan = new ParquetScanner(_runtime_state,
+                runtime_profile(),
+                scan_range.params,
+                scan_range.ranges,
+                scan_range.broker_addresses,
+                counter);
+        break;
+    default:
+        scan = new BrokerScanner(
+                _runtime_state,
+                runtime_profile(),
+                scan_range.params,
+                scan_range.ranges,
+                scan_range.broker_addresses,
+                counter);
+    }
+    std::unique_ptr<BaseScanner> scanner(scan);
+    return scanner;
+}
+
 Status BrokerScanNode::scanner_scan(
         const TBrokerScanRange& scan_range, 
         const std::vector<ExprContext*>& conjunct_ctxs, 
         const std::vector<ExprContext*>& partition_expr_ctxs,
-        BrokerScanCounter* counter) {
-    std::unique_ptr<BrokerScanner> scanner(new BrokerScanner(
-            _runtime_state, 
-            runtime_profile(),
-            scan_range.params, 
-            scan_range.ranges, 
-            scan_range.broker_addresses, 
-            counter));
+        ScannerCounter* counter) {
+
+    //create scanner object and open
+    std::unique_ptr<BaseScanner> scanner = create_scanner(scan_range, counter);
     RETURN_IF_ERROR(scanner->open());
     bool scanner_eof = false;
     
@@ -399,7 +421,7 @@ void BrokerScanNode::scanner_worker(int start_idx, int length) {
             LOG(WARNING) << "Clone conjuncts failed.";
         }
     }
-    BrokerScanCounter counter;
+    ScannerCounter counter;
     for (int i = 0; i < length && status.ok(); ++i) {
         const TBrokerScanRange& scan_range = 
             _scan_ranges[start_idx + i].scan_range.broker_scan_range;

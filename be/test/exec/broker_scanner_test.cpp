@@ -67,7 +67,7 @@ private:
     TBrokerScanRangeParams _params;
     DescriptorTbl* _desc_tbl;
     std::vector<TNetworkAddress> _addresses;
-    BrokerScanCounter _counter;
+    ScannerCounter _counter;
 };
 
 void BrokerScannerTest::init_desc_table() {

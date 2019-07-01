@@ -220,8 +220,8 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_A
     KW_REPAIR, KW_REPEATABLE, KW_REPOSITORY, KW_REPOSITORIES, KW_REPLACE, KW_REPLICA, KW_RESOURCE, KW_RESTORE, KW_RETURNS, KW_REVOKE,
     KW_RIGHT, KW_ROLE, KW_ROLES, KW_ROLLBACK, KW_ROLLUP, KW_ROW, KW_ROWS,
     KW_SCHEMAS, KW_SELECT, KW_SEMI, KW_SERIALIZABLE, KW_SESSION, KW_SET, KW_SHOW,
-    KW_SMALLINT, KW_SNAPSHOT, KW_SONAME, KW_SPLIT, KW_START, KW_STATUS, KW_STORAGE, KW_STRING, 
-    KW_SUM, KW_SUPERUSER, KW_SYNC, KW_SYSTEM, 
+    KW_SMALLINT, KW_SNAPSHOT, KW_SONAME, KW_SPLIT, KW_START, KW_STATUS, KW_STORAGE, KW_STRING,
+    KW_SUM, KW_SUPERUSER, KW_SYNC, KW_SYSTEM,
     KW_TABLE, KW_TABLES, KW_TABLET, KW_TERMINATED, KW_THAN, KW_THEN, KW_TIMESTAMP, KW_TINYINT,
     KW_TO, KW_TRANSACTION, KW_TRIGGERS, KW_TRIM, KW_TRUE, KW_TRUNCATE, KW_TYPE, KW_TYPES,
     KW_UNCOMMITTED, KW_UNBOUNDED, KW_UNION, KW_UNIQUE, KW_UNSIGNED, KW_USE, KW_USER, KW_USING,
@@ -565,20 +565,20 @@ cluster_name ::=
         RESULT = new ClusterName(cluster, "");
 	:}
     | ident:cluster DOT ident:db
-    {:   
+    {:
         RESULT = new ClusterName(cluster, db);
-    :}   
+    :}
     ;
 
 des_cluster_name ::=
     ident:cluster
-    {:   
-        RESULT = new ClusterName(cluster, ""); 
-    :}   
+    {:
+        RESULT = new ClusterName(cluster, "");
+    :}
     | ident:cluster DOT ident:db
-    {:   
-        RESULT = new ClusterName(cluster, db); 
-    :}   
+    {:
+        RESULT = new ClusterName(cluster, db);
+    :}
     ;
 
 // link statement
@@ -701,7 +701,7 @@ opt_dup_keys ::=
         RESULT = cols;
     :}
     ;
-	
+
 alter_table_clause ::=
     KW_ADD KW_COLUMN column_definition:col opt_col_pos:col_pos opt_to_rollup:rollup opt_properties:properties
     {:
@@ -775,9 +775,9 @@ alter_system_clause ::=
         RESULT = new AddBackendClause(hostPorts, true);
     :}
     | KW_ADD KW_BACKEND KW_TO ident:clusterName string_list:hostPorts
-    {:   
+    {:
         RESULT = new AddBackendClause(hostPorts, clusterName);
-    :} 
+    :}
     | KW_DROP KW_BACKEND string_list:hostPorts
     {:
         RESULT = new DropBackendClause(hostPorts, false);
@@ -815,7 +815,7 @@ alter_system_clause ::=
     {:
         RESULT = ModifyBrokerClause.createDropBrokerClause(brokerName, hostPorts);
     :}
-    | KW_DROP KW_ALL KW_BROKER ident_or_text:brokerName 
+    | KW_DROP KW_ALL KW_BROKER ident_or_text:brokerName
     {:
         RESULT = ModifyBrokerClause.createDropAllBrokerClause(brokerName);
     :}
@@ -1278,11 +1278,11 @@ grant_stmt ::=
 tbl_pattern ::=
     ident_or_star:db
     {:
-        RESULT = new TablePattern(db, "*");        
+        RESULT = new TablePattern(db, "*");
     :}
     | ident_or_star:db DOT ident_or_star:tbl
     {:
-        RESULT = new TablePattern(db, tbl);        
+        RESULT = new TablePattern(db, tbl);
     :}
     ;
 
@@ -1544,7 +1544,7 @@ opt_properties ::=
     RESULT = map;
     :}
     ;
-    
+
 opt_ext_properties ::=
     {:
     RESULT = null;
@@ -1582,7 +1582,7 @@ opt_default_value ::=
         RESULT = null;
     :}
     ;
-    
+
 opt_is_key ::=
 	{:
 		RESULT = false;
@@ -1592,7 +1592,7 @@ opt_is_key ::=
 		RESULT = true;
 	:}
 	;
-	
+
 column_definition ::=
     ident:columnName type_def:typeDef opt_is_key:isKey opt_agg_type:aggType opt_is_allow_null:isAllowNull opt_default_value:defaultValue opt_comment:comment
     {:
@@ -1645,7 +1645,7 @@ opt_if_not_exists ::=
         RESULT = true;
     :}
     ;
-    
+
 opt_external ::=
     /* empty */
     {:
@@ -1870,35 +1870,35 @@ show_param ::=
     {:
         RESULT = new ShowRestoreStmt(db, parser.where);
     :}
-    | KW_BROKER 
+    | KW_BROKER
     {:
         RESULT = new ShowBrokerStmt();
     :}
     | KW_BACKENDS
-    {:   
+    {:
         RESULT = new ShowBackendsStmt();
-    :} 
+    :}
     | KW_FRONTENDS
-    {:   
+    {:
         RESULT = new ShowFrontendsStmt();
-    :} 
+    :}
     | KW_USER
-    {:   
+    {:
         RESULT = new ShowUserStmt();
-    :} 
+    :}
     | KW_REPOSITORIES
     {:
-       RESULT = new ShowRepositoriesStmt(); 
+       RESULT = new ShowRepositoriesStmt();
     :}
     | KW_SNAPSHOT KW_ON ident:repo opt_wild_where
     {:
         RESULT = new ShowSnapshotStmt(repo, parser.where);
     :}
-    | KW_ALL KW_GRANTS 
+    | KW_ALL KW_GRANTS
     {:
         RESULT = new ShowGrantsStmt(null, true);
     :}
-    | KW_GRANTS 
+    | KW_GRANTS
     {:
         RESULT = new ShowGrantsStmt(null, false);
     :}
@@ -2148,9 +2148,9 @@ query_stmt ::=
         RESULT = queryStmt;
     :}
     | opt_with_clause:w union_with_order_by_or_limit:union
-    {: 
+    {:
         union.setWithClause(w);
-        RESULT = union; 
+        RESULT = union;
     :}
     ;
 
@@ -2729,7 +2729,7 @@ value_clause ::=
     :}
     ;
 
-row_value ::= 
+row_value ::=
     LPAREN opt_values:values RPAREN
     {:
         RESULT = values;
@@ -3204,15 +3204,15 @@ type ::=
   | KW_STRING
   {: RESULT = ScalarType.createVarcharType(-1); :}
   | KW_VARCHAR LPAREN INTEGER_LITERAL:len RPAREN
-  {: ScalarType type = ScalarType.createVarcharType(len.intValue()); 
-     type.setAssignedStrLenInColDefinition(); 
+  {: ScalarType type = ScalarType.createVarcharType(len.intValue());
+     type.setAssignedStrLenInColDefinition();
      RESULT = type;
   :}
   | KW_VARCHAR
   {: RESULT = ScalarType.createVarcharType(-1); :}
   | KW_CHAR LPAREN INTEGER_LITERAL:len RPAREN
-  {: ScalarType type = ScalarType.createCharType(len.intValue()); 
-     type.setAssignedStrLenInColDefinition(); 
+  {: ScalarType type = ScalarType.createCharType(len.intValue());
+     type.setAssignedStrLenInColDefinition();
      RESULT = type;
   :}
   | KW_CHAR
@@ -3224,9 +3224,9 @@ type ::=
   | KW_DECIMAL
   {: RESULT = ScalarType.createDecimalV2Type(); :}
   | KW_HLL
-  {: ScalarType type = ScalarType.createHllType(); 
+  {: ScalarType type = ScalarType.createHllType();
      type.setAssignedStrLenInColDefinition();
-     RESULT = type;      
+     RESULT = type;
   :}
   ;
 
@@ -3767,7 +3767,7 @@ admin_stmt ::=
     | KW_ADMIN KW_REPAIR KW_TABLE base_table_ref:table_ref
     {:
         RESULT = new AdminRepairTableStmt(table_ref);
-    :} 
+    :}
     | KW_ADMIN KW_CANCEL KW_REPAIR KW_TABLE base_table_ref:table_ref
     {:
         RESULT = new AdminCancelRepairTableStmt(table_ref);
@@ -3856,7 +3856,7 @@ opt_release ::=
     :}
     ;
 
-type_func_name_keyword ::= 
+type_func_name_keyword ::=
     KW_LEFT:id
     {: RESULT = id; :}
     | KW_RIGHT:id
