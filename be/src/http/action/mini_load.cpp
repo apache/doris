@@ -809,6 +809,9 @@ void MiniLoadAction::_new_handle(HttpRequest* req) {
     if (!ctx->status.ok()) {
         if (ctx->need_rollback) {
             _exec_env->stream_load_executor()->rollback_txn(ctx);
+            if (ctx->status.code() == TStatusCode::PUBLISH_TIMEOUT) {
+                ctx->status = Status::PublishTimeout("transation has been rollback because it was timeout in phase of publish");    
+            }
             ctx->need_rollback = false;
         }
         if (ctx->body_sink.get() != nullptr) {
