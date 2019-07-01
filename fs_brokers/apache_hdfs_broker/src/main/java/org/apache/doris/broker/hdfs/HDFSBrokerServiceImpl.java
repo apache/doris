@@ -17,6 +17,7 @@
 
 package org.apache.doris.broker.hdfs;
 
+import com.google.common.base.Stopwatch;
 import org.apache.doris.common.BrokerPerfMonitor;
 import org.apache.doris.thrift.TBrokerCheckPathExistRequest;
 import org.apache.doris.thrift.TBrokerCheckPathExistResponse;
@@ -40,9 +41,6 @@ import org.apache.doris.thrift.TBrokerReadResponse;
 import org.apache.doris.thrift.TBrokerRenamePathRequest;
 import org.apache.doris.thrift.TBrokerSeekRequest;
 import org.apache.doris.thrift.TPaloBrokerService;
-
-import com.google.common.base.Stopwatch;
-
 import org.apache.log4j.Logger;
 import org.apache.thrift.TException;
 
@@ -137,14 +135,19 @@ public class HDFSBrokerServiceImpl implements TPaloBrokerService.Iface {
         logger.info("receive a open reader request, request detail: " + request);
         TBrokerOpenReaderResponse response = new TBrokerOpenReaderResponse();
         try {
-            TBrokerFD fd = fileSystemManager.openReader(request.clientId, request.path, 
+            TBrokerFD fd = fileSystemManager.openReader(request.clientId, request.path,
                     request.startOffset, request.properties);
             response.setFd(fd);
+            // get file size
+            List<TBrokerFileStatus> fileStatuses = fileSystemManager.listPath(request.path,
+                    false, request.properties);
+            response.setSize(fileStatuses.get(0).size);
             response.setOpStatus(generateOKStatus());
         } catch (BrokerException e) {
             logger.warn("failed to open reader for path: " + request.path, e);
             TBrokerOperationStatus errorStatus = e.generateFailedOperationStatus();
             response.setOpStatus(errorStatus);
+            response.setSize(0);
         }
         return response;
     }

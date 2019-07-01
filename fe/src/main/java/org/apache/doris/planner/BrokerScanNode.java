@@ -17,7 +17,10 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.catalog.AggregateType;
+import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.BinaryPredicate;
@@ -33,6 +36,7 @@ import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.BrokerTable;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
@@ -62,12 +66,6 @@ import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
-
-import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -370,6 +368,7 @@ public class BrokerScanNode extends ScanNode {
             slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
             slotDesc.setIsMaterialized(true);
             slotDesc.setIsNullable(false);
+            slotDesc.setColumn(new Column(fieldName, PrimitiveType.VARCHAR));
             slotDescByName.put(fieldName, slotDesc);
 
             params.addToSrc_slot_ids(slotDesc.getId().asInt());
@@ -541,7 +540,7 @@ public class BrokerScanNode extends ScanNode {
         numInstances = Math.max(1, numInstances);
 
         bytesPerInstance = totalBytes / numInstances + 1;
-        
+
         if (bytesPerInstance > Config.max_bytes_per_broker_scanner) {
             throw new UserException(
                     "Scan bytes per broker scanner exceed limit: " + Config.max_bytes_per_broker_scanner);
@@ -561,7 +560,10 @@ public class BrokerScanNode extends ScanNode {
         Collections.shuffle(backends, random);
     }
 
-    private TFileFormatType formatType(String path) {
+    private TFileFormatType formatType(String fileFormat, String path) {
+        if (fileFormat != null && fileFormat.toLowerCase().equals("parquet")) {
+            return TFileFormatType.FORMAT_PARQUET;
+        }
         String lowerCasePath = path.toLowerCase();
         if (lowerCasePath.endsWith(".gz")) {
             return TFileFormatType.FORMAT_CSV_GZ;
@@ -593,7 +595,7 @@ public class BrokerScanNode extends ScanNode {
             TBrokerFileStatus fileStatus = fileStatuses.get(i);
             long leftBytes = fileStatus.size - curFileOffset;
             long tmpBytes = curInstanceBytes + leftBytes;
-            TFileFormatType formatType = formatType(fileStatus.path);
+            TFileFormatType formatType = formatType(fileFormat, fileStatus.path);
             if (tmpBytes > bytesPerInstance) {
                 // Now only support split plain text
                 if (formatType == TFileFormatType.FORMAT_CSV_PLAIN && fileStatus.isSplitable) {
