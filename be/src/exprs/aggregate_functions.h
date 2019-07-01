@@ -68,7 +68,8 @@ public:
     // Impementation of percentile_approx
     static void percentile_init(doris_udf::FunctionContext* ctx, doris_udf::StringVal* dst);
 
-    static void percentile_update(FunctionContext* ctx, const BigIntVal& src, const DoubleVal& quantile, const StringVal* dst);
+    template <typename T>
+    static void percentile_update(FunctionContext* ctx, const T& src, const DoubleVal& quantile, const StringVal* dst);
 
     static void percentile_merge(FunctionContext* ctx, const StringVal& src,
                                               StringVal* dst);
