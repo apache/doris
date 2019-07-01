@@ -2,7 +2,7 @@
 
 ## 文件格式 ##
 
-![](../../../resources/segment_v2.png)
+![](../../../resources/images/segment_v2.png)
 <center>图1. doris segment文件格式</center>
 
 文件包括：
