@@ -1,4 +1,4 @@
-# USER DEFINED FUNCTION
+# User Define Function
 
 用户可以通过UDF机制来扩展Doris的能力。通过这篇文档，用户能够创建自己的UDF。
 

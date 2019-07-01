@@ -1,4 +1,4 @@
-# 例行导入使用手册
+# 例行导入
 
 例行导入（Routine Load）功能为用户提供了一种自动从指定数据源进行数据导入的功能。
 
@@ -91,7 +91,9 @@ FE 中的 JobScheduler 根据汇报结果，继续生成后续新的 Task，或�
 
     `desired_concurrent_number` 用于指定一个例行作业期望的并发度。即一个作业，最多有多少 task 同时在执行。对于 Kafka 导入而言，当前的实际并发度计算如下：
     
-    `Min(partition num, desired_concurrent_number, alive_backend_num, Config.max_routine_load_task_concurrrent_num)`
+    ```
+    Min(partition num, desired_concurrent_number, alive_backend_num, Config.max_routine_load_task_concurrrent_num)
+    ```
     
     其中 `Config.max_routine_load_task_concurrrent_num` 是系统的一个默认的最大并发数限制。这是一个 FE 配置，可以通过改配置调整。默认为 5。
 
@@ -159,7 +161,9 @@ FE 中的 JobScheduler 根据汇报结果，继续生成后续新的 Task，或�
     );
     ```
 
-> Doris 通过 Kafka 的 C++ API `librdkafka` 来访问 Kafka 集群。`librdkafka` 所支持的参数可以参阅[这里](https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md)
+> Doris 通过 Kafka 的 C++ API `librdkafka` 来访问 Kafka 集群。`librdkafka` 所支持的参数可以参阅
+> 
+> `https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md`
 
 
 ### 查看导入作业状态
