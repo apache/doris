@@ -177,6 +177,30 @@ set_target_properties(openssl PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib
 add_library(leveldb STATIC IMPORTED)
 set_target_properties(leveldb PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libleveldb.a)
 
+add_library(jemalloc STATIC IMPORTED)
+set_target_properties(jemalloc PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libjemalloc.a)
+
+add_library(brotlicommon STATIC IMPORTED)
+set_target_properties(brotlicommon PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libbrotlicommon.a)
+
+add_library(brotlidec STATIC IMPORTED)
+set_target_properties(brotlidec PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libbrotlidec.a)
+
+add_library(brotlienc STATIC IMPORTED)
+set_target_properties(brotlienc PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libbrotlienc.a)
+
+add_library(zstd STATIC IMPORTED)
+set_target_properties(zstd PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libzstd.a)
+
+add_library(arrow STATIC IMPORTED)
+set_target_properties(arrow PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libarrow.a)
+
+add_library(double-conversion STATIC IMPORTED)
+set_target_properties(double-conversion PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libdouble-conversion.a)
+
+add_library(parquet STATIC IMPORTED)
+set_target_properties(parquet PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libparquet.a)
+
 add_library(brpc STATIC IMPORTED)
 set_target_properties(brpc PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libbrpc.a)
 
@@ -498,6 +522,14 @@ set(DORIS_DEPENDENCIES
     leveldb
     bitshuffle
     roaring
+    double-conversion
+    jemalloc
+    brotlicommon
+    brotlidec
+    brotlienc
+    zstd
+    arrow
+    parquet
     ${WL_END_GROUP}
 )
 
