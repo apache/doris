@@ -96,8 +96,7 @@ OLAPStatus MemIndex::load_segment(const char* file, size_t *current_num_rows_per
     return OLAP_SUCCESS;
 }
 
-Status MemIndex::load_segment(
-        const FileHeader<OLAPIndexHeaderMessage, OLAPIndexFixedHeader>& header, const Slice& data) {
+Status MemIndex::load_segment(const IndexFileHeaderV1& header, const Slice& data) {
     SegmentMetaInfo meta;
     meta.file_header = header;
 

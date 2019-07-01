@@ -30,7 +30,15 @@
 
 namespace doris {
 
-// Used to encode a segment short key indices to 
+// Used to encode a segment short key indices to binary format. This builder
+// is now compatible with old version's format. For V1 segment, indices are
+// saved in a single file. And _header contains information about indeces,
+// which is stored at the begin of the index file.
+// NOTE: actuallly some information saved in header is not a good choice,
+// for example protobuf message, which we can't known its length until all
+// keys has been written. So we can reserve a certain space for it. which
+// make us must write index file after all indices has been added.
+// index file
 // Usage:
 //      ShortKeyIndexBuilder builder(schema, segment_id, num_rows, delete_flag);
 //      builder.init();
@@ -72,7 +80,7 @@ private:
     // NOTE: most of these two fields are useless.
     // put here just for compatible. I will remove this one day
     // only used to compatible with old version
-    FileHeader<OLAPIndexHeaderMessage, OLAPIndexFixedHeader> _header;
+    IndexFileHeaderV1 _header;
 };
 
 // Used to decode short key to header and encoded index data.
@@ -87,7 +95,7 @@ class ShortKeyIndexDecoder {
 public:
     ShortKeyIndexDecoder(const Slice& data) : _data(data) { }
     Status parse();
-    const FileHeader<OLAPIndexHeaderMessage, OLAPIndexFixedHeader>& header() const {
+    const IndexFileHeaderV1& header() const {
         return _header;
     }
     const Slice& index_data() const { return _index_data; }
@@ -99,7 +107,7 @@ private:
     Slice _index_data;
 
     // only used to compatible with old version
-    FileHeader<OLAPIndexHeaderMessage, OLAPIndexFixedHeader>  _header;
+    IndexFileHeaderV1 _header;
 };
 
 class ShortKeyIndexIterator {
@@ -142,6 +150,9 @@ public:
         return _segment < _index->segment_count();
     }
 
+    // Move iterator to prev index item.
+    // When iterator at the first item, it will keep it position
+    // and still be at the first item.
     inline void prev() {
         DCHECK(valid());
         OLAPIndexOffset offset(_segment, _block);
@@ -150,6 +161,9 @@ public:
         _block = new_offset.offset;
     }
 
+    // Move iterator to next index item.
+    // When iterator at the last item, it will turn to a invalid
+    // position with valid() return false.
     inline void next() {
         DCHECK(valid());
         OLAPIndexOffset offset(_segment, _block);
