@@ -25,9 +25,9 @@ copyright = u'2019, Apache Doris(Incubating)'
 author = u'Apache Doris(Incubating)'
 
 # The short X.Y version
-version = u'0.1.0'
+version = u'0.11.0'
 # The full version, including alpha/beta/rc tags
-release = u'0.1.0'
+release = u'0.11.0'
 
 
 # -- General configuration ---------------------------------------------------
@@ -139,7 +139,7 @@ latex_elements = {
 # (source start file, target name, title,
 #  author, documentclass [howto, manual, or own class]).
 latex_documents = [
-    (master_doc, 'doris.tex', u'doris Documentation',
+    (master_doc, 'doris.tex', u'Doris Documentation',
      u'Apache Doris(Incubating)', 'manual'),
 ]
 
@@ -161,7 +161,7 @@ man_pages = [
 #  dir menu entry, description, category)
 texinfo_documents = [
     (master_doc, 'Doris', u'Doris Documentation',
-     author, 'Apache Doris(Incubating)', 'One line description of project.',
+     author, 'Apache Doris(Incubating)', 'An MPP-based interactive SQL data warehouse for reporting and analysis',
      'Miscellaneous'),
 ]
 
@@ -182,6 +182,8 @@ epub_title = project
 
 # A list of files that should not be packed into the epub file.
 epub_exclude_files = ['search.html']
+
+html_search_language = 'zh'
 
 
 # -- Extension configuration -------------------------------------------------
