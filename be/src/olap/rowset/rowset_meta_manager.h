@@ -31,6 +31,8 @@ namespace doris {
 // Helper class for managing rowset meta of one root path.
 class RowsetMetaManager {
 public:
+    static bool check_rowset_meta(OlapMeta* meta, TabletUid tablet_uid, int64_t rowset_id);
+
     static OLAPStatus get_rowset_meta(OlapMeta* meta, TabletUid tablet_uid, int64_t rowset_id, RowsetMetaSharedPtr rowset_meta);
 
     static OLAPStatus get_json_rowset_meta(OlapMeta* meta, TabletUid tablet_uid, int64_t rowset_id, std::string* json_rowset_meta);
