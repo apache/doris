@@ -86,6 +86,24 @@ static void update_sum(SlotRef* ref, TupleRow* agg_row, TupleRow *row) {
     }
 }
 
+template<>
+void update_sum<int128_t>(SlotRef* ref, TupleRow* agg_row, TupleRow *row) {
+    void* slot = ref->get_slot(agg_row);
+    bool agg_row_null = ref->is_null_bit_set(agg_row);
+    void* value = SlotRef::get_value(ref, row);
+    if (!agg_row_null && value != NULL) {
+        int128_t l_val, r_val;
+        memcpy(&l_val, slot, sizeof(int128_t));
+        memcpy(&r_val, value, sizeof(int128_t));
+        l_val += r_val;
+        memcpy(slot, &l_val, sizeof(int128_t));
+    } else if (agg_row_null && value != NULL) {
+        memcpy(slot, value, sizeof(int128_t));
+        Tuple* agg_tuple = ref->get_tuple(agg_row);
+        agg_tuple->set_not_null(ref->null_indicator_offset());
+    }
+}
+
 // Do nothing, just used to fill vector
 static void fake_update(SlotRef* ref, TupleRow* agg_row, TupleRow *row) {
     // Assert maybe good!

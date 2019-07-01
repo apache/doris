@@ -29,6 +29,7 @@ import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Lists;
@@ -107,7 +108,7 @@ public class TabletInvertedIndex {
                              Set<Long> foundTabletsWithValidSchema,
                              Map<Long, TTabletInfo> foundTabletsWithInvalidSchema,
                              ListMultimap<TStorageMedium, Long> tabletMigrationMap, 
-                             ListMultimap<Long, TPartitionVersionInfo> transactionsToPublish, 
+                             Map<Long, ListMultimap<Long, TPartitionVersionInfo>> transactionsToPublish, 
                              ListMultimap<Long, Long> transactionsToClear, 
                              ListMultimap<Long, Long> tabletRecoveryMap) {
         long start = 0L;
@@ -188,7 +189,12 @@ public class TabletInvertedIndex {
                                             TPartitionVersionInfo versionInfo = new TPartitionVersionInfo(tabletMeta.getPartitionId(), 
                                                     partitionCommitInfo.getVersion(),
                                                     partitionCommitInfo.getVersionHash());
-                                            transactionsToPublish.put(transactionId, versionInfo);
+                                            ListMultimap<Long, TPartitionVersionInfo> map = transactionsToPublish.get(transactionState.getDbId());
+                                            if (map == null) {
+                                                map = ArrayListMultimap.create();
+                                                transactionsToPublish.put(transactionState.getDbId(), map);
+                                            }
+                                            map.put(transactionId, versionInfo);
                                         }
                                     }
                                 } // end for txn id

@@ -1,4 +1,4 @@
-# cast
+# CAST
 
 ## Syntax
 
@@ -39,7 +39,7 @@ mysql> select cast (1 as BIGINT);
 curl --location-trusted -u root: -T ~/user_data/bigint -H "columns: tmp_k1, k1=cast(tmp_k1 as BIGINT)"  http://host:port/api/test/bigint/_stream_load
 ```
 
-*注：在导入中，由于原始类型均为String，将值为浮点的元数数据做 cast的时候数据会被转换成 NULL ，比如 12.0 。Doris目前不会对原始数据做截断。*
+*注：在导入中，由于原始类型均为String，将值为浮点的原始数据做 cast的时候数据会被转换成 NULL ，比如 12.0 。Doris目前不会对原始数据做截断。*
 
 如果想强制将这种类型的原始数据 cast to int 的话。请看下面写法：
 

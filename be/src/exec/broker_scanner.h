@@ -23,6 +23,7 @@
 #include <map>
 #include <sstream>
 
+#include "exec/base_scanner.h"
 #include "common/status.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/Types_types.h"
@@ -48,22 +49,8 @@ class MemTracker;
 class RuntimeProfile;
 class StreamLoadPipe;
 
-struct BrokerScanCounter {
-    BrokerScanCounter() :
-        num_rows_total(0),
-        // num_rows_returned(0),
-        num_rows_filtered(0),
-        num_rows_unselected(0) {
-    }
-    
-    int64_t num_rows_total; // total read rows (read from source)
-    // int64_t num_rows_returned;  // qualified rows (match the dest schema)
-    int64_t num_rows_filtered;  // unqualified rows (unmatch the dest schema, or no partition)
-    int64_t num_rows_unselected; // rows filterd by predicates
-};
-
 // Broker scanner convert the data read from broker to doris's tuple.
-class BrokerScanner {
+class BrokerScanner : public BaseScanner {
 public:
     BrokerScanner(
         RuntimeState* state,
@@ -71,17 +58,17 @@ public:
         const TBrokerScanRangeParams& params, 
         const std::vector<TBrokerRangeDesc>& ranges,
         const std::vector<TNetworkAddress>& broker_addresses,
-        BrokerScanCounter* counter);
+        ScannerCounter* counter);
     ~BrokerScanner();
 
-    // Open this scanner, will initialize informtion need to 
-    Status open();
+    // Open this scanner, will initialize information need to
+    Status open() override;
 
-    // Get next tuple 
-    Status get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof);
+    // Get next tuple
+    Status get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) override;
 
     // Close this scanner
-    void close();
+    void close() override;
 
 private:
     Status open_file_reader();
@@ -114,15 +101,11 @@ private:
     //  output is tuple
     bool convert_one_row(const Slice& line, Tuple* tuple, MemPool* tuple_pool);
 
-    Status init_expr_ctxes();
+    //Status init_expr_ctxes();
 
     Status line_to_src_tuple();
     bool line_to_src_tuple(const Slice& line);
-    bool fill_dest_tuple(const Slice& line, Tuple* dest_tuple, MemPool* mem_pool);
-private:
-    RuntimeState* _state;
-    RuntimeProfile* _profile;
-    const TBrokerScanRangeParams& _params;
+private:;
     const std::vector<TBrokerRangeDesc>& _ranges;
     const std::vector<TNetworkAddress>& _broker_addresses;
 
@@ -130,7 +113,6 @@ private:
 
     char _value_separator;
     char _line_delimiter;
-    bool _strict_mode;
 
     // Reader
     FileReader* _cur_file_reader;
@@ -145,34 +127,8 @@ private:
     // we will read to one ahead, and skip the first line
     bool _skip_next_line;
 
-    // Used for constructing tuple
-    // slots for value read from broker file
-    std::vector<SlotDescriptor*> _src_slot_descs;
-    std::unique_ptr<RowDescriptor> _row_desc;
-    Tuple* _src_tuple;
-    TupleRow* _src_tuple_row;
-
-    std::unique_ptr<MemTracker> _mem_tracker;
-    // Mem pool used to allocate _src_tuple and _src_tuple_row
-    MemPool _mem_pool;
-
-    // Dest tuple descriptor and dest expr context
-    const TupleDescriptor* _dest_tuple_desc;
-    std::vector<ExprContext*> _dest_expr_ctx;
-    // the map values of dest slot id to src slot desc
-    // if there is not key of dest slot id in dest_sid_to_src_sid_without_trans, it will be set to nullptr
-    std::vector<SlotDescriptor*> _src_slot_descs_order_by_dest;
-
     // used to hold current StreamLoadPipe
     std::shared_ptr<StreamLoadPipe> _stream_load_pipe;
-
-    // used for process stat
-    BrokerScanCounter* _counter;
-
-    // Profile
-    RuntimeProfile::Counter* _rows_read_counter;
-    RuntimeProfile::Counter* _read_timer;
-    RuntimeProfile::Counter* _materialize_timer;
 };
 
 }

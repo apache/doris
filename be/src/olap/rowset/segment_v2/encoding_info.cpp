@@ -37,7 +37,7 @@ struct TypeEncodingTraits<type, PLAIN_ENCODING> {
     static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
         return Status::OK();
     }
-    static Status create_page_decoder(const Slice& data, PageDecoder** decoder) {
+    static Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts, PageDecoder** decoder) {
         return Status::OK();
     }
 };
@@ -48,8 +48,8 @@ struct TypeEncodingTraits<type, BIT_SHUFFLE> {
         *builder = new BitshufflePageBuilder<type>(opts);
         return Status::OK();
     }
-    static Status create_page_decoder(const Slice& data, PageDecoder** decoder) {
-        *decoder = new BitShufflePageDecoder<type>(data);
+    static Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts, PageDecoder** decoder) {
+        *decoder = new BitShufflePageDecoder<type>(data, opts);
         return Status::OK();
     }
 };

@@ -41,9 +41,9 @@ namespace segment_v2 {
 
 class BinaryPlainPageBuilder : public PageBuilder {
 public:
-    BinaryPlainPageBuilder(const PageBuilderOptions options) :
+    BinaryPlainPageBuilder(const PageBuilderOptions& options) :
             _size_estimate(0),
-            _options(std::move(options)) {
+            _options(options) {
         _buffer.reserve(_options.data_page_size);
         reset();
     }
@@ -75,11 +75,7 @@ public:
         return Status::OK();
     }
 
-    Status get_dictionary_page(Slice *dictionary_page) override {
-        return Status::NotSupported("get_dictionary_page not supported in binary plain page builder");
-    }
-
-    Slice finish(const rowid_t page_first_rowid) override {
+    Slice finish() override {
         _finished = true;
 
         size_t offsets_pos = _buffer.size();
@@ -123,16 +119,17 @@ private:
     // Offsets of each entry, relative to the start of the page
     std::vector<uint32_t> _offsets;
     bool _finished;
-    const PageBuilderOptions _options;
+    PageBuilderOptions _options;
 };
 
 
 class BinaryPlainPageDecoder : public PageDecoder {
 public:
-    BinaryPlainPageDecoder(Slice data) : _data(data),
-                                   _parsed(false),
-                                   _num_elems(0),
-                                   _cur_idx(0) { }
+    BinaryPlainPageDecoder(Slice data, const PageDecoderOptions& options) : _data(data),
+            _options(options),
+            _parsed(false),
+            _num_elems(0),
+            _cur_idx(0) { }
 
     Status init() override {
         CHECK(!_parsed);
@@ -189,11 +186,14 @@ public:
         size_t max_fetch = std::min(*n, static_cast<size_t>(_num_elems - _cur_idx));
 
         Slice *out = reinterpret_cast<Slice*>(dst->column_vector()->col_data());
+        
         for (size_t i = 0; i < max_fetch; i++, out++, _cur_idx++) {
             Slice elem(string_at_index(_cur_idx));
-            out->relocate((char*) elem.get_data());
-            out->truncate(elem.size);
+            out->data = reinterpret_cast<char*>(dst->mem_pool()->allocate(elem.size * sizeof(uint8_t)));
+            out->size = elem.size;
+            memcpy(out->data, elem.data, elem.size);
         }
+
         *n = max_fetch;
         return Status::OK();
     }
@@ -206,10 +206,6 @@ public:
     size_t current_index() const override {
         DCHECK(_parsed);
         return _cur_idx;
-    }
-
-    rowid_t get_first_rowid() const override {
-        return 0;
     }
 
     Slice string_at_index(size_t idx) const {
@@ -232,6 +228,7 @@ private:
     }
 
     Slice _data;
+    PageDecoderOptions _options;
     bool _parsed;
 
     // A buffer for an array of 32-bit integers for the offsets of the underlying strings in '_data'.

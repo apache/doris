@@ -10,3 +10,10 @@ thirdparty/src
 *.so.tmp
 .DS_Store
 *.iml
+
+#ignore eclipse project file & idea  project file
+.cproject
+.project
+.settings/
+.idea/
+/Default/
