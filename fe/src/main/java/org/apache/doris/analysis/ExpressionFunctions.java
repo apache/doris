@@ -201,7 +201,7 @@ public enum ExpressionFunctions {
             } else if (argType.isBoolean()) {
                 exprs = new BoolLiteral[args.size()];
             } else {
-                Preconditions.checkArgument(false, "Doris does't support type:" + argType);
+                throw new IllegalArgumentException("Doris does't support type:" + argType);
             }
             args.toArray(exprs);
             return (LiteralExpr) method.invoke(null, new Object[]{exprs});

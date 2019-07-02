@@ -2542,7 +2542,7 @@ option_value_follow_option_type ::=
 
 option_value_no_option_type ::=
     /* Normal set value */
-    variable_name:variable equal expr:expr
+    variable_name:variable equal set_expr_or_default:expr
     {:
         RESULT = new SetVar(variable, expr);
     :}
@@ -2673,11 +2673,7 @@ isolation_types ::=
     ;
 
 set_expr_or_default ::=
-    literal:value
-    {:
-        RESULT = value;
-    :}
-    | KW_DEFAULT
+    KW_DEFAULT
     {:
         RESULT = null;
     :}
@@ -2692,6 +2688,10 @@ set_expr_or_default ::=
     | ident:name
     {:
         RESULT = new StringLiteral(name);
+    :}
+    | expr:expr
+    {:
+        RESULT = expr;
     :}
     ;
 

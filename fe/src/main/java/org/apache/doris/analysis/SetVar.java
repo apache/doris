@@ -46,12 +46,18 @@ public class SetVar {
         this.type = type;
         this.variable = variable;
         this.value = value;
+        if (value instanceof LiteralExpr) {
+            this.result = (LiteralExpr)value;
+        }
     }
 
     public SetVar(String variable, Expr value) {
         this.type = SetType.DEFAULT;
         this.variable = variable;
         this.value = value;
+        if (value instanceof LiteralExpr) {
+            this.result = (LiteralExpr)value;
+        }
     }
 
     public String getVariable() {

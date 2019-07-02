@@ -669,7 +669,7 @@ public class FEFunctions {
     }
 
     @FEFunction(name = "concat", argTypes = { "VARCHAR"}, returnType = "VARCHAR")
-    public static StringLiteral concat(StringLiteral ... values) throws AnalysisException {
+    public static StringLiteral concat(StringLiteral... values) throws AnalysisException {
         Preconditions.checkArgument(values.length > 0);
         final StringBuilder resultBuilder = new StringBuilder();
         for (StringLiteral value : values) {
