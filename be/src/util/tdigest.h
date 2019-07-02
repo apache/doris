@@ -385,6 +385,86 @@ namespace doris {
             }
         }
 
+        doris_udf::StringVal serialize(FunctionContext* ctx) {
+            const size_t serialized_set_length = 0;
+            StringVal result(ctx, serialized_set_length);
+            uint8_t* writer = result.ptr;
+
+            memcpy(writer, compression_, sizeof(Value));
+            writer += sizeof(Value);
+            memcpy(writer, min_, sizeof(Value));
+            writer += sizeof(Value);
+            memcpy(writer, max_, sizeof(Value));
+            writer += sizeof(Value);
+            memcpy(writer, maxProcessed_, sizeof(Index));
+            writer += sizeof(Index);
+            memcpy(writer, maxUnprocessed_, sizeof(Index));
+            writer += sizeof(Index);
+            memcpy(writer, processedWeight_, sizeof(Value));
+            writer += sizeof(Value);
+            memcpy(writer, unprocessedWeight_, sizeof(Value));
+            writer += sizeof(Value);
+
+            size_t size = processed_.size();
+            memcpy(writer, size, sizeof(size_t));
+            for (int i = 0 ;i < size ;i ++) {
+                memcpy(writer, processed_[i], sizeof(Centroid));
+                writer += sizeof(Centroid);
+            }
+
+            size = unprocessed_.size();
+            memcpy(writer, size, sizeof(size_t));
+            for (int i = 0 ;i < size ;i ++) {
+                memcpy(writer, unprocessed_[i], sizeof(Centroid));
+                writer += sizeof(Centroid);
+            }
+
+            size = cumulative_.size();
+            memcpy(writer, size, sizeof(size_t));
+            for (int i = 0 ;i < size ;i ++) {
+                memcpy(writer, cumulative_[i], sizeof(Weight));
+                writer += sizeof(Weight);
+            }
+            return result;
+        }
+
+        void unserialize(StringVal& src) {
+            const uint8_t* type_reader = src.ptr;
+            const uint8_t* end = src.ptr + src.len;
+
+            memcpy(compression_, type_reader, sizeof(Value));
+            type_reader += sizeof(Value);
+            memcpy(min_, type_reader, sizeof(Value));
+            type_reader += sizeof(Value);
+            memcpy(max_, type_reader, sizeof(Value));
+            type_reader += sizeof(Value);
+            memcpy(maxProcessed_, type_reader, sizeof(Index));
+            type_reader += sizeof(Index);
+            memcpy(maxUnprocessed_, type_reader, sizeof(Index));
+            type_reader += sizeof(Index);
+            memcpy(processedWeight_, type_reader, sizeof(Value));
+            type_reader += sizeof(Value);
+            memcpy(unprocessedWeight_, type_reader, sizeof(Value));
+            type_reader += sizeof(Value);
+
+            size_t size;
+            memcpy(size, type_reader, sizeof(size_t));
+            for (int i = 0 ;i < size ;i ++) {
+                memcpy(processed_[i], type_reader, sizeof(Centroid));
+                type_reader += sizeof(Centroid);
+            }
+            memcpy(size, type_reader, sizeof(size_t));
+            for (int i = 0 ;i < size ;i ++) {
+                memcpy(unprocessed_[i], type_reader, sizeof(Centroid));
+                type_reader += sizeof(Centroid);
+            }
+            memcpy(size, type_reader, sizeof(size_t));
+            for (int i = 0 ;i < size ;i ++) {
+                memcpy(cumulative_[i], type_reader, sizeof(Weight));
+                type_reader += sizeof(Weight);
+            }
+        }
+
     private:
         Value compression_;
 
