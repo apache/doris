@@ -902,6 +902,7 @@ void* TaskWorkerPool::_publish_version_worker_thread_callback(void* arg_this) {
             finish_task_request.__set_error_tablet_ids(error_tablet_ids);
             DorisMetrics::publish_task_failed_total.increment(1);
         } else {
+            _s_report_version++;
             LOG(INFO) << "publish_version success. signature:" << agent_task_req.signature;
         }
 
@@ -912,6 +913,7 @@ void* TaskWorkerPool::_publish_version_worker_thread_callback(void* arg_this) {
         finish_task_request.__set_backend(worker_pool_this->_backend);
         finish_task_request.__set_task_type(agent_task_req.task_type);
         finish_task_request.__set_signature(agent_task_req.signature);
+        finish_task_request.__set_report_version(_s_report_version);
 
         worker_pool_this->_finish_task(finish_task_request);
         worker_pool_this->_remove_task_info(agent_task_req.task_type, agent_task_req.signature, "");

@@ -30,7 +30,8 @@ Documentations will be written once, and will be converted to other format accor
 
 > `docs/documentation`: Root directory for documentation. And for different languages, there is a root directory for it. For example, `docs/documentation/cn` is the Chinese documentation's root directory.
 > `docs/scripts`: Place of `Doc Builder`.
->  `docs/resources`: Resources that are referenced in documentation, such as pictures.
+> `docs/resources`: Resources that are referenced in documentation, such as pictures.
+> `docs/website`: A website for documentations built with [Sphinx](http://www.sphinx-doc.org) using a theme provided by [Read-the-Docs](https://readthedocs.org/).
 
 ## Constraints
 
@@ -41,7 +42,7 @@ Documentations will be written once, and will be converted to other format accor
 3. A directory corresponds to a title, and readme.md in this directory is its content. Other documents in this directory is its sub-sections.
 4. For manual like section, such as function description, there should be `Description`, `Syntax`, `Examples` section in documents.
 
-## level directories
+## Level Directories
 
 1. doris-concepts
 2. installing
@@ -50,3 +51,25 @@ Documentations will be written once, and will be converted to other format accor
 5. sql-references
 6. best-practices
 7. internals
+8. community
+
+Each directory, or its sub directories should contain a file `index.rst`, for constructing the navibar of the website. For example:
+
+```
+documentation/
+└── cn
+    ├── administrator-guide
+    │   ├── index.rst
+    │   ├── http-actions
+    │   │   └── index.rst
+    │   ├── load-data
+    │   │   ├── index.rst
+    │   ├── operation
+    │   │   ├── index.rst
+    ├── extending-doris
+    │   ├── index.rst
+    └── sql-reference
+        ├── index.rst
+        │   ├── date-time-functions
+        │   │   ├── index.rst
+```

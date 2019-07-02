@@ -41,7 +41,9 @@
 
     示例：
     
-    `curl -X GET -uuser:passwd http://fe_host:http_port/api/get_log_file?type=fe.audit.log&file=fe.audit.log.20190528.1`
+    ```
+    curl -X GET -uuser:passwd http://fe_host:http_port/api/get_log_file?type=fe.audit.log\&file=fe.audit.log.20190528.1
+    ```
     
     返回结果：
     

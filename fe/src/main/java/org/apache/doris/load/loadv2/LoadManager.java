@@ -66,16 +66,20 @@ import java.util.stream.Collectors;
 
 /**
  * The broker and mini load jobs(v2) are included in this class.
+ *
+ * The lock sequence:
+ * Database.lock
+ *   LoadManager.lock
+ *     LoadJob.lock
  */
 public class LoadManager implements Writable{
     private static final Logger LOG = LogManager.getLogger(LoadManager.class);
-    public static final String VERSION = "v2";
 
     private Map<Long, LoadJob> idToLoadJob = Maps.newConcurrentMap();
     private Map<Long, Map<String, List<LoadJob>>> dbIdToLabelToLoadJobs = Maps.newConcurrentMap();
     private LoadJobScheduler loadJobScheduler;
 
-    private ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
+    private ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
     public LoadManager(LoadJobScheduler loadJobScheduler) {
         this.loadJobScheduler = loadJobScheduler;
@@ -464,6 +468,12 @@ public class LoadManager implements Writable{
         return db;
     }
 
+    /**
+     * Please don't lock any load lock before check table
+     * @param database
+     * @param tableName
+     * @throws DdlException
+     */
     private void checkTable(Database database, String tableName) throws DdlException {
         database.readLock();
         try {

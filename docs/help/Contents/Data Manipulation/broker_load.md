@@ -38,6 +38,7 @@
             INTO TABLE `table_name`
             [PARTITION (p1, p2)]
             [COLUMNS TERMINATED BY "column_separator"]
+            [FORMAT AS "file_type"]
             [(column_list)]
             [SET (k1 = func(k2))]
     
@@ -61,6 +62,10 @@
             如果是不可见字符，则需要加\\x作为前缀，使用十六进制来表示分隔符。
             如hive文件的分隔符\x01，指定为"\\x01"
             
+            file_type：
+
+            用于指定导入文件的类型，例如：parquet、csv。默认值通过文件后缀名判断。 
+ 
             column_list：
 
             用于指定导入文件中的列和 table 中的列的对应关系。
@@ -346,5 +351,15 @@
         )
         WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password");
 
+     8. 导入Parquet文件中数据  指定FORMAT 为parquet， 默认是通过文件后缀判断
+        LOAD LABEL example_db.label9
+        (
+        DATA INFILE("hdfs://hdfs_host:hdfs_port/user/palo/data/input/file")
+        INTO TABLE `my_table`
+        FORMAT AS "parquet"
+        (k1, k2, k3)
+        )
+        WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password");
+     
 ## keyword
     BROKER LOAD

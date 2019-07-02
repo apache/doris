@@ -31,6 +31,7 @@ set(EXEC_FILES
     blocking_join_node.cpp
     broker_scan_node.cpp
     broker_reader.cpp
+    base_scanner.cpp
     broker_scanner.cpp
     cross_join_node.cpp
     data_sink.cpp
@@ -91,6 +92,8 @@ set(EXEC_FILES
     new_partitioned_aggregation_node_ir.cc
     local_file_writer.cpp
     broker_writer.cpp
+    parquet_scanner.cpp
+    parquet_reader.cpp
 )
 
 if (WITH_MYSQL)

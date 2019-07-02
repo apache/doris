@@ -25,6 +25,7 @@
 #include <mutex>
 #include <thread>
 
+#include "base_scanner.h"
 #include "common/status.h"
 #include "exec/scan_node.h"
 #include "gen_cpp/PaloInternalService_types.h"
@@ -34,7 +35,7 @@ namespace doris {
 class RuntimeState;
 class PartRangeKey;
 class PartitionInfo;
-class BrokerScanCounter;
+class ScannerCounter;
 
 class BrokerScanNode : public ScanNode {
 public:
@@ -85,17 +86,20 @@ private:
     // Create scanners to do scan job
     Status start_scanners();
 
-    // One scanner worker, This scanner will hanle 'length' ranges start from start_idx
+    // One scanner worker, This scanner will handle 'length' ranges start from start_idx
     void scanner_worker(int start_idx, int length);
 
     // Scan one range
     Status scanner_scan(const TBrokerScanRange& scan_range,
                         const std::vector<ExprContext*>& conjunct_ctxs,
                         const std::vector<ExprContext*>& partition_expr_ctxs,
-                        BrokerScanCounter* counter);
+                        ScannerCounter* counter);
 
     // Find partition id with PartRangeKey
     int64_t binary_find_partition_id(const PartRangeKey& key) const;
+
+    std::unique_ptr<BaseScanner> create_scanner(const TBrokerScanRange& scan_range,
+                                                     ScannerCounter* counter);
 
 private:
     TupleId _tuple_id;

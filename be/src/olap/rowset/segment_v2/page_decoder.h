@@ -17,8 +17,9 @@
 
 #pragma once
 
-#include "runtime/vectorized_row_batch.h"
-#include "common/status.h"
+#include "runtime/vectorized_row_batch.h" // for ColumnVectorView
+#include "olap/rowset/segment_v2/common.h" // for rowid_t
+#include "common/status.h" // for Status
 
 namespace doris {
 namespace segment_v2 {
@@ -69,9 +70,6 @@ public:
     // Return the position within the page of the currently seeked
     // entry (ie the entry that will next be returned by next_vector())
     virtual size_t current_index() const = 0;
-
-    // Return the first rowid stored in this page.
-    virtual rowid_t get_first_rowid() const = 0;
 
 private:
     DISALLOW_COPY_AND_ASSIGN(PageDecoder);

@@ -17,6 +17,12 @@
 
 package org.apache.doris.analysis;
 
+import com.google.common.base.Function;
+import com.google.common.base.Joiner;
+import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
@@ -28,14 +34,6 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TNetworkAddress;
-
-import com.google.common.base.Function;
-import com.google.common.base.Joiner;
-import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -125,7 +123,9 @@ public class DataDescription {
         return columnNames;
     }
 
-    public String getFileFormat() { return fileFormat; }
+    public String getFileFormat() {
+        return fileFormat;
+    }
 
     public String getColumnSeparator() {
         if (columnSeparator == null) {
@@ -155,7 +155,7 @@ public class DataDescription {
     }
 
     public void addColumnMapping(String functionName, Pair<String, List<String>> pair) {
-        
+
         if (Strings.isNullOrEmpty(functionName) || pair == null) {
             return;
         }
@@ -164,12 +164,12 @@ public class DataDescription {
         }
         columnToFunction.put(functionName, pair);
     }
-    
+
     public Map<String, Pair<String, List<String>>> getColumnMapping() {
         if (columnMappingList == null && columnToFunction == null) {
             return null;
         }
-        
+
         return columnToFunction;
     }
 
@@ -200,29 +200,29 @@ public class DataDescription {
             }
         }
     }
-    
+
     private void checkColumnMapping() throws AnalysisException {
         if (columnMappingList == null || columnMappingList.isEmpty()) {
             return;
         }
-        
+
         columnToFunction = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         parsedExprMap = Maps.newHashMap();
         for (Expr expr : columnMappingList) {
             if (!(expr instanceof BinaryPredicate)) {
                 throw new AnalysisException("Mapping function expr error. expr: " + expr.toSql());
             }
-            
+
             BinaryPredicate predicate = (BinaryPredicate) expr;
             if (predicate.getOp() != Operator.EQ) {
                 throw new AnalysisException("Mapping function operator error. op: " + predicate.getOp());
             }
-            
+
             Expr child0 = predicate.getChild(0);
             if (!(child0 instanceof SlotRef)) {
                 throw new AnalysisException("Mapping column error. column: " + child0.toSql());
             }
-            
+
             String column = ((SlotRef) child0).getColumnName();
             if (columnToFunction.containsKey(column)) {
                 throw new AnalysisException("Duplicate column mapping: " + column);
@@ -310,13 +310,13 @@ public class DataDescription {
         if (args.size() != 2) {
             throw new AnalysisException("Function alignment_timestamp args size is not 2");
         }
-        
+
         String precision = args.get(0).toLowerCase();
         String regex = "^year|month|day|hour$";
         if (!precision.matches(regex)) {
             throw new AnalysisException("Alignment precision error. regex: " + regex + ", arg: " + precision);
         }
-        
+
         String argColumn = args.get(1);
         if (!columnNameMap.containsKey(argColumn)) {
             throw new AnalysisException("Column is not in sources, column: " + argColumn);
@@ -324,19 +324,19 @@ public class DataDescription {
 
         args.set(1, columnNameMap.get(argColumn));
     }
-    
+
     private static void validateStrftime(List<String> args, Map<String, String> columnNameMap) throws
             AnalysisException {
         if (args.size() != 2) {
             throw new AnalysisException("Function strftime needs 2 args");
         }
-        
+
         String format = args.get(0);
         String regex = "^(%[YMmdHhiSs][ -:]?){0,5}%[YMmdHhiSs]$";
         if (!format.matches(regex)) {
             throw new AnalysisException("Date format error. regex: " + regex + ", arg: " + format);
         }
-        
+
         String argColumn = args.get(1);
         if (!columnNameMap.containsKey(argColumn)) {
             throw new AnalysisException("Column is not in sources, column: " + argColumn);
@@ -417,7 +417,7 @@ public class DataDescription {
             ColumnDef.validateDefaultValue(column.getOriginType(), replaceValue);
         }
     }
-    
+
     private static void validateHllHash(List<String> args, Map<String, String> columnNameMap) throws AnalysisException {
         for (int i = 0; i < args.size(); ++i) {
             String argColumn = args.get(i);

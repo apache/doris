@@ -23,6 +23,7 @@
 #include "olap/rowset/segment_v2/page_decoder.h" // for PagePointer
 #include "olap/rowset/segment_v2/page_handle.h" // for PageHandle
 #include "olap/rowset/segment_v2/page_pointer.h" // for PagePointer
+#include "olap/rowset/segment_v2/options.h" // for PageDecoderOptions
 #include "olap/types.h" // for TypeInfo
 #include "runtime/vectorized_row_batch.h" // for ColumnVectorView
 #include "util/coding.h" // for get_varint32
@@ -262,7 +263,6 @@ Status FileColumnIterator::next_batch(size_t* n, ColumnVector* dst, MemPool* mem
             }
 
             // set null bits to
-            remaining -= nrows_to_read;
             _page->offset_in_page += nrows_to_read;
             column_view.advance(nrows_to_read);
             _current_rowid += nrows_to_read;
@@ -319,7 +319,8 @@ Status FileColumnIterator::_read_page(const OrdinalPageIndexIterator& iter, Pars
     }
 
     // create page data decoder
-    RETURN_IF_ERROR(_reader->encoding_info()->create_page_decoder(data, &page->data_decoder));
+    PageDecoderOptions options;
+    RETURN_IF_ERROR(_reader->encoding_info()->create_page_decoder(data, options, &page->data_decoder));
     RETURN_IF_ERROR(page->data_decoder->init());
 
     page->offset_in_page = 0;

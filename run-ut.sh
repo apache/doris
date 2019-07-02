@@ -176,6 +176,7 @@ if [ -f ${DORIS_TEST_BINARY_DIR}/exec/plain_text_line_reader_lzop_test ];then
     ${DORIS_TEST_BINARY_DIR}/exec/plain_text_line_reader_lzop_test
 fi
 ${DORIS_TEST_BINARY_DIR}/exec/broker_scanner_test
+${DORIS_TEST_BINARY_DIR}/exec/parquet_scanner_test
 ${DORIS_TEST_BINARY_DIR}/exec/broker_scan_node_test
 ${DORIS_TEST_BINARY_DIR}/exec/es_scan_node_test
 ${DORIS_TEST_BINARY_DIR}/exec/es_http_scan_node_test
@@ -236,12 +237,13 @@ ${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/bitshuffle_page_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/plain_page_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/binary_plain_page_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/column_reader_writer_test
+${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/rle_page_test
 
 # Running routine load test
 ${DORIS_TEST_BINARY_DIR}/runtime/kafka_consumer_pipe_test
 ${DORIS_TEST_BINARY_DIR}/runtime/routine_load_task_executor_test
 
-## Running agent unittest
+# Running agent unittest
 # Prepare agent testdata
 if [ -d ${DORIS_TEST_BINARY_DIR}/agent/test_data ]; then
     rm -rf ${DORIS_TEST_BINARY_DIR}/agent/test_data
