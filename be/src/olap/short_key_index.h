@@ -77,7 +77,7 @@ private:
     faststring _header_buf;
     faststring _index_buf;
 
-    // NOTE: most of these two fields are useless.
+    // NOTE: most of this field is useless.
     // put here just for compatible. I will remove this one day
     // only used to compatible with old version
     IndexFileHeaderV1 _header;
@@ -120,6 +120,11 @@ public:
     inline void seek_to(const RowCursor& key) {
         auto offset = _index->find(key, &_helper, false);
         if (offset.offset > 0) {
+            // The logic of MemIndex sarch is that it will find segment first
+            // and then find item in the segment. Then if it can't not find
+            // valid key in the segment, it will return with offset.offset
+            // set to the segment's num_items, which is not a valid offset.
+            // So we need to normalize it to a valid offset.
             offset.offset -= 1;
             offset = _index->next(offset);
         }
@@ -131,6 +136,7 @@ public:
     inline void seek_after(const RowCursor& key) {
         auto offset = _index->find(key, &_helper, true);
         if (offset.offset > 0) {
+            // Same with seek_to's logic
             offset.offset -= 1;
             offset = _index->next(offset);
         }

@@ -53,7 +53,7 @@ Status ShortKeyIndexBuilder::add_item(const RowCursor& short_key, uint32_t block
 
 Status ShortKeyIndexBuilder::finalize(uint32_t data_length,
                                       uint32_t num_rows,
-                                      std::vector<Slice>* Slices) {
+                                      std::vector<Slice>* slices) {
     // extra fixed part
     _header.mutable_extra()->data_length = data_length;
     _header.mutable_extra()->num_rows = num_rows;
@@ -97,8 +97,8 @@ Status ShortKeyIndexBuilder::finalize(uint32_t data_length,
 
     memcpy(ptr, proto_string.data(), proto_string.size());
 
-    Slices->emplace_back(_header_buf);
-    Slices->emplace_back(_index_buf);
+    slices->emplace_back(_header_buf);
+    slices->emplace_back(_index_buf);
     return Status::OK();
 }
 
