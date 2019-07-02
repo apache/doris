@@ -51,6 +51,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -111,7 +112,7 @@ public class Database extends MetaObject implements Writable {
             this.fullQualifiedName = "";
         }
         this.rwLock = new ReentrantReadWriteLock(true);
-        this.idToTable = new HashMap<Long, Table>();
+        this.idToTable = new ConcurrentHashMap<>();
         this.nameToTable = new HashMap<String, Table>();
         this.dataQuotaBytes = FeConstants.default_db_data_quota_bytes;
         this.dbState = DbState.NORMAL;
@@ -333,6 +334,11 @@ public class Database extends MetaObject implements Writable {
         return null;
     }
 
+    /**
+     * This is a thread-safe method when idToTable is a concurrent hash map
+     * @param tableId
+     * @return
+     */
     public Table getTable(long tableId) {
         return idToTable.get(tableId);
     }
