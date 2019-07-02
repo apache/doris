@@ -64,16 +64,13 @@ public class InsertLoadJob extends LoadJob {
         if (database == null) {
             throw new MetaNotFoundException("Database " + dbId + "has been deleted");
         }
-        database.readLock();
-        try {
-            Table table = database.getTable(tableId);
-            if (table == null) {
-                throw new MetaNotFoundException("Failed to find table " + tableId + " in db " + dbId);
-            }
-            return new HashSet<>(Arrays.asList(table.getName()));
-        } finally {
-            database.readUnlock();
+        // The database will not be locked in here.
+        // The getTable is a thread-safe method called without read lock of database
+        Table table = database.getTable(tableId);
+        if (table == null) {
+            throw new MetaNotFoundException("Failed to find table " + tableId + " in db " + dbId);
         }
+        return new HashSet<>(Arrays.asList(table.getName()));
     }
 
     @Override
