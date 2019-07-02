@@ -69,7 +69,7 @@ public:
     static void percentile_init(doris_udf::FunctionContext* ctx, doris_udf::StringVal* dst);
 
     template <typename T>
-    static void percentile_update(FunctionContext* ctx, const T& src, const StringVal* dst);
+    static void percentile_update(FunctionContext* ctx, const T& src, const DoubleVal& quantile, StringVal* dst);
 
     static void percentile_merge(FunctionContext* ctx, const StringVal& src,
                                               StringVal* dst);
