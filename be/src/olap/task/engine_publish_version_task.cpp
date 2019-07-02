@@ -95,7 +95,7 @@ OLAPStatus EnginePublishVersionTask::finish() {
             }
             // add visible rowset to tablet
             publish_status = tablet->add_inc_rowset(rowset);
-            if (publish_status != OLAP_SUCCESS) {
+            if (publish_status != OLAP_SUCCESS && publish_status != OLAP_ERR_PUSH_VERSION_ALREADY_EXIST) {
                 LOG(WARNING) << "add visible rowset to tablet failed rowset_id:" << rowset->rowset_id()
                              << "tablet id: " << tablet_info.tablet_id
                              << "txn id:" << transaction_id
@@ -104,7 +104,7 @@ OLAPStatus EnginePublishVersionTask::finish() {
                 res = publish_status;
                 continue;
             }
-            if (publish_status == OLAP_SUCCESS) {
+            if (publish_status == OLAP_SUCCESS || publish_status == OLAP_ERR_PUSH_VERSION_ALREADY_EXIST) {
                 LOG(INFO) << "publish version successfully on tablet. tablet=" << tablet->full_name()
                           << ", transaction_id=" << transaction_id << ", version=" << version.first;
                 // delete rowset from meta env, because add inc rowset alreay saved the rowset meta to tablet meta
