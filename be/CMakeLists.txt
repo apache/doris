@@ -23,7 +23,7 @@ if (DEFINED ENV{DORIS_GCC_HOME})
     set(CMAKE_CXX_COMPILER "$ENV{DORIS_GCC_HOME}/bin/g++")
     set(GCC_HOME $ENV{DORIS_GCC_HOME})
 else()
-    message(FATAL_ERROR "DORIS_GCC_HOME environment variable is not set")
+    #message(FATAL_ERROR "DORIS_GCC_HOME environment variable is not set")
 endif()
 
 project(doris CXX C)
@@ -66,7 +66,7 @@ if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
         message(FATAL_ERROR "Need GCC version at least 4.8.2")
     endif()
 else()
-    message(FATAL_ERROR "Compiler should be GNU")
+    #message(FATAL_ERROR "Compiler should be GNU")
 endif()
 
 set(PIC_LIB_PATH "${THIRDPARTY_DIR}")
@@ -93,7 +93,7 @@ message(STATUS "build gensrc if necessary")
 execute_process(COMMAND make -C ${BASE_DIR}/../gensrc/
                 RESULT_VARIABLE MAKE_GENSRC_RESULT)
 if(NOT ${MAKE_GENSRC_RESULT} EQUAL 0)
-    message(FATAL_ERROR "Failed to build ${BASE_DIR}/../gensrc/")
+    #message(FATAL_ERROR "Failed to build ${BASE_DIR}/../gensrc/")
 endif()
 
 # Set Boost
@@ -216,7 +216,7 @@ set_target_properties(librdkafka PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/
 add_library(libs2 STATIC IMPORTED)
 set_target_properties(libs2 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libs2.a)
 
-add_library(bitshuffle STATIC IMPORTED)
+add_library(bitshuffle STATIC IMPORTED test/exprs/percentile_approx_test.cpp)
 set_target_properties(bitshuffle PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libbitshuffle.a)
 
 add_library(roaring STATIC IMPORTED)
@@ -232,7 +232,7 @@ find_program(LLVM_CONFIG_EXECUTABLE llvm-config
 )
 
 if (NOT LLVM_CONFIG_EXECUTABLE)
-  message(FATAL_ERROR "Could not find llvm-config")
+  #message(FATAL_ERROR "Could not find llvm-config")
 endif (NOT LLVM_CONFIG_EXECUTABLE)
 
 # clang++
@@ -243,7 +243,7 @@ find_program(LLVM_CLANG_EXECUTABLE clang++
 )
 
 if (NOT LLVM_CLANG_EXECUTABLE)
-  message(FATAL_ERROR "Could not find clang++")
+  #message(FATAL_ERROR "Could not find clang++")
 endif (NOT LLVM_CLANG_EXECUTABLE)
 
 # opt
@@ -254,7 +254,7 @@ find_program(LLVM_OPT_EXECUTABLE opt
 )
 
 if (NOT LLVM_OPT_EXECUTABLE)
-  message(FATAL_ERROR "Could not find llvm opt")
+  #message(FATAL_ERROR "Could not find llvm opt")
 endif (NOT LLVM_OPT_EXECUTABLE)
 
 message(STATUS "LLVM llvm-config found at: ${LLVM_CONFIG_EXECUTABLE}")
@@ -412,7 +412,7 @@ message(STATUS "CLANG_IR_CXX_FLAGS: ${CLANG_IR_CXX_FLAGS}")
 
 # CMake really doesn't like adding link directories and wants absolute paths
 # Reconstruct it with LLVM_MODULE_LIBS and LLVM_LIBRARY_DIR
-string(REPLACE " " ";" LLVM_LIBS_LIST ${LLVM_MODULE_LIBS})
+#string(REPLACE " " ";" LLVM_LIBS_LIST ${LLVM_MODULE_LIBS})
 set (LLVM_MODULE_LIBS "")
 foreach (LIB ${LLVM_LIBS_LIST})
   set(LLVM_MODULE_LIBS ${LLVM_MODULE_LIBS} "${LLVM_LIBRARY_DIR}/${LIB}")

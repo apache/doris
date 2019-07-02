@@ -193,11 +193,7 @@ struct DecimalV2AvgState {
     int64_t count;
 };
 
-struct PercentileState {
-public:
-    TDigest* digest;
-    double targetQuantile = -1.0;
-};
+
 
 void AggregateFunctions::avg_init(FunctionContext* ctx, StringVal* dst) {
     dst->is_null = false;
@@ -206,15 +202,7 @@ void AggregateFunctions::avg_init(FunctionContext* ctx, StringVal* dst) {
     memset(dst->ptr, 0, sizeof(AvgState));
 }
 
-void AggregateFunctions::percentile_init(FunctionContext* ctx, StringVal* dst) {
-    dst->is_null = false;
-    dst->len = sizeof(PercentileState);
-    dst->ptr = ctx->allocate(dst->len);
-    
-    PercentileState* percentile = reinterpret_cast<PercentileState*>(dst->ptr);
-    percentile->targetQuantile = -1.0;
-    percentile->digest = new TDigest(1000);
-}
+
 
 void AggregateFunctions::decimal_avg_init(FunctionContext* ctx, StringVal* dst) {
     dst->is_null = false;
@@ -249,28 +237,78 @@ void AggregateFunctions::avg_update(FunctionContext* ctx, const T& src, StringVa
     ++avg->count;
 }
 
+struct PercentileState {
+public:
+    TDigest *digest;
+    double targetQuantile = -1.0;
+};
+
+void AggregateFunctions::percentile_init(FunctionContext* ctx, StringVal* dst) {
+    dst->is_null = false;
+    dst->len = sizeof(PercentileState);
+    dst->ptr = ctx->allocate(dst->len);
+
+    PercentileState *percentile = reinterpret_cast<PercentileState *>(dst->ptr);
+    percentile->targetQuantile = -1.0;
+    percentile->digest = new TDigest(1000);
+};
 template<typename T>
 void AggregateFunctions::percentile_update(FunctionContext* ctx, const T& src, const DoubleVal& quantile, StringVal* dst) {
     if (src.is_null) {
         std::cout<<"percentile_update src is null : " << std::endl;
         return;
     }
-    std::cout<<"percentile_update value : " << src.val << std::endl;
-    std::cout<<"percentile_update qualtile : " << quantile.val << std::endl;
 
     // add value to TDigest
     auto intermediate = reinterpret_cast<PercentileState*>(dst->ptr);
     intermediate->digest->add(src.val);
     intermediate->targetQuantile = quantile.val;
-
-    PercentileState* ps = reinterpret_cast<PercentileState*>(dst->ptr);
-    std::cout<<"percentile_update qualtile 0.99: " << ps->digest->quantile(0.99)<< std::endl;
-    /*
-    if (intermediate->targetQuantile == -1.0) {
-        intermediate->targetQuantile = checkQuantileArg(context, quantile);
-    }
-     */
 }
+
+StringVal AggregateFunctions::percentile_serialize(FunctionContext* ctx, const StringVal& state_sv) {
+    DCHECK(!state_sv.is_null);
+    PercentileState *state = reinterpret_cast<PercentileState *>(state_sv.ptr);
+    StringVal result = state->digest->serialize(ctx);
+    // release original object
+    //MultiDistinctStringCountState::destory(state_sv);
+    return result;
+}
+
+void AggregateFunctions::percentile_merge(FunctionContext* ctx, const StringVal& src,
+                                              StringVal* dst) {
+    DCHECK(dst->ptr != NULL);
+    DCHECK_EQ(sizeof(PercentileState), dst->len);
+
+    PercentileState *src_percentile_state = new PercentileState();
+
+    src_percentile_state->targetQuantile = 0.9;
+    src_percentile_state->digest = new TDigest(1000);
+    src_percentile_state->digest->unserialize(src);
+
+    auto dst_intermediate = reinterpret_cast<PercentileState*>(dst->ptr);
+    dst_intermediate->digest->merge(src_percentile_state->digest);
+    dst_intermediate->targetQuantile = src_percentile_state->targetQuantile;
+}
+
+DoubleVal AggregateFunctions::percentile_finalize(FunctionContext* ctx, const StringVal& src) {
+    // get user-provided quantile param: would be the way to go, but does not work in Finalize for some reason
+    //  auto quantileParam = reinterpret_cast<DoubleVal*>(context->GetConstantArg(1));
+    // retrieve approx percentile from Intermediate
+    auto intermediate = reinterpret_cast<PercentileState *>(src.ptr);
+    double quantile = intermediate->targetQuantile;
+    double result = intermediate->digest->quantile(quantile);
+
+    //std::stringstream precisionValue;
+    //precisionValue<< std::fixed << std::setprecision(10) << result;
+    //precisionValue >> result;
+
+    // delete the tdigest and return result
+    delete intermediate;
+    return DoubleVal(result);
+}
+
+
+
 
 void AggregateFunctions::decimal_avg_update(FunctionContext* ctx,
         const DecimalVal& src,
@@ -365,21 +403,6 @@ void AggregateFunctions::decimalv2_avg_remove(doris_udf::FunctionContext* ctx,
     DCHECK_GE(avg->count, 0);
 }
 
-void AggregateFunctions::percentile_merge(FunctionContext* ctx, const StringVal& src,
-                                       StringVal* dst) {
-    DCHECK(dst->ptr != NULL);
-    DCHECK_EQ(sizeof(PercentileState), dst->len);
-
-    PercentileState* src_percentile_state = new PercentileState();
-    src_percentile_state->targetQuantile = 0.9;
-    src_percentile_state->digests = new TDigest(1000);
-    src_percentile_state->digests->unserialize(src);
-   
-    dst_percentile_state->digest->merge(src_percentile_state->digest);
-    dst_percentile_state->targetQuantile = src_percentile_state->targetQuantile;
-    return;
-}
-
 void AggregateFunctions::avg_merge(FunctionContext* ctx, const StringVal& src,
         StringVal* dst) {
     const AvgState* src_struct = reinterpret_cast<const AvgState*>(src.ptr);
@@ -452,22 +475,7 @@ DecimalV2Val AggregateFunctions::decimalv2_avg_get_value(FunctionContext* ctx, c
     return res;
 }
 
-DoubleVal AggregateFunctions::percentile_finalize(FunctionContext* ctx, const StringVal& src) {
-    // get user-provided quantile param: would be the way to go, but does not work in Finalize for some reason
-    //  auto quantileParam = reinterpret_cast<DoubleVal*>(context->GetConstantArg(1));
-    // retrieve approx percentile from Intermediate
-    auto intermediate = reinterpret_cast<PercentileState*>(src.ptr);
-    double quantile = intermediate->targetQuantile;
-    double result = intermediate->digest->quantile(quantile);
 
-    //std::stringstream precisionValue;
-    //precisionValue<< std::fixed << std::setprecision(10) << result;
-    //precisionValue >> result;
-
-    // delete the tdigest and return result
-    delete intermediate;
-    return DoubleVal(result);
-}
 
 DoubleVal AggregateFunctions::avg_finalize(FunctionContext* ctx, const StringVal& src) {
     if (src.is_null) {

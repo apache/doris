@@ -74,6 +74,7 @@ public:
     static void percentile_merge(FunctionContext* ctx, const StringVal& src,
                                               StringVal* dst);
     static DoubleVal percentile_finalize(FunctionContext* ctx, const StringVal& src);
+    static StringVal percentile_serialize(FunctionContext* ctx, const StringVal& state_sv);
 
     // Implementation of Avg.
     // TODO: Change this to use a fixed-sized BufferVal as intermediate type.
