@@ -27,6 +27,7 @@ import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 
+import com.google.common.base.Preconditions;
 import org.apache.commons.lang.time.DateFormatUtils;
 import org.apache.commons.lang.time.DateUtils;
 import org.apache.logging.log4j.LogManager;
@@ -665,5 +666,15 @@ public class FEFunctions {
 
         BigDecimal result = left.divide(right);
         return new DecimalLiteral(result);
+    }
+
+    @FEFunction(name = "concat", argTypes = { "VARCHAR"}, returnType = "VARCHAR")
+    public static StringLiteral concat(StringLiteral ... values) throws AnalysisException {
+        Preconditions.checkArgument(values.length > 0);
+        final StringBuilder resultBuilder = new StringBuilder();
+        for (StringLiteral value : values) {
+            resultBuilder.append(value.getStringValue());
+        }
+        return new StringLiteral(resultBuilder.toString());
     }
 }

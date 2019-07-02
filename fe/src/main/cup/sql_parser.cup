@@ -2542,7 +2542,7 @@ option_value_follow_option_type ::=
 
 option_value_no_option_type ::=
     /* Normal set value */
-    variable_name:variable equal set_expr_or_default:expr
+    variable_name:variable equal expr:expr
     {:
         RESULT = new SetVar(variable, expr);
     :}

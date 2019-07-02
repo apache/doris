@@ -90,11 +90,9 @@ public enum ExpressionFunctions {
 
     private FEFunctionInvoker getFunction(FEFunctionSignature signature) {
         Collection<FEFunctionInvoker> functionInvokers = functions.get(signature.getName());
-
         if (functionInvokers == null) {
             return null;
         }
-
         for (FEFunctionInvoker invoker : functionInvokers) {
             if (!invoker.getSignature().returnType.equals(signature.getReturnType())) {
                 continue;
@@ -162,12 +160,51 @@ public enum ExpressionFunctions {
             return signature;
         }
 
+        // Now we only support functions which contain only one variable-length arg or fixed-length args 
+        // which does't contain any arrays.
         public LiteralExpr invoke(List<Expr> args) throws AnalysisException {
+            boolean isArray = false;
+            for (Class<?> argType : method.getParameterTypes()) {
+                if (argType.isArray()) {
+                    Preconditions.checkArgument(method.getParameterTypes().length == 1);
+                    isArray = true;
+                }
+            }
             try {
-                return (LiteralExpr) method.invoke(null, args.toArray());
+                if (!isArray) {
+                    return invokeFixedVariableLengthArgsMethod(args);
+                } else {
+                    return invokeVariableLengthArgsMethod(args);
+                }
             } catch (InvocationTargetException | IllegalAccessException | IllegalArgumentException e) {
                 throw new AnalysisException(e.getLocalizedMessage(), e);
             }
+        }
+
+        public LiteralExpr invokeFixedVariableLengthArgsMethod(List<Expr> args) throws InvocationTargetException, IllegalAccessException {
+            return (LiteralExpr) method.invoke(null, args.toArray());
+        }
+
+        public LiteralExpr invokeVariableLengthArgsMethod(List<Expr> args) throws InvocationTargetException, IllegalAccessException {
+            final ScalarType argType = signature.getArgTypes()[0];
+            LiteralExpr[] exprs = null;
+            if (argType.isStringType()) {
+                exprs = new StringLiteral[args.size()];
+            } else if (argType.isFixedPointType()) {
+                exprs = new IntLiteral[args.size()];
+            } else if (argType.isDateType()) {
+                exprs = new DateLiteral[args.size()];
+            } else if (argType.isDecimal()) {
+                exprs = new DecimalLiteral[args.size()];
+            } else if (argType.isFloatingPointType()) {
+                exprs = new FloatLiteral[args.size()];
+            } else if (argType.isBoolean()) {
+                exprs = new BoolLiteral[args.size()];
+            } else {
+                Preconditions.checkArgument(false, "Doris does't support type:" + argType);
+            }
+            args.toArray(exprs);
+            return (LiteralExpr) method.invoke(null, new Object[]{exprs});
         }
     }
 
