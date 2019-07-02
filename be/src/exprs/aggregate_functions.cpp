@@ -22,6 +22,7 @@
 #include <sstream>
 #include <unordered_set>
 #include <util/tdigest.h>
+#include <iomanip>
 
 #include "common/logging.h"
 #include "runtime/string_value.h"
@@ -194,7 +195,7 @@ struct DecimalV2AvgState {
 
 struct PercentileState {
 public:
-    TDigest digest {1000};
+    TDigest* digest;
     double targetQuantile = -1.0;
 };
 
@@ -206,10 +207,13 @@ void AggregateFunctions::avg_init(FunctionContext* ctx, StringVal* dst) {
 }
 
 void AggregateFunctions::percentile_init(FunctionContext* ctx, StringVal* dst) {
-    auto intermediate = new PercentileState();
     dst->is_null = false;
     dst->len = sizeof(PercentileState);
-    dst->ptr = (uint8_t*) intermediate;
+    dst->ptr = ctx->allocate(dst->len);
+    
+    PercentileState* percentile = reinterpret_cast<PercentileState*>(dst->ptr);
+    percentile->targetQuantile = -1.0;
+    percentile->digest = new TDigest(1000);
 }
 
 void AggregateFunctions::decimal_avg_init(FunctionContext* ctx, StringVal* dst) {
@@ -246,14 +250,21 @@ void AggregateFunctions::avg_update(FunctionContext* ctx, const T& src, StringVa
 }
 
 template<typename T>
-void AggregateFunctions::percentile_update(FunctionContext* ctx, const T& src, const DoubleVal& quantile, const StringVal* dst) {
+void AggregateFunctions::percentile_update(FunctionContext* ctx, const T& src, const DoubleVal& quantile, StringVal* dst) {
     if (src.is_null) {
+        std::cout<<"percentile_update src is null : " << std::endl;
         return;
     }
+    std::cout<<"percentile_update value : " << src.val << std::endl;
+    std::cout<<"percentile_update qualtile : " << quantile.val << std::endl;
+
     // add value to TDigest
     auto intermediate = reinterpret_cast<PercentileState*>(dst->ptr);
-    intermediate->digest.add(src.val);
+    intermediate->digest->add(src.val);
     intermediate->targetQuantile = quantile.val;
+
+    PercentileState* ps = reinterpret_cast<PercentileState*>(dst->ptr);
+    std::cout<<"percentile_update qualtile 0.99: " << ps->digest->quantile(0.99)<< std::endl;
     /*
     if (intermediate->targetQuantile == -1.0) {
         intermediate->targetQuantile = checkQuantileArg(context, quantile);
@@ -356,15 +367,17 @@ void AggregateFunctions::decimalv2_avg_remove(doris_udf::FunctionContext* ctx,
 
 void AggregateFunctions::percentile_merge(FunctionContext* ctx, const StringVal& src,
                                        StringVal* dst) {
-    if (src.is_null) {
-        return;
-    }
-    auto src_percentile_state = reinterpret_cast<PercentileState*>(src.ptr);
+    DCHECK(dst->ptr != NULL);
+    DCHECK_EQ(sizeof(PercentileState), dst->len);
 
-    // merge into destination Intermediate
-    auto dst_percentile_state = reinterpret_cast<PercentileState*>(dst->ptr);
-    dst_percentile_state->digest.merge(&src_percentile_state->digest);
+    PercentileState* src_percentile_state = new PercentileState();
+    src_percentile_state->targetQuantile = 0.9;
+    src_percentile_state->digests = new TDigest(1000);
+    src_percentile_state->digests->unserialize(src);
+   
+    dst_percentile_state->digest->merge(src_percentile_state->digest);
     dst_percentile_state->targetQuantile = src_percentile_state->targetQuantile;
+    return;
 }
 
 void AggregateFunctions::avg_merge(FunctionContext* ctx, const StringVal& src,
@@ -445,7 +458,11 @@ DoubleVal AggregateFunctions::percentile_finalize(FunctionContext* ctx, const St
     // retrieve approx percentile from Intermediate
     auto intermediate = reinterpret_cast<PercentileState*>(src.ptr);
     double quantile = intermediate->targetQuantile;
-    double result = intermediate->digest.quantile(quantile);
+    double result = intermediate->digest->quantile(quantile);
+
+    //std::stringstream precisionValue;
+    //precisionValue<< std::fixed << std::setprecision(10) << result;
+    //precisionValue >> result;
 
     // delete the tdigest and return result
     delete intermediate;
@@ -2788,4 +2805,10 @@ template void AggregateFunctions::offset_fn_update<DecimalVal>(
 template void AggregateFunctions::offset_fn_update<DecimalV2Val>(
     FunctionContext*, const DecimalV2Val& src, const BigIntVal&, const DecimalV2Val&,
     DecimalV2Val* dst);
+
+template void AggregateFunctions::percentile_update<doris_udf::IntVal>(
+    FunctionContext* ctx, const doris_udf::IntVal&, const doris_udf::DoubleVal&, doris_udf::StringVal*);
+template void AggregateFunctions::percentile_update<doris_udf::BigIntVal>(
+    FunctionContext* ctx, const doris_udf::BigIntVal&, const doris_udf::DoubleVal&, doris_udf::StringVal*);
+
 }

@@ -18,6 +18,7 @@
 #ifndef TDIGEST2_TDIGEST_H_
 #define TDIGEST2_TDIGEST_H_
 
+#include <iostream>
 #include <algorithm>
 #include <cfloat>
 #include <cmath>
@@ -186,6 +187,7 @@ namespace doris {
                     pq.push((*iter));
                 }
                 std::vector<const TDigest*> batch;
+                std::cout<< "reserve size " << size << std::endl;
                 batch.reserve(size);
 
                 size_t totalSize = 0;
