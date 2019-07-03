@@ -297,7 +297,6 @@ AgentStatus EngineCloneTask::_clone_copy(
         bool* allow_incremental_clone, 
         TabletSharedPtr tablet) {
     AgentStatus status = DORIS_SUCCESS;
-
     std::string token = _master_info.token;
     for (auto src_backend : clone_req.src_backends) {
         stringstream http_host_stream;
@@ -371,6 +370,9 @@ AgentStatus EngineCloneTask::_clone_copy(
         // Check local path exist, if exist, remove it, then create the dir
         // local_file_full_path = tabletid/clone， for a specific tablet, there should be only one folder
         // if this folder exists, then should remove it
+        // for example, BE clone from BE 1 to download file 1 with version (2,2), but clone from BE 1 failed
+        // then it will try to clone from BE 2, but it will find the file 1 already exist, but file 1 with same
+        // name may have different versions.
         if (status == DORIS_SUCCESS) {
             boost::filesystem::path local_file_full_dir(local_file_full_path);
             if (boost::filesystem::exists(local_file_full_dir)) {
@@ -597,7 +599,7 @@ OLAPStatus EngineCloneTask::_convert_to_new_snapshot(DataDir& data_dir, const st
         files_to_delete.push_back(full_file_path);
     }
     // remove all files
-    remove_files(files_to_delete);
+    RETURN_NOT_OK(remove_files(files_to_delete));
 
     res = TabletMeta::save(cloned_meta_file, tablet_meta_pb);
     if (res != OLAP_SUCCESS) {

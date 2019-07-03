@@ -382,7 +382,7 @@ OLAPStatus create_dirs(const std::string& path);
 
 OLAPStatus copy_dir(const std::string &src_dir, const std::string &dst_dir);
 
-void remove_files(const std::vector<std::string>& files);
+OLAPStatus remove_files(const std::vector<std::string>& files);
 
 OLAPStatus remove_dir(const std::string& path);
 
