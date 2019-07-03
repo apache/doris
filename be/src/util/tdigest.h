@@ -391,6 +391,12 @@ namespace doris {
         }
 
         doris_udf::StringVal serialize(FunctionContext* ctx) {
+            std::cout<< compression_<< std::endl;
+            std::cout<< min_ << std::endl;
+            std::cout << max_ << std::endl;
+            std::cout << maxProcessed_ << std::endl;
+            std::cout << maxUnprocessed_ << std::endl;
+
             int serialized_set_length =
                     sizeof(Value) * 5 + sizeof(Index) * 2 + sizeof(size_t) * 3
                     + processed_.size() * sizeof(Centroid)
@@ -414,23 +420,32 @@ namespace doris {
             writer += sizeof(Value);
             memcpy(writer, &unprocessedWeight_, sizeof(Value));
             writer += sizeof(Value);
+            
+            std::cout << processedWeight_ << std::endl;
+            std::cout << unprocessedWeight_ << std::endl;
 
-            size_t size = processed_.size();
-            memcpy(writer, &size, sizeof(size_t));
+            uint32_t size = processed_.size();
+            std::cout << "process "<<size << std::endl;
+            memcpy(writer, &size, sizeof(uint32_t));
+            writer += sizeof(uint32_t);
             for (int i = 0 ;i < size ;i ++) {
                 memcpy(writer, &processed_[i], sizeof(Centroid));
                 writer += sizeof(Centroid);
             }
 
             size = unprocessed_.size();
-            memcpy(writer, &size, sizeof(size_t));
+            std::cout << "unprocess "<<size << std::endl;
+            memcpy(writer, &size, sizeof(uint32_t));
+            writer += sizeof(uint32_t);
             for (int i = 0 ;i < size ;i ++) {
                 memcpy(writer, &unprocessed_[i], sizeof(Centroid));
                 writer += sizeof(Centroid);
             }
 
             size = cumulative_.size();
-            memcpy(writer, &size, sizeof(size_t));
+            std::cout << "cumu "<<size << std::endl;
+            memcpy(writer, &size, sizeof(uint32_t));
+            writer += sizeof(uint32_t);
             for (int i = 0 ;i < size ;i ++) {
                 memcpy(writer, &cumulative_[i], sizeof(Weight));
                 writer += sizeof(Weight);
@@ -439,14 +454,19 @@ namespace doris {
         }
 
         void unserialize(const StringVal& src) {
+            std::cout<<"unserialize"<<std::endl;
             const uint8_t* type_reader = src.ptr;
 
             memcpy(&compression_, type_reader, sizeof(Value));
+            std::cout<< compression_<< std::endl;
             type_reader += sizeof(Value);
             memcpy(&min_, type_reader, sizeof(Value));
             type_reader += sizeof(Value);
             memcpy(&max_, type_reader, sizeof(Value));
             type_reader += sizeof(Value);
+            std::cout<< min_ << std::endl;
+            std::cout << max_ << std::endl;
+            
             memcpy(&maxProcessed_, type_reader, sizeof(Index));
             type_reader += sizeof(Index);
             memcpy(&maxUnprocessed_, type_reader, sizeof(Index));
@@ -455,22 +475,41 @@ namespace doris {
             type_reader += sizeof(Value);
             memcpy(&unprocessedWeight_, type_reader, sizeof(Value));
             type_reader += sizeof(Value);
+            
+            std::cout << maxProcessed_ << std::endl;
+            std::cout << maxUnprocessed_ << std::endl;
+            std::cout << processedWeight_ << std::endl;
+            std::cout << unprocessedWeight_ << std::endl;
 
-            size_t size;
-            memcpy(&size, type_reader, sizeof(size_t));
+            uint32_t size;
+            memcpy(&size, type_reader, sizeof(uint32_t));
+            type_reader += sizeof(uint32_t);
+            std::cout << "process "<<size << std::endl;
+            processed_.resize(size);
             for (int i = 0 ;i < size ;i ++) {
                 memcpy(&processed_[i], type_reader, sizeof(Centroid));
                 type_reader += sizeof(Centroid);
+                std::cout<< processed_[i].mean() << std::endl;
+                std::cout<< processed_[i].weight() << std::endl;
             }
-            memcpy(&size, type_reader, sizeof(size_t));
+            memcpy(&size, type_reader, sizeof(uint32_t));
+            type_reader += sizeof(uint32_t);
+            std::cout <<"unprocess "<< size << std::endl;
+            unprocessed_.resize(size);
             for (int i = 0 ;i < size ;i ++) {
                 memcpy(&unprocessed_[i], type_reader, sizeof(Centroid));
                 type_reader += sizeof(Centroid);
+                std::cout<< unprocessed_[i].mean() << std::endl;
+                std::cout<< unprocessed_[i].weight() << std::endl;
             }
-            memcpy(&size, type_reader, sizeof(size_t));
+            memcpy(&size, type_reader, sizeof(uint32_t));
+            type_reader += sizeof(uint32_t);
+            std::cout<<"cumu " << size << std::endl;
+            cumulative_.resize(size);
             for (int i = 0 ;i < size ;i ++) {
                 memcpy(&cumulative_[i], type_reader, sizeof(Weight));
                 type_reader += sizeof(Weight);
+                std::cout<<cumulative_[i] << std::endl;
             }
         }
 
