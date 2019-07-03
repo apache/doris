@@ -131,7 +131,7 @@ OLAPStatus AlphaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
         _cur_segment_group->set_num_segments(segment_group->num_segments());
         _cur_segment_group->add_zone_maps_for_linked_schema_change(segment_group->get_zone_maps());
         RETURN_NOT_OK(flush());
-        _num_rows_written += alpha_rowset->num_rows();
+        _num_rows_written += segment_group->num_rows();
     }
     return OLAP_SUCCESS;
 }
