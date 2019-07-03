@@ -124,10 +124,12 @@ public class RollupHandler extends AlterHandler {
         // 3 check if rollup columns are valid
         // a. all columns should exist in base rollup schema
         // b. value after key
+        // c. if rollup contains REPLACE column, all keys on base index should be included.
         List<Column> rollupSchema = new ArrayList<Column>();
         // check (a)(b)
         boolean meetValue = false;
         boolean hasKey = false;
+        boolean meetReplaceValue = false;
         KeysType keysType = olapTable.getKeysType();
         if (KeysType.UNIQUE_KEYS == keysType || KeysType.AGG_KEYS == keysType) {
             int keysNumOfRollup = 0;
@@ -144,6 +146,9 @@ public class RollupHandler extends AlterHandler {
                     hasKey = true;
                 } else {
                     meetValue = true;
+                    if (oneColumn.getAggregationType() == AggregateType.REPLACE) {
+                        meetReplaceValue = true;
+                    }
                 }
                 rollupSchema.add(oneColumn);
             }
@@ -152,11 +157,16 @@ public class RollupHandler extends AlterHandler {
                 throw new DdlException("No key column is found");
             }
             
-            if (KeysType.UNIQUE_KEYS == keysType) {
-                // rollup of unique key table should have all keys of basetable
+            if (KeysType.UNIQUE_KEYS == keysType || meetReplaceValue) {
+                // rollup of unique key table or rollup with REPLACE value
+                // should have all keys of base table
                 if (keysNumOfRollup !=  olapTable.getKeysNum()) {
-                    throw new DdlException("rollup should contains all unique keys in basetable");
-                }       
+                    if (KeysType.UNIQUE_KEYS == keysType) {
+                        throw new DdlException("Rollup should contains all unique keys in basetable");
+                    } else {
+                        throw new DdlException("Rollup should contains all keys if there is a REPLACE value");
+                    }
+                }
             }
         } else if (KeysType.DUP_KEYS == keysType) {
             /*
