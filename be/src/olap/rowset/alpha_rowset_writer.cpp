@@ -308,6 +308,16 @@ bool AlphaRowsetWriter::_validate_rowset() {
             return false;
         }
     }
+    int64_t num_rows = 0;
+    for (auto& segment_group : _segment_groups) {
+        num_rows += segment_group->num_rows();
+    }
+    if (num_rows != _current_rowset_meta->num_rows()) {
+        LOG(WARNING) << "num_rows between rowset and segment_groups do not match. "
+                     << "num_rows of segment_groups:" << num_rows
+                     << ", num_rows of rowset:" << _current_rowset_meta->num_rows();
+        return false;
+    }
     return true;
 }
 
