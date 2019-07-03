@@ -271,8 +271,11 @@ public class BinaryPredicate extends Predicate implements Writable {
     }
 
     private Type getCmpType() {
-        PrimitiveType t1 = getChild(0).getType().getResultType().getPrimitiveType();
-        PrimitiveType t2 = getChild(1).getType().getResultType().getPrimitiveType();
+        Expr child0 = getChild(0);
+        Expr child1 = getChild(1);
+
+        PrimitiveType t1 = child0.getType().getResultType().getPrimitiveType();
+        PrimitiveType t2 = child1.getType().getResultType().getPrimitiveType();
 
         if (canCompareDate(getChild(0).getType().getPrimitiveType(), getChild(1).getType().getPrimitiveType())) {
             return Type.DATETIME;
@@ -299,6 +302,29 @@ public class BinaryPredicate extends Predicate implements Writable {
             return Type.LARGEINT;
         }
         
+        /*
+         * If one child is SlotRef and the other is a constant expr,
+         * set the compatible type to SlotRef's column type.
+         * eg:
+         * k1(int):
+         * ... WHERE k1 = "123"  -->  k1 = cast("123" as int);
+         * 
+         * k2(varchar):
+         * ... WHERE 123 = k2 --> cast(123 as varchar) = k2
+         * 
+         * This optimization is for the case that some user may using a int column to save date, eg: 20190703,
+         * but query with predicate: col = "20190703".
+         * 
+         * If not casting "20190703" to int, query optimizer can not do partition prune correctly.
+         * 
+         */
+        if (child0 instanceof SlotRef && child1.isConstant()) {
+            return child0.getType();
+        } else if (child1 instanceof SlotRef && child0.isConstant()) {
+            return child1.getType();
+        }
+
+        // double can be cast to any types
         return Type.DOUBLE;
     }
 
