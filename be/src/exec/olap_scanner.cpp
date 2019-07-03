@@ -119,7 +119,7 @@ Status OlapScanner::_prepare(
             if (acquire_reader_st != OLAP_SUCCESS) {
                 LOG(WARNING) << "fail to init reader.res=" << acquire_reader_st;
                 std::stringstream ss;
-                ss << "failed to initialize storage reader. tablet=" << _params.tablet->full_name()
+                ss << "failed to initialize storage reader. tablet=" << _tablet->full_name()
                 << ", res=" << acquire_reader_st << ", backend=" << BackendOptions::get_localhost();
                 return Status::InternalError(ss.str().c_str());
             }
