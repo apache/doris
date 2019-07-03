@@ -792,7 +792,7 @@ OLAPStatus SegmentGroup::convert_from_old_files(const std::string& snapshot_path
         success_links->push_back(new_data_file_name);
         std::string new_index_file_name = construct_index_file_path(_rowset_path_prefix, segment_id);
         if (check_dir_existed(new_index_file_name)) {
-            LOG(INFO) << "file already exist, remote it. file=" << new_index_file_name;
+            LOG(INFO) << "file already exist, remove it. file=" << new_index_file_name;
             RETURN_NOT_OK(remove_dir(new_index_file_name));
         }
         std::string old_index_file_name = construct_old_index_file_path(snapshot_path, segment_id);
