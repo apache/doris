@@ -21,6 +21,7 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
@@ -55,6 +56,13 @@ public enum ExpressionFunctions {
     }
 
     public Expr evalExpr(Expr constExpr) {
+        // Function's arg are all LiteralExpr.
+        for (Expr child : constExpr.getChildren()) {
+            if (!(child instanceof LiteralExpr)) {
+                return constExpr;
+            }
+        }
+
         if (constExpr instanceof ArithmeticExpr
                 || constExpr instanceof FunctionCallExpr) {
             Function fn = constExpr.getFn();
@@ -160,33 +168,38 @@ public enum ExpressionFunctions {
             return signature;
         }
 
-        // Now we only support functions which contain only one variable-length arg or fixed-length args 
-        // which does't contain any arrays.
+        // Now ExpressionFunctions does't support function that it's args contain
+        // array type except last one.
         public LiteralExpr invoke(List<Expr> args) throws AnalysisException {
-            boolean isArray = false;
-            for (Class<?> argType : method.getParameterTypes()) {
-                if (argType.isArray()) {
-                    Preconditions.checkArgument(method.getParameterTypes().length == 1);
-                    isArray = true;
-                }
-            }
+            final List<Object> invokeArgs = createInvokeArgs(args);
             try {
-                if (!isArray) {
-                    return invokeFixedVariableLengthArgsMethod(args);
-                } else {
-                    return invokeVariableLengthArgsMethod(args);
-                }
+                return (LiteralExpr)method.invoke(null, invokeArgs.toArray());
             } catch (InvocationTargetException | IllegalAccessException | IllegalArgumentException e) {
-                throw new AnalysisException(e.getLocalizedMessage(), e);
+                throw new AnalysisException(e.getLocalizedMessage());
             }
         }
 
-        public LiteralExpr invokeFixedVariableLengthArgsMethod(List<Expr> args) throws InvocationTargetException, IllegalAccessException {
-            return (LiteralExpr) method.invoke(null, args.toArray());
+        private List<Object> createInvokeArgs(List<Expr> args) {
+            final List<Object> invokeArgs = Lists.newArrayList();
+            for (int typeIndex = 0; typeIndex < method.getParameterTypes().length; typeIndex++) {
+                final Class<?> argType = method.getParameterTypes()[typeIndex];
+                if (argType.isArray()) {
+                    Preconditions.checkArgument(method.getParameterTypes().length == typeIndex + 1);
+                    final List<Expr> variableLengthExprs = Lists.newArrayList();
+                    for (int variableLengthArgIndex = typeIndex; variableLengthArgIndex < args.size(); variableLengthArgIndex++) {
+                        variableLengthExprs.add(args.get(variableLengthArgIndex));
+                    }
+                    LiteralExpr[] variableLengthArgs = createVariableLengthArgs(variableLengthExprs, typeIndex);
+                    invokeArgs.add(variableLengthArgs);
+                } else {
+                    invokeArgs.add(args.get(typeIndex));
+                }
+            }
+            return invokeArgs;
         }
 
-        public LiteralExpr invokeVariableLengthArgsMethod(List<Expr> args) throws InvocationTargetException, IllegalAccessException {
-            final ScalarType argType = signature.getArgTypes()[0];
+        private LiteralExpr[] createVariableLengthArgs(List<Expr> args, int typeIndex) {
+            final ScalarType argType = signature.getArgTypes()[typeIndex];
             LiteralExpr[] exprs = null;
             if (argType.isStringType()) {
                 exprs = new StringLiteral[args.size()];
@@ -204,7 +217,7 @@ public enum ExpressionFunctions {
                 throw new IllegalArgumentException("Doris does't support type:" + argType);
             }
             args.toArray(exprs);
-            return (LiteralExpr) method.invoke(null, new Object[]{exprs});
+            return exprs;
         }
     }
 

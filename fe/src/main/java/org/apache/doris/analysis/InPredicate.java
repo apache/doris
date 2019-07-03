@@ -242,7 +242,8 @@ public class InPredicate extends Predicate {
 
     @Override
     public Expr getResultValue() throws AnalysisException {
-        final Expr leftChildValue = getChild(0).getResultValue();
+        recursiveResetChildrenResult();
+        final Expr leftChildValue = getChild(0);
         if (!(leftChildValue instanceof LiteralExpr) || !isLiteralChildren()) {
             return this;
         }

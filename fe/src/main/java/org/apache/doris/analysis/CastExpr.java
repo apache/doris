@@ -250,6 +250,7 @@ public class CastExpr extends Expr {
 
     @Override
     public Expr getResultValue() throws AnalysisException {
+        recursiveResetChildrenResult();
         final Expr value = children.get(0).getResultValue();
         if (!(value instanceof LiteralExpr)) {
             return this;
