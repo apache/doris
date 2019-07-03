@@ -324,7 +324,7 @@ public class BinaryPredicate extends Predicate implements Writable {
             return child1.getType();
         }
 
-        // double can be cast to any types
+        // any type can be cast to double
         return Type.DOUBLE;
     }
 
