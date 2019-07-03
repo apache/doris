@@ -677,4 +677,15 @@ public class FEFunctions {
         }
         return new StringLiteral(resultBuilder.toString());
     }
+
+    @FEFunction(name = "concat_ws", argTypes = {"VARCHAR", "VARCHAR"}, returnType = "VARCHAR")
+    public static StringLiteral concat_ws(StringLiteral split, StringLiteral... values) throws AnalysisException {
+        Preconditions.checkArgument(values.length > 0);
+        final StringBuilder resultBuilder = new StringBuilder();
+        for (int i = 0; i < values.length - 1; i++) {
+            resultBuilder.append(values[i].getStringValue()).append(split.getStringValue());
+        }
+        resultBuilder.append(values[values.length - 1].getStringValue());
+        return new StringLiteral(resultBuilder.toString());
+    }
 }
