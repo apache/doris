@@ -829,7 +829,7 @@ OLAPStatus DataDir::load() {
             // there should be only preparing rowset in meta env because visible 
             // rowset is persist with tablet meta currently
             OLAPStatus publish_status = tablet->add_inc_rowset(rowset);
-            if (publish_status != OLAP_SUCCESS) {
+            if (publish_status != OLAP_SUCCESS && publish_status != OLAP_ERR_PUSH_VERSION_ALREADY_EXIST) {
                 LOG(WARNING) << "add visilbe rowset to tablet failed rowset_id:" << rowset->rowset_id()
                              << " tablet id: " << rowset_meta->tablet_id()
                              << " txn id:" << rowset_meta->txn_id()

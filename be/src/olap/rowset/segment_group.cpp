@@ -698,23 +698,29 @@ OLAPStatus SegmentGroup::make_snapshot(const std::string& snapshot_path,
     }
     for (int segment_id = 0; segment_id < _num_segments; segment_id++) {
         std::string snapshot_data_file_name = construct_data_file_path(snapshot_path, segment_id);
-        if (!check_dir_existed(snapshot_data_file_name)) {
-            std::string cur_data_file_name = construct_data_file_path(segment_id);
-            if (link(cur_data_file_name.c_str(), snapshot_data_file_name.c_str()) != 0) {
-                LOG(WARNING) << "fail to create hard link. from=" << cur_data_file_name << ", "
-                    << "to=" << snapshot_data_file_name << ", " << "errno=" << Errno::no();
-                return OLAP_ERR_OS_ERROR;
-            }
+        if (check_dir_existed(snapshot_data_file_name)) {
+            LOG(WARNING) << "snapshot dest file already exist, fail to make snapshot."
+                         << " file=" << snapshot_data_file_name;
+            return OLAP_ERR_FILE_ALREADY_EXIST;
+        }
+        std::string cur_data_file_name = construct_data_file_path(segment_id);
+        if (link(cur_data_file_name.c_str(), snapshot_data_file_name.c_str()) != 0) {
+            LOG(WARNING) << "fail to create hard link. from=" << cur_data_file_name << ", "
+                << "to=" << snapshot_data_file_name << ", " << "errno=" << Errno::no();
+            return OLAP_ERR_OS_ERROR;
         }
         success_links->push_back(snapshot_data_file_name);
         std::string snapshot_index_file_name = construct_index_file_path(snapshot_path, segment_id);
-        if (!check_dir_existed(snapshot_index_file_name)) {
-            std::string cur_index_file_name = construct_index_file_path(segment_id);
-            if (link(cur_index_file_name.c_str(), snapshot_index_file_name.c_str()) != 0) {
-                LOG(WARNING) << "fail to create hard link. from=" << cur_index_file_name << ", "
-                    << "to=" << snapshot_index_file_name << ", " << "errno=" << Errno::no();
-                return OLAP_ERR_OS_ERROR;
-            }
+        if (check_dir_existed(snapshot_index_file_name)) {
+            LOG(WARNING) << "snapshot dest file already exist, fail to make snapshot."
+                         << " file=" << snapshot_index_file_name;
+            return OLAP_ERR_FILE_ALREADY_EXIST;
+        }
+        std::string cur_index_file_name = construct_index_file_path(segment_id);
+        if (link(cur_index_file_name.c_str(), snapshot_index_file_name.c_str()) != 0) {
+            LOG(WARNING) << "fail to create hard link. from=" << cur_index_file_name << ", "
+                << "to=" << snapshot_index_file_name << ", " << "errno=" << Errno::no();
+            return OLAP_ERR_OS_ERROR;
         }
         success_links->push_back(snapshot_index_file_name);
     }
@@ -757,7 +763,10 @@ OLAPStatus SegmentGroup::copy_files_to_path(const std::string& dest_path,
     return OLAP_SUCCESS;
 }
 
-
+// when convert from old files, remove existing files
+// convert from old files in 2 cases:
+//  case 1: clone from old version be 
+//  case 2: upgrade to new version be
 OLAPStatus SegmentGroup::convert_from_old_files(const std::string& snapshot_path,
                                        std::vector<std::string>* success_links) {
     if (_empty) {
@@ -766,29 +775,35 @@ OLAPStatus SegmentGroup::convert_from_old_files(const std::string& snapshot_path
     }
     for (int segment_id = 0; segment_id < _num_segments; segment_id++) {
         std::string new_data_file_name = construct_data_file_path(_rowset_path_prefix, segment_id);
-        if (!check_dir_existed(new_data_file_name)) {
-            std::string old_data_file_name = construct_old_data_file_path(snapshot_path, segment_id);
-            if (link(old_data_file_name.c_str(), new_data_file_name.c_str()) != 0) {
-                LOG(WARNING) << "fail to create hard link. from=" << old_data_file_name << ", "
-                    << "to=" << new_data_file_name << ", " << "errno=" << Errno::no();
-                return OLAP_ERR_OS_ERROR;
-            } else {
-                VLOG(3) << "link data file from " << old_data_file_name 
-                        << " to " << new_data_file_name << " successfully";
-            }
+        // if file exist should remove it because same file name does not mean same data
+        if (check_dir_existed(new_data_file_name)) {
+            LOG(INFO) << "file already exist, remove it. file=" << new_data_file_name;
+            RETURN_NOT_OK(remove_dir(new_data_file_name));
+        }
+        std::string old_data_file_name = construct_old_data_file_path(snapshot_path, segment_id);
+        if (link(old_data_file_name.c_str(), new_data_file_name.c_str()) != 0) {
+            LOG(WARNING) << "fail to create hard link. from=" << old_data_file_name
+                         << ", to=" << new_data_file_name << ", errno=" << Errno::no();
+            return OLAP_ERR_OS_ERROR;
+        } else {
+            VLOG(3) << "link data file from " << old_data_file_name 
+                    << " to " << new_data_file_name << " successfully";
         }
         success_links->push_back(new_data_file_name);
         std::string new_index_file_name = construct_index_file_path(_rowset_path_prefix, segment_id);
-        if (!check_dir_existed(new_index_file_name)) {
-            std::string old_index_file_name = construct_old_index_file_path(snapshot_path, segment_id);
-            if (link(old_index_file_name.c_str(), new_index_file_name.c_str()) != 0) {
-                LOG(WARNING) << "fail to create hard link. from=" << old_index_file_name << ", "
-                    << "to=" << new_index_file_name << ", " << "errno=" << Errno::no();
-                return OLAP_ERR_OS_ERROR;
-            } else {
-                VLOG(3) << "link index file from " << old_index_file_name 
-                        << " to " << new_index_file_name << " successfully";
-            }
+        if (check_dir_existed(new_index_file_name)) {
+            LOG(INFO) << "file already exist, remove it. file=" << new_index_file_name;
+            RETURN_NOT_OK(remove_dir(new_index_file_name));
+        }
+        std::string old_index_file_name = construct_old_index_file_path(snapshot_path, segment_id);
+        if (link(old_index_file_name.c_str(), new_index_file_name.c_str()) != 0) {
+            LOG(WARNING) << "fail to create hard link. from=" << old_index_file_name
+                         << ", to=" << new_index_file_name 
+                         << ", errno=" << Errno::no();
+            return OLAP_ERR_OS_ERROR;
+        } else {
+            VLOG(3) << "link index file from " << old_index_file_name 
+                    << " to " << new_index_file_name << " successfully";
         }
         success_links->push_back(new_index_file_name);
     }
