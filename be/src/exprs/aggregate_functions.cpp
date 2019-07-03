@@ -269,7 +269,9 @@ StringVal AggregateFunctions::percentile_serialize(FunctionContext* ctx, const S
 
     PercentileState *state = reinterpret_cast<PercentileState*>(state_sv.ptr);
     StringVal result = state->digest->serialize(ctx);
+
     delete state->digest;
+    ctx->free(state_sv.ptr);
 
     return result;
 }
@@ -285,7 +287,9 @@ void AggregateFunctions::percentile_merge(FunctionContext* ctx, const StringVal&
 
     PercentileState* dst_intermediate = reinterpret_cast<PercentileState*>(dst->ptr);
     dst_intermediate->digest->merge(src_percentile_state->digest);
+
     delete src_percentile_state->digest;
+    ctx->free(src.ptr);
 }
 
 DoubleVal AggregateFunctions::percentile_finalize(FunctionContext* ctx, const StringVal& src) {
@@ -293,7 +297,8 @@ DoubleVal AggregateFunctions::percentile_finalize(FunctionContext* ctx, const St
     //double quantile = percentile->targetQuantile;
     double result = percentile->digest->quantile(0.9);
 
-    delete percentile;
+    delete percentile->digest;
+    ctx->free(src.ptr);
     return DoubleVal(result);
 }
 
