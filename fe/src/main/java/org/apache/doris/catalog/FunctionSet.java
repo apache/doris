@@ -964,7 +964,7 @@ public class FunctionSet {
                 //prefix + "17percentile_updateEPN9doris_udf15FunctionContextERKNS1_9BigIntValERKNS1_9DoubleValEPKNS1_9StringValE",
                 prefix + "17percentile_updateIN9doris_udf9BigIntValEEEvPNS2_15FunctionContextERKT_RKNS2_9DoubleValEPNS2_9StringValE",
                 prefix + "16percentile_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
-                null,
+                prefix + "20percentile_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                 prefix + "19percentile_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                 false, false, false));
 

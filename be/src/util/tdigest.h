@@ -391,6 +391,12 @@ namespace doris {
         }
 
         doris_udf::StringVal serialize(FunctionContext* ctx) {
+            std::cout<< compression_<< std::endl;
+            std::cout<< min_ << std::endl;
+            std::cout << max_ << std::endl;
+            std::cout << maxProcessed_ << std::endl;
+            std::cout << maxUnprocessed_ << std::endl;
+
             int serialized_set_length =
                     sizeof(Value) * 5 + sizeof(Index) * 2 + sizeof(size_t) * 3
                     + processed_.size() * sizeof(Centroid)
@@ -439,14 +445,19 @@ namespace doris {
         }
 
         void unserialize(const StringVal& src) {
+            std::cout<<"unserialize"<<std::endl;
             const uint8_t* type_reader = src.ptr;
 
             memcpy(&compression_, type_reader, sizeof(Value));
+            std::cout<< compression_<< std::endl;
             type_reader += sizeof(Value);
             memcpy(&min_, type_reader, sizeof(Value));
             type_reader += sizeof(Value);
             memcpy(&max_, type_reader, sizeof(Value));
             type_reader += sizeof(Value);
+            std::cout<< min_ << std::endl;
+            std::cout << max_ << std::endl;
+            
             memcpy(&maxProcessed_, type_reader, sizeof(Index));
             type_reader += sizeof(Index);
             memcpy(&maxUnprocessed_, type_reader, sizeof(Index));
@@ -455,6 +466,11 @@ namespace doris {
             type_reader += sizeof(Value);
             memcpy(&unprocessedWeight_, type_reader, sizeof(Value));
             type_reader += sizeof(Value);
+            
+            std::cout << maxProcessed_ << std::endl;
+            std::cout << maxUnprocessed_ << std::endl;
+            std::cout << processedWeight_ << std::endl;
+            std::cout << unprocessedWeight_ << std::endl;
 
             size_t size;
             memcpy(&size, type_reader, sizeof(size_t));
