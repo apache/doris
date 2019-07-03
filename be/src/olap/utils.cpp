@@ -1333,7 +1333,8 @@ OLAPStatus copy_dir(const string &src_dir, const string &dst_dir) {
     return OLAP_SUCCESS;
 }
 
-void remove_files(const vector<string>& files) {
+OLAPStatus remove_files(const vector<string>& files) {
+    OLAPStatus res = OLAP_SUCCESS;
     for (const string& file : files) {
         boost::filesystem::path file_path(file);
 
@@ -1343,11 +1344,13 @@ void remove_files(const vector<string>& files) {
             } else {
                 OLAP_LOG_WARNING("failed to remove file. [file=%s errno=%d]",
                                  file.c_str(), Errno::no());
+                res = OLAP_ERR_IO_ERROR;
             }
         } catch (...) {
         // do nothing
         }
     }
+    return res;
 }
 
 // failed when there are files or dirs under thr dir

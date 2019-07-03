@@ -484,13 +484,33 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
             new_tablet_meta->revise_rs_metas(rs_metas);
         }
         if (snapshot_version < PREFERRED_SNAPSHOT_VERSION) {
+            set<string> exist_old_files;
+            if ((res = dir_walk(schema_full_path, nullptr, &exist_old_files)) != OLAP_SUCCESS) {
+                LOG(WARNING) << "failed to dir walk when convert old files. dir=" 
+                             << schema_full_path;
+                break;
+            }
             OlapSnapshotConverter converter;
             TabletMetaPB tablet_meta_pb;
             OLAPHeaderMessage olap_header_msg;
             new_tablet_meta->to_meta_pb(&tablet_meta_pb);
-            converter.to_old_snapshot(tablet_meta_pb, schema_full_path, schema_full_path, &olap_header_msg);
+            res = converter.to_old_snapshot(tablet_meta_pb, schema_full_path, schema_full_path, &olap_header_msg);
+            if (res != OLAP_SUCCESS) {
+                break;
+            }
             // save new header to snapshot header path
             res = converter.save(header_path, olap_header_msg);
+            if (res == OLAP_SUCCESS) {
+                // convert new version files to old version files successuflly, then should remove the old files
+                vector<string> files_to_delete;
+                for (auto file_name : exist_old_files) {
+                    string full_file_path = schema_full_path + "/" + file_name;
+                    files_to_delete.push_back(full_file_path);
+                }
+                // remove all files
+                res = remove_files(files_to_delete);
+            }
+            LOG(INFO) << "finished convert new snapshot to old snapshot, res=" << res;
         } else {
             res = new_tablet_meta->save(header_path);
         }
