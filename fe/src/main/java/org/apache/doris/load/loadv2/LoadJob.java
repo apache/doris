@@ -279,7 +279,6 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         }
     }
 
-
     public void processTimeout() {
         writeLock();
         try {
