@@ -388,18 +388,15 @@ namespace doris {
                 }
             }
         }
-
-        doris_udf::StringVal serialize(FunctionContext* ctx) {
-            
-            int serialized_set_length =
-                    sizeof(Value) * 5 + sizeof(Index) * 2 + sizeof(size_t) * 3
+        
+        uint32_t serialized_size() {
+            return  sizeof(Value) * 5 + sizeof(Index) * 2 + sizeof(size_t) * 3
                     + processed_.size() * sizeof(Centroid)
                     + unprocessed_.size() * sizeof(Centroid)
                     + cumulative_.size() * sizeof(Weight);
+        }
 
-            StringVal result(ctx, serialized_set_length);
-            uint8_t* writer = result.ptr;
-
+        void serialize(uint8_t* writer) {
             memcpy(writer, &compression_, sizeof(Value));
             writer += sizeof(Value);
             memcpy(writer, &min_, sizeof(Value));
@@ -438,7 +435,6 @@ namespace doris {
                 memcpy(writer, &cumulative_[i], sizeof(Weight));
                 writer += sizeof(Weight);
             }
-            return result;
         }
 
         void unserialize(const uint8_t* type_reader) {
