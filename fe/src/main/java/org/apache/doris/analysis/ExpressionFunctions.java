@@ -22,6 +22,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
@@ -38,6 +39,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 public enum ExpressionFunctions {
     INSTANCE;
@@ -179,7 +181,7 @@ public enum ExpressionFunctions {
             }
         }
 
-        private List<Object> createInvokeArgs(List<Expr> args) {
+        private List<Object> createInvokeArgs(List<Expr> args) throws AnalysisException {
             final List<Object> invokeArgs = Lists.newArrayList();
             for (int typeIndex = 0; typeIndex < method.getParameterTypes().length; typeIndex++) {
                 final Class<?> argType = method.getParameterTypes()[typeIndex];
@@ -198,9 +200,18 @@ public enum ExpressionFunctions {
             return invokeArgs;
         }
 
-        private LiteralExpr[] createVariableLengthArgs(List<Expr> args, int typeIndex) {
+        private LiteralExpr[] createVariableLengthArgs(List<Expr> args, int typeIndex) throws AnalysisException {
+            final Set<Class<?>> classSet = Sets.newHashSet();
+            for (Expr e : args) {
+                classSet.add(e.getClass());
+            }
+            if (classSet.size() > 1) {
+                // Variable-length args' types can't exceed two kinds.
+                throw new AnalysisException("Function's args does't match.");
+            }
+
             final ScalarType argType = signature.getArgTypes()[typeIndex];
-            LiteralExpr[] exprs = null;
+            LiteralExpr[] exprs;
             if (argType.isStringType()) {
                 exprs = new StringLiteral[args.size()];
             } else if (argType.isFixedPointType()) {
