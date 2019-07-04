@@ -459,8 +459,8 @@ public class ReportHandler extends Daemon {
                             }
 
                             ++syncCounter;
-                            LOG.debug("sync replica {} of tablet {} in backend {} in db {}.",
-                                    replica.getId(), tabletId, backendId, dbId);
+                            LOG.debug("sync replica {} of tablet {} in backend {} in db {}. report version: {}",
+                                    replica.getId(), tabletId, backendId, dbId, backendReportVersion);
                         } else {
                             LOG.debug("replica {} of tablet {} in backend {} version is changed"
                                     + " between check and real sync. meta[{}-{}]. backend[{}-{}]",
