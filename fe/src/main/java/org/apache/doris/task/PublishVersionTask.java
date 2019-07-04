@@ -37,7 +37,7 @@ public class PublishVersionTask extends AgentTask {
 
     public PublishVersionTask(long backendId, long transactionId, long dbId,
             List<TPartitionVersionInfo> partitionVersionInfos) {
-        super(null, backendId, TTaskType.PUBLISH_VERSION, -1L, -1L, -1L, -1L, -1L, transactionId);
+        super(null, backendId, TTaskType.PUBLISH_VERSION, dbId, -1L, -1L, -1L, -1L, transactionId);
         this.transactionId = transactionId;
         this.partitionVersionInfos = partitionVersionInfos;
         this.errorTablets = new ArrayList<Long>();
