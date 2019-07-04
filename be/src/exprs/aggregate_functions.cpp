@@ -244,65 +244,66 @@ public:
 };
 
 void AggregateFunctions::percentile_init(FunctionContext* ctx, StringVal* dst) {
-    std::cout << "percentile_init" << std::endl;
     dst->is_null = false;
     dst->len = sizeof(PercentileState);
-    dst->ptr = (uint8_t*)new PercentileState();
-    //dst->ptr = ctx->allocate(dst->len);
+    dst->ptr = (uint8_t*) new PercentileState();
 
-    PercentileState *percentile = reinterpret_cast<PercentileState *>(dst->ptr);
+    PercentileState* percentile = reinterpret_cast<PercentileState*>(dst->ptr);
     percentile->targetQuantile = -1.0;
     percentile->digest = new TDigest();
 };
 
 template<typename T>
 void AggregateFunctions::percentile_update(FunctionContext* ctx, const T& src, const DoubleVal& quantile, StringVal* dst) {
-    std::cout << "percentile_update" << std::endl;
     if (src.is_null) {
         return;
     }
 
-    auto percentile = reinterpret_cast<PercentileState*>(dst->ptr);
+    PercentileState* percentile = reinterpret_cast<PercentileState*>(dst->ptr);
     percentile->digest->add(src.val);
     percentile->targetQuantile = quantile.val;
 }
 
-StringVal AggregateFunctions::percentile_serialize(FunctionContext* ctx, const StringVal& state_sv) {
-    std::cout << "percentile_serialize" << std::endl;
-    DCHECK(!state_sv.is_null);
+StringVal AggregateFunctions::percentile_serialize(FunctionContext* ctx, const StringVal& src) {
+    DCHECK(!src.is_null);
 
-    PercentileState *state = reinterpret_cast<PercentileState*>(state_sv.ptr);
-    StringVal result = state->digest->serialize(ctx);
+    PercentileState *percentile = reinterpret_cast<PercentileState*>(src.ptr);
+    StringVal result((uint8_t*)&percentile->targetQuantile, sizeof(percentile->targetQuantile));
+    StringVal serialized = percentile->digest->serialize(ctx);
+    result.append(ctx, serialized.ptr, serialized.len);
 
-    delete state->digest;
-    delete (PercentileState*) state_sv.ptr;
+    delete percentile->digest;
+    delete (PercentileState*) src.ptr;
     return result;
 }
 
 void AggregateFunctions::percentile_merge(FunctionContext* ctx, const StringVal& src, StringVal* dst) {
-    std::cout << "percentile_merge" << std::endl;
     DCHECK(dst->ptr != NULL);
     DCHECK_EQ(sizeof(PercentileState), dst->len);
 
-    PercentileState *src_percentile_state = new PercentileState();
-    src_percentile_state->targetQuantile = 0.9;
-    src_percentile_state->digest = new TDigest();
-    src_percentile_state->digest->unserialize(src);
+    double quantile;
+    memcpy(&quantile, src.ptr, sizeof(double));
 
-    PercentileState* dst_intermediate = reinterpret_cast<PercentileState*>(dst->ptr);
-    dst_intermediate->digest->merge(src_percentile_state->digest);
+    PercentileState *src_percentile = new PercentileState();
+    src_percentile->targetQuantile = quantile;
+    src_percentile->digest = new TDigest();
+    src_percentile->digest->unserialize(src.ptr + sizeof(double));
 
-    delete src_percentile_state->digest;
-    delete (PercentileState*) src_percentile_state;
+    PercentileState* dst_percentile = reinterpret_cast<PercentileState*>(dst->ptr);
+    dst_percentile->digest->merge(src_percentile->digest);
+    dst_percentile->targetQuantile = quantile;
+
+    delete src_percentile->digest;
+    delete src_percentile;
 }
 
 DoubleVal AggregateFunctions::percentile_finalize(FunctionContext* ctx, const StringVal& src) {
     std::cout << "percentile_finalize" << std::endl;
-    PercentileState* state = reinterpret_cast<PercentileState *>(src.ptr);
-    //double quantile = percentile->targetQuantile;
-    double result = state->digest->quantile(0.9);
+    PercentileState* percentile = reinterpret_cast<PercentileState *>(src.ptr);
+    double quantile = percentile->targetQuantile;
+    double result = percentile->digest->quantile(quantile);
 
-    delete state->digest;
+    delete percentile->digest;
     delete (PercentileState*) src.ptr;
     return DoubleVal(result);
 }

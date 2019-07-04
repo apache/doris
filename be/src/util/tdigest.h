@@ -441,10 +441,7 @@ namespace doris {
             return result;
         }
 
-        void unserialize(const StringVal& src) {
-            std::cout<<"unserialize"<<std::endl;
-            const uint8_t* type_reader = src.ptr;
-
+        void unserialize(const uint8_t* type_reader) {
             memcpy(&compression_, type_reader, sizeof(Value));
             type_reader += sizeof(Value);
             memcpy(&min_, type_reader, sizeof(Value));
