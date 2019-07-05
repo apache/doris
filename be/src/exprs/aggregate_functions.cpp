@@ -21,14 +21,13 @@
 #include <math.h>
 #include <sstream>
 #include <unordered_set>
-#include <util/tdigest.h>
-#include <iomanip>
 
 #include "common/logging.h"
 #include "runtime/string_value.h"
 #include "runtime/datetime_value.h"
 #include "exprs/anyval_util.h"
 #include "exprs/hybird_set.h"
+#include "util/tdigest.h"
 #include "util/debug_util.h"
 
 // TODO: this file should be cross compiled and then all of the builtin
@@ -193,16 +192,12 @@ struct DecimalV2AvgState {
     int64_t count;
 };
 
-
-
 void AggregateFunctions::avg_init(FunctionContext* ctx, StringVal* dst) {
     dst->is_null = false;
     dst->len = sizeof(AvgState);
     dst->ptr = ctx->allocate(dst->len);
     memset(dst->ptr, 0, sizeof(AvgState));
 }
-
-
 
 void AggregateFunctions::decimal_avg_init(FunctionContext* ctx, StringVal* dst) {
     dst->is_null = false;
