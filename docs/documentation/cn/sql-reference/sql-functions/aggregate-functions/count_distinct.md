@@ -2,7 +2,7 @@
 
 ## Syntax
 
-`COUNT([DISTINCT] expr)`
+`COUNT_DISTINCT(expr)`
 
 ## Description
 
