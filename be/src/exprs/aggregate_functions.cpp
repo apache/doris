@@ -237,59 +237,59 @@ void AggregateFunctions::avg_update(FunctionContext* ctx, const T& src, StringVa
     ++avg->count;
 }
 
-struct PercentileState {
+struct PercentileApproxState {
 public:
     TDigest *digest;
     double targetQuantile = -1.0;
 };
 
-void AggregateFunctions::percentile_init(FunctionContext* ctx, StringVal* dst) {
+void AggregateFunctions::percentile_approx_init(FunctionContext* ctx, StringVal* dst) {
     dst->is_null = false;
-    dst->len = sizeof(PercentileState);
-    dst->ptr = (uint8_t*) new PercentileState();
+    dst->len = sizeof(PercentileApproxState);
+    dst->ptr = (uint8_t*) new PercentileApproxState();
 
-    PercentileState* percentile = reinterpret_cast<PercentileState*>(dst->ptr);
+    PercentileApproxState* percentile = reinterpret_cast<PercentileApproxState*>(dst->ptr);
     percentile->targetQuantile = -1.0;
     percentile->digest = new TDigest();
 };
 
 template<typename T>
-void AggregateFunctions::percentile_update(FunctionContext* ctx, const T& src, const DoubleVal& quantile, StringVal* dst) {
+void AggregateFunctions::percentile_approx_update(FunctionContext* ctx, const T& src, const DoubleVal& quantile, StringVal* dst) {
     if (src.is_null) {
         return;
     }
 
-    PercentileState* percentile = reinterpret_cast<PercentileState*>(dst->ptr);
+    PercentileApproxState* percentile = reinterpret_cast<PercentileApproxState*>(dst->ptr);
     percentile->digest->add(src.val);
     percentile->targetQuantile = quantile.val;
 }
 
-StringVal AggregateFunctions::percentile_serialize(FunctionContext* ctx, const StringVal& src) {
+StringVal AggregateFunctions::percentile_approx_serialize(FunctionContext* ctx, const StringVal& src) {
     DCHECK(!src.is_null);
 
-    PercentileState *percentile = reinterpret_cast<PercentileState*>(src.ptr);
+    PercentileApproxState *percentile = reinterpret_cast<PercentileApproxState*>(src.ptr);
     StringVal result((uint8_t*)&percentile->targetQuantile, sizeof(percentile->targetQuantile));
     StringVal serialized = percentile->digest->serialize(ctx);
     result.append(ctx, serialized.ptr, serialized.len);
 
     delete percentile->digest;
-    delete (PercentileState*) src.ptr;
+    delete (PercentileApproxState*) src.ptr;
     return result;
 }
 
-void AggregateFunctions::percentile_merge(FunctionContext* ctx, const StringVal& src, StringVal* dst) {
+void AggregateFunctions::percentile_approx_merge(FunctionContext* ctx, const StringVal& src, StringVal* dst) {
     DCHECK(dst->ptr != NULL);
-    DCHECK_EQ(sizeof(PercentileState), dst->len);
+    DCHECK_EQ(sizeof(PercentileApproxState), dst->len);
 
     double quantile;
     memcpy(&quantile, src.ptr, sizeof(double));
 
-    PercentileState *src_percentile = new PercentileState();
+    PercentileApproxState *src_percentile = new PercentileApproxState();
     src_percentile->targetQuantile = quantile;
     src_percentile->digest = new TDigest();
     src_percentile->digest->unserialize(src.ptr + sizeof(double));
 
-    PercentileState* dst_percentile = reinterpret_cast<PercentileState*>(dst->ptr);
+    PercentileApproxState* dst_percentile = reinterpret_cast<PercentileApproxState*>(dst->ptr);
     dst_percentile->digest->merge(src_percentile->digest);
     dst_percentile->targetQuantile = quantile;
 
@@ -297,14 +297,14 @@ void AggregateFunctions::percentile_merge(FunctionContext* ctx, const StringVal&
     delete src_percentile;
 }
 
-DoubleVal AggregateFunctions::percentile_finalize(FunctionContext* ctx, const StringVal& src) {
+DoubleVal AggregateFunctions::percentile_approx_finalize(FunctionContext* ctx, const StringVal& src) {
     std::cout << "percentile_finalize" << std::endl;
-    PercentileState* percentile = reinterpret_cast<PercentileState *>(src.ptr);
+    PercentileApproxState* percentile = reinterpret_cast<PercentileApproxState *>(src.ptr);
     double quantile = percentile->targetQuantile;
     double result = percentile->digest->quantile(quantile);
 
     delete percentile->digest;
-    delete (PercentileState*) src.ptr;
+    delete (PercentileApproxState*) src.ptr;
     return DoubleVal(result);
 }
 
@@ -2812,8 +2812,8 @@ template void AggregateFunctions::offset_fn_update<DecimalV2Val>(
     FunctionContext*, const DecimalV2Val& src, const BigIntVal&, const DecimalV2Val&,
     DecimalV2Val* dst);
 
-template void AggregateFunctions::percentile_update<doris_udf::IntVal>(
-    FunctionContext* ctx, const doris_udf::IntVal&, const doris_udf::DoubleVal&, doris_udf::StringVal*);
+template void AggregateFunctions::percentile_update<doris_udf::DoubleVal>(
+    FunctionContext* ctx, const doris_udf::DoubleVal&, const doris_udf::DoubleVal&, doris_udf::StringVal*);
 template void AggregateFunctions::percentile_update<doris_udf::BigIntVal>(
     FunctionContext* ctx, const doris_udf::BigIntVal&, const doris_udf::DoubleVal&, doris_udf::StringVal*);
 
