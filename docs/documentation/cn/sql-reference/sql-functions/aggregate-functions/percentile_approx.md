@@ -2,8 +2,20 @@
 
 ## Syntax
 
-PERCENTILE_APPROX(DOUBLE col, p [, B]) 
+`PERCENTILE_APPROX(expr, DOUBLE p)`
 
 ## Description
-求近似第p个百分位数，p的值介于0到1之间，参数B控制近似的精确值，B值越大，近似度越高，默认值为10000，
-当列中非重复的数量小于B时，返回精确的百分数。
+
+返回第p个百分位点的近似值，p的值介于0到1之间
+
+该函数使用固定大小的内存，因此对于高基数的列可以使用更少的内存，可用于计算tp99等统计值
+
+## Examples
+```
+MySQL > select `table`, percentile_approx(cost_time,0.99) from log_statis group by `table`;
++---------------------+---------------------------+
+| table    | percentile_approx(`cost_time`, 0.99) |
++----------+--------------------------------------+
+| test     |                                54.22 |
++----------+--------------------------------------+
+```

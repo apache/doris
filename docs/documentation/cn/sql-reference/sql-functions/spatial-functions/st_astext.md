@@ -1,20 +1,30 @@
-# `ST_AsText`,`ST_AsWKT`
+# AVG
 
 ## Syntax
 
-`VARCHAR ST_AsText(GEOMETRY geo)`
+`AVG([DISTINCT] expr)`
 
 ## Description
 
-将一个几何图形转化为WKT（Well Known Text）的表示形式
+用于返回选中字段的平均值
+
+可选字段DISTINCT参数可以用来返回去重平均值
 
 ## Examples
 
 ```
-mysql> SELECT ST_AsText(ST_Point(24.7, 56.7));
-+---------------------------------+
-| st_astext(st_point(24.7, 56.7)) |
-+---------------------------------+
-| POINT (24.7 56.7)               |
-+---------------------------------+
+mysql> SELECT datetime, AVG(cost_time) FROM log_statis GROUP BY datetime;
++---------------------+--------------------+
+| datetime            | avg(`cost_time`)   |
++---------------------+--------------------+
+| 2019-07-03 21:01:20 | 25.827794561933533 |
++---------------------+--------------------+
+
+mysql> SELECT datetime, AVG(distinct cost_time) FROM log_statis GROUP BY datetime;
++---------------------+---------------------------+
+| datetime            | avg(DISTINCT `cost_time`) |
++---------------------+---------------------------+
+| 2019-07-04 02:23:24 |        20.666666666666668 |
++---------------------+---------------------------+
+
 ```
