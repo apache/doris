@@ -2814,9 +2814,9 @@ template void AggregateFunctions::offset_fn_update<DecimalV2Val>(
     FunctionContext*, const DecimalV2Val& src, const BigIntVal&, const DecimalV2Val&,
     DecimalV2Val* dst);
 
-template void AggregateFunctions::percentile_update<doris_udf::DoubleVal>(
+template void AggregateFunctions::percentile_approx_update<doris_udf::DoubleVal>(
     FunctionContext* ctx, const doris_udf::DoubleVal&, const doris_udf::DoubleVal&, doris_udf::StringVal*);
-template void AggregateFunctions::percentile_update<doris_udf::BigIntVal>(
+template void AggregateFunctions::percentile_approx_update<doris_udf::BigIntVal>(
     FunctionContext* ctx, const doris_udf::BigIntVal&, const doris_udf::DoubleVal&, doris_udf::StringVal*);
 
 }
