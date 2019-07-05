@@ -472,8 +472,6 @@ DecimalV2Val AggregateFunctions::decimalv2_avg_get_value(FunctionContext* ctx, c
     return res;
 }
 
-
-
 DoubleVal AggregateFunctions::avg_finalize(FunctionContext* ctx, const StringVal& src) {
     if (src.is_null) {
         return DoubleVal::null();
@@ -2815,5 +2813,4 @@ template void AggregateFunctions::percentile_approx_update<doris_udf::DoubleVal>
     FunctionContext* ctx, const doris_udf::DoubleVal&, const doris_udf::DoubleVal&, doris_udf::StringVal*);
 template void AggregateFunctions::percentile_approx_update<doris_udf::BigIntVal>(
     FunctionContext* ctx, const doris_udf::BigIntVal&, const doris_udf::DoubleVal&, doris_udf::StringVal*);
-
 }

@@ -43,7 +43,7 @@ namespace doris {
     AggregateFunctions::percentile_merge(context, stringVal1, &stringVal2);
 
     DoubleVal v = AggregateFunctions::percentile_finalize(context, stringVal2);
-    std::cout<< "percentile_approx : " << v.val << std::endl;
+    ASSERT_EQ(v.val, 2);
 }
 
 }
