@@ -258,6 +258,8 @@ void AggregateFunctions::percentile_approx_update(FunctionContext* ctx, const T&
     if (src.is_null) {
         return;
     }
+    DCHECK(dst->ptr != NULL);
+    DCHECK_EQ(sizeof(PercentileApproxState), dst->len);
 
     PercentileApproxState* percentile = reinterpret_cast<PercentileApproxState*>(dst->ptr);
     percentile->digest->add(src.val);
@@ -284,7 +286,6 @@ void AggregateFunctions::percentile_approx_merge(FunctionContext* ctx, const Str
 
     double quantile;
     memcpy(&quantile, src.ptr, sizeof(double));
-    std::cout << "percentile merge" << quantile<< std::endl;
 
     PercentileApproxState *src_percentile = new PercentileApproxState();
     src_percentile->targetQuantile = quantile;
@@ -300,7 +301,8 @@ void AggregateFunctions::percentile_approx_merge(FunctionContext* ctx, const Str
 }
 
 DoubleVal AggregateFunctions::percentile_approx_finalize(FunctionContext* ctx, const StringVal& src) {
-    std::cout << "percentile_finalize" << std::endl;
+    DCHECK(!src.is_null);
+
     PercentileApproxState* percentile = reinterpret_cast<PercentileApproxState *>(src.ptr);
     double quantile = percentile->targetQuantile;
     double result = percentile->digest->quantile(quantile);
