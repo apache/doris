@@ -26,26 +26,18 @@ namespace doris {
     };
 
     TEST_F(PercentileApproxTest, test1) {
-    doris_udf::FunctionContext *context = new doris_udf::FunctionContext();
-    DoubleVal doubleQ(0.9);
-
-    StringVal stringVal1;
-    BigIntVal int1(1);
-    AggregateFunctions::percentile_init(context, &stringVal1);
-    AggregateFunctions::percentile_update(context, int1, doubleQ, &stringVal1);
-
-    StringVal stringVal2;
-    BigIntVal int2(2);
-    AggregateFunctions::percentile_init(context, &stringVal2);
-    AggregateFunctions::percentile_update(context, int2, doubleQ, &stringVal2);
-
-
-    AggregateFunctions::percentile_merge(context, stringVal1, &stringVal2);
-
-    DoubleVal v = AggregateFunctions::percentile_finalize(context, stringVal2);
-    ASSERT_EQ(v.val, 2);
-}
-
+        doris_udf::FunctionContext *context = new doris_udf::FunctionContext();
+        DoubleVal doubleQ(0.9);
+ 
+        StringVal stringVal1;
+        BigIntVal int1(1);
+        AggregateFunctions::percentile_approx_init(context, &stringVal1);
+        AggregateFunctions::percentile_approx_update(context, int1, doubleQ, &stringVal1);
+        BigIntVal int2(2);
+        AggregateFunctions::percentile_approx_update(context, int2, doubleQ, &stringVal1);
+        DoubleVal v = AggregateFunctions::percentile_approx_finalize(context, stringVal1);
+        ASSERT_EQ(v.val, 2);
+    }
 }
 
 int main(int argc, char** argv) {
