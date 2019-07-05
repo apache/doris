@@ -268,9 +268,10 @@ StringVal AggregateFunctions::percentile_approx_serialize(FunctionContext* ctx, 
     DCHECK(!src.is_null);
 
     PercentileApproxState *percentile = reinterpret_cast<PercentileApproxState*>(src.ptr);
-    StringVal result((uint8_t*)&percentile->targetQuantile, sizeof(percentile->targetQuantile));
-    StringVal serialized = percentile->digest->serialize(ctx);
-    result.append(ctx, serialized.ptr, serialized.len);
+    uint32_t serialized_size = percentile->digest->serialized_size();
+    StringVal result(ctx, sizeof(double) + serialized_size);
+    memcpy(result.ptr, &percentile->targetQuantile, sizeof(double));
+    percentile->digest->serialize(result.ptr + sizeof(double));
 
     delete percentile->digest;
     delete (PercentileApproxState*) src.ptr;
@@ -283,6 +284,7 @@ void AggregateFunctions::percentile_approx_merge(FunctionContext* ctx, const Str
 
     double quantile;
     memcpy(&quantile, src.ptr, sizeof(double));
+    std::cout << "percentile merge" << quantile<< std::endl;
 
     PercentileApproxState *src_percentile = new PercentileApproxState();
     src_percentile->targetQuantile = quantile;
