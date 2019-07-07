@@ -6,7 +6,7 @@
 
 ## Description
 
-返回expr表达式的无偏样本标准差
+返回expr表达式的样本标准差
 
 ## Examples
 ```

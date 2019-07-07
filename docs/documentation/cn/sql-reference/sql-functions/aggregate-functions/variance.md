@@ -6,7 +6,7 @@
 
 ## Description
 
-返回expr表达式的总体标准方差
+返回expr表达式的方差
 
 ## Examples
 ```
