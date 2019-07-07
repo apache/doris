@@ -1,12 +1,12 @@
-# VARIANCE/VAR_POP
+# VARIANCE,VAR_POP,VARIANCE_POP
 
 ## Syntax
 
-`VARIANCE(expr)/VAR_POP(expr)`
+`VARIANCE(expr)`
 
 ## Description
 
-返回expr表达式的方差
+返回expr表达式的总体标准方差
 
 ## Examples
 ```

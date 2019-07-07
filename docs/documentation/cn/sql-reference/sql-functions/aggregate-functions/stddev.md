@@ -1,8 +1,8 @@
-# STDDEV/STDDEV_POP
+# STDDEV,STDDEV_POP
 
 ## Syntax
 
-`STDDEV(expr)/STDDEV_POP(expr)`
+`STDDEV(expr)`
 
 ## Description
 

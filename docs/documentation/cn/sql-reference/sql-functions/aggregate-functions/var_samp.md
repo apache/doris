@@ -1,4 +1,4 @@
-# VAR_SAMP
+# VAR_SAMP,VARIANCE_SAMP
 
 ## Syntax
 
@@ -6,7 +6,7 @@
 
 ## Description
 
-返回expr表达式的无偏样本方差
+返回expr表达式的样本方差
 
 ## Examples
 ```
