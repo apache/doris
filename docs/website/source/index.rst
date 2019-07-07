@@ -101,7 +101,7 @@ Doris’ implementation consists of two daemons: frontend (FE) and backend
 (BE). The following figures gives the overview of architecture and
 usage.
 
-.. figure:: https://raw.githubusercontent.com/apache/incubator-doris/master/docs/resources/palo_architecture.jpg
+.. figure:: https://raw.githubusercontent.com/apache/incubator-doris/master/docs/resources/images/palo_architecture.jpg
    :alt: Doris Architecture
 
    Doris Architecture
