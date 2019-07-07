@@ -50,7 +50,7 @@ Doris 的元数据是全内存的。每个 FE 内存中，都维护一个完整�
 
 4. image 文件生成后，leader 节点会通知其他 non-leader 节点新的 image 已生成。non-leader 主动通过 http 拉取最新的 image 文件，来更换本地的旧文件。
 
-5. bddje 中的日志，在 image 做完后，会定期删除旧的日志。
+5. bdbje 中的日志，在 image 做完后，会定期删除旧的日志。
 
 ## 实现细节
 
