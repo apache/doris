@@ -70,7 +70,6 @@ import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TabletCommitInfo;
-import org.apache.doris.transaction.TransactionCommitFailedException;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -591,76 +590,75 @@ public class StmtExecutor {
         }
 
         long createTime = System.currentTimeMillis();
-        // assign request_id
         UUID uuid = UUID.randomUUID();
-        context.setQueryId(new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
-
-        coord = new Coordinator(context, analyzer, planner);
-        coord.setQueryType(TQueryType.LOAD);
-
-        QeProcessorImpl.INSTANCE.registerQuery(context.queryId(), coord);
-
-        coord.exec();
-
-        coord.join(context.getSessionVariable().getQueryTimeoutS());
-        if (!coord.isDone()) {
-            coord.cancel();
-            ErrorReport.reportDdlException(ErrorCode.ERR_EXECUTE_TIMEOUT);
-        }
-
-        if (!coord.getExecStatus().ok()) {
-            String errMsg = coord.getExecStatus().getErrorMsg();
-            LOG.warn("insert failed: {}", errMsg);
-
-            // hide host info
-            int hostIndex = errMsg.indexOf("host");
-            if (hostIndex != -1) {
-                errMsg = errMsg.substring(0, hostIndex);
-            }
-            ErrorReport.reportDdlException(errMsg, ErrorCode.ERR_FAILED_WHEN_INSERT);
-        }
-
-        LOG.info("delta files is {}", coord.getDeltaUrls());
-
-        if (context.getSessionVariable().getEnableInsertStrict()) {
-            Map<String, String> counters = coord.getLoadCounters();
-            String strValue = counters.get(LoadEtlTask.DPP_ABNORMAL_ALL);
-            if (strValue != null && Long.valueOf(strValue) > 0) {
-                throw new UserException("Insert has filtered data in strict mode, tracking_url="
-                        + coord.getTrackingUrl());
-            }
-        }
-
-        if (insertStmt.getTargetTable().getType() != TableType.OLAP) {
-            // no need to add load job.
-            // mysql table is already being inserted.
-            context.getState().setOk();
-            return;
-        }
-
-        boolean noDataToLoad = false;
+        Exception exception = null;
         try {
+            // assign request_id
+            context.setQueryId(new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
+
+            coord = new Coordinator(context, analyzer, planner);
+            coord.setQueryType(TQueryType.LOAD);
+
+            QeProcessorImpl.INSTANCE.registerQuery(context.queryId(), coord);
+
+            coord.exec();
+
+            coord.join(context.getSessionVariable().getQueryTimeoutS());
+            if (!coord.isDone()) {
+                coord.cancel();
+                ErrorReport.reportDdlException(ErrorCode.ERR_EXECUTE_TIMEOUT);
+            }
+
+            if (!coord.getExecStatus().ok()) {
+                String errMsg = coord.getExecStatus().getErrorMsg();
+                LOG.warn("insert failed: {}", errMsg);
+
+                // hide host info
+                int hostIndex = errMsg.indexOf("host");
+                if (hostIndex != -1) {
+                    errMsg = errMsg.substring(0, hostIndex);
+                }
+                ErrorReport.reportDdlException(errMsg, ErrorCode.ERR_FAILED_WHEN_INSERT);
+            }
+
+            LOG.info("delta files is {}", coord.getDeltaUrls());
+
+            if (context.getSessionVariable().getEnableInsertStrict()) {
+                Map<String, String> counters = coord.getLoadCounters();
+                String strValue = counters.get(LoadEtlTask.DPP_ABNORMAL_ALL);
+                if (strValue != null && Long.valueOf(strValue) > 0) {
+                    throw new UserException("Insert has filtered data in strict mode, tracking_url="
+                            + coord.getTrackingUrl());
+                }
+            }
+
+            if (insertStmt.getTargetTable().getType() != TableType.OLAP) {
+                // no need to add load job.
+                // mysql table is already being inserted.
+                context.getState().setOk();
+                return;
+            }
+
             Catalog.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
                     insertStmt.getDbObj(), insertStmt.getTransactionId(),
                     TabletCommitInfo.fromThrift(coord.getCommitInfos()),
                     5000);
-        } catch (TransactionCommitFailedException e) {
-            if (!e.getMessage().equals(TransactionCommitFailedException.NO_DATA_TO_LOAD_MSG)
-                    || !Config.using_old_load_usage_pattern) {
+        } catch (Exception e) {
+            if (!Config.using_old_load_usage_pattern) {
                 throw e;
             }
 
             /*
-             * If the exception is NO_DATA_TO_LOAD, and config 'using_old_load_usage_pattern' is true.
+             * If config 'using_old_load_usage_pattern' is true.
              * Doris will return a label to user, and user can use this label to check load job's status,
              * which exactly like the old insert stmt usage pattern.
              */
-            noDataToLoad = true;
+            exception = e;
         }
         context.getState().setOk();
 
         // record the non-streaming insert info for show load
-        if (!insertStmt.isStreaming() || noDataToLoad) {
+        if (!insertStmt.isStreaming() || Config.using_old_load_usage_pattern) {
             try {
                 context.getCatalog().getLoadManager().recordFinishedLoadJob(
                         uuid.toString(),
@@ -668,13 +666,18 @@ public class StmtExecutor {
                         insertStmt.getTargetTable().getId(),
                         EtlJobType.INSERT,
                         createTime,
-                        noDataToLoad ? TransactionCommitFailedException.NO_DATA_TO_LOAD_MSG : ""
+                        exception == null ? "" : exception.getMessage()
                 );
             } catch (MetaNotFoundException e) {
-                LOG.warn("Record info of insert load with error " + e.getMessage(), e);
-                context.getState().setOk("Insert has been finished while info has not been recorded with " + e.getMessage());
+                LOG.warn("Record info of insert load with error {}", e.getMessage(), e);
+                context.getState().setError("Failed to record info of insert load job: " + e.getMessage());
             }
             context.getState().setOk("{'label':'" + uuid.toString() + "'}");
+        }
+
+        if (exception != null) {
+            // throw the exception so that the caller can abort this txn
+            throw exception;
         }
     }
 
