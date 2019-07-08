@@ -131,7 +131,7 @@ if [ -d ${DORIS_TEST_BINARY_DIR}/util/test_data ]; then
 fi
 cp -r ${DORIS_HOME}/be/test/util/test_data ${DORIS_TEST_BINARY_DIR}/util/
 
-#Running Util Unittest
+# Running Util Unittest
 ${DORIS_TEST_BINARY_DIR}/util/bit_util_test
 ${DORIS_TEST_BINARY_DIR}/util/bitmap_test
 ${DORIS_TEST_BINARY_DIR}/util/path_trie_test
@@ -157,7 +157,7 @@ ${DORIS_TEST_BINARY_DIR}/util/faststring_test
 ## Running common Unittest
 ${DORIS_TEST_BINARY_DIR}/common/resource_tls_test
 
- Running exprs unit test
+## Running exprs unit test
 ${DORIS_TEST_BINARY_DIR}/exprs/string_functions_test
 ${DORIS_TEST_BINARY_DIR}/exprs/json_function_test
 ${DORIS_TEST_BINARY_DIR}/exprs/timestamp_functions_test
