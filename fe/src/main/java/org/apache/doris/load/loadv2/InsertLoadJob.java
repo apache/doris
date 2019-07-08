@@ -61,7 +61,7 @@ public class InsertLoadJob extends LoadJob {
             this.progress = 100;
         } else {
             this.state = JobState.CANCELLED;
-            this.failMsg = new FailMsg(CancelType.ETL_RUN_FAIL, failMsg);
+            this.failMsg = new FailMsg(CancelType.LOAD_RUN_FAIL, failMsg);
             this.progress = 0;
         }
         this.jobType = EtlJobType.INSERT;

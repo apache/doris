@@ -591,7 +591,7 @@ public class StmtExecutor {
 
         long createTime = System.currentTimeMillis();
         UUID uuid = UUID.randomUUID();
-        Exception exception = null;
+        Throwable throwable = null;
         try {
             // assign request_id
             context.setQueryId(new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
@@ -634,7 +634,7 @@ public class StmtExecutor {
 
             if (insertStmt.getTargetTable().getType() != TableType.OLAP) {
                 // no need to add load job.
-                // mysql table is already being inserted.
+                // MySQL table is already being inserted.
                 context.getState().setOk();
                 return;
             }
@@ -643,9 +643,23 @@ public class StmtExecutor {
                     insertStmt.getDbObj(), insertStmt.getTransactionId(),
                     TabletCommitInfo.fromThrift(coord.getCommitInfos()),
                     5000);
-        } catch (Exception e) {
+        } catch (Throwable t) {
+            // if any throwable being thrown during insert operation, first we should abort this txn
+            LOG.warn("handle insert stmt fail: {}", DebugUtil.printId(uuid), t);
+            try {
+                Catalog.getCurrentGlobalTransactionMgr().abortTransaction(
+                        insertStmt.getTransactionId(),
+                        t.getMessage() == null ? "unknown reason" : t.getMessage());
+            } catch (Exception abortTxnException) {
+                // just print a log if abort txn failed. This failure do not need to pass to user.
+                // user only concern abort how txn failed.
+                LOG.warn("errors when abort txn", abortTxnException);
+            }
+
             if (!Config.using_old_load_usage_pattern) {
-                throw e;
+                // if not using old usage pattern, the exception will be thrown to user directly without
+                // a label
+                throw t;
             }
 
             /*
@@ -653,11 +667,10 @@ public class StmtExecutor {
              * Doris will return a label to user, and user can use this label to check load job's status,
              * which exactly like the old insert stmt usage pattern.
              */
-            exception = e;
+            throwable = t;
         }
-        context.getState().setOk();
 
-        // record the non-streaming insert info for show load
+        // record insert info for show load stmt
         if (!insertStmt.isStreaming() || Config.using_old_load_usage_pattern) {
             try {
                 context.getCatalog().getLoadManager().recordFinishedLoadJob(
@@ -666,18 +679,21 @@ public class StmtExecutor {
                         insertStmt.getTargetTable().getId(),
                         EtlJobType.INSERT,
                         createTime,
-                        exception == null ? "" : exception.getMessage()
+                        throwable == null ? "" : throwable.getMessage()
                 );
             } catch (MetaNotFoundException e) {
                 LOG.warn("Record info of insert load with error {}", e.getMessage(), e);
-                context.getState().setError("Failed to record info of insert load job: " + e.getMessage());
+                context.getState().setError("Failed to record info of insert load job, but insert job is "
+                        + (throwable == null ? "success" : "failed"));
+                return;
             }
-            context.getState().setOk("{'label':'" + uuid.toString() + "'}");
-        }
 
-        if (exception != null) {
-            // throw the exception so that the caller can abort this txn
-            throw exception;
+            // set to OK, which means the insert load job is successfully submitted.
+            // and user can check the job's status by label.
+            context.getState().setOk("{'label':'" + uuid.toString() + "'}");
+        } else {
+            // just return OK without label, which means this job is successfully done
+            context.getState().setOk();
         }
     }
 
