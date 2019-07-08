@@ -186,6 +186,21 @@ OLAPStatus ColumnDataWriter::finalize() {
         _segment_group->set_empty(true);
         return OLAP_SUCCESS;
     }
+
+    // Segment which size reaches OLAP_MAX_COLUMN_SEGMENT_FILE_SIZE
+    // will be flushed into disk. If the previous segment reach
+    // the threshold just right, and been flushed into disk.
+    // The following finalize() when closing ColumnDataWriter
+    // will generate a non-sense segment.
+    // In this scenario, undefined behavior will happens.
+    if (_num_rows == 0 && _row_index == 0) {
+        // If the two conditions are all satisfied,
+        // it dedicates that there is no necessity
+        // to generate segment object and file.
+        // Return OLAP_SUCCESS is OK.
+        return OLAP_SUCCESS;
+    }
+
     OLAPStatus res = _flush_row_block(true);
     if (OLAP_SUCCESS != res) {
         OLAP_LOG_WARNING("failed to flush data while attaching row cursor.[res=%d]", res);
@@ -194,7 +209,9 @@ OLAPStatus ColumnDataWriter::finalize() {
 
     res = _finalize_segment();
     if (OLAP_SUCCESS != res) {
-        OLAP_LOG_WARNING("fail to finalize segment.[res=%d]", res);
+        LOG(WARNING) << "fail to finalize segment. res=" << res
+                     << ", _row_index=" << _row_index
+                     << ", _all_num_rows=" << _all_num_rows;
         return res;
     }
 
