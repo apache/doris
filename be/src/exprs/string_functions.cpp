@@ -761,4 +761,61 @@ StringVal StringFunctions::money_format(FunctionContext *context, const LargeInt
     return do_money_format(context, ss.str());
 }
 
+static int indexOf(const uint8_t* source, int sourceOffset, int sourceCount,
+                const uint8_t* target, int targetOffset, int targetCount,
+                int fromIndex) {
+    if (fromIndex >= sourceCount) {
+        return (targetCount == 0 ? sourceCount : -1);
+    }
+    if (fromIndex < 0) {
+        fromIndex = 0;
+    }
+    if (targetCount == 0) {
+        return fromIndex;
+    }
+    const uint8_t first = target[targetOffset];
+    int max = sourceOffset + (sourceCount - targetCount);
+    for (int i = sourceOffset + fromIndex; i <= max; i++) {
+        if (source[i] != first) { // Look for first character
+            while (++i <= max && source[i] != first);
+        }
+        if (i <= max) { // Found first character, now look at the rest of v2
+            int j = i + 1;
+            int end = j + targetCount - 1;
+            for (int k = targetOffset + 1; j < end && source[j] == target[k]; j++, k++);
+            if (j == end) {
+                return i - sourceOffset; // Found whole string.
+            }
+        }
+    }
+    return -1;
+}
+
+
+StringVal StringFunctions::split_part(FunctionContext* context,const StringVal& content,
+                                      const StringVal& delimiter,const IntVal& field) {
+    if (field.val <= 0) return StringVal::null();
+    int find[field.val]; //store substring position
+    for(int i=0;i<=field.val;i++) find[i] = -1; // init
+    int from = 0;
+    for(int i=1;i<=field.val;i++){ // find
+        find[i-1] = indexOf(content.ptr,0,content.len, delimiter.ptr,0,delimiter.len,from);
+        from = find[i-1] + 1;
+        if (find[i-1] == -1) {
+            break;
+        }
+    }
+    if ((field.val>1 && find[field.val-2] == -1) || (field.val==1 && find[field.val-1] == -1)){ // not find
+        return StringVal::null();
+    }
+    int start_pos,len;
+    if (field.val == 1) { // find need split first part
+        start_pos = 0;
+    } else {
+        start_pos = find[field.val-2] + delimiter.len;
+    }
+    len = (find[field.val - 1] == -1 ? content.len : find[field.val-1]) - start_pos;
+    return StringVal(content.ptr + start_pos, len);
+}
+
 }
