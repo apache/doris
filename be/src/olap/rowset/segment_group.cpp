@@ -573,8 +573,8 @@ OLAPStatus SegmentGroup::add_short_key(const RowCursor& short_key, const uint32_
                         file_path.c_str(), O_CREAT | O_EXCL | O_WRONLY, S_IRUSR | S_IWUSR);
         if (res != OLAP_SUCCESS) {
             char errmsg[64];
-            LOG(WARNING) << "can not create file. [file_path='" << file_path
-                << "' err='" << strerror_r(errno, errmsg, 64) << "']";
+            LOG(WARNING) << "can not create file. file_path=" << file_path
+                         << ", err='" << strerror_r(errno, errmsg, 64);
             return res;
         }
         _new_segment_created = true;
@@ -629,8 +629,8 @@ OLAPStatus SegmentGroup::finalize_segment(uint32_t data_segment_size, int64_t nu
 
     int file_length = _current_file_handler.tell();
     if (file_length == -1) {
-        OLAP_LOG_WARNING("get file_length error. [err=%m]");
-        
+        LOG(WARNING) << "get file_length error. err=" << Errno::no()
+                     << ", _new_segment_created=" << _new_segment_created;
         return OLAP_ERR_IO_ERROR;
     }
 
