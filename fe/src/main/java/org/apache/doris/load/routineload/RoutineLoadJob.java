@@ -622,6 +622,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                         throw new TransactionException("txn " + txnState.getTransactionId()
                                                        + " could not be " + transactionStatus
                                                        + " while task " + txnState.getLabel() + " has been aborted.");
+                    default:
+                        break;
                 }
             }
             passCheck = true;
