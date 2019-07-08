@@ -380,12 +380,14 @@ const std::string TABLET_SCHEMA_HASH_KEY = "schema_hash";
 const std::string TABLET_ID_PREFIX = "t_";
 const std::string ROWSET_ID_PREFIX = "s_";
 
+#ifndef RETURN_NOT_OK
 #define RETURN_NOT_OK(s) do { \
     OLAPStatus _s = (s);      \
     if (_s != OLAP_SUCCESS) { \
         return _s; \
     } \
 } while (0);
+#endif
 
 // Declare copy constructor and equal operator as private
 #ifndef DISALLOW_COPY_AND_ASSIGN
