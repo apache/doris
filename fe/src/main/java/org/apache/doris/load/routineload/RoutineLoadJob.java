@@ -620,13 +620,9 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                 switch (transactionStatus) {
                     case COMMITTED:
                         throw new TransactionException("txn " + txnState.getTransactionId()
-                                                               + " could not be " + transactionStatus
-                                                               + " while task " + txnState.getLabel() + " has been aborted.");
-                    case ABORTED:
-                        // reset attachment in txn state
-                        // txn will be aborted normal but without attachment
-                        // task will not be update when attachment is null
-                        txnState.setTxnCommitAttachment(null);
+                                                       + " could not be " + transactionStatus
+                                                       + " while task " + txnState.getLabel() + " has been aborted.");
+                    default:
                         break;
                 }
             }
@@ -685,13 +681,13 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         long taskBeId = -1L;
         try {
             if (txnOperated) {
-                if (txnState.getTxnCommitAttachment() == null) {
-                    // this is a task which already has been aborted by fe
-                    return;
-                }
                 // step0: find task in job
                 Optional<RoutineLoadTaskInfo> routineLoadTaskInfoOptional = routineLoadTaskInfoList.stream().filter(
                         entity -> entity.getTxnId() == txnState.getTransactionId()).findFirst();
+                if (!routineLoadTaskInfoOptional.isPresent()) {
+                    // task will not be update when task has been aborted by fe
+                    return;
+                }
                 RoutineLoadTaskInfo routineLoadTaskInfo = routineLoadTaskInfoOptional.get();
                 taskBeId = routineLoadTaskInfo.getBeId();
                 // step1: job state will be changed depending on txnStatusChangeReasonString
