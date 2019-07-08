@@ -80,6 +80,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     protected String label;
     protected JobState state = JobState.PENDING;
     protected EtlJobType jobType;
+    // the auth info could be null when load job is created before commit named 'Persist auth info in load job'
     protected AuthorizationInfo authorizationInfo;
 
     // optional properties
@@ -195,6 +196,8 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
 
     /**
      * Return the real table names by table ids.
+     * The method is invoked by 'checkAuth' when authorization info is null in job.
+     * Also it is invoked by 'setAuthorizationInfo' which saves the auth info in the beginning of job.
      * Throw MetaNofFoundException when table name could not be found.
      * @return
      */
@@ -391,9 +394,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         if (!Catalog.getCurrentCatalog().getAuth().checkPrivByAuthInfo(ConnectContext.get(), authorizationInfo,
                                                                        PrivPredicate.LOAD)) {
             ErrorReport.reportDdlException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
-                                           ConnectContext.get().getQualifiedUser(),
-                                           ConnectContext.get().getRemoteIP(),
-                                           authorizationInfo.toString());
+                                           PrivPredicate.LOAD);
         }
     }
 
