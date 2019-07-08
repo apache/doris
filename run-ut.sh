@@ -131,7 +131,7 @@ if [ -d ${DORIS_TEST_BINARY_DIR}/util/test_data ]; then
 fi
 cp -r ${DORIS_HOME}/be/test/util/test_data ${DORIS_TEST_BINARY_DIR}/util/
 
- Running Util Unittest
+#Running Util Unittest
 ${DORIS_TEST_BINARY_DIR}/util/bit_util_test
 ${DORIS_TEST_BINARY_DIR}/util/bitmap_test
 ${DORIS_TEST_BINARY_DIR}/util/path_trie_test
@@ -154,7 +154,7 @@ ${DORIS_TEST_BINARY_DIR}/util/string_util_test
 ${DORIS_TEST_BINARY_DIR}/util/coding_test
 ${DORIS_TEST_BINARY_DIR}/util/faststring_test
 
- Running common Unittest
+## Running common Unittest
 ${DORIS_TEST_BINARY_DIR}/common/resource_tls_test
 
  Running exprs unit test
@@ -163,12 +163,12 @@ ${DORIS_TEST_BINARY_DIR}/exprs/json_function_test
 ${DORIS_TEST_BINARY_DIR}/exprs/timestamp_functions_test
 ${DORIS_TEST_BINARY_DIR}/exprs/percentile_approx_test
 
- Running geo unit test
+## Running geo unit test
 ${DORIS_TEST_BINARY_DIR}/geo/geo_functions_test
 ${DORIS_TEST_BINARY_DIR}/geo/wkt_parse_test
 ${DORIS_TEST_BINARY_DIR}/geo/geo_types_test
 
- Running exec unit test
+## Running exec unit test
 ${DORIS_TEST_BINARY_DIR}/exec/plain_text_line_reader_uncompressed_test
 ${DORIS_TEST_BINARY_DIR}/exec/plain_text_line_reader_gzip_test
 ${DORIS_TEST_BINARY_DIR}/exec/plain_text_line_reader_bzip_test
@@ -187,7 +187,7 @@ ${DORIS_TEST_BINARY_DIR}/exec/es_query_builder_test
 ${DORIS_TEST_BINARY_DIR}/exec/olap_table_info_test
 ${DORIS_TEST_BINARY_DIR}/exec/olap_table_sink_test
 
- Running runtime Unittest
+## Running runtime Unittest
 ${DORIS_TEST_BINARY_DIR}/runtime/fragment_mgr_test
 ${DORIS_TEST_BINARY_DIR}/runtime/decimal_value_test
 ${DORIS_TEST_BINARY_DIR}/runtime/datetime_value_test
@@ -200,15 +200,15 @@ ${DORIS_TEST_BINARY_DIR}/runtime/tablet_writer_mgr_test
 ${DORIS_TEST_BINARY_DIR}/runtime/snapshot_loader_test
 ${DORIS_TEST_BINARY_DIR}/runtime/user_function_cache_test
 ${DORIS_TEST_BINARY_DIR}/runtime/small_file_mgr_test
- Running expr Unittest
+# Running expr Unittest
 
- Running http
+# Running http
 ${DORIS_TEST_BINARY_DIR}/http/metrics_action_test
 ${DORIS_TEST_BINARY_DIR}/http/http_utils_test
 ${DORIS_TEST_BINARY_DIR}/http/stream_load_test
 ${DORIS_TEST_BINARY_DIR}/http/http_client_test
 
- Running OLAPEngine Unittest
+# Running OLAPEngine Unittest
 ${DORIS_TEST_BINARY_DIR}/olap/bit_field_test
 ${DORIS_TEST_BINARY_DIR}/olap/byte_buffer_test
 ${DORIS_TEST_BINARY_DIR}/olap/run_length_byte_test
