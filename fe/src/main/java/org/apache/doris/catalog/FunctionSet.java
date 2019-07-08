@@ -855,7 +855,7 @@ public class FunctionSet {
                         prefix + STDDEV_UPDATE_SYMBOL.get(t),
                         prefix + "15knuth_var_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
                         null,
-                        prefix + "21knuth_stddev_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                        prefix + "25knuth_stddev_pop_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                         false, false, false));
                 addBuiltin(AggregateFunction.createBuiltin("stddev_samp",
                         Lists.newArrayList(t), Type.DOUBLE, Type.VARCHAR,
@@ -879,7 +879,7 @@ public class FunctionSet {
                         prefix + STDDEV_UPDATE_SYMBOL.get(t),
                         prefix + "15knuth_var_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
                         null,
-                        prefix + "18knuth_var_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                        prefix + "22knuth_var_pop_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                         false, false, false));
                 addBuiltin(AggregateFunction.createBuiltin("variance_samp",
                         Lists.newArrayList(t), Type.DOUBLE, Type.VARCHAR,
