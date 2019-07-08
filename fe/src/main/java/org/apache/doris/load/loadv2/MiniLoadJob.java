@@ -17,7 +17,9 @@
 
 package org.apache.doris.load.loadv2;
 
+import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.LabelAlreadyUsedException;
@@ -29,11 +31,11 @@ import org.apache.doris.thrift.TMiniLoadBeginRequest;
 import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.TransactionState;
 
+import com.google.common.collect.Sets;
+
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.Arrays;
-import java.util.HashSet;
 import java.util.Set;
 
 public class MiniLoadJob extends LoadJob {
@@ -64,8 +66,22 @@ public class MiniLoadJob extends LoadJob {
     }
 
     @Override
+    public Set<String> getTableNamesForShow() {
+        return Sets.newHashSet(tableName);
+    }
+
+    @Override
     public Set<String> getTableNames() throws MetaNotFoundException {
-        return new HashSet<>(Arrays.asList(tableName));
+        return Sets.newHashSet(tableName);
+    }
+
+    @Override
+    public void setAuthorizationInfo() throws MetaNotFoundException {
+        Database database = Catalog.getCurrentCatalog().getDb(dbId);
+        if (database == null) {
+            throw new MetaNotFoundException("Database " + dbId + "has been deleted");
+        }
+        this.authorizationInfo = new AuthorizationInfo(database.getFullName(), getTableNames());
     }
 
     @Override

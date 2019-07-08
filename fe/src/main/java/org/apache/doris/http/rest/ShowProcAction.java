@@ -60,7 +60,7 @@ public class ShowProcAction extends RestBaseAction {
     @Override
     public void execute(BaseRequest request, BaseResponse response) {
         // check authority
-        AuthorizationInfo authInfo;
+        ActionAuthorizationInfo authInfo;
         try {
             authInfo = getAuthorizationInfo(request);
             checkGlobalAuth(authInfo, PrivPredicate.ADMIN);

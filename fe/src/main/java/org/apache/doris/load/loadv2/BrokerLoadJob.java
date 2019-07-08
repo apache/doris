@@ -21,6 +21,7 @@ package org.apache.doris.load.loadv2;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.LoadStmt;
+import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
@@ -39,6 +40,7 @@ import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.PullLoadSourceInfo;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.transaction.BeginTransactionException;
+import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.base.Joiner;
@@ -71,6 +73,7 @@ public class BrokerLoadJob extends LoadJob {
 
     // include broker desc and data desc
     private PullLoadSourceInfo dataSourceInfo = new PullLoadSourceInfo();
+    private List<TabletCommitInfo> commitInfos = Lists.newArrayList();
 
     // only for log replay
     public BrokerLoadJob() {
@@ -101,6 +104,11 @@ public class BrokerLoadJob extends LoadJob {
                                                         stmt.getBrokerDesc(), stmt.getDataDescriptions());
         brokerLoadJob.setJobProperties(stmt.getProperties());
         brokerLoadJob.setDataSourceInfo(db, stmt.getDataDescriptions());
+        try {
+            brokerLoadJob.setAuthorizationInfo();
+        } catch (MetaNotFoundException e) {
+            throw new DdlException(e.getMessage());
+        }
         return brokerLoadJob;
     }
 
@@ -113,7 +121,37 @@ public class BrokerLoadJob extends LoadJob {
     }
 
     @Override
-    protected Set<String> getTableNames() throws MetaNotFoundException {
+    public void setAuthorizationInfo() throws MetaNotFoundException {
+        Database database = Catalog.getCurrentCatalog().getDb(dbId);
+        if (database == null) {
+            throw new MetaNotFoundException("Database " + dbId + "has been deleted");
+        }
+        this.authorizationInfo = new AuthorizationInfo(database.getFullName(), getTableNames());
+    }
+
+    @Override
+    public Set<String> getTableNamesForShow() {
+        Set<String> result = Sets.newHashSet();
+        Database database = Catalog.getCurrentCatalog().getDb(dbId);
+        if (database == null) {
+            for (long tableId : dataSourceInfo.getIdToFileGroups().keySet()) {
+                result.add(String.valueOf(tableId));
+            }
+            return result;
+        }
+        for (long tableId : dataSourceInfo.getIdToFileGroups().keySet()) {
+            Table table = database.getTable(tableId);
+            if (table == null) {
+                result.add(String.valueOf(tableId));
+            } else {
+                result.add(table.getName());
+            }
+        }
+        return result;
+    }
+
+    @Override
+    public Set<String> getTableNames() throws MetaNotFoundException{
         Set<String> result = Sets.newHashSet();
         Database database = Catalog.getCurrentCatalog().getDb(dbId);
         if (database == null) {
@@ -125,8 +163,9 @@ public class BrokerLoadJob extends LoadJob {
             Table table = database.getTable(tableId);
             if (table == null) {
                 throw new MetaNotFoundException("Failed to find table " + tableId + " in db " + dbId);
+            } else {
+                result.add(table.getName());
             }
-            result.add(table.getName());
         }
         return result;
     }

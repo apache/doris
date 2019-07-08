@@ -19,6 +19,7 @@ package org.apache.doris.load.loadv2;
 
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.LoadStmt;
+import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.common.AnalysisException;
@@ -46,7 +47,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TEtlState;
 import org.apache.doris.transaction.AbstractTxnStateChangeCallback;
 import org.apache.doris.transaction.BeginTransactionException;
-import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
 
@@ -80,6 +80,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     protected String label;
     protected JobState state = JobState.PENDING;
     protected EtlJobType jobType;
+    protected AuthorizationInfo authorizationInfo;
 
     // optional properties
     // timeout second need to be reset in constructor of subclass
@@ -103,7 +104,6 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     // 99: all of tasks have been finished
     // 100: txn status is visible and load has been finished
     protected int progress;
-    protected List<TabletCommitInfo> commitInfos = Lists.newArrayList();
 
     // non-persistence
     protected boolean isCommitting = false;
@@ -185,6 +185,21 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         return transactionId;
     }
 
+    /**
+     * Show table names for frontend
+     * If table name could not be found by id, the table id will be used instead.
+     *
+     * @return
+     */
+    abstract Set<String> getTableNamesForShow();
+
+    /**
+     * Return the real table names by table ids.
+     * Throw MetaNofFoundException when table name could not be found.
+     * @return
+     */
+    abstract Set<String> getTableNames() throws MetaNotFoundException;
+
     public boolean isCompleted() {
         return state == JobState.FINISHED || state == JobState.CANCELLED;
     }
@@ -236,6 +251,8 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         }
     }
 
+    abstract void setAuthorizationInfo() throws MetaNotFoundException;
+
     protected static void checkDataSourceInfo(Database db, List<DataDescription> dataDescriptions) throws DdlException {
         for (DataDescription dataDescription : dataDescriptions) {
             // loadInfo is a temporary param for the method of checkAndCreateSource.
@@ -245,8 +262,6 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             Load.checkAndCreateSource(db, dataDescription, loadInfo, false);
         }
     }
-
-    abstract Set<String> getTableNames() throws MetaNotFoundException;
 
     public void isJobTypeRead(boolean jobTypeRead) {
         isJobTypeRead = jobTypeRead;
@@ -338,7 +353,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         logFinalOperation();
     }
 
-    public void cancelJob(FailMsg failMsg) throws DdlException, MetaNotFoundException {
+    public void cancelJob(FailMsg failMsg) throws DdlException {
         writeLock();
         try {
             // check
@@ -367,29 +382,54 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         logFinalOperation();
     }
 
-    private void checkAuth() throws DdlException, MetaNotFoundException {
+    private void checkAuth() throws DdlException {
+        if (authorizationInfo == null) {
+            // use the old method to check priv
+            checkAuthWithoutAuthInfo();
+            return;
+        }
+        if (!Catalog.getCurrentCatalog().getAuth().checkPrivByAuthInfo(ConnectContext.get(), authorizationInfo,
+                                                                       PrivPredicate.LOAD)) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
+                                           ConnectContext.get().getQualifiedUser(),
+                                           ConnectContext.get().getRemoteIP(),
+                                           authorizationInfo.toString());
+        }
+    }
+
+    /**
+     * This method is compatible with old load job without authorization info
+     * If db or table name could not be found by id, it will throw the NOT_EXISTS_ERROR
+     *
+     * @throws DdlException
+     */
+    private void checkAuthWithoutAuthInfo() throws DdlException {
         Database db = Catalog.getInstance().getDb(dbId);
         if (db == null) {
-            throw new DdlException("Db does not exist. id: " + dbId);
+            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR);
         }
 
         // check auth
-        Set<String> tableNames = getTableNames();
-        if (tableNames.isEmpty()) {
-            // forward compatibility
-            if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), db.getFullName(),
-                                                                   PrivPredicate.LOAD)) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR);
-            }
-        } else {
-            for (String tblName : tableNames) {
-                if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), db.getFullName(),
-                                                                        tblName, PrivPredicate.LOAD)) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR,
-                                                   ConnectContext.get().getQualifiedUser(),
-                                                   ConnectContext.get().getRemoteIP(), tblName);
+        try {
+            Set<String> tableNames = getTableNames();
+            if (tableNames.isEmpty()) {
+                // forward compatibility
+                if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), db.getFullName(),
+                                                                       PrivPredicate.LOAD)) {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR);
+                }
+            } else {
+                for (String tblName : tableNames) {
+                    if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), db.getFullName(),
+                                                                            tblName, PrivPredicate.LOAD)) {
+                        ErrorReport.reportDdlException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR,
+                                                       ConnectContext.get().getQualifiedUser(),
+                                                       ConnectContext.get().getRemoteIP(), tblName);
+                    }
                 }
             }
+        } catch (MetaNotFoundException e) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR);
         }
     }
 
@@ -477,7 +517,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         failMsg = loadJobFinalOperation.getFailMsg();
     }
 
-    public List<Comparable> getShowInfo() throws DdlException, MetaNotFoundException {
+    public List<Comparable> getShowInfo() throws DdlException {
         readLock();
         try {
             // check auth
@@ -542,8 +582,9 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         }
     }
 
-    public void getJobInfo(Load.JobInfo jobInfo) throws MetaNotFoundException {
-        jobInfo.tblNames.addAll(getTableNames());
+    public void getJobInfo(Load.JobInfo jobInfo) throws DdlException {
+        checkAuth();
+        jobInfo.tblNames.addAll(getTableNamesForShow());
         jobInfo.state = org.apache.doris.load.LoadJob.JobState.valueOf(state.name());
         if (failMsg != null) {
             jobInfo.failMsg = failMsg.getMsg();
@@ -753,6 +794,12 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         loadingStatus.write(out);
         out.writeBoolean(strictMode);
         out.writeLong(transactionId);
+        if (authorizationInfo == null) {
+            out.writeBoolean(false);
+        } else {
+            out.writeBoolean(true);
+            authorizationInfo.write(out);
+        }
     }
 
     @Override
@@ -786,6 +833,12 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_54) {
             strictMode = in.readBoolean();
             transactionId = in.readLong();
+        }
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_56) {
+            if (in.readBoolean()) {
+                authorizationInfo = new AuthorizationInfo();
+                authorizationInfo.readFields(in);
+            }
         }
     }
 }

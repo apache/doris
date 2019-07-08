@@ -136,6 +136,7 @@ public class LoadManager implements Writable{
         try {
             checkLabelUsed(database.getId(), request.getLabel(), request.getCreate_timestamp());
             loadJob = new MiniLoadJob(database.getId(), request);
+            loadJob.setAuthorizationInfo();
             createLoadJob(loadJob);
         } catch (DuplicatedRequestException e) {
             return dbIdToLabelToLoadJobs.get(database.getId()).get(request.getLabel())
@@ -272,7 +273,7 @@ public class LoadManager implements Writable{
         Catalog.getCurrentCatalog().getEditLog().logCreateLoadJob(loadJob);
     }
 
-    public void cancelLoadJob(CancelLoadStmt stmt) throws DdlException, MetaNotFoundException {
+    public void cancelLoadJob(CancelLoadStmt stmt) throws DdlException {
         Database db = Catalog.getInstance().getDb(stmt.getDbName());
         if (db == null) {
             throw new DdlException("Db does not exist. name: " + stmt.getDbName());
@@ -416,7 +417,7 @@ public class LoadManager implements Writable{
                     }
                     // add load job info
                     loadJobInfos.add(loadJob.getShowInfo());
-                } catch (DdlException | MetaNotFoundException e) {
+                } catch (DdlException e) {
                     continue;
                 }
             }
@@ -426,7 +427,7 @@ public class LoadManager implements Writable{
         }
     }
 
-    public void getLoadJobInfo(Load.JobInfo info) throws DdlException, MetaNotFoundException {
+    public void getLoadJobInfo(Load.JobInfo info) throws DdlException {
         String fullDbName = ClusterNamespace.getFullName(info.clusterName, info.dbName);
         info.dbName = fullDbName;
         Database database = checkDb(info.dbName);
