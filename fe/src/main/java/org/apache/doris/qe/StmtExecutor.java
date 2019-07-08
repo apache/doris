@@ -70,6 +70,7 @@ import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TabletCommitInfo;
+import org.apache.doris.transaction.TransactionCommitFailedException;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -589,6 +590,7 @@ public class StmtExecutor {
             return;
         }
 
+        long createTime = System.currentTimeMillis();
         // assign request_id
         UUID uuid = UUID.randomUUID();
         context.setQueryId(new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
@@ -636,21 +638,37 @@ public class StmtExecutor {
             return;
         }
 
-        Catalog.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
-                insertStmt.getDbObj(), insertStmt.getTransactionId(),
-                TabletCommitInfo.fromThrift(coord.getCommitInfos()),
-                5000);
+        boolean noDataToLoad = false;
+        try {
+            Catalog.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
+                    insertStmt.getDbObj(), insertStmt.getTransactionId(),
+                    TabletCommitInfo.fromThrift(coord.getCommitInfos()),
+                    5000);
+        } catch (TransactionCommitFailedException e) {
+            if (!e.getMessage().equals(TransactionCommitFailedException.NO_DATA_TO_LOAD_MSG)
+                    || !Config.using_old_load_usage_pattern) {
+                throw e;
+            }
+
+            /*
+             * If the exception is NO_DATA_TO_LOAD, and config 'using_old_load_usage_pattern' is true.
+             * Doris will return a label to user, and user can use this label to check load job's status,
+             * which exactly like the old insert stmt usage pattern.
+             */
+            noDataToLoad = true;
+        }
         context.getState().setOk();
 
         // record the non-streaming insert info for show load
-        if (!insertStmt.isStreaming()) {
+        if (!insertStmt.isStreaming() || noDataToLoad) {
             try {
                 context.getCatalog().getLoadManager().recordFinishedLoadJob(
                         uuid.toString(),
                         insertStmt.getDb(),
                         insertStmt.getTargetTable().getId(),
                         EtlJobType.INSERT,
-                        System.currentTimeMillis()
+                        createTime,
+                        noDataToLoad ? TransactionCommitFailedException.NO_DATA_TO_LOAD_MSG : ""
                 );
             } catch (MetaNotFoundException e) {
                 LOG.warn("Record info of insert load with error " + e.getMessage(), e);

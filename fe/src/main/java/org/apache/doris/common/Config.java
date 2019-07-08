@@ -824,5 +824,13 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true) public static boolean disable_colocate_relocate = false;
     @ConfField(mutable = true, masterOnly = true) public static boolean disable_colocate_balance = false;
+
+    /*
+     * If set to true, the insert stmt with empty select result will still return a label to user.
+     * And user can use this label to check the load job's status.
+     * The default value is false, which means if select result is empty, an 'all partitions have no load data'
+     * exception will be thrown to user client.
+     */
+    @ConfField(mutable = true, masterOnly = true) public static boolean using_old_load_usage_pattern = false;
 }
 

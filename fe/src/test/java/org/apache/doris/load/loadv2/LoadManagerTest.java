@@ -17,11 +17,6 @@
 
 package org.apache.doris.load.loadv2;
 
-import mockit.Deencapsulation;
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mocked;
-
 import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.catalog.Catalog;
@@ -48,6 +43,11 @@ import java.io.FileOutputStream;
 import java.util.List;
 import java.util.Map;
 
+import mockit.Deencapsulation;
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mocked;
+
 public class LoadManagerTest {
     private LoadManager loadManager;
     private static final String methodName = "getIdToLoadJobs";
@@ -55,7 +55,7 @@ public class LoadManagerTest {
     @Before
     public void setUp() throws Exception {
         loadManager = new LoadManager(new LoadJobScheduler());
-        LoadJob job1 = new InsertLoadJob("job1", 1L, 1L, System.currentTimeMillis());
+        LoadJob job1 = new InsertLoadJob("job1", 1L, 1L, System.currentTimeMillis(), "");
         Deencapsulation.invoke(loadManager, "addLoadJob", job1);
     }
 
