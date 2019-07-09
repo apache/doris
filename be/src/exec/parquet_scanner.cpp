@@ -86,6 +86,7 @@ Status ParquetScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
     return Status::OK();
 }
 
+/*
 Status ParquetScanner::open_next_reader() {
     if (_next_range >= _ranges.size()) {
         _scanner_eof = true;
@@ -98,32 +99,35 @@ Status ParquetScanner::open_next_reader() {
     return Status::OK();
 }
 
+
 Status ParquetScanner::open_file_reader() {
-    if (_cur_file_reader != nullptr) {
-        if (_stream_load_pipe != nullptr) {
-            _stream_load_pipe.reset();
-            _cur_file_reader = nullptr;
-        } else {
-            delete _cur_file_reader;
-            _cur_file_reader = nullptr;
+        if (_cur_file_reader != nullptr) {
+            if (_stream_load_pipe != nullptr) {
+                _stream_load_pipe.reset();
+                _cur_file_reader = nullptr;
+            } else {
+                delete _cur_file_reader;
+                _cur_file_reader = nullptr;
+            }
         }
-    }
-    const TBrokerRangeDesc& range = _ranges[_next_range];
-    switch (range.file_type) {
-        case TFileType::FILE_LOCAL: {
-            FileReader *file_reader = new LocalFileReader(range.path, range.start_offset);
-            RETURN_IF_ERROR(file_reader->open());
-            _cur_file_reader = new ParquetReaderWrap(file_reader);
-            return _cur_file_reader->init_parquet_reader(_src_slot_descs);
-        }
-        case TFileType::FILE_BROKER: {
-            FileReader *file_reader = new BrokerReader(_state->exec_env(), _broker_addresses, _params.properties, range.path, range.start_offset);
-            RETURN_IF_ERROR(file_reader->open());
-            _cur_file_reader = new ParquetReaderWrap(file_reader);
-            return _cur_file_reader->init_parquet_reader(_src_slot_descs);
-        }
+        const TBrokerRangeDesc &range = _ranges[_next_range];
+        switch (range.file_type) {
+            case TFileType::FILE_LOCAL: {
+                FileReader *file_reader = new LocalFileReader(range.path, range.start_offset);
+                RETURN_IF_ERROR(file_reader->open());
+                _cur_file_reader = new ParquetReaderWrap(file_reader);
+                return _cur_file_reader->init_parquet_reader(_src_slot_descs);
+            }
+            case TFileType::FILE_BROKER: {
+                FileReader *file_reader = new BrokerReader(_state->exec_env(), _broker_addresses, _params.properties,
+                                                           range.path, range.start_offset);
+                RETURN_IF_ERROR(file_reader->open());
+                _cur_file_reader = new ParquetReaderWrap(file_reader);
+                //_cur_file_reader->size()
+                return _cur_file_reader->init_parquet_reader(_src_slot_descs);
+            }
 #if 0
-        case TFileType::FILE_STREAM:
+            case TFileType::FILE_STREAM:
         {
             _stream_load_pipe = _state->exec_env()->load_stream_mgr()->get(range.load_id);
             if (_stream_load_pipe == nullptr) {
@@ -133,13 +137,68 @@ Status ParquetScanner::open_file_reader() {
             break;
         }
 #endif
-        default: {
-            std::stringstream ss;
-            ss << "Unknown file type, type=" << range.file_type;
-            return Status::InternalError(ss.str());
+            default: {
+                std::stringstream ss;
+                ss << "Unknown file type, type=" << range.file_type;
+                return Status::InternalError(ss.str());
+            }
+        }
+        return Status::OK();
+    }
+ */
+Status ParquetScanner::open_next_reader() {
+    // open_file_reader
+    if (_cur_file_reader != nullptr) {
+        if (_stream_load_pipe != nullptr) {
+            _stream_load_pipe.reset();
+            _cur_file_reader = nullptr;
+        } else {
+            delete _cur_file_reader;
+            _cur_file_reader = nullptr;
         }
     }
-    return Status::OK();
+
+    while (true) {
+        if (_next_range >= _ranges.size()) {
+            _scanner_eof = true;
+            return Status::OK();
+        }
+        const TBrokerRangeDesc &range = _ranges[_next_range++];
+        FileReader *file_reader = nullptr;
+        switch (range.file_type) {
+            case TFileType::FILE_LOCAL: {
+                file_reader = new LocalFileReader(range.path, range.start_offset);
+                break;
+            }
+            case TFileType::FILE_BROKER: {
+                file_reader = new BrokerReader(_state->exec_env(), _broker_addresses, _params.properties,
+                                                range.path, range.start_offset);
+                break;
+            }
+#if 0
+            case TFileType::FILE_STREAM:
+        {
+            _stream_load_pipe = _state->exec_env()->load_stream_mgr()->get(range.load_id);
+            if (_stream_load_pipe == nullptr) {
+                return Status::InternalError("unknown stream load id");
+            }
+            _cur_file_reader = _stream_load_pipe.get();
+            break;
+        }
+#endif
+            default: {
+                std::stringstream ss;
+                ss << "Unknown file type, type=" << range.file_type;
+                return Status::InternalError(ss.str());
+            }
+        }
+        if (file_reader->size() == 0) {
+            continue;
+        }
+        RETURN_IF_ERROR(file_reader->open());
+        _cur_file_reader = new ParquetReaderWrap(file_reader);
+        return _cur_file_reader->init_parquet_reader(_src_slot_descs);
+    }
 }
 
 void ParquetScanner::close() {

@@ -68,7 +68,7 @@ public:
     virtual void close();
 
 private:
-    Status open_file_reader();
+    //Status open_file_reader();
     // Read next buffer from reader
     Status open_next_reader();
 
