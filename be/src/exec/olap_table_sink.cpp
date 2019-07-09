@@ -649,13 +649,8 @@ void OlapTableSink::_convert_batch(RuntimeState* state, RowBatch* input_batch, R
         }
 
         if (!exist_null_value_for_not_null_col) {
-            if (output_batch->add_row() != RowBatch::INVALID_ROW_INDEX) {
-                output_batch->get_row(commit_rows)->set_tuple(0, dst_tuple);
-                commit_rows++;
-            } else {
-                // input_batch and output_batch's capacity must be same.
-                DCHECK(false) << "input_batch and output_batch's capacity must be same.";
-            }
+            output_batch->get_row(commit_rows)->set_tuple(0, dst_tuple);
+            commit_rows++;
         }
     }
     output_batch->commit_rows(commit_rows);
