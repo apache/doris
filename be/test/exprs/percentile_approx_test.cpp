@@ -16,6 +16,7 @@
 // under the License.
 
 #include "exprs/aggregate_functions.h"
+#include "testutil/function_utils.h"
 #include <gtest/gtest.h>
 
 namespace doris {
@@ -26,16 +27,24 @@ namespace doris {
     };
 
     TEST_F(PercentileApproxTest, test1) {
-        doris_udf::FunctionContext *context = new doris_udf::FunctionContext();
+        FunctionUtils* futil = new FunctionUtils();
+        doris_udf::FunctionContext *context = futil->get_fn_ctx();
+        
         DoubleVal doubleQ(0.9);
  
         StringVal stringVal1;
-        BigIntVal int1(1);
+        DoubleVal int1(1);
         AggregateFunctions::percentile_approx_init(context, &stringVal1);
         AggregateFunctions::percentile_approx_update(context, int1, doubleQ, &stringVal1);
-        BigIntVal int2(2);
+        DoubleVal int2(2);
         AggregateFunctions::percentile_approx_update(context, int2, doubleQ, &stringVal1);
-        DoubleVal v = AggregateFunctions::percentile_approx_finalize(context, stringVal1);
+
+        StringVal s = AggregateFunctions::percentile_approx_serialize(context, stringVal1);
+
+        StringVal stringVal2;
+        AggregateFunctions::percentile_approx_init(context, &stringVal2);
+        AggregateFunctions::percentile_approx_merge(context, s, &stringVal2);
+        DoubleVal v = AggregateFunctions::percentile_approx_finalize(context, stringVal2);
         ASSERT_EQ(v.val, 2);
     }
 }
