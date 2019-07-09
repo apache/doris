@@ -25,6 +25,7 @@
 #include "common/logging.h"
 #include "olap/olap_common.h"
 #include "olap/types.h"
+#include "util/arena.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -44,13 +45,13 @@ public:
 
     template<FieldType type, class PageDecoderType>
     void copy_one(PageDecoderType* decoder, typename TypeTraits<type>::CppType* ret) {
-        std::unique_ptr<ColumnVector> dst_vector(new ColumnVector());
-        dst_vector->set_col_data((void*)ret);
-        std::unique_ptr<MemTracker> mem_tracer(new MemTracker(-1)); 
-        std::unique_ptr<MemPool> mem_pool(new MemPool(mem_tracer.get()));
-        ColumnVectorView column_vector_view(dst_vector.get(), 0, mem_pool.get());
+        Arena arena;
+        uint8_t null_bitmap = 0;
+        ColumnBlock block(get_type_info(type), (uint8_t*)ret, &null_bitmap, &arena);
+        ColumnBlockView column_block_view(&block);
+
         size_t n = 1;
-        decoder->next_batch(&n, &column_vector_view);
+        decoder->next_batch(&n, &column_block_view);
         ASSERT_EQ(1, n);
     }
 
@@ -72,22 +73,22 @@ public:
         ASSERT_TRUE(status.ok());
         
         ASSERT_EQ(0, page_decoder.current_index());
-        
-        std::unique_ptr<ColumnVector> dst_vector(new ColumnVector());
-        std::unique_ptr<MemTracker> mem_tracer(new MemTracker(-1));
-        std::unique_ptr<MemPool> mem_pool(new MemPool(mem_tracer.get()));
-        CppType* values = reinterpret_cast<CppType*>(mem_pool->allocate(size * sizeof(CppType)));
-        dst_vector->set_col_data(values);
-        ColumnVectorView column_vector_view(dst_vector.get(), 0, mem_pool.get());
-        status = page_decoder.next_batch(&size, &column_vector_view);
+
+        Arena arena;
+
+        CppType* values = reinterpret_cast<CppType*>(arena.Allocate(size * sizeof(CppType)));
+        uint8_t* null_bitmap = reinterpret_cast<uint8_t*>(arena.Allocate(BitmapSize(size)));
+        ColumnBlock block(get_type_info(Type), (uint8_t*)values, null_bitmap, &arena);
+        ColumnBlockView column_block_view(&block);
+        status = page_decoder.next_batch(&size, &column_block_view);
         ASSERT_TRUE(status.ok());
     
-        CppType* decoded = (CppType*)dst_vector->col_data();
+        CppType* decoded = (CppType*)values;
         for (uint i = 0; i < size; i++) {
             if (src[i] != decoded[i]) {
                 FAIL() << "Fail at index " << i <<
-                        " inserted=" << src[i] << " got=" << decoded[i];
-                }
+                    " inserted=" << src[i] << " got=" << decoded[i];
+            }
         }
     
         // Test Seek within block by ordinal

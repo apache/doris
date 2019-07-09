@@ -202,7 +202,7 @@ public:
         return Status::OK();
     }
 
-    Status next_batch(size_t* n, ColumnVectorView* dst) override {
+    Status next_batch(size_t* n, ColumnBlockView* dst) override {
         DCHECK(_parsed);
         if (PREDICT_FALSE(*n == 0 || _cur_index >= _num_elements)) {
             *n = 0;
@@ -211,7 +211,7 @@ public:
 
         size_t to_fetch = std::min(*n, static_cast<size_t>(_num_elements - _cur_index));
         size_t remaining = to_fetch;
-        uint8_t* data_ptr = (uint8_t*)dst->column_vector()->col_data();
+        uint8_t* data_ptr = dst->data();
         bool result = false;
         while (remaining > 0) {
             result = _rle_decoder.Get(reinterpret_cast<CppType*>(data_ptr));
