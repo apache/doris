@@ -132,6 +132,8 @@ Status DataDir::_check_path_exist() {
         closedir(dirp);
         return Status::InternalError("readdir failed");
     }
+    // opendir and closedir should be called both or not.
+    closedir(dirp);
     return Status::OK();
 }
 
