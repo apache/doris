@@ -73,6 +73,7 @@ Status ParquetScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
         {
             COUNTER_UPDATE(_rows_read_counter, 1);
             SCOPED_TIMER(_materialize_timer);
+            _counter->num_rows_total++;
             if (fill_dest_tuple(Slice(), tuple, tuple_pool)) {
                 break;// break iff true
             }
@@ -163,7 +164,9 @@ Status ParquetScanner::open_next_reader() {
             _scanner_eof = true;
             return Status::OK();
         }
+        std::cout << "_next_range " << _next_range<< std::endl;
         const TBrokerRangeDesc &range = _ranges[_next_range++];
+        std::cout << "path : " << range.path << std::endl;
         FileReader *file_reader = nullptr;
         switch (range.file_type) {
             case TFileType::FILE_LOCAL: {
@@ -192,10 +195,11 @@ Status ParquetScanner::open_next_reader() {
                 return Status::InternalError(ss.str());
             }
         }
+        RETURN_IF_ERROR(file_reader->open());
+        std::cout << "file size : " << file_reader->size() << std::endl;
         if (file_reader->size() == 0) {
             continue;
         }
-        RETURN_IF_ERROR(file_reader->open());
         _cur_file_reader = new ParquetReaderWrap(file_reader);
         return _cur_file_reader->init_parquet_reader(_src_slot_descs);
     }
