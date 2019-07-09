@@ -28,8 +28,8 @@
 
 namespace doris {
 
-class ColumnVector;
-class MemPool;
+class ColumnBlock;
+class Arena;
 class RandomAccessFile;
 class TypeInfo;
 
@@ -107,9 +107,9 @@ public:
     virtual Status seek_to_ordinal(rowid_t ord_idx) = 0;
 
     // After one seek, we can call this function many times to read data 
-    // into ColumnVector. when read string type data, memory will allocated
-    // from MemPool
-    virtual Status next_batch(size_t* n, ColumnVector* dst, MemPool* mem_pool) = 0;
+    // into ColumnBlock. when read string type data, memory will allocated
+    // from Arena
+    virtual Status next_batch(size_t* n, ColumnBlock* dst) = 0;
 
     // Get current oridinal
     virtual rowid_t get_current_oridinal() const = 0;
@@ -127,7 +127,7 @@ public:
     // In the case that the values are themselves references
     // to other memory (eg Slices), the referred-to memory is
     // allocated in the dst column vector's arena.
-    Status scan(size_t* n, ColumnVector* dst, MemPool* mem_pool);
+    Status scan(size_t* n, ColumnBlock* dst, Arena* arena);
 
     // release next_batch related resource
     Status finish_batch();
@@ -149,7 +149,7 @@ public:
 
     Status seek_to_ordinal(rowid_t ord_idx) override;
 
-    Status next_batch(size_t* n, ColumnVector* dst, MemPool* mem_pool) override;
+    Status next_batch(size_t* n, ColumnBlock* dst) override;
 
     // Get current oridinal
     rowid_t get_current_oridinal() const override { return _current_rowid; }
