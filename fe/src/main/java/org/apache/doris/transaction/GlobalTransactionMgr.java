@@ -242,12 +242,8 @@ public class GlobalTransactionMgr {
         }
         
         LOG.debug("try to commit transaction: {}", transactionId);
-        if (tabletCommitInfos == null || tabletCommitInfos.isEmpty()) {
-            throw new TransactionCommitFailedException("all partitions have no load data");
-        }
-        
         // 1. check status
-        // the caller method already own db lock, we not obtain db lock here
+        // the caller method already own db lock, we do not obtain db lock here
         Database db = catalog.getDb(dbId);
         if (null == db) {
             throw new MetaNotFoundException("could not find db [" + dbId + "]");
@@ -257,6 +253,7 @@ public class GlobalTransactionMgr {
                 || transactionState.getTransactionStatus() == TransactionStatus.ABORTED) {
             throw new TransactionCommitFailedException(transactionState.getReason());
         }
+
         if (transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
             return;
         }
@@ -264,6 +261,10 @@ public class GlobalTransactionMgr {
             return;
         }
         
+        if (tabletCommitInfos == null || tabletCommitInfos.isEmpty()) {
+            throw new TransactionCommitFailedException(TransactionCommitFailedException.NO_DATA_TO_LOAD_MSG);
+        }
+
         // update transaction state extra if exists
         if (txnCommitAttachment != null) {
             transactionState.setTxnCommitAttachment(txnCommitAttachment);
