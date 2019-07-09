@@ -97,9 +97,9 @@ OLAPStatus TabletManager::_add_tablet_unlock(TTabletId tablet_id, SchemaHash sch
     }
 
     if (table_item == nullptr) {
-        LOG(INFO) << "not find exist tablet just add it to map"
-                  << " tablet_id = " << tablet_id
-                  << " schema_hash = " << schema_hash;
+        VLOG(3) << "not find exist tablet just add it to map"
+                << " tablet_id = " << tablet_id
+                << " schema_hash = " << schema_hash;
         return _add_tablet_to_map(tablet_id, schema_hash, tablet, update_meta, false, false);
     }
 
@@ -200,9 +200,9 @@ OLAPStatus TabletManager::_add_tablet_to_map(TTabletId tablet_id, SchemaHash sch
     }
     _tablet_map[tablet_id].table_arr.push_back(tablet);
     _tablet_map[tablet_id].table_arr.sort(_sort_tablet_by_creation_time);
-    LOG(INFO) << "add tablet to map successfully" 
-                << " tablet_id = " << tablet_id
-                << " schema_hash = " << schema_hash;   
+    VLOG(3) << "add tablet to map successfully" 
+            << " tablet_id = " << tablet_id
+            << " schema_hash = " << schema_hash;   
     return res;                              
 }
 
