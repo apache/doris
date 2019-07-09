@@ -22,6 +22,7 @@
 #include "olap/rowset/segment_v2/page_builder.h"
 #include "olap/rowset/segment_v2/page_decoder.h"
 #include "olap/rowset/segment_v2/bitshuffle_page.h"
+#include "util/arena.h"
 #include "util/logging.h"
 
 using doris::segment_v2::PageBuilderOptions;
@@ -34,13 +35,13 @@ public:
 
     template<FieldType type, class PageDecoderType>
     void copy_one(PageDecoderType* decoder, typename TypeTraits<type>::CppType* ret) {
-        std::unique_ptr<ColumnVector> dst_vector(new ColumnVector());
-        dst_vector->set_col_data((void*)ret);
-        std::unique_ptr<MemTracker> mem_tracer(new MemTracker(-1)); 
-        std::unique_ptr<MemPool> mem_pool(new MemPool(mem_tracer.get()));
-        ColumnVectorView column_vector_view(dst_vector.get(), mem_pool.get(), get_type_info(type));
+        Arena arena;
+        uint8_t null_bitmap = 0;
+        ColumnBlock block(get_type_info(type), (uint8_t*)ret, &null_bitmap, &arena);
+        ColumnBlockView column_block_view(&block);
+
         size_t n = 1;
-        decoder->_copy_next_values(n, column_vector_view.column_vector()->col_data());
+        decoder->_copy_next_values(n, column_block_view.data());
         ASSERT_EQ(1, n);
     }
 
@@ -63,16 +64,17 @@ public:
         ASSERT_TRUE(status.ok());
         ASSERT_EQ(0, page_decoder.current_index());
 
-        std::unique_ptr<ColumnVector> dst_vector(new ColumnVector());
-        std::unique_ptr<MemTracker> mem_tracer(new MemTracker(-1)); 
-        std::unique_ptr<MemPool> mem_pool(new MemPool(mem_tracer.get()));
-        CppType* values = reinterpret_cast<CppType*>(mem_pool->allocate(size * sizeof(CppType)));
-        dst_vector->set_col_data(values);
-        ColumnVectorView column_vector_view(dst_vector.get(), mem_pool.get(), get_type_info(Type));
-        status = page_decoder.next_batch(&size, &column_vector_view);
+        Arena arena;
+
+        CppType* values = reinterpret_cast<CppType*>(arena.Allocate(size * sizeof(CppType)));
+        uint8_t* null_bitmap = reinterpret_cast<uint8_t*>(arena.Allocate(BitmapSize(size)));
+        ColumnBlock block(get_type_info(Type), (uint8_t*)values, null_bitmap, &arena);
+        ColumnBlockView column_block_view(&block);
+
+        status = page_decoder.next_batch(&size, &column_block_view);
         ASSERT_TRUE(status.ok());
 
-        CppType* decoded = (CppType*)dst_vector->col_data();
+        CppType* decoded = (CppType*)values;
         for (uint i = 0; i < size; i++) {
             if (src[i] != decoded[i]) {
                 FAIL() << "Fail at index " << i <<

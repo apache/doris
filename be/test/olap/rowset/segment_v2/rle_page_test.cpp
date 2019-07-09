@@ -22,6 +22,7 @@
 #include "olap/rowset/segment_v2/page_builder.h"
 #include "olap/rowset/segment_v2/page_decoder.h"
 #include "olap/rowset/segment_v2/rle_page.h"
+#include "util/arena.h"
 #include "util/logging.h"
 
 using doris::segment_v2::PageBuilderOptions;
@@ -35,13 +36,13 @@ public:
 
     template<FieldType type, class PageDecoderType>
     void copy_one(PageDecoderType* decoder, typename TypeTraits<type>::CppType* ret) {
-        std::unique_ptr<ColumnVector> dst_vector(new ColumnVector());
-        dst_vector->set_col_data((void*)ret);
-        std::unique_ptr<MemTracker> mem_tracker(new MemTracker(-1)); 
-        std::unique_ptr<MemPool> mem_pool(new MemPool(mem_tracker.get()));
-        ColumnVectorView column_vector_view(dst_vector.get(), 0, mem_pool.get());
+        Arena arena;
+        uint8_t null_bitmap = 0;
+        ColumnBlock block(get_type_info(type), (uint8_t*)ret, &null_bitmap, &arena);
+        ColumnBlockView column_block_view(&block);
+
         size_t n = 1;
-        decoder->next_batch(&n, &column_vector_view);
+        decoder->next_batch(&n, &column_block_view);
         ASSERT_EQ(1, n);
     }
 
@@ -65,14 +66,14 @@ public:
         ASSERT_EQ(0, rle_page_decoder.current_index());
         ASSERT_EQ(size, rle_page_decoder.count());
 
-        std::unique_ptr<ColumnVector> dst_vector(new ColumnVector());
-        std::unique_ptr<MemTracker> mem_tracker(new MemTracker(-1)); 
-        std::unique_ptr<MemPool> mem_pool(new MemPool(mem_tracker.get()));
-        CppType* values = reinterpret_cast<CppType*>(mem_pool->allocate(size * sizeof(CppType)));
-        dst_vector->set_col_data(values);
-        ColumnVectorView column_vector_view(dst_vector.get(), 0, mem_pool.get());
+        Arena arena;
+
+        CppType* values = reinterpret_cast<CppType*>(arena.Allocate(size * sizeof(CppType)));
+        uint8_t* null_bitmap = reinterpret_cast<uint8_t*>(arena.Allocate(BitmapSize(size)));
+        ColumnBlock block(get_type_info(Type), (uint8_t*)values, null_bitmap, &arena);
+        ColumnBlockView column_block_view(&block);
         size_t size_to_fetch = size;
-        status = rle_page_decoder.next_batch(&size_to_fetch, &column_vector_view);
+        status = rle_page_decoder.next_batch(&size_to_fetch, &column_block_view);
         ASSERT_TRUE(status.ok());
         ASSERT_EQ(size, size_to_fetch);
 
