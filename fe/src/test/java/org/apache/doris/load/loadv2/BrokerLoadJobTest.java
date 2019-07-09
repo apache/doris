@@ -184,8 +184,8 @@ public class BrokerLoadJobTest {
             }
         };
 
-        Assert.assertEquals(1, brokerLoadJob.getTableNames().size());
-        Assert.assertEquals(true, brokerLoadJob.getTableNames().contains(tableName));
+        Assert.assertEquals(1, brokerLoadJob.getTableNamesForShow().size());
+        Assert.assertEquals(true, brokerLoadJob.getTableNamesForShow().contains(tableName));
     }
 
     @Test

@@ -52,7 +52,7 @@ public class MultiDesc extends RestBaseAction {
     }
 
     @Override
-    public void executeWithoutPassword(AuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
+    public void executeWithoutPassword(ActionAuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
             throws DdlException {
         String db = request.getSingleParameter(DB_KEY);
         if (Strings.isNullOrEmpty(db)) {

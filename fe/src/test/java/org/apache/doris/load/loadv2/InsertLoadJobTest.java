@@ -50,7 +50,7 @@ public class InsertLoadJobTest {
                 result = tableName;
             }
         };
-        Set<String> tableNames = insertLoadJob.getTableNames();
+        Set<String> tableNames = insertLoadJob.getTableNamesForShow();
         Assert.assertEquals(1, tableNames.size());
         Assert.assertEquals(true, tableNames.contains(tableName));
         Assert.assertEquals(JobState.FINISHED, insertLoadJob.getState());
