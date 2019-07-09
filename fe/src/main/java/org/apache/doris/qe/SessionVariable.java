@@ -71,7 +71,6 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_INSERT_STRICT = "enable_insert_strict";
     public static final int MIN_EXEC_INSTANCE_NUM = 1;
     public static final int MAX_EXEC_INSTANCE_NUM = 32;
-    public static final String MT_DOP = "mt_dop";
     // if set to true, some of stmt will be forwarded to master FE to get result
     public static final String FORWARD_TO_MASTER = "forward_to_master";
 
