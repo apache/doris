@@ -761,30 +761,30 @@ StringVal StringFunctions::money_format(FunctionContext *context, const LargeInt
     return do_money_format(context, ss.str());
 }
 
-static int index_of(const uint8_t* source, int sourceOffset, int sourceCount,
-                const uint8_t* target, int targetOffset, int targetCount,
-                int fromIndex) {
-    if (fromIndex >= sourceCount) {
-        return (targetCount == 0 ? sourceCount : -1);
+static int index_of(const uint8_t* source, int source_offset, int source_count,
+                const uint8_t* target, int target_offset, int target_count,
+                int from_index) {
+    if (from_index >= source_count) {
+        return (target_count == 0 ? source_count : -1);
     }
-    if (fromIndex < 0) {
-        fromIndex = 0;
+    if (from_index < 0) {
+        from_index = 0;
     }
-    if (targetCount == 0) {
-        return fromIndex;
+    if (target_count == 0) {
+        return from_index;
     }
-    const uint8_t first = target[targetOffset];
-    int max = sourceOffset + (sourceCount - targetCount);
-    for (int i = sourceOffset + fromIndex; i <= max; i++) {
+    const uint8_t first = target[target_offset];
+    int max = source_offset + (source_count - target_count);
+    for (int i = source_offset + from_index; i <= max; i++) {
         if (source[i] != first) { // Look for first character
             while (++i <= max && source[i] != first);
         }
         if (i <= max) { // Found first character, now look at the rest of v2
             int j = i + 1;
-            int end = j + targetCount - 1;
-            for (int k = targetOffset + 1; j < end && source[j] == target[k]; j++, k++);
+            int end = j + target_count - 1;
+            for (int k = target_offset + 1; j < end && source[j] == target[k]; j++, k++);
             if (j == end) {
-                return i - sourceOffset; // Found whole string.
+                return i - source_offset; // Found whole string.
             }
         }
     }
@@ -801,22 +801,23 @@ StringVal StringFunctions::split_part(FunctionContext* context, const StringVal&
     for (int i = 0; i <= field.val; i++) find[i] = -1; // init
     int from = 0;
     for (int i = 1; i <= field.val; i++) { // find
-        find[i-1] = index_of(content.ptr, 0, content.len, delimiter.ptr, 0, delimiter.len, from);
-        from = find[i-1] + 1;
-        if (find[i-1] == -1) {
+        int last_index = i - 1;
+        find[last_index] = index_of(content.ptr, 0, content.len, delimiter.ptr, 0, delimiter.len, from);
+        from = find[last_index] + 1;
+        if (find[last_index] == -1) {
             break;
         }
     }
-    if ((field.val > 1 && find[field.val - 2] == -1) || (field.val==1 && find[field.val - 1] == -1)){ // not find
+    if ((field.val > 1 && find[field.val - 2] == -1) || (field.val==1 && find[field.val - 1] == -1)) { // not find
         return StringVal::null();
     }
-    int start_pos, len;
+    int start_pos;
     if (field.val == 1) { // find need split first part
         start_pos = 0;
     } else {
         start_pos = find[field.val - 2] + delimiter.len;
     }
-    len = (find[field.val - 1] == -1 ? content.len : find[field.val - 1]) - start_pos;
+    int len = (find[field.val - 1] == -1 ? content.len : find[field.val - 1]) - start_pos;
     return StringVal(content.ptr + start_pos, len);
 }
 
