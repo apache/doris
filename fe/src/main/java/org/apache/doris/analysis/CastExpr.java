@@ -250,7 +250,8 @@ public class CastExpr extends Expr {
 
     @Override
     public Expr getResultValue() throws AnalysisException {
-        final Expr value = children.get(0).getResultValue();
+        recursiveResetChildrenResult();
+        final Expr value = children.get(0);
         if (!(value instanceof LiteralExpr)) {
             return this;
         }
@@ -266,6 +267,8 @@ public class CastExpr extends Expr {
     }
 
     private Expr castTo(LiteralExpr value) throws AnalysisException {
+        Preconditions.checkArgument(!(value instanceof NullLiteral)
+            && !type.isNull());
         if (type.isIntegerType()) {
             return new IntLiteral(value.getLongValue(), type);
         } else if (type.isLargeIntType()) {
