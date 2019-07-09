@@ -197,7 +197,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     /**
      * Return the real table names by table ids.
      * The method is invoked by 'checkAuth' when authorization info is null in job.
-     * Also it is invoked by 'setAuthorizationInfo' which saves the auth info in the beginning of job.
+     * Also it is invoked by 'gatherAuthInfo' which saves the auth info in the constructor of job.
      * Throw MetaNofFoundException when table name could not be found.
      * @return
      */
@@ -253,8 +253,6 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             }
         }
     }
-
-    abstract void setAuthorizationInfo() throws MetaNotFoundException;
 
     protected static void checkDataSourceInfo(Database db, List<DataDescription> dataDescriptions) throws DdlException {
         for (DataDescription dataDescription : dataDescriptions) {

@@ -28,7 +28,6 @@ import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.FailMsg.CancelType;
 
 import com.google.common.base.Strings;
-
 import com.google.common.collect.Sets;
 
 import java.io.DataInput;
@@ -51,7 +50,8 @@ public class InsertLoadJob extends LoadJob {
         this.jobType = EtlJobType.INSERT;
     }
 
-    public InsertLoadJob(String label, long dbId, long tableId, long createTimestamp, String failMsg) {
+    public InsertLoadJob(String label, long dbId, long tableId, long createTimestamp, String failMsg)
+            throws MetaNotFoundException {
         super(dbId, label);
         this.tableId = tableId;
         this.createTimestamp = createTimestamp;
@@ -67,15 +67,15 @@ public class InsertLoadJob extends LoadJob {
         }
         this.jobType = EtlJobType.INSERT;
         this.timeoutSecond = Config.insert_load_default_timeout_second;
+        this.authorizationInfo = gatherAuthInfo();
     }
 
-    @Override
-    public void setAuthorizationInfo() throws MetaNotFoundException {
+    public AuthorizationInfo gatherAuthInfo() throws MetaNotFoundException {
         Database database = Catalog.getCurrentCatalog().getDb(dbId);
         if (database == null) {
             throw new MetaNotFoundException("Database " + dbId + "has been deleted");
         }
-        this.authorizationInfo = new AuthorizationInfo(database.getFullName(), getTableNames());
+        return new AuthorizationInfo(database.getFullName(), getTableNames());
     }
 
     @Override

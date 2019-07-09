@@ -136,7 +136,6 @@ public class LoadManager implements Writable{
         try {
             checkLabelUsed(database.getId(), request.getLabel(), request.getCreate_timestamp());
             loadJob = new MiniLoadJob(database.getId(), request);
-            loadJob.setAuthorizationInfo();
             createLoadJob(loadJob);
         } catch (DuplicatedRequestException e) {
             return dbIdToLabelToLoadJobs.get(database.getId()).get(request.getLabel())

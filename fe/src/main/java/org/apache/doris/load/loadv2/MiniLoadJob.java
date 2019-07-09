@@ -48,7 +48,7 @@ public class MiniLoadJob extends LoadJob {
         this.jobType = EtlJobType.MINI;
     }
 
-    public MiniLoadJob(long dbId, TMiniLoadBeginRequest request) {
+    public MiniLoadJob(long dbId, TMiniLoadBeginRequest request) throws MetaNotFoundException {
         super(dbId, request.getLabel());
         this.jobType = EtlJobType.MINI;
         this.tableName = request.getTbl();
@@ -63,6 +63,7 @@ public class MiniLoadJob extends LoadJob {
         this.isCancellable = false;
         this.createTimestamp = request.getCreate_timestamp();
         this.loadStartTimestamp = createTimestamp;
+        this.authorizationInfo = gatherAuthInfo();
     }
 
     @Override
@@ -75,13 +76,12 @@ public class MiniLoadJob extends LoadJob {
         return Sets.newHashSet(tableName);
     }
 
-    @Override
-    public void setAuthorizationInfo() throws MetaNotFoundException {
+    public AuthorizationInfo gatherAuthInfo() throws MetaNotFoundException {
         Database database = Catalog.getCurrentCatalog().getDb(dbId);
         if (database == null) {
             throw new MetaNotFoundException("Database " + dbId + "has been deleted");
         }
-        this.authorizationInfo = new AuthorizationInfo(database.getFullName(), getTableNames());
+        return new AuthorizationInfo(database.getFullName(), getTableNames());
     }
 
     @Override

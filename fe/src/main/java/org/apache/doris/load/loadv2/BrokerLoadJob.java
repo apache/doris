@@ -81,12 +81,14 @@ public class BrokerLoadJob extends LoadJob {
         this.jobType = EtlJobType.BROKER;
     }
 
-    public BrokerLoadJob(long dbId, String label, BrokerDesc brokerDesc, List<DataDescription> dataDescriptions) {
+    public BrokerLoadJob(long dbId, String label, BrokerDesc brokerDesc, List<DataDescription> dataDescriptions)
+            throws MetaNotFoundException {
         super(dbId, label);
         this.timeoutSecond = Config.pull_load_task_default_timeout_second;
         this.dataDescriptions = dataDescriptions;
         this.brokerDesc = brokerDesc;
         this.jobType = EtlJobType.BROKER;
+        this.authorizationInfo = gatherAuthInfo();
     }
 
     public static BrokerLoadJob fromLoadStmt(LoadStmt stmt) throws DdlException {
@@ -100,16 +102,15 @@ public class BrokerLoadJob extends LoadJob {
         LoadJob.checkDataSourceInfo(db, stmt.getDataDescriptions());
 
         // create job
-        BrokerLoadJob brokerLoadJob = new BrokerLoadJob(db.getId(), stmt.getLabel().getLabelName(),
-                                                        stmt.getBrokerDesc(), stmt.getDataDescriptions());
-        brokerLoadJob.setJobProperties(stmt.getProperties());
-        brokerLoadJob.setDataSourceInfo(db, stmt.getDataDescriptions());
         try {
-            brokerLoadJob.setAuthorizationInfo();
+            BrokerLoadJob brokerLoadJob = new BrokerLoadJob(db.getId(), stmt.getLabel().getLabelName(),
+                                                            stmt.getBrokerDesc(), stmt.getDataDescriptions());
+            brokerLoadJob.setJobProperties(stmt.getProperties());
+            brokerLoadJob.setDataSourceInfo(db, stmt.getDataDescriptions());
+            return brokerLoadJob;
         } catch (MetaNotFoundException e) {
             throw new DdlException(e.getMessage());
         }
-        return brokerLoadJob;
     }
 
     private void setDataSourceInfo(Database db, List<DataDescription> dataDescriptions) throws DdlException {
@@ -120,13 +121,12 @@ public class BrokerLoadJob extends LoadJob {
         }
     }
 
-    @Override
-    public void setAuthorizationInfo() throws MetaNotFoundException {
+    private AuthorizationInfo gatherAuthInfo() throws MetaNotFoundException {
         Database database = Catalog.getCurrentCatalog().getDb(dbId);
         if (database == null) {
             throw new MetaNotFoundException("Database " + dbId + "has been deleted");
         }
-        this.authorizationInfo = new AuthorizationInfo(database.getFullName(), getTableNames());
+        return new AuthorizationInfo(database.getFullName(), getTableNames());
     }
 
     @Override
