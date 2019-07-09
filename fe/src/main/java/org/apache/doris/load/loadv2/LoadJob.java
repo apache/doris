@@ -42,6 +42,7 @@ import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.Load;
 import org.apache.doris.load.Source;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.mysql.privilege.PaloPrivilege;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TEtlState;
@@ -375,7 +376,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
                 throw new DdlException("Job could not be cancelled when job is finished or cancelled");
             }
 
-            checkAuth();
+            checkAuth("CANCEL LOAD");
             executeCancel(failMsg, true);
         } finally {
             writeUnlock();
@@ -383,16 +384,16 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         logFinalOperation();
     }
 
-    private void checkAuth() throws DdlException {
+    private void checkAuth(String command) throws DdlException {
         if (authorizationInfo == null) {
             // use the old method to check priv
-            checkAuthWithoutAuthInfo();
+            checkAuthWithoutAuthInfo(command);
             return;
         }
         if (!Catalog.getCurrentCatalog().getAuth().checkPrivByAuthInfo(ConnectContext.get(), authorizationInfo,
                                                                        PrivPredicate.LOAD)) {
             ErrorReport.reportDdlException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
-                                           PrivPredicate.LOAD);
+                                           PaloPrivilege.LOAD_PRIV);
         }
     }
 
@@ -402,7 +403,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
      *
      * @throws DdlException
      */
-    private void checkAuthWithoutAuthInfo() throws DdlException {
+    private void checkAuthWithoutAuthInfo(String command) throws DdlException {
         Database db = Catalog.getInstance().getDb(dbId);
         if (db == null) {
             ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR);
@@ -415,13 +416,15 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
                 // forward compatibility
                 if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), db.getFullName(),
                                                                        PrivPredicate.LOAD)) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR);
+                    ErrorReport.reportDdlException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
+                                                   PaloPrivilege.LOAD_PRIV);
                 }
             } else {
                 for (String tblName : tableNames) {
                     if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), db.getFullName(),
                                                                             tblName, PrivPredicate.LOAD)) {
                         ErrorReport.reportDdlException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR,
+                                                       command,
                                                        ConnectContext.get().getQualifiedUser(),
                                                        ConnectContext.get().getRemoteIP(), tblName);
                     }
@@ -520,7 +523,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         readLock();
         try {
             // check auth
-            checkAuth();
+            checkAuth("SHOW LOAD");
             List<Comparable> jobInfo = Lists.newArrayList();
             // jobId
             jobInfo.add(id);
@@ -582,7 +585,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     }
 
     public void getJobInfo(Load.JobInfo jobInfo) throws DdlException {
-        checkAuth();
+        checkAuth("SHOW LOAD");
         jobInfo.tblNames.addAll(getTableNamesForShow());
         jobInfo.state = org.apache.doris.load.LoadJob.JobState.valueOf(state.name());
         if (failMsg != null) {
