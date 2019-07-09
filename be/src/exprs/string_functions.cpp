@@ -776,9 +776,7 @@ static int index_of(const uint8_t* source, int source_offset, int source_count,
     const uint8_t first = target[target_offset];
     int max = source_offset + (source_count - target_count);
     for (int i = source_offset + from_index; i <= max; i++) {
-        if (source[i] != first) { // Look for first character
-            while (++i <= max && source[i] != first);
-        }
+        while (i <= max && source[i] != first) i++; // Look for first character
         if (i <= max) { // Found first character, now look at the rest of v2
             int j = i + 1;
             int end = j + target_count - 1;
@@ -797,7 +795,7 @@ StringVal StringFunctions::split_part(FunctionContext* context, const StringVal&
     if (content.is_null || delimiter.is_null || field.is_null || field.val <= 0) {
         return StringVal::null();
     }
-    int find[field.val]; //store substring position
+    std::vector<int> find(field.val, -1); //store substring position
     for (int i = 0; i <= field.val; i++) find[i] = -1; // init
     int from = 0;
     for (int i = 1; i <= field.val; i++) { // find
@@ -808,7 +806,8 @@ StringVal StringFunctions::split_part(FunctionContext* context, const StringVal&
             break;
         }
     }
-    if ((field.val > 1 && find[field.val - 2] == -1) || (field.val==1 && find[field.val - 1] == -1)) { // not find
+    if ((field.val > 1 && find[field.val - 2] == -1) || (field.val == 1 && find[field.val - 1] == -1)) {
+        // field not find return null
         return StringVal::null();
     }
     int start_pos;
