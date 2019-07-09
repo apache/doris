@@ -262,7 +262,7 @@ public abstract class BaseAction implements IAction {
         }
     }
 
-    public static class AuthorizationInfo {
+    public static class ActionAuthorizationInfo {
         public String fullUserName;
         public String remoteIp;
         public String password;
@@ -277,7 +277,7 @@ public abstract class BaseAction implements IAction {
         }
     }
 
-    protected void checkGlobalAuth(AuthorizationInfo authInfo, PrivPredicate predicate) throws UnauthorizedException {
+    protected void checkGlobalAuth(ActionAuthorizationInfo authInfo, PrivPredicate predicate) throws UnauthorizedException {
         if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(authInfo.remoteIp,
                                                                    authInfo.fullUserName,
                                                                    predicate)) {
@@ -286,7 +286,7 @@ public abstract class BaseAction implements IAction {
         }
     }
 
-    protected void checkDbAuth(AuthorizationInfo authInfo, String db, PrivPredicate predicate)
+    protected void checkDbAuth(ActionAuthorizationInfo authInfo, String db, PrivPredicate predicate)
             throws UnauthorizedException {
         if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(authInfo.remoteIp, db, authInfo.fullUserName,
                                                                predicate)) {
@@ -295,7 +295,7 @@ public abstract class BaseAction implements IAction {
         }
     }
 
-    protected void checkTblAuth(AuthorizationInfo authInfo, String db, String tbl, PrivPredicate predicate) 
+    protected void checkTblAuth(ActionAuthorizationInfo authInfo, String db, String tbl, PrivPredicate predicate)
             throws UnauthorizedException {
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(authInfo.remoteIp, db, authInfo.fullUserName,
                                                                 tbl, predicate)) {
@@ -304,7 +304,7 @@ public abstract class BaseAction implements IAction {
         }
     }
 
-    protected void checkPassword(AuthorizationInfo authInfo)
+    protected void checkPassword(ActionAuthorizationInfo authInfo)
             throws UnauthorizedException {
         if (!Catalog.getCurrentCatalog().getAuth().checkPlainPassword(authInfo.fullUserName,
                                                                       authInfo.remoteIp,
@@ -314,9 +314,9 @@ public abstract class BaseAction implements IAction {
         }
     }
 
-    public AuthorizationInfo getAuthorizationInfo(BaseRequest request)
+    public ActionAuthorizationInfo getAuthorizationInfo(BaseRequest request)
             throws UnauthorizedException {
-        AuthorizationInfo authInfo = new AuthorizationInfo();
+        ActionAuthorizationInfo authInfo = new ActionAuthorizationInfo();
         if (!parseAuthInfo(request, authInfo)) {
             throw new UnauthorizedException("Need auth information.");
         }
@@ -324,7 +324,7 @@ public abstract class BaseAction implements IAction {
         return authInfo;
     }
 
-    private boolean parseAuthInfo(BaseRequest request, AuthorizationInfo authInfo) {
+    private boolean parseAuthInfo(BaseRequest request, ActionAuthorizationInfo authInfo) {
         String encodedAuthString = request.getAuthorizationHeader();
         if (Strings.isNullOrEmpty(encodedAuthString)) {
             return false;
