@@ -47,7 +47,9 @@ public class Partition extends MetaObject implements Writable {
 
     public enum PartitionState {
         NORMAL,
+        @Deprecated
         ROLLUP,
+        @Deprecated
         SCHEMA_CHANGE
     }
 

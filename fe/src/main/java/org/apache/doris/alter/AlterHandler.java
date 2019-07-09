@@ -45,9 +45,14 @@ public abstract class AlterHandler extends Daemon {
     private static final Logger LOG = LogManager.getLogger(AlterHandler.class);
 
     // tableId -> AlterJob
+    @Deprecated
     protected ConcurrentHashMap<Long, AlterJob> alterJobs = new ConcurrentHashMap<Long, AlterJob>();
-    
+    @Deprecated
     protected ConcurrentLinkedQueue<AlterJob> finishedOrCancelledAlterJobs = new ConcurrentLinkedQueue<AlterJob>();
+    
+    // jobId -> AlterJobV2
+    protected ConcurrentHashMap<Long, AlterJobV2> alterJobsV2 = new ConcurrentHashMap<Long, AlterJobV2>();
+    protected ConcurrentLinkedQueue<AlterJobV2> finishedOrCancelledAlterJobsV2 = new ConcurrentLinkedQueue<AlterJobV2>();
     
     /*
      * lock to perform atomic operations.
@@ -70,19 +75,28 @@ public abstract class AlterHandler extends Daemon {
         super(name, 10000);
     }
 
+    protected void addAlterJobV2(AlterJobV2 alterJob) {
+        this.alterJobsV2.put(alterJob.getJobId(), alterJob);
+        LOG.info("add {} job {}", alterJob.getType(), alterJob.getJobId());
+    }
+
+    @Deprecated
     protected void addAlterJob(AlterJob alterJob) {
         this.alterJobs.put(alterJob.getTableId(), alterJob);
         LOG.info("add {} job[{}]", alterJob.getType(), alterJob.getTableId());
     }
 
+    @Deprecated
     public AlterJob getAlterJob(long tableId) {
         return this.alterJobs.get(tableId);
     }
     
+    @Deprecated
     public boolean hasUnfinishedAlterJob(long tableId) {
         return this.alterJobs.containsKey(tableId);
     }
 
+    @Deprecated
     public int getAlterJobNum(JobState state, long dbId) {
         int jobNum = 0;
         if (state == JobState.PENDING || state == JobState.RUNNING || state == JobState.FINISHING) {
@@ -121,24 +135,29 @@ public abstract class AlterHandler extends Daemon {
         return jobNum;
     }
 
+    @Deprecated
     public Map<Long, AlterJob> unprotectedGetAlterJobs() {
         return this.alterJobs;
     }
 
+    @Deprecated
     public ConcurrentLinkedQueue<AlterJob> unprotectedGetFinishedOrCancelledAlterJobs() {
         return this.finishedOrCancelledAlterJobs;
     }
     
+    @Deprecated
     public void addFinishedOrCancelledAlterJob(AlterJob alterJob) {
         alterJob.clear();
         LOG.info("add {} job[{}] to finished or cancel list", alterJob.getType(), alterJob.getTableId());
         this.finishedOrCancelledAlterJobs.add(alterJob);
     }
 
+    @Deprecated
     protected AlterJob removeAlterJob(long tableId) {
         return this.alterJobs.remove(tableId);
     }
 
+    @Deprecated
     public void removeDbAlterJob(long dbId) {
         Iterator<Map.Entry<Long, AlterJob>> iterator = alterJobs.entrySet().iterator();
         while (iterator.hasNext()) {
@@ -154,6 +173,7 @@ public abstract class AlterHandler extends Daemon {
      * handle task report
      * reportVersion is used in schema change job.
      */
+    @Deprecated
     public void handleFinishedReplica(AgentTask task, TTabletInfo finishTabletInfo, long reportVersion)
             throws MetaNotFoundException {
         long tableId = task.getTableId();
@@ -289,6 +309,7 @@ public abstract class AlterHandler extends Daemon {
      */
     public abstract void cancel(CancelStmt stmt) throws DdlException;
 
+    @Deprecated
     public Integer getAlterJobNumByState(JobState state) {
         int jobNum = 0;
         for (AlterJob alterJob : alterJobs.values()) {

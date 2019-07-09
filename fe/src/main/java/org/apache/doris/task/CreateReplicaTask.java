@@ -54,15 +54,18 @@ public class CreateReplicaTask extends AgentTask {
     private double bfFpp;
 
     // used for synchronous process
-    private MarkedCountDownLatch latch;
+    private MarkedCountDownLatch<Long, Long> latch;
 
     private boolean inRestoreMode = false;
+
+    // if base tablet id is set, BE will create the replica on same disk as this base tablet
+    private long baseTabletId = -1;
 
     public CreateReplicaTask(long backendId, long dbId, long tableId, long partitionId, long indexId, long tabletId,
                              short shortKeyColumnCount, int schemaHash, long version, long versionHash,
                              KeysType keysType, TStorageType storageType,
                              TStorageMedium storageMedium, List<Column> columns,
-                             Set<String> bfColumns, double bfFpp, MarkedCountDownLatch latch) {
+                             Set<String> bfColumns, double bfFpp, MarkedCountDownLatch<Long, Long> latch) {
         super(null, backendId, TTaskType.CREATE, dbId, tableId, partitionId, indexId, tabletId);
 
         this.shortKeyColumnCount = shortKeyColumnCount;
@@ -92,12 +95,16 @@ public class CreateReplicaTask extends AgentTask {
         }
     }
 
-    public void setLatch(MarkedCountDownLatch latch) {
+    public void setLatch(MarkedCountDownLatch<Long, Long> latch) {
         this.latch = latch;
     }
 
     public void setInRestoreMode(boolean inRestoreMode) {
         this.inRestoreMode = inRestoreMode;
+    }
+
+    public void setBaseTabletId(long baseTabletId) {
+        this.baseTabletId = baseTabletId;
     }
 
     public TCreateTabletReq toThrift() {
@@ -135,6 +142,10 @@ public class CreateReplicaTask extends AgentTask {
         }
         createTabletReq.setTable_id(tableId);
         createTabletReq.setPartition_id(partitionId);
+
+        if (baseTabletId != -1) {
+            createTabletReq.setBase_tablet_id(baseTabletId);
+        }
 
         return createTabletReq;
     }
