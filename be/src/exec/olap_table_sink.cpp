@@ -641,6 +641,7 @@ void OlapTableSink::_convert_batch(RuntimeState* state, RowBatch* input_batch, R
                     state->append_error_msg_to_file("", ss.str());
 #endif
                     exist_null_value_for_not_null_col = true;
+                    _number_filtered_rows++;
                     break;
                 }
             }
