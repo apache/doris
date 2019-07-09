@@ -44,6 +44,12 @@ public class AgentTaskQueue {
     // backend id -> (task type -> (signature -> agent task))
     private static Table<Long, TTaskType, Map<Long, AgentTask>> tasks = HashBasedTable.create();
     private static int taskNum = 0;
+
+    public static synchronized void addBatchTask(AgentBatchTask batchTask) {
+        for (AgentTask task : batchTask.getAllTasks()) {
+            addTask(task);
+        }
+    }
  
     public static synchronized boolean addTask(AgentTask task) {
         long backendId = task.getBackendId();
@@ -70,6 +76,14 @@ public class AgentTaskQueue {
         return true;
     }
     
+    // remove all task in AgentBatchTask.
+    // the caller should make sure all tasks in AgentBatchTask is type of 'type'
+    public static synchronized void removeBatchTask(AgentBatchTask batchTask, TTaskType type) {
+        for (AgentTask task : batchTask.getAllTasks()) {
+            removeTask(task.getBackendId(), type, task.getSignature());
+        }
+    }
+
     public static synchronized void removeTask(long backendId, TTaskType type, long signature) {
         if (!tasks.contains(backendId, type)) {
             return;

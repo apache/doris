@@ -19,6 +19,7 @@ package org.apache.doris.task;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.ClientPool;
+import org.apache.doris.common.Pair;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TAgentServiceVersion;
@@ -43,6 +44,8 @@ import org.apache.doris.thrift.TStorageMediumMigrateReq;
 import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.thrift.TUpdateTabletMetaInfoReq;
 import org.apache.doris.thrift.TUploadReq;
+
+import com.google.common.collect.Lists;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -99,6 +102,36 @@ public class AgentBatchTask implements Runnable {
             num += tasks.size();
         }
         return num;
+    }
+
+    // return true only if all tasks are finished.
+    // NOTICE that even if AgentTask.isFinished() return false, it does not mean that task is not finished.
+    // this depends on caller's logic. See comments on 'isFinished' member.
+    public boolean isFinished() {
+        for (List<AgentTask> tasks : this.backendIdToTasks.values()) {
+            for (AgentTask agentTask : tasks) {
+                if (!agentTask.isFinished()) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    // return the limit number of unfinished task.
+    // backend id -> signature
+    public List<Pair<Long, Long>> getUnfinishedTasks(int limit) {
+        List<Pair<Long, Long>> res = Lists.newArrayList();
+        for (List<AgentTask> tasks : this.backendIdToTasks.values()) {
+            for (AgentTask agentTask : tasks) {
+                if (!agentTask.isFinished()) {
+                    if (res.size() < limit) {
+                        res.add(Pair.create(agentTask.getBackendId(), agentTask.getSignature()));
+                    }
+                }
+            }
+        }
+        return res;
     }
 
     @Override

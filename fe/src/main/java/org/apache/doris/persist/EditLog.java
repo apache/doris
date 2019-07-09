@@ -17,8 +17,10 @@
 
 package org.apache.doris.persist;
 
+import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.alter.DecommissionBackendJob;
 import org.apache.doris.alter.RollupJob;
+import org.apache.doris.alter.RollupJobV2;
 import org.apache.doris.alter.SchemaChangeJob;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.backup.BackupJob;
@@ -654,28 +656,39 @@ public class EditLog {
                 }
                 case OperationType.OP_REMOVE_ROUTINE_LOAD_JOB: {
                     RoutineLoadOperation operation = (RoutineLoadOperation) journal.getData();
-                    Catalog.getCurrentCatalog().getRoutineLoadManager().replayRemoveOldRoutineLoad(operation);
+                    catalog.getRoutineLoadManager().replayRemoveOldRoutineLoad(operation);
                     break;
                 }
                 case OperationType.OP_CREATE_LOAD_JOB: {
                     org.apache.doris.load.loadv2.LoadJob loadJob =
                             (org.apache.doris.load.loadv2.LoadJob) journal.getData();
-                    Catalog.getCurrentCatalog().getLoadManager().replayCreateLoadJob(loadJob);
+                    catalog.getLoadManager().replayCreateLoadJob(loadJob);
                     break;
                 }
                 case OperationType.OP_END_LOAD_JOB: {
                     LoadJobFinalOperation operation = (LoadJobFinalOperation) journal.getData();
-                    Catalog.getCurrentCatalog().getLoadManager().replayEndLoadJob(operation);
+                    catalog.getLoadManager().replayEndLoadJob(operation);
                     break;
                 }
                 case OperationType.OP_CREATE_SMALL_FILE: {
                     SmallFile smallFile = (SmallFile) journal.getData();
-                    Catalog.getCurrentCatalog().getSmallFileMgr().replayCreateFile(smallFile);
+                    catalog.getSmallFileMgr().replayCreateFile(smallFile);
                     break;
                 }
                 case OperationType.OP_DROP_SMALL_FILE: {
                     SmallFile smallFile = (SmallFile) journal.getData();
-                    Catalog.getCurrentCatalog().getSmallFileMgr().replayRemoveFile(smallFile);
+                    catalog.getSmallFileMgr().replayRemoveFile(smallFile);
+                    break;
+                }
+                case OperationType.OP_ALTER_JOB_V2: {
+                    AlterJobV2 alterJob = (AlterJobV2) journal.getData();
+                    switch (alterJob.getType()) {
+                        case ROLLUP:
+                            catalog.getRollupHandler().replayRollupJobV2((RollupJobV2) alterJob);
+                            break;
+                        default:
+                            break;
+                    }
                     break;
                 }
                 default: {
@@ -1166,5 +1179,9 @@ public class EditLog {
 
     public void logDropSmallFile(SmallFile info) {
         logEdit(OperationType.OP_DROP_SMALL_FILE, info);
+    }
+
+    public void logAlterJob(AlterJobV2 alterJob) {
+        logEdit(OperationType.OP_ALTER_JOB_V2, alterJob);
     }
 }
