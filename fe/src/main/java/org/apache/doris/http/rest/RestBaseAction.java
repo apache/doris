@@ -24,6 +24,7 @@ import org.apache.doris.http.BaseAction;
 import org.apache.doris.http.BaseRequest;
 import org.apache.doris.http.BaseResponse;
 import org.apache.doris.http.UnauthorizedException;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TNetworkAddress;
 
 import org.apache.logging.log4j.LogManager;
@@ -59,15 +60,20 @@ public class RestBaseAction extends BaseAction {
 
     @Override
     public void execute(BaseRequest request, BaseResponse response) throws DdlException {
-        AuthorizationInfo authInfo = getAuthorizationInfo(request);
+        ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
         // check password
         checkPassword(authInfo);
+        ConnectContext ctx = new ConnectContext(null);
+        ctx.setQualifiedUser(authInfo.fullUserName);
+        ctx.setRemoteIP(authInfo.remoteIp);
+        ctx.setCluster(authInfo.cluster);
+        ctx.setThreadLocalInfo();
         executeWithoutPassword(authInfo, request, response);
     }
 
     // If user password should be checked, the derived class should implement this method, NOT 'execute()',
     // otherwise, override 'execute()' directly
-    protected void executeWithoutPassword(AuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
+    protected void executeWithoutPassword(ActionAuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
             throws DdlException {
         throw new DdlException("Not implemented");
     }
