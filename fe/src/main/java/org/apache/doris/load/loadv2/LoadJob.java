@@ -406,7 +406,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     private void checkAuthWithoutAuthInfo(String command) throws DdlException {
         Database db = Catalog.getInstance().getDb(dbId);
         if (db == null) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR);
+            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbId);
         }
 
         // check auth
@@ -431,7 +431,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
                 }
             }
         } catch (MetaNotFoundException e) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR);
+            throw new DdlException(e.getMessage());
         }
     }
 
