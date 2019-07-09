@@ -23,6 +23,10 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.load.EtlJobType;
+import org.apache.doris.load.FailMsg;
+import org.apache.doris.load.FailMsg.CancelType;
+
+import com.google.common.base.Strings;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -46,14 +50,20 @@ public class InsertLoadJob extends LoadJob {
         this.jobType = EtlJobType.INSERT;
     }
 
-    public InsertLoadJob(String label, long dbId, long tableId, long createTimestamp) {
+    public InsertLoadJob(String label, long dbId, long tableId, long createTimestamp, String failMsg) {
         super(dbId, label);
         this.tableId = tableId;
         this.createTimestamp = createTimestamp;
         this.loadStartTimestamp = createTimestamp;
         this.finishTimestamp = System.currentTimeMillis();
-        this.state = JobState.FINISHED;
-        this.progress = 100;
+        if (Strings.isNullOrEmpty(failMsg)) {
+            this.state = JobState.FINISHED;
+            this.progress = 100;
+        } else {
+            this.state = JobState.CANCELLED;
+            this.failMsg = new FailMsg(CancelType.LOAD_RUN_FAIL, failMsg);
+            this.progress = 0;
+        }
         this.jobType = EtlJobType.INSERT;
         this.timeoutSecond = Config.insert_load_default_timeout_second;
     }
