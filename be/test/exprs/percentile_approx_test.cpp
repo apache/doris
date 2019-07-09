@@ -26,7 +26,7 @@ namespace doris {
         PercentileApproxTest() { }
     };
 
-    TEST_F(PercentileApproxTest, test1) {
+    TEST_F(PercentileApproxTest, testSample) {
         FunctionUtils* futil = new FunctionUtils();
         doris_udf::FunctionContext *context = futil->get_fn_ctx();
         
@@ -46,6 +46,70 @@ namespace doris {
         AggregateFunctions::percentile_approx_merge(context, s, &stringVal2);
         DoubleVal v = AggregateFunctions::percentile_approx_finalize(context, stringVal2);
         ASSERT_EQ(v.val, 2);
+    }
+
+    TEST_F(PercentileApproxTest, testNoMerge) {
+        FunctionUtils* futil = new FunctionUtils();
+        doris_udf::FunctionContext *context = futil->get_fn_ctx();
+
+        DoubleVal doubleQ(0.9);
+
+        StringVal stringVal1;
+        DoubleVal val(1);
+        AggregateFunctions::percentile_approx_init(context, &stringVal1);
+        AggregateFunctions::percentile_approx_update(context, val, doubleQ, &stringVal1);
+        DoubleVal val2(2);
+        AggregateFunctions::percentile_approx_update(context, val2, doubleQ, &stringVal1);
+
+        DoubleVal v = AggregateFunctions::percentile_approx_finalize(context, stringVal1);
+        ASSERT_EQ(v.val, 2);
+    }
+
+    TEST_F(PercentileApproxTest, testSerialize) {
+        FunctionUtils* futil = new FunctionUtils();
+        doris_udf::FunctionContext *context = futil->get_fn_ctx();
+
+        DoubleVal doubleQ(0.999);
+        StringVal stringVal;
+        AggregateFunctions::percentile_approx_init(context, &stringVal);
+
+        for (int i = 1 ;i <= 100000 ; i++) {
+            DoubleVal val(i);
+            AggregateFunctions::percentile_approx_update(context, val, doubleQ, &stringVal);
+        }
+        StringVal serialized = AggregateFunctions::percentile_approx_serialize(context, stringVal);
+
+        // mock serialize
+        StringVal stringVal2;
+        AggregateFunctions::percentile_approx_init(context, &stringVal2);
+        AggregateFunctions::percentile_approx_merge(context, serialized, &stringVal2);
+        DoubleVal v = AggregateFunctions::percentile_approx_finalize(context, stringVal2);
+        ASSERT_EQ(v.val, 999);
+    }
+
+    TEST_F(PercentileApproxTest, testNullVale) {
+        FunctionUtils* futil = new FunctionUtils();
+        doris_udf::FunctionContext *context = futil->get_fn_ctx();
+
+        DoubleVal doubleQ(0.999);
+        StringVal stringVal;
+        AggregateFunctions::percentile_approx_init(context, &stringVal);
+
+        for (int i = 1 ;i <= 100000 ; i++) {
+            if (i % 2 == 0) {
+                AggregateFunctions::percentile_approx_update(context, DoubleVal::null(), doubleQ, &stringVal);
+            } else {
+                AggregateFunctions::percentile_approx_update(context, DoubleVal(i), doubleQ, &stringVal);
+            }
+        }
+        StringVal serialized = AggregateFunctions::percentile_approx_serialize(context, stringVal);
+
+        // mock serialize
+        StringVal stringVal2;
+        AggregateFunctions::percentile_approx_init(context, &stringVal2);
+        AggregateFunctions::percentile_approx_merge(context, serialized, &stringVal2);
+        DoubleVal v = AggregateFunctions::percentile_approx_finalize(context, stringVal2);
+        ASSERT_EQ(v.val, 999);
     }
 }
 
