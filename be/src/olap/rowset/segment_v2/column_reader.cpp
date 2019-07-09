@@ -25,7 +25,7 @@
 #include "olap/rowset/segment_v2/page_pointer.h" // for PagePointer
 #include "olap/rowset/segment_v2/options.h" // for PageDecoderOptions
 #include "olap/types.h" // for TypeInfo
-#include "runtime/vectorized_row_batch.h" // for ColumnVectorView
+#include "olap/column_block.h" // for ColumnBlockView
 #include "util/coding.h" // for get_varint32
 #include "util/rle_encoding.h" // for RleDecoder
 
@@ -213,8 +213,8 @@ void FileColumnIterator::_seek_to_pos_in_page(ParsedPage* page, uint32_t offset_
     page->offset_in_page = offset_in_page;
 }
 
-Status FileColumnIterator::next_batch(size_t* n, ColumnVector* dst, MemPool* mem_pool) {
-    ColumnVectorView column_view(dst, mem_pool, _reader->type_info());
+Status FileColumnIterator::next_batch(size_t* n, ColumnBlock* dst) {
+    ColumnBlockView column_view(dst);
     size_t remaining = *n;
     while (remaining > 0) {
         if (!_page->has_remaining()) {
