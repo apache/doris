@@ -234,8 +234,14 @@ void AggregateFunctions::avg_update(FunctionContext* ctx, const T& src, StringVa
 
 struct PercentileApproxState {
 public:
-    TDigest *digest;
+    TDigest *digest = nullptr;
     double targetQuantile = -1.0;
+
+    ~PercentileApproxState() {
+        if (digest != nullptr) {
+            delete digest;
+        }
+    }
 };
 
 void AggregateFunctions::percentile_approx_init(FunctionContext* ctx, StringVal* dst) {
@@ -270,7 +276,7 @@ StringVal AggregateFunctions::percentile_approx_serialize(FunctionContext* ctx, 
     memcpy(result.ptr, &percentile->targetQuantile, sizeof(double));
     percentile->digest->serialize(result.ptr + sizeof(double));
 
-    delete percentile->digest;
+    //delete percentile->digest;
     delete (PercentileApproxState*) src.ptr;
     return result;
 }
@@ -291,7 +297,7 @@ void AggregateFunctions::percentile_approx_merge(FunctionContext* ctx, const Str
     dst_percentile->digest->merge(src_percentile->digest);
     dst_percentile->targetQuantile = quantile;
 
-    delete src_percentile->digest;
+    //delete src_percentile->digest;
     delete src_percentile;
 }
 
@@ -302,7 +308,7 @@ DoubleVal AggregateFunctions::percentile_approx_finalize(FunctionContext* ctx, c
     double quantile = percentile->targetQuantile;
     double result = percentile->digest->quantile(quantile);
 
-    delete percentile->digest;
+    //delete percentile->digest;
     delete (PercentileApproxState*) src.ptr;
     return DoubleVal(result);
 }
@@ -2811,6 +2817,4 @@ template void AggregateFunctions::offset_fn_update<DecimalV2Val>(
 
 template void AggregateFunctions::percentile_approx_update<doris_udf::DoubleVal>(
     FunctionContext* ctx, const doris_udf::DoubleVal&, const doris_udf::DoubleVal&, doris_udf::StringVal*);
-template void AggregateFunctions::percentile_approx_update<doris_udf::BigIntVal>(
-    FunctionContext* ctx, const doris_udf::BigIntVal&, const doris_udf::DoubleVal&, doris_udf::StringVal*);
 }
