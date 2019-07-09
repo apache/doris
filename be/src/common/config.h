@@ -257,8 +257,10 @@ namespace config {
     // Period to update rate counters and sampling counters in ms.
     CONF_Int32(periodic_counter_update_period_ms, "500");
 
-    // Used for mini Load
+    // Used for mini Load. mini load data file will be removed after this time.
     CONF_Int64(load_data_reserve_hours, "4");
+    // log error log will be removed after this time
+    CONF_Int64(load_error_log_reserve_hours, "48");
     CONF_Int64(mini_load_max_mb, "2048");
     CONF_Int32(number_tablet_writer_threads, "16");
 
