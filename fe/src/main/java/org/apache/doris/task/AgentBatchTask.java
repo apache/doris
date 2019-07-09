@@ -24,7 +24,6 @@ import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TAgentServiceVersion;
 import org.apache.doris.thrift.TAgentTaskRequest;
 import org.apache.doris.thrift.TAlterTabletReq;
-import org.apache.doris.thrift.TCancelDeleteDataReq;
 import org.apache.doris.thrift.TCheckConsistencyReq;
 import org.apache.doris.thrift.TClearAlterTaskRequest;
 import org.apache.doris.thrift.TClearTransactionTaskRequest;
