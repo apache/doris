@@ -237,15 +237,15 @@ namespace doris {
 
         // return the cdf on the processed values
         Value cdfProcessed(Value x) const {
-            LOG(INFO) << "cdf value " << x;
-            LOG(INFO) << "processed size " << processed_.size();
+            VLOG(INFO) << "cdf value " << x;
+            VLOG(INFO) << "processed size " << processed_.size();
             if (processed_.size() == 0) {
                 // no data to examin_e
-                LOG(INFO) << "no processed values";
+                VLOG(INFO) << "no processed values";
 
                 return 0.0;
             } else if (processed_.size() == 1) {
-                LOG(INFO) << "one processed value "
+                VLOG(INFO) << "one processed value "
                            << " min_ " << min_ << " max_ " << max_;
                 // exactly one centroid, should have max_==min_
                 auto width = max_ - min_;
@@ -263,20 +263,20 @@ namespace doris {
             } else {
                 auto n = processed_.size();
                 if (x <= min_) {
-                    LOG(INFO) << "below min_ "
+                    VLOG(INFO) << "below min_ "
                                << " min_ " << min_ << " x " << x;
                     return 0;
                 }
 
                 if (x >= max_) {
-                    LOG(INFO) << "above max_ "
+                    VLOG(INFO) << "above max_ "
                                << " max_ " << max_ << " x " << x;
                     return 1;
                 }
 
                 // check for the left tail
                 if (x <= mean(0)) {
-                    LOG(INFO) << "left tail "
+                    VLOG(INFO) << "left tail "
                                << " min_ " << min_ << " mean(0) " << mean(0) << " x " << x;
 
                     // note that this is different than mean(0) > min_ ... this guarantees interpolation works
@@ -289,7 +289,7 @@ namespace doris {
 
                 // and the right tail
                 if (x >= mean(n - 1)) {
-                    LOG(INFO) << "right tail"
+                    VLOG(INFO) << "right tail"
                                << " max_ " << max_ << " mean(n - 1) " << mean(n - 1) << " x " << x;
 
                     if (max_ - mean(n - 1) > 0) {
@@ -307,7 +307,7 @@ namespace doris {
                 auto z2 = (iter)->mean() - x;
                 DCHECK_LE(0.0, z1);
                 DCHECK_LE(0.0, z2);
-                LOG(INFO) << "middle "
+                VLOG(INFO) << "middle "
                            << " z1 " << z1 << " z2 " << z2 << " x " << x;
 
                 return weightedAverage(cumulative_[i - 1], z2, cumulative_[i], z1) / processedWeight_;
@@ -324,7 +324,7 @@ namespace doris {
         // the value will not represent the unprocessed values
         Value quantileProcessed(Value q) const {
             if (q < 0 || q > 1) {
-                LOG(ERROR) << "q should be in [0,1], got " << q;
+                VLOG(ERROR) << "q should be in [0,1], got " << q;
                 return NAN;
             }
 
@@ -355,7 +355,7 @@ namespace doris {
                 auto i = std::distance(cumulative_.cbegin(), iter);
                 auto z1 = index - *(iter - 1);
                 auto z2 = *(iter)-index;
-                // LOG(INFO) << "z2 " << z2 << " index " << index << " z1 " << z1;
+                // VLOG(INFO) << "z2 " << z2 << " index " << index << " z1 " << z1;
                 return weightedAverage(mean(i - 1), z2, mean(i), z1);
             }
 
@@ -552,7 +552,7 @@ namespace doris {
             }
 
             std::vector<Centroid> sorted;
-            LOG(INFO) << "total " << total;
+            VLOG(INFO) << "total " << total;
             sorted.reserve(total);
 
             while (!pq.empty()) {
@@ -621,9 +621,9 @@ namespace doris {
             }
             unprocessed_.clear();
             min_ = std::min(min_, processed_[0].mean());
-            LOG(INFO) << "new min_ " << min_;
+            VLOG(INFO) << "new min_ " << min_;
             max_ = std::max(max_, (processed_.cend() - 1)->mean());
-            LOG(INFO) << "new max_ " << max_;
+            VLOG(INFO) << "new max_ " << max_;
             updateCumulative();
         }
 
@@ -638,12 +638,12 @@ namespace doris {
                 auto dq = w / total;
                 auto k2 = integratedLocation(q + dq);
                 if (k2 - k1 > 1 && w != 1) {
-                    LOG(WARNING) << "Oversize centroid at " << std::distance(sorted.cbegin(), iter) << " k1 " << k1 << " k2 " << k2
+                    VLOG(WARNING) << "Oversize centroid at " << std::distance(sorted.cbegin(), iter) << " k1 " << k1 << " k2 " << k2
                                  << " dk " << (k2 - k1) << " w " << w << " q " << q;
                     badWeight++;
                 }
                 if (k2 - k1 > 1.5 && w != 1) {
-                    LOG(ERROR) << "Egregiously Oversize centroid at " << std::distance(sorted.cbegin(), iter) << " k1 " << k1
+                    VLOG(ERROR) << "Egregiously Oversize centroid at " << std::distance(sorted.cbegin(), iter) << " k1 " << k1
                                << " k2 " << k2 << " dk " << (k2 - k1) << " w " << w << " q " << q;
                     badWeight++;
                 }
