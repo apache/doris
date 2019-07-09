@@ -276,7 +276,6 @@ StringVal AggregateFunctions::percentile_approx_serialize(FunctionContext* ctx, 
     memcpy(result.ptr, &percentile->targetQuantile, sizeof(double));
     percentile->digest->serialize(result.ptr + sizeof(double));
 
-    //delete percentile->digest;
     delete (PercentileApproxState*) src.ptr;
     return result;
 }
@@ -297,7 +296,6 @@ void AggregateFunctions::percentile_approx_merge(FunctionContext* ctx, const Str
     dst_percentile->digest->merge(src_percentile->digest);
     dst_percentile->targetQuantile = quantile;
 
-    //delete src_percentile->digest;
     delete src_percentile;
 }
 
@@ -308,7 +306,6 @@ DoubleVal AggregateFunctions::percentile_approx_finalize(FunctionContext* ctx, c
     double quantile = percentile->targetQuantile;
     double result = percentile->digest->quantile(quantile);
 
-    //delete percentile->digest;
     delete (PercentileApproxState*) src.ptr;
     return DoubleVal(result);
 }

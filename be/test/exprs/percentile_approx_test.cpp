@@ -84,7 +84,7 @@ namespace doris {
         AggregateFunctions::percentile_approx_init(context, &stringVal2);
         AggregateFunctions::percentile_approx_merge(context, serialized, &stringVal2);
         DoubleVal v = AggregateFunctions::percentile_approx_finalize(context, stringVal2);
-        ASSERT_EQ(v.val, 999);
+        ASSERT_EQ(v.val, 99900.5);
     }
 
     TEST_F(PercentileApproxTest, testNullVale) {
@@ -96,7 +96,7 @@ namespace doris {
         AggregateFunctions::percentile_approx_init(context, &stringVal);
 
         for (int i = 1 ;i <= 100000 ; i++) {
-            if (i % 2 == 0) {
+            if (i % 3 == 0) {
                 AggregateFunctions::percentile_approx_update(context, DoubleVal::null(), doubleQ, &stringVal);
             } else {
                 AggregateFunctions::percentile_approx_update(context, DoubleVal(i), doubleQ, &stringVal);
@@ -109,7 +109,7 @@ namespace doris {
         AggregateFunctions::percentile_approx_init(context, &stringVal2);
         AggregateFunctions::percentile_approx_merge(context, serialized, &stringVal2);
         DoubleVal v = AggregateFunctions::percentile_approx_finalize(context, stringVal2);
-        ASSERT_EQ(v.val, 999);
+        ASSERT_EQ(v.val, 99900.5);
     }
 }
 

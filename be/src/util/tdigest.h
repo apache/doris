@@ -324,7 +324,7 @@ namespace doris {
         // the value will not represent the unprocessed values
         Value quantileProcessed(Value q) const {
             if (q < 0 || q > 1) {
-                VLOG(ERROR) << "q should be in [0,1], got " << q;
+                VLOG(1) << "q should be in [0,1], got " << q;
                 return NAN;
             }
 
@@ -638,12 +638,12 @@ namespace doris {
                 auto dq = w / total;
                 auto k2 = integratedLocation(q + dq);
                 if (k2 - k1 > 1 && w != 1) {
-                    VLOG(WARNING) << "Oversize centroid at " << std::distance(sorted.cbegin(), iter) << " k1 " << k1 << " k2 " << k2
+                    VLOG(1) << "Oversize centroid at " << std::distance(sorted.cbegin(), iter) << " k1 " << k1 << " k2 " << k2
                                  << " dk " << (k2 - k1) << " w " << w << " q " << q;
                     badWeight++;
                 }
                 if (k2 - k1 > 1.5 && w != 1) {
-                    VLOG(ERROR) << "Egregiously Oversize centroid at " << std::distance(sorted.cbegin(), iter) << " k1 " << k1
+                    VLOG(1) << "Egregiously Oversize centroid at " << std::distance(sorted.cbegin(), iter) << " k1 " << k1
                                << " k2 " << k2 << " dk " << (k2 - k1) << " w " << w << " q " << q;
                     badWeight++;
                 }
