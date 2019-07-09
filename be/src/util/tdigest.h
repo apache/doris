@@ -15,6 +15,14 @@
  * limitations under the License.
  */
 
+// T-Digest :  Percentile and Quantile Estimation of Big Data
+// A new data structure for accurate on-line accumulation of rank-based statistics 
+// such as quantiles and trimmed means.
+// See original paper: "Computing extremely accurate quantiles using t-digest" 
+// by Ted Dunning and Otmar Ertl for more details 
+// https://github.com/tdunning/t-digest/blob/07b8f2ca2be8d0a9f04df2feadad5ddc1bb73c88/docs/t-digest-paper/histo.pdf.
+// https://github.com/derrickburns/tdigest
+
 #ifndef TDIGEST2_TDIGEST_H_
 #define TDIGEST2_TDIGEST_H_
 
