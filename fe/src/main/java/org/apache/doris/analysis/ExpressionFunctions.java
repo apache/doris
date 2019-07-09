@@ -21,6 +21,8 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
@@ -37,6 +39,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 public enum ExpressionFunctions {
     INSTANCE;
@@ -55,6 +58,13 @@ public enum ExpressionFunctions {
     }
 
     public Expr evalExpr(Expr constExpr) {
+        // Function's arg are all LiteralExpr.
+        for (Expr child : constExpr.getChildren()) {
+            if (!(child instanceof LiteralExpr)) {
+                return constExpr;
+            }
+        }
+
         if (constExpr instanceof ArithmeticExpr
                 || constExpr instanceof FunctionCallExpr) {
             Function fn = constExpr.getFn();
@@ -90,11 +100,9 @@ public enum ExpressionFunctions {
 
     private FEFunctionInvoker getFunction(FEFunctionSignature signature) {
         Collection<FEFunctionInvoker> functionInvokers = functions.get(signature.getName());
-
         if (functionInvokers == null) {
             return null;
         }
-
         for (FEFunctionInvoker invoker : functionInvokers) {
             if (!invoker.getSignature().returnType.equals(signature.getReturnType())) {
                 continue;
@@ -162,12 +170,65 @@ public enum ExpressionFunctions {
             return signature;
         }
 
+        // Now ExpressionFunctions does't support function that it's args contain
+        // array type except last one.
         public LiteralExpr invoke(List<Expr> args) throws AnalysisException {
+            final List<Object> invokeArgs = createInvokeArgs(args);
             try {
-                return (LiteralExpr) method.invoke(null, args.toArray());
+                return (LiteralExpr)method.invoke(null, invokeArgs.toArray());
             } catch (InvocationTargetException | IllegalAccessException | IllegalArgumentException e) {
-                throw new AnalysisException(e.getLocalizedMessage(), e);
+                throw new AnalysisException(e.getLocalizedMessage());
             }
+        }
+
+        private List<Object> createInvokeArgs(List<Expr> args) throws AnalysisException {
+            final List<Object> invokeArgs = Lists.newArrayList();
+            for (int typeIndex = 0; typeIndex < method.getParameterTypes().length; typeIndex++) {
+                final Class<?> argType = method.getParameterTypes()[typeIndex];
+                if (argType.isArray()) {
+                    Preconditions.checkArgument(method.getParameterTypes().length == typeIndex + 1);
+                    final List<Expr> variableLengthExprs = Lists.newArrayList();
+                    for (int variableLengthArgIndex = typeIndex; variableLengthArgIndex < args.size(); variableLengthArgIndex++) {
+                        variableLengthExprs.add(args.get(variableLengthArgIndex));
+                    }
+                    LiteralExpr[] variableLengthArgs = createVariableLengthArgs(variableLengthExprs, typeIndex);
+                    invokeArgs.add(variableLengthArgs);
+                } else {
+                    invokeArgs.add(args.get(typeIndex));
+                }
+            }
+            return invokeArgs;
+        }
+
+        private LiteralExpr[] createVariableLengthArgs(List<Expr> args, int typeIndex) throws AnalysisException {
+            final Set<Class<?>> classSet = Sets.newHashSet();
+            for (Expr e : args) {
+                classSet.add(e.getClass());
+            }
+            if (classSet.size() > 1) {
+                // Variable-length args' types can't exceed two kinds.
+                throw new AnalysisException("Function's args does't match.");
+            }
+
+            final ScalarType argType = signature.getArgTypes()[typeIndex];
+            LiteralExpr[] exprs;
+            if (argType.isStringType()) {
+                exprs = new StringLiteral[args.size()];
+            } else if (argType.isFixedPointType()) {
+                exprs = new IntLiteral[args.size()];
+            } else if (argType.isDateType()) {
+                exprs = new DateLiteral[args.size()];
+            } else if (argType.isDecimal()) {
+                exprs = new DecimalLiteral[args.size()];
+            } else if (argType.isFloatingPointType()) {
+                exprs = new FloatLiteral[args.size()];
+            } else if (argType.isBoolean()) {
+                exprs = new BoolLiteral[args.size()];
+            } else {
+                throw new IllegalArgumentException("Doris does't support type:" + argType);
+            }
+            args.toArray(exprs);
+            return exprs;
         }
     }
 
