@@ -123,6 +123,40 @@ TEST_F(StringFunctionsTest, money_format_decimal_v2) {
     ASSERT_EQ(expected, result);
 }
 
+TEST_F(StringFunctionsTest, split_part) {
+    doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
+
+    ASSERT_EQ(AnyValUtil::from_string_temp(context,std::string("hello")),
+            StringFunctions::split_part(context, StringVal("hello word"), StringVal(" "), 1));
+
+    ASSERT_EQ(AnyValUtil::from_string_temp(context,std::string("word")),
+            StringFunctions::split_part(context, StringVal("hello word"), StringVal(" "), 2));
+
+    ASSERT_EQ(StringVal::null(),
+            StringFunctions::split_part(context, StringVal("hello word"), StringVal(" "), 3));
+
+    ASSERT_EQ(AnyValUtil::from_string_temp(context,std::string("")),
+            StringFunctions::split_part(context, StringVal("hello word"), StringVal("hello"), 1));
+
+    ASSERT_EQ(AnyValUtil::from_string_temp(context,std::string(" word")),
+            StringFunctions::split_part(context, StringVal("hello word"), StringVal("hello"), 2));
+
+    ASSERT_EQ(AnyValUtil::from_string_temp(context,std::string("2019年9")),
+            StringFunctions::split_part(context, StringVal("2019年9月8日"), StringVal("月"), 1));
+
+    ASSERT_EQ(AnyValUtil::from_string_temp(context,std::string("")),
+            StringFunctions::split_part(context, StringVal("abcdabda"), StringVal("a"), 1));
+
+    ASSERT_EQ(AnyValUtil::from_string_temp(context,std::string("bcd")),
+            StringFunctions::split_part(context, StringVal("abcdabda"), StringVal("a"), 2));
+
+    ASSERT_EQ(AnyValUtil::from_string_temp(context,std::string("bd")),
+            StringFunctions::split_part(context, StringVal("abcdabda"), StringVal("a"), 3));
+
+    ASSERT_EQ(AnyValUtil::from_string_temp(context,std::string("")),
+            StringFunctions::split_part(context, StringVal("abcdabda"), StringVal("a"), 4));
+}
+
 }
 
 int main(int argc, char** argv) {

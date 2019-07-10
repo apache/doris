@@ -433,7 +433,6 @@ void BrokerScanNode::scanner_worker(int start_idx, int length) {
     }
 
     // Update stats
-    std::cout << "Update stats " << counter.num_rows_total << "," << counter.num_rows_filtered << "," << counter.num_rows_unselected << std::endl;
     _runtime_state->update_num_rows_load_total(counter.num_rows_total);
     _runtime_state->update_num_rows_load_filtered(counter.num_rows_filtered);
     _runtime_state->update_num_rows_load_unselected(counter.num_rows_unselected);

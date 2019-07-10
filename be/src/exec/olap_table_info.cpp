@@ -314,7 +314,10 @@ std::string OlapTablePartitionParam::debug_string() const {
 uint32_t OlapTablePartitionParam::_compute_dist_hash(Tuple* key) const {
     uint32_t hash_val = 0;
     for (auto slot_desc : _distributed_slot_descs) {
-        auto slot = key->get_slot(slot_desc->tuple_offset());
+        void* slot = nullptr;
+        if (!key->is_null(slot_desc->null_indicator_offset())) {
+            slot = key->get_slot(slot_desc->tuple_offset());
+        }
         if (slot != nullptr) {
             hash_val = RawValue::zlib_crc32(slot, slot_desc->type(), hash_val);
         } else {

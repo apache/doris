@@ -17,18 +17,22 @@
 
 package org.apache.doris.load.loadv2;
 
+import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.load.EtlJobType;
+import org.apache.doris.load.FailMsg;
+import org.apache.doris.load.FailMsg.CancelType;
+
+import com.google.common.base.Strings;
+import com.google.common.collect.Sets;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.Arrays;
-import java.util.HashSet;
 import java.util.Set;
 
 /**
@@ -46,31 +50,60 @@ public class InsertLoadJob extends LoadJob {
         this.jobType = EtlJobType.INSERT;
     }
 
-    public InsertLoadJob(String label, long dbId, long tableId, long createTimestamp) {
+    public InsertLoadJob(String label, long dbId, long tableId, long createTimestamp, String failMsg)
+            throws MetaNotFoundException {
         super(dbId, label);
         this.tableId = tableId;
         this.createTimestamp = createTimestamp;
         this.loadStartTimestamp = createTimestamp;
         this.finishTimestamp = System.currentTimeMillis();
-        this.state = JobState.FINISHED;
-        this.progress = 100;
+        if (Strings.isNullOrEmpty(failMsg)) {
+            this.state = JobState.FINISHED;
+            this.progress = 100;
+        } else {
+            this.state = JobState.CANCELLED;
+            this.failMsg = new FailMsg(CancelType.LOAD_RUN_FAIL, failMsg);
+            this.progress = 0;
+        }
         this.jobType = EtlJobType.INSERT;
         this.timeoutSecond = Config.insert_load_default_timeout_second;
+        this.authorizationInfo = gatherAuthInfo();
     }
 
-    @Override
-    protected Set<String> getTableNames() throws MetaNotFoundException {
+    public AuthorizationInfo gatherAuthInfo() throws MetaNotFoundException {
         Database database = Catalog.getCurrentCatalog().getDb(dbId);
         if (database == null) {
             throw new MetaNotFoundException("Database " + dbId + "has been deleted");
+        }
+        return new AuthorizationInfo(database.getFullName(), getTableNames());
+    }
+
+    @Override
+    public Set<String> getTableNamesForShow() {
+        Database database = Catalog.getCurrentCatalog().getDb(dbId);
+        if (database == null) {
+            return Sets.newHashSet(String.valueOf(tableId));
         }
         // The database will not be locked in here.
         // The getTable is a thread-safe method called without read lock of database
         Table table = database.getTable(tableId);
         if (table == null) {
+            return Sets.newHashSet(String.valueOf(tableId));
+        }
+        return Sets.newHashSet(table.getName());
+    }
+
+    @Override
+    public Set<String> getTableNames() throws MetaNotFoundException {
+        Database database = Catalog.getCurrentCatalog().getDb(dbId);
+        if (database == null) {
+            throw new MetaNotFoundException("Database " + dbId + "has been deleted");
+        }
+        Table table = database.getTable(tableId);
+        if (table == null) {
             throw new MetaNotFoundException("Failed to find table " + tableId + " in db " + dbId);
         }
-        return new HashSet<>(Arrays.asList(table.getName()));
+        return Sets.newHashSet(table.getName());
     }
 
     @Override

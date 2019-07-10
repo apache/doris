@@ -1553,14 +1553,25 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return false;
     }
 
+
+    protected void recursiveResetChildrenResult() throws AnalysisException {
+        for (int i = 0; i < children.size(); i++) {
+            final Expr child = children.get(i);
+            final Expr newChild = child.getResultValue();
+            if (newChild != child) {
+                setChild(i, newChild);
+            }
+        }
+    }
+
     /**
      * For calculating expr.
      * @return value returned can't be null, if this and it's children are't constant expr, return this.
      * @throws AnalysisException
      */
     public Expr getResultValue() throws AnalysisException {
+        recursiveResetChildrenResult();
         final Expr newExpr = ExpressionFunctions.INSTANCE.evalExpr(this);
         return newExpr != null ? newExpr : this;
     }
-
 }

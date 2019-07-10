@@ -174,6 +174,9 @@ public:
         ss << std::put_money(v);
         return AnyValUtil::from_string_temp(context, ss.str());
     };
+
+    static StringVal split_part(FunctionContext* context, const StringVal& content,
+                             const StringVal& delimiter, const IntVal& field);
 };
 }
 

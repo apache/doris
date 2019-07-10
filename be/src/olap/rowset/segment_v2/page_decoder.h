@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include "runtime/vectorized_row_batch.h" // for ColumnVectorView
+#include "olap/column_block.h" // for ColumnBlockView
 #include "olap/rowset/segment_v2/common.h" // for rowid_t
 #include "common/status.h" // for Status
 
@@ -62,7 +62,7 @@ public:
     // In the case that the values are themselves references
     // to other memory (eg Slices), the referred-to memory is
     // allocated in the column_vector_view's mem_pool.
-    virtual Status next_batch(size_t* n, ColumnVectorView* dst) = 0;
+    virtual Status next_batch(size_t* n, ColumnBlockView* dst) = 0;
 
     // Return the number of elements in this page.
     virtual size_t count() const = 0;

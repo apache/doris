@@ -28,6 +28,7 @@ import org.apache.doris.analysis.SetUserPropertyStmt;
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AccessPrivilege;
+import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -316,6 +317,25 @@ public class PaloAuth implements Writable {
 
         LOG.debug("failed to get wanted privs: {}, ganted: {}", wanted, savedPrivs);
         return false;
+    }
+
+    public boolean checkPrivByAuthInfo(ConnectContext ctx, AuthorizationInfo authInfo, PrivPredicate wanted) {
+        if (authInfo == null) {
+            return false;
+        }
+        if (authInfo.getDbName() == null) {
+            return false;
+        }
+        if (authInfo.getTableNameList() == null || authInfo.getTableNameList().isEmpty()) {
+            return checkDbPriv(ctx, authInfo.getDbName(), wanted);
+        }
+        for (String tblName : authInfo.getTableNameList()) {
+            if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), authInfo.getDbName(),
+                                                                    tblName, wanted)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private boolean checkGlobalInternal(String host, String user, PrivPredicate wanted, PrivBitSet savedPrivs) {

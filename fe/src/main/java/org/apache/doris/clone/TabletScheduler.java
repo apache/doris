@@ -772,8 +772,23 @@ public class TabletScheduler extends Daemon {
             if (beStatistic == null) {
                 continue;
             }
-            if (beStatistic.getLoadScore(tabletCtx.getStorageMedium()) > maxScore) {
-                maxScore = beStatistic.getLoadScore(tabletCtx.getStorageMedium());
+
+            /*
+             * If the backend does not have the specified storage medium, we use mix load score to make
+             * sure that at least one replica can be chosen.
+             * This can happen if the Doris cluster is deployed with all, for example, SSD medium,
+             * but create all tables with HDD storage medium property. Then getLoadScore(SSD) will
+             * always return 0.0, so that no replica will be chosen. 
+             */
+            double loadScore = 0.0;
+            if (beStatistic.hasMedium(tabletCtx.getStorageMedium())) {
+                loadScore = beStatistic.getLoadScore(tabletCtx.getStorageMedium());
+            } else {
+                loadScore = beStatistic.getMixLoadScore();
+            }
+
+            if (loadScore > maxScore) {
+                maxScore = loadScore;
                 chosenReplica = replica;
             }
         }

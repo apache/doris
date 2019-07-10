@@ -188,17 +188,18 @@ public class CompoundPredicate extends Predicate {
 
    @Override
     public Expr getResultValue() throws AnalysisException {
+        recursiveResetChildrenResult();
         boolean compoundResult = false;
         if (op == Operator.NOT) {
-            final Expr childValue = getChild(0).getResultValue();
+            final Expr childValue = getChild(0);
             if(!(childValue instanceof BoolLiteral)) {
                 return this;
             }
             final BoolLiteral boolChild = (BoolLiteral)childValue;
             compoundResult = !boolChild.getValue();
         } else {
-            final Expr leftChildValue = getChild(0).getResultValue();
-            final Expr rightChildValue = getChild(1).getResultValue();
+            final Expr leftChildValue = getChild(0);
+            final Expr rightChildValue = getChild(1);
             if(!(leftChildValue instanceof BoolLiteral)
                     || !(rightChildValue instanceof BoolLiteral)) {
                 return this;

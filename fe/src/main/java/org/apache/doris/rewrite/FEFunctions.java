@@ -27,6 +27,7 @@ import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 
+import com.google.common.base.Preconditions;
 import org.apache.commons.lang.time.DateFormatUtils;
 import org.apache.commons.lang.time.DateUtils;
 import org.apache.logging.log4j.LogManager;
@@ -665,5 +666,26 @@ public class FEFunctions {
 
         BigDecimal result = left.divide(right);
         return new DecimalLiteral(result);
+    }
+
+    @FEFunction(name = "concat", argTypes = { "VARCHAR"}, returnType = "VARCHAR")
+    public static StringLiteral concat(StringLiteral... values) throws AnalysisException {
+        Preconditions.checkArgument(values.length > 0);
+        final StringBuilder resultBuilder = new StringBuilder();
+        for (StringLiteral value : values) {
+            resultBuilder.append(value.getStringValue());
+        }
+        return new StringLiteral(resultBuilder.toString());
+    }
+
+    @FEFunction(name = "concat_ws", argTypes = {"VARCHAR", "VARCHAR"}, returnType = "VARCHAR")
+    public static StringLiteral concat_ws(StringLiteral split, StringLiteral... values) throws AnalysisException {
+        Preconditions.checkArgument(values.length > 0);
+        final StringBuilder resultBuilder = new StringBuilder();
+        for (int i = 0; i < values.length - 1; i++) {
+            resultBuilder.append(values[i].getStringValue()).append(split.getStringValue());
+        }
+        resultBuilder.append(values[values.length - 1].getStringValue());
+        return new StringLiteral(resultBuilder.toString());
     }
 }
