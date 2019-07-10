@@ -51,26 +51,26 @@ namespace doris {
     public:
         Centroid() : Centroid(0.0, 0.0) {}
 
-        Centroid(Value mean, Weight weight) : mean_(mean), weight_(weight) {}
+        Centroid(Value mean, Weight weight) : _mean(mean), _weight(weight) {}
 
-        inline Value mean() const noexcept { return mean_; }
+        inline Value mean() const noexcept { return _mean; }
 
-        inline Weight weight() const noexcept { return weight_; }
+        inline Weight weight() const noexcept { return _weight; }
 
         inline void add(const Centroid& c) {
-            DCHECK_GT(c.weight_, 0);
-            if( weight_ != 0.0 ) {
-                weight_ += c.weight_;
-                mean_ += c.weight_ * (c.mean_ - mean_) / weight_;
+            DCHECK_GT(c._weight, 0);
+            if( _weight != 0.0 ) {
+                _weight += c._weight;
+                _mean += c._weight * (c._mean - _mean) / _weight;
             } else {
-                weight_ = c.weight_;
-                mean_ = c.mean_;
+                _weight = c._weight;
+                _mean = c._mean;
             }
         }
 
     private:
-        Value mean_ = 0;
-        Weight weight_ = 0;
+        Value _mean = 0;
+        Weight _weight = 0;
     };
 
     struct CentroidList {
@@ -114,24 +114,24 @@ namespace doris {
         TDigest(Value compression, Index bufferSize) : TDigest(compression, bufferSize, 0) {}
 
         TDigest(Value compression, Index unmergedSize, Index mergedSize)
-                : compression_(compression),
-                  maxProcessed_(processedSize(mergedSize, compression)),
-                  maxUnprocessed_(unprocessedSize(unmergedSize, compression)) {
-            processed_.reserve(maxProcessed_);
-            unprocessed_.reserve(maxUnprocessed_ + 1);
+                : _compression(compression),
+                  _maxProcessed(processedSize(mergedSize, compression)),
+                  _maxUnprocessed(unprocessedSize(unmergedSize, compression)) {
+            processed_.reserve(_maxProcessed);
+            _unprocessed.reserve(_maxUnprocessed + 1);
         }
 
         TDigest(std::vector<Centroid>&& processed, std::vector<Centroid>&& unprocessed, Value compression,
                 Index unmergedSize, Index mergedSize)
                 : TDigest(compression, unmergedSize, mergedSize) {
-            processed_ = std::move(processed);
-            unprocessed_ = std::move(unprocessed);
+            _processed = std::move(processed);
+            _unprocessed = std::move(unprocessed);
 
-            processedWeight_ = weight(processed_);
-            unprocessedWeight_ = weight(unprocessed_);
-            if( processed_.size() > 0 ) {
-                min_ = std::min(min_, processed_[0].mean());
-                max_ = std::max(max_, (processed_.cend() - 1)->mean());
+            _processed_weight = weight(_processed);
+            _unprocessed_weight = weight(_unprocessed);
+            if( _processed.size() > 0 ) {
+                _min = std::min(_min, _processed[0].mean());
+                _max = std::max(_max, (_processed.cend() - 1)->mean());
             }
             updateCumulative();
         }
@@ -145,22 +145,22 @@ namespace doris {
         }
 
         TDigest& operator=(TDigest&& o) {
-            compression_ = o.compression_;
-            maxProcessed_ = o.maxProcessed_;
-            maxUnprocessed_ = o.maxUnprocessed_;
-            processedWeight_ = o.processedWeight_;
-            unprocessedWeight_ = o.unprocessedWeight_;
-            processed_ = std::move(o.processed_);
-            unprocessed_ = std::move(o.unprocessed_);
-            cumulative_ = std::move(o.cumulative_);
-            min_ = o.min_;
-            max_ = o.max_;
+            _compression = o._compression;
+            _maxProcessed = o._maxProcessed;
+            _maxUnprocessed = o._maxUnprocessed;
+            _processed_weight = o._processed_weight;
+            _unprocessed_weight = o._unprocessed_weight;
+            _processed = std::move(o._processed);
+            _unprocessed = std::move(o._unprocessed);
+            _cumulative = std::move(o._cumulative);
+            _min = o._min;
+            _max = o._max;
             return *this;
         }
 
         TDigest(TDigest&& o)
-                : TDigest(std::move(o.processed_), std::move(o.unprocessed_), o.compression_, o.maxUnprocessed_,
-                          o.maxProcessed_) {}
+                : TDigest(std::move(o._processed), std::move(o._unprocessed), o._compression, o._maxUnprocessed,
+                          o._maxProcessed) {}
 
         static inline Index processedSize(Index size, Value compression) noexcept {
             return (size == 0) ? static_cast<Index>(2 * std::ceil(compression)) : size;
@@ -176,13 +176,13 @@ namespace doris {
             add(others.cbegin(), others.cend());
         }
 
-        const std::vector<Centroid>& processed() const { return processed_; }
+        const std::vector<Centroid>& processed() const { return _processed; }
 
-        const std::vector<Centroid>& unprocessed() const { return unprocessed_; }
+        const std::vector<Centroid>& unprocessed() const { return _unprocessed; }
 
-        Index maxUnprocessed() const { return maxUnprocessed_; }
+        Index maxUnprocessed() const { return _maxUnprocessed; }
 
-        Index maxProcessed() const { return maxProcessed_; }
+        Index maxProcessed() const { return _maxProcessed; }
 
         inline void add(std::vector<const TDigest*> digests) { add(digests.cbegin(), digests.cend()); }
 
@@ -217,15 +217,15 @@ namespace doris {
             }
         }
 
-        Weight processedWeight() const { return processedWeight_; }
+        Weight processedWeight() const { return _processed_weight; }
 
-        Weight unprocessedWeight() const { return unprocessedWeight_; }
+        Weight unprocessedWeight() const { return _unprocessed_weight; }
 
-        bool haveUnprocessed() const { return unprocessed_.size() > 0; }
+        bool haveUnprocessed() const { return _unprocessed.size() > 0; }
 
-        size_t totalSize() const { return processed_.size() + unprocessed_.size(); }
+        size_t totalSize() const { return _processed.size() + _unprocessed.size(); }
 
-        long totalWeight() const { return static_cast<long>(processedWeight_ + unprocessedWeight_); }
+        long totalWeight() const { return static_cast<long>(_processed_weight + _unprocessed_weight); }
 
         // return the cdf on the t-digest
         Value cdf(Value x) {
@@ -233,55 +233,55 @@ namespace doris {
             return cdfProcessed(x);
         }
 
-        bool isDirty() { return processed_.size() > maxProcessed_ || unprocessed_.size() > maxUnprocessed_; }
+        bool isDirty() { return _processed.size() > _maxProcessed || _unprocessed.size() > _maxUnprocessed; }
 
         // return the cdf on the processed values
         Value cdfProcessed(Value x) const {
             VLOG(1) << "cdf value " << x;
-            VLOG(1) << "processed size " << processed_.size();
-            if (processed_.size() == 0) {
+            VLOG(1) << "processed size " << _processed.size();
+            if (_processed.size() == 0) {
                 // no data to examin_e
                 VLOG(1) << "no processed values";
 
                 return 0.0;
-            } else if (processed_.size() == 1) {
+            } else if (_processed.size() == 1) {
                 VLOG(1) << "one processed value "
-                           << " min_ " << min_ << " max_ " << max_;
-                // exactly one centroid, should have max_==min_
-                auto width = max_ - min_;
-                if (x < min_) {
+                           << " _min " << _min << " _max " << _max;
+                // exactly one centroid, should have _max==_min
+                auto width = _max - _min;
+                if (x < _min) {
                     return 0.0;
-                } else if (x > max_) {
+                } else if (x > _max) {
                     return 1.0;
-                } else if (x - min_ <= width) {
-                    // min_ and max_ are too close together to do any viable interpolation
+                } else if (x - _min <= width) {
+                    // _min and _max are too close together to do any viable interpolation
                     return 0.5;
                 } else {
-                    // interpolate if somehow we have weight > 0 and max_ != min_
-                    return (x - min_) / (max_ - min_);
+                    // interpolate if somehow we have weight > 0 and _max != _min
+                    return (x - _min) / (_max - _min);
                 }
             } else {
-                auto n = processed_.size();
-                if (x <= min_) {
-                    VLOG(1) << "below min_ "
-                               << " min_ " << min_ << " x " << x;
+                auto n = _processed.size();
+                if (x <= _min) {
+                    VLOG(1) << "below _min "
+                               << " _min " << _min << " x " << x;
                     return 0;
                 }
 
-                if (x >= max_) {
-                    VLOG(1) << "above max_ "
-                               << " max_ " << max_ << " x " << x;
+                if (x >= _max) {
+                    VLOG(1) << "above _max "
+                               << " _max " << _max << " x " << x;
                     return 1;
                 }
 
                 // check for the left tail
                 if (x <= mean(0)) {
                     VLOG(1) << "left tail "
-                               << " min_ " << min_ << " mean(0) " << mean(0) << " x " << x;
+                               << " _min " << _min << " mean(0) " << mean(0) << " x " << x;
 
-                    // note that this is different than mean(0) > min_ ... this guarantees interpolation works
-                    if (mean(0) - min_ > 0) {
-                        return (x - min_) / (mean(0) - min_) * weight(0) / processedWeight_ / 2.0;
+                    // note that this is different than mean(0) > _min ... this guarantees interpolation works
+                    if (mean(0) - _min > 0) {
+                        return (x - _min) / (mean(0) - _min) * weight(0) / _processed_weight / 2.0;
                     } else {
                         return 0;
                     }
@@ -290,19 +290,19 @@ namespace doris {
                 // and the right tail
                 if (x >= mean(n - 1)) {
                     VLOG(1) << "right tail"
-                               << " max_ " << max_ << " mean(n - 1) " << mean(n - 1) << " x " << x;
+                               << " _max " << _max << " mean(n - 1) " << mean(n - 1) << " x " << x;
 
-                    if (max_ - mean(n - 1) > 0) {
-                        return 1.0 - (max_ - x) / (max_ - mean(n - 1)) * weight(n - 1) / processedWeight_ / 2.0;
+                    if (_max - mean(n - 1) > 0) {
+                        return 1.0 - (_max - x) / (_max - mean(n - 1)) * weight(n - 1) / _processed_weight / 2.0;
                     } else {
                         return 1;
                     }
                 }
 
                 CentroidComparator cc;
-                auto iter = std::upper_bound(processed_.cbegin(), processed_.cend(), Centroid(x, 0), cc);
+                auto iter = std::upper_bound(_processed.cbegin(), _processed.cend(), Centroid(x, 0), cc);
 
-                auto i = std::distance(processed_.cbegin(), iter);
+                auto i = std::distance(_processed.cbegin(), iter);
                 auto z1 = x - (iter - 1)->mean();
                 auto z2 = (iter)->mean() - x;
                 DCHECK_LE(0.0, z1);
@@ -310,7 +310,7 @@ namespace doris {
                 VLOG(1) << "middle "
                            << " z1 " << z1 << " z2 " << z2 << " x " << x;
 
-                return weightedAverage(cumulative_[i - 1], z2, cumulative_[i], z1) / processedWeight_;
+                return weightedAverage(_cumulative[i - 1], z2, _cumulative[i], z1) / _processed_weight;
             }
         }
 
@@ -328,46 +328,46 @@ namespace doris {
                 return NAN;
             }
 
-            if (processed_.size() == 0) {
+            if (_processed.size() == 0) {
                 // no sorted means no data, no way to get a quantile
                 return NAN;
-            } else if (processed_.size() == 1) {
+            } else if (_processed.size() == 1) {
                 // with one data point, all quantiles lead to Rome
 
                 return mean(0);
             }
 
             // we know that there are at least two sorted now
-            auto n = processed_.size();
+            auto n = _processed.size();
 
             // if values were stored in a sorted array, index would be the offset we are Weighterested in
-            const auto index = q * processedWeight_;
+            const auto index = q * _processed_weight;
 
-            // at the boundaries, we return min_ or max_
+            // at the boundaries, we return _min or _max
             if (index <= weight(0) / 2.0) {
                 DCHECK_GT(weight(0), 0);
-                return min_ + 2.0 * index / weight(0) * (mean(0) - min_);
+                return _min + 2.0 * index / weight(0) * (mean(0) - _min);
             }
 
-            auto iter = std::lower_bound(cumulative_.cbegin(), cumulative_.cend(), index);
+            auto iter = std::lower_bound(_cumulative.cbegin(), _cumulative.cend(), index);
 
-            if (iter + 1 != cumulative_.cend()) {
-                auto i = std::distance(cumulative_.cbegin(), iter);
+            if (iter + 1 != _cumulative.cend()) {
+                auto i = std::distance(_cumulative.cbegin(), iter);
                 auto z1 = index - *(iter - 1);
                 auto z2 = *(iter)-index;
                 // VLOG(1) << "z2 " << z2 << " index " << index << " z1 " << z1;
                 return weightedAverage(mean(i - 1), z2, mean(i), z1);
             }
 
-            DCHECK_LE(index, processedWeight_);
-            DCHECK_GE(index, processedWeight_ - weight(n - 1) / 2.0);
+            DCHECK_LE(index, _processed_weight);
+            DCHECK_GE(index, _processed_weight - weight(n - 1) / 2.0);
 
-            auto z1 = index - processedWeight_ - weight(n - 1) / 2.0;
+            auto z1 = index - _processed_weight - weight(n - 1) / 2.0;
             auto z2 = weight(n - 1) / 2 - z1;
-            return weightedAverage(mean(n - 1), z1, max_, z2);
+            return weightedAverage(mean(n - 1), z1, _max, z2);
         }
 
-        Value compression() const { return compression_; }
+        Value compression() const { return _compression; }
 
         void add(Value x) { add(x, 1); }
 
@@ -379,8 +379,8 @@ namespace doris {
             if (std::isnan(x)) {
                 return false;
             }
-            unprocessed_.push_back(Centroid(x, w));
-            unprocessedWeight_ += w;
+            _unprocessed.push_back(Centroid(x, w));
+            _unprocessed_weight += w;
             processIfNecessary();
             return true;
         }
@@ -388,10 +388,10 @@ namespace doris {
         inline void add(std::vector<Centroid>::const_iterator iter, std::vector<Centroid>::const_iterator end) {
             while (iter != end) {
                 const size_t diff = std::distance(iter, end);
-                const size_t room = maxUnprocessed_ - unprocessed_.size();
+                const size_t room = _maxUnprocessed - _unprocessed.size();
                 auto mid = iter + std::min(diff, room);
-                while (iter != mid) unprocessed_.push_back(*(iter++));
-                if (unprocessed_.size() >= maxUnprocessed_) {
+                while (iter != mid) _unprocessed.push_back(*(iter++));
+                if (_unprocessed.size() >= _maxUnprocessed) {
                     process();
                 }
             }
@@ -399,133 +399,133 @@ namespace doris {
         
         uint32_t serialized_size() {
             return  sizeof(Value) * 5 + sizeof(Index) * 2 + sizeof(size_t) * 3
-                    + processed_.size() * sizeof(Centroid)
-                    + unprocessed_.size() * sizeof(Centroid)
-                    + cumulative_.size() * sizeof(Weight);
+                    + _processed.size() * sizeof(Centroid)
+                    + _unprocessed.size() * sizeof(Centroid)
+                    + _cumulative.size() * sizeof(Weight);
         }
 
         void serialize(uint8_t* writer) {
-            memcpy(writer, &compression_, sizeof(Value));
+            memcpy(writer, &_compression, sizeof(Value));
             writer += sizeof(Value);
-            memcpy(writer, &min_, sizeof(Value));
+            memcpy(writer, &_min, sizeof(Value));
             writer += sizeof(Value);
-            memcpy(writer, &max_, sizeof(Value));
+            memcpy(writer, &_max, sizeof(Value));
             writer += sizeof(Value);
-            memcpy(writer, &maxProcessed_, sizeof(Index));
+            memcpy(writer, &_maxProcessed, sizeof(Index));
             writer += sizeof(Index);
-            memcpy(writer, &maxUnprocessed_, sizeof(Index));
+            memcpy(writer, &_maxUnprocessed, sizeof(Index));
             writer += sizeof(Index);
-            memcpy(writer, &processedWeight_, sizeof(Value));
+            memcpy(writer, &_processed_weight, sizeof(Value));
             writer += sizeof(Value);
-            memcpy(writer, &unprocessedWeight_, sizeof(Value));
+            memcpy(writer, &_unprocessed_weight, sizeof(Value));
             writer += sizeof(Value);
             
-            uint32_t size = processed_.size();
+            uint32_t size = _processed.size();
             memcpy(writer, &size, sizeof(uint32_t));
             writer += sizeof(uint32_t);
             for (int i = 0 ;i < size ;i ++) {
-                memcpy(writer, &processed_[i], sizeof(Centroid));
+                memcpy(writer, &_processed[i], sizeof(Centroid));
                 writer += sizeof(Centroid);
             }
 
-            size = unprocessed_.size();
+            size = _unprocessed.size();
             memcpy(writer, &size, sizeof(uint32_t));
             writer += sizeof(uint32_t);
             for (int i = 0 ;i < size ;i ++) {
-                memcpy(writer, &unprocessed_[i], sizeof(Centroid));
+                memcpy(writer, &_unprocessed[i], sizeof(Centroid));
                 writer += sizeof(Centroid);
             }
 
-            size = cumulative_.size();
+            size = _cumulative.size();
             memcpy(writer, &size, sizeof(uint32_t));
             writer += sizeof(uint32_t);
             for (int i = 0 ;i < size ;i ++) {
-                memcpy(writer, &cumulative_[i], sizeof(Weight));
+                memcpy(writer, &_cumulative[i], sizeof(Weight));
                 writer += sizeof(Weight);
             }
         }
 
         void unserialize(const uint8_t* type_reader) {
-            memcpy(&compression_, type_reader, sizeof(Value));
+            memcpy(&_compression, type_reader, sizeof(Value));
             type_reader += sizeof(Value);
-            memcpy(&min_, type_reader, sizeof(Value));
+            memcpy(&_min, type_reader, sizeof(Value));
             type_reader += sizeof(Value);
-            memcpy(&max_, type_reader, sizeof(Value));
+            memcpy(&_max, type_reader, sizeof(Value));
             type_reader += sizeof(Value);
             
-            memcpy(&maxProcessed_, type_reader, sizeof(Index));
+            memcpy(&_maxProcessed, type_reader, sizeof(Index));
             type_reader += sizeof(Index);
-            memcpy(&maxUnprocessed_, type_reader, sizeof(Index));
+            memcpy(&_maxUnprocessed, type_reader, sizeof(Index));
             type_reader += sizeof(Index);
-            memcpy(&processedWeight_, type_reader, sizeof(Value));
+            memcpy(&_processed_weight, type_reader, sizeof(Value));
             type_reader += sizeof(Value);
-            memcpy(&unprocessedWeight_, type_reader, sizeof(Value));
+            memcpy(&_unprocessed_weight, type_reader, sizeof(Value));
             type_reader += sizeof(Value);
             
             uint32_t size;
             memcpy(&size, type_reader, sizeof(uint32_t));
             type_reader += sizeof(uint32_t);
-            processed_.resize(size);
+            _processed.resize(size);
             for (int i = 0 ;i < size ;i ++) {
-                memcpy(&processed_[i], type_reader, sizeof(Centroid));
+                memcpy(&_processed[i], type_reader, sizeof(Centroid));
                 type_reader += sizeof(Centroid);
             }
             memcpy(&size, type_reader, sizeof(uint32_t));
             type_reader += sizeof(uint32_t);
-            unprocessed_.resize(size);
+            _unprocessed.resize(size);
             for (int i = 0 ;i < size ;i ++) {
-                memcpy(&unprocessed_[i], type_reader, sizeof(Centroid));
+                memcpy(&_unprocessed[i], type_reader, sizeof(Centroid));
                 type_reader += sizeof(Centroid);
             }
             memcpy(&size, type_reader, sizeof(uint32_t));
             type_reader += sizeof(uint32_t);
-            cumulative_.resize(size);
+            _cumulative.resize(size);
             for (int i = 0 ;i < size ;i ++) {
-                memcpy(&cumulative_[i], type_reader, sizeof(Weight));
+                memcpy(&_cumulative[i], type_reader, sizeof(Weight));
                 type_reader += sizeof(Weight);
             }
         }
 
     private:
-        Value compression_;
+        Value _compression;
 
-        Value min_ = std::numeric_limits<Value>::max();
+        Value _min = std::numeric_limits<Value>::max();
 
-        Value max_ = std::numeric_limits<Value>::min();
+        Value _max = std::numeric_limits<Value>::min();
 
-        Index maxProcessed_;
+        Index _maxProcessed;
 
-        Index maxUnprocessed_;
+        Index _maxUnprocessed;
 
-        Value processedWeight_ = 0.0;
+        Value _processed_weight = 0.0;
 
-        Value unprocessedWeight_ = 0.0;
+        Value _unprocessed_weight = 0.0;
 
-        std::vector<Centroid> processed_;
+        std::vector<Centroid> _processed;
 
-        std::vector<Centroid> unprocessed_;
+        std::vector<Centroid> _unprocessed;
 
-        std::vector<Weight> cumulative_;
+        std::vector<Weight> _cumulative;
 
         // return mean of i-th centroid
-        inline Value mean(int i) const noexcept { return processed_[i].mean(); }
+        inline Value mean(int i) const noexcept { return _processed[i].mean(); }
 
         // return weight of i-th centroid
-        inline Weight weight(int i) const noexcept { return processed_[i].weight(); }
+        inline Weight weight(int i) const noexcept { return _processed[i].weight(); }
 
         // append all unprocessed centroids into current unprocessed vector
         void mergeUnprocessed(const std::vector<const TDigest*>& tdigests) {
             if (tdigests.size() == 0) return;
 
-            size_t total = unprocessed_.size();
+            size_t total = _unprocessed.size();
             for (auto& td : tdigests) {
-                total += td->unprocessed_.size();
+                total += td->_unprocessed.size();
             }
 
-            unprocessed_.reserve(total);
+            _unprocessed.reserve(total);
             for (auto& td : tdigests) {
-                unprocessed_.insert(unprocessed_.end(), td->unprocessed_.cbegin(), td->unprocessed_.cend());
-                unprocessedWeight_ += td->unprocessedWeight_;
+                _unprocessed.insert(_unprocessed.end(), td->_unprocessed.cbegin(), td->_unprocessed.cend());
+                _unprocessed_weight += td->_unprocessed_weight;
             }
         }
 
@@ -536,19 +536,19 @@ namespace doris {
             size_t total = 0;
             CentroidListQueue pq(CentroidListComparator{});
             for (auto& td : tdigests) {
-                auto& sorted = td->processed_;
+                auto& sorted = td->_processed;
                 auto size = sorted.size();
                 if (size > 0) {
                     pq.push(CentroidList(sorted));
                     total += size;
-                    processedWeight_ += td->processedWeight_;
+                    _processed_weight += td->_processed_weight;
                 }
             }
             if (total == 0) return;
 
-            if (processed_.size() > 0) {
-                pq.push(CentroidList(processed_));
-                total += processed_.size();
+            if (_processed.size() > 0) {
+                pq.push(CentroidList(_processed));
+                total += _processed.size();
             }
 
             std::vector<Centroid> sorted;
@@ -561,10 +561,10 @@ namespace doris {
                 sorted.push_back(*(best.iter));
                 if (best.advance()) pq.push(best);
             }
-            processed_ = std::move(sorted);
-            if( processed_.size() > 0 ) {
-                min_ = std::min(min_, processed_[0].mean());
-                max_ = std::max(max_, (processed_.cend() - 1)->mean());
+            _processed = std::move(sorted);
+            if( _processed.size() > 0 ) {
+                _min = std::min(_min, _processed[0].mean());
+                _max = std::max(_max, (_processed.cend() - 1)->mean());
             }
         }
 
@@ -575,59 +575,59 @@ namespace doris {
         }
 
         void updateCumulative() {
-            const auto n = processed_.size();
-            cumulative_.clear();
-            cumulative_.reserve(n + 1);
+            const auto n = _processed.size();
+            _cumulative.clear();
+            _cumulative.reserve(n + 1);
             auto previous = 0.0;
             for (Index i = 0; i < n; i++) {
                 auto current = weight(i);
                 auto halfCurrent = current / 2.0;
-                cumulative_.push_back(previous + halfCurrent);
+                _cumulative.push_back(previous + halfCurrent);
                 previous = previous + current;
             }
-            cumulative_.push_back(previous);
+            _cumulative.push_back(previous);
         }
 
-        // merges unprocessed_ centroids and processed_ centroids together and processes them
-        // when complete, unprocessed_ will be empty and processed_ will have at most maxProcessed_ centroids
+        // merges _unprocessed centroids and _processed centroids together and processes them
+        // when complete, _unprocessed will be empty and _processed will have at most _maxProcessed centroids
         inline void process() {
             CentroidComparator cc;
-            std::sort(unprocessed_.begin(), unprocessed_.end(), cc);
-            auto count = unprocessed_.size();
-            unprocessed_.insert(unprocessed_.end(), processed_.cbegin(), processed_.cend());
-            std::inplace_merge(unprocessed_.begin(), unprocessed_.begin() + count, unprocessed_.end(), cc);
+            std::sort(_unprocessed.begin(), _unprocessed.end(), cc);
+            auto count = _unprocessed.size();
+            _unprocessed.insert(_unprocessed.end(), _processed.cbegin(), _processed.cend());
+            std::inplace_merge(_unprocessed.begin(), _unprocessed.begin() + count, _unprocessed.end(), cc);
 
-            processedWeight_ += unprocessedWeight_;
-            unprocessedWeight_ = 0;
-            processed_.clear();
+            _processed_weight += _unprocessed_weight;
+            _unprocessed_weight = 0;
+            _processed.clear();
 
-            processed_.push_back(unprocessed_[0]);
-            Weight wSoFar = unprocessed_[0].weight();
-            Weight wLimit = processedWeight_ * integratedQ(1.0);
+            _processed.push_back(_unprocessed[0]);
+            Weight wSoFar = _unprocessed[0].weight();
+            Weight wLimit = _processed_weight * integratedQ(1.0);
 
-            auto end = unprocessed_.end();
-            for (auto iter = unprocessed_.cbegin() + 1; iter < end; iter++) {
+            auto end = _unprocessed.end();
+            for (auto iter = _unprocessed.cbegin() + 1; iter < end; iter++) {
                 auto& centroid = *iter;
                 Weight projectedW = wSoFar + centroid.weight();
                 if (projectedW <= wLimit) {
                     wSoFar = projectedW;
-                    (processed_.end() - 1)->add(centroid);
+                    (_processed.end() - 1)->add(centroid);
                 } else {
-                    auto k1 = integratedLocation(wSoFar / processedWeight_);
-                    wLimit = processedWeight_ * integratedQ(k1 + 1.0);
+                    auto k1 = integratedLocation(wSoFar / _processed_weight);
+                    wLimit = _processed_weight * integratedQ(k1 + 1.0);
                     wSoFar += centroid.weight();
-                    processed_.emplace_back(centroid);
+                    _processed.emplace_back(centroid);
                 }
             }
-            unprocessed_.clear();
-            min_ = std::min(min_, processed_[0].mean());
-            VLOG(1) << "new min_ " << min_;
-            max_ = std::max(max_, (processed_.cend() - 1)->mean());
-            VLOG(1) << "new max_ " << max_;
+            _unprocessed.clear();
+            _min = std::min(_min, _processed[0].mean());
+            VLOG(1) << "new _min " << _min;
+            _max = std::max(_max, (_processed.cend() - 1)->mean());
+            VLOG(1) << "new _max " << _max;
             updateCumulative();
         }
 
-        inline int checkWeights() { return checkWeights(processed_, processedWeight_); }
+        inline int checkWeights() { return checkWeights(_processed, _processed_weight); }
 
         size_t checkWeights(const std::vector<Centroid>& sorted, Value total) {
             size_t badWeight = 0;
@@ -672,11 +672,11 @@ namespace doris {
          * @return The centroid scale value corresponding to q.
          */
         inline Value integratedLocation(Value q) const {
-            return compression_ * (std::asin(2.0 * q - 1.0) + M_PI / 2) / M_PI;
+            return _compression * (std::asin(2.0 * q - 1.0) + M_PI / 2) / M_PI;
         }
 
         inline Value integratedQ(Value k) const {
-            return (std::sin(std::min(k, compression_) * M_PI / compression_ - M_PI / 2) + 1) / 2;
+            return (std::sin(std::min(k, _compression) * M_PI / _compression - M_PI / 2) + 1) / 2;
         }
 
         /**
