@@ -25,6 +25,7 @@ import org.apache.doris.analysis.AddColumnClause;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ColumnDef;
+import org.apache.doris.analysis.ColumnDef.DefaultValue;
 import org.apache.doris.analysis.ColumnPosition;
 import org.apache.doris.analysis.TypeDef;
 import org.apache.doris.catalog.AggregateType;
@@ -84,7 +85,7 @@ public class SchemaChangeJobTest {
     private String transactionSource = "localfe";
     private static Analyzer analyzer;
     private static ColumnDef newCol = new ColumnDef("add_v", new TypeDef(ScalarType.createType(PrimitiveType.INT)), false, AggregateType.MAX,
-            false, "1", "");
+            false, new DefaultValue(true, "1"), "");
     private static AddColumnClause addColumnClause = new AddColumnClause(newCol, new ColumnPosition("v"), null, null);
 
     @Before
