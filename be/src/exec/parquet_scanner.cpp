@@ -56,7 +56,7 @@ ParquetScanner::~ParquetScanner() {
 Status ParquetScanner::open() {
     return BaseScanner::open();
 }
-
+//这里！
 Status ParquetScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
     SCOPED_TIMER(_read_timer);
     // Get one line
@@ -73,6 +73,7 @@ Status ParquetScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
         {
             COUNTER_UPDATE(_rows_read_counter, 1);
             SCOPED_TIMER(_materialize_timer);
+            _counter->num_rows_total++;
             if (fill_dest_tuple(Slice(), tuple, tuple_pool)) {
                 break;// break iff true
             }
@@ -164,6 +165,7 @@ Status ParquetScanner::open_next_reader() {
             return Status::OK();
         }
         const TBrokerRangeDesc &range = _ranges[_next_range++];
+        range
         FileReader *file_reader = nullptr;
         switch (range.file_type) {
             case TFileType::FILE_LOCAL: {
