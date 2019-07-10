@@ -135,6 +135,8 @@ Status ParquetScanner::open_next_reader() {
         }
         RETURN_IF_ERROR(file_reader->open());
         if (file_reader->size() == 0) {
+            file_reader->close();
+            delete file_reader;
             continue;
         }
         _cur_file_reader = new ParquetReaderWrap(file_reader);
