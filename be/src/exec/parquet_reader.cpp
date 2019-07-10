@@ -75,8 +75,8 @@ Status ParquetReaderWrap::init_parquet_reader(const std::vector<SlotDescriptor*>
             }
             //save column type
             std::shared_ptr<arrow::Schema> field_schema = _batch->schema();
-            for (auto index : _parquet_column_ids) {
-                _parquet_column_type.emplace_back(field_schema->field(index)->type()->id());
+            for (int i = 0; i < _parquet_column_ids.size(); i++) {
+                _parquet_column_type.emplace_back(field_schema->field(i)->type()->id());
             }
         }
         return Status::OK();
@@ -191,7 +191,7 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
         size_t slots = tuple_slot_descs.size();
         for (size_t i = 0; i < slots; ++i) {
             auto slot_desc = tuple_slot_descs[i];
-            column_index = _parquet_column_ids[i];// column index with Parquet Field
+            column_index = i;// column index in batch record
             switch (_parquet_column_type[i]) {
                 case arrow::Type::type::STRING: {
                     auto str_array = std::dynamic_pointer_cast<arrow::StringArray>(_batch->column(column_index));
