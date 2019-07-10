@@ -1564,29 +1564,6 @@ bool DateTimeValue::from_unixtime(int64_t seconds) {
     return true;
 }
 
-bool DateTimeValue::from_unixtime(int64_t seconds) {
-    if (seconds < 0) {
-        return false;
-    }
-    // TODO(zc): we only support Beijing Timezone, so add 28800
-    seconds += 28800;
-    int64_t days = seconds / 86400 + calc_daynr(1970, 1, 1);
-
-    _neg = false;
-    get_date_from_daynr(days);
-    seconds %= 86400;
-    if (seconds == 0) {
-        _type = TIME_DATE;
-        return true;
-    }
-    _type = TIME_DATETIME;
-    _hour = seconds / 3600;
-    seconds %= 3600;
-    _minute = seconds / 60;
-    _second = seconds % 60;
-    return true;
-}
-
 const char* DateTimeValue::month_name() const {
     if (_month < 1 || _month > 12) {
         return NULL;
