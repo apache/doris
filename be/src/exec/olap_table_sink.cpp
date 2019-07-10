@@ -615,12 +615,12 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
 
 void OlapTableSink::_convert_batch(RuntimeState* state, RowBatch* input_batch, RowBatch* output_batch) {
     DCHECK_GE(output_batch->capacity(), input_batch->num_rows());
-    output_batch->add_rows(input_batch->num_rows());
+    int commit_rows = 0;
     for (int i = 0; i < input_batch->num_rows(); ++i) {
         auto src_row = input_batch->get_row(i);
         Tuple* dst_tuple = (Tuple*)output_batch->tuple_data_pool()->allocate(
             _output_tuple_desc->byte_size());
-        output_batch->get_row(i)->set_tuple(0, dst_tuple);
+        bool exist_null_value_for_not_null_col = false;
         for (int j = 0; j < _output_expr_ctxs.size(); ++j) {
             auto src_val = _output_expr_ctxs[j]->get_value(src_row);
             auto slot_desc = _output_tuple_desc->slots()[j];
@@ -640,14 +640,21 @@ void OlapTableSink::_convert_batch(RuntimeState* state, RowBatch* input_batch, R
 #else
                     state->append_error_msg_to_file("", ss.str());
 #endif
-                    continue;
+                    exist_null_value_for_not_null_col = true;
+                    _number_filtered_rows++;
+                    break;
                 }
             }
             void* slot = dst_tuple->get_slot(slot_desc->tuple_offset());
             RawValue::write(src_val, slot, slot_desc->type(), _output_batch->tuple_data_pool());
         }
+
+        if (!exist_null_value_for_not_null_col) {
+            output_batch->get_row(commit_rows)->set_tuple(0, dst_tuple);
+            commit_rows++;
+        }
     }
-    output_batch->commit_rows(input_batch->num_rows());
+    output_batch->commit_rows(commit_rows);
 }
 
 int OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitmap* filter_bitmap) {
