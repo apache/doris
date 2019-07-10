@@ -15,6 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
+/*
+ * Licensed to Derrick R. Burns under one or more
+ * contributor license agreements.  See the NOTICES file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 // T-Digest :  Percentile and Quantile Estimation of Big Data
 // A new data structure for accurate on-line accumulation of rank-based statistics 
 // such as quantiles and trimmed means.
@@ -115,10 +132,10 @@ namespace doris {
 
         TDigest(Value compression, Index unmergedSize, Index mergedSize)
                 : _compression(compression),
-                  _maxProcessed(processedSize(mergedSize, compression)),
-                  _maxUnprocessed(unprocessedSize(unmergedSize, compression)) {
-            processed_.reserve(_maxProcessed);
-            _unprocessed.reserve(_maxUnprocessed + 1);
+                  _max_processed(processedSize(mergedSize, compression)),
+                  _max_unprocessed(unprocessedSize(unmergedSize, compression)) {
+            processed_.reserve(_max_processed);
+            _unprocessed.reserve(_max_unprocessed + 1);
         }
 
         TDigest(std::vector<Centroid>&& processed, std::vector<Centroid>&& unprocessed, Value compression,
@@ -146,8 +163,8 @@ namespace doris {
 
         TDigest& operator=(TDigest&& o) {
             _compression = o._compression;
-            _maxProcessed = o._maxProcessed;
-            _maxUnprocessed = o._maxUnprocessed;
+            _max_processed = o._max_processed;
+            _max_unprocessed = o._max_unprocessed;
             _processed_weight = o._processed_weight;
             _unprocessed_weight = o._unprocessed_weight;
             _processed = std::move(o._processed);
@@ -159,8 +176,8 @@ namespace doris {
         }
 
         TDigest(TDigest&& o)
-                : TDigest(std::move(o._processed), std::move(o._unprocessed), o._compression, o._maxUnprocessed,
-                          o._maxProcessed) {}
+                : TDigest(std::move(o._processed), std::move(o._unprocessed), o._compression, o._max_unprocessed,
+                          o._max_processed) {}
 
         static inline Index processedSize(Index size, Value compression) noexcept {
             return (size == 0) ? static_cast<Index>(2 * std::ceil(compression)) : size;
@@ -180,9 +197,9 @@ namespace doris {
 
         const std::vector<Centroid>& unprocessed() const { return _unprocessed; }
 
-        Index maxUnprocessed() const { return _maxUnprocessed; }
+        Index maxUnprocessed() const { return _max_unprocessed; }
 
-        Index maxProcessed() const { return _maxProcessed; }
+        Index maxProcessed() const { return _max_processed; }
 
         inline void add(std::vector<const TDigest*> digests) { add(digests.cbegin(), digests.cend()); }
 
@@ -233,7 +250,7 @@ namespace doris {
             return cdfProcessed(x);
         }
 
-        bool isDirty() { return _processed.size() > _maxProcessed || _unprocessed.size() > _maxUnprocessed; }
+        bool isDirty() { return _processed.size() > _max_processed || _unprocessed.size() > _max_unprocessed; }
 
         // return the cdf on the processed values
         Value cdfProcessed(Value x) const {
@@ -388,10 +405,10 @@ namespace doris {
         inline void add(std::vector<Centroid>::const_iterator iter, std::vector<Centroid>::const_iterator end) {
             while (iter != end) {
                 const size_t diff = std::distance(iter, end);
-                const size_t room = _maxUnprocessed - _unprocessed.size();
+                const size_t room = _max_unprocessed - _unprocessed.size();
                 auto mid = iter + std::min(diff, room);
                 while (iter != mid) _unprocessed.push_back(*(iter++));
-                if (_unprocessed.size() >= _maxUnprocessed) {
+                if (_unprocessed.size() >= _max_unprocessed) {
                     process();
                 }
             }
@@ -411,9 +428,9 @@ namespace doris {
             writer += sizeof(Value);
             memcpy(writer, &_max, sizeof(Value));
             writer += sizeof(Value);
-            memcpy(writer, &_maxProcessed, sizeof(Index));
+            memcpy(writer, &_max_processed, sizeof(Index));
             writer += sizeof(Index);
-            memcpy(writer, &_maxUnprocessed, sizeof(Index));
+            memcpy(writer, &_max_unprocessed, sizeof(Index));
             writer += sizeof(Index);
             memcpy(writer, &_processed_weight, sizeof(Value));
             writer += sizeof(Value);
@@ -453,9 +470,9 @@ namespace doris {
             memcpy(&_max, type_reader, sizeof(Value));
             type_reader += sizeof(Value);
             
-            memcpy(&_maxProcessed, type_reader, sizeof(Index));
+            memcpy(&_max_processed, type_reader, sizeof(Index));
             type_reader += sizeof(Index);
-            memcpy(&_maxUnprocessed, type_reader, sizeof(Index));
+            memcpy(&_max_unprocessed, type_reader, sizeof(Index));
             type_reader += sizeof(Index);
             memcpy(&_processed_weight, type_reader, sizeof(Value));
             type_reader += sizeof(Value);
@@ -493,9 +510,9 @@ namespace doris {
 
         Value _max = std::numeric_limits<Value>::min();
 
-        Index _maxProcessed;
+        Index _max_processed;
 
-        Index _maxUnprocessed;
+        Index _max_unprocessed;
 
         Value _processed_weight = 0.0;
 
@@ -589,7 +606,7 @@ namespace doris {
         }
 
         // merges _unprocessed centroids and _processed centroids together and processes them
-        // when complete, _unprocessed will be empty and _processed will have at most _maxProcessed centroids
+        // when complete, _unprocessed will be empty and _processed will have at most _max_processed centroids
         inline void process() {
             CentroidComparator cc;
             std::sort(_unprocessed.begin(), _unprocessed.end(), cc);

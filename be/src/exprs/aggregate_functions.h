@@ -71,9 +71,10 @@ public:
     template <typename T>
     static void percentile_approx_update(FunctionContext* ctx, const T& src, const DoubleVal& quantile, StringVal* dst);
 
-    static void percentile_approx_merge(FunctionContext* ctx, const StringVal& src,
-                                              StringVal* dst);
+    static void percentile_approx_merge(FunctionContext* ctx, const StringVal& src, StringVal* dst);
+
     static DoubleVal percentile_approx_finalize(FunctionContext* ctx, const StringVal& src);
+
     static StringVal percentile_approx_serialize(FunctionContext* ctx, const StringVal& state_sv);
 
     // Implementation of Avg.
