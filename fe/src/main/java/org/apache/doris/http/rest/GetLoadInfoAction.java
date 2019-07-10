@@ -46,7 +46,7 @@ public class GetLoadInfoAction extends RestBaseAction {
     }
 
     @Override
-    public void executeWithoutPassword(AuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
+    public void executeWithoutPassword(ActionAuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
             throws DdlException {
         Load.JobInfo info = new Load.JobInfo(request.getSingleParameter(DB_KEY),
                                              request.getSingleParameter(LABEL_KEY),
@@ -65,21 +65,16 @@ public class GetLoadInfoAction extends RestBaseAction {
             return;
         }
         try {
-            try {
-                catalog.getLoadInstance().getJobInfo(info);
-            } catch (DdlException e) {
-                catalog.getLoadManager().getLoadJobInfo(info);
+            catalog.getLoadInstance().getJobInfo(info);
+            if (info.tblNames.isEmpty()) {
+                checkDbAuth(authInfo, info.dbName, PrivPredicate.LOAD);
+            } else {
+                for (String tblName : info.tblNames) {
+                    checkTblAuth(authInfo, info.dbName, tblName, PrivPredicate.LOAD);
+                }
             }
-        } catch (MetaNotFoundException e) {
-            throw new DdlException(e.getMessage());
-        }
-
-        if (info.tblNames.isEmpty()) {
-            checkDbAuth(authInfo, info.dbName, PrivPredicate.LOAD);
-        } else {
-            for (String tblName : info.tblNames) {
-                checkTblAuth(authInfo, info.dbName, tblName, PrivPredicate.LOAD);
-            }
+        } catch (DdlException | MetaNotFoundException e) {
+            catalog.getLoadManager().getLoadJobInfo(info);
         }
 
         sendResult(request, response, new Result(info));

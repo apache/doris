@@ -38,7 +38,7 @@ public class InsertLoadJobTest {
     public void testGetTableNames(@Mocked Catalog catalog,
                                   @Injectable Database database,
                                   @Injectable Table table) throws MetaNotFoundException {
-        InsertLoadJob insertLoadJob = new InsertLoadJob("label", 1L, 1L, 1000);
+        InsertLoadJob insertLoadJob = new InsertLoadJob("label", 1L, 1L, 1000, "");
         String tableName = "table1";
         new Expectations() {
             {
@@ -50,7 +50,7 @@ public class InsertLoadJobTest {
                 result = tableName;
             }
         };
-        Set<String> tableNames = insertLoadJob.getTableNames();
+        Set<String> tableNames = insertLoadJob.getTableNamesForShow();
         Assert.assertEquals(1, tableNames.size());
         Assert.assertEquals(true, tableNames.contains(tableName));
         Assert.assertEquals(JobState.FINISHED, insertLoadJob.getState());

@@ -290,7 +290,7 @@ nonterminal RestoreStmt restore_stmt;
 nonterminal SelectList select_clause, select_list, select_sublist;
 nonterminal SelectListItem select_list_item, star_expr;
 nonterminal Expr expr, non_pred_expr, arithmetic_expr, timestamp_arithmetic_expr, expr_or_default;
-nonterminal LiteralExpr set_expr_or_default;
+nonterminal Expr set_expr_or_default;
 nonterminal ArrayList<Expr> expr_list, values, row_value, opt_values;
 nonterminal ArrayList<Expr> func_arg_list;
 nonterminal String select_alias, opt_table_alias;
@@ -2673,11 +2673,7 @@ isolation_types ::=
     ;
 
 set_expr_or_default ::=
-    literal:value
-    {:
-        RESULT = value;
-    :}
-    | KW_DEFAULT
+    KW_DEFAULT
     {:
         RESULT = null;
     :}
@@ -2692,6 +2688,10 @@ set_expr_or_default ::=
     | ident:name
     {:
         RESULT = new StringLiteral(name);
+    :}
+    | expr:expr
+    {:
+        RESULT = expr;
     :}
     ;
 

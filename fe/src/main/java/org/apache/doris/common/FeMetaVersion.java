@@ -120,4 +120,6 @@ public final class FeMetaVersion {
     public static final int VERSION_54 = 54;
     // modify colocation join
     public static final int VERSION_55 = 55;
+    // persist auth info in load job
+    public static final int VERSION_56 = 56;
 }

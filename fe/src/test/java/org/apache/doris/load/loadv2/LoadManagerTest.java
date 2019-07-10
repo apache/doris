@@ -17,15 +17,11 @@
 
 package org.apache.doris.load.loadv2;
 
-import mockit.Deencapsulation;
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mocked;
-
 import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
@@ -48,15 +44,18 @@ import java.io.FileOutputStream;
 import java.util.List;
 import java.util.Map;
 
+import mockit.Deencapsulation;
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mocked;
+
 public class LoadManagerTest {
     private LoadManager loadManager;
     private static final String methodName = "getIdToLoadJobs";
 
     @Before
     public void setUp() throws Exception {
-        loadManager = new LoadManager(new LoadJobScheduler());
-        LoadJob job1 = new InsertLoadJob("job1", 1L, 1L, System.currentTimeMillis());
-        Deencapsulation.invoke(loadManager, "addLoadJob", job1);
+
     }
 
     @Test
@@ -100,13 +99,25 @@ public class LoadManagerTest {
     }
 
     @Test
-    public void testSerializationNormal(@Mocked MetaContext metaContext) throws Exception {
+    public void testSerializationNormal(@Mocked Catalog catalog,
+                                        @Injectable Database database,
+                                        @Injectable Table table) throws Exception {
         new Expectations(){
             {
-                metaContext.getMetaVersion();
-                result = FeMetaVersion.VERSION_54;
+                catalog.getDb(anyLong);
+                result = database;
+                database.getTable(anyLong);
+                result = table;
+                table.getName();
+                result = "tablename";
+                Catalog.getCurrentCatalogJournalVersion();
+                result = FeMetaVersion.VERSION_56;
             }
         };
+
+        loadManager = new LoadManager(new LoadJobScheduler());
+        LoadJob job1 = new InsertLoadJob("job1", 1L, 1L, System.currentTimeMillis(), "");
+        Deencapsulation.invoke(loadManager, "addLoadJob", job1);
 
         File file = serializeToFile(loadManager);
 
@@ -118,7 +129,25 @@ public class LoadManagerTest {
     }
 
     @Test
-    public void testSerializationWithJobRemoved() throws Exception {
+    public void testSerializationWithJobRemoved(@Mocked MetaContext metaContext,
+                                                @Mocked Catalog catalog,
+                                                @Injectable Database database,
+                                                @Injectable Table table) throws Exception {
+        new Expectations(){
+            {
+                catalog.getDb(anyLong);
+                result = database;
+                database.getTable(anyLong);
+                result = table;
+                table.getName();
+                result = "tablename";
+            }
+        };
+
+        loadManager = new LoadManager(new LoadJobScheduler());
+        LoadJob job1 = new InsertLoadJob("job1", 1L, 1L, System.currentTimeMillis(), "");
+        Deencapsulation.invoke(loadManager, "addLoadJob", job1);
+
         //make job1 don't serialize
         Config.label_keep_max_second = 1;
         Thread.sleep(2000);

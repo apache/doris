@@ -73,7 +73,7 @@ public class LoadAction extends RestBaseAction {
     }
 
     @Override
-    public void executeWithoutPassword(AuthorizationInfo authInfo,
+    public void executeWithoutPassword(ActionAuthorizationInfo authInfo,
             BaseRequest request, BaseResponse response) throws DdlException {
 
         // A 'Load' request must have 100-continue header

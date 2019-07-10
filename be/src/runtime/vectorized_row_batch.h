@@ -70,51 +70,6 @@ private:
     bool* _is_null = nullptr;
 };
 
-class ColumnVectorView {
-public:
-    explicit ColumnVectorView(ColumnVector* column_vector, MemPool* mem_pool, const TypeInfo* type_info)
-            : _column_vector(column_vector), _row_offset(0), _mem_pool(mem_pool), _type_info(type_info) { }
-    explicit ColumnVectorView(ColumnVector* column_vector, size_t row_offset, MemPool* mem_pool)
-            : _column_vector(column_vector), _row_offset(row_offset), _mem_pool(mem_pool) { }
-
-    void advance(size_t skip) {
-        _row_offset += skip;
-    }
-
-    size_t first_row_index() const {
-        return _row_offset;
-    }
-
-    ColumnVector* column_vector() {
-        return _column_vector;
-    }
-
-    MemPool* mem_pool() {
-        return _mem_pool;
-    }
-
-    void set_null_bits(size_t num_rows, bool val) {
-        // TODO(zc): use bitmap instead
-        for (int i = 0; i < num_rows; ++i) {
-            _column_vector->is_null()[_row_offset + i] = val;
-        }
-    }
-    bool is_nullable() const {
-        return !_column_vector->no_nulls();
-    }
-
-    uint8_t* data() const {
-        return (uint8_t*)_column_vector->col_data() + _type_info->size() * _row_offset;
-    }
-
-private:
-    ColumnVector* _column_vector;
-    size_t _row_offset;
-    MemPool* _mem_pool;
-    // TODO(zc): move this tho ColumnVector
-    const TypeInfo* _type_info = nullptr;
-};
-
 class VectorizedRowBatch {
 public:
     VectorizedRowBatch(
