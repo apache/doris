@@ -134,7 +134,6 @@ Status ParquetScanner::open_next_reader() {
             }
         }
         RETURN_IF_ERROR(file_reader->open());
-        std::cout << "file size : " << file_reader->size() << std::endl;
         if (file_reader->size() == 0) {
             continue;
         }
