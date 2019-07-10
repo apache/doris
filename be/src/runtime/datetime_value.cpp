@@ -1524,18 +1524,6 @@ bool DateTimeValue::date_add_interval(const TimeInterval& interval, TimeUnit uni
     return true;
 }
 
-int DateTimeValue::utc_timestamp() const {
-    int64_t days = daynr() - calc_daynr(1970, 1, 1);
-    if (days < 0) {
-        return 0;
-    }
-    int64_t seconds = days * 86400 + _hour * 3600 + _minute * 60 + _second;
-    if (seconds > std::numeric_limits<int>::max() || seconds < 0) {
-        return 0;
-    }
-    return seconds;
-}
-
 int DateTimeValue::unix_timestamp() const {
     int64_t days = daynr() - calc_daynr(1970, 1, 1);
     if (days < 0) {
@@ -1551,6 +1539,29 @@ int DateTimeValue::unix_timestamp() const {
         return 0;
     }
     return seconds;
+}
+
+bool DateTimeValue::from_unixtime(int64_t seconds) {
+    if (seconds < 0) {
+        return false;
+    }
+    // TODO(zc): we only support Beijing Timezone, so add 28800
+    seconds += 28800;
+    int64_t days = seconds / 86400 + calc_daynr(1970, 1, 1);
+
+    _neg = false;
+    get_date_from_daynr(days);
+    seconds %= 86400;
+    if (seconds == 0) {
+        _type = TIME_DATE;
+        return true;
+    }
+    _type = TIME_DATETIME;
+    _hour = seconds / 3600;
+    seconds %= 3600;
+    _minute = seconds / 60;
+    _second = seconds % 60;
+    return true;
 }
 
 bool DateTimeValue::from_unixtime(int64_t seconds) {
