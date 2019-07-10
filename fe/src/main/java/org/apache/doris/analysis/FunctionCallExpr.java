@@ -397,6 +397,29 @@ public class FunctionCallExpr extends Expr {
                 || fnName.getFunction().equalsIgnoreCase("HLL_UNION_AGG")) {
             fnParams.setIsDistinct(false);
         }
+
+        if (fnName.getFunction().equalsIgnoreCase("percentile_approx")) {
+            if (children.size() != 2) {
+                throw new AnalysisException("percentile_approx(expr, DOUBLE) requires two parameters");
+            }
+            if (!getChild(1).isConstant()) {
+                throw new AnalysisException("percentile_approx requires second parameter must be a constant : "
+                        + this.toSql());
+            }
+
+            LiteralExpr lit = (LiteralExpr) getChild(1);
+            double second_param;
+            try {
+                second_param = lit.getDoubleValue();
+            } catch (NumberFormatException e) {
+                throw new AnalysisException( 
+                        "The second argument to the percentile_approx function must be a constant of the double type");
+            }
+            if (second_param < 0 || second_param > 1) {
+                throw new AnalysisException(
+                        "The second argument to the percentile_approx function must be between 0 and 1" );
+            }
+        }
         return;
     }
 

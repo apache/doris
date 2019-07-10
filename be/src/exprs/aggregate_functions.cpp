@@ -234,24 +234,21 @@ void AggregateFunctions::avg_update(FunctionContext* ctx, const T& src, StringVa
 
 struct PercentileApproxState {
 public:
+    PercentileApproxState() {
+        digest = new TDigest();
+    }
+    ~PercentileApproxState() {
+        delete digest;
+    }
+    
     TDigest *digest = nullptr;
     double targetQuantile = -1.0;
-
-    ~PercentileApproxState() {
-        if (digest != nullptr) {
-            delete digest;
-        }
-    }
 };
 
 void AggregateFunctions::percentile_approx_init(FunctionContext* ctx, StringVal* dst) {
     dst->is_null = false;
     dst->len = sizeof(PercentileApproxState);
     dst->ptr = (uint8_t*) new PercentileApproxState();
-
-    PercentileApproxState* percentile = reinterpret_cast<PercentileApproxState*>(dst->ptr);
-    percentile->targetQuantile = -1.0;
-    percentile->digest = new TDigest();
 };
 
 template<typename T>
@@ -276,7 +273,7 @@ StringVal AggregateFunctions::percentile_approx_serialize(FunctionContext* ctx, 
     memcpy(result.ptr, &percentile->targetQuantile, sizeof(double));
     percentile->digest->serialize(result.ptr + sizeof(double));
 
-    delete (PercentileApproxState*) src.ptr;
+    delete percentile;
     return result;
 }
 
@@ -306,7 +303,7 @@ DoubleVal AggregateFunctions::percentile_approx_finalize(FunctionContext* ctx, c
     double quantile = percentile->targetQuantile;
     double result = percentile->digest->quantile(quantile);
 
-    delete (PercentileApproxState*) src.ptr;
+    delete percentile;
     return DoubleVal(result);
 }
 
