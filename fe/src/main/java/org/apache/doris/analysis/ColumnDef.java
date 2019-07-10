@@ -68,7 +68,7 @@ public class ColumnDef {
         public static DefaultValue NOT_SET = new DefaultValue(false, null);
         // default null
         public static DefaultValue NULL_DEFAULT_VALUE = new DefaultValue(true, null);
-        // default "valuie"
+        // default "value"
         public static DefaultValue HLL_EMPTY_DEFAULT_VALUE = new DefaultValue(true, "0");
     }
 
