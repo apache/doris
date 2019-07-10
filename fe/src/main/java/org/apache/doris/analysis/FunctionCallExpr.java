@@ -406,19 +406,6 @@ public class FunctionCallExpr extends Expr {
                 throw new AnalysisException("percentile_approx requires second parameter must be a constant : "
                         + this.toSql());
             }
-
-            LiteralExpr lit = (LiteralExpr) getChild(1);
-            double second_param;
-            try {
-                second_param = lit.getDoubleValue();
-            } catch (NumberFormatException e) {
-                throw new AnalysisException( 
-                        "The second argument to the percentile_approx function must be a constant of the double type");
-            }
-            if (second_param < 0 || second_param > 1) {
-                throw new AnalysisException(
-                        "The second argument to the percentile_approx function must be between 0 and 1" );
-            }
         }
         return;
     }
