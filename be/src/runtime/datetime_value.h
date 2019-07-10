@@ -332,6 +332,8 @@ public:
     // Add interval 
     bool date_add_interval(const TimeInterval& interval, TimeUnit unit);
 
+    int utc_timestamp() const;
+
     int unix_timestamp() const;
 
     bool from_unixtime(int64_t);

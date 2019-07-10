@@ -1524,6 +1524,18 @@ bool DateTimeValue::date_add_interval(const TimeInterval& interval, TimeUnit uni
     return true;
 }
 
+int DateTimeValue::utc_timestamp() const {
+    int64_t days = daynr() - calc_daynr(1970, 1, 1);
+    if (days < 0) {
+        return 0;
+    }
+    int64_t seconds = days * 86400 + _hour * 3600 + _minute * 60 + _second;
+    if (seconds > std::numeric_limits<int>::max() || seconds < 0) {
+        return 0;
+    }
+    return seconds;
+}
+
 int DateTimeValue::unix_timestamp() const {
     int64_t days = daynr() - calc_daynr(1970, 1, 1);
     if (days < 0) {
