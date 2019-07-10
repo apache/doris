@@ -243,6 +243,13 @@ DateTimeVal TimestampFunctions::curtime(FunctionContext* context) {
     return return_val;
 }
 
+DateTimeVal TimestampFunctions::utc_timestamp(FunctionContext* context) {
+    DateTimeValue now(context->impl()->state()->now()->unix_timestamp());
+    DateTimeVal return_val;
+    now.to_datetime_val(&return_val);
+    return return_val;
+}
+
 DateTimeVal TimestampFunctions::to_date(
         FunctionContext* ctx, const DateTimeVal& ts_val) {
     if (ts_val.is_null) {
