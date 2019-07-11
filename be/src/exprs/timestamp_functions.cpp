@@ -243,6 +243,18 @@ DateTimeVal TimestampFunctions::curtime(FunctionContext* context) {
     return return_val;
 }
 
+DateTimeVal TimestampFunctions::utc_timestamp(FunctionContext* context) {
+    TimeInterval interval;
+    // TODO(liuhy): we only support Beijing Timezone, so minus 28800
+    interval.second = -28800;
+    DateTimeValue dtv = *(context->impl()->state()->now());
+    dtv.date_add_interval(interval, SECOND);
+    
+    DateTimeVal return_val;
+    dtv.to_datetime_val(&return_val);
+    return return_val;
+}
+
 DateTimeVal TimestampFunctions::to_date(
         FunctionContext* ctx, const DateTimeVal& ts_val) {
     if (ts_val.is_null) {
