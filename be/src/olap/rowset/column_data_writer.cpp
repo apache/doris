@@ -50,9 +50,7 @@ ColumnDataWriter::ColumnDataWriter(SegmentGroup* segment_group,
       _segment(0),
       _all_num_rows(0),
       _new_segment_created(false)
-{
-    init();
-}
+{ }
 
 ColumnDataWriter::~ColumnDataWriter() {
     for (size_t i = 0; i < _zone_maps.size(); ++i) {
