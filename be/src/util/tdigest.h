@@ -134,7 +134,7 @@ namespace doris {
                 : _compression(compression),
                   _max_processed(processedSize(mergedSize, compression)),
                   _max_unprocessed(unprocessedSize(unmergedSize, compression)) {
-            processed_.reserve(_max_processed);
+            _processed.reserve(_max_processed);
             _unprocessed.reserve(_max_unprocessed + 1);
         }
 
