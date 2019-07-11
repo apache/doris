@@ -50,6 +50,7 @@ struct TCreateTabletReq {
     6: optional bool in_restore_mode
     // this new tablet should be colocate with base tablet
     7: optional Types.TTabletId base_tablet_id
+    8: optional Types.TSchemaHash base_schema_hash
 }
 
 struct TDropTabletReq {
@@ -72,7 +73,7 @@ struct TAlterTabletReqV2 {
     4: required Types.TSchemaHash new_schema_hash
     // version of data which this alter task should transform
     5: optional Types.TVersion alter_version
-    6: optional Types.TVersion alter_version_hash
+    6: optional Types.TVersionHash alter_version_hash
 }
 
 struct TClusterInfo {
