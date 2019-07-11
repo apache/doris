@@ -245,7 +245,7 @@ DateTimeVal TimestampFunctions::curtime(FunctionContext* context) {
 
 DateTimeVal TimestampFunctions::utc_timestamp(FunctionContext* context) {
     TimeInterval interval;
-    // TODO(liuhy): we only support Beijing Timezone, so add 28800
+    // TODO(liuhy): we only support Beijing Timezone, so minus 28800
     interval.second = -28800;
     DateTimeValue dtv = *(context->impl()->state()->now());
     dtv.date_add_interval(interval, SECOND);
