@@ -51,7 +51,7 @@ public class StorageTypeCheckAction extends RestBaseAction {
 
     @Override
     public void execute(BaseRequest request, BaseResponse response) throws DdlException {
-        AuthorizationInfo authInfo = getAuthorizationInfo(request);
+        ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
         checkGlobalAuth(authInfo, PrivPredicate.ADMIN);
 
         String dbName = request.getSingleParameter("db");

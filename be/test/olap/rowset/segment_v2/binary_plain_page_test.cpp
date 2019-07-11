@@ -17,6 +17,7 @@
 
 #include <gtest/gtest.h>
 #include <iostream>
+#include <vector>
 
 #include "common/logging.h"
 #include "olap/rowset/segment_v2/page_builder.h"
@@ -37,7 +38,7 @@ public:
 
     template <class PageBuilderType, class PageDecoderType>
     void TestBinarySeekByValueSmallPage() {
-        vector<Slice> slices;
+        std::vector<Slice> slices;
         slices.emplace_back("Hello");
         slices.emplace_back(",");
         slices.emplace_back("Doris");
@@ -57,33 +58,34 @@ public:
         ASSERT_TRUE(status.ok());
         
         //test1
-        std::unique_ptr<ColumnVector> dst_vector(new ColumnVector());
-        std::unique_ptr<MemTracker> mem_tracer(new MemTracker(-1));
-        std::unique_ptr<MemPool> mem_pool(new MemPool(mem_tracer.get()));
         
         size_t size = 3;
         
-        Slice* values = reinterpret_cast<Slice*>(mem_pool->allocate(size * sizeof(Slice)));
-        dst_vector->set_col_data(values);
-        ColumnVectorView column_vector_view(dst_vector.get(), 0, mem_pool.get());
+        Arena arena;
 
-        status = page_decoder.next_batch(&size, &column_vector_view);
+        Slice* values = reinterpret_cast<Slice*>(arena.Allocate(size * sizeof(Slice)));
+        uint8_t* null_bitmap = reinterpret_cast<uint8_t*>(arena.Allocate(BitmapSize(size)));
+        ColumnBlock block(get_type_info(OLAP_FIELD_TYPE_VARCHAR), (uint8_t*)values, null_bitmap, &arena);
+        ColumnBlockView column_block_view(&block);
+
+        status = page_decoder.next_batch(&size, &column_block_view);
         ASSERT_TRUE(status.ok());
 
-        Slice* value = reinterpret_cast<Slice*>(dst_vector->col_data());
+        Slice* value = reinterpret_cast<Slice*>(values);
         ASSERT_EQ (3, size);
         ASSERT_EQ ("Hello", value[0].to_string());
         ASSERT_EQ (",", value[1].to_string());
         ASSERT_EQ ("Doris", value[2].to_string());
         
-        Slice* values2 = reinterpret_cast<Slice*>(mem_pool->allocate(size * sizeof(Slice)));
-        dst_vector->set_col_data(values2);
-        ColumnVectorView column_vector_view2(dst_vector.get(), 0, mem_pool.get());
+        Slice* values2 = reinterpret_cast<Slice*>(arena.Allocate(size * sizeof(Slice)));
+        ColumnBlock block2(get_type_info(OLAP_FIELD_TYPE_VARCHAR), (uint8_t*)values2, null_bitmap, &arena);
+        ColumnBlockView column_block_view2(&block2);
+
         size_t fetch_num = 1;
         page_decoder.seek_to_position_in_page(2);
-        status = page_decoder.next_batch(&fetch_num, &column_vector_view2);
+        status = page_decoder.next_batch(&fetch_num, &column_block_view2);
         ASSERT_TRUE(status.ok());
-        Slice* value2 = reinterpret_cast<Slice*>(dst_vector->col_data());
+        Slice* value2 = reinterpret_cast<Slice*>(values2);
         ASSERT_EQ (1, fetch_num);
         ASSERT_EQ ("Doris", value2[0].to_string());
     }

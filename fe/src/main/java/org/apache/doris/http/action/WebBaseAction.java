@@ -142,7 +142,7 @@ public class WebBaseAction extends BaseAction {
         }
 
         // cookie is invalid.
-        AuthorizationInfo authInfo;
+        ActionAuthorizationInfo authInfo;
         try {
             authInfo = getAuthorizationInfo(request);
             checkPassword(authInfo);

@@ -28,6 +28,7 @@
 
 #pragma once
 
+#include "util/arena.h"
 #include "util/coding.h"
 #include "util/faststring.h"
 #include "olap/olap_common.h"
@@ -177,7 +178,7 @@ public:
         return Status::OK();
     }
 
-    Status next_batch(size_t *n, ColumnVectorView *dst) override {
+    Status next_batch(size_t *n, ColumnBlockView *dst) override {
         DCHECK(_parsed);
         if (PREDICT_FALSE(*n == 0 || _cur_idx >= _num_elems)) {
             *n = 0;
@@ -185,11 +186,11 @@ public:
         }
         size_t max_fetch = std::min(*n, static_cast<size_t>(_num_elems - _cur_idx));
 
-        Slice *out = reinterpret_cast<Slice*>(dst->column_vector()->col_data());
+        Slice *out = reinterpret_cast<Slice*>(dst->data());
         
         for (size_t i = 0; i < max_fetch; i++, out++, _cur_idx++) {
             Slice elem(string_at_index(_cur_idx));
-            out->data = reinterpret_cast<char*>(dst->mem_pool()->allocate(elem.size * sizeof(uint8_t)));
+            out->data = reinterpret_cast<char*>(dst->arena()->Allocate(elem.size * sizeof(uint8_t)));
             out->size = elem.size;
             memcpy(out->data, elem.data, elem.size);
         }

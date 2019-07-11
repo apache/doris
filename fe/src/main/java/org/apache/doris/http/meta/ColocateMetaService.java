@@ -91,7 +91,7 @@ public class ColocateMetaService {
         }
 
         @Override
-        public void executeWithoutPassword(AuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
+        public void executeWithoutPassword(ActionAuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
                 throws DdlException {
             if (redirectToMaster(request, response)) {
                 return;
@@ -101,7 +101,7 @@ public class ColocateMetaService {
         }
 
         // implement in derived classes
-        protected void executeInMasterWithAdmin(AuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
+        protected void executeInMasterWithAdmin(ActionAuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
                 throws DdlException {
             throw new DdlException("Not implemented");
         }
@@ -119,7 +119,7 @@ public class ColocateMetaService {
         }
 
         @Override
-        public void executeInMasterWithAdmin(AuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
+        public void executeInMasterWithAdmin(ActionAuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
                 throws DdlException {
             response.setContentType("application/json");
             RestResult result = new RestResult();
@@ -141,7 +141,7 @@ public class ColocateMetaService {
         }
 
         @Override
-        public void executeInMasterWithAdmin(AuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
+        public void executeInMasterWithAdmin(ActionAuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
                 throws DdlException {
             GroupId groupId = checkAndGetGroupId(request);
 
@@ -173,7 +173,7 @@ public class ColocateMetaService {
         }
 
         @Override
-        public void executeInMasterWithAdmin(AuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
+        public void executeInMasterWithAdmin(ActionAuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
                 throws DdlException {
             final String clusterName = authInfo.cluster;
             if (Strings.isNullOrEmpty(clusterName)) {

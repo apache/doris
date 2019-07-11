@@ -761,4 +761,63 @@ StringVal StringFunctions::money_format(FunctionContext *context, const LargeInt
     return do_money_format(context, ss.str());
 }
 
+static int index_of(const uint8_t* source, int source_offset, int source_count,
+                const uint8_t* target, int target_offset, int target_count,
+                int from_index) {
+    if (from_index >= source_count) {
+        return (target_count == 0 ? source_count : -1);
+    }
+    if (from_index < 0) {
+        from_index = 0;
+    }
+    if (target_count == 0) {
+        return from_index;
+    }
+    const uint8_t first = target[target_offset];
+    int max = source_offset + (source_count - target_count);
+    for (int i = source_offset + from_index; i <= max; i++) {
+        while (i <= max && source[i] != first) i++; // Look for first character
+        if (i <= max) { // Found first character, now look at the rest of v2
+            int j = i + 1;
+            int end = j + target_count - 1;
+            for (int k = target_offset + 1; j < end && source[j] == target[k]; j++, k++);
+            if (j == end) {
+                return i - source_offset; // Found whole string.
+            }
+        }
+    }
+    return -1;
+}
+
+
+StringVal StringFunctions::split_part(FunctionContext* context, const StringVal& content,
+                                      const StringVal& delimiter, const IntVal& field) {
+    if (content.is_null || delimiter.is_null || field.is_null || field.val <= 0) {
+        return StringVal::null();
+    }
+    std::vector<int> find(field.val, -1); //store substring position
+    for (int i = 0; i <= field.val; i++) find[i] = -1; // init
+    int from = 0;
+    for (int i = 1; i <= field.val; i++) { // find
+        int last_index = i - 1;
+        find[last_index] = index_of(content.ptr, 0, content.len, delimiter.ptr, 0, delimiter.len, from);
+        from = find[last_index] + 1;
+        if (find[last_index] == -1) {
+            break;
+        }
+    }
+    if ((field.val > 1 && find[field.val - 2] == -1) || (field.val == 1 && find[field.val - 1] == -1)) {
+        // field not find return null
+        return StringVal::null();
+    }
+    int start_pos;
+    if (field.val == 1) { // find need split first part
+        start_pos = 0;
+    } else {
+        start_pos = find[field.val - 2] + delimiter.len;
+    }
+    int len = (find[field.val - 1] == -1 ? content.len : find[field.val - 1]) - start_pos;
+    return StringVal(content.ptr + start_pos, len);
+}
+
 }
