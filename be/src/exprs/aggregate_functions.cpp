@@ -234,8 +234,7 @@ void AggregateFunctions::avg_update(FunctionContext* ctx, const T& src, StringVa
 
 struct PercentileApproxState {
 public:
-    PercentileApproxState() {
-        digest = new TDigest();
+    PercentileApproxState() : digest(new TDigest()){
     }
     ~PercentileApproxState() {
         delete digest;
@@ -267,7 +266,7 @@ void AggregateFunctions::percentile_approx_update(FunctionContext* ctx, const T&
 StringVal AggregateFunctions::percentile_approx_serialize(FunctionContext* ctx, const StringVal& src) {
     DCHECK(!src.is_null);
 
-    PercentileApproxState *percentile = reinterpret_cast<PercentileApproxState*>(src.ptr);
+    PercentileApproxState* percentile = reinterpret_cast<PercentileApproxState*>(src.ptr);
     uint32_t serialized_size = percentile->digest->serialized_size();
     StringVal result(ctx, sizeof(double) + serialized_size);
     memcpy(result.ptr, &percentile->targetQuantile, sizeof(double));
@@ -286,7 +285,6 @@ void AggregateFunctions::percentile_approx_merge(FunctionContext* ctx, const Str
 
     PercentileApproxState *src_percentile = new PercentileApproxState();
     src_percentile->targetQuantile = quantile;
-    src_percentile->digest = new TDigest();
     src_percentile->digest->unserialize(src.ptr + sizeof(double));
 
     PercentileApproxState* dst_percentile = reinterpret_cast<PercentileApproxState*>(dst->ptr);
