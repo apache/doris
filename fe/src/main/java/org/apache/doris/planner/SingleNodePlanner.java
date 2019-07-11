@@ -49,6 +49,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.UserException;
@@ -208,6 +209,8 @@ public class SingleNodePlanner {
         PlanNode root;
         if (stmt instanceof SelectStmt) {
             SelectStmt selectStmt = (SelectStmt) stmt;
+            pushDownPredicates(analyzer, selectStmt);
+
             root = createSelectPlan(selectStmt, analyzer, newDefaultOrderByLimit);
 
             // TODO(zc)
@@ -258,7 +261,7 @@ public class SingleNodePlanner {
             }
             Preconditions.checkState(root.hasValidStats());
             root.init(analyzer);
-            // TODO chenhao16, before merge ValueTransferGraph, force evaluate conjuncts
+            // TODO chenhao, before merge ValueTransferGraph, force evaluate conjuncts
             // from SelectStmt outside
             root = addUnassignedConjuncts(analyzer, root);
         } else {
@@ -333,7 +336,7 @@ public class SingleNodePlanner {
             if (selectStmt.getTableRefs().size() > 1) {
                 for (int i = 1; i < selectStmt.getTableRefs().size(); ++i) {
                     final JoinOperator joinOperator = selectStmt.getTableRefs().get(i).getJoinOp();
-                    // TODO chenhao16 , right out join ?
+                    // TODO chenhao , right out join ?
                     if (joinOperator.isRightOuterJoin() || joinOperator.isFullOuterJoin()) {
                         turnOffReason = selectStmt.getTableRefs().get(i) +
                                 " joinOp is full outer join or right outer join.";
@@ -987,14 +990,6 @@ public class SingleNodePlanner {
         // All conjuncts
         final List<Expr> unassignedConjuncts =
                 analyzer.getUnassignedConjuncts(inlineViewRef.getId().asList(), true);
-        if (!canMigrateConjuncts(inlineViewRef)) {
-            // mark (fully resolve) slots referenced by unassigned conjuncts as
-            // materialized
-            List<Expr> substUnassigned = Expr.substituteList(unassignedConjuncts,
-                    inlineViewRef.getBaseTblSmap(), analyzer, false);
-            analyzer.materializeSlots(substUnassigned);
-            return;
-        }
 
         // Constant conjuncts
         final List<Expr> unassignedConstantConjuncts = Lists.newArrayList();
@@ -1025,17 +1020,20 @@ public class SingleNodePlanner {
                 preds.add(e);
             }
         }
-        unassignedConjuncts.removeAll(preds);
-        // Generate predicates to enforce equivalences among slots of the inline view
-        // tuple. These predicates are also migrated into the inline view.
-        // TODO(zc)
-        // analyzer.createEquivConjuncts(inlineViewRef.getId(), preds);
 
-        // create new predicates against the inline view's unresolved result exprs, not
-        // the resolved result exprs, in order to avoid skipping scopes (and ignoring
-        // limit clauses on the way)
-        final List<Expr> viewPredicates =
-                Expr.substituteList(preds, inlineViewRef.getSmap(), analyzer, false);
+        final List<Expr> pushDownFailedPredicates = Lists.newArrayList();
+        final List<Expr> viewPredicates = getPushDownPredicatesForInlineView(
+                inlineViewRef, preds, analyzer, pushDownFailedPredicates);
+        if (viewPredicates.size() <= 0) {
+            // mark (fully resolve) slots referenced by unassigned conjuncts as
+            // materialized
+            List<Expr> substUnassigned = Expr.substituteList(unassignedConjuncts,
+                    inlineViewRef.getBaseTblSmap(), analyzer, false);
+            analyzer.materializeSlots(substUnassigned);
+            return;
+        }
+        preds.removeAll(pushDownFailedPredicates);
+        unassignedConjuncts.addAll(pushDownFailedPredicates);
 
         // Remove unregistered predicates that reference the same slot on
         // both sides (e.g. a = a). Such predicates have been generated from slot
@@ -1078,6 +1076,11 @@ public class SingleNodePlanner {
         if (conjuncts.isEmpty()) {
             return;
         }
+
+        if (!canMigrateConjuncts(inlineViewRef)) {
+            return;
+        }
+
         final List<Expr> newConjuncts = cloneExprs(conjuncts);
         final QueryStmt stmt = inlineViewRef.getViewStmt();
         final Analyzer viewAnalyzer = inlineViewRef.getAnalyzer();
@@ -1122,11 +1125,87 @@ public class SingleNodePlanner {
         return clones;
     }
 
+   /**
+     * Get predicates can be migrated into an inline view.
+     */
+    private List<Expr> getPushDownPredicatesForInlineView(
+            InlineViewRef inlineViewRef, List<Expr> viewPredicates,
+            Analyzer analyzer, List<Expr> pushDownFailedPredicates) {
+        // TODO chenhao, remove evaluateOrderBy when SubQuery's default limit is removed.
+        final List<Expr> pushDownPredicates = Lists.newArrayList();
+        if (inlineViewRef.getViewStmt().evaluateOrderBy()
+                || inlineViewRef.getViewStmt().hasLimit()
+                || inlineViewRef.getViewStmt().hasOffset()) {
+            return pushDownPredicates;
+        }
+
+        // UnionNode will handle predicates and assigns predicates to it's children.
+        final List<Expr> candicatePredicates =
+                Expr.substituteList(viewPredicates, inlineViewRef.getSmap(), analyzer, false);
+        if (inlineViewRef.getViewStmt() instanceof UnionStmt) {
+            final UnionStmt unionStmt = (UnionStmt)inlineViewRef.getViewStmt();
+            for (int i = 0; i < candicatePredicates.size(); i++) {
+                final Expr predicate = candicatePredicates.get(i);
+                if (predicate.isBound(unionStmt.getTupleId())) {
+                    pushDownPredicates.add(predicate);
+                } else {
+                    pushDownFailedPredicates.add(viewPredicates.get(i));
+                }
+            }
+            return pushDownPredicates;
+        }
+
+        final SelectStmt selectStmt = (SelectStmt)inlineViewRef.getViewStmt();
+        if (selectStmt.hasAnalyticInfo()) {
+            pushDownPredicates.addAll(getWindowsPushDownPredicates(candicatePredicates, viewPredicates,
+                    selectStmt.getAnalyticInfo(), pushDownFailedPredicates));
+        } else {
+            pushDownPredicates.addAll(candicatePredicates);
+        }
+        return pushDownPredicates;
+    }
+
+    /**
+     * Get predicates which can be pushed down past Windows.
+     * @param predicates
+     * @param viewPredicates
+     * @param analyticInfo
+     * @param pushDownFailedPredicates
+     * @return
+     */
+    private List<Expr> getWindowsPushDownPredicates(
+            List<Expr> predicates, List<Expr> viewPredicates,
+            AnalyticInfo analyticInfo, List<Expr> pushDownFailedPredicates) {
+        final List<Expr> pushDownPredicates = Lists.newArrayList();
+        final List<Expr> partitionExprs = analyticInfo.getCommonPartitionExprs();
+        final List<SlotId> partitionByIds = Lists.newArrayList();
+        for (Expr expr : partitionExprs) {
+            if (expr instanceof SlotRef) {
+                final SlotRef slotRef = (SlotRef)expr;
+                partitionByIds.add(slotRef.getSlotId());
+            }
+        }
+
+        if (partitionByIds.size() <= 0) {
+            return pushDownPredicates;
+        }
+
+        for (int i = 0; i < predicates.size(); i++) {
+            final Expr predicate = predicates.get(i);
+            if (predicate.isBound(partitionByIds)) {
+                pushDownPredicates.add(predicate);
+            } else {
+                pushDownFailedPredicates.add(viewPredicates.get(i));
+            }
+        }
+        return pushDownPredicates;
+    }
+
     /**
      * Checks if conjuncts can be migrated into an inline view.
      */
     private boolean canMigrateConjuncts(InlineViewRef inlineViewRef) {
-        // TODO chenhao16, remove 'false' when SubQuery's default limit is removed.
+         // TODO chenhao, remove evaluateOrderBy when SubQuery's default limit is removed.
         return inlineViewRef.getViewStmt().evaluateOrderBy() ? false :
                 (!inlineViewRef.getViewStmt().hasLimit()
                 && !inlineViewRef.getViewStmt().hasOffset()
@@ -1179,7 +1258,7 @@ public class SingleNodePlanner {
         }
         // assignConjuncts(scanNode, analyzer);
         scanNode.init(analyzer);
-        // TODO chenhao16 add
+        // TODO chenhao add
         // materialize conjuncts in where
         analyzer.materializeSlots(scanNode.getConjuncts());
 
@@ -1388,7 +1467,7 @@ public class SingleNodePlanner {
         // List<Expr> conjuncts =
         //         analyzer.getUnassignedConjuncts(unionStmt.getTupleId().asList(), false);
         List<Expr> conjuncts = analyzer.getUnassignedConjuncts(unionStmt.getTupleId().asList());
-        // TODO chenhao16
+        // TODO chenhao
         // Because Conjuncts can't be assigned to UnionNode and Palo's fe can't evaluate conjuncts,
         // it needs to add SelectNode as UnionNode's parent, when UnionStmt's Ops contains constant 
         // Select.
@@ -1545,5 +1624,186 @@ public class SingleNodePlanner {
         }
     }
 
+    /**
+     ------------------------------------------------------------------------------
+     */
+    /**
+     * Push down predicates rules
+     */
+
+    private void pushDownPredicates(Analyzer analyzer, SelectStmt stmt) throws AnalysisException {
+        pushDownPredicatesPastSort(analyzer, stmt);
+        pushDownPredicatesPastWindows(analyzer, stmt);
+        pushDownPredicatesPastAggregation(analyzer, stmt);
+    }
+
+    private void pushDownPredicatesPastSort(Analyzer analyzer, SelectStmt stmt) throws AnalysisException {
+        // TODO chenhao, remove isEvaluateOrderBy when SubQuery's default limit is removed.
+        if (stmt.evaluateOrderBy() || stmt.getLimit() >= 0 || stmt.getOffset() > 0 || stmt.getSortInfo() == null) {
+            return;
+        } 
+
+        final List<Expr> predicates = getBoundPredicates(analyzer, stmt.getSortInfo().getSortTupleDescriptor());
+        if (predicates.size() <= 0) {
+            return;
+        }
+
+        final List<Expr> pushDownPredicates = getPredicatesReplacedSlotWithSourceExpr(predicates, analyzer);
+        if (putPredicatesOnWindows(stmt, analyzer, predicates, pushDownPredicates)) {
+            return;
+        }
+
+        if (putPredicatesOnAggregations(stmt, analyzer, predicates, pushDownPredicates)) {
+            return;
+        }
+
+        putPredicatesOnFrom(stmt, analyzer, pushDownPredicates);
+    }
+
+    private void pushDownPredicatesPastWindows(Analyzer analyzer, SelectStmt stmt) throws AnalysisException {
+        final AnalyticInfo analyticInfo = stmt.getAnalyticInfo();
+        if (analyticInfo == null || analyticInfo.getCommonPartitionExprs().size() == 0) {
+            return;
+        }
+
+        final List<Expr> predicates = getBoundPredicates(analyzer, analyticInfo.getOutputTupleDesc());
+        if (predicates.size() <= 0) {
+            return;
+        }
+
+        final List<Expr> pushDownPredicates = getPredicatesBoundedByGroupbysAndReplaceSlotWithSourceExpr(predicates, analyzer);
+        if (putPredicatesOnAggregations(stmt, analyzer, predicates, pushDownPredicates)) {
+            return;
+        }
+
+        putPredicatesOnFrom(stmt, analyzer, pushDownPredicates);
+    }
+
+    private void pushDownPredicatesPastAggregation(Analyzer analyzer, SelectStmt stmt) throws AnalysisException {
+        final AggregateInfo aggregateInfo = stmt.getAggInfo();
+        if (aggregateInfo == null || aggregateInfo.getGroupingExprs().size() <= 0) {
+            return;
+        }
+
+        final List<Expr> predicates = getBoundPredicates(analyzer, aggregateInfo.getOutputTupleDesc());
+        if (predicates.size() <= 0) {
+            return;
+        }
+
+        final List<Expr> predicatesCanPushDown = getPredicatesBoundedByGroupbysAndReplaceSlotWithSourceExpr(predicates, analyzer);
+        putPredicatesOnFrom(stmt, analyzer, predicatesCanPushDown);
+    }
+
+    private List<Expr> getPredicatesBoundedByGroupbysAndReplaceSlotWithSourceExpr(List<Expr> predicates, Analyzer analyzer) {
+        final List<Expr> predicatesCanPushDown = Lists.newArrayList();
+        for (Expr predicate : predicates) {
+            final List<TupleId> tupleIds = Lists.newArrayList();
+            final List<SlotId> slotIds = Lists.newArrayList();
+            predicate.getIds(tupleIds, slotIds);
+
+            boolean isAllSlotReferingGroupBys = true;
+            for (SlotId slotId : slotIds) {
+                final SlotDescriptor slotDesc = analyzer.getDescTbl().getSlotDesc(slotId);
+                if (slotDesc.getSourceExprs().get(0).getFn() instanceof AggregateFunction) {
+                    isAllSlotReferingGroupBys = false;
+                }
+            }
+
+            if (isAllSlotReferingGroupBys) {
+                predicatesCanPushDown.add(predicate);
+            }
+        }
+        return getPredicatesReplacedSlotWithSourceExpr(predicatesCanPushDown, analyzer);
+    }
+
+    private List<Expr> getPredicatesReplacedSlotWithSourceExpr(List<Expr> predicates, Analyzer analyzer) {
+        final List<Expr> predicatesCanPushDown = Lists.newArrayList();
+        for (Expr predicate : predicates) {
+            final List<TupleId> tupleIds = Lists.newArrayList();
+            final List<SlotId> slotIds = Lists.newArrayList();
+            predicate.getIds(tupleIds, slotIds);
+
+            analyzer.markConjunctAssigned((org.apache.doris.analysis.Predicate) predicate);
+            final Expr newPredicate = predicate.clone();
+            replacePredicateSlotRefWithSlotRefSource(newPredicate, analyzer);
+            predicatesCanPushDown.add(newPredicate);
+        }
+        return predicatesCanPushDown;
+    }
+
+    private void replacePredicateSlotRefWithSlotRefSource(Expr predicate, Analyzer analyzer) {
+        replacePredicateSlotRefWithSlotRefSource(null, predicate, -1, analyzer);
+    }
+
+    private void replacePredicateSlotRefWithSlotRefSource(Expr parent, Expr predicate, int childIndex, Analyzer analyzer) {
+        if (predicate instanceof SlotRef) {
+            final SlotRef slotRef =  (SlotRef)predicate;
+            final SlotDescriptor slotDesc = analyzer.getDescTbl().getSlotDesc(slotRef.getSlotId());
+            if (parent != null && childIndex >= 0) {
+                final Expr newReplacedExpr = slotDesc.getSourceExprs().get(0).clone();
+                parent.setChild(childIndex, newReplacedExpr);
+            }
+        }
+
+        for (int i = 0; i < predicate.getChildren().size(); i++) {
+            final Expr child = predicate.getChild(i);
+            replacePredicateSlotRefWithSlotRefSource(predicate, child, i, analyzer);
+        }
+    }
+
+    private boolean putPredicatesOnAggregations(SelectStmt stmt, Analyzer analyzer,
+                                      List<Expr> oldPredicates, List<Expr> newPredicates) throws AnalysisException {
+        final AggregateInfo aggregateInfo = stmt.getAggInfo();
+        if (aggregateInfo != null) {
+            analyzer.markConjunctsAssigned(oldPredicates);
+            analyzer.registerConjuncts(newPredicates, aggregateInfo.getOutputTupleId());
+            return true;
+        }
+        return false;
+    }
+
+    private boolean putPredicatesOnWindows(SelectStmt stmt, Analyzer analyzer,
+                                 List<Expr> oldPredicates, List<Expr> newPredicates) throws AnalysisException {
+        final AnalyticInfo analyticInfo = stmt.getAnalyticInfo();
+        if (analyticInfo != null) {
+            analyzer.markConjunctsAssigned(oldPredicates);
+            analyzer.registerConjuncts(newPredicates, analyticInfo.getOutputTupleId());
+            return true;
+        }
+        return false;
+    }
+
+
+    private boolean putPredicatesOnFrom(SelectStmt stmt, Analyzer analyzer, List<Expr> predicates) throws AnalysisException {
+        final List<TupleId> tableTupleIds = Lists.newArrayList();
+        for (TableRef tableRef : stmt.getTableRefs()) {
+            tableTupleIds.add(tableRef.getId());
+        }
+
+        for (Expr predicate : predicates) {
+            final List<TupleId> predicateTupleIds = Lists.newArrayList();
+            predicate.getIds(predicateTupleIds, null);
+            if (predicate.isBoundByTupleIds(tableTupleIds)) {
+                    analyzer.registerConjunct(predicate, predicateTupleIds);
+            } else {
+                final StringBuilder logBuilder = new StringBuilder();
+                logBuilder.append("Predicate:")
+                        .append(predicate.toSql())
+                        .append(" can't be assigned to some PlanNode.");
+                Preconditions.checkArgument(false, logBuilder.toString());
+            }
+        }
+        return true;
+    }
+
+    /**
+     ------------------------------------------------------------------------------
+     */
+
+    private List<Expr> getBoundPredicates(Analyzer analyzer, TupleDescriptor tupleDesc) {
+        final List<TupleId> tupleIds = Lists.newArrayList();
+        tupleIds.add(tupleDesc.getId());
+        return analyzer.getUnassignedConjuncts(tupleIds);
+    }
 }
 
