@@ -244,9 +244,13 @@ DateTimeVal TimestampFunctions::curtime(FunctionContext* context) {
 }
 
 DateTimeVal TimestampFunctions::utc_timestamp(FunctionContext* context) {
-    DateTimeValue now(context->impl()->state()->now()->utc_timestamp());
+    TimeInterval interval;
+    interval.second = -28800;
+    DateTimeValue dtv = *(context->impl()->state()->now());
+    dtv.date_add_interval(interval, SECOND);
+    
     DateTimeVal return_val;
-    now.to_datetime_val(&return_val);
+    dtv.to_datetime_val(&return_val);
     return return_val;
 }
 
