@@ -47,38 +47,45 @@ ParquetReaderWrap::~ParquetReaderWrap() {
 }
 
 Status ParquetReaderWrap::init_parquet_reader(const std::vector<SlotDescriptor*>& tuple_slot_descs) {
-    // new file reader for parquet file
-    _reader.reset(new parquet::arrow::FileReader(arrow::default_memory_pool(),
-            std::move(parquet::ParquetFileReader::Open(_parquet, _properties))));
+    try {
+        // new file reader for parquet file
+        _reader.reset(new parquet::arrow::FileReader(arrow::default_memory_pool(),
+                std::move(parquet::ParquetFileReader::Open(_parquet, _properties))));
 
-    _file_metadata = _reader->parquet_reader()->metadata();
-    // initial members
-    _total_groups = _file_metadata->num_row_groups();
-    _rows_of_group = _file_metadata->RowGroup(0)->num_rows();
+        _file_metadata = _reader->parquet_reader()->metadata();
+        // initial members
+        _total_groups = _file_metadata->num_row_groups();
+        _rows_of_group = _file_metadata->RowGroup(0)->num_rows();
 
-    // map
-    const parquet::SchemaDescriptor* schemaDescriptor = _file_metadata->schema();
-    for (int i = 0; i < _file_metadata->num_columns(); ++i) {
-        // Get the Column Reader for the boolean column
-        _map_column.insert(std::pair<std::string, int>(schemaDescriptor->Column(i)->name(), i));
-    }
-
-    if (_current_line_of_group == 0) {// the first read
-        RETURN_IF_ERROR(column_indices(tuple_slot_descs));
-        // read batch
-        _reader->GetRecordBatchReader({_current_group}, _parquet_column_ids, &_rb_batch);
-        arrow::Status status = _rb_batch->ReadNext(&_batch);
-        if (!status.ok()) {
-            LOG(WARNING) << "The first read record. " << status.ToString();
-            throw Status::InternalError(status.ToString());
+        // map
+        auto *schemaDescriptor = _file_metadata->schema();
+        for (int i = 0; i < _file_metadata->num_columns(); ++i) {
+            // Get the Column Reader for the boolean column
+            _map_column.emplace(schemaDescriptor->Column(i)->name(), i);
         }
-        //save column type
-        std::shared_ptr<arrow::Schema> field_schema = _batch->schema();
-        for (auto index : _parquet_column_ids) {
-            _parquet_column_type.emplace_back(field_schema->field(index)->type()->id());
+
+        if (_current_line_of_group == 0) {// the first read
+            RETURN_IF_ERROR(column_indices(tuple_slot_descs));
+            // read batch
+            _reader->GetRecordBatchReader({_current_group}, _parquet_column_ids, &_rb_batch);
+            arrow::Status status = _rb_batch->ReadNext(&_batch);
+            if (!status.ok()) {
+                LOG(WARNING) << "The first read record. " << status.ToString();
+                return Status::InternalError(status.ToString());
+            }
+            //save column type
+            std::shared_ptr<arrow::Schema> field_schema = _batch->schema();
+            for (auto index : _parquet_column_ids) {
+                _parquet_column_type.emplace_back(field_schema->field(index)->type()->id());
+            }
         }
+        return Status::OK();
+    } catch (parquet::ParquetException& e) {
+        std::stringstream str_error;
+        str_error << "Init parquet reader fail. " << e.what();
+        LOG(WARNING) << str_error.str();
+        return Status::InternalError(str_error.str());
     }
-    return Status::OK();
 }
 
 void ParquetReaderWrap::close() {
