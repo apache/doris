@@ -105,7 +105,7 @@ Status ParquetScanner::open_next_reader() {
             return Status::OK();
         }
         const TBrokerRangeDesc& range = _ranges[_next_range++];
-        unique_ptr<FileReader> file_reader;
+        std::unique_ptr<FileReader> file_reader;
         switch (range.file_type) {
             case TFileType::FILE_LOCAL: {
                 file_reader.reset(new LocalFileReader(range.path, range.start_offset));
