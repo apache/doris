@@ -104,16 +104,16 @@ Status ParquetScanner::open_next_reader() {
             _scanner_eof = true;
             return Status::OK();
         }
-        const TBrokerRangeDesc &range = _ranges[_next_range++];
-        FileReader *file_reader = nullptr;
+        const TBrokerRangeDesc& range = _ranges[_next_range++];
+        unique_ptr<FileReader> file_reader;
         switch (range.file_type) {
             case TFileType::FILE_LOCAL: {
-                file_reader = new LocalFileReader(range.path, range.start_offset);
+                file_reader.reset(new LocalFileReader(range.path, range.start_offset));
                 break;
             }
             case TFileType::FILE_BROKER: {
-                file_reader = new BrokerReader(_state->exec_env(), _broker_addresses, _params.properties,
-                                                range.path, range.start_offset);
+                file_reader.reset(new BrokerReader(_state->exec_env(), _broker_addresses, _params.properties,
+                                               range.path, range.start_offset));
                 break;
             }
 #if 0
@@ -135,9 +135,10 @@ Status ParquetScanner::open_next_reader() {
         }
         RETURN_IF_ERROR(file_reader->open());
         if (file_reader->size() == 0) {
+            file_reader->close();
             continue;
         }
-        _cur_file_reader = new ParquetReaderWrap(file_reader);
+        _cur_file_reader = new ParquetReaderWrap(file_reader.release());
         return _cur_file_reader->init_parquet_reader(_src_slot_descs);
     }
 }
