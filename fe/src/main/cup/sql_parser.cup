@@ -405,7 +405,8 @@ nonterminal String keyword, ident, ident_or_text, variable_name, text_or_passwor
         charset_name_or_default, old_or_new_charset_name_or_default, opt_collate,
         collation_name_or_default, type_func_name_keyword, type_function_name, opt_file_format;
 
-nonterminal String opt_db, opt_partition_name, procedure_or_function, opt_default_value, opt_comment, opt_engine;
+nonterminal String opt_db, opt_partition_name, procedure_or_function, opt_comment, opt_engine;
+nonterminal ColumnDef.DefaultValue opt_default_value;
 nonterminal Boolean opt_if_exists, opt_if_not_exists;
 nonterminal Boolean opt_external;
 
@@ -1571,15 +1572,15 @@ column_definition_list ::=
 opt_default_value ::=
     /* Empty */
     {:
-        RESULT = null;
+        RESULT = ColumnDef.DefaultValue.NOT_SET;
     :}
     | KW_DEFAULT STRING_LITERAL:value
     {:
-        RESULT = value;
+        RESULT = new ColumnDef.DefaultValue(true, value);
     :}
     | KW_DEFAULT KW_NULL
     {:
-        RESULT = null;
+        RESULT = ColumnDef.DefaultValue.NULL_DEFAULT_VALUE;
     :}
     ;
 
