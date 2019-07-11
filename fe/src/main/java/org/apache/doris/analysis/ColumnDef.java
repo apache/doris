@@ -150,8 +150,8 @@ public class ColumnDef {
         }
 
         if (type.getPrimitiveType() == PrimitiveType.HLL) {
-            if (defaultValue != null) {
-                throw new AnalysisException("Hll can not set default value");
+            if (defaultValue.isSet) {
+                throw new AnalysisException("Hll type column can not set default value");
             }
             defaultValue = DefaultValue.HLL_EMPTY_DEFAULT_VALUE;
         }
