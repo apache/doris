@@ -48,6 +48,9 @@ struct TCreateTabletReq {
     4: optional Types.TVersionHash version_hash
     5: optional Types.TStorageMedium storage_medium
     6: optional bool in_restore_mode
+    // this new tablet should be colocate with base tablet
+    7: optional Types.TTabletId base_tablet_id
+    8: optional Types.TSchemaHash base_schema_hash
 }
 
 struct TDropTabletReq {
@@ -59,6 +62,18 @@ struct TAlterTabletReq{
     1: required Types.TTabletId base_tablet_id
     2: required Types.TSchemaHash base_schema_hash
     3: required TCreateTabletReq new_tablet_req
+}
+
+// This v2 request will replace the old TAlterTabletReq.
+// TAlterTabletReq should be deprecated after new alter job process merged.
+struct TAlterTabletReqV2 {
+    1: required Types.TTabletId base_tablet_id
+    2: required Types.TTabletId new_tablet_id
+    3: required Types.TSchemaHash base_schema_hash
+    4: required Types.TSchemaHash new_schema_hash
+    // version of data which this alter task should transform
+    5: optional Types.TVersion alter_version
+    6: optional Types.TVersionHash alter_version_hash
 }
 
 struct TClusterInfo {
@@ -216,7 +231,8 @@ struct TAgentTaskRequest {
     20: optional TClearAlterTaskRequest clear_alter_task_req
     21: optional TClearTransactionTaskRequest clear_transaction_task_req
     22: optional TMoveDirReq move_dir_req
-    23: optional TRecoverTabletReq recover_tablet_req;
+    23: optional TRecoverTabletReq recover_tablet_req
+    24: optional TAlterTabletReqV2 alter_tablet_req_v2
 }
 
 struct TAgentResult {
