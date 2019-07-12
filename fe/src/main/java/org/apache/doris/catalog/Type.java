@@ -62,6 +62,7 @@ public abstract class Type {
     public static final ScalarType DOUBLE = new ScalarType(PrimitiveType.DOUBLE);
     public static final ScalarType DATE = new ScalarType(PrimitiveType.DATE);
     public static final ScalarType DATETIME = new ScalarType(PrimitiveType.DATETIME);
+    public static final ScalarType TIME = new ScalarType(PrimitiveType.TIME);
     public static final ScalarType DEFAULT_DECIMAL = (ScalarType)
             ScalarType.createDecimalType(ScalarType.DEFAULT_PRECISION,
                     ScalarType.DEFAULT_SCALE);
@@ -116,6 +117,7 @@ public abstract class Type {
         supportedTypes.add(DATETIME);
         supportedTypes.add(DECIMAL);
         supportedTypes.add(DECIMALV2);
+        supportedTypes.add(TIME);
     }
 
     public static ArrayList<ScalarType> getIntegerTypes() {
