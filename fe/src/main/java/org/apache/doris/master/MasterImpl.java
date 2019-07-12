@@ -689,23 +689,13 @@ public class MasterImpl {
 
     private void finishClone(AgentTask task, TFinishTaskRequest request) {
         CloneTask cloneTask = (CloneTask) task;
-        if (cloneTask.getTaskVersion() == CloneTask.VERSION_1) {
-            if (request.getTask_status().getStatus_code() != TStatusCode.OK) {
-                // just return, like the old style
-                return;
-            }
-            
-            List<TTabletInfo> finishTabletInfos = request.getFinish_tablet_infos();
-            Preconditions.checkArgument(finishTabletInfos != null && !finishTabletInfos.isEmpty());
-            Preconditions.checkArgument(finishTabletInfos.size() == 1);
-            Catalog.getInstance().getCloneInstance().finishCloneJob(cloneTask, finishTabletInfos.get(0));
-
-        } else if (cloneTask.getTaskVersion() == CloneTask.VERSION_2) {
+        if (cloneTask.getTaskVersion() == CloneTask.VERSION_2) {
             Catalog.getCurrentCatalog().getTabletScheduler().finishCloneTask(cloneTask, request);
+        } else {
+            LOG.warn("invalid clone task, ignore it. {}", task);
         }
 
         AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.CLONE, task.getSignature());
-
     }
 
     private void finishConsistenctCheck(AgentTask task, TFinishTaskRequest request) {

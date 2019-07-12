@@ -71,10 +71,7 @@ import org.apache.doris.analysis.TableRenameClause;
 import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.backup.AbstractBackupJob_D;
 import org.apache.doris.backup.BackupHandler;
-import org.apache.doris.backup.BackupJob_D;
-import org.apache.doris.backup.RestoreJob_D;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Database.DbState;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
@@ -83,8 +80,6 @@ import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Table.TableType;
-import org.apache.doris.clone.Clone;
-import org.apache.doris.clone.CloneChecker;
 import org.apache.doris.clone.ColocateTableBalancer;
 import org.apache.doris.clone.TabletChecker;
 import org.apache.doris.clone.TabletScheduler;
@@ -269,7 +264,6 @@ public class Catalog {
     private LoadManager loadManager;
     private RoutineLoadManager routineLoadManager;
     private ExportMgr exportMgr;
-    private Clone clone;
     private Alter alter;
     private ConsistencyChecker consistencyChecker;
     private BackupHandler backupHandler;
@@ -428,7 +422,6 @@ public class Catalog {
         this.load = new Load();
         this.routineLoadManager = new RoutineLoadManager();
         this.exportMgr = new ExportMgr();
-        this.clone = new Clone();
         this.alter = new Alter();
         this.consistencyChecker = new ConsistencyChecker();
         this.lock = new QueryableReentrantLock(true);
@@ -1098,14 +1091,9 @@ public class Catalog {
         ExportChecker.init(Config.export_checker_interval_second * 1000L);
         ExportChecker.startAll();
 
-        // Clone checker
-        if (!Config.use_new_tablet_scheduler) {
-            CloneChecker.getInstance().setInterval(Config.clone_checker_interval_second * 1000L);
-            CloneChecker.getInstance().start();
-        } else {
-            tabletChecker.start();
-            tabletScheduler.start();
-        }
+        // Tablet checker and scheduler
+        tabletChecker.start();
+        tabletScheduler.start();
 
         // Colocate tables balancer
         if (!Config.disable_colocate_join) {
@@ -1324,7 +1312,6 @@ public class Catalog {
             recreateTabletInvertIndex();
             checksum = loadLoadJob(dis, checksum);
             checksum = loadAlterJob(dis, checksum);
-            checksum = loadBackupAndRestoreJob_D(dis, checksum);
             checksum = loadAccessService(dis, checksum);
             checksum = loadRecycleBin(dis, checksum);
             checksum = loadGlobalVariable(dis, checksum);
@@ -1639,67 +1626,6 @@ public class Catalog {
     public long saveBackupHandler(DataOutputStream dos, long checksum) throws IOException {
         getBackupHandler().write(dos);
         return checksum;
-    }
-
-    // This method is deprecated, we keep it because we need to consume the old image
-    // which contains old backup and restore jobs
-    @Deprecated
-    public long loadBackupAndRestoreJob_D(DataInputStream dis, long checksum) throws IOException {
-        long newChecksum = checksum;
-        if (getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_22
-                && getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_42) {
-            newChecksum = loadBackupAndRestoreJob_D(dis, newChecksum, BackupJob_D.class);
-            newChecksum = loadBackupAndRestoreJob_D(dis, newChecksum, RestoreJob_D.class);
-            newChecksum = loadBackupAndRestoreLabel_D(dis, newChecksum);
-        }
-        return newChecksum;
-    }
-
-    @Deprecated
-    private long loadBackupAndRestoreJob_D(DataInputStream dis, long checksum,
-                                           Class<? extends AbstractBackupJob_D> jobClass) throws IOException {
-        int size = dis.readInt();
-        long newChecksum = checksum ^ size;
-        for (int i = 0; i < size; i++) {
-            long dbId = dis.readLong();
-            newChecksum ^= dbId;
-            if (jobClass == BackupJob_D.class) {
-                BackupJob_D job = new BackupJob_D();
-                job.readFields(dis);
-            } else {
-                RestoreJob_D job = new RestoreJob_D();
-                job.readFields(dis);
-            }
-        }
-
-        // finished or cancelled
-        size = dis.readInt();
-        newChecksum ^= size;
-        for (int i = 0; i < size; i++) {
-            long dbId = dis.readLong();
-            newChecksum ^= dbId;
-            if (jobClass == BackupJob_D.class) {
-                BackupJob_D job = new BackupJob_D();
-                job.readFields(dis);
-            } else {
-                RestoreJob_D job = new RestoreJob_D();
-                job.readFields(dis);
-            }
-        }
-
-        return newChecksum;
-    }
-
-    @Deprecated
-    private long loadBackupAndRestoreLabel_D(DataInputStream dis, long checksum) throws IOException {
-        int size = dis.readInt();
-        long newChecksum = checksum ^ size;
-        for (int i = 0; i < size; i++) {
-            long dbId = dis.readLong();
-            newChecksum ^= dbId;
-            Text.readString(dis); // label
-        }
-        return newChecksum;
     }
 
     public long loadPaloAuth(DataInputStream dis, long checksum) throws IOException {
@@ -3127,10 +3053,6 @@ public class Catalog {
 
         // drop
         olapTable.dropPartition(db.getId(), partitionName);
-
-        // remove clone job
-        Clone clone = Catalog.getInstance().getCloneInstance();
-        clone.cancelCloneJob(partition);
 
         // log
         DropPartitionInfo info = new DropPartitionInfo(db.getId(), olapTable.getId(), partitionName);
@@ -4605,10 +4527,6 @@ public class Catalog {
 
     public ExportMgr getExportMgr() {
         return this.exportMgr;
-    }
-
-    public Clone getCloneInstance() {
-        return this.clone;
     }
 
     public SmallFileMgr getSmallFileMgr() {
