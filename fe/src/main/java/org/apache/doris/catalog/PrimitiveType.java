@@ -43,6 +43,7 @@ public enum PrimitiveType {
     DOUBLE("DOUBLE", 8, TPrimitiveType.DOUBLE),
     DATE("DATE", 16, TPrimitiveType.DATE),
     DATETIME("DATETIME", 16, TPrimitiveType.DATETIME),
+    TIME("TIME", 4, TPrimitiveType.TIME),
     // Fixed length char array.
     CHAR("CHAR", 16, TPrimitiveType.CHAR),
     // 8-byte pointer and 4-byte length indicator (12 bytes total).
