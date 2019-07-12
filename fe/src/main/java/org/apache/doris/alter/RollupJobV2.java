@@ -33,7 +33,9 @@ import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.task.AgentBatchTask;
+import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.CreateReplicaTask;
@@ -94,11 +96,11 @@ public class RollupJobV2 extends AlterJobV2 {
     // save all create rollup tasks
     private AgentBatchTask rollupBatchTask = new AgentBatchTask();
 
-    public RollupJobV2(long jobId, long dbId, long tableId, long timeoutMs,
+    public RollupJobV2(long jobId, long dbId, long tableId, String tableName, long timeoutMs,
             long baseIndexId, long rollupIndexId, String baseIndexName, String rollupIndexName,
             List<Column> rollupSchema, int baseSchemaHash, int rollupSchemaHash,
             KeysType rollupKeysType, short rollupShortKeyColumnCount) {
-        super(jobId, JobType.ROLLUP, dbId, tableId, timeoutMs);
+        super(jobId, JobType.ROLLUP, dbId, tableId, tableName, timeoutMs);
 
         this.baseIndexId = baseIndexId;
         this.rollupIndexId = rollupIndexId;
@@ -134,7 +136,7 @@ public class RollupJobV2 extends AlterJobV2 {
      * 1. Create all rollup replicas and wait them finished.
      * 2. After creating done, set the rollup index state as SHADOW, add it to catalog, user can not see this
      *    rollup, but internal load process will generate data for this rollup index.
-     * 3. get a new transaction id, then set job's state to WAITING_TXN
+     * 3. Get a new transaction id, then set job's state to WAITING_TXN
      */
     @Override
     protected void runPendingJob() {
@@ -256,16 +258,16 @@ public class RollupJobV2 extends AlterJobV2 {
             partition.createRollupIndex(rollupIndex);
         }
 
-        tbl.setIndexSchemaInfo(rollupIndexId, rollupIndexName, rollupSchema, 0,
+        tbl.setIndexSchemaInfo(rollupIndexId, rollupIndexName, rollupSchema, 0 /* init schema version */,
                 rollupSchemaHash, rollupShortKeyColumnCount);
         tbl.setStorageTypeToIndex(rollupIndexId, TStorageType.COLUMN);
     }
 
     /*
      * runWaitingTxnJob():
-     * 1. Wait the previous transactions to be finished.
-     * 2. If all previous transactions finished, send create rollup tasks to BE
-     * 3. Change job state to RUNNING
+     * 1. Wait the transactions before the watershedTxnId to be finished.
+     * 2. If all previous transactions finished, send create rollup tasks to BE.
+     * 3. Change job state to RUNNING.
      */
     @Override
     protected void runWaitingTxnJob() {
@@ -294,13 +296,10 @@ public class RollupJobV2 extends AlterJobV2 {
             for (Map.Entry<Long, MaterializedIndex> entry : this.partitionIdToRollupIndex.entrySet()) {
                 long partitionId = entry.getKey();
                 Partition partition = tbl.getPartition(partitionId);
-                if (partition == null) {
-                    continue;
-                }
+                Preconditions.checkNotNull(partition, partitionId);
 
                 // the rollup task will transform the data before committed version.
-                // DO NOT use visible version because we need to handle the committed but not published version
-                // on BE.
+                // DO NOT use visible version because we need to handle the committed but not published version on BE.
                 long committedVersion = partition.getCommittedVersion();
                 long committedVersionHash = partition.getCommittedVersionHash();
 
@@ -317,7 +316,7 @@ public class RollupJobV2 extends AlterJobV2 {
                                 rollupIndexId, baseIndexId,
                                 rollupTabletId, baseTabletId, rollupReplica.getId(),
                                 rollupSchemaHash, baseSchemaHash,
-                                committedVersion, committedVersionHash);
+                                committedVersion, committedVersionHash, jobId);
                         rollupBatchTask.addTask(rollupTask);
                     }
                 }
@@ -330,7 +329,7 @@ public class RollupJobV2 extends AlterJobV2 {
         AgentTaskExecutor.submit(rollupBatchTask);
         this.jobState = JobState.RUNNING;
 
-        // do not write edit log here, tasks will be send again if FE restart or master changed.
+        // DO NOT write edit log here, tasks will be send again if FE restart or master changed.
         LOG.info("transfer rollup job {} state to {}", jobId, this.jobState);
     }
 
@@ -546,7 +545,7 @@ public class RollupJobV2 extends AlterJobV2 {
     }
 
     /*
-     * Replay job in pending state.
+     * Replay job in PENDING state.
      * Should replay all changes before this job's state transfer to PENDING.
      * These changes should be same as changes in RollupHander.processAddRollup()
      */
@@ -565,6 +564,7 @@ public class RollupJobV2 extends AlterJobV2 {
                 return;
             }
 
+            // add all rollup replicas to tablet inverted index
             TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
             for (Long partitionId : partitionIdToRollupIndex.keySet()) {
                 MaterializedIndex rollupIndex = partitionIdToRollupIndex.get(partitionId);
@@ -662,5 +662,42 @@ public class RollupJobV2 extends AlterJobV2 {
             default:
                 break;
         }
+    }
+
+    @Override
+    protected void getInfo(List<Comparable> info) {
+        info.add(jobId);
+        info.add(tableName);
+        info.add(TimeUtils.longToTimeString(createTimeMs));
+        info.add(TimeUtils.longToTimeString(finishedTimeMs));
+        info.add(baseIndexName);
+        info.add(rollupIndexName);
+        info.add(rollupIndexId);
+        info.add(watershedTxnId);
+        info.add(jobState.name());
+        info.add(errMsg);
+        // progress
+        if (jobState == JobState.RUNNING && rollupBatchTask.getTaskNum() > 0) {
+            info.add(rollupBatchTask.getFinishedTaskNum() + "/" + rollupBatchTask.getTaskNum());
+        } else {
+            info.add("N/A");
+        }
+        info.add(timeoutMs / 1000);
+    }
+
+    public List<List<String>> getUnfinishedTasks(int limit) {
+        List<List<String>> taskInfos = Lists.newArrayList();
+        if (jobState == JobState.RUNNING) {
+            List<AgentTask> tasks = rollupBatchTask.getUnfinishedTasks(limit);
+            for (AgentTask agentTask : tasks) {
+                CreateRollupTaskV2 rollupTask = (CreateRollupTaskV2)agentTask;
+                List<String> info = Lists.newArrayList();
+                info.add(String.valueOf(rollupTask.getBackendId()));
+                info.add(String.valueOf(rollupTask.getBaseTabletId()));
+                info.add(String.valueOf(rollupTask.getSignature()));
+                taskInfos.add(info);
+            }
+        }
+        return taskInfos;
     }
 }

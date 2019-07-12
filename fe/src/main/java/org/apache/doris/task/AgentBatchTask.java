@@ -19,12 +19,13 @@ package org.apache.doris.task;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.ClientPool;
-import org.apache.doris.common.Pair;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TAgentServiceVersion;
 import org.apache.doris.thrift.TAgentTaskRequest;
 import org.apache.doris.thrift.TAlterTabletReq;
+import org.apache.doris.thrift.TAlterTabletReqV2;
+import org.apache.doris.thrift.TCancelDeleteDataReq;
 import org.apache.doris.thrift.TCheckConsistencyReq;
 import org.apache.doris.thrift.TClearAlterTaskRequest;
 import org.apache.doris.thrift.TClearTransactionTaskRequest;
@@ -118,20 +119,31 @@ public class AgentBatchTask implements Runnable {
         return true;
     }
 
-    // return the limit number of unfinished task.
-    // backend id -> signature
-    public List<Pair<Long, Long>> getUnfinishedTasks(int limit) {
-        List<Pair<Long, Long>> res = Lists.newArrayList();
+    // return the limit number of unfinished tasks.
+    public List<AgentTask> getUnfinishedTasks(int limit) {
+        List<AgentTask> res = Lists.newArrayList();
         for (List<AgentTask> tasks : this.backendIdToTasks.values()) {
             for (AgentTask agentTask : tasks) {
                 if (!agentTask.isFinished()) {
                     if (res.size() < limit) {
-                        res.add(Pair.create(agentTask.getBackendId(), agentTask.getSignature()));
+                        res.add(agentTask);
                     }
                 }
             }
         }
         return res;
+    }
+
+    public int getFinishedTaskNum() {
+        int count = 0;
+        for (List<AgentTask> tasks : this.backendIdToTasks.values()) {
+            for (AgentTask agentTask : tasks) {
+                if (agentTask.isFinished()) {
+                    count++;
+                }
+            }
+        }
+        return count;
     }
 
     @Override
@@ -348,6 +360,13 @@ public class AgentBatchTask implements Runnable {
                     LOG.debug(request.toString());
                 }
                 tAgentTaskRequest.setUpdate_tablet_meta_info_req(request);
+            case ALTER: {
+                CreateRollupTaskV2 createRollupTask = (CreateRollupTaskV2) task;
+                TAlterTabletReqV2 request = createRollupTask.toThrift();
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(request.toString());
+                }
+                tAgentTaskRequest.setAlter_tablet_req_v2(request);
                 return tAgentTaskRequest;
             }
             default:

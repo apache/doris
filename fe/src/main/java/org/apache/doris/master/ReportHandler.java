@@ -591,9 +591,8 @@ public class ReportHandler extends Daemon {
                         tablet.deleteReplicaByBackendId(backendId);
                         ++deleteCounter;
                         
-                        // handle related task
-                        Catalog.getInstance().handleJobsWhenDeleteReplica(tableId, partitionId, indexId, tabletId,
-                                                                          replica.getId(), backendId);
+                        // remove replica related tasks
+                        AgentTaskQueue.removeReplicaRelatedTasks(backendId, tabletId);
 
                         // write edit log
                         ReplicaPersistInfo info = ReplicaPersistInfo.createForDelete(dbId, tableId, partitionId,

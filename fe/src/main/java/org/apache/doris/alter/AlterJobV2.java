@@ -29,6 +29,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.List;
 
 /*
  * Author: Chenmingyu
@@ -65,17 +66,19 @@ public class AlterJobV2 implements Writable {
 
     protected long dbId;
     protected long tableId;
+    protected String tableName;
 
     protected String errMsg = "";
     protected long createTimeMs = -1;
     protected long finishedTimeMs = -1;
     protected long timeoutMs = -1;
 
-    public AlterJobV2(long jobId, JobType jobType, long dbId, long tableId, long timeoutMs) {
+    public AlterJobV2(long jobId, JobType jobType, long dbId, long tableId, String tableName, long timeoutMs) {
         this.jobId = jobId;
         this.type = jobType;
         this.dbId = dbId;
         this.tableId = tableId;
+        this.tableName = tableName;
         this.timeoutMs = timeoutMs;
 
         this.createTimeMs = System.currentTimeMillis();
@@ -106,6 +109,10 @@ public class AlterJobV2 implements Writable {
         return tableId;
     }
 
+    public String getTableName() {
+        return tableName;
+    }
+
     private boolean isTimeout() {
         return System.currentTimeMillis() - createTimeMs > timeoutMs;
     }
@@ -115,7 +122,7 @@ public class AlterJobV2 implements Writable {
     }
 
     /*
-     * The keyword 'synchronized' only protects 2 method:
+     * The keyword 'synchronized' only protects 2 methods:
      * run() and cancel()
      * Only these 2 methods can be visited by different thread(internal working thread and user connection thread)
      * So using 'synchronized' to make sure only one thread can run the job at one time.
@@ -153,6 +160,10 @@ public class AlterJobV2 implements Writable {
     }
 
     public synchronized void cancel(String errMsg) {
+        throw new NotImplementedException();
+    }
+
+    protected void getInfo(List<Comparable> info) {
         throw new NotImplementedException();
     }
 

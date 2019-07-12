@@ -4181,18 +4181,6 @@ public class Catalog {
         }
     }
 
-    public void handleJobsWhenDeleteReplica(long tableId, long partitionId, long indexId, long tabletId, long replicaId,
-                                            long backendId) {
-        // rollup
-        getRollupHandler().removeReplicaRelatedTask(tableId, partitionId, indexId, tabletId, backendId);
-
-        // schema change
-        getSchemaChangeHandler().removeReplicaRelatedTask(tableId, tabletId, replicaId, backendId);
-
-        // task
-        AgentTaskQueue.removeReplicaRelatedTasks(backendId, tabletId);
-    }
-
     private void unprotectAddReplica(ReplicaPersistInfo info) {
         LOG.debug("replay add a replica {}", info);
         Database db = getDb(info.getDbId());

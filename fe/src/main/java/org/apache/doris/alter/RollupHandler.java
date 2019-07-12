@@ -39,7 +39,6 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -65,6 +64,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+/*
+ * RollupHandler is responsible for ADD/DROP rollup.
+ */
 public class RollupHandler extends AlterHandler {
     private static final Logger LOG = LogManager.getLogger(RollupHandler.class);
 
@@ -72,6 +74,14 @@ public class RollupHandler extends AlterHandler {
         super("rollup");
     }
 
+    /*
+     * Handle the Add Rollup request.
+     * 3 main steps:
+     * 1. Validate the request.
+     * 2. Create RollupJob with rollup index
+     *      All replicas of the rollup index will be created in meta and added to TabletInvertedIndex
+     * 3. Set table's state to ROLLUP.
+     */
     private void processAddRollup(AddRollupClause alterClause, Database db, OlapTable olapTable)
             throws DdlException {
         
@@ -285,8 +295,7 @@ public class RollupHandler extends AlterHandler {
         long jobId = catalog.getNextId();
         long rollupIndexId = catalog.getNextId();
         
-        
-        RollupJobV2 rollupJob = new RollupJobV2(jobId, dbId, tableId, timeoutMs,
+        RollupJobV2 rollupJob = new RollupJobV2(jobId, dbId, tableId, olapTable.getName(), timeoutMs,
                 baseIndexId, rollupIndexId, baseIndexName, rollupIndexName,
                 rollupSchema, baseSchemaHash, rollupSchemaHash,
                 rollupKeysType, rollupShortKeyColumnCount);
@@ -412,32 +421,7 @@ public class RollupHandler extends AlterHandler {
         } finally {
             db.writeUnlock();
         }
-    }
-
-    public void removeReplicaRelatedTask(long tableId, long partitionId, long indexId, long tabletId, long backendId) {
-        // make sure to get db writeLock
-        AlterJob alterJob = checkIfAnyRollupBasedOn(tableId, indexId);
-        if (alterJob != null) {
-            alterJob.removeReplicaRelatedTask(partitionId, tabletId, -1L, backendId);
-        }
-    }
-
-    // this is for handle delete replica op
-    private AlterJob checkIfAnyRollupBasedOn(long tableId, long baseIndexId) {
-        AlterJob alterJob = this.alterJobs.get(tableId);
-        if (alterJob != null && ((RollupJob) alterJob).getBaseIndexId() == baseIndexId) {
-            return alterJob;
-        }
-        return null;
-    }
-
-    // this is for drop rollup op
-    private AlterJob checkIfAnyRollupBasedOn(long tableId, String baseIndexName) {
-        AlterJob alterJob = this.alterJobs.get(tableId);
-        if (alterJob != null && ((RollupJob) alterJob).getBaseIndexName().equals(baseIndexName)) {
-            return alterJob;
-        }
-        return null;
+        LOG.info("replay drop rollup {}", dropInfo.getIndexId());
     }
 
     @Override
@@ -570,8 +554,29 @@ public class RollupHandler extends AlterHandler {
     @Override
     public List<List<Comparable>> getAlterJobInfosByDb(Database db) {
         List<List<Comparable>> rollupJobInfos = new LinkedList<List<Comparable>>();
-        List<AlterJob> jobs = Lists.newArrayList();
 
+        getOldAlterJobInfos(db, rollupJobInfos);
+        getAlterJobV2Infos(rollupJobInfos);
+
+        // sort by
+        // "JobId", "TableName", "CreateTime", "FinishedTime", "BaseIndexName", "RollupIndexName"
+        ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(0, 1, 2, 3, 4, 5);
+        Collections.sort(rollupJobInfos, comparator);
+
+        return rollupJobInfos;
+    }
+
+    private void getAlterJobV2Infos(List<List<Comparable>> rollupJobInfos) {
+        for (AlterJobV2 alterJob : alterJobsV2.values()) {
+            List<Comparable> info = Lists.newArrayList();
+            alterJob.getInfo(info);
+            rollupJobInfos.add(info);
+        }
+    }
+
+    @Deprecated
+    private void getOldAlterJobInfos(Database db, List<List<Comparable>> rollupJobInfos) {
+        List<AlterJob> jobs = Lists.newArrayList();
         // lock to perform atomically
         lock();
         try {
@@ -603,13 +608,6 @@ public class RollupHandler extends AlterHandler {
         } finally {
             db.readUnlock();
         }
-
-        // sort by
-        // "JobId", "TableName", "CreateTime", "FinishedTime", "BaseIndexName", "RollupIndexName"
-        ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(0, 1, 2, 3, 4, 5);
-        Collections.sort(rollupJobInfos, comparator);
-
-        return rollupJobInfos;
     }
 
     @Override
