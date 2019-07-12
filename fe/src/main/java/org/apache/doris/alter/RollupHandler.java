@@ -47,9 +47,6 @@ import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.EditLog;
-import org.apache.doris.task.AgentBatchTask;
-import org.apache.doris.task.AgentTaskExecutor;
-import org.apache.doris.task.DropReplicaTask;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.base.Preconditions;
@@ -297,6 +294,7 @@ public class RollupHandler extends AlterHandler {
         for (Partition partition : olapTable.getPartitions()) {
             long partitionId = partition.getId();
             TStorageMedium medium = olapTable.getPartitionInfo().getDataProperty(partitionId).getStorageMedium();
+            // index state is SHADOW
             MaterializedIndex rollupIndex = new MaterializedIndex(rollupIndexId, IndexState.SHADOW);
             MaterializedIndex baseIndex = partition.getIndex(baseIndexId);
             TabletMeta rollupTabletMeta = new TabletMeta(dbId, tableId, partitionId, rollupIndexId, rollupSchemaHash, medium);
@@ -343,10 +341,9 @@ public class RollupHandler extends AlterHandler {
 
     public void processDropRollup(DropRollupClause alterClause, Database db, OlapTable olapTable)
             throws DdlException {
-        // make sure we got db write lock here
-        // up to here, table's state can be NORMAL or ROLLUP
-        Preconditions.checkState(olapTable.getState() == OlapTableState.NORMAL
-                || olapTable.getState() == OlapTableState.ROLLUP, olapTable.getState().name());
+        // make sure we got db write lock here.
+        // up to here, table's state can only be NORMAL.
+        Preconditions.checkState(olapTable.getState() == OlapTableState.NORMAL, olapTable.getState().name());
 
         String rollupIndexName = alterClause.getRollupName();
         if (rollupIndexName.equals(olapTable.getName())) {
@@ -356,74 +353,37 @@ public class RollupHandler extends AlterHandler {
         long dbId = db.getId();
         long tableId = olapTable.getId();
         if (!olapTable.hasMaterializedIndex(rollupIndexName)) {
-            // when rollup job is unfinished, rollup index is not added to the table
-            AlterJob alterJob = getAlterJob(tableId);
-            if (alterJob == null || !((RollupJob) alterJob).getRollupIndexName().equals(rollupIndexName)) {
-                throw new DdlException("Rollup index[" + rollupIndexName + "] does not exist in table["
-                        + olapTable.getName() + "]");
-            }
-
-            // cancel rollup job
-            cancelInternal(alterJob, olapTable, "rollup index is dropped");
-            return;
-        }
-
-        // 1. check if any rollup job is based on this index
-        AlterJob alterJob = null;
-        if ((alterJob = checkIfAnyRollupBasedOn(tableId, rollupIndexName)) != null) {
-            throw new DdlException("Rollup index[" + ((RollupJob) alterJob).getRollupIndexName()
-                    + "] is doing rollup based on this index[" + rollupIndexName + "] and not finished yet.");
+            throw new DdlException("Rollup index[" + rollupIndexName + "] does not exist in table["
+                    + olapTable.getName() + "]");
         }
         
-        // if the index is a during rollup and in finishing state, then it could not be dropped
-        // because the finishing state could not be roll back, it is very difficult
-        alterJob = getAlterJob(tableId);
-        if (alterJob != null && ((RollupJob) alterJob).getRollupIndexName().equals(rollupIndexName)
-                && alterJob.getState() == JobState.FINISHING) {
-            throw new DdlException("Rollup index[" + rollupIndexName + "]  in table["
-                    + olapTable.getName() + "] is in finishing state, waiting it to finish");
-        }               
-        
-        // drop rollup for each partition
         long rollupIndexId = olapTable.getIndexIdByName(rollupIndexName);
         int rollupSchemaHash = olapTable.getSchemaHashByIndexId(rollupIndexId);
         Preconditions.checkState(rollupSchemaHash != -1);
-        Preconditions.checkState(olapTable.getState() == OlapTableState.NORMAL);
 
+        // drop rollup for each partition.
+        // also remove tablets from inverted index.
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
-        AgentBatchTask batchTask = new AgentBatchTask();
         for (Partition partition : olapTable.getPartitions()) {
             MaterializedIndex rollupIndex = partition.getIndex(rollupIndexId);
             Preconditions.checkNotNull(rollupIndex);
 
-            // 2. delete rollup index
+            // delete rollup index
             partition.deleteRollupIndex(rollupIndexId);
 
-            // 3. send DropReplicaTask
+            // remove tablets from inverted index
             for (Tablet tablet : rollupIndex.getTablets()) {
                 long tabletId = tablet.getId();
-                List<Replica> replicas = tablet.getReplicas();
-                for (Replica replica : replicas) {
-                    long backendId = replica.getBackendId();
-                    DropReplicaTask dropTask = new DropReplicaTask(backendId, tabletId, rollupSchemaHash);
-                    batchTask.addTask(dropTask);
-                } // end for replicas
-
-                // remove from inverted index
                 invertedIndex.deleteTablet(tabletId);
-            } // end for tablets
-        } // end for partitions
+            }
+        }
 
         olapTable.deleteIndexInfo(rollupIndexName);
-        AgentTaskExecutor.submit(batchTask);
 
-        // 5. log drop rollup operation
+        // log drop rollup operation
         EditLog editLog = Catalog.getInstance().getEditLog();
         DropInfo dropInfo = new DropInfo(dbId, tableId, rollupIndexId);
         editLog.logDropRollup(dropInfo);
-        LOG.debug("log drop rollup index[{}] finished in table[{}]", dropInfo.getIndexId(),
-                  dropInfo.getTableId());
-
         LOG.info("finished drop rollup index[{}] in table[{}]", rollupIndexName, olapTable.getName());
     }
 
@@ -492,12 +452,10 @@ public class RollupHandler extends AlterHandler {
         while (iter.hasNext()) {
             Map.Entry<Long, AlterJobV2> entry = iter.next();
             AlterJobV2 alterJob = entry.getValue();
-            alterJob.run();
-            if (alterJob.getJobState().isFinalState()) {
-                iter.remove();
-                finishedOrCancelledAlterJobsV2.offer(alterJob);
-                Catalog.getCurrentCatalog().getEditLog().logAlterJob(alterJob);
+            if (alterJob.isDone()) {
+                continue;
             }
+            alterJob.run();
         }
     }
 
@@ -683,6 +641,7 @@ public class RollupHandler extends AlterHandler {
         }
 
         AlterJob rollupJob = null;
+        AlterJobV2 rollupJobV2 = null;
         db.writeLock();
         try {
             Table table = db.getTable(tableName);
@@ -698,53 +657,29 @@ public class RollupHandler extends AlterHandler {
                         + "Use 'ALTER TABLE DROP ROLLUP' if you want to.");
             }
 
-            rollupJob = getAlterJob(olapTable.getId());
-            Preconditions.checkNotNull(rollupJob);
-
-            if (rollupJob.getState() == JobState.FINISHED || rollupJob.getState() == JobState.CANCELLED) {
-                throw new DdlException("job is already " + rollupJob.getState().name() + ", can not cancel it");
+            // find from new alter jobs first
+            rollupJobV2 = getAlterJobV2(olapTable.getId());
+            if (rollupJobV2 != null) {
+                rollupJobV2.cancel("user cancelled");
+            } else {
+                rollupJob = getAlterJob(olapTable.getId());
+                Preconditions.checkNotNull(rollupJob, olapTable.getId());
+                if (rollupJob.getState() == JobState.FINISHED || rollupJob.getState() == JobState.CANCELLED) {
+                    throw new DdlException("job is already " + rollupJob.getState().name() + ", can not cancel it");
+                }
+                rollupJob.cancel(olapTable, "user cancelled");
             }
-
-            rollupJob.cancel(olapTable, "user cancelled");
         } finally {
             db.writeUnlock();
         }
 
-        jobDone(rollupJob);
+        if (rollupJob != null) {
+            jobDone(rollupJob);
+        }
     }
 
+    // replay the rollup job by job state
     public void replayRollupJobV2(RollupJobV2 rollupJob) {
-        switch (rollupJob.getJobState()) {
-            case PENDING:
-                // PENDING job SHOULD NOT be in alterJobsV2 before
-                Preconditions.checkState(!alterJobsV2.containsKey(rollupJob.getJobId()), rollupJob.getJobId());
-                rollupJob.replayPending();
-                addAlterJobV2(rollupJob);
-                break;
-            case WAITING_TXN:
-                // WAITING_TXN job SHOULD be in alterJobsV2 before
-                Preconditions.checkState(alterJobsV2.containsKey(rollupJob.getJobId()), rollupJob.getJobId());
-                rollupJob.replayWaitingTxn();
-                // this add operation will replace the old rollup job with the new one
-                addAlterJobV2(rollupJob);
-                break;
-            case CANCELLED:
-                // CANCELLED job SHOULD be in alterJobsV2 before
-                Preconditions.checkState(alterJobsV2.containsKey(rollupJob.getJobId()), rollupJob.getJobId());
-                rollupJob.replayCancelled();
-                break;
-            case FINISHED:
-                // FINISHED job SHOULD be in alterJobsV2 before
-                Preconditions.checkState(alterJobsV2.containsKey(rollupJob.getJobId()), rollupJob.getJobId());
-                rollupJob.replayFinished();
-                break;
-            default:
-                break;
-        }
-
-        if (rollupJob.getJobState().isFinalState()) {
-            alterJobsV2.remove(rollupJob.getJobId());
-            finishedOrCancelledAlterJobsV2.offer(rollupJob);
-        }
+        rollupJob.replay();
     }
 }

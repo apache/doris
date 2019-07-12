@@ -171,13 +171,8 @@ public class Alter {
                 throw new DdlException("table with empty parition cannot do schema change. [" + tableName + "]");
             }
 
-            if (olapTable.getState() == OlapTableState.SCHEMA_CHANGE
-                    || olapTable.getState() == OlapTableState.RESTORE) {
-                throw new DdlException("Table[" + table.getName() + "]'s state[" + olapTable.getState()
-                        + "] does not allow doing ALTER ops");
-                // here we pass NORMAL and ROLLUP
-                // NORMAL: ok to do any alter ops
-                // ROLLUP: we allow user DROP a rollup index when it's under ROLLUP
+            if (olapTable.getState() != OlapTableState.NORMAL) {
+                throw new DdlException("Table[" + table.getName() + "]'s state is not NORMAL. Do not allow doing ALTER ops");
             }
             
             if (hasSchemaChange || hasModifyProp || hasRollup) {
