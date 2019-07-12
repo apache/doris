@@ -31,6 +31,8 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.thrift.TTabletInfo;
 
+import com.google.common.collect.Maps;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -39,6 +41,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.locks.ReentrantLock;
 
 public abstract class AlterHandler extends Daemon {
@@ -50,9 +53,8 @@ public abstract class AlterHandler extends Daemon {
     @Deprecated
     protected ConcurrentLinkedQueue<AlterJob> finishedOrCancelledAlterJobs = new ConcurrentLinkedQueue<AlterJob>();
     
-    // jobId -> AlterJobV2
-    protected ConcurrentHashMap<Long, AlterJobV2> alterJobsV2 = new ConcurrentHashMap<Long, AlterJobV2>();
-    protected ConcurrentLinkedQueue<AlterJobV2> finishedOrCancelledAlterJobsV2 = new ConcurrentLinkedQueue<AlterJobV2>();
+    // queue of alter job v2
+    protected ConcurrentMap<Long, AlterJobV2> alterJobsV2 = Maps.newConcurrentMap();
     
     /*
      * lock to perform atomic operations.
@@ -78,6 +80,15 @@ public abstract class AlterHandler extends Daemon {
     protected void addAlterJobV2(AlterJobV2 alterJob) {
         this.alterJobsV2.put(alterJob.getJobId(), alterJob);
         LOG.info("add {} job {}", alterJob.getType(), alterJob.getJobId());
+    }
+
+    public AlterJobV2 getAlterJobV2(long tblId) {
+        for (AlterJobV2 alterJob : alterJobsV2.values()) {
+            if (alterJob.getTableId() == tblId) {
+                return alterJob;
+            }
+        }
+        return null;
     }
 
     @Deprecated

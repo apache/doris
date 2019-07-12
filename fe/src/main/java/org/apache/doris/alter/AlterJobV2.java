@@ -106,18 +106,21 @@ public class AlterJobV2 implements Writable {
         return tableId;
     }
 
-    protected void setCancelled(String errMsg) {
-        jobState = JobState.CANCELLED;
-        this.errMsg = errMsg;
-        LOG.info("cancel {} job {}, err: {}", this.type, jobId, errMsg);
-        // edit log will be wrote later
-    }
-
     private boolean isTimeout() {
         return System.currentTimeMillis() - createTimeMs > timeoutMs;
     }
 
-    public void run() {
+    public boolean isDone() {
+        return jobState.isFinalState();
+    }
+
+    /*
+     * The keyword 'synchronized' only protects 2 method:
+     * run() and cancel()
+     * Only these 2 methods can be visited by different thread(internal working thread and user connection thread)
+     * So using 'synchronized' to make sure only one thread can run the job at one time.
+     */
+    public synchronized void run() {
         if (isTimeout()) {
             cancel("Timeout");
         }
@@ -149,7 +152,7 @@ public class AlterJobV2 implements Writable {
         throw new NotImplementedException();
     }
 
-    protected void cancel(String errMsg) {
+    public synchronized void cancel(String errMsg) {
         throw new NotImplementedException();
     }
 

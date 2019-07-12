@@ -26,7 +26,6 @@ import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition;
-import org.apache.doris.catalog.Partition.PartitionState;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
@@ -190,7 +189,7 @@ public class RollupJobV2 extends AlterJobV2 {
                                 Partition.PARTITION_INIT_VERSION, Partition.PARTITION_INIT_VERSION_HASH,
                                 rollupKeysType, TStorageType.COLUMN, storageMedium,
                                 rollupSchema, tbl.getCopiedBfColumns(), tbl.getBfFpp(), countDownLatch);
-                        createReplicaTask.setBaseTabletId(tabletIdMap.get(rollupTabletId));
+                        createReplicaTask.setBaseTablet(tabletIdMap.get(rollupTabletId), baseSchemaHash);
 
                         batchTask.addTask(createReplicaTask);
                     } // end for rollupReplicas
@@ -417,9 +416,18 @@ public class RollupJobV2 extends AlterJobV2 {
     }
 
     @Override
-    protected void cancel(String errMsg) {
+    public synchronized void cancel(String errMsg) {
+        if (jobState.isFinalState()) {
+            return;
+        }
+
         cancelInternal();
-        setCancelled(errMsg);
+
+        jobState = JobState.CANCELLED;
+        this.errMsg = errMsg;
+        this.finishedTimeMs = System.currentTimeMillis();
+        LOG.info("cancel {} job {}, err: {}", this.type, jobId, errMsg);
+        Catalog.getCurrentCatalog().getEditLog().logAlterJob(this);
     }
 
     private void cancelInternal() {
@@ -542,7 +550,7 @@ public class RollupJobV2 extends AlterJobV2 {
      * Should replay all changes before this job's state transfer to PENDING.
      * These changes should be same as changes in RollupHander.processAddRollup()
      */
-    public void replayPending() {
+    private void replayPending() {
         Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
             // database may be dropped before replaying this log. just return
@@ -559,7 +567,6 @@ public class RollupJobV2 extends AlterJobV2 {
 
             TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
             for (Long partitionId : partitionIdToRollupIndex.keySet()) {
-                Partition partition = tbl.getPartition(partitionId);
                 MaterializedIndex rollupIndex = partitionIdToRollupIndex.get(partitionId);
                 TStorageMedium medium = tbl.getPartitionInfo().getDataProperty(partitionId).getStorageMedium();
                 TabletMeta rollupTabletMeta = new TabletMeta(dbId, tableId, partitionId, rollupIndexId,
@@ -571,8 +578,6 @@ public class RollupJobV2 extends AlterJobV2 {
                         invertedIndex.addReplica(rollupTablet.getId(), rollupReplica);
                     }
                 }
-
-                partition.setState(PartitionState.ROLLUP);
             }
             tbl.setState(OlapTableState.ROLLUP);
         } finally {
@@ -585,7 +590,7 @@ public class RollupJobV2 extends AlterJobV2 {
      * Replay job in WAITING_TXN state.
      * Should replay all changes in runPendingJob()
      */
-    public void replayWaitingTxn() {
+    private void replayWaitingTxn() {
         Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
             // database may be dropped before replaying this log. just return
@@ -610,7 +615,7 @@ public class RollupJobV2 extends AlterJobV2 {
      * Replay job in FINISHED state.
      * Should replay all changes in runRuningJob()
      */
-    public void replayFinished() {
+    private void replayFinished() {
         Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db != null) {
             db.writeLock();
@@ -635,9 +640,27 @@ public class RollupJobV2 extends AlterJobV2 {
     /*
      * Replay job in CANCELLED state.
      */
-    public void replayCancelled() {
+    private void replayCancelled() {
         cancelInternal();
         LOG.info("replay cancelled rollup job: {}", jobId);
     }
 
+    public void replay() {
+        switch (jobState) {
+            case PENDING:
+                replayPending();
+                break;
+            case WAITING_TXN:
+                replayWaitingTxn();
+                break;
+            case FINISHED:
+                replayFinished();
+                break;
+            case CANCELLED:
+                replayCancelled();
+                break;
+            default:
+                break;
+        }
+    }
 }

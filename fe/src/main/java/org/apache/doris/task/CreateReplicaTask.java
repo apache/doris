@@ -60,6 +60,7 @@ public class CreateReplicaTask extends AgentTask {
 
     // if base tablet id is set, BE will create the replica on same disk as this base tablet
     private long baseTabletId = -1;
+    private int baseSchemaHash = -1;
 
     public CreateReplicaTask(long backendId, long dbId, long tableId, long partitionId, long indexId, long tabletId,
                              short shortKeyColumnCount, int schemaHash, long version, long versionHash,
@@ -103,8 +104,9 @@ public class CreateReplicaTask extends AgentTask {
         this.inRestoreMode = inRestoreMode;
     }
 
-    public void setBaseTabletId(long baseTabletId) {
+    public void setBaseTablet(long baseTabletId, int baseSchemaHash) {
         this.baseTabletId = baseTabletId;
+        this.baseSchemaHash = baseSchemaHash;
     }
 
     public TCreateTabletReq toThrift() {
@@ -145,6 +147,7 @@ public class CreateReplicaTask extends AgentTask {
 
         if (baseTabletId != -1) {
             createTabletReq.setBase_tablet_id(baseTabletId);
+            createTabletReq.setBase_schema_hash(baseSchemaHash);
         }
 
         return createTabletReq;
