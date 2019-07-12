@@ -22,10 +22,8 @@ import org.apache.doris.alter.RollupJob;
 import org.apache.doris.alter.SchemaChangeJob;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.backup.BackupJob;
-import org.apache.doris.backup.BackupJob_D;
 import org.apache.doris.backup.Repository;
 import org.apache.doris.backup.RestoreJob;
-import org.apache.doris.backup.RestoreJob_D;
 import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
@@ -56,7 +54,6 @@ import org.apache.doris.load.loadv2.LoadJobFinalOperation;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
-import org.apache.doris.mysql.privilege.UserProperty;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.system.Backend;
@@ -249,17 +246,6 @@ public class EditLog {
                     catalog.replayRenamePartition(info);
                     break;
                 }
-                case OperationType.OP_BACKUP_START:
-                case OperationType.OP_BACKUP_FINISH_SNAPSHOT:
-                case OperationType.OP_BACKUP_FINISH: {
-                    BackupJob_D job = (BackupJob_D) journal.getData();
-                    break;
-                }
-                case OperationType.OP_RESTORE_START:
-                case OperationType.OP_RESTORE_FINISH: {
-                    RestoreJob_D job = (RestoreJob_D) journal.getData();
-                    break;
-                }
                 case OperationType.OP_BACKUP_JOB: {
                     BackupJob job = (BackupJob) journal.getData();
                     catalog.getBackupHandler().replayAddJob(job);
@@ -449,16 +435,6 @@ public class EditLog {
                         LOG.info("current fe " + fe + " is removed. will exit");
                         System.exit(-1);
                     }
-                    break;
-                }
-                case OperationType.OP_ALTER_ACCESS_RESOURCE: {
-                    UserProperty userProperty = (UserProperty) journal.getData();
-                    catalog.getAuth().replayAlterAccess(userProperty);
-                    break;
-                }
-                case OperationType.OP_DROP_USER: {
-                    String userName = ((Text) journal.getData()).toString();
-                    catalog.getAuth().replayOldDropUser(userName);
                     break;
                 }
                 case OperationType.OP_CREATE_USER: {
@@ -977,15 +953,6 @@ public class EditLog {
         logEdit(OperationType.OP_BACKEND_STATE_CHANGE, be);
     }
 
-    public void logAlterAccess(UserProperty userProperty) {
-        logEdit(OperationType.OP_ALTER_ACCESS_RESOURCE, userProperty);
-    }
-
-    @Deprecated
-    public void logDropUser(String userName) {
-        logEdit(OperationType.OP_DROP_USER, new Text(userName));
-    }
-
     public void logCreateUser(PrivInfo info) {
         logEdit(OperationType.OP_CREATE_USER, info);
     }
@@ -1040,26 +1007,6 @@ public class EditLog {
 
     public void logPartitionRename(TableInfo tableInfo) {
         logEdit(OperationType.OP_RENAME_PARTITION, tableInfo);
-    }
-
-    public void logBackupStart(BackupJob_D backupJob) {
-        logEdit(OperationType.OP_BACKUP_START, backupJob);
-    }
-
-    public void logBackupFinishSnapshot(BackupJob_D backupJob) {
-        logEdit(OperationType.OP_BACKUP_FINISH_SNAPSHOT, backupJob);
-    }
-
-    public void logBackupFinish(BackupJob_D backupJob) {
-        logEdit(OperationType.OP_BACKUP_FINISH, backupJob);
-    }
-
-    public void logRestoreJobStart(RestoreJob_D restoreJob) {
-        logEdit(OperationType.OP_RESTORE_START, restoreJob);
-    }
-
-    public void logRestoreFinish(RestoreJob_D restoreJob) {
-        logEdit(OperationType.OP_RESTORE_FINISH, restoreJob);
     }
 
     public void logGlobalVariable(SessionVariable variable) {
