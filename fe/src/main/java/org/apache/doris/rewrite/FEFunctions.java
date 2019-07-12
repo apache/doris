@@ -24,6 +24,7 @@ import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LargeIntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.analysis.TimeLiteral;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 
@@ -53,6 +54,15 @@ public class FEFunctions {
     /**
      * date and time function
      */
+    @FEFunction(name = "timediff", argTypes = { "DATETIME", "DATETIME" }, returnType = "TIME")
+    public static TimeLiteral timeDiff(LiteralExpr first, LiteralExpr second) throws AnalysisException {
+        try {
+            return new TimeLiteral();
+        } catch (Exception e) {
+            e.printStackTrace();
+            throw new AnalysisException(e.getLocalizedMessage());
+        }
+    }
 
     @FEFunction(name = "datediff", argTypes = { "DATETIME", "DATETIME" }, returnType = "INT")
     public static IntLiteral dateDiff(LiteralExpr first, LiteralExpr second) throws AnalysisException {
