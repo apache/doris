@@ -116,7 +116,7 @@ public class RollupJobTest {
         alterClauses.add(clause);
         Database db = masterCatalog.getDb(CatalogTestUtil.testDbId1);
         OlapTable olapTable = (OlapTable) db.getTable(CatalogTestUtil.testTableId1);
-        rollupHandler.process(alterClauses, db, olapTable);
+        rollupHandler.process(alterClauses, db.getClusterName(), db, olapTable);
         RollupJob rollupJob = (RollupJob) rollupHandler.getAlterJob(CatalogTestUtil.testTableId1);
         Assert.assertEquals(CatalogTestUtil.testIndexId1, rollupJob.getBaseIndexId());
         Assert.assertEquals(CatalogTestUtil.testRollupIndex2, rollupJob.getRollupIndexName());
@@ -134,7 +134,7 @@ public class RollupJobTest {
         Database db = masterCatalog.getDb(CatalogTestUtil.testDbId1);
         OlapTable olapTable = (OlapTable) db.getTable(CatalogTestUtil.testTableId1);
         Partition testPartition = olapTable.getPartition(CatalogTestUtil.testPartitionId1);
-        rollupHandler.process(alterClauses, db, olapTable);
+        rollupHandler.process(alterClauses, db.getClusterName(), db, olapTable);
         RollupJob rollupJob = (RollupJob) rollupHandler.getAlterJob(CatalogTestUtil.testTableId1);
         Assert.assertEquals(CatalogTestUtil.testIndexId1, rollupJob.getBaseIndexId());
         Assert.assertEquals(CatalogTestUtil.testRollupIndex2, rollupJob.getRollupIndexName());
@@ -226,7 +226,7 @@ public class RollupJobTest {
         Database db = masterCatalog.getDb(CatalogTestUtil.testDbId1);
         OlapTable olapTable = (OlapTable) db.getTable(CatalogTestUtil.testTableId1);
         Partition testPartition = olapTable.getPartition(CatalogTestUtil.testPartitionId1);
-        rollupHandler.process(alterClauses, db, olapTable);
+        rollupHandler.process(alterClauses, db.getClusterName(), db, olapTable);
         RollupJob rollupJob = (RollupJob) rollupHandler.getAlterJob(CatalogTestUtil.testTableId1);
         Assert.assertEquals(CatalogTestUtil.testIndexId1, rollupJob.getBaseIndexId());
         Assert.assertEquals(CatalogTestUtil.testRollupIndex2, rollupJob.getRollupIndexName());
@@ -284,7 +284,7 @@ public class RollupJobTest {
         Database db = masterCatalog.getDb(CatalogTestUtil.testDbId1);
         OlapTable olapTable = (OlapTable) db.getTable(CatalogTestUtil.testTableId1);
         Partition testPartition = olapTable.getPartition(CatalogTestUtil.testPartitionId1);
-        rollupHandler.process(alterClauses, db, olapTable, false);
+        rollupHandler.process(alterClauses, db.getClusterName(), db, olapTable);
         RollupJob rollupJob = (RollupJob) rollupHandler.getAlterJob(CatalogTestUtil.testTableId1);
         Assert.assertEquals(CatalogTestUtil.testIndexId1, rollupJob.getBaseIndexId());
         Assert.assertEquals(CatalogTestUtil.testRollupIndex2, rollupJob.getRollupIndexName());

@@ -17,7 +17,7 @@
 
 package org.apache.doris.task;
 
-import org.apache.doris.thrift.TAlterTabletReq;
+import org.apache.doris.thrift.TAlterTabletReqV2;
 import org.apache.doris.thrift.TTaskType;
 
 /*
@@ -33,12 +33,13 @@ public class CreateRollupTaskV2 extends AgentTask {
     private int rollupSchemaHash;
     private long version;
     private long versionHash;
+    private long jobId;
 
     public CreateRollupTaskV2(long backendId, long dbId, long tableId,
             long partitionId, long rollupIndexId, long baseIndexId, long rollupTabletId,
             long baseTabletId, long rollupReplicaId, int rollupSchemaHash, int baseSchemaHash,
-            long version, long versionHash) {
-        super(null, backendId, TTaskType.ROLLUP, dbId, tableId, partitionId, rollupIndexId, rollupTabletId);
+            long version, long versionHash, long jobId) {
+        super(null, backendId, TTaskType.ALTER, dbId, tableId, partitionId, rollupIndexId, rollupTabletId);
 
         this.baseTabletId = baseTabletId;
         this.rollupReplicaId = rollupReplicaId;
@@ -48,10 +49,7 @@ public class CreateRollupTaskV2 extends AgentTask {
 
         this.version = version;
         this.versionHash = versionHash;
-    }
-
-    public TAlterTabletReq toThrift() {
-        return null;
+        this.jobId = jobId;
     }
 
     public long getBaseTabletId() {
@@ -76,5 +74,16 @@ public class CreateRollupTaskV2 extends AgentTask {
 
     public long getVersionHash() {
         return versionHash;
+    }
+
+    public long getJobId() {
+        return jobId;
+    }
+
+    public TAlterTabletReqV2 toThrift() {
+        TAlterTabletReqV2 req = new TAlterTabletReqV2(baseTabletId, signature, baseSchemaHash, rollupSchemaHash);
+        req.setAlter_version(version);
+        req.setAlter_version_hash(versionHash);
+        return req;
     }
 }

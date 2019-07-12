@@ -46,6 +46,7 @@ import org.apache.doris.task.ClearTransactionTask;
 import org.apache.doris.task.CloneTask;
 import org.apache.doris.task.CreateReplicaTask;
 import org.apache.doris.task.CreateRollupTask;
+import org.apache.doris.task.CreateRollupTaskV2;
 import org.apache.doris.task.DirMoveTask;
 import org.apache.doris.task.DownloadTask;
 import org.apache.doris.task.PublishVersionTask;
@@ -198,6 +199,9 @@ public class MasterImpl {
                     break;
                 case RECOVER_TABLET:
                     finishRecoverTablet(task);
+                    break;
+                case ALTER:
+                    finishAlterTask(task);
                     break;
                 default:
                     break;
@@ -766,4 +770,9 @@ public class MasterImpl {
         return Catalog.getInstance().getAuth().toResourceThrift();
     }
 
+    private void finishAlterTask(AgentTask task) {
+        CreateRollupTaskV2 createRollupTaskV2 = (CreateRollupTaskV2) task;
+        createRollupTaskV2.setFinished(true);
+        AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.ALTER, task.getSignature());
+    }
 }
