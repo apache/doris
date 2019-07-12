@@ -40,7 +40,6 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
-import org.apache.doris.clone.Clone;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -474,16 +473,9 @@ public class RollupHandler extends AlterHandler {
 
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
         AgentBatchTask batchTask = new AgentBatchTask();
-        final String cloneFailMsg = "rollup index[" + rollupIndexName + "] has been dropped";
         for (Partition partition : olapTable.getPartitions()) {
             MaterializedIndex rollupIndex = partition.getIndex(rollupIndexId);
             Preconditions.checkNotNull(rollupIndex);
-
-            // 1. remove clone job
-            Clone clone = Catalog.getInstance().getCloneInstance();
-            for (Tablet tablet : rollupIndex.getTablets()) {
-                clone.cancelCloneJob(tablet.getId(), cloneFailMsg);
-            }
 
             // 2. delete rollup index
             partition.deleteRollupIndex(rollupIndexId);

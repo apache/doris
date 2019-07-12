@@ -28,8 +28,6 @@ import org.apache.doris.load.AsyncDeleteJob;
 import org.apache.doris.load.DeleteInfo;
 import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.load.LoadJob;
-import org.apache.doris.mysql.privilege.UserProperty;
-import org.apache.doris.persist.CloneInfo;
 import org.apache.doris.persist.ConsistencyCheckInfo;
 import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.DatabaseInfo;
@@ -324,11 +322,6 @@ public final class LocalJournalCursor implements JournalCursor {
                 ret.setData(deleteJob);
                 break;
             }
-            case OperationType.OP_CLONE_DONE: {
-                CloneInfo info = CloneInfo.read(in);
-                ret.setData(info);
-                break;
-            }
             case OperationType.OP_ADD_REPLICA:
             case OperationType.OP_DELETE_REPLICA: {
                 ReplicaPersistInfo info = ReplicaPersistInfo.read(in);
@@ -353,18 +346,6 @@ public final class LocalJournalCursor implements JournalCursor {
                 LoadErrorHub.Param param = new LoadErrorHub.Param();
                 param.readFields(in);
                 ret.setData(param);
-                break;
-            }
-            case OperationType.OP_ALTER_ACCESS_RESOURCE: {
-                UserProperty resource = new UserProperty();
-                resource.readFields(in);
-                ret.setData(resource);
-                break;
-            }
-            case OperationType.OP_DROP_USER: {
-                Text text = new Text();
-                text.readFields(in);
-                ret.setData(text);
                 break;
             }
             case OperationType.OP_MASTER_INFO_CHANGE: {
