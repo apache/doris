@@ -447,6 +447,7 @@ void OlapScanner::update_counter() {
     COUNTER_UPDATE(_parent->_block_convert_timer, _reader->stats().block_convert_ns);
 
     COUNTER_UPDATE(_parent->_raw_rows_counter, _reader->stats().raw_rows_read);
+    _raw_rows_read += _reader->mutable_stats()->raw_rows_read;
     // COUNTER_UPDATE(_parent->_filtered_rows_counter, _reader->stats().num_rows_filtered);
 
     COUNTER_UPDATE(_parent->_vec_cond_timer, _reader->stats().vec_cond_ns);
@@ -467,6 +468,7 @@ void OlapScanner::_update_realtime_counter() {
     COUNTER_UPDATE(_parent->_read_compressed_counter, _reader->stats().compressed_bytes_read);
     COUNTER_UPDATE(_parent->_raw_rows_counter, _reader->stats().raw_rows_read);
     _reader->mutable_stats()->compressed_bytes_read = 0;
+    _raw_rows_read += _reader->mutable_stats()->raw_rows_read;
     _reader->mutable_stats()->raw_rows_read = 0;
 }
 
