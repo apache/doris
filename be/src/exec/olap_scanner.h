@@ -77,7 +77,7 @@ public:
     bool is_open() const { return _is_open; }
     void set_opened() { _is_open = true; }
 
-    int64_t raw_rows_read() const { return _reader->stats().raw_rows_read; }
+    int64_t raw_rows_read() const { return _raw_rows_read; }
 
     void update_counter();
 private:
@@ -135,6 +135,7 @@ private:
 
     RuntimeProfile::Counter* _rows_read_counter = nullptr;
     int64_t _num_rows_read = 0;
+    int64_t _raw_rows_read = 0;
 
     RuntimeProfile::Counter* _rows_pushed_cond_filtered_counter = nullptr;
     // number rows filtered by pushed condition
