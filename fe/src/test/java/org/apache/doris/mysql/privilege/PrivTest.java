@@ -17,13 +17,26 @@
 
 package org.apache.doris.mysql.privilege;
 
+import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CompoundPredicate.Operator;
+import org.apache.doris.analysis.CreateRoleStmt;
+import org.apache.doris.analysis.CreateUserStmt;
+import org.apache.doris.analysis.DropRoleStmt;
+import org.apache.doris.analysis.GrantStmt;
+import org.apache.doris.analysis.SetPassVar;
 import org.apache.doris.analysis.TablePattern;
+import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.AccessPrivilege;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.UserException;
+import org.apache.doris.mysql.MysqlPassword;
 import org.apache.doris.mysql.privilege.PaloAuth.PrivLevel;
+import org.apache.doris.persist.EditLog;
+import org.apache.doris.persist.PrivInfo;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
 
@@ -41,6 +54,9 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.List;
 
+import mockit.Deencapsulation;
+import mockit.Expectations;
+import mockit.Injectable;
 import mockit.Mock;
 import mockit.MockUp;
 
@@ -338,7 +354,8 @@ public class PrivTest {
     }
 
     @Test
-    public void testGrantGRANTPriv() throws IllegalAccessException, IllegalArgumentException, InvocationTargetException, DdlException {
+    public void testGrantToUser(@Injectable Analyzer analyzer, @Injectable EditLog editlog)
+            throws UserException, IllegalAccessException, IllegalArgumentException, InvocationTargetException {
         // 1. no privs
         Assert.assertFalse(checkHasPriv("192.168.1.1", "cmy1", PrivPredicate.GRANT, new PrivLevel[] { PrivLevel.GLOBAL }));
         Assert.assertFalse(checkHasPriv("192.168.1.1", "cmy1", PrivPredicate.GRANT, new PrivLevel[] { PrivLevel.DATABASE }));
@@ -355,6 +372,284 @@ public class PrivTest {
         Assert.assertFalse(checkHasPriv("192.168.1.1", "cmy1", PrivPredicate.GRANT, new PrivLevel[] { PrivLevel.GLOBAL }));
         Assert.assertFalse(checkHasPriv("192.168.1.1", "cmy1", PrivPredicate.GRANT, new PrivLevel[] { PrivLevel.DATABASE }));
         Assert.assertFalse(checkHasPriv("192.168.1.1", "cmy1", PrivPredicate.GRANT, new PrivLevel[] { PrivLevel.GLOBAL, PrivLevel.DATABASE }));
+
+        Catalog catalog = Deencapsulation.newInstance(Catalog.class);
+        new Expectations(catalog) {
+            {
+                Catalog.getCurrentCatalog();
+                result = catalog;
+
+                catalog.getEditLog();
+                result = editlog;
+
+                catalog.getAuth();
+                result = auth;
+
+                editlog.logCreateUser((PrivInfo) any);
+                minTimes = 0;
+            }
+        };
+
+        new Expectations() {
+            {
+                analyzer.getClusterName();
+                result = "default_cluster";
+            }
+        };
+
+        // 1. create user cmy1@%, cmy2@% and cmy3@%
+        ConnectContext ctx = new ConnectContext(null);
+        ctx.setRemoteIP("192.168.1.1");
+        ctx.setQualifiedUser("root");
+        ctx.setThreadLocalInfo();
+
+        CreateUserStmt createUserStmt = new CreateUserStmt(new UserDesc(new UserIdentity("cmy1", "%"), "123", true));
+        createUserStmt.analyze(analyzer);
+        auth.createUser(createUserStmt);
+        createUserStmt = new CreateUserStmt(new UserDesc(new UserIdentity("cmy2", "%"), "123", true));
+        createUserStmt.analyze(analyzer);
+        auth.createUser(createUserStmt);
+        createUserStmt = new CreateUserStmt(new UserDesc(new UserIdentity("cmy3", "%"), "123", true));
+        createUserStmt.analyze(analyzer);
+        auth.createUser(createUserStmt);
+        
+        // 2. grant GRANT on *.* to cmy1, grant GRANT on db1.* to cmy2, grant GRANT on db1.tbl1 to cmy3, 
+        GrantStmt grantStmt = new GrantStmt(new UserIdentity("cmy1", "%"), null, TablePattern.ALL, Lists.newArrayList(AccessPrivilege.GRANT_PRIV));
+        grantStmt.analyze(analyzer);
+        auth.grant(grantStmt);
+        grantStmt = new GrantStmt(new UserIdentity("cmy2", "%"), null, new TablePattern("db1", "*"), Lists.newArrayList(AccessPrivilege.GRANT_PRIV));
+        grantStmt.analyze(analyzer);
+        auth.grant(grantStmt);
+        grantStmt = new GrantStmt(new UserIdentity("cmy3", "%"), null, new TablePattern("db1", "tbl1"), Lists.newArrayList(AccessPrivilege.GRANT_PRIV));
+        grantStmt.analyze(analyzer);
+        auth.grant(grantStmt);
+
+        // 3. use cmy2 to grant CREATE priv on db1 and db2 to cmy4 (cmy4 does not exist, but we just test GrantStmt in analyze phase, so it is ok)
+        ctx = new ConnectContext(null);
+        ctx.setRemoteIP("192.168.1.1");
+        ctx.setQualifiedUser("default_cluster:cmy2");
+        ctx.setThreadLocalInfo();
+        // db1 should be ok
+        grantStmt = new GrantStmt(new UserIdentity("cmy4", "%"), null, new TablePattern("db1", "*"),
+                Lists.newArrayList(AccessPrivilege.CREATE_PRIV));
+        try {
+            grantStmt.analyze(analyzer);
+        } catch (Exception e) {
+            Assert.fail(e.getMessage());
+        }
+        // db2 should not be allowed
+        boolean hasException = false;
+        grantStmt = new GrantStmt(new UserIdentity("cmy4", "%"), null, new TablePattern("db2", "*"),
+                Lists.newArrayList(AccessPrivilege.CREATE_PRIV));
+        try {
+            grantStmt.analyze(analyzer);
+        } catch (Exception e) {
+            hasException = true;
+        }
+        Assert.assertTrue(hasException);
+        
+        // 3. use cmy3 to grant CREATE priv on db1.* and db1.tbl1 to cmy5 (cmy5 does not exist, but we just test GrantStmt in analyze phase, so it is ok)
+        ctx = new ConnectContext(null);
+        ctx.setRemoteIP("192.168.1.1");
+        ctx.setQualifiedUser("default_cluster:cmy3");
+        ctx.setThreadLocalInfo();
+        // db1.* should not be allowed
+        hasException = false;
+        grantStmt = new GrantStmt(new UserIdentity("cmy5", "%"), null, new TablePattern("db1", "*"),
+                Lists.newArrayList(AccessPrivilege.CREATE_PRIV));
+        try {
+            grantStmt.analyze(analyzer);
+        } catch (Exception e) {
+            hasException = true;
+        }
+        Assert.assertTrue(hasException);
+        // db1.tbl1 should be ok
+        grantStmt = new GrantStmt(new UserIdentity("cmy5", "%"), null, new TablePattern("db1", "tbl1"),
+                Lists.newArrayList(AccessPrivilege.CREATE_PRIV));
+        try {
+            grantStmt.analyze(analyzer);
+        } catch (Exception e) {
+            Assert.fail(e.getMessage());
+        }
+    }
+
+    @Test
+    public void testGrantToRole(@Injectable Analyzer analyzer, @Injectable EditLog editlog) throws UserException {
+        Catalog catalog = Deencapsulation.newInstance(Catalog.class);
+        new Expectations(catalog) {
+            {
+                Catalog.getCurrentCatalog();
+                result = catalog;
+
+                catalog.getEditLog();
+                result = editlog;
+
+                catalog.getAuth();
+                result = auth;
+
+                editlog.logCreateUser((PrivInfo) any);
+                minTimes = 0;
+            }
+        };
+
+        new Expectations() {
+            {
+                analyzer.getClusterName();
+                result = "default_cluster";
+            }
+        };
+
+        // 1. create user cmy1@%, cmy2@%
+        ConnectContext ctx = new ConnectContext(null);
+        ctx.setRemoteIP("192.168.1.1");
+        ctx.setQualifiedUser("root");
+        ctx.setThreadLocalInfo();
+
+        CreateUserStmt createUserStmt = new CreateUserStmt(new UserDesc(new UserIdentity("cmy1", "%"), "123", true));
+        createUserStmt.analyze(analyzer);
+        auth.createUser(createUserStmt);
+        createUserStmt = new CreateUserStmt(new UserDesc(new UserIdentity("cmy2", "%"), "123", true));
+        createUserStmt.analyze(analyzer);
+        auth.createUser(createUserStmt);
+
+        // 2. grant GRANT on *.* to cmy1, grant GRANT on db1.* to cmy2
+        GrantStmt grantStmt = new GrantStmt(new UserIdentity("cmy1", "%"), null, TablePattern.ALL,
+                Lists.newArrayList(AccessPrivilege.GRANT_PRIV));
+        grantStmt.analyze(analyzer);
+        auth.grant(grantStmt);
+        grantStmt = new GrantStmt(new UserIdentity("cmy2", "%"), null, new TablePattern("db1", "*"),
+                Lists.newArrayList(AccessPrivilege.GRANT_PRIV));
+        grantStmt.analyze(analyzer);
+        auth.grant(grantStmt);
+
+        // 3. use cmy1 to create role1
+        ctx = new ConnectContext(null);
+        ctx.setRemoteIP("192.168.1.1");
+        ctx.setQualifiedUser("default_cluster:cmy1");
+        ctx.setThreadLocalInfo();
+        CreateRoleStmt createRoleStmt = new CreateRoleStmt("role1");
+        try {
+            createRoleStmt.analyze(analyzer);
+            auth.createRole(createRoleStmt);
+        } catch (Exception e) {
+            Assert.fail(e.getMessage());
+        }
+
+        // 4. use cmy2 to create role2, which should not be allowed
+        ctx = new ConnectContext(null);
+        ctx.setRemoteIP("192.168.1.1");
+        ctx.setQualifiedUser("default_cluster:cmy2");
+        ctx.setThreadLocalInfo();
+        boolean hasException = false;
+        createRoleStmt = new CreateRoleStmt("role2");
+        try {
+            createRoleStmt.analyze(analyzer);
+        } catch (Exception e) {
+            hasException = true;
+        }
+        Assert.assertTrue(hasException);
+        
+        // 5. use cmy2 to grant CREATE priv on db1.* to role, which should not be
+        // allowed
+        hasException = false;
+        grantStmt = new GrantStmt(null, "role1", new TablePattern("db1", "*"), Lists.newArrayList(AccessPrivilege.CREATE_PRIV));
+        try {
+            grantStmt.analyze(analyzer);
+        } catch (Exception e) {
+            hasException = true;
+        }
+        Assert.assertTrue(hasException);
+
+        // 6. use cmy2 to drop role1, which should not be allowed
+        hasException = false;
+        DropRoleStmt dropRoleStmt = new DropRoleStmt("role1");
+        try {
+            dropRoleStmt.analyze(analyzer);
+        } catch (Exception e) {
+            hasException = true;
+        }
+        Assert.assertTrue(hasException);
+    }
+
+    @Test
+    public void testSetPassword(@Injectable Analyzer analyzer, @Injectable EditLog editlog) throws UserException {
+        Catalog catalog = Deencapsulation.newInstance(Catalog.class);
+        new Expectations(catalog) {
+            {
+                Catalog.getCurrentCatalog();
+                result = catalog;
+
+                catalog.getEditLog();
+                result = editlog;
+
+                catalog.getAuth();
+                result = auth;
+
+                editlog.logCreateUser((PrivInfo) any);
+                minTimes = 0;
+            }
+        };
+
+        new Expectations() {
+            {
+                analyzer.getClusterName();
+                result = "default_cluster";
+            }
+        };
+
+        new Expectations(MysqlPassword.class) {
+            {
+                MysqlPassword.checkPassword(anyString);
+                result = new byte[2];
+                minTimes = 0;
+            }
+        };
+
+        // 1. create user cmy1@%, cmy2@%
+        ConnectContext ctx = new ConnectContext(null);
+        ctx.setRemoteIP("192.168.1.1");
+        ctx.setQualifiedUser("root");
+        ctx.setThreadLocalInfo();
+
+        CreateUserStmt createUserStmt = new CreateUserStmt(new UserDesc(new UserIdentity("cmy1", "%"), "123", true));
+        createUserStmt.analyze(analyzer);
+        auth.createUser(createUserStmt);
+        createUserStmt = new CreateUserStmt(new UserDesc(new UserIdentity("cmy2", "%"), "123", true));
+        createUserStmt.analyze(analyzer);
+        auth.createUser(createUserStmt);
+
+        // 2. use cmy1 to set password for itself
+        UserIdentity currentUserIdentity = new UserIdentity("cmy1", "%");
+        currentUserIdentity.analyze("default_cluster");
+        ctx = new ConnectContext(null);
+        ctx.setRemoteIP("192.168.1.1");
+        ctx.setQualifiedUser("default_cluster:cmy1");
+        ctx.setCurrentUserIdentitfy(currentUserIdentity);
+        ctx.setThreadLocalInfo();
+        SetPassVar setPassVar = new SetPassVar(null, "12345");
+        try {
+            setPassVar.analyze(analyzer);
+        } catch (Exception e) {
+            Assert.fail();
+        }
+
+        // 2. use cmy1 to set password for cmy1@"%"
+        setPassVar = new SetPassVar(new UserIdentity("cmy1", "%"), "12345");
+        try {
+            setPassVar.analyze(analyzer);
+        } catch (Exception e) {
+            Assert.fail();
+        }
+
+        // 3. use cmy1 to set password for cmy1@"192.168.1.1", which is not allowed
+        boolean hasException = false;
+        setPassVar = new SetPassVar(new UserIdentity("cmy1", "192.168.1.1"), "12345");
+        try {
+            setPassVar.analyze(analyzer);
+        } catch (Exception e) {
+            hasException = true;
+        }
+        Assert.assertTrue(hasException);
     }
 
     private PaloAuth testPersist(PaloAuth auth) {

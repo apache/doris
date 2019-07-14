@@ -306,8 +306,8 @@ public class PaloAuth implements Writable {
         if (!Config.enable_auth_check) {
             return true;
         }
-        if (wanted.getPrivs().containsNodeOrGrantPriv()) {
-            LOG.debug("should be check NODE or GRANT priv in Db level. host: {}, user: {}, db: {}",
+        if (wanted.getPrivs().containsNodePriv()) {
+            LOG.debug("should check NODE priv in GLOBAL level. host: {}, user: {}, db: {}",
                       host, user, db);
             return false;
         }

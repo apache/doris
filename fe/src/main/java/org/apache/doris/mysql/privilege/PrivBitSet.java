@@ -83,11 +83,6 @@ public class PrivBitSet implements Writable {
         } else {
             return (set & wantPrivs.getPrivs().set) != 0;
         }
-
-    }
-    
-    public boolean containsNodeOrGrantPriv() {
-        return containsPrivs(PaloPrivilege.NODE_PRIV, PaloPrivilege.GRANT_PRIV);
     }
 
     public boolean containsNodePriv() {

@@ -56,7 +56,7 @@ public class DbPrivEntry extends PrivEntry {
         
         PatternMatcher userPattern = PatternMatcher.createMysqlPattern(user, CaseSensibility.USER.getCaseSensibility());
 
-        if (privs.containsNodeOrGrantPriv()) {
+        if (privs.containsNodePriv()) {
             throw new AnalysisException("Db privilege can not contains global privileges: " + privs);
         }
 

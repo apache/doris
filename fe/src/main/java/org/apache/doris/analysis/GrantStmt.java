@@ -101,11 +101,6 @@ public class GrantStmt extends DdlStmt {
         if (tblPattern.getPrivLevel() != PrivLevel.GLOBAL && privileges.contains(PaloPrivilege.ADMIN_PRIV)) {
             throw new AnalysisException("ADMIN_PRIV privilege can only be granted on *.*");
         }
-        
-        // GRANT_PRIV can only be granted on GLOBAL level and DATABASE level
-        if (!(tblPattern.getPrivLevel() == PrivLevel.GLOBAL || tblPattern.getPrivLevel() == PrivLevel.DATABASE) && privileges.contains(PaloPrivilege.GRANT_PRIV)) {
-            throw new AnalysisException("GRANT_PRIV privilege can only be granted on *.* or db.*");
-        }
 
         if (role != null) {
             // 1. can not grant to admin or operator role
@@ -123,17 +118,16 @@ public class GrantStmt extends DdlStmt {
                 if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");
                 }
-            } else {
+            } else if (tblPattern.getPrivLevel() == PrivLevel.DATABASE){
                 if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), tblPattern.getQuolifiedDb(), PrivPredicate.GRANT)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");
                 }
+            } else {
+                // table level
+                if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), tblPattern.getQuolifiedDb(), tblPattern.getTbl(), PrivPredicate.GRANT)) {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");
+                }
             }
-        }
-
-
-        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
-                                                "GRANT");
         }
     }
 
