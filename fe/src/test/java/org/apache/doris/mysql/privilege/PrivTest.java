@@ -448,7 +448,16 @@ public class PrivTest {
         }
         Assert.assertTrue(hasException);
         
-        // 3. use cmy3 to grant CREATE priv on db1.* and db1.tbl1 to cmy5 (cmy5 does not exist, but we just test GrantStmt in analyze phase, so it is ok)
+        // 4. use cmy2 to create cmy4
+        createUserStmt = new CreateUserStmt(new UserDesc(new UserIdentity("cmy4", "%"), "123", true));
+        try {
+            createUserStmt.analyze(analyzer);
+            auth.createUser(createUserStmt);
+        } catch (Exception e) {
+            Assert.fail(e.getMessage());
+        }
+
+        // 5. use cmy3 to grant CREATE priv on db1.* and db1.tbl1 to cmy5 (cmy5 does not exist, but we just test GrantStmt in analyze phase, so it is ok)
         ctx = new ConnectContext(null);
         ctx.setRemoteIP("192.168.1.1");
         ctx.setQualifiedUser("default_cluster:cmy3");

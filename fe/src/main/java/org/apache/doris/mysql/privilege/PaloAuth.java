@@ -355,13 +355,18 @@ public class PaloAuth implements Writable {
         for (PrivLevel privLevel : levels) {
             switch (privLevel) {
             case GLOBAL:
-                userPrivTable.getPrivs(host, user, savedPrivs);
-                break;
+                if (userPrivTable.hasPriv(host, user, priv)) {
+                    return true;
+                }
             case DATABASE:
-                dbPrivTable.getPrivs(host, null, user, savedPrivs);
+                if (dbPrivTable.hasPriv(host, user, priv)) {
+                    return true;
+                }
                 break;
             case TABLE:
-                tablePrivTable.getPrivs(host, null, user, null, savedPrivs);
+                if (tablePrivTable.hasPriv(host, user, priv)) {
+                    return true;
+                }
                 break;
             default:
                 break;
