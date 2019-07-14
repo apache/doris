@@ -21,9 +21,9 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.thrift.TDateLiteral;
+//import org.apache.doris.thrift.TDateLiteral;
 import org.apache.doris.thrift.TExprNode;
-import org.apache.doris.thrift.TExprNodeType;
+//import org.apache.doris.thrift.TExprNodeType;
 
 import com.google.common.base.Preconditions;
 
@@ -166,8 +166,9 @@ public class TimeLiteral extends LiteralExpr {
 
     @Override
     protected void toThrift(TExprNode msg) {
-        msg.node_type = TExprNodeType.DATE_LITERAL;
-        msg.date_literal = new TimeLiteral(getStringValue());
+        //msg.node_type = TExprNodeType.DATE_LITERAL;
+        //msg.date_literal = new TimeLiteral(getStringValue());
+        throw new RuntimeException("TimeLiteral Exception!");
     }
 
     public Date getValue() {

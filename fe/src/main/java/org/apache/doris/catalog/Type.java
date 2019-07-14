@@ -859,6 +859,7 @@ public abstract class Type {
                 if (t1 == PrimitiveType.NULL_TYPE || t2 == PrimitiveType.NULL_TYPE) continue;
                 if (t1 == PrimitiveType.DECIMAL || t2 == PrimitiveType.DECIMAL) continue;
                 if (t1 == PrimitiveType.DECIMALV2 || t2 == PrimitiveType.DECIMALV2) continue;
+                if (t1 == PrimitiveType.TIME || t2 == PrimitiveType.TIME) continue;
                 Preconditions.checkNotNull(compatibilityMatrix[i][j]);
             }
         }
@@ -883,6 +884,7 @@ public abstract class Type {
             case CHAR:
             case VARCHAR:
             case HLL:
+            case TIME:
                 return VARCHAR;
             case DECIMAL:
                 return DECIMAL;

@@ -289,6 +289,7 @@ public class StmtExecutor {
             throw e;
         } catch (AnalysisException e) {
             // analysis exception only print message, not print the stack
+            e.printStackTrace();
             LOG.warn("execute Exception. ", e);
             context.getState().setError(e.getMessage());
             context.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);

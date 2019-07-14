@@ -660,6 +660,7 @@ public enum PrimitiveType {
             case DATETIME:
             case CHAR:
             case VARCHAR:
+            case TIME:
                 return VARCHAR;
             case DECIMAL:
                 return DECIMAL;

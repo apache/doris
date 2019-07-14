@@ -57,6 +57,7 @@ public class FEFunctions {
     @FEFunction(name = "timediff", argTypes = { "DATETIME", "DATETIME" }, returnType = "TIME")
     public static TimeLiteral timeDiff(LiteralExpr first, LiteralExpr second) throws AnalysisException {
         try {
+            System.out.println("timediff");
             return new TimeLiteral();
         } catch (Exception e) {
             e.printStackTrace();
