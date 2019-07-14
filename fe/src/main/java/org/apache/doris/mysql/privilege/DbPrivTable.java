@@ -32,6 +32,11 @@ import java.io.IOException;
 public class DbPrivTable extends PrivTable {
     private static final Logger LOG = LogManager.getLogger(DbPrivTable.class);
 
+    /*
+     * Return all privs which match the user@host on db.*
+     * All returned privs will be saved in 'savedPrivs'.
+     * If the given db is null, it will not check if database is match 
+     */
     public void getPrivs(String host, String db, String user, PrivBitSet savedPrivs) {
         DbPrivEntry matchedEntry = null;
         for (PrivEntry entry : entries) {
@@ -43,7 +48,7 @@ public class DbPrivTable extends PrivTable {
             }
 
             // check db
-            if (!dbPrivEntry.isAnyDb() && !dbPrivEntry.getDbPattern().match(db)) {
+            if (db != null && !dbPrivEntry.isAnyDb() && !dbPrivEntry.getDbPattern().match(db)) {
                 continue;
             }
 

@@ -255,12 +255,16 @@ public class PaloAuth implements Writable {
         return checkDbPriv(ctx.getRemoteIP(), qualifiedDb, ctx.getQualifiedUser(), wanted);
     }
 
+    /*
+     * Check if 'user'@'host' on 'db' has 'wanted' priv.
+     * If the given db is null, which means it will no check if database name is matched.
+     */
     public boolean checkDbPriv(String host, String db, String user, PrivPredicate wanted) {
         if (!Config.enable_auth_check) {
             return true;
         }
-        if (wanted.getPrivs().containsNodeOrGrantPriv()) {
-            LOG.debug("should be check NODE or GRANT priv in Global level. host: {}, user: {}, db: {}",
+        if (wanted.getPrivs().containsNodePriv()) {
+            LOG.debug("should not check NODE priv in Database level. host: {}, user: {}, db: {}",
                       host, user, db);
             return false;
         }
@@ -272,7 +276,7 @@ public class PaloAuth implements Writable {
         }
 
         // if user has any privs of table in this db, and the wanted priv is SHOW, return true
-        if (wanted == PrivPredicate.SHOW && checkTblWithDb(host, db, user)) {
+        if (db != null && wanted == PrivPredicate.SHOW && checkTblWithDb(host, db, user)) {
             return true;
         }
 
@@ -336,6 +340,34 @@ public class PaloAuth implements Writable {
             }
         }
         return true;
+    }
+
+    /*
+     * Check if current user has certain privilege.
+     * This method will check the given privilege levels
+     */
+    public boolean checkHasPriv(ConnectContext ctx, PrivPredicate priv, PrivLevel... levels) {
+        return checkHasPrivInternal(ctx.getRemoteIP(), ctx.getQualifiedUser(), priv, levels);
+    }
+
+    private boolean checkHasPrivInternal(String host, String user, PrivPredicate priv, PrivLevel... levels) {
+        PrivBitSet savedPrivs = PrivBitSet.of();
+        for (PrivLevel privLevel : levels) {
+            switch (privLevel) {
+            case GLOBAL:
+                userPrivTable.getPrivs(host, user, savedPrivs);
+                break;
+            case DATABASE:
+                dbPrivTable.getPrivs(host, null, user, savedPrivs);
+                break;
+            case TABLE:
+                tablePrivTable.getPrivs(host, null, user, null, savedPrivs);
+                break;
+            default:
+                break;
+            }
+        }
+        return savedPrivs.satisfy(priv);
     }
 
     private boolean checkGlobalInternal(String host, String user, PrivPredicate wanted, PrivBitSet savedPrivs) {

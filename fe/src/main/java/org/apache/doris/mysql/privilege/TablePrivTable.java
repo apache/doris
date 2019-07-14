@@ -30,6 +30,11 @@ import java.io.IOException;
  */
 public class TablePrivTable extends PrivTable {
 
+    /*
+     * Return all privs which match the user@host on db.tbl
+     * All returned privs will be saved in 'savedPrivs'.
+     * If the given db or table is null, it will not check if database or table is match 
+     */
     public void getPrivs(String host, String db, String user, String tbl, PrivBitSet savedPrivs) {
         TablePrivEntry matchedEntry = null;
         for (PrivEntry entry : entries) {
@@ -42,7 +47,7 @@ public class TablePrivTable extends PrivTable {
 
             // check db
             Preconditions.checkState(!tblPrivEntry.isAnyDb());
-            if (!tblPrivEntry.getDbPattern().match(db)) {
+            if (db != null && !tblPrivEntry.getDbPattern().match(db)) {
                 continue;
             }
 
@@ -52,7 +57,7 @@ public class TablePrivTable extends PrivTable {
             }
 
             // check table
-            if (!tblPrivEntry.getTblPattern().match(tbl)) {
+            if (tbl != null && !tblPrivEntry.getTblPattern().match(tbl)) {
                 continue;
             }
 

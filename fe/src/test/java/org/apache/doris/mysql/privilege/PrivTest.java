@@ -18,9 +18,14 @@
 package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.CompoundPredicate.Operator;
+import org.apache.doris.analysis.TablePattern;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.mysql.privilege.PaloAuth.PrivLevel;
+
+import com.google.common.collect.Lists;
 
 import org.junit.Assert;
 import org.junit.Before;
@@ -34,6 +39,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.util.List;
 
 import mockit.Mock;
 import mockit.MockUp;
@@ -46,6 +52,7 @@ public class PrivTest {
     private Method grantGlobalPrivsM;
     private Method grantDbPrivsM;
     private Method grantTblPrivsM;
+    private Method checkHasPrivM;
 
     @Before
     public void setUp() {
@@ -62,6 +69,9 @@ public class PrivTest {
             } else if (method.getName().equals("grantTblPrivs")) {
                 method.setAccessible(true);
                 grantTblPrivsM = method;
+            } else if (method.getName().equals("checkHasPrivInternal")) {
+                method.setAccessible(true);
+                checkHasPrivM = method;
             }
         }
 
@@ -88,6 +98,17 @@ public class PrivTest {
         grantTblPrivsM.invoke(auth, params);
     }
 
+    public boolean checkHasPriv(Object... params)
+            throws IllegalAccessException, IllegalArgumentException, InvocationTargetException {
+        return (Boolean) checkHasPrivM.invoke(auth, params);
+    }
+
+    @Test
+    public void testContainsPriv() {
+        List<PaloPrivilege> privs = Lists.newArrayList(PaloPrivilege.GRANT_PRIV, PaloPrivilege.NODE_PRIV);
+        Assert.assertFalse(privs.contains(PaloPrivilege.CREATE_PRIV));
+        Assert.assertTrue(privs.contains(PaloPrivilege.NODE_PRIV));
+    }
 
     @Test
     public void testGlobalPriv()
@@ -314,6 +335,26 @@ public class PrivTest {
                                             PrivPredicate.of(PrivBitSet.of(PaloPrivilege.DROP_PRIV),
                                                              Operator.OR)));
 
+    }
+
+    @Test
+    public void testGrantGRANTPriv() throws IllegalAccessException, IllegalArgumentException, InvocationTargetException, DdlException {
+        // 1. no privs
+        Assert.assertFalse(checkHasPriv("192.168.1.1", "cmy1", PrivPredicate.GRANT, new PrivLevel[] { PrivLevel.GLOBAL }));
+        Assert.assertFalse(checkHasPriv("192.168.1.1", "cmy1", PrivPredicate.GRANT, new PrivLevel[] { PrivLevel.DATABASE }));
+        Assert.assertFalse(checkHasPriv("192.168.1.1", "cmy1", PrivPredicate.GRANT, new PrivLevel[] { PrivLevel.GLOBAL, PrivLevel.DATABASE }));
+        // 2. grant GRANT priv and check again
+        grantGlobalPrivs("192.168.1.1", "cmy1", passwd, false, false, false, PrivBitSet.of(PaloPrivilege.GRANT_PRIV));
+        Assert.assertTrue(checkHasPriv("192.168.1.1", "cmy1", PrivPredicate.GRANT, new PrivLevel[] { PrivLevel.GLOBAL }));
+        Assert.assertFalse(checkHasPriv("192.168.1.1", "cmy1", PrivPredicate.GRANT, new PrivLevel[] { PrivLevel.DATABASE }));
+        Assert.assertTrue(checkHasPriv("192.168.1.1", "cmy1", PrivPredicate.GRANT, new PrivLevel[] { PrivLevel.GLOBAL, PrivLevel.DATABASE }));
+        // 3. revoke the priv and check again
+        UserIdentity userIdent = new UserIdentity("cmy1", "192.168.1.1");
+        userIdent.setIsAnalyzed();
+        auth.revokePrivs(userIdent, TablePattern.ALL, PrivBitSet.of(PaloPrivilege.GRANT_PRIV), false, false, false);
+        Assert.assertFalse(checkHasPriv("192.168.1.1", "cmy1", PrivPredicate.GRANT, new PrivLevel[] { PrivLevel.GLOBAL }));
+        Assert.assertFalse(checkHasPriv("192.168.1.1", "cmy1", PrivPredicate.GRANT, new PrivLevel[] { PrivLevel.DATABASE }));
+        Assert.assertFalse(checkHasPriv("192.168.1.1", "cmy1", PrivPredicate.GRANT, new PrivLevel[] { PrivLevel.GLOBAL, PrivLevel.DATABASE }));
     }
 
     private PaloAuth testPersist(PaloAuth auth) {

@@ -88,25 +88,36 @@ public class RevokeStmt extends DdlStmt {
         }
 
         // can not revoke NODE_PRIV from any user
-        for (PaloPrivilege paloPrivilege : privileges) {
-            if (paloPrivilege == PaloPrivilege.NODE_PRIV) {
-                throw new AnalysisException("Can not revoke NODE_PRIV from any users or roles");
+        if (privileges.contains(PaloPrivilege.NODE_PRIV)) {
+            throw new AnalysisException("Can not revoke NODE_PRIV from any users or roles");
+        }
+
+        // ADMIN_PRIV can only be revoked on GLOBAL level
+        if (tblPattern.getPrivLevel() != PrivLevel.GLOBAL) {
+            if (privileges.contains(PaloPrivilege.ADMIN_PRIV)) {
+                throw new AnalysisException("Can not revoke ADMIN_PRIV from specified database or table. Only support from *.*");
             }
         }
 
-        // ADMIN_PRIV and GRANT_PRIV can only be revoked as global
-        if (tblPattern.getPrivLevel() != PrivLevel.GLOBAL) {
-            for (PaloPrivilege paloPrivilege : privileges) {
-                if (paloPrivilege == PaloPrivilege.ADMIN_PRIV || paloPrivilege == PaloPrivilege.GRANT_PRIV) {
-                    throw new AnalysisException(
-                            "Can not revoke ADMIN_PRIV or GRANT_PRIV from specified database or table. Only support from *.*");
+        if (role != null) {
+            // only user with GLOBAL level's GRANT_PRIV can revoke privileges to roles.
+            if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "REVOKE");
+            }
+        } else {
+            // revoke from a certain user
+            // 1. check if current user has GLOBAL level GRANT_PRIV.
+            // 2. or if current user has DATABASE level GRANT_PRIV if grant to certain database.
+            if (tblPattern.getPrivLevel() == PrivLevel.GLOBAL) {
+                if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");
+                }
+            } else {
+                if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(),
+                        tblPattern.getQuolifiedDb(), PrivPredicate.GRANT)) {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");
                 }
             }
-        }
-
-        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
-                                                "REVOKE");
         }
     }
 
