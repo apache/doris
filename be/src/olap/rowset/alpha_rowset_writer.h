@@ -44,8 +44,6 @@ public:
 
     OLAPStatus add_row(const char* row, Schema* schema) override;
 
-    OLAPStatus add_row_block(RowBlock* row_block) override;
-
     // add rowset by create hard link
     OLAPStatus add_rowset(RowsetSharedPtr rowset) override;
     OLAPStatus add_rowset_for_linked_schema_change(
