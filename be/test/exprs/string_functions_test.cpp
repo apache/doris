@@ -160,7 +160,6 @@ TEST_F(StringFunctionsTest, split_part) {
 }
 
 int main(int argc, char** argv) {
-    doris::init_glog("be-test");
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
