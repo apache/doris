@@ -42,8 +42,6 @@ class RowCursor;
 
 class RowBlockChanger {
 public:
-    typedef std::vector<ColumnMapping> SchemaMapping;
-
     RowBlockChanger(const TabletSchema& tablet_schema,
                     const TabletSharedPtr& base_tablet,
                     const DeleteHandler& delete_handler);
@@ -177,7 +175,8 @@ private:
 
 class LinkedSchemaChange : public SchemaChange {
 public:
-    explicit LinkedSchemaChange() { }
+    explicit LinkedSchemaChange(const RowBlockChanger& row_block_changer)
+        : _row_block_changer(row_block_changer) { }
     ~LinkedSchemaChange() {}
 
     bool process(RowsetReaderSharedPtr rowset_reader,
@@ -185,6 +184,7 @@ public:
                  TabletSharedPtr new_tablet,
                  TabletSharedPtr base_tablet);
 private:
+    const RowBlockChanger& _row_block_changer;
     DISALLOW_COPY_AND_ASSIGN(LinkedSchemaChange);
 };
 

@@ -69,7 +69,8 @@ public:
     }
 
     OLAPStatus add_zone_maps_for_linked_schema_change(
-        const std::vector<std::pair<WrapperField*, WrapperField*>>& zone_map_fields);
+        const std::vector<std::pair<WrapperField*, WrapperField*>>& zone_map_fields,
+        const SchemaMapping& schema_mapping);
 
     OLAPStatus add_zone_maps(
         const std::vector<std::pair<WrapperField*, WrapperField*>>& zone_map_fields);
