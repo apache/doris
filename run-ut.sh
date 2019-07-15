@@ -155,7 +155,7 @@ ${DORIS_TEST_BINARY_DIR}/util/coding_test
 ${DORIS_TEST_BINARY_DIR}/util/faststring_test
 ${DORIS_TEST_BINARY_DIR}/util/tdigest_test
 
-## Running common Unittest
+# Running common Unittest
 ${DORIS_TEST_BINARY_DIR}/common/resource_tls_test
 
 ## Running exprs unit test
@@ -185,10 +185,10 @@ ${DORIS_TEST_BINARY_DIR}/exec/es_http_scan_node_test
 ${DORIS_TEST_BINARY_DIR}/exec/es_predicate_test
 ${DORIS_TEST_BINARY_DIR}/exec/es_scan_reader_test
 ${DORIS_TEST_BINARY_DIR}/exec/es_query_builder_test
-${DORIS_TEST_BINARY_DIR}/exec/olap_table_info_test
-${DORIS_TEST_BINARY_DIR}/exec/olap_table_sink_test
+${DORIS_TEST_BINARY_DIR}/exec/tablet_info_test
+${DORIS_TEST_BINARY_DIR}/exec/tablet_sink_test
 
-## Running runtime Unittest
+# Running runtime Unittest
 ${DORIS_TEST_BINARY_DIR}/runtime/fragment_mgr_test
 ${DORIS_TEST_BINARY_DIR}/runtime/decimal_value_test
 ${DORIS_TEST_BINARY_DIR}/runtime/datetime_value_test
@@ -209,7 +209,7 @@ ${DORIS_TEST_BINARY_DIR}/http/http_utils_test
 ${DORIS_TEST_BINARY_DIR}/http/stream_load_test
 ${DORIS_TEST_BINARY_DIR}/http/http_client_test
 
-# Running OLAPEngine Unittest
+# Running StorageEngine Unittest
 ${DORIS_TEST_BINARY_DIR}/olap/bit_field_test
 ${DORIS_TEST_BINARY_DIR}/olap/byte_buffer_test
 ${DORIS_TEST_BINARY_DIR}/olap/run_length_byte_test
@@ -229,10 +229,17 @@ ${DORIS_TEST_BINARY_DIR}/olap/column_reader_test
 ${DORIS_TEST_BINARY_DIR}/olap/row_cursor_test
 ${DORIS_TEST_BINARY_DIR}/olap/skiplist_test
 ${DORIS_TEST_BINARY_DIR}/olap/serialize_test
-${DORIS_TEST_BINARY_DIR}/olap/olap_header_manager_test
+
+# Running routine load test
+${DORIS_TEST_BINARY_DIR}/olap/tablet_meta_manager_test
+${DORIS_TEST_BINARY_DIR}/olap/tablet_mgr_test
 ${DORIS_TEST_BINARY_DIR}/olap/olap_meta_test
 ${DORIS_TEST_BINARY_DIR}/olap/delta_writer_test
 ${DORIS_TEST_BINARY_DIR}/olap/field_info_test
+${DORIS_TEST_BINARY_DIR}/olap/olap_snapshot_converter_test
+${DORIS_TEST_BINARY_DIR}/olap/rowset/rowset_meta_manager_test
+${DORIS_TEST_BINARY_DIR}/olap/rowset/rowset_meta_test
+${DORIS_TEST_BINARY_DIR}/olap/rowset/alpha_rowset_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/encoding_info_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/ordinal_page_index_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/bitshuffle_page_test
@@ -240,6 +247,7 @@ ${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/plain_page_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/binary_plain_page_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/column_reader_writer_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/rle_page_test
+${DORIS_TEST_BINARY_DIR}/olap/txn_manager_test
 
 # Running routine load test
 ${DORIS_TEST_BINARY_DIR}/runtime/kafka_consumer_pipe_test
@@ -253,8 +261,5 @@ fi
 cp -r ${DORIS_HOME}/be/test/agent/test_data ${DORIS_TEST_BINARY_DIR}/agent/
 cd ${DORIS_TEST_BINARY_DIR}/agent
 # ./agent_server_test
-# ./file_downloader_test
 #./heartbeat_server_test
-#./pusher_test
 ./utils_test
-#./task_worker_pool_test

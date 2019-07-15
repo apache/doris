@@ -33,21 +33,18 @@
 #include "olap/file_helper.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
-#include "olap/olap_table.h"
 #include "olap/row_cursor.h"
 #include "olap/utils.h"
 
 namespace doris {
 class IndexComparator;
 class SegmentGroup;
-class OLAPTable;
 class RowBlock;
 class RowCursor;
 class SegmentComparator;
 class WrapperField;
 
 typedef uint32_t data_file_offset_t;
-typedef std::vector<FieldInfo> RowFields;
 
 struct OLAPIndexFixedHeader {
     OLAPIndexFixedHeader() : data_length(0), num_rows(0) {}
@@ -176,7 +173,7 @@ public:
 
     // 初始化MemIndex, 传入short_key的总长度和对应的Field数组
     OLAPStatus init(size_t short_key_len, size_t new_short_key_len,
-                    size_t short_key_num, RowFields* fields);
+                    size_t short_key_num, std::vector<TabletColumn>* short_key_columns);
 
     // 加载一个segment到内存
     OLAPStatus load_segment(const char* file, size_t *current_num_rows_per_row_block);
@@ -276,8 +273,8 @@ public:
     }
 
     // Return short key FieldInfo array
-    const RowFields& short_key_fields() const {
-        return *_fields;
+    const std::vector<TabletColumn>& short_key_columns() const {
+        return *_short_key_columns;
     }
 
     // Return the number of indices in MemIndex
@@ -331,7 +328,7 @@ private:
     size_t _index_size;
     size_t _data_size;
     size_t _num_rows;
-    RowFields*  _fields;
+    std::vector<TabletColumn>* _short_key_columns;
 
     std::unique_ptr<MemTracker> _tracker;
     std::unique_ptr<MemPool> _mem_pool;

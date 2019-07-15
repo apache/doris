@@ -41,6 +41,8 @@
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 
+#define TRY_LOCK true
+
 namespace doris {
 void write_log_info(char* buf, size_t buf_len, const char* fmt, ...);
 
@@ -68,6 +70,10 @@ public:
                           (now.tv_usec - _begin_time.tv_usec));
     }
 
+    double get_elapse_second() {
+        return get_elapse_time_us() / 100000.0;
+    }
+
     void reset() {
         gettimeofday(&_begin_time, 0);
     }
@@ -79,45 +85,6 @@ public:
 private:
     struct timeval _begin_time;    // 起始时间戳
 };
-
-// 解决notice log buffer不够长的问题, 原生的notice log的buffer只有2048大小
-class OLAPNoticeLog {
-public:
-    static void push(const char* key, const char* fmt, ...) \
-    __attribute__((__format__(__printf__, 2, 3)));
-
-    static void log(const char* msg);
-
-private:
-    static const int BUF_SIZE = 128 * 1024; // buffer大小
-    static __thread char _buf[BUF_SIZE];
-    static __thread int _len;
-};
-
-// 用于在notice log中输出索引定位次数以及平均定位时间
-// 如果还需要在notice log中输出需要聚合计算的其他信息，可以参考这个来实现。
-class OLAPNoticeInfo {
-public:
-    static void add_seek_count();
-    static void add_seek_time_us(uint64_t time_us);
-    static void add_scan_rows(uint64_t rows);
-    static void add_filter_rows(uint64_t rows);
-    static uint64_t seek_count();
-    static uint64_t seek_time_us();
-    static uint64_t avg_seek_time_us();
-    static uint64_t scan_rows();
-    static uint64_t filter_rows();
-    static void clear();
-
-private:
-    static __thread uint64_t _seek_count;
-    static __thread uint64_t _seek_time_us;
-    static __thread uint64_t _scan_rows;
-    static __thread uint64_t _filter_rows;
-};
-
-#define OLAP_LOG_NOTICE_SOCK(message) OLAPNoticeLog::log(message)
-#define OLAP_LOG_NOTICE_PUSH(key, fmt, arg...) OLAPNoticeLog::push(key, fmt, ##arg)
 
 // @brief 切分字符串
 // @param base 原串
@@ -280,14 +247,26 @@ private:
 //
 class ReadLock {
 public:
-    explicit ReadLock(RWMutex* mutex)
-            : _mutex(mutex) {
-        this->_mutex->rdlock();
+    explicit ReadLock(RWMutex* mutex, bool try_lock = false)
+            : _mutex(mutex), locked(false) {
+        if (try_lock) {
+            locked = this->_mutex->tryrdlock() == OLAP_SUCCESS;
+        } else {
+            this->_mutex->rdlock();
+            locked = true;
+        }
     }
-    ~ReadLock() { this->_mutex->unlock(); }
+    ~ReadLock() { 
+        if (locked) {
+            this->_mutex->unlock(); 
+        }
+    }
+
+    bool own_lock() { return locked; }
 
 private:
     RWMutex* _mutex;
+    bool locked;
     DISALLOW_COPY_AND_ASSIGN(ReadLock);
 };
 
@@ -298,14 +277,26 @@ private:
 //
 class WriteLock {
 public:
-    explicit WriteLock(RWMutex* mutex)
-            : _mutex(mutex) {
-        this->_mutex->wrlock();
+    explicit WriteLock(RWMutex* mutex, bool try_lock = false)
+            : _mutex(mutex), locked(false) {
+        if (try_lock) {
+            locked = this->_mutex->trywrlock() == OLAP_SUCCESS;
+        } else {
+            this->_mutex->wrlock();
+            locked = true;
+        }
     }
-    ~WriteLock() { this->_mutex->unlock(); }
+    ~WriteLock() { 
+        if (locked) {
+            this->_mutex->unlock();
+        } 
+    }
+
+    bool own_lock() { return locked; }
 
 private:
     RWMutex* _mutex;
+    bool locked;
     DISALLOW_COPY_AND_ASSIGN(WriteLock);
 };
 
@@ -391,7 +382,7 @@ OLAPStatus create_dirs(const std::string& path);
 
 OLAPStatus copy_dir(const std::string &src_dir, const std::string &dst_dir);
 
-void remove_files(const std::vector<std::string>& files);
+OLAPStatus remove_files(const std::vector<std::string>& files);
 
 OLAPStatus remove_dir(const std::string& path);
 

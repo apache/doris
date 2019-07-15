@@ -45,53 +45,36 @@ using google::protobuf::RepeatedPtrField;
 
 namespace doris {
 
-// 将删除条件存储到table的Header文件中，
-// 在存储之前会判断删除条件是否符合要求。主要判断以下2个方面：
-// 1. 删除条件的版本要不是当前最大的delta版本号，要不是最大的delta版本号加1
-// 2. 删除条件中指定的列在table中存在，必须是key列，且不能是double，float类型
-OLAPStatus DeleteConditionHandler::store_cond(
-        OLAPTablePtr table,
-        const int32_t version,
-        const vector<TCondition>& conditions) {
-    if (conditions.size() == 0 || _check_version_valid(table, version) != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("invalid parameters for store_cond. "
-                         "[version=%d condition_size=%u]",
-                         version, conditions.size());
+OLAPStatus DeleteConditionHandler::generate_delete_predicate(
+        const TabletSchema& schema,
+        const std::vector<TCondition>& conditions,
+        DeletePredicatePB* del_pred) {
+    if (conditions.size() == 0) {
+        LOG(WARNING) << "invalid parameters for store_cond."
+                     << " condition_size=" << conditions.size();
         return OLAP_ERR_DELETE_INVALID_PARAMETERS;
     }
 
     // 检查删除条件是否符合要求
     for (const TCondition& condition : conditions) {
-        if (check_condition_valid(table, condition) != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("invalid condition. [%s]",
-                             ThriftDebugString(condition).c_str());
+        if (check_condition_valid(schema, condition) != OLAP_SUCCESS) {
+            LOG(WARNING) << "invalid condition. condition=" << ThriftDebugString(condition);
             return OLAP_ERR_DELETE_INVALID_CONDITION;
         }
     }
 
-    int cond_index = _check_whether_condition_exist(table, version);
-    DeleteConditionMessage* del_cond = NULL;
-
-    if (cond_index == -1) {  // 删除条件不存在
-        del_cond = table->add_delete_data_conditions();
-        del_cond->set_version(version);
-    } else {  // 删除条件已经存在
-        del_cond = table->mutable_delete_data_conditions(cond_index);
-        del_cond->clear_sub_conditions();
-    }
-
     // 存储删除条件
     for (const TCondition& condition : conditions) {
-        string condition_str = construct_sub_conditions(condition);
-        del_cond->add_sub_conditions(condition_str);
-        LOG(INFO) << "store one sub-delete condition." 
-                  << "condition=" << condition_str;
+        string condition_str = construct_sub_predicates(condition);
+        del_pred->add_sub_predicates(condition_str);
+        LOG(INFO) << "store one sub-delete condition. condition=" << condition_str;
     }
+    del_pred->set_version(-1);
 
     return OLAP_SUCCESS;
 }
 
-string DeleteConditionHandler::construct_sub_conditions(const TCondition& condition) {
+string DeleteConditionHandler::construct_sub_predicates(const TCondition& condition) {
     string op = condition.condition_op;
     if (op == "<") {
         op += "<";
@@ -107,84 +90,11 @@ string DeleteConditionHandler::construct_sub_conditions(const TCondition& condit
     return condition_str;
 }
 
-// 删除指定版本号的删除条件；需要注意的是，如果table上没有任何删除条件，或者
-// 指定版本号的删除条件不存在，也会返回OLAP_SUCCESS。
-OLAPStatus DeleteConditionHandler::delete_cond(OLAPTablePtr table,
-        const int32_t version,
-        bool delete_smaller_version_conditions) {
-    if (version < 0) {
-        OLAP_LOG_WARNING("invalid parameters for delete_cond. [version=%d]", version);
-        return OLAP_ERR_DELETE_INVALID_PARAMETERS;
-    }
-
-    del_cond_array* delete_conditions = table->mutable_delete_data_conditions();
-
-    if (delete_conditions->size() == 0) {
-        return OLAP_SUCCESS;
-    }
-
-    int index = 0;
-
-    while (index != delete_conditions->size()) {
-        // 1. 如果删除条件的版本号等于形参指定的版本号，则删除该版本的文件；
-        // 2. 如果还指定了delete_smaller_version_conditions为true，则同时删除
-        //    版本号小于指定版本号的删除条件；否则不删除。
-        DeleteConditionMessage temp = delete_conditions->Get(index);
-
-        if (temp.version() == version ||
-                (temp.version() < version && delete_smaller_version_conditions)) {
-            // 将要移除的删除条件记录到log中
-            string del_cond_str;
-            const RepeatedPtrField<string>& sub_conditions = temp.sub_conditions();
-
-            for (int i = 0; i != sub_conditions.size(); ++i) {
-                del_cond_str += sub_conditions.Get(i) + ";";
-            }
-
-            LOG(INFO) << "delete one condition. version=" << temp.version()
-                      << ", condition=" << del_cond_str;
-
-            // 移除过滤条件
-            // 因为pb没有提供直接删除数组特定元素的方法，所以用下面的删除方式；这种方式会改变存在
-            // Header文件中的删除条件的顺序。因为我们不关心删除条件的顺序，所以对我们没影响
-            delete_conditions->SwapElements(index, delete_conditions->size() - 1);
-            delete_conditions->RemoveLast();
-        } else {
-            ++index;
-        }
-    }
-
-    return OLAP_SUCCESS;
-}
-
-OLAPStatus DeleteConditionHandler::log_conds(OLAPTablePtr table) {
-    LOG(INFO) << "display all delete condition. tablet=" << table->full_name();
-    table->obtain_header_rdlock();
-    const del_cond_array& delete_conditions = table->delete_data_conditions();
-
-    for (int index = 0; index != delete_conditions.size(); ++index) {
-        DeleteConditionMessage temp = delete_conditions.Get(index);
-        string del_cond_str;
-        const RepeatedPtrField<string>& sub_conditions = temp.sub_conditions();
-
-        // 将属于一条删除条件的子条件重新拼接成一条删除条件；子条件之间用分号隔开
-        for (int i = 0; i != sub_conditions.size(); ++i) {
-            del_cond_str += sub_conditions.Get(i) + ";";
-        }
-
-        LOG(INFO) << "condition item: version=" << temp.version()
-                  << ", condition=" << del_cond_str;
-    }
-
-    table->release_header_lock();
-    return OLAP_SUCCESS;
-}
-
 OLAPStatus DeleteConditionHandler::check_condition_valid(
-        OLAPTablePtr table,
+        const TabletSchema& schema,
         const TCondition& cond) {
     // 检查指定列名的列是否存在
-    int field_index = table->get_field_index(cond.column_name);
+    int field_index = _get_field_index(schema, cond.column_name);
 
     if (field_index < 0) {
         OLAP_LOG_WARNING("field is not existent. [field_index=%d]", field_index);
@@ -192,12 +102,12 @@ OLAPStatus DeleteConditionHandler::check_condition_valid(
     }
 
     // 检查指定的列是不是key，是不是float或doulbe类型
-    FieldInfo field_info = table->tablet_schema()[field_index];
+    const TabletColumn& column = schema.column(field_index);
 
-    if (!field_info.is_key
-            || field_info.type == OLAP_FIELD_TYPE_DOUBLE
-            || field_info.type == OLAP_FIELD_TYPE_FLOAT) {
-        OLAP_LOG_WARNING("field is not key column, or its type is float or double.");
+    if (!column.is_key()
+            || column.type() == OLAP_FIELD_TYPE_DOUBLE
+            || column.type() == OLAP_FIELD_TYPE_FLOAT) {
+        LOG(WARNING) << "field is not key column, or its type is float or double.";
         return OLAP_ERR_DELETE_INVALID_CONDITION;
     }
 
@@ -212,7 +122,7 @@ OLAPStatus DeleteConditionHandler::check_condition_valid(
     }
     const string& value_str = cond.condition_values[0];
 
-    FieldType field_type = field_info.type;
+    FieldType field_type = column.type();
     bool valid_condition = false;
 
     if ("IS" == cond.condition_op 
@@ -237,10 +147,10 @@ OLAPStatus DeleteConditionHandler::check_condition_valid(
     } else if (field_type == OLAP_FIELD_TYPE_UNSIGNED_BIGINT) {
         valid_condition = valid_unsigned_number<uint64_t>(value_str);
     } else if (field_type == OLAP_FIELD_TYPE_DECIMAL) {
-        valid_condition = valid_decimal(value_str, field_info.precision, field_info.frac);
+        valid_condition = valid_decimal(value_str, column.precision(), column.frac());
     } else if (field_type == OLAP_FIELD_TYPE_CHAR || field_type == OLAP_FIELD_TYPE_VARCHAR
                || field_type == OLAP_FIELD_TYPE_HLL) {
-        if (value_str.size() <= field_info.length) {
+        if (value_str.size() <= column.length()) {
             valid_condition = true;
         }
     } else if (field_type == OLAP_FIELD_TYPE_DATE || field_type == OLAP_FIELD_TYPE_DATETIME) {
@@ -257,15 +167,13 @@ OLAPStatus DeleteConditionHandler::check_condition_valid(
     }
 }
 
-OLAPStatus DeleteConditionHandler::_check_version_valid(OLAPTablePtr table,
+OLAPStatus DeleteConditionHandler::_check_version_valid(std::vector<Version>* all_file_versions,
         const int32_t filter_version) {
     // 找到当前最大的delta文件版本号
-    vector<Version> all_file_versions;
-    table->list_versions(&all_file_versions);
     int max_delta_version = -1;
-    vector<Version>::const_iterator version_iter = all_file_versions.begin();
+    vector<Version>::const_iterator version_iter = all_file_versions->begin();
 
-    for (; version_iter != all_file_versions.end(); ++version_iter) {
+    for (; version_iter != all_file_versions->end(); ++version_iter) {
         if (version_iter->second > max_delta_version) {
             max_delta_version = version_iter->second;
         }
@@ -280,9 +188,7 @@ OLAPStatus DeleteConditionHandler::_check_version_valid(OLAPTablePtr table,
     }
 }
 
-int DeleteConditionHandler::_check_whether_condition_exist(OLAPTablePtr table, int cond_version) {
-    const del_cond_array& delete_conditions = table->delete_data_conditions();
-
+int DeleteConditionHandler::_check_whether_condition_exist(const DelPredicateArray& delete_conditions, int cond_version) {
     if (delete_conditions.size() == 0) {
         return -1;
     }
@@ -290,7 +196,7 @@ int DeleteConditionHandler::_check_whether_condition_exist(OLAPTablePtr table, i
     int index = 0;
 
     while (index != delete_conditions.size()) {
-        DeleteConditionMessage temp = delete_conditions.Get(index);
+        DeletePredicatePB temp = delete_conditions.Get(index);
 
         if (temp.version() == cond_version) {
             return index;
@@ -334,16 +240,12 @@ bool DeleteHandler::_parse_condition(const std::string& condition_str, TConditio
     return true;
 }
 
-OLAPStatus DeleteHandler::init(OLAPTablePtr olap_table, int32_t version) {
+OLAPStatus DeleteHandler::init(const TabletSchema& schema,
+        const DelPredicateArray& delete_conditions, int32_t version) {
     if (_is_inited) {
         OLAP_LOG_WARNING("reintialize delete handler.");
         return OLAP_ERR_INIT_FAILED;
 
-    }
-
-    if (!olap_table) {
-        OLAP_LOG_WARNING("invalid parameters: invalid olap table.");
-        return OLAP_ERR_DELETE_INVALID_PARAMETERS;
     }
 
     if (version < 0) {
@@ -351,8 +253,7 @@ OLAPStatus DeleteHandler::init(OLAPTablePtr olap_table, int32_t version) {
         return OLAP_ERR_DELETE_INVALID_PARAMETERS;
     }
 
-    const del_cond_array& delete_conditions = olap_table->delete_data_conditions();
-    del_cond_array::const_iterator it = delete_conditions.begin();
+    DelPredicateArray::const_iterator it = delete_conditions.begin();
 
     for (; it != delete_conditions.end(); ++it) {
         // 跳过版本号大于version的过滤条件
@@ -370,13 +271,13 @@ OLAPStatus DeleteHandler::init(OLAPTablePtr olap_table, int32_t version) {
             return OLAP_ERR_MALLOC_ERROR;
         }
 
-        temp.del_cond->set_table(olap_table);
+        temp.del_cond->set_tablet_schema(&schema);
 
-        for (int i = 0; i != it->sub_conditions_size(); ++i) {
+        for (int i = 0; i != it->sub_predicates_size(); ++i) {
             TCondition condition;
-            if (!_parse_condition(it->sub_conditions(i), &condition)) {
+            if (!_parse_condition(it->sub_predicates(i), &condition)) {
                 OLAP_LOG_WARNING("fail to parse condition. [condition=%s]",
-                                 it->sub_conditions(i).c_str());
+                                 it->sub_predicates(i).c_str());
                 return OLAP_ERR_DELETE_INVALID_PARAMETERS;
             }
 

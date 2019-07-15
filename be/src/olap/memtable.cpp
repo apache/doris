@@ -18,18 +18,18 @@
 #include "olap/memtable.h"
 
 #include "olap/hll.h"
-#include "olap/data_writer.h"
+#include "olap/rowset/column_data_writer.h"
 #include "olap/row_cursor.h"
 #include "util/runtime_profile.h"
 #include "util/debug_util.h"
 
 namespace doris {
 
-MemTable::MemTable(Schema* schema, std::vector<FieldInfo>* field_infos,
+MemTable::MemTable(Schema* schema, const TabletSchema* tablet_schema,
                    std::vector<uint32_t>* col_ids, TupleDescriptor* tuple_desc,
                    KeysType keys_type)
     : _schema(schema),
-      _field_infos(field_infos),
+      _tablet_schema(tablet_schema),
       _tuple_desc(tuple_desc),
       _col_ids(col_ids),
       _keys_type(keys_type),
@@ -72,7 +72,7 @@ void MemTable::insert(Tuple* tuple) {
             case TYPE_CHAR: {
                 const StringValue* src = tuple->get_string_slot(slot->tuple_offset());
                 Slice* dest = (Slice*)(_tuple_buf + offset);
-                dest->size = (*_field_infos)[i].length;
+                dest->size = _tablet_schema->column(i).length();
                 dest->data = _arena.Allocate(dest->size);
                 memcpy(dest->data, src->ptr, src->len);
                 memset(dest->data + src->len, 0, dest->size - src->len);
@@ -150,21 +150,20 @@ void MemTable::insert(Tuple* tuple) {
     }
 }
 
-OLAPStatus MemTable::flush(ColumnDataWriter* writer) {
+OLAPStatus MemTable::flush(RowsetWriterSharedPtr rowset_writer) {
     Table::Iterator it(_skip_list);
     for (it.SeekToFirst(); it.Valid(); it.Next()) {
         const char* row = it.key();
         _schema->finalize(row);
-        RETURN_NOT_OK(writer->write(row));
-        writer->next(row, _schema);
+        RETURN_NOT_OK(rowset_writer->add_row(row, _schema));
     }
-
-    RETURN_NOT_OK(writer->finalize());
+    
+    RETURN_NOT_OK(rowset_writer->flush());
     return OLAP_SUCCESS;
 }
 
-OLAPStatus MemTable::close(ColumnDataWriter* writer) {
-    return flush(writer);
+OLAPStatus MemTable::close(RowsetWriterSharedPtr rowset_writer) {
+    return flush(rowset_writer);
 }
 
 } // namespace doris

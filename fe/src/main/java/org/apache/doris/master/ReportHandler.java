@@ -77,6 +77,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -864,7 +865,7 @@ public class ReportHandler extends Daemon {
         for (Long transactionId : transactionsToClear.keySet()) {
             ClearTransactionTask clearTransactionTask = new ClearTransactionTask(backendId, 
                     transactionId, 
-                    transactionsToClear.get(transactionId));
+                    new ArrayList<Long>(transactionsToClear.get(transactionId)));
             batchTask.addTask(clearTransactionTask);
             AgentTaskQueue.addTask(clearTransactionTask);
         }
