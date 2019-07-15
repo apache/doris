@@ -58,11 +58,12 @@ public class PublishVersionTask extends AgentTask {
         return partitionVersionInfos;
     }
 
-    public List<Long> getErrorTablets() {
+    public synchronized List<Long> getErrorTablets() {
         return errorTablets;
     }
     
-    public void addErrorTablets(List<Long> errorTablets) {
+    public synchronized void addErrorTablets(List<Long> errorTablets) {
+        this.errorTablets.clear();
         if (errorTablets == null) {
             return;
         }

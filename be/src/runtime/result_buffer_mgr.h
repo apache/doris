@@ -27,6 +27,7 @@
 #include <boost/thread/thread.hpp>
 #include "common/status.h"
 #include "gen_cpp/Types_types.h"
+#include "util/uid_util.h"
 
 namespace doris {
 
@@ -59,7 +60,7 @@ public:
     Status cancel_at_time(time_t cancel_time, const TUniqueId& query_id);
 
 private:
-    typedef boost::unordered_map<TUniqueId, boost::shared_ptr<BufferControlBlock> > BufferMap;
+    typedef boost::unordered_map<TUniqueId, boost::shared_ptr<BufferControlBlock>> BufferMap;
     typedef std::map<time_t, std::vector<TUniqueId> > TimeoutMap;
 
     boost::shared_ptr<BufferControlBlock> find_control_block(const TUniqueId& query_id);

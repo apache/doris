@@ -25,7 +25,7 @@
 #include <boost/algorithm/string/join.hpp>
 
 #include "olap/olap_define.h"
-#include "olap/olap_engine.h"
+#include "olap/storage_engine.h"
 #include "util/file_utils.h"
 #include "gen_cpp/Types_types.h"
 #include "runtime/exec_env.h"

@@ -20,13 +20,11 @@
 #include <memory>
 #include <vector>
 
-#include "olap/column_data.h"
 #include "olap/olap_define.h"
-#include "olap/segment_group.h"
-#include "olap/olap_table.h"
+#include "olap/rowset/segment_group.h"
+#include "olap/tablet.h"
 #include "olap/reader.h"
 #include "olap/row_cursor.h"
-#include "olap/data_writer.h"
 
 using std::list;
 using std::string;
@@ -35,60 +33,40 @@ using std::vector;
 
 namespace doris {
 
-Merger::Merger(OLAPTablePtr table, SegmentGroup* segment_group, ReaderType type) : 
-        _table(table),
-        _segment_group(segment_group),
+Merger::Merger(TabletSharedPtr tablet, RowsetWriterSharedPtr writer, ReaderType type) :
+        _tablet(tablet),
+        _rs_writer(writer),
         _reader_type(type),
         _row_count(0) {}
 
-OLAPStatus Merger::merge(const vector<ColumnData*>& olap_data_arr,
+OLAPStatus Merger::merge(const vector<RowsetReaderSharedPtr>& rs_readers,
                          uint64_t* merged_rows, uint64_t* filted_rows) {
     // Create and initiate reader for scanning and multi-merging specified
     // OLAPDatas.
     Reader reader;
     ReaderParams reader_params;
-    reader_params.olap_table = _table;
+    reader_params.tablet = _tablet;
     reader_params.reader_type = _reader_type;
-    reader_params.olap_data_arr = olap_data_arr;
-
-    if (_reader_type == READER_BASE_COMPACTION) {
-        reader_params.version = _segment_group->version();
-    }
+    reader_params.rs_readers = rs_readers;
+    reader_params.version = _rs_writer->version();
 
     if (OLAP_SUCCESS != reader.init(reader_params)) {
-        OLAP_LOG_WARNING("fail to initiate reader. [table='%s']",
-                _table->full_name().c_str());
+        LOG(WARNING) << "fail to initiate reader. tablet=" << _tablet->full_name();
         return OLAP_ERR_INIT_FAILED;
-    }
-
-    // create and initiate writer for generating new index and data files.
-    unique_ptr<ColumnDataWriter> writer(ColumnDataWriter::create(_table, _segment_group, false));
-
-    if (NULL == writer) {
-        OLAP_LOG_WARNING("fail to allocate writer.");
-        return OLAP_ERR_MALLOC_ERROR;
     }
 
     bool has_error = false;
     RowCursor row_cursor;
 
-    if (OLAP_SUCCESS != row_cursor.init(_table->tablet_schema())) {
-        OLAP_LOG_WARNING("fail to init row cursor.");
+    if (OLAP_SUCCESS != row_cursor.init(_tablet->tablet_schema())) {
+        LOG(WARNING) << "fail to init row cursor.";
         has_error = true;
     }
 
     bool eof = false;
     // The following procedure would last for long time, half of one day, etc.
     while (!has_error) {
-        // Attach row cursor to the memory position of the row block being
-        // written in writer.
-        if (OLAP_SUCCESS != writer->attached_by(&row_cursor)) {
-            OLAP_LOG_WARNING("attach row failed. [table='%s']",
-                    _table->full_name().c_str());
-            has_error = true;
-            break;
-        }
-        row_cursor.allocate_memory_for_string_type(_table->tablet_schema(), writer->mem_pool());
+        row_cursor.allocate_memory_for_string_type(_tablet->tablet_schema(), _rs_writer->mem_pool());
 
         // Read one row into row_cursor
         OLAPStatus res = reader.next_row_with_aggregation(&row_cursor, &eof);
@@ -96,30 +74,30 @@ OLAPStatus Merger::merge(const vector<ColumnData*>& olap_data_arr,
             VLOG(3) << "reader read to the end.";
             break;
         } else if (OLAP_SUCCESS != res) {
-            OLAP_LOG_WARNING("reader read failed.");
+            LOG(WARNING) << "reader read failed.";
+            has_error = true;
+            break;
+        }
+
+        if (OLAP_SUCCESS != _rs_writer->add_row(&row_cursor)) {
+            LOG(WARNING) << "add row to builder failed. tablet=" << _tablet->full_name();
             has_error = true;
             break;
         }
 
         // Goto next row position in the row block being written
-        writer->next(row_cursor);
         ++_row_count;
     }
 
-    if (has_error) {
-        LOG(WARNING) << "compaction failed.";
-        return OLAP_ERR_OTHER_ERROR;
-    }
-
-    if (OLAP_SUCCESS != writer->finalize()) {
-        OLAP_LOG_WARNING("fail to finalize writer. [table='%s']",
-                _table->full_name().c_str());
+    if (_rs_writer->flush() != OLAP_SUCCESS) {
+        LOG(WARNING) << "fail to finalize writer. "
+                     << "tablet=" << _tablet->full_name();
         has_error = true;
     }
 
     if (!has_error) {
         *merged_rows = reader.merged_rows();
-        *filted_rows = reader.filted_rows();
+        *filted_rows = reader.filtered_rows();
     }
 
     return has_error ? OLAP_ERR_OTHER_ERROR : OLAP_SUCCESS;

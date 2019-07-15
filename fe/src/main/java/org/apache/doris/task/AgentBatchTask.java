@@ -24,7 +24,6 @@ import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TAgentServiceVersion;
 import org.apache.doris.thrift.TAgentTaskRequest;
 import org.apache.doris.thrift.TAlterTabletReq;
-import org.apache.doris.thrift.TCancelDeleteDataReq;
 import org.apache.doris.thrift.TCheckConsistencyReq;
 import org.apache.doris.thrift.TClearAlterTaskRequest;
 import org.apache.doris.thrift.TClearTransactionTaskRequest;
@@ -207,15 +206,6 @@ public class AgentBatchTask implements Runnable {
                 }
                 tAgentTaskRequest.setAlter_tablet_req(request);
                 tAgentTaskRequest.setResource_info(schemaChangeTask.getResourceInfo());
-                return tAgentTaskRequest;
-            }
-            case CANCEL_DELETE: {
-                CancelDeleteTask cancelDeleteTask = (CancelDeleteTask) task;
-                TCancelDeleteDataReq request = cancelDeleteTask.toThrift();
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug(request.toString());
-                }
-                tAgentTaskRequest.setCancel_delete_data_req(request);
                 return tAgentTaskRequest;
             }
             case STORAGE_MEDIUM_MIGRATE: {

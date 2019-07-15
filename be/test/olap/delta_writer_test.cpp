@@ -25,14 +25,14 @@
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/Types_types.h"
 #include "olap/field.h"
-#include "olap/olap_engine.h"
-#include "olap/olap_table.h"
+#include "olap/storage_engine.h"
+#include "olap/tablet.h"
 #include "olap/utils.h"
 #include "runtime/tuple.h"
 #include "util/descriptor_helper.h"
 #include "util/logging.h"
 #include "olap/options.h"
-#include "olap/olap_header_manager.h"
+#include "olap/tablet_meta_manager.h"
 
 namespace doris {
 
@@ -42,7 +42,7 @@ namespace doris {
 static const uint32_t MAX_RETRY_TIMES = 10;
 static const uint32_t MAX_PATH_LEN = 1024;
 
-OLAPEngine* k_engine = nullptr;
+StorageEngine* k_engine = nullptr;
 
 void set_up() {
     char buffer[MAX_PATH_LEN];
@@ -55,19 +55,21 @@ void set_up() {
 
     doris::EngineOptions options;
     options.store_paths = paths;
-    doris::OLAPEngine::open(options, &k_engine);
+    doris::StorageEngine::open(options, &k_engine);
 }
 
 void tear_down() {
+    delete k_engine;
+    k_engine = nullptr;
     system("rm -rf ./data_test");
     remove_all_dir(std::string(getenv("DORIS_HOME")) + UNUSED_PREFIX);
 }
 
-void create_table_request(TCreateTabletReq* request) {
-    request->tablet_id = 10003;
+void create_tablet_request(int64_t tablet_id, int32_t schema_hash, TCreateTabletReq* request) {
+    request->tablet_id = tablet_id;
     request->__set_version(1);
     request->__set_version_hash(0);
-    request->tablet_schema.schema_hash = 270068375;
+    request->tablet_schema.schema_hash = schema_hash;
     request->tablet_schema.short_key_column_count = 6;
     request->tablet_schema.keys_type = TKeysType::AGG_KEYS;
     request->tablet_schema.storage_type = TStorageType::COLUMN;
@@ -211,7 +213,7 @@ void create_table_request(TCreateTabletReq* request) {
     request->tablet_schema.columns.push_back(v10);
 }
 
-TDescriptorTable create_descriptor_table() {
+TDescriptorTable create_descriptor_tablet() {
     TDescriptorTableBuilder dtb;
     TTupleDescriptorBuilder tuple_builder;
 
@@ -267,30 +269,25 @@ public:
     ~TestDeltaWriter() { }
 
     void SetUp() {
-        // Create local data dir for OLAPEngine.
-        char buffer[MAX_PATH_LEN];
-        getcwd(buffer, MAX_PATH_LEN);
-        config::storage_root_path = std::string(buffer) + "/data_push";
-        remove_all_dir(config::storage_root_path);
-        ASSERT_EQ(create_dir(config::storage_root_path), OLAP_SUCCESS);
-
-        // Initialize all singleton object.
-        // OLAPRootPath::get_instance()->reload_root_paths(config::storage_root_path.c_str());
+        // Create local data dir for StorageEngine.
+        std::cout << "setup" << std::endl;
     }
 
     void TearDown(){
         // Remove all dir.
-        ASSERT_EQ(OLAP_SUCCESS, remove_all_dir(config::storage_root_path));
+        std::cout << "tear down" << std::endl;
+        //doris::tear_down();
+        //ASSERT_EQ(OLAP_SUCCESS, remove_all_dir(config::storage_root_path));
     }
 };
 
 TEST_F(TestDeltaWriter, open) {
     TCreateTabletReq request;
-    create_table_request(&request);
-    OLAPStatus res = k_engine->create_table(request);
+    create_tablet_request(10003, 270068375, &request);
+    OLAPStatus res = k_engine->create_tablet(request);
     ASSERT_EQ(OLAP_SUCCESS, res);
 
-    TDescriptorTable tdesc_tbl = create_descriptor_table();
+    TDescriptorTable tdesc_tbl = create_descriptor_tablet();
     ObjectPool obj_pool;
     DescriptorTbl* desc_tbl = nullptr;
     DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl);
@@ -311,17 +308,17 @@ TEST_F(TestDeltaWriter, open) {
     TDropTabletReq drop_request;
     auto tablet_id = 10003;
     auto schema_hash = 270068375;
-    res = k_engine->drop_table(tablet_id, schema_hash);
+    res = k_engine->tablet_manager()->drop_tablet(tablet_id, schema_hash);
     ASSERT_EQ(OLAP_SUCCESS, res);
 }
 
 TEST_F(TestDeltaWriter, write) {
     TCreateTabletReq request;
-    create_table_request(&request);
-    OLAPStatus res = k_engine->create_table(request);
+    create_tablet_request(10004, 270068376, &request);
+    OLAPStatus res = k_engine->create_tablet(request);
     ASSERT_EQ(OLAP_SUCCESS, res);
 
-    TDescriptorTable tdesc_tbl = create_descriptor_table();
+    TDescriptorTable tdesc_tbl = create_descriptor_tablet();
     ObjectPool obj_pool;
     DescriptorTbl* desc_tbl = nullptr;
     DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl);
@@ -330,8 +327,8 @@ TEST_F(TestDeltaWriter, write) {
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);
-    WriteRequest write_req = {10003, 270068375, WriteType::LOAD,
-                              20001, 30001, load_id, false, tuple_desc};
+    WriteRequest write_req = {10004, 270068376, WriteType::LOAD,
+                              20002, 30002, load_id, false, tuple_desc};
     DeltaWriter* delta_writer = nullptr;
     DeltaWriter::open(&write_req, &delta_writer); 
     ASSERT_NE(delta_writer, nullptr);
@@ -384,7 +381,7 @@ TEST_F(TestDeltaWriter, write) {
         var_ptr = (StringValue*)(tuple->get_slot(slots[18]->tuple_offset()));
         var_ptr->ptr = arena.Allocate(5);
         memcpy(var_ptr->ptr, "abcde", 5);
-        var_ptr->len = 5; 
+        var_ptr->len = 5;
 
         DecimalValue val_decimal(1.1);
         *(DecimalValue*)(tuple->get_slot(slots[19]->tuple_offset())) = val_decimal;
@@ -394,255 +391,38 @@ TEST_F(TestDeltaWriter, write) {
     }
 
     res = delta_writer->close(nullptr);
-    ASSERT_EQ(res, OLAP_SUCCESS);
+    ASSERT_EQ(OLAP_SUCCESS, res);
 
     // publish version success
-    OLAPTablePtr table = OLAPEngine::get_instance()->get_table(write_req.tablet_id, write_req.schema_hash);
-    TPublishVersionRequest publish_req;
-    publish_req.transaction_id = write_req.transaction_id;
-    TPartitionVersionInfo info;
-    info.partition_id = write_req.partition_id;
-    info.version = table->lastest_version()->end_version() + 1;
-    info.version_hash = table->lastest_version()->version_hash() + 1;
-    std::vector<TPartitionVersionInfo> partition_version_infos;
-    partition_version_infos.push_back(info);
-    publish_req.partition_version_infos = partition_version_infos;
-    std::vector<TTabletId> error_tablet_ids;
-    res = k_engine->publish_version(publish_req, &error_tablet_ids);
-
-    ASSERT_EQ(1, table->get_num_rows());
+    TabletSharedPtr tablet = k_engine->tablet_manager()->get_tablet(write_req.tablet_id, write_req.schema_hash);
+    std::cout << "before publish, tablet row nums:" << tablet->num_rows() << std::endl;
+    OlapMeta* meta = tablet->data_dir()->get_meta();
+    Version version;
+    version.first = tablet->rowset_with_max_version()->end_version() + 1;
+    version.second = tablet->rowset_with_max_version()->end_version() + 1;
+    std::cout << "start to add rowset version:" << version.first << "-" << version.second << std::endl;
+    VersionHash version_hash = 2;
+    std::map<TabletInfo, RowsetSharedPtr> tablet_related_rs;
+    StorageEngine::instance()->txn_manager()->get_txn_related_tablets(write_req.txn_id, write_req.partition_id, &tablet_related_rs);
+    for (auto& tablet_rs : tablet_related_rs) {
+        std::cout << "start to publish txn" << std::endl;
+        RowsetSharedPtr rowset = tablet_rs.second;
+        res = k_engine->txn_manager()->publish_txn(meta, write_req.partition_id, write_req.txn_id,
+                                   write_req.tablet_id, write_req.schema_hash, tablet_rs.first.tablet_uid, 
+                                   version, version_hash);
+        ASSERT_EQ(OLAP_SUCCESS, res);
+        std::cout << "start to add inc rowset:" << rowset->rowset_id() << ", num rows:" << rowset->num_rows()
+                << ", version:" << rowset->version().first << "-" << rowset->version().second
+                << ", version_hash:" << rowset->version_hash()
+                 << std::endl;
+        res = tablet->add_inc_rowset(rowset);
+        ASSERT_EQ(OLAP_SUCCESS, res);
+    }
+    ASSERT_EQ(1, tablet->num_rows());
 
     auto tablet_id = 10003;
     auto schema_hash = 270068375;
-    res = k_engine->drop_table(tablet_id, schema_hash);
-    ASSERT_EQ(OLAP_SUCCESS, res);
-}
-
-// ######################### ALTER TABLE TEST BEGIN #########################
-
-void schema_change_request(const TCreateTabletReq& base_request, TCreateTabletReq* request) {
-    //linked schema change, add a value column
-    request->tablet_id = base_request.tablet_id + 1;
-    request->__set_version(base_request.version);
-    request->__set_version_hash(base_request.version_hash);
-    request->tablet_schema.schema_hash = base_request.tablet_schema.schema_hash + 1;
-    request->tablet_schema.short_key_column_count = 3;
-    request->tablet_schema.storage_type = TStorageType::COLUMN;
-
-    request->tablet_schema.columns.push_back(base_request.tablet_schema.columns[2]);
-    request->tablet_schema.columns.push_back(base_request.tablet_schema.columns[3]);
-    request->tablet_schema.columns.push_back(base_request.tablet_schema.columns[4]);
-    request->tablet_schema.columns.push_back(base_request.tablet_schema.columns[5]);
-    request->tablet_schema.columns.push_back(base_request.tablet_schema.columns[6]);
-    request->tablet_schema.columns.push_back(base_request.tablet_schema.columns[7]);
-    request->tablet_schema.columns.push_back(base_request.tablet_schema.columns[8]);
-    request->tablet_schema.columns.push_back(base_request.tablet_schema.columns[9]);
-
-    TColumn v0;
-    v0.column_name = "v0";
-    v0.column_type.type = TPrimitiveType::BIGINT;
-    v0.__set_is_key(false);
-    v0.__set_default_value("0");
-    v0.__set_aggregation_type(TAggregationType::SUM);
-    request->tablet_schema.columns.push_back(v0);
-
-    request->tablet_schema.columns.push_back(base_request.tablet_schema.columns[10]);
-    request->tablet_schema.columns.push_back(base_request.tablet_schema.columns[11]);
-    request->tablet_schema.columns.push_back(base_request.tablet_schema.columns[12]);
-    request->tablet_schema.columns.push_back(base_request.tablet_schema.columns[13]);
-    request->tablet_schema.columns.push_back(base_request.tablet_schema.columns[14]);
-    request->tablet_schema.columns.push_back(base_request.tablet_schema.columns[15]);
-    request->tablet_schema.columns.push_back(base_request.tablet_schema.columns[16]);
-    request->tablet_schema.columns.push_back(base_request.tablet_schema.columns[17]);
-
-    TColumn v9;
-    v9.column_name = "v9";
-    v9.__set_is_key(false);
-    v9.column_type.type = TPrimitiveType::VARCHAR;
-    v9.column_type.__set_len(130);
-    v9.__set_aggregation_type(TAggregationType::REPLACE);
-    request->tablet_schema.columns.push_back(v9);
-
-    request->tablet_schema.columns.push_back(base_request.tablet_schema.columns[19]);
-}
-
-AlterTableStatus show_alter_table_status(const TAlterTabletReq& request) {
-    AlterTableStatus status = ALTER_TABLE_RUNNING;
-    uint32_t max_retry = MAX_RETRY_TIMES;
-    while (max_retry > 0) {
-        status = k_engine->show_alter_table_status(
-                request.base_tablet_id, request.base_schema_hash);
-        if (status != ALTER_TABLE_RUNNING) { break; }
-        LOG(INFO) << "doing alter table......";
-        --max_retry;
-        sleep(1);
-    }
-    return status;
-}
-
-class TestSchemaChange : public ::testing::Test {
-public:
-    TestSchemaChange() { }
-    ~TestSchemaChange() { }
-
-    void SetUp() {
-        // Create local data dir for OLAPEngine.
-        char buffer[MAX_PATH_LEN];
-        getcwd(buffer, MAX_PATH_LEN);
-        config::storage_root_path = std::string(buffer) + "/data_schema_change";
-        remove_all_dir(config::storage_root_path);
-        ASSERT_EQ(create_dir(config::storage_root_path), OLAP_SUCCESS);
-
-        // Initialize all singleton object.
-        // OLAPRootPath::get_instance()->reload_root_paths(config::storage_root_path.c_str());
-    }
-
-    void TearDown(){
-        // Remove all dir.
-        ASSERT_EQ(OLAP_SUCCESS, remove_all_dir(config::storage_root_path));
-    }
-};
-
-TEST_F(TestSchemaChange, schema_change) {
-    OLAPStatus res = OLAP_SUCCESS;
-    AlterTableStatus status = ALTER_TABLE_WAITING;
-
-    // 1. Prepare for schema change.
-    // create base table
-    TCreateTabletReq create_base_tablet;
-    create_table_request(&create_base_tablet);
-    res = k_engine->create_table(create_base_tablet);
-    ASSERT_EQ(OLAP_SUCCESS, res);
-
-    TDescriptorTable tdesc_tbl = create_descriptor_table();
-    ObjectPool obj_pool;
-    DescriptorTbl* desc_tbl = nullptr;
-    DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl);
-    TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
-
-    PUniqueId load_id;
-    load_id.set_hi(0);
-    load_id.set_lo(0);
-    WriteRequest write_req = {10003, 270068375, WriteType::LOAD,
-                              20001, 30001, load_id, false, tuple_desc};
-    DeltaWriter* delta_writer = nullptr;
-    DeltaWriter::open(&write_req, &delta_writer); 
-    ASSERT_NE(delta_writer, nullptr);
-
-    const std::vector<SlotDescriptor*>& slots = tuple_desc->slots();
-    Arena arena;
-    // streaming load data
-    {
-        Tuple* tuple = reinterpret_cast<Tuple*>(arena.Allocate(tuple_desc->byte_size()));
-        memset(tuple, 0, tuple_desc->byte_size());
-        *(int8_t*)(tuple->get_slot(slots[0]->tuple_offset())) = -127;
-        *(int16_t*)(tuple->get_slot(slots[1]->tuple_offset())) = -32767;
-        *(int32_t*)(tuple->get_slot(slots[2]->tuple_offset())) = -2147483647;
-        *(int64_t*)(tuple->get_slot(slots[3]->tuple_offset())) = -9223372036854775807L;
-
-        int128_t large_int_value = -90000;
-        memcpy(tuple->get_slot(slots[4]->tuple_offset()), &large_int_value, sizeof(int128_t));
-
-        ((DateTimeValue*)(tuple->get_slot(slots[5]->tuple_offset())))->from_date_str("2048-11-10", 10); 
-        ((DateTimeValue*)(tuple->get_slot(slots[6]->tuple_offset())))->from_date_str("2636-08-16 19:39:43", 19); 
-
-        StringValue* char_ptr = (StringValue*)(tuple->get_slot(slots[7]->tuple_offset()));
-        char_ptr->ptr = arena.Allocate(4);
-        memcpy(char_ptr->ptr, "abcd", 4);
-        char_ptr->len = 4; 
-
-        StringValue* var_ptr = (StringValue*)(tuple->get_slot(slots[8]->tuple_offset()));
-        var_ptr->ptr = arena.Allocate(5);
-        memcpy(var_ptr->ptr, "abcde", 5);
-        var_ptr->len = 5; 
-
-        DecimalValue decimal_value(1.1);
-        *(DecimalValue*)(tuple->get_slot(slots[9]->tuple_offset())) = decimal_value;
-
-        *(int8_t*)(tuple->get_slot(slots[10]->tuple_offset())) = -127;
-        *(int16_t*)(tuple->get_slot(slots[11]->tuple_offset())) = -32767;
-        *(int32_t*)(tuple->get_slot(slots[12]->tuple_offset())) = -2147483647;
-        *(int64_t*)(tuple->get_slot(slots[13]->tuple_offset())) = -9223372036854775807L;
-
-        memcpy(tuple->get_slot(slots[14]->tuple_offset()), &large_int_value, sizeof(int128_t));
-
-        ((DateTimeValue*)(tuple->get_slot(slots[15]->tuple_offset())))->from_date_str("2048-11-10", 10); 
-        ((DateTimeValue*)(tuple->get_slot(slots[16]->tuple_offset())))->from_date_str("2636-08-16 19:39:43", 19); 
-
-        char_ptr = (StringValue*)(tuple->get_slot(slots[17]->tuple_offset()));
-        char_ptr->ptr = arena.Allocate(4);
-        memcpy(char_ptr->ptr, "abcd", 4);
-        char_ptr->len = 4; 
-
-        var_ptr = (StringValue*)(tuple->get_slot(slots[18]->tuple_offset()));
-        var_ptr->ptr = arena.Allocate(5);
-        memcpy(var_ptr->ptr, "abcde", 5);
-        var_ptr->len = 5; 
-
-        DecimalValue val_decimal(1.1);
-        *(DecimalValue*)(tuple->get_slot(slots[19]->tuple_offset())) = val_decimal;
-
-        res = delta_writer->write(tuple);
-        ASSERT_EQ(OLAP_SUCCESS, res);
-    }
-
-    // publish version 
-    res = delta_writer->close(nullptr);
-    ASSERT_EQ(res, OLAP_SUCCESS);
-
-    // publish version success
-    OLAPTablePtr table = OLAPEngine::get_instance()->get_table(write_req.tablet_id, write_req.schema_hash);
-    TPublishVersionRequest publish_req;
-    publish_req.transaction_id = write_req.transaction_id;
-    TPartitionVersionInfo info;
-    info.partition_id = write_req.partition_id;
-    info.version = table->lastest_version()->end_version() + 1;
-    info.version_hash = table->lastest_version()->version_hash() + 1;
-    std::vector<TPartitionVersionInfo> partition_version_infos;
-    partition_version_infos.push_back(info);
-    publish_req.partition_version_infos = partition_version_infos;
-    std::vector<TTabletId> error_tablet_ids;
-    res = k_engine->publish_version(publish_req, &error_tablet_ids);
-    ASSERT_EQ(res, OLAP_SUCCESS); 
-
-    // 1. set add column request
-    TCreateTabletReq create_new_tablet;
-    schema_change_request(create_base_tablet, &create_new_tablet);
-    TAlterTabletReq request;
-    request.__set_base_tablet_id(create_base_tablet.tablet_id);
-    request.__set_base_schema_hash(create_base_tablet.tablet_schema.schema_hash);
-    request.__set_new_tablet_req(create_new_tablet);
-
-    // 2. Submit schema change
-    request.base_schema_hash = create_base_tablet.tablet_schema.schema_hash;
-    res = k_engine->schema_change(request);
-    ASSERT_EQ(OLAP_SUCCESS, res);
-
-    // 3. Verify schema change result.
-    // show schema change status
-    status = show_alter_table_status(request);
-    ASSERT_EQ(ALTER_TABLE_FINISHED, status);
-    
-    // check new tablet information
-    TTabletInfo tablet_info;
-    tablet_info.tablet_id = create_new_tablet.tablet_id;
-    tablet_info.schema_hash = create_new_tablet.tablet_schema.schema_hash;
-    res = k_engine->report_tablet_info(&tablet_info);
-    ASSERT_EQ(OLAP_SUCCESS, res);
-    ASSERT_EQ(info.version, tablet_info.version);
-    ASSERT_EQ(info.version_hash, tablet_info.version_hash);
-    ASSERT_EQ(1, tablet_info.row_count);
-
-    // 4. Retry the same schema change request.
-    res = k_engine->schema_change(request);
-    ASSERT_EQ(OLAP_SUCCESS, res);
-    status = k_engine->show_alter_table_status(
-            request.base_tablet_id, request.base_schema_hash);
-    ASSERT_EQ(ALTER_TABLE_FINISHED, status);
-
-    auto tablet_id = create_new_tablet.tablet_id;
-    auto schema_hash = create_new_tablet.tablet_schema.schema_hash;
-    res = k_engine->drop_table(tablet_id, schema_hash);
+    res = k_engine->tablet_manager()->drop_tablet(tablet_id, schema_hash);
     ASSERT_EQ(OLAP_SUCCESS, res);
 }
 
@@ -658,11 +438,9 @@ int main(int argc, char** argv) {
     int ret = doris::OLAP_SUCCESS;
     testing::InitGoogleTest(&argc, argv);
     doris::CpuInfo::init();
-
     doris::set_up();
     ret = RUN_ALL_TESTS();
     doris::tear_down();
-
     google::protobuf::ShutdownProtobufLibrary();
     return ret;
 }
