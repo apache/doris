@@ -129,7 +129,7 @@ public:
     // optional
     std::string sub_label;
     double max_filter_ratio = 0.0;
-    int64_t timeout_second = -1;
+    int32_t timeout_second = -1;
     AuthInfo auth;
 
     // the following members control the max progress of a consuming

@@ -709,6 +709,9 @@ Status MiniLoadAction::_process_put(HttpRequest* req, StreamLoadContext* ctx) {
     if (column_separator_it != params.end()) {
         put_request.__set_columnSeparator(column_separator_it->second);
     }
+    if (ctx->timeout_second != -1) {
+        put_request.__set_timeout(ctx->timeout_second);
+    }
 
     // plan this load
     TNetworkAddress master_addr = _exec_env->master_info()->network_address;
