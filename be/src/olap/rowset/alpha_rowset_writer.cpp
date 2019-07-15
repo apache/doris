@@ -100,23 +100,6 @@ OLAPStatus AlphaRowsetWriter::add_row(const char* row, Schema* schema) {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus AlphaRowsetWriter::add_row_block(RowBlock* row_block) {
-    if (_writer_state != WRITER_INITED) {
-        RETURN_NOT_OK(_init());
-    }
-    size_t pos = 0;
-    row_block->set_pos(pos);
-    RowCursor row_cursor;
-    row_cursor.init(*(_rowset_writer_context.tablet_schema));
-    while (pos < row_block->limit()) {
-        row_block->get_row(pos, &row_cursor);
-        add_row(&row_cursor);
-        row_block->pos_inc();
-        pos = row_block->pos();
-    }
-    return OLAP_SUCCESS;
-}
-
 OLAPStatus AlphaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
     _need_column_data_writer = false;
     // this api is for LinkedSchemaChange

@@ -41,8 +41,6 @@ public:
 
     virtual OLAPStatus add_row(const char* row, Schema* schema) = 0;
 
-    virtual OLAPStatus add_row_block(RowBlock* row_block) = 0;
-
     virtual OLAPStatus add_rowset(RowsetSharedPtr rowset) = 0;
     virtual OLAPStatus add_rowset_for_linked_schema_change(
                 RowsetSharedPtr rowset, const SchemaMapping& schema_mapping) = 0;
