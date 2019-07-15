@@ -251,6 +251,7 @@ TabletWriterMgr::~TabletWriterMgr() {
 
 Status TabletWriterMgr::open(const PTabletWriterOpenRequest& params) {
     TabletsChannelKey key(params.id(), params.index_id());
+    LOG(INFO) << "open tablets writer channel: " << key;
     std::shared_ptr<TabletsChannel> channel;
     {
         std::lock_guard<std::mutex> l(_lock);
