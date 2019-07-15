@@ -161,7 +161,7 @@ public:
     OlapTableSink(ObjectPool* pool,
                   const RowDescriptor& row_desc,
                   const std::vector<TExpr>& texprs,
-                  Status* status);
+                  int64_t ingestion_memtable_bytes, Status* status);
     ~OlapTableSink() override;
 
     Status init(const TDataSink& sink) override;
@@ -194,6 +194,10 @@ public:
         counter.add_batch_execution_time_ns += add_batch_time_ns;
         counter.add_batch_wait_lock_time_ns += wait_lock_time_ns;
         counter.add_batch_num += 1;
+    }
+
+    int64_t getLimitMemTableBytes() {
+        return _ingestion_memtable_bytes;
     }
 
 private:
@@ -250,7 +254,7 @@ private:
     std::set<int64_t> _partition_ids;
 
     Bitmap _filter_bitmap;
-
+    int64_t _ingestion_memtable_bytes; // BYTES. -1 if user not set
     // index_channel
     std::vector<IndexChannel*> _channels;
 

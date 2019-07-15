@@ -376,8 +376,11 @@ namespace config {
     // Aligement
     CONF_Int32(memory_max_alignment, "16");
 
+    //memtable buffer size
+    CONF_Int64(memtable_buffer_max_size, "2147483648"); //2G
+    CONF_Int64(memtable_buffer_min_size, "104857600"); // 100MB
     // write buffer size before flush
-    CONF_Int32(write_buffer_size, "104857600");
+    CONF_Int64(write_buffer_size, "104857600"); // default equals memtable_buffer_min_size
 
     // update interval of tablet stat cache
     CONF_Int32(tablet_stat_cache_update_interval_second, "300");

@@ -229,7 +229,11 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& params)
         request.load_id = params.id();
         request.need_gen_rollup = params.need_gen_rollup();
         request.tuple_desc = _tuple_desc;
-
+        if (params.has_ingestion_memtable_bytes()) {
+            request.limit_memtable_size = params.ingestion_memtable_bytes();
+        } else {
+            request.limit_memtable_size = config::write_buffer_size;
+        }
         DeltaWriter* writer = nullptr;
         auto st = DeltaWriter::open(&request, &writer);
         if (st != OLAP_SUCCESS) {

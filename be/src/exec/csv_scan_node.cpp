@@ -515,7 +515,7 @@ bool CsvScanNode::check_and_write_text_slot(
     if (slot->type().is_string_type()) {
         int char_len = column_type.len;
         if (slot->type().type != TYPE_HLL && value_length > char_len) {
-            (*error_msg) << "the length of input is too long than schema. "
+            (*error_msg) << "CsvScanNode the length of input is too long than schema. "
                     << "column_name: " << column_name << "; "
                     << "input_str: [" << std::string(value, value_length) << "] "
                     << "type: " << slot->type() << "; "

@@ -17,6 +17,10 @@
 
 package org.apache.doris.load.loadv2;
 
+import com.google.common.base.Joiner;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.catalog.AuthorizationInfo;
@@ -53,12 +57,6 @@ import org.apache.doris.transaction.AbstractTxnStateChangeCallback;
 import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
-
-import com.google.common.base.Joiner;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -95,6 +93,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     @Deprecated
     protected boolean deleteFlag = false;
     protected boolean strictMode = true;
+    protected long ingestionMemTableBytes = -1;
 
     protected long createTimestamp = System.currentTimeMillis();
     protected long loadStartTimestamp = -1;
@@ -255,6 +254,14 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
 
             if (properties.containsKey(LoadStmt.STRICT_MODE)) {
                 strictMode = Boolean.valueOf(properties.get(LoadStmt.STRICT_MODE));
+            }
+
+            if (properties.containsKey(LoadStmt.ING_MEMTABLE_BYTES)) {
+                try {
+                    ingestionMemTableBytes = Long.parseLong(properties.get(LoadStmt.ING_MEMTABLE_BYTES));
+                } catch (NumberFormatException e) {
+                    throw new DdlException("ingestion_memtable_bytes is not Long", e);
+                }
             }
         }
     }

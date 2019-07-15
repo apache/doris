@@ -17,6 +17,11 @@
 
 package org.apache.doris.planner;
 
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Range;
+import com.google.common.collect.Sets;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Catalog;
@@ -50,13 +55,6 @@ import org.apache.doris.thrift.TOlapTableSink;
 import org.apache.doris.thrift.TPaloNodesInfo;
 import org.apache.doris.thrift.TTabletLocation;
 import org.apache.doris.thrift.TUniqueId;
-
-import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Range;
-import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -88,15 +86,15 @@ public class OlapTableSink extends DataSink {
         this.partitions = Strings.emptyToNull(partitions);
     }
 
-    public void init(TUniqueId loadId, long txnId, long dbId) throws AnalysisException {
+    public void init(TUniqueId loadId, long txnId, long dbId, long memTableBytes) throws AnalysisException {
         TOlapTableSink tSink = new TOlapTableSink();
         tSink.setLoad_id(loadId);
         tSink.setTxn_id(txnId);
         tSink.setDb_id(dbId);
+        tSink.setIngestion_memtable_bytes(memTableBytes);// set memtable size
         tDataSink = new TDataSink(TDataSinkType.DATA_SPLIT_SINK);
         tDataSink.setType(TDataSinkType.OLAP_TABLE_SINK);
         tDataSink.setOlap_table_sink(tSink);
-
         // check partition
         if (partitions != null) {
             if (dstTable.getPartitionInfo().getType() == PartitionType.UNPARTITIONED) {

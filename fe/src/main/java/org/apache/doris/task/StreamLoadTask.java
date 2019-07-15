@@ -17,6 +17,7 @@
 
 package org.apache.doris.task;
 
+import com.google.common.base.Joiner;
 import org.apache.doris.analysis.ColumnSeparator;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnDesc;
@@ -32,9 +33,6 @@ import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TUniqueId;
-
-import com.google.common.base.Joiner;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -58,6 +56,7 @@ public class StreamLoadTask {
     private String path;
     private boolean negative;
     private int timeout = Config.stream_load_default_timeout_second;
+    private long load_memtable_bytes = -1;
 
     public StreamLoadTask(TUniqueId id, long txnId, TFileType fileType, TFileFormatType formatType) {
         this.id = id;
@@ -110,6 +109,10 @@ public class StreamLoadTask {
         return timeout;
     }
 
+    public long getLoadMemTableBytes() {
+        return load_memtable_bytes;
+    }
+
     public static StreamLoadTask fromTStreamLoadPutRequest(TStreamLoadPutRequest request) throws UserException {
         StreamLoadTask streamLoadTask = new StreamLoadTask(request.getLoadId(), request.getTxnId(),
                                                            request.getFileType(), request.getFormatType());
@@ -142,6 +145,9 @@ public class StreamLoadTask {
         }
         if (request.isSetTimeout()) {
             timeout = request.getTimeout();
+        }
+        if (request.isSetIngestion_memtable_bytes()) {
+            load_memtable_bytes = request.getIngestion_memtable_bytes();
         }
     }
 

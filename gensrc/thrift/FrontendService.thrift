@@ -523,6 +523,7 @@ struct TStreamLoadPutRequest {
     16: optional i64 auth_code
     17: optional bool negative
     18: optional i32 timeout
+    19: optional i64 ingestion_memtable_bytes //Set MemTable used size.
 }
 
 struct TStreamLoadPutResult {

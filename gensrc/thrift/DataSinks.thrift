@@ -104,6 +104,8 @@ struct TOlapTableSink {
     11: required Descriptors.TOlapTablePartitionParam partition
     12: required Descriptors.TOlapTableLocationParam location
     13: required Descriptors.TPaloNodesInfo nodes_info
+    // Set MemTable used memory size in stream load
+    14: optional i64 ingestion_memtable_bytes;
 }
 
 struct TDataSink {

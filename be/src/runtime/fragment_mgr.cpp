@@ -453,6 +453,11 @@ Status FragmentMgr::exec_plan_fragment(
                        new ThreadPool::WorkFunction(
                            std::bind<void>(&FragmentMgr::exec_actual, this, exec_state, cb)));
         if (ret != 0) {
+            {
+                // Remove the exec state added
+                std::lock_guard<std::mutex> lock(_lock);
+                _fragment_map.erase(fragment_instance_id);
+            }
             std::string err_msg("Could not create thread.");
             err_msg.append(strerror(ret));
             err_msg.append(",");

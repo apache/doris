@@ -56,6 +56,7 @@ public class LoadLoadingTask extends LoadTask {
     private final long jobDeadlineMs;
     private final long execMemLimit;
     private final boolean strictMode;
+    private final long ingestionMemTableBytes;
     private final long txnId;
 
     private LoadingTaskPlanner planner;
@@ -63,7 +64,7 @@ public class LoadLoadingTask extends LoadTask {
     public LoadLoadingTask(Database db, OlapTable table,
                            BrokerDesc brokerDesc, List<BrokerFileGroup> fileGroups,
                            long jobDeadlineMs, long execMemLimit, boolean strictMode,
-                           long txnId, LoadTaskCallback callback) {
+                           long ingestionMemTableBytes, long txnId, LoadTaskCallback callback) {
         super(callback);
         this.db = db;
         this.table = table;
@@ -72,6 +73,7 @@ public class LoadLoadingTask extends LoadTask {
         this.jobDeadlineMs = jobDeadlineMs;
         this.execMemLimit = execMemLimit;
         this.strictMode = strictMode;
+        this.ingestionMemTableBytes = ingestionMemTableBytes;
         this.txnId = txnId;
         this.failMsg = new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL);
         this.retryTime = 2; // 2 times is enough
@@ -79,7 +81,8 @@ public class LoadLoadingTask extends LoadTask {
 
     public void init(TUniqueId loadId, List<List<TBrokerFileStatus>> fileStatusList, int fileNum) throws UserException {
         this.loadId = loadId;
-        planner = new LoadingTaskPlanner(callback.getCallbackId(), txnId, db.getId(), table, brokerDesc, fileGroups, strictMode);
+        planner = new LoadingTaskPlanner(callback.getCallbackId(), txnId, db.getId(), table, brokerDesc,
+                                fileGroups, strictMode, ingestionMemTableBytes);
         planner.plan(loadId, fileStatusList, fileNum);
     }
 

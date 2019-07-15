@@ -405,7 +405,7 @@ bool BrokerScanner::write_slot(
     if (slot->type().is_string_type()) {
         int char_len = column_type.len;
         if (value.size > char_len) {
-            (*error_msg) << "the length of input is too long than schema. "
+            (*error_msg) << "BrokerScanner the length of input is too long than schema. "
                     << "column_name: " << column_name << "; "
                     << "input_str: [" << value.to_string() << "] "
                     << "type: " << slot->type() << "; "

@@ -103,7 +103,7 @@ public class StreamLoadPlanner {
 
         // create dest sink
         OlapTableSink olapTableSink = new OlapTableSink(destTable, tupleDesc, streamLoadTask.getPartitions());
-        olapTableSink.init(loadId, streamLoadTask.getTxnId(), db.getId());
+        olapTableSink.init(loadId, streamLoadTask.getTxnId(), db.getId(), streamLoadTask.getLoadMemTableBytes());
         olapTableSink.finalize();
 
         // for stream load, we only need one fragment, ScanNode -> DataSink.

@@ -95,6 +95,7 @@ void NodeChannel::open() {
     }
     request.set_num_senders(_parent->_num_senders);
     request.set_need_gen_rollup(_parent->_need_gen_rollup);
+    request.set_ingestion_memtable_bytes(_parent->_ingestion_memtable_bytes);
 
     _open_closure = new RefCountClosure<PTabletWriterOpenResult>();
     _open_closure->ref();
@@ -391,8 +392,8 @@ bool IndexChannel::_handle_failed_node(NodeChannel* channel) {
 OlapTableSink::OlapTableSink(ObjectPool* pool,
                              const RowDescriptor& row_desc,
                              const std::vector<TExpr>& texprs,
-                             Status* status)
-        : _pool(pool), _input_row_desc(row_desc), _filter_bitmap(1024) {
+                             int64_t ingestion_memtable_bytes, Status* status)
+        : _pool(pool), _input_row_desc(row_desc), _filter_bitmap(1024), _ingestion_memtable_bytes(ingestion_memtable_bytes) {
     if (!texprs.empty()) {
         *status = Expr::create_expr_trees(_pool, texprs, &_output_expr_ctxs);
     }
@@ -703,7 +704,7 @@ int OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitmap* 
                 StringValue* str_val = (StringValue*)slot;
                 if (str_val->len > desc->type().len) {
                     std::stringstream ss;
-                    ss << "the length of input is too long than schema. "
+                    ss << "OlapTableSink the length of input is too long than schema. "
                         << "column_name: " << desc->col_name() << "; "
                         << "input_str: [" << std::string(str_val->ptr, str_val->len) << "] "
                         << "schema length: " << desc->type().len << "; "

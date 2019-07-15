@@ -17,6 +17,11 @@
 
 package org.apache.doris.planner;
 
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mocked;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Range;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
@@ -36,17 +41,9 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TUniqueId;
-
-import com.google.common.collect.Lists;
-import com.google.common.collect.Range;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.junit.Test;
-
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mocked;
 
 public class OlapTableSinkTest {
     private static final Logger LOG = LogManager.getLogger(OlapTableSinkTest.class);
@@ -98,7 +95,7 @@ public class OlapTableSinkTest {
         }};
 
         OlapTableSink sink = new OlapTableSink(dstTable, tuple);
-        sink.init(new TUniqueId(1, 2), 3, 4);
+        sink.init(new TUniqueId(1, 2), 3, 4, -1);
         sink.finalize();
         LOG.info("sink is {}", sink.toThrift());
         LOG.info("{}", sink.getExplainString("", TExplainLevel.NORMAL));
@@ -134,7 +131,7 @@ public class OlapTableSinkTest {
         }};
 
         OlapTableSink sink = new OlapTableSink(dstTable, tuple, "p1");
-        sink.init(new TUniqueId(1, 2), 3, 4);
+        sink.init(new TUniqueId(1, 2), 3, 4, -1);
         try {
             sink.finalize();
         } catch (UserException e) {
@@ -156,7 +153,7 @@ public class OlapTableSinkTest {
         }};
 
         OlapTableSink sink = new OlapTableSink(dstTable, tuple, "p3");
-        sink.init(new TUniqueId(1, 2), 3, 4);
+        sink.init(new TUniqueId(1, 2), 3, 4, -1);
         sink.finalize();
         LOG.info("sink is {}", sink.toThrift());
         LOG.info("{}", sink.getExplainString("", TExplainLevel.NORMAL));
@@ -173,7 +170,7 @@ public class OlapTableSinkTest {
         }};
 
         OlapTableSink sink = new OlapTableSink(dstTable, tuple, "p1");
-        sink.init(new TUniqueId(1, 2), 3, 4);
+        sink.init(new TUniqueId(1, 2), 3, 4, -1);
         sink.finalize();
         LOG.info("sink is {}", sink.toThrift());
         LOG.info("{}", sink.getExplainString("", TExplainLevel.NORMAL));

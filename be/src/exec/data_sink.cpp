@@ -112,7 +112,21 @@ Status DataSink::create_data_sink(
     case TDataSinkType::OLAP_TABLE_SINK: {
         Status status;
         DCHECK(thrift_sink.__isset.olap_table_sink);
-        sink->reset(new stream_load::OlapTableSink(pool, row_desc, output_exprs, &status));
+        TOlapTableSink olap_table_sink = thrift_sink.olap_table_sink;
+        int64_t ingestion_memtable_bytes = olap_table_sink.__isset.ingestion_memtable_bytes ?
+                olap_table_sink.ingestion_memtable_bytes : -1;
+        if (ingestion_memtable_bytes != -1) {
+            if (ingestion_memtable_bytes < config::memtable_buffer_min_size) {//100M
+                 std::stringstream ss;
+                 ss << "stream load memtable bytes is too small. it is between 100MB to 2GB";
+                 return Status::InternalError(ss.str());
+            } else if (ingestion_memtable_bytes > config::memtable_buffer_max_size){//2GB
+                 std::stringstream ss;
+                 ss << "stream load memtable bytes is too big. it is between 100MB to 2GB";
+                 return Status::InternalError(ss.str());
+            }
+        }
+        sink->reset(new stream_load::OlapTableSink(pool, row_desc, output_exprs, ingestion_memtable_bytes, &status));
         RETURN_IF_ERROR(status);
         break;
     }

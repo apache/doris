@@ -18,7 +18,10 @@
 package org.apache.doris.service;
 
 import static org.apache.doris.thrift.TStatusCode.NOT_IMPLEMENTED_ERROR;
-
+import com.google.common.base.Joiner;
+import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
@@ -99,12 +102,6 @@ import org.apache.doris.thrift.TUpdateMiniEtlTaskStatusRequest;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TxnCommitAttachment;
-
-import com.google.common.base.Joiner;
-import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -504,7 +501,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             status.addToError_msgs(e.getMessage());
             return result;
         } catch (Throwable e) {
-            LOG.warn("catch unknown result.", e);
+            LOG.error("miniLoadBegin catch unknown result.", e);
             status.setStatus_code(TStatusCode.INTERNAL_ERROR);
             status.addToError_msgs(Strings.nullToEmpty(e.getMessage()));
             return result;
@@ -583,7 +580,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             status.addToError_msgs(e.getMessage());
             return result;
         } catch (Throwable e) {
-            LOG.warn("catch unknown result.", e);
+            LOG.error("loadCheck catch unknown result.", e);
             status.setStatus_code(TStatusCode.INTERNAL_ERROR);
             status.addToError_msgs(Strings.nullToEmpty(e.getMessage()));
             return result;
@@ -612,7 +609,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             status.setStatus_code(TStatusCode.ANALYSIS_ERROR);
             status.addToError_msgs(e.getMessage());
         } catch (Throwable e) {
-            LOG.warn("catch unknown result.", e);
+            LOG.error("loadTxnBegin catch unknown result.", e);
             status.setStatus_code(TStatusCode.INTERNAL_ERROR);
             status.addToError_msgs(Strings.nullToEmpty(e.getMessage()));
             return result;
@@ -674,7 +671,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             status.setStatus_code(TStatusCode.ANALYSIS_ERROR);
             status.addToError_msgs(e.getMessage());
         } catch (Throwable e) {
-            LOG.warn("catch unknown result.", e);
+            LOG.error("loadTxnCommit catch unknown result.", e);
             status.setStatus_code(TStatusCode.INTERNAL_ERROR);
             status.addToError_msgs(Strings.nullToEmpty(e.getMessage()));
             return result;
@@ -731,7 +728,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             status.setStatus_code(TStatusCode.ANALYSIS_ERROR);
             status.addToError_msgs(e.getMessage());
         } catch (Throwable e) {
-            LOG.warn("catch unknown result.", e);
+            LOG.error("loadTxnRollback catch unknown result.", e);
             status.setStatus_code(TStatusCode.INTERNAL_ERROR);
             status.addToError_msgs(Strings.nullToEmpty(e.getMessage()));
             return result;
@@ -776,7 +773,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             status.setStatus_code(TStatusCode.ANALYSIS_ERROR);
             status.addToError_msgs(e.getMessage());
         } catch (Throwable e) {
-            LOG.warn("catch unknown result.", e);
+            LOG.error("streamLoadPut catch unknown result.", e);
             status.setStatus_code(TStatusCode.INTERNAL_ERROR);
             status.addToError_msgs(Strings.nullToEmpty(e.getMessage()));
             return result;

@@ -47,14 +47,14 @@ struct WriteRequest {
     PUniqueId load_id;
     bool need_gen_rollup;
     TupleDescriptor* tuple_desc;
+    int64_t limit_memtable_size; // default-value is config::write_buffer_size
 };
 
 class DeltaWriter {
 public:
     static OLAPStatus open(WriteRequest* req, DeltaWriter** writer);
-    OLAPStatus init();
-    DeltaWriter(WriteRequest* req);
     ~DeltaWriter();
+    OLAPStatus init();
     OLAPStatus write(Tuple* tuple);
     OLAPStatus close(google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec);
 
@@ -63,6 +63,7 @@ public:
     int64_t partition_id() const { return _req.partition_id; }
 
 private:
+    DeltaWriter(WriteRequest* req);
     void _garbage_collection();
 
 private:

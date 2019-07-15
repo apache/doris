@@ -36,7 +36,12 @@ DeltaWriter::DeltaWriter(WriteRequest* req)
       _cur_rowset(nullptr), _new_rowset(nullptr), _new_tablet(nullptr),
       _rowset_writer(nullptr), _mem_table(nullptr),
       _schema(nullptr), _tablet_schema(nullptr),
-      _delta_written_success(false) {}
+      _delta_written_success(false) {
+    if (_req.limit_memtable_size <= 0) {//limit_memtable_size less than 0 if user not set
+        _req.limit_memtable_size = config::write_buffer_size;
+    }
+    //LOG(WARNING) << "_req.limit_memtable_size: " << _req.limit_memtable_size;
+}
 
 DeltaWriter::~DeltaWriter() {
     if (!_delta_written_success) {
@@ -169,7 +174,7 @@ OLAPStatus DeltaWriter::write(Tuple* tuple) {
     }
 
     _mem_table->insert(tuple);
-    if (_mem_table->memory_usage() >= config::write_buffer_size) {
+    if (_mem_table->memory_usage() >= _req.limit_memtable_size) {
         RETURN_NOT_OK(_mem_table->flush(_rowset_writer));
 
         SAFE_DELETE(_mem_table);

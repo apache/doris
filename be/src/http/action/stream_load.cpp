@@ -328,6 +328,19 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
         request.__set_negative(false);
     }
 
+    if (!http_req->header(HTTP_STREAM_ING_MEMTABLE_BYTES).empty()) {
+        int64_t memtable_bytes = atoi(http_req->header(HTTP_STREAM_ING_MEMTABLE_BYTES).c_str());
+        if (memtable_bytes < config::memtable_buffer_min_size) {//100M
+            std::stringstream ss;
+            ss << "stream load memtable bytes is too small. it is between 100MB to 2GB";
+            return Status::InternalError(ss.str());
+        } else if (memtable_bytes > config::memtable_buffer_max_size){//2GB
+            std::stringstream ss;
+            ss << "stream load memtable bytes is too big. it is between 100MB to 2GB";
+            return Status::InternalError(ss.str());
+        }
+        request.__set_ingestion_memtable_bytes(memtable_bytes);
+    }
     // plan this load
     TNetworkAddress master_addr = _exec_env->master_info()->network_address;
 #ifndef BE_TEST
@@ -350,6 +363,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
         return plan_status;
     }
     VLOG(3) << "params is " << apache::thrift::ThriftDebugString(ctx->put_result.params);
+
     // if we not use streaming, we must download total content before we begin
     // to process this load
     if (!ctx->use_streaming) {

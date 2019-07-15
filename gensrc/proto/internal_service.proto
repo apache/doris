@@ -68,6 +68,7 @@ message PTabletWriterOpenRequest {
     repeated PTabletWithPartition tablets = 5;
     required int32 num_senders = 6;
     required bool need_gen_rollup = 7;
+    optional int64 ingestion_memtable_bytes = 8; // BYTES
 };
 
 message PTabletWriterOpenResult {

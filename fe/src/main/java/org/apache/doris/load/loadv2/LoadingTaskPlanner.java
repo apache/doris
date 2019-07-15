@@ -17,6 +17,9 @@
 
 package org.apache.doris.load.loadv2;
 
+import com.google.common.base.Joiner;
+import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.DescriptorTable;
@@ -45,11 +48,6 @@ import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TUniqueId;
-
-import com.google.common.base.Joiner;
-import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -67,6 +65,7 @@ public class LoadingTaskPlanner {
     private final BrokerDesc brokerDesc;
     private final List<BrokerFileGroup> fileGroups;
     private final boolean strictMode;
+    private final long ingestionMemTableBytes;
 
     // Something useful
     private Analyzer analyzer = new Analyzer(Catalog.getInstance(), null);
@@ -80,7 +79,7 @@ public class LoadingTaskPlanner {
 
     public LoadingTaskPlanner(Long loadJobId, long txnId, long dbId, OlapTable table,
                               BrokerDesc brokerDesc, List<BrokerFileGroup> brokerFileGroups,
-                              boolean strictMode) {
+                              boolean strictMode, long ingestionMemTableBytes) {
         this.loadJobId = loadJobId;
         this.txnId = txnId;
         this.dbId = dbId;
@@ -88,6 +87,7 @@ public class LoadingTaskPlanner {
         this.brokerDesc = brokerDesc;
         this.fileGroups = brokerFileGroups;
         this.strictMode = strictMode;
+        this.ingestionMemTableBytes = ingestionMemTableBytes;
     }
 
     public void plan(TUniqueId loadId, List<List<TBrokerFileStatus>> fileStatusesList, int filesAdded)
@@ -120,7 +120,7 @@ public class LoadingTaskPlanner {
         // 2. Olap table sink
         String partitionNames = convertBrokerDescPartitionInfo();
         OlapTableSink olapTableSink = new OlapTableSink(table, tupleDesc, partitionNames);
-        olapTableSink.init(loadId, txnId, dbId);
+        olapTableSink.init(loadId, txnId, dbId, ingestionMemTableBytes);
         olapTableSink.finalize();
 
         // 3. Plan fragment

@@ -59,7 +59,8 @@ public class LoadStmt extends DdlStmt {
     public static final String CLUSTER_PROPERTY = "cluster";
     private static final String VERSION = "version";
     public static final String STRICT_MODE = "strict_mode";
-    
+    public static final String ING_MEMTABLE_BYTES = "ingestion_memtable_bytes";// MemTable Max Size
+
     // for load data from Baidu Object Store(BOS)
     public static final String BOS_ENDPOINT = "bos_endpoint";
     public static final String BOS_ACCESSKEY = "bos_accesskey";
@@ -91,6 +92,7 @@ public class LoadStmt extends DdlStmt {
             .add(CLUSTER_PROPERTY)
             .add(STRICT_MODE)
             .add(VERSION)
+            .add(ING_MEMTABLE_BYTES)
             .build();
     
     public LoadStmt(LabelName label, List<DataDescription> dataDescriptions,
@@ -194,6 +196,28 @@ public class LoadStmt extends DdlStmt {
             }
         }
 
+        //memtable
+        final String memTableBytes = properties.get(ING_MEMTABLE_BYTES);
+        if (memTableBytes != null) {
+            if (memTableBytes.length() == 0) {
+                throw new DdlException(ING_MEMTABLE_BYTES + " is empty");
+            }
+            if (!isNumeric(memTableBytes)) {
+                throw new DdlException(ING_MEMTABLE_BYTES + " is not a number");
+            }
+        }
+    }
+
+    private static boolean isNumeric(String str){
+        if (str.charAt(0) == '0') {
+            return false;
+        }
+        for(int i = 0; i < str.length(); i++){
+            int chr = str.charAt(i);
+            if(chr < 48 || chr > 57)
+                return false;
+        }
+        return true;
     }
 
     private void analyzeVersion() {
