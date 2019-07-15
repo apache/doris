@@ -242,10 +242,10 @@ OLAPStatus SegmentGroup::add_zone_maps_for_linked_schema_change(
         return OLAP_SUCCESS;
     }
 
-    //1. rollup tablet num_key_columns() will less than base tablet zone_map_fields.size().
-    //   For LinkedSchemaChange, the rollup tablet keys order is the same as base tablet
-    //2. adding column to existed table, num_key_columns() will larger than
-    //   zone_map_fields.size()
+    // 1. rollup tablet num_key_columns() will less than base tablet zone_map_fields.size().
+    //    For LinkedSchemaChange, the rollup tablet keys order is the same as base tablet
+    // 2. adding column to existed table, num_key_columns() will larger than
+    //    zone_map_fields.size()
 
     int num_new_keys = 0;
     for (size_t i = 0; i < _schema->num_key_columns(); ++i) {
@@ -257,7 +257,7 @@ OLAPStatus SegmentGroup::add_zone_maps_for_linked_schema_change(
         WrapperField* second = WrapperField::create(column);
         DCHECK(second != NULL) << "failed to allocate memory for field: " << i;
 
-        //for new key column, use default value to fill into column_statistics
+        // for new key column, use default value to fill into column_statistics
         if (schema_mapping[i].ref_column == -1) {
             num_new_keys++;
 
