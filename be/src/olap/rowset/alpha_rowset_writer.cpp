@@ -133,6 +133,7 @@ OLAPStatus AlphaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
         RETURN_NOT_OK(flush());
         _num_rows_written += segment_group->num_rows();
     }
+    LOG(INFO) << "clone add_rowset:" << _num_rows_written;
     return OLAP_SUCCESS;
 }
 
@@ -225,7 +226,7 @@ RowsetSharedPtr AlphaRowsetWriter::build() {
     // validate rowset arguments before create rowset
     bool ret = _validate_rowset();
     if (!ret) {
-        LOG(FATAL) << "valiate rowset arguments failed";
+        LOG(FATAL) << "validate rowset arguments failed";
         return nullptr;
     }
 
