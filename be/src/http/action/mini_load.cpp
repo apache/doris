@@ -664,6 +664,7 @@ Status MiniLoadAction::_begin_mini_load(StreamLoadContext* ctx) {
     ctx->txn_id = res.txn_id;
     // txn has been begun in fe
     ctx->need_rollback = true;
+    LOG(INFO) << "load:" << ctx->label << " txn:" << res.txn_id << " has been begun in fe";
     return Status::OK();
 }
 
