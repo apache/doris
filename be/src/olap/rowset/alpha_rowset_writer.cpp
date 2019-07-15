@@ -129,7 +129,28 @@ OLAPStatus AlphaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
                                                            _rowset_writer_context.rowset_id));
         _cur_segment_group->set_empty(segment_group->empty());
         _cur_segment_group->set_num_segments(segment_group->num_segments());
-        _cur_segment_group->add_zone_maps_for_linked_schema_change(segment_group->get_zone_maps());
+        _cur_segment_group->add_zone_maps(segment_group->get_zone_maps());
+        RETURN_NOT_OK(flush());
+        _num_rows_written += segment_group->num_rows();
+    }
+    return OLAP_SUCCESS;
+}
+
+OLAPStatus AlphaRowsetWriter::add_rowset_for_linked_schema_change(
+        RowsetSharedPtr rowset, const SchemaMapping& schema_mapping) {
+    _need_column_data_writer = false;
+    // this api is for LinkedSchemaChange
+    // use create hard link to copy rowset for performance
+    // this is feasible because LinkedSchemaChange is done on the same disk
+    AlphaRowsetSharedPtr alpha_rowset = std::dynamic_pointer_cast<AlphaRowset>(rowset);
+    for (auto& segment_group : alpha_rowset->_segment_groups) {
+        RETURN_NOT_OK(_init());
+        RETURN_NOT_OK(segment_group->link_segments_to_path(_rowset_writer_context.rowset_path_prefix,
+                                                           _rowset_writer_context.rowset_id));
+        _cur_segment_group->set_empty(segment_group->empty());
+        _cur_segment_group->set_num_segments(segment_group->num_segments());
+        _cur_segment_group->add_zone_maps_for_linked_schema_change(segment_group->get_zone_maps(),
+                                                                   schema_mapping);
         RETURN_NOT_OK(flush());
         _num_rows_written += segment_group->num_rows();
     }

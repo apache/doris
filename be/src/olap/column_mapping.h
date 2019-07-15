@@ -33,5 +33,7 @@ struct ColumnMapping {
     WrapperField* default_value;
 };
 
+typedef std::vector<ColumnMapping> SchemaMapping;
+
 }  // namespace doris
 #endif // DORIS_BE_SRC_COLUMN_MAPPING_H
