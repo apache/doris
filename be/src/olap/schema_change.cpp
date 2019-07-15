@@ -634,7 +634,8 @@ bool LinkedSchemaChange::process(
         RowsetWriterSharedPtr new_rowset_writer,
         TabletSharedPtr new_tablet,
         TabletSharedPtr base_tablet) {
-    OLAPStatus status = new_rowset_writer->add_rowset(rowset_reader->rowset());
+    OLAPStatus status = new_rowset_writer->add_rowset_for_linked_schema_change(
+                            rowset_reader->rowset(), _row_block_changer.get_schema_mapping());
     if (status != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to convert rowset."
                      << ", new_tablet=" << new_tablet->full_name()
@@ -1426,7 +1427,7 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
         sc_procedure = new(nothrow) SchemaChangeDirectly(rb_changer);
     } else {
         LOG(INFO) << "doing linked schema change.";
-        sc_procedure = new(nothrow) LinkedSchemaChange();
+        sc_procedure = new(nothrow) LinkedSchemaChange(rb_changer);
     }
 
     if (sc_procedure == nullptr) {
@@ -1652,7 +1653,7 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
         sc_procedure = new(nothrow) SchemaChangeDirectly(rb_changer);
     } else {
         LOG(INFO) << "doing linked schema change.";
-        sc_procedure = new(nothrow) LinkedSchemaChange();
+        sc_procedure = new(nothrow) LinkedSchemaChange(rb_changer);
     }
 
     if (sc_procedure == nullptr) {

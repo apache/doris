@@ -48,6 +48,8 @@ public:
 
     // add rowset by create hard link
     OLAPStatus add_rowset(RowsetSharedPtr rowset) override;
+    OLAPStatus add_rowset_for_linked_schema_change(
+            RowsetSharedPtr rowset, const SchemaMapping& schema_mapping) override;
 
     OLAPStatus flush() override;
 

@@ -23,15 +23,16 @@
 #include <fstream>
 #include <sstream>
 
+#include "olap/data_dir.h"
+#include "olap/column_mapping.h"
 #include "olap/rowset/column_data.h"
 #include "olap/row_block.h"
 #include "olap/row_cursor.h"
+#include "olap/schema.h"
+#include "olap/storage_engine.h"
 #include "olap/utils.h"
 #include "olap/wrapper_field.h"
-#include "olap/schema.h"
 #include "util/stack_util.h"
-#include "olap/storage_engine.h"
-#include "olap/data_dir.h"
 
 using std::ifstream;
 using std::string;
@@ -234,27 +235,42 @@ bool SegmentGroup::delete_all_files() {
 }
 
 OLAPStatus SegmentGroup::add_zone_maps_for_linked_schema_change(
-        const std::vector<std::pair<WrapperField*, WrapperField*>>& zone_map_fields) {
+        const std::vector<std::pair<WrapperField*, WrapperField*>>& zone_map_fields,
+        const SchemaMapping& schema_mapping) {
     //When add rollup tablet, the base tablet index maybe empty
     if (zone_map_fields.size() == 0) {
         return OLAP_SUCCESS;
     }
 
-    //Should use _num_key_columns, not zone_map_fields.size()
-    //as rollup tablet num_key_columns will less than base tablet zone_map_fields.size().
-    //For LinkedSchemaChange, the rollup tablet keys order is the same as base tablet
+    // 1. rollup tablet num_key_columns() will less than base tablet zone_map_fields.size().
+    //    For LinkedSchemaChange, the rollup tablet keys order is the same as base tablet
+    // 2. adding column to existed table, num_key_columns() will larger than
+    //    zone_map_fields.size()
+
+    int num_new_keys = 0;
     for (size_t i = 0; i < _schema->num_key_columns(); ++i) {
         const TabletColumn& column = _schema->column(i);
+
         WrapperField* first = WrapperField::create(column);
         DCHECK(first != NULL) << "failed to allocate memory for field: " << i;
-        first->copy(zone_map_fields[i].first);
 
         WrapperField* second = WrapperField::create(column);
         DCHECK(second != NULL) << "failed to allocate memory for field: " << i;
-        second->copy(zone_map_fields[i].second);
+
+        // for new key column, use default value to fill into column_statistics
+        if (schema_mapping[i].ref_column == -1) {
+            num_new_keys++;
+
+            first->copy(schema_mapping[i].default_value);
+            second->copy(schema_mapping[i].default_value);
+        } else {
+            first->copy(zone_map_fields[i - num_new_keys].first);
+            second->copy(zone_map_fields[i - num_new_keys].second);
+        }
 
         _zone_maps.push_back(std::make_pair(first, second));
     }
+
     return OLAP_SUCCESS;
 }
 
