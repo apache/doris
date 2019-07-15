@@ -79,7 +79,7 @@ TypeInfoResolver::TypeInfoResolver() {
 TypeInfoResolver::~TypeInfoResolver() {}
 
 TypeInfo* get_type_info(FieldType field_type) {
-    return TypeInfoResolver::get_instance()->get_type_info(field_type);
+    return TypeInfoResolver::instance()->get_type_info(field_type);
 }
 
 } // namespace doris

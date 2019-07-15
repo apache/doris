@@ -32,7 +32,8 @@
 #include "http/http_status.h"
 #include "runtime/exec_env.h"
 #include "olap/olap_define.h"
-#include "olap/olap_engine.h"
+#include "olap/storage_engine.h"
+#include "olap/snapshot_manager.h"
 
 namespace doris {
 
@@ -104,7 +105,7 @@ int64_t SnapshotAction::make_snapshot(int64_t tablet_id, int32_t schema_hash,
     request.schema_hash = schema_hash;
 
     OLAPStatus res = OLAPStatus::OLAP_SUCCESS;
-    res = _exec_env->olap_engine()->make_snapshot(request, snapshot_path);
+    res = SnapshotManager::instance()->make_snapshot(request, snapshot_path);
     if (res != OLAPStatus::OLAP_SUCCESS) {
         LOG(WARNING) << "make snapshot failed. status: " << res
                      << ", signature: " << tablet_id;

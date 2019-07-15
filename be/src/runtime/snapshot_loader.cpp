@@ -29,8 +29,9 @@
 #include "exec/broker_reader.h"
 #include "exec/broker_writer.h"
 #include "olap/file_helper.h"
-#include "olap/olap_engine.h"
-#include "olap/olap_table.h"
+#include "olap/snapshot_manager.h"
+#include "olap/storage_engine.h"
+#include "olap/tablet.h"
 #include "runtime/exec_env.h"
 #include "runtime/broker_mgr.h"
 #include "util/file_utils.h"
@@ -488,10 +489,10 @@ Status SnapshotLoader::download(
 // MUST hold tablet's header lock, push lock, cumulative lock and base compaction lock
 Status SnapshotLoader::move(
     const std::string& snapshot_path,
-    const std::string& tablet_path,
-    const std::string& store_path,
+    TabletSharedPtr tablet,
     bool overwrite) {
-
+    std::string tablet_path = tablet->tablet_path();
+    std::string store_path = tablet->data_dir()->path();
     LOG(INFO) << "begin to move snapshot files. from: "
               << snapshot_path << ", to: " << tablet_path
               << ", store: " << store_path << ", job: " << _job_id
@@ -519,6 +520,15 @@ Status SnapshotLoader::move(
         return Status::InternalError(ss.str());
     }
 
+
+    DataDir* store = StorageEngine::instance()->get_store(store_path);
+    if (store == nullptr) {
+        std::stringstream ss;
+        ss << "failed to get store by path: " << store_path;
+        LOG(WARNING) << ss.str();
+        return Status::InternalError(ss.str());
+    }
+
     boost::filesystem::path tablet_dir(tablet_path);
     boost::filesystem::path snapshot_dir(snapshot_path);
     if (!boost::filesystem::exists(tablet_dir)) {
@@ -535,21 +545,20 @@ Status SnapshotLoader::move(
         return Status::InternalError(ss.str());
     }
 
+    // rename the rowset ids and tabletid info in rowset meta
+    OLAPStatus convert_status = SnapshotManager::instance()->convert_rowset_ids(*store, 
+        snapshot_path, tablet_id, schema_hash, tablet);
+    if (convert_status != OLAP_SUCCESS) {
+        std::stringstream ss;
+        ss << "failed to convert rowsetids in snapshot: " << snapshot_path
+            << ", tablet path: " << tablet_path;
+        LOG(WARNING) << ss.str();
+        return Status::InternalError(ss.str());
+    }
+
     if (overwrite) {
         std::vector<std::string> snapshot_files;
         RETURN_IF_ERROR(_get_existing_files_from_local(snapshot_path, &snapshot_files));
-
-        // 0. check all existing tablet files, revoke file if it is in GC queue
-        std::vector<std::string> tablet_files;
-        RETURN_IF_ERROR(_get_existing_files_from_local(tablet_path, &tablet_files));
-        std::vector<std::string> files_to_check;
-        for (auto& snapshot_file : snapshot_files) {
-            if (std::find(tablet_files.begin(), tablet_files.end(), snapshot_file) != tablet_files.end()) {
-                std::string file_path = tablet_path + "/" + snapshot_file;
-                files_to_check.emplace_back(std::move(file_path));
-            }
-        }
-        OLAPEngine::get_instance()->revoke_files_from_gc(files_to_check);
 
         // 1. simply delete the old dir and replace it with the snapshot dir
         try {
@@ -590,141 +599,22 @@ Status SnapshotLoader::move(
         }
 
     } else {
-        // This is not a overwrite move
-        // The files in tablet dir should be like this:
-        //
-        //  10001.hdr
-        //  10001_0_70_3286516299297662422_0.idx
-        //  10001_0_70_3286516299297662422_0.dat
-        //  10001_71_71_4684061214850851594_0.idx
-        //  10001_71_71_4684061214850851594_0.dat
-        //  ...
-        //
-        //  0-70 version is supposed to be the placeholder version
-        //
-        // The files in snapshot dir should be like this:
-        //  10001.hdr
-        //  10001_0_40_4684061214850851594_0.idx
-        //  10001_0_40_4684061214850851594_0.dat
-        //  10001_41_68_1097018054900466785_0.idx
-        //  10001_41_68_1097018054900466785_0.dat
-        //  10001_69_69_8126494056407230455_0.idx
-        //  10001_69_69_8126494056407230455_0.dat
-        //  10001_70_70_6330898043876688539_0.idx
-        //  10001_70_70_6330898043876688539_0.dat
-        //  10001_71_71_0_0.idx
-        //  10001_71_71_0_0.dat
-        //
-        //  71-71 may be exist as the palceholder version
-        //
-        // We need to move 0-70 version files from snapshot dir to
-        // replace the 0-70 placeholder version in tablet dir.
-        // than we merge the 2 .hdr file before reloading it.
-    
-        // load header in tablet dir to get the base vesion
-        OLAPTablePtr tablet = OLAPEngine::get_instance()->get_table(
-                tablet_id, schema_hash);
-        if (tablet.get() == NULL) {
-            std::stringstream ss;
-            ss << "failed to get tablet: " << tablet_id << ", schema hash: "
-                << schema_hash;
-            LOG(WARNING) << ss.str();
-            return Status::InternalError(ss.str());
-        }
-        // get base version
-        tablet->obtain_header_rdlock();
-        const PDelta* base_version = tablet->base_version();
-        tablet->release_header_lock();
-        if (base_version == nullptr) {
-            std::stringstream ss;
-            ss << "failed to get base version of tablet: " << tablet_id;
-            LOG(WARNING) << ss.str();
-            return Status::InternalError(ss.str());
-        }
-    
-        int32_t end_version = base_version->end_version();
-
-        // load snapshot tablet
-        std::stringstream hdr;
-        hdr << snapshot_path << "/" << tablet_id << ".hdr";
-        std::string snapshot_header_file = hdr.str();
-    
-        OLAPHeader snapshot_header(snapshot_header_file);
-        OLAPStatus ost = snapshot_header.load_and_init();
-        if (ost != OLAP_SUCCESS) {
-            LOG(WARNING) << "failed to load snapshot header: " << snapshot_header_file;
-            return Status::InternalError("failed to load snapshot header: " + snapshot_header_file);
-        }
-
-        LOG(INFO) << "begin to move snapshot files from version 0 to "
-                << end_version << ", tablet id: " << tablet_id;
-
-        // begin to move
-        try {
-            // delete the placeholder version in tablet dir
-            std::string dummy;
-            std::string place_holder_idx;
-            _assemble_file_name("", tablet_path, tablet_id,
-                    0, end_version,
-                    base_version->version_hash(), 0, ".idx",
-                    &dummy, &place_holder_idx);
-            boost::filesystem::remove(place_holder_idx);
-
-            std::string place_holder_dat;
-            _assemble_file_name("", tablet_path, tablet_id,
-                    0, end_version,
-                    base_version->version_hash(), 0, ".dat",
-                    &dummy, &place_holder_idx);
-            boost::filesystem::remove(place_holder_dat);
-
-            // copy files
-            int version_size = snapshot_header.file_version_size();
-            for (int i = 0; i < version_size; ++i) {
-                const FileVersionMessage& version = snapshot_header.file_version(i);
-                if (version.start_version() > end_version) {
-                    continue;
-                }
-                int seg_num = version.num_segments();
-                for (int j = 0; j < seg_num; i++) {
-                    // idx
-                    std::string idx_from;
-                    std::string idx_to;
-                    _assemble_file_name(snapshot_path, tablet_path, tablet_id,
-                            version.start_version(), version.end_version(),
-                            version.version_hash(), j, ".idx",
-                            &idx_from, &idx_to);
-
-                    boost::filesystem::copy_file(idx_from, idx_to);
-
-                    // dat
-                    std::string dat_from;
-                    std::string dat_to;
-                    _assemble_file_name(snapshot_path, tablet_path, tablet_id,
-                            version.start_version(), version.end_version(),
-                            version.version_hash(), j, ".dat",
-                            &dat_from, &dat_to);
-                    boost::filesystem::copy_file(dat_from, dat_to);
-                }
-            }
-        } catch (const boost::filesystem::filesystem_error& e) {
-            std::stringstream ss;
-            ss << "failed to move tablet path: " << tablet_path
-                << ". err: " << e.what();
-            LOG(WARNING) << ss.str();
-            return Status::InternalError(ss.str());
-        }
-
-        // merge 2 headers
-        ost = tablet->merge_header(snapshot_header, end_version);
-        if (ost != OLAP_SUCCESS) {
-            std::stringstream ss;
-            ss << "failed to move tablet path: " << tablet_path;
-            LOG(WARNING) << ss.str();
-            return Status::InternalError(ss.str());
-        }
+        LOG(FATAL) << "only support overwrite now";
     }
 
-    LOG(INFO) << "finished to move tablet: " << tablet_id;
+    // snapshot loader not need to change tablet uid
+    // fixme: there is no header now and can not call load_one_tablet here
+    // reload header
+    OLAPStatus ost = StorageEngine::instance()->tablet_manager()->load_tablet_from_dir(
+            store, tablet_id, schema_hash, tablet_path, true);
+    if (ost != OLAP_SUCCESS) {
+        std::stringstream ss;
+        ss << "failed to reload header of tablet: " << tablet_id;
+        LOG(WARNING) << ss.str();
+        return Status::InternalError(ss.str());
+    }
+    LOG(INFO) << "finished to reload header of tablet: " << tablet_id;
+
     return status;
 }
 
@@ -957,15 +847,7 @@ Status SnapshotLoader::_replace_tablet_id(
         return Status::OK();
     } else if (_end_with(file_name, ".idx")
             || _end_with(file_name, ".dat")) {
-        size_t pos = file_name.find_first_of("_");
-        if (pos == std::string::npos) {
-            return Status::InternalError("invalid tablet file name: " + file_name);
-        }
-
-        std::string suffix_part = file_name.substr(pos);
-        std::stringstream ss;
-        ss << tablet_id << suffix_part;
-        *new_file_name = ss.str();
+        *new_file_name = file_name;
         return Status::OK();
     } else {
         return Status::InternalError("invalid tablet file name: " + file_name);

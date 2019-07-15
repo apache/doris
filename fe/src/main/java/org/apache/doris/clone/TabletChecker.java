@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Partition.PartitionState;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Tablet;
@@ -199,6 +200,11 @@ public class TabletChecker extends Daemon {
 
                     OlapTable olapTbl = (OlapTable) table;
                     for (Partition partition : olapTbl.getPartitions()) {
+                        if (partition.getState() != PartitionState.NORMAL) {
+                            // when alter job is in FINISHING state, partition state will be set to NORMAL,
+                            // and we can schedule the tablets in it.
+                            continue;
+                        }
                         boolean isInPrios = isInPrios(dbId, table.getId(), partition.getId());
                         boolean prioPartIsHealthy = true;
                         for (MaterializedIndex idx : partition.getMaterializedIndices()) {

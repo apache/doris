@@ -267,8 +267,9 @@ public class Table extends MetaObject implements Writable {
     /*
      * 1. Only schedule OLAP table.
      * 2. If table is colocate with other table, not schedule it.
-     * 3. if table's state is not NORMAL, we will schedule it, but will only repair VERSION_IMCOMPLETE status,
-     *      this will be checked in TabletScheduler.
+     * 3. if table's state is ROLLUP or SCHEMA_CHANGE, but alter job's state is FINISHING, we should also
+     *      schedule the tablet to repair it(only for VERSION_IMCOMPLETE case, this will be checked in
+     *      TabletScheduler).
      */
     public boolean needSchedule() {
         if (type != TableType.OLAP) {

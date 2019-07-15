@@ -28,9 +28,12 @@
 #include <typeinfo>
 #include <unordered_map>
 #include <unordered_set>
+#include <functional>
 
 #include "gen_cpp/Types_types.h"
 #include "olap/olap_define.h"
+#include "util/hash_util.hpp"
+#include "util/uid_util.h"
 
 namespace doris {
 
@@ -39,30 +42,57 @@ typedef int64_t VersionHash;
 typedef __int128 int128_t;
 typedef unsigned __int128 uint128_t;
 
+typedef UniqueId TabletUid;
+
+enum CompactionType {
+    BASE_COMPACTION = 1,
+    CUMULATIVE_COMPACTION = 2
+};
+
+struct DataDirInfo {
+    DataDirInfo():
+            capacity(1),
+            available(0),
+            data_used_capacity(0),
+            is_used(false) { }
+
+    std::string path;
+    int64_t path_hash;
+    int64_t capacity;                  // 总空间，单位字节
+    int64_t available;                 // 可用空间，单位字节
+    int64_t data_used_capacity;
+    bool is_used;                       // 是否可用标识
+    TStorageMedium::type storage_medium;  // 存储介质类型：SSD|HDD
+};
+
 struct TabletInfo {
     TabletInfo(
             TTabletId in_tablet_id,
-            TSchemaHash in_schema_hash) :
+            TSchemaHash in_schema_hash, 
+            UniqueId in_uid) :
             tablet_id(in_tablet_id),
-            schema_hash(in_schema_hash) {}
+            schema_hash(in_schema_hash),
+            tablet_uid(in_uid) {}
 
     bool operator<(const TabletInfo& right) const {
         if (tablet_id != right.tablet_id) {
             return tablet_id < right.tablet_id;
-        } else {
+        } else if (schema_hash != right.schema_hash) {
             return schema_hash < right.schema_hash;
+        } else {
+            return tablet_uid < right.tablet_uid;
         }
     }
 
     std::string to_string() const {
         std::stringstream ss;
-        ss << "." << tablet_id
-           << "." << schema_hash;
+        ss << tablet_id << "." << schema_hash << "." << tablet_uid.to_string();
         return ss.str();
     }
 
     TTabletId tablet_id;
     TSchemaHash schema_hash;
+    UniqueId tablet_uid;
 };
 
 enum RangeCondition {
@@ -137,18 +167,6 @@ enum HllDataType {
     HLL_DATA_NONE
 };
 
-enum AlterTabletType {
-    ALTER_TABLET_SCHEMA_CHANGE = 1,           // add/drop/alter column
-    ALTER_TABLET_CREATE_ROLLUP_TABLE= 2,           // split one table to several sub tables
-};
-
-enum AlterTableStatus {
-    ALTER_TABLE_WAITING = 0,
-    ALTER_TABLE_RUNNING = 1,
-    ALTER_TABLE_FINISHED = 2,
-    ALTER_TABLE_FAILED = 3,
-};
-
 enum PushType {
     PUSH_NORMAL = 1,
     PUSH_FOR_DELETE = 2,
@@ -168,47 +186,26 @@ enum ReaderType {
 typedef std::pair<int64_t, int64_t> Version;
 typedef std::vector<Version> Versions;
 
+
+// used for hash-struct of hash_map<Version, Rowset*>.
+struct HashOfVersion {
+    size_t operator()(const Version& version) const {
+        size_t seed = 0;
+        seed = HashUtil::hash64(&version.first, sizeof(version.first), seed);
+        seed = HashUtil::hash64(&version.second, sizeof(version.second), seed);
+        return seed;
+    }
+};
+
 // It is used to represent Graph vertex.
 struct Vertex {
-    int value;
-    std::list<int>* edges;
+    int64_t value;
+    std::list<int64_t>* edges;
 };
 
 class Field;
 class WrapperField;
 using KeyRange = std::pair<WrapperField*, WrapperField*>;
-struct SegmentGroupEntity {
-    SegmentGroupEntity(int32_t segment_group_id, int32_t num_segments,
-                int64_t num_rows, size_t data_size, size_t index_size,
-                bool empty, const std::vector<KeyRange>* column_statistics)
-        : segment_group_id(segment_group_id), num_segments(num_segments), num_rows(num_rows),
-          data_size(data_size), index_size(index_size), empty(empty)
-    {
-        if (column_statistics != nullptr) {
-            key_ranges = *column_statistics;
-        }
-    }
-
-    int32_t segment_group_id;
-    int32_t num_segments;
-    int64_t num_rows;
-    size_t data_size;
-    size_t index_size;
-    bool empty;
-    std::vector<KeyRange> key_ranges;
-};
-
-struct VersionEntity {
-    VersionEntity(Version v, VersionHash version_hash)
-        : version(v), version_hash(version_hash) { }
-    void add_segment_group_entity(const SegmentGroupEntity& segment_group_entity) {
-        segment_group_vec.push_back(segment_group_entity);
-    }
-
-    Version version;
-    VersionHash version_hash;
-    std::vector<SegmentGroupEntity> segment_group_vec;
-};
 
 // ReaderStatistics used to collect statistics when scan data from storage
 struct OlapReaderStatistics {
@@ -242,6 +239,8 @@ typedef uint32_t ColumnId;
 typedef std::set<uint32_t> UniqueIdSet;
 // Column unique Id -> column id map
 typedef std::map<ColumnId, ColumnId> UniqueIdToColumnIdMap;
+
+typedef int64_t RowsetId;
 
 }  // namespace doris
 

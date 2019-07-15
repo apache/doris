@@ -37,9 +37,9 @@ using std::vector;
 
 namespace doris {
 
-RowBlock::RowBlock(const vector<FieldInfo>& tablet_schema) :
+RowBlock::RowBlock(const TabletSchema* schema) :
         _capacity(0),
-        _tablet_schema(tablet_schema) {
+        _schema(schema) {
     _tracker.reset(new MemTracker(-1));
     _mem_pool.reset(new MemPool(_tracker.get()));
 }
@@ -49,9 +49,8 @@ RowBlock::~RowBlock() {
 }
 
 OLAPStatus RowBlock::init(const RowBlockInfo& block_info) {
-    _field_count = _tablet_schema.size();
+    _field_count = _schema->num_columns();
     _info = block_info;
-    _data_file_type = block_info.data_file_type;
     _null_supported = block_info.null_supported;
     _capacity = _info.row_num;
     _compute_layout();
@@ -81,7 +80,7 @@ OLAPStatus RowBlock::find_row(const RowCursor& key,
 
     OLAPStatus res = OLAP_SUCCESS;
     RowCursor helper_cursor;
-    if ((res = helper_cursor.init(_tablet_schema)) != OLAP_SUCCESS) {
+    if ((res = helper_cursor.init(*_schema)) != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("Init helper cursor fail. [res=%d]", res);
         return OLAP_ERR_INIT_FAILED;
     }
@@ -111,15 +110,17 @@ OLAPStatus RowBlock::find_row(const RowCursor& key,
 void RowBlock::clear() {
     _info.row_num = _capacity;
     _info.checksum = 0;
+    _pos = 0;
+    _limit = 0;
     _mem_pool->clear();
 }
 
 void RowBlock::_compute_layout() {
     std::unordered_set<uint32_t> column_set(_info.column_ids.begin(), _info.column_ids.end());
     size_t memory_size = 0;
-    for (int i = 0; i < _tablet_schema.size(); ++i) {
-        auto& field = _tablet_schema[i];
-        if (!column_set.empty() && column_set.find(i) == std::end(column_set)) {
+    for (int col_id = 0; col_id < _schema->num_columns(); ++col_id) {
+        const TabletColumn& column = _schema->column(col_id);
+        if (!column_set.empty() && column_set.find(col_id) == std::end(column_set)) {
             // which may lead BE crash
             _field_offset_in_memory.push_back(std::numeric_limits<std::size_t>::max());
             continue;
@@ -128,12 +129,12 @@ void RowBlock::_compute_layout() {
         _field_offset_in_memory.push_back(memory_size);
 
         // All field has a nullbyte in memory
-        if (field.type == OLAP_FIELD_TYPE_VARCHAR || field.type == OLAP_FIELD_TYPE_HLL
-                || field.type == OLAP_FIELD_TYPE_CHAR) {
+        if (column.type() == OLAP_FIELD_TYPE_VARCHAR || column.type() == OLAP_FIELD_TYPE_HLL
+                || column.type() == OLAP_FIELD_TYPE_CHAR) {
             // 变长部分额外计算下实际最大的字符串长度（此处length已经包括记录Length的2个字节）
             memory_size += sizeof(Slice) + sizeof(char);
         } else {
-            memory_size += field.length + sizeof(char);
+            memory_size += column.length() + sizeof(char);
         }
     }
     _mem_row_bytes = memory_size;

@@ -55,9 +55,9 @@ namespace config {
     // the count of heart beat service
     CONF_Int32(heartbeat_service_thread_count, "1");
     // the count of thread to create table
-    CONF_Int32(create_table_worker_count, "3");
+    CONF_Int32(create_tablet_worker_count, "3");
     // the count of thread to drop table
-    CONF_Int32(drop_table_worker_count, "3");
+    CONF_Int32(drop_tablet_worker_count, "3");
     // the count of thread to batch load
     CONF_Int32(push_worker_count_normal_priority, "3");
     // the count of thread to high priority batch load
@@ -71,13 +71,11 @@ namespace config {
     // the count of thread to delete
     CONF_Int32(delete_worker_count, "3");
     // the count of thread to alter table
-    CONF_Int32(alter_table_worker_count, "3");
+    CONF_Int32(alter_tablet_worker_count, "3");
     // the count of thread to clone
     CONF_Int32(clone_worker_count, "3");
     // the count of thread to clone
     CONF_Int32(storage_medium_migrate_count, "1");
-    // the count of thread to cancel delete data
-    CONF_Int32(cancel_delete_data_worker_count, "3");
     // the count of thread to check consistency
     CONF_Int32(check_consistency_worker_count, "1");
     // the count of thread to upload
@@ -93,9 +91,9 @@ namespace config {
     // the interval time(seconds) for agent report disk state to FE
     CONF_Int32(report_disk_state_interval_seconds, "60");
     // the interval time(seconds) for agent report olap table to FE
-    CONF_Int32(report_olap_table_interval_seconds, "60");
+    CONF_Int32(report_tablet_interval_seconds, "60");
     // the timeout(seconds) for alter table
-    CONF_Int32(alter_table_timeout_seconds, "86400");
+    CONF_Int32(alter_tablet_timeout_seconds, "86400");
     // the timeout(seconds) for make snapshot
     CONF_Int32(make_snapshot_timeout_seconds, "600");
     // the timeout(seconds) for release snapshot
@@ -203,16 +201,16 @@ namespace config {
 
     CONF_Int32(file_descriptor_cache_clean_interval, "3600");
     CONF_Int32(disk_stat_monitor_interval, "5");
-    CONF_Int32(unused_index_monitor_interval, "30");
-    CONF_String(storage_root_path, "${DORIS_HOME}/data");
+    CONF_Int32(unused_rowset_monitor_interval, "30");
+    CONF_String(storage_root_path, "${DORIS_HOME}/storage");
     CONF_Int32(min_percentage_of_error_disk, "50");
     CONF_Int32(default_num_rows_per_data_block, "1024");
     CONF_Int32(default_num_rows_per_column_file_block, "1024");
     CONF_Int32(max_tablet_num_per_shard, "1024");
     // pending data policy
     CONF_Int32(pending_data_expire_time_sec, "1800");
-    // incremental delta policy
-    CONF_Int32(incremental_delta_expire_time_sec, "1800");
+    // inc_rowset expired interval
+    CONF_Int32(inc_rowset_expired_sec, "1800");
     // garbage sweep policy
     CONF_Int32(max_garbage_sweep_interval, "43200");
     CONF_Int32(min_garbage_sweep_interval, "200");
@@ -416,6 +414,12 @@ namespace config {
 
     // Dir to save files downloaded by SmallFileMgr
     CONF_String(small_file_dir, "${DORIS_HOME}/lib/small_file/");
+    // path gc
+    CONF_Bool(path_gc_check, "true");
+    CONF_Int32(path_gc_check_interval_second, "86400");
+    CONF_Int32(path_gc_check_step, "1000");
+    CONF_Int32(path_gc_check_step_interval_ms, "10");
+    CONF_Int32(path_scan_interval_second, "86400");
 } // namespace config
 
 } // namespace doris
