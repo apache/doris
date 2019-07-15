@@ -55,7 +55,7 @@ public class MiniLoadJob extends LoadJob {
         if (request.isSetTimeout_second()) {
             this.timeoutSecond = request.getTimeout_second();
         } else {
-            this.timeoutSecond = Config.mini_load_default_timeout_second;
+            this.timeoutSecond = Config.stream_load_default_timeout_second;
         }
         if (request.isSetMax_filter_ratio()) {
             this.maxFilterRatio = request.getMax_filter_ratio();
@@ -90,7 +90,7 @@ public class MiniLoadJob extends LoadJob {
         transactionId = Catalog.getCurrentGlobalTransactionMgr()
                 .beginTransaction(dbId, label, -1, "FE: " + FrontendOptions.getLocalHostAddress(),
                                   TransactionState.LoadJobSourceType.BACKEND_STREAMING, id,
-                                  timeoutSecond - 1);
+                                  timeoutSecond);
     }
 
     @Override
