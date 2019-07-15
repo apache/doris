@@ -47,6 +47,9 @@ Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx) {
     // submit this params
 #ifndef BE_TEST
     ctx->ref();
+    LOG(INFO) << "begin to execute job:" << ctx->label 
+              << " with txn id:" << ctx->txn_id
+              << " with query id:" << print_id(ctx->put_result.params.params.query_id);
     auto st = _exec_env->fragment_mgr()->exec_plan_fragment(
         ctx->put_result.params,
         [ctx] (PlanFragmentExecutor* executor) {

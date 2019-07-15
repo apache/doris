@@ -664,6 +664,7 @@ Status MiniLoadAction::_begin_mini_load(StreamLoadContext* ctx) {
     ctx->txn_id = res.txn_id;
     // txn has been begun in fe
     ctx->need_rollback = true;
+    LOG(INFO) << "load:" << ctx->label << " txn:" << res.txn_id << " has been begun in fe";
     return Status::OK();
 }
 
@@ -708,6 +709,9 @@ Status MiniLoadAction::_process_put(HttpRequest* req, StreamLoadContext* ctx) {
     auto column_separator_it = params.find(COLUMN_SEPARATOR_KEY);
     if (column_separator_it != params.end()) {
         put_request.__set_columnSeparator(column_separator_it->second);
+    }
+    if (ctx->timeout_second != -1) {
+        put_request.__set_timeout(ctx->timeout_second);
     }
 
     // plan this load
