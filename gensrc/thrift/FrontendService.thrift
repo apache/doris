@@ -483,6 +483,7 @@ struct TLoadTxnBeginRequest {
     7: required string label
     8: optional i64 timestamp
     9: optional i64 auth_code
+    // The real value of timeout should be i32. i64 ensures the compatibility of interface.
     10: optional i64 timeout
 }
 

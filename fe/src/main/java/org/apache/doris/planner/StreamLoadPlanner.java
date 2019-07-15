@@ -17,17 +17,16 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.common.Config;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.task.StreamLoadTask;
