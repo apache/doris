@@ -457,6 +457,8 @@ public class Function implements Writable {
             case DATE:
             case DATETIME:
                 return "datetime_val";
+            case TIME:
+                return "time_val";
             case DECIMAL:
                 return "decimal_val";
             case DECIMALV2:
@@ -494,6 +496,8 @@ public class Function implements Writable {
             case DATE:
             case DATETIME:
                 return "DateTimeVal";
+            case TIME:
+                return "TimeVal";
             case DECIMAL:
                 return "DecimalVal";
             case DECIMALV2:
