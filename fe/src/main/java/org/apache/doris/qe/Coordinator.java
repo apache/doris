@@ -104,6 +104,15 @@ import java.util.concurrent.locks.ReentrantLock;
 
 public class Coordinator {
     private static final Logger LOG = LogManager.getLogger(Coordinator.class);
+
+    // The reason of cancellation of this query.
+    // This is used for telling BE whether it need to report query status when being cancelled.
+    public enum CancelReason {
+        LIMIT_REACH,    // cancel the query because reaching limit, no need to report
+        USER_CANCEL,    // query cancelled by client, no need to report
+        INTERNAL_ERROR  // internal error
+    }
+
     private static final DateFormat DATE_FORMAT = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
 
     private static String localIP = FrontendOptions.getLocalHostAddress();
@@ -331,21 +340,22 @@ public class Coordinator {
     }
 
     private void traceInstance() {
-        // TODO(zc): add a switch to close this function
-        StringBuilder sb = new StringBuilder();
-        int idx = 0;
-        sb.append("query id=").append(DebugUtil.printId(queryId)).append(",");
-        sb.append("fragment=[");
-        for (Map.Entry<PlanFragmentId, FragmentExecParams> entry : fragmentExecParamsMap.entrySet()) {
-            if (idx++ != 0) {
-                sb.append(",");
+        if (LOG.isDebugEnabled()) {
+            // TODO(zc): add a switch to close this function
+            StringBuilder sb = new StringBuilder();
+            int idx = 0;
+            sb.append("query id=").append(DebugUtil.printId(queryId)).append(",");
+            sb.append("fragment=[");
+            for (Map.Entry<PlanFragmentId, FragmentExecParams> entry : fragmentExecParamsMap.entrySet()) {
+                if (idx++ != 0) {
+                    sb.append(",");
+                }
+                sb.append(entry.getKey());
+                entry.getValue().appendTo(sb);
             }
-            sb.append(entry.getKey());
-            entry.getValue().appendTo(sb);
+            sb.append("]");
+            LOG.debug(sb.toString());
         }
-        sb.append("]");
-
-        LOG.info(sb.toString());
     }
 
     // Initiate asynchronous execution of query. Returns as soon as all plan fragments
@@ -464,7 +474,7 @@ public class Coordinator {
                         LOG.warn("exec plan fragment failed, errmsg={}, fragmentId={}, backend={}:{}",
                                  errMsg, fragment.getFragmentId(),
                                  pair.first.address.hostname, pair.first.address.port);
-                        cancelInternal();
+                        cancelInternal(CancelReason.INTERNAL_ERROR);
                         switch (code) {
                             case TIMEOUT:
                                 throw new UserException("query timeout. backend id: " + pair.first.systemBackendId);
@@ -570,7 +580,7 @@ public class Coordinator {
             queryStatus.setStatus(status);
             LOG.warn("one instance report fail throw updateStatus(), need cancel. job id: {}, query id: {}, instance id: {}",
                     jobId, DebugUtil.printId(queryId), instanceId != null ? DebugUtil.printId(instanceId) : "NaN");
-            cancelInternal();
+            cancelInternal(CancelReason.INTERNAL_ERROR);
         } finally {
             lock.unlock();
         }
@@ -625,7 +635,7 @@ public class Coordinator {
             boolean hasLimit = numLimitRows > 0;
             if (!isBlockQuery && instanceIds.size() > 1 && hasLimit && numReceivedRows >= numLimitRows) {
                 LOG.debug("no block query, return num >= limit rows, need cancel");
-                cancelInternal();
+                cancelInternal(CancelReason.LIMIT_REACH);
             }
         } else {
             numReceivedRows += resultBatch.getBatch().getRowsSize();
@@ -647,17 +657,17 @@ public class Coordinator {
                 queryStatus.setStatus(Status.CANCELLED);
             }
             LOG.warn("cancel execution of query, this is outside invoke");
-            cancelInternal();
+            cancelInternal(CancelReason.USER_CANCEL);
         } finally {
             unlock();
         }
     }
 
-    private void cancelInternal() {
+    private void cancelInternal(CancelReason cancelReason) {
         if (null != receiver) {
             receiver.cancel();
         }
-        cancelRemoteFragmentsAsync();
+        cancelRemoteFragmentsAsync(cancelReason);
         if (profileDoneSignal != null) {
             // count down to zero to notify all objects waiting for this
             profileDoneSignal.countDownToZero();
@@ -665,12 +675,13 @@ public class Coordinator {
         }
     }
 
-    private void cancelRemoteFragmentsAsync() {
+    private void cancelRemoteFragmentsAsync(CancelReason cancelReason) {
         for (BackendExecState backendExecState : backendExecStates) {
             TNetworkAddress address = backendExecState.getBackendAddress();
-            LOG.info("cancelRemoteFragments initiated={} done={} hasCanceled={} ip={} port={} fragment instance id={}",
+            LOG.info("cancelRemoteFragments initiated={} done={} hasCanceled={} ip={} port={} fragment instance id={}, reason: {}",
                     backendExecState.initiated, backendExecState.done, backendExecState.hasCanceled,
-                    address.hostname, address.port, DebugUtil.printId(backendExecState.getFragmentInstanceId()));
+                    address.hostname, address.port, DebugUtil.printId(backendExecState.getFragmentInstanceId()),
+                    cancelReason.name());
 
             backendExecState.lock();
             try {
@@ -688,7 +699,7 @@ public class Coordinator {
 
                 try {
                     BackendServiceProxy.getInstance().cancelPlanFragmentAsync(
-                            brpcAddress, backendExecState.getFragmentInstanceId());
+                            brpcAddress, backendExecState.getFragmentInstanceId(), cancelReason);
                 } catch (RpcException e) {
                     LOG.warn("cancel plan fragment get a exception, address={}:{}",
                             brpcAddress.getHostname(), brpcAddress.getPort());
@@ -1079,7 +1090,7 @@ public class Coordinator {
 
     public void updateFragmentExecStatus(TReportExecStatusParams params) {
         if (params.backend_num >= backendExecStates.size()) {
-            LOG.error("unknown backend number: {}, expected less than: {}",
+            LOG.warn("unknown backend number: {}, expected less than: {}",
                     params.backend_num, backendExecStates.size());
             return;
         }
@@ -1114,7 +1125,7 @@ public class Coordinator {
         // and returned_all_results_ is true.
         // (UpdateStatus() initiates cancellation, if it hasn't already been initiated)
         if (!(returnedAllResults && status.isCancelled()) && !status.ok()) {
-            LOG.warn("One instance report fail, query_id={} instance_id={}",
+            LOG.warn("one instance report fail, query_id={} instance_id={}",
                     DebugUtil.printId(queryId), DebugUtil.printId(params.getFragment_instance_id()));
             updateStatus(status, params.getFragment_instance_id());
         }

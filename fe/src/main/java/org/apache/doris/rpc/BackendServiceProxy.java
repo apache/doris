@@ -26,6 +26,7 @@ import org.apache.doris.proto.PProxyRequest;
 import org.apache.doris.proto.PProxyResult;
 import org.apache.doris.proto.PTriggerProfileReportResult;
 import org.apache.doris.proto.PUniqueId;
+import org.apache.doris.qe.Coordinator.CancelReason;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TUniqueId;
@@ -111,7 +112,7 @@ public class BackendServiceProxy {
     }
 
     public Future<PCancelPlanFragmentResult> cancelPlanFragmentAsync(
-            TNetworkAddress address, TUniqueId finstId) throws RpcException {
+            TNetworkAddress address, TUniqueId finstId, CancelReason cancelReason) throws RpcException {
         final PCancelPlanFragmentRequest pRequest = new PCancelPlanFragmentRequest();
         PUniqueId uid = new PUniqueId();
         uid.hi = finstId.hi;

@@ -116,6 +116,12 @@ message PExecPlanFragmentResult {
 
 message PCancelPlanFragmentRequest {
     required PUniqueId finst_id = 1;
+    enum CancelReason {
+        LIMIT_REACH = 0;
+        USER_CANCEL = 1;
+        INTERNAL_ERROR = 2;
+    }
+    optional CancelReason cancel_reason = 2;
 };
 
 message PCancelPlanFragmentResult {

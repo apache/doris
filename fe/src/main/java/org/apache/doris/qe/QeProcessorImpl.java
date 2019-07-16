@@ -96,7 +96,8 @@ public final class QeProcessorImpl implements QeProcessor {
     @Override
     public TReportExecStatusResult reportExecStatus(TReportExecStatusParams params) {
         LOG.info("ReportExecStatus(): fragment_instance_id=" + DebugUtil.printId(params.fragment_instance_id)
-                + ", query id=" + DebugUtil.printId(params.query_id) + " params=" + params);
+                + ", query id=" + DebugUtil.printId(params.query_id));
+        LOG.debug("params: {}", params);
         final TReportExecStatusResult result = new TReportExecStatusResult();
         final QueryInfo info = coordinatorMap.get(params.query_id);
         if (info == null) {
