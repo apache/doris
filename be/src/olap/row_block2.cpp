@@ -105,7 +105,11 @@ void copy_row(RowBlockRow* dst, const RowBlockRow& src, Arena* arena) {
     for (int i = 0; i < src.schema().num_columns(); ++i) {
         dst->set_is_null(i, src.is_null(i));
         if (!src.is_null(i)) {
+<<<<<<< HEAD
             src.schema().column(i).type_info()->copy_with_arena(dst->mutable_cell_ptr(i), src.cell_ptr(i), arena);
+=======
+            src.schema().column(i).type_info()->copy_with_arena(dst->cell_ptr(i), src.cell_ptr(i), arena);
+>>>>>>> Add storage rowwise iterator
         }
     }
 }

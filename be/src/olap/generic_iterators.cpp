@@ -121,7 +121,11 @@ public:
     // Return current row which internal row index points to
     // And this function won't make internal index advance.
     // Before call this function, Client must assure that
+<<<<<<< HEAD
     // valid() return true
+=======
+    // has_remaining() return true
+>>>>>>> Add storage rowwise iterator
     RowBlockRow current_row() const {
         return RowBlockRow(&_block, _index_in_block);
     }
@@ -259,7 +263,11 @@ Status MergeIterator::next_batch(RowBlockV2* block) {
         _merge_heap->pop();
 
         RowBlockRow dst_row = block->row(row_idx);
+<<<<<<< HEAD
         // copy current row to block
+=======
+        // copy crrent row to block
+>>>>>>> Add storage rowwise iterator
         copy_row(&dst_row, ctx->current_row(), block->arena());
 
         RETURN_IF_ERROR(ctx->advance());

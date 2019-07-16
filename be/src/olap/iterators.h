@@ -33,7 +33,11 @@ public:
     RowwiseIterator() { }
     virtual ~RowwiseIterator() { }
 
+<<<<<<< HEAD
     // Initialize this iterator and make it ready to read with
+=======
+    // Initialize this iterator and make it ready to ready with
+>>>>>>> Add storage rowwise iterator
     // input options.
     // Input options may contain scan range in which this scan.
     // Return Status::OK() if init successfully,
@@ -43,7 +47,11 @@ public:
     // If there is any valid data, this function will load data
     // into input batch with Status::OK() returned
     // If there is no data to read, will return Status::EndOfFile.
+<<<<<<< HEAD
     // If other error happens, other error code will be returned.
+=======
+    // If oter error happened, other error code will be returned.
+>>>>>>> Add storage rowwise iterator
     virtual Status next_batch(RowBlockV2* block) = 0;
 
     // return schema for this Iterator

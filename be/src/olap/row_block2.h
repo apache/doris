@@ -89,10 +89,14 @@ public:
     void set_is_null(size_t col_idx, bool is_null) {
         return column_block(col_idx).set_is_null(_row_index, is_null);
     }
+<<<<<<< HEAD
     uint8_t* mutable_cell_ptr(size_t col_idx) const {
         return column_block(col_idx).mutable_cell_ptr(_row_index);
     }
     const uint8_t* cell_ptr(size_t col_idx) const {
+=======
+    uint8_t* cell_ptr(size_t col_idx) const {
+>>>>>>> Add storage rowwise iterator
         return column_block(col_idx).cell_ptr(_row_index);
     }
     const SchemaV2& schema() const { return _block->schema(); }
