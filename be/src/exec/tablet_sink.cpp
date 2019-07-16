@@ -197,7 +197,7 @@ Status NodeChannel::_wait_in_flight_packet() {
         return Status::OK();
     }
 
-    SCOPED_RAW_TIMER(_parent->wait_in_flight_packet_ns()); 
+    SCOPED_RAW_TIMER(_parent->mutable_wait_in_flight_packet_ns()); 
     _add_batch_closure->join();
     _has_in_flight_packet = false;
     if (_add_batch_closure->cntl.Failed()) {
@@ -216,7 +216,7 @@ Status NodeChannel::_send_cur_batch(bool eos) {
     _add_batch_request.set_eos(eos);
     _add_batch_request.set_packet_seq(_next_packet_seq);
     if (_batch->num_rows() > 0) {
-        SCOPED_RAW_TIMER(_parent->serialize_batch_ns()); 
+        SCOPED_RAW_TIMER(_parent->mutable_serialize_batch_ns()); 
         _batch->serialize(_add_batch_request.mutable_row_batch());
     }
 

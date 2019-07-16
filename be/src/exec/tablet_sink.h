@@ -168,8 +168,10 @@ public:
         return _profile;
     }
 
-    int64_t* wait_in_flight_packet_ns() { return &_wait_in_flight_packet_ns; }
-    int64_t* serialize_batch_ns() { return &_serialize_batch_ns; }
+    // these 2 counters does not thread-safe. make sure only one thread
+    // at a time can modify them.
+    int64_t* mutable_wait_in_flight_packet_ns() { return &_wait_in_flight_packet_ns; }
+    int64_t* mutable_serialize_batch_ns() { return &_serialize_batch_ns; }
 
 private:
     // convert input batch to output batch which will be loaded into OLAP table.
