@@ -81,7 +81,8 @@ public class GrantStmt extends DdlStmt {
         if (userIdent != null) {
             userIdent.analyze(analyzer.getClusterName());
         } else {
-            FeNameFormat.checkUserName(role);
+            FeNameFormat.checkRoleName(role, false /* can not be admin */, "Can not grant to role");
+            role = ClusterNamespace.getFullName(analyzer.getClusterName(), role);
         }
 
         tblPattern.analyze(analyzer.getClusterName());
@@ -116,8 +117,6 @@ public class GrantStmt extends DdlStmt {
 
         if (role != null) {
             // Rule 3 and 4
-            FeNameFormat.checkRoleName(role, false /* can not be admin */, "Can not grant to role");
-            role = ClusterNamespace.getFullName(analyzer.getClusterName(), role);
             if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");
             }
