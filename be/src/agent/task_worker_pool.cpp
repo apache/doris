@@ -197,6 +197,10 @@ void TaskWorkerPool::start() {
         _worker_count = 1;
         _callback_function = _recover_tablet_thread_callback;
         break;
+    case TaskWorkerType::UPDATE_TABLET_META_INFO:
+        _worker_count = 1;
+        _callback_function = _update_tablet_meta_worker_thread_callback;
+        break;
     default:
         // pass
         break;
@@ -946,6 +950,59 @@ void* TaskWorkerPool::_clear_transaction_task_worker_thread_callback(void* arg_t
 #ifndef BE_TEST
     }
 #endif
+    return (void*)0;
+}
+
+void* TaskWorkerPool::_update_tablet_meta_worker_thread_callback(void* arg_this) {
+
+    TaskWorkerPool* worker_pool_this = (TaskWorkerPool*)arg_this;
+    while (true) {
+        TAgentTaskRequest agent_task_req;
+        TUpdateTabletMetaInfoReq update_tablet_meta_req;
+        {
+            lock_guard<Mutex> worker_thread_lock(worker_pool_this->_worker_thread_lock);
+            while (worker_pool_this->_tasks.empty()) {
+                worker_pool_this->_worker_thread_condition_lock.wait();
+            }
+
+            agent_task_req = worker_pool_this->_tasks.front();
+            update_tablet_meta_req = agent_task_req.update_tablet_meta_info_req;
+            worker_pool_this->_tasks.pop_front();
+        }
+        LOG(INFO) << "get update tablet meta task, signature:" << agent_task_req.signature;
+
+        TStatusCode::type status_code = TStatusCode::OK;
+        vector<string> error_msgs;
+        TStatus task_status;
+
+        for (auto tablet_meta_info : update_tablet_meta_req.tabletMetaInfos) {
+            TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
+                tablet_meta_info.tablet_id, tablet_meta_info.schema_hash);
+            if (tablet == nullptr) {
+                LOG(WARNING) << "could not find tablet when update partition id"
+                             << " tablet_id=" << tablet_meta_info.tablet_id
+                             << " schema_hash=" << tablet_meta_info.schema_hash;
+                continue;
+            }
+            WriteLock wrlock(tablet->get_header_lock_ptr());
+            tablet->set_partition_id(tablet_meta_info.partition_id);
+            tablet->save_meta();
+        }
+
+        LOG(INFO) << "finish update tablet meta task. signature:" << agent_task_req.signature;
+
+        task_status.__set_status_code(status_code);
+        task_status.__set_error_msgs(error_msgs);
+
+        TFinishTaskRequest finish_task_request;
+        finish_task_request.__set_task_status(task_status);
+        finish_task_request.__set_backend(worker_pool_this->_backend);
+        finish_task_request.__set_task_type(agent_task_req.task_type);
+        finish_task_request.__set_signature(agent_task_req.signature);
+
+        worker_pool_this->_finish_task(finish_task_request);
+        worker_pool_this->_remove_task_info(agent_task_req.task_type, agent_task_req.signature, "");
+    }
     return (void*)0;
 }
 

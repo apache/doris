@@ -34,6 +34,7 @@ import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.SetMultimap;
 import com.google.common.collect.Table;
 
 import org.apache.logging.log4j.LogManager;
@@ -108,14 +109,22 @@ public class TabletInvertedIndex {
                              Set<Long> foundTabletsWithValidSchema,
                              Map<Long, TTabletInfo> foundTabletsWithInvalidSchema,
                              ListMultimap<TStorageMedium, Long> tabletMigrationMap, 
-                             Map<Long, ListMultimap<Long, TPartitionVersionInfo>> transactionsToPublish, 
-                             ListMultimap<Long, Long> transactionsToClear, 
-                             ListMultimap<Long, Long> tabletRecoveryMap) {
+                             Map<Long, ListMultimap<Long, TPartitionVersionInfo>> transactionsToPublish,
+                             ListMultimap<Long, Long> transactionsToClear,
+                             ListMultimap<Long, Long> tabletRecoveryMap,
+                             SetMultimap<Long, Integer> tabletWithoutPartitionId) {
         long start = 0L;
         readLock();
         try {
             LOG.info("begin to do tablet diff with backend[{}]. num: {}", backendId, backendTablets.size());
             start = System.currentTimeMillis();
+            for (TTablet backendTablet : backendTablets.values()) {
+                for (TTabletInfo tabletInfo : backendTablet.tablet_infos) {
+                    if (!tabletInfo.isSetPartition_id() || tabletInfo.getPartition_id() < 1) {
+                        tabletWithoutPartitionId.put(tabletInfo.getTablet_id(), tabletInfo.getSchema_hash());
+                    }
+                }
+            }
             Map<Long, Replica> replicaMetaWithBackend = backingReplicaMetaTable.row(backendId);
             if (replicaMetaWithBackend != null) {
                 // traverse replicas in meta with this backend

@@ -62,7 +62,8 @@ public:
         MAKE_SNAPSHOT,
         RELEASE_SNAPSHOT,
         MOVE,
-        RECOVER_TABLET
+        RECOVER_TABLET,
+        UPDATE_TABLET_META_INFO
     };
 
     typedef void* (*CALLBACK_FUNCTION)(void*);
@@ -111,6 +112,7 @@ private:
     static void* _release_snapshot_thread_callback(void* arg_this);
     static void* _move_dir_thread_callback(void* arg_this);
     static void* _recover_tablet_thread_callback(void* arg_this);
+    static void* _update_tablet_meta_worker_thread_callback(void* arg_this);
 
     void _alter_tablet(
             TaskWorkerPool* worker_pool_this,

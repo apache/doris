@@ -113,6 +113,7 @@ private:
     TaskWorkerPool* _release_snapshot_workers;
     TaskWorkerPool* _move_dir_workers;
     TaskWorkerPool* _recover_tablet_workers;
+    TaskWorkerPool* _update_tablet_meta_info_workers;
 
     DISALLOW_COPY_AND_ASSIGN(AgentServer);
     

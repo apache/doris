@@ -196,6 +196,9 @@ private:
 
     std::vector<TabletSharedPtr> _shutdown_tablets;
 
+    // a map from partition id to 
+    std::map<int64_t, vector<TabletSharedPtr>> partition_tablet_map;
+
     DISALLOW_COPY_AND_ASSIGN(TabletManager);
 };
 
