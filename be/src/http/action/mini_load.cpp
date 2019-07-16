@@ -810,12 +810,12 @@ void MiniLoadAction::_new_handle(HttpRequest* req) {
         }
     }
 
-    if (!ctx->status.ok()) {
+    // if failed to commit and status is not PUBLISH_TIMEOUT, rollback the txn.
+    // PUBLISH_TIMEOUT is treated as OK in mini load, because user will use show load stmt
+    // to see the final result.
+    if (!ctx->status.ok() && ctx->status.code() != TStatusCode::PUBLISH_TIMEOUT) {
         if (ctx->need_rollback) {
             _exec_env->stream_load_executor()->rollback_txn(ctx);
-            if (ctx->status.code() == TStatusCode::PUBLISH_TIMEOUT) {
-                ctx->status = Status::PublishTimeout("transation has been rollback because it was timeout in phase of publish");    
-            }
             ctx->need_rollback = false;
         }
         if (ctx->body_sink.get() != nullptr) {
@@ -823,7 +823,7 @@ void MiniLoadAction::_new_handle(HttpRequest* req) {
         }
     }
 
-    std::string str = to_json(ctx->status);
+    std::string str = ctx->to_json_for_mini_load();
     HttpChannel::send_reply(req, str);
 }
 
