@@ -102,10 +102,6 @@ std::string StreamLoadContext::to_json_for_mini_load() const {
         // treat PUBLISH_TIMEOUT as OK in mini load
         writer.String("Success");
         break;
-    case TStatusCode::LABEL_ALREADY_EXISTS:
-        writer.String("Label Already Exists");
-        show_ok = false;
-        break;
     default:
         writer.String("Fail");
         show_ok = false;
