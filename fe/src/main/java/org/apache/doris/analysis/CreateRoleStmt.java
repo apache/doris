@@ -17,9 +17,14 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext;
 
 public class CreateRoleStmt extends DdlStmt {
 
@@ -38,6 +43,11 @@ public class CreateRoleStmt extends DdlStmt {
         super.analyze(analyzer);
         FeNameFormat.checkRoleName(role, false /* can not be admin */, "Can not create role");
         role = ClusterNamespace.getFullName(analyzer.getClusterName(), role);
+
+        // check if current user has GRANT priv on GLOBAL level.
+        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "CREATE USER");
+        }
     }
 
     @Override
