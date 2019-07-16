@@ -214,24 +214,24 @@ public class Column implements Writable {
         }
 
         if (!ColumnType.isSchemaChangeAllowed(type, other.type)) {
-            throw new DdlException("Cannot change " + getDataType() + " to " + other.getDataType());
+            throw new DdlException("Can not change " + getDataType() + " to " + other.getDataType());
         }
 
         if (this.aggregationType != other.aggregationType) {
-            throw new DdlException("Cannot change aggregation type");
+            throw new DdlException("Can not change aggregation type");
         }
 
         if (this.isAllowNull && !other.isAllowNull) {
-            throw new DdlException("Cannot change from null to not null");
+            throw new DdlException("Can not change from nullable to non-nullable");
         }
 
         if (this.getDefaultValue() == null) {
             if (other.getDefaultValue() != null) {
-                throw new DdlException("Cannot change default value");
+                throw new DdlException("Can not change default value");
             }
         } else {
             if (!this.getDefaultValue().equals(other.getDefaultValue())) {
-                throw new DdlException("Cannot change default value");
+                throw new DdlException("Can not change default value");
             }
         }
 

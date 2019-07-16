@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
@@ -519,6 +520,11 @@ public class ReportHandler extends Daemon {
                     long indexId = invertedIndex.getIndexId(tabletId);
                     MaterializedIndex index = partition.getIndex(indexId);
                     if (index == null) {
+                        continue;
+                    }
+                    if (index.getState() == IndexState.SHADOW) {
+                        // This index is under schema change or rollup, tablet may not be created on BE.
+                        // ignore it.
                         continue;
                     }
 

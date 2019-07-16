@@ -333,6 +333,13 @@ public class RollupJobV2 extends AlterJobV2 {
         LOG.info("transfer rollup job {} state to {}", jobId, this.jobState);
     }
 
+    /*
+     * runRunningJob()
+     * 1. Wait all create rollup tasks to be finished.
+     * 2. Check the integrity of the newly created rollup index.
+     * 3. Set rollup index's state to NORMAL to let it visible to query.
+     * 4. Set job'state as FINISHED.
+     */
     @Override
     protected void runRunningJob() {
         Preconditions.checkState(jobState == JobState.RUNNING, jobState);
@@ -414,6 +421,10 @@ public class RollupJobV2 extends AlterJobV2 {
         LOG.info("rollup job finished: {}", jobId);
     }
 
+    /*
+     * cancel() can be called any time any place.
+     * We need to clean any possible residual of this job.
+     */
     @Override
     public synchronized void cancel(String errMsg) {
         if (jobState.isFinalState()) {
@@ -430,7 +441,7 @@ public class RollupJobV2 extends AlterJobV2 {
     }
 
     private void cancelInternal() {
-        // clear tasks if have
+        // clear tasks if has
         AgentTaskQueue.removeBatchTask(rollupBatchTask, TTaskType.ROLLUP);
         // remove all rollup indexes, and set state to NORMAL
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
@@ -456,6 +467,7 @@ public class RollupJobV2 extends AlterJobV2 {
         }
     }
 
+    // Check whether transactions of the given database which txnId is less than 'watershedTxnId' are finished.
     protected boolean isPreviousLoadFinished() {
         return Catalog.getCurrentGlobalTransactionMgr().isPreviousTransactionsFinished(watershedTxnId, dbId);
     }
