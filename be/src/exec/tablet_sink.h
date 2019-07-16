@@ -168,6 +168,11 @@ public:
         return _profile;
     }
 
+    // these 2 counters does not thread-safe. make sure only one thread
+    // at a time can modify them.
+    int64_t* mutable_wait_in_flight_packet_ns() { return &_wait_in_flight_packet_ns; }
+    int64_t* mutable_serialize_batch_ns() { return &_serialize_batch_ns; }
+
 private:
     // convert input batch to output batch which will be loaded into OLAP table.
     // this is only used in insert statement.
@@ -236,6 +241,8 @@ private:
     int64_t _convert_batch_ns = 0;
     int64_t _validate_data_ns = 0;
     int64_t _send_data_ns = 0;
+    int64_t _wait_in_flight_packet_ns = 0;
+    int64_t _serialize_batch_ns = 0;
     int64_t _number_input_rows = 0;
     int64_t _number_output_rows = 0;
     int64_t _number_filtered_rows = 0;
@@ -248,6 +255,8 @@ private:
     RuntimeProfile::Counter* _validate_data_timer = nullptr;
     RuntimeProfile::Counter* _open_timer = nullptr;
     RuntimeProfile::Counter* _close_timer = nullptr;
+    RuntimeProfile::Counter* _wait_in_flight_packet_timer = nullptr;
+    RuntimeProfile::Counter* _serialize_batch_timer = nullptr;
 };
 
 }

@@ -104,6 +104,7 @@ Status TabletsChannel::open(const PTabletWriterOpenRequest& params) {
         // Normal case, already open by other sender
         return Status::OK();
     }
+    LOG(INFO) << "open tablets channel: " << _key;
     _txn_id = params.txn_id();
     _index_id = params.index_id();
     _schema = new OlapTableSchemaParam();
@@ -170,6 +171,7 @@ Status TabletsChannel::close(int sender_id, bool* finished,
         *finished = (_num_remaining_senders == 0);
         return _close_status;
     }
+    LOG(INFO) << "close tablets channel: " << _key;
     for (auto pid : partition_ids) {
         _partition_ids.emplace(pid);
     }
@@ -251,7 +253,6 @@ TabletWriterMgr::~TabletWriterMgr() {
 
 Status TabletWriterMgr::open(const PTabletWriterOpenRequest& params) {
     TabletsChannelKey key(params.id(), params.index_id());
-    LOG(INFO) << "open tablets writer channel: " << key;
     std::shared_ptr<TabletsChannel> channel;
     {
         std::lock_guard<std::mutex> l(_lock);
