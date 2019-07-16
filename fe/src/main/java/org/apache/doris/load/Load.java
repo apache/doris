@@ -631,7 +631,7 @@ public class Load {
         } else if (etlJobType == EtlJobType.BROKER) {
             if (job.getTimeoutSecond() == 0) {
                 // set default timeout
-                job.setTimeoutSecond(Config.pull_load_task_default_timeout_second);
+                job.setTimeoutSecond(Config.broker_load_default_timeout_second);
             }
         } else if (etlJobType == EtlJobType.INSERT) {
             job.setPrority(TPriority.HIGH);

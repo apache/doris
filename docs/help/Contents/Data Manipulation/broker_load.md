@@ -2,7 +2,7 @@
 ## description
 
     Broker load 通过随 Palo 集群一同部署的 broker 进行，访问对应数据源的数据，进行数据导入。
-    不同的数据源需要部署不同的 broker 进程。可以通过 show broker 命令查看已经部署的 broker。
+    可以通过 show broker 命令查看已经部署的 broker。
     目前支持以下4种数据源：
 
     1. Baidu HDFS：百度内部的 hdfs，仅限于百度内部使用。
@@ -110,7 +110,7 @@
 
     3. broker_name
 
-        所使用的 broker 名称，可以通过 show broker 命令查看。不同的数据源需使用对应的 broker。
+        所使用的 broker 名称，可以通过 show broker 命令查看。
 
     4. broker_properties
 
@@ -161,6 +161,7 @@
         max_filter_ratio：最大容忍可过滤（数据不规范等原因）的数据比例。默认零容忍。
         exec_mem_limit:   设置导入使用的内存上限。默认为2G，单位字节。这里是指单个 BE 节点的内存上限。
                           一个导入可能分布于多个BE。我们假设 1GB 数据在单个节点处理需要最大5GB内存。那么假设1GB文件分布在2个节点处理，那么理论上，每个节点需要内存为2.5GB。则该参数可以设置为 2684354560，即2.5GB
+	strict mode：     是否对数据进行严格限制。默认为true。
 
     5. 导入数据格式样例
 

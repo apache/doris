@@ -84,7 +84,7 @@ public class BrokerLoadJob extends LoadJob {
     public BrokerLoadJob(long dbId, String label, BrokerDesc brokerDesc, List<DataDescription> dataDescriptions)
             throws MetaNotFoundException {
         super(dbId, label);
-        this.timeoutSecond = Config.pull_load_task_default_timeout_second;
+        this.timeoutSecond = Config.broker_load_default_timeout_second;
         this.dataDescriptions = dataDescriptions;
         this.brokerDesc = brokerDesc;
         this.jobType = EtlJobType.BROKER;
