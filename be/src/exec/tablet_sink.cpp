@@ -501,7 +501,7 @@ Status OlapTableSink::prepare(RuntimeState* state) {
     _validate_data_timer = ADD_TIMER(_profile, "ValidateDataTime");
     _open_timer = ADD_TIMER(_profile, "OpenTime");
     _close_timer = ADD_TIMER(_profile, "CloseTime");
-    _wait_in_flight_packet_timer = ADD_TIMER(_profile, "WaitInFlighPacketTime");
+    _wait_in_flight_packet_timer = ADD_TIMER(_profile, "WaitInFlightPacketTime");
     _serialize_batch_timer = ADD_TIMER(_profile, "SerializeBatchTime");
 
     // open all channels
