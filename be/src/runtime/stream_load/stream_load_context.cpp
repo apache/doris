@@ -85,23 +85,11 @@ std::string StreamLoadContext::to_json() const {
  *      "msg"    : "xxxx"
  * }
  *
- * New format is:
- *
- * {
- *      "txn_id" : 123456
- *      "status" : "Success"("Fail"),
- *      "msg"    : "xxxx"
- * }
- *
  */
 std::string StreamLoadContext::to_json_for_mini_load() const {
     rapidjson::StringBuffer s;
     rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(s);
     writer.StartObject();
-
-    // for unification, use underscore, not camel cased
-    writer.Key("txn_id");
-    writer.Int64(txn_id);
 
     // status
     bool show_ok = true;
