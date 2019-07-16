@@ -205,7 +205,7 @@ struct decimal12_t {
         return -1;
     }
 
-    std::string to_string() {
+    std::string to_string() const {
         char buf[128] = {'\0'};
 
         if (integer < 0 || fraction < 0) {

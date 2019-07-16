@@ -40,6 +40,12 @@ public:
     bool is_nullable() const { return _null_bitmap != nullptr; }
     Arena* arena() const { return _arena; }
     uint8_t* cell_ptr(size_t idx) const { return _data + idx * _type_info->size(); }
+    bool is_null(size_t idx) const {
+        return BitmapTest(_null_bitmap, idx);
+    }
+    void set_is_null(size_t idx, bool is_null) {
+        return BitmapChange(_null_bitmap, idx, is_null);
+    }
 private:
     const TypeInfo* _type_info;
     uint8_t* _data;
