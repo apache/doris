@@ -101,6 +101,9 @@ public:
     }
 
     std::string to_json() const;
+    // the old mini load result format is not same as stream load.
+    // add this function for compatible with old mini load result format.
+    std::string to_json_for_mini_load() const;
 
     // return the brief info of this context.
     // also print the load source info if detail is set to true
