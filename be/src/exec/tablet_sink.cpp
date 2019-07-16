@@ -196,6 +196,8 @@ Status NodeChannel::_wait_in_flight_packet() {
     if (!_has_in_flight_packet) {
         return Status::OK();
     }
+
+    SCOPED_RAW_TIMER(&_wait_in_flight_packet_ns); 
     _add_batch_closure->join();
     _has_in_flight_packet = false;
     if (_add_batch_closure->cntl.Failed()) {
@@ -498,6 +500,7 @@ Status OlapTableSink::prepare(RuntimeState* state) {
     _validate_data_timer = ADD_TIMER(_profile, "ValidateDataTime");
     _open_timer = ADD_TIMER(_profile, "OpenTime");
     _close_timer = ADD_TIMER(_profile, "CloseTime");
+    _wait_in_flight_packet_timer = ADD_TIMER(_profile, "WaitInFlighPacketTime");
 
     // open all channels
     auto& partitions = _partition->get_partitions();
@@ -602,6 +605,8 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
         COUNTER_SET(_send_data_timer, _send_data_ns);
         COUNTER_SET(_convert_batch_timer, _convert_batch_ns);
         COUNTER_SET(_validate_data_timer, _validate_data_ns);
+        COUNTER_SET(_wait_in_flight_packet_timer, _wait_in_flight_packet_ns);
+
         state->update_num_rows_load_filtered(_number_filtered_rows);
     } else {
         for (auto channel : _channels) {

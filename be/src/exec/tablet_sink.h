@@ -236,6 +236,7 @@ private:
     int64_t _convert_batch_ns = 0;
     int64_t _validate_data_ns = 0;
     int64_t _send_data_ns = 0;
+    int64_t _wait_in_flight_packet_ns = 0;
     int64_t _number_input_rows = 0;
     int64_t _number_output_rows = 0;
     int64_t _number_filtered_rows = 0;
@@ -248,6 +249,7 @@ private:
     RuntimeProfile::Counter* _validate_data_timer = nullptr;
     RuntimeProfile::Counter* _open_timer = nullptr;
     RuntimeProfile::Counter* _close_timer = nullptr;
+    RuntimeProfile::Counter* _wait_in_flight_packet_timer = nullptr;
 };
 
 }
