@@ -37,8 +37,6 @@ import com.google.common.base.Strings;
 import java.util.List;
 
 // GRANT STMT
-// grant privilege to some user, this is an administrator operation.
-//
 // GRANT privilege [, privilege] ON db.tbl TO user [ROLE 'role'];
 public class GrantStmt extends DdlStmt {
     private UserIdentity userIdent;
@@ -92,28 +90,39 @@ public class GrantStmt extends DdlStmt {
             throw new AnalysisException("No privileges in grant statement.");
         }
 
-        // can not grant NODE_PRIV to any other user(root has NODE_PRIV, no need to grant)
+        checkPrivileges(analyzer, privileges, role, tblPattern);
+    }
+
+    /*
+     * Rules:
+     * 1. Can not grant/revoke NODE_PRIV to/from any other user.
+     * 2. ADMIN_PRIV can only be granted/revoked on GLOBAL level
+     * 3. Privileges can not be granted/revoked to/from ADMIN and OPERATOR role
+     * 4. Only user with GLOBAL level's GRANT_PRIV can grant/revoke privileges to/from roles.
+     * 5.1 User should has GLOBAL level GRANT_PRIV
+     * 5.2 or user has DATABASE/TABLE level GRANT_PRIV if grant/revoke to/from certain database or table.
+     */
+    public static void checkPrivileges(Analyzer analyzer, List<PaloPrivilege> privileges,
+            String role, TablePattern tblPattern) throws AnalysisException {
+        // Rule 1
         if (privileges.contains(PaloPrivilege.NODE_PRIV)) {
             throw new AnalysisException("Can not grant NODE_PRIV to any other users or roles");
         }
 
-        // ADMIN_PRIV can only be granted on GLOBAL level
+        // Rule 2
         if (tblPattern.getPrivLevel() != PrivLevel.GLOBAL && privileges.contains(PaloPrivilege.ADMIN_PRIV)) {
             throw new AnalysisException("ADMIN_PRIV privilege can only be granted on *.*");
         }
 
         if (role != null) {
-            // 1. can not grant to admin or operator role
-            // 2. only user with GLOBAL level's GRANT_PRIV can grant privileges to roles.
+            // Rule 3 and 4
             FeNameFormat.checkRoleName(role, false /* can not be admin */, "Can not grant to role");
             role = ClusterNamespace.getFullName(analyzer.getClusterName(), role);
             if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");
             }
         } else {
-            // grant to a certain user.
-            // 1. check if current user has GLOBAL level GRANT_PRIV.
-            // 2. or if current user has DATABASE level GRANT_PRIV if grant to certain database.
+            // Rule 5.1 and 5.2
             if (tblPattern.getPrivLevel() == PrivLevel.GLOBAL) {
                 if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");

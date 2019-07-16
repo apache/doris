@@ -18,17 +18,11 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AccessPrivilege;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
-import org.apache.doris.mysql.privilege.PaloAuth.PrivLevel;
 import org.apache.doris.mysql.privilege.PaloPrivilege;
 import org.apache.doris.mysql.privilege.PrivBitSet;
-import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
@@ -87,38 +81,8 @@ public class RevokeStmt extends DdlStmt {
             throw new AnalysisException("No privileges in revoke statement.");
         }
 
-        // can not revoke NODE_PRIV from any user
-        if (privileges.contains(PaloPrivilege.NODE_PRIV)) {
-            throw new AnalysisException("Can not revoke NODE_PRIV from any users or roles");
-        }
-
-        // ADMIN_PRIV can only be revoked on GLOBAL level
-        if (tblPattern.getPrivLevel() != PrivLevel.GLOBAL) {
-            if (privileges.contains(PaloPrivilege.ADMIN_PRIV)) {
-                throw new AnalysisException("Can not revoke ADMIN_PRIV from specified database or table. Only support from *.*");
-            }
-        }
-
-        if (role != null) {
-            // only user with GLOBAL level's GRANT_PRIV can revoke privileges to roles.
-            if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "REVOKE");
-            }
-        } else {
-            // revoke from a certain user
-            // 1. check if current user has GLOBAL level GRANT_PRIV.
-            // 2. or if current user has DATABASE level GRANT_PRIV if grant to certain database.
-            if (tblPattern.getPrivLevel() == PrivLevel.GLOBAL) {
-                if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");
-                }
-            } else {
-                if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(),
-                        tblPattern.getQuolifiedDb(), PrivPredicate.GRANT)) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");
-                }
-            }
-        }
+        // Revoke operation obey the same rule as Grant operation. reuse the same method
+        GrantStmt.checkPrivileges(analyzer, privileges, role, tblPattern);
     }
 
     @Override

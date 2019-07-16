@@ -351,7 +351,6 @@ public class PaloAuth implements Writable {
     }
 
     private boolean checkHasPrivInternal(String host, String user, PrivPredicate priv, PrivLevel... levels) {
-        PrivBitSet savedPrivs = PrivBitSet.of();
         for (PrivLevel privLevel : levels) {
             switch (privLevel) {
             case GLOBAL:
@@ -372,7 +371,7 @@ public class PaloAuth implements Writable {
                 break;
             }
         }
-        return savedPrivs.satisfy(priv);
+        return false;
     }
 
     private boolean checkGlobalInternal(String host, String user, PrivPredicate wanted, PrivBitSet savedPrivs) {
