@@ -37,9 +37,9 @@ Doris 新的权限管理系统参照了 Mysql 的权限管理机制，做到了�
 9. 查看已创建的角色：SHOW ROELS
 10. 查看用户属性：SHOW PROPERTY
 
-关于以上命令的详细帮助，可以通过 mysql 客户端连接 Doris 后，使用 help + command 获取帮助。如 `help create user`。
+关于以上命令的详细帮助，可以通过 mysql 客户端连接 Doris 后，使用 help + command 获取帮助。如 `HELP CREATE USER`。
 
-## 权限说明
+## 权限类型
 
 Doris 目前支持以下几种权限
 
@@ -61,15 +61,53 @@ Doris 目前支持以下几种权限
 
 5. Alter_priv
 
-   对数据库、表的更改权限。包括重命名 库/表、添加/删除/变更 列等操作。
+    对数据库、表的更改权限。包括重命名 库/表、添加/删除/变更 列、添加/删除 分区等操作。
 
 6. Create_priv
 
-   创建数据库、表的权限。
+    创建数据库、表、视图的权限。
 
 7. Drop_priv
 
-    删除数据库、表的权限。
+    删除数据库、表、视图的权限。
+
+## 权限层级
+
+同时，根据权限适用范围的不同，我们将权限分为以下三个层级：
+
+1. GLOBAL LEVEL：全局权限。即通过 GRANT 语句授予的 `*.*` 上的权限。被授予的权限适用于任意数据库中的任意表。
+2. DATABASE LEVEL：数据库级权限。即通过 GRANT 语句授予的 `db.*` 上的权限。被授予的权限适用于指定数据库中的任意表。
+3. TABLE LEVEL：表级权限。即通过 GRANT 语句授予的 `db.tbl` 上的权限。被授予的权限适用于指定数据库中的指定表。
+
+    
+## ADMIN/GRANT 权限说明
+
+ADMIN\_PRIV 和 GRANT\_PRIV 权限同时拥有**“授予权限”**的权限，较为特殊。这里对和这两个权限相关的操作逐一说明。
+
+1. CREATE USER
+
+    * 拥有 ADMIN 权限，或任意层级的 GRANT 权限的用户可以创建新用户。
+
+2. DROP USER
+
+    * 只有 ADMIN 权限可以删除用户。
+
+3. CREATE/DROP ROLE
+
+    * 只有 ADMIN 权限可以创建角色。
+
+4. GRANT/REVOKE
+
+    * 拥有 ADMIN 权限，或者 GLOBAL 层级 GRANT 权限的用户，可以授予或撤销任意用户的权限。
+    * 拥有 DATABASE 层级 GRANT 权限的用户，可以授予或撤销任意用户对指定数据库的权限。
+    * 拥有 TABLE 层级 GRANT 权限的用户，可以授予或撤销任意用户对指定数据库中指定表的权限。
+    
+5. SET PASSWORD
+
+    * 拥有 ADMIN 权限，或者 GLOBAL 层级 GRANT 权限的用户，可以设置任意用户的密码。
+    * 普通用户可以设置自己对应的 UserIdentity 的密码。自己对应的 UserIdentity 可以通过 `SELECT CURRENT_USER();` 命令查看。
+    * 拥有非 GLOBAL 层级 GRANT 权限的用户，不可以设置已存在用户的密码，仅能在创建用户时指定密码。
+
 
 ## 一些说明
 
@@ -116,8 +154,6 @@ Doris 目前支持以下几种权限
         CREATE USER cmy@'192.%' IDENTIFIED BY "abcde";
         
         在优先级上，'192.%' 优先于 '%'，因此，当用户 cmy 从 192.168.1.1 这台机器尝试使用密码 '12345' 登陆 Doris 会被拒绝。
-        
-    3. 权限冲突
 
 5. 忘记密码
 
@@ -129,6 +165,24 @@ Doris 目前支持以下几种权限
 
 6. 任何用户都不能重置 root 用户的密码，除了 root 用户自己。
 
-7. 拥有 GRANT 权限的用户可以设置密码。如果没有 GRANT 用户，则用户仅可以设置自己对应的 UserIdentity 的密码。自己对应的 UserIdentity 可以通过 `SELECT CURRENT_USER();` 命令查看。
+7. ADMIN\_PRIV 权限只能在 GLOBAL 层级授予或撤销。
 
-8. ADMIN\_PRIV 和 GRANT\_PRIV 权限只能 `GRANT ON *.*` 或 `REVOKE FROM *.*`。因为对于指定的库和表，这两个权限没有意义。同时，拥有 GRANT_PRIV 其实等同于拥有 ADMIN\_PRIV，因为 GRANT\_PRIV 有授予任意权限的权限，请谨慎使用。
+8. 拥有 GLOBAL 层级 GRANT_PRIV 其实等同于拥有 ADMIN\_PRIV，因为该层级的 GRANT\_PRIV 有授予任意权限的权限，请谨慎使用。
+
+## 最佳实践
+
+这里举例一些 Doris 权限系统的使用场景。
+
+1. 场景一
+
+    Doris 集群的使用者分为管理员（Admin）、开发工程师（RD）和用户（Client）。其中管理员拥有整个集群的所有权限，主要负责集群的搭建、节点管理等。开发工程师负责业务建模，包括建库建表、数据的导入和修改等。用户访问不同的数据库和表来获取数据。
+    
+    在这种场景下，可以为管理员赋予 ADMIN 权限或 GRANT 权限。对 RD 赋予对任意或指定数据库表的 CREATE、DROP、ALTER、LOAD、SELECT 权限。对 Client 赋予对任意或指定数据库表 SELECT 权限。同时，也可以通过创建不同的角色，来简化对多个用户的授权操作。
+    
+2. 场景二
+
+    一个集群内有多个业务，每个业务可能使用一个或多个数据。每个业务需要管理自己的用户。在这种场景下。管理员用户可以为每个数据库创建一个拥有 DATABASE 层级 GRANT 权限的用户。该用户仅可以对用户进行指定的数据库的授权。
+
+
+
+    

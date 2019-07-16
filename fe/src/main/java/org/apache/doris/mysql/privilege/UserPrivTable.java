@@ -63,6 +63,27 @@ public class UserPrivTable extends PrivTable {
         savedPrivs.or(matchedEntry.getPrivSet());
     }
 
+    /*
+     * Check if user@host has specified privilege
+     */
+    public boolean hasPriv(String host, String user, PrivPredicate wanted) {
+        for (PrivEntry entry : entries) {
+            GlobalPrivEntry globalPrivEntry = (GlobalPrivEntry) entry;
+            // check host
+            if (!globalPrivEntry.isAnyHost() && !globalPrivEntry.getHostPattern().match(host)) {
+                continue;
+            }
+            // check user
+            if (!globalPrivEntry.isAnyUser() && !globalPrivEntry.getUserPattern().match(user)) {
+                continue;
+            }
+            if (globalPrivEntry.getPrivSet().satisfy(wanted)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     // validate the connection by host, user and password.
     // return true if this connection is valid, and 'savedPrivs' save all global privs got from user table.
     // if currentUser is not null, save the current user identity
