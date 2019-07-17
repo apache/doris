@@ -45,7 +45,12 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
     public TUpdateTabletMetaInfoReq toThrift() {
         TUpdateTabletMetaInfoReq updateTabletMetaInfoReq = new TUpdateTabletMetaInfoReq();
         List<TTabletMetaInfo> metaInfos = Lists.newArrayList();
+        int tabletEntryNum = 0;
         for (Map.Entry<Long, Integer> entry : tabletWithoutPartitionId.entries()) {
+            // add at most 10000 tablet meta during one sync to avoid too large task
+            if (tabletEntryNum > 10000) {
+                break;
+            }
             TTabletMetaInfo metaInfo = new TTabletMetaInfo();
             metaInfo.setTablet_id(entry.getKey());
             metaInfo.setSchema_hash(entry.getValue());
@@ -56,6 +61,7 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
             }
             metaInfo.setPartition_id(tabletMeta.getPartitionId());
             metaInfos.add(metaInfo);
+            ++tabletEntryNum;
         }
         updateTabletMetaInfoReq.setTabletMetaInfos(metaInfos);
         return updateTabletMetaInfoReq;

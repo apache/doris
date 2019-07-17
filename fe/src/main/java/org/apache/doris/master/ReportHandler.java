@@ -879,7 +879,6 @@ public class ReportHandler extends Daemon {
         }
         AgentBatchTask batchTask = new AgentBatchTask();
         UpdateTabletMetaInfoTask task = new UpdateTabletMetaInfoTask(backendId, tabletWithoutPartitionId);
-        AgentTaskQueue.addTask(task);
         batchTask.addTask(task);
         AgentTaskExecutor.submit(batchTask);
     }
