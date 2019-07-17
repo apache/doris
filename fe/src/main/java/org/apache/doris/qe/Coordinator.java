@@ -468,7 +468,7 @@ public class Coordinator {
 
                     if (code != TStatusCode.OK) {
                         if (errMsg == null) {
-                            errMsg = "exec rpc error. backend id: " + pair.first.systemBackendId;
+                            errMsg = "exec rpc error. backend id: " + pair.first.backendId;
                         }
                         queryStatus.setStatus(errMsg);
                         LOG.warn("exec plan fragment failed, errmsg={}, fragmentId={}, backend={}:{}",
@@ -477,10 +477,10 @@ public class Coordinator {
                         cancelInternal(CancelReason.INTERNAL_ERROR);
                         switch (code) {
                             case TIMEOUT:
-                                throw new UserException("query timeout. backend id: " + pair.first.systemBackendId);
+                                throw new UserException("query timeout. backend id: " + pair.first.backendId);
                             case THRIFT_RPC_ERROR:
-                                SimpleScheduler.updateBlacklistBackends(pair.first.systemBackendId);
-                                throw new RpcException("rpc failed. backend id: " + pair.first.systemBackendId);
+                                SimpleScheduler.updateBlacklistBackends(pair.first.backendId);
+                                throw new RpcException("rpc failed. backend id: " + pair.first.backendId);
                             default:
                                 throw new UserException(errMsg);
                         }
@@ -1210,7 +1210,7 @@ public class Coordinator {
         private int profileFragmentId;
         RuntimeProfile profile;
         TNetworkAddress address;
-        Long systemBackendId;
+        Long backendId;
 
         public int profileFragmentId() {
             return profileFragmentId;
@@ -1236,7 +1236,7 @@ public class Coordinator {
             return instanceId;
         }
 
-        public PlanFragmentId getfragmentId() {
+        public PlanFragmentId getFragmentId() {
             return fragmentId;
         }
 
@@ -1249,7 +1249,7 @@ public class Coordinator {
             this.initiated = false;
             this.done = false;
             this.address = fragmentExecParamsMap.get(fragmentId).instanceExecParams.get(instanceId).host;
-            this.systemBackendId = addressToBackendID.get(address);
+            this.backendId = addressToBackendID.get(address);
 
             String name = "Instance " + DebugUtil.printId(fragmentExecParamsMap.get(fragmentId)
                     .instanceExecParams.get(instanceId).instanceId) + " (host=" + address + ")";
@@ -1276,7 +1276,7 @@ public class Coordinator {
             try {
                 return BackendServiceProxy.getInstance().execPlanFragmentAsync(brpcAddress, rpcParams);
             } catch (RpcException e) {
-                SimpleScheduler.updateBlacklistBackends(systemBackendId);
+                SimpleScheduler.updateBlacklistBackends(backendId);
                 throw e;
             }
         }
@@ -1437,7 +1437,7 @@ public class Coordinator {
         for (int index = 0; index < fragments.size(); index++) {
             for (Map.Entry<TUniqueId, BackendExecState> entry: backendExecStateMap.entrySet()) {
                 final BackendExecState backendExecState = entry.getValue();
-                if (fragments.get(index).getFragmentId() != backendExecState.getfragmentId()) {
+                if (fragments.get(index).getFragmentId() != backendExecState.getFragmentId()) {
                     continue;
                 }
                 final QueryStatisticsItem.FragmentInstanceInfo info
