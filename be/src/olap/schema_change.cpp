@@ -1312,9 +1312,10 @@ OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletRe
         res = _validate_alter_result(new_tablet, request);
     } while(0);
 
+    // if failed convert history data, then just remove the new tablet
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "failed to alter tablet. base_tablet=" << base_tablet->full_name()
-                     << ", new_tablet=" << new_tablet->full_name();
+                     << ", drop new_tablet=" << new_tablet->full_name();
         StorageEngine::instance()->tablet_manager()->drop_tablet(new_tablet->tablet_id(), new_tablet->schema_hash());
     }
 
