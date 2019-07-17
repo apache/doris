@@ -52,6 +52,7 @@ import org.apache.doris.task.PublishVersionTask;
 import org.apache.doris.task.PushTask;
 import org.apache.doris.task.RecoverTabletTask;
 import org.apache.doris.task.StorageMediaMigrationTask;
+import org.apache.doris.task.UpdateTabletMetaInfoTask;
 import org.apache.doris.thrift.TBackend;
 import org.apache.doris.thrift.TDisk;
 import org.apache.doris.thrift.TMasterResult;
@@ -66,11 +67,13 @@ import org.apache.doris.thrift.TTablet;
 import org.apache.doris.thrift.TTabletInfo;
 import org.apache.doris.thrift.TTaskType;
 
+import com.google.common.collect.HashMultimap;
 import com.google.common.collect.LinkedListMultimap;
 import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
+import com.google.common.collect.SetMultimap;
 
 import org.apache.commons.lang.StringUtils;
 import org.apache.logging.log4j.LogManager;
@@ -260,6 +263,8 @@ public class ReportHandler extends Daemon {
         
         // db id -> tablet id
         ListMultimap<Long, Long> tabletRecoveryMap = LinkedListMultimap.create();
+        
+        SetMultimap<Long, Integer> tabletWithoutPartitionId = HashMultimap.create();
 
         // 1. do the diff. find out (intersection) / (be - meta) / (meta - be)
         Catalog.getCurrentInvertedIndex().tabletReport(backendId, backendTablets, storageMediumMap,
@@ -270,7 +275,9 @@ public class ReportHandler extends Daemon {
                                                        tabletMigrationMap, 
                                                        transactionsToPublish, 
                                                        transactionsToClear, 
-                                                       tabletRecoveryMap);
+                                                       tabletRecoveryMap, 
+                                                       tabletWithoutPartitionId);
+        
 
         // 2. sync
         sync(backendTablets, tabletSyncMap, backendId, backendReportVersion);
@@ -296,6 +303,9 @@ public class ReportHandler extends Daemon {
         
         // 9. send force create replica task to be
         // handleForceCreateReplica(createReplicaTasks, backendId, forceRecovery);
+        
+        // 10. send set tablet partition info to backend
+        handleSetTabletMetaInfo(backendId, tabletWithoutPartitionId);
         
         long end = System.currentTimeMillis();
         LOG.info("tablet report from backend[{}] cost: {} ms", backendId, (end - start));
@@ -857,6 +867,19 @@ public class ReportHandler extends Daemon {
             AgentTaskQueue.addTask(recoverTask);
         }
         
+        AgentTaskExecutor.submit(batchTask);
+    }
+    
+
+    private static void handleSetTabletMetaInfo(long backendId, SetMultimap<Long, Integer> tabletWithoutPartitionId) {
+        
+        LOG.info("find [{}] tablets without partition id, try to set them", tabletWithoutPartitionId.size());
+        if (tabletWithoutPartitionId.size() < 1) {
+            return;
+        }
+        AgentBatchTask batchTask = new AgentBatchTask();
+        UpdateTabletMetaInfoTask task = new UpdateTabletMetaInfoTask(backendId, tabletWithoutPartitionId);
+        batchTask.addTask(task);
         AgentTaskExecutor.submit(batchTask);
     }
     
