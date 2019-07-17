@@ -363,7 +363,13 @@ TabletSharedPtr TabletManager::_internal_create_tablet(const AlterTabletType alt
                 tablet->set_creation_time(new_creation_time);
             }
         }
-
+        if (request.__isset.base_tablet_id) {
+            if (request.base_tablet_id < 1) {
+                LOG(FATAL) << "base tablet is set but it value=" << request.base_tablet_id;
+                
+            }
+            tablet->set_tablet_state(TabletState::TABLET_NOTREADY);
+        }
         // Add tablet to StorageEngine will make it visiable to user
         res = _add_tablet_unlock(request.tablet_id, request.tablet_schema.schema_hash, tablet, true, false);
         if (res != OLAP_SUCCESS) {

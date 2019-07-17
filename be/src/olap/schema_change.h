@@ -259,7 +259,9 @@ public:
                                       TabletSharedPtr new_tablet,
                                       RowsetSharedPtr* base_rowset,
                                       RowsetSharedPtr* new_rowset);
-
+    
+    // schema change v2, it will not set alter task in base tablet
+    OLAPStatus process_alter_tablet_v2(const TAlterTabletReqV2& request);
 
 private:
     // 检查schema_change相关的状态:清理"一对"schema_change table间的信息
@@ -290,6 +292,10 @@ private:
     OLAPStatus _save_alter_state(AlterTabletState state,
                                  TabletSharedPtr base_tablet,
                                  TabletSharedPtr new_tablet);
+                                
+    OLAPStatus _do_process_alter_tablet_v2(const TAlterTabletReqV2& request);
+    
+    OLAPStatus _validate_alter_result(TabletSharedPtr new_tablet, const TAlterTabletReqV2& request);
 
     static OLAPStatus _convert_historical_rowsets(const SchemaChangeParams& sc_params);
 
