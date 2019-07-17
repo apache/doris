@@ -1011,7 +1011,7 @@ public class SchemaChangeJob extends AlterJob {
                 if (newStorageType != null) {
                     olapTable.setIndexStorageType(indexId, newStorageType);
                 }
-                if (indexId == olapTable.getId()) {
+                if (indexId == olapTable.getBaseIndexId()) {
                     olapTable.setNewBaseSchema(entry.getValue());
                 }
             }

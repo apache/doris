@@ -97,7 +97,7 @@ public class SchemaChangeHandler extends AlterHandler {
         String baseIndexName = olapTable.getName();
         checkAssignedTargetIndexName(baseIndexName, targetIndexName);
 
-        long baseIndexId = olapTable.getId();
+        long baseIndexId = olapTable.getBaseIndexId();
         long targetIndexId = -1L;
         if (targetIndexName != null) {
             targetIndexId = olapTable.getIndexIdByName(targetIndexName);
@@ -125,7 +125,7 @@ public class SchemaChangeHandler extends AlterHandler {
         String baseIndexName = olapTable.getName();
         checkAssignedTargetIndexName(baseIndexName, targetIndexName);
 
-        long baseIndexId = olapTable.getId();
+        long baseIndexId = olapTable.getBaseIndexId();
         long targetIndexId = -1L;
         if (targetIndexName != null) {
             targetIndexId = olapTable.getIndexIdByName(targetIndexName);
@@ -152,7 +152,7 @@ public class SchemaChangeHandler extends AlterHandler {
         checkAssignedTargetIndexName(baseIndexName, targetIndexName);
         
         if (KeysType.UNIQUE_KEYS == olapTable.getKeysType()) {
-            long baseIndexId = olapTable.getId();
+            long baseIndexId = olapTable.getBaseIndexId();
             List<Column> baseSchema = indexSchemaMap.get(baseIndexId);
             boolean isKey = false;
             for (Column column : baseSchema) {
@@ -169,7 +169,7 @@ public class SchemaChangeHandler extends AlterHandler {
         } else if (KeysType.AGG_KEYS == olapTable.getKeysType()) {
             if (null == targetIndexName) {
                 // drop column in base table
-                long baseIndexId = olapTable.getId();
+                long baseIndexId = olapTable.getBaseIndexId();
                 List<Column> baseSchema = indexSchemaMap.get(baseIndexId);
                 boolean isKey = false;
                 boolean hasReplaceColumn = false;
@@ -203,7 +203,7 @@ public class SchemaChangeHandler extends AlterHandler {
             }
         }
         
-        long baseIndexId = olapTable.getId();
+        long baseIndexId = olapTable.getBaseIndexId();
         if (targetIndexName == null) {
             // drop base index and all rollup indices's column
             List<Long> indexIds = new ArrayList<Long>();
