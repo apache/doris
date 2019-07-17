@@ -115,8 +115,14 @@ OLAPStatus AlphaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
         _cur_segment_group->add_zone_maps(segment_group->get_zone_maps());
         RETURN_NOT_OK(flush());
         _num_rows_written += segment_group->num_rows();
+        // Add log to trace rowset validation failure problem
+        // This log will be deleted in the future
+        LOG(INFO) << "add rowset's segment group:" << segment_group->rowset_path_prefix()
+                << ", num_rows:" << segment_group->num_rows();
     }
-    LOG(INFO) << "clone add_rowset:" << _num_rows_written;
+    // Add log to trace rowset validation failure problem
+    // This log will be deleted in the future
+    LOG(INFO) << "clone add_rowset:" << _num_rows_written << ", rowset path:" << alpha_rowset->rowset_path();
     return OLAP_SUCCESS;
 }
 
@@ -318,9 +324,17 @@ bool AlphaRowsetWriter::_validate_rowset() {
         num_rows += segment_group->num_rows();
     }
     if (num_rows != _current_rowset_meta->num_rows()) {
+        // Add log to trace rowset validation failure problem
+        // This log will be deleted in the future
+        std::stringstream ss;
+        for (auto& segment_group : _segment_groups) {
+            ss << segment_group->rowset_path_prefix() << ",";
+        }
         LOG(WARNING) << "num_rows between rowset and segment_groups do not match. "
                      << "num_rows of segment_groups:" << num_rows
-                     << ", num_rows of rowset:" << _current_rowset_meta->num_rows();
+                     << ", num_rows of rowset:" << _current_rowset_meta->num_rows()
+                     << ", own segment group path:" << ss.str();
+
         return false;
     }
     return true;
