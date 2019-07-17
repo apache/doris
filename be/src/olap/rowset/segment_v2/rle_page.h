@@ -28,7 +28,7 @@ namespace doris {
 namespace segment_v2 {
 
 enum {
-    RLE_BLOCK_HEADER_SIZE = 4
+    RLE_PAGE_HEADER_SIZE = 4
 };
 
 // RLE builder for generic integer and bool types. What is missing is some way
@@ -109,7 +109,7 @@ public:
     void reset() override {
         _count = 0;
         _rle_encoder->Clear();
-        _rle_encoder->Reserve(RLE_BLOCK_HEADER_SIZE, 0);
+        _rle_encoder->Reserve(RLE_PAGE_HEADER_SIZE, 0);
     }
 
     size_t count() const override {
@@ -153,7 +153,7 @@ public:
     Status init() override {
         CHECK(!_parsed);
 
-        if (_data.size < RLE_BLOCK_HEADER_SIZE) {
+        if (_data.size < RLE_PAGE_HEADER_SIZE) {
             return Status::Corruption(
                 "not enough bytes for header in RleBitMapBlockDecoder");
         }
@@ -172,8 +172,8 @@ public:
             }
         }
 
-        _rle_decoder = RleDecoder<CppType>((uint8_t*)_data.data + RLE_BLOCK_HEADER_SIZE,
-                 _data.size - RLE_BLOCK_HEADER_SIZE, _bit_width);
+        _rle_decoder = RleDecoder<CppType>((uint8_t*)_data.data + RLE_PAGE_HEADER_SIZE,
+                 _data.size - RLE_PAGE_HEADER_SIZE, _bit_width);
 
         seek_to_position_in_page(0);
         return Status::OK();
@@ -194,8 +194,8 @@ public:
             uint nskip = pos - _cur_index;
             _rle_decoder.Skip(nskip);
         } else {
-            _rle_decoder = RleDecoder<CppType>((uint8_t*)_data.data + RLE_BLOCK_HEADER_SIZE,
-                    _data.size - RLE_BLOCK_HEADER_SIZE, _bit_width);
+            _rle_decoder = RleDecoder<CppType>((uint8_t*)_data.data + RLE_PAGE_HEADER_SIZE,
+                    _data.size - RLE_PAGE_HEADER_SIZE, _bit_width);
             _rle_decoder.Skip(pos);
         }
         _cur_index = pos;

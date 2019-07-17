@@ -22,17 +22,15 @@
 #include "common/status.h"
 #include "gen_cpp/segment_v2.pb.h"
 #include "olap/types.h"
+#include "olap/rowset/segment_v2/options.h"
+#include "olap/rowset/segment_v2/page_builder.h"
+#include "olap/rowset/segment_v2/page_decoder.h"
 
 namespace doris {
 
 class TypeInfo;
 
 namespace segment_v2 {
-
-class PageBuilder;
-class PageDecoder;
-class PageBuilderOptions;
-class PageDecoderOptions;
 
 class EncodingInfo {
 public:
