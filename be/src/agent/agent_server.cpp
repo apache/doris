@@ -152,6 +152,10 @@ AgentServer::AgentServer(ExecEnv* exec_env,
             TaskWorkerPool::TaskWorkerType::RECOVER_TABLET,
             _exec_env,
             master_info);
+    _update_tablet_meta_info_workers = new TaskWorkerPool(
+            TaskWorkerPool::TaskWorkerType::UPDATE_TABLET_META_INFO,
+            _exec_env,
+            master_info);
 #ifndef BE_TEST
     _create_tablet_workers->start();
     _drop_tablet_workers->start();
@@ -173,6 +177,7 @@ AgentServer::AgentServer(ExecEnv* exec_env,
     _release_snapshot_workers->start();
     _move_dir_workers->start();
     _recover_tablet_workers->start();
+    _update_tablet_meta_info_workers->start();
     // Add subscriber here and register listeners
     TopicListener* user_resource_listener = new UserResourceListener(exec_env, master_info);
     LOG(INFO) << "Register user resource listener";
@@ -237,6 +242,10 @@ AgentServer::~AgentServer() {
     }
     if (_recover_tablet_workers != NULL) {
         delete _recover_tablet_workers;
+    }
+
+    if (_update_tablet_meta_info_workers != NULL) {
+        delete _update_tablet_meta_info_workers;
     }
     if (_release_snapshot_workers != NULL) {
         delete _release_snapshot_workers;
@@ -385,6 +394,13 @@ void AgentServer::submit_tasks(
         case TTaskType::RECOVER_TABLET:
             if (task.__isset.recover_tablet_req) {
                 _recover_tablet_workers->submit_task(task);
+            } else {
+                status_code = TStatusCode::ANALYSIS_ERROR;
+            }
+            break;
+        case TTaskType::UPDATE_TABLET_META_INFO:
+            if (task.__isset.update_tablet_meta_info_req) {
+                _update_tablet_meta_info_workers->submit_task(task);
             } else {
                 status_code = TStatusCode::ANALYSIS_ERROR;
             }
