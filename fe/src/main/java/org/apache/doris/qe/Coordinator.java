@@ -44,6 +44,7 @@ import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ResultSink;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.planner.UnionNode;
+import org.apache.doris.proto.PCancelReason;
 import org.apache.doris.proto.PExecPlanFragmentResult;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
@@ -104,14 +105,6 @@ import java.util.concurrent.locks.ReentrantLock;
 
 public class Coordinator {
     private static final Logger LOG = LogManager.getLogger(Coordinator.class);
-
-    // The reason of cancellation of this query.
-    // This is used for telling BE whether it need to report query status when being cancelled.
-    public enum CancelReason {
-        LIMIT_REACH,    // cancel the query because reaching limit, no need to report
-        USER_CANCEL,    // query cancelled by client, no need to report
-        INTERNAL_ERROR  // internal error
-    }
 
     private static final DateFormat DATE_FORMAT = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
 
@@ -474,7 +467,7 @@ public class Coordinator {
                         LOG.warn("exec plan fragment failed, errmsg={}, fragmentId={}, backend={}:{}",
                                  errMsg, fragment.getFragmentId(),
                                  pair.first.address.hostname, pair.first.address.port);
-                        cancelInternal(CancelReason.INTERNAL_ERROR);
+                        cancelInternal(PCancelReason.INTERNAL_ERROR);
                         switch (code) {
                             case TIMEOUT:
                                 throw new UserException("query timeout. backend id: " + pair.first.backendId);
@@ -580,7 +573,7 @@ public class Coordinator {
             queryStatus.setStatus(status);
             LOG.warn("one instance report fail throw updateStatus(), need cancel. job id: {}, query id: {}, instance id: {}",
                     jobId, DebugUtil.printId(queryId), instanceId != null ? DebugUtil.printId(instanceId) : "NaN");
-            cancelInternal(CancelReason.INTERNAL_ERROR);
+            cancelInternal(PCancelReason.INTERNAL_ERROR);
         } finally {
             lock.unlock();
         }
@@ -635,7 +628,7 @@ public class Coordinator {
             boolean hasLimit = numLimitRows > 0;
             if (!isBlockQuery && instanceIds.size() > 1 && hasLimit && numReceivedRows >= numLimitRows) {
                 LOG.debug("no block query, return num >= limit rows, need cancel");
-                cancelInternal(CancelReason.LIMIT_REACH);
+                cancelInternal(PCancelReason.LIMIT_REACH);
             }
         } else {
             numReceivedRows += resultBatch.getBatch().getRowsSize();
@@ -657,13 +650,13 @@ public class Coordinator {
                 queryStatus.setStatus(Status.CANCELLED);
             }
             LOG.warn("cancel execution of query, this is outside invoke");
-            cancelInternal(CancelReason.USER_CANCEL);
+            cancelInternal(PCancelReason.USER_CANCEL);
         } finally {
             unlock();
         }
     }
 
-    private void cancelInternal(CancelReason cancelReason) {
+    private void cancelInternal(PCancelReason cancelReason) {
         if (null != receiver) {
             receiver.cancel();
         }
@@ -675,10 +668,10 @@ public class Coordinator {
         }
     }
 
-    private void cancelRemoteFragmentsAsync(CancelReason cancelReason) {
+    private void cancelRemoteFragmentsAsync(PCancelReason cancelReason) {
         for (BackendExecState backendExecState : backendExecStates) {
             TNetworkAddress address = backendExecState.getBackendAddress();
-            LOG.info("cancelRemoteFragments initiated={} done={} hasCanceled={} ip={} port={} fragment instance id={}, reason: {}",
+            LOG.debug("cancelRemoteFragments initiated={} done={} hasCanceled={} ip={} port={} fragment instance id={}, reason: {}",
                     backendExecState.initiated, backendExecState.done, backendExecState.hasCanceled,
                     address.hostname, address.port, DebugUtil.printId(backendExecState.getFragmentInstanceId()),
                     cancelReason.name());
