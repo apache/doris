@@ -1124,6 +1124,7 @@ void TabletManager::_build_tablet_info(TabletSharedPtr tablet, TTabletInfo* tabl
     tablet->max_continuous_version_from_begining(&version, &v_hash);
     tablet_info->version = version.second;
     tablet_info->version_hash = v_hash;
+    tablet_info->__set_partition_id(tablet->partition_id());
 }
 
 void TabletManager::_build_tablet_stat() {

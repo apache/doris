@@ -212,6 +212,16 @@ struct TRecoverTabletReq {
     4: optional Types.TVersionHash version_hash
 }
 
+struct TTabletMetaInfo {
+    1: optional Types.TTabletId tablet_id
+    2: optional Types.TSchemaHash schema_hash
+    3: optional Types.TPartitionId partition_id
+}
+
+struct TUpdateTabletMetaInfoReq {
+    1: optional list<TTabletMetaInfo> tabletMetaInfos
+}
+
 struct TAgentTaskRequest {
     1: required TAgentServiceVersion protocol_version
     2: required Types.TTaskType task_type
@@ -237,7 +247,8 @@ struct TAgentTaskRequest {
     22: optional TMoveDirReq move_dir_req
     23: optional TRecoverTabletReq recover_tablet_req
     24: optional TAlterTabletReqV2 alter_tablet_req_v2
-    25: optional i64 recv_time; // time the task is inserted to queue
+    25: optional i64 recv_time // time the task is inserted to queue
+    26: optional TUpdateTabletMetaInfoReq update_tablet_meta_info_req
 }
 
 struct TAgentResult {

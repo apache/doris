@@ -41,6 +41,7 @@ import org.apache.doris.thrift.TReleaseSnapshotRequest;
 import org.apache.doris.thrift.TSnapshotRequest;
 import org.apache.doris.thrift.TStorageMediumMigrateReq;
 import org.apache.doris.thrift.TTaskType;
+import org.apache.doris.thrift.TUpdateTabletMetaInfoReq;
 import org.apache.doris.thrift.TUploadReq;
 
 import org.apache.logging.log4j.LogManager;
@@ -305,6 +306,15 @@ public class AgentBatchTask implements Runnable {
                     LOG.debug(request.toString());
                 }
                 tAgentTaskRequest.setRecover_tablet_req(request);
+                return tAgentTaskRequest;
+            }
+            case UPDATE_TABLET_META_INFO: {
+                UpdateTabletMetaInfoTask updateTabletMetaInfoTask = (UpdateTabletMetaInfoTask) task;
+                TUpdateTabletMetaInfoReq request = updateTabletMetaInfoTask.toThrift();
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(request.toString());
+                }
+                tAgentTaskRequest.setUpdate_tablet_meta_info_req(request);
                 return tAgentTaskRequest;
             }
             default:
